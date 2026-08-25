@@ -21,6 +21,8 @@ var commandTable = command.Table{
 	// thread/tokenUsage/updated feeds lastUsage, which gates OpContext
 	// (commands.go:53).
 	"context": {Kind: command.KindOp, Op: command.OpContext},
+	"status":  {Kind: command.KindOp, Op: command.OpStatus},
+	"usage":   {Kind: command.KindOp, Op: command.OpUsage},
 
 	"mode":        {Kind: command.KindMode},
 	"permissions": {Kind: command.KindMode},

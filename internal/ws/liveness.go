@@ -6,6 +6,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 )
 
@@ -172,5 +173,12 @@ func (s *Server) capsFor(c *client) *protocol.Caps {
 	// no transactional adapter keeps its existing auth reporting
 	// (MADR 0074 P20 step 12).
 	caps.ProviderAuthTransactions = s.providerAuthTransactions
+	if c.negotiated >= protocol.V2 && c.codexSurfaceVersion >= 1 {
+		operations, experimental := codex.SurfaceCapabilityIDs()
+		caps.CodexSurface = &protocol.CodexSurfaceCaps{
+			Version: 1, Operations: operations, Experimental: experimental,
+			MaxPageSize: 100, MaxTextBytes: 262144, MaxBinaryChunkBytes: 262144,
+		}
+	}
 	return caps
 }

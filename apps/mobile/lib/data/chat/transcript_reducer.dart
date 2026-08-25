@@ -166,6 +166,13 @@ SessionTranscript applySessionEvent(
     case 'tool_call':
     case 'tool_call_update':
       t = _upsertTool(t, ev);
+    case 'codex_progress':
+    case 'codex_warning':
+    case 'codex_model_reroute':
+    case 'codex_model_verification':
+    case 'codex_terminal_interaction':
+    case 'codex_unsupported_item':
+      t = _upsertCodex(t, ev);
     case 'approval_summary':
       t = _upsertApprovals(t, ev);
     case 'permission_request':
@@ -203,6 +210,33 @@ SessionTranscript applySessionEvent(
       break;
   }
   return t;
+}
+
+SessionTranscript _upsertCodex(
+  SessionTranscript transcript,
+  SessionEvent event,
+) {
+  final codex = event.codex;
+  if (codex == null || codex.key.trim().isEmpty) return transcript;
+  final detail = codex.text.trim();
+  final title = codex.title.trim().isEmpty
+      ? 'Codex activity'
+      : codex.title.trim();
+  final message = detail.isEmpty ? title : '$title: $detail';
+  final index = transcript.items.indexWhere(
+    (item) => item.dedupeKey == codex.key,
+  );
+  if (index >= 0) {
+    final previous = transcript.items[index];
+    if (previous.text == message) return transcript;
+    final items = List<ChatItem>.of(transcript.items, growable: true);
+    items[index] = ChatItem.system(
+      message,
+      dedupeKey: codex.key,
+    ).copyWith(seq: previous.seq);
+    return transcript.copyWith(items: items, growableItems: true);
+  }
+  return _append(transcript, ChatItem.system(message, dedupeKey: codex.key));
 }
 
 /// Reconcile transcript status against authoritative [SessionMeta] status from

@@ -23,6 +23,8 @@ import (
 var knownOps = map[command.Op]bool{
 	command.OpCompact:          true,
 	command.OpContext:          true,
+	command.OpStatus:           true,
+	command.OpUsage:            true,
 	command.OpSetModel:         true,
 	command.OpSetThinkingLevel: true,
 	command.OpDiff:             true,
@@ -159,7 +161,7 @@ func Test0080ScopeLeavesFollowOnsUnimplemented(t *testing.T) {
 	// MADR 0080 D13–D14: follow-on and host-global commands must not have
 	// landed as working Codex operations in this decision.
 	tbl := codex.New(codex.Config{}).CommandTable()
-	for _, name := range []string{"status", "rename", "skills"} {
+	for _, name := range []string{"rename", "skills"} {
 		if _, ok := tbl[name]; ok {
 			t.Errorf("/%s is a ranked follow-on and must not be in the Codex table yet", name)
 		}

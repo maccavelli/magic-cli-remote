@@ -66,6 +66,8 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		_, state.Ops[command.OpSetModel] = sess.(provider.ModelSession)
 		_, state.Ops[command.OpSetThinkingLevel] = sess.(provider.ThinkingSession)
 		_, state.Ops[command.OpDiff] = sess.(provider.DiffSession)
+		_, state.Ops[command.OpStatus] = sess.(provider.RuntimeSession)
+		_, state.Ops[command.OpUsage] = sess.(provider.RuntimeSession)
 		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
 		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
 		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
@@ -230,6 +232,10 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdCompact(ctx, id)
 		case command.OpContext:
 			return true, "", m.cmdContext(id)
+		case command.OpStatus:
+			return true, "", m.cmdRuntime(ctx, id, false)
+		case command.OpUsage:
+			return true, "", m.cmdRuntime(ctx, id, true)
 		case command.OpDiff:
 			return true, "", m.cmdDiff(ctx, id)
 		case command.OpFork:
@@ -478,6 +484,29 @@ func (m *Manager) cmdContext(id string) error {
 		msg += " · mode " + mode
 	}
 	m.emitNotice(id, msg)
+	return nil
+}
+
+func (m *Manager) cmdRuntime(ctx context.Context, id string, usage bool) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	runtimeSession, ok := sess.(provider.RuntimeSession)
+	if !ok {
+		m.emitNotice(id, "This agent exposes no runtime status.")
+		return nil
+	}
+	var message string
+	if usage {
+		message, err = runtimeSession.RuntimeUsage(ctx)
+	} else {
+		message, err = runtimeSession.RuntimeStatus(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	m.emitNotice(id, message)
 	return nil
 }
 

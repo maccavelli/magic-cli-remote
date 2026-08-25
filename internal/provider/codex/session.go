@@ -56,6 +56,7 @@ type session struct {
 	// the per-notification resetStallTimer() that used to allocate a new
 	// time.AfterFunc under s.mu on every chunk.
 	lastActivity atomic.Int64
+	unknownItems atomic.Uint64
 
 	// approvalPolicy/sandboxMode are the session's live policy, seeded from
 	// config and rewritten by SetMode. Re-sent on every turn/start so the
@@ -82,6 +83,8 @@ type session struct {
 	engineGeneration int
 	turnDiffs        map[string]string
 	lastTurnDiffID   string
+	startedItems     map[string]struct{}
+	completedItems   map[string]struct{}
 
 	reviewing          bool
 	reviewThreadID     string
@@ -1214,13 +1217,7 @@ func (s *session) cancelPendingQuestions(reason string) {
 	}
 }
 
-func (s *session) handleNotification(method string, params json.RawMessage) {
-	now := time.Now().UTC()
-	// MADR 0035 D8: one atomic store per notification. The stall ticker
-	// (started in newSession) reads this on each tick; no per-chunk
-	// timer allocation.
-	s.lastActivity.Store(now.UnixNano())
-
+func (s *session) handleDecodedNotification(method string, params json.RawMessage, now time.Time) {
 	switch method {
 	case "thread/settings/updated":
 		s.applySettingsUpdated(params)
@@ -1347,8 +1344,14 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			break
 		}
 		if _, isTool := itemsRenderedAsTools[itemType]; !isTool {
+			if _, known := knownNonToolItems[itemType]; !known && itemType != "" {
+				s.unknownItems.Add(1)
+			}
 			s.log.Debug("codex: item/started for non-tool item type",
 				slog.String("type", itemType), slog.String("id", itemID))
+			break
+		}
+		if !s.markItemStarted(itemID) {
 			break
 		}
 		s.emitToolStarted(itemType, itemID, p.Item, now)
@@ -1374,10 +1377,15 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 		}
 		if itemType == "agentMessage" {
 			var msg struct {
-				Text string `json:"text"`
+				Text           string          `json:"text"`
+				MemoryCitation json.RawMessage `json:"memoryCitation"`
 			}
 			if json.Unmarshal(p.Item, &msg) == nil && strings.TrimSpace(msg.Text) != "" {
 				s.noteReviewAssistant()
+				if len(msg.MemoryCitation) > 0 && string(msg.MemoryCitation) != "null" {
+					s.emit(event.Event{Type: event.TypeNotice, SessionID: s.localID, Timestamp: now,
+						AgentSessionID: s.agentID, Text: "Memory: " + truncateRunes(strings.TrimSpace(msg.Text), event.MaxCodexTextBytes)})
+				}
 			}
 		}
 		// A completed collab tool call is where a spawned agent's terminal
@@ -1386,8 +1394,12 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			break
 		}
 		if _, isTool := itemsRenderedAsTools[itemType]; !isTool {
+			if shouldSurfaceUnsupportedItem(itemType, p.Item) {
+				s.emitUnsupportedItem(itemID, itemType, p.Item, now)
+			}
 			break
 		}
+		s.markItemCompleted(itemID)
 		// Carry the terminal status over to the tool card so the mobile
 		// reducer (which keys on tool_id) sees the actual outcome.
 		var probe struct {
@@ -1406,6 +1418,7 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			Timestamp:      now,
 			ToolID:         itemID,
 			Status:         terminal,
+			Text:           toolCompletionDetail(itemType, p.Item),
 			AgentSessionID: s.agentID,
 		})
 	case "item/commandExecution/outputDelta":
@@ -1433,6 +1446,9 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 			ModelContextWindow int `json:"modelContextWindow"`
 		}
 		if err := json.Unmarshal(params, &p); err == nil {
+			if s.p != nil {
+				s.p.noteRuntimeUsage(p.TokenUsage.Total, p.ModelContextWindow)
+			}
 			s.emit(event.Event{
 				Type:           event.TypeUsage,
 				SessionID:      s.localID,

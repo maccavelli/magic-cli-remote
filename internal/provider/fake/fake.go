@@ -139,6 +139,8 @@ func (p *Provider) CommandTable() command.Table {
 		"model":         {Kind: command.KindOp, Op: command.OpSetModel},
 		"thinking":      {Kind: command.KindOp, Op: command.OpSetThinkingLevel},
 		"context":       {Kind: command.KindOp, Op: command.OpContext},
+		"status":        {Kind: command.KindNone, Note: "the fake provider has no host runtime"},
+		"usage":         {Kind: command.KindNone, Note: "the fake provider has no account usage"},
 		"compact":       {Kind: command.KindOp, Op: command.OpCompact},
 		"clear":         {Kind: command.KindDaemon},
 		"new":           {Kind: command.KindDaemon},

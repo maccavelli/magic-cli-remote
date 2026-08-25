@@ -9,17 +9,24 @@ import (
 
 func TestCodexPhoneOperationRegistryIsCompleteAndTyped(t *testing.T) {
 	list := codexPhoneOperationList()
-	if len(list) != 1 {
+	if len(list) != 3 {
 		t.Fatalf("Codex-specific phone operations = %+v", list)
 	}
-	operation := list[0]
-	if operation.Type != protocol.TypeSessionSetCollaboration ||
-		operation.Capability != codex.CapabilityThreadSettings ||
-		operation.TimeoutKey == "" || !operation.Mutable {
-		t.Fatalf("operation metadata = %+v", operation)
+	want := map[string]codex.CapabilityID{
+		protocol.TypeCodexDoctorRun:          codex.CapabilityServerDiagnostics,
+		protocol.TypeCodexRuntimeRead:        codex.CapabilityAccountRead,
+		protocol.TypeSessionSetCollaboration: codex.CapabilityThreadSettings,
 	}
-	registered := codexPhoneOperations[operation.Type]
-	if registered.decode == nil || registered.authorize == nil || registered.handle == nil {
-		t.Fatalf("operation lacks decoder/authorization/handler: %#v", registered)
+	for _, operation := range list {
+		if want[operation.Type] != operation.Capability || operation.TimeoutKey == "" {
+			t.Fatalf("operation metadata = %+v", operation)
+		}
+		if operation.Type == protocol.TypeSessionSetCollaboration && !operation.Mutable {
+			t.Fatalf("collaboration mutation marked read-only: %+v", operation)
+		}
+		registered := codexPhoneOperations[operation.Type]
+		if registered.decode == nil || registered.authorize == nil || registered.handle == nil {
+			t.Fatalf("operation lacks decoder/authorization/handler: %#v", registered)
+		}
 	}
 }

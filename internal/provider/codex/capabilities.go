@@ -21,6 +21,13 @@ const (
 	CapabilityCollaborationModes  CapabilityID = "rpc:collaborationMode/list"
 	CapabilityThreadSource        CapabilityID = "field:threadSource"
 	CapabilityThreadForkDeferGoal CapabilityID = "field:thread/fork.deferGoalContinuation"
+	CapabilityAccountRead         CapabilityID = "rpc:account/read"
+	CapabilityAccountRateLimits   CapabilityID = "rpc:account/rateLimits/read"
+	CapabilityAccountUsage        CapabilityID = "rpc:account/usage/read"
+	CapabilityWorkspaceMessages   CapabilityID = "rpc:account/workspaceMessages/read"
+	CapabilityExperimentalFeature CapabilityID = "rpc:experimentalFeature/list"
+	CapabilityMCPServerStatus     CapabilityID = "rpc:mcpServerStatus/list"
+	CapabilityServerDiagnostics   CapabilityID = "rpc:server/diagnostics"
 )
 
 type threadCreationOperation string
@@ -195,4 +202,24 @@ func cloneCapabilitySnapshot(in CapabilitySnapshot) CapabilitySnapshot {
 	out.Supported = maps.Clone(in.Supported)
 	out.Denied = maps.Clone(in.Denied)
 	return out
+}
+
+// SurfaceCapabilityIDs returns the installed manifest's stable and
+// experimental product capability IDs in bytewise order. It is the source for
+// the v2 phone advertisement; errors fail closed to empty lists.
+func SurfaceCapabilityIDs() (stable, experimental []string) {
+	m, err := loadEmbeddedContractManifest()
+	if err != nil {
+		return nil, nil
+	}
+	for _, capability := range m.Capabilities {
+		if capability.Stability == StabilityExperimental {
+			experimental = append(experimental, string(capability.ID))
+		} else {
+			stable = append(stable, string(capability.ID))
+		}
+	}
+	sort.Strings(stable)
+	sort.Strings(experimental)
+	return stable, experimental
 }

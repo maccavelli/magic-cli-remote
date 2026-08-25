@@ -81,6 +81,14 @@ const (
 	TypeCollaboration Type = "collaboration_mode"
 	// TypeGoal carries the current Codex thread goal, or a clear (Goal==nil).
 	TypeGoal Type = "session_goal"
+	// Codex activity events are bounded, typed projections of app-server
+	// notifications. They never carry raw notification or item JSON.
+	TypeCodexProgress            Type = "codex_progress"
+	TypeCodexWarning             Type = "codex_warning"
+	TypeCodexModelReroute        Type = "codex_model_reroute"
+	TypeCodexModelVerification   Type = "codex_model_verification"
+	TypeCodexTerminalInteraction Type = "codex_terminal_interaction"
+	TypeCodexUnsupportedItem     Type = "codex_unsupported_item"
 )
 
 // Types returns every event type the daemon can emit, in declaration order.
@@ -119,6 +127,12 @@ func Types() []Type {
 		TypeSubagents,
 		TypeCollaboration,
 		TypeGoal,
+		TypeCodexProgress,
+		TypeCodexWarning,
+		TypeCodexModelReroute,
+		TypeCodexModelVerification,
+		TypeCodexTerminalInteraction,
+		TypeCodexUnsupportedItem,
 	}
 }
 
@@ -173,7 +187,13 @@ func IsControl(t Type) bool {
 		TypeApprovalSummary,
 		TypeSubagents,
 		TypeCollaboration,
-		TypeGoal:
+		TypeGoal,
+		TypeCodexProgress,
+		TypeCodexWarning,
+		TypeCodexModelReroute,
+		TypeCodexModelVerification,
+		TypeCodexTerminalInteraction,
+		TypeCodexUnsupportedItem:
 		return true
 	default:
 		return false
@@ -554,6 +574,9 @@ type Event struct {
 	// Goal is the current thread goal on session_goal events. Nil means
 	// cleared / absent (MADR 0080 D16).
 	Goal *Goal `json:"goal,omitempty"`
+
+	// Codex is the bounded typed body for codex_* events.
+	Codex *CodexPayload `json:"codex,omitempty"`
 }
 
 // Goal is the bounded Codex thread-goal snapshot.

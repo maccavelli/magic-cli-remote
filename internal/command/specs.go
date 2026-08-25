@@ -53,6 +53,16 @@ var Specs = []Spec{
 		Default:     Mapping{Kind: KindOp, Op: OpContext},
 	},
 	{
+		Name:        "status",
+		Description: "Show provider runtime status",
+		Default:     Mapping{Kind: KindNone, Note: "this agent exposes no runtime status"},
+	},
+	{
+		Name:        "usage",
+		Description: "Show account, rate-limit, and context usage",
+		Default:     Mapping{Kind: KindNone, Note: "this agent exposes no account usage"},
+	},
+	{
 		Name:        "compact",
 		Description: "Summarise the conversation to reclaim context",
 		Default:     Mapping{Kind: KindOp, Op: OpCompact},

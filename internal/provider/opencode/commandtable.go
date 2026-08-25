@@ -29,6 +29,8 @@ func (d *httpDialect) CommandTable() command.Table {
 		},
 		// Token counts come from the engine's own assistant messages.
 		"context": {Kind: command.KindOp, Op: command.OpContext},
+		"status":  {Kind: command.KindNone, Note: "OpenCode exposes no bounded host runtime status"},
+		"usage":   {Kind: command.KindNone, Note: "OpenCode exposes no account usage summary"},
 		// POST /session/{id}/summarize. The v2 route (/api/session/{id}/compact)
 		// answered 503 "not available yet" on 1.18.5.
 		"compact": {Kind: command.KindOp, Op: command.OpCompact},

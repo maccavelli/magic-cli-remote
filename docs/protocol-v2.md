@@ -27,9 +27,14 @@ lifecycle. Design record: [MADR 0068](0068-MADR-protocol-v2-reconnect-resilient-
   mutual** version. A non-empty offer with no mutual version is rejected
   `bad_version` — before an auth strike is counted, and before a pair code
   is consumed — and the client may retry (e.g. offering `[1]`).
+- A v2 client that implements the additive Codex application surface also sends
+  `"codex_surface_version": 1` on both `auth` and `pair.claim`. Absence means
+  the generic v2 protocol only; it never opts an old client into Codex-specific
+  operations.
 - On success, `auth_ok` / `pair_ok` carry `protocol: <picked>` (omitted
-  for v1 clients, keeping the v1 response byte-identical). `auth_ok`
-  additionally carries `caps` when v2 was picked (below).
+  for v1 clients, keeping the v1 response byte-identical). Both carry `caps`
+  when v2 was picked, so a newly paired connection can use negotiated surfaces
+  without reconnecting.
 - **Accept rules after v2 is negotiated:**
   - The server accepts inbound `v` in `[1, negotiated]`.
   - The client accepts inbound `v` up to the highest version it offered —
@@ -57,7 +62,15 @@ built from the same specification the server enforces with
   "history_ring": 800,
   "max_frame_bytes": 1048576,
   "tls_resumed": false,
-  "epoch": "a1b2c3d4e5f60718"
+  "epoch": "a1b2c3d4e5f60718",
+  "codex_surface": {
+    "version": 1,
+    "operations": ["rpc:account/read"],
+    "experimental": ["rpc:server/diagnostics"],
+    "max_page_size": 100,
+    "max_text_bytes": 262144,
+    "max_binary_chunk_bytes": 262144
+  }
 }
 ```
 
@@ -81,8 +94,30 @@ built from the same specification the server enforces with
 - `epoch` — the daemon's seq-lineage id (0068 P3); omitted when the
   daemon runs without a session store. Clients that see it change drop
   every cached seq.
+- `codex_surface` — present only when the authenticated v2 device advertised
+  Codex surface version 1. Capability ids are bytewise sorted from the pinned
+  installed manifest; experimental ids remain separately labeled. The three
+  numeric limits are enforced response/request bounds, not hints.
 
 Clients must tolerate unknown keys in `caps` (additive evolution).
+
+## Codex surface version 1
+
+The following host-global operations require an authenticated v2 connection
+that advertised `codex_surface_version: 1`; neither operation requires session
+ownership:
+
+- `codex.runtime.read` → `codex.runtime.result`: a typed snapshot of account
+  plan, usage/rate windows/workspace messages, model/context capabilities,
+  transport/generation, sanitized config provenance, feature state, and a
+  bounded MCP server list.
+- `codex.doctor.run` → `codex.doctor.result`: runs exactly
+  `codex doctor --json`, single-flight, with a 30-second timeout and 256 KiB
+  output bound. Only schema version 1 is accepted. Known checks are projected
+  into typed summaries; unknown checks retain only id/status/summary. Paths,
+  URLs, credentials, remediation commands, and raw report data are never sent
+  or persisted. The operation never repairs or uploads anything and is never
+  run periodically.
 
 The keyed `question.respond` object and additive question `id`, `secret`, and
 option `description` fields documented in protocol v1 are base-protocol

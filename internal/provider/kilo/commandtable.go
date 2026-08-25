@@ -23,6 +23,8 @@ func (d *httpDialect) CommandTable() command.Table {
 		},
 		// Token counts come from the engine's own assistant messages.
 		"context": {Kind: command.KindOp, Op: command.OpContext},
+		"status":  {Kind: command.KindNone, Note: "Kilo exposes no bounded host runtime status"},
+		"usage":   {Kind: command.KindNone, Note: "Kilo exposes no account usage summary"},
 		// POST /session/{id}/summarize.
 		"compact": {Kind: command.KindOp, Op: command.OpCompact},
 		"diff":    {Kind: command.KindOp, Op: command.OpDiff},

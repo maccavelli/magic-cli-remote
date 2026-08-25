@@ -26,6 +26,7 @@ import '../widgets/option_picker_sheet.dart' show showOptionPicker;
 import '../widgets/status_chip.dart';
 import '../widgets/vendor_icon.dart';
 import 'device_flow_sheet.dart';
+import 'codex_runtime_screen.dart';
 import 'provider_auth_sheet.dart';
 import 'provider_status.dart';
 import 'section_card.dart';
@@ -197,6 +198,33 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
             ),
           ],
         ),
+        if (p.id == 'codex')
+          SettingsSection(
+            title: 'Runtime',
+            children: [
+              ListTile(
+                key: const Key('codex-runtime'),
+                leading: const Icon(Icons.monitor_heart_outlined),
+                title: const Text('Runtime and diagnostics'),
+                subtitle: Text(
+                  ref.read(mcremoteClientProvider).serverCaps?.codexSurface ==
+                          null
+                      ? 'This host or phone did not negotiate Codex surface version 1'
+                      : 'Account, usage, model, transport, MCP, and redacted Doctor checks',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap:
+                    ref.read(mcremoteClientProvider).serverCaps?.codexSurface ==
+                        null
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const CodexRuntimeScreen(),
+                        ),
+                      ),
+              ),
+            ],
+          ),
         SettingsSection(
           title: 'Session defaults',
           children: [

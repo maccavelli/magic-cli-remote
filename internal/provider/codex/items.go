@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -24,6 +25,62 @@ var itemsRenderedAsTools = map[string]struct{}{
 	// describe sub-agents, which are panel state rather than transcript items
 	// (MADR 0051 D8/D10). They are routed by noteSubagentItem before this
 	// allowlist is consulted.
+}
+
+var knownNonToolItems = map[string]struct{}{
+	"userMessage": {}, "agentMessage": {}, "plan": {}, "reasoning": {},
+	"collabAgentToolCall": {}, "subAgentActivity": {}, "contextCompaction": {},
+	"enteredReviewMode": {}, "exitedReviewMode": {}, "sleep": {},
+}
+
+func (s *session) markItemStarted(id string) bool {
+	if id == "" {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.startedItems == nil {
+		s.startedItems = make(map[string]struct{})
+	}
+	if _, exists := s.startedItems[id]; exists {
+		return false
+	}
+	s.startedItems[id] = struct{}{}
+	return true
+}
+
+func (s *session) markItemCompleted(id string) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.completedItems == nil {
+		s.completedItems = make(map[string]struct{})
+	}
+	s.completedItems[id] = struct{}{}
+	s.mu.Unlock()
+}
+
+func shouldSurfaceUnsupportedItem(itemType string, item json.RawMessage) bool {
+	if itemType == "" {
+		return false
+	}
+	if _, ok := knownNonToolItems[itemType]; ok {
+		return false
+	}
+	if _, ok := itemsRenderedAsTools[itemType]; ok {
+		return false
+	}
+	status, _ := itemStatus(item)
+	return status != ""
+}
+
+func (s *session) emitUnsupportedItem(itemID, itemType string, item json.RawMessage, now time.Time) {
+	status, _ := itemStatus(item)
+	s.emit(event.Event{Type: event.TypeCodexUnsupportedItem, SessionID: s.localID, Timestamp: now,
+		AgentSessionID: s.agentID, Codex: &event.CodexPayload{Key: "item:" + itemID,
+			Kind: "unsupported_item", Status: codexToolStatus(status), Title: "Unsupported Codex activity",
+			Text: "Codex completed an unsupported " + itemType + " item."}})
 }
 
 // itemAsNotice renders a one-line system notice for state changes worth
@@ -222,6 +279,42 @@ func itemStatus(item json.RawMessage) (string, bool) {
 		return "", false
 	}
 	return probe.Status, true
+}
+
+func toolCompletionDetail(itemType string, item json.RawMessage) string {
+	switch itemType {
+	case "commandExecution":
+		var body struct {
+			ExitCode   *int   `json:"exitCode"`
+			DurationMS *int64 `json:"durationMs"`
+		}
+		if json.Unmarshal(item, &body) == nil && body.ExitCode != nil {
+			text := "Exit code " + itoa(*body.ExitCode)
+			if body.DurationMS != nil {
+				text += " · " + itoa(int(*body.DurationMS)) + " ms"
+			}
+			return text
+		}
+	case "fileChange":
+		var body struct {
+			Changes []struct {
+				Path string `json:"path"`
+			} `json:"changes"`
+		}
+		if json.Unmarshal(item, &body) == nil && len(body.Changes) > 0 {
+			return filepath.Base(body.Changes[0].Path)
+		}
+	case "mcpToolCall", "dynamicToolCall":
+		var body struct {
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(item, &body) == nil && body.Error != nil {
+			return body.Error.Message
+		}
+	}
+	return ""
 }
 
 func itoa(n int) string {

@@ -155,6 +155,9 @@ type client struct {
 	// (MADR 0068 D1). Zero means "not negotiated yet" and is treated as V1.
 	// Written on the read goroutine; read from writer paths under s.mu.
 	negotiated int
+	// codexSurfaceVersion is the client-advertised additive Codex surface.
+	// It is meaningful only for negotiated protocol v2 connections.
+	codexSurfaceVersion int
 	// tlsResumed records whether this connection's TLS handshake resumed a
 	// prior session (surfaced in the v2 capability block, 0068 Q3).
 	tlsResumed bool
@@ -1025,6 +1028,9 @@ func (s *Server) handleAuth(ctx context.Context, c *client, env protocol.Envelop
 	}
 	s.mu.Lock()
 	c.negotiated = negotiated
+	if negotiated >= protocol.V2 && p.CodexSurfaceVersion >= 1 {
+		c.codexSurfaceVersion = 1
+	}
 	s.mu.Unlock()
 	home, _ := os.UserHomeDir()
 	payload := protocol.AuthOKPayload{
@@ -1207,8 +1213,12 @@ func (s *Server) handlePairClaim(ctx context.Context, c *client, env protocol.En
 	if negotiated := protocol.NegotiateVersion(p.Protocols); negotiated >= protocol.V2 {
 		s.mu.Lock()
 		c.negotiated = negotiated
+		if p.CodexSurfaceVersion >= 1 {
+			c.codexSurfaceVersion = 1
+		}
 		s.mu.Unlock()
 		pairOK.Protocol = negotiated
+		pairOK.Caps = s.capsFor(c)
 		s.startV2Liveness(c)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypePairOK, env.ID, pairOK)

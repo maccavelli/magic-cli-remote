@@ -8,6 +8,9 @@ const int kProtocolV2 = 2;
 /// The offer sent in auth/pair.claim, ascending.
 const List<int> kSupportedProtocols = [kProtocolV1, kProtocolV2];
 
+/// Additive Codex application surface understood by this client.
+const int kCodexSurfaceVersion = 1;
+
 /// WebSocket close code: a newer connection of this device authenticated
 /// and the daemon replaced this one (MADR 0068 D3). Must not auto-reconnect.
 const int kCloseReplaced = 4001;
@@ -28,6 +31,7 @@ class ServerCaps {
     this.receipts = false,
     this.providerAuth = false,
     this.providerAuthTransactions = false,
+    this.codexSurface,
   });
 
   final int protocol;
@@ -68,6 +72,8 @@ class ServerCaps {
   /// existing warning and the existing aggregate remove action.
   final bool providerAuthTransactions;
 
+  final CodexSurfaceCaps? codexSurface;
+
   static ServerCaps? tryParse(Object? raw) {
     if (raw is! Map) return null;
     final m = Map<String, dynamic>.from(raw);
@@ -91,8 +97,164 @@ class ServerCaps {
       receipts: m['receipts'] == true,
       providerAuth: m['provider_auth'] == true,
       providerAuthTransactions: m['provider_auth_transactions'] == true,
+      codexSurface: CodexSurfaceCaps.tryParse(m['codex_surface']),
     );
   }
+}
+
+class CodexSurfaceCaps {
+  const CodexSurfaceCaps({
+    required this.version,
+    required this.operations,
+    required this.experimental,
+    required this.maxPageSize,
+    required this.maxTextBytes,
+    required this.maxBinaryChunkBytes,
+  });
+  final int version;
+  final List<String> operations;
+  final List<String> experimental;
+  final int maxPageSize;
+  final int maxTextBytes;
+  final int maxBinaryChunkBytes;
+
+  static CodexSurfaceCaps? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw);
+    if ((m['version'] as num?)?.toInt() != kCodexSurfaceVersion) return null;
+    List<String> strings(Object? value) => value is List
+        ? value.whereType<String>().toList(growable: false)
+        : const [];
+    return CodexSurfaceCaps(
+      version: kCodexSurfaceVersion,
+      operations: strings(m['operations']),
+      experimental: strings(m['experimental']),
+      maxPageSize: (m['max_page_size'] as num?)?.toInt() ?? 0,
+      maxTextBytes: (m['max_text_bytes'] as num?)?.toInt() ?? 0,
+      maxBinaryChunkBytes: (m['max_binary_chunk_bytes'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class CodexRuntimeMcpServer {
+  const CodexRuntimeMcpServer({
+    required this.name,
+    required this.status,
+    this.error = '',
+  });
+  final String name;
+  final String status;
+  final String error;
+  factory CodexRuntimeMcpServer.fromJson(Map<String, dynamic> json) =>
+      CodexRuntimeMcpServer(
+        name: json['name'] as String? ?? '',
+        status: json['status'] as String? ?? '',
+        error: json['error'] as String? ?? '',
+      );
+}
+
+class CodexRuntimeSnapshot {
+  const CodexRuntimeSnapshot({
+    this.codexVersion = '',
+    this.transport = '',
+    this.generation = 0,
+    this.accountPlan = '',
+    this.accountKind = '',
+    this.primaryRateUsedPercent = 0,
+    this.tokens = 0,
+    this.contextWindow = 0,
+    this.model = '',
+    this.reasoningEfforts = const [],
+    this.mcpServers = const [],
+  });
+  final String codexVersion;
+  final String transport;
+  final int generation;
+  final String accountPlan;
+  final String accountKind;
+  final int primaryRateUsedPercent;
+  final int tokens;
+  final int contextWindow;
+  final String model;
+  final List<String> reasoningEfforts;
+  final List<CodexRuntimeMcpServer> mcpServers;
+
+  factory CodexRuntimeSnapshot.fromJson(Map<String, dynamic> json) {
+    final account = json['account'] is Map
+        ? Map<String, dynamic>.from(json['account'] as Map)
+        : const <String, dynamic>{};
+    final rates = json['rate_limits'] is Map
+        ? Map<String, dynamic>.from(json['rate_limits'] as Map)
+        : const <String, dynamic>{};
+    final primary = rates['primary'] is Map
+        ? Map<String, dynamic>.from(rates['primary'] as Map)
+        : const <String, dynamic>{};
+    final usage = json['usage'] is Map
+        ? Map<String, dynamic>.from(json['usage'] as Map)
+        : const <String, dynamic>{};
+    final model = json['model'] is Map
+        ? Map<String, dynamic>.from(json['model'] as Map)
+        : const <String, dynamic>{};
+    List<String> strings(Object? value) => value is List
+        ? value.whereType<String>().toList(growable: false)
+        : const [];
+    return CodexRuntimeSnapshot(
+      codexVersion: json['codex_version'] as String? ?? '',
+      transport: json['transport'] as String? ?? '',
+      generation: (json['generation'] as num?)?.toInt() ?? 0,
+      accountPlan: account['plan'] as String? ?? '',
+      accountKind: account['kind'] as String? ?? '',
+      primaryRateUsedPercent: (primary['used_percent'] as num?)?.toInt() ?? 0,
+      tokens: (usage['tokens'] as num?)?.toInt() ?? 0,
+      contextWindow: (usage['context_window'] as num?)?.toInt() ?? 0,
+      model: model['id'] as String? ?? '',
+      reasoningEfforts: strings(model['reasoning_efforts']),
+      mcpServers: _mapList(json['mcp_servers'], CodexRuntimeMcpServer.fromJson),
+    );
+  }
+}
+
+class CodexEventPayload {
+  const CodexEventPayload({
+    required this.key,
+    required this.kind,
+    this.status = '',
+    this.title = '',
+    this.text = '',
+    this.fromModel = '',
+    this.toModel = '',
+    this.reason = '',
+    this.values = const [],
+    this.resolved = false,
+  });
+  final String key;
+  final String kind;
+  final String status;
+  final String title;
+  final String text;
+  final String fromModel;
+  final String toModel;
+  final String reason;
+  final List<String> values;
+  final bool resolved;
+
+  factory CodexEventPayload.fromJson(Map<String, dynamic> json) =>
+      CodexEventPayload(
+        key: json['key'] as String? ?? '',
+        kind: json['kind'] as String? ?? '',
+        status: json['status'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        text: json['text'] as String? ?? '',
+        fromModel: json['from_model'] as String? ?? '',
+        toModel: json['to_model'] as String? ?? '',
+        reason: json['reason'] as String? ?? '',
+        values: json['values'] is List
+            ? (json['values'] as List).whereType<String>().toList(
+                growable: false,
+              )
+            : const [],
+        resolved: json['resolved'] == true,
+      );
 }
 
 /// One paired device in the handoff-target roster (MADR 0078), from
@@ -1453,6 +1615,7 @@ class SessionEvent {
     this.seq = 0,
     this.replay = false,
     this.timedOut = false,
+    this.codex,
   });
 
   final String type;
@@ -1547,6 +1710,8 @@ class SessionEvent {
   /// True when a permission resolution was caused by the daemon timeout.
   final bool timedOut;
 
+  final CodexEventPayload? codex;
+
   /// This event with [text] replaced, every other field carried over.
   ///
   /// Used to fold a run of adjacent streaming chunks into one apply
@@ -1587,6 +1752,7 @@ class SessionEvent {
     attachments: attachments,
     seq: seq,
     replay: replay,
+    codex: codex,
   );
 
   factory SessionEvent.fromJson(Map<String, dynamic> json) {
@@ -1706,6 +1872,13 @@ class SessionEvent {
       seq: (json['seq'] as num?)?.toInt() ?? 0,
       replay: json['replay'] == true,
       timedOut: json['timed_out'] == true,
+      codex: switch (json['codex']) {
+        final Map<String, dynamic> c => CodexEventPayload.fromJson(c),
+        final Map<dynamic, dynamic> c => CodexEventPayload.fromJson(
+          Map<String, dynamic>.from(c),
+        ),
+        _ => null,
+      },
     );
   }
 }

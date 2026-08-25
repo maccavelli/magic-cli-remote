@@ -59,6 +59,10 @@ const (
 	// last usage report rather than a provider call, so a session that has
 	// never reported usage does not offer it.
 	OpContext Op = "context"
+	// OpStatus reports provider runtime status.
+	OpStatus Op = "status"
+	// OpUsage reports provider usage and rate-limit state.
+	OpUsage Op = "usage"
 	// OpSetModel switches the model without restarting the agent.
 	OpSetModel Op = "set_model"
 	// OpSetThinkingLevel switches the reasoning/thinking effort for the

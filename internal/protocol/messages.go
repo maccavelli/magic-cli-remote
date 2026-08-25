@@ -142,6 +142,10 @@ const (
 	// Signed receipts for permission decisions (MADR 0077 P7).
 	TypePermissionReceiptRequest = "permission.receipt_request" // daemon -> phone
 	TypePermissionReceipt        = "permission.receipt"         // phone -> daemon
+	TypeCodexRuntimeRead         = "codex.runtime.read"
+	TypeCodexRuntimeResult       = "codex.runtime.result"
+	TypeCodexDoctorRun           = "codex.doctor.run"
+	TypeCodexDoctorResult        = "codex.doctor.result"
 )
 
 // Envelope is the common WS message wrapper.
@@ -166,6 +170,9 @@ type AuthResumePayload struct {
 // AuthPayload is the body of an auth request.
 type AuthPayload struct {
 	Token string `json:"token"`
+	// CodexSurfaceVersion opts a protocol-v2 client into the additive Codex
+	// application surface. Absent keeps old clients on the generic protocol.
+	CodexSurfaceVersion int `json:"codex_surface_version,omitempty"`
 	// Protocols is the client's version offer (MADR 0068 D1). Absent means
 	// a v1 client; the server picks the highest mutual version.
 	Protocols []int `json:"protocols,omitempty"`
@@ -181,6 +188,17 @@ type AuthPayload struct {
 // absent means resume is not offered).
 type ResumeCaps struct {
 	WindowMS int64 `json:"window_ms"`
+}
+
+// CodexSurfaceCaps advertises the bounded Codex phone surface negotiated by a
+// protocol-v2 device. It is absent unless the client explicitly offers it.
+type CodexSurfaceCaps struct {
+	Version             int      `json:"version"`
+	Operations          []string `json:"operations"`
+	Experimental        []string `json:"experimental,omitempty"`
+	MaxPageSize         int      `json:"max_page_size"`
+	MaxTextBytes        int      `json:"max_text_bytes"`
+	MaxBinaryChunkBytes int      `json:"max_binary_chunk_bytes"`
 }
 
 // Caps is the v2 capability/limit block carried in auth_ok (MADR 0068 D1).
@@ -221,7 +239,8 @@ type Caps struct {
 	// adapter enabled keeps its existing auth reporting, and an older client
 	// ignores both. Advertised only after coordinators, recovery, watchers,
 	// registry ownership, and shutdown hooks are all installed.
-	ProviderAuthTransactions bool `json:"provider_auth_transactions,omitempty"`
+	ProviderAuthTransactions bool              `json:"provider_auth_transactions,omitempty"`
+	CodexSurface             *CodexSurfaceCaps `json:"codex_surface,omitempty"`
 }
 
 // AuthOKPayload is returned on successful auth.
@@ -267,7 +286,8 @@ type PairClaimPayload struct {
 	// Name optionally overrides the device label from the pending code.
 	Name string `json:"name,omitempty"`
 	// Protocols is the client's version offer (MADR 0068 D1), as on auth.
-	Protocols []int `json:"protocols,omitempty"`
+	Protocols           []int `json:"protocols,omitempty"`
+	CodexSurfaceVersion int   `json:"codex_surface_version,omitempty"`
 }
 
 // PairOKPayload returns the one-shot durable token after a successful claim.
@@ -281,6 +301,8 @@ type PairOKPayload struct {
 	DisplayName string `json:"display_name,omitempty"`
 	// Protocol is the negotiated version; omitted for v1 clients (0068 D1).
 	Protocol int `json:"protocol,omitempty"`
+	// Caps mirrors auth_ok for a v2 claim connection that stays connected.
+	Caps *Caps `json:"caps,omitempty"`
 }
 
 // ErrorPayload is a generic error body.

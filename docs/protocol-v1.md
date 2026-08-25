@@ -837,6 +837,8 @@ names the request that produced it: `session_create_failed`,
 `session_unrevert_failed`, `session_diff_failed`, `session_rename_failed`,
 `session_diagnostics_failed`, `permission_failed`, `question_failed`,
 `receipts_list_failed`, `devices_list_failed`.
+`diagnostic_failed` reports that the explicit read-only Codex Doctor process
+timed out, exceeded its bound, or returned no valid schema-v1 report.
 
 **Pre-warm control** — `providers.set_prewarm` (MADR 0089 D7). Also emits
 `unsupported` (the daemon has no pre-warm controller) and `unknown_provider`
@@ -1131,7 +1133,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   placeholder chip so an image-only prompt still shows as a turn.
 - `title`: on `session_title` events, the session's new display title.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 
 Every type in that list has a section or a field entry in this document, and a
 test enforces it (`TestEventTypesAreDocumented`): a new event type fails the
@@ -1360,6 +1362,35 @@ Inline `/review` is a slash-routed turn, not a new event type. Codex
 ordinary `assistant_message_chunk` text. `exitedReviewMode.review` is used
 once as fallback only when no assistant text arrived. Cancel/stop remain
 the normal session interrupt. Old clients ignore unknown item types.
+
+### Bounded Codex activity events
+
+The `codex_*` event types project app-server progress, warnings, model routing,
+verification, terminal interaction, and completion-affecting unknown items into
+one bounded `codex` object. Raw Codex notification or item JSON is never
+forwarded. `key` is the stable upsert key: a client replaces an earlier card
+with the same key, including a later authoritative completion.
+
+```json
+{
+  "type": "codex_progress",
+  "session_id": "...",
+  "codex": {
+    "key": "review:4f0c",
+    "kind": "guardian_review",
+    "status": "completed",
+    "title": "Guardian review",
+    "text": "approved",
+    "resolved": true
+  }
+}
+```
+
+Each string is at most 4096 bytes after control-character normalization;
+`values` has at most 32 strings. Terminal interaction reports that input was
+sent but never carries the input bytes. Unsupported items expose only the
+sanitized item type and terminal status, and only when the completed item can
+affect the turn result. Other unknown items are counted and ignored fail-closed.
 
 ### `plan` event (agent task list)
 

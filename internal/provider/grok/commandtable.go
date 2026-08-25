@@ -26,6 +26,8 @@ var commandTable = command.Table{
 	// Grok's own /context renders in its TUI and returns nothing here;
 	// /session-info reports the same numbers as a message.
 	"context":       {Kind: command.KindNative, Native: "session-info"},
+	"status":        {Kind: command.KindNone, Note: "grok exposes no host runtime status over ACP"},
+	"usage":         {Kind: command.KindNone, Note: "grok exposes no account usage over ACP"},
 	"goal":          {Kind: command.KindNative, Native: "goal"},
 	"deep-research": {Kind: command.KindNative, Native: "deep-research"},
 	"workflow":      {Kind: command.KindNative, Native: "workflow"},

@@ -78,6 +78,15 @@ type Provider struct {
 	// Fast/personality gates are rebuilt from this source (MADR 0080 D17).
 	models []modelRecord
 
+	// runtime is provider-global, sanitized status assembled from notifications
+	// and engine metadata. It intentionally contains no raw config or paths.
+	runtimeMu sync.RWMutex
+	runtime   runtimeState
+
+	doctorMu  sync.Mutex
+	doctor    *doctorFlight
+	doctorRun doctorRunFunc
+
 	// coord is the credential transaction coordinator (MADR 0074 D21). It is
 	// nil for a provider built the way the daemon builds one today; only the
 	// coordinated constructor supplies it, which is what keeps P18 dark until

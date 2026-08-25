@@ -112,6 +112,7 @@ func (p *Provider) sessionsSnapshot() []*session {
 }
 
 func (p *Provider) handleProviderNotification(method string, params json.RawMessage) {
+	p.noteRuntimeProviderNotification(method, params)
 	sessions := p.sessionsSnapshot()
 	switch method {
 	case "account/rateLimits/updated":
@@ -124,17 +125,31 @@ func (p *Provider) handleProviderNotification(method string, params json.RawMess
 		}
 	case "warning", "guardianWarning", "configWarning", "deprecationNotice", "error", "windows/worldWritableWarning":
 		var body struct {
-			Message string `json:"message"`
-			Text    string `json:"text"`
-			Error   string `json:"error"`
+			Message  string `json:"message"`
+			Text     string `json:"text"`
+			Error    string `json:"error"`
+			Summary  string `json:"summary"`
+			Details  string `json:"details"`
+			ThreadID string `json:"threadId"`
 		}
 		_ = json.Unmarshal(params, &body)
-		message := firstNonEmpty(body.Message, body.Text, body.Error)
+		message := firstNonEmpty(body.Message, body.Summary, body.Text, body.Error)
+		if body.Details != "" {
+			message += ": " + body.Details
+		}
 		if message == "" {
 			message = "Codex reported " + method
 		}
+		kind := map[string]string{"guardianWarning": "guardian", "configWarning": "config", "deprecationNotice": "deprecation"}[method]
+		if kind == "" {
+			kind = "warning"
+		}
 		for _, s := range sessions {
-			s.emit(event.Event{Type: event.TypeNotice, SessionID: s.localID, Timestamp: time.Now().UTC(), Text: message})
+			if body.ThreadID != "" && body.ThreadID != s.agentID {
+				continue
+			}
+			s.emit(event.Event{Type: event.TypeCodexWarning, SessionID: s.localID, Timestamp: time.Now().UTC(), AgentSessionID: s.agentID,
+				Codex: &event.CodexPayload{Key: "warning:" + method + ":" + body.ThreadID, Kind: kind, Status: "completed", Title: "Codex warning", Text: message}})
 		}
 	default:
 		p.log.Debug("codex: provider notification observed", slog.String("method", method))

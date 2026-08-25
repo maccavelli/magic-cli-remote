@@ -1953,6 +1953,7 @@ class McremoteClient {
           'code': normalized,
           if (name != null && name.isNotEmpty) 'name': name,
           'protocols': kSupportedProtocols,
+          'codex_surface_version': kCodexSurfaceVersion,
         },
         timeout: const Duration(seconds: 20),
       );
@@ -1992,6 +1993,7 @@ class McremoteClient {
           pairNegotiated <= kProtocolV2) {
         _negotiated = pairNegotiated;
       }
+      serverCaps = ServerCaps.tryParse(res.payload?['caps']);
 
       if (_pinnedFingerprint != null) {
         // Best-effort: the daemon has already enrolled this device — a
@@ -2176,6 +2178,7 @@ class McremoteClient {
         payload: {
           'token': token,
           'protocols': kSupportedProtocols,
+          'codex_surface_version': kCodexSurfaceVersion,
           // Resume fast path (MADR 0068 D4): claim the last handled seqs
           // when a token is still within its window. Failure is harmless —
           // the daemon answers resume_failed and auth still succeeds.
@@ -3800,6 +3803,28 @@ class McremoteClient {
     if (res.type == 'error') {
       throw McremoteClient.opException(res, 'question failed');
     }
+  }
+
+  Future<CodexRuntimeSnapshot> readCodexRuntime() async {
+    final res = await request(
+      'codex.runtime.read',
+      expectedType: 'codex.runtime.result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'Codex runtime failed');
+    }
+    return CodexRuntimeSnapshot.fromJson(res.payload ?? const {});
+  }
+
+  Future<Map<String, dynamic>> runCodexDoctor() async {
+    final res = await request(
+      'codex.doctor.run',
+      expectedType: 'codex.doctor.result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'Codex diagnostics failed');
+    }
+    return Map<String, dynamic>.from(res.payload ?? const {});
   }
 
   Future<void> dispose() async {

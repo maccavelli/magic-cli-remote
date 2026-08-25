@@ -113,6 +113,14 @@ type Session interface {
 	Close(ctx context.Context) error
 }
 
+// RuntimeSession exposes bounded human-readable provider-global runtime and
+// usage summaries for session slash commands.
+type RuntimeSession interface {
+	Session
+	RuntimeStatus(context.Context) (string, error)
+	RuntimeUsage(context.Context) (string, error)
+}
+
 // CWDSession is optionally implemented by sessions that resolve a concrete
 // working directory (defaults, home-dir fallback). The manager prefers this
 // over the caller-supplied path when populating session metadata, so clients
