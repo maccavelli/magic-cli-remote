@@ -19,6 +19,9 @@ import (
 
 // captureHost records emitted events for dialect unit tests.
 type captureHost struct {
+	startThinkingLevel string
+	// logger overrides the default so a test can assert on what was logged.
+	logger   *slog.Logger
 	mu       sync.Mutex
 	events   []event.Event
 	model    string
@@ -47,6 +50,10 @@ func (h *captureHost) Agent() string {
 	return h.agent
 }
 
+// StartThinkingLevel implements httpagent.Host. Tests that exercise start-time
+// rung precedence set startThinkingLevel directly.
+func (h *captureHost) StartThinkingLevel() string { return h.startThinkingLevel }
+
 func (h *captureHost) Model() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -64,7 +71,12 @@ func (h *captureHost) SetAgent(name string) {
 	h.agent = name
 	h.mu.Unlock()
 }
-func (h *captureHost) Log() *slog.Logger { return slog.Default() }
+func (h *captureHost) Log() *slog.Logger {
+	if h.logger != nil {
+		return h.logger
+	}
+	return slog.Default()
+}
 func (h *captureHost) API() httpagent.API {
 	if h.api != nil {
 		return h.api

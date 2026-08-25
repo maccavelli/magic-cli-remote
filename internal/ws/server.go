@@ -1789,6 +1789,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, c *client, env protoco
 				Type:     a.Kind,
 				MimeType: a.MimeType,
 				Data:     a.Data,
+				Filename: a.Filename,
 			})
 		}
 	}

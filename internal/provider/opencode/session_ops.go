@@ -189,6 +189,9 @@ func (o *httpSession) SetModel(ctx context.Context, model string) error {
 		return err
 	}
 	o.h.RecordModel(mp + "/" + mid)
+	// Rungs are per-model, so a stored one cannot survive a switch: carrying it
+	// would send the new model a key only the old model advertised (A14).
+	o.resetThinkingLevel()
 	return nil
 }
 

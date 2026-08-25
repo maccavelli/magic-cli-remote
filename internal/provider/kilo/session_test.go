@@ -15,12 +15,13 @@ import (
 
 // captureHost records emitted events for dialect unit tests.
 type captureHost struct {
-	mu       sync.Mutex
-	events   []event.Event
-	model    string
-	agent    string
-	api      httpagent.API
-	endTurns int
+	startThinkingLevel string
+	mu                 sync.Mutex
+	events             []event.Event
+	model              string
+	agent              string
+	api                httpagent.API
+	endTurns           int
 	// pending/autoApprove/done/ds back the permission bookkeeping the real
 	// session owns (MADR 0044). ds is the dialect session this host was handed
 	// to; set it when a test needs RespondPermission to reach the engine.
@@ -42,6 +43,10 @@ func (h *captureHost) Agent() string {
 	defer h.mu.Unlock()
 	return h.agent
 }
+
+// StartThinkingLevel implements httpagent.Host. Tests that exercise start-time
+// rung precedence set startThinkingLevel directly.
+func (h *captureHost) StartThinkingLevel() string { return h.startThinkingLevel }
 
 func (h *captureHost) Model() string {
 	h.mu.Lock()

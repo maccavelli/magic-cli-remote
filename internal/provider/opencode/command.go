@@ -197,6 +197,10 @@ func (o *httpSession) submitCommand(ctx context.Context, name, arguments string)
 		// Command schema takes a free-form model string (provider/id).
 		body["model"] = mp + "/" + mid
 	}
+	// Same reasoning-effort variant the prompt path sends (MADR 0112 A14).
+	if v := o.requestVariant(); v != "" {
+		body["variant"] = v
+	}
 	start := time.Now()
 	// Bound wait matching the prompt_async timeout in beginTurn. SSE drives
 	// EndTurn either way; a command that does not enqueue within 30s is

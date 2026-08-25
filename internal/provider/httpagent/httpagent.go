@@ -573,6 +573,12 @@ type Host interface {
 	// prompts and engine calls that need an explicit model agree with it. It
 	// only updates local state — the switch itself is the dialect's engine call.
 	RecordModel(model string)
+	// StartThinkingLevel is the reasoning rung provider.StartOptions carried
+	// into this session, or "" when the caller named none. It is the daemon's
+	// persisted user choice, so a dialect whose engine also stores one must
+	// decide precedence explicitly rather than assuming this wins (MADR 0112
+	// A14).
+	StartThinkingLevel() string
 	// Agent is the optional OpenCode agent name for prompt_async (e.g. "build",
 	// "plan"). Empty uses the engine default. MADR 0020 Sprint 3.
 	Agent() string

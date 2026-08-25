@@ -51,9 +51,34 @@ type Option struct {
 	Meta map[string]string `json:"meta,omitempty"`
 	// ThinkingLevels are the reasoning/thinking settings this model accepts,
 	// cheapest-first. Empty means the model has no selectable level — which is
-	// the honest answer for opencode and goose, and for any codex/grok model
-	// that does not advertise one (MADR 0052 D5).
+	// the honest answer for goose, and for any codex/grok/opencode model that
+	// does not advertise one (MADR 0052 D5). OpenCode advertises its rungs as
+	// the per-model `variants` map, which maps onto this same field rather than
+	// a second effort control (MADR 0112 A14).
 	ThinkingLevels []ThinkingLevel `json:"thinking_levels,omitempty"`
+	// Inputs are the input modalities the model accepts. Nil means the provider
+	// did not advertise any, which clients must read as "unknown", not "none":
+	// only a present value is evidence. Clients gate attachment affordances on
+	// it so a composer cannot offer an input the model will discard.
+	Inputs *ModelInputs `json:"inputs,omitempty"`
+	// Attachment reports that the model accepts file attachments at all. It is
+	// the model's own coarse flag and can disagree with Inputs; a client needs
+	// both true before offering a non-text part.
+	Attachment bool `json:"attachment,omitempty"`
+	// ToolCall reports that the model can call tools.
+	ToolCall bool `json:"toolcall,omitempty"`
+	// Reasoning reports that the model produces reasoning content.
+	Reasoning bool `json:"reasoning,omitempty"`
+}
+
+// ModelInputs are the input modalities a model accepts. Every field is a
+// provider-advertised fact; the daemon never infers one modality from another.
+type ModelInputs struct {
+	Text  bool `json:"text,omitempty"`
+	Image bool `json:"image,omitempty"`
+	Audio bool `json:"audio,omitempty"`
+	Video bool `json:"video,omitempty"`
+	PDF   bool `json:"pdf,omitempty"`
 }
 
 // ThinkingLevel is one selectable reasoning/thinking setting for a model, as

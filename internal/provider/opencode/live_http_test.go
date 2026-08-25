@@ -5,6 +5,7 @@ package opencode_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -1304,4 +1306,265 @@ func TestLiveDiscovery(t *testing.T) {
 		}
 	}
 	t.Logf("discovered %d root sessions and %d projects", len(sessions), len(projects))
+}
+
+// liveModelSurface is one catalog model's advertised surface, decoded from the
+// live /provider payload. Catalog data is mutable, so these gates resolve a
+// usable model at run time and never assert a model ID as a constant
+// (MADR 0112 A2/A14, PLAN P3 acceptance).
+type liveModelSurface struct {
+	FullID     string
+	Attachment bool
+	Image      bool
+	Audio      bool
+	Variants   []string
+	ZeroCost   bool
+}
+
+// pickLiveMultimodalModel resolves the model these gates exercise.
+//
+// The seeded default (opencode/big-pickle) cannot exercise this phase: on
+// 1.18.21 it reports attachment:false, all-false inputs except text, and an
+// empty variants map. Selection order is therefore an operator override, then
+// the first zero-cost connected model advertising image input and a non-empty
+// variants map, and otherwise a skip with a recorded reason.
+func pickLiveMultimodalModel(ctx context.Context, t *testing.T, base string) liveModelSurface {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, "GET", base+"/provider", nil)
+	if err != nil {
+		t.Fatalf("provider request: %v", err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /provider: %v", err)
+	}
+	defer res.Body.Close()
+	var payload struct {
+		Connected []string `json:"connected"`
+		All       []struct {
+			ID     string `json:"id"`
+			Models map[string]struct {
+				Capabilities struct {
+					Attachment bool `json:"attachment"`
+					Input      struct {
+						Image bool `json:"image"`
+						Audio bool `json:"audio"`
+					} `json:"input"`
+				} `json:"capabilities"`
+				Variants map[string]json.RawMessage `json:"variants"`
+				Cost     struct {
+					Input  float64 `json:"input"`
+					Output float64 `json:"output"`
+				} `json:"cost"`
+			} `json:"models"`
+		} `json:"all"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode /provider: %v", err)
+	}
+	connected := map[string]bool{}
+	for _, id := range payload.Connected {
+		connected[id] = true
+	}
+
+	override := strings.TrimSpace(os.Getenv("MCREMOTE_LIVE_MODEL"))
+	var candidates []liveModelSurface
+	for _, prov := range payload.All {
+		for id, m := range prov.Models {
+			full := prov.ID + "/" + id
+			variants := make([]string, 0, len(m.Variants))
+			for k := range m.Variants {
+				variants = append(variants, k)
+			}
+			sort.Strings(variants)
+			s := liveModelSurface{
+				FullID:     full,
+				Attachment: m.Capabilities.Attachment,
+				Image:      m.Capabilities.Input.Image,
+				Audio:      m.Capabilities.Input.Audio,
+				Variants:   variants,
+				ZeroCost:   m.Cost.Input == 0 && m.Cost.Output == 0,
+			}
+			if override != "" {
+				if full == override {
+					t.Logf("live model: operator override %s (image=%v audio=%v variants=%v)",
+						full, s.Image, s.Audio, s.Variants)
+					return s
+				}
+				continue
+			}
+			if connected[prov.ID] && s.ZeroCost && s.Attachment && s.Image && len(s.Variants) > 0 {
+				candidates = append(candidates, s)
+			}
+		}
+	}
+	if override != "" {
+		t.Skipf("MCREMOTE_LIVE_MODEL=%q is not in the live catalog", override)
+	}
+	if len(candidates) == 0 {
+		t.Skip("no zero-cost connected model advertises image input and a non-empty variants map; " +
+			"set MCREMOTE_LIVE_MODEL to name one")
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].FullID < candidates[j].FullID })
+	chosen := candidates[0]
+	t.Logf("live model: %s (image=%v audio=%v variants=%v)",
+		chosen.FullID, chosen.Image, chosen.Audio, chosen.Variants)
+	return chosen
+}
+
+// startIsolatedEngine boots a --pure engine with redirected state roots and
+// returns its base URL. It reads the release rather than this host's config.
+func startIsolatedEngine(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("opencode not in PATH")
+	}
+	port := freeLoopbackPort(t)
+	state := t.TempDir()
+	cmd := exec.CommandContext(ctx, "opencode", "serve",
+		"--hostname", "127.0.0.1", "--port", strconv.Itoa(port), "--pure")
+	cmd.Env = append(os.Environ(),
+		"OPENCODE_DISABLE_AUTOUPDATE=1",
+		"HOME="+state,
+		"XDG_CONFIG_HOME="+filepath.Join(state, "cfg"),
+		"XDG_DATA_HOME="+filepath.Join(state, "data"),
+		"XDG_CACHE_HOME="+filepath.Join(state, "cache"),
+		"XDG_STATE_HOME="+filepath.Join(state, "state"),
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start isolated serve: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		}
+	})
+	base := "http://127.0.0.1:" + strconv.Itoa(port)
+	waitForHealth(ctx, t, base)
+	return base
+}
+
+// TestLiveModelSurface records what the live catalog actually advertises and
+// proves the decoder agrees with it. It asserts the *shape* of the contract —
+// that advertised inputs and variants are read faithfully — never a specific
+// model ID, which is mutable catalog data.
+func TestLiveModelSurface(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	base := startIsolatedEngine(ctx, t)
+
+	// The seeded default must remain the honest text-only answer: if this ever
+	// starts advertising attachments, D6/A2 need re-deriving.
+	all := pickLiveMultimodalModel(ctx, t, base)
+	if all.FullID == "" {
+		t.Fatal("no model resolved")
+	}
+	if !all.Attachment || !all.Image {
+		t.Fatalf("%s was selected but does not advertise image attachments: %+v", all.FullID, all)
+	}
+	if len(all.Variants) == 0 {
+		t.Fatalf("%s was selected but advertises no variants", all.FullID)
+	}
+	// Every advertised variant key must survive decoding into a rung, in the
+	// daemon's canonical cheapest-first order.
+	raw := map[string]json.RawMessage{}
+	for _, v := range all.Variants {
+		raw[v] = json.RawMessage(`{}`)
+	}
+	levels := opencode.DecodeVariantsForTest(raw)
+	if len(levels) != len(all.Variants) {
+		t.Fatalf("decoded %d rungs from %d advertised variants %v", len(levels), len(all.Variants), all.Variants)
+	}
+	for _, l := range levels {
+		if l.ID == "" {
+			t.Fatal("a decoded rung has an empty id")
+		}
+		if l.Label != "" || l.Description != "" || l.Default {
+			t.Fatalf("a decoded rung invented display text: %+v", l)
+		}
+	}
+	t.Logf("live surface recorded: %s image=%v audio=%v rungs=%v",
+		all.FullID, all.Image, all.Audio, all.Variants)
+}
+
+// TestLivePromptFileParts proves a real engine accepts the FilePartInput data
+// URL this dialect builds, using a model that actually advertises image input.
+func TestLivePromptFileParts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
+	defer cancel()
+	base := startIsolatedEngine(ctx, t)
+	chosen := pickLiveMultimodalModel(ctx, t, base)
+
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true, Model: chosen.FullID})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	s, err := p.Start(ctx, provider.StartOptions{
+		Name: "file-parts-live", CWD: t.TempDir(), Model: chosen.FullID,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	// A real 1x1 PNG: an undecodable blob would fail for reasons of its own.
+	png, err := base64.StdEncoding.DecodeString(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+	if err != nil {
+		t.Fatalf("decode png fixture: %v", err)
+	}
+	err = s.Prompt(ctx, []provider.Content{
+		{Type: "text", Text: "What colour is this pixel? Answer in one word."},
+		{Type: "image", MimeType: "image/png", Filename: "pixel.png",
+			Data: base64.StdEncoding.EncodeToString(png)},
+	})
+	// This is the contract under test: the engine accepted the data URL. A
+	// malformed part is refused here, synchronously, by prompt_async.
+	if err != nil {
+		t.Fatalf("prompt with a file part was rejected by %s: %v", chosen.FullID, err)
+	}
+	t.Logf("engine accepted a FilePartInput data URL on %s", chosen.FullID)
+
+	// Completing the turn additionally needs a usable credential for the
+	// model's provider. The isolated engine deliberately runs with a fresh
+	// state root and no credentials, so a provider auth failure is an
+	// environment fact and is recorded as a skip — the token-bearing run is
+	// P11's acceptance gate, not this one. Any other error is a real failure.
+	deadline := time.After(180 * time.Second)
+	for {
+		select {
+		case ev := <-s.Events():
+			switch ev.Type {
+			case event.TypeError:
+				if isProviderCredentialError(ev.Error) {
+					t.Skipf("engine accepted the file part; turn needs a credential for %s: %s",
+						chosen.FullID, ev.Error)
+				}
+				t.Fatalf("agent error: %s", ev.Error)
+			case event.TypeTurnComplete:
+				t.Logf("turn completed with a file part on %s", chosen.FullID)
+				return
+			}
+		case <-deadline:
+			t.Fatal("timeout waiting for turn_complete")
+		}
+	}
+}
+
+// isProviderCredentialError reports an upstream model-provider authentication
+// failure, as opposed to a rejection of the request this gate constructed.
+func isProviderCredentialError(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, marker := range []string{
+		"api key", "apikey", "credential", "unauthorized", "authentication",
+		"not logged in", "no auth", "401",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }

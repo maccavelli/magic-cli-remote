@@ -139,6 +139,13 @@ type httpDialect struct {
 	contextLimits map[string]int
 	// onToolPartUpdated is an optional callback for live probing tool frames (MADR 0034 Phase 0).
 	onToolPartUpdated func(RawToolPartFrame)
+
+	// surfaces caches each model's advertised input modalities and reasoning
+	// rungs by full "provider/model" ID. It is refreshed by AfterBoot from the
+	// same /provider catalog that supplies contextLimits, so a session created
+	// before that multi-MB fetch lands starts conservative and becomes truthful
+	// without a restart (MADR 0112 A2/A14).
+	surfaces modelSurfaceCache
 }
 
 var (
@@ -259,6 +266,11 @@ type providerModel struct {
 	Limit       struct {
 		Context int `json:"context"`
 	} `json:"limit"`
+	// Capabilities and Variants are the model's advertised input modalities and
+	// reasoning rungs. Both are optional upstream: a model that omits them keeps
+	// an unknown surface rather than a fabricated one (MADR 0112 A2/A14).
+	Capabilities *modelCapabilities         `json:"capabilities"`
+	Variants     map[string]json.RawMessage `json:"variants"`
 }
 
 // providerEntry is one model provider in /provider's `all` array.
@@ -315,13 +327,13 @@ func modelOption(providerID string, m providerModel, modelID string) picker.Opti
 	if len(meta) == 0 {
 		meta = nil
 	}
-	return picker.Option{
+	return m.surface().apply(picker.Option{
 		ID:          providerID + "/" + modelID,
 		Label:       label,
 		Description: desc,
 		Group:       providerID,
 		Meta:        meta,
-	}
+	})
 }
 
 // humanContext renders a context window the way a picker row should read.
@@ -706,19 +718,21 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 	}
 	available := map[string]struct{}{}
 	limits := map[string]int{}
+	surfaces := map[string]modelSurface{}
 	for _, p := range out.All {
 		for id, raw := range p.Models {
 			if p.ID == "opencode" {
 				available[id] = struct{}{}
 			}
-			var m struct {
-				Limit struct {
-					Context int `json:"context"`
-				} `json:"limit"`
+			var m providerModel
+			if json.Unmarshal(raw, &m) != nil {
+				continue
 			}
-			if json.Unmarshal(raw, &m) == nil && m.Limit.Context > 0 {
-				limits[p.ID+"/"+id] = m.Limit.Context
+			full := p.ID + "/" + id
+			if m.Limit.Context > 0 {
+				limits[full] = m.Limit.Context
 			}
+			surfaces[full] = m.surface()
 		}
 	}
 	// The engine's default may name a model the catalog no longer carries, so
@@ -754,9 +768,11 @@ func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 	d.defaultModelProvider, d.defaultModelID = "opencode", chosen
 	d.contextLimits = limits
 	d.mu.Unlock()
+	d.surfaces.replace(surfaces)
 	d.log.Info("opencode default model resolved",
 		slog.String("model", "opencode/"+chosen),
-		slog.Int("catalog_models", len(available)))
+		slog.Int("catalog_models", len(available)),
+		slog.Int("model_surfaces", d.surfaces.len()))
 }
 
 // fallbackModel returns the catalog default for prompts with no model.
@@ -871,6 +887,10 @@ type httpSession struct {
 	// msgRole records message role by id; user-authored parts echo back over
 	// SSE and must not become assistant chunks.
 	msgRole map[string]string
+	// thinkingLevel is the OpenCode `variant` this session sends on prompt and
+	// command. The resting value is defaultVariant, which is never put on the
+	// wire (MADR 0112 A14).
+	thinkingLevel string
 	// seenTools distinguishes the first sighting of a tool call (tool_call)
 	// from updates (tool_call_update).
 	seenTools map[string]struct{}
@@ -956,6 +976,9 @@ func (o *httpSession) Create(ctx context.Context, opts provider.StartOptions) (s
 	// Advertise the primary agents as session modes so the switcher and /plan
 	// work (MADR 0022). Best-effort; static fallback inside.
 	o.advertiseModes(ctx)
+	// A new session has no upstream variant, so the caller's requested rung is
+	// the only candidate and still has to be advertised (PLAN P3 step 6).
+	o.applyStartThinkingLevel("", opts.ThinkingLevel)
 	return created.ID, nil
 }
 
@@ -970,12 +993,32 @@ func (o *httpSession) resolveModel() (providerID, modelID string) {
 }
 
 func (o *httpSession) Resume(ctx context.Context, agentSessionID string) (string, error) {
+	// 1.18.21 persists the session's model and its reasoning variant, so both
+	// are read from authoritative session state rather than inferred from
+	// message history (PLAN P3 step 4).
 	var info struct {
-		ID string `json:"id"`
+		ID    string `json:"id"`
+		Model struct {
+			ProviderID string `json:"providerID"`
+			ID         string `json:"id"`
+			Variant    string `json:"variant"`
+		} `json:"model"`
 	}
 	if err := o.h.API()(ctx, "GET", "/session/"+agentSessionID+o.dir(), nil, &info); err != nil {
 		return "", err
 	}
+	// Adopt the upstream model when it is a complete ref the catalog still
+	// carries; otherwise keep the active model rather than pinning the session
+	// to an id the engine would reject on the next prompt.
+	if mp, mid := strings.TrimSpace(info.Model.ProviderID), strings.TrimSpace(info.Model.ID); mp != "" && mid != "" {
+		full := mp + "/" + mid
+		if _, known := o.d.surfaces.lookup(full); known || o.d.surfaces.len() == 0 {
+			o.h.RecordModel(full)
+		}
+	}
+	// The engine is authoritative for the rung on resume; a stored one is only
+	// a fallback when upstream has none at all (PLAN P3 step 6).
+	o.applyStartThinkingLevel(info.Model.Variant, o.h.StartThinkingLevel())
 	// Command and mode catalogs are session-agnostic; re-advertise both so
 	// autocomplete and the mode strip survive a resume.
 	o.advertiseCommands(ctx)
@@ -1040,11 +1083,12 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 	if name, args, ok := soleSlashCommand(parts); ok {
 		return o.submitCommand(ctx, name, args)
 	}
-	apiParts := make([]map[string]any, 0, len(parts))
-	for _, p := range parts {
-		if p.Type == "" || p.Type == "text" {
-			apiParts = append(apiParts, map[string]any{"type": "text", "text": p.Text})
-		}
+	// Non-text blocks become stable FilePartInput data URLs in composed order.
+	// Validation happens here, before any request exists, so an oversized or
+	// malformed attachment fails as a rejected prompt rather than a failed turn.
+	apiParts, err := o.promptParts(parts)
+	if err != nil {
+		return err
 	}
 	body := map[string]any{"parts": apiParts}
 	mp, mid := o.resolveModel()
@@ -1058,10 +1102,15 @@ func (o *httpSession) Prompt(ctx context.Context, parts []provider.Content) erro
 	if agent := strings.TrimSpace(o.h.Agent()); agent != "" {
 		body["agent"] = agent
 	}
+	// Optional reasoning-effort variant. Omitted at the reserved default, which
+	// the engine normalises away itself (MADR 0112 A14).
+	if v := o.requestVariant(); v != "" {
+		body["variant"] = v
+	}
 	start := time.Now()
 	// prompt_async returns immediately; the turn streams over SSE and ends
 	// with session.idle.
-	err := o.h.API()(ctx, "POST", "/session/"+o.h.AgentSessionID()+"/prompt_async"+o.dir(), body, nil)
+	err = o.h.API()(ctx, "POST", "/session/"+o.h.AgentSessionID()+"/prompt_async"+o.dir(), body, nil)
 	o.h.Log().Info("opencode prompt_async",
 		slog.String("agent_session_id", o.h.AgentSessionID()),
 		slog.Duration("enqueue_ms", time.Since(start)),

@@ -31,10 +31,14 @@ type session struct {
 	cwd     string
 	model   string
 	// agent is the optional OpenCode agent name for prompt_async (Sprint 3).
-	agent  string
-	log    *slog.Logger
-	events chan event.Event
-	done   chan struct{}
+	agent string
+	// startThinkingLevel is the rung StartOptions carried in. Immutable for the
+	// life of the session: later changes go through SetThinkingLevel on the
+	// dialect, which owns the effective value.
+	startThinkingLevel string
+	log                *slog.Logger
+	events             chan event.Event
+	done               chan struct{}
 
 	// emitMu serializes the streaming coalescer AND the delivery of what it
 	// produces (MADR 0024). Two goroutines call Emit — the engine-wide SSE
@@ -134,6 +138,7 @@ var _ provider.DiffSession = (*session)(nil)
 var _ provider.ModeSession = (*session)(nil)
 var _ provider.CompactSession = (*session)(nil)
 var _ provider.ModelSession = (*session)(nil)
+var _ provider.ThinkingSession = (*session)(nil)
 var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RenameSession = (*session)(nil)
@@ -173,6 +178,30 @@ type dialectCompact interface {
 // change the session's model without a restart (OpenCode).
 type dialectModel interface {
 	SetModel(ctx context.Context, model string) error
+}
+
+// dialectCapabilities is optionally implemented by a DialectSession that can
+// report which prompt-input modalities the session's *active* model accepts.
+// The answer changes with /model and with an asynchronous catalog refresh, so
+// it is asked for rather than captured once (MADR 0112 A2).
+type dialectCapabilities interface {
+	PromptCapabilities() (image, audio bool)
+}
+
+// dialectAfterBootRefined is optionally implemented by a DialectSession whose
+// advertised surface is only knowable once Dialect.AfterBoot has resolved the
+// live catalog. The transport calls it after that returns.
+type dialectAfterBootRefined interface {
+	AfterBootRefined()
+}
+
+// dialectThinking is optionally implemented by a DialectSession whose engine
+// exposes a per-request reasoning-effort control (OpenCode's model `variant`,
+// MADR 0112 A14). A dialect without it keeps the resting empty level and
+// refuses a change, which is what the canonical /thinking command renders.
+type dialectThinking interface {
+	SetThinkingLevel(ctx context.Context, level string) error
+	ThinkingLevel() string
 }
 
 // dialectUndo is optionally implemented by a DialectSession that can revert the
@@ -269,7 +298,82 @@ func (s *session) SetModel(ctx context.Context, model string) error {
 	if !ok {
 		return fmt.Errorf("in-place model switching not supported by this provider")
 	}
-	return m.SetModel(ctx, model)
+	if err := m.SetModel(ctx, model); err != nil {
+		return err
+	}
+	// Capabilities and reasoning rungs are per-model, so the phone must be told
+	// the new answer immediately rather than at the next session start.
+	s.emitCapabilities()
+	return nil
+}
+
+// StartThinkingLevel implements [Host].
+func (s *session) StartThinkingLevel() string { return s.startThinkingLevel }
+
+// promptCapabilities reports the active model's advertised prompt inputs. A
+// dialect that cannot answer reports neither: advertising an input the model
+// will discard is worse than hiding one it would have accepted.
+func (s *session) promptCapabilities() (image, audio bool) {
+	c, ok := s.ds.(dialectCapabilities)
+	if !ok {
+		return false, false
+	}
+	return c.PromptCapabilities()
+}
+
+// emitCapabilities publishes the session's current prompt-input capabilities.
+// It is called at create, at resume, after a model change and after the
+// asynchronous catalog refresh, and is idempotent by construction.
+func (s *session) emitCapabilities() {
+	if _, ok := s.ds.(dialectCapabilities); !ok {
+		return
+	}
+	image, audio := s.promptCapabilities()
+	s.Emit(event.Event{
+		Type:      event.TypeSessionCapabilities,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Capabilities: &event.Capabilities{
+			Image:        image,
+			Audio:        audio,
+			LoadSession:  true,
+			ListSessions: true,
+		},
+		AgentSessionID: s.AgentSessionID(),
+	})
+}
+
+// refineModelSurface re-resolves the dialect's model surface after the engine
+// catalog landed, then re-emits the capabilities that depend on it.
+func (s *session) refineModelSurface() {
+	if r, ok := s.ds.(dialectAfterBootRefined); ok {
+		r.AfterBootRefined()
+	}
+	s.emitCapabilities()
+}
+
+// SetThinkingLevel implements [provider.ThinkingSession].
+//
+// Availability is still decided by the dialect's CommandTable: a dialect that
+// pins "thinking" to KindNone keeps /thinking unavailable even though this
+// method exists, exactly as SetModel already works.
+func (s *session) SetThinkingLevel(ctx context.Context, level string) error {
+	t, ok := s.ds.(dialectThinking)
+	if !ok {
+		return fmt.Errorf("thinking level not supported by this provider")
+	}
+	return t.SetThinkingLevel(ctx, level)
+}
+
+// ThinkingLevel implements [provider.ThinkingSession]. A dialect without the
+// control reports the empty level, which the command layer renders as the
+// provider default rather than a fabricated rung.
+func (s *session) ThinkingLevel() string {
+	t, ok := s.ds.(dialectThinking)
+	if !ok {
+		return ""
+	}
+	return t.ThinkingLevel()
 }
 
 // Rename implements provider.RenameSession when the dialect owns a
@@ -498,6 +602,9 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		questionPending: make(map[string]struct{}),
 		permOrigin:      make(map[string]string),
 		treeNodes:       make(map[string]NodeStatus),
+		// Carried verbatim; the dialect decides how it ranks against any rung
+		// the engine itself persisted (MADR 0112 A14).
+		startThinkingLevel: opts.ThinkingLevel,
 	}
 	s.ds = p.dialect.NewSession(s)
 
@@ -529,6 +636,12 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		}
 		s.log.Info("http session created", slog.String("agent_session_id", s.agentID))
 	}
+
+	// Advertise the active model's prompt inputs before the first turn, so the
+	// composer never offers an attachment the engine would discard. A session
+	// created before the async catalog landed reports conservatively false and
+	// is corrected by refineModelSurface (MADR 0112 A2, PLAN P3 step 2).
+	s.emitCapabilities()
 
 	s.Emit(event.Event{
 		Type:           event.TypeSessionStatus,

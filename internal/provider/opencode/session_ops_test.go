@@ -704,6 +704,9 @@ func TestCommandTableOpsAreImplemented(t *testing.T) {
 		command.OpDiff:     true,
 		command.OpContext:  true,
 		command.OpFork:     true,
+		// MADR 0112 A14: each model advertises its own `variants` rungs and the
+		// engine accepts one per request, so the level is a real dialect op.
+		command.OpSetThinkingLevel: true,
 	}
 	for name, m := range (&httpDialect{}).CommandTable() {
 		if m.Kind == command.KindOp && !implemented[m.Op] {
@@ -716,6 +719,8 @@ func TestCommandTableOpsAreImplemented(t *testing.T) {
 		_ func(context.Context) (string, error)         = s.UndoLast
 		_ func(context.Context) error                   = s.Unrevert
 		_ func(context.Context, string) (string, error) = s.Diff
+		_ func(context.Context, string) error           = s.SetThinkingLevel
+		_ func() string                                 = s.ThinkingLevel
 	)
 }
 

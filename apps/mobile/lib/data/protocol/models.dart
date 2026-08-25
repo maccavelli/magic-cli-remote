@@ -1770,16 +1770,23 @@ class PromptAttachment {
     required this.kind,
     required this.mimeType,
     required this.data,
+    this.filename = '',
   });
 
   final String kind;
   final String mimeType;
   final String data;
 
+  /// Optional bare basename. Never a path: the daemon rejects any value
+  /// carrying a separator, so a picker must strip directories before staging
+  /// (MADR 0112 A2). Empty is valid and is omitted from the wire.
+  final String filename;
+
   Map<String, dynamic> toJson() => {
     'kind': kind,
     'mime_type': mimeType,
     'data': data,
+    if (filename.isNotEmpty) 'filename': filename,
   };
 }
 

@@ -132,6 +132,10 @@ type Content struct {
 	Text     string
 	MimeType string
 	Data     string
+	// Filename is an optional bare basename for a non-text block. It is never
+	// a path: providers that name the attachment upstream must not be handed a
+	// value that could traverse the host filesystem (MADR 0112 A2).
+	Filename string
 }
 
 // Session is a running agent conversation.
@@ -505,10 +509,12 @@ type ModelSession interface {
 }
 
 // ThinkingSession accepts a thinking/reasoning level. Absence is the honest
-// answer for opencode and goose, which expose no per-session effort control
-// (MADR 0052 D6). Codex applies the level on the next turn/start; grok 1.0.5
-// applies it on session/new|load `_meta` and mid-session via session/set_model
-// `_meta.reasoningEffort` (MADR 0106).
+// answer for goose, which exposes no per-session effort control (MADR 0052 D6).
+// Codex applies the level on the next turn/start; grok 1.0.5 applies it on
+// session/new|load `_meta` and mid-session via session/set_model
+// `_meta.reasoningEffort` (MADR 0106). OpenCode applies it per request as the
+// documented `variant` field, so it is settable mid-session and never returns
+// ErrThinkingLevelFixed (MADR 0112 A14).
 type ThinkingSession interface {
 	Session
 	SetThinkingLevel(ctx context.Context, level string) error

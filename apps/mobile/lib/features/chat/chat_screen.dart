@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
@@ -95,18 +96,92 @@ class _QueuedPrompt {
   }
 }
 
-/// An image staged for the next prompt (Phase 2). Holds the raw bytes for the
-/// composer thumbnail plus the base64 wire form.
-class _PendingImage {
-  _PendingImage({required this.bytes, required this.attachment});
+/// A non-text block staged for the next prompt (Phase 2; audio added by MADR
+/// 0112 A2). Holds the raw bytes for the composer preview plus the base64 wire
+/// form. Images and audio share this model so both follow one bounded
+/// stage/preview/remove flow.
+class _PendingAttachment {
+  _PendingAttachment({required this.bytes, required this.attachment});
   final Uint8List bytes;
   final PromptAttachment attachment;
+
+  bool get isImage => attachment.kind == 'image';
+  bool get isAudio => attachment.kind == 'audio';
 }
 
 /// Stands in for the system photo picker so tests can stage a real attachment
 /// without a platform channel. Null in production.
 @visibleForTesting
 Future<XFile?> Function()? debugPickImage;
+
+/// Stands in for the system file picker used for audio, for the same reason.
+/// Null in production.
+@visibleForTesting
+Future<XFile?> Function()? debugPickAudio;
+
+/// Audio media types the composer will stage.
+///
+/// An allowlist rather than a family prefix: the daemon accepts any `audio/*`,
+/// but offering a container the model cannot decode wastes a whole turn, and
+/// these are the types OpenCode's documented audio inputs cover (MADR 0112 A2).
+const Set<String> kAcceptedAudioMimeTypes = {
+  'audio/aac',
+  'audio/flac',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/opus',
+  'audio/wav',
+  'audio/webm',
+  'audio/x-m4a',
+};
+
+/// Maps a filename extension onto an accepted audio media type.
+///
+/// Returns an empty string when the extension is unknown, which the caller
+/// surfaces as a refusal rather than guessing a type the model would reject.
+String audioMimeForPath(String path, [String? given]) {
+  if (given != null && kAcceptedAudioMimeTypes.contains(given.toLowerCase())) {
+    return given.toLowerCase();
+  }
+  final lower = path.toLowerCase();
+  const byExtension = <String, String>{
+    '.aac': 'audio/aac',
+    '.flac': 'audio/flac',
+    '.m4a': 'audio/mp4',
+    '.mp3': 'audio/mpeg',
+    '.mp4': 'audio/mp4',
+    '.oga': 'audio/ogg',
+    '.ogg': 'audio/ogg',
+    '.opus': 'audio/opus',
+    '.wav': 'audio/wav',
+    '.weba': 'audio/webm',
+  };
+  for (final entry in byExtension.entries) {
+    if (lower.endsWith(entry.key)) return entry.value;
+  }
+  return '';
+}
+
+/// Reduces a picked path to a bare basename the daemon will accept.
+String attachmentBasename(String path) {
+  var name = path;
+  final slash = name.lastIndexOf('/');
+  if (slash >= 0) name = name.substring(slash + 1);
+  final back = name.lastIndexOf(r'\');
+  if (back >= 0) name = name.substring(back + 1);
+  name = name.replaceAll('\u0000', '');
+  if (name == '.' || name == '..') return '';
+  // The daemon bounds the basename at 256 bytes; keep the extension by
+  // trimming the stem rather than the tail.
+  if (name.length > 256) {
+    final dot = name.lastIndexOf('.');
+    final ext = dot > 0 ? name.substring(dot) : '';
+    final keep = 256 - ext.length;
+    name = keep > 0 ? name.substring(0, keep) + ext : name.substring(0, 256);
+  }
+  return name;
+}
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.sessionId, this.sessionName});
@@ -142,7 +217,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Images attached to the next prompt (Phase 2). Sent with the next direct
   /// send and cleared; the attach button is disabled while the agent is busy,
   /// so these never coexist with the mid-turn queue.
-  final List<_PendingImage> _pendingImages = [];
+  final List<_PendingAttachment> _pendingAttachments = [];
 
   bool _flushScheduled = false;
   final _presentedPermissionIds = <String>{};
@@ -601,9 +676,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         kind: 'image',
         mimeType: _mimeForImage(file.path, file.mimeType),
         data: base64Encode(bytes),
+        filename: attachmentBasename(file.path),
       );
       final frameBytes = _promptFrameBytes(_composer.text.trim(), [
-        ..._pendingImages.map((p) => p.attachment),
+        ..._pendingAttachments.map((p) => p.attachment),
         attachment,
       ]);
       if (frameBytes > kMaxClientFrameBytes) {
@@ -618,13 +694,103 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
       if (!mounted) return;
       setState(() {
-        _pendingImages.add(_PendingImage(bytes: bytes, attachment: attachment));
+        _pendingAttachments.add(
+          _PendingAttachment(bytes: bytes, attachment: attachment),
+        );
       });
     } catch (e) {
       if (mounted) {
         showTopNotification(
           context,
           'Could not attach image: $e',
+          severity: NoticeSeverity.error,
+        );
+      }
+    }
+  }
+
+  /// Pick an audio file and stage it for the next prompt. Only shown when the
+  /// active model advertises audio input (MADR 0112 A2). Restricted to
+  /// [kAcceptedAudioMimeTypes]: an unrecognised container is refused with a
+  /// reason rather than sent for the model to reject a turn later.
+  Future<void> _pickAudio() async {
+    try {
+      final file =
+          await (debugPickAudio?.call() ??
+              openFile(
+                acceptedTypeGroups: const [
+                  XTypeGroup(
+                    label: 'audio',
+                    extensions: [
+                      'aac',
+                      'flac',
+                      'm4a',
+                      'mp3',
+                      'mp4',
+                      'oga',
+                      'ogg',
+                      'opus',
+                      'wav',
+                      'weba',
+                    ],
+                    mimeTypes: [...kAcceptedAudioMimeTypes],
+                  ),
+                ],
+              ));
+      if (file == null) return;
+      final mime = audioMimeForPath(file.path, file.mimeType);
+      if (mime.isEmpty) {
+        if (mounted) {
+          showTopNotification(
+            context,
+            'That audio format is not supported.',
+            severity: NoticeSeverity.error,
+          );
+        }
+        return;
+      }
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) {
+        if (mounted) {
+          showTopNotification(
+            context,
+            'That audio file is empty.',
+            severity: NoticeSeverity.error,
+          );
+        }
+        return;
+      }
+      final attachment = PromptAttachment(
+        kind: 'audio',
+        mimeType: mime,
+        data: base64Encode(bytes),
+        filename: attachmentBasename(file.path),
+      );
+      final frameBytes = _promptFrameBytes(_composer.text.trim(), [
+        ..._pendingAttachments.map((p) => p.attachment),
+        attachment,
+      ]);
+      if (frameBytes > kMaxClientFrameBytes) {
+        if (mounted) {
+          showTopNotification(
+            context,
+            _frameTooLargeMessage(frameBytes),
+            severity: NoticeSeverity.error,
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _pendingAttachments.add(
+          _PendingAttachment(bytes: bytes, attachment: attachment),
+        );
+      });
+    } catch (e) {
+      if (mounted) {
+        showTopNotification(
+          context,
+          'Could not attach audio: $e',
           severity: NoticeSeverity.error,
         );
       }
@@ -881,7 +1047,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _send() async {
     final text = _composer.text.trim();
-    final attachments = [for (final p in _pendingImages) p.attachment];
+    final attachments = [for (final p in _pendingAttachments) p.attachment];
     if (text.isEmpty && attachments.isEmpty) return;
     if (attachments.isEmpty && await _maybeInterceptModelCommand(text)) {
       return;
@@ -914,11 +1080,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final queued = _QueuedPrompt(
         text: text,
         attachments: attachments,
-        imageBytes: [for (final image in _pendingImages) image.bytes],
+        imageBytes: [
+          for (final a in _pendingAttachments)
+            if (a.isImage) a.bytes,
+        ],
       );
       setState(() {
         _queuedPrompts.add(queued);
-        _pendingImages.clear();
+        _pendingAttachments.clear();
       });
       _composer.clear();
       // Drop the keyboard so the transcript can use the full height while the
@@ -933,13 +1102,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Attachments ride the direct send only (attach is disabled while busy, so
     // they never queue). Stage the bytes so the user_message echo can fold a
     // real thumbnail into the bubble, then clear the composer strip.
-    final pendingImages = List<_PendingImage>.from(_pendingImages);
-    final images = [for (final p in pendingImages) p.bytes];
+    final pendingImages = List<_PendingAttachment>.from(_pendingAttachments);
+    final images = [
+      for (final p in pendingImages)
+        if (p.isImage) p.bytes,
+    ];
     if (images.isNotEmpty) {
       ref
           .read(transcriptsProvider.notifier)
           .stageSentImages(widget.sessionId, images);
-      setState(() => _pendingImages.clear());
+      setState(() => _pendingAttachments.clear());
     }
     await _sendText(
       text,
@@ -958,7 +1130,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     List<PromptAttachment> attachments = const [],
     bool stagedImages = false,
     bool restoreComposerOnFailure = false,
-    List<_PendingImage> restoreImagesOnFailure = const [],
+    List<_PendingAttachment> restoreImagesOnFailure = const [],
     _QueuedPrompt? requeuePromptOnFailure,
   }) async {
     setState(() => _sending = true);
@@ -990,7 +1162,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           _composer.selection = TextSelection.collapsed(offset: text.length);
         }
         if (restoreImagesOnFailure.isNotEmpty) {
-          setState(() => _pendingImages.insertAll(0, restoreImagesOnFailure));
+          setState(
+            () => _pendingAttachments.insertAll(0, restoreImagesOnFailure),
+          );
         }
         if (requeuePromptOnFailure != null) {
           setState(() => _queuedPrompts.insert(0, requeuePromptOnFailure));
@@ -1862,6 +2036,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         sid,
       ).select((t) => t.capabilities?.image ?? false),
     );
+    // Audio follows the same rule: the affordance appears only when the active
+    // model advertises audio input, and the daemon re-emits capabilities after
+    // a /model switch so this flips without a restart (MADR 0112 A2).
+    final canAttachAudio = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.capabilities?.audio ?? false),
+    );
     final modes = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.modes),
     );
@@ -2471,7 +2653,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           // Staged image attachments (Phase 2): thumbnails above the composer,
           // removable, sent with the next prompt.
-          if (_pendingImages.isNotEmpty)
+          if (_pendingAttachments.isNotEmpty)
             SafeArea(
               top: false,
               bottom: false,
@@ -2481,13 +2663,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   height: 64,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: _pendingImages.length,
+                    itemCount: _pendingAttachments.length,
                     separatorBuilder: (_, _) => const SizedBox(width: 8),
-                    itemBuilder: (ctx, i) => _AttachmentThumb(
-                      bytes: _pendingImages[i].bytes,
-                      onRemove: () =>
-                          setState(() => _pendingImages.removeAt(i)),
-                    ),
+                    itemBuilder: (ctx, i) {
+                      final staged = _pendingAttachments[i];
+                      void remove() =>
+                          setState(() => _pendingAttachments.removeAt(i));
+                      if (staged.isAudio) {
+                        return _AudioAttachmentChip(
+                          filename: staged.attachment.filename,
+                          byteCount: staged.bytes.length,
+                          onRemove: remove,
+                        );
+                      }
+                      return _AttachmentThumb(
+                        bytes: staged.bytes,
+                        onRemove: remove,
+                      );
+                    },
                   ),
                 ),
               ),
@@ -2505,6 +2698,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       // already staged images move atomically with a queued
                       // prompt when the session becomes busy.
                       onPressed: (busy || offline) ? null : _pickImage,
+                    ),
+                  if (canAttachAudio)
+                    IconButton(
+                      key: const ValueKey('attach-audio'),
+                      tooltip: 'Attach audio',
+                      icon: const Icon(Icons.audiotrack_outlined),
+                      onPressed: (busy || offline) ? null : _pickAudio,
                     ),
                   Expanded(
                     child: TextField(
@@ -2591,7 +2791,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     builder: (ctx, value, _) {
                       final hasDraft =
                           value.text.trim().isNotEmpty ||
-                          _pendingImages.isNotEmpty;
+                          _pendingAttachments.isNotEmpty;
                       final Widget button;
                       if (busy && hasDraft) {
                         button = IconButton.filled(
@@ -3164,6 +3364,93 @@ class _ModeChip extends StatelessWidget {
 }
 
 /// Thumbnail for a staged image attachment with a remove affordance.
+/// A staged audio file in the composer strip. Audio has no thumbnail, so it
+/// shows its name and size instead, with the same removal affordance as an
+/// image (MADR 0112 A2).
+class _AudioAttachmentChip extends StatelessWidget {
+  const _AudioAttachmentChip({
+    required this.filename,
+    required this.byteCount,
+    required this.onRemove,
+  });
+
+  final String filename;
+  final int byteCount;
+  final VoidCallback onRemove;
+
+  String get _size {
+    if (byteCount >= 1024 * 1024) {
+      return '${(byteCount / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (byteCount >= 1024) return '${(byteCount / 1024).round()} KB';
+    return '$byteCount B';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          key: const ValueKey('staged-audio'),
+          height: 64,
+          constraints: const BoxConstraints(maxWidth: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.audiotrack, size: 18, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      filename.isEmpty ? 'Audio' : filename,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      _size,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: -8,
+          right: -8,
+          child: IconButton(
+            iconSize: 14,
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            tooltip: 'Remove',
+            onPressed: onRemove,
+            icon: CircleAvatar(
+              radius: 10,
+              backgroundColor: scheme.surface,
+              child: Icon(Icons.close, size: 12, color: scheme.onSurface),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _AttachmentThumb extends StatelessWidget {
   const _AttachmentThumb({required this.bytes, required this.onRemove});
 

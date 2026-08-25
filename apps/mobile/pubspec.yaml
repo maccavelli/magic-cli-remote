@@ -39,6 +39,9 @@ dependencies:
   flutter_foreground_task: ^10.0.0
   speech_to_text: ^7.4.0
   image_picker: ^1.2.3
+  # Bounded audio-file composition for OpenCode models that advertise audio
+  # input (MADR 0112 A2). Images keep using image_picker's system photo UI.
+  file_selector: ^1.1.0
   # App-private support directory for transcript snapshots (MADR 0084 D3).
   # They were blobs in SharedPreferences, which loads every value into the
   # Dart heap at first read and is documented as "not for critical data".

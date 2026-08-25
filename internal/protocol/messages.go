@@ -394,6 +394,9 @@ type PromptAttachment struct {
 	Kind     string `json:"kind"`
 	MimeType string `json:"mime_type"`
 	Data     string `json:"data"`
+	// Filename is an optional bare basename (no path separators). Older
+	// clients omit it and the field stays empty, which remains valid.
+	Filename string `json:"filename,omitempty"`
 }
 
 // SessionSetModePayload switches the active session mode (session.set_mode).

@@ -301,7 +301,7 @@ denies transport access rather than merely a bearer secret.
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
 | `session.release` | `{ "session_id", "to_device_id"? }` | `ok` / `error` — hand off to another device; see [Session handoff](#session-handoff-madr-0078) |
 | `session.claim` | `{ "session_id" }` | `session.created` / `error` — take a released session |
-| `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) |
+| `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) — each attachment is `{ "kind", "mime_type", "data", "filename"? }`; see [Prompt attachments](#prompt-attachments) |
 | `session.set_mode` | `{ "session_id", "mode_id" }` | `ok` / `error` |
 | `session.set_config_option` | `{ "session_id", "option_id", "kind", "value" }` | `ok` / `error` |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
@@ -1265,6 +1265,39 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   and MIME type only; the bytes are never echoed back. Clients render a
   placeholder chip so an image-only prompt still shows as a turn.
 - `title`: on `session_title` events, the session's new display title.
+
+### Prompt attachments
+
+`session.prompt` carries optional non-text blocks:
+
+```json
+{"v": 1, "type": "session.prompt", "id": "req-1",
+ "payload": {"session_id": "s1", "text": "transcribe this",
+   "attachments": [
+     {"kind": "audio", "mime_type": "audio/mpeg",
+      "data": "<base64>", "filename": "note.mp3"}
+   ]}}
+```
+
+`kind` is `image` or `audio`. `data` is canonical base64 — non-canonical
+padding or a URL-safe alphabet is rejected, because what the daemon measured
+and what the agent receives must be the same bytes. `filename` is **optional**
+and must be a bare basename: any path separator, NUL, control character, `.`
+or `..` is refused rather than sanitised, and it is bounded at 256 bytes.
+`mime_type` must match the family implied by `kind` and is bounded at 128
+bytes; parameters such as `; charset=` are not accepted.
+
+A prompt is rejected as a whole when a block is malformed, when the active
+model does not advertise that input, or when the serialized request exceeds
+the 1 MiB frame budget. Rejecting is deliberate: silently dropping a block
+would leave the agent a prompt referring to an attachment it never received.
+
+Whether a client may offer image or audio comes from the `session_capabilities`
+event, which the daemon re-emits at create, at resume, after `/model`, and once
+the engine's model catalog finishes loading. For OpenCode the answer follows
+the **active model's** advertised inputs (MADR 0112 A2), so it can change
+mid-session without a restart. Attachment bytes and data URLs never appear in
+daemon logs, and `user_message` echoes carry descriptors only.
 
 Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 

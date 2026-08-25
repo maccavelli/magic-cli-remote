@@ -20,13 +20,10 @@ func (d *httpDialect) CommandTable() command.Table {
 		// POST /api/session/{id}/model switches in place, so unlike grok this
 		// costs the session nothing.
 		"model": {Kind: command.KindOp, Op: command.OpSetModel},
-		// OpenCode exposes no per-session thinking/effort control over the
-		// HTTP API — only a boolean thinking toggle on some models, with no
-		// settable ladder (MADR 0052 D6).
-		"thinking": {
-			Kind: command.KindNone,
-			Note: "OpenCode has no per-session thinking level — the model decides",
-		},
+		// Each model advertises its own reasoning rungs as the `variants`
+		// record, and prompt/command accept the chosen key as `variant`, so the
+		// level is settable per request and mid-session (MADR 0112 A14).
+		"thinking": {Kind: command.KindOp, Op: command.OpSetThinkingLevel},
 		// Token counts come from the engine's own assistant messages.
 		"context":  {Kind: command.KindOp, Op: command.OpContext},
 		"status":   {Kind: command.KindNone, Note: "OpenCode exposes no bounded host runtime status"},

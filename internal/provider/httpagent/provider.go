@@ -612,7 +612,14 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	// Dialect boot hook (e.g. catalog model refine) runs async: OpenCode's
 	// /provider payload is multi-MB and must not delay the first session
 	// create. Dialects that need a fallback must seed one before AfterBoot.
-	go p.dialect.AfterBoot(context.WithoutCancel(ctx), p.apiAt(url))
+	go func() {
+		p.dialect.AfterBoot(context.WithoutCancel(ctx), p.apiAt(url))
+		// The catalog that AfterBoot just resolved is what decides a session's
+		// advertised prompt capabilities and reasoning rungs. A session created
+		// before it landed started conservatively false, so re-emit now rather
+		// than leaving it wrong until a restart (MADR 0112 A2, PLAN P3 step 2).
+		p.refineSessions(gen)
+	}()
 
 	// Death monitor: mark the server gone so the next Start respawns, and
 	// fail every live session (their server-side state is unreachable).
@@ -784,6 +791,28 @@ func (p *Provider) resyncSessions(gen int) {
 	p.mu.Unlock()
 	for _, s := range sessions {
 		go s.resync()
+	}
+}
+
+// refineSessions asks every registered session of this generation to re-resolve
+// and re-emit its model surface after an asynchronous catalog refresh.
+//
+// It mirrors resyncSessions: snapshot under the lock, then act outside it. A
+// session closed or re-modelled in the meantime is harmless — the re-emit is
+// idempotent and a closed session drops it.
+func (p *Provider) refineSessions(gen int) {
+	p.mu.Lock()
+	if p.closed || p.generation != gen {
+		p.mu.Unlock()
+		return
+	}
+	sessions := make([]*session, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	p.mu.Unlock()
+	for _, s := range sessions {
+		s.refineModelSurface()
 	}
 }
 
