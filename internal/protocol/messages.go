@@ -146,6 +146,8 @@ const (
 	TypeCodexRuntimeResult       = "codex.runtime.result"
 	TypeCodexDoctorRun           = "codex.doctor.run"
 	TypeCodexDoctorResult        = "codex.doctor.result"
+	TypeCodexPermissionsWrite    = "codex.permissions.write"
+	TypeCodexPermissionsResult   = "codex.permissions.result"
 )
 
 // Envelope is the common WS message wrapper.
@@ -325,6 +327,10 @@ type SessionCreatePayload struct {
 	// omits turn/start.effort; grok falls through to config then omits the
 	// spawn flag (MADR 0052). Prefer values from models.list thinking_levels.
 	ThinkingLevel string `json:"thinking_level,omitempty"`
+	// PermissionProfileID selects a Codex permission profile; custom ids are opaque.
+	PermissionProfileID string `json:"permission_profile_id,omitempty"`
+	// ApprovalsReviewer is independent from the permission profile.
+	ApprovalsReviewer string `json:"approvals_reviewer,omitempty"`
 	// Agent optionally selects the OpenCode agent name (e.g. "build", "plan")
 	// sent on each prompt_async. Empty uses the engine default. Prefer values
 	// from agents.list. Ignored by non-OpenCode providers (MADR 0020 Sprint 3).
@@ -400,6 +406,12 @@ type SessionSetConfigPayload struct {
 	OptionID  string `json:"option_id"`
 	Kind      string `json:"kind"`
 	Value     string `json:"value"`
+}
+
+// CodexPermissionsWritePayload atomically changes provider permission defaults.
+type CodexPermissionsWritePayload struct {
+	ProfileID string `json:"profile_id"`
+	Reviewer  string `json:"reviewer"`
 }
 
 // SeqBoundsPayload is the retained-seq window for one session

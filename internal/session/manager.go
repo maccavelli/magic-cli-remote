@@ -88,6 +88,8 @@ type Meta struct {
 	ThinkingLevel       string `json:"thinking_level,omitempty"`
 	ModeID              string `json:"mode_id,omitempty"`
 	CollaborationModeID string `json:"collaboration_mode_id,omitempty"`
+	PermissionProfileID string `json:"permission_profile_id,omitempty"`
+	ApprovalsReviewer   string `json:"approvals_reviewer,omitempty"`
 	ServiceTier         string `json:"service_tier,omitempty"`
 	Personality         string `json:"personality,omitempty"`
 	CWD                 string `json:"cwd,omitempty"`
@@ -561,6 +563,12 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 			if opts.CollaborationModeID == "" {
 				opts.CollaborationModeID = rec.CollaborationModeID
 			}
+			if opts.PermissionProfileID == "" {
+				opts.PermissionProfileID = rec.PermissionProfileID
+			}
+			if opts.ApprovalsReviewer == "" {
+				opts.ApprovalsReviewer = rec.ApprovalsReviewer
+			}
 			if opts.ServiceTier == "" {
 				opts.ServiceTier = rec.ServiceTier
 			}
@@ -600,6 +608,8 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		ThinkingLevel:       strings.TrimSpace(opts.ThinkingLevel),
 		ModeID:              strings.TrimSpace(opts.ModeID),
 		CollaborationModeID: strings.TrimSpace(opts.CollaborationModeID),
+		PermissionProfileID: strings.TrimSpace(opts.PermissionProfileID),
+		ApprovalsReviewer:   strings.TrimSpace(opts.ApprovalsReviewer),
 		ServiceTier:         strings.TrimSpace(opts.ServiceTier),
 		Personality:         strings.TrimSpace(opts.Personality),
 		CWD:                 cwd,
@@ -770,6 +780,14 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					if ev.CurrentModeID != "" {
 						e.currentModeID = ev.CurrentModeID
 						e.meta.ModeID = ev.CurrentModeID
+						if e.meta.Provider == provider.IDCodex {
+							e.meta.PermissionProfileID = ev.CurrentModeID
+						}
+						meta := e.meta
+						persistMeta = &meta
+					}
+					if ev.ApprovalsReviewer != "" && e.meta.Provider == provider.IDCodex {
+						e.meta.ApprovalsReviewer = ev.ApprovalsReviewer
 						meta := e.meta
 						persistMeta = &meta
 					}
@@ -1378,6 +1396,8 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			ThinkingLevel:       rec.ThinkingLevel,
 			ModeID:              rec.ModeID,
 			CollaborationModeID: rec.CollaborationModeID,
+			PermissionProfileID: rec.PermissionProfileID,
+			ApprovalsReviewer:   rec.ApprovalsReviewer,
 			ServiceTier:         rec.ServiceTier,
 			Personality:         rec.Personality,
 			CWD:                 rec.CWD,
@@ -1927,6 +1947,8 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 		ThinkingLevel:       meta.ThinkingLevel,
 		ModeID:              meta.ModeID,
 		CollaborationModeID: meta.CollaborationModeID,
+		PermissionProfileID: meta.PermissionProfileID,
+		ApprovalsReviewer:   meta.ApprovalsReviewer,
 		ServiceTier:         meta.ServiceTier,
 		Personality:         meta.Personality,
 		AgentSessionID:      newAgentID,
@@ -2302,6 +2324,8 @@ func (m *Manager) writePersist(meta Meta) error {
 		ThinkingLevel:       meta.ThinkingLevel,
 		ModeID:              meta.ModeID,
 		CollaborationModeID: meta.CollaborationModeID,
+		PermissionProfileID: meta.PermissionProfileID,
+		ApprovalsReviewer:   meta.ApprovalsReviewer,
 		ServiceTier:         meta.ServiceTier,
 		Personality:         meta.Personality,
 		CWD:                 meta.CWD,

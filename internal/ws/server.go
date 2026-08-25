@@ -1402,6 +1402,10 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		return s.writeError(ctx, c, env.ID, "bad_payload", "model too long")
 	case len(p.ThinkingLevel) > maxThinkingLevelLen:
 		return s.writeError(ctx, c, env.ID, "bad_payload", "thinking_level too long")
+	case len(p.PermissionProfileID) > 256:
+		return s.writeError(ctx, c, env.ID, "bad_payload", "permission_profile_id too long")
+	case len(p.ApprovalsReviewer) > 32:
+		return s.writeError(ctx, c, env.ID, "bad_payload", "approvals_reviewer too long")
 	case len(p.Agent) > maxAgentLen:
 		return s.writeError(ctx, c, env.ID, "bad_payload", "agent too long")
 	case len(p.AgentSessionID) > maxAgentSessionIDLen:
@@ -1411,13 +1415,15 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 		p.Name = p.Name[:maxNameLen]
 	}
 	meta, err := s.sessions.Create(ctx, provider.ID(p.Provider), provider.StartOptions{
-		Name:           p.Name,
-		CWD:            p.CWD,
-		Model:          p.Model,
-		ThinkingLevel:  p.ThinkingLevel,
-		Agent:          p.Agent,
-		AgentSessionID: p.AgentSessionID,
-		LocalSessionID: p.SessionID,
+		Name:                p.Name,
+		CWD:                 p.CWD,
+		Model:               p.Model,
+		ThinkingLevel:       p.ThinkingLevel,
+		PermissionProfileID: p.PermissionProfileID,
+		ApprovalsReviewer:   p.ApprovalsReviewer,
+		Agent:               p.Agent,
+		AgentSessionID:      p.AgentSessionID,
+		LocalSessionID:      p.SessionID,
 	}, deviceID)
 	if err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "session_create_failed", err)

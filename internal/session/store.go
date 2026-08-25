@@ -29,6 +29,8 @@ type Record struct {
 	ThinkingLevel       string `json:"thinking_level,omitempty"`
 	ModeID              string `json:"mode_id,omitempty"`
 	CollaborationModeID string `json:"collaboration_mode_id,omitempty"`
+	PermissionProfileID string `json:"permission_profile_id,omitempty"`
+	ApprovalsReviewer   string `json:"approvals_reviewer,omitempty"`
 	ServiceTier         string `json:"service_tier,omitempty"`
 	Personality         string `json:"personality,omitempty"`
 	AgentSessionID      string `json:"agent_session_id,omitempty"`

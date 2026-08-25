@@ -104,8 +104,7 @@ Clients must tolerate unknown keys in `caps` (additive evolution).
 ## Codex surface version 1
 
 The following host-global operations require an authenticated v2 connection
-that advertised `codex_surface_version: 1`; neither operation requires session
-ownership:
+that advertised `codex_surface_version: 1`; none requires session ownership:
 
 - `codex.runtime.read` → `codex.runtime.result`: a typed snapshot of account
   plan, usage/rate windows/workspace messages, model/context capabilities,
@@ -118,6 +117,19 @@ ownership:
   URLs, credentials, remediation commands, and raw report data are never sent
   or persisted. The operation never repairs or uploads anything and is never
   run periodically.
+- `codex.permissions.write` → `codex.permissions.result`: atomically writes the
+  selected `default_permissions` and independent `approvals_reviewer` values
+  using the last user-layer version and requests Codex hot reload. The daemon
+  accepts only a catalog profile whose effective managed `allowed` state is
+  true and reviewer `user` or `auto_review`. The result is the refreshed typed
+  runtime snapshot; conflicts or managed denials leave both values unchanged.
+
+The runtime snapshot's `permission_profiles` list contains bounded opaque ids,
+optional descriptions, `allowed`, and `dangerous`; managed-disallowed entries
+remain visible in the data model but clients omit them from the chooser. Its
+config projection reports requested/effective profile and reviewer values plus
+sanitized layer classes and an explanatory managed-policy label. It never
+contains config values, policy documents, developer instructions, or paths.
 
 The keyed `question.respond` object and additive question `id`, `secret`, and
 option `description` fields documented in protocol v1 are base-protocol

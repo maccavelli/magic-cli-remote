@@ -111,6 +111,12 @@ func (s *session) handleProjectedNotification(method string, params json.RawMess
 		}
 		if json.Unmarshal(params, &p) == nil {
 			emit(event.TypeCodexProgress, event.CodexPayload{Key: "review:" + p.ReviewID, Kind: "guardian_review", Status: "completed", Title: "Guardian review", Text: firstNonEmpty(p.Review.Status, p.DecisionSource), Resolved: true})
+			if p.Review.Status == "denied" {
+				s.mu.Lock()
+				generation := s.engineGeneration
+				s.mu.Unlock()
+				s.trackGuardianDenial(p.ReviewID, generation, params)
+			}
 		}
 		return true
 	case "model/rerouted":

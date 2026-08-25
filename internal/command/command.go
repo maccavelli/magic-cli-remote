@@ -63,6 +63,10 @@ const (
 	OpStatus Op = "status"
 	// OpUsage reports provider usage and rate-limit state.
 	OpUsage Op = "usage"
+	// OpApprovalsReviewer switches the independent approval reviewer axis.
+	OpApprovalsReviewer Op = "approvals_reviewer"
+	// OpGuardianApprove retries one exact tracked Guardian denial.
+	OpGuardianApprove Op = "guardian_approve"
 	// OpSetModel switches the model without restarting the agent.
 	OpSetModel Op = "set_model"
 	// OpSetThinkingLevel switches the reasoning/thinking effort for the

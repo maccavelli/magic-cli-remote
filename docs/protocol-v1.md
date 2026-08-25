@@ -295,7 +295,7 @@ denies transport access rather than merely a bearer secret.
 |------|---------|----------|
 | `auth` | `{ "token" }` | `auth_ok` / `auth_error` |
 | `pair.claim` | `{ "code", "name?" }` | `pair_ok` / `pair_error` |
-| `session.create` | `{ "provider", "name?", "cwd?", "model?", "thinking_level?", "agent?", "agent_session_id?", "session_id?" }` | `session.created` |
+| `session.create` | `{ "provider", "name?", "cwd?", "model?", "thinking_level?", "permission_profile_id?", "approvals_reviewer?", "agent?", "agent_session_id?", "session_id?" }` | `session.created` |
 | `session.list` | `{}` | `session.list_result` |
 | `session.close` | `{ "session_id" }` | `ok` / `error` |
 | `session.delete` | `{ "session_id" }` | `ok` / `error` |
@@ -846,7 +846,7 @@ timed out, exceeded its bound, or returned no valid schema-v1 report.
 
 | code | When |
 |---|---|
-| `config_write_failed` | The `providers.<id>.prewarm` write did not land — no config file path, the file is missing or empty, or the rename failed. Nothing was applied; leave the switch where it was. |
+| `config_write_failed` | A requested host config mutation did not land (including provider prewarm and Codex permission defaults). Nothing was applied; retain the requested/effective state from the next authoritative read. |
 | `provider_not_ready` | The flag was persisted but no engine could be started: the agent is not enabled on this daemon. Unlike `provider_unavailable` (a registered engine that failed to boot), there is no engine to pre-warm at all. |
 
 ### Remote provider auth (MADR 0074)
@@ -1283,6 +1283,9 @@ is enabled from this list only for providers whose `plan` id is a
   `current_mode_id` (no `modes`) — a mode *change*, whether from
   `session.set_mode`, a `/plan` command, or the agent switching itself. Clients
   merge: keep the stored list, replace the current id.
+- Codex profile-backed mode events may also carry `approvals_reviewer`. The
+  profile id and reviewer are independent additive session metadata fields;
+  changing either must not widen the other, the approval policy, or sandbox.
 - A session with no modes emits nothing; treat mode UI and the mode built-ins as
   unavailable there.
 - A mode id of `plan` on `session_mode` is the read-only planning state for

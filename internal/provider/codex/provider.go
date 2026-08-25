@@ -82,6 +82,8 @@ type Provider struct {
 	// and engine metadata. It intentionally contains no raw config or paths.
 	runtimeMu sync.RWMutex
 	runtime   runtimeState
+	profiles  []provider.PermissionProfile
+	config    ConfigPolicyState
 
 	doctorMu  sync.Mutex
 	doctor    *doctorFlight
@@ -1100,6 +1102,7 @@ func (p *Provider) startSession(ctx context.Context, opts provider.StartOptions)
 		return nil, err
 	}
 	opts.CWD = cwd
+	_ = p.refreshPermissionState(ctx, cwd)
 	s := newSession(p, p.cfg, opts, p.log)
 	if err := s.create(ctx, fr); err != nil {
 		return nil, fmt.Errorf("session create: %w", err)

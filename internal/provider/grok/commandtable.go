@@ -28,6 +28,8 @@ var commandTable = command.Table{
 	"context":       {Kind: command.KindNative, Native: "session-info"},
 	"status":        {Kind: command.KindNone, Note: "grok exposes no host runtime status over ACP"},
 	"usage":         {Kind: command.KindNone, Note: "grok exposes no account usage over ACP"},
+	"reviewer":      {Kind: command.KindNone, Note: "grok exposes no separate approval reviewer"},
+	"approve":       {Kind: command.KindNone, Note: "grok has no Guardian denial"},
 	"goal":          {Kind: command.KindNative, Native: "goal"},
 	"deep-research": {Kind: command.KindNative, Native: "deep-research"},
 	"workflow":      {Kind: command.KindNative, Native: "workflow"},

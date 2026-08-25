@@ -28,6 +28,11 @@ const (
 	CapabilityExperimentalFeature CapabilityID = "rpc:experimentalFeature/list"
 	CapabilityMCPServerStatus     CapabilityID = "rpc:mcpServerStatus/list"
 	CapabilityServerDiagnostics   CapabilityID = "rpc:server/diagnostics"
+	CapabilityPermissionProfiles  CapabilityID = "rpc:permissionProfile/list"
+	CapabilityGuardianApprove     CapabilityID = "rpc:thread/approveGuardianDeniedAction"
+	CapabilityConfigRead          CapabilityID = "rpc:config/read"
+	CapabilityConfigRequirements  CapabilityID = "rpc:configRequirements/read"
+	CapabilityConfigBatchWrite    CapabilityID = "rpc:config/batchWrite"
 )
 
 type threadCreationOperation string

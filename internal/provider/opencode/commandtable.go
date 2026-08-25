@@ -28,9 +28,11 @@ func (d *httpDialect) CommandTable() command.Table {
 			Note: "OpenCode has no per-session thinking level — the model decides",
 		},
 		// Token counts come from the engine's own assistant messages.
-		"context": {Kind: command.KindOp, Op: command.OpContext},
-		"status":  {Kind: command.KindNone, Note: "OpenCode exposes no bounded host runtime status"},
-		"usage":   {Kind: command.KindNone, Note: "OpenCode exposes no account usage summary"},
+		"context":  {Kind: command.KindOp, Op: command.OpContext},
+		"status":   {Kind: command.KindNone, Note: "OpenCode exposes no bounded host runtime status"},
+		"usage":    {Kind: command.KindNone, Note: "OpenCode exposes no account usage summary"},
+		"reviewer": {Kind: command.KindNone, Note: "OpenCode exposes no separate approval reviewer"},
+		"approve":  {Kind: command.KindNone, Note: "OpenCode has no Guardian denial"},
 		// POST /session/{id}/summarize. The v2 route (/api/session/{id}/compact)
 		// answered 503 "not available yet" on 1.18.5.
 		"compact": {Kind: command.KindOp, Op: command.OpCompact},

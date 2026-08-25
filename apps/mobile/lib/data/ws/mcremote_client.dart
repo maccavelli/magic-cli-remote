@@ -3600,6 +3600,8 @@ class McremoteClient {
     String? cwd,
     String? model,
     String? thinkingLevel,
+    String? permissionProfileId,
+    String? approvalsReviewer,
     String? agent,
     String? agentSessionId,
     String? sessionId,
@@ -3613,6 +3615,10 @@ class McremoteClient {
         if (model != null && model.isNotEmpty) 'model': model,
         if (thinkingLevel != null && thinkingLevel.isNotEmpty)
           'thinking_level': thinkingLevel,
+        if (permissionProfileId != null && permissionProfileId.isNotEmpty)
+          'permission_profile_id': permissionProfileId,
+        if (approvalsReviewer != null && approvalsReviewer.isNotEmpty)
+          'approvals_reviewer': approvalsReviewer,
         if (agent != null && agent.isNotEmpty) 'agent': agent,
         if (agentSessionId != null && agentSessionId.isNotEmpty)
           'agent_session_id': agentSessionId,
@@ -3641,6 +3647,12 @@ class McremoteClient {
       cwd: prior.cwd,
       model: prior.model,
       thinkingLevel: prior.thinkingLevel.isEmpty ? null : prior.thinkingLevel,
+      permissionProfileId: prior.permissionProfileId.isEmpty
+          ? null
+          : prior.permissionProfileId,
+      approvalsReviewer: prior.approvalsReviewer.isEmpty
+          ? null
+          : prior.approvalsReviewer,
       agentSessionId: prior.agentSessionId,
       sessionId: prior.id,
     );
@@ -3825,6 +3837,21 @@ class McremoteClient {
       throw McremoteClient.opException(res, 'Codex diagnostics failed');
     }
     return Map<String, dynamic>.from(res.payload ?? const {});
+  }
+
+  Future<CodexRuntimeSnapshot> writeCodexPermissions(
+    String profileId,
+    String reviewer,
+  ) async {
+    final res = await request(
+      'codex.permissions.write',
+      payload: {'profile_id': profileId, 'reviewer': reviewer},
+      expectedType: 'codex.permissions.result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'Codex permissions update failed');
+    }
+    return CodexRuntimeSnapshot.fromJson(res.payload ?? const {});
   }
 
   Future<void> dispose() async {

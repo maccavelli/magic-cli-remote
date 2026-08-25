@@ -17,6 +17,8 @@ var commandTable = command.Table{
 	"context":  {Kind: command.KindNone, Note: "goose doesn't expose token breakdown over ACP"},
 	"status":   {Kind: command.KindNone, Note: "goose exposes no host runtime status over ACP"},
 	"usage":    {Kind: command.KindNone, Note: "goose exposes no account usage over ACP"},
+	"reviewer": {Kind: command.KindNone, Note: "goose exposes no separate approval reviewer"},
+	"approve":  {Kind: command.KindNone, Note: "goose has no Guardian denial"},
 	// Goose's terminal slash commands have no verified ACP execution contract.
 	// Do not forward them simply because the local terminal accepts them.
 	"compact":       {Kind: command.KindNone, Note: "Goose compaction is not exposed through ACP"},

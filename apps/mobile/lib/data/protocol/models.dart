@@ -153,6 +153,27 @@ class CodexRuntimeMcpServer {
       );
 }
 
+class CodexPermissionProfile {
+  const CodexPermissionProfile({
+    required this.id,
+    required this.allowed,
+    this.description = '',
+    this.dangerous = false,
+  });
+  final String id;
+  final String description;
+  final bool allowed;
+  final bool dangerous;
+  bool get requiresConfirmation => dangerous;
+  factory CodexPermissionProfile.fromJson(Map<String, dynamic> json) =>
+      CodexPermissionProfile(
+        id: json['id'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        allowed: json['allowed'] as bool? ?? false,
+        dangerous: json['dangerous'] as bool? ?? false,
+      );
+}
+
 class CodexRuntimeSnapshot {
   const CodexRuntimeSnapshot({
     this.codexVersion = '',
@@ -166,6 +187,12 @@ class CodexRuntimeSnapshot {
     this.model = '',
     this.reasoningEfforts = const [],
     this.mcpServers = const [],
+    this.permissionProfiles = const [],
+    this.requestedProfileId = '',
+    this.effectiveProfileId = '',
+    this.requestedReviewer = '',
+    this.effectiveReviewer = '',
+    this.policyDetail = '',
   });
   final String codexVersion;
   final String transport;
@@ -178,6 +205,12 @@ class CodexRuntimeSnapshot {
   final String model;
   final List<String> reasoningEfforts;
   final List<CodexRuntimeMcpServer> mcpServers;
+  final List<CodexPermissionProfile> permissionProfiles;
+  final String requestedProfileId;
+  final String effectiveProfileId;
+  final String requestedReviewer;
+  final String effectiveReviewer;
+  final String policyDetail;
 
   factory CodexRuntimeSnapshot.fromJson(Map<String, dynamic> json) {
     final account = json['account'] is Map
@@ -195,6 +228,9 @@ class CodexRuntimeSnapshot {
     final model = json['model'] is Map
         ? Map<String, dynamic>.from(json['model'] as Map)
         : const <String, dynamic>{};
+    final config = json['config'] is Map
+        ? Map<String, dynamic>.from(json['config'] as Map)
+        : const <String, dynamic>{};
     List<String> strings(Object? value) => value is List
         ? value.whereType<String>().toList(growable: false)
         : const [];
@@ -210,6 +246,15 @@ class CodexRuntimeSnapshot {
       model: model['id'] as String? ?? '',
       reasoningEfforts: strings(model['reasoning_efforts']),
       mcpServers: _mapList(json['mcp_servers'], CodexRuntimeMcpServer.fromJson),
+      permissionProfiles: _mapList(
+        json['permission_profiles'],
+        CodexPermissionProfile.fromJson,
+      ),
+      requestedProfileId: config['requested_profile_id'] as String? ?? '',
+      effectiveProfileId: config['effective_profile_id'] as String? ?? '',
+      requestedReviewer: config['requested_reviewer'] as String? ?? '',
+      effectiveReviewer: config['effective_reviewer'] as String? ?? '',
+      policyDetail: config['policy_detail'] as String? ?? '',
     );
   }
 }
@@ -390,6 +435,8 @@ class SessionMeta {
     this.name = '',
     this.model = '',
     this.thinkingLevel = '',
+    this.permissionProfileId = '',
+    this.approvalsReviewer = '',
     this.cwd,
     this.agentSessionId,
     this.ownerDeviceId,
@@ -411,6 +458,8 @@ class SessionMeta {
   /// Reasoning/thinking effort override for this session; empty = provider
   /// default (MADR 0052).
   final String thinkingLevel;
+  final String permissionProfileId;
+  final String approvalsReviewer;
   final String? cwd;
   final String? agentSessionId;
 
@@ -441,6 +490,8 @@ class SessionMeta {
       name: json['name'] as String? ?? '',
       model: json['model'] as String? ?? '',
       thinkingLevel: json['thinking_level'] as String? ?? '',
+      permissionProfileId: json['permission_profile_id'] as String? ?? '',
+      approvalsReviewer: json['approvals_reviewer'] as String? ?? '',
       cwd: json['cwd'] as String?,
       agentSessionId: json['agent_session_id'] as String?,
       ownerDeviceId: json['owner_device_id'] as String?,
@@ -470,6 +521,8 @@ class SessionMeta {
       name: name ?? this.name,
       model: model,
       thinkingLevel: thinkingLevel ?? this.thinkingLevel,
+      permissionProfileId: permissionProfileId,
+      approvalsReviewer: approvalsReviewer,
       cwd: cwd,
       agentSessionId: agentSessionId,
       ownerDeviceId: ownerDeviceId,

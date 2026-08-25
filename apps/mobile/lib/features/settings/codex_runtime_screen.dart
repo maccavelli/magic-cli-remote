@@ -19,6 +19,7 @@ class _CodexRuntimeScreenState extends ConsumerState<CodexRuntimeScreen> {
   String? _error;
   bool _loading = true;
   bool _diagnosing = false;
+  bool _savingPermissions = false;
 
   @override
   void initState() {
@@ -65,6 +66,111 @@ class _CodexRuntimeScreenState extends ConsumerState<CodexRuntimeScreen> {
     }
   }
 
+  Future<void> _writePermissions({String? profile, String? reviewer}) async {
+    final runtime = _runtime;
+    if (runtime == null) return;
+    final allowedProfiles = runtime.permissionProfiles
+        .where((item) => item.allowed)
+        .toList(growable: false);
+    final selectedProfile =
+        profile ??
+        (runtime.requestedProfileId.isNotEmpty
+            ? runtime.requestedProfileId
+            : runtime.effectiveProfileId.isNotEmpty
+            ? runtime.effectiveProfileId
+            : allowedProfiles.isEmpty
+            ? ''
+            : allowedProfiles.first.id);
+    final selectedReviewer =
+        reviewer ??
+        (runtime.requestedReviewer.isNotEmpty
+            ? runtime.requestedReviewer
+            : runtime.effectiveReviewer.isNotEmpty
+            ? runtime.effectiveReviewer
+            : 'user');
+    if (selectedProfile.isEmpty) return;
+    setState(() => _savingPermissions = true);
+    try {
+      final updated = await ref
+          .read(mcremoteClientProvider)
+          .writeCodexPermissions(selectedProfile, selectedReviewer);
+      if (!mounted) return;
+      setState(() {
+        _runtime = updated;
+        _savingPermissions = false;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _savingPermissions = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  Future<void> _chooseProfile(CodexPermissionProfile profile) async {
+    if (profile.requiresConfirmation) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Use dangerous permissions?'),
+          content: const Text(
+            'This profile can remove sandbox protection. Continue only if you understand the host impact.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Use profile'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    await _writePermissions(profile: profile.id);
+  }
+
+  Future<void> _showProfiles() async {
+    final profiles =
+        _runtime?.permissionProfiles.where((p) => p.allowed).toList() ??
+        const <CodexPermissionProfile>[];
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final profile in profiles)
+              ListTile(
+                leading: Icon(
+                  profile.dangerous
+                      ? Icons.warning_amber_rounded
+                      : Icons.shield_outlined,
+                ),
+                title: Text(
+                  profile.id == 'auto'
+                      ? 'Unattended auto (dangerous)'
+                      : profile.id,
+                ),
+                subtitle: profile.description.isEmpty
+                    ? null
+                    : Text(profile.description),
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(_chooseProfile(profile));
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -90,6 +196,65 @@ class _CodexRuntimeScreenState extends ConsumerState<CodexRuntimeScreen> {
                         _row('Transport', runtime.transport),
                         _row('Generation', '${runtime.generation}'),
                         _row('Model', runtime.model),
+                      ],
+                    ),
+                    SettingsSection(
+                      title: 'Permissions',
+                      children: [
+                        ListTile(
+                          key: const Key('codex-permission-profile'),
+                          leading: const Icon(Icons.shield_outlined),
+                          title: const Text('Permission profile'),
+                          subtitle: Text(
+                            runtime.requestedProfileId ==
+                                        runtime.effectiveProfileId ||
+                                    runtime.requestedProfileId.isEmpty
+                                ? runtime.effectiveProfileId
+                                : 'Requested ${runtime.requestedProfileId} · effective ${runtime.effectiveProfileId}',
+                          ),
+                          trailing: _savingPermissions
+                              ? const SizedBox.square(
+                                  dimension: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.chevron_right),
+                          onTap: _savingPermissions ? null : _showProfiles,
+                        ),
+                        ListTile(
+                          key: const Key('codex-approvals-reviewer'),
+                          leading: const Icon(Icons.fact_check_outlined),
+                          title: const Text('Approval reviewer'),
+                          subtitle: Text(
+                            runtime.requestedReviewer ==
+                                        runtime.effectiveReviewer ||
+                                    runtime.requestedReviewer.isEmpty
+                                ? runtime.effectiveReviewer
+                                : 'Requested ${runtime.requestedReviewer} · effective ${runtime.effectiveReviewer}',
+                          ),
+                          trailing: PopupMenuButton<String>(
+                            enabled: !_savingPermissions,
+                            onSelected: (value) =>
+                                unawaited(_writePermissions(reviewer: value)),
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'user',
+                                child: Text('User review'),
+                              ),
+                              PopupMenuItem(
+                                value: 'auto_review',
+                                child: Text('Guardian auto-review'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (runtime.policyDetail.isNotEmpty)
+                          ListTile(
+                            leading: const Icon(Icons.policy_outlined),
+                            title: const Text('Managed policy'),
+                            subtitle: Text(runtime.policyDetail),
+                          ),
                       ],
                     ),
                     SettingsSection(

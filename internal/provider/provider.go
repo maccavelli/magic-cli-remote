@@ -75,6 +75,11 @@ type StartOptions struct {
 	// CollaborationModeID is the Codex collaboration-mode id (`plan` /
 	// `default`). Empty means default. Additive (MADR 0080 D7).
 	CollaborationModeID string
+	// PermissionProfileID is the selected Codex permission profile. It is
+	// independent from approval/reviewer policy and may be an opaque custom id.
+	PermissionProfileID string
+	// ApprovalsReviewer selects who reviews approval prompts. Empty means user.
+	ApprovalsReviewer string
 	// ServiceTier is the Fast override wire id. Empty means off.
 	ServiceTier string
 	// Personality is the generated personality enum. Empty means provider
@@ -89,6 +94,22 @@ var ErrCollaborationUnsupported = errors.New("collaboration mode unsupported")
 // ErrCollaborationInvalid means the requested collaboration-mode id is not in
 // the current catalog.
 var ErrCollaborationInvalid = errors.New("collaboration mode invalid")
+
+// ErrPermissionProfileInvalid means a requested profile is absent or managed-disabled.
+var ErrPermissionProfileInvalid = errors.New("permission profile invalid or disallowed")
+
+// ErrReviewerInvalid means the reviewer is not user or auto_review.
+var ErrReviewerInvalid = errors.New("approvals reviewer invalid")
+
+// ErrGuardianApprovalUnavailable means no exact current denial can be retried.
+var ErrGuardianApprovalUnavailable = errors.New("guardian denial unavailable")
+
+const (
+	// ApprovalsReviewerUser routes approval requests to the user.
+	ApprovalsReviewerUser = "user"
+	// ApprovalsReviewerAutoReview routes eligible requests through Guardian.
+	ApprovalsReviewerAutoReview = "auto_review"
+)
 
 // Content is a prompt content block. Type is "text" (default), "image", or
 // "audio". For image/audio, Data is the base64-encoded payload and MimeType its
@@ -207,6 +228,29 @@ func OrderedQuestionAnswers(answers QuestionAnswers) [][]string {
 type ModeSession interface {
 	Session
 	SetMode(ctx context.Context, modeID string) error
+}
+
+// PermissionProfile is one Codex permission profile. Custom identifiers are
+// opaque; Allowed reflects effective managed requirements.
+type PermissionProfile struct {
+	ID          string `json:"id"`
+	Description string `json:"description,omitempty"`
+	Allowed     bool   `json:"allowed"`
+	Dangerous   bool   `json:"dangerous,omitempty"`
+}
+
+// PermissionProfileSession exposes the independent profile and reviewer axes.
+type PermissionProfileSession interface {
+	Session
+	PermissionSettings() ([]PermissionProfile, string, string)
+	SetPermissionProfile(context.Context, string) error
+	SetApprovalsReviewer(context.Context, string) error
+}
+
+// GuardianApprovalSession retries the exact most recent Guardian-denied action once.
+type GuardianApprovalSession interface {
+	Session
+	ApproveGuardianDenied(context.Context) error
 }
 
 // CollaborationMode is one Codex (or compatible) collaboration-mode preset.

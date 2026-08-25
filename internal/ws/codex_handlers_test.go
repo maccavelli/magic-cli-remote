@@ -9,12 +9,13 @@ import (
 
 func TestCodexPhoneOperationRegistryIsCompleteAndTyped(t *testing.T) {
 	list := codexPhoneOperationList()
-	if len(list) != 3 {
+	if len(list) != 4 {
 		t.Fatalf("Codex-specific phone operations = %+v", list)
 	}
 	want := map[string]codex.CapabilityID{
 		protocol.TypeCodexDoctorRun:          codex.CapabilityServerDiagnostics,
 		protocol.TypeCodexRuntimeRead:        codex.CapabilityAccountRead,
+		protocol.TypeCodexPermissionsWrite:   codex.CapabilityConfigBatchWrite,
 		protocol.TypeSessionSetCollaboration: codex.CapabilityThreadSettings,
 	}
 	for _, operation := range list {

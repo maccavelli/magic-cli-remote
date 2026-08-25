@@ -52,6 +52,13 @@ var codexPhoneOperations = map[string]codexPhoneOperation{
 			return s.dispatchAsync(ctx, c, env, s.handleCodexDoctorRun)
 		},
 	},
+	protocol.TypeCodexPermissionsWrite: {
+		capability: codex.CapabilityConfigBatchWrite, timeoutKey: protocol.TypeCodexPermissionsWrite,
+		mutable: true, requiresSurface: true, authorize: authorizeCodexGlobal, decode: decodeCodexPermissionsWrite,
+		handle: func(s *Server, ctx context.Context, c *client, env protocol.Envelope) error {
+			return s.dispatchAsync(ctx, c, env, s.handleCodexPermissionsWrite)
+		},
+	},
 }
 
 type codexPhoneOperationInfo struct {
@@ -145,6 +152,33 @@ func (s *Server) handleCodexDoctorRun(ctx context.Context, c *client, env protoc
 		return s.writeError(ctx, c, env.ID, protocol.ErrDiagnosticFailed, "Codex diagnostics failed")
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeCodexDoctorResult, env.ID, report)
+	return s.writeJSON(ctx, c, out)
+}
+
+func decodeCodexPermissionsWrite(env protocol.Envelope) (string, error) {
+	var payload protocol.CodexPermissionsWritePayload
+	if err := protocol.DecodePayload(env, &payload); err != nil {
+		return "", err
+	}
+	if payload.ProfileID == "" || payload.Reviewer == "" || len(payload.ProfileID) > 256 || len(payload.Reviewer) > 32 {
+		return "", fmt.Errorf("profile_id and reviewer are required")
+	}
+	return "", nil
+}
+
+func (s *Server) handleCodexPermissionsWrite(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	var payload protocol.CodexPermissionsWritePayload
+	if err := protocol.DecodePayload(env, &payload); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	p, err := s.codexProvider()
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unavailable", err.Error())
+	}
+	if err := p.WritePermissionDefaults(ctx, payload.ProfileID, payload.Reviewer); err != nil {
+		return s.writeError(ctx, c, env.ID, protocol.ErrConfigWriteFailed, "Codex permission defaults were not changed")
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeCodexPermissionsResult, env.ID, p.RuntimeSnapshot())
 	return s.writeJSON(ctx, c, out)
 }
 

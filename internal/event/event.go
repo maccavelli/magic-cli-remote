@@ -550,6 +550,8 @@ type Event struct {
 
 	// CurrentModeID is the active mode id on session_mode events.
 	CurrentModeID string `json:"current_mode_id,omitempty"`
+	// ApprovalsReviewer is the independent Codex reviewer axis when known.
+	ApprovalsReviewer string `json:"approvals_reviewer,omitempty"`
 
 	// CollaborationModes is the full collaboration catalog on
 	// collaboration_mode events. Nil on a current-only update.

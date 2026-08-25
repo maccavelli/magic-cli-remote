@@ -355,6 +355,14 @@ func (s *session) applySettingsUpdated(params json.RawMessage) {
 			CollaborationMode *struct {
 				Mode string `json:"mode"`
 			} `json:"collaborationMode"`
+			ActivePermissionProfile *struct {
+				ID string `json:"id"`
+			} `json:"activePermissionProfile"`
+			ApprovalsReviewer string          `json:"approvalsReviewer"`
+			ApprovalPolicy    json.RawMessage `json:"approvalPolicy"`
+			SandboxPolicy     struct {
+				Type string `json:"type"`
+			} `json:"sandboxPolicy"`
 		} `json:"threadSettings"`
 	}
 	if err := json.Unmarshal(params, &parsed); err != nil {
@@ -368,7 +376,31 @@ func (s *session) applySettingsUpdated(params json.RawMessage) {
 		}
 		s.mu.Unlock()
 	}
+	s.mu.Lock()
+	if parsed.ThreadSettings.ActivePermissionProfile != nil {
+		if id := strings.TrimSpace(parsed.ThreadSettings.ActivePermissionProfile.ID); id != "" {
+			s.permissionProfileID = id
+		}
+	}
+	if reviewer := normalizeReviewer(parsed.ThreadSettings.ApprovalsReviewer); parsed.ThreadSettings.ApprovalsReviewer != "" && validReviewer(reviewer) {
+		s.approvalsReviewer = reviewer
+	}
+	var approval string
+	if json.Unmarshal(parsed.ThreadSettings.ApprovalPolicy, &approval) == nil && approval != "" {
+		s.approvalPolicy = approval
+		s.autoApprove = approval == "never"
+	}
+	switch parsed.ThreadSettings.SandboxPolicy.Type {
+	case "readOnly":
+		s.sandboxMode = "read-only"
+	case "workspaceWrite":
+		s.sandboxMode = "workspace-write"
+	case "dangerFullAccess":
+		s.sandboxMode = "danger-full-access"
+	}
+	s.mu.Unlock()
 	applySettingsServiceFields(s, params)
+	s.emitPermissionSettings()
 }
 
 func applyCollaborationTurnParams(params map[string]any, supported bool, mask collaborationModeMask, mode, model, userEffort string) {

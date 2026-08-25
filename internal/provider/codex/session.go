@@ -64,9 +64,13 @@ type session struct {
 	// drifting (MADR 0044 D5). autoApprove mirrors approvalPolicy == "never"
 	// and gates the belt-and-braces interception in handleApprovalRequest:
 	// codex can still route approvals the policy does not cover (D6).
-	approvalPolicy string
-	sandboxMode    string
-	autoApprove    bool
+	approvalPolicy      string
+	sandboxMode         string
+	autoApprove         bool
+	profileCatalog      []provider.PermissionProfile
+	permissionProfileID string
+	approvalsReviewer   string
+	guardianDenial      *guardianDenial
 
 	// thinkingLevel is the user's explicit reasoning preference. It is sent
 	// as turn/start.effort only on Default collaboration mode. Plan uses the
@@ -178,20 +182,63 @@ func newSession(p *Provider, cfg Config, opts provider.StartOptions, log *slog.L
 		cwd:     dir,
 		// Seed from create-session; SetThinkingLevel can change it mid-session
 		// (next turn/start). Empty means omit effort (MADR 0052).
-		thinkingLevel:    strings.TrimSpace(opts.ThinkingLevel),
-		serviceTier:      normalizeServiceTier(opts.ServiceTier),
-		personality:      strings.TrimSpace(opts.Personality),
-		events:           make(chan event.Event, 256),
-		done:             make(chan struct{}),
-		pendingPerms:     make(map[string]pendingCallback),
-		pendingQuestions: make(map[string]pendingQuestion),
-		permTimeout:      cfg.PermissionTimeout,
-		stallNotice:      cfg.TurnStallNotice,
-		log:              log.With(slog.String("session", localID)),
-		approvalPolicy:   approval,
-		sandboxMode:      sandbox,
-		autoApprove:      approval == "never",
-		collabMode:       collaborationModeDefault,
+		thinkingLevel:       strings.TrimSpace(opts.ThinkingLevel),
+		serviceTier:         normalizeServiceTier(opts.ServiceTier),
+		personality:         strings.TrimSpace(opts.Personality),
+		events:              make(chan event.Event, 256),
+		done:                make(chan struct{}),
+		pendingPerms:        make(map[string]pendingCallback),
+		pendingQuestions:    make(map[string]pendingQuestion),
+		permTimeout:         cfg.PermissionTimeout,
+		stallNotice:         cfg.TurnStallNotice,
+		log:                 log.With(slog.String("session", localID)),
+		approvalPolicy:      approval,
+		sandboxMode:         sandbox,
+		autoApprove:         approval == "never",
+		collabMode:          collaborationModeDefault,
+		permissionProfileID: strings.TrimSpace(opts.PermissionProfileID),
+		approvalsReviewer:   normalizeReviewer(opts.ApprovalsReviewer),
+	}
+	if p != nil {
+		s.profileCatalog = p.permissionProfileCatalog()
+	}
+	if len(s.profileCatalog) == 0 {
+		s.profileCatalog = legacyPermissionProfiles(cfg)
+	} else {
+		autoAllowed := true
+		if p != nil {
+			autoAllowed = p.unattendedAutoAllowed()
+		}
+		s.profileCatalog = append(s.profileCatalog, provider.PermissionProfile{
+			ID: modeAuto, Description: "Unattended auto-approve; workspace sandbox remains enabled",
+			Allowed: autoAllowed, Dangerous: true,
+		})
+	}
+	if p != nil {
+		profileDefault, reviewerDefault := p.defaultPermissionState()
+		if s.permissionProfileID == "" && profileDefault != "" {
+			for _, profile := range s.profileCatalog {
+				if profile.ID == profileDefault && profile.Allowed {
+					s.permissionProfileID = profileDefault
+					break
+				}
+			}
+		}
+		if strings.TrimSpace(opts.ApprovalsReviewer) == "" && validReviewer(normalizeReviewer(reviewerDefault)) {
+			s.approvalsReviewer = normalizeReviewer(reviewerDefault)
+		}
+	}
+	if s.permissionProfileID == "" {
+		candidate := modeIDFor(cfg, approval, sandbox)
+		for _, profile := range s.profileCatalog {
+			if profile.ID == candidate && profile.Allowed {
+				s.permissionProfileID = candidate
+				break
+			}
+		}
+		if s.permissionProfileID == "" {
+			s.permissionProfileID = defaultPermissionProfileID(s.profileCatalog)
+		}
 	}
 	s.seedCollaboration()
 	// MADR 0035 D8: stamp the activity clock and start a single per-
@@ -307,6 +354,7 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 	}
 	approval, sandbox := s.policy()
 	applyPolicyParams(params, approval, sandbox)
+	s.applyInitialPermissionParams(params)
 	model := s.opts.Model
 	if model == "" {
 		model = s.cfg.Model
@@ -324,7 +372,8 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
-		CWD string `json:"cwd"`
+		CWD               string `json:"cwd"`
+		ApprovalsReviewer string `json:"approvalsReviewer"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return fmt.Errorf("thread/start: decode: %w", err)
@@ -332,6 +381,9 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 
 	s.mu.Lock()
 	s.agentID = resp.Thread.ID
+	if reviewer := normalizeReviewer(resp.ApprovalsReviewer); resp.ApprovalsReviewer != "" && validReviewer(reviewer) {
+		s.approvalsReviewer = reviewer
+	}
 	s.mu.Unlock()
 
 	if resp.CWD != "" {
@@ -381,10 +433,17 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	// would run under a different policy after a daemon restart.
 	approval, sandbox := s.policy()
 	applyPolicyParams(params, approval, sandbox)
+	s.applyInitialPermissionParams(params)
 
-	_, err := fr.sendRequest(ctx, "thread/resume", params)
+	raw, err := fr.sendRequest(ctx, "thread/resume", params)
 	if err != nil {
 		return fmt.Errorf("thread/resume: %w", err)
+	}
+	var response struct {
+		ApprovalsReviewer string `json:"approvalsReviewer"`
+	}
+	if json.Unmarshal(raw, &response) == nil && response.ApprovalsReviewer != "" {
+		_ = s.applyReviewerState(response.ApprovalsReviewer)
 	}
 
 	// A resumed session needs its mode chip too, and the policy it reports is
@@ -411,12 +470,30 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 // rather than naming a mode that is not really active.
 func (s *session) emitModes() {
 	approval, sandbox := s.policy()
+	s.mu.Lock()
+	profiles := append([]provider.PermissionProfile(nil), s.profileCatalog...)
+	currentProfile := s.permissionProfileID
+	reviewer := s.approvalsReviewer
+	s.mu.Unlock()
+	modes := make([]event.SessionMode, 0, len(profiles))
+	for _, profile := range profiles {
+		if profile.Allowed {
+			modes = append(modes, event.SessionMode{ID: profile.ID, Name: profile.ID, Description: profile.Description, Dangerous: profile.Dangerous})
+		}
+	}
+	if len(modes) == 0 {
+		modes = advertisedModes(s.cfg)
+	}
+	if currentProfile == "" {
+		currentProfile = modeIDFor(s.cfg, approval, sandbox)
+	}
 	s.emit(event.Event{
-		Type:          event.TypeMode,
-		SessionID:     s.localID,
-		Timestamp:     time.Now().UTC(),
-		Modes:         advertisedModes(s.cfg),
-		CurrentModeID: modeIDFor(s.cfg, approval, sandbox),
+		Type:              event.TypeMode,
+		SessionID:         s.localID,
+		Timestamp:         time.Now().UTC(),
+		Modes:             modes,
+		CurrentModeID:     currentProfile,
+		ApprovalsReviewer: reviewer,
 	})
 }
 
@@ -425,6 +502,9 @@ func (s *session) emitModes() {
 // rather than immediately — that is the protocol's own semantic ("this turn and
 // subsequent turns"), not a daemon limitation.
 func (s *session) SetMode(ctx context.Context, modeID string) error {
+	if !isLegacyModeID(strings.TrimSpace(modeID)) && s.permissionProfileAllowed(modeID) {
+		return s.SetPermissionProfile(ctx, modeID)
+	}
 	m, ok := findCodexMode(s.cfg, modeID)
 	if !ok {
 		return fmt.Errorf("unknown mode %q", modeID)
@@ -434,6 +514,7 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 	s.approvalPolicy = m.approvalPolicy
 	s.sandboxMode = m.sandbox
 	s.autoApprove = m.approvalPolicy == "never"
+	s.permissionProfileID = m.mode.ID
 	auto := s.autoApprove
 	s.mu.Unlock()
 
@@ -679,6 +760,12 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 	}
 	if pol := sandboxPolicyParam(sandbox); pol != nil {
 		params["sandboxPolicy"] = pol
+	}
+	s.mu.Lock()
+	reviewer := s.approvalsReviewer
+	s.mu.Unlock()
+	if reviewer != "" {
+		params["approvalsReviewer"] = reviewer
 	}
 	raw, err := fr.sendRequest(ctx, "turn/start", params)
 	if err != nil {

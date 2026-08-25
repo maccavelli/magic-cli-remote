@@ -21,20 +21,22 @@ import (
 // knownOps is every capability a KindOp mapping may name. A table naming
 // anything else would resolve to "unavailable" forever, silently.
 var knownOps = map[command.Op]bool{
-	command.OpCompact:          true,
-	command.OpContext:          true,
-	command.OpStatus:           true,
-	command.OpUsage:            true,
-	command.OpSetModel:         true,
-	command.OpSetThinkingLevel: true,
-	command.OpDiff:             true,
-	command.OpUndo:             true,
-	command.OpRedo:             true,
-	command.OpGoal:             true,
-	command.OpServiceTier:      true,
-	command.OpPersonality:      true,
-	command.OpReview:           true,
-	command.OpFork:             true,
+	command.OpCompact:           true,
+	command.OpContext:           true,
+	command.OpStatus:            true,
+	command.OpUsage:             true,
+	command.OpApprovalsReviewer: true,
+	command.OpGuardianApprove:   true,
+	command.OpSetModel:          true,
+	command.OpSetThinkingLevel:  true,
+	command.OpDiff:              true,
+	command.OpUndo:              true,
+	command.OpRedo:              true,
+	command.OpGoal:              true,
+	command.OpServiceTier:       true,
+	command.OpPersonality:       true,
+	command.OpReview:            true,
+	command.OpFork:              true,
 }
 
 // TestProvidersDeclareEveryCanonicalCommand is the contract for adding a CLI:

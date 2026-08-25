@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 // MaxRuntimeSnapshotBytes is the hard response target for runtime status.
@@ -17,18 +19,19 @@ const maxRuntimeMCPServers = 64
 // RuntimeSnapshot is the sanitized provider-global status returned to a
 // negotiated Codex surface client.
 type RuntimeSnapshot struct {
-	CodexVersion    string                       `json:"codex_version,omitempty"`
-	Transport       string                       `json:"transport"`
-	Generation      int                          `json:"generation"`
-	Account         RuntimeAccount               `json:"account"`
-	RateLimits      RuntimeRateLimits            `json:"rate_limits"`
-	Usage           RuntimeUsage                 `json:"usage"`
-	Model           RuntimeModel                 `json:"model"`
-	Config          RuntimeConfig                `json:"config"`
-	Features        []RuntimeFeature             `json:"features,omitempty"`
-	WorkspaceNotice []string                     `json:"workspace_messages,omitempty"`
-	MCPServers      []RuntimeMCPServer           `json:"mcp_servers,omitempty"`
-	Capabilities    *SanitizedCapabilitySnapshot `json:"capabilities,omitempty"`
+	CodexVersion       string                       `json:"codex_version,omitempty"`
+	Transport          string                       `json:"transport"`
+	Generation         int                          `json:"generation"`
+	Account            RuntimeAccount               `json:"account"`
+	RateLimits         RuntimeRateLimits            `json:"rate_limits"`
+	Usage              RuntimeUsage                 `json:"usage"`
+	Model              RuntimeModel                 `json:"model"`
+	Config             RuntimeConfig                `json:"config"`
+	Features           []RuntimeFeature             `json:"features,omitempty"`
+	WorkspaceNotice    []string                     `json:"workspace_messages,omitempty"`
+	MCPServers         []RuntimeMCPServer           `json:"mcp_servers,omitempty"`
+	Capabilities       *SanitizedCapabilitySnapshot `json:"capabilities,omitempty"`
+	PermissionProfiles []provider.PermissionProfile `json:"permission_profiles,omitempty"`
 }
 
 // RuntimeAccount describes the authenticated account without identity data.
@@ -67,9 +70,15 @@ type RuntimeModel struct {
 
 // RuntimeConfig describes the effective runtime policy and its provenance.
 type RuntimeConfig struct {
-	ApprovalPolicy string `json:"approval_policy,omitempty"`
-	SandboxMode    string `json:"sandbox_mode,omitempty"`
-	Provenance     string `json:"provenance"`
+	ApprovalPolicy     string                  `json:"approval_policy,omitempty"`
+	SandboxMode        string                  `json:"sandbox_mode,omitempty"`
+	Provenance         string                  `json:"provenance"`
+	RequestedProfileID string                  `json:"requested_profile_id,omitempty"`
+	EffectiveProfileID string                  `json:"effective_profile_id,omitempty"`
+	RequestedReviewer  string                  `json:"requested_reviewer,omitempty"`
+	EffectiveReviewer  string                  `json:"effective_reviewer,omitempty"`
+	PolicyDetail       string                  `json:"policy_detail,omitempty"`
+	Layers             []ConfigLayerProjection `json:"layers,omitempty"`
 }
 
 // RuntimeFeature is one bounded experimental-feature status entry.
@@ -115,11 +124,32 @@ func (p *Provider) RuntimeSnapshot() RuntimeSnapshot {
 	}
 
 	p.runtimeMu.RLock()
+	configState := p.config
+	provenance := "daemon"
+	if configState.PolicyDetail != "" {
+		provenance = "managed"
+	} else {
+		for _, layer := range configState.Layers {
+			if layer.Kind == "project" {
+				provenance = "project"
+				break
+			}
+			if layer.Kind == "user" {
+				provenance = "user"
+			}
+		}
+	}
 	out := RuntimeSnapshot{
 		CodexVersion: version, Transport: string(transport), Generation: generation,
 		Account: p.runtime.account, RateLimits: p.runtime.rates, Usage: p.runtime.usage,
-		Config:          RuntimeConfig{ApprovalPolicy: p.cfg.ApprovalPolicy, SandboxMode: p.cfg.SandboxMode, Provenance: "daemon"},
+		Config: RuntimeConfig{
+			ApprovalPolicy: p.cfg.ApprovalPolicy, SandboxMode: p.cfg.SandboxMode, Provenance: provenance,
+			RequestedProfileID: configState.RequestedProfileID, EffectiveProfileID: configState.EffectiveProfileID,
+			RequestedReviewer: configState.RequestedReviewer, EffectiveReviewer: configState.EffectiveReviewer,
+			PolicyDetail: configState.PolicyDetail, Layers: append([]ConfigLayerProjection(nil), configState.Layers...),
+		},
 		WorkspaceNotice: append([]string(nil), p.runtime.workspaceNotice...), Capabilities: caps,
+		PermissionProfiles: sortedProfiles(p.profiles),
 	}
 	for _, server := range p.runtime.mcp {
 		out.MCPServers = append(out.MCPServers, server)
@@ -226,6 +256,7 @@ func (p *Provider) RefreshRuntime(ctx context.Context) error {
 	read(CapabilityWorkspaceMessages, "account/workspaceMessages/read", map[string]any{}, p.applyWorkspaceMessagesRead)
 	read(CapabilityExperimentalFeature, "experimentalFeature/list", map[string]any{"limit": 100}, p.applyFeatureList)
 	read(CapabilityMCPServerStatus, "mcpServerStatus/list", map[string]any{"limit": maxRuntimeMCPServers, "detail": "toolsAndAuthOnly"}, p.applyMCPStatusList)
+	_ = p.refreshPermissionState(ctx, "")
 	return nil
 }
 

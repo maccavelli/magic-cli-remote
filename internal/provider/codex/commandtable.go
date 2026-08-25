@@ -26,6 +26,8 @@ var commandTable = command.Table{
 
 	"mode":        {Kind: command.KindMode},
 	"permissions": {Kind: command.KindMode},
+	"reviewer":    {Kind: command.KindOp, Op: command.OpApprovalsReviewer},
+	"approve":     {Kind: command.KindOp, Op: command.OpGuardianApprove},
 	"plan":        {Kind: command.KindCollaborationMode, ModeID: "plan"},
 	"goal":        {Kind: command.KindOp, Op: command.OpGoal},
 	"deep-research": {Kind: command.KindNone,

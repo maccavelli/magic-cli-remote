@@ -68,6 +68,8 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		_, state.Ops[command.OpDiff] = sess.(provider.DiffSession)
 		_, state.Ops[command.OpStatus] = sess.(provider.RuntimeSession)
 		_, state.Ops[command.OpUsage] = sess.(provider.RuntimeSession)
+		_, state.Ops[command.OpApprovalsReviewer] = sess.(provider.PermissionProfileSession)
+		_, state.Ops[command.OpGuardianApprove] = sess.(provider.GuardianApprovalSession)
 		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
 		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
 		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
@@ -236,6 +238,10 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdRuntime(ctx, id, false)
 		case command.OpUsage:
 			return true, "", m.cmdRuntime(ctx, id, true)
+		case command.OpApprovalsReviewer:
+			return true, "", m.cmdApprovalsReviewer(ctx, id, rest)
+		case command.OpGuardianApprove:
+			return true, "", m.cmdGuardianApprove(ctx, id, rest)
 		case command.OpDiff:
 			return true, "", m.cmdDiff(ctx, id)
 		case command.OpFork:
@@ -507,6 +513,66 @@ func (m *Manager) cmdRuntime(ctx context.Context, id string, usage bool) error {
 		return err
 	}
 	m.emitNotice(id, message)
+	return nil
+}
+
+func (m *Manager) cmdApprovalsReviewer(ctx context.Context, id, arg string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	permissions, ok := sess.(provider.PermissionProfileSession)
+	if !ok {
+		m.emitNotice(id, "This agent exposes no separate approval reviewer.")
+		return nil
+	}
+	_, _, current := permissions.PermissionSettings()
+	target := strings.TrimSpace(arg)
+	if target == "" {
+		m.emitNotice(id, "Approval reviewer: "+current+". Choices: user, auto_review.")
+		return nil
+	}
+	if target != provider.ApprovalsReviewerUser && target != provider.ApprovalsReviewerAutoReview {
+		m.emitNotice(id, "Usage: /reviewer [user|auto_review]")
+		return nil
+	}
+	if err := permissions.SetApprovalsReviewer(ctx, target); err != nil {
+		m.emitNotice(id, fmt.Sprintf("Reviewer switch failed: %v", err))
+		return err
+	}
+	m.mu.Lock()
+	if entry := m.sessions[id]; entry != nil {
+		entry.meta.ApprovalsReviewer = target
+	}
+	m.mu.Unlock()
+	m.persist(id)
+	m.emitNotice(id, "Approval reviewer set to "+target+"; the permission profile and sandbox were unchanged.")
+	return nil
+}
+
+func (m *Manager) cmdGuardianApprove(ctx context.Context, id, arg string) error {
+	if strings.TrimSpace(arg) != "" {
+		m.emitNotice(id, "Usage: /approve")
+		return nil
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	guardian, ok := sess.(provider.GuardianApprovalSession)
+	if !ok {
+		m.emitNotice(id, "This agent has no tracked Guardian denial.")
+		return nil
+	}
+	if err := guardian.ApproveGuardianDenied(ctx); err != nil {
+		if errors.Is(err, provider.ErrGuardianApprovalUnavailable) {
+			m.emitNotice(id, "No current Guardian-denied action is available to retry.")
+			return nil
+		}
+		m.emitNotice(id, "Guardian retry failed.")
+		return err
+	}
+	m.emitNotice(id, "Retried the exact Guardian-denied action once; permissions were unchanged.")
 	return nil
 }
 

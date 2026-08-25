@@ -118,6 +118,8 @@ class _CatalogClient extends McremoteClient {
     String? cwd,
     String? model,
     String? thinkingLevel,
+    String? permissionProfileId,
+    String? approvalsReviewer,
     String? agent,
     String? agentSessionId,
     String? sessionId,

@@ -141,6 +141,8 @@ func (p *Provider) CommandTable() command.Table {
 		"context":       {Kind: command.KindOp, Op: command.OpContext},
 		"status":        {Kind: command.KindNone, Note: "the fake provider has no host runtime"},
 		"usage":         {Kind: command.KindNone, Note: "the fake provider has no account usage"},
+		"reviewer":      {Kind: command.KindNone, Note: "the fake provider has no separate approval reviewer"},
+		"approve":       {Kind: command.KindNone, Note: "the fake provider has no Guardian denial"},
 		"compact":       {Kind: command.KindOp, Op: command.OpCompact},
 		"clear":         {Kind: command.KindDaemon},
 		"new":           {Kind: command.KindDaemon},

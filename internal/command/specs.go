@@ -33,6 +33,17 @@ var Specs = []Spec{
 		Default:     Mapping{Kind: KindNone, Note: ReasonPermissionsNotMode},
 	},
 	{
+		Name:        "reviewer",
+		Args:        "[user|auto_review]",
+		Description: "Show or switch who reviews approval requests",
+		Default:     Mapping{Kind: KindNone, Note: "this agent exposes no separate approval reviewer"},
+	},
+	{
+		Name:        "approve",
+		Description: "Retry the exact most recent Guardian-denied action once",
+		Default:     Mapping{Kind: KindNone, Note: "this agent has no tracked Guardian denial"},
+	},
+	{
 		Name:        "model",
 		Args:        "[name]",
 		Description: "Show or switch the agent model",
