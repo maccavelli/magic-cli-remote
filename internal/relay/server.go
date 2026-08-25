@@ -299,14 +299,8 @@ func (s *Server) startPendingSweeper(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	s.sweeperCancel = cancel
 	// Interval: half of TunnelWait so orphans clear soon after phone-side timeout.
-	every := s.cfg.Limits.TunnelWait / 2
-	if every < time.Second {
-		every = time.Second
-	}
-	maxAge := s.cfg.Limits.TunnelWait * 2
-	if maxAge < 30*time.Second {
-		maxAge = 30 * time.Second
-	}
+	every := max(s.cfg.Limits.TunnelWait/2, time.Second)
+	maxAge := max(s.cfg.Limits.TunnelWait*2, 30*time.Second)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -669,11 +663,7 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	okIP, retryIP := s.allowRateRetry(ip, rateBucketJoin, s.cfg.Limits.JoinPerMinute)
 	okHost, retryHost := s.allowRateRetry(join.HostID, rateBucketJoinHost, s.cfg.Limits.JoinPerHostPerMinute)
 	if !okIP || !okHost {
-		retry := retryIP
-		if retryHost > retry {
-			retry = retryHost
-		}
-		s.rateLimitedWS(ctx, conn, env.ID, retry)
+		s.rateLimitedWS(ctx, conn, env.ID, max(retryIP, retryHost))
 		s.log.Info("join denied", slog.String("host_id", slogHostID(join.HostID)), slog.String("reason", "rate_limited"))
 		return
 	}
@@ -894,13 +884,7 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *
 					log.Error("idle watchdog panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
 				}
 			}()
-			tick := opts.idle / 4
-			if tick < time.Second {
-				tick = time.Second
-			}
-			if tick > opts.idle {
-				tick = opts.idle
-			}
+			tick := min(max(opts.idle/4, time.Second), opts.idle)
 			t := time.NewTicker(tick)
 			defer t.Stop()
 			for {
@@ -929,7 +913,6 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *
 				cancel()
 			}
 		}()
-		defer wg.Done()
 		defer cancel()
 		bufPtr := spliceBufPool.Get().(*[]byte)
 		buf := *bufPtr
@@ -955,9 +938,8 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *
 			bump()
 		}
 	}
-	wg.Add(2)
-	go copyDir(a, b)
-	go copyDir(b, a)
+	wg.Go(func() { copyDir(a, b) })
+	wg.Go(func() { copyDir(b, a) })
 	wg.Wait()
 	_ = a.Close(websocket.StatusNormalClosure, "")
 	_ = b.Close(websocket.StatusNormalClosure, "")
