@@ -1,0 +1,2823 @@
+[
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "account/bedrock/discover",
+    "params_schema": "BedrockDiscoverParams",
+    "response_schema": "BedrockDiscoverResponse",
+    "required_result": [
+      "environmentCredentials",
+      "profiles"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "account/bedrock/setup",
+    "params_schema": "BedrockSetupParams",
+    "response_schema": "BedrockSetupResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/login/cancel",
+    "params_schema": "CancelLoginAccountParams",
+    "response_schema": "CancelLoginAccountResponse",
+    "required_params": [
+      "loginId"
+    ],
+    "required_result": [
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/login/start",
+    "params_schema": "LoginAccountParams",
+    "response_schema": "LoginAccountResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/logout",
+    "params_schema": "none",
+    "response_schema": "LogoutAccountResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/rateLimitResetCredit/consume",
+    "params_schema": "ConsumeAccountRateLimitResetCreditParams",
+    "response_schema": "ConsumeAccountRateLimitResetCreditResponse",
+    "required_params": [
+      "idempotencyKey"
+    ],
+    "required_result": [
+      "outcome"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/rateLimits/read",
+    "params_schema": "none",
+    "response_schema": "GetAccountRateLimitsResponse",
+    "required_result": [
+      "rateLimits"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/read",
+    "params_schema": "GetAccountParams",
+    "response_schema": "GetAccountResponse",
+    "required_result": [
+      "requiresOpenaiAuth"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/sendAddCreditsNudgeEmail",
+    "params_schema": "SendAddCreditsNudgeEmailParams",
+    "response_schema": "SendAddCreditsNudgeEmailResponse",
+    "required_params": [
+      "creditType"
+    ],
+    "required_result": [
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/usage/read",
+    "params_schema": "none",
+    "response_schema": "GetAccountTokenUsageResponse",
+    "required_result": [
+      "summary"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/workspaceMessages/read",
+    "params_schema": "none",
+    "response_schema": "GetWorkspaceMessagesResponse",
+    "required_result": [
+      "featureEnabled",
+      "messages"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "app/installed",
+    "params_schema": "AppsInstalledParams",
+    "response_schema": "AppsInstalledResponse",
+    "required_result": [
+      "apps"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "app/list",
+    "params_schema": "AppsListParams",
+    "response_schema": "AppsListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "app/read",
+    "params_schema": "AppsReadParams",
+    "response_schema": "AppsReadResponse",
+    "required_params": [
+      "appIds"
+    ],
+    "required_result": [
+      "apps",
+      "missingAppIds"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "collaborationMode/list",
+    "params_schema": "CollaborationModeListParams",
+    "response_schema": "CollaborationModeListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "command/exec",
+    "params_schema": "CommandExecParams",
+    "response_schema": "CommandExecResponse",
+    "required_params": [
+      "command"
+    ],
+    "required_result": [
+      "exitCode",
+      "stderr",
+      "stdout"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "command/exec/resize",
+    "params_schema": "CommandExecResizeParams",
+    "response_schema": "CommandExecResizeResponse",
+    "required_params": [
+      "processId",
+      "size"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "command/exec/terminate",
+    "params_schema": "CommandExecTerminateParams",
+    "response_schema": "CommandExecTerminateResponse",
+    "required_params": [
+      "processId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "command/exec/write",
+    "params_schema": "CommandExecWriteParams",
+    "response_schema": "CommandExecWriteResponse",
+    "required_params": [
+      "processId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "config/batchWrite",
+    "params_schema": "ConfigBatchWriteParams",
+    "response_schema": "ConfigWriteResponse",
+    "required_params": [
+      "edits"
+    ],
+    "required_result": [
+      "filePath",
+      "status",
+      "version"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "config/mcpServer/reload",
+    "params_schema": "none",
+    "response_schema": "McpServerRefreshResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "config/read",
+    "params_schema": "ConfigReadParams",
+    "response_schema": "ConfigReadResponse",
+    "required_result": [
+      "config",
+      "origins"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "config/value/write",
+    "params_schema": "ConfigValueWriteParams",
+    "response_schema": "ConfigWriteResponse",
+    "required_params": [
+      "keyPath",
+      "mergeStrategy",
+      "value"
+    ],
+    "required_result": [
+      "filePath",
+      "status",
+      "version"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "configRequirements/read",
+    "params_schema": "none",
+    "response_schema": "ConfigRequirementsReadResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "environment/add",
+    "params_schema": "EnvironmentAddParams",
+    "response_schema": "EnvironmentAddResponse",
+    "required_params": [
+      "environmentId",
+      "execServerUrl"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "environment/info",
+    "params_schema": "EnvironmentInfoParams",
+    "response_schema": "EnvironmentInfoResponse",
+    "required_params": [
+      "environmentId"
+    ],
+    "required_result": [
+      "shell"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "environment/status",
+    "params_schema": "EnvironmentStatusParams",
+    "response_schema": "EnvironmentStatusResponse",
+    "required_params": [
+      "environmentId"
+    ],
+    "required_result": [
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "experimentalFeature/enablement/set",
+    "params_schema": "ExperimentalFeatureEnablementSetParams",
+    "response_schema": "ExperimentalFeatureEnablementSetResponse",
+    "required_params": [
+      "enablement"
+    ],
+    "required_result": [
+      "enablement"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "experimentalFeature/list",
+    "params_schema": "ExperimentalFeatureListParams",
+    "response_schema": "ExperimentalFeatureListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "externalAgentConfig/detect",
+    "params_schema": "ExternalAgentConfigDetectParams",
+    "response_schema": "ExternalAgentConfigDetectResponse",
+    "required_result": [
+      "items"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "externalAgentConfig/import",
+    "params_schema": "ExternalAgentConfigImportParams",
+    "response_schema": "ExternalAgentConfigImportResponse",
+    "required_params": [
+      "migrationItems"
+    ],
+    "required_result": [
+      "importId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "externalAgentConfig/import/readHistories",
+    "params_schema": "none",
+    "response_schema": "ExternalAgentConfigImportHistoriesReadResponse",
+    "required_result": [
+      "connectors",
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "externalAgentConfig/import/recordHistory",
+    "params_schema": "ExternalAgentConfigImportHistoryRecordParams",
+    "response_schema": "ExternalAgentConfigImportHistoryRecordResponse",
+    "required_params": [
+      "itemTypeResults",
+      "providerId"
+    ],
+    "required_result": [
+      "importId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "feedback/upload",
+    "params_schema": "FeedbackUploadParams",
+    "response_schema": "FeedbackUploadResponse",
+    "required_params": [
+      "classification"
+    ],
+    "required_result": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/copy",
+    "params_schema": "FsCopyParams",
+    "response_schema": "FsCopyResponse",
+    "required_params": [
+      "destinationPath",
+      "sourcePath"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/createDirectory",
+    "params_schema": "FsCreateDirectoryParams",
+    "response_schema": "FsCreateDirectoryResponse",
+    "required_params": [
+      "path"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/getMetadata",
+    "params_schema": "FsGetMetadataParams",
+    "response_schema": "FsGetMetadataResponse",
+    "required_params": [
+      "path"
+    ],
+    "required_result": [
+      "createdAtMs",
+      "isDirectory",
+      "isFile",
+      "isSymlink",
+      "modifiedAtMs"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/readDirectory",
+    "params_schema": "FsReadDirectoryParams",
+    "response_schema": "FsReadDirectoryResponse",
+    "required_params": [
+      "path"
+    ],
+    "required_result": [
+      "entries"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/readFile",
+    "params_schema": "FsReadFileParams",
+    "response_schema": "FsReadFileResponse",
+    "required_params": [
+      "path"
+    ],
+    "required_result": [
+      "dataBase64"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/remove",
+    "params_schema": "FsRemoveParams",
+    "response_schema": "FsRemoveResponse",
+    "required_params": [
+      "path"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/unwatch",
+    "params_schema": "FsUnwatchParams",
+    "response_schema": "FsUnwatchResponse",
+    "required_params": [
+      "watchId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/watch",
+    "params_schema": "FsWatchParams",
+    "response_schema": "FsWatchResponse",
+    "required_params": [
+      "path",
+      "watchId"
+    ],
+    "required_result": [
+      "path"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fs/writeFile",
+    "params_schema": "FsWriteFileParams",
+    "response_schema": "FsWriteFileResponse",
+    "required_params": [
+      "dataBase64",
+      "path"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "fuzzyFileSearch",
+    "params_schema": "FuzzyFileSearchParams",
+    "response_schema": "FuzzyFileSearchResponse",
+    "required_params": [
+      "query",
+      "roots"
+    ],
+    "required_result": [
+      "files"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "fuzzyFileSearch/sessionStart",
+    "params_schema": "FuzzyFileSearchSessionStartParams",
+    "response_schema": "FuzzyFileSearchSessionStartResponse",
+    "required_params": [
+      "roots",
+      "sessionId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "fuzzyFileSearch/sessionStop",
+    "params_schema": "FuzzyFileSearchSessionStopParams",
+    "response_schema": "FuzzyFileSearchSessionStopResponse",
+    "required_params": [
+      "sessionId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "fuzzyFileSearch/sessionUpdate",
+    "params_schema": "FuzzyFileSearchSessionUpdateParams",
+    "response_schema": "FuzzyFileSearchSessionUpdateResponse",
+    "required_params": [
+      "query",
+      "sessionId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "hooks/list",
+    "params_schema": "HooksListParams",
+    "response_schema": "HooksListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "initialize",
+    "params_schema": "InitializeParams",
+    "response_schema": "InitializeResponse",
+    "required_params": [
+      "clientInfo"
+    ],
+    "required_result": [
+      "codexHome",
+      "platformFamily",
+      "platformOs",
+      "userAgent"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "marketplace/add",
+    "params_schema": "MarketplaceAddParams",
+    "response_schema": "MarketplaceAddResponse",
+    "required_params": [
+      "source"
+    ],
+    "required_result": [
+      "alreadyAdded",
+      "installedRoot",
+      "marketplaceName"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "marketplace/remove",
+    "params_schema": "MarketplaceRemoveParams",
+    "response_schema": "MarketplaceRemoveResponse",
+    "required_params": [
+      "marketplaceName"
+    ],
+    "required_result": [
+      "marketplaceName"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "marketplace/upgrade",
+    "params_schema": "MarketplaceUpgradeParams",
+    "response_schema": "MarketplaceUpgradeResponse",
+    "required_result": [
+      "errors",
+      "selectedMarketplaces",
+      "upgradedRoots"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "mcpServer/oauth/login",
+    "params_schema": "McpServerOauthLoginParams",
+    "response_schema": "McpServerOauthLoginResponse",
+    "required_params": [
+      "name"
+    ],
+    "required_result": [
+      "authorizationUrl"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "mcpServer/resource/read",
+    "params_schema": "McpResourceReadParams",
+    "response_schema": "McpResourceReadResponse",
+    "required_params": [
+      "server",
+      "uri"
+    ],
+    "required_result": [
+      "contents"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "mcpServer/tool/call",
+    "params_schema": "McpServerToolCallParams",
+    "response_schema": "McpServerToolCallResponse",
+    "required_params": [
+      "server",
+      "threadId",
+      "tool"
+    ],
+    "required_result": [
+      "content"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "mcpServerStatus/list",
+    "params_schema": "ListMcpServerStatusParams",
+    "response_schema": "ListMcpServerStatusResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "memory/reset",
+    "params_schema": "none",
+    "response_schema": "MemoryResetResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "mock/experimentalMethod",
+    "params_schema": "MockExperimentalMethodParams",
+    "response_schema": "MockExperimentalMethodResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "model/list",
+    "params_schema": "ModelListParams",
+    "response_schema": "ModelListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "modelProvider/capabilities/read",
+    "params_schema": "ModelProviderCapabilitiesReadParams",
+    "response_schema": "ModelProviderCapabilitiesReadResponse",
+    "required_result": [
+      "imageGeneration",
+      "namespaceTools",
+      "webSearch"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "permissionProfile/list",
+    "params_schema": "PermissionProfileListParams",
+    "response_schema": "PermissionProfileListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/install",
+    "params_schema": "PluginInstallParams",
+    "response_schema": "PluginInstallResponse",
+    "required_params": [
+      "pluginName"
+    ],
+    "required_result": [
+      "appsNeedingAuth",
+      "authPolicy"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/installed",
+    "params_schema": "PluginInstalledParams",
+    "response_schema": "PluginInstalledResponse",
+    "required_result": [
+      "marketplaces"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/list",
+    "params_schema": "PluginListParams",
+    "response_schema": "PluginListResponse",
+    "required_result": [
+      "marketplaces"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/read",
+    "params_schema": "PluginReadParams",
+    "response_schema": "PluginReadResponse",
+    "required_params": [
+      "pluginName"
+    ],
+    "required_result": [
+      "plugin"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "plugin/search",
+    "params_schema": "PluginSearchParams",
+    "response_schema": "PluginSearchResponse",
+    "required_params": [
+      "searchTerm"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/share/checkout",
+    "params_schema": "PluginShareCheckoutParams",
+    "response_schema": "PluginShareCheckoutResponse",
+    "required_params": [
+      "remotePluginId"
+    ],
+    "required_result": [
+      "marketplaceName",
+      "marketplacePath",
+      "pluginId",
+      "pluginName",
+      "pluginPath",
+      "remotePluginId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/share/delete",
+    "params_schema": "PluginShareDeleteParams",
+    "response_schema": "PluginShareDeleteResponse",
+    "required_params": [
+      "remotePluginId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/share/list",
+    "params_schema": "PluginShareListParams",
+    "response_schema": "PluginShareListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/share/save",
+    "params_schema": "PluginShareSaveParams",
+    "response_schema": "PluginShareSaveResponse",
+    "required_params": [
+      "pluginPath"
+    ],
+    "required_result": [
+      "remotePluginId",
+      "shareUrl"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/share/updateTargets",
+    "params_schema": "PluginShareUpdateTargetsParams",
+    "response_schema": "PluginShareUpdateTargetsResponse",
+    "required_params": [
+      "discoverability",
+      "remotePluginId",
+      "shareTargets"
+    ],
+    "required_result": [
+      "discoverability",
+      "principals"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/skill/read",
+    "params_schema": "PluginSkillReadParams",
+    "response_schema": "PluginSkillReadResponse",
+    "required_params": [
+      "remoteMarketplaceName",
+      "remotePluginId",
+      "skillName"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/uninstall",
+    "params_schema": "PluginUninstallParams",
+    "response_schema": "PluginUninstallResponse",
+    "required_params": [
+      "pluginId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "process/kill",
+    "params_schema": "ProcessKillParams",
+    "response_schema": "ProcessKillResponse",
+    "required_params": [
+      "processHandle"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "process/resizePty",
+    "params_schema": "ProcessResizePtyParams",
+    "response_schema": "ProcessResizePtyResponse",
+    "required_params": [
+      "processHandle",
+      "size"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "process/spawn",
+    "params_schema": "ProcessSpawnParams",
+    "response_schema": "ProcessSpawnResponse",
+    "required_params": [
+      "command",
+      "cwd",
+      "processHandle"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "process/writeStdin",
+    "params_schema": "ProcessWriteStdinParams",
+    "response_schema": "ProcessWriteStdinResponse",
+    "required_params": [
+      "processHandle"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "project/create",
+    "params_schema": "ProjectCreateParams",
+    "response_schema": "ProjectCreateResponse",
+    "required_params": [
+      "idempotencyKey",
+      "name",
+      "roots"
+    ],
+    "required_result": [
+      "project"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "project/delete",
+    "params_schema": "ProjectDeleteParams",
+    "response_schema": "ProjectDeleteResponse",
+    "required_params": [
+      "projectId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "project/import",
+    "params_schema": "ProjectImportParams",
+    "response_schema": "ProjectImportResponse",
+    "required_params": [
+      "idempotencyKey",
+      "name",
+      "roots"
+    ],
+    "required_result": [
+      "project"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "project/list",
+    "params_schema": "ProjectListParams",
+    "response_schema": "ProjectListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "project/move",
+    "params_schema": "ProjectMoveParams",
+    "response_schema": "ProjectMoveResponse",
+    "required_params": [
+      "projectId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "project/read",
+    "params_schema": "ProjectReadParams",
+    "response_schema": "ProjectReadResponse",
+    "required_params": [
+      "projectId"
+    ],
+    "required_result": [
+      "project"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "project/update",
+    "params_schema": "ProjectUpdateParams",
+    "response_schema": "ProjectUpdateResponse",
+    "required_params": [
+      "projectId"
+    ],
+    "required_result": [
+      "project"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "remoteControl/client/list",
+    "params_schema": "RemoteControlClientsListParams",
+    "response_schema": "RemoteControlClientsListResponse",
+    "required_params": [
+      "environmentId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "remoteControl/client/revoke",
+    "params_schema": "RemoteControlClientsRevokeParams",
+    "response_schema": "RemoteControlClientsRevokeResponse",
+    "required_params": [
+      "clientId",
+      "environmentId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "remoteControl/disable",
+    "params_schema": "none",
+    "response_schema": "RemoteControlDisableResponse",
+    "required_result": [
+      "installationId",
+      "serverName",
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "remoteControl/enable",
+    "params_schema": "none",
+    "response_schema": "RemoteControlEnableResponse",
+    "required_result": [
+      "installationId",
+      "serverName",
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "remoteControl/pairing/start",
+    "params_schema": "RemoteControlPairingStartParams",
+    "response_schema": "RemoteControlPairingStartResponse",
+    "required_result": [
+      "environmentId",
+      "expiresAt",
+      "pairingCode"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "remoteControl/pairing/status",
+    "params_schema": "RemoteControlPairingStatusParams",
+    "response_schema": "RemoteControlPairingStatusResponse",
+    "required_result": [
+      "claimed"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "remoteControl/status/read",
+    "params_schema": "none",
+    "response_schema": "RemoteControlStatusReadResponse",
+    "required_result": [
+      "installationId",
+      "serverName",
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "review/start",
+    "params_schema": "ReviewStartParams",
+    "response_schema": "ReviewStartResponse",
+    "required_params": [
+      "target",
+      "threadId"
+    ],
+    "required_result": [
+      "reviewThreadId",
+      "turn"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "server/diagnostics",
+    "params_schema": "ServerDiagnosticsParams",
+    "response_schema": "ServerDiagnosticsResponse",
+    "required_result": [
+      "gauges",
+      "process"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "skills/config/write",
+    "params_schema": "SkillsConfigWriteParams",
+    "response_schema": "SkillsConfigWriteResponse",
+    "required_params": [
+      "enabled"
+    ],
+    "required_result": [
+      "effectiveEnabled"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "skills/extraRoots/set",
+    "params_schema": "SkillsExtraRootsSetParams",
+    "response_schema": "SkillsExtraRootsSetResponse",
+    "required_params": [
+      "extraRoots"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "skills/list",
+    "params_schema": "SkillsListParams",
+    "response_schema": "SkillsListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/approveGuardianDeniedAction",
+    "params_schema": "ThreadApproveGuardianDeniedActionParams",
+    "response_schema": "ThreadApproveGuardianDeniedActionResponse",
+    "required_params": [
+      "event",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/archive",
+    "params_schema": "ThreadArchiveParams",
+    "response_schema": "ThreadArchiveResponse",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/backgroundTerminals/clean",
+    "params_schema": "ThreadBackgroundTerminalsCleanParams",
+    "response_schema": "ThreadBackgroundTerminalsCleanResponse",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/backgroundTerminals/list",
+    "params_schema": "ThreadBackgroundTerminalsListParams",
+    "response_schema": "ThreadBackgroundTerminalsListResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/backgroundTerminals/terminate",
+    "params_schema": "ThreadBackgroundTerminalsTerminateParams",
+    "response_schema": "ThreadBackgroundTerminalsTerminateResponse",
+    "required_params": [
+      "processId",
+      "threadId"
+    ],
+    "required_result": [
+      "terminated"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/compact/start",
+    "params_schema": "ThreadCompactStartParams",
+    "response_schema": "ThreadCompactStartResponse",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/decrement_elicitation",
+    "params_schema": "ThreadDecrementElicitationParams",
+    "response_schema": "ThreadDecrementElicitationResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "count",
+      "paused"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/delete",
+    "params_schema": "ThreadDeleteParams",
+    "response_schema": "ThreadDeleteResponse",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/fork",
+    "params_schema": "ThreadForkParams",
+    "response_schema": "ThreadForkResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "approvalPolicy",
+      "approvalsReviewer",
+      "cwd",
+      "model",
+      "modelProvider",
+      "sandbox",
+      "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/goal/clear",
+    "params_schema": "ThreadGoalClearParams",
+    "response_schema": "ThreadGoalClearResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "cleared"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/goal/get",
+    "params_schema": "ThreadGoalGetParams",
+    "response_schema": "ThreadGoalGetResponse",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/goal/set",
+    "params_schema": "ThreadGoalSetParams",
+    "response_schema": "ThreadGoalSetResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "goal"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/increment_elicitation",
+    "params_schema": "ThreadIncrementElicitationParams",
+    "response_schema": "ThreadIncrementElicitationResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "count",
+      "paused"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/inject_items",
+    "params_schema": "ThreadInjectItemsParams",
+    "response_schema": "ThreadInjectItemsResponse",
+    "required_params": [
+      "items",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/items/list",
+    "params_schema": "ThreadItemsListParams",
+    "response_schema": "ThreadItemsListResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/list",
+    "params_schema": "ThreadListParams",
+    "response_schema": "ThreadListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/loaded/list",
+    "params_schema": "ThreadLoadedListParams",
+    "response_schema": "ThreadLoadedListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/memoryMode/set",
+    "params_schema": "ThreadMemoryModeSetParams",
+    "response_schema": "ThreadMemoryModeSetResponse",
+    "required_params": [
+      "mode",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/metadata/update",
+    "params_schema": "ThreadMetadataUpdateParams",
+    "response_schema": "ThreadMetadataUpdateResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/name/set",
+    "params_schema": "ThreadSetNameParams",
+    "response_schema": "ThreadSetNameResponse",
+    "required_params": [
+      "name",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/queue/add",
+    "params_schema": "ThreadQueueAddParams",
+    "response_schema": "ThreadQueueAddResponse",
+    "required_params": [
+      "clientUserMessageId",
+      "input",
+      "threadId"
+    ],
+    "required_result": [
+      "queuedSubmission"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/queue/delete",
+    "params_schema": "ThreadQueueDeleteParams",
+    "response_schema": "ThreadQueueDeleteResponse",
+    "required_params": [
+      "queuedSubmissionId",
+      "threadId"
+    ],
+    "required_result": [
+      "deleted"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/queue/list",
+    "params_schema": "ThreadQueueListParams",
+    "response_schema": "ThreadQueueListResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/queue/reorder",
+    "params_schema": "ThreadQueueReorderParams",
+    "response_schema": "ThreadQueueReorderResponse",
+    "required_params": [
+      "queuedSubmissionIds",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/queue/start",
+    "params_schema": "ThreadQueueStartParams",
+    "response_schema": "ThreadQueueStartResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "turn"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/queue/update",
+    "params_schema": "ThreadQueueUpdateParams",
+    "response_schema": "ThreadQueueUpdateResponse",
+    "required_params": [
+      "input",
+      "queuedSubmissionId",
+      "threadId"
+    ],
+    "required_result": [
+      "queuedSubmission"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/read",
+    "params_schema": "ThreadReadParams",
+    "response_schema": "ThreadReadResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/realtime/appendAudio",
+    "params_schema": "ThreadRealtimeAppendAudioParams",
+    "response_schema": "ThreadRealtimeAppendAudioResponse",
+    "required_params": [
+      "audio",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/realtime/appendSpeech",
+    "params_schema": "ThreadRealtimeAppendSpeechParams",
+    "response_schema": "ThreadRealtimeAppendSpeechResponse",
+    "required_params": [
+      "text",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/realtime/appendText",
+    "params_schema": "ThreadRealtimeAppendTextParams",
+    "response_schema": "ThreadRealtimeAppendTextResponse",
+    "required_params": [
+      "text",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/realtime/listVoices",
+    "params_schema": "ThreadRealtimeListVoicesParams",
+    "response_schema": "ThreadRealtimeListVoicesResponse",
+    "required_result": [
+      "voices"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/realtime/start",
+    "params_schema": "ThreadRealtimeStartParams",
+    "response_schema": "ThreadRealtimeStartResponse",
+    "required_params": [
+      "outputModality",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/realtime/stop",
+    "params_schema": "ThreadRealtimeStopParams",
+    "response_schema": "ThreadRealtimeStopResponse",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/resume",
+    "params_schema": "ThreadResumeParams",
+    "response_schema": "ThreadResumeResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "approvalPolicy",
+      "approvalsReviewer",
+      "cwd",
+      "model",
+      "modelProvider",
+      "sandbox",
+      "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/revert",
+    "params_schema": "ThreadRevertParams",
+    "response_schema": "ThreadRevertResponse",
+    "required_params": [
+      "beforeTurnId",
+      "threadId"
+    ],
+    "required_result": [
+      "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/rollback",
+    "params_schema": "ThreadRollbackParams",
+    "response_schema": "ThreadRollbackResponse",
+    "required_params": [
+      "numTurns",
+      "threadId"
+    ],
+    "required_result": [
+      "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/search",
+    "params_schema": "ThreadSearchParams",
+    "response_schema": "ThreadSearchResponse",
+    "required_params": [
+      "searchTerm"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/searchOccurrences",
+    "params_schema": "ThreadSearchOccurrencesParams",
+    "response_schema": "ThreadSearchOccurrencesResponse",
+    "required_params": [
+      "searchTerm",
+      "threadId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/section/move",
+    "params_schema": "ThreadSectionMoveParams",
+    "response_schema": "ThreadSectionMoveResponse",
+    "required_params": [
+      "sectionId",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/settings/update",
+    "params_schema": "ThreadSettingsUpdateParams",
+    "response_schema": "ThreadSettingsUpdateResponse",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/shellCommand",
+    "params_schema": "ThreadShellCommandParams",
+    "response_schema": "ThreadShellCommandResponse",
+    "required_params": [
+      "command",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/start",
+    "params_schema": "ThreadStartParams",
+    "response_schema": "ThreadStartResponse",
+    "required_result": [
+      "approvalPolicy",
+      "approvalsReviewer",
+      "cwd",
+      "model",
+      "modelProvider",
+      "sandbox",
+      "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/turns/list",
+    "params_schema": "ThreadTurnsListParams",
+    "response_schema": "ThreadTurnsListResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/unarchive",
+    "params_schema": "ThreadUnarchiveParams",
+    "response_schema": "ThreadUnarchiveResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/unsubscribe",
+    "params_schema": "ThreadUnsubscribeParams",
+    "response_schema": "ThreadUnsubscribeResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "threadSection/create",
+    "params_schema": "ThreadSectionCreateParams",
+    "response_schema": "ThreadSectionCreateResponse",
+    "required_params": [
+      "name"
+    ],
+    "required_result": [
+      "section"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "threadSection/delete",
+    "params_schema": "ThreadSectionDeleteParams",
+    "response_schema": "ThreadSectionDeleteResponse",
+    "required_params": [
+      "sectionId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "threadSection/list",
+    "params_schema": "ThreadSectionListParams",
+    "response_schema": "ThreadSectionListResponse",
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "threadSection/update",
+    "params_schema": "ThreadSectionUpdateParams",
+    "response_schema": "ThreadSectionUpdateResponse",
+    "required_params": [
+      "name",
+      "sectionId"
+    ],
+    "required_result": [
+      "section"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "turn/interrupt",
+    "params_schema": "TurnInterruptParams",
+    "response_schema": "TurnInterruptResponse",
+    "required_params": [
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "turn/start",
+    "params_schema": "TurnStartParams",
+    "response_schema": "TurnStartResponse",
+    "required_params": [
+      "input",
+      "threadId"
+    ],
+    "required_result": [
+      "turn"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "turn/steer",
+    "params_schema": "TurnSteerParams",
+    "response_schema": "TurnSteerResponse",
+    "required_params": [
+      "expectedTurnId",
+      "input",
+      "threadId"
+    ],
+    "required_result": [
+      "turnId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "windowsSandbox/readiness",
+    "params_schema": "none",
+    "response_schema": "WindowsSandboxReadinessResponse",
+    "required_result": [
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "windowsSandbox/setupStart",
+    "params_schema": "WindowsSandboxSetupStartParams",
+    "response_schema": "WindowsSandboxSetupStartResponse",
+    "required_params": [
+      "mode"
+    ],
+    "required_result": [
+      "started"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "account/login/completed",
+    "params_schema": "AccountLoginCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "success"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "account/rateLimits/updated",
+    "params_schema": "AccountRateLimitsUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "rateLimits"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "account/updated",
+    "params_schema": "AccountUpdatedNotification",
+    "response_schema": "none"
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "app/list/updated",
+    "params_schema": "AppListUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "data"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "autoApprovalReview/strictReviewRequired",
+    "params_schema": "StrictReviewRequiredNotification",
+    "response_schema": "none",
+    "required_params": [
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "command/exec/outputDelta",
+    "params_schema": "CommandExecOutputDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "capReached",
+      "deltaBase64",
+      "processId",
+      "stream"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "configWarning",
+    "params_schema": "ConfigWarningNotification",
+    "response_schema": "none",
+    "required_params": [
+      "summary"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "deprecationNotice",
+    "params_schema": "DeprecationNoticeNotification",
+    "response_schema": "none",
+    "required_params": [
+      "summary"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "error",
+    "params_schema": "ErrorNotification",
+    "response_schema": "none",
+    "required_params": [
+      "error",
+      "threadId",
+      "turnId",
+      "willRetry"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "externalAgentConfig/import/completed",
+    "params_schema": "ExternalAgentConfigImportCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "importId",
+      "itemTypeResults"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "externalAgentConfig/import/progress",
+    "params_schema": "ExternalAgentConfigImportProgressNotification",
+    "response_schema": "none",
+    "required_params": [
+      "importId",
+      "itemTypeResults"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "fs/changed",
+    "params_schema": "FsChangedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "changedPaths",
+      "watchId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "fuzzyFileSearch/sessionCompleted",
+    "params_schema": "FuzzyFileSearchSessionCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "sessionId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "fuzzyFileSearch/sessionUpdated",
+    "params_schema": "FuzzyFileSearchSessionUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "files",
+      "query",
+      "sessionId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "guardianWarning",
+    "params_schema": "GuardianWarningNotification",
+    "response_schema": "none",
+    "required_params": [
+      "message",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "hook/completed",
+    "params_schema": "HookCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "run",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "hook/started",
+    "params_schema": "HookStartedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "run",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/agentMessage/delta",
+    "params_schema": "AgentMessageDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "delta",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/autoApprovalReview/completed",
+    "params_schema": "ItemGuardianApprovalReviewCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "action",
+      "completedAtMs",
+      "decisionSource",
+      "review",
+      "reviewId",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/autoApprovalReview/started",
+    "params_schema": "ItemGuardianApprovalReviewStartedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "action",
+      "review",
+      "reviewId",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/commandExecution/outputDelta",
+    "params_schema": "CommandExecutionOutputDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "delta",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/commandExecution/terminalInteraction",
+    "params_schema": "TerminalInteractionNotification",
+    "response_schema": "none",
+    "required_params": [
+      "itemId",
+      "processId",
+      "stdin",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/completed",
+    "params_schema": "ItemCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "completedAtMs",
+      "item",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/fileChange/outputDelta",
+    "params_schema": "FileChangeOutputDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "delta",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/fileChange/patchUpdated",
+    "params_schema": "FileChangePatchUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "changes",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/mcpToolCall/progress",
+    "params_schema": "McpToolCallProgressNotification",
+    "response_schema": "none",
+    "required_params": [
+      "itemId",
+      "message",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/plan/delta",
+    "params_schema": "PlanDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "delta",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/reasoning/summaryPartAdded",
+    "params_schema": "ReasoningSummaryPartAddedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "itemId",
+      "summaryIndex",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/reasoning/summaryTextDelta",
+    "params_schema": "ReasoningSummaryTextDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "delta",
+      "itemId",
+      "summaryIndex",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/reasoning/textDelta",
+    "params_schema": "ReasoningTextDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "contentIndex",
+      "delta",
+      "itemId",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "item/started",
+    "params_schema": "ItemStartedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "item",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "mcpServer/oauthLogin/completed",
+    "params_schema": "McpServerOauthLoginCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "name",
+      "success"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "mcpServer/startupStatus/updated",
+    "params_schema": "McpServerStatusUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "name",
+      "status"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "model/rerouted",
+    "params_schema": "ModelReroutedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "fromModel",
+      "reason",
+      "threadId",
+      "toModel",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "model/safetyBuffering/updated",
+    "params_schema": "ModelSafetyBufferingUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "model",
+      "reasons",
+      "showBufferingUi",
+      "threadId",
+      "turnId",
+      "useCases"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "model/verification",
+    "params_schema": "ModelVerificationNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId",
+      "turnId",
+      "verifications"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "process/exited",
+    "params_schema": "ProcessExitedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "exitCode",
+      "processHandle",
+      "stderr",
+      "stderrCapReached",
+      "stdout",
+      "stdoutCapReached"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "process/outputDelta",
+    "params_schema": "ProcessOutputDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "capReached",
+      "deltaBase64",
+      "processHandle",
+      "stream"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "project/changed",
+    "params_schema": "ProjectChangedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "changeType",
+      "projectId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "remoteControl/status/changed",
+    "params_schema": "RemoteControlStatusChangedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "installationId",
+      "serverName",
+      "status"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "serverRequest/resolved",
+    "params_schema": "ServerRequestResolvedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "requestId",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "skills/changed",
+    "params_schema": "SkillsChangedNotification",
+    "response_schema": "none"
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/archived",
+    "params_schema": "ThreadArchivedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/closed",
+    "params_schema": "ThreadClosedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/compacted",
+    "params_schema": "ContextCompactedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/deleted",
+    "params_schema": "ThreadDeletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/environment/connected",
+    "params_schema": "EnvironmentConnectionNotification",
+    "response_schema": "none",
+    "required_params": [
+      "environmentId",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/environment/disconnected",
+    "params_schema": "EnvironmentConnectionNotification",
+    "response_schema": "none",
+    "required_params": [
+      "environmentId",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/goal/cleared",
+    "params_schema": "ThreadGoalClearedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/goal/updated",
+    "params_schema": "ThreadGoalUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "goal",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/name/updated",
+    "params_schema": "ThreadNameUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/project/updated",
+    "params_schema": "ThreadProjectUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "projectId",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/queue/changed",
+    "params_schema": "ThreadQueueChangedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/closed",
+    "params_schema": "ThreadRealtimeClosedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/error",
+    "params_schema": "ThreadRealtimeErrorNotification",
+    "response_schema": "none",
+    "required_params": [
+      "message",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/itemAdded",
+    "params_schema": "ThreadRealtimeItemAddedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "item",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/outputAudio/delta",
+    "params_schema": "ThreadRealtimeOutputAudioDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "audio",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/sdp",
+    "params_schema": "ThreadRealtimeSdpNotification",
+    "response_schema": "none",
+    "required_params": [
+      "sdp",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/started",
+    "params_schema": "ThreadRealtimeStartedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId",
+      "version"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/transcript/delta",
+    "params_schema": "ThreadRealtimeTranscriptDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "delta",
+      "role",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/transcript/done",
+    "params_schema": "ThreadRealtimeTranscriptDoneNotification",
+    "response_schema": "none",
+    "required_params": [
+      "role",
+      "text",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/reverted",
+    "params_schema": "ThreadRevertedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/settings/updated",
+    "params_schema": "ThreadSettingsUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId",
+      "threadSettings"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/started",
+    "params_schema": "ThreadStartedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "thread"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/status/changed",
+    "params_schema": "ThreadStatusChangedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "status",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/tokenUsage/updated",
+    "params_schema": "ThreadTokenUsageUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId",
+      "tokenUsage",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/unarchived",
+    "params_schema": "ThreadUnarchivedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "turn/completed",
+    "params_schema": "TurnCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId",
+      "turn"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "turn/diff/updated",
+    "params_schema": "TurnDiffUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "diff",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "turn/moderationMetadata",
+    "params_schema": "TurnModerationMetadataNotification",
+    "response_schema": "none",
+    "required_params": [
+      "metadata",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "turn/plan/updated",
+    "params_schema": "TurnPlanUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "plan",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "turn/started",
+    "params_schema": "TurnStartedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "threadId",
+      "turn"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "warning",
+    "params_schema": "WarningNotification",
+    "response_schema": "none",
+    "required_params": [
+      "message"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "windows/worldWritableWarning",
+    "params_schema": "WindowsWorldWritableWarningNotification",
+    "response_schema": "none",
+    "required_params": [
+      "extraCount",
+      "failedScan",
+      "samplePaths"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "windowsSandbox/setupCompleted",
+    "params_schema": "WindowsSandboxSetupCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "mode",
+      "success"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "account/chatgptAuthTokens/refresh",
+    "params_schema": "ChatgptAuthTokensRefreshParams",
+    "response_schema": "ChatgptAuthTokensRefreshResponse",
+    "required_params": [
+      "reason"
+    ],
+    "required_result": [
+      "accessToken",
+      "chatgptAccountId"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "applyPatchApproval",
+    "params_schema": "ApplyPatchApprovalParams",
+    "response_schema": "ApplyPatchApprovalResponse",
+    "required_params": [
+      "callId",
+      "conversationId",
+      "fileChanges"
+    ],
+    "required_result": [
+      "decision"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "attestation/generate",
+    "params_schema": "AttestationGenerateParams",
+    "response_schema": "AttestationGenerateResponse",
+    "required_result": [
+      "token"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "experimental",
+    "method": "currentTime/read",
+    "params_schema": "CurrentTimeReadParams",
+    "response_schema": "CurrentTimeReadResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "currentTimeAt"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "execCommandApproval",
+    "params_schema": "ExecCommandApprovalParams",
+    "response_schema": "ExecCommandApprovalResponse",
+    "required_params": [
+      "callId",
+      "command",
+      "conversationId",
+      "cwd",
+      "parsedCmd"
+    ],
+    "required_result": [
+      "decision"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "item/commandExecution/requestApproval",
+    "params_schema": "CommandExecutionRequestApprovalParams",
+    "response_schema": "CommandExecutionRequestApprovalResponse",
+    "required_params": [
+      "itemId",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ],
+    "required_result": [
+      "decision"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "item/fileChange/requestApproval",
+    "params_schema": "FileChangeRequestApprovalParams",
+    "response_schema": "FileChangeRequestApprovalResponse",
+    "required_params": [
+      "itemId",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ],
+    "required_result": [
+      "decision"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "item/permissions/requestApproval",
+    "params_schema": "PermissionsRequestApprovalParams",
+    "response_schema": "PermissionsRequestApprovalResponse",
+    "required_params": [
+      "cwd",
+      "itemId",
+      "permissions",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ],
+    "required_result": [
+      "permissions"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "item/tool/call",
+    "params_schema": "DynamicToolCallParams",
+    "response_schema": "DynamicToolCallResponse",
+    "required_params": [
+      "arguments",
+      "callId",
+      "threadId",
+      "tool",
+      "turnId"
+    ],
+    "required_result": [
+      "contentItems",
+      "success"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "item/tool/requestUserInput",
+    "params_schema": "ToolRequestUserInputParams",
+    "response_schema": "ToolRequestUserInputResponse",
+    "required_params": [
+      "isBlocking",
+      "itemId",
+      "questions",
+      "threadId",
+      "turnId"
+    ],
+    "required_result": [
+      "answers"
+    ]
+  },
+  {
+    "kind": "server_request",
+    "stability": "stable",
+    "method": "mcpServer/elicitation/request",
+    "params_schema": "McpServerElicitationRequestParams",
+    "response_schema": "McpServerElicitationRequestResponse",
+    "required_params": [
+      "serverName",
+      "threadId"
+    ],
+    "required_result": [
+      "action"
+    ]
+  }
+]

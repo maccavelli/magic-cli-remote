@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -69,7 +70,7 @@ func (s *session) SetServiceTier(ctx context.Context, on bool) error {
 	}
 	gen := s.engineGeneration
 	threadID := s.agentID
-	experimental := s.p != nil && s.p.eng != nil && s.p.eng.experimental
+	experimental := s.p != nil && s.p.supportsCapability(CapabilityThreadSettings)
 	s.mu.Unlock()
 	return s.applySetting(ctx, gen, threadID, experimental, func(params map[string]any) {
 		if next == "" {
@@ -116,7 +117,7 @@ func (s *session) SetPersonality(ctx context.Context, value string) error {
 	}
 	gen := s.engineGeneration
 	threadID := s.agentID
-	experimental := s.p != nil && s.p.eng != nil && s.p.eng.experimental
+	experimental := s.p != nil && s.p.supportsCapability(CapabilityThreadSettings)
 	s.mu.Unlock()
 	return s.applySetting(ctx, gen, threadID, experimental, func(params map[string]any) {
 		params["personality"] = value
@@ -142,6 +143,20 @@ func (s *session) applySetting(ctx context.Context, gen int, threadID string, ex
 	params := map[string]any{"threadId": threadID}
 	fill(params)
 	if _, err := fr.sendRequest(ctx, "thread/settings/update", params); err != nil {
+		var rpc *rpcErrorBody
+		if errors.As(err, &rpc) && rpc != nil && (rpc.IsMethodNotFound() || rpc.IsInvalidParams()) {
+			reason := DenialMethodNotFound
+			if rpc.IsInvalidParams() {
+				reason = DenialInvalidParams
+			}
+			s.p.disableCapability(CapabilityThreadSettings, reason)
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if !s.closed && s.engineGeneration == gen {
+				commit()
+			}
+			return provider.ErrAppliesNextTurn
+		}
 		return err
 	}
 	s.mu.Lock()

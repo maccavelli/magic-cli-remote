@@ -67,6 +67,9 @@ func isExperimentalInitRejection(err error) bool {
 	if !errors.As(err, &rpc) || rpc == nil {
 		return false
 	}
+	if strings.EqualFold(rpc.CapabilityName(), "experimentalApi") {
+		return true
+	}
 	if experimentalCapabilityRe.MatchString(rpc.Message) {
 		return true
 	}
@@ -163,6 +166,10 @@ func (p *Provider) probeCollaboration(ctx context.Context, eng *engine) {
 	}
 	eng.collab.probed = true
 	if err != nil {
+		var rpc *rpcErrorBody
+		if errors.As(err, &rpc) && rpc != nil && rpc.IsMethodNotFound() && eng.capabilities != nil {
+			eng.capabilities.Disable(CapabilityCollaborationModes, DenialMethodNotFound)
+		}
 		eng.collab.supported = false
 		eng.collab.catalog = collaborationCatalog{}
 		eng.collab.reason = reasonExperimentalUnavailable(p.versionLabel())

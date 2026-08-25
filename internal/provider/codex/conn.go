@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 var errConnLost = errors.New("engine connection lost")
@@ -18,6 +20,85 @@ type rpcErrorBody struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+const (
+	maxRPCErrorMessageBytes = 1024
+	maxRPCErrorDataBytes    = 16 << 10
+)
+
+func (e *rpcErrorBody) UnmarshalJSON(raw []byte) error {
+	type wireError struct {
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data,omitempty"`
+	}
+	var wire wireError
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	e.Code = wire.Code
+	e.Message = truncateUTF8Bytes(wire.Message, maxRPCErrorMessageBytes)
+	e.Data = boundRPCErrorData(wire.Data)
+	return nil
+}
+
+func boundRPCErrorData(raw json.RawMessage) json.RawMessage {
+	if len(raw) <= maxRPCErrorDataBytes {
+		return append(json.RawMessage(nil), raw...)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return json.RawMessage(`{"truncated":true}`)
+	}
+	bounded := map[string]any{"truncated": true}
+	for _, key := range []string{"capability", "method", "reason", "code", "retryAfterMs"} {
+		value, ok := fields[key]
+		if !ok {
+			continue
+		}
+		var text string
+		if json.Unmarshal(value, &text) == nil {
+			bounded[key] = truncateUTF8Bytes(text, 512)
+			continue
+		}
+		if len(value) <= 512 {
+			bounded[key] = json.RawMessage(value)
+		}
+	}
+	out, err := json.Marshal(bounded)
+	if err != nil {
+		return json.RawMessage(`{"truncated":true}`)
+	}
+	return out
+}
+
+func truncateUTF8Bytes(value string, max int) string {
+	if max <= 0 || len(value) <= max {
+		return value
+	}
+	value = value[:max]
+	for !utf8.ValidString(value) && len(value) > 0 {
+		value = value[:len(value)-1]
+	}
+	return value
+}
+
+func (e *rpcErrorBody) IsMethodNotFound() bool { return e != nil && e.Code == -32601 }
+
+func (e *rpcErrorBody) IsInvalidParams() bool { return e != nil && e.Code == -32602 }
+
+func (e *rpcErrorBody) CapabilityName() string {
+	if e == nil || len(e.Data) == 0 {
+		return ""
+	}
+	var data struct {
+		Capability string `json:"capability"`
+	}
+	if json.Unmarshal(e.Data, &data) != nil {
+		return ""
+	}
+	return strings.TrimSpace(data.Capability)
 }
 
 func (e *rpcErrorBody) Error() string {

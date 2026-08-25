@@ -136,6 +136,15 @@ func TestInitializeSendsExperimentalApiTrue(t *testing.T) {
 	if !bytes.Contains(raw, []byte(`"experimentalApi":true`)) {
 		t.Fatalf("initialize did not send experimentalApi:true: %s", raw)
 	}
+	for _, want := range [][]byte{
+		[]byte(`"requestAttestation":false`),
+		[]byte(`"optOutNotificationMethods":[]`),
+		[]byte(`"extensions":{}`),
+	} {
+		if !bytes.Contains(raw, want) {
+			t.Fatalf("initialize did not send %s: %s", want, raw)
+		}
+	}
 	if p.eng == nil || !p.eng.experimental {
 		t.Fatal("engine should keep the experimental initialize")
 	}

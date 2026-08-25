@@ -68,8 +68,11 @@ func runAppServerHelper() {
 				continue
 			}
 			response := map[string]any{
-				"id":     json.RawMessage(request.ID),
-				"result": map[string]string{"codexHome": "/tmp/codex"},
+				"id": json.RawMessage(request.ID),
+				"result": map[string]string{
+					"codexHome": "/tmp/codex", "userAgent": "codex-test/0.149.1",
+					"platformFamily": "unix", "platformOs": "linux",
+				},
 			}
 			if err := json.NewEncoder(os.Stdout).Encode(response); err != nil {
 				os.Exit(3)
@@ -147,4 +150,22 @@ func TestProviderInitializesBeforeTimingOut(t *testing.T) {
 		t.Fatal("ensure engine returned nil connection")
 	}
 	p.Shutdown()
+}
+
+func TestInitializeRetainsPlatformMetadata(t *testing.T) {
+	t.Setenv("GO_WANT_CODEX_APP_SERVER_HELPER", "1")
+	p := NewWithLogger(Config{Bin: os.Args[0]}, testLogger(t))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := p.ensureEngine(ctx); err != nil {
+		t.Fatalf("ensure engine: %v", err)
+	}
+	defer p.Shutdown()
+
+	p.mu.Lock()
+	metadata := p.eng.initialize
+	p.mu.Unlock()
+	if metadata.UserAgent != "codex-test/0.149.1" || metadata.PlatformFamily != "unix" || metadata.PlatformOS != "linux" {
+		t.Fatalf("initialize metadata = %+v", metadata)
+	}
 }

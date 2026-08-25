@@ -137,7 +137,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose live-codex live-grok live-kilo race test-all preflight apk \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose live-codex live-codex-contract live-grok live-kilo race test-all preflight apk \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target
 
@@ -288,6 +288,10 @@ live-opencode:
 # must be *rejected* — which is the guard a fake cannot provide.
 live-codex:
 	go test -tags live_codex ./internal/provider/codex/ -count=1 -timeout 600s -v
+
+# Exact-binary Codex schema and no-model catalog drift gate (MADR 0109 P1).
+live-codex-contract:
+	go test -tags live_codex_contract ./internal/provider/codex/ -count=1 -timeout 180s -v
 
 # Token-bearing Codex turn suite (MADR 0080 P9). Explicitly opt-in.
 live-codex-turn:
@@ -487,4 +491,3 @@ tidy:
 
 clean:
 	rm -rf bin
-

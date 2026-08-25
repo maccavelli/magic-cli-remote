@@ -307,6 +307,9 @@ func (s *session) policy() (approvalPolicy, sandboxMode string) {
 
 func (s *session) startNew(ctx context.Context, fr *conn) error {
 	params := map[string]any{}
+	if s.p != nil && s.p.supportsCapability(CapabilityThreadSource) {
+		stampThreadSource(threadCreate, params)
+	}
 	if s.cwd != "" {
 		params["cwd"] = s.cwd
 	}
@@ -812,9 +815,9 @@ func (s *session) Fork(ctx context.Context, opts provider.ForkOptions) (provider
 		return provider.ForkResult{}, provider.ErrTurnBusy
 	}
 	threadID := s.agentID
-	experimental := s.p != nil && s.p.eng != nil && s.p.eng.experimental
+	deferGoalSupported := s.p != nil && s.p.supportsCapability(CapabilityThreadForkDeferGoal)
 	s.mu.Unlock()
-	if opts.DeferGoalContinuation && !experimental {
+	if opts.DeferGoalContinuation && !deferGoalSupported {
 		return provider.ForkResult{}, fmt.Errorf("defer goal continuation requires experimental API")
 	}
 	fr := s.p.framer()
@@ -823,6 +826,9 @@ func (s *session) Fork(ctx context.Context, opts provider.ForkOptions) (provider
 	}
 	params := map[string]any{
 		"threadId": threadID,
+	}
+	if s.p != nil && s.p.supportsCapability(CapabilityThreadSource) {
+		stampThreadSource(threadFork, params)
 	}
 	if opts.LastTurnID != "" {
 		params["lastTurnId"] = opts.LastTurnID

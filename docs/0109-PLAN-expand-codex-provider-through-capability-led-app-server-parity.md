@@ -1978,7 +1978,7 @@ rollback side effect.
   resolutions (2026-08-25). This does not by itself execute a phase.
 - [x] Complete P0 repository, toolchain, binary-digest, and schema-drift
   reconciliation.
-- [ ] Complete P1 exact-version contract manifest and capability negotiation.
+- [x] Complete P1 exact-version contract manifest and capability negotiation.
 - [ ] Complete P2 callback correctness, secret forms, and provider routing.
 - [ ] Complete P3 managed transports, supervision, and reconnection.
 - [ ] Complete P4 event fidelity, runtime status, and diagnostics.
@@ -2004,7 +2004,7 @@ This table is intentionally empty until execution is explicitly approved.
 | Phase | Commit | Verification | Capability/fallback evidence | Notes |
 | --- | --- | --- | --- | --- |
 | P0 | `b944880` (artifacts accepted/approved); `f2a56a4` (reconciliation and accepted 0.149.1 delta) | `go test ./internal/provider/codex ./internal/protocol ./internal/event ./internal/session ./internal/ws` and the focused 0109 `git diff --check` passed 2026-08-25; Flutter 3.44.6 and Dart 3.12.2 resolved successfully | Resolved `codex-cli 0.149.1`, SHA-256 `73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba`; regenerated 95/75/10 stable and 150/75/11 experimental schemas; no-model catalogs/probes green | Started at `3ad5533` on `master`; Go 1.26.5. The binary was already updated and `doctor` reports 0.149.1 latest. The temporary schema/TypeScript evidence tree was removed after comparison. D32-D38 were accepted 2026-08-25. Pre-existing process-rule worktree changes remain excluded. |
-| P1 | Not started | Not run | Not captured | |
+| P1 | Phase commit pending | Focused contract/manifest/capability/initialize tests, full Codex package tests, `go test -race ./internal/provider/codex`, `go test ./...`, and `make live-codex-contract` passed 2026-08-25; `make pre-add-check` reported all 15 changed Go files clean (the unreachable vulnerability database was a warning under the repository gate) | Installed manifest reproduces 95/75/10 stable and 150/75/11 experimental with SHA-256 `73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba`; source watch reproduces 95/76/10 and 152/76/11 with exactly the approved MCP event-stream trio delta; disabling one latch preserves unrelated stable and experimental capabilities | Added 133 independently gated capability entries and 236 sanitized request/notification/callback shape fixtures; initialize sends attestation false, an empty opt-out list, and an empty typed extension profile until its renderer is complete; new/fork stamp `threadSource:mcremote`, resume omits it. The live gate started no model turn, and all temporary schema trees were removed. |
 | P2 | Not started | Not run | Not captured | |
 | P3 | Not started | Not run | Not captured | |
 | P4 | Not started | Not run | Not captured | |

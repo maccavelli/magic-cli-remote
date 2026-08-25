@@ -313,7 +313,8 @@ func captureThreadRequest(t *testing.T, cfg Config, opts provider.StartOptions) 
 	if opts.LocalSessionID == "" {
 		opts.LocalSessionID = "local-1"
 	}
-	s := newSession(nil, cfg, opts, testLogger(t))
+	p := &Provider{cfg: cfg, log: testLogger(t), eng: &engine{generation: 1}, sessions: make(map[string]*session)}
+	s := newSession(p, cfg, opts, testLogger(t))
 
 	done := make(chan error, 1)
 	go func() {
@@ -409,6 +410,9 @@ func TestThreadStartSandboxIsEnumString(t *testing.T) {
 			if ap, _ := params["approvalPolicy"].(string); ap != tc.approval {
 				t.Errorf("approvalPolicy = %#v, want %q", params["approvalPolicy"], tc.approval)
 			}
+			if source, _ := params["threadSource"].(string); source != "mcremote" {
+				t.Errorf("threadSource = %#v, want mcremote", params["threadSource"])
+			}
 		})
 	}
 }
@@ -431,6 +435,9 @@ func TestThreadResumeCarriesPolicy(t *testing.T) {
 	}
 	if got, _ := params["approvalPolicy"].(string); got != "on-request" {
 		t.Errorf("approvalPolicy = %#v, want %q", params["approvalPolicy"], "on-request")
+	}
+	if _, ok := params["threadSource"]; ok {
+		t.Errorf("thread/resume must omit threadSource: %#v", params)
 	}
 }
 

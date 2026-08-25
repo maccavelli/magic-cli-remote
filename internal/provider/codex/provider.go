@@ -3,11 +3,14 @@ package codex
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -28,8 +31,18 @@ type engine struct {
 	dead            chan struct{}
 	generation      int
 	experimental    bool
+	capabilities    *capabilityState
+	identity        BinaryIdentity
+	initialize      initializeMetadata
 	collab          collaborationProbe
 	diffUnavailable bool
+}
+
+type initializeMetadata struct {
+	CodexHome      string
+	UserAgent      string
+	PlatformFamily string
+	PlatformOS     string
 }
 
 // Provider manages a Codex app-server engine process and its sessions.
@@ -455,14 +468,58 @@ func (p *Provider) reapAttempt(att *engineAttempt) {
 }
 
 func initializeParams(experimental bool) map[string]any {
+	return initializeParamsWithProfile(experimental, MCPClientExtensionProfile{})
+}
+
+// MCPClientExtensionProfile is immutable for every thread on an initialized
+// connection. P1 defaults to the empty profile; P2/P13 enable members only
+// after their complete typed renderer is available.
+type MCPClientExtensionProfile struct {
+	OpenAIForm        bool
+	StandardFormInput bool
+	MCPAppUI          bool
+}
+
+func initializeParamsWithProfile(experimental bool, profile MCPClientExtensionProfile) map[string]any {
+	extensions := make(map[string]any, 3)
+	if profile.OpenAIForm {
+		extensions["openai/form"] = map[string]any{}
+	}
+	if profile.StandardFormInput {
+		extensions["openai/standard-form-input"] = map[string]any{}
+	}
+	if profile.MCPAppUI {
+		extensions["io.modelcontextprotocol/ui"] = map[string]any{
+			"mimeTypes": []string{"text/html;profile=mcp-app"},
+		}
+	}
 	return map[string]any{
 		"clientInfo": map[string]string{
 			"name":    "mcremote",
 			"title":   "magic-cli-remote",
 			"version": "dev",
 		},
-		"capabilities": map[string]bool{
-			"experimentalApi": experimental,
+		"capabilities": map[string]any{
+			"experimentalApi":           experimental,
+			"requestAttestation":        false,
+			"optOutNotificationMethods": []string{},
+			"extensions":                extensions,
+		},
+	}
+}
+
+func initializeParamsWithLegacyForm(experimental bool) map[string]any {
+	return map[string]any{
+		"clientInfo": map[string]string{
+			"name":    "mcremote",
+			"title":   "magic-cli-remote",
+			"version": "dev",
+		},
+		"capabilities": map[string]any{
+			"experimentalApi":                experimental,
+			"requestAttestation":             false,
+			"optOutNotificationMethods":      []string{},
+			"mcpServerOpenaiFormElicitation": true,
 		},
 	}
 }
@@ -473,6 +530,13 @@ func (p *Provider) initializeConn(ctx context.Context, cn *conn, experimental bo
 
 func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	experimental := true
+	identity, identityErr := resolveBinaryIdentity(ctx, p.cfg.Bin, p.version)
+	if identityErr != nil {
+		return nil, identityErr
+	}
+	if identity.Version != "" && identity.Version != "unknown" && identity.Version != "test-helper" {
+		p.version = identity.Version
+	}
 	att, err := p.launchEngineProcess()
 	if err != nil {
 		return nil, err
@@ -508,7 +572,10 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	_ = att.conn.sendNotification(ctx, "initialized", nil)
 
 	var initResp struct {
-		CodexHome string `json:"codexHome"`
+		CodexHome      string `json:"codexHome"`
+		UserAgent      string `json:"userAgent"`
+		PlatformFamily string `json:"platformFamily"`
+		PlatformOS     string `json:"platformOs"`
 	}
 	if err := json.Unmarshal(raw, &initResp); err != nil {
 		p.log.Debug("codex: initialize response parse", slog.String("err", err.Error()))
@@ -517,20 +584,38 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 		p.log.Debug("codex: engine ready", slog.String("codex_home", initResp.CodexHome))
 	}
 
+	manifest, err := loadEmbeddedContractManifest()
+	if err != nil {
+		p.reapAttempt(att)
+		return nil, err
+	}
+
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
 		p.reapAttempt(att)
 		return nil, fmt.Errorf("provider shut down")
 	}
-	p.generation++
-	gen := p.generation
+	gen := p.generation + 1
+	snapshot, err := buildCapabilitySnapshot(manifest, identity, gen, experimental, time.Now().UTC())
+	if err != nil {
+		p.mu.Unlock()
+		p.reapAttempt(att)
+		return nil, err
+	}
+	p.generation = gen
 	eng := &engine{
 		cmd:          att.cmd,
 		conn:         att.conn,
 		dead:         att.dead,
 		generation:   gen,
 		experimental: experimental,
+		capabilities: newCapabilityState(snapshot),
+		identity:     identity,
+		initialize: initializeMetadata{
+			CodexHome: initResp.CodexHome, UserAgent: initResp.UserAgent,
+			PlatformFamily: initResp.PlatformFamily, PlatformOS: initResp.PlatformOS,
+		},
 	}
 	p.eng = eng
 	p.mu.Unlock()
@@ -583,6 +668,84 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	}()
 
 	return att.conn, nil
+}
+
+func resolveBinaryIdentity(ctx context.Context, bin, versionHint string) (BinaryIdentity, error) {
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		return BinaryIdentity{}, fmt.Errorf("resolve codex binary: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		path = resolved
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return BinaryIdentity{}, fmt.Errorf("open codex binary: %w", err)
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(hash, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return BinaryIdentity{}, fmt.Errorf("hash codex binary: %w", copyErr)
+	}
+	if closeErr != nil {
+		return BinaryIdentity{}, fmt.Errorf("close codex binary: %w", closeErr)
+	}
+	version := strings.TrimSpace(versionHint)
+	if version == "" {
+		executable, _ := os.Executable()
+		if os.Getenv("GO_WANT_CODEX_APP_SERVER_HELPER") == "1" && sameResolvedPath(path, executable) {
+			version = "test-helper"
+		} else {
+			versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			out, versionErr := exec.CommandContext(versionCtx, path, "--version").CombinedOutput()
+			if versionErr == nil {
+				version = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "codex-cli "))
+			}
+		}
+	}
+	if version == "" {
+		version = "unknown"
+	}
+	return BinaryIdentity{Path: path, Version: version, SHA256: fmt.Sprintf("%x", hash.Sum(nil))}, nil
+}
+
+func sameResolvedPath(left, right string) bool {
+	leftResolved, leftErr := filepath.EvalSymlinks(left)
+	rightResolved, rightErr := filepath.EvalSymlinks(right)
+	return leftErr == nil && rightErr == nil && leftResolved == rightResolved
+}
+
+func (p *Provider) supportsCapability(id CapabilityID) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.eng == nil {
+		return false
+	}
+	if p.eng.capabilities != nil {
+		return p.eng.capabilities.Supports(id)
+	}
+	switch id {
+	case CapabilityThreadSearch, CapabilityThreadSettings, CapabilityCollaborationModes, CapabilityThreadForkDeferGoal:
+		return p.eng.experimental
+	case CapabilityThreadList, CapabilityThreadSource:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *Provider) disableCapability(id CapabilityID, reason CapabilityDenial) {
+	p.mu.Lock()
+	if p.eng != nil && p.eng.capabilities != nil {
+		p.eng.capabilities.Disable(id, reason)
+	}
+	p.mu.Unlock()
 }
 
 // Shutdown stops the engine process.

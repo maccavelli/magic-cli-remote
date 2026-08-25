@@ -416,6 +416,9 @@ func TestForkWholeThreadOmitsBoundary(t *testing.T) {
 	if _, ok := params["deferGoalContinuation"]; ok {
 		t.Fatal("defer must be omitted when false")
 	}
+	if params["threadSource"] != "mcremote" {
+		t.Fatalf("threadSource = %#v, want mcremote", params["threadSource"])
+	}
 }
 
 func TestForkUnknownLastTurnIDDoesNotSilentFork(t *testing.T) {
