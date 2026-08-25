@@ -96,15 +96,15 @@ func TestAllowAcceptUsesForwardedClientWhenTrusted(t *testing.T) {
 		r.Header.Set("X-Forwarded-For", xff)
 		return r
 	}
-	a1, a2 := srv.allowAccept(mk("198.51.100.1")), srv.allowAccept(mk("198.51.100.1"))
+	a1, a2 := acceptOK(srv, mk("198.51.100.1")), acceptOK(srv, mk("198.51.100.1"))
 	if !a1 || !a2 {
 		t.Fatal("same client should use two slots")
 	}
-	if srv.allowAccept(mk("198.51.100.1")) {
+	if acceptOK(srv, mk("198.51.100.1")) {
 		t.Fatal("third from same XFF client should limit")
 	}
 	// Different client through same proxy still allowed.
-	if !srv.allowAccept(mk("198.51.100.2")) {
+	if !acceptOK(srv, mk("198.51.100.2")) {
 		t.Fatal("different XFF client should have own bucket")
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -37,7 +36,6 @@ type hub struct {
 }
 
 type hostSlot struct {
-	hostID  string
 	control *websocket.Conn
 	writeMu sync.Mutex // serializes control-plane writes (dial)
 	cancel  func()
@@ -105,11 +103,12 @@ func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) er
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, ok := h.allow[hostID]; !ok {
-		return fmt.Errorf("unknown_host")
+		// Defense in depth: unreachable via handleHost (checkSecret gates).
+		return errUnauthorized
 	}
 	if len(h.hosts) >= h.limits.MaxHosts {
 		if _, online := h.hosts[hostID]; !online {
-			return fmt.Errorf("limit")
+			return errLimit
 		}
 	}
 	if old, ok := h.hosts[hostID]; ok {
@@ -123,7 +122,6 @@ func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) er
 		}
 	}
 	h.hosts[hostID] = &hostSlot{
-		hostID:  hostID,
 		control: control,
 		cancel:  cancel,
 	}
@@ -137,7 +135,7 @@ func (h *hub) writeControl(ctx context.Context, hostID string, env Envelope) err
 	slot, ok := h.hosts[hostID]
 	h.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("host_offline")
+		return errHostOffline
 	}
 	slot.writeMu.Lock()
 	defer slot.writeMu.Unlock()
@@ -198,17 +196,17 @@ func (h *hub) beginJoin(hostID string, phone *websocket.Conn) (*pendingJoin, err
 	// R10: never distinguish "unknown host_id" from "offline" — both look
 	// like host_offline so the allowlist cannot be enumerated via join errors.
 	if _, ok := h.hosts[hostID]; !ok {
-		return nil, fmt.Errorf("host_offline")
+		return nil, errHostOffline
 	}
 	if h.phones[hostID] >= h.limits.MaxPhonesPerHost {
-		return nil, fmt.Errorf("limit")
+		return nil, errLimit
 	}
 	if len(h.pending) >= h.limits.MaxConcurrentJoin {
-		return nil, fmt.Errorf("limit")
+		return nil, errLimit
 	}
 	token, err := newTunnelToken()
 	if err != nil {
-		return nil, fmt.Errorf("internal")
+		return nil, errInternal
 	}
 	sid := uuid.NewString()
 	p := &pendingJoin{
@@ -241,10 +239,10 @@ func (h *hub) claimTunnel(sessionID, hostID, token, secret string) (*pendingJoin
 	defer h.mu.Unlock()
 	p, ok := h.pending[sessionID]
 	if !ok {
-		return nil, fmt.Errorf("unknown_session")
+		return nil, errUnknownSession
 	}
 	if p.hostID != hostID {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, errUnauthorized
 	}
 	authOK := false
 	if token != "" && p.tunnelToken != "" {
@@ -260,7 +258,7 @@ func (h *hub) claimTunnel(sessionID, hostID, token, secret string) (*pendingJoin
 		}
 	}
 	if !authOK {
-		return nil, fmt.Errorf("unauthorized")
+		return nil, errUnauthorized
 	}
 	delete(h.pending, sessionID)
 	return p, nil

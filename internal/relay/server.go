@@ -409,11 +409,6 @@ const rateWindowTTL = 2 * time.Minute
 // when over capacity.
 const rateMapMax = 4096
 
-func (s *Server) allowAccept(r *http.Request) bool {
-	ok, _ := s.allowRateRetry(s.clientIP(r), rateBucketAccept, s.cfg.Limits.AcceptPerMinute)
-	return ok
-}
-
 // retryFloor is the smallest retry_after hint ever sent (0068 P6): capacity
 // refusals have no window to measure, and sub-second hints would just invite
 // a tight retry loop.
@@ -545,8 +540,9 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 	}
 	hostCtx, cancel := context.WithCancel(ctx)
 	if err := s.hub.register(reg.HostID, conn, cancel); err != nil {
-		_ = writeErr(ctx, conn, env.ID, err.Error(), err.Error())
-		_ = conn.Close(websocket.StatusTryAgainLater, err.Error())
+		code := errCode(err)
+		_ = writeErr(ctx, conn, env.ID, code, code)
+		_ = conn.Close(websocket.StatusTryAgainLater, code)
 		cancel()
 		return
 	}
@@ -660,8 +656,8 @@ func (s *Server) handlePhone(w http.ResponseWriter, r *http.Request) {
 	}
 	pending, err := s.hub.beginJoin(join.HostID, conn)
 	if err != nil {
-		code := err.Error()
-		if code == "limit" {
+		code := errCode(err)
+		if errors.Is(err, errLimit) {
 			// Capacity, not a window: no remainder to measure, so send the
 			// courtesy floor rather than nothing (0068 P6).
 			_ = writeErrRetry(ctx, conn, env.ID, code, code, retryFloor)
@@ -783,8 +779,9 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	pending, err := s.hub.claimTunnel(tun.SessionID, tun.HostID, tun.Token, tun.Secret)
 	if err != nil {
-		_ = writeErr(ctx, conn, env.ID, err.Error(), err.Error())
-		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
+		code := errCode(err)
+		_ = writeErr(ctx, conn, env.ID, code, code)
+		_ = conn.Close(websocket.StatusPolicyViolation, code)
 		return
 	}
 	// Handshake BEFORE publishing: handlePhone splices as soon as it has the
