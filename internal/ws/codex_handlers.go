@@ -73,6 +73,20 @@ var codexPhoneOperations = map[string]codexPhoneOperation{
 			return s.dispatchAsync(ctx, c, env, s.handleCodexThreadsWrite)
 		},
 	},
+	protocol.TypeCodexExecutionRead: {
+		capability: codex.CapabilityCommandExec, timeoutKey: protocol.TypeCodexExecutionRead,
+		requiresSurface: true, authorize: authorizeCodexExecution, decode: decodeCodexExecutionRead,
+		handle: func(s *Server, ctx context.Context, c *client, env protocol.Envelope) error {
+			return s.dispatchAsync(ctx, c, env, s.handleCodexExecutionRead)
+		},
+	},
+	protocol.TypeCodexExecutionWrite: {
+		capability: codex.CapabilityCommandExec, timeoutKey: protocol.TypeCodexExecutionWrite,
+		mutable: true, requiresSurface: true, authorize: authorizeCodexExecution, decode: decodeCodexExecutionWrite,
+		handle: func(s *Server, ctx context.Context, c *client, env protocol.Envelope) error {
+			return s.dispatchAsync(ctx, c, env, s.handleCodexExecutionWrite)
+		},
+	},
 }
 
 type codexPhoneOperationInfo struct {

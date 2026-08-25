@@ -156,6 +156,17 @@ var Specs = []Spec{
 		Default:     Mapping{Kind: KindNone, Note: "this agent has no native permanent-delete operation"},
 	},
 	{
+		Name:        "ps",
+		Description: "List active execution terminals",
+		Default:     Mapping{Kind: KindNone, Note: "this agent exposes no terminal registry"},
+	},
+	{
+		Name:        "stop",
+		Args:        "<id>|--all",
+		Description: "Stop one exact terminal or all terminals",
+		Default:     Mapping{Kind: KindNone, Note: "this agent exposes no stoppable terminals"},
+	},
+	{
 		Name:        "diff",
 		Description: "Show the file changes made in this session",
 		Default:     Mapping{Kind: KindOp, Op: OpDiff},

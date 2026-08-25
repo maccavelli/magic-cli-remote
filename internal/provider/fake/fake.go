@@ -161,6 +161,8 @@ func (p *Provider) CommandTable() command.Table {
 		"fork":          {Kind: command.KindNone, Note: command.ReasonNoFork},
 		"archive":       {Kind: command.KindNone, Note: "fake sessions have no native archive"},
 		"delete":        {Kind: command.KindNone, Note: "fake sessions have no native permanent delete"},
+		"ps":            {Kind: command.KindNone, Note: "fake sessions have no terminal registry"},
+		"stop":          {Kind: command.KindNone, Note: "fake sessions have no stoppable terminals"},
 	}
 }
 

@@ -1,6 +1,8 @@
 /// mcremote protocol models (v1 envelope + negotiated v2, MADR 0068).
 library;
 
+import 'dart:convert';
+
 /// Protocol versions this client speaks (MADR 0068 D1).
 const int kProtocolV1 = 1;
 const int kProtocolV2 = 2;
@@ -779,6 +781,197 @@ class CodexThreadsSnapshot {
   final String source;
   final bool hasMore;
   final String nextCursor;
+}
+
+/// One execution terminal in the daemon's registry (MADR 0109 D10/D11).
+///
+/// [label] is the authority label and is shown verbatim: a phone must never
+/// paraphrase "UNSANDBOXED SHELL — FULL HOST ACCESS" into something calmer.
+class CodexTerminalInfo {
+  const CodexTerminalInfo({
+    this.id = '',
+    this.threadId = '',
+    this.kind = '',
+    this.label = '',
+    this.command = '',
+    this.cwd = '',
+    this.tty = false,
+    this.running = false,
+    this.exitCode,
+    this.native = false,
+    this.auditClass = '',
+  });
+
+  final String id;
+  final String threadId;
+  final String kind;
+  final String label;
+  final String command;
+  final String cwd;
+  final bool tty;
+  final bool running;
+  final int? exitCode;
+  final bool native;
+  final String auditClass;
+
+  /// True for the two authorities that bypass the Codex sandbox. The UI uses
+  /// this to keep the warning attached to the terminal, not just to the
+  /// confirmation that started it.
+  bool get unsandboxed =>
+      kind == 'thread_shell' || kind == 'process' || kind == 'background';
+
+  factory CodexTerminalInfo.fromJson(Map<String, dynamic> json) =>
+      CodexTerminalInfo(
+        id: json['id'] as String? ?? '',
+        threadId: json['thread_id'] as String? ?? '',
+        kind: json['kind'] as String? ?? '',
+        label: json['label'] as String? ?? '',
+        command: json['command'] as String? ?? '',
+        cwd: json['cwd'] as String? ?? '',
+        tty: json['tty'] as bool? ?? false,
+        running: json['running'] as bool? ?? false,
+        exitCode: json['exit_code'] is int ? json['exit_code'] as int : null,
+        native: json['native'] as bool? ?? false,
+        auditClass: json['audit_class'] as String? ?? '',
+      );
+}
+
+/// One sequence-numbered terminal chunk. [data] arrives base64-encoded
+/// because the daemon sends raw bytes, which are not necessarily valid UTF-8.
+class CodexTerminalOutput {
+  const CodexTerminalOutput({
+    this.terminalId = '',
+    this.sequence = 0,
+    this.stream = '',
+    this.dataBase64 = '',
+    this.capReached = false,
+  });
+
+  final String terminalId;
+  final int sequence;
+  final String stream;
+  final String dataBase64;
+  final bool capReached;
+
+  /// Decoded text, lossy on invalid UTF-8 so a binary byte in a build log
+  /// cannot throw partway through rendering a transcript.
+  String get text {
+    if (dataBase64.isEmpty) return '';
+    try {
+      return utf8.decode(base64.decode(dataBase64), allowMalformed: true);
+    } on FormatException {
+      return '';
+    }
+  }
+
+  factory CodexTerminalOutput.fromJson(Map<String, dynamic> json) =>
+      CodexTerminalOutput(
+        terminalId: json['terminal_id'] as String? ?? '',
+        sequence: json['sequence'] is int ? json['sequence'] as int : 0,
+        stream: json['stream'] as String? ?? '',
+        dataBase64: json['data'] as String? ?? '',
+        capReached: json['cap_reached'] as bool? ?? false,
+      );
+}
+
+/// A terminal's ordered output plus its sequence continuity.
+///
+/// [sequenceGap] means the daemon's bounded replay buffer already dropped the
+/// position the client asked for. The UI must render a break rather than
+/// splicing the chunks onto what it already has, because the missing bytes
+/// are gone for good.
+class CodexTerminalBuffer {
+  const CodexTerminalBuffer({this.chunks = const [], this.sequenceGap = false});
+
+  final List<CodexTerminalOutput> chunks;
+  final bool sequenceGap;
+
+  int get lastSequence => chunks.isEmpty ? 0 : chunks.last.sequence;
+
+  /// Appends live chunks, dropping any at or below what is already held and
+  /// reporting a gap when the incoming sequence skips ahead.
+  CodexTerminalBuffer append(Iterable<CodexTerminalOutput> incoming) {
+    var gap = sequenceGap;
+    final next = List<CodexTerminalOutput>.from(chunks);
+    for (final chunk in incoming) {
+      if (next.isNotEmpty && chunk.sequence <= next.last.sequence) continue;
+      if (next.isNotEmpty && chunk.sequence > next.last.sequence + 1) {
+        gap = true;
+      }
+      next.add(chunk);
+    }
+    return CodexTerminalBuffer(chunks: next, sequenceGap: gap);
+  }
+}
+
+/// One host-configured execution environment, as projected to the phone.
+/// It deliberately has no exec-server URL, connect timeout, or credential.
+class CodexExecutionEnvironment {
+  const CodexExecutionEnvironment({
+    this.id = '',
+    this.runtimeWorkspaceRoots = const [],
+  });
+
+  final String id;
+  final List<String> runtimeWorkspaceRoots;
+
+  factory CodexExecutionEnvironment.fromJson(Map<String, dynamic> json) {
+    final roots = json['runtime_workspace_roots'];
+    return CodexExecutionEnvironment(
+      id: json['id'] as String? ?? '',
+      runtimeWorkspaceRoots: roots is List
+          ? roots.whereType<String>().toList(growable: false)
+          : const [],
+    );
+  }
+}
+
+/// Observational environment status. Reading it never triggers reconnection.
+class CodexEnvironmentStatus {
+  const CodexEnvironmentStatus({
+    this.id = '',
+    this.status = 'unknown',
+    this.error = '',
+  });
+
+  final String id;
+  final String status;
+  final String error;
+
+  bool get ready => status == 'ready';
+
+  factory CodexEnvironmentStatus.fromJson(Map<String, dynamic> json) =>
+      CodexEnvironmentStatus(
+        id: json['id'] as String? ?? '',
+        status: json['status'] as String? ?? 'unknown',
+        error: json['error'] as String? ?? '',
+      );
+}
+
+/// The bounded final result of one sandboxed `command/exec`.
+class CodexExecResult {
+  const CodexExecResult({
+    this.exitCode = 0,
+    this.stdout = '',
+    this.stderr = '',
+    this.label = '',
+    this.auditClass = '',
+  });
+
+  final int exitCode;
+  final String stdout;
+  final String stderr;
+  final String label;
+  final String auditClass;
+
+  factory CodexExecResult.fromJson(Map<String, dynamic> json) =>
+      CodexExecResult(
+        exitCode: json['exit_code'] is int ? json['exit_code'] as int : 0,
+        stdout: json['stdout'] as String? ?? '',
+        stderr: json['stderr'] as String? ?? '',
+        label: json['label'] as String? ?? '',
+        auditClass: json['audit_class'] as String? ?? '',
+      );
 }
 
 /// Bounded, read-only project metadata returned by `session.diagnostics`.

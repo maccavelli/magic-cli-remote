@@ -140,18 +140,23 @@ const (
 	TypeDevicesList       = "devices.list"
 	TypeDevicesListResult = "devices.list_result"
 	// Signed receipts for permission decisions (MADR 0077 P7).
-	TypePermissionReceiptRequest = "permission.receipt_request" // daemon -> phone
-	TypePermissionReceipt        = "permission.receipt"         // phone -> daemon
-	TypeCodexRuntimeRead         = "codex.runtime.read"
-	TypeCodexRuntimeResult       = "codex.runtime.result"
-	TypeCodexDoctorRun           = "codex.doctor.run"
-	TypeCodexDoctorResult        = "codex.doctor.result"
-	TypeCodexPermissionsWrite    = "codex.permissions.write"
-	TypeCodexPermissionsResult   = "codex.permissions.result"
-	TypeCodexThreadsRead         = "codex.threads.read"
-	TypeCodexThreadsReadResult   = "codex.threads.read_result"
-	TypeCodexThreadsWrite        = "codex.threads.write"
-	TypeCodexThreadsWriteResult  = "codex.threads.write_result"
+	TypePermissionReceiptRequest  = "permission.receipt_request" // daemon -> phone
+	TypePermissionReceipt         = "permission.receipt"         // phone -> daemon
+	TypeCodexRuntimeRead          = "codex.runtime.read"
+	TypeCodexRuntimeResult        = "codex.runtime.result"
+	TypeCodexDoctorRun            = "codex.doctor.run"
+	TypeCodexDoctorResult         = "codex.doctor.result"
+	TypeCodexPermissionsWrite     = "codex.permissions.write"
+	TypeCodexPermissionsResult    = "codex.permissions.result"
+	TypeCodexThreadsRead          = "codex.threads.read"
+	TypeCodexThreadsReadResult    = "codex.threads.read_result"
+	TypeCodexThreadsWrite         = "codex.threads.write"
+	TypeCodexThreadsWriteResult   = "codex.threads.write_result"
+	TypeCodexExecutionRead        = "codex.execution.read"
+	TypeCodexExecutionReadResult  = "codex.execution.read_result"
+	TypeCodexExecutionWrite       = "codex.execution.write"
+	TypeCodexExecutionWriteResult = "codex.execution.write_result"
+	TypeCodexTerminalOutput       = "codex.terminal.output"
 )
 
 // Envelope is the common WS message wrapper.
@@ -466,6 +471,83 @@ type CodexThreadsWriteResultPayload struct {
 	Section *provider.ThreadSection      `json:"section,omitempty"`
 	Project *provider.Project            `json:"project,omitempty"`
 	Delete  *provider.ThreadDeleteResult `json:"delete,omitempty"`
+}
+
+// CodexExecutionReadPayload selects a bounded terminal or environment read.
+type CodexExecutionReadPayload struct {
+	Action        string `json:"action"`
+	SessionID     string `json:"session_id"`
+	TerminalID    string `json:"terminal_id,omitempty"`
+	EnvironmentID string `json:"environment_id,omitempty"`
+	AfterSequence uint64 `json:"after_sequence,omitempty"`
+}
+
+// CodexExecutionReadResultPayload carries exactly one read result arm.
+type CodexExecutionReadResultPayload struct {
+	Terminals         []provider.TerminalInfo         `json:"terminals,omitempty"`
+	Output            []provider.TerminalOutput       `json:"output,omitempty"`
+	SequenceGap       bool                            `json:"sequence_gap,omitempty"`
+	Environments      []provider.ExecutionEnvironment `json:"environments,omitempty"`
+	EnvironmentStatus *provider.EnvironmentStatus     `json:"environment_status,omitempty"`
+	EnvironmentInfo   *provider.EnvironmentInfo       `json:"environment_info,omitempty"`
+}
+
+// CodexExecutionWritePayload selects structured exec, explicit unsandboxed
+// shell/process work, terminal control, or environment selection. Env values
+// and stdin bytes are write-only and redacted by LogValue/String.
+type CodexExecutionWritePayload struct {
+	Action                string             `json:"action"`
+	SessionID             string             `json:"session_id"`
+	TerminalID            string             `json:"terminal_id,omitempty"`
+	Argv                  []string           `json:"argv,omitempty"`
+	Command               string             `json:"command,omitempty"`
+	CWD                   string             `json:"cwd,omitempty"`
+	Env                   map[string]*string `json:"env,omitempty"`
+	PermissionProfileID   string             `json:"permission_profile_id,omitempty"`
+	DataBase64            string             `json:"data_base64,omitempty"`
+	CloseStdin            bool               `json:"close_stdin,omitempty"`
+	TTY                   bool               `json:"tty,omitempty"`
+	Stream                bool               `json:"stream,omitempty"`
+	Rows                  int                `json:"rows,omitempty"`
+	Cols                  int                `json:"cols,omitempty"`
+	OutputBytesCap        int                `json:"output_bytes_cap,omitempty"`
+	TimeoutMS             int64              `json:"timeout_ms,omitempty"`
+	EnvironmentID         string             `json:"environment_id,omitempty"`
+	RuntimeWorkspaceRoots []string           `json:"runtime_workspace_roots,omitempty"`
+	DisableEnvironment    bool               `json:"disable_environment,omitempty"`
+	Confirm               string             `json:"confirm,omitempty"`
+}
+
+// LogValue keeps stdin bytes and environment values out of structured logs.
+// Terminal stdin can be a password typed at an interactive prompt, so only
+// the identifiers and counts needed to debug a request are rendered.
+func (p CodexExecutionWritePayload) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("action", p.Action), slog.String("session_id", p.SessionID),
+		slog.String("terminal_id", p.TerminalID), slog.Int("argv_count", len(p.Argv)),
+		slog.Int("env_name_count", len(p.Env)), slog.String("data_base64", redactedSecret),
+	)
+}
+
+// String mirrors LogValue for the %v/%s paths that bypass slog.
+func (p CodexExecutionWritePayload) String() string {
+	return fmt.Sprintf("CodexExecutionWritePayload{action:%s session_id:%s terminal_id:%s argv:%d env_names:%d data:%s}", p.Action, p.SessionID, p.TerminalID, len(p.Argv), len(p.Env), redactedSecret)
+}
+
+// CodexExecutionWriteResultPayload is the typed authoritative response.
+type CodexExecutionWriteResultPayload struct {
+	OK        bool                      `json:"ok"`
+	Exec      *provider.ExecResult      `json:"exec,omitempty"`
+	Execution *provider.ExecutionResult `json:"execution,omitempty"`
+	Process   *provider.ProcessInfo     `json:"process,omitempty"`
+	Stopped   int                       `json:"stopped,omitempty"`
+}
+
+// CodexTerminalOutputPayload is the push/replay shape used by the mobile
+// sequence reducer. Output bytes are base64-encoded by JSON automatically.
+type CodexTerminalOutputPayload struct {
+	SessionID string                  `json:"session_id,omitempty"`
+	Output    provider.TerminalOutput `json:"output"`
 }
 
 // SeqBoundsPayload is the retained-seq window for one session

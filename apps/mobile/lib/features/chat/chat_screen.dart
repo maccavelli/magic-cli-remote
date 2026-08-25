@@ -28,6 +28,7 @@ import '../widgets/option_picker_sheet.dart';
 import '../widgets/subagents_panel.dart';
 import '../widgets/work_items_panel.dart';
 import 'chat_helpers.dart';
+import 'codex_terminals_screen.dart';
 import 'question_sheet.dart';
 
 export 'chat_helpers.dart';
@@ -1167,6 +1168,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// Opens the Codex execution terminal view for this session.
+  Future<void> _viewTerminals() async {
+    final client = ref.read(mcremoteClientProvider);
+    if (client.state != McConnectionState.connected) {
+      showTopNotification(context, 'Reconnect to the host first');
+      return;
+    }
+    final sid = widget.sessionId;
+    if (sid.isEmpty || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CodexTerminalsScreen(client: client, sessionId: sid),
+      ),
+    );
+  }
+
   /// OpenCode-only: fork conversation into a new mcremote session and open it.
   Future<void> _forkSession() async {
     final client = ref.read(mcremoteClientProvider);
@@ -2033,6 +2050,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               if (v == 'diff') unawaited(_viewDiff());
               if (v == 'diagnostics') unawaited(_viewDiagnostics());
               if (v == 'fork') unawaited(_forkSession());
+              if (v == 'terminals') unawaited(_viewTerminals());
             },
             itemBuilder: (ctx) {
               // Diagnostics/diff/fork are httpagent-family session ops (MADR
@@ -2051,6 +2069,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   : (_provider == 'opencode' || _provider == 'kilo');
               final showsDiagnostics =
                   _provider == 'opencode' || _provider == 'kilo';
+              // Terminals exist only where the daemon exposes the Codex
+              // execution surface; without the negotiated capability the
+              // operations would be refused, so the entry point is hidden
+              // rather than offered and then failed (MADR 0109 P7).
+              final showsTerminals =
+                  _provider == 'codex' &&
+                  ref.read(mcremoteClientProvider).serverCaps?.codexSurface !=
+                      null;
               return [
                 const PopupMenuItem(
                   value: 'cancel',
@@ -2087,6 +2113,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     child: ListTile(
                       leading: Icon(Icons.call_split),
                       title: Text('Fork session'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                if (showsTerminals)
+                  const PopupMenuItem(
+                    value: 'terminals',
+                    child: ListTile(
+                      leading: Icon(Icons.terminal),
+                      title: Text('Terminals'),
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                     ),

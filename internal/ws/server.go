@@ -968,7 +968,7 @@ func asyncOpTimeout(typ string) time.Duration {
 	case protocol.TypeSessionPrompt:
 		return 60 * time.Second
 	case protocol.TypeSessionDelete, protocol.TypeSessionClose,
-		protocol.TypeSessionFork:
+		protocol.TypeSessionFork, protocol.TypeCodexExecutionWrite:
 		// Lifecycle ops tear down or fork a provider subprocess. The
 		// opencode/kilo purge alone budgets 15s for the engine-side delete
 		// after local teardown (httpagent session.Purge), and at 30s the

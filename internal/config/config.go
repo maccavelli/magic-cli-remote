@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -658,6 +660,21 @@ type CodexProviderConfig struct {
 	WSAuthMode string `mapstructure:"ws_auth_mode"`
 	// ReconnectAttempts is capped at three. Default 3.
 	ReconnectAttempts int `mapstructure:"reconnect_attempts"`
+	// Environments is the administrator-owned remote execution catalog. Phones
+	// see only ids, roots, and observational status/info projections.
+	Environments []CodexExecutionEnvironmentConfig `mapstructure:"environments"`
+	// StandaloneProcessesEnabled gates the unsandboxed process/* surface.
+	StandaloneProcessesEnabled bool `mapstructure:"standalone_processes_enabled"`
+	// StandaloneProcessEnvAllowlist contains host-approved non-secret names.
+	StandaloneProcessEnvAllowlist []string `mapstructure:"standalone_process_env_allowlist"`
+}
+
+// CodexExecutionEnvironmentConfig is one host-admin registered exec server.
+type CodexExecutionEnvironmentConfig struct {
+	ID                    string   `mapstructure:"id"`
+	ExecServerURL         string   `mapstructure:"exec_server_url"`
+	ConnectTimeoutMS      int      `mapstructure:"connect_timeout_ms"`
+	RuntimeWorkspaceRoots []string `mapstructure:"runtime_workspace_roots"`
 }
 
 // KiloProviderConfig configures the Kilo CLI provider (shared `kilo serve`
@@ -837,13 +854,14 @@ func Defaults() Config {
 				// Match grok/goose/opencode: long tool runs (e.g. full
 				// `flutter test`) must surface a stall notice on the phone
 				// rather than looking like a frozen agent. 0 still disables.
-				TurnStallNoticeSeconds: 120,
-				StreamCoalesceMs:       80,
-				ApprovalPolicy:         "",
-				SandboxMode:            "",
-				AllowFullAccess:        false,
-				Transport:              "stdio",
-				ReconnectAttempts:      3,
+				TurnStallNoticeSeconds:     120,
+				StreamCoalesceMs:           80,
+				ApprovalPolicy:             "",
+				SandboxMode:                "",
+				AllowFullAccess:            false,
+				Transport:                  "stdio",
+				ReconnectAttempts:          3,
+				StandaloneProcessesEnabled: false,
 			},
 			Kilo: KiloProviderConfig{
 				// Default-on since MADR 0075 acceptance flip (2026-08-10).
@@ -1219,6 +1237,9 @@ func (c Config) Validate() error {
 	if attempts := c.Providers.Codex.ReconnectAttempts; attempts < 0 || attempts > 3 {
 		return fmt.Errorf("providers.codex.reconnect_attempts must be 0..3, got %d", attempts)
 	}
+	if err := validateCodexExecutionConfig(c.Providers.Codex); err != nil {
+		return err
+	}
 	if c.Providers.Kilo.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.kilo.permission_timeout_seconds must be >= 0, got %d",
 			c.Providers.Kilo.PermissionTimeoutSeconds)
@@ -1245,6 +1266,80 @@ func (c Config) Validate() error {
 		return err
 	}
 	return nil
+}
+
+var codexEnvironmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func validateCodexExecutionConfig(c CodexProviderConfig) error {
+	seenIDs := make(map[string]struct{}, len(c.Environments))
+	for index, environment := range c.Environments {
+		id := strings.TrimSpace(environment.ID)
+		if id == "" {
+			return fmt.Errorf("providers.codex.environments[%d] environment id must not be empty", index)
+		}
+		if _, exists := seenIDs[id]; exists {
+			return fmt.Errorf("providers.codex.environments has duplicate environment id %q", id)
+		}
+		seenIDs[id] = struct{}{}
+		parsed, err := url.Parse(environment.ExecServerURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "ws" && parsed.Scheme != "wss") || parsed.User != nil {
+			return fmt.Errorf("providers.codex.environments[%d].exec_server_url must be an unauthenticated ws:// or wss:// URL", index)
+		}
+		if parsed.Scheme == "ws" && !configLoopbackHost(parsed.Hostname()) {
+			return fmt.Errorf("providers.codex.environments[%d].exec_server_url ws:// is restricted to loopback", index)
+		}
+		if environment.ConnectTimeoutMS <= 0 || environment.ConnectTimeoutMS > 60_000 {
+			return fmt.Errorf("providers.codex.environments[%d].connect_timeout_ms must be 1..60000", index)
+		}
+		logicalRoots := make(map[string]struct{}, len(environment.RuntimeWorkspaceRoots))
+		canonicalRoots := make(map[string]struct{}, len(environment.RuntimeWorkspaceRoots))
+		for _, root := range environment.RuntimeWorkspaceRoots {
+			if !filepath.IsAbs(root) {
+				return fmt.Errorf("providers.codex.environments[%d].runtime_workspace_roots must be absolute", index)
+			}
+			logical := filepath.Clean(root)
+			if _, exists := logicalRoots[logical]; exists {
+				return fmt.Errorf("providers.codex.environments[%d] has duplicate runtime_workspace_roots", index)
+			}
+			logicalRoots[logical] = struct{}{}
+			canonical := logical
+			if resolved, resolveErr := filepath.EvalSymlinks(logical); resolveErr == nil {
+				canonical = filepath.Clean(resolved)
+			}
+			if _, exists := canonicalRoots[canonical]; exists {
+				return fmt.Errorf("providers.codex.environments[%d] has duplicate canonical runtime_workspace_roots", index)
+			}
+			canonicalRoots[canonical] = struct{}{}
+		}
+	}
+	seenNames := make(map[string]struct{}, len(c.StandaloneProcessEnvAllowlist))
+	for _, rawName := range c.StandaloneProcessEnvAllowlist {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return fmt.Errorf("providers.codex.standalone_process_env_allowlist contains an empty name")
+		}
+		if !codexEnvironmentName.MatchString(name) {
+			return fmt.Errorf("providers.codex.standalone_process_env_allowlist has invalid environment name %q", name)
+		}
+		if codexSecretEnvironmentName(name) {
+			return fmt.Errorf("providers.codex.standalone_process_env_allowlist rejects secret-like name %q", name)
+		}
+		if _, exists := seenNames[name]; exists {
+			return fmt.Errorf("providers.codex.standalone_process_env_allowlist has duplicate name %q", name)
+		}
+		seenNames[name] = struct{}{}
+	}
+	return nil
+}
+
+func codexSecretEnvironmentName(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, marker := range []string{"TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "PRIVATE_KEY", "CREDENTIAL"} {
+		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p PairConfig) validate() error {

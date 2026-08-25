@@ -36,4 +36,6 @@ var commandTable = command.Table{
 	"fork":          {Kind: command.KindNone, Note: command.ReasonNoFork},
 	"archive":       {Kind: command.KindNone, Note: "goose exposes no native archive operation over ACP"},
 	"delete":        {Kind: command.KindNone, Note: "goose exposes no native permanent-delete operation over ACP"},
+	"ps":            {Kind: command.KindNone, Note: "goose exposes no terminal registry over ACP"},
+	"stop":          {Kind: command.KindNone, Note: "goose exposes no stoppable terminals over ACP"},
 }

@@ -94,6 +94,10 @@ const (
 	// OpDelete permanently deletes the provider-native conversation after an
 	// exact descendant-aware confirmation.
 	OpDelete Op = "delete"
+	// OpPS lists daemon-owned and negotiated native terminals.
+	OpPS Op = "ps"
+	// OpStop terminates one exact terminal id or all known terminals.
+	OpStop Op = "stop"
 )
 
 // Frozen unavailable reasons (MADR 0080 stable-reason table).

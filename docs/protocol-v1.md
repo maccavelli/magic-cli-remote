@@ -319,6 +319,8 @@ denies transport access rather than merely a bearer secret.
 | `agent_sessions.list` | `{ "provider" }` | `agent_sessions.list_result` |
 | `codex.threads.read` | `{ "action": "list"|"search"|"sections"|"projects"|"delete_preview", ...bounded filters }` | `codex.threads.read_result` |
 | `codex.threads.write` | `{ "action": "rename"|"fork"|"archive"|"unarchive"|"delete"|"move_section"|"assign_project"|section/project action, ...typed fields }` | `codex.threads.write_result` |
+| `codex.execution.read` | `{ "action": "terminals"|"output"|"environments"|"environment_status"|"environment_info", "session_id", ...bounded selectors }` | `codex.execution.read_result` |
+| `codex.execution.write` | `{ "action": "exec"|"shell"|"spawn"|"write"|"resize"|"stop"|"stop_all"|"select_environment", "session_id", ...typed fields, "confirm"? }` | `codex.execution.write_result` |
 | `commands.list` | `{ "provider" }` | `commands.list_result` |
 | `session.fork` | `{ "session_id", "message_id?" }` | `session.created` |
 | `session.revert` | `{ "session_id", "message_id", "part_id?" }` | `ok` |
@@ -512,6 +514,39 @@ Read results populate exactly one of `threads`, `sections`, `projects`, or
 `delete_preview`. Thread pages carry `source`, `limit`, cursors, and `truncated`;
 thread rows add native status, archive/pin/section, parent/fork, source, loaded,
 and project fields without changing `agent_sessions.list` for other providers.
+
+### Codex execution, terminals, and environments
+
+Protocol-v2 clients that negotiated Codex surface version 1 may use
+`codex.execution.read` and `codex.execution.write` (MADR 0109 D10/D11/D36/D37).
+Every action is checked against its exact app-server capability, and the
+session-scoped actions additionally require session ownership. Environment
+reads are host-administration projections: they carry configured ids and
+allowed roots, never `exec_server_url`, connect timeouts, or credentials.
+
+Three execution authorities exist and are never interchangeable:
+
+| Action | Authority | Confirmation |
+|---|---|---|
+| `exec` | argv-only, sandboxed under the session's permission profile | none beyond the profile |
+| `shell` | full host access, bypasses the Codex sandbox | `confirm: "run unsandboxed"` on **every** call |
+| `spawn` | default-off standalone process, unsandboxed | `confirm: "run unsandboxed"` on **every** call |
+
+`exec` never accepts shell text and `shell` never accepts argv, so neither can
+be reached through the other. Confirmation is per invocation and is never
+cached against the session. `select_environment` changes which host runs work
+and takes `confirm: "change execution environment"`; omit the operation to keep
+the current selection and send `disable_environment: true` to clear it.
+
+Terminal output is a sequence-numbered live stream, not session history. The
+daemon retains 1 MiB per terminal and pushes `codex.terminal.output` to the
+owning device's Codex-surface connections. A client that misses chunks replays
+with `codex.execution.read` action `output` and `after_sequence`; the response
+sets `sequence_gap: true` when the buffer already dropped that position, which
+the client must render as a discontinuity rather than as contiguous output.
+
+Terminals survive phone disconnect and managed-session detach. Explicit stop,
+process exit, app-server shutdown, or engine replacement ends them.
 
 Permanent thread deletion requires `confirm:"delete permanently"` after an
 explicit descendant preview. Section deletion requires `confirm:"delete
@@ -871,6 +906,10 @@ timed out, exceeded its bound, or returned no valid schema-v1 report.
 | `config_write_failed` | A requested host config mutation did not land (including provider prewarm and Codex permission defaults). Nothing was applied; retain the requested/effective state from the next authoritative read. |
 | `codex_threads_read_failed` | A bounded native thread, section, project, or delete-impact read failed. Retain the current browser snapshot and retry explicitly. |
 | `codex_threads_write_failed` | A native thread, section, or project mutation failed or could not be reconciled. Refresh the authoritative browser before retrying. |
+| `codex_execution_read_failed` | A bounded terminal or execution-environment read failed. Retain the current terminal view and retry explicitly. |
+| `codex_execution_write_failed` | An execution, terminal-control, or environment-selection request failed and is known **not** to have run. Safe to retry after fixing the request. |
+| `outcome_unknown` | A non-idempotent execution may already have reached the host before the connection failed. **Never** auto-retry: re-read `codex.execution.read`/`terminals` and let the user decide. |
+| `native_unavailable` | The provider exposes no terminal registry, or an optional native terminal catalog is absent. Daemon-owned terminals may still work. |
 | `provider_not_ready` | The flag was persisted but no engine could be started: the agent is not enabled on this daemon. Unlike `provider_unavailable` (a registered engine that failed to boot), there is no engine to pre-warm at all. |
 
 ### Remote provider auth (MADR 0074)
@@ -984,6 +1023,9 @@ Domain events (inside live `event` push / history):
 | `agent_sessions.list_result` | `{ "provider", "sessions": [ { "id", "cwd?", "title?", "updated_at?" }, … ] }` |
 | `codex.threads.read_result` | exactly one bounded `threads`, `sections`, `projects`, or `delete_preview` arm |
 | `codex.threads.write_result` | `{ "ok": true, "thread?", "section?", "project?", "delete?" }` authoritative mutation result |
+| `codex.execution.read_result` | exactly one bounded `terminals`, `output` (+`sequence_gap`), `environments`, `environment_status`, or `environment_info` arm |
+| `codex.execution.write_result` | `{ "ok": true, "exec?", "execution?", "process?", "stopped?" }` authoritative execution result |
+| `codex.terminal.output` | `{ "session_id", "output": { "terminal_id", "sequence", "stream", "data", "cap_reached?" } }` — live push to the owning device only; never session history |
 | `session.rename_result` | `{ "session": Meta }` |
 | `session.diagnostics_result` | `{ "session_id", "diagnostics": { "branch?", "default_branch?", "vcs?", "mcp?" } }` |
 

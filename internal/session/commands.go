@@ -75,6 +75,8 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
 		_, state.Ops[command.OpArchive] = sess.(provider.NativeThreadLifecycleSession)
 		_, state.Ops[command.OpDelete] = sess.(provider.NativeThreadLifecycleSession)
+		_, state.Ops[command.OpPS] = sess.(provider.ExecutionSession)
+		_, state.Ops[command.OpStop] = sess.(provider.ExecutionSession)
 		_, state.Ops[command.OpGoal] = sess.(provider.GoalSession)
 		_, state.Ops[command.OpReview] = sess.(provider.ReviewSession)
 		if ts, ok := sess.(provider.ServiceTierSession); ok {
@@ -252,6 +254,10 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdNativeArchive(ctx, id, rest)
 		case command.OpDelete:
 			return true, "", m.cmdNativeDelete(ctx, id, rest)
+		case command.OpPS:
+			return true, "", m.cmdTerminals(ctx, id)
+		case command.OpStop:
+			return true, "", m.cmdStopTerminal(ctx, id, rest)
 		case command.OpGoal:
 			return true, "", m.cmdGoal(ctx, id, rest)
 		case command.OpServiceTier:
@@ -1167,6 +1173,74 @@ func (m *Manager) cmdNativeDelete(ctx context.Context, id, arg string) error {
 		detail += "; deletion was partial"
 	}
 	m.emitNotice(id, "Native thread permanently deleted; "+detail+".")
+	return nil
+}
+
+func (m *Manager) cmdTerminals(ctx context.Context, id string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	execution, ok := sess.(provider.ExecutionSession)
+	if !ok {
+		m.emitNotice(id, "This agent has no terminal registry.")
+		return nil
+	}
+	terminals, err := execution.ListTerminals(ctx)
+	if err != nil {
+		m.emitNotice(id, "Terminal list failed.")
+		return err
+	}
+	if len(terminals) == 0 {
+		m.emitNotice(id, "No active terminals.")
+		return nil
+	}
+	lines := make([]string, 0, len(terminals)+1)
+	lines = append(lines, "Execution terminals:")
+	for _, terminal := range terminals {
+		state := "exited"
+		if terminal.Running {
+			state = "running"
+		}
+		lines = append(lines, fmt.Sprintf("%s — %s — %s (%s)", terminal.ID, terminal.Label, terminal.Kind, state))
+	}
+	m.emitNotice(id, strings.Join(lines, "\n"))
+	return nil
+}
+
+func (m *Manager) cmdStopTerminal(ctx context.Context, id, arg string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	execution, ok := sess.(provider.ExecutionSession)
+	if !ok {
+		m.emitNotice(id, "This agent has no stoppable terminals.")
+		return nil
+	}
+	fields := strings.Fields(arg)
+	if len(fields) != 1 {
+		m.emitNotice(id, "Usage: /stop <id> or /stop --all")
+		return nil
+	}
+	if fields[0] == "--all" {
+		count, err := execution.StopAllTerminals(ctx)
+		if err != nil {
+			m.emitNotice(id, "Stopping all terminals failed.")
+			return err
+		}
+		m.emitNotice(id, fmt.Sprintf("Stopped %d terminal(s).", count))
+		return nil
+	}
+	if strings.HasPrefix(fields[0], "-") || len(fields[0]) > 256 {
+		m.emitNotice(id, "Usage: /stop <id> or /stop --all")
+		return nil
+	}
+	if err := execution.StopTerminal(ctx, fields[0]); err != nil {
+		m.emitNotice(id, fmt.Sprintf("Stop %s failed.", fields[0]))
+		return err
+	}
+	m.emitNotice(id, fmt.Sprintf("Stopped terminal %s.", fields[0]))
 	return nil
 }
 

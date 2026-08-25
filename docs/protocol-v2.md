@@ -131,6 +131,34 @@ config projection reports requested/effective profile and reviewer values plus
 sanitized layer classes and an explanatory managed-policy label. It never
 contains config values, policy documents, developer instructions, or paths.
 
+Two further Codex-surface operations are **session-scoped** and require
+ownership of the named session, not just an authenticated device:
+
+- `codex.execution.read` → `codex.execution.read_result`: bounded terminal
+  listing and sequence-numbered output replay for one session, plus the
+  host-owned execution-environment catalog and its observational status/info
+  reads. The environment arms carry configured ids and allowed roots only; the
+  exec-server URL, connect timeout, and any remote credential never leave the
+  daemon, and a phone can neither register nor edit an environment.
+- `codex.execution.write` → `codex.execution.write_result`: the three distinct
+  execution authorities (`exec` sandboxed argv, `shell` full host access,
+  `spawn` default-off standalone process), terminal control (`write`,
+  `resize`, `stop`, `stop_all`), and `select_environment`. Both unsandboxed
+  authorities require `confirm: "run unsandboxed"` on every single call, and
+  `select_environment` requires `confirm: "change execution environment"`.
+  Confirmation is never cached against the session.
+
+`codex.terminal.output` is pushed to the owning device's Codex-surface
+connections as terminal bytes arrive. It is deliberately not an `event` frame:
+event types enter session history and the retained ring, while terminal output
+lives only in a bounded 1 MiB per-terminal daemon replay buffer. Clients
+recover missed chunks through `codex.execution.read` action `output` with
+`after_sequence`, and must render `sequence_gap: true` as a discontinuity.
+
+An execution failure reported as `outcome_unknown` may already have run on the
+host. Clients must never auto-retry it; they re-read the terminal list and let
+the user decide.
+
 The keyed `question.respond` object and additive question `id`, `secret`, and
 option `description` fields documented in protocol v1 are base-protocol
 additions and therefore apply unchanged on negotiated v2 connections. The

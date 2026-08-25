@@ -65,6 +65,12 @@ func asyncDispatchedTypes() []string {
 		protocol.TypeSessionDiff,
 		protocol.TypeSessionRename,
 		protocol.TypeSessionDiagnostics,
+		protocol.TypeCodexDoctorRun,
+		protocol.TypeCodexPermissionsWrite,
+		protocol.TypeCodexThreadsRead,
+		protocol.TypeCodexThreadsWrite,
+		protocol.TypeCodexExecutionRead,
+		protocol.TypeCodexExecutionWrite,
 	}
 }
 

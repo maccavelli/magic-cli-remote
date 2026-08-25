@@ -118,6 +118,10 @@ const (
 	ErrDiagnosticFailed             = "diagnostic_failed"
 	ErrCodexThreadsReadFailed       = "codex_threads_read_failed"
 	ErrCodexThreadsWriteFailed      = "codex_threads_write_failed"
+	ErrCodexExecutionReadFailed     = "codex_execution_read_failed"
+	ErrCodexExecutionWriteFailed    = "codex_execution_write_failed"
+	ErrOutcomeUnknown               = "outcome_unknown"
+	ErrNativeUnavailable            = "native_unavailable"
 
 	// --- remote provider auth (MADR 0074) ---
 
@@ -250,6 +254,10 @@ func ErrorCodes() []string {
 		ErrDiagnosticFailed,
 		ErrCodexThreadsReadFailed,
 		ErrCodexThreadsWriteFailed,
+		ErrCodexExecutionReadFailed,
+		ErrCodexExecutionWriteFailed,
+		ErrOutcomeUnknown,
+		ErrNativeUnavailable,
 
 		ErrProviderBusy,
 		ErrConfirmRequired,

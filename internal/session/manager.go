@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
@@ -213,8 +214,9 @@ type Manager struct {
 	// snapshot, not just the store, or the same race just moves.
 	advertiseMu sync.Mutex
 
-	mu       sync.RWMutex
-	sessions map[string]*entry
+	mu           sync.RWMutex
+	sessions     map[string]*entry
+	pendingShell map[string]pendingShellConfirmation
 	// reserved counts Creates that passed the maxLive check but have not yet
 	// inserted their entry, so concurrent creates of different ids cannot
 	// overshoot the cap now that they no longer share one lock.
@@ -417,6 +419,7 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		maxLive:      maxLiveSessions,
 		createLocks:  make(map[string]*createLock),
 		sessions:     make(map[string]*entry),
+		pendingShell: make(map[string]pendingShellConfirmation),
 		dirtyPersist: make(map[string]struct{}),
 		purged:       make(map[string]struct{}),
 		dirtyHistory: make(map[string]struct{}),
@@ -480,6 +483,67 @@ func (m *Manager) SeqBounds(id string) (first, latest uint64) {
 // this shape could alias store paths ("../x" vs "x" hit the same meta.json) or
 // nest directories the store's one-level List never returns.
 var validSessionID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+type pendingShellConfirmation struct {
+	command  string
+	deviceID string
+	expires  time.Time
+}
+
+func shellCommandValid(command string) bool {
+	return command != "" && len(command) <= 64<<10 && strings.IndexFunc(command, unicode.IsControl) < 0
+}
+
+func (m *Manager) handleUnsandboxedBang(ctx context.Context, id, deviceID, text string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	execution, ok := sess.(provider.ExecutionSession)
+	if !ok {
+		m.echoUser(id, text)
+		m.emitNotice(id, "This agent has no explicit unsandboxed shell operation.")
+		return nil
+	}
+	command := strings.TrimSpace(strings.TrimPrefix(text, "!"))
+	if command == "" {
+		m.emitNotice(id, "Usage: !<command> — every invocation requires a separate full-host-access confirmation.")
+		return nil
+	}
+	if strings.HasPrefix(command, "confirm ") {
+		candidate := strings.TrimSpace(strings.TrimPrefix(command, "confirm "))
+		m.mu.Lock()
+		pending, exists := m.pendingShell[id]
+		valid := exists && pending.deviceID == deviceID && time.Now().Before(pending.expires) && candidate == pending.command
+		if valid {
+			delete(m.pendingShell, id)
+		}
+		m.mu.Unlock()
+		if exists && !valid {
+			m.emitNotice(id, "Unsandboxed confirmation did not match the pending command; nothing ran.")
+			return nil
+		}
+		if valid {
+			result, runErr := execution.RunUnsandboxedShell(ctx, candidate)
+			if runErr != nil {
+				m.emitNotice(id, "Unsandboxed shell start failed or has an unknown outcome; refresh /ps before retrying.")
+				return runErr
+			}
+			m.echoUser(id, "!"+candidate)
+			m.emitNotice(id, result.Label+" started.")
+			return nil
+		}
+	}
+	if !shellCommandValid(command) {
+		m.emitNotice(id, "Unsandboxed command is blank, oversized, or contains control characters; nothing ran.")
+		return nil
+	}
+	m.mu.Lock()
+	m.pendingShell[id] = pendingShellConfirmation{command: command, deviceID: deviceID, expires: time.Now().Add(2 * time.Minute)}
+	m.mu.Unlock()
+	m.emitNotice(id, provider.ExecutionLabelUnsandboxed+". This bypasses the Codex sandbox and may change any host data. Confirm exactly: !confirm "+command)
+	return nil
+}
 
 // LiveCount returns the number of non-dead sessions currently tracked.
 func (m *Manager) LiveCount() int {
@@ -1494,6 +1558,9 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 	if err := m.Authorize(id, deviceID, true); err != nil {
 		return err
 	}
+	if strings.HasPrefix(text, "!") {
+		return m.handleUnsandboxedBang(ctx, id, deviceID, text)
+	}
 	// A leading token that looks like a command ("/name …") is routed rather
 	// than sent verbatim to the agent. A "/" that is not a plausible command
 	// name (a path, code, etc.) falls through as a normal prompt.
@@ -1564,6 +1631,23 @@ func (m *Manager) SetCollaborationMode(ctx context.Context, id, modeID, deviceID
 		return err
 	}
 	return m.setCollaborationMode(ctx, id, modeID)
+}
+
+// SetExecutionEnvironment validates and stores a host-configured Codex
+// environment selection for the next turn.
+func (m *Manager) SetExecutionEnvironment(ctx context.Context, id string, selection *provider.EnvironmentSelection, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	environment, ok := sess.(provider.EnvironmentSession)
+	if !ok {
+		return provider.ErrNativeUnavailable
+	}
+	return environment.SetExecutionEnvironment(ctx, selection)
 }
 
 func (m *Manager) setCollaborationMode(ctx context.Context, id, modeID string) error {

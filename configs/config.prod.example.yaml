@@ -154,6 +154,12 @@ providers:
     listen_address: ""
     ws_auth_mode: ""  # capability_token | signed_bearer (ws only)
     reconnect_attempts: 3
+    # Host-owned remote execution catalog (MADR 0109 D36). Empty in production
+    # until an operator registers one; ws:// is loopback-only, wss:// otherwise.
+    environments: []
+    # Unsandboxed standalone processes stay off in production (MADR 0109 D37).
+    standalone_processes_enabled: false
+    standalone_process_env_allowlist: []
   # Kilo CLI (kilo.ai). Default-on (MADR 0075). Known-good: kilo 7.4.22 (MADR 0088).
   kilo:
     enabled: true

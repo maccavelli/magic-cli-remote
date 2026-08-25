@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 // TransportMode selects the daemon-owned Codex app-server transport.
@@ -66,8 +68,11 @@ type Config struct {
 	ReconnectAttempts   int
 	// ReconnectAttemptsConfigured distinguishes an explicit zero (disable
 	// automatic replacement) from a directly constructed Config's zero value.
-	ReconnectAttemptsConfigured bool
-	RuntimeDir                  string
+	ReconnectAttemptsConfigured   bool
+	RuntimeDir                    string
+	Environments                  []provider.ExecutionEnvironment
+	StandaloneProcessesEnabled    bool
+	StandaloneProcessEnvAllowlist []string
 }
 
 func (c Config) validated() (Config, error) {
@@ -116,6 +121,9 @@ func (c Config) validated() (Config, error) {
 		}
 	default:
 		return Config{}, fmt.Errorf("unknown Codex transport %q", c.Transport)
+	}
+	if err := validateExecutionConfig(c.Environments, c.StandaloneProcessEnvAllowlist); err != nil {
+		return Config{}, err
 	}
 	return c, nil
 }

@@ -131,6 +131,18 @@ providers:
     listen_address: ""
     ws_auth_mode: ""  # capability_token | signed_bearer (ws only)
     reconnect_attempts: 3
+    # Remote execution servers this host is willing to run turns on (MADR 0109
+    # D36). The phone can select an id and read status/info; it can never add
+    # one or see exec_server_url. ws:// is accepted only for a loopback target;
+    # every other host must use wss://.
+    environments: []
+    # Unsandboxed standalone processes (MADR 0109 D37). Default-off. Every
+    # spawn still needs a fresh per-command confirmation from the phone.
+    standalone_processes_enabled: false
+    # Environment variable NAMES a phone may set on a standalone spawn. Empty
+    # allows none. Secret-looking names are rejected at config load; upstream
+    # logs argv at debug, so secrets never belong on this path at all.
+    standalone_process_env_allowlist: []
   # Kilo CLI (kilo.ai) — shared `kilo serve` engine, OpenCode-fork dialect
   # (MADR 0075). Known-good CLI: kilo 7.4.22 (MADR 0088).
   kilo:

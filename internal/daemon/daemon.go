@@ -250,25 +250,36 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if cfg.Providers.Codex.Enabled {
 		streamCoalesce := time.Duration(cfg.Providers.Codex.StreamCoalesceMs) * time.Millisecond
+		executionEnvironments := make([]provider.ExecutionEnvironment, 0, len(cfg.Providers.Codex.Environments))
+		for _, environment := range cfg.Providers.Codex.Environments {
+			executionEnvironments = append(executionEnvironments, provider.ExecutionEnvironment{
+				ID: environment.ID, ExecServerURL: environment.ExecServerURL,
+				ConnectTimeout:        time.Duration(environment.ConnectTimeoutMS) * time.Millisecond,
+				RuntimeWorkspaceRoots: append([]string(nil), environment.RuntimeWorkspaceRoots...),
+			})
+		}
 		codexConf := codex.Config{
-			Bin:                         cfg.Providers.Codex.Bin,
-			AlwaysApprove:               cfg.Providers.Codex.AlwaysApprove,
-			DefaultCWD:                  cfg.Providers.Codex.DefaultCWD,
-			Model:                       cfg.Providers.Codex.Model,
-			PermissionTimeout:           time.Duration(cfg.Providers.Codex.PermissionTimeoutSeconds) * time.Second,
-			Prewarm:                     cfg.Providers.Codex.Prewarm,
-			TurnStallNotice:             time.Duration(cfg.Providers.Codex.TurnStallNoticeSeconds) * time.Second,
-			StreamCoalesce:              &streamCoalesce,
-			ApprovalPolicy:              cfg.Providers.Codex.ApprovalPolicy,
-			SandboxMode:                 cfg.Providers.Codex.SandboxMode,
-			AllowFullAccess:             cfg.Providers.Codex.AllowFullAccess,
-			SandboxBrokenPolicy:         cfg.Providers.Codex.SandboxBrokenPolicy,
-			Transport:                   codex.TransportMode(cfg.Providers.Codex.Transport),
-			ListenAddress:               cfg.Providers.Codex.ListenAddress,
-			WSAuthMode:                  codex.WSAuthMode(cfg.Providers.Codex.WSAuthMode),
-			ReconnectAttempts:           cfg.Providers.Codex.ReconnectAttempts,
-			ReconnectAttemptsConfigured: true,
-			RuntimeDir:                  cfg.Paths.RuntimeDir,
+			Bin:                           cfg.Providers.Codex.Bin,
+			AlwaysApprove:                 cfg.Providers.Codex.AlwaysApprove,
+			DefaultCWD:                    cfg.Providers.Codex.DefaultCWD,
+			Model:                         cfg.Providers.Codex.Model,
+			PermissionTimeout:             time.Duration(cfg.Providers.Codex.PermissionTimeoutSeconds) * time.Second,
+			Prewarm:                       cfg.Providers.Codex.Prewarm,
+			TurnStallNotice:               time.Duration(cfg.Providers.Codex.TurnStallNoticeSeconds) * time.Second,
+			StreamCoalesce:                &streamCoalesce,
+			ApprovalPolicy:                cfg.Providers.Codex.ApprovalPolicy,
+			SandboxMode:                   cfg.Providers.Codex.SandboxMode,
+			AllowFullAccess:               cfg.Providers.Codex.AllowFullAccess,
+			SandboxBrokenPolicy:           cfg.Providers.Codex.SandboxBrokenPolicy,
+			Transport:                     codex.TransportMode(cfg.Providers.Codex.Transport),
+			ListenAddress:                 cfg.Providers.Codex.ListenAddress,
+			WSAuthMode:                    codex.WSAuthMode(cfg.Providers.Codex.WSAuthMode),
+			ReconnectAttempts:             cfg.Providers.Codex.ReconnectAttempts,
+			ReconnectAttemptsConfigured:   true,
+			RuntimeDir:                    cfg.Paths.RuntimeDir,
+			Environments:                  executionEnvironments,
+			StandaloneProcessesEnabled:    cfg.Providers.Codex.StandaloneProcessesEnabled,
+			StandaloneProcessEnvAllowlist: append([]string(nil), cfg.Providers.Codex.StandaloneProcessEnvAllowlist...),
 		}
 		// The coordinated constructor differs only by carrying a credential
 		// coordinator; every other behaviour is identical, which keeps the
@@ -396,6 +407,13 @@ func Run(ctx context.Context, opts Options) error {
 		ResumeWindow: time.Duration(limits.WSResumeWindowSeconds) * time.Second,
 	})
 	hub.server = wsServer
+	// Codex terminal output is a live push, not session history, so it takes
+	// its own sink to the WS server rather than the event hub (MADR 0109 D11).
+	if codexProvider, err := reg.Get(provider.IDCodex); err == nil {
+		if cp, ok := codexProvider.(*codex.Provider); ok {
+			cp.SetTerminalOutputSink(hub.BroadcastTerminalOutput)
+		}
+	}
 
 	// Local admin socket so `mcremote pair revoke` can kick live WS clients.
 	adminErrCh := make(chan error, 1)
@@ -654,6 +672,14 @@ type eventHub struct {
 func (h *eventHub) Broadcast(ev event.Event) {
 	if h.server != nil {
 		h.server.BroadcastEvent(ev)
+	}
+}
+
+// BroadcastTerminalOutput forwards one bounded terminal chunk to the session
+// owner's Codex-surface connections.
+func (h *eventHub) BroadcastTerminalOutput(sessionID string, chunk provider.TerminalOutput) {
+	if h.server != nil {
+		h.server.BroadcastCodexTerminalOutput(sessionID, chunk)
 	}
 }
 

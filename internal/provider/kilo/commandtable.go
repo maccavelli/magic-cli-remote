@@ -55,5 +55,7 @@ func (d *httpDialect) CommandTable() command.Table {
 		"fork":    {Kind: command.KindOp, Op: command.OpFork},
 		"archive": {Kind: command.KindNone, Note: "kilo exposes no native archive operation"},
 		"delete":  {Kind: command.KindNone, Note: "kilo exposes no native permanent-delete operation"},
+		"ps":      {Kind: command.KindNone, Note: "kilo exposes no terminal registry"},
+		"stop":    {Kind: command.KindNone, Note: "kilo exposes no stoppable terminals"},
 	}
 }

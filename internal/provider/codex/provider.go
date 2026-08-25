@@ -63,6 +63,11 @@ type Provider struct {
 
 	sessions   map[string]*session
 	generation int
+	terminals  *terminalRegistry
+	execution  *executionAPI
+	// terminalSink is the daemon's live terminal push. Terminal bytes are
+	// never session history, so they use this channel instead of event.Event.
+	terminalSink TerminalOutputSink
 
 	// Sandbox health (MADR 0048): workspace-write viability on this host.
 	healthMu sync.RWMutex
@@ -142,6 +147,7 @@ func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 		log:       l.With(slog.String("component", "provider.codex")),
 		configErr: configErr,
 		sessions:  make(map[string]*session),
+		terminals: newTerminalRegistry(maxTerminalReplayBytes),
 		health:    sandboxHealth{Reason: sandboxUnknown},
 		daemonRun: runDaemonLifecycle,
 		sleepFn:   sleepContext,
@@ -840,8 +846,18 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 		managedLease: att.managedLease,
 	}
 	p.eng = eng
+	execution := newExecutionAPI(eng.conn.sendReadOnlyOrWriteRequest, p.supportsCapability, p.terminals, gen, p.cfg.Environments)
+	execution.standaloneEnabled = p.cfg.StandaloneProcessesEnabled
+	for _, name := range p.cfg.StandaloneProcessEnvAllowlist {
+		execution.envAllowlist[name] = struct{}{}
+	}
+	execution.push = p.pushTerminalOutput
+	p.execution = execution
 	p.models = nil
 	p.mu.Unlock()
+	if err := execution.RegisterEnvironments(ctx); err != nil {
+		p.log.Warn("Codex execution environment registration failed", slog.Any("err", err))
+	}
 
 	p.probeCollaboration(ctx, eng)
 	p.reconcileRetainedSessions(ctx, eng)
@@ -889,6 +905,8 @@ func (p *Provider) handleUnexpectedEngineExit(gen int, att *engineAttempt, exitE
 		return
 	}
 	p.eng = nil
+	execution := p.execution
+	p.execution = nil
 	sessions := make([]*session, 0, len(p.sessions))
 	for _, s := range p.sessions {
 		sessions = append(sessions, s)
@@ -902,6 +920,9 @@ func (p *Provider) handleUnexpectedEngineExit(gen int, att *engineAttempt, exitE
 		p.cfg.WSAuthMode = ""
 	}
 	p.mu.Unlock()
+	if execution != nil {
+		execution.CleanupProcesses(context.Background())
+	}
 
 	if att.cleanup != nil {
 		att.cleanup()
@@ -1062,7 +1083,12 @@ func (p *Provider) Shutdown() {
 	p.closed = true
 	eng := p.eng
 	p.eng = nil
+	execution := p.execution
+	p.execution = nil
 	p.mu.Unlock()
+	if execution != nil {
+		execution.CleanupProcesses(context.Background())
+	}
 
 	if eng != nil && eng.cmd != nil && eng.cmd.Process != nil {
 		_ = eng.conn.transport.Close()

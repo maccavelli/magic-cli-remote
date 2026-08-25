@@ -64,13 +64,15 @@ type session struct {
 	// drifting (MADR 0044 D5). autoApprove mirrors approvalPolicy == "never"
 	// and gates the belt-and-braces interception in handleApprovalRequest:
 	// codex can still route approvals the policy does not cover (D6).
-	approvalPolicy      string
-	sandboxMode         string
-	autoApprove         bool
-	profileCatalog      []provider.PermissionProfile
-	permissionProfileID string
-	approvalsReviewer   string
-	guardianDenial      *guardianDenial
+	approvalPolicy          string
+	sandboxMode             string
+	autoApprove             bool
+	profileCatalog          []provider.PermissionProfile
+	permissionProfileID     string
+	approvalsReviewer       string
+	guardianDenial          *guardianDenial
+	environmentSelection    *provider.EnvironmentSelection
+	environmentSelectionSet bool
 
 	// thinkingLevel is the user's explicit reasoning preference. It is sent
 	// as turn/start.effort only on Default collaboration mode. Plan uses the
@@ -794,9 +796,18 @@ func (s *session) runTurn(ctx context.Context, cancel context.CancelFunc, fr *co
 	}
 	s.mu.Lock()
 	reviewer := s.approvalsReviewer
+	environmentSelection := s.environmentSelection
+	environmentSelectionSet := s.environmentSelectionSet
 	s.mu.Unlock()
 	if reviewer != "" {
 		params["approvalsReviewer"] = reviewer
+	}
+	if environmentSelectionSet {
+		if environmentSelection == nil {
+			params["environments"] = []any{}
+		} else {
+			params["environments"] = []provider.EnvironmentSelection{*environmentSelection}
+		}
 	}
 	raw, err := fr.sendRequest(ctx, "turn/start", params)
 	if err != nil {

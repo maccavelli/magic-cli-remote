@@ -15,6 +15,7 @@ import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../chat/chat_models.dart' show kHistoryFetchLimit;
+import '../codex_execution_client.dart';
 import '../codex_threads_client.dart';
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
@@ -416,13 +417,17 @@ Duration opTimeoutFor(String type) {
     case 'models.list':
     case 'agents.list':
     case 'agent_sessions.list':
+    // Execution writes start real host work: a build, an unsandboxed shell,
+    // a spawned process. The daemon allows 60s, and the phone must not race
+    // that with a shorter deadline and an idempotent-looking retry.
+    case 'codex.execution.write':
       return const Duration(seconds: 60) + kOpTimeoutMargin;
     default:
       return const Duration(seconds: 30) + kOpTimeoutMargin;
   }
 }
 
-class McremoteClient with CodexThreadsClient {
+class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   McremoteClient({
     SettingsStore? settings,
     @visibleForTesting this.afterSocketOpen,
@@ -484,6 +489,12 @@ class McremoteClient with CodexThreadsClient {
 
   /// `providers.prewarm` pushes (MADR 0089 D7).
   final _providerPrewarm = StreamController<Map<String, dynamic>>.broadcast();
+
+  /// `codex.terminal.output` pushes (MADR 0109 D11). Terminal bytes are a
+  /// live stream, never session history, so they arrive here rather than on
+  /// the event stream that feeds the transcript.
+  final _codexTerminalOutput =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   /// `oauth.device_flow` pushes: the URL and user code to display.
   final _deviceFlows = StreamController<Map<String, dynamic>>.broadcast();
@@ -750,6 +761,10 @@ class McremoteClient with CodexThreadsClient {
 
   /// Pre-warm flag pushes for one agent (MADR 0089 D7).
   Stream<Map<String, dynamic>> get providerPrewarm => _providerPrewarm.stream;
+
+  @override
+  Stream<Map<String, dynamic>> get codexTerminalOutput =>
+      _codexTerminalOutput.stream;
 
   /// Device sign-in prompts: `{flow_id, provider_id, verification_uri,
   /// user_code, expires_in, interval}`.
@@ -2799,6 +2814,10 @@ class McremoteClient with CodexThreadsClient {
           final payload = env.payload;
           if (payload != null) _providerPrewarm.add(payload);
           return;
+        case 'codex.terminal.output':
+          final payload = env.payload;
+          if (payload != null) _codexTerminalOutput.add(payload);
+          return;
         case 'oauth.device_flow':
           final payload = env.payload;
           if (payload != null) _deviceFlows.add(payload);
@@ -4117,6 +4136,281 @@ class McremoteClient with CodexThreadsClient {
     );
   }
 
+  // --- Codex execution, terminals, and environments (MADR 0109 P7) ---
+
+  /// The exact phrase the daemon requires before it will run anything that
+  /// bypasses the Codex sandbox. It is sent per invocation and is never
+  /// cached, so a user who confirms one command has not confirmed the next.
+  static const String kConfirmUnsandboxed = 'run unsandboxed';
+  static const String kConfirmEnvironment = 'change execution environment';
+
+  Future<Map<String, dynamic>> _readCodexExecution(
+    String action, {
+    Map<String, dynamic> extra = const {},
+  }) async {
+    final res = await request(
+      'codex.execution.read',
+      payload: {'action': action, ...extra},
+      expectedType: 'codex.execution.read_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'Codex execution read failed');
+    }
+    return Map<String, dynamic>.from(res.payload ?? const {});
+  }
+
+  Future<Map<String, dynamic>> _writeCodexExecution(
+    String action, {
+    Map<String, dynamic> extra = const {},
+  }) async {
+    final res = await request(
+      'codex.execution.write',
+      payload: {'action': action, ...extra},
+      expectedType: 'codex.execution.write_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'Codex execution request failed');
+    }
+    return Map<String, dynamic>.from(res.payload ?? const {});
+  }
+
+  @override
+  Future<List<CodexTerminalInfo>> listTerminals(String sessionId) async {
+    final raw = await _readCodexExecution(
+      'terminals',
+      extra: {'session_id': sessionId},
+    );
+    final terminals = raw['terminals'];
+    return terminals is List
+        ? terminals
+              .whereType<Map<dynamic, dynamic>>()
+              .map(
+                (e) => CodexTerminalInfo.fromJson(Map<String, dynamic>.from(e)),
+              )
+              .where((e) => e.id.isNotEmpty)
+              .toList(growable: false)
+        : const <CodexTerminalInfo>[];
+  }
+
+  @override
+  Future<CodexTerminalBuffer> readTerminalOutput(
+    String sessionId,
+    String terminalId, {
+    int afterSequence = 0,
+  }) async {
+    final raw = await _readCodexExecution(
+      'output',
+      extra: {
+        'session_id': sessionId,
+        'terminal_id': terminalId,
+        if (afterSequence > 0) 'after_sequence': afterSequence,
+      },
+    );
+    final output = raw['output'];
+    return CodexTerminalBuffer(
+      chunks: output is List
+          ? output
+                .whereType<Map<dynamic, dynamic>>()
+                .map(
+                  (e) => CodexTerminalOutput.fromJson(
+                    Map<String, dynamic>.from(e),
+                  ),
+                )
+                .toList(growable: false)
+          : const <CodexTerminalOutput>[],
+      sequenceGap: raw['sequence_gap'] as bool? ?? false,
+    );
+  }
+
+  @override
+  Future<CodexExecResult> runSandboxedExec(
+    String sessionId,
+    List<String> argv, {
+    String cwd = '',
+    String permissionProfileId = '',
+    int timeoutMs = 0,
+  }) async {
+    final raw = await _writeCodexExecution(
+      'exec',
+      extra: {
+        'session_id': sessionId,
+        'argv': argv,
+        if (cwd.isNotEmpty) 'cwd': cwd,
+        if (permissionProfileId.isNotEmpty)
+          'permission_profile_id': permissionProfileId,
+        if (timeoutMs > 0) 'timeout_ms': timeoutMs,
+      },
+    );
+    final exec = raw['exec'];
+    return exec is Map
+        ? CodexExecResult.fromJson(Map<String, dynamic>.from(exec))
+        : const CodexExecResult();
+  }
+
+  @override
+  Future<void> runUnsandboxedShell(
+    String sessionId,
+    String command, {
+    required bool confirmed,
+  }) async {
+    // Refuse locally as well as at the daemon. Sending an unconfirmed call
+    // and letting it bounce would put the decision on the wire at all.
+    if (!confirmed) {
+      throw StateError('unsandboxed shell requires a fresh confirmation');
+    }
+    await _writeCodexExecution(
+      'shell',
+      extra: {
+        'session_id': sessionId,
+        'command': command,
+        'confirm': kConfirmUnsandboxed,
+      },
+    );
+  }
+
+  @override
+  Future<String> spawnStandaloneProcess(
+    String sessionId,
+    List<String> argv, {
+    required String cwd,
+    required bool confirmed,
+    Map<String, String> env = const {},
+    bool tty = false,
+    int rows = 0,
+    int cols = 0,
+  }) async {
+    if (!confirmed) {
+      throw StateError('standalone process requires a fresh confirmation');
+    }
+    final raw = await _writeCodexExecution(
+      'spawn',
+      extra: {
+        'session_id': sessionId,
+        'argv': argv,
+        'cwd': cwd,
+        if (env.isNotEmpty) 'env': env,
+        if (tty) 'tty': true,
+        if (tty && rows > 0) 'rows': rows,
+        if (tty && cols > 0) 'cols': cols,
+        'confirm': kConfirmUnsandboxed,
+      },
+    );
+    final process = raw['process'];
+    return process is Map ? (process['id'] as String? ?? '') : '';
+  }
+
+  @override
+  Future<void> writeTerminal(
+    String sessionId,
+    String terminalId,
+    String text, {
+    bool closeStdin = false,
+  }) async {
+    await _writeCodexExecution(
+      'write',
+      extra: {
+        'session_id': sessionId,
+        'terminal_id': terminalId,
+        if (text.isNotEmpty) 'data_base64': base64.encode(utf8.encode(text)),
+        if (closeStdin) 'close_stdin': true,
+      },
+    );
+  }
+
+  @override
+  Future<void> resizeTerminal(
+    String sessionId,
+    String terminalId,
+    int rows,
+    int cols,
+  ) async {
+    await _writeCodexExecution(
+      'resize',
+      extra: {
+        'session_id': sessionId,
+        'terminal_id': terminalId,
+        'rows': rows,
+        'cols': cols,
+      },
+    );
+  }
+
+  @override
+  Future<void> stopTerminal(String sessionId, String terminalId) async {
+    await _writeCodexExecution(
+      'stop',
+      extra: {'session_id': sessionId, 'terminal_id': terminalId},
+    );
+  }
+
+  @override
+  Future<int> stopAllTerminals(String sessionId) async {
+    final raw = await _writeCodexExecution(
+      'stop_all',
+      extra: {'session_id': sessionId},
+    );
+    return raw['stopped'] is int ? raw['stopped'] as int : 0;
+  }
+
+  @override
+  Future<List<CodexExecutionEnvironment>> listExecutionEnvironments() async {
+    final raw = await _readCodexExecution('environments');
+    final environments = raw['environments'];
+    return environments is List
+        ? environments
+              .whereType<Map<dynamic, dynamic>>()
+              .map(
+                (e) => CodexExecutionEnvironment.fromJson(
+                  Map<String, dynamic>.from(e),
+                ),
+              )
+              .where((e) => e.id.isNotEmpty)
+              .toList(growable: false)
+        : const <CodexExecutionEnvironment>[];
+  }
+
+  @override
+  Future<CodexEnvironmentStatus> readEnvironmentStatus(
+    String environmentId,
+  ) async {
+    final raw = await _readCodexExecution(
+      'environment_status',
+      extra: {'environment_id': environmentId},
+    );
+    final status = raw['environment_status'];
+    return status is Map
+        ? CodexEnvironmentStatus.fromJson(Map<String, dynamic>.from(status))
+        : const CodexEnvironmentStatus();
+  }
+
+  @override
+  Future<void> selectExecutionEnvironment(
+    String sessionId,
+    String? environmentId, {
+    required bool confirmed,
+    String cwd = '',
+    List<String> runtimeWorkspaceRoots = const [],
+  }) async {
+    if (!confirmed) {
+      throw StateError('changing the execution environment requires consent');
+    }
+    await _writeCodexExecution(
+      'select_environment',
+      extra: {
+        'session_id': sessionId,
+        if (environmentId == null)
+          'disable_environment': true
+        else ...{
+          'environment_id': environmentId,
+          if (cwd.isNotEmpty) 'cwd': cwd,
+          if (runtimeWorkspaceRoots.isNotEmpty)
+            'runtime_workspace_roots': runtimeWorkspaceRoots,
+        },
+        'confirm': kConfirmEnvironment,
+      },
+    );
+  }
+
   Future<void> dispose() async {
     _autoReconnect = false;
     _manualDisconnect = true;
@@ -4126,6 +4420,7 @@ class McremoteClient with CodexThreadsClient {
     await _events.close();
     await _providerAuthStatus.close();
     await _providerPrewarm.close();
+    await _codexTerminalOutput.close();
     await _deviceFlows.close();
     await _deviceFlowResults.close();
     await _deviceFlowUpdates.close();

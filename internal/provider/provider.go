@@ -17,6 +17,17 @@ import (
 // ErrNotImplemented indicates a provider is registered but not ready.
 var ErrNotImplemented = errors.New("provider not implemented")
 
+// ErrExecutionOutcomeUnknown means a non-idempotent execution request may
+// have reached the provider before the connection failed.
+var ErrExecutionOutcomeUnknown = errors.New("execution outcome unknown")
+
+// ErrNativeUnavailable means an optional native terminal catalog is absent;
+// callers may still use daemon-owned terminals.
+var ErrNativeUnavailable = errors.New("native terminal unavailable")
+
+// ErrTerminalNotFound rejects unknown, stale, or foreign terminal handles.
+var ErrTerminalNotFound = errors.New("terminal not found")
+
 // ErrTurnBusy indicates a prompt was refused because a turn is already active
 // (MADR 0020). Mapped to protocol error code turn_busy on the WebSocket.
 var ErrTurnBusy = errors.New("turn busy")
@@ -692,6 +703,154 @@ type NativeThreadHistoryPage struct {
 	Limit           int               `json:"limit"`
 }
 
+const (
+	// ExecutionLabelSandboxed is structured command/exec under a profile or
+	// sandbox policy.
+	ExecutionLabelSandboxed = "SANDBOXED EXECUTION"
+	// ExecutionLabelUnsandboxed is thread/shellCommand with full host access.
+	ExecutionLabelUnsandboxed = "UNSANDBOXED SHELL — FULL HOST ACCESS"
+	// ExecutionLabelStandalone is the default-off process/* surface.
+	ExecutionLabelStandalone = "UNSANDBOXED STANDALONE PROCESS"
+
+	// ExecutionAuditCommandExec records sandboxed argv execution. Audit
+	// classes exist so a receipt cannot later be read as the wrong authority.
+	ExecutionAuditCommandExec = "command_exec"
+	// ExecutionAuditThreadShell records unsandboxed thread shell execution.
+	ExecutionAuditThreadShell = "thread_shell"
+	// ExecutionAuditProcess records a default-off standalone process.
+	ExecutionAuditProcess = "standalone_process"
+
+	// TerminalKindExec is the only sandboxed terminal kind.
+	TerminalKindExec = "exec"
+	// TerminalKindShell is an unsandboxed thread shell command.
+	TerminalKindShell = "thread_shell"
+	// TerminalKindBackground is a native Codex background terminal.
+	TerminalKindBackground = "background"
+	// TerminalKindProcess is a standalone unsandboxed process.
+	TerminalKindProcess = "process"
+)
+
+// ExecRequest is an argv-based structured command. It never accepts shell
+// text; callers use the separately labelled thread-shell operation for that.
+type ExecRequest struct {
+	Argv                []string           `json:"argv"`
+	ThreadID            string             `json:"thread_id,omitempty"`
+	CWD                 string             `json:"cwd,omitempty"`
+	Env                 map[string]*string `json:"env,omitempty"`
+	PermissionProfileID string             `json:"permission_profile_id,omitempty"`
+	ProcessID           string             `json:"process_id,omitempty"`
+	Stream              bool               `json:"stream,omitempty"`
+	TTY                 bool               `json:"tty,omitempty"`
+	Rows                int                `json:"rows,omitempty"`
+	Cols                int                `json:"cols,omitempty"`
+	OutputBytesCap      int                `json:"output_bytes_cap,omitempty"`
+	Timeout             time.Duration      `json:"timeout,omitempty"`
+}
+
+// ExecResult is the bounded final structured-command result.
+type ExecResult struct {
+	ExitCode   int    `json:"exit_code"`
+	Stdout     string `json:"stdout,omitempty"`
+	Stderr     string `json:"stderr,omitempty"`
+	Label      string `json:"label"`
+	AuditClass string `json:"audit_class"`
+}
+
+// ExecutionResult labels a started asynchronous execution surface.
+type ExecutionResult struct {
+	Started    bool   `json:"started"`
+	Label      string `json:"label"`
+	AuditClass string `json:"audit_class"`
+}
+
+// TerminalInfo is the provider-neutral terminal registry projection.
+type TerminalInfo struct {
+	ID         string `json:"id"`
+	ThreadID   string `json:"thread_id,omitempty"`
+	Kind       string `json:"kind"`
+	Label      string `json:"label"`
+	Command    string `json:"command,omitempty"`
+	CWD        string `json:"cwd,omitempty"`
+	Generation int    `json:"generation,omitempty"`
+	TTY        bool   `json:"tty,omitempty"`
+	Running    bool   `json:"running"`
+	ExitCode   *int   `json:"exit_code,omitempty"`
+	Native     bool   `json:"native,omitempty"`
+	AuditClass string `json:"audit_class,omitempty"`
+}
+
+// TerminalPage is one bounded native terminal page.
+type TerminalPage struct {
+	Terminals  []TerminalInfo `json:"terminals"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+	Limit      int            `json:"limit"`
+}
+
+// TerminalOutput is one sequence-numbered replayable terminal chunk.
+type TerminalOutput struct {
+	TerminalID string `json:"terminal_id"`
+	Sequence   uint64 `json:"sequence"`
+	Stream     string `json:"stream"`
+	Data       []byte `json:"data"`
+	CapReached bool   `json:"cap_reached,omitempty"`
+}
+
+// ExecutionEnvironment is administrator-owned configuration. ExecServerURL
+// never crosses the phone boundary.
+type ExecutionEnvironment struct {
+	ID                    string        `json:"id"`
+	ExecServerURL         string        `json:"-"`
+	ConnectTimeout        time.Duration `json:"-"`
+	RuntimeWorkspaceRoots []string      `json:"runtime_workspace_roots,omitempty"`
+}
+
+// EnvironmentStatus is an observational native status read.
+type EnvironmentStatus struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+// EnvironmentInfo exposes only shell metadata and an optional canonical URI.
+type EnvironmentInfo struct {
+	ID        string `json:"id"`
+	ShellName string `json:"shell_name"`
+	ShellPath string `json:"shell_path"`
+	CWD       string `json:"cwd,omitempty"`
+}
+
+// EnvironmentSelection is injected into turn/start.environments.
+type EnvironmentSelection struct {
+	EnvironmentID         string   `json:"environmentId"`
+	CWD                   string   `json:"cwd"`
+	RuntimeWorkspaceRoots []string `json:"runtimeWorkspaceRoots"`
+}
+
+// ProcessSpawnRequest is the default-off process/* standalone surface. The
+// handle stays bound to the spawning connection and engine generation;
+// ThreadID only files it under the requesting thread's terminal list so /ps
+// and /stop can reach it, and is never sent upstream.
+type ProcessSpawnRequest struct {
+	Argv           []string           `json:"argv"`
+	ThreadID       string             `json:"thread_id,omitempty"`
+	CWD            string             `json:"cwd"`
+	Env            map[string]*string `json:"env,omitempty"`
+	TTY            bool               `json:"tty,omitempty"`
+	Stream         bool               `json:"stream,omitempty"`
+	Rows           int                `json:"rows,omitempty"`
+	Cols           int                `json:"cols,omitempty"`
+	OutputBytesCap int                `json:"output_bytes_cap,omitempty"`
+	Timeout        time.Duration      `json:"timeout,omitempty"`
+}
+
+// ProcessInfo is an owned connection/generation-bound process handle.
+type ProcessInfo struct {
+	ID         string `json:"id"`
+	Generation int    `json:"generation"`
+	Label      string `json:"label"`
+	AuditClass string `json:"audit_class"`
+}
+
 // ThreadSection is a provider-native user organization bucket.
 type ThreadSection struct {
 	ID    string `json:"id"`
@@ -785,6 +944,32 @@ type NativeThreadLifecycleSession interface {
 	ArchiveNativeThread(context.Context, bool) error
 	PreviewNativeDelete(context.Context) (ThreadDeletePreview, error)
 	DeleteNativeThread(context.Context) (ThreadDeleteResult, error)
+}
+
+// ExecutionSession exposes the active thread's execution surfaces. Every
+// method keeps its authority class distinct: RunSandboxedExec is argv-only
+// under a permission profile, RunUnsandboxedShell is full host access, and
+// SpawnStandaloneProcess is the default-off unsandboxed process surface. A
+// caller can never reach one through another.
+type ExecutionSession interface {
+	Session
+	RunSandboxedExec(context.Context, ExecRequest) (ExecResult, error)
+	RunUnsandboxedShell(context.Context, string) (ExecutionResult, error)
+	SpawnStandaloneProcess(context.Context, ProcessSpawnRequest) (ProcessInfo, error)
+	WriteTerminal(context.Context, string, []byte, bool) error
+	ResizeTerminal(context.Context, string, int, int) error
+	ReplayTerminal(context.Context, string, uint64) ([]TerminalOutput, bool, error)
+	ListTerminals(context.Context) ([]TerminalInfo, error)
+	StopTerminal(context.Context, string) error
+	StopAllTerminals(context.Context) (int, error)
+}
+
+// EnvironmentSession stores a validated host-configured selection for later
+// turn/start injection. A nil selection explicitly disables sticky upstream
+// selection; callers omit the operation entirely to preserve it.
+type EnvironmentSession interface {
+	Session
+	SetExecutionEnvironment(context.Context, *EnvironmentSelection) error
 }
 
 // AgentSessionLister is optionally implemented by providers whose native

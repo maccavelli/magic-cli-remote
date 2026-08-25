@@ -9,7 +9,7 @@ import (
 
 func TestCodexPhoneOperationRegistryIsCompleteAndTyped(t *testing.T) {
 	list := codexPhoneOperationList()
-	if len(list) != 6 {
+	if len(list) != 8 {
 		t.Fatalf("Codex-specific phone operations = %+v", list)
 	}
 	want := map[string]codex.CapabilityID{
@@ -19,6 +19,8 @@ func TestCodexPhoneOperationRegistryIsCompleteAndTyped(t *testing.T) {
 		protocol.TypeSessionSetCollaboration: codex.CapabilityThreadSettings,
 		protocol.TypeCodexThreadsRead:        codex.CapabilityThreadList,
 		protocol.TypeCodexThreadsWrite:       codex.CapabilityThreadMetadata,
+		protocol.TypeCodexExecutionRead:      codex.CapabilityCommandExec,
+		protocol.TypeCodexExecutionWrite:     codex.CapabilityCommandExec,
 	}
 	for _, operation := range list {
 		if want[operation.Type] != operation.Capability || operation.TimeoutKey == "" {

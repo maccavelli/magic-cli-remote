@@ -344,6 +344,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.codex.listen_address", d.Providers.Codex.ListenAddress)
 	v.SetDefault("providers.codex.ws_auth_mode", d.Providers.Codex.WSAuthMode)
 	v.SetDefault("providers.codex.reconnect_attempts", d.Providers.Codex.ReconnectAttempts)
+	v.SetDefault("providers.codex.standalone_processes_enabled", d.Providers.Codex.StandaloneProcessesEnabled)
+	v.SetDefault("providers.codex.standalone_process_env_allowlist", d.Providers.Codex.StandaloneProcessEnvAllowlist)
 	v.SetDefault("providers.kilo.enabled", d.Providers.Kilo.Enabled)
 	v.SetDefault("providers.kilo.bin", d.Providers.Kilo.Bin)
 	v.SetDefault("providers.kilo.always_approve", d.Providers.Kilo.AlwaysApprove)

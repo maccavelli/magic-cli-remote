@@ -25,7 +25,7 @@ var codex01491NotificationRoutes = map[string]notificationRoute{
 	"account/updated":                           notificationRouteProvider,
 	"app/list/updated":                          notificationRouteProvider,
 	"autoApprovalReview/strictReviewRequired":   notificationRouteSession,
-	"command/exec/outputDelta":                  notificationRouteSession,
+	"command/exec/outputDelta":                  notificationRouteProvider,
 	"configWarning":                             notificationRouteProvider,
 	"deprecationNotice":                         notificationRouteProvider,
 	"error":                                     notificationRouteProvider,
@@ -56,8 +56,8 @@ var codex01491NotificationRoutes = map[string]notificationRoute{
 	"model/rerouted":                            notificationRouteSession,
 	"model/safetyBuffering/updated":             notificationRouteSession,
 	"model/verification":                        notificationRouteSession,
-	"process/exited":                            notificationRouteSession,
-	"process/outputDelta":                       notificationRouteSession,
+	"process/exited":                            notificationRouteProvider,
+	"process/outputDelta":                       notificationRouteProvider,
 	"project/changed":                           notificationRouteProvider,
 	"remoteControl/status/changed":              notificationRouteProvider,
 	"serverRequest/resolved":                    notificationRouteSession,
@@ -66,8 +66,8 @@ var codex01491NotificationRoutes = map[string]notificationRoute{
 	"thread/closed":                             notificationRouteSession,
 	"thread/compacted":                          notificationRouteSession,
 	"thread/deleted":                            notificationRouteSession,
-	"thread/environment/connected":              notificationRouteSession,
-	"thread/environment/disconnected":           notificationRouteSession,
+	"thread/environment/connected":              notificationRouteProvider,
+	"thread/environment/disconnected":           notificationRouteProvider,
 	"thread/goal/cleared":                       notificationRouteSession,
 	"thread/goal/updated":                       notificationRouteSession,
 	"thread/name/updated":                       notificationRouteSession,
@@ -115,6 +115,8 @@ func (p *Provider) handleProviderNotification(method string, params json.RawMess
 	p.noteRuntimeProviderNotification(method, params)
 	sessions := p.sessionsSnapshot()
 	switch method {
+	case "command/exec/outputDelta", "process/outputDelta", "process/exited", "thread/environment/connected", "thread/environment/disconnected":
+		p.handleExecutionNotification(method, params)
 	case "account/rateLimits/updated":
 		for _, s := range sessions {
 			s.emitRateLimit(params)

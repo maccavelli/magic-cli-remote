@@ -39,6 +39,8 @@ var knownOps = map[command.Op]bool{
 	command.OpPersonality:       true,
 	command.OpReview:            true,
 	command.OpFork:              true,
+	command.OpPS:                true,
+	command.OpStop:              true,
 }
 
 // TestProvidersDeclareEveryCanonicalCommand is the contract for adding a CLI:

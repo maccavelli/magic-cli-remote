@@ -253,6 +253,21 @@ providers:
     listen_address: "" # ws only; optional 127.0.0.1:port
     ws_auth_mode: ""   # capability_token | signed_bearer (ws only)
     reconnect_attempts: 3  # 0 disables; maximum 3
+    # Remote execution servers this host will run turns on (MADR 0109 D36).
+    # Host-owned: phones select a configured id and read status/info, and
+    # never see exec_server_url. ws:// is loopback-only; wss:// otherwise.
+    environments: []
+    #   - id: "builder"
+    #     exec_server_url: "wss://builder.example.ts.net:8443"
+    #     connect_timeout_ms: 5000        # 1..60000
+    #     runtime_workspace_roots: ["/srv/work"]   # absolute, deduplicated
+    # Unsandboxed standalone processes (MADR 0109 D37). Default-off, and each
+    # spawn still takes a fresh per-command confirmation on the phone.
+    standalone_processes_enabled: false
+    # Environment variable NAMES a phone may set on a standalone spawn. Empty
+    # allows none. Secret-looking names are rejected at load: upstream Codex
+    # logs argv at debug level, so secrets do not belong on this path.
+    standalone_process_env_allowlist: []
   # Kilo CLI (kilo.ai, npm @kilocode/cli). An OpenCode fork with its own
   # Gateway, agents, and model aliases — driven through one shared
   # `kilo serve` engine (HTTP + SSE), same architecture as opencode
