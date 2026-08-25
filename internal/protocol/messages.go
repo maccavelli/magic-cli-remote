@@ -121,6 +121,7 @@ const (
 	TypeAgentSessionsList        = "agent_sessions.list"
 	TypeAgentSessionsResult      = "agent_sessions.list_result"
 	TypeSessionRefreshSkills     = "session.refresh_skills"
+	TypeSessionShell             = "session.shell"
 	TypeSessionShareState        = "session.share_state"
 	TypeSessionShareStateResult  = "session.share_state_result"
 	TypeSessionShare             = "session.share"
@@ -1063,6 +1064,16 @@ type AgentSessionsResultPayload struct {
 // session exists.
 type ProjectsListPayload struct {
 	Provider string `json:"provider"`
+}
+
+// SessionShellPayload runs one command in the session's working directory.
+//
+// There is deliberately no environment, working-directory, agent, model or
+// background field: every one of those is derived from the live session, so a
+// client cannot widen what the command sees (MADR 0112 A9).
+type SessionShellPayload struct {
+	SessionID string `json:"session_id"`
+	Command   string `json:"command"`
 }
 
 // SessionSharePayload names a session for a share operation. All three share

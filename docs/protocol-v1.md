@@ -302,6 +302,7 @@ denies transport access rather than merely a bearer secret.
 | `session.release` | `{ "session_id", "to_device_id"? }` | `ok` / `error` — hand off to another device; see [Session handoff](#session-handoff-madr-0078) |
 | `session.claim` | `{ "session_id" }` | `session.created` / `error` — take a released session |
 | `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) — each attachment is `{ "kind", "mime_type", "data", "filename"? }`; see [Prompt attachments](#prompt-attachments) |
+| `session.shell` | `{ "session_id", "command" }` | `ok` / `error` (`shell_disabled`, `invalid_command`, `turn_busy`) — see [Direct shell](#direct-shell) |
 | `session.share_state` | `{ "session_id" }` | `session.share_state_result` — see [Session sharing](#session-sharing) |
 | `session.share` | `{ "session_id" }` | `session.share_result` / `error` (`share_disabled`) |
 | `session.unshare` | `{ "session_id" }` | `ok` / `error` (`share_disabled`) |
@@ -1279,6 +1280,56 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
 - `replace`: `true` marks an authoritative full snapshot of the identified
   part — discard what you hold for that identity and take this instead. `false`
   (or absent) is an append delta.
+
+### Direct shell
+
+Runs **one foreground command** in the session's working directory. Available
+only when the operator set `providers.opencode.allow_remote_shell`, off by
+default (MADR 0112 A9).
+
+This is **remote command execution, not a tool call.** OpenCode's shell endpoint
+bypasses the model's tool-permission evaluation entirely, so nothing the agent
+would normally ask about is asked.
+
+```json
+{"v": 1, "type": "session.shell", "id": "req-1",
+ "payload": {"session_id": "s1", "command": "go test ./..."}}
+```
+
+The payload carries **only** a session id and a command. Environment, working
+directory, agent, model and background settings are all derived from the live
+session, so a client cannot widen what the command sees. The agent is the
+session's current visible primary agent; the synthetic `auto` mode resolves to
+the same normal agent it runs under and is never sent upstream.
+
+The command must be non-empty, valid UTF-8, NUL-free and at most 8,192 bytes.
+Beyond that the daemon **does not parse or constrain shell semantics** — and
+does not pretend to.
+
+`ok` means the command finished. Its output is **not** in the reply: OpenCode
+emits a synthetic user message and a `bash` tool part over the session stream,
+so there is exactly one transcript representation, capped by the ordinary
+8,000-character tool-output limit. The blocking HTTP response is discarded.
+
+**Nothing is ever retried** — not on timeout, not on disconnect. A timed-out
+command may still be running, and re-submitting would start a second one.
+
+Only one turn at a time: a shell request claims the same slot as a prompt and
+answers `turn_busy` if the session is running, queued, or awaiting a permission
+or question.
+
+Clients must show the exact command in a **non-editable** confirmation stating
+that it runs directly on the host, bypasses model tool permissions, is recorded
+in the OpenCode session, and that **host effects may persist after a timeout**.
+Submission takes a second deliberate action.
+
+The command and its output never appear in daemon logs. A sanitized upstream
+failure is `session_shell_failed`, which never carries either.
+
+There is no interactive terminal, stdin, PTY, environment editor, command
+history, or background-job control. Those are not omissions to be filled in
+later; residual shell effects are disclosed rather than represented as
+contained.
 
 ### Session sharing
 

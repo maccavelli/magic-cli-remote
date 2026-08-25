@@ -545,6 +545,30 @@ type ShareSession interface {
 	Unshare(ctx context.Context) error
 }
 
+// ShellSession optionally runs one foreground command in the session's working
+// directory (MADR 0112 A9).
+//
+// This is remote command execution, not a tool call: OpenCode's shell endpoint
+// bypasses the model's tool-permission evaluation entirely. Output is not
+// returned here — it arrives as ordinary tool events on the session stream, so
+// there is exactly one transcript representation of the command.
+//
+// There is deliberately no stdin, PTY, environment, working-directory or
+// background-job parameter. A command can create persistent filesystem and
+// network effects and can outlive its own timeout; the surface does not pretend
+// otherwise.
+type ShellSession interface {
+	Session
+	Shell(ctx context.Context, command string) error
+}
+
+// ErrShellDisabled means the operator has not permitted remote command
+// execution on this host.
+var ErrShellDisabled = errors.New("shell is disabled")
+
+// ErrShellInvalid means the command failed validation before submission.
+var ErrShellInvalid = errors.New("shell command is invalid")
+
 // ErrShareDisabled means the operator has not permitted remote share mutation
 // on this host, or upstream forbids sharing for this session.
 var ErrShareDisabled = errors.New("share is disabled")

@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'diagnostics_sheet.dart';
 import 'session_share_sheet.dart';
+import 'shell_command_sheet.dart';
 import 'skill_authoring_sheet.dart';
 import 'workspace_sheet.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
@@ -837,6 +838,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         heightFactor: 0.85,
         child: WorkspaceSheet(sessionId: widget.sessionId),
       ),
+    );
+  }
+
+  /// Opens the direct-shell composer.
+  ///
+  /// Gated on an idle session as well as policy: a command claims the same turn
+  /// slot as a prompt, so offering it mid-turn would only produce a refusal.
+  Future<void> _showShellSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => ShellCommandSheet(sessionId: widget.sessionId),
     );
   }
 
@@ -2162,6 +2176,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         sid,
       ).select((t) => t.capabilities?.share ?? false),
     );
+    final canRunShell = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.capabilities?.shell ?? false),
+    );
     final canRefreshSkills = ref.watch(
       sessionTranscriptProvider(
         sid,
@@ -2835,6 +2854,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       tooltip: 'Browse workspace',
                       icon: const Icon(Icons.folder_outlined),
                       onPressed: offline ? null : _showWorkspaceSheet,
+                    ),
+                  if (canRunShell)
+                    IconButton(
+                      key: const ValueKey('open-shell'),
+                      tooltip: 'Run a command',
+                      icon: const Icon(Icons.terminal_outlined),
+                      onPressed: (busy || offline) ? null : _showShellSheet,
                     ),
                   if (canReadShare)
                     IconButton(

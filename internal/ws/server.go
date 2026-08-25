@@ -803,6 +803,9 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeAgentSessionsList:
 		// May boot an ACP engine and query provider-native durable sessions.
 		return s.dispatchAsync(ctx, c, env, s.handleAgentSessionsList)
+	// A shell command blocks for as long as it runs.
+	case protocol.TypeSessionShell:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionShell)
 	// Share operations are HTTP round trips to the engine.
 	case protocol.TypeSessionShareState:
 		return s.dispatchAsync(ctx, c, env, s.handleSessionShareState)
@@ -1002,6 +1005,10 @@ func asyncOpTimeout(typ string) time.Duration {
 		return 30 * time.Second
 	case protocol.TypeModelsList, protocol.TypeAgentsList, protocol.TypeAgentSessionsList:
 		return 60 * time.Second
+	case protocol.TypeSessionShell:
+		// A command runs for as long as it runs; the daemon does not impose a
+		// shorter deadline than the dialect's own (MADR 0112 A9).
+		return 30 * time.Minute
 	case protocol.TypeSessionShare, protocol.TypeSessionUnshare:
 		// Share mutations reach OpenCode's external service, so they get the
 		// longer budget; reading state stays at the 30s default (MADR 0112 A8).
@@ -2890,6 +2897,38 @@ func (s *Server) handleProjectsList(ctx context.Context, c *client, env protocol
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeProjectsResult, env.ID,
 		protocol.ProjectsResultPayload{Provider: req.Provider, Projects: projects})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleSessionShell runs one command in an owned session's directory.
+//
+// Output is not returned here: it arrives as ordinary tool events on the
+// session stream, so there is exactly one transcript representation of the
+// command (MADR 0112 A9).
+func (s *Server) handleSessionShell(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionShellPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	if err := s.sessions.Shell(ctx, p.SessionID, p.Command, deviceID); err != nil {
+		switch {
+		case errors.Is(err, provider.ErrShellDisabled):
+			return s.writeError(ctx, c, env.ID, protocol.ErrShellDisabled,
+				"running commands is not enabled on this host")
+		case errors.Is(err, provider.ErrShellInvalid):
+			return s.writeError(ctx, c, env.ID, protocol.ErrInvalidCommand,
+				"that command is not valid")
+		case errors.Is(err, provider.ErrTurnBusy):
+			return s.writeError(ctx, c, env.ID, protocol.ErrTurnBusy,
+				"this session is already busy")
+		}
+		// Never echo the upstream body: it can contain the command or output.
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrSessionShellFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
 }
 

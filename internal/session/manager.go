@@ -2222,6 +2222,22 @@ func (m *Manager) workspaceSession(id, deviceID string) (provider.WorkspaceSessi
 	return ws, nil
 }
 
+// Shell runs one command in an owned session's working directory.
+func (m *Manager) Shell(ctx context.Context, id, command, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	sh, ok := sess.(provider.ShellSession)
+	if !ok {
+		return fmt.Errorf("session %q does not support direct shell", id)
+	}
+	return sh.Shell(ctx, command)
+}
+
 // shareSession resolves an owned, live session that can report share state.
 func (m *Manager) shareSession(id, deviceID string) (provider.ShareSession, error) {
 	if err := m.Authorize(id, deviceID, true); err != nil {

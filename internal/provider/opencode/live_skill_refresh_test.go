@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 )
@@ -130,4 +132,120 @@ func TestLiveSkillDiscoveryRefresh(t *testing.T) {
 		t.Fatalf("the session id changed across a refresh: %q -> %q", agentID, s.AgentSessionID())
 	}
 	t.Logf("refresh discovered %q; session %s preserved", skillName, agentID)
+}
+
+// TestLiveDirectShell proves the documented shell route works end to end and
+// that its output arrives as ordinary tool events (MADR 0112 A9).
+//
+// It runs only `printf mcremote-shell-ok` in a temporary project. No model is
+// invoked and no tokens are spent.
+func TestLiveDirectShell(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
+	defer cancel()
+
+	// Policy must be explicitly enabled, exactly as an operator would.
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true, AllowRemoteShell: true})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	cwd := t.TempDir()
+	s, err := p.Start(ctx, provider.StartOptions{Name: "shell-live", CWD: cwd})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	sh, ok := s.(provider.ShellSession)
+	if !ok {
+		t.Fatal("an OpenCode session does not implement ShellSession")
+	}
+
+	// Drain events in the background so the tool states can be inspected.
+	type toolEv struct{ status, text string }
+	seen := make(chan toolEv, 64)
+	stop := make(chan struct{})
+	var once sync.Once
+	stopDrain := func() { once.Do(func() { close(stop) }) }
+	defer stopDrain()
+	go func() {
+		for {
+			select {
+			case ev := <-s.Events():
+				if ev.Type == event.TypeToolCall || ev.Type == event.TypeToolUpdate {
+					select {
+					case seen <- toolEv{ev.Status, ev.Text}:
+					default:
+					}
+				}
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	if err := sh.Shell(ctx, "printf mcremote-shell-ok"); err != nil {
+		t.Fatalf("shell: %v", err)
+	}
+
+	deadline := time.After(60 * time.Second)
+	var sawCompleted bool
+	var output string
+collect:
+	for {
+		select {
+		case ev := <-seen:
+			if ev.status == "completed" {
+				sawCompleted = true
+				output = ev.text
+				break collect
+			}
+		case <-deadline:
+			break collect
+		}
+	}
+	stopDrain()
+
+	if !sawCompleted {
+		t.Fatal("no completed tool state was observed for the shell command")
+	}
+	if !strings.Contains(output, "mcremote-shell-ok") {
+		t.Fatalf("tool output = %q, want the command's stdout", output)
+	}
+	t.Logf("direct shell produced a completed tool state with the expected output")
+}
+
+// TestLiveDirectShellRefusedWhenDisabled proves the default daemon spawns
+// nothing at all.
+func TestLiveDirectShellRefusedWhenDisabled(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	// No AllowRemoteShell: the default.
+	p := opencode.NewHTTP(opencode.Config{AlwaysApprove: true})
+	if !p.Ready() {
+		t.Skip("opencode not in PATH")
+	}
+	defer p.Shutdown()
+
+	marker := filepath.Join(t.TempDir(), "should-not-exist")
+	s, err := p.Start(ctx, provider.StartOptions{Name: "shell-disabled-live", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	sh, ok := s.(provider.ShellSession)
+	if !ok {
+		t.Fatal("an OpenCode session does not implement ShellSession")
+	}
+	if err := sh.Shell(ctx, "touch "+marker); err == nil {
+		t.Fatal("a disabled host ran a command")
+	}
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Fatal("a disabled host actually created the file")
+	}
 }

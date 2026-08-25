@@ -392,4 +392,63 @@ void main() {
       ),
     );
   });
+
+  test('shell sends only the session and command', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    Map<String, dynamic>? seen;
+    daemon.replies['session.shell'] = (req) {
+      seen = (req['payload'] as Map).cast<String, dynamic>();
+      return {
+        'v': 1,
+        'type': 'ok',
+        'id': req['id'],
+        'payload': <String, dynamic>{},
+      };
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    await client.shell('s1', 'printf hi');
+    // No environment, cwd, agent, model or background field may be sent.
+    expect(seen!.keys.toSet(), {'session_id', 'command'});
+    expect(seen!['command'], 'printf hi');
+  });
+
+  test('a disabled host surfaces shell_disabled', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    daemon.replies['session.shell'] = (req) => {
+      'v': 1,
+      'type': 'error',
+      'id': req['id'],
+      'payload': {'code': 'shell_disabled', 'message': 'off'},
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    await expectLater(
+      client.shell('s1', 'ls'),
+      throwsA(
+        isA<McException>().having((e) => e.code, 'code', 'shell_disabled'),
+      ),
+    );
+  });
+
+  test('an invalid command surfaces invalid_command', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    daemon.replies['session.shell'] = (req) => {
+      'v': 1,
+      'type': 'error',
+      'id': req['id'],
+      'payload': {'code': 'invalid_command', 'message': 'nope'},
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    await expectLater(
+      client.shell('s1', ''),
+      throwsA(
+        isA<McException>().having((e) => e.code, 'code', 'invalid_command'),
+      ),
+    );
+  });
 }

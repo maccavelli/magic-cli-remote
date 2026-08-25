@@ -239,4 +239,21 @@ void main() {
       expect(off.hashCode == on.hashCode, isFalse);
     });
   });
+
+  group('SessionCapabilities.shell', () {
+    test('defaults to false so the affordance stays hidden', () {
+      expect(SessionCapabilities.fromJson(const {}).shell, isFalse);
+    });
+
+    test('is true only when the daemon says so', () {
+      expect(SessionCapabilities.fromJson(const {'shell': true}).shell, isTrue);
+    });
+
+    test('participates in equality so a policy change repaints', () {
+      final off = SessionCapabilities.fromJson(const {});
+      final on = SessionCapabilities.fromJson(const {'shell': true});
+      expect(off == on, isFalse);
+      expect(off.hashCode == on.hashCode, isFalse);
+    });
+  });
 }

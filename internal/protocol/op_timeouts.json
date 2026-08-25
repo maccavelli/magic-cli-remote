@@ -41,6 +41,7 @@
     "session.refresh_skills": 30000,
     "session.share_state": 30000,
     "session.share": 60000,
-    "session.unshare": 60000
+    "session.unshare": 60000,
+    "session.shell": 1800000
   }
 }

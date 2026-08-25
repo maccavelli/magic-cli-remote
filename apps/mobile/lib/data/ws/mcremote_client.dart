@@ -427,6 +427,11 @@ Duration opTimeoutFor(String type) {
     case 'session.share':
     case 'session.unshare':
       return const Duration(seconds: 60) + kOpTimeoutMargin;
+    // A command runs for as long as it runs. The phone must never time out
+    // first: the request is not idempotent, and a retry would start a second
+    // command (MADR 0112 A9).
+    case 'session.shell':
+      return const Duration(minutes: 30) + kOpTimeoutMargin;
     default:
       return const Duration(seconds: 30) + kOpTimeoutMargin;
   }
@@ -3078,6 +3083,22 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         .map((e) => ProjectMeta.fromJson(Map<String, dynamic>.from(e)))
         .where((e) => e.id.isNotEmpty && e.worktree.isNotEmpty)
         .toList();
+  }
+
+  /// Runs one command in the session's working directory (MADR 0112 A9).
+  ///
+  /// Output is not returned: it arrives as ordinary tool events on the session
+  /// stream. Never called without an explicit confirmation, and never retried —
+  /// a timed-out command may still be running.
+  Future<void> shell(String sessionId, String command) async {
+    final res = await request(
+      'session.shell',
+      payload: {'session_id': sessionId, 'command': command},
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'shell failed');
+    }
   }
 
   /// Reads the session's publication state (MADR 0112 A8).

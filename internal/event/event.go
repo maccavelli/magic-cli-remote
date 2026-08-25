@@ -530,6 +530,11 @@ type Capabilities struct {
 	// mutation is forbidden (MADR 0112 A8).
 	ShareState bool `json:"share_state,omitempty"`
 	Share      bool `json:"share,omitempty"`
+
+	// Shell reports that the operator permits running a command directly in
+	// the session's working directory. There is no read-only half: a command
+	// either may be run or may not (MADR 0112 A9).
+	Shell bool `json:"shell,omitempty"`
 }
 
 // Event is a single stream item for a session.

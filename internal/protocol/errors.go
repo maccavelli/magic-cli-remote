@@ -148,6 +148,14 @@ const (
 	// ErrSessionShareFailed is a sanitized upstream share failure.
 	ErrSessionShareFailed = "session_share_failed"
 
+	// ErrShellDisabled means remote command execution is not permitted here.
+	ErrShellDisabled = "shell_disabled"
+	// ErrInvalidCommand means the command failed validation before submission.
+	ErrInvalidCommand = "invalid_command"
+	// ErrSessionShellFailed is a sanitized upstream shell failure. It never
+	// carries the command or its output.
+	ErrSessionShellFailed = "session_shell_failed"
+
 	ErrOutcomeUnknown    = "outcome_unknown"
 	ErrNativeUnavailable = "native_unavailable"
 
@@ -296,6 +304,9 @@ func ErrorCodes() []string {
 		ErrSessionRefreshSkillsFailed,
 		ErrShareDisabled,
 		ErrSessionShareFailed,
+		ErrShellDisabled,
+		ErrInvalidCommand,
+		ErrSessionShellFailed,
 		ErrOutcomeUnknown,
 		ErrNativeUnavailable,
 

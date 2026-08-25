@@ -142,6 +142,7 @@ var _ provider.ThinkingSession = (*session)(nil)
 var _ provider.WorkspaceSession = (*session)(nil)
 var _ provider.SkillRefreshSession = (*session)(nil)
 var _ provider.ShareSession = (*session)(nil)
+var _ provider.ShellSession = (*session)(nil)
 var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RenameSession = (*session)(nil)
@@ -189,9 +190,18 @@ type dialectShare interface {
 	CurrentShare(ctx context.Context) (provider.ShareState, error)
 	Share(ctx context.Context) (provider.ShareState, error)
 	Unshare(ctx context.Context) error
-	// shareMutationAllowed reports operator policy, so the capability can
+	// ShareMutationAllowed reports operator policy, so the capability can
 	// distinguish "can read state" from "may change it".
-	shareMutationAllowed() bool
+	ShareMutationAllowed() bool
+}
+
+// dialectShell is optionally implemented by a DialectSession whose engine can
+// run a command directly (MADR 0112 A9).
+type dialectShell interface {
+	Shell(ctx context.Context, command string) error
+	// ShellAllowed reports operator policy, so the capability reflects what is
+	// actually permitted rather than merely implemented.
+	ShellAllowed() bool
 }
 
 // dialectSkillRefresh is optionally implemented by a DialectSession whose
@@ -393,6 +403,7 @@ func (s *session) emitCapabilities() {
 			SkillRefresh:  s.supportsSkillRefresh(),
 			ShareState:    s.supportsShareState(),
 			Share:         s.supportsShareMutation(),
+			Shell:         s.supportsShell(),
 		},
 		AgentSessionID: s.AgentSessionID(),
 	})
@@ -416,6 +427,9 @@ func (s *session) hasAnyCapability() bool {
 	if _, ok := s.ds.(dialectShare); ok {
 		return true
 	}
+	if _, ok := s.ds.(dialectShell); ok {
+		return true
+	}
 	return false
 }
 
@@ -426,6 +440,76 @@ func (s *session) refineModelSurface() {
 		r.AfterBootRefined()
 	}
 	s.emitCapabilities()
+}
+
+// Shell implements [provider.ShellSession].
+//
+// The turn slot is claimed atomically before submission, using the same state
+// Prompt uses: a shell command and a prompt are both a turn, and letting them
+// overlap would interleave two agents' output in one transcript. The claim also
+// makes a concurrent skill refresh reject rather than wait for a command that
+// may run for half an hour (MADR 0112 A9, PLAN P10 step 4).
+func (s *session) Shell(ctx context.Context, command string) error {
+	sh, ok := s.ds.(dialectShell)
+	if !ok {
+		return fmt.Errorf("direct shell not supported by this provider")
+	}
+
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return fmt.Errorf("session closed")
+	}
+	if s.turnActive || s.promptInFlight || len(s.promptQueue) > 0 ||
+		len(s.pending) > 0 || len(s.questionPending) > 0 {
+		s.mu.Unlock()
+		return provider.ErrTurnBusy
+	}
+	s.turnActive = true
+	s.promptInFlight = true
+	s.turnStartedAt = time.Now()
+	s.treeNodes = map[string]NodeStatus{s.agentID: NodeBusy}
+	s.mu.Unlock()
+
+	// The instance read lock is taken only around the claim, not around the
+	// blocking call: a command can run for a long time, and holding the gate
+	// through it would stall every unrelated project. The claim above is what
+	// makes a racing refresh reject.
+	unlockInstance := s.p.instanceReadLock()
+	unlockInstance()
+
+	s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "running"})
+
+	err := sh.Shell(ctx, command)
+
+	s.mu.Lock()
+	s.promptInFlight = false
+	stillActive := s.turnActive
+	s.mu.Unlock()
+
+	// End the turn exactly once. An upstream session.idle may already have
+	// ended it while the blocking call was still returning, and ending twice
+	// would emit a second idle the client renders as a spurious turn boundary.
+	if err != nil {
+		if stillActive {
+			s.EndTurn()
+			s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+		}
+		return err
+	}
+	if stillActive {
+		s.EndTurn()
+		s.Emit(event.Event{Type: event.TypeSessionStatus, Status: "idle"})
+	}
+	return nil
+}
+
+// supportsShell reports whether the dialect implements it *and* the operator
+// permits it. Unlike share, there is no read-only half: a command either may be
+// run or may not.
+func (s *session) supportsShell() bool {
+	sh, ok := s.ds.(dialectShell)
+	return ok && sh.ShellAllowed()
 }
 
 // CurrentShare implements [provider.ShareSession].
@@ -466,7 +550,7 @@ func (s *session) supportsShareState() bool {
 // existing public link must stay visible even where mutation is forbidden.
 func (s *session) supportsShareMutation() bool {
 	sh, ok := s.ds.(dialectShare)
-	return ok && sh.shareMutationAllowed()
+	return ok && sh.ShareMutationAllowed()
 }
 
 // RefreshSkills implements [provider.SkillRefreshSession].

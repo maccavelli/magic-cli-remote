@@ -384,3 +384,119 @@ func TestShareErrorCodesAreRegistered(t *testing.T) {
 		}
 	}
 }
+
+// Direct shell over the wire (MADR 0112 A9, PLAN P10 step 4).
+
+// TestWSShellRoundTrip proves a valid command answers ok and returns no output
+// in the reply — output is a transcript event, not a response body.
+func TestWSShellRoundTrip(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionShell, "sh-run",
+		protocol.SessionShellPayload{SessionID: ws.meta.ID, Command: "printf hi"})
+	ws.send(t, env)
+	got := ws.recvSkipEvents(t)
+	if got.Type != protocol.TypeOK {
+		t.Fatalf("type = %s, want ok (payload=%s)", got.Type, string(got.Payload))
+	}
+	if strings.Contains(string(got.Payload), "hi") {
+		t.Fatalf("the reply carried command output: %s", got.Payload)
+	}
+}
+
+// TestWSShellRejectsInvalidCommands proves validation reaches the wire as its
+// own code.
+func TestWSShellRejectsInvalidCommands(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	for _, c := range []struct{ name, command string }{
+		{"empty", ""},
+		{"blank", "   "},
+		{"over the cap", strings.Repeat("a", 8193)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, _ := protocol.NewEnvelope(protocol.TypeSessionShell, "sh-bad-"+c.name,
+				protocol.SessionShellPayload{SessionID: ws.meta.ID, Command: c.command})
+			if e := errorFor(t, ws, env); e.Code != protocol.ErrInvalidCommand {
+				t.Fatalf("code = %q, want %q", e.Code, protocol.ErrInvalidCommand)
+			}
+		})
+	}
+}
+
+// TestWSShellRejectsBadRequests proves payload validation.
+func TestWSShellRejectsBadRequests(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	missing, _ := protocol.NewEnvelope(protocol.TypeSessionShell, "sh-missing",
+		protocol.SessionShellPayload{Command: "ls"})
+	if e := errorFor(t, ws, missing); e.Code != "bad_payload" {
+		t.Fatalf("code = %q, want bad_payload", e.Code)
+	}
+
+	malformed, _ := protocol.NewEnvelope(protocol.TypeSessionShell, "sh-malformed",
+		map[string]any{"session_id": 42, "command": "ls"})
+	if e := errorFor(t, ws, malformed); e.Code != "bad_payload" {
+		t.Fatalf("code = %q, want bad_payload", e.Code)
+	}
+}
+
+// TestWSShellRejectsUnownedSession proves ownership is enforced before
+// anything runs.
+func TestWSShellRejectsUnownedSession(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionShell, "sh-unowned",
+		protocol.SessionShellPayload{SessionID: "not-mine", Command: "ls"})
+	if e := errorFor(t, ws, env); e.Code == "" {
+		t.Fatal("an unowned session was accepted")
+	}
+}
+
+// TestShellErrorCodesAreRegistered proves the codes a client branches on exist.
+func TestShellErrorCodesAreRegistered(t *testing.T) {
+	registered := map[string]bool{}
+	for _, c := range protocol.ErrorCodes() {
+		registered[c] = true
+	}
+	for _, c := range []string{
+		protocol.ErrShellDisabled,
+		protocol.ErrInvalidCommand,
+		protocol.ErrSessionShellFailed,
+	} {
+		if !registered[c] {
+			t.Errorf("shell code %q is not registered", c)
+		}
+	}
+}
+
+// TestWSShellMapsEveryRefusalToItsOwnCode proves a client can tell a disabled
+// host from a busy session from a rejected command.
+func TestWSShellMapsEveryRefusalToItsOwnCode(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	for _, c := range []struct{ name, command, wantCode string }{
+		{"disabled", "fixture-disabled", protocol.ErrShellDisabled},
+		{"busy", "fixture-busy", protocol.ErrTurnBusy},
+		{"invalid", "fixture-invalid", protocol.ErrInvalidCommand},
+		{"upstream failure", "fixture-fails", protocol.ErrSessionShellFailed},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, _ := protocol.NewEnvelope(protocol.TypeSessionShell, "sh-code-"+c.name,
+				protocol.SessionShellPayload{SessionID: ws.meta.ID, Command: c.command})
+			e := errorFor(t, ws, env)
+			if e.Code != c.wantCode {
+				t.Fatalf("code = %q, want %q", e.Code, c.wantCode)
+			}
+			// The refusal never echoes the command back.
+			if strings.Contains(e.Message, c.command) {
+				t.Fatalf("the refusal echoed the command: %q", e.Message)
+			}
+		})
+	}
+}

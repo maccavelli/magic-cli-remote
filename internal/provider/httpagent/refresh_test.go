@@ -339,7 +339,7 @@ func (d *shareDialect) Unshare(context.Context) error {
 	d.calls = append(d.calls, "unshare")
 	return d.err
 }
-func (d *shareDialect) shareMutationAllowed() bool { return d.allow }
+func (d *shareDialect) ShareMutationAllowed() bool { return d.allow }
 
 // TestShareCapabilitiesSeparateReadFromMutate is the A8 rule: an existing
 // public link stays visible even where mutation is forbidden, so the two
@@ -426,4 +426,220 @@ func TestShareWithoutDialectSupport(t *testing.T) {
 // TestShareSessionInterfaceIsSatisfied is the contract the manager asserts.
 func TestShareSessionInterfaceIsSatisfied(t *testing.T) {
 	var _ provider.ShareSession = newHookSession(t, nil)
+}
+
+// shellDialect implements the optional shell hooks.
+type shellDialect struct {
+	fakeDialectSession
+	mu      sync.Mutex
+	allow   bool
+	err     error
+	calls   int
+	release chan struct{}
+}
+
+func (d *shellDialect) Shell(ctx context.Context, _ string) error {
+	d.mu.Lock()
+	d.calls++
+	rel := d.release
+	err := d.err
+	d.mu.Unlock()
+	if rel != nil {
+		select {
+		case <-rel:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return err
+}
+func (d *shellDialect) ShellAllowed() bool { return d.allow }
+func (d *shellDialect) count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.calls
+}
+
+// TestShellCapabilityRequiresBothInterfaceAndPolicy proves there is no
+// read-only half: a command either may be run or may not.
+func TestShellCapabilityRequiresBothInterfaceAndPolicy(t *testing.T) {
+	if newHookSession(t, &shellDialect{allow: false}).supportsShell() {
+		t.Fatal("shell advertised while policy is off")
+	}
+	if !newHookSession(t, &shellDialect{allow: true}).supportsShell() {
+		t.Fatal("shell not advertised while enabled")
+	}
+	if newHookSession(t, nil).supportsShell() {
+		t.Fatal("shell advertised without the interface")
+	}
+}
+
+// TestShellClaimsTheTurnSlot proves a shell command and a prompt cannot
+// overlap: two agents' output interleaved in one transcript is unreadable.
+func TestShellClaimsTheTurnSlot(t *testing.T) {
+	ds := &shellDialect{allow: true, release: make(chan struct{})}
+	s := newHookSession(t, ds)
+
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		_ = s.Shell(context.Background(), "sleep 1")
+	}()
+	<-started
+	// Wait for the claim to land.
+	for i := 0; i < 200; i++ {
+		s.mu.Lock()
+		claimed := s.turnActive
+		s.mu.Unlock()
+		if claimed {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// A prompt now queues rather than running concurrently.
+	if err := s.Prompt(context.Background(), text("hi")); err != nil {
+		t.Fatalf("prompt during a shell command: %v", err)
+	}
+	s.mu.Lock()
+	queued := len(s.promptQueue)
+	s.mu.Unlock()
+	if queued != 1 {
+		t.Fatalf("prompt queue = %d, want the prompt to queue behind the command", queued)
+	}
+	close(ds.release)
+}
+
+// TestShellRejectsEveryBusyState proves a command cannot start on top of work
+// already in flight.
+func TestShellRejectsEveryBusyState(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*session)
+	}{
+		{"turn active", func(s *session) { s.turnActive = true }},
+		{"prompt in flight", func(s *session) { s.promptInFlight = true }},
+		{"prompt queued", func(s *session) {
+			s.promptQueue = []queuedPrompt{{parts: []provider.Content{{Text: "x"}}}}
+		}},
+		{"permission pending", func(s *session) { s.pending = map[string]struct{}{"p": {}} }},
+		{"question pending", func(s *session) { s.questionPending = map[string]struct{}{"q": {}} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ds := &shellDialect{allow: true}
+			s := newHookSession(t, ds)
+			s.mu.Lock()
+			tc.set(s)
+			s.mu.Unlock()
+
+			if err := s.Shell(context.Background(), "ls"); !errors.Is(err, provider.ErrTurnBusy) {
+				t.Fatalf("err = %v, want ErrTurnBusy", err)
+			}
+			if ds.count() != 0 {
+				t.Fatalf("a command was submitted on a busy session (%d)", ds.count())
+			}
+		})
+	}
+}
+
+// TestConcurrentShellRequestsRunOne proves only one command can claim the slot.
+func TestConcurrentShellRequestsRunOne(t *testing.T) {
+	ds := &shellDialect{allow: true, release: make(chan struct{})}
+	s := newHookSession(t, ds)
+
+	var wg sync.WaitGroup
+	busy := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			busy <- s.Shell(context.Background(), "ls")
+		}()
+	}
+	time.Sleep(20 * time.Millisecond)
+	close(ds.release)
+	wg.Wait()
+	close(busy)
+
+	var ok, rejected int
+	for err := range busy {
+		if err == nil {
+			ok++
+		} else if errors.Is(err, provider.ErrTurnBusy) {
+			rejected++
+		}
+	}
+	if ok == 0 {
+		t.Fatal("no command ran at all")
+	}
+	if ok+rejected != 8 {
+		t.Fatalf("ok=%d rejected=%d, want 8 accounted for", ok, rejected)
+	}
+	// Whatever ran, the dialect saw exactly as many submissions as succeeded.
+	if ds.count() != ok {
+		t.Fatalf("dialect saw %d submissions for %d successes", ds.count(), ok)
+	}
+}
+
+// TestShellEndsTheTurnExactlyOnce proves an upstream idle that already ended
+// the turn does not produce a second idle the client renders as a spurious
+// turn boundary.
+func TestShellEndsTheTurnExactlyOnce(t *testing.T) {
+	ds := &shellDialect{allow: true}
+	s := newHookSession(t, ds)
+	if err := s.Shell(context.Background(), "ls"); err != nil {
+		t.Fatal(err)
+	}
+	var idles int
+	for _, ev := range drainEvents(s) {
+		if ev.Type == event.TypeSessionStatus && ev.Status == "idle" {
+			idles++
+		}
+	}
+	if idles != 1 {
+		t.Fatalf("emitted %d idle events, want exactly 1", idles)
+	}
+}
+
+// TestShellFailureReturnsToIdleWithoutRetry proves a failed submission leaves
+// the session usable and does not resubmit.
+func TestShellFailureReturnsToIdleWithoutRetry(t *testing.T) {
+	want := errors.New("upstream refused")
+	ds := &shellDialect{allow: true, err: want}
+	s := newHookSession(t, ds)
+
+	if err := s.Shell(context.Background(), "ls"); !errors.Is(err, want) {
+		t.Fatalf("err = %v, want %v", err, want)
+	}
+	if ds.count() != 1 {
+		t.Fatalf("submitted %d times; a failure must not retry", ds.count())
+	}
+	s.mu.Lock()
+	active := s.turnActive
+	s.mu.Unlock()
+	if active {
+		t.Fatal("a failed command left the session stuck busy")
+	}
+	var idles int
+	for _, ev := range drainEvents(s) {
+		if ev.Type == event.TypeSessionStatus && ev.Status == "idle" {
+			idles++
+		}
+	}
+	if idles != 1 {
+		t.Fatalf("failure emitted %d idle events, want 1", idles)
+	}
+}
+
+// TestShellWithoutDialectSupport proves other providers refuse cleanly.
+func TestShellWithoutDialectSupport(t *testing.T) {
+	s := newHookSession(t, nil)
+	if err := s.Shell(context.Background(), "ls"); err == nil {
+		t.Fatal("shell was allowed without dialect support")
+	}
+}
+
+// TestShellSessionInterfaceIsSatisfied is the contract the manager asserts.
+func TestShellSessionInterfaceIsSatisfied(t *testing.T) {
+	var _ provider.ShellSession = newHookSession(t, nil)
 }

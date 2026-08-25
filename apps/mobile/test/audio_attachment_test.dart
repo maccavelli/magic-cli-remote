@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
 import 'package:magic_cli_remote/features/chat/diagnostics_sheet.dart';
 import 'package:magic_cli_remote/features/chat/session_share_sheet.dart';
+import 'package:magic_cli_remote/features/chat/shell_command_sheet.dart';
 import 'package:magic_cli_remote/features/chat/workspace_sheet.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
@@ -177,6 +178,51 @@ Future<void> pumpChatWithShare(
       audio: false,
       shareState: true,
       share: false,
+      loadSession: false,
+      embeddedContext: false,
+      listSessions: false,
+      closeSession: false,
+      mcpHttp: false,
+      mcpSse: false,
+      mcpAcp: false,
+    ),
+  );
+  final container = ProviderContainer(
+    overrides: [
+      mcremoteClientProvider.overrideWithValue(client),
+      connectionStateProvider.overrideWith(
+        (ref) => Stream.value(McConnectionState.connected),
+      ),
+      sessionTranscriptProvider('s1').overrideWithValue(transcript),
+    ],
+  );
+  addTearDown(container.dispose);
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: ChatScreen(sessionId: 's1')),
+    ),
+  );
+  await tester.pump();
+}
+
+/// Pumps the chat screen with a session whose operator permits direct shell.
+Future<void> pumpChatWithShell(
+  WidgetTester tester,
+  McremoteClient client,
+) async {
+  tester.view.physicalSize = const Size(600, 1400);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+  const transcript = SessionTranscript(
+    sessionId: 's1',
+    status: 'idle',
+    items: [],
+    nextSeq: 0,
+    capabilities: SessionCapabilities(
+      image: false,
+      audio: false,
+      shell: true,
       loadSession: false,
       embeddedContext: false,
       listSessions: false,
@@ -511,6 +557,21 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('open-share')));
       await tester.pumpAndSettle();
       expect(find.byType(SessionShareSheet), findsOneWidget);
+    });
+
+    testWidgets('the shell button follows the operator policy', (tester) async {
+      await pumpChat(tester, _RecordingClient(), image: false, audio: false);
+      expect(
+        find.byKey(const ValueKey('open-shell')),
+        findsNothing,
+        reason: 'remote execution is off unless an operator enabled it',
+      );
+
+      await pumpChatWithShell(tester, _RecordingClient());
+      expect(find.byKey(const ValueKey('open-shell')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('open-shell')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ShellCommandSheet), findsOneWidget);
     });
   });
 }

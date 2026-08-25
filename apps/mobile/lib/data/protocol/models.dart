@@ -2122,6 +2122,7 @@ class SessionCapabilities {
     this.skillRefresh = false,
     this.shareState = false,
     this.share = false,
+    this.shell = false,
     required this.loadSession,
     required this.embeddedContext,
     required this.listSessions,
@@ -2148,6 +2149,11 @@ class SessionCapabilities {
   /// link stays visible even where mutation is forbidden (MADR 0112 A8).
   final bool shareState;
   final bool share;
+
+  /// Whether the operator permits running a command directly in the session's
+  /// working directory. No read-only half: a command either may be run or may
+  /// not (MADR 0112 A9).
+  final bool shell;
   final bool loadSession;
   final bool embeddedContext;
   final bool listSessions;
@@ -2164,6 +2170,7 @@ class SessionCapabilities {
       skillRefresh: json['skill_refresh'] == true,
       shareState: json['share_state'] == true,
       share: json['share'] == true,
+      shell: json['shell'] == true,
       loadSession: json['load_session'] == true,
       embeddedContext: json['embedded_context'] == true,
       listSessions: json['list_sessions'] == true,
@@ -2183,6 +2190,7 @@ class SessionCapabilities {
       other.skillRefresh == skillRefresh &&
       other.shareState == shareState &&
       other.share == share &&
+      other.shell == shell &&
       other.loadSession == loadSession &&
       other.embeddedContext == embeddedContext &&
       other.listSessions == listSessions &&
@@ -2199,6 +2207,7 @@ class SessionCapabilities {
     skillRefresh,
     shareState,
     share,
+    shell,
     loadSession,
     embeddedContext,
     listSessions,
