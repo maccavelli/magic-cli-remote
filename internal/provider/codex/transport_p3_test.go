@@ -152,11 +152,7 @@ func websocketTransportFixture(t *testing.T, network string) transportFixture {
 		}
 		return transportFixture{client: tr, stop: server.Close}
 	}
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	socket := filepath.Join(dir, "codex.sock")
+	socket := shortUnixSocketPath(t, "codex.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -171,6 +167,38 @@ func websocketTransportFixture(t *testing.T, network string) transportFixture {
 		_ = server.Close()
 		_ = listener.Close()
 	}}
+}
+
+// maxUnixSocketPathLen is the usable sockaddr_un.sun_path budget. Darwin and
+// the BSDs allow 104 bytes including the NUL terminator; Linux allows 108. The
+// smaller figure is used so the helper behaves the same on every platform.
+const maxUnixSocketPathLen = 103
+
+// shortUnixSocketPath returns a private directory plus socket name whose full
+// path fits sun_path. t.TempDir() is unusable here because it embeds the
+// subtest name: on macOS TMPDIR is already ~49 bytes, so the "unix_ws" subtest
+// produced a 104-byte path and bind(2) rejected it with EINVAL. Trying /tmp
+// second keeps the test working on hosts with an unusually long TMPDIR.
+func shortUnixSocketPath(t *testing.T, name string) string {
+	t.Helper()
+	for _, base := range []string{"", "/tmp"} {
+		dir, err := os.MkdirTemp(base, "cdx")
+		if err != nil {
+			continue
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			_ = os.RemoveAll(dir)
+			t.Fatalf("chmod socket dir: %v", err)
+		}
+		socket := filepath.Join(dir, name)
+		if len(socket) <= maxUnixSocketPathLen {
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+			return socket
+		}
+		_ = os.RemoveAll(dir)
+	}
+	t.Fatalf("no temp dir yields a socket path within %d bytes", maxUnixSocketPathLen)
+	return ""
 }
 
 func TestTransportFrameBoundsAndEOF(t *testing.T) {
