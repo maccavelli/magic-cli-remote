@@ -62,7 +62,9 @@ var commandTable = command.Table{
 	// newSessionId; Manager.Fork then session/load on a new process
 	// (MADR 0092 P1.1). available() is false if the live session is not
 	// a ForkSession (should not happen on acpagent).
-	"fork": {Kind: command.KindOp, Op: command.OpFork},
+	"fork":    {Kind: command.KindOp, Op: command.OpFork},
+	"archive": {Kind: command.KindNone, Note: "grok exposes no native archive operation over ACP"},
+	"delete":  {Kind: command.KindNone, Note: "grok exposes no native permanent-delete operation over ACP"},
 }
 
 // commandCaveat covers the rest of grok's advertised catalog: commands beyond

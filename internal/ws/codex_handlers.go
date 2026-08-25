@@ -59,6 +59,20 @@ var codexPhoneOperations = map[string]codexPhoneOperation{
 			return s.dispatchAsync(ctx, c, env, s.handleCodexPermissionsWrite)
 		},
 	},
+	protocol.TypeCodexThreadsRead: {
+		capability: codex.CapabilityThreadList, timeoutKey: protocol.TypeCodexThreadsRead,
+		requiresSurface: true, authorize: authorizeCodexGlobal, decode: decodeCodexThreadsRead,
+		handle: func(s *Server, ctx context.Context, c *client, env protocol.Envelope) error {
+			return s.dispatchAsync(ctx, c, env, s.handleCodexThreadsRead)
+		},
+	},
+	protocol.TypeCodexThreadsWrite: {
+		capability: codex.CapabilityThreadMetadata, timeoutKey: protocol.TypeCodexThreadsWrite,
+		mutable: true, requiresSurface: true, authorize: authorizeCodexGlobal, decode: decodeCodexThreadsWrite,
+		handle: func(s *Server, ctx context.Context, c *client, env protocol.Envelope) error {
+			return s.dispatchAsync(ctx, c, env, s.handleCodexThreadsWrite)
+		},
+	},
 }
 
 type codexPhoneOperationInfo struct {
@@ -179,6 +193,208 @@ func (s *Server) handleCodexPermissionsWrite(ctx context.Context, c *client, env
 		return s.writeError(ctx, c, env.ID, protocol.ErrConfigWriteFailed, "Codex permission defaults were not changed")
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeCodexPermissionsResult, env.ID, p.RuntimeSnapshot())
+	return s.writeJSON(ctx, c, out)
+}
+
+func decodeCodexThreadsRead(env protocol.Envelope) (string, error) {
+	var payload protocol.CodexThreadsReadPayload
+	if err := protocol.DecodePayload(env, &payload); err != nil {
+		return "", err
+	}
+	switch payload.Action {
+	case "list", "search", "sections", "projects":
+	case "delete_preview":
+		if payload.ThreadID == "" || len(payload.ThreadID) > 256 {
+			return "", fmt.Errorf("bounded thread_id required")
+		}
+	default:
+		return "", fmt.Errorf("unknown Codex thread read action")
+	}
+	if payload.Limit < 0 || payload.Limit > 100 || len(payload.Cursor) > 1024 || len(payload.Term) > 512 {
+		return "", fmt.Errorf("invalid Codex thread read bounds")
+	}
+	return "", nil
+}
+
+func decodeCodexThreadsWrite(env protocol.Envelope) (string, error) {
+	var payload protocol.CodexThreadsWritePayload
+	if err := protocol.DecodePayload(env, &payload); err != nil {
+		return "", err
+	}
+	switch payload.Action {
+	case "rename", "fork", "archive", "unarchive", "delete", "move_section", "assign_project":
+		if payload.ThreadID == "" || len(payload.ThreadID) > 256 {
+			return "", fmt.Errorf("bounded thread_id required")
+		}
+	case "create_section":
+	case "update_section", "delete_section":
+		if payload.SectionID == "" || len(payload.SectionID) > 256 {
+			return "", fmt.Errorf("bounded section_id required")
+		}
+	case "create_project", "import_project":
+	case "update_project", "move_project", "delete_project":
+		if payload.ProjectID == "" || len(payload.ProjectID) > 256 {
+			return "", fmt.Errorf("bounded project_id required")
+		}
+	default:
+		return "", fmt.Errorf("unknown Codex thread write action")
+	}
+	if len(payload.Name) > 256 || len(payload.Icon) > 64 || len(payload.Color) > 64 || len(payload.BeforeID) > 256 || len(payload.Confirm) > 64 || len(payload.Roots) > 100 || len(payload.ThreadIDs) > 1000 || len(payload.Metadata) > 100 {
+		return "", fmt.Errorf("invalid Codex thread write bounds")
+	}
+	return "", nil
+}
+
+func requireCodexCapability(p *codex.Provider, id codex.CapabilityID) error {
+	if !p.SupportsCapability(id) {
+		return fmt.Errorf("required Codex capability is unavailable")
+	}
+	return nil
+}
+
+func (s *Server) handleCodexThreadsRead(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	var payload protocol.CodexThreadsReadPayload
+	if err := protocol.DecodePayload(env, &payload); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	p, err := s.codexProvider()
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unavailable", err.Error())
+	}
+	result := protocol.CodexThreadsReadResultPayload{}
+	switch payload.Action {
+	case "list":
+		if err := requireCodexCapability(p, codex.CapabilityThreadList); err != nil {
+			return s.writeError(ctx, c, env.ID, "unsupported", err.Error())
+		}
+		page, err := p.ListNativeThreads(ctx, provider.ThreadListOptions{Cursor: payload.Cursor, Limit: payload.Limit, Archived: payload.Archived})
+		if err != nil {
+			return s.writeError(ctx, c, env.ID, protocol.ErrCodexThreadsReadFailed, "Codex threads could not be listed")
+		}
+		result.Threads = &page
+	case "search":
+		if !p.SupportsCapability(codex.CapabilityThreadSearch) && !p.SupportsCapability(codex.CapabilityThreadList) {
+			return s.writeError(ctx, c, env.ID, "unsupported", "Codex thread search is unavailable")
+		}
+		page, err := p.SearchNativeThreads(ctx, provider.ThreadSearchOptions{Term: payload.Term, Cursor: payload.Cursor, Limit: payload.Limit, Archived: payload.Archived})
+		if err != nil {
+			return s.writeError(ctx, c, env.ID, protocol.ErrCodexThreadsReadFailed, "Codex threads could not be searched")
+		}
+		result.Threads = &page
+	case "sections":
+		if err := requireCodexCapability(p, codex.CapabilityThreadSectionList); err != nil {
+			return s.writeError(ctx, c, env.ID, "unsupported", err.Error())
+		}
+		page, err := p.ListThreadSections(ctx, payload.Cursor, payload.Limit)
+		if err != nil {
+			return s.writeError(ctx, c, env.ID, protocol.ErrCodexThreadsReadFailed, "Codex thread sections could not be listed")
+		}
+		result.Sections = &page
+	case "projects":
+		if err := requireCodexCapability(p, codex.CapabilityProjectList); err != nil {
+			return s.writeError(ctx, c, env.ID, "unsupported", err.Error())
+		}
+		page, err := p.ListProjects(ctx)
+		if err != nil {
+			return s.writeError(ctx, c, env.ID, protocol.ErrCodexThreadsReadFailed, "Codex projects could not be listed")
+		}
+		result.Projects = &page
+	case "delete_preview":
+		if err := requireCodexCapability(p, codex.CapabilityThreadList); err != nil {
+			return s.writeError(ctx, c, env.ID, "unsupported", err.Error())
+		}
+		preview, err := p.PreviewDeleteNativeThread(ctx, payload.ThreadID)
+		if err != nil {
+			return s.writeError(ctx, c, env.ID, protocol.ErrCodexThreadsReadFailed, "Codex delete impact could not be read")
+		}
+		result.DeletePreview = &preview
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeCodexThreadsReadResult, env.ID, result)
+	return s.writeJSON(ctx, c, out)
+}
+
+func projectMutationFromPhone(payload protocol.CodexThreadsWritePayload, envelopeID string) provider.ProjectMutation {
+	return provider.ProjectMutation{
+		Name: payload.Name, Roots: append([]string(nil), payload.Roots...), Metadata: payload.Metadata,
+		ThreadIDs: append([]string(nil), payload.ThreadIDs...), IdempotencyKey: "mcremote:" + envelopeID,
+	}
+}
+
+func (s *Server) handleCodexThreadsWrite(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+	var payload protocol.CodexThreadsWritePayload
+	if err := protocol.DecodePayload(env, &payload); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	p, err := s.codexProvider()
+	if err != nil {
+		return s.writeError(ctx, c, env.ID, "unavailable", err.Error())
+	}
+	result := protocol.CodexThreadsWriteResultPayload{OK: true}
+	fail := func(err error) error {
+		if err == nil {
+			return nil
+		}
+		return s.writeError(ctx, c, env.ID, protocol.ErrCodexThreadsWriteFailed, "Codex thread change was not applied")
+	}
+	switch payload.Action {
+	case "rename":
+		err = p.RenameNativeThread(ctx, payload.ThreadID, payload.Name)
+	case "fork":
+		var thread provider.AgentSessionMeta
+		thread, err = p.ForkNativeThread(ctx, payload.ThreadID)
+		result.Thread = &thread
+	case "archive":
+		err = p.ArchiveNativeThread(ctx, payload.ThreadID, true)
+	case "unarchive":
+		err = p.ArchiveNativeThread(ctx, payload.ThreadID, false)
+	case "delete":
+		if payload.Confirm != "delete permanently" {
+			return s.writeError(ctx, c, env.ID, protocol.ErrConfirmRequired, "Permanent deletion requires explicit confirmation")
+		}
+		var deleted provider.ThreadDeleteResult
+		deleted, err = p.DeleteNativeThread(ctx, payload.ThreadID)
+		result.Delete = &deleted
+	case "move_section":
+		err = p.MoveNativeThread(ctx, payload.ThreadID, payload.SectionID, payload.BeforeID)
+	case "assign_project":
+		err = p.AssignNativeThreadProject(ctx, payload.ThreadID, provider.ProjectAssignment{ProjectID: payload.ProjectID, Set: payload.ProjectSet})
+	case "create_section":
+		var section provider.ThreadSection
+		section, err = p.CreateThreadSection(ctx, provider.ThreadSectionMutation{Name: payload.Name, Icon: payload.Icon, Color: payload.Color, AppearanceSet: payload.AppearanceSet})
+		result.Section = &section
+	case "update_section":
+		var section provider.ThreadSection
+		section, err = p.UpdateThreadSection(ctx, payload.SectionID, provider.ThreadSectionMutation{Name: payload.Name, Icon: payload.Icon, Color: payload.Color, AppearanceSet: payload.AppearanceSet})
+		result.Section = &section
+	case "delete_section":
+		if payload.Confirm != "delete section" {
+			return s.writeError(ctx, c, env.ID, protocol.ErrConfirmRequired, "Section deletion requires explicit confirmation")
+		}
+		err = p.DeleteThreadSection(ctx, payload.SectionID)
+	case "create_project":
+		var project provider.Project
+		project, err = p.CreateProject(ctx, projectMutationFromPhone(payload, env.ID))
+		result.Project = &project
+	case "import_project":
+		var project provider.Project
+		project, err = p.ImportProject(ctx, projectMutationFromPhone(payload, env.ID))
+		result.Project = &project
+	case "update_project":
+		var project provider.Project
+		project, err = p.UpdateProject(ctx, payload.ProjectID, projectMutationFromPhone(payload, env.ID))
+		result.Project = &project
+	case "move_project":
+		err = p.MoveProject(ctx, payload.ProjectID, payload.BeforeID)
+	case "delete_project":
+		if payload.Confirm != "delete project" {
+			return s.writeError(ctx, c, env.ID, protocol.ErrConfirmRequired, "Project deletion requires explicit confirmation")
+		}
+		err = p.DeleteProject(ctx, payload.ProjectID)
+	}
+	if err != nil {
+		return fail(err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeCodexThreadsWriteResult, env.ID, result)
 	return s.writeJSON(ctx, c, out)
 }
 

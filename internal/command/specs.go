@@ -144,6 +144,18 @@ var Specs = []Spec{
 		Default:     Mapping{Kind: KindNone, Note: ReasonNoFork},
 	},
 	{
+		Name:        "archive",
+		Args:        "archive|unarchive",
+		Description: "Archive or restore this native conversation",
+		Default:     Mapping{Kind: KindNone, Note: "this agent has no native archive operation"},
+	},
+	{
+		Name:        "delete",
+		Args:        "delete permanently",
+		Description: "Permanently delete this native conversation after impact preview",
+		Default:     Mapping{Kind: KindNone, Note: "this agent has no native permanent-delete operation"},
+	},
+	{
 		Name:        "diff",
 		Description: "Show the file changes made in this session",
 		Default:     Mapping{Kind: KindOp, Op: OpDiff},

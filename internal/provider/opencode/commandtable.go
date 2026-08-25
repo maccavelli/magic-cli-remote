@@ -57,5 +57,7 @@ func (d *httpDialect) CommandTable() command.Table {
 		"personality": {Kind: command.KindNone, Note: command.ReasonNoPersonality},
 		"review":      {Kind: command.KindNone, Note: command.ReasonNoReview},
 		"fork":        {Kind: command.KindOp, Op: command.OpFork},
+		"archive":     {Kind: command.KindNone, Note: "opencode exposes no native archive operation"},
+		"delete":      {Kind: command.KindNone, Note: "opencode exposes no native permanent-delete operation"},
 	}
 }

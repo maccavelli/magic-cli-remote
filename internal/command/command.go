@@ -89,6 +89,11 @@ const (
 	OpReview Op = "review"
 	// OpFork forks the provider-native conversation.
 	OpFork Op = "fork"
+	// OpArchive archives or unarchives the provider-native conversation.
+	OpArchive Op = "archive"
+	// OpDelete permanently deletes the provider-native conversation after an
+	// exact descendant-aware confirmation.
+	OpDelete Op = "delete"
 )
 
 // Frozen unavailable reasons (MADR 0080 stable-reason table).

@@ -159,6 +159,8 @@ func (p *Provider) CommandTable() command.Table {
 		"personality":   {Kind: command.KindNone, Note: command.ReasonNoPersonality},
 		"review":        {Kind: command.KindNone, Note: command.ReasonNoReview},
 		"fork":          {Kind: command.KindNone, Note: command.ReasonNoFork},
+		"archive":       {Kind: command.KindNone, Note: "fake sessions have no native archive"},
+		"delete":        {Kind: command.KindNone, Note: "fake sessions have no native permanent delete"},
 	}
 }
 

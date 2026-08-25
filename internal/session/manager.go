@@ -85,15 +85,16 @@ type Meta struct {
 	Model string `json:"model,omitempty"`
 	// ThinkingLevel is the session's reasoning/thinking effort override.
 	// Empty means the provider default. Set at create and by /thinking.
-	ThinkingLevel       string `json:"thinking_level,omitempty"`
-	ModeID              string `json:"mode_id,omitempty"`
-	CollaborationModeID string `json:"collaboration_mode_id,omitempty"`
-	PermissionProfileID string `json:"permission_profile_id,omitempty"`
-	ApprovalsReviewer   string `json:"approvals_reviewer,omitempty"`
-	ServiceTier         string `json:"service_tier,omitempty"`
-	Personality         string `json:"personality,omitempty"`
-	CWD                 string `json:"cwd,omitempty"`
-	AgentSessionID      string `json:"agent_session_id,omitempty"`
+	ThinkingLevel       string   `json:"thinking_level,omitempty"`
+	ModeID              string   `json:"mode_id,omitempty"`
+	CollaborationModeID string   `json:"collaboration_mode_id,omitempty"`
+	PermissionProfileID string   `json:"permission_profile_id,omitempty"`
+	ApprovalsReviewer   string   `json:"approvals_reviewer,omitempty"`
+	ServiceTier         string   `json:"service_tier,omitempty"`
+	Personality         string   `json:"personality,omitempty"`
+	CWD                 string   `json:"cwd,omitempty"`
+	AgentSessionID      string   `json:"agent_session_id,omitempty"`
+	AgentSessionAliases []string `json:"agent_session_aliases,omitempty"`
 	// OwnerDeviceID is the paired device that created (or claimed) the session.
 	// Empty means legacy/unowned — visible to all devices until claimed (R4=B).
 	OwnerDeviceID string `json:"owner_device_id,omitempty"`
@@ -162,6 +163,13 @@ const historyTrimTo = historyBufferCap - historyBufferCap/4
 // appendHistoryLocked stamps ev with the next sequence number and records it.
 // Caller holds m.mu; the stamp is visible to the caller's broadcast copy.
 func (e *entry) appendHistoryLocked(ev *event.Event) {
+	if ev.Replay {
+		for _, existing := range e.history {
+			if existing.Type == ev.Type && existing.Text == ev.Text && existing.ToolID == ev.ToolID && existing.AgentSessionID == ev.AgentSessionID {
+				return
+			}
+		}
+	}
 	e.seq++
 	ev.Seq = e.seq
 	e.history = append(e.history, *ev)
@@ -499,6 +507,23 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	if err != nil {
 		return Meta{}, err
 	}
+	if opts.LocalSessionID == "" && opts.AgentSessionID != "" {
+		// Loaded-thread adoption: prefer an exact live provider id, then the
+		// durable exact/alias index. Ownership is still enforced below.
+		m.mu.RLock()
+		for id, candidate := range m.sessions {
+			if candidate.meta.Provider == providerID && candidate.meta.AgentSessionID == opts.AgentSessionID {
+				opts.LocalSessionID = id
+				break
+			}
+		}
+		m.mu.RUnlock()
+		if opts.LocalSessionID == "" && m.store != nil {
+			if rec, ok := m.store.ResolveAgentSession(providerID, opts.AgentSessionID); ok {
+				opts.LocalSessionID = rec.ID
+			}
+		}
+	}
 	if opts.LocalSessionID == "" {
 		opts.LocalSessionID = uuid.NewString()
 	} else if !validSessionID.MatchString(opts.LocalSessionID) {
@@ -619,12 +644,23 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		Status:              "idle",
 		Live:                true,
 	}
+	if opts.AgentSessionID != "" && opts.AgentSessionID != meta.AgentSessionID {
+		meta.AgentSessionAliases = []string{opts.AgentSessionID}
+	}
 	// Prefer created_at from a prior disk record so resume does not look new.
 	if m.store != nil {
 		if rec, err := m.store.Get(sess.ID()); err == nil && !rec.CreatedAt.IsZero() {
 			meta.CreatedAt = rec.CreatedAt
 			if meta.OwnerDeviceID == "" && rec.OwnerDeviceID != "" {
 				meta.OwnerDeviceID = rec.OwnerDeviceID
+			}
+			for _, alias := range rec.AgentSessionAliases {
+				if alias != "" && alias != meta.AgentSessionID && !slices.Contains(meta.AgentSessionAliases, alias) {
+					meta.AgentSessionAliases = append(meta.AgentSessionAliases, alias)
+				}
+			}
+			if rec.AgentSessionID != "" && rec.AgentSessionID != meta.AgentSessionID && !slices.Contains(meta.AgentSessionAliases, rec.AgentSessionID) {
+				meta.AgentSessionAliases = append(meta.AgentSessionAliases, rec.AgentSessionID)
 			}
 		}
 	}
@@ -747,6 +783,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				if ev.Type == event.TypeSessionStatus && ev.Status != "" {
 					e.meta.Status = ev.Status
 					if ev.AgentSessionID != "" {
+						if e.meta.AgentSessionID != "" && e.meta.AgentSessionID != ev.AgentSessionID && !slices.Contains(e.meta.AgentSessionAliases, e.meta.AgentSessionID) {
+							e.meta.AgentSessionAliases = append(e.meta.AgentSessionAliases, e.meta.AgentSessionID)
+						}
 						e.meta.AgentSessionID = ev.AgentSessionID
 					}
 					if ev.Status == StatusDisconnected {
@@ -1402,6 +1441,7 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			Personality:         rec.Personality,
 			CWD:                 rec.CWD,
 			AgentSessionID:      rec.AgentSessionID,
+			AgentSessionAliases: append([]string(nil), rec.AgentSessionAliases...),
 			OwnerDeviceID:       rec.OwnerDeviceID,
 			PendingHandoffTo:    rec.PendingHandoffTo,
 			HandoffNonce:        rec.HandoffNonce,
@@ -2330,6 +2370,7 @@ func (m *Manager) writePersist(meta Meta) error {
 		Personality:         meta.Personality,
 		CWD:                 meta.CWD,
 		AgentSessionID:      meta.AgentSessionID,
+		AgentSessionAliases: append([]string(nil), meta.AgentSessionAliases...),
 		OwnerDeviceID:       meta.OwnerDeviceID,
 		PendingHandoffTo:    meta.PendingHandoffTo,
 		HandoffNonce:        meta.HandoffNonce,

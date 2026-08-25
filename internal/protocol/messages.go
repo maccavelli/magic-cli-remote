@@ -148,6 +148,10 @@ const (
 	TypeCodexDoctorResult        = "codex.doctor.result"
 	TypeCodexPermissionsWrite    = "codex.permissions.write"
 	TypeCodexPermissionsResult   = "codex.permissions.result"
+	TypeCodexThreadsRead         = "codex.threads.read"
+	TypeCodexThreadsReadResult   = "codex.threads.read_result"
+	TypeCodexThreadsWrite        = "codex.threads.write"
+	TypeCodexThreadsWriteResult  = "codex.threads.write_result"
 )
 
 // Envelope is the common WS message wrapper.
@@ -412,6 +416,56 @@ type SessionSetConfigPayload struct {
 type CodexPermissionsWritePayload struct {
 	ProfileID string `json:"profile_id"`
 	Reviewer  string `json:"reviewer"`
+}
+
+// CodexThreadsReadPayload selects one bounded read-only native browser action.
+// Action is list|search|sections|projects|delete_preview. Each action is
+// independently capability-gated by the daemon.
+type CodexThreadsReadPayload struct {
+	Action   string `json:"action"`
+	Cursor   string `json:"cursor,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+	Archived bool   `json:"archived,omitempty"`
+	Term     string `json:"term,omitempty"`
+	ThreadID string `json:"thread_id,omitempty"`
+}
+
+// CodexThreadsReadResultPayload carries exactly one populated result arm.
+type CodexThreadsReadResultPayload struct {
+	Threads       *provider.NativeThreadPage    `json:"threads,omitempty"`
+	Sections      *provider.ThreadSectionPage   `json:"sections,omitempty"`
+	Projects      *provider.ProjectPage         `json:"projects,omitempty"`
+	DeletePreview *provider.ThreadDeletePreview `json:"delete_preview,omitempty"`
+}
+
+// CodexThreadsWritePayload selects a typed native lifecycle, organization, or
+// project mutation. Confirm is required only for destructive actions and is
+// compared to the fixed daemon phrase; IdempotencyKey is never accepted from
+// the phone because create/import derive it from the envelope id.
+type CodexThreadsWritePayload struct {
+	Action        string            `json:"action"`
+	ThreadID      string            `json:"thread_id,omitempty"`
+	Name          string            `json:"name,omitempty"`
+	SectionID     string            `json:"section_id,omitempty"`
+	BeforeID      string            `json:"before_id,omitempty"`
+	ProjectID     string            `json:"project_id,omitempty"`
+	ProjectSet    bool              `json:"project_set,omitempty"`
+	Icon          string            `json:"icon,omitempty"`
+	Color         string            `json:"color,omitempty"`
+	AppearanceSet bool              `json:"appearance_set,omitempty"`
+	Roots         []string          `json:"roots,omitempty"`
+	ThreadIDs     []string          `json:"thread_ids,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
+	Confirm       string            `json:"confirm,omitempty"`
+}
+
+// CodexThreadsWriteResultPayload carries the authoritative mutation result.
+type CodexThreadsWriteResultPayload struct {
+	OK      bool                         `json:"ok"`
+	Thread  *provider.AgentSessionMeta   `json:"thread,omitempty"`
+	Section *provider.ThreadSection      `json:"section,omitempty"`
+	Project *provider.Project            `json:"project,omitempty"`
+	Delete  *provider.ThreadDeleteResult `json:"delete,omitempty"`
 }
 
 // SeqBoundsPayload is the retained-seq window for one session

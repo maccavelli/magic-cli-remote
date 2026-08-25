@@ -306,6 +306,29 @@ func (s *session) AgentSessionID() string {
 	return s.agentID
 }
 
+func (s *session) ArchiveNativeThread(ctx context.Context, archived bool) error {
+	if s.p == nil {
+		return errors.New("Codex provider unavailable")
+	}
+	return s.p.ArchiveNativeThread(ctx, s.AgentSessionID(), archived)
+}
+
+func (s *session) PreviewNativeDelete(ctx context.Context) (provider.ThreadDeletePreview, error) {
+	if s.p == nil {
+		return provider.ThreadDeletePreview{}, errors.New("Codex provider unavailable")
+	}
+	return s.p.PreviewDeleteNativeThread(ctx, s.AgentSessionID())
+}
+
+func (s *session) DeleteNativeThread(ctx context.Context) (provider.ThreadDeleteResult, error) {
+	if s.p == nil {
+		return provider.ThreadDeleteResult{}, errors.New("Codex provider unavailable")
+	}
+	return s.p.DeleteNativeThread(ctx, s.AgentSessionID())
+}
+
+var _ provider.NativeThreadLifecycleSession = (*session)(nil)
+
 func (s *session) create(ctx context.Context, fr *conn) error {
 	if s.opts.AgentSessionID != "" {
 		return s.resume(ctx, fr)
@@ -444,6 +467,14 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	}
 	if json.Unmarshal(raw, &response) == nil && response.ApprovalsReviewer != "" {
 		_ = s.applyReviewerState(response.ApprovalsReviewer)
+	}
+	// Rebuild cold transcript history through the ordinary manager pump. Every
+	// replay event is marked, so it is persisted for cold clients but never
+	// broadcast into an already hydrated phone transcript.
+	if s.p != nil && s.p.supportsCapability(CapabilityThreadRead) {
+		if err := s.replayThreadHistory(ctx, fr); err != nil {
+			s.log.Warn("codex thread replay unavailable", slog.String("err", err.Error()))
+		}
 	}
 
 	// A resumed session needs its mode chip too, and the policy it reports is
@@ -1306,6 +1337,21 @@ func (s *session) cancelPendingQuestions(reason string) {
 
 func (s *session) handleDecodedNotification(method string, params json.RawMessage, now time.Time) {
 	switch method {
+	case "thread/name/updated":
+		var p struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(params, &p) == nil && strings.TrimSpace(p.Name) != "" {
+			s.emit(event.Event{Type: event.TypeSessionTitle, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Title: boundedPermissionText(p.Name, 256)})
+		}
+	case "thread/archived":
+		s.emit(event.Event{Type: event.TypeNotice, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: "Native thread archived"})
+	case "thread/unarchived":
+		s.emit(event.Event{Type: event.TypeNotice, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: "Native thread restored from archive"})
+	case "thread/project/updated":
+		s.emit(event.Event{Type: event.TypeNotice, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: "Native project assignment updated"})
+	case "thread/deleted", "thread/closed":
+		s.emit(event.Event{Type: event.TypeSessionStatus, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Status: "disconnected"})
 	case "thread/settings/updated":
 		s.applySettingsUpdated(params)
 	case "thread/goal/updated", "thread/goal/cleared":
@@ -2460,17 +2506,18 @@ func clip(s string, max int) string {
 //     (MADR 0028 §16.3).
 //   - LoadSession: thread/resume verified OK (MADR 0028 §16.3).
 //
-// The ACP-specific fields (EmbeddedContext, MCPHTTP, MCPSSE, MCPACP,
-// ListSessions, CloseSession) are left false: codex has no equivalent
-// negotiation and claiming them would be a guess.
+// The ACP-specific transport fields remain false. ListSessions is true now
+// that P6 implements stable native thread/list; CloseSession remains false
+// because unsubscribe and permanent delete are explicit, distinct actions.
 func (s *session) emitCapabilities() {
 	s.emit(event.Event{
 		Type:      event.TypeSessionCapabilities,
 		SessionID: s.localID,
 		Timestamp: time.Now().UTC(),
 		Capabilities: &event.Capabilities{
-			Image:       true,
-			LoadSession: true,
+			Image:        true,
+			LoadSession:  true,
+			ListSessions: true,
 		},
 		AgentSessionID: s.agentID,
 	})

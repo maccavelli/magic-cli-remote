@@ -16,6 +16,7 @@ import '../../theme/top_notification.dart';
 import '../../theme/widgets.dart';
 import '../widgets/model_picker_sheet.dart';
 import '../widgets/option_picker_sheet.dart';
+import 'codex_threads_screen.dart';
 
 /// Vertical gap between every field in the new-session dialog. One constant so
 /// the spacing is identical by construction rather than by three matching
@@ -545,6 +546,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen>
             Future<void> pickNativeSession() async {
               final p = provider;
               if (p == null || p.isEmpty) return;
+              if (p == 'codex') {
+                final selectedId = await Navigator.of(ctx).push<String>(
+                  MaterialPageRoute(
+                    builder: (browserContext) => CodexThreadsScreen(
+                      client: client,
+                      onResume: (id) async {
+                        Navigator.of(browserContext).pop(id);
+                      },
+                    ),
+                  ),
+                );
+                if (selectedId == null || !ctx.mounted) return;
+                setModal(() {
+                  nativeSession = AgentSessionMeta(id: selectedId);
+                });
+                return;
+              }
               List<AgentSessionMeta> sessions;
               try {
                 sessions = await client.listAgentSessions(p);

@@ -317,6 +317,8 @@ denies transport access rather than merely a bearer secret.
 | `models.list` | `{ "provider", "scope?", "model_provider?", "session_id?" }` | `models.list_result` |
 | `agents.list` | `{ "provider" }` | `agents.list_result` |
 | `agent_sessions.list` | `{ "provider" }` | `agent_sessions.list_result` |
+| `codex.threads.read` | `{ "action": "list"|"search"|"sections"|"projects"|"delete_preview", ...bounded filters }` | `codex.threads.read_result` |
+| `codex.threads.write` | `{ "action": "rename"|"fork"|"archive"|"unarchive"|"delete"|"move_section"|"assign_project"|section/project action, ...typed fields }` | `codex.threads.write_result` |
 | `commands.list` | `{ "provider" }` | `commands.list_result` |
 | `session.fork` | `{ "session_id", "message_id?" }` | `session.created` |
 | `session.revert` | `{ "session_id", "message_id", "part_id?" }` | `ok` |
@@ -497,6 +499,26 @@ metadata and clients must not treat their presence as a successful load.
 
 Error codes: `bad_payload`, `unknown_provider`, `provider_unavailable`,
 `unsupported`, `agent_sessions_list_failed`.
+
+### Codex unified thread browser
+
+Protocol-v2 clients that negotiated Codex surface version 1 may use
+`codex.threads.read` and `codex.threads.write`. Each action is checked against
+its exact app-server capability; project absence leaves the ordinary ungrouped
+thread browser usable, and missing experimental search falls back to a bounded
+stable `thread/list` scan labelled `stable_fallback`.
+
+Read results populate exactly one of `threads`, `sections`, `projects`, or
+`delete_preview`. Thread pages carry `source`, `limit`, cursors, and `truncated`;
+thread rows add native status, archive/pin/section, parent/fork, source, loaded,
+and project fields without changing `agent_sessions.list` for other providers.
+
+Permanent thread deletion requires `confirm:"delete permanently"` after an
+explicit descendant preview. Section deletion requires `confirm:"delete
+section"` and preserves/unsections members. Project deletion requires
+`confirm:"delete project"`; it unassigns members and never deletes threads,
+roots, or filesystem contents. Project create/import derive native idempotency
+from the request envelope id; the phone cannot choose a second key.
 
 ### `agents.list` (OpenCode agent picker catalog)
 
@@ -847,6 +869,8 @@ timed out, exceeded its bound, or returned no valid schema-v1 report.
 | code | When |
 |---|---|
 | `config_write_failed` | A requested host config mutation did not land (including provider prewarm and Codex permission defaults). Nothing was applied; retain the requested/effective state from the next authoritative read. |
+| `codex_threads_read_failed` | A bounded native thread, section, project, or delete-impact read failed. Retain the current browser snapshot and retry explicitly. |
+| `codex_threads_write_failed` | A native thread, section, or project mutation failed or could not be reconciled. Refresh the authoritative browser before retrying. |
 | `provider_not_ready` | The flag was persisted but no engine could be started: the agent is not enabled on this daemon. Unlike `provider_unavailable` (a registered engine that failed to boot), there is no engine to pre-warm at all. |
 
 ### Remote provider auth (MADR 0074)
@@ -958,6 +982,8 @@ Domain events (inside live `event` push / history):
 | `providers.prewarm` | `{ "provider_id", "prewarm", "engine" }` — broadcast to every authenticated client after `providers.set_prewarm` lands, so a second phone's switch tracks the change (MADR 0089 D7). `engine` is `running`, `stopped`, or `stopping_when_idle` |
 | `models.list_result` | picker catalog for one provider (see below) |
 | `agent_sessions.list_result` | `{ "provider", "sessions": [ { "id", "cwd?", "title?", "updated_at?" }, … ] }` |
+| `codex.threads.read_result` | exactly one bounded `threads`, `sections`, `projects`, or `delete_preview` arm |
+| `codex.threads.write_result` | `{ "ok": true, "thread?", "section?", "project?", "delete?" }` authoritative mutation result |
 | `session.rename_result` | `{ "session": Meta }` |
 | `session.diagnostics_result` | `{ "session_id", "diagnostics": { "branch?", "default_branch?", "vcs?", "mcp?" } }` |
 

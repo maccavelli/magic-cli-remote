@@ -24,6 +24,8 @@ var knownOps = map[command.Op]bool{
 	command.OpCompact:           true,
 	command.OpContext:           true,
 	command.OpStatus:            true,
+	command.OpArchive:           true,
+	command.OpDelete:            true,
 	command.OpUsage:             true,
 	command.OpApprovalsReviewer: true,
 	command.OpGuardianApprove:   true,

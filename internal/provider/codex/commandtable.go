@@ -40,6 +40,8 @@ var commandTable = command.Table{
 	"personality": {Kind: command.KindOp, Op: command.OpPersonality},
 	"review":      {Kind: command.KindOp, Op: command.OpReview},
 	"fork":        {Kind: command.KindOp, Op: command.OpFork},
+	"archive":     {Kind: command.KindOp, Op: command.OpArchive},
+	"delete":      {Kind: command.KindOp, Op: command.OpDelete},
 	"undo": {Kind: command.KindNone,
 		Note: "codex can't undo a turn remotely — ask the agent to revert its changes"},
 	"redo": {Kind: command.KindNone,

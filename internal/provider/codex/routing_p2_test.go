@@ -69,6 +69,7 @@ func TestRoutingDestinations(t *testing.T) {
 		"account/rateLimits/updated":              notificationRouteProvider,
 		"warning":                                 notificationRouteProvider,
 		"project/changed":                         notificationRouteProvider,
+		"thread/project/updated":                  notificationRouteSession,
 		"serverRequest/resolved":                  notificationRouteSession,
 		"autoApprovalReview/strictReviewRequired": notificationRouteSession,
 		"item/agentMessage/delta":                 notificationRouteSession,

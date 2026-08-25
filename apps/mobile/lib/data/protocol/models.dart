@@ -597,6 +597,190 @@ class AgentSessionMeta {
   }
 }
 
+class CodexThreadMeta {
+  CodexThreadMeta({
+    required this.id,
+    this.cwd = '',
+    this.title = '',
+    this.preview = '',
+    this.nativeStatus = '',
+    this.archived = false,
+    this.pinned = false,
+    this.sectionId = '',
+    this.sectionName = '',
+    this.sectionIcon = '',
+    this.sectionColor = '',
+    this.parentThreadId = '',
+    this.forkedFromId = '',
+    this.source = '',
+    this.loaded = false,
+    this.projectId = '',
+    this.updatedAt,
+  });
+
+  final String id;
+  final String cwd;
+  final String title;
+  final String preview;
+  final String nativeStatus;
+  final bool archived;
+  final bool pinned;
+  final String sectionId;
+  final String sectionName;
+  final String sectionIcon;
+  final String sectionColor;
+  final String parentThreadId;
+  final String forkedFromId;
+  final String source;
+  final bool loaded;
+  final String projectId;
+  final DateTime? updatedAt;
+
+  String get displayName =>
+      title.isNotEmpty ? title : (preview.isNotEmpty ? preview : id);
+
+  factory CodexThreadMeta.fromJson(Map<String, dynamic> json) =>
+      CodexThreadMeta(
+        id: json['id'] as String? ?? '',
+        cwd: json['cwd'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        preview: json['preview'] as String? ?? '',
+        nativeStatus: json['native_status'] as String? ?? '',
+        archived: json['archived'] == true,
+        pinned: json['pinned'] == true,
+        sectionId: json['section_id'] as String? ?? '',
+        sectionName: json['section_name'] as String? ?? '',
+        sectionIcon: json['section_icon'] as String? ?? '',
+        sectionColor: json['section_color'] as String? ?? '',
+        parentThreadId: json['parent_thread_id'] as String? ?? '',
+        forkedFromId: json['forked_from_id'] as String? ?? '',
+        source: json['source'] as String? ?? '',
+        loaded: json['loaded'] == true,
+        projectId: json['project_id'] as String? ?? '',
+        updatedAt: json['updated_at'] is String
+            ? DateTime.tryParse(json['updated_at'] as String)
+            : null,
+      );
+}
+
+class CodexThreadsPage {
+  CodexThreadsPage({
+    this.threads = const [],
+    this.nextCursor = '',
+    this.backwardsCursor = '',
+    this.source = '',
+    this.limit = 0,
+    this.truncated = false,
+  });
+
+  final List<CodexThreadMeta> threads;
+  final String nextCursor;
+  final String backwardsCursor;
+  final String source;
+  final int limit;
+  final bool truncated;
+
+  factory CodexThreadsPage.fromJson(Map<String, dynamic> json) {
+    final raw = json['threads'];
+    return CodexThreadsPage(
+      threads: raw is List
+          ? raw
+                .whereType<Map<dynamic, dynamic>>()
+                .map(
+                  (e) => CodexThreadMeta.fromJson(Map<String, dynamic>.from(e)),
+                )
+                .where((e) => e.id.isNotEmpty)
+                .toList(growable: false)
+          : const [],
+      nextCursor: json['next_cursor'] as String? ?? '',
+      backwardsCursor: json['backwards_cursor'] as String? ?? '',
+      source: json['source'] as String? ?? '',
+      limit: (json['limit'] as num?)?.toInt() ?? 0,
+      truncated: json['truncated'] == true,
+    );
+  }
+}
+
+class CodexThreadSection {
+  const CodexThreadSection({
+    required this.id,
+    required this.name,
+    this.icon = '',
+    this.color = '',
+  });
+
+  final String id;
+  final String name;
+  final String icon;
+  final String color;
+
+  factory CodexThreadSection.fromJson(Map<String, dynamic> json) =>
+      CodexThreadSection(
+        id: json['id'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        icon: json['icon'] as String? ?? '',
+        color: json['color'] as String? ?? '',
+      );
+}
+
+class CodexProject {
+  const CodexProject({
+    required this.id,
+    required this.name,
+    this.roots = const [],
+  });
+
+  final String id;
+  final String name;
+  final List<String> roots;
+
+  factory CodexProject.fromJson(Map<String, dynamic> json) => CodexProject(
+    id: json['id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    roots:
+        (json['roots'] as List?)?.whereType<String>().toList(growable: false) ??
+        const [],
+  );
+}
+
+class CodexDeletePreview {
+  const CodexDeletePreview({
+    this.descendantIds = const [],
+    this.hasLoadedDescendants = false,
+  });
+
+  final List<String> descendantIds;
+  final bool hasLoadedDescendants;
+
+  factory CodexDeletePreview.fromJson(Map<String, dynamic> json) =>
+      CodexDeletePreview(
+        descendantIds:
+            (json['descendant_ids'] as List?)?.whereType<String>().toList(
+              growable: false,
+            ) ??
+            const [],
+        hasLoadedDescendants: json['has_loaded_descendants'] == true,
+      );
+}
+
+class CodexThreadsSnapshot {
+  const CodexThreadsSnapshot({
+    this.threads = const [],
+    this.sections = const [],
+    this.projects = const [],
+    this.source = '',
+    this.hasMore = false,
+    this.nextCursor = '',
+  });
+
+  final List<CodexThreadMeta> threads;
+  final List<CodexThreadSection> sections;
+  final List<CodexProject> projects;
+  final String source;
+  final bool hasMore;
+  final String nextCursor;
+}
+
 /// Bounded, read-only project metadata returned by `session.diagnostics`.
 /// It deliberately has no repository paths, patches, URLs, or credential data.
 class SessionDiagnostics {

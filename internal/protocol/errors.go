@@ -116,6 +116,8 @@ const (
 	ErrReceiptsListFailed           = "receipts_list_failed"
 	ErrDevicesListFailed            = "devices_list_failed"
 	ErrDiagnosticFailed             = "diagnostic_failed"
+	ErrCodexThreadsReadFailed       = "codex_threads_read_failed"
+	ErrCodexThreadsWriteFailed      = "codex_threads_write_failed"
 
 	// --- remote provider auth (MADR 0074) ---
 
@@ -246,6 +248,8 @@ func ErrorCodes() []string {
 		ErrReceiptsListFailed,
 		ErrDevicesListFailed,
 		ErrDiagnosticFailed,
+		ErrCodexThreadsReadFailed,
+		ErrCodexThreadsWriteFailed,
 
 		ErrProviderBusy,
 		ErrConfirmRequired,

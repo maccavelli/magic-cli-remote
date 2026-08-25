@@ -15,6 +15,7 @@ import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../chat/chat_models.dart' show kHistoryFetchLimit;
+import '../codex_threads_client.dart';
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
 import '../protocol/frame_budget.dart';
@@ -421,7 +422,7 @@ Duration opTimeoutFor(String type) {
   }
 }
 
-class McremoteClient {
+class McremoteClient with CodexThreadsClient {
   McremoteClient({
     SettingsStore? settings,
     @visibleForTesting this.afterSocketOpen,
@@ -3852,6 +3853,268 @@ class McremoteClient {
       throw McremoteClient.opException(res, 'Codex permissions update failed');
     }
     return CodexRuntimeSnapshot.fromJson(res.payload ?? const {});
+  }
+
+  Future<Map<String, dynamic>> _readCodexThreads(
+    String action, {
+    Map<String, dynamic> extra = const {},
+  }) async {
+    final res = await request(
+      'codex.threads.read',
+      payload: {'action': action, ...extra},
+      expectedType: 'codex.threads.read_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'Codex threads read failed');
+    }
+    return Map<String, dynamic>.from(res.payload ?? const {});
+  }
+
+  Future<Map<String, dynamic>> _writeCodexThreads(
+    String action, {
+    Map<String, dynamic> extra = const {},
+  }) async {
+    final res = await request(
+      'codex.threads.write',
+      payload: {'action': action, ...extra},
+      expectedType: 'codex.threads.write_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'Codex thread change failed');
+    }
+    return Map<String, dynamic>.from(res.payload ?? const {});
+  }
+
+  @override
+  Future<CodexThreadsSnapshot> load({bool archived = false}) async {
+    final pages = await Future.wait([
+      _readCodexThreads('list', extra: {'archived': archived, 'limit': 50}),
+      _readCodexThreads(
+        'sections',
+        extra: {'limit': 50},
+      ).catchError((_) => <String, dynamic>{}),
+      _readCodexThreads('projects').catchError((_) => <String, dynamic>{}),
+    ]);
+    final threadRaw = pages[0]['threads'];
+    final sectionRaw = pages[1]['sections'];
+    final projectRaw = pages[2]['projects'];
+    final threadPage = threadRaw is Map
+        ? CodexThreadsPage.fromJson(Map<String, dynamic>.from(threadRaw))
+        : CodexThreadsPage();
+    final sections = sectionRaw is Map && sectionRaw['sections'] is List
+        ? (sectionRaw['sections'] as List)
+              .whereType<Map<dynamic, dynamic>>()
+              .map(
+                (e) =>
+                    CodexThreadSection.fromJson(Map<String, dynamic>.from(e)),
+              )
+              .where((e) => e.id.isNotEmpty)
+              .toList(growable: false)
+        : const <CodexThreadSection>[];
+    final projects = projectRaw is Map && projectRaw['projects'] is List
+        ? (projectRaw['projects'] as List)
+              .whereType<Map<dynamic, dynamic>>()
+              .map((e) => CodexProject.fromJson(Map<String, dynamic>.from(e)))
+              .where((e) => e.id.isNotEmpty)
+              .toList(growable: false)
+        : const <CodexProject>[];
+    return CodexThreadsSnapshot(
+      threads: threadPage.threads,
+      sections: sections,
+      projects: projects,
+      source: threadPage.source,
+      hasMore: threadPage.nextCursor.isNotEmpty,
+      nextCursor: threadPage.nextCursor,
+    );
+  }
+
+  @override
+  Future<CodexThreadsPage> loadMore(
+    String cursor, {
+    bool archived = false,
+  }) async {
+    final raw = await _readCodexThreads(
+      'list',
+      extra: {'archived': archived, 'limit': 50, 'cursor': cursor},
+    );
+    final page = raw['threads'];
+    return page is Map
+        ? CodexThreadsPage.fromJson(Map<String, dynamic>.from(page))
+        : CodexThreadsPage();
+  }
+
+  @override
+  Future<CodexThreadsPage> search(String term) async {
+    final raw = await _readCodexThreads(
+      'search',
+      extra: {'term': term, 'limit': 50},
+    );
+    final page = raw['threads'];
+    return page is Map
+        ? CodexThreadsPage.fromJson(Map<String, dynamic>.from(page))
+        : CodexThreadsPage();
+  }
+
+  @override
+  Future<void> archive(String threadId, bool archived) async {
+    await _writeCodexThreads(
+      archived ? 'archive' : 'unarchive',
+      extra: {'thread_id': threadId},
+    );
+  }
+
+  @override
+  Future<void> rename(String threadId, String name) async {
+    await _writeCodexThreads(
+      'rename',
+      extra: {'thread_id': threadId, 'name': name},
+    );
+  }
+
+  @override
+  Future<void> fork(String threadId) async {
+    await _writeCodexThreads('fork', extra: {'thread_id': threadId});
+  }
+
+  @override
+  Future<CodexDeletePreview> previewDelete(String threadId) async {
+    final raw = await _readCodexThreads(
+      'delete_preview',
+      extra: {'thread_id': threadId},
+    );
+    final preview = raw['delete_preview'];
+    return preview is Map
+        ? CodexDeletePreview.fromJson(Map<String, dynamic>.from(preview))
+        : const CodexDeletePreview();
+  }
+
+  @override
+  Future<void> delete(String threadId) async {
+    await _writeCodexThreads(
+      'delete',
+      extra: {'thread_id': threadId, 'confirm': 'delete permanently'},
+    );
+  }
+
+  @override
+  Future<void> moveThread(
+    String threadId,
+    String? sectionId, {
+    String? beforeThreadId,
+  }) async {
+    await _writeCodexThreads(
+      'move_section',
+      extra: {
+        'thread_id': threadId,
+        'section_id': sectionId ?? '',
+        if (beforeThreadId != null && beforeThreadId.isNotEmpty)
+          'before_id': beforeThreadId,
+      },
+    );
+  }
+
+  @override
+  Future<void> deleteSection(String sectionId) async {
+    await _writeCodexThreads(
+      'delete_section',
+      extra: {'section_id': sectionId, 'confirm': 'delete section'},
+    );
+  }
+
+  @override
+  Future<void> createSection(
+    String name, {
+    String icon = '',
+    String color = '',
+  }) async {
+    await _writeCodexThreads(
+      'create_section',
+      extra: {
+        'name': name,
+        'appearance_set': true,
+        'icon': icon,
+        'color': color,
+      },
+    );
+  }
+
+  @override
+  Future<void> updateSection(
+    String sectionId,
+    String name, {
+    String icon = '',
+    String color = '',
+  }) async {
+    await _writeCodexThreads(
+      'update_section',
+      extra: {
+        'section_id': sectionId,
+        'name': name,
+        'appearance_set': true,
+        'icon': icon,
+        'color': color,
+      },
+    );
+  }
+
+  @override
+  Future<void> createProject(String name, List<String> roots) async {
+    await _writeCodexThreads(
+      'create_project',
+      extra: {'name': name, 'roots': roots},
+    );
+  }
+
+  @override
+  Future<void> importProject(
+    String name,
+    List<String> roots,
+    List<String> threadIds,
+  ) async {
+    await _writeCodexThreads(
+      'import_project',
+      extra: {'name': name, 'roots': roots, 'thread_ids': threadIds},
+    );
+  }
+
+  @override
+  Future<void> updateProject(
+    String projectId,
+    String name,
+    List<String> roots,
+  ) async {
+    await _writeCodexThreads(
+      'update_project',
+      extra: {'project_id': projectId, 'name': name, 'roots': roots},
+    );
+  }
+
+  @override
+  Future<void> moveProject(String projectId, String? beforeProjectId) async {
+    await _writeCodexThreads(
+      'move_project',
+      extra: {'project_id': projectId, 'before_id': beforeProjectId ?? ''},
+    );
+  }
+
+  @override
+  Future<void> deleteProject(String projectId) async {
+    await _writeCodexThreads(
+      'delete_project',
+      extra: {'project_id': projectId, 'confirm': 'delete project'},
+    );
+  }
+
+  @override
+  Future<void> assignProject(String threadId, String? projectId) async {
+    await _writeCodexThreads(
+      'assign_project',
+      extra: {
+        'thread_id': threadId,
+        'project_set': true,
+        'project_id': projectId ?? '',
+      },
+    );
   }
 
   Future<void> dispose() async {

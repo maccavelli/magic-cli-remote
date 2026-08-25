@@ -3,6 +3,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"sort"
@@ -597,14 +598,193 @@ type AgentCatalog interface {
 // session. It intentionally excludes transcript and tool content: discovery
 // lets a device choose a session to load, but does not import or replay it.
 type AgentSessionMeta struct {
-	ID    string `json:"id"`
-	CWD   string `json:"cwd,omitempty"`
-	Title string `json:"title,omitempty"`
+	ID      string `json:"id"`
+	CWD     string `json:"cwd,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Preview string `json:"preview,omitempty"`
 	// omitzero, not omitempty: omitempty never applies to a struct, so an
 	// unknown timestamp went on the wire as "0001-01-01T00:00:00Z" and the
 	// session picker rendered it as an age of about two thousand years
 	// (MADR 0046 L-13).
 	UpdatedAt time.Time `json:"updated_at,omitzero"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
+
+	// Native lifecycle and organization fields are additive. Providers with
+	// only metadata discovery leave them empty; the Codex thread browser uses
+	// them to reconcile loaded and persisted conversations without importing
+	// transcript data into the generic list path.
+	NativeStatus   string `json:"native_status,omitempty"`
+	Archived       bool   `json:"archived,omitempty"`
+	Pinned         bool   `json:"pinned,omitempty"`
+	SectionID      string `json:"section_id,omitempty"`
+	SectionName    string `json:"section_name,omitempty"`
+	SectionIcon    string `json:"section_icon,omitempty"`
+	SectionColor   string `json:"section_color,omitempty"`
+	ParentThreadID string `json:"parent_thread_id,omitempty"`
+	ForkedFromID   string `json:"forked_from_id,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Loaded         bool   `json:"loaded,omitempty"`
+	ProjectID      string `json:"project_id,omitempty"`
+}
+
+const (
+	// ThreadSourceNative is a direct native thread/list result.
+	ThreadSourceNative = "native"
+	// ThreadSourceNativeSearch is an independently negotiated native search.
+	ThreadSourceNativeSearch = "native_search"
+	// ThreadSourceNativeTurns is independently negotiated turn pagination.
+	ThreadSourceNativeTurns = "native_turns"
+	// ThreadSourceNativeItems is independently negotiated item pagination.
+	ThreadSourceNativeItems = "native_items"
+	// ThreadSourceStableFallback labels bounded local filtering over stable
+	// thread/list when the experimental search method is unavailable.
+	ThreadSourceStableFallback = "stable_fallback"
+)
+
+// ThreadListOptions filters one bounded page of provider-native threads.
+type ThreadListOptions struct {
+	Cursor           string `json:"cursor,omitempty"`
+	Limit            int    `json:"limit,omitempty"`
+	Archived         bool   `json:"archived,omitempty"`
+	ParentThreadID   string `json:"parent_thread_id,omitempty"`
+	AncestorThreadID string `json:"ancestor_thread_id,omitempty"`
+	SectionID        string `json:"section_id,omitempty"`
+	ProjectID        string `json:"project_id,omitempty"`
+	SearchTerm       string `json:"search_term,omitempty"`
+}
+
+// ThreadSearchOptions requests one search page.
+type ThreadSearchOptions struct {
+	Term     string `json:"term"`
+	Cursor   string `json:"cursor,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+	Archived bool   `json:"archived,omitempty"`
+}
+
+// NativeThreadPage is a bounded, source-labelled page.
+type NativeThreadPage struct {
+	Threads         []AgentSessionMeta `json:"threads"`
+	NextCursor      string             `json:"next_cursor,omitempty"`
+	BackwardsCursor string             `json:"backwards_cursor,omitempty"`
+	Source          string             `json:"source"`
+	Limit           int                `json:"limit"`
+	Truncated       bool               `json:"truncated,omitempty"`
+}
+
+// NativeThreadHistoryOptions requests one bounded native turn or item page.
+// TurnID is used only for item pagination; ItemsView is used only for turns.
+type NativeThreadHistoryOptions struct {
+	ThreadID      string `json:"thread_id"`
+	TurnID        string `json:"turn_id,omitempty"`
+	Cursor        string `json:"cursor,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+	SortDirection string `json:"sort_direction,omitempty"`
+	ItemsView     string `json:"items_view,omitempty"`
+}
+
+// NativeThreadHistoryPage retains typed pagination metadata while keeping the
+// experimental native entries opaque to provider-neutral callers.
+type NativeThreadHistoryPage struct {
+	Data            []json.RawMessage `json:"data"`
+	NextCursor      string            `json:"next_cursor,omitempty"`
+	BackwardsCursor string            `json:"backwards_cursor,omitempty"`
+	Source          string            `json:"source"`
+	Limit           int               `json:"limit"`
+}
+
+// ThreadSection is a provider-native user organization bucket.
+type ThreadSection struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Icon  string `json:"icon,omitempty"`
+	Color string `json:"color,omitempty"`
+}
+
+// ThreadSectionPage is a bounded page of sections.
+type ThreadSectionPage struct {
+	Sections   []ThreadSection `json:"sections"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+// ThreadSectionMutation creates or replaces a section's visible fields.
+type ThreadSectionMutation struct {
+	Name          string `json:"name"`
+	Icon          string `json:"icon,omitempty"`
+	Color         string `json:"color,omitempty"`
+	AppearanceSet bool   `json:"appearance_set,omitempty"`
+}
+
+// ThreadDeletePreview reports descendant impact before permanent deletion.
+type ThreadDeletePreview struct {
+	DescendantIDs        []string `json:"descendant_ids"`
+	HasLoadedDescendants bool     `json:"has_loaded_descendants"`
+}
+
+// ThreadDeleteResult distinguishes a direct acknowledgement from a read-back
+// after an unknown write outcome.
+type ThreadDeleteResult struct {
+	Deleted             bool     `json:"deleted"`
+	Reconciled          bool     `json:"reconciled,omitempty"`
+	DescendantIDs       []string `json:"descendant_ids,omitempty"`
+	FailedDescendantIDs []string `json:"failed_descendant_ids,omitempty"`
+	Partial             bool     `json:"partial,omitempty"`
+}
+
+// Project is the bounded native project projection. Roots remain host paths
+// and are returned only inside the explicitly opened authenticated browser.
+type Project struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Roots     []string          `json:"roots"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	Position  int64             `json:"position"`
+	CreatedAt time.Time         `json:"created_at,omitzero"`
+	UpdatedAt time.Time         `json:"updated_at,omitzero"`
+}
+
+// ProjectPage is one bounded native project page.
+type ProjectPage struct {
+	Projects   []Project `json:"projects"`
+	NextCursor string    `json:"next_cursor,omitempty"`
+	Limit      int       `json:"limit"`
+	Truncated  bool      `json:"truncated,omitempty"`
+}
+
+// ProjectMutation is shared by create/import/update. IdempotencyKey is
+// required for create/import and is derived from the phone envelope by the
+// daemon rather than supplied as a second authority-bearing phone field.
+type ProjectMutation struct {
+	Name           string            `json:"name"`
+	Roots          []string          `json:"roots"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	ThreadIDs      []string          `json:"thread_ids,omitempty"`
+	IdempotencyKey string            `json:"-"`
+}
+
+// ProjectAssignment preserves the three upstream states: Set=false omits the
+// field, Set=true with empty ID clears, and Set=true with an ID assigns.
+type ProjectAssignment struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Set       bool   `json:"set"`
+}
+
+// NativeThreadBrowser is the richer optional provider path. The generic
+// AgentSessionLister remains unchanged for providers without this surface.
+type NativeThreadBrowser interface {
+	ListNativeThreads(context.Context, ThreadListOptions) (NativeThreadPage, error)
+	SearchNativeThreads(context.Context, ThreadSearchOptions) (NativeThreadPage, error)
+	ReadNativeThread(context.Context, string) (AgentSessionMeta, error)
+	ListNativeThreadTurns(context.Context, NativeThreadHistoryOptions) (NativeThreadHistoryPage, error)
+	ListNativeThreadItems(context.Context, NativeThreadHistoryOptions) (NativeThreadHistoryPage, error)
+}
+
+// NativeThreadLifecycleSession exposes archive and permanent-delete actions
+// for the currently active provider-native thread.
+type NativeThreadLifecycleSession interface {
+	Session
+	ArchiveNativeThread(context.Context, bool) error
+	PreviewNativeDelete(context.Context) (ThreadDeletePreview, error)
+	DeleteNativeThread(context.Context) (ThreadDeleteResult, error)
 }
 
 // AgentSessionLister is optionally implemented by providers whose native

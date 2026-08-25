@@ -34,6 +34,9 @@ type Record struct {
 	ServiceTier         string `json:"service_tier,omitempty"`
 	Personality         string `json:"personality,omitempty"`
 	AgentSessionID      string `json:"agent_session_id,omitempty"`
+	// AgentSessionAliases retain prior provider ids that reconcile to this
+	// managed record. Old records omit the field and remain valid.
+	AgentSessionAliases []string `json:"agent_session_aliases,omitempty"`
 	// OwnerDeviceID is the paired device that owns this session (R4=B).
 	// Empty means legacy/unowned — visible until claimed.
 	OwnerDeviceID string `json:"owner_device_id,omitempty"`
@@ -121,6 +124,35 @@ func (s *Store) Get(id string) (Record, error) {
 		return Record{}, err
 	}
 	return rec, nil
+}
+
+// ResolveAgentSession finds the one managed record that already represents a
+// provider-native thread. Exact current ids win over historical aliases, so a
+// reconnect cannot create a second managed row for one loaded thread.
+func (s *Store) ResolveAgentSession(providerID provider.ID, agentSessionID string) (Record, bool) {
+	if agentSessionID == "" {
+		return Record{}, false
+	}
+	records, _, err := s.List()
+	if err != nil {
+		return Record{}, false
+	}
+	for _, rec := range records {
+		if rec.Provider == providerID && rec.AgentSessionID == agentSessionID {
+			return rec, true
+		}
+	}
+	for _, rec := range records {
+		if rec.Provider != providerID {
+			continue
+		}
+		for _, alias := range rec.AgentSessionAliases {
+			if alias == agentSessionID {
+				return rec, true
+			}
+		}
+	}
+	return Record{}, false
 }
 
 // List returns all readable records. skipped counts session dirs whose

@@ -49,8 +49,8 @@ func TestEmitCapabilities(t *testing.T) {
 			ev.Capabilities.MCPSSE || ev.Capabilities.MCPACP {
 			t.Error("ACP-specific capability fields must stay false for codex")
 		}
-		if ev.Capabilities.ListSessions || ev.Capabilities.CloseSession {
-			t.Error("ACP session-mgmt fields must stay false for codex")
+		if !ev.Capabilities.ListSessions || ev.Capabilities.CloseSession {
+			t.Error("Codex must advertise native listing but not conflate close with delete")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no event arrived")

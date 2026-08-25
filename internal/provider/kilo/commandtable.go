@@ -51,7 +51,9 @@ func (d *httpDialect) CommandTable() command.Table {
 		// Live GET /command on 7.4.22 lists review; POST /session/{id}/command
 		// runs it (MADR 0088 D4). KindNative so the table no longer masks the
 		// engine command as unavailable (MADR 0023: table beats advertise).
-		"review": {Kind: command.KindNative, Native: "review"},
-		"fork":   {Kind: command.KindOp, Op: command.OpFork},
+		"review":  {Kind: command.KindNative, Native: "review"},
+		"fork":    {Kind: command.KindOp, Op: command.OpFork},
+		"archive": {Kind: command.KindNone, Note: "kilo exposes no native archive operation"},
+		"delete":  {Kind: command.KindNone, Note: "kilo exposes no native permanent-delete operation"},
 	}
 }

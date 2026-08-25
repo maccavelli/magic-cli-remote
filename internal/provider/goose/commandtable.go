@@ -34,4 +34,6 @@ var commandTable = command.Table{
 	"personality":   {Kind: command.KindNone, Note: command.ReasonNoPersonality},
 	"review":        {Kind: command.KindNone, Note: command.ReasonNoReview},
 	"fork":          {Kind: command.KindNone, Note: command.ReasonNoFork},
+	"archive":       {Kind: command.KindNone, Note: "goose exposes no native archive operation over ACP"},
+	"delete":        {Kind: command.KindNone, Note: "goose exposes no native permanent-delete operation over ACP"},
 }

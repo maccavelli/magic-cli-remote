@@ -73,6 +73,8 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
 		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
 		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
+		_, state.Ops[command.OpArchive] = sess.(provider.NativeThreadLifecycleSession)
+		_, state.Ops[command.OpDelete] = sess.(provider.NativeThreadLifecycleSession)
 		_, state.Ops[command.OpGoal] = sess.(provider.GoalSession)
 		_, state.Ops[command.OpReview] = sess.(provider.ReviewSession)
 		if ts, ok := sess.(provider.ServiceTierSession); ok {
@@ -246,6 +248,10 @@ func (m *Manager) runCanonical(ctx context.Context, id, deviceID string,
 			return true, "", m.cmdDiff(ctx, id)
 		case command.OpFork:
 			return true, "", m.cmdFork(ctx, id, rest, deviceID)
+		case command.OpArchive:
+			return true, "", m.cmdNativeArchive(ctx, id, rest)
+		case command.OpDelete:
+			return true, "", m.cmdNativeDelete(ctx, id, rest)
 		case command.OpGoal:
 			return true, "", m.cmdGoal(ctx, id, rest)
 		case command.OpServiceTier:
@@ -1089,6 +1095,78 @@ func (m *Manager) cmdFork(ctx context.Context, id, arg, deviceID string) error {
 		return err
 	}
 	m.emitNotice(id, fmt.Sprintf("Forked to session %s (%s).", meta.ID, meta.Name))
+	return nil
+}
+
+func (m *Manager) cmdNativeArchive(ctx context.Context, id, arg string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	lifecycle, ok := sess.(provider.NativeThreadLifecycleSession)
+	if !ok {
+		m.emitNotice(id, "This agent has no native archive operation.")
+		return nil
+	}
+	switch strings.TrimSpace(arg) {
+	case "archive":
+		if err := lifecycle.ArchiveNativeThread(ctx, true); err != nil {
+			m.emitNotice(id, "Archive failed.")
+			return err
+		}
+		m.emitNotice(id, "Native thread archived. Use /archive unarchive to restore it.")
+	case "unarchive":
+		if err := lifecycle.ArchiveNativeThread(ctx, false); err != nil {
+			m.emitNotice(id, "Unarchive failed.")
+			return err
+		}
+		m.emitNotice(id, "Native thread restored from the archive.")
+	default:
+		m.emitNotice(id, "Confirmation required: /archive archive (or /archive unarchive).")
+	}
+	return nil
+}
+
+func (m *Manager) cmdNativeDelete(ctx context.Context, id, arg string) error {
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	lifecycle, ok := sess.(provider.NativeThreadLifecycleSession)
+	if !ok {
+		m.emitNotice(id, "This agent has no native permanent-delete operation.")
+		return nil
+	}
+	preview, err := lifecycle.PreviewNativeDelete(ctx)
+	if err != nil {
+		m.emitNotice(id, "Delete impact preview failed; nothing was deleted.")
+		return err
+	}
+	if strings.TrimSpace(arg) != "delete permanently" {
+		detail := fmt.Sprintf("%d descendant(s)", len(preview.DescendantIDs))
+		if preview.HasLoadedDescendants {
+			detail += ", including a loaded descendant"
+		}
+		m.emitNotice(id, "Permanent deletion affects "+detail+". Confirm exactly: /delete delete permanently")
+		return nil
+	}
+	result, err := lifecycle.DeleteNativeThread(ctx)
+	if err != nil {
+		m.emitNotice(id, "Permanent delete failed; the native thread was reconciled and remains present.")
+		return err
+	}
+	if !result.Deleted {
+		m.emitNotice(id, "Permanent delete outcome is unresolved; refresh the thread browser before retrying.")
+		return nil
+	}
+	detail := fmt.Sprintf("%d descendant(s) affected", len(result.DescendantIDs))
+	if len(result.FailedDescendantIDs) > 0 {
+		detail += fmt.Sprintf(", %d descendant(s) failed", len(result.FailedDescendantIDs))
+	}
+	if result.Partial {
+		detail += "; deletion was partial"
+	}
+	m.emitNotice(id, "Native thread permanently deleted; "+detail+".")
 	return nil
 }
 
