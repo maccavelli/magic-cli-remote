@@ -1875,8 +1875,20 @@ Run from `apps/mobile` unless noted:
   `RenderFlex overflowed` exception in the output.
 * From the repo root: `make pre-add-check` on the staged files before the
   commit, per the global pre-commit rule.
-* Manual check on a 360dp-wide device or simulator: the prompt hint text
+* Manual check on a device or simulator: the prompt hint text
   `Prompt or /command…` is fully legible with all five action icons present.
+  **Done 2026-08-25** on the iPhone 17e simulator (iOS 26.5, 390pt logical
+  width — no available iOS device is as narrow as 360pt; the defect bit there
+  too, since six icons plus the send button need ~344pt against a 366pt
+  content box). Driven by a temporary preview entrypoint that pumped
+  `ChatScreen` against stubbed providers, so no daemon pairing was involved;
+  the file was deleted afterwards and the tree verified clean. Confirmed by
+  screenshot: the field spans the row with its hint fully legible, the send
+  button sits beside it, exactly five action icons render on the row beneath,
+  and no diagnostics icon is present. A second capture with `DiagnosticsSheet`
+  open confirms the step-10 header fix on device — "Skills (1)" and "Refresh
+  skills" share the first line, "Create or update with agent" flows to a
+  second, and nothing clips.
 
 ### Coverage result (measured 2026-08-25, commit `d677d68`)
 
