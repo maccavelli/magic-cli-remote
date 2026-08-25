@@ -511,7 +511,7 @@ void main() {
       // outstanding: _endingSession guards only a second End tap.
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Session diagnostics'));
+      await tester.tap(find.text('Repository & MCP status'));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsOneWidget);
 

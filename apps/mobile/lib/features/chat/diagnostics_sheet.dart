@@ -220,13 +220,21 @@ class DiagnosticsSheetState extends ConsumerState<DiagnosticsSheet> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       const Divider(),
-      Row(
+      // Wrap, not Row: "Refresh skills" and "Create or update with agent"
+      // together are wider than the header, and a modal sheet caps at 640dp so
+      // no device is wide enough to hold them on one line beside the title.
+      // A Row overflowed for every session advertising skillRefresh; Wrap keeps
+      // the one-line look where it fits and flows to a second line where it
+      // does not. Button-less sections are unaffected.
+      Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
         children: [
-          Expanded(
-            child: Text(
-              '$title ($count)',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
+          Text(
+            '$title ($count)',
+            style: Theme.of(context).textTheme.titleSmall,
           ),
           ?extra,
           ?trailing,

@@ -963,3 +963,113 @@ and a gate invoked with no target at all is a usage error rather than a pass.
 * [0037-MADR-cli-capability-uptake.md](./0037-MADR-cli-capability-uptake.md)
 * [0044-MADR-auto-approve-modes.md](./0044-MADR-auto-approve-modes.md)
 * [0089-MADR-long-running-session-stability.md](./0089-MADR-long-running-session-stability.md)
+
+## Amendment — 2026-08-25: composer action row moves below the input
+
+Status of this amendment: **proposed**. Raised by the owner from live use of
+the shipped build: "the new icons are completely compressing the session
+prompt in the agent session screens."
+
+### Observed
+
+`ChatScreen`'s composer puts every action icon and the text field in a single
+`Row` (`apps/mobile/lib/features/chat/chat_screen.dart:2833`). The leading
+icons occupy lines 2835–2884, the `Expanded` `TextField` follows at 2885, and
+the send/queue/stop button closes the row.
+
+Six leading `IconButton`s can be visible at once, each gated by its own
+capability (`chat_screen.dart:2146–2184`):
+
+| Icon | Key / tooltip | Gate | Introduced by |
+| --- | --- | --- | --- |
+| Attach image | `Attach image` | `canAttachImage` | `f6e23de` (ACP parity) |
+| Attach audio | `attach-audio` | `canAttachAudio` | `e0e2709` |
+| Browse workspace | `open-workspace` | `canBrowseWorkspace` | `f12bbe9` (this plan, P6) |
+| Run a command | `open-shell` | `canRunShell` | `aa28942` (this plan, P10) |
+| Sharing | `open-share` | `canReadShare` | `6c19708` (this plan, P9) |
+| Diagnostics | `open-diagnostics` | *none — always shown* | `4272915` (this plan, P7) |
+
+Four of the six arrived with this plan, which is why the crowding reads as
+new. The composer applies no `IconButtonTheme` or `visualDensity` override
+(the `VisualDensity.compact` uses elsewhere in the file, e.g.
+`chat_screen.dart:2784`, do not reach these buttons), so each button keeps the
+stock Material tap target of 48dp. Six of them plus the 48dp send button and
+its 8dp gap need roughly 344dp; the row's content box on a 360dp-wide phone is
+360 − 12 − 12 = 336dp. The `Expanded` `TextField` is therefore squeezed to
+approximately zero width before its own `prefixIcon` (slash commands) and
+`suffixIcon` (dictation) are subtracted. The defect is arithmetic, not a
+rendering accident, and it gets worse on narrower devices and with a staged
+attachment strip above.
+
+### The "redundant diagnostics" premise is only half right
+
+The owner asked to drop the diagnostics icon because the function "exists in
+the agent session menu". Two different surfaces share the word *diagnostics*:
+
+* **Menu item "Session diagnostics"** (`chat_screen.dart:2414`, gated on
+  `_provider == 'opencode' || 'kilo'`) calls `_viewDiagnostics()`
+  (`chat_screen.dart:1374`), which fetches `client.sessionDiagnostics` and
+  renders `_DiagnosticsDialog` (`chat_screen.dart:3022`): VCS branch, default
+  branch, and MCP servers.
+* **Composer icon "Diagnostics"** (`chat_screen.dart:2874`) calls
+  `_showDiagnosticsSheet()` (`chat_screen.dart:873`), which opens
+  `DiagnosticsSheet` (`apps/mobile/lib/features/chat/diagnostics_sheet.dart`,
+  251 lines, P7 / A6): sanitized engine diagnostics, the **"Refresh skills"**
+  recycle action, and the **"Create or update with agent"** entry point.
+
+The icon is the only route to `DiagnosticsSheet`, and `DiagnosticsSheet` is
+the only route to `SkillAuthoringSheet` — `_showSkillAuthoringSheet()` is
+called from exactly one place, the sheet's `onAuthorSkill` callback at
+`chat_screen.dart:885`. Deleting the icon and nothing else would orphan three
+shipped P7 features rather than de-duplicate one.
+
+### Decision
+
+* **D1 — Action icons move to their own row beneath the input.** The composer
+  becomes a `Column`: an input row (`TextField` + send/queue/stop), then an
+  action row underneath. The text field regains the full content width.
+* **D2 — The send/queue/stop button stays on the input row.** It is the
+  primary action and its tri-state (`send` / `queue` / `stop`, chat_screen.dart:2954–2995)
+  is meaningful only next to the field it acts on. **Confirmed by the owner
+  on 2026-08-25 ("d2 as stated is fine"); no longer an open question.**
+* **D3 — The `prefixIcon` (slash commands) and `suffixIcon` (dictation) stay
+  inside the `TextField`.** They are field-scoped affordances, not composer
+  actions, and they are not part of the reported crowding.
+* **D4 — The `open-diagnostics` icon is removed from the composer, and
+  `DiagnosticsSheet` is re-hosted as a session-menu item.** This satisfies the
+  owner's intent (no diagnostics icon; reachable from the session menu)
+  without orphaning skills refresh or skill authoring.
+* **D5 — The two menu entries are named apart.** With D4 the menu carries both
+  surfaces, so `_DiagnosticsDialog` is relabelled *"Repository & MCP status"*
+  and the re-hosted sheet is *"Engine diagnostics & skills"*. Shipping two
+  adjacent items both called "diagnostics" would recreate the confusion this
+  amendment is resolving.
+* **D6 — No capability gate changes.** Every icon keeps the gate it has today,
+  and the re-hosted menu item inherits the composer icon's current behaviour
+  of always being offered.
+
+With D4 the action row holds at most five icons: 5 × 48 = 240dp, inside the
+296dp content box of a 320dp-wide device. A plain `Row` suffices; no scroll
+view, wrap, or density override is required.
+
+### Why this amends 0112 rather than opening 0115
+
+Per `AGENTS.md` ("Follow-up vs greenfield"), a bug found in a plan's live run
+amends that plan's number. Four of the six crowding icons and the orphaned
+`DiagnosticsSheet` are P6/P7/P9/P10 deliverables of this plan. The remedy is
+recorded here as amendment work and executed as `P12` in
+[0112-PLAN](./0112-PLAN-opencode-1.18.21-surface-parity.md). If the owner
+would rather track it as greenfield, it renumbers cleanly to `0115`.
+
+### Consequences
+
+* Good: the prompt field gets the full composer width at every supported
+  width; the crowding cannot regress by adding a seventh icon.
+* Good: skills refresh and skill authoring survive the icon's removal.
+* Neutral: the composer grows roughly 48dp taller, taking that height from the
+  transcript. Acceptable — the transcript scrolls, the prompt did not.
+* Bad: two P7 affordances move one tap further away (menu instead of icon).
+* Risk: `test/audio_attachment_test.dart` drives `attach-audio` through
+  `find.byKey` + `tester.tap` (8 references). Keys and hit-testability are
+  preserved by D1, so the test should pass unchanged; P12 verifies rather than
+  assumes this.

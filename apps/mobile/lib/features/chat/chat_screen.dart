@@ -2373,6 +2373,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               // OpenCode session-tree polish (MADR 0020 Sprint 5 / PR10).
               if (v == 'diff') unawaited(_viewDiff());
               if (v == 'diagnostics') unawaited(_viewDiagnostics());
+              if (v == 'engine-diagnostics') {
+                unawaited(_showDiagnosticsSheet(canRefreshSkills));
+              }
               if (v == 'fork') unawaited(_forkSession());
               if (v == 'terminals') unawaited(_viewTerminals());
             },
@@ -2416,11 +2419,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     value: 'diagnostics',
                     child: ListTile(
                       leading: Icon(Icons.info_outline),
-                      title: Text('Session diagnostics'),
+                      title: Text('Repository & MCP status'),
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                     ),
                   ),
+                const PopupMenuItem(
+                  value: 'engine-diagnostics',
+                  child: ListTile(
+                    leading: Icon(Icons.health_and_safety_outlined),
+                    title: Text('Engine diagnostics & skills'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
                 if (showsDiff)
                   const PopupMenuItem(
                     value: 'diff',
@@ -2830,184 +2842,198 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (canAttachImage)
-                    IconButton(
-                      tooltip: 'Attach image',
-                      icon: const Icon(Icons.add_photo_alternate_outlined),
-                      // New attachments wait for an idle composer, but any
-                      // already staged images move atomically with a queued
-                      // prompt when the session becomes busy.
-                      onPressed: (busy || offline) ? null : _pickImage,
-                    ),
-                  if (canAttachAudio)
-                    IconButton(
-                      key: const ValueKey('attach-audio'),
-                      tooltip: 'Attach audio',
-                      icon: const Icon(Icons.audiotrack_outlined),
-                      onPressed: (busy || offline) ? null : _pickAudio,
-                    ),
-                  if (canBrowseWorkspace)
-                    IconButton(
-                      key: const ValueKey('open-workspace'),
-                      tooltip: 'Browse workspace',
-                      icon: const Icon(Icons.folder_outlined),
-                      onPressed: offline ? null : _showWorkspaceSheet,
-                    ),
-                  if (canRunShell)
-                    IconButton(
-                      key: const ValueKey('open-shell'),
-                      tooltip: 'Run a command',
-                      icon: const Icon(Icons.terminal_outlined),
-                      onPressed: (busy || offline) ? null : _showShellSheet,
-                    ),
-                  if (canReadShare)
-                    IconButton(
-                      key: const ValueKey('open-share'),
-                      tooltip: 'Sharing',
-                      icon: const Icon(Icons.ios_share),
-                      onPressed: offline
-                          ? null
-                          : () => _showShareSheet(canMutateShare),
-                    ),
-                  IconButton(
-                    key: const ValueKey('open-diagnostics'),
-                    tooltip: 'Diagnostics',
-                    icon: const Icon(Icons.health_and_safety_outlined),
-                    onPressed: offline
-                        ? null
-                        : () => _showDiagnosticsSheet(canRefreshSkills),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _composer,
-                      focusNode: _focus,
-                      minLines: 1,
-                      maxLines: 5,
-                      // Stay editable while the agent works so the next prompt
-                      // can be queued; only direct sending is gated. Disabling
-                      // also stole focus and dismissed the keyboard mid-turn.
-                      enabled: !offline,
-                      textInputAction: sendWithEnter
-                          ? TextInputAction.send
-                          : TextInputAction.newline,
-                      onSubmitted: sendWithEnter ? (_) => _send() : null,
-                      // Tap outside the field (list, app bar, etc.) drops the
-                      // soft keyboard so the transcript regains height.
-                      onTapOutside: (_) => _focus.unfocus(),
-                      decoration: InputDecoration(
-                        hintText: offline
-                            ? 'Disconnected'
-                            : busy
-                            ? 'Queue a message'
-                            : 'Prompt or /command…',
-                        isDense: true,
-                        // Idle: green outline matching the status chip. Null
-                        // falls back to the stock theme borders (working /
-                        // offline keep the current look).
-                        enabledBorder: agentIdle
-                            ? OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: BorderSide(
-                                  color: celestialOf(context).success,
-                                ),
-                              )
-                            : null,
-                        focusedBorder: agentIdle
-                            ? OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: BorderSide(
-                                  color: celestialOf(context).success,
-                                  width: 1.5,
-                                ),
-                              )
-                            : null,
-                        prefixIcon: IconButton(
-                          tooltip: 'Slash commands',
-                          icon: const Icon(Icons.terminal, size: 20),
-                          onPressed: offline
-                              ? null
-                              : () {
-                                  _composer.text = '/';
-                                  _composer.selection =
-                                      const TextSelection.collapsed(offset: 1);
-                                  _focus.requestFocus();
-                                },
-                        ),
-                        suffixIcon: IconButton(
-                          tooltip: _listening ? 'Stop dictation' : 'Dictate',
-                          icon: Icon(
-                            _listening ? Icons.mic : Icons.mic_none,
-                            size: 20,
-                            color: _listening
-                                ? Theme.of(context).colorScheme.error
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _composer,
+                          focusNode: _focus,
+                          minLines: 1,
+                          maxLines: 5,
+                          // Stay editable while the agent works so the next prompt
+                          // can be queued; only direct sending is gated. Disabling
+                          // also stole focus and dismissed the keyboard mid-turn.
+                          enabled: !offline,
+                          textInputAction: sendWithEnter
+                              ? TextInputAction.send
+                              : TextInputAction.newline,
+                          onSubmitted: sendWithEnter ? (_) => _send() : null,
+                          // Tap outside the field (list, app bar, etc.) drops the
+                          // soft keyboard so the transcript regains height.
+                          onTapOutside: (_) => _focus.unfocus(),
+                          decoration: InputDecoration(
+                            hintText: offline
+                                ? 'Disconnected'
+                                : busy
+                                ? 'Queue a message'
+                                : 'Prompt or /command…',
+                            isDense: true,
+                            // Idle: green outline matching the status chip. Null
+                            // falls back to the stock theme borders (working /
+                            // offline keep the current look).
+                            enabledBorder: agentIdle
+                                ? OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: celestialOf(context).success,
+                                    ),
+                                  )
                                 : null,
+                            focusedBorder: agentIdle
+                                ? OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: celestialOf(context).success,
+                                      width: 1.5,
+                                    ),
+                                  )
+                                : null,
+                            prefixIcon: IconButton(
+                              tooltip: 'Slash commands',
+                              icon: const Icon(Icons.terminal, size: 20),
+                              onPressed: offline
+                                  ? null
+                                  : () {
+                                      _composer.text = '/';
+                                      _composer.selection =
+                                          const TextSelection.collapsed(
+                                            offset: 1,
+                                          );
+                                      _focus.requestFocus();
+                                    },
+                            ),
+                            suffixIcon: IconButton(
+                              tooltip: _listening
+                                  ? 'Stop dictation'
+                                  : 'Dictate',
+                              icon: Icon(
+                                _listening ? Icons.mic : Icons.mic_none,
+                                size: 20,
+                                color: _listening
+                                    ? Theme.of(context).colorScheme.error
+                                    : null,
+                              ),
+                              // While listening the button must stay live no
+                              // matter what — it is the only way to stop
+                              // dictation.
+                              onPressed: _listening
+                                  ? _toggleVoice
+                                  : (busy || offline ? null : _toggleVoice),
+                            ),
                           ),
-                          // While listening the button must stay live no
-                          // matter what — it is the only way to stop
-                          // dictation.
-                          onPressed: _listening
-                              ? _toggleVoice
-                              : (busy || offline ? null : _toggleVoice),
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      // Three states: idle → send, busy with a drafted message →
+                      // queue it, busy with an empty composer → stop the turn
+                      // (stop stays reachable from the session menu in every
+                      // state).
+                      ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _composer,
+                        builder: (ctx, value, _) {
+                          final hasDraft =
+                              value.text.trim().isNotEmpty ||
+                              _pendingAttachments.isNotEmpty;
+                          final Widget button;
+                          if (busy && hasDraft) {
+                            button = IconButton.filled(
+                              key: const ValueKey('queue'),
+                              tooltip: 'Queue message',
+                              onPressed: (offline || _interceptingModel)
+                                  ? null
+                                  : _send,
+                              icon: const Icon(Icons.schedule_send),
+                            );
+                          } else if (busy) {
+                            button = IconButton.filled(
+                              key: const ValueKey('stop'),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.error,
+                                foregroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.onError,
+                              ),
+                              tooltip: 'Stop turn',
+                              onPressed: _cancelTurn,
+                              icon: const Icon(Icons.stop),
+                            );
+                          } else {
+                            button = IconButton.filled(
+                              key: const ValueKey('send'),
+                              onPressed: (offline || _interceptingModel)
+                                  ? null
+                                  : _send,
+                              icon: const Icon(Icons.send),
+                            );
+                          }
+                          return AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 150),
+                            transitionBuilder: (child, anim) => ScaleTransition(
+                              scale: Tween(begin: 0.9, end: 1.0).animate(anim),
+                              child: FadeTransition(
+                                opacity: anim,
+                                child: child,
+                              ),
+                            ),
+                            child: button,
+                          );
+                        },
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  // Three states: idle → send, busy with a drafted message →
-                  // queue it, busy with an empty composer → stop the turn
-                  // (stop stays reachable from the session menu in every
-                  // state).
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _composer,
-                    builder: (ctx, value, _) {
-                      final hasDraft =
-                          value.text.trim().isNotEmpty ||
-                          _pendingAttachments.isNotEmpty;
-                      final Widget button;
-                      if (busy && hasDraft) {
-                        button = IconButton.filled(
-                          key: const ValueKey('queue'),
-                          tooltip: 'Queue message',
-                          onPressed: (offline || _interceptingModel)
-                              ? null
-                              : _send,
-                          icon: const Icon(Icons.schedule_send),
-                        );
-                      } else if (busy) {
-                        button = IconButton.filled(
-                          key: const ValueKey('stop'),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.error,
-                            foregroundColor: Theme.of(
-                              context,
-                            ).colorScheme.onError,
-                          ),
-                          tooltip: 'Stop turn',
-                          onPressed: _cancelTurn,
-                          icon: const Icon(Icons.stop),
-                        );
-                      } else {
-                        button = IconButton.filled(
-                          key: const ValueKey('send'),
-                          onPressed: (offline || _interceptingModel)
-                              ? null
-                              : _send,
-                          icon: const Icon(Icons.send),
-                        );
-                      }
-                      return AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 150),
-                        transitionBuilder: (child, anim) => ScaleTransition(
-                          scale: Tween(begin: 0.9, end: 1.0).animate(anim),
-                          child: FadeTransition(opacity: anim, child: child),
+                  // Action affordances live on their own row: sharing one Row
+                  // with the field squeezed the prompt to nothing once the
+                  // workspace/shell/share icons shipped (0112 amendment D1).
+                  Row(
+                    key: const ValueKey('composer-actions'),
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      if (canAttachImage)
+                        IconButton(
+                          tooltip: 'Attach image',
+                          icon: const Icon(Icons.add_photo_alternate_outlined),
+                          // New attachments wait for an idle composer, but any
+                          // already staged images move atomically with a queued
+                          // prompt when the session becomes busy.
+                          onPressed: (busy || offline) ? null : _pickImage,
                         ),
-                        child: button,
-                      );
-                    },
+                      if (canAttachAudio)
+                        IconButton(
+                          key: const ValueKey('attach-audio'),
+                          tooltip: 'Attach audio',
+                          icon: const Icon(Icons.audiotrack_outlined),
+                          onPressed: (busy || offline) ? null : _pickAudio,
+                        ),
+                      if (canBrowseWorkspace)
+                        IconButton(
+                          key: const ValueKey('open-workspace'),
+                          tooltip: 'Browse workspace',
+                          icon: const Icon(Icons.folder_outlined),
+                          onPressed: offline ? null : _showWorkspaceSheet,
+                        ),
+                      if (canRunShell)
+                        IconButton(
+                          key: const ValueKey('open-shell'),
+                          tooltip: 'Run a command',
+                          icon: const Icon(Icons.terminal_outlined),
+                          onPressed: (busy || offline) ? null : _showShellSheet,
+                        ),
+                      if (canReadShare)
+                        IconButton(
+                          key: const ValueKey('open-share'),
+                          tooltip: 'Sharing',
+                          icon: const Icon(Icons.ios_share),
+                          onPressed: offline
+                              ? null
+                              : () => _showShareSheet(canMutateShare),
+                        ),
+                    ],
                   ),
                 ],
               ),

@@ -510,8 +510,12 @@ void main() {
       tester,
     ) async {
       await pumpChat(tester, _RecordingClient(), image: false, audio: false);
-      expect(find.byKey(const ValueKey('open-diagnostics')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('open-diagnostics')));
+      // Reached from the session menu, not the composer: the icon was removed
+      // because six of them collapsed the prompt field (0112 amendment D4).
+      expect(find.byKey(const ValueKey('open-diagnostics')), findsNothing);
+      await tester.tap(find.byTooltip('Session actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Engine diagnostics & skills'));
       await tester.pumpAndSettle();
       expect(find.byType(DiagnosticsSheet), findsOneWidget);
     });
@@ -521,7 +525,9 @@ void main() {
     ) async {
       final client = _RecordingClient();
       await pumpChat(tester, client, image: false, audio: false);
-      await tester.tap(find.byKey(const ValueKey('open-diagnostics')));
+      await tester.tap(find.byTooltip('Session actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Engine diagnostics & skills'));
       await tester.pumpAndSettle();
 
       // The affordance lives in the Skills section of the report.

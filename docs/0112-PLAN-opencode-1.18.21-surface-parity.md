@@ -1775,3 +1775,156 @@ tests, or one that regresses a target it touched, is incomplete even when live
 tests pass; it is not deferred, relabeled experimental, or silently omitted.
 Closing pre-existing debt to an absolute floor is 0113's definition of done, not
 this plan's.
+
+## P12 — Composer action row below the input (amendment, 2026-08-25)
+
+Executes the [0112-MADR amendment of
+2026-08-25](./0112-MADR-opencode-1.18.21-surface-parity.md#amendment--2026-08-25-composer-action-row-moves-below-the-input),
+decisions D1–D6. Dart-only; no Go, protocol, capability, or config change.
+
+### Outcome
+
+The prompt field spans the full composer width on every supported device. The
+composer's action icons sit in one left-aligned row beneath it. The
+`open-diagnostics` icon is gone from the composer and `DiagnosticsSheet` —
+with its skills refresh and skill-authoring entry point — is reachable from
+the session menu, whose two diagnostics-shaped entries are named apart.
+
+### Files
+
+* `apps/mobile/lib/features/chat/chat_screen.dart` (edit).
+* `apps/mobile/test/composer_layout_test.dart` (create).
+* `apps/mobile/test/audio_attachment_test.dart` — **edited**. Two cases drove
+  the sheet through the removed `open-diagnostics` icon; they now open it from
+  the session menu. The `attach-audio` cases needed no change, as predicted.
+* `apps/mobile/test/chat_render_test.dart` and
+  `apps/mobile/test/chat_end_session_navigation_test.dart` — **edited, added
+  to this phase mid-execution (deviation, 2026-08-25).** Both assert on the
+  menu label `'Session diagnostics'`, which D5 renames to
+  `'Repository & MCP status'`. Updating them is the direct consequence of an
+  approved decision, not new scope; no assertion's intent changed.
+* ~~`Makefile`~~ — not modified; see the deviation on step 9.
+
+No other file is in scope. `diagnostics_sheet.dart`,
+`skill_authoring_sheet.dart`, `workspace_sheet.dart`, `question_sheet.dart`,
+and every Go package are untouched.
+
+### Steps
+
+1. In `chat_screen.dart`, replace the composer `Row` at line 2833 with a
+   `Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment:
+   CrossAxisAlignment.stretch)` holding two children, keeping the existing
+   `SafeArea` + `Padding(EdgeInsets.fromLTRB(12, 4, 12, 12))` wrapper.
+2. First child — the input row: `Row([Expanded(TextField …), SizedBox(width:
+   8), ValueListenableBuilder(send/queue/stop)])`. The `TextField` (including
+   its `prefixIcon` slash-commands button and `suffixIcon` dictation button),
+   the `AnimatedSwitcher`, and the tri-state button logic move across
+   verbatim — no behavioural edit (D2, D3).
+3. Second child — the action row: `Row(mainAxisAlignment:
+   MainAxisAlignment.start)` carrying, in this order and each behind its
+   existing gate, `canAttachImage` → `canAttachAudio` (`attach-audio`) →
+   `canBrowseWorkspace` (`open-workspace`) → `canRunShell` (`open-shell`) →
+   `canReadShare` (`open-share`). Every `ValueKey`, `tooltip`, icon, and
+   `onPressed` (including the `busy`/`offline` enablement expressions) is
+   carried over character-for-character (D1, D6).
+4. Give the action row `key: const ValueKey('composer-actions')` so the new
+   test can assert on it directly.
+5. Delete the `open-diagnostics` `IconButton` (`chat_screen.dart:2873–2881`).
+   Do **not** delete `_showDiagnosticsSheet`, `DiagnosticsSheet`, or
+   `_showSkillAuthoringSheet` (D4).
+6. Add a session-menu entry that opens the sheet: a `PopupMenuItem` with
+   `value: 'engine-diagnostics'`, `leading: Icon(Icons.health_and_safety_outlined)`,
+   `title: Text('Engine diagnostics & skills')`, placed immediately after the
+   existing `showsDiagnostics` item, and wire
+   `if (v == 'engine-diagnostics') unawaited(_showDiagnosticsSheet(canRefreshSkills));`
+   into `onSelected` (`chat_screen.dart:2370`). It is offered unconditionally,
+   matching the icon's current always-shown behaviour (D6). If
+   `canRefreshSkills` is not in scope at the menu's build site, read it there
+   with the same `ref.watch` used at `chat_screen.dart:2184` rather than
+   threading it through state.
+7. Relabel the existing `_viewDiagnostics` menu item from `'Session
+   diagnostics'` to `'Repository & MCP status'` (`chat_screen.dart:2419`).
+   Its `value: 'diagnostics'`, gate, and handler are unchanged (D5).
+8. Create `apps/mobile/test/composer_layout_test.dart` covering: (a) with all
+   capabilities on, `composer-actions` exists and contains the five expected
+   keys/tooltips; (b) `open-diagnostics` is absent from the widget tree; (c)
+   the `TextField`'s laid-out width exceeds half the 360dp test surface —
+   the regression assertion, which fails against today's code; (d) tapping
+   the menu's `'Engine diagnostics & skills'` opens `DiagnosticsSheet`; (e)
+   with every capability off, the action row renders empty and no overflow is
+   reported. Follow the harness already used by
+   `test/audio_attachment_test.dart` for provider/capability overrides.
+9. ~~Add `composer_layout_test.dart` to `NEW_DART_FILES` in the `Makefile`.~~
+   **Not done — this step was wrong as written (deviation, 2026-08-25).**
+   `NEW_DART_FILES` (`Makefile:489`) lists *production* files that must hold
+   at least 90.0% line coverage, per its own header comment; it is consumed by
+   `scripts/coverage-delta.sh floor --new-dart-file`. Feeding a test file into
+   a production-coverage floor is a category error. No `Makefile` change is
+   required: the new test raises coverage of
+   `lib/features/chat/diagnostics_sheet.dart`, which is already listed.
+
+### Verification
+
+Run from `apps/mobile` unless noted:
+
+* `dart format --output=none --set-exit-if-changed lib test`
+* `flutter analyze` — zero new findings.
+* `flutter test test/composer_layout_test.dart`
+* `flutter test test/audio_attachment_test.dart` — must pass **unmodified**.
+* `flutter test` — full suite, no regression, and no
+  `RenderFlex overflowed` exception in the output.
+* From the repo root: `make pre-add-check` on the staged files before the
+  commit, per the global pre-commit rule.
+* Manual check on a 360dp-wide device or simulator: the prompt hint text
+  `Prompt or /command…` is fully legible with all five action icons present.
+
+### Acceptance criteria
+
+* The prompt `TextField` occupies the full composer content width minus the
+  send button and its 8dp gap, at 320dp, 360dp, and 430dp widths.
+* Exactly one row of action icons renders beneath the input, left-aligned.
+* `open-diagnostics` no longer exists in the composer; `DiagnosticsSheet`,
+  "Refresh skills", and the skill-authoring composer are all reachable from
+  the session menu in at most two taps.
+* The session menu shows "Repository & MCP status" and "Engine diagnostics &
+  skills" as distinct entries.
+* No capability gate, protocol message, Go file, or config key changed.
+* New Dart coverage stays at or above the 90.0% floor.
+
+### Step 10 — added mid-execution 2026-08-25 by owner direction
+
+P12's new widget test was the first to render `DiagnosticsSheet` with both of
+its skills-section buttons live, and it exposed a **pre-existing** overflow:
+`_section`'s header `Row`
+(`apps/mobile/lib/features/chat/diagnostics_sheet.dart:223`) lays out
+`Expanded(Text(title))` beside `extra` ("Refresh skills") and `trailing`
+("Create or update with agent"). The two `TextButton`s do not fit next to the
+title — `RenderFlex overflowed by 298 pixels` at a 360dp phone width and still
+by 18 pixels at 900dp, because a modal bottom sheet caps its own width at
+640dp. No surface is wide enough, so the header overflows for every user whose
+session advertises `skillRefresh`.
+
+This was reported as out of scope. The owner directed: *"do not scope around
+it, fix it."* It is therefore in scope for P12.
+
+* Replace that header `Row` with a `Wrap` (`spaceBetween`, centre cross-axis
+  alignment, 8dp spacing) so the title and its buttons sit on one line when
+  they fit and flow onto a second when they do not. Sections with no buttons
+  render identically to today.
+* Extend `composer_layout_test.dart` with a case that opens the sheet at
+  360dp with `skillRefresh` on and asserts `tester.takeException()` is null.
+* Files added to this phase's scope:
+  `apps/mobile/lib/features/chat/diagnostics_sheet.dart`.
+
+### Out of scope
+
+Restyling the composer, changing icon glyphs, adding a density override,
+touching the staged-attachment strip, any further `DiagnosticsSheet` change
+beyond the header-overflow fix in step 10, and the four pre-P3 coverage
+regressions owned by 0113. Anything found mid-execution outside this list
+stops and waits for an amended, re-approved plan.
+
+### Rollback
+
+Single-commit phase; `git revert` of that commit restores the current
+composer. No migration, no persisted state, no protocol surface involved.

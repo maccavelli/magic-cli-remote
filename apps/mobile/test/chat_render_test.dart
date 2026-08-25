@@ -1005,7 +1005,7 @@ void main() {
     await tester.tap(find.byTooltip('Session actions'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Session diagnostics'), findsOneWidget);
+    expect(find.text('Repository & MCP status'), findsOneWidget);
     expect(find.text('View file diff'), findsOneWidget);
     expect(find.text('Fork session'), findsOneWidget);
   });
