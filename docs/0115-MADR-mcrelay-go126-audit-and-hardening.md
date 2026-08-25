@@ -325,6 +325,10 @@ relayhost suites, with `e2e_test.go` unmodified throughout.
 * **Not shipped**: TLS 1.3 floor (O4, still deferred by decision); 0017 E5
   metrics (unchanged).
 
-Accepted by the owner on 2026-08-25 after reviewing this record. The
-production relay has not yet been redeployed; rollout remains a separate
-operator action per the PLAN.
+Accepted by the owner on 2026-08-25 after reviewing this record.
+
+**Rolled out 2026-08-25 (owner-confirmed):** the production relay at
+`headscale.lallygag.net` and this host's `mcremote` both run the v0.14.10
+release (`363bb70`). The host daemon registered with the relay 131 ms after
+startup (`registered with mcrelay`, 18:43:43 local), exercising the new
+bounded register exchange and shared envelope I/O against the hardened edge.
