@@ -297,3 +297,33 @@ approved**, per `AGENTS.md`.
 * Ops context: `docs/ops-mcrelay.md`; production relay
   `wss://headscale.lallygag.net:8443` with one registered host
   (`macos-laptop`).
+
+## Observed — execution results (2026-08-25)
+
+Executed as `0115-PLAN` P1–P8 in eight commits (plus the doc commit), each
+phase gated on `make pre-add-check`, `go vet`, and the race-enabled relay and
+relayhost suites, with `e2e_test.go` unmodified throughout.
+
+* **Coverage**: `internal/relay` 66.4% → **80.7%** (1176/1457);
+  `internal/relayhost` 71.4% → **81.2%** (160/197)
+  (`coverage-delta.sh floor --minimum 80.0` → `pass`).
+* **Pre-fix failure proofs captured**: F1 via the old-API interleaving
+  (publish into an abandoned join succeeded, `phones=1` leaked, `done` never
+  closed); F2 via a valid ~65 KiB pre-auth envelope that the old server
+  *answered* and the new one kills with `StatusMessageTooBig`; F3 via the
+  stored secret `"…abcdef "` retaining the trailing space validation had
+  stripped; F5/deviation via watchdog timeouts against the pre-fix tree.
+* **Benchmark** (`-benchtime 1x`, single-sample, noise-level):
+  1768458 → 2632666 ns/op, 279888 → 229472 B/op, 1204 → 1017 allocs/op.
+* **Two owner-approved deviations**, both recorded in the PLAN: the
+  template-parity gate required `relay.max_frame_bytes` in three companion
+  templates beyond the file list; and writing P6's frame-limit test exposed
+  F1's host-side cousin — `bridge`'s TCP leg parked in an uninterruptible
+  `tcp.Read` when the WS side died first — fixed with
+  `context.AfterFunc(ctx, tcp.Close)` and pinned by
+  `TestBridgeUnblocksTCPLegOnWSDeath`.
+* **Not shipped**: TLS 1.3 floor (O4, still deferred by decision); 0017 E5
+  metrics (unchanged).
+
+Status remains `proposed` pending the owner's review of this record; the
+production relay has not been redeployed.

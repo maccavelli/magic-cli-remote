@@ -193,3 +193,107 @@ func TestBridgeUnblocksTCPLegOnWSDeath(t *testing.T) {
 		t.Fatal("bridge did not return after the WS side died; TCP leg is parked")
 	}
 }
+
+// 0115 P8 fill-ins: address plumbing and openTunnel refusal paths.
+
+func TestLocalAddrPlumbing(t *testing.T) {
+	c := New(Config{LocalAddr: "0.0.0.0:7531"}, nil)
+	if got := c.localAddr(); got != "0.0.0.0:7531" {
+		t.Fatalf("initial: %q", got)
+	}
+	c.SetLocalAddr("0.0.0.0:7531")
+	if got := c.localAddr(); got != "127.0.0.1:7531" {
+		t.Fatalf("wildcard not rewritten: %q", got)
+	}
+	c.SetLocalAddr("[::]:7531")
+	if got := c.localAddr(); got != "127.0.0.1:7531" {
+		t.Fatalf("v6 wildcard not rewritten: %q", got)
+	}
+	c.SetLocalAddr("192.168.1.5:7531")
+	if got := c.localAddr(); got != "192.168.1.5:7531" {
+		t.Fatalf("concrete addr changed: %q", got)
+	}
+	if got := loopbackAddr("not-a-hostport"); got != "not-a-hostport" {
+		t.Fatalf("unparseable addr changed: %q", got)
+	}
+}
+
+func TestErrString(t *testing.T) {
+	if got := errString(nil); got != "eof" {
+		t.Fatalf("nil: %q", got)
+	}
+	if got := errString(errors.New("boom")); got != "boom" {
+		t.Fatalf("err: %q", got)
+	}
+}
+
+// TestOpenTunnelRejected: the relay answers the claim with an error envelope;
+// openTunnel must give up without dialing the local listener.
+func TestOpenTunnelRejected(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		if _, err := relay.ReadEnvelope(r.Context(), c); err != nil {
+			return
+		}
+		env, _ := relay.NewEnvelope(relay.TypeError, "t", relay.ErrorPayload{Code: "unauthorized"})
+		_ = relay.WriteEnvelope(r.Context(), c, env)
+		// Close after answering: the client's deferred Close performs a
+		// handshake, and a parked peer would stall it for its full timeout.
+		_ = c.Close(websocket.StatusNormalClosure, "")
+	}))
+	defer ts.Close()
+
+	c := New(Config{URL: ts.URL, HostID: "h1", Secret: "0123456789abcdef", LocalAddr: "127.0.0.1:1"}, nil)
+	done := make(chan struct{})
+	go func() {
+		c.openTunnel(context.Background(), "ws"+ts.URL[len("http"):], "sess-1", "tok")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("openTunnel did not return after rejection")
+	}
+}
+
+// TestOpenTunnelLocalDialFails: tunnel_ok arrives but the local listener is
+// unreachable; openTunnel must fail cleanly.
+func TestOpenTunnelLocalDialFails(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		env, err := relay.ReadEnvelope(r.Context(), c)
+		if err != nil {
+			return
+		}
+		ok, _ := relay.NewEnvelope(relay.TypeTunnelOK, env.ID, relay.SessionPayload{SessionID: "sess-1", HostID: "h1"})
+		_ = relay.WriteEnvelope(r.Context(), c, ok)
+		_ = c.Close(websocket.StatusNormalClosure, "")
+	}))
+	defer ts.Close()
+
+	// A dead local port: bind, learn the port, close.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := ln.Addr().String()
+	_ = ln.Close()
+
+	c := New(Config{URL: ts.URL, HostID: "h1", Secret: "0123456789abcdef", LocalAddr: dead}, nil)
+	done := make(chan struct{})
+	go func() {
+		c.openTunnel(context.Background(), "ws"+ts.URL[len("http"):], "sess-1", "tok")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("openTunnel did not return after local dial failure")
+	}
+}

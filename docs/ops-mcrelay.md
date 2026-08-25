@@ -340,3 +340,14 @@ cd apps/mobile && flutter test test/relay_transport_test.dart test/relay_path_te
 - [config.md](config.md#tls-modes) — mcremote TLS modes (DNS-01 only; recovery pin)
 - [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) Phase E
 - [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md) backlog R10+
+
+## 0115: parked-tunnel symptom retired
+
+Before the 0115 P2 fix, a phone whose join timed out in the same instant the
+host claimed the tunnel left a parked `/v1/tunnel` connection (no relay-side
+deadline) and a leaked phone slot that only the 30 s slot sweep healed —
+visible as `phone slot divergence corrected` WARN lines attributable to join
+timeouts. After 0115 those lines should no longer appear for this cause; a
+divergence WARN now indicates a genuinely new accounting bug and is worth a
+report. The join/claim race is resolved under one lock (`hub.phoneGone`),
+and both sides observe the outcome immediately.

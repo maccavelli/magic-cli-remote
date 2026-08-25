@@ -3,6 +3,7 @@ package relay
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
@@ -237,5 +238,98 @@ func TestServeFlagsSingleMechanism(t *testing.T) {
 	}
 	if !cfg.AllowLegacyTunnelSecret {
 		t.Fatal("allow_legacy_tunnel_secret should be true via bindRelayFlags alone")
+	}
+}
+
+// 0115 P8: helper coverage — hints, data-dir creation, path recompute, list
+// expansion, and the limits-config ceiling branches.
+
+func TestPathHintsNonEmpty(t *testing.T) {
+	if ConfigPathHint() == "" {
+		t.Fatal("ConfigPathHint empty")
+	}
+	if DataDirHint() == "" {
+		t.Fatal("DataDirHint empty")
+	}
+}
+
+func TestEnsureDataDirCreatesPrivate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "nested", "data")
+	if err := EnsureDataDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("perm=%o, want 0700", perm)
+	}
+}
+
+func TestRecomputePaths(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := FileConfig{DataDir: filepath.Join(t.TempDir(), "d")}
+	if err := cfg.RecomputePaths(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Paths.DataDir != cfg.DataDir {
+		t.Fatalf("paths.DataDir=%q, want %q", cfg.Paths.DataDir, cfg.DataDir)
+	}
+	// Second call takes the WithDataDir branch (RuntimeBase already set).
+	cfg.DataDir = filepath.Join(t.TempDir(), "e")
+	if err := cfg.RecomputePaths(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Paths.DataDir != cfg.DataDir {
+		t.Fatalf("recompute: %q vs %q", cfg.Paths.DataDir, cfg.DataDir)
+	}
+}
+
+func TestExpandStringListSplitsAndTrims(t *testing.T) {
+	got := expandStringList([]string{"a, b", "  c  ", "", ",,"})
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("%v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%v", got)
+		}
+	}
+	if out := expandStringList(nil); out != nil {
+		t.Fatalf("nil in, %v out", out)
+	}
+}
+
+func TestValidateLimitsCeilings(t *testing.T) {
+	cases := []struct {
+		name string
+		mut  func(*LimitsConfig)
+	}{
+		{"max_hosts", func(l *LimitsConfig) { l.MaxHosts = MaxLimitHosts + 1 }},
+		{"max_phones_per_host", func(l *LimitsConfig) { l.MaxPhonesPerHost = MaxLimitPhonesPerHost + 1 }},
+		{"max_message_bytes", func(l *LimitsConfig) { l.MaxMessageBytes = MaxLimitMessageBytes + 1 }},
+		{"max_concurrent_join", func(l *LimitsConfig) { l.MaxConcurrentJoin = MaxLimitConcurrentJoin + 1 }},
+		{"accept_per_minute", func(l *LimitsConfig) { l.AcceptPerMinute = MaxLimitPerMinute + 1 }},
+		{"join_per_minute", func(l *LimitsConfig) { l.JoinPerMinute = MaxLimitPerMinute + 1 }},
+		{"register_per_minute", func(l *LimitsConfig) { l.RegisterPerMinute = MaxLimitPerMinute + 1 }},
+		{"join_per_host_per_minute", func(l *LimitsConfig) { l.JoinPerHostPerMinute = MaxLimitPerMinute + 1 }},
+		{"tunnel_wait_seconds", func(l *LimitsConfig) { l.TunnelWaitSeconds = MaxLimitDurationSeconds + 1 }},
+		{"register_idle_seconds", func(l *LimitsConfig) { l.RegisterIdleSeconds = MaxLimitDurationSeconds + 1 }},
+		{"splice_idle_seconds", func(l *LimitsConfig) { l.SpliceIdleSeconds = MaxLimitDurationSeconds + 1 }},
+		{"splice_max_seconds", func(l *LimitsConfig) { l.SpliceMaxSeconds = MaxLimitDurationSeconds + 1 }},
+	}
+	for _, c := range cases {
+		var l LimitsConfig
+		c.mut(&l)
+		err := validateLimitsConfig(l)
+		if err == nil || !strings.Contains(err.Error(), c.name) {
+			t.Errorf("%s: err=%v; want ceiling rejection naming the field", c.name, err)
+		}
+	}
+	// Negative splice knobs mean "disabled" and pass.
+	if err := validateLimitsConfig(LimitsConfig{SpliceIdleSeconds: -1, SpliceMaxSeconds: -1}); err != nil {
+		t.Fatalf("negative splice knobs: %v", err)
 	}
 }

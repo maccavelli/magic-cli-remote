@@ -176,6 +176,20 @@ export MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET=false
 export MCRELAY_TRUSTED_PROXIES='127.0.0.1/32'
 ```
 
+## Edge behaviour notes (0115)
+
+- **Pre-auth frame cap.** The first envelope on every plane (`/v1/host`,
+  `/v1/phone`, `/v1/tunnel`) is read under a fixed 64 KiB control limit;
+  `limits.max_message_bytes` applies only to spliced traffic after a
+  successful join. An unauthenticated peer cannot make the relay buffer a
+  splice-sized frame.
+- **Rate-map eviction.** Under capacity pressure (4096 tracked windows) the
+  relay evicts the oldest window deterministically; TTL-expired windows are
+  always pruned first.
+- **Host bridge frame cap.** If `limits.max_message_bytes` is raised above
+  1 MiB, set `relay.max_frame_bytes` to the same value in each mcremote
+  host's config — the host-side bridge enforces its own cap.
+
 ## Host allowlist
 
 Each host mcremote that may register must appear with a **registration secret**
