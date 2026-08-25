@@ -58,6 +58,12 @@ const (
 	TypeSessionCapabilities Type = "session_capabilities"
 	// TypeSessionTitle carries a session title/metadata update (ACP sessionInfoUpdate).
 	TypeSessionTitle Type = "session_title"
+	// TypeDiagnosticsChanged is a bounded marker telling a client its cached
+	// diagnostics are stale. It carries no payload at all: the engine's global
+	// events name servers and carry errors, and forwarding any of that would
+	// leak exactly what the sanitized diagnostics report exists to withhold
+	// (MADR 0112 A6).
+	TypeDiagnosticsChanged Type = "diagnostics_changed"
 	// TypeArtifact carries a file the agent produced — an assistant FilePart or
 	// a completed tool's attachment. It uses the same native identity as every
 	// other transcript row, so replay deduplicates it and a tombstone removes
@@ -138,6 +144,7 @@ func Types() []Type {
 		TypeSessionCapabilities,
 		TypeSessionTitle,
 		TypeArtifact,
+		TypeDiagnosticsChanged,
 		TypeTranscriptRemove,
 		TypeRemoteCommands,
 		TypeApprovalSummary,
@@ -512,6 +519,10 @@ type Capabilities struct {
 	// interface, and the phone renders no workspace affordance when false
 	// (MADR 0112 A5).
 	WorkspaceRead bool `json:"workspace_read,omitempty"`
+
+	// SkillRefresh reports that the session can recycle its idle engine
+	// instance so newly authored skills become discoverable (MADR 0112 A10).
+	SkillRefresh bool `json:"skill_refresh,omitempty"`
 }
 
 // Event is a single stream item for a session.

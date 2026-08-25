@@ -83,11 +83,17 @@ func (o *httpSession) Diagnostics(ctx context.Context) (provider.Diagnostics, er
 	} else {
 		for name, info := range mcp {
 			name = clip(strings.TrimSpace(name), maxDiagnosticTextLen)
-			state := clip(strings.TrimSpace(info.Status), maxDiagnosticTextLen)
-			if name == "" || state == "" {
+			if name == "" {
 				continue
 			}
-			out.MCP = append(out.MCP, provider.MCPServerStatus{Name: name, State: state})
+			// The upstream status is mapped through a closed vocabulary rather
+			// than forwarded. Two members carry a required `error` string
+			// holding URLs and bearer tokens; this struct never decodes it, and
+			// an unrecognised status degrades to "unknown" (MADR 0112 A6).
+			out.MCP = append(out.MCP, provider.MCPServerStatus{
+				Name:  name,
+				State: normalizeMCPState(info.Status),
+			})
 		}
 		slices.SortFunc(out.MCP, func(a, b provider.MCPServerStatus) int {
 			return strings.Compare(a.Name, b.Name)
@@ -95,6 +101,21 @@ func (o *httpSession) Diagnostics(ctx context.Context) (provider.Diagnostics, er
 		if len(out.MCP) > maxDiagnosticMCPRows {
 			out.MCP = out.MCP[:maxDiagnosticMCPRows]
 		}
+		successes++
+	}
+	// Skills, language services and formatters are additive sections; a route
+	// that fails leaves its section absent rather than failing the whole
+	// report, which is how a degraded engine still explains itself.
+	if skills, ok := o.skillsFor(callCtx); ok {
+		out.Skills = skills
+		successes++
+	}
+	if lsp, ok := o.lspFor(callCtx); ok {
+		out.LSP = lsp
+		successes++
+	}
+	if formatters, ok := o.formattersFor(callCtx); ok {
+		out.Formatters = formatters
 		successes++
 	}
 	if successes == 0 {

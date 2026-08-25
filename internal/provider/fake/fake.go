@@ -197,6 +197,7 @@ var _ provider.UndoSession = (*session)(nil)
 var _ provider.RevertSession = (*session)(nil)
 var _ provider.DiffSession = (*session)(nil)
 var _ provider.WorkspaceSession = (*session)(nil)
+var _ provider.SkillRefreshSession = (*session)(nil)
 var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.ModelProviderCatalog = (*Provider)(nil)
 
@@ -330,6 +331,19 @@ func (s *session) Unrevert(ctx context.Context) error {
 }
 
 // Diff returns a deterministic change summary.
+// RefreshSkills reports whichever outcome the session id asks for, so the wire
+// path can be driven through the success, busy and failure branches without a
+// provider-specific hook.
+func (s *session) RefreshSkills(context.Context) error {
+	if strings.Contains(s.id, "busy") {
+		return provider.ErrInstanceBusy
+	}
+	if strings.Contains(s.id, "refresh-fails") {
+		return fmt.Errorf("engine unreachable")
+	}
+	return nil
+}
+
 // The workspace surface is deliberately a small deterministic fixture rather
 // than a real filesystem: what the wire path needs to prove is that requests
 // reach a provider, that refusals keep their specific code, and that results

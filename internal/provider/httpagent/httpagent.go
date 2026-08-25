@@ -507,6 +507,17 @@ type StartAgentValidator interface {
 	ValidateStartAgent(ctx context.Context, api API, cwd, agent string) (string, error)
 }
 
+// EngineEventDialect is optionally implemented by a Dialect that can classify
+// engine-global events — those decoded with no session id.
+//
+// It receives only the event type, never the payload: the point of the hook is
+// to decide whether cached diagnostics are stale, and passing the body would
+// invite forwarding server names and errors that the sanitized report
+// deliberately withholds (MADR 0112 A6, PLAN P7 step 10).
+type EngineEventDialect interface {
+	EngineEventNeedsDiagnostics(typ string) bool
+}
+
 // IdentifiedPromptDialectSession is optionally implemented by a DialectSession
 // whose engine accepts a caller-supplied message id on submission.
 //

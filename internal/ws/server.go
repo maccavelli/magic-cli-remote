@@ -803,6 +803,10 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeAgentSessionsList:
 		// May boot an ACP engine and query provider-native durable sessions.
 		return s.dispatchAsync(ctx, c, env, s.handleAgentSessionsList)
+	// Recycling an engine instance is an HTTP round trip plus a catalog
+	// reload; it must not stall the read loop.
+	case protocol.TypeSessionRefreshSkills:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionRefreshSkills)
 	// Workspace reads talk to the engine over HTTP, so they take the async
 	// path: a slow listing must not stall the connection's read loop.
 	case protocol.TypeWorkspaceList:
@@ -2875,6 +2879,30 @@ func (s *Server) handleProjectsList(ctx context.Context, c *client, env protocol
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeProjectsResult, env.ID,
 		protocol.ProjectsResultPayload{Provider: req.Provider, Projects: projects})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleSessionRefreshSkills recycles an owned session's idle engine instance.
+//
+// A busy instance is refused with its own code rather than waited on: the skill
+// file is already written, so retrying when idle loses nothing, while blocking
+// behind a long turn would read as a hang (MADR 0112 A10).
+func (s *Server) handleSessionRefreshSkills(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionRefreshSkillsPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id required")
+	}
+	if err := s.sessions.RefreshSkills(ctx, p.SessionID, deviceID); err != nil {
+		if errors.Is(err, provider.ErrInstanceBusy) {
+			return s.writeError(ctx, c, env.ID, protocol.ErrInstanceBusy,
+				"that project is busy; try again once its OpenCode work is idle")
+		}
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrSessionRefreshSkillsFailed, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
 }
 

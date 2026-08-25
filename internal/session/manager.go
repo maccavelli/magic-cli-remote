@@ -2222,6 +2222,22 @@ func (m *Manager) workspaceSession(id, deviceID string) (provider.WorkspaceSessi
 	return ws, nil
 }
 
+// RefreshSkills recycles an owned session's idle engine instance.
+func (m *Manager) RefreshSkills(ctx context.Context, id, deviceID string) error {
+	if err := m.Authorize(id, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(id)
+	if err != nil {
+		return err
+	}
+	rs, ok := sess.(provider.SkillRefreshSession)
+	if !ok {
+		return fmt.Errorf("session %q does not support skill refresh", id)
+	}
+	return rs.RefreshSkills(ctx)
+}
+
 // ListWorkspace lists one directory of an owned session's workspace.
 func (m *Manager) ListWorkspace(ctx context.Context, id, path, deviceID string) ([]provider.WorkspaceEntry, error) {
 	ws, err := m.workspaceSession(id, deviceID)

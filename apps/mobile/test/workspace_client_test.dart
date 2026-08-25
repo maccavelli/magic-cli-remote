@@ -249,4 +249,44 @@ void main() {
     addTearDown(client.dispose);
     expect(await client.listWorkspace('s1'), isEmpty);
   });
+
+  test('refresh_skills answers ok', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    Map<String, dynamic>? seen;
+    daemon.replies['session.refresh_skills'] = (req) {
+      seen = (req['payload'] as Map).cast<String, dynamic>();
+      return {
+        'v': 1,
+        'type': 'ok',
+        'id': req['id'],
+        'payload': <String, dynamic>{},
+      };
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    await client.refreshSkills('s1');
+    expect(seen!['session_id'], 's1');
+    // The request carries no path or content: the daemon has no skill writer.
+    expect(seen!.keys, ['session_id']);
+  });
+
+  test('a busy instance surfaces instance_busy', () async {
+    final daemon = await _StubDaemon.start();
+    addTearDown(daemon.close);
+    daemon.replies['session.refresh_skills'] = (req) => {
+      'v': 1,
+      'type': 'error',
+      'id': req['id'],
+      'payload': {'code': 'instance_busy', 'message': 'busy'},
+    };
+    final client = await _connected(daemon);
+    addTearDown(client.dispose);
+    await expectLater(
+      client.refreshSkills('s1'),
+      throwsA(
+        isA<McException>().having((e) => e.code, 'code', 'instance_busy'),
+      ),
+    );
+  });
 }

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
+import 'package:magic_cli_remote/features/chat/diagnostics_sheet.dart';
 import 'package:magic_cli_remote/features/chat/workspace_sheet.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
@@ -20,6 +21,13 @@ import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
 class _RecordingClient extends McremoteClient {
   final prompts = <List<PromptAttachment>>[];
+
+  @override
+  Future<SessionDiagnostics> sessionDiagnostics(String sessionId) async =>
+      SessionDiagnostics(
+        branch: 'main',
+        skills: const [SkillInfo(name: 'customize-opencode')],
+      );
 
   @override
   Future<List<SessionEvent>> sessionHistory(
@@ -403,6 +411,48 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('open-workspace')));
       await tester.pumpAndSettle();
       expect(find.byType(WorkspaceSheet), findsOneWidget);
+    });
+
+    testWidgets('the diagnostics button opens the sanitized report', (
+      tester,
+    ) async {
+      await pumpChat(tester, _RecordingClient(), image: false, audio: false);
+      expect(find.byKey(const ValueKey('open-diagnostics')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('open-diagnostics')));
+      await tester.pumpAndSettle();
+      expect(find.byType(DiagnosticsSheet), findsOneWidget);
+    });
+
+    testWidgets('authoring composes into the ordinary composer, not a send', (
+      tester,
+    ) async {
+      final client = _RecordingClient();
+      await pumpChat(tester, client, image: false, audio: false);
+      await tester.tap(find.byKey(const ValueKey('open-diagnostics')));
+      await tester.pumpAndSettle();
+
+      // The affordance lives in the Skills section of the report.
+      await tester.tap(find.byKey(const ValueKey('diagnostics-author-skill')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('skill-name')),
+        'review-checklist',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('skill-description')),
+        'Checks a diff',
+      );
+      await tester.tap(find.byKey(const ValueKey('skill-compose')));
+      await tester.pumpAndSettle();
+
+      // The prompt lands in the composer for the user to read and edit; it is
+      // never sent on their behalf.
+      expect(
+        find.textContaining('.opencode/skills/review-checklist/SKILL.md'),
+        findsOneWidget,
+      );
+      expect(client.prompts, isEmpty, reason: 'nothing may be sent yet');
     });
   });
 }

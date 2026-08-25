@@ -467,7 +467,70 @@ type Diagnostics struct {
 	DefaultBranch string            `json:"default_branch,omitempty"`
 	VCS           *VCSStatusSummary `json:"vcs,omitempty"`
 	MCP           []MCPServerStatus `json:"mcp,omitempty"`
+
+	// Skills, LSP and Formatters explain what the engine can draw on and why a
+	// capability is degraded (MADR 0112 A6). They are metadata only: a skill's
+	// location and content, a language server's roots, and a formatter's
+	// executable never cross this boundary.
+	Skills     []SkillInfo     `json:"skills,omitempty"`
+	LSP        []LSPStatus     `json:"lsp,omitempty"`
+	Formatters []FormatterInfo `json:"formatters,omitempty"`
 }
+
+// SkillInfo is a skill the engine discovered.
+//
+// Name and description only. A skill's file location would disclose the daemon
+// host's layout, and its content is prompt text the phone has no use for; both
+// are dropped at decode rather than filtered later.
+type SkillInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// LSPStatus is one language server's coarse state. Roots and executable paths
+// are never forwarded.
+type LSPStatus struct {
+	Name   string `json:"name"`
+	Status string `json:"status,omitempty"`
+}
+
+// FormatterInfo is one formatter's availability.
+//
+// Extensions are reported as a count rather than a list: the count answers
+// "does this cover my files", while the list is configuration detail.
+type FormatterInfo struct {
+	Name       string `json:"name"`
+	Enabled    bool   `json:"enabled,omitempty"`
+	Extensions int    `json:"extensions,omitempty"`
+}
+
+// Normalized MCP states. This is the total mapping of the closed 1.18.21
+// MCPStatus union plus a degradation target, so a future upstream member
+// becomes "unknown" rather than leaking a raw string to the phone
+// (MADR 0112 A6, PLAN P7 step 9).
+const (
+	MCPStateConnected         = "connected"
+	MCPStateDisabled          = "disabled"
+	MCPStateFailed            = "failed"
+	MCPStateNeedsAuth         = "needs_auth"
+	MCPStateNeedsRegistration = "needs_registration"
+	MCPStateUnknown           = "unknown"
+)
+
+// SkillRefreshSession optionally recycles an idle engine instance so newly
+// written skills become discoverable.
+//
+// It is never called automatically: recycling is disruptive enough that the
+// owner confirms it, and a busy instance refuses rather than waiting
+// (MADR 0112 A10).
+type SkillRefreshSession interface {
+	Session
+	RefreshSkills(ctx context.Context) error
+}
+
+// ErrInstanceBusy means a refresh was refused because work is in flight in the
+// target project. The skill file is untouched; the caller retries when idle.
+var ErrInstanceBusy = errors.New("instance busy")
 
 // VCSStatusSummary aggregates a provider's working-tree state without
 // revealing individual repository paths.

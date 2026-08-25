@@ -140,6 +140,7 @@ var _ provider.CompactSession = (*session)(nil)
 var _ provider.ModelSession = (*session)(nil)
 var _ provider.ThinkingSession = (*session)(nil)
 var _ provider.WorkspaceSession = (*session)(nil)
+var _ provider.SkillRefreshSession = (*session)(nil)
 var _ provider.ModelCatalogSession = (*session)(nil)
 var _ provider.UndoSession = (*session)(nil)
 var _ provider.RenameSession = (*session)(nil)
@@ -179,6 +180,16 @@ type dialectCompact interface {
 // change the session's model without a restart (OpenCode).
 type dialectModel interface {
 	SetModel(ctx context.Context, model string) error
+}
+
+// dialectSkillRefresh is optionally implemented by a DialectSession whose
+// engine can be made to rediscover skills (MADR 0112 A10).
+type dialectSkillRefresh interface {
+	// DisposeInstance recycles the engine instance for this session's project.
+	DisposeInstance(ctx context.Context) error
+	// ReloadSkillCatalogs re-reads whatever discovery caches the dispose
+	// invalidated.
+	ReloadSkillCatalogs(ctx context.Context) error
 }
 
 // dialectWorkspace is optionally implemented by a DialectSession that can
@@ -316,6 +327,25 @@ func (s *session) SetModel(ctx context.Context, model string) error {
 	return nil
 }
 
+// busyForRefresh reports work a recycle would destroy.
+//
+// Queued and pending states count as busy, not just an active turn: a queued
+// prompt is about to run, and a permission or question outstanding means the
+// user is mid-decision. Recycling under any of those loses work the user
+// believes is in flight (MADR 0112 A10).
+func (s *session) busyForRefresh() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	return s.turnActive ||
+		s.promptInFlight ||
+		len(s.promptQueue) > 0 ||
+		len(s.pending) > 0 ||
+		len(s.questionPending) > 0
+}
+
 // StartThinkingLevel implements [Host].
 func (s *session) StartThinkingLevel() string { return s.startThinkingLevel }
 
@@ -348,6 +378,7 @@ func (s *session) emitCapabilities() {
 			LoadSession:   true,
 			ListSessions:  true,
 			WorkspaceRead: s.supportsWorkspace(),
+			SkillRefresh:  s.supportsSkillRefresh(),
 		},
 		AgentSessionID: s.AgentSessionID(),
 	})
@@ -360,6 +391,28 @@ func (s *session) refineModelSurface() {
 		r.AfterBootRefined()
 	}
 	s.emitCapabilities()
+}
+
+// RefreshSkills implements [provider.SkillRefreshSession].
+//
+// The provider gate decides whether the recycle may proceed; this method only
+// supplies the target directory and the two halves of the operation. Refusing a
+// busy instance is deliberate: the skill file is already written, so retrying
+// when idle loses nothing, while waiting behind a long turn would look like a
+// hang (MADR 0112 A10).
+func (s *session) RefreshSkills(ctx context.Context) error {
+	r, ok := s.ds.(dialectSkillRefresh)
+	if !ok {
+		return fmt.Errorf("skill refresh not supported by this provider")
+	}
+	return s.p.RefreshInstance(ctx, s.CWD(), r.DisposeInstance, r.ReloadSkillCatalogs)
+}
+
+// supportsSkillRefresh reports whether the live dialect can recycle its
+// instance.
+func (s *session) supportsSkillRefresh() bool {
+	_, ok := s.ds.(dialectSkillRefresh)
+	return ok
 }
 
 // ListWorkspace implements [provider.WorkspaceSession].
@@ -651,6 +704,12 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	}
 	s.ds = p.dialect.NewSession(s)
 
+	// Hold the instance read lock across create/resume, registration and the
+	// initial replay: a refresh that began after this point must not dispose
+	// the instance while the session is still half-registered (PLAN P7 step 6).
+	unlockInstance := p.instanceReadLock()
+	defer unlockInstance()
+
 	if opts.AgentSessionID != "" {
 		// Resume: the session already lives on the server — no replay, no
 		// engine work. Verify it exists, then rebuild our history ring from
@@ -771,6 +830,13 @@ func (s *session) beginTurn(parts []provider.Content, emitUser bool, messageID s
 	// streams over SSE and ends with the dialect's turn-end event.
 	callCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// Hold the instance read lock across the submission. The local claim above
+	// already marks the session busy, so a refresh that arrives now rejects
+	// rather than waiting; this lock closes the remaining window in which the
+	// claim is set but the request has not yet left (PLAN P7 step 6).
+	unlockInstance := s.p.instanceReadLock()
+	defer unlockInstance()
+
 	// Submit with the preassigned identity when the dialect supports it, so the
 	// agent's own user part comes back under the id the optimistic row already
 	// carries. A minted-but-unsupported id cannot happen: newPromptMessageID

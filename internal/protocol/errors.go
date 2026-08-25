@@ -125,15 +125,23 @@ const (
 
 	// Workspace validation codes (MADR 0112 A5). They are distinct so a client
 	// can explain the refusal instead of showing one generic failure.
-	ErrInvalidPath       = "invalid_path"
-	ErrPathEscape        = "path_escape"
-	ErrPathSymlink       = "path_symlink"
-	ErrBinaryContent     = "binary_content"
-	ErrResultTooLarge    = "result_too_large"
-	ErrInvalidQuery      = "invalid_query"
-	ErrWorkspaceFailed   = "workspace_failed"
-	ErrOutcomeUnknown    = "outcome_unknown"
-	ErrNativeUnavailable = "native_unavailable"
+	ErrInvalidPath     = "invalid_path"
+	ErrPathEscape      = "path_escape"
+	ErrPathSymlink     = "path_symlink"
+	ErrBinaryContent   = "binary_content"
+	ErrResultTooLarge  = "result_too_large"
+	ErrInvalidQuery    = "invalid_query"
+	ErrWorkspaceFailed = "workspace_failed"
+
+	// ErrInstanceBusy means a skill refresh was refused because work is in
+	// flight in that project. The skill file is untouched; retry when idle.
+	ErrInstanceBusy = "instance_busy"
+
+	// ErrSessionRefreshSkillsFailed is a sanitized upstream failure while
+	// recycling an instance or reloading its catalogs.
+	ErrSessionRefreshSkillsFailed = "session_refresh_skills_failed"
+	ErrOutcomeUnknown             = "outcome_unknown"
+	ErrNativeUnavailable          = "native_unavailable"
 
 	// --- remote provider auth (MADR 0074) ---
 
@@ -276,6 +284,8 @@ func ErrorCodes() []string {
 		ErrResultTooLarge,
 		ErrInvalidQuery,
 		ErrWorkspaceFailed,
+		ErrInstanceBusy,
+		ErrSessionRefreshSkillsFailed,
 		ErrOutcomeUnknown,
 		ErrNativeUnavailable,
 

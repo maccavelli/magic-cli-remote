@@ -3075,6 +3075,22 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         .toList();
   }
 
+  /// Recycles the session's idle engine instance so newly authored skills are
+  /// discovered, then reloads its skill and command catalogs (MADR 0112 A10).
+  ///
+  /// Throws `instance_busy` when that project still has work in flight. The
+  /// skill file is untouched, so retrying once idle loses nothing.
+  Future<void> refreshSkills(String sessionId) async {
+    final res = await request(
+      'session.refresh_skills',
+      payload: {'session_id': sessionId},
+      expectedType: 'ok',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'skill refresh failed');
+    }
+  }
+
   /// Lists one directory of a session's workspace (MADR 0112 A5).
   ///
   /// [path] is relative to the session working directory; empty means its root.

@@ -147,4 +147,96 @@ void main() {
       expect(off.hashCode == on.hashCode, isFalse);
     });
   });
+
+  group('diagnostics sections', () {
+    test('skills decode to name and description only', () {
+      final d = SessionDiagnostics.fromJson(const {
+        'skills': [
+          {
+            'name': 'customize-opencode',
+            'description': 'Author skills',
+            // Fields the daemon strips; defended again on the client.
+            'location': '/Users/secret/SKILL.md',
+            'content': 'SECRET BODY',
+          },
+        ],
+      });
+      expect(d.skills, hasLength(1));
+      expect(d.skills.single.name, 'customize-opencode');
+      expect(d.skills.single.description, 'Author skills');
+    });
+
+    test('language services decode to name and status', () {
+      final d = SessionDiagnostics.fromJson(const {
+        'lsp': [
+          {'name': 'gopls', 'status': 'running', 'root': '/Users/secret'},
+        ],
+      });
+      expect(d.lsp.single.name, 'gopls');
+      expect(d.lsp.single.status, 'running');
+    });
+
+    test('formatters carry an extension count, never a list', () {
+      final d = SessionDiagnostics.fromJson(const {
+        'formatters': [
+          {'name': 'gofmt', 'enabled': true, 'extensions': 3},
+        ],
+      });
+      expect(d.formatters.single.enabled, isTrue);
+      expect(d.formatters.single.extensions, 3);
+    });
+
+    test('non-map rows are skipped rather than crashing', () {
+      final d = SessionDiagnostics.fromJson(const {
+        'skills': ['not a map', 7, null],
+        'lsp': 'not a list',
+        'formatters': <dynamic>[],
+      });
+      expect(d.skills, isEmpty);
+      expect(d.lsp, isEmpty);
+      expect(d.formatters, isEmpty);
+    });
+
+    test('an empty payload yields empty sections', () {
+      final d = SessionDiagnostics.fromJson(const {});
+      expect(d.skills, isEmpty);
+      expect(d.lsp, isEmpty);
+      expect(d.formatters, isEmpty);
+      expect(d.mcp, isEmpty);
+    });
+
+    test('malformed rows default rather than throwing', () {
+      final d = SessionDiagnostics.fromJson(const {
+        'skills': [<String, dynamic>{}],
+        'lsp': [<String, dynamic>{}],
+        'formatters': [<String, dynamic>{}],
+      });
+      expect(d.skills.single.name, isEmpty);
+      expect(d.lsp.single.status, isEmpty);
+      expect(d.formatters.single.extensions, 0);
+      expect(d.formatters.single.enabled, isFalse);
+    });
+  });
+
+  group('SessionCapabilities.skillRefresh', () {
+    test('defaults to false so the affordance stays hidden', () {
+      expect(SessionCapabilities.fromJson(const {}).skillRefresh, isFalse);
+    });
+
+    test('is true only when the daemon says so', () {
+      expect(
+        SessionCapabilities.fromJson(const {
+          'skill_refresh': true,
+        }).skillRefresh,
+        isTrue,
+      );
+    });
+
+    test('participates in equality so a change repaints', () {
+      final off = SessionCapabilities.fromJson(const {});
+      final on = SessionCapabilities.fromJson(const {'skill_refresh': true});
+      expect(off == on, isFalse);
+      expect(off.hashCode == on.hashCode, isFalse);
+    });
+  });
 }

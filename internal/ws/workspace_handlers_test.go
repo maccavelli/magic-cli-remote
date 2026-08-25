@@ -231,3 +231,51 @@ func TestWSWorkspaceRejectsMalformedPayloads(t *testing.T) {
 		})
 	}
 }
+
+// TestWSRefreshSkillsRoundTrip proves the operation reaches the provider and
+// answers ok (MADR 0112 A10, PLAN P7 step 5).
+func TestWSRefreshSkillsRoundTrip(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionRefreshSkills, "rs-ok",
+		protocol.SessionRefreshSkillsPayload{SessionID: ws.meta.ID})
+	ws.send(t, env)
+	got := ws.recvSkipEvents(t)
+	if got.Type != protocol.TypeOK {
+		t.Fatalf("type = %s, want ok (payload=%s)", got.Type, string(got.Payload))
+	}
+}
+
+// TestWSRefreshSkillsRejectsBadRequests proves a missing or malformed payload
+// never reaches a handler with zero values.
+func TestWSRefreshSkillsRejectsBadRequests(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	missing, _ := protocol.NewEnvelope(protocol.TypeSessionRefreshSkills, "rs-missing",
+		protocol.SessionRefreshSkillsPayload{})
+	if e := errorFor(t, ws, missing); e.Code != "bad_payload" {
+		t.Fatalf("code = %q, want bad_payload", e.Code)
+	}
+
+	malformed, _ := protocol.NewEnvelope(protocol.TypeSessionRefreshSkills, "rs-malformed",
+		map[string]any{"session_id": 42})
+	if e := errorFor(t, ws, malformed); e.Code != "bad_payload" {
+		t.Fatalf("code = %q, want bad_payload", e.Code)
+	}
+}
+
+// TestWSRefreshSkillsRejectsUnownedSession proves a session the caller does not
+// own cannot be recycled.
+func TestWSRefreshSkillsRejectsUnownedSession(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionRefreshSkills, "rs-unowned",
+		protocol.SessionRefreshSkillsPayload{SessionID: "not-mine"})
+	e := errorFor(t, ws, env)
+	if e.Code == "" || e.Code == protocol.TypeOK {
+		t.Fatalf("an unowned session was accepted: %+v", e)
+	}
+}

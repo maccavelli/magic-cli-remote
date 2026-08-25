@@ -487,7 +487,9 @@ pre-add-check:
 #   scripts/coverage-delta.sh floor --after DIR --minimum 80.0 \
 #     --dart-root apps/mobile $(NEW_DART_FILES:%=--new-dart-file %)
 NEW_DART_FILES := \
-	lib/features/chat/workspace_sheet.dart
+	lib/features/chat/workspace_sheet.dart \
+	lib/features/chat/diagnostics_sheet.dart \
+	lib/features/chat/skill_authoring_sheet.dart
 
 # Assert release binaries carry the expected build tags (MADR 0059 D9).
 # Builds temporary Darwin (no tags) and Linux (netgo,osusergo) artifacts.

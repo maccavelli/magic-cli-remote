@@ -59,6 +59,7 @@ func asyncDispatchedTypes() []string {
 		protocol.TypeAgentsList,
 		protocol.TypeAgentSessionsList,
 		protocol.TypeProjectsList,
+		protocol.TypeSessionRefreshSkills,
 		protocol.TypeWorkspaceList,
 		protocol.TypeWorkspaceRead,
 		protocol.TypeWorkspaceSearch,

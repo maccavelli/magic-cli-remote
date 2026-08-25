@@ -302,6 +302,7 @@ denies transport access rather than merely a bearer secret.
 | `session.release` | `{ "session_id", "to_device_id"? }` | `ok` / `error` — hand off to another device; see [Session handoff](#session-handoff-madr-0078) |
 | `session.claim` | `{ "session_id" }` | `session.created` / `error` — take a released session |
 | `session.prompt` | `{ "session_id", "text", "attachments?" }` | `ok` / `error` (`turn_busy` if a turn is already active) — each attachment is `{ "kind", "mime_type", "data", "filename"? }`; see [Prompt attachments](#prompt-attachments) |
+| `session.refresh_skills` | `{ "session_id" }` | `ok` / `error` (`instance_busy`) — see [Skills and diagnostics](#skills-and-diagnostics) |
 | `workspace.list` | `{ "session_id", "path"? }` | `workspace.list_result` — see [Workspace inspection](#workspace-inspection) |
 | `workspace.read` | `{ "session_id", "path" }` | `workspace.read_result` |
 | `workspace.search` | `{ "session_id", "kind", "query" }` | `workspace.search_result` |
@@ -1276,6 +1277,55 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   part — discard what you hold for that identity and take this instead. `false`
   (or absent) is an append delta.
 
+### Skills and diagnostics
+
+`session.diagnostics` reports what the engine can draw on. Beyond the existing
+VCS and MCP fields it carries `skills`, `lsp` and `formatters` (MADR 0112 A6).
+
+Everything in it is **metadata only**, bounded and sorted:
+
+| Section | Forwarded | Never forwarded |
+| --- | --- | --- |
+| `skills` (≤64) | name, description | file location, instruction content |
+| `lsp` (≤32) | name, status | roots, executable paths |
+| `formatters` (≤32) | name, enabled, extension **count** | the extension list |
+| `mcp` (≤32) | name, normalized state | `error`, URLs, headers, OAuth detail |
+
+MCP states come from a closed vocabulary — `connected`, `disabled`, `failed`,
+`needs_auth`, `needs_registration` — and anything absent, empty or
+unrecognized becomes `unknown`. That mapping is total on purpose: two upstream
+states carry a required `error` string containing URLs and bearer tokens, and a
+pass-through default would be how such a value escaped.
+
+A `diagnostics_changed` event tells a client its cached report is stale. It
+carries **no payload**, for the same reason: the engine's global events name
+servers and include errors. It is emitted at most once per 500 ms per session,
+and only for the two canonical events that invalidate the report
+(`mcp.tools.changed`, `lsp.updated`). The 1.18.21 Event union has no formatter,
+config or skill update event, so those sections refresh on open or explicitly.
+
+#### Authoring a skill
+
+The daemon has **no skill-write API**. A phone composes an ordinary prompt
+asking OpenCode to use its built-in `customize-opencode` skill and write
+`.opencode/skills/<name>/SKILL.md` in the current worktree, then submits it
+through the normal `session.prompt` path. OpenCode's usual write, edit and
+permission rules apply unchanged — there is no bypass, no raw Markdown editor,
+and no global-home path.
+
+`session.refresh_skills` then recycles the project's **idle** engine instance so
+the new skill is discovered, and reloads `/skill` and `/command`. It is never
+automatic and requires confirmation, because recycling is disruptive. Stored
+sessions, messages and tool history survive it.
+
+A sanitized upstream failure during disposal or reload is
+`session_refresh_skills_failed`.
+
+It refuses with `instance_busy` when any session in that project is running,
+has a prompt in flight or queued, or is waiting on a permission or question.
+The skill file is untouched — retry once that project is idle. Idle sessions in
+*other* projects do not make the target busy.
+
 ### Workspace inspection
 
 A **read-only** view of the active session's working directory. There is no
@@ -1459,7 +1509,7 @@ the **active model's** advertised inputs (MADR 0112 A2), so it can change
 mid-session without a restart. Attachment bytes and data URLs never appear in
 daemon logs, and `user_message` echoes carry descriptors only.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `artifact`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `artifact`, `diagnostics_changed`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 
 Every type in that list has a section or a field entry in this document, and a
 test enforces it (`TestEventTypesAreDocumented`): a new event type fails the

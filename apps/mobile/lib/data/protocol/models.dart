@@ -1093,12 +1093,22 @@ class SessionDiagnostics {
     this.defaultBranch = '',
     this.vcs,
     this.mcp = const [],
+    this.skills = const [],
+    this.lsp = const [],
+    this.formatters = const [],
   });
 
   final String branch;
   final String defaultBranch;
   final VcsStatusSummary? vcs;
   final List<McpServerStatus> mcp;
+
+  /// What the engine can draw on (MADR 0112 A6). Metadata only: a skill's file
+  /// location and instruction text, a language server's roots, and a
+  /// formatter's executable never reach the phone.
+  final List<SkillInfo> skills;
+  final List<LspStatus> lsp;
+  final List<FormatterInfo> formatters;
 
   factory SessionDiagnostics.fromJson(Map<String, dynamic> json) {
     final rawMcp = json['mcp'];
@@ -1119,8 +1129,65 @@ class SessionDiagnostics {
                 .where((e) => e.name.isNotEmpty && e.state.isNotEmpty)
                 .toList(growable: false)
           : const [],
+      skills: _rows(json['skills'], SkillInfo.fromJson),
+      lsp: _rows(json['lsp'], LspStatus.fromJson),
+      formatters: _rows(json['formatters'], FormatterInfo.fromJson),
     );
   }
+}
+
+/// Decodes a bounded list of maps, skipping anything that is not one.
+List<T> _rows<T>(Object? raw, T Function(Map<String, dynamic>) build) {
+  if (raw is! List) return const [];
+  return [
+    for (final e in raw)
+      if (e is Map) build(Map<String, dynamic>.from(e)),
+  ];
+}
+
+/// A skill the engine discovered. Name and description only.
+class SkillInfo {
+  const SkillInfo({required this.name, this.description = ''});
+
+  final String name;
+  final String description;
+
+  factory SkillInfo.fromJson(Map<String, dynamic> j) => SkillInfo(
+    name: (j['name'] as String?) ?? '',
+    description: (j['description'] as String?) ?? '',
+  );
+}
+
+/// One language server's coarse state. Roots and executables are never sent.
+class LspStatus {
+  const LspStatus({required this.name, this.status = ''});
+
+  final String name;
+  final String status;
+
+  factory LspStatus.fromJson(Map<String, dynamic> j) => LspStatus(
+    name: (j['name'] as String?) ?? '',
+    status: (j['status'] as String?) ?? '',
+  );
+}
+
+/// One formatter's availability. Extensions are a count, not a list.
+class FormatterInfo {
+  const FormatterInfo({
+    required this.name,
+    this.enabled = false,
+    this.extensions = 0,
+  });
+
+  final String name;
+  final bool enabled;
+  final int extensions;
+
+  factory FormatterInfo.fromJson(Map<String, dynamic> j) => FormatterInfo(
+    name: (j['name'] as String?) ?? '',
+    enabled: j['enabled'] == true,
+    extensions: (j['extensions'] as num?)?.toInt() ?? 0,
+  );
 }
 
 class VcsStatusSummary {
@@ -2026,6 +2093,7 @@ class SessionCapabilities {
     required this.image,
     required this.audio,
     this.workspaceRead = false,
+    this.skillRefresh = false,
     required this.loadSession,
     required this.embeddedContext,
     required this.listSessions,
@@ -2042,6 +2110,10 @@ class SessionCapabilities {
   /// (MADR 0112 A5). The workspace affordance is hidden when false: a provider
   /// without the surface would only ever refuse.
   final bool workspaceRead;
+
+  /// True when the session can recycle its idle engine instance so a newly
+  /// authored skill becomes discoverable (MADR 0112 A10).
+  final bool skillRefresh;
   final bool loadSession;
   final bool embeddedContext;
   final bool listSessions;
@@ -2055,6 +2127,7 @@ class SessionCapabilities {
       image: json['image'] == true,
       audio: json['audio'] == true,
       workspaceRead: json['workspace_read'] == true,
+      skillRefresh: json['skill_refresh'] == true,
       loadSession: json['load_session'] == true,
       embeddedContext: json['embedded_context'] == true,
       listSessions: json['list_sessions'] == true,
@@ -2071,6 +2144,7 @@ class SessionCapabilities {
       other.image == image &&
       other.audio == audio &&
       other.workspaceRead == workspaceRead &&
+      other.skillRefresh == skillRefresh &&
       other.loadSession == loadSession &&
       other.embeddedContext == embeddedContext &&
       other.listSessions == listSessions &&
@@ -2084,6 +2158,7 @@ class SessionCapabilities {
     image,
     audio,
     workspaceRead,
+    skillRefresh,
     loadSession,
     embeddedContext,
     listSessions,

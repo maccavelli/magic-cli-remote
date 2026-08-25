@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
+	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -76,6 +78,19 @@ type Provider struct {
 	closed   bool
 	// sessions routes SSE events by parent agent-side session id.
 	sessions map[string]*session
+
+	// lastDiagnosticsMark is when the last diagnostics-change marker went out,
+	// for debouncing bursts. nowFn is overridable so tests can drive the
+	// window with a fake clock instead of sleeping.
+	lastDiagnosticsMark time.Time
+	// nowFn is the clock, overridable in tests so debounce boundaries can be
+	// driven exactly rather than by sleeping.
+	nowFn func() time.Time
+
+	// instanceMu serialises engine-instance recycling against ordinary work.
+	// Separate from mu, which guards the routing table: holding mu across a
+	// disposal HTTP call would stall every unrelated lookup.
+	instanceMu sync.RWMutex
 	// childAliases maps child agent-session ids → the parent *session that
 	// owns the user-visible transcript (MADR 0020). Cleared with the parent.
 	childAliases map[string]*session
@@ -722,7 +737,15 @@ func (p *Provider) streamOnce(url string, gen int) error {
 			p.log.Warn("dropping oversized SSE line", slog.Int("limit_bytes", maxSSELine))
 		}
 		if len(line) > 0 && !tooLong && bytes.HasPrefix(line, []byte("data: ")) {
-			if typ, props, sid, ok := p.dialect.DecodeFrame(line[len("data: "):]); ok && sid != "" {
+			if typ, props, sid, ok := p.dialect.DecodeFrame(line[len("data: "):]); ok && sid == "" {
+				// Engine-global frame: no session owns it. The dialect decides
+				// whether it invalidates diagnostics; nothing from the payload
+				// travels any further (PLAN P7 step 10).
+				if ed, hasHook := p.dialect.(EngineEventDialect); hasHook &&
+					ed.EngineEventNeedsDiagnostics(typ) {
+					p.noteDiagnosticsChanged(gen)
+				}
+			} else if ok && sid != "" {
 				p.mu.Lock()
 				stale := p.generation != gen
 				s := p.lookupSessionLocked(sid, props)
@@ -791,6 +814,125 @@ func (p *Provider) resyncSessions(gen int) {
 	p.mu.Unlock()
 	for _, s := range sessions {
 		go s.resync()
+	}
+}
+
+// instanceOp guards operations that must not interleave with recycling an
+// engine instance (MADR 0112 A10, PLAN P7 step 6).
+//
+// Ordinary work — start, prompt, shell, close — takes the *read* lock, so it
+// runs concurrently with itself as it always has. Only a skill refresh takes
+// the write lock, and it holds it across the busy check, the disposal call and
+// the catalog reload. Doing the check under the same lock as the disposal is
+// the whole point: checking first and disposing after would let a prompt start
+// in the gap and be destroyed by the recycle.
+//
+// The lock is provider-wide rather than per-directory, which briefly pauses new
+// starts and prompts in *every* project for the bounded duration of one
+// refresh. That is the conservative trade: OpenCode keys instances by
+// normalized directory, and a per-key lock would have to be taken before the
+// key is known.
+func (p *Provider) instanceReadLock() func() {
+	p.instanceMu.RLock()
+	return p.instanceMu.RUnlock
+}
+
+// normalizeInstanceKey matches how OpenCode keys an instance by directory, so
+// "busy" is decided on the same identity the engine would use.
+func normalizeInstanceKey(dir string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(dir))
+	if cleaned == "." {
+		return ""
+	}
+	return strings.TrimSuffix(cleaned, string(filepath.Separator))
+}
+
+// busyInInstance reports a registered session in the target directory that is
+// doing work a recycle would destroy.
+//
+// Caller holds instanceMu for writing. Idle sessions in *other* directories are
+// deliberately not busy: recycling one project's instance does not touch
+// another's, and refusing on their account would make refresh unusable on a
+// busy machine.
+func (p *Provider) busyInInstance(target string) bool {
+	p.mu.Lock()
+	sessions := make([]*session, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	p.mu.Unlock()
+
+	for _, s := range sessions {
+		if normalizeInstanceKey(s.CWD()) != target {
+			continue
+		}
+		if s.busyForRefresh() {
+			return true
+		}
+	}
+	return false
+}
+
+// RefreshInstance recycles the engine instance for dir, then runs reload.
+//
+// It refuses rather than waiting when the target is busy: a refresh exists to
+// make a just-written skill visible, and blocking behind a long turn would turn
+// a quick confirmation into an unexplained hang.
+func (p *Provider) RefreshInstance(ctx context.Context, dir string, dispose, reload func(context.Context) error) error {
+	p.instanceMu.Lock()
+	defer p.instanceMu.Unlock()
+
+	target := normalizeInstanceKey(dir)
+	if p.busyInInstance(target) {
+		return provider.ErrInstanceBusy
+	}
+	if err := dispose(ctx); err != nil {
+		return err
+	}
+	// Reload happens under the same write lock so a new operation cannot win
+	// the race and observe a disposed-but-not-reloaded instance.
+	return reload(ctx)
+}
+
+// diagnosticsDebounce bounds how often a diagnostics-change marker is emitted.
+// Engine events arrive in bursts — a language server restarting emits several
+// in a row — and one marker per burst is all a client needs to re-request.
+const diagnosticsDebounce = 500 * time.Millisecond
+
+// clock returns the provider's time source.
+func (p *Provider) clock() time.Time {
+	if p.nowFn != nil {
+		return p.nowFn()
+	}
+	return time.Now()
+}
+
+// noteDiagnosticsChanged emits at most one marker per registered session per
+// debounce window.
+//
+// The window is per provider rather than per session: the events are global, so
+// two sessions seeing the same burst should not produce two rounds of markers
+// at different offsets.
+func (p *Provider) noteDiagnosticsChanged(gen int) {
+	now := p.clock()
+	p.mu.Lock()
+	if p.closed || p.generation != gen {
+		p.mu.Unlock()
+		return
+	}
+	if !p.lastDiagnosticsMark.IsZero() && now.Sub(p.lastDiagnosticsMark) < diagnosticsDebounce {
+		p.mu.Unlock()
+		return
+	}
+	p.lastDiagnosticsMark = now
+	sessions := make([]*session, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	p.mu.Unlock()
+
+	for _, s := range sessions {
+		s.Emit(event.Event{Type: event.TypeDiagnosticsChanged})
 	}
 }
 

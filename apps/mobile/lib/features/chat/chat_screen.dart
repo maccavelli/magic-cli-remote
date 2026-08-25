@@ -6,6 +6,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'diagnostics_sheet.dart';
+import 'skill_authoring_sheet.dart';
 import 'workspace_sheet.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
@@ -833,6 +835,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       builder: (ctx) => FractionallySizedBox(
         heightFactor: 0.85,
         child: WorkspaceSheet(sessionId: widget.sessionId),
+      ),
+    );
+  }
+
+  /// Opens sanitized engine diagnostics.
+  Future<void> _showDiagnosticsSheet(bool canRefreshSkills) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: DiagnosticsSheet(
+          sessionId: widget.sessionId,
+          canRefreshSkills: canRefreshSkills,
+          onAuthorSkill: () {
+            Navigator.of(ctx).pop();
+            _showSkillAuthoringSheet();
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Opens the skill-authoring composer.
+  ///
+  /// The composed text lands in the ordinary composer rather than being sent:
+  /// the user reads and edits a normal prompt, and OpenCode's usual write and
+  /// permission rules decide what happens (MADR 0112 A10).
+  Future<void> _showSkillAuthoringSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => SkillAuthoringSheet(
+        onCompose: (prompt) {
+          Navigator.of(ctx).pop();
+          _composer.text = prompt;
+          _focus.requestFocus();
+        },
       ),
     );
   }
@@ -2091,6 +2133,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         sid,
       ).select((t) => t.capabilities?.workspaceRead ?? false),
     );
+    final canRefreshSkills = ref.watch(
+      sessionTranscriptProvider(
+        sid,
+      ).select((t) => t.capabilities?.skillRefresh ?? false),
+    );
     final modes = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.modes),
     );
@@ -2760,6 +2807,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       icon: const Icon(Icons.folder_outlined),
                       onPressed: offline ? null : _showWorkspaceSheet,
                     ),
+                  IconButton(
+                    key: const ValueKey('open-diagnostics'),
+                    tooltip: 'Diagnostics',
+                    icon: const Icon(Icons.health_and_safety_outlined),
+                    onPressed: offline
+                        ? null
+                        : () => _showDiagnosticsSheet(canRefreshSkills),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _composer,

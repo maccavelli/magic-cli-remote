@@ -120,6 +120,7 @@ const (
 	TypeAgentsResult             = "agents.list_result"
 	TypeAgentSessionsList        = "agent_sessions.list"
 	TypeAgentSessionsResult      = "agent_sessions.list_result"
+	TypeSessionRefreshSkills     = "session.refresh_skills"
 	TypeWorkspaceList            = "workspace.list"
 	TypeWorkspaceListResult      = "workspace.list_result"
 	TypeWorkspaceRead            = "workspace.read"
@@ -1057,6 +1058,13 @@ type AgentSessionsResultPayload struct {
 // session exists.
 type ProjectsListPayload struct {
 	Provider string `json:"provider"`
+}
+
+// SessionRefreshSkillsPayload recycles the session's idle engine instance so
+// newly authored skills become discoverable. It carries no path or content: the
+// daemon has no skill writer, and the directory is the session's own.
+type SessionRefreshSkillsPayload struct {
+	SessionID string `json:"session_id"`
 }
 
 // WorkspaceListPayload requests one directory of the session's workspace.

@@ -159,7 +159,23 @@ var (
 	_ httpagent.CommandTabler       = (*httpDialect)(nil)
 	_ httpagent.HealthyHook         = (*httpDialect)(nil)
 	_ httpagent.VersionGate         = (*httpDialect)(nil)
+	_ httpagent.EngineEventDialect  = (*httpDialect)(nil)
 )
+
+// EngineEventNeedsDiagnostics implements [httpagent.EngineEventDialect].
+//
+// Exactly two canonical events invalidate the sanitized diagnostics report. The
+// 1.18.21 Event union has no formatter, config or skill update event, so those
+// sections refresh explicitly or on open rather than being inferred from an
+// event that does not exist (MADR 0112 A6, PLAN P7 step 10).
+func (d *httpDialect) EngineEventNeedsDiagnostics(typ string) bool {
+	switch typ {
+	case "mcp.tools.changed", "lsp.updated":
+		return true
+	default:
+		return false
+	}
+}
 
 func (d *httpDialect) ID() provider.ID    { return provider.IDOpencode }
 func (d *httpDialect) DefaultBin() string { return "opencode" }
