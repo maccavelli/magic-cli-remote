@@ -1,7 +1,9 @@
 package relay
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -285,7 +287,7 @@ func Load(opts LoadOptions) (FileConfig, error) {
 		v.SetConfigName("config")
 		v.SetConfigType("yaml")
 		if err := v.ReadInConfig(); err != nil {
-			if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !isNotExist(err) {
+			if _, ok := err.(viper.ConfigFileNotFoundError); !ok && !errors.Is(err, fs.ErrNotExist) {
 				return FileConfig{}, fmt.Errorf("read config: %w", err)
 			}
 		} else {
@@ -758,12 +760,11 @@ func (c FileConfig) ToServerConfig() Config {
 }
 
 func hostEntryFromAllow(s string) (HostEntry, error) {
-	c, err := ParseAllowFlag(s)
+	id, secret, err := parseAllowParts(s)
 	if err != nil {
 		return HostEntry{}, err
 	}
-	i := strings.IndexByte(s, ':')
-	return HostEntry{ID: c.HostID, Secret: s[i+1:]}, nil
+	return HostEntry{ID: id, Secret: secret}, nil
 }
 
 func splitHostsCSV(csv string) []string {
@@ -777,10 +778,6 @@ func splitHostsCSV(csv string) []string {
 		}
 	}
 	return out
-}
-
-func isNotExist(err error) bool {
-	return err != nil && (os.IsNotExist(err) || strings.Contains(err.Error(), "no such file"))
 }
 
 // ConfigPathHint returns the default config path for docs/errors.

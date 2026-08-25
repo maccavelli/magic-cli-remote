@@ -181,3 +181,61 @@ hosts:
 		t.Fatalf("got %+v", cfg.Listen)
 	}
 }
+
+// TestAllowEntryTrailingWhitespaceSecret pins 0115 F3: one parse for --allow
+// entries. Pre-fix, ParseAllowFlag validated a TrimSpace'd copy while
+// hostEntryFromAllow re-sliced the raw string, so a trailing space (easy in a
+// systemd Environment= line) was hashed into the stored secret and the host
+// could never authenticate.
+func TestAllowEntryTrailingWhitespaceSecret(t *testing.T) {
+	const raw = "h1:0123456789abcdef "
+	ent, err := hostEntryFromAllow(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ent.Secret != "0123456789abcdef" {
+		t.Fatalf("stored secret %q; trailing whitespace must be trimmed with the entry", ent.Secret)
+	}
+	cred, err := ParseAllowFlag(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if HashSecret(ent.Secret) != cred.SecretHash {
+		t.Fatal("hostEntryFromAllow and ParseAllowFlag disagree on the same entry")
+	}
+}
+
+// TestServeFlagsSingleMechanism guards the 0115 F15 deletion of newServeCmd's
+// manual overrides: values must reach FileConfig through bindRelayFlags+Load
+// alone for representative flag types (int, string, bool).
+func TestServeFlagsSingleMechanism(t *testing.T) {
+	// Hermetic: never pick up a real ~/.config/mcrelay/config.yaml.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	fs := pflag.NewFlagSet("serve", pflag.ContinueOnError)
+	fs.Int("listen-port", 0, "")
+	fs.String("tls-mode", "", "")
+	fs.Bool("allow-legacy-tunnel-secret", false, "")
+	if err := fs.Parse([]string{
+		"--listen-port", "9443",
+		"--tls-mode", "off",
+		"--allow-legacy-tunnel-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(LoadOptions{
+		Flags:      fs,
+		AllowExtra: []string{"h1:0123456789abcdef"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Listen.Port != 9443 {
+		t.Fatalf("listen.port=%d, want 9443 via bindRelayFlags alone", cfg.Listen.Port)
+	}
+	if cfg.TLS.Mode != TLSModeOff {
+		t.Fatalf("tls.mode=%q, want off", cfg.TLS.Mode)
+	}
+	if !cfg.AllowLegacyTunnelSecret {
+		t.Fatal("allow_legacy_tunnel_secret should be true via bindRelayFlags alone")
+	}
+}

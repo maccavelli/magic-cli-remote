@@ -239,7 +239,7 @@ hosts:
 }
 
 func TestExpandDomainList(t *testing.T) {
-	got := expandDomainList([]string{"a.com, b.com", "  c.com  ", ""})
+	got := expandStringList([]string{"a.com, b.com", "  c.com  ", ""})
 	if len(got) != 3 || got[0] != "a.com" || got[1] != "b.com" || got[2] != "c.com" {
 		t.Fatalf("%v", got)
 	}

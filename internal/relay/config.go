@@ -178,20 +178,33 @@ type Config struct {
 	AllowPlaintext bool
 }
 
-// ParseAllowFlag parses "host_id:secret" into a credential.
-func ParseAllowFlag(s string) (HostCredential, error) {
+// parseAllowParts splits one "host_id:secret" entry. It is the single parse
+// for --allow and MCRELAY_HOSTS (0115 F3): the whole entry is trimmed once,
+// so surrounding whitespace — easy to pick up in a systemd Environment= line —
+// can never end up hashed into the stored secret while a differently-sliced
+// copy passed validation.
+func parseAllowParts(s string) (id, secret string, err error) {
 	s = strings.TrimSpace(s)
 	i := strings.IndexByte(s, ':')
 	if i <= 0 || i == len(s)-1 {
-		return HostCredential{}, fmt.Errorf("allow: want host_id:secret, got %q", s)
+		return "", "", fmt.Errorf("allow: want host_id:secret, got %q", s)
 	}
-	id := strings.TrimSpace(s[:i])
-	secret := s[i+1:]
+	id = strings.TrimSpace(s[:i])
+	secret = s[i+1:]
 	if err := validateHostID(id); err != nil {
-		return HostCredential{}, err
+		return "", "", err
 	}
 	if len(secret) < 16 {
-		return HostCredential{}, fmt.Errorf("allow: secret for %q too short (min 16)", id)
+		return "", "", fmt.Errorf("allow: secret for %q too short (min 16)", id)
+	}
+	return id, secret, nil
+}
+
+// ParseAllowFlag parses "host_id:secret" into a credential.
+func ParseAllowFlag(s string) (HostCredential, error) {
+	id, secret, err := parseAllowParts(s)
+	if err != nil {
+		return HostCredential{}, err
 	}
 	return HostCredential{HostID: id, SecretHash: HashSecret(secret)}, nil
 }

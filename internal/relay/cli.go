@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
@@ -159,6 +158,8 @@ func newVersionCmd() *cobra.Command {
 }
 
 func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
+	// Flags bound through bindRelayFlags land in FileConfig via Load; their
+	// local variables exist only to register the flag (0115 F15).
 	var (
 		listenHost              string
 		listenPort              int
@@ -212,55 +213,11 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			if err != nil {
 				return err
 			}
-			// CLI overrides that share names with setup-service flags.
-			if cmd.Flags().Changed("listen-host") && listenHost != "" {
-				fc.Listen.Host = listenHost
-			}
-			if cmd.Flags().Changed("listen-port") && listenPort > 0 {
-				fc.Listen.Port = listenPort
-			}
-			if cmd.Flags().Changed("data-dir") && dataDir != "" {
-				fc.DataDir = dataDir
-			}
-			if cmd.Flags().Changed("tls-mode") && tlsMode != "" {
-				fc.TLS.Mode = tlsMode
-			}
-			if cmd.Flags().Changed("tls-cert") {
-				fc.TLS.CertFile = tlsCert
-			}
-			if cmd.Flags().Changed("tls-key") {
-				fc.TLS.KeyFile = tlsKey
-			}
-			if cmd.Flags().Changed("tls-domain") && len(tlsDomains) > 0 {
-				fc.TLS.LetsEncrypt.Domains = tlsDomains
-			}
-			if cmd.Flags().Changed("tls-email") {
-				fc.TLS.LetsEncrypt.Email = tlsEmail
-			}
-			if cmd.Flags().Changed("tls-acme-directory") {
-				fc.TLS.LetsEncrypt.DirectoryURL = tlsACMEDir
-			}
-			if cmd.Flags().Changed("tls-acme-staging") {
-				fc.TLS.LetsEncrypt.Staging = tlsStaging
-			}
-			if cmd.Flags().Changed("tls-acme-http-port") {
-				fc.TLS.LetsEncrypt.HTTPPort = tlsHTTPPort
-			}
-			if cmd.Flags().Changed("tls-acme-challenge") && tlsChallenge != "" {
-				fc.TLS.LetsEncrypt.Challenge = tlsChallenge
-			}
-			if cmd.Flags().Changed("tls-route53-zone-id") {
-				fc.TLS.LetsEncrypt.Route53.HostedZoneID = tlsR53Zone
-			}
-			if cmd.Flags().Changed("tls-route53-region") {
-				fc.TLS.LetsEncrypt.Route53.Region = tlsR53Region
-			}
-			if cmd.Flags().Changed("tls-route53-profile") {
-				fc.TLS.LetsEncrypt.Route53.Profile = tlsR53Profile
-			}
-			if cmd.Flags().Changed("allow-legacy-tunnel-secret") {
-				fc.AllowLegacyTunnelSecret = allowLegacyTunnelSecret
-			}
+			// One flag mechanism (0115 F15): every flag that bindRelayFlags
+			// binds reaches FileConfig through Load. Only the runtime-scoped
+			// flags below are applied by hand: trusted-proxy is a StringArray
+			// (deliberately post-Load), and log level/format come from the
+			// persistent flag set.
 			if cmd.Flags().Changed("trusted-proxy") && len(trustedProxies) > 0 {
 				fc.TrustedProxies = expandStringList(trustedProxies)
 			}
@@ -271,7 +228,7 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 				fc.Log.Format = *logFormat
 			}
 			// Env MCRELAY_TLS_DOMAINS=a,b may arrive as a single string via AutomaticEnv.
-			fc.TLS.LetsEncrypt.Domains = expandDomainList(fc.TLS.LetsEncrypt.Domains)
+			fc.TLS.LetsEncrypt.Domains = expandStringList(fc.TLS.LetsEncrypt.Domains)
 			fc.TrustedProxies = expandStringList(fc.TrustedProxies)
 
 			if err := fc.Validate(); err != nil {
@@ -342,20 +299,6 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 	fs.BoolVar(&allowPlaintext, "allow-plaintext", false, "permit a non-loopback listen with tls.mode=off (0091 D5; tests/lab only)")
 	_ = cfgFile
 	return cmd
-}
-
-// expandDomainList splits comma-separated domain entries (env / single flag).
-func expandDomainList(in []string) []string {
-	var out []string
-	for _, d := range in {
-		for _, p := range strings.Split(d, ",") {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				out = append(out, p)
-			}
-		}
-	}
-	return out
 }
 
 // setupServiceFlags mirrors mcremote setup-service.
