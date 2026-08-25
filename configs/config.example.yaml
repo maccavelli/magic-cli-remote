@@ -246,6 +246,13 @@ providers:
     # When the Linux userns/bwrap workspace-write probe fails (MADR 0048):
     # warn (default) | require_full_access | refuse.
     sandbox_broken_policy: warn
+    # Engine control plane. stdio is the secure/default child transport.
+    # unix_ws and managed_daemon_proxy are Unix-only; ws is loopback-only and
+    # uses daemon-generated native Codex bearer material (never inline here).
+    transport: stdio  # stdio | unix_ws | ws | managed_daemon_proxy
+    listen_address: "" # ws only; optional 127.0.0.1:port
+    ws_auth_mode: ""   # capability_token | signed_bearer (ws only)
+    reconnect_attempts: 3  # 0 disables; maximum 3
   # Kilo CLI (kilo.ai, npm @kilocode/cli). An OpenCode fork with its own
   # Gateway, agents, and model aliases — driven through one shared
   # `kilo serve` engine (HTTP + SSE), same architecture as opencode

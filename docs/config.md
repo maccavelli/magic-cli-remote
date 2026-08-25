@@ -252,6 +252,35 @@ behaviour, choose one:
 
 Background: [MADR 0050](./0050-MADR-grok-cli-surface-drift.md) D3.
 
+### Codex engine transports and authority boundary
+
+Codex defaults to a child app-server over stdio. Other modes are explicit:
+
+```yaml
+providers:
+  codex:
+    transport: stdio  # stdio | unix_ws | ws | managed_daemon_proxy
+    listen_address: "" # ws only; optional 127.0.0.1:port
+    ws_auth_mode: ""   # capability_token | signed_bearer; ws defaults securely
+    reconnect_attempts: 3
+```
+
+`unix_ws` creates a private socket below the daemon runtime directory.
+`ws` reserves and binds a loopback port, writes generated bearer material to a
+daemon-owned `0600` file, waits for both `/readyz` and `/healthz`, then proves
+application readiness with authenticated `initialize`. Wildcard and
+non-loopback binds are rejected. The phone never receives the Codex endpoint
+or credential: it remains on mcremote's authenticated WSS/TLS protocol, whose
+typed operations do not accept raw Codex JSON-RPC frames.
+
+`managed_daemon_proxy` is Unix-only and opt-in. mcremote accepts a lease only
+from a single lifecycle JSON object with status `started` and matching process,
+path, socket, CLI, managed-binary, and app-server identity. `alreadyRunning`
+means another owner: mcremote does not attach, restart, proxy, or stop it. A
+lost lease falls back to supervised stdio after connection-owned callbacks are
+cancelled. Secret values are generated at runtime and cannot be supplied
+inline in configuration.
+
 ### Codex sandbox: unprivileged user namespaces (Ubuntu 24.04+)
 
 Codex runs every sandboxed shell command and `apply_patch` through

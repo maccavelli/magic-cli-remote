@@ -150,6 +150,10 @@ providers:
     # prompts, edits confined to the workspace — is always available.
     allow_full_access: false
     sandbox_broken_policy: warn  # warn | require_full_access | refuse (MADR 0048)
+    transport: stdio
+    listen_address: ""
+    ws_auth_mode: ""  # capability_token | signed_bearer (ws only)
+    reconnect_attempts: 3
   # Kilo CLI (kilo.ai). Default-on (MADR 0075). Known-good: kilo 7.4.22 (MADR 0088).
   kilo:
     enabled: true

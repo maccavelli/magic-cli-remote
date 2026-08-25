@@ -1855,6 +1855,72 @@ func (s *session) serverDied() {
 	close(s.done)
 }
 
+// engineLost cancels connection-owned work without destroying the daemon's
+// session record. A replacement generation may adopt or resume this thread.
+func (s *session) engineLost() {
+	s.mu.Lock()
+	closed := s.closed
+	s.steerable = false
+	s.turnBusy = false
+	s.mu.Unlock()
+	if closed {
+		return
+	}
+	s.drainChunks()
+	s.cancelPendingPermissions("engine lost")
+	s.cancelPendingQuestions("engine lost")
+	s.emit(event.Event{
+		Type: event.TypeSessionStatus, SessionID: s.localID, Timestamp: time.Now().UTC(),
+		Status: "disconnected", AgentSessionID: s.agentID,
+	})
+	s.emit(event.Event{
+		Type: event.TypeError, SessionID: s.localID, Timestamp: time.Now().UTC(),
+		Error: "engine lost", AgentSessionID: s.agentID,
+	})
+}
+
+func (s *session) resumeAfterReplacement(ctx context.Context, fr *conn, generation int) error {
+	s.mu.Lock()
+	threadID := s.agentID
+	cwd := s.cwd
+	s.mu.Unlock()
+	params := map[string]any{"threadId": threadID}
+	if cwd != "" {
+		params["cwd"] = cwd
+	}
+	approval, sandbox := s.policy()
+	applyPolicyParams(params, approval, sandbox)
+	if _, err := fr.sendRequest(ctx, "thread/resume", params); err != nil {
+		return fmt.Errorf("thread/resume after replacement: %w", err)
+	}
+	s.reconnected(generation)
+	return nil
+}
+
+func (s *session) reconnected(generation int) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.engineGeneration = generation
+	s.mu.Unlock()
+	s.emitCapabilities()
+	s.emitModes()
+	s.emitCollaboration(true)
+	s.emit(event.Event{
+		Type: event.TypeSessionStatus, SessionID: s.localID, Timestamp: time.Now().UTC(),
+		Status: "idle", AgentSessionID: s.agentID,
+	})
+}
+
+func (s *session) reconnectFailed(err error) {
+	s.emit(event.Event{
+		Type: event.TypeError, SessionID: s.localID, Timestamp: time.Now().UTC(),
+		Error: "engine replacement could not resume thread: " + err.Error(), AgentSessionID: s.agentID,
+	})
+}
+
 // sandboxConfining reports whether the session's live sandbox policy
 // confines the agent to the workspace (0069 D4.5). Empty means "inherit
 // codex's own config" — unknown, so no hint is offered.

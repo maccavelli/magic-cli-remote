@@ -251,18 +251,24 @@ func Run(ctx context.Context, opts Options) error {
 	if cfg.Providers.Codex.Enabled {
 		streamCoalesce := time.Duration(cfg.Providers.Codex.StreamCoalesceMs) * time.Millisecond
 		codexConf := codex.Config{
-			Bin:                 cfg.Providers.Codex.Bin,
-			AlwaysApprove:       cfg.Providers.Codex.AlwaysApprove,
-			DefaultCWD:          cfg.Providers.Codex.DefaultCWD,
-			Model:               cfg.Providers.Codex.Model,
-			PermissionTimeout:   time.Duration(cfg.Providers.Codex.PermissionTimeoutSeconds) * time.Second,
-			Prewarm:             cfg.Providers.Codex.Prewarm,
-			TurnStallNotice:     time.Duration(cfg.Providers.Codex.TurnStallNoticeSeconds) * time.Second,
-			StreamCoalesce:      &streamCoalesce,
-			ApprovalPolicy:      cfg.Providers.Codex.ApprovalPolicy,
-			SandboxMode:         cfg.Providers.Codex.SandboxMode,
-			AllowFullAccess:     cfg.Providers.Codex.AllowFullAccess,
-			SandboxBrokenPolicy: cfg.Providers.Codex.SandboxBrokenPolicy,
+			Bin:                         cfg.Providers.Codex.Bin,
+			AlwaysApprove:               cfg.Providers.Codex.AlwaysApprove,
+			DefaultCWD:                  cfg.Providers.Codex.DefaultCWD,
+			Model:                       cfg.Providers.Codex.Model,
+			PermissionTimeout:           time.Duration(cfg.Providers.Codex.PermissionTimeoutSeconds) * time.Second,
+			Prewarm:                     cfg.Providers.Codex.Prewarm,
+			TurnStallNotice:             time.Duration(cfg.Providers.Codex.TurnStallNoticeSeconds) * time.Second,
+			StreamCoalesce:              &streamCoalesce,
+			ApprovalPolicy:              cfg.Providers.Codex.ApprovalPolicy,
+			SandboxMode:                 cfg.Providers.Codex.SandboxMode,
+			AllowFullAccess:             cfg.Providers.Codex.AllowFullAccess,
+			SandboxBrokenPolicy:         cfg.Providers.Codex.SandboxBrokenPolicy,
+			Transport:                   codex.TransportMode(cfg.Providers.Codex.Transport),
+			ListenAddress:               cfg.Providers.Codex.ListenAddress,
+			WSAuthMode:                  codex.WSAuthMode(cfg.Providers.Codex.WSAuthMode),
+			ReconnectAttempts:           cfg.Providers.Codex.ReconnectAttempts,
+			ReconnectAttemptsConfigured: true,
+			RuntimeDir:                  cfg.Paths.RuntimeDir,
 		}
 		// The coordinated constructor differs only by carrying a credential
 		// coordinator; every other behaviour is identical, which keeps the

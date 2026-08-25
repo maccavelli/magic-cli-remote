@@ -1,13 +1,13 @@
 package codex
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -111,26 +111,28 @@ type rpcResponse struct {
 }
 
 type conn struct {
-	stdin  io.Writer
-	stdout io.Reader
-	log    *slog.Logger
+	transport transport
+	log       *slog.Logger
 
-	writeMu sync.Mutex
-	nextID  atomic.Int64
+	nextID atomic.Int64
 
 	pendingMu sync.Mutex
 	pending   map[int64]chan rpcResponse
 
-	closed chan struct{}
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 func newConn(stdin io.Writer, stdout io.Reader, log *slog.Logger) *conn {
+	return newTransportConn(newJSONLTransport(stdin, stdout), log)
+}
+
+func newTransportConn(tr transport, log *slog.Logger) *conn {
 	return &conn{
-		stdin:   stdin,
-		stdout:  stdout,
-		log:     log,
-		pending: make(map[int64]chan rpcResponse),
-		closed:  make(chan struct{}),
+		transport: tr,
+		log:       log,
+		pending:   make(map[int64]chan rpcResponse),
+		closed:    make(chan struct{}),
 	}
 }
 
@@ -172,6 +174,10 @@ func (c *conn) sendRequest(ctx context.Context, method string, params any) (json
 	case <-c.closed:
 		return nil, errConnLost
 	}
+}
+
+func (c *conn) sendReadOnlyRequest(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return sendWithOverloadRetry(ctx, method, params, true, c.sendRequest, sleepContext)
 }
 
 func (c *conn) sendNotification(ctx context.Context, method string, params any) error {
@@ -233,10 +239,7 @@ func (c *conn) failAll() {
 }
 
 func (c *conn) writeLine(data []byte) error {
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-	_, err := c.stdin.Write(append(data, '\n'))
-	return err
+	return c.transport.Send(context.Background(), data)
 }
 
 type wireMessage struct {
@@ -251,11 +254,19 @@ type notificationHandler func(method string, params json.RawMessage)
 type serverRequestHandler func(method string, id json.RawMessage, params json.RawMessage)
 
 func (c *conn) readPump(onNotif notificationHandler, onRequest serverRequestHandler) {
-	defer c.failAll()
-	scanner := bufio.NewScanner(c.stdout)
-	scanner.Buffer(make([]byte, 64<<10), 1<<20)
-	for scanner.Scan() {
-		line := scanner.Bytes()
+	defer func() {
+		c.failAll()
+		_ = c.transport.Close()
+		c.closeOnce.Do(func() { close(c.closed) })
+	}()
+	for {
+		line, err := c.transport.Read(context.Background())
+		if err != nil {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+				c.log.Debug("codex: read pump error", slog.String("err", err.Error()))
+			}
+			return
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -279,8 +290,5 @@ func (c *conn) readPump(onNotif notificationHandler, onRequest serverRequestHand
 				onNotif(msg.Method, msg.Params)
 			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		c.log.Debug("codex: read pump error", slog.String("err", err.Error()))
 	}
 }

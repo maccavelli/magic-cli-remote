@@ -123,6 +123,14 @@ providers:
     # warn (default) | require_full_access | refuse. Keep this key explicit
     # so provisioned hosts see the lever (0071 F2 / 0069 F1).
     sandbox_broken_policy: warn
+    # Managed transport remains stdio unless an operator deliberately opts in.
+    # unix_ws and managed_daemon_proxy are Unix-only. ws is always loopback;
+    # mcremote generates native Codex bearer material in its private runtime
+    # directory and never exposes the endpoint or bearer to phones.
+    transport: stdio
+    listen_address: ""
+    ws_auth_mode: ""  # capability_token | signed_bearer (ws only)
+    reconnect_attempts: 3
   # Kilo CLI (kilo.ai) — shared `kilo serve` engine, OpenCode-fork dialect
   # (MADR 0075). Known-good CLI: kilo 7.4.22 (MADR 0088).
   kilo:

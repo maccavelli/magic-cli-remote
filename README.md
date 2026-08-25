@@ -963,8 +963,9 @@ providers:
 
 ## Provider: Codex
 
-Codex is driven through one shared `codex app-server --listen stdio://` engine —
-JSON-RPC over stdio, every session multiplexed over the same process. Requires
+Codex is driven through one shared, supervised `codex app-server` engine —
+JSON-RPC over daemon-owned stdio by default, with opt-in local WebSocket and
+managed-daemon transports. Every session is multiplexed over the same engine. Requires
 `codex` on `PATH`; the daemon logs a warning at startup if the provider is
 enabled and the binary is missing.
 
@@ -986,6 +987,18 @@ enabled and the binary is missing.
 | `approval_policy` | *(empty)* | Override: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds mcremote default mode (`on-request` + `workspace-write`, MADR 0047) |
 | `sandbox_mode` | *(empty)* | Override: `read-only`, `workspace-write`, `danger-full-access` |
 | `allow_full_access` | `false` | Advertise the `full-access` session mode (no approval **and** no sandbox). Opt-in ([MADR 0044](docs/0044-MADR-auto-approve-modes.md) D5) |
+| `transport` | `stdio` | `stdio`, `unix_ws`, `ws`, or Unix-only `managed_daemon_proxy` |
+| `listen_address` | *(empty)* | Optional `ws` loopback host and port. Wildcard and non-loopback binds are rejected |
+| `ws_auth_mode` | *(empty)* | `capability_token` or `signed_bearer`; `ws` defaults internally to a generated capability token |
+| `reconnect_attempts` | `3` | Replacement attempts after unexpected engine death; maximum 3 |
+
+The Codex listener is an internal control-plane resource. Unix sockets live in
+a daemon-owned `0700` runtime directory and are `0600`; TCP listeners bind only
+loopback and use Codex's native bearer authentication. The phone connects only
+to mcremote's authenticated WSS/TLS endpoint and receives neither the Codex
+socket/port nor bearer material. `managed_daemon_proxy` takes ownership only
+when `codex app-server daemon start` reports `started`; an already-running
+daemon is treated as foreign and is never attached to, restarted, or stopped.
 
 Some Codex slash commands have no app-server equivalent and report that rather
 than failing silently — `/deep-research`, `/workflow`, and similar.

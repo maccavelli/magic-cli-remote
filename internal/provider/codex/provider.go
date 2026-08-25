@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +38,9 @@ type engine struct {
 	initialize      initializeMetadata
 	collab          collaborationProbe
 	diffUnavailable bool
+	cleanup         func()
+	managedLease    *managedDaemonLease
+	ready           bool
 }
 
 type initializeMetadata struct {
@@ -47,8 +52,9 @@ type initializeMetadata struct {
 
 // Provider manages a Codex app-server engine process and its sessions.
 type Provider struct {
-	cfg Config
-	log *slog.Logger
+	cfg       Config
+	log       *slog.Logger
+	configErr error
 
 	mu       sync.Mutex
 	eng      *engine
@@ -80,6 +86,12 @@ type Provider struct {
 	// busy reports live sessions that a credential swap would disrupt. Nil
 	// means never busy.
 	busy func() int
+
+	// Test seams for the externally managed lifecycle and deterministic
+	// replacement backoff. Production uses the exact Codex CLI commands and
+	// context-aware sleeping.
+	daemonRun daemonLifecycleRunner
+	sleepFn   retrySleeper
 }
 
 // New creates a Provider from config.
@@ -110,11 +122,18 @@ func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 	if log != nil {
 		l = log
 	}
+	validated, configErr := cfg.validated()
+	if configErr == nil {
+		cfg = validated
+	}
 	return &Provider{
-		cfg:      cfg,
-		log:      l.With(slog.String("component", "provider.codex")),
-		sessions: make(map[string]*session),
-		health:   sandboxHealth{Reason: sandboxUnknown},
+		cfg:       cfg,
+		log:       l.With(slog.String("component", "provider.codex")),
+		configErr: configErr,
+		sessions:  make(map[string]*session),
+		health:    sandboxHealth{Reason: sandboxUnknown},
+		daemonRun: runDaemonLifecycle,
+		sleepFn:   sleepContext,
 	}
 }
 
@@ -171,6 +190,9 @@ func (p *Provider) ID() provider.ID { return provider.IDCodex }
 
 // Ready reports whether the engine binary is found on PATH.
 func (p *Provider) Ready() bool {
+	if p.configErr != nil {
+		return false
+	}
 	_, err := exec.LookPath(p.cfg.Bin)
 	return err == nil
 }
@@ -235,7 +257,7 @@ func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 		p.log.Warn("list models: engine not running")
 		return fallback, nil
 	}
-	cat, recs, err := collectModels(ctx, fr.sendRequest, p.cfg.Model, p.log)
+	cat, recs, err := collectModels(ctx, fr.sendReadOnlyRequest, p.cfg.Model, p.log)
 	if err == nil && len(recs) > 0 {
 		p.mu.Lock()
 		p.models = recs
@@ -349,13 +371,16 @@ func (p *Provider) EnsureServer() {
 const enginePollInterval = 200 * time.Millisecond
 
 func (p *Provider) ensureEngine(ctx context.Context) (*conn, error) {
+	if p.configErr != nil {
+		return nil, p.configErr
+	}
 	for {
 		p.mu.Lock()
 		if p.closed {
 			p.mu.Unlock()
 			return nil, fmt.Errorf("provider shut down")
 		}
-		if p.eng != nil {
+		if p.eng != nil && (p.eng.ready || p.eng.cmd == nil) {
 			cn := p.eng.conn
 			p.mu.Unlock()
 			return cn, nil
@@ -386,15 +411,92 @@ func (p *Provider) ensureEngine(ctx context.Context) (*conn, error) {
 }
 
 type engineAttempt struct {
-	cmd    *exec.Cmd
-	conn   *conn
-	waitCh chan error
-	dead   chan struct{}
-	stderr *lineRing
+	cmd          *exec.Cmd
+	conn         *conn
+	waitCh       chan error
+	dead         chan struct{}
+	stderr       *lineRing
+	cleanup      func()
+	managedLease *managedDaemonLease
 }
 
-func (p *Provider) launchEngineProcess() (*engineAttempt, error) {
-	cmd := exec.Command(p.cfg.Bin, "app-server", "--listen", "stdio://")
+func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdentity) (*engineAttempt, error) {
+	cfg := p.cfg
+	var endpoint string
+	var auth *webSocketAuth
+	var lease *managedDaemonLease
+	var socketPath string
+
+	switch cfg.Transport {
+	case TransportStdio:
+	case TransportUnixWS:
+		dir := filepath.Join(cfg.RuntimeDir, "codex")
+		if cfg.RuntimeDir == "" {
+			return nil, fmt.Errorf("unix_ws requires the daemon runtime directory")
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("create Codex runtime directory: %w", err)
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("secure Codex runtime directory: %w", err)
+		}
+		if cfg.ListenAddress != "" {
+			socketPath = cfg.ListenAddress
+		} else {
+			socketPath = filepath.Join(dir, "app-server-"+uuid.NewString()+".sock")
+		}
+		endpoint = socketPath
+	case TransportWS:
+		listen := cfg.ListenAddress
+		if listen == "" {
+			listen = "127.0.0.1:0"
+		}
+		reserved, err := net.Listen("tcp", listen)
+		if err != nil {
+			return nil, fmt.Errorf("reserve Codex WebSocket port: %w", err)
+		}
+		endpoint = reserved.Addr().String()
+		if err := reserved.Close(); err != nil {
+			return nil, fmt.Errorf("release reserved Codex WebSocket port: %w", err)
+		}
+		mode := cfg.WSAuthMode
+		if mode == "" {
+			mode = WSAuthCapabilityToken
+		}
+		auth, err = createWebSocketAuth(cfg.RuntimeDir, mode)
+		if err != nil {
+			return nil, err
+		}
+		cfg.WSAuthMode = mode
+	case TransportManagedDaemonProxy:
+		out, err := p.daemonRun(ctx, cfg.Bin, "start")
+		if err != nil {
+			return nil, err
+		}
+		lease, err = validateManagedLease(out, identity)
+		if err != nil {
+			return nil, err
+		}
+		endpoint = lease.SocketPath
+	default:
+		return nil, fmt.Errorf("unsupported Codex transport %q", cfg.Transport)
+	}
+
+	secretFile := ""
+	if auth != nil {
+		secretFile = auth.secretFile
+	}
+	args, err := launchArguments(cfg, endpoint, secretFile)
+	if err != nil {
+		if auth != nil {
+			auth.remove()
+		}
+		if lease != nil {
+			p.stopManagedLease(context.Background(), lease)
+		}
+		return nil, err
+	}
+	cmd := exec.Command(p.cfg.Bin, args...)
 	procutil.SetProcessGroup(cmd)
 	procutil.SetDeathSignal(cmd)
 	// Stamp ownership into the environment (Linux reaping) and registry (cross-platform).
@@ -404,13 +506,31 @@ func (p *Provider) launchEngineProcess() (*engineAttempt, error) {
 		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
 	)
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("stdin pipe: %w", err)
+	var stdin io.WriteCloser
+	var stdout io.ReadCloser
+	cleanupPrepared := func() {
+		if auth != nil {
+			auth.remove()
+		}
+		if lease != nil {
+			p.stopManagedLease(context.Background(), lease)
+		}
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("stdout pipe: %w", err)
+	if cfg.Transport == TransportStdio || cfg.Transport == TransportManagedDaemonProxy {
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			cleanupPrepared()
+			return nil, fmt.Errorf("stdin pipe: %w", err)
+		}
+		stdout, err = cmd.StdoutPipe()
+		if err != nil {
+			_ = stdin.Close()
+			cleanupPrepared()
+			return nil, fmt.Errorf("stdout pipe: %w", err)
+		}
+	} else {
+		cmd.Stdin = nil
+		cmd.Stdout = io.Discard
 	}
 	stderr := &lineRing{
 		log:    p.log,
@@ -423,9 +543,15 @@ func (p *Provider) launchEngineProcess() (*engineAttempt, error) {
 	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
+		if auth != nil {
+			auth.remove()
+		}
+		if lease != nil {
+			p.stopManagedLease(context.Background(), lease)
+		}
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
-	lease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
+	registryLease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
 		ID:       engineID,
 		Provider: "codex",
 		PID:      cmd.Process.Pid,
@@ -434,6 +560,13 @@ func (p *Provider) launchEngineProcess() (*engineAttempt, error) {
 	})
 	if regErr != nil {
 		_ = procutil.KillProcessGroup(cmd.Process)
+		_, _ = cmd.Process.Wait()
+		if auth != nil {
+			auth.remove()
+		}
+		if lease != nil {
+			p.stopManagedLease(context.Background(), lease)
+		}
 		return nil, fmt.Errorf("register engine: %w", regErr)
 	}
 
@@ -446,17 +579,88 @@ func (p *Provider) launchEngineProcess() (*engineAttempt, error) {
 			}
 		}()
 		waitCh <- cmd.Wait()
-		_ = procutil.RemoveEngine(lease)
+		_ = procutil.RemoveEngine(registryLease)
 		close(dead)
 	}()
 
-	cn := newConn(stdin, stdout, p.log)
+	cleanup := func() {
+		if auth != nil {
+			auth.remove()
+		}
+		if socketPath != "" {
+			_ = os.Remove(socketPath)
+		}
+	}
+	var tr transport
+	switch cfg.Transport {
+	case TransportStdio:
+		tr = newJSONLTransport(stdin, stdout)
+	case TransportUnixWS:
+		tr, err = dialTransportWithBackoff(ctx, func(ctx context.Context) (transport, error) {
+			return dialUnixWebSocketTransport(ctx, endpoint, nil)
+		})
+		if err == nil {
+			err = os.Chmod(endpoint, 0o600)
+		}
+	case TransportWS:
+		baseURL := "http://" + endpoint
+		if err = waitWebSocketHealth(ctx, baseURL, http.DefaultClient); err == nil {
+			tr, err = dialWebSocketTransportWithHeaders(ctx, "ws://"+endpoint, nil, auth.header)
+		}
+	case TransportManagedDaemonProxy:
+		tr, err = dialPipeWebSocketTransport(ctx, stdout, stdin)
+	}
+	if err != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		<-waitCh
+		cleanup()
+		if lease != nil {
+			p.stopManagedLease(context.Background(), lease)
+		}
+		return nil, fmt.Errorf("connect Codex %s transport: %w", cfg.Transport, err)
+	}
+	cn := newTransportConn(tr, p.log)
 	// Start consuming JSON-RPC frames before the initialize request. The
 	// handshake itself is a request, so waiting for its response before the
 	// read pump runs leaves the response in stdout unread until the caller's
 	// context expires.
 	go cn.readPump(p.routeNotification, p.routeServerRequest)
-	return &engineAttempt{cmd: cmd, conn: cn, waitCh: waitCh, dead: dead, stderr: stderr}, nil
+	return &engineAttempt{cmd: cmd, conn: cn, waitCh: waitCh, dead: dead, stderr: stderr, cleanup: cleanup, managedLease: lease}, nil
+}
+
+func dialTransportWithBackoff(ctx context.Context, dial func(context.Context) (transport, error)) (transport, error) {
+	delay := 25 * time.Millisecond
+	var lastErr error
+	for {
+		tr, err := dial(ctx)
+		if err == nil {
+			return tr, nil
+		}
+		lastErr = err
+		if err := sleepContext(ctx, delay); err != nil {
+			return nil, fmt.Errorf("transport readiness: %w", lastErr)
+		}
+		if delay < 400*time.Millisecond {
+			delay *= 2
+		}
+	}
+}
+
+func (p *Provider) stopManagedLease(ctx context.Context, lease *managedDaemonLease) {
+	if lease == nil {
+		return
+	}
+	verifyCtx, cancel := context.WithTimeout(ctx, engineStopTimeout)
+	defer cancel()
+	current, err := p.daemonRun(verifyCtx, p.cfg.Bin, "version")
+	if err != nil || !lifecycleMatchesLease(current, lease) {
+		p.log.Warn("refusing to stop unverified Codex daemon lease", slog.Any("err", err))
+		return
+	}
+	stopped, err := p.daemonRun(verifyCtx, p.cfg.Bin, "stop")
+	if err != nil || stopped.Status != daemonStopped {
+		p.log.Warn("owned Codex daemon stop failed", slog.Any("err", err))
+	}
 }
 
 func (p *Provider) reapAttempt(att *engineAttempt) {
@@ -465,6 +669,11 @@ func (p *Provider) reapAttempt(att *engineAttempt) {
 	}
 	_ = procutil.KillProcessGroup(att.cmd.Process)
 	<-att.waitCh
+	_ = att.conn.transport.Close()
+	if att.cleanup != nil {
+		att.cleanup()
+	}
+	p.stopManagedLease(context.Background(), att.managedLease)
 }
 
 func initializeParams(experimental bool) map[string]any {
@@ -537,7 +746,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	if identity.Version != "" && identity.Version != "unknown" && identity.Version != "test-helper" {
 		p.version = identity.Version
 	}
-	att, err := p.launchEngineProcess()
+	att, err := p.launchEngineProcess(ctx, identity)
 	if err != nil {
 		return nil, err
 	}
@@ -550,7 +759,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 		)
 		p.reapAttempt(att)
 		experimental = false
-		att, err = p.launchEngineProcess()
+		att, err = p.launchEngineProcess(ctx, identity)
 		if err != nil {
 			return nil, err
 		}
@@ -616,11 +825,20 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 			CodexHome: initResp.CodexHome, UserAgent: initResp.UserAgent,
 			PlatformFamily: initResp.PlatformFamily, PlatformOS: initResp.PlatformOS,
 		},
+		cleanup:      att.cleanup,
+		managedLease: att.managedLease,
 	}
 	p.eng = eng
+	p.models = nil
 	p.mu.Unlock()
 
 	p.probeCollaboration(ctx, eng)
+	p.reconcileRetainedSessions(ctx, eng)
+	p.mu.Lock()
+	if p.eng == eng {
+		eng.ready = true
+	}
+	p.mu.Unlock()
 	p.log.Info("engine ready", slog.String("bin", p.cfg.Bin), slog.Bool("experimental", experimental))
 
 	// MADR 0048 / 0071 F1: probe workspace-write sandbox after initialize.
@@ -645,29 +863,108 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 			}
 		}()
 		err := <-att.waitCh
+		p.handleUnexpectedEngineExit(gen, att, err)
+	}()
+
+	return att.conn, nil
+}
+
+var engineReconnectBackoffs = []time.Duration{250 * time.Millisecond, time.Second, 4 * time.Second}
+
+func (p *Provider) handleUnexpectedEngineExit(gen int, att *engineAttempt, exitErr error) {
+	p.mu.Lock()
+	if p.generation != gen || p.closed || p.eng == nil || p.eng.generation != gen {
+		p.mu.Unlock()
+		return
+	}
+	p.eng = nil
+	sessions := make([]*session, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	if att.managedLease != nil {
+		// A proxy loss invalidates the managed lease. The safe recovery path is
+		// the configured stdio fallback; never attach to a possibly foreign
+		// daemon on the next attempt.
+		p.cfg.Transport = TransportStdio
+		p.cfg.ListenAddress = ""
+		p.cfg.WSAuthMode = ""
+	}
+	p.mu.Unlock()
+
+	if att.cleanup != nil {
+		att.cleanup()
+	}
+	p.stopManagedLease(context.Background(), att.managedLease)
+	p.log.Warn("engine exited", slog.String("bin", p.cfg.Bin), slog.Any("err", exitErr))
+	for _, s := range sessions {
+		s.engineLost()
+	}
+
+	attempts := p.cfg.ReconnectAttempts
+	if attempts > len(engineReconnectBackoffs) {
+		attempts = len(engineReconnectBackoffs)
+	}
+	for attempt := 0; attempt < attempts; attempt++ {
 		p.mu.Lock()
-		if p.generation != gen {
-			p.mu.Unlock()
-			return
-		}
-		p.eng = nil
-		sessions := make([]*session, 0, len(p.sessions))
-		for _, s := range p.sessions {
-			sessions = append(sessions, s)
-		}
-		p.sessions = make(map[string]*session)
 		closed := p.closed
 		p.mu.Unlock()
 		if closed {
 			return
 		}
-		p.log.Warn("engine exited", slog.String("bin", p.cfg.Bin), slog.Any("err", err))
-		for _, s := range sessions {
-			s.serverDied()
+		ctx, cancel := context.WithTimeout(context.Background(), engineStartTimeout)
+		err := p.sleepFn(ctx, engineReconnectBackoffs[attempt])
+		if err == nil {
+			_, err = p.ensureEngine(ctx)
 		}
-	}()
+		cancel()
+		if err == nil {
+			p.log.Info("Codex engine replacement ready", slog.Int("previous_generation", gen), slog.Int("attempt", attempt+1))
+			return
+		}
+		p.log.Warn("Codex engine replacement failed", slog.Int("attempt", attempt+1), slog.Any("err", err))
+	}
+}
 
-	return att.conn, nil
+func (p *Provider) reconcileRetainedSessions(ctx context.Context, eng *engine) {
+	p.mu.Lock()
+	sessions := make([]*session, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		s.mu.Lock()
+		stale := !s.closed && s.engineGeneration < eng.generation
+		s.mu.Unlock()
+		if stale {
+			sessions = append(sessions, s)
+		}
+	}
+	p.mu.Unlock()
+	if len(sessions) == 0 {
+		return
+	}
+
+	loaded := make(map[string]struct{})
+	raw, err := sendWithOverloadRetry(ctx, "thread/loaded/list", map[string]any{}, true, eng.conn.sendRequest, p.sleepFn)
+	if err == nil {
+		var response struct {
+			Data []string `json:"data"`
+		}
+		if json.Unmarshal(raw, &response) == nil {
+			for _, id := range response.Data {
+				loaded[id] = struct{}{}
+			}
+		}
+	} else {
+		p.log.Warn("Codex loaded-thread reconciliation failed", slog.Any("err", err))
+	}
+	for _, s := range sessions {
+		if _, ok := loaded[s.AgentSessionID()]; ok {
+			s.reconnected(eng.generation)
+			continue
+		}
+		if err := s.resumeAfterReplacement(ctx, eng.conn, eng.generation); err != nil {
+			s.reconnectFailed(err)
+		}
+	}
 }
 
 func resolveBinaryIdentity(ctx context.Context, bin, versionHint string) (BinaryIdentity, error) {
@@ -757,7 +1054,12 @@ func (p *Provider) Shutdown() {
 	p.mu.Unlock()
 
 	if eng != nil && eng.cmd != nil && eng.cmd.Process != nil {
+		_ = eng.conn.transport.Close()
 		procutil.TerminateProcessGroup(eng.cmd.Process, eng.dead, engineStopTimeout)
+		if eng.cleanup != nil {
+			eng.cleanup()
+		}
+		p.stopManagedLease(context.Background(), eng.managedLease)
 	}
 }
 
@@ -795,6 +1097,9 @@ func (p *Provider) startSession(ctx context.Context, opts provider.StartOptions)
 	}
 
 	p.mu.Lock()
+	if p.eng != nil {
+		s.engineGeneration = p.eng.generation
+	}
 	p.sessions[s.agentID] = s
 	p.mu.Unlock()
 	go s.hydrateGoalAsync()

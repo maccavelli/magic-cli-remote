@@ -120,9 +120,36 @@ func runAppServerHelper() {
 					os.Exit(3)
 				}
 			}
+		case "thread/loaded/list":
+			appendHelperLog("loaded/list")
+			var loaded []string
+			if raw := os.Getenv("CODEX_HELPER_LOADED_THREADS"); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &loaded)
+			}
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"id": request.ID, "result": map[string]any{"data": loaded, "nextCursor": nil},
+			})
+		case "thread/resume":
+			appendHelperLog("thread/resume")
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "thread-reconnect"}},
+			})
 		}
 	}
 	os.Exit(0)
+}
+
+func appendHelperLog(line string) {
+	path := os.Getenv("CODEX_HELPER_REQUEST_LOG")
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(line + "\n")
+	_ = f.Close()
 }
 
 func writeRPCError(id json.RawMessage, code int, message string, data any) {

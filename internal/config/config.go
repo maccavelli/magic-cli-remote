@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -648,6 +649,15 @@ type CodexProviderConfig struct {
 	// cannot create a user namespace (MADR 0048). Valid: empty/"warn" (default),
 	// "require_full_access", "refuse".
 	SandboxBrokenPolicy string `mapstructure:"sandbox_broken_policy"`
+	// Transport is stdio (default), unix_ws, ws, or managed_daemon_proxy.
+	Transport string `mapstructure:"transport"`
+	// ListenAddress is optional and only applies to ws. It must be loopback.
+	ListenAddress string `mapstructure:"listen_address"`
+	// WSAuthMode is capability_token or signed_bearer. Secret material is
+	// always generated into the daemon runtime directory, never configured.
+	WSAuthMode string `mapstructure:"ws_auth_mode"`
+	// ReconnectAttempts is capped at three. Default 3.
+	ReconnectAttempts int `mapstructure:"reconnect_attempts"`
 }
 
 // KiloProviderConfig configures the Kilo CLI provider (shared `kilo serve`
@@ -708,6 +718,15 @@ func validSandboxMode(s string) bool {
 		return true
 	}
 	return false
+}
+
+func configLoopbackHost(host string) bool {
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // validGrokPermissionMode returns true for recognized Grok permission modes.
@@ -823,6 +842,8 @@ func Defaults() Config {
 				ApprovalPolicy:         "",
 				SandboxMode:            "",
 				AllowFullAccess:        false,
+				Transport:              "stdio",
+				ReconnectAttempts:      3,
 			},
 			Kilo: KiloProviderConfig{
 				// Default-on since MADR 0075 acceptance flip (2026-08-10).
@@ -1167,6 +1188,36 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("providers.codex.sandbox_broken_policy must be empty, warn, require_full_access, or refuse, got %q",
 			c.Providers.Codex.SandboxBrokenPolicy)
+	}
+	switch strings.TrimSpace(c.Providers.Codex.Transport) {
+	case "stdio":
+		if c.Providers.Codex.ListenAddress != "" || c.Providers.Codex.WSAuthMode != "" {
+			return fmt.Errorf("providers.codex stdio transport rejects listen_address and ws_auth_mode")
+		}
+	case "unix_ws", "managed_daemon_proxy":
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("providers.codex transport %q is Unix-only", c.Providers.Codex.Transport)
+		}
+		if c.Providers.Codex.ListenAddress != "" || c.Providers.Codex.WSAuthMode != "" {
+			return fmt.Errorf("providers.codex transport %q owns its endpoint and rejects WS fields", c.Providers.Codex.Transport)
+		}
+	case "ws":
+		if address := c.Providers.Codex.ListenAddress; address != "" {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil || !configLoopbackHost(host) {
+				return fmt.Errorf("providers.codex.listen_address must be loopback host:port")
+			}
+		}
+		switch c.Providers.Codex.WSAuthMode {
+		case "", "capability_token", "signed_bearer":
+		default:
+			return fmt.Errorf("providers.codex.ws_auth_mode must be empty, capability_token, or signed_bearer")
+		}
+	default:
+		return fmt.Errorf("providers.codex.transport must be stdio, unix_ws, ws, or managed_daemon_proxy")
+	}
+	if attempts := c.Providers.Codex.ReconnectAttempts; attempts < 0 || attempts > 3 {
+		return fmt.Errorf("providers.codex.reconnect_attempts must be 0..3, got %d", attempts)
 	}
 	if c.Providers.Kilo.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.kilo.permission_timeout_seconds must be >= 0, got %d",
