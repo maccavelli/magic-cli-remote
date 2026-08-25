@@ -1878,6 +1878,27 @@ Run from `apps/mobile` unless noted:
 * Manual check on a 360dp-wide device or simulator: the prompt hint text
   `Prompt or /command…` is fully legible with all five action icons present.
 
+### Coverage result (measured 2026-08-25, commit `d677d68`)
+
+Per [0113](./0113-MADR-preexisting-unit-coverage-debt.md) E1/E2/E5 the
+absolute 80.0% application floor belongs to 0113, not here; P12's obligations
+are the 90.0% new-Dart floor and non-regression on every target it touched.
+Captured with `scripts/coverage-snapshot.sh`, the "before" taken from a
+detached worktree at `8f2130f` (P12's parent):
+
+| Target | Before | After | Verdict |
+| --- | --- | --- | --- |
+| `lib/features/chat/chat_screen.dart` | 1073/1548 (69.3152%) | 1077/1552 (69.3943%) | rose; uncovered unchanged at 475 |
+| `lib/features/chat/diagnostics_sheet.dart` | 105/105 (100%) | 104/104 (100%) | held at 100% across the `Row`→`Wrap` change |
+| `<application>` | 10748/14145 (75.9844%) | 10751/14148 (75.9895%) | rose; uncovered unchanged at 3397 |
+
+`scripts/coverage-delta.sh phase` reports `"improved": true` with no target
+regressed. The 90.0% new-Dart floor passes on all five `NEW_DART_FILES`:
+`workspace_sheet` 100%, `diagnostics_sheet` 100%, `skill_authoring_sheet`
+100%, `session_share_sheet` 98.8235%, `shell_command_sheet` 100%. The
+`below_floor` statuses that remain on `<application>` and `chat_screen.dart`
+are the pre-existing debt 0113 owns; P12 neither caused nor worsened them.
+
 ### Acceptance criteria
 
 * The prompt `TextField` occupies the full composer content width minus the

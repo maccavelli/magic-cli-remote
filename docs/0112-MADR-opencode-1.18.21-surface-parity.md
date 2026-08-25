@@ -966,8 +966,9 @@ and a gate invoked with no target at all is a usage error rather than a pass.
 
 ## Amendment — 2026-08-25: composer action row moves below the input
 
-Status of this amendment: **proposed**. Raised by the owner from live use of
-the shipped build: "the new icons are completely compressing the session
+Status of this amendment: **accepted** (owner approved 2026-08-25; executed
+and verified as `0112-PLAN` P12, commit `d677d68`). Raised by the owner from
+live use of the shipped build: "the new icons are completely compressing the session
 prompt in the agent session screens."
 
 ### Observed
