@@ -112,6 +112,9 @@ func writeFileAtomic(path string, data []byte, opts AtomicOptions, ops fileOps) 
 		return fmt.Errorf("fsutil: rename: %w", err)
 	}
 	cleanup = false
+	// Inert on Windows, where Chmod only toggles the read-only attribute: the
+	// access control there comes from the private DACL appdirs puts on the
+	// parent directory (MADR 0116 D4), not from a file mode.
 	_ = os.Chmod(path, opts.Perm)
 
 	if opts.SyncDir {
@@ -120,13 +123,4 @@ func writeFileAtomic(path string, data []byte, opts AtomicOptions, ops fileOps) 
 		}
 	}
 	return nil
-}
-
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
 }
