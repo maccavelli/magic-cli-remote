@@ -49,7 +49,10 @@ type Options struct {
 	// UnitName without .service suffix (default: Product).
 	UnitName string
 	// Binary is the absolute path written into ExecStart.
-	// Default: ~/.local/bin/<product> if present, else this process's executable.
+	// Default: the installed per-user binary if present, else this process's
+	// executable — ~/.local/bin/<product> on Unix,
+	// %LOCALAPPDATA%\Programs\<product>\<product>.exe on Windows
+	// (MADR 0116 D13).
 	// setup-service never copies or overwrites the binary — use `make install`.
 	Binary string
 	// ConfigPath optional --config for serve.
@@ -703,7 +706,7 @@ func normalize(opts Options) (Options, error) {
 	if opts.Binary == "" {
 		// Prefer a stable make-install path so ExecStart does not point at a
 		// build-tree binary that may be replaced or removed.
-		userBin := filepath.Join(home, ".local", "bin", opts.Product)
+		userBin := defaultInstalledBinary(home, opts.Product)
 		if isExecutableFile(userBin) {
 			opts.Binary = userBin
 		} else {
@@ -1213,4 +1216,24 @@ func xdgStateHome() string {
 		return filepath.Join(home, ".local", "state")
 	}
 	return filepath.Dir(p.StateDir)
+}
+
+// defaultInstalledBinary is where the per-user installer puts <product>.
+//
+// Unix: ~/.local/bin/<product>, what `make install` and install.sh write.
+// Windows: %LOCALAPPDATA%\Programs\<product>\<product>.exe, what
+// install.ps1 writes (MADR 0116 D13).
+//
+// Without the Windows branch, setup-service would bake whatever path the user
+// happened to invoke into the scheduled task — a downloads folder, a temp
+// extract — and the task would break the moment that file moved.
+func defaultInstalledBinary(home, product string) string {
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("LOCALAPPDATA")
+		if base == "" {
+			base = filepath.Join(home, "AppData", "Local")
+		}
+		return filepath.Join(base, "Programs", product, product+".exe")
+	}
+	return filepath.Join(home, ".local", "bin", product)
 }

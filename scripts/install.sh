@@ -188,6 +188,11 @@ verify_and_resolve() {
 Nothing was installed."
     fi
     RESOLVED_VER=${_name#"${_p}-${OS}-${ARCH}-"}
+    # Convention C5 (MADR 0116 F17): the extension comes LAST, so a Windows
+    # manifest line yields "0.14.10.1.exe" without this. install.sh refuses to
+    # run on Windows, but the manifest format is shared with install.ps1 and
+    # with update/github.go, and all three must parse it the same way.
+    RESOLVED_VER=${RESOLVED_VER%.exe}
     vlog "$_p verified, version $RESOLVED_VER"
 }
 

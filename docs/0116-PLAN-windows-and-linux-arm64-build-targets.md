@@ -1579,6 +1579,13 @@ on a free GitHub-hosted runner; **every published binary is proven cgo-free**;
    # CI for windows/amd64 is the hosted windows-latest job.
    ```
 
+> **Deviation 2026-08-27 (P8 execution).** Two grep gates in this phase were
+> **wrong as written**: they matched the explanatory comments that record *why*
+> a thing is absent, so they failed against a correct tree. Both now exclude
+> comment lines (`| grep -vE ':[[:space:]]*#'`). No behaviour changed — only the
+> gates that check it. Recorded because a gate that cannot pass on a correct
+> tree gets disabled by the next person who hits it.
+
 **Verification.**
 
 ```bash
@@ -1601,7 +1608,10 @@ pwsh -NoProfile -Command 'Set-StrictMode -Version Latest; . ./scripts/install.ps
 # Native linux/arm64 suite, from the Mac (needs a running colima/docker daemon):
 ./scripts/test-linux-arm64.sh
 # C7: nothing this plan added may enable cgo.
-! grep -rn 'CGO_ENABLED[=: ]*.1.' scripts/test-linux-arm64.sh scripts/acceptance-windows.ps1 .github/workflows/
+# The `grep -v` is load-bearing: these files CARRY comments explaining why cgo
+# is off, and a naive grep matches its own rationale (found in P8 execution).
+! grep -rn 'CGO_ENABLED[=: ]*.1.' scripts/test-linux-arm64.sh scripts/acceptance-windows.ps1 .github/workflows/ \
+    | grep -vE ':[[:space:]]*#'
 # C7/D20a: exactly ONE -race invocation in the workflows — not zero (that
 # would delete Linux race coverage), not two (that would be a new cgo dep).
 # Count-based, not line-based: adding the cgo-free step moves every line below it.
@@ -1612,8 +1622,10 @@ grep -q 'CGO_ENABLED=0 go test ./\.\.\.' .github/workflows/ci.yml
 ! grep -rn 'setup-qemu\|qemu-aarch64\|binfmt' .github/workflows/
 # Every action stays SHA-pinned (no bare @v tags):
 ! grep -nE 'uses: [^@]+@v[0-9]+\s*$' .github/workflows/ci.yml
-# windows/arm64 must not have leaked back in (D19):
-! grep -rn 'windows-11-arm\|windows/arm64' .github/workflows/ scripts/verify-build-metadata.sh
+# windows/arm64 must not have leaked back in (D19) — code only; the comments
+# that RECORD its absence must survive (found in P8 execution).
+! grep -rn 'windows-11-arm\|windows/arm64' .github/workflows/ scripts/verify-build-metadata.sh \
+    | grep -vE ':[[:space:]]*#'
 ```
 
 Plus the stability rule. Do **not** push.

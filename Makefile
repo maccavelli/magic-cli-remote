@@ -34,7 +34,9 @@ endif
 #   -trimpath            → strip absolute build paths → reproducible builds.
 #   -ldflags -s -w       → drop the symbol table and DWARF debug info (smaller
 #                          binary; panics still carry full stack traces).
-# Override for a cgo build: make build CGO_ENABLED=1.
+# Shipped binaries are pure-Go and this is not overridable: the release
+# targets refuse a non-zero value (see check-cgo-off). For a cgo build use
+# `make debug`, which is never published (MADR 0116 D21).
 CGO_ENABLED   ?= 0
 # Tags are computed after GOOS is known (see below).
 GO_LDFLAGS    := -s -w
@@ -86,6 +88,15 @@ ifeq ($(GOOS),darwin)
 else ifeq ($(GOOS),linux)
   GO_TAGS := netgo,osusergo
   GO_BUILDFLAGS := -trimpath -tags $(GO_TAGS)
+else ifeq ($(GOOS),windows)
+  # No netgo/osusergo (MADR 0116 D2). osusergo is inert on Windows — os/user
+  # has always been cgo-free there. netgo is NOT inert: it forces the pure-Go
+  # resolver, overriding net/conf.go's goosPrefersCgo(), which names windows
+  # explicitly. The pure-Go path reads DNS servers only from up-and-gatewayed
+  # adapters (net/dnsconfig_windows.go) and honours no search list or NRPT
+  # policy, so a VPN or virtual adapter's resolver is silently dropped.
+  GO_TAGS :=
+  GO_BUILDFLAGS := -trimpath
 else
   # Other targets: explicit pure-Go net/user when static-friendly.
   GO_TAGS := netgo,osusergo
@@ -139,9 +150,9 @@ MOBILE_DIR := apps/mobile
 
 .PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose live-codex live-codex-contract live-grok live-kilo race test-all preflight apk \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
-	pre-add-check vet tidy clean check-host-target
+	pre-add-check vet tidy clean check-host-target check-cgo-off
 
-build:
+build: check-cgo-off
 	@mkdir -p bin
 	@set -e; \
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
@@ -190,7 +201,7 @@ codesign-maybe:
 		codesign -d -r- $(BIN) 2>&1 | head -1; \
 	fi
 
-build-relay:
+build-relay: check-cgo-off
 	@mkdir -p bin
 	@set -e; \
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
@@ -207,7 +218,7 @@ build-relay:
 # release job cross-compile each daemon over its own platform matrix, since
 # mcremote and mcrelay ship different target sets. Pass VERSION= to reuse an
 # already-allocated serial without touching the build/* ledger.
-build-remote:
+build-remote: check-cgo-off
 	@mkdir -p bin
 	@set -e; \
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
@@ -242,6 +253,18 @@ build-remote:
 # prerequisite: make may run prerequisites concurrently under -j, so
 # `install: check-host-target build` would let the compile start alongside the
 # guard instead of after it.
+# MADR 0116 D21. `CGO_ENABLED ?= 0` is a default the environment overrides:
+#   $ CGO_ENABLED=1 make build   ->  make sees 1, and a cgo binary ships.
+# Fail loudly rather than `override`-ing it silently — an operator who asked
+# for cgo must be told they cannot have it here, not quietly ignored.
+check-cgo-off:
+	@if [ "$(CGO_ENABLED)" != "0" ]; then \
+		echo "refusing to build a release binary with CGO_ENABLED=$(CGO_ENABLED)." >&2; \
+		echo "Shipped binaries are pure-Go (MADR 0116 D21). For a cgo build," >&2; \
+		echo "use 'make debug', which is never published." >&2; \
+		exit 1; \
+	fi
+
 check-host-target:
 	@if [ "$(GOOS)" != "$(HOST_GOOS)" ] || [ "$(GOARCH)" != "$(HOST_GOARCH)" ]; then \
 		echo "refusing to install $(GOOS)/$(GOARCH) on $(HOST_GOOS)/$(HOST_GOARCH)." >&2; \
