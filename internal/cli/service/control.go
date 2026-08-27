@@ -43,6 +43,8 @@ func IsActive(product string) (bool, error) {
 			return false, nil
 		}
 		return strings.TrimSpace(out) == "active", nil
+	case "windows":
+		return isActiveWindows(product)
 	default:
 		return false, fmt.Errorf("service control unsupported on %s", osName)
 	}
@@ -60,6 +62,8 @@ func Stop(product string) error {
 		return runLaunchctl("bootout", fmt.Sprintf("gui/%d/%s", os.Getuid(), label))
 	case "linux":
 		return runSystemctl("--user", "stop", product+".service")
+	case "windows":
+		return stopWindows(product)
 	default:
 		return fmt.Errorf("service control unsupported on %s", osName)
 	}
@@ -103,6 +107,8 @@ func Start(product string) error {
 		return nil
 	case "linux":
 		return runSystemctl("--user", "start", product+".service")
+	case "windows":
+		return startWindows(product)
 	default:
 		return fmt.Errorf("service control unsupported on %s", osName)
 	}
@@ -143,6 +149,8 @@ func IsInstalled(product string) (bool, error) {
 		unitPath := filepath.Join(xdgConfigHome(), "systemd", "user", unit)
 		fi, err := os.Stat(unitPath)
 		return err == nil && !fi.IsDir(), nil
+	case "windows":
+		return isInstalledWindows(product)
 	default:
 		return false, fmt.Errorf("service control unsupported on %s", osName)
 	}
@@ -203,6 +211,19 @@ func ProbeStatus(product string) Status {
 		st.Active = active
 		if !st.Active {
 			st.Hint = "run: systemctl --user start " + st.PlistOrUnit + " (or mcremote setup-service --force)"
+		}
+	case "windows":
+		st.PlistOrUnit = `Task Scheduler\` + taskNameFor(product)
+		installed, _ := IsInstalled(product)
+		st.PlistPresent = installed
+		st.Loaded = installed
+		active, _ := IsActive(product)
+		st.Active = active
+		switch {
+		case !st.PlistPresent:
+			st.Hint = "scheduled task missing — run: mcremote setup-service --force"
+		case !st.Active:
+			st.Hint = "registered but not running — run: schtasks /run /tn " + taskNameFor(product)
 		}
 	default:
 		st.Hint = "service status unsupported on " + osName

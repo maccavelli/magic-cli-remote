@@ -1651,9 +1651,24 @@ both are answered. The model is **per-user Task Scheduler**, not a
 one-way door here any more.
 
 **Files.** `internal/cli/service/setup.go` (edit — dispatch),
-`setup_windows.go` (create), `control.go` (edit — dispatch),
-`control_windows.go` (create), `schtasks_windows.go` (create), plus tests.
-**`internal/svcrun/` is not created** — see the note below.
+`setup_schtasks.go` (create), `control.go` (edit — dispatch),
+`control_schtasks.go` (create), `schtasks.go` (create), `taskname.go` (create),
+plus tests. **`internal/svcrun/` is not created** — see the note below.
+
+> **Deviation 2026-08-27 (P9 execution).** ~~The file list named
+> `setup_windows.go`, `control_windows.go` and `schtasks_windows.go`.~~
+> **Those names are wrong for this code.** Go applies an *implicit* build
+> constraint to any file ending `_windows.go`, regardless of its `//go:build`
+> line — so those names would have made the Task Scheduler path compile only on
+> Windows, which directly defeats step 7's requirement that the branch be
+> "exercised on the owner's Mac" through `OverrideInstallOS`.
+>
+> Nothing in this path touches a Windows API: it shells out to `schtasks.exe`
+> via the `runSchtasks` seam and manipulates XML. The files are therefore
+> **untagged and cross-platform**, named `schtasks.go`, `setup_schtasks.go`
+> and `control_schtasks.go`, with `taskname.go` holding the one helper
+> `ProbeStatus` needs on every platform. All eleven P9 tests run on macOS as a
+> result. Recorded because the naming looks like an oversight otherwise.
 
 **Steps.**
 

@@ -279,6 +279,10 @@ func Setup(opts Options) (Result, error) {
 		body, err = render(opts)
 		res.Scope = "systemd-user"
 		res.Label = opts.UnitName
+	case "windows":
+		body, err = renderTaskXML(opts, currentTaskUser())
+		res.Scope = "windows-task"
+		res.Label = taskNameFor(opts.Product)
 	default:
 		if opts.PrintOnly {
 			// Preview systemd unit text on unsupported install platforms.
@@ -286,7 +290,7 @@ func Setup(opts Options) (Result, error) {
 			res.Scope = "systemd-user"
 			res.Label = opts.UnitName
 		} else {
-			return res, fmt.Errorf("setup-service install is only supported on Linux and macOS (running on %s); use --print-only to preview", installOS)
+			return res, fmt.Errorf("setup-service install is only supported on Linux, macOS and Windows (running on %s); use --print-only to preview", installOS)
 		}
 	}
 	if err != nil {
@@ -303,8 +307,10 @@ func Setup(opts Options) (Result, error) {
 		return setupSystemd(opts, body, res)
 	case "darwin":
 		return setupLaunchdAgent(opts, body, res)
+	case "windows":
+		return setupSchtasks(opts, body, res)
 	default:
-		return res, fmt.Errorf("setup-service install is only supported on Linux and macOS (running on %s)", installOS)
+		return res, fmt.Errorf("setup-service install is only supported on Linux, macOS and Windows (running on %s)", installOS)
 	}
 }
 
@@ -556,8 +562,10 @@ func Remove(opts Options) (Result, error) {
 		return removeSystemd(opts)
 	case "darwin":
 		return removeLaunchdAgent(opts)
+	case "windows":
+		return removeSchtasks(opts)
 	default:
-		return Result{}, fmt.Errorf("setup-service --remove is only supported on Linux and macOS (running on %s)", installOS)
+		return Result{}, fmt.Errorf("setup-service --remove is only supported on Linux, macOS and Windows (running on %s)", installOS)
 	}
 }
 
