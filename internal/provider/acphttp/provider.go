@@ -25,6 +25,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 )
 
 const engineStartTimeout = 60 * time.Second
@@ -182,7 +183,7 @@ func (p *Provider) SetActiveUpstream(ctx context.Context, upstreamID string) err
 
 // Ready reports whether the engine binary is found on PATH.
 func (p *Provider) Ready() bool {
-	_, err := exec.LookPath(p.cfg.Bin)
+	_, err := launch.Resolve(p.cfg.Bin)
 	return err == nil
 }
 

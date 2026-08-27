@@ -24,6 +24,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
 
@@ -210,7 +211,7 @@ func (p *Provider) Ready() bool {
 	if p.configErr != nil {
 		return false
 	}
-	_, err := exec.LookPath(p.cfg.Bin)
+	_, err := launch.Resolve(p.cfg.Bin)
 	return err == nil
 }
 

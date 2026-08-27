@@ -26,6 +26,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 )
 
 // startTimeout bounds ACP initialize + session/new. The process outlives
@@ -396,7 +397,7 @@ func (p *Provider) staticModelCatalog() picker.Catalog {
 
 // Ready implements [provider.Provider].
 func (p *Provider) Ready() bool {
-	_, err := exec.LookPath(p.cfg.Bin)
+	_, err := launch.Resolve(p.cfg.Bin)
 	return err == nil
 }
 
