@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
@@ -182,8 +183,15 @@ func TestSeedCreatesCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("generation mode = %04o, want 0600", fi.Mode().Perm())
+	// The retained generation must be owner-only. Asked as the property rather
+	// than the bits: Windows reports 0666 whatever the ACL says (MADR 0116
+	// D22), so a Perm() comparison would test nothing there.
+	ownerOnly, err := appdirs.FileIsOwnerOnly(filepath.Join(dataDir, "provider-auth", ad.id, "generations", cur.ID+".auth"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownerOnly {
+		t.Errorf("retained generation is not owner-only (mode %04o)", fi.Mode().Perm())
 	}
 }
 
@@ -305,6 +313,10 @@ func TestValidateRejectsBadCandidates(t *testing.T) {
 	})
 
 	t.Run("group readable", func(t *testing.T) {
+		// The rejection under test is triggered by loosening the file's mode,
+		// which Windows ignores — the candidate there inherits the pending
+		// home's owner-only DACL and is correctly accepted (MADR 0116 D26).
+		testexec.SkipIfNoPOSIXModes(t)
 		c, ad, _ := newFixture(t)
 		writeLive(t, ad, "chatgpt", 1)
 		if err := c.Seed(ctx); err != nil {
