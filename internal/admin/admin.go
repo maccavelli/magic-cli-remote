@@ -1,6 +1,8 @@
 // Package admin provides a local Unix-socket control plane for the running
 // mcremote daemon (revoke kick, etc.). Auth is filesystem permissions only:
-// the socket is created mode 0600 under the instance RuntimeDir (MADR 0059).
+// the socket is restricted to the owning user under the instance RuntimeDir
+// (MADR 0059) — mode 0600 on Unix, an owner-only DACL on Windows, where
+// os.Chmod grants no access control at all (MADR 0116 D7).
 package admin
 
 import (
@@ -14,7 +16,6 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
@@ -95,8 +96,14 @@ func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Log
 		if fi.Mode()&os.ModeSocket == 0 {
 			return fmt.Errorf("admin: %s exists and is not a socket", socketPath)
 		}
-		st, ok := fi.Sys().(*syscall.Stat_t)
-		if ok && int(st.Uid) != os.Getuid() {
+		// Fail closed: an un-inspectable owner used to skip this check
+		// entirely (`if ok && ...`), which silently accepted a socket whose
+		// ownership could not be established (MADR 0116 D7/C3).
+		owned, oerr := ownedByCurrentUser(socketPath, fi)
+		if oerr != nil {
+			return fmt.Errorf("admin: %s: %w", socketPath, oerr)
+		}
+		if !owned {
 			return fmt.Errorf("admin: %s not owned by current user", socketPath)
 		}
 		if resp, err := Call(socketPath, Request{Op: OpPing}); err == nil && resp.OK {
@@ -113,15 +120,16 @@ func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Log
 	if err != nil {
 		return fmt.Errorf("admin: listen %s: %w", socketPath, err)
 	}
-	if err := os.Chmod(socketPath, 0o600); err != nil {
+	// Restrict the socket to the owning user, or do not serve one at all.
+	if err := secureSocket(socketPath); err != nil {
 		_ = ln.Close()
-		return fmt.Errorf("admin: chmod %s: %w", socketPath, err)
+		return fmt.Errorf("admin: secure %s: %w", socketPath, err)
 	}
 	// Capture inode for safe shutdown removal.
 	var sockInode uint64
 	if fi, err := os.Lstat(socketPath); err == nil {
-		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-			sockInode = st.Ino
+		if id, ok := socketIdentity(fi); ok {
+			sockInode = id
 		}
 	}
 	log.Info("admin socket listening", slog.String("path", socketPath))
@@ -136,7 +144,7 @@ func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Log
 		_ = ln.Close()
 		// Remove only if path still names this listener's socket inode.
 		if fi, err := os.Lstat(socketPath); err == nil {
-			if st, ok := fi.Sys().(*syscall.Stat_t); ok && sockInode != 0 && st.Ino == sockInode {
+			if id, ok := socketIdentity(fi); ok && sockInode != 0 && id == sockInode {
 				_ = os.Remove(socketPath)
 			}
 		}

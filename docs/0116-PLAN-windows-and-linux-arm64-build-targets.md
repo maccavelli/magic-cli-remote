@@ -792,6 +792,16 @@ on Windows or `Serve` returns an error.
 `owner_windows.go` (create), `admin_test.go` (edit),
 `owner_windows_test.go` (create).
 
+> **File-scope addition 2026-08-27 (P3 execution).** Step 4 specifies that the
+> Windows `secureSocket` "applies P1's `privateDACL`", which requires that DACL
+> to be reachable from `internal/admin` — but `internal/appdirs` was not in the
+> file list above. Added to this phase's scope:
+> **`internal/appdirs/security_windows.go`**, gaining two exported wrappers,
+> `CurrentUserSID` and `SecurePrivateFile`. Purely additive, so contract C6
+> holds. The alternative — duplicating the descriptor logic inside `admin` —
+> was rejected: two copies of a security primitive can drift, and only one of
+> them would be covered by the appdirs tests.
+
 **Steps.**
 
 1. **Extract the POSIX stat calls behind two functions.** Create

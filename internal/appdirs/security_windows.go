@@ -166,3 +166,37 @@ func absClean(dir, what string) (string, error) {
 	}
 	return filepath.Clean(dir), nil
 }
+
+// CurrentUserSID returns the SID of the process token's user.
+//
+// Exported for internal/admin, which must compare a socket file's owner
+// against the calling user (MADR 0116 D7) and would otherwise duplicate the
+// token lookup.
+func CurrentUserSID() (*windows.SID, error) { return currentUserSID() }
+
+// SecurePrivateFile applies the owner-only private DACL to a file.
+//
+// This is the file-level counterpart of EnsurePrivateDir, for callers that
+// need a single object restricted rather than a directory tree — the admin
+// socket being the one case (MADR 0116 D7). It is idempotent: the DACL is
+// written only when the current one differs.
+func SecurePrivateFile(path string) error {
+	path, err := absClean(path, "path")
+	if err != nil {
+		return err
+	}
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err == nil && sddlEquivalent(sd.String(), privateDACL) {
+		return nil
+	}
+	acl, err := privateACL()
+	if err != nil {
+		return err
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil, nil, acl, nil); err != nil {
+		return fmt.Errorf("appdirs: set private DACL on %s: %w", path, err)
+	}
+	return nil
+}

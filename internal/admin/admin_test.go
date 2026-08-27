@@ -2,7 +2,9 @@ package admin_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -77,5 +79,29 @@ func TestNotifyWithoutDaemon(t *testing.T) {
 	_, err := admin.NotifyDisconnect(sock, "x")
 	if err == nil {
 		t.Fatal("expected ErrDaemonNotRunning")
+	}
+}
+
+// TestServeRefusesNonSocket proves Serve fails closed on a path it
+// cannot verify as its own socket, and does not unlink what is there
+// (MADR 0116 D7 / contract C3).
+func TestServeRefusesNonSocket(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, admin.SocketName)
+	if err := os.WriteFile(sock, []byte("not a socket"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := admin.Serve(ctx, sock, &fakeDisc{}, nil)
+	if err == nil {
+		t.Fatal("Serve accepted a non-socket at the socket path")
+	}
+	if !strings.Contains(err.Error(), "not a socket") {
+		t.Errorf("error = %v, want it to name the non-socket cause", err)
+	}
+	if _, statErr := os.Stat(sock); statErr != nil {
+		t.Errorf("Serve removed the pre-existing file: %v", statErr)
 	}
 }
