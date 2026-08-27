@@ -1,4 +1,4 @@
-//go:build !linux && !darwin
+//go:build !linux && !darwin && !windows
 
 package procutil
 
@@ -12,7 +12,7 @@ import (
 
 // SetDeathSignal is a no-op off Linux: there is no portable equivalent of
 // PR_SET_PDEATHSIG. Orphan prevention there rests entirely on the graceful
-// shutdown path.
+// shutdown path (on Windows, on the Job Object instead — MADR 0116 D8).
 func SetDeathSignal(cmd *exec.Cmd) {}
 
 // OwnerToken returns the calling process's pid. Without a portable process
