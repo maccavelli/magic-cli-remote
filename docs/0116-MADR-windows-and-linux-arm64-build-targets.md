@@ -542,6 +542,55 @@ and XCOFF** (`debug/buildinfo/buildinfo.go:126–150`). Verified in practice: a
 therefore assert cgo-freeness on every artifact it publishes, including the
 Windows `.exe` and both Darwin binaries, without executing any of them.**
 
+**F23 — Two product defects the compile-and-vet measurement could not see
+(found 2026-08-27, first Windows CI run).**
+
+F14 measured that the tree **compiles and vets** under `GOOS=windows` and
+concluded a Windows CI lane was "affordable; not a rewrite". That conclusion
+was drawn from the wrong measurement. `go build` and `go vet` do pass on
+`windows-latest` — the first real run confirms it — but **128 tests fail**, and
+two of those failures are product code, not test portability:
+
+**F23a — `providerauth` rejects every credential candidate on Windows.**
+`internal/providerauth/store.go:130`:
+
+```go
+if fi.Mode().Perm()&0o077 != 0 {
+    return nil, fmt.Errorf("%w: candidate is not owner-only", ErrInvalidCandidate)
+}
+```
+
+Files created on Windows report `0666`, so this gate always trips:
+`candidate is not owner-only`. **Remote provider auth — the whole of MADR 0074
+— is non-functional on Windows.** D4 addressed directory privacy and never
+looked at this file-level check, and no amount of test skipping fixes it.
+
+The same POSIX-mode gate appears in `appdirs/ensure_unix.go:54,63` and
+`appdirs/runtime_unix.go:36`, but those are already `//go:build unix` and have
+Windows counterparts; `providerauth/store.go` is shared code with none.
+
+**F23b — the Windows private-DACL check reports failure on a directory it just
+secured correctly.** `checkPrivateDir` applied the DACL, re-read the security
+descriptor, and compared its SDDL text against the `privateDACL` constant.
+That comparison cannot succeed: Windows resolves the `OW` (owner) alias to a
+concrete SID when the ACL is written, and may add the `AI` flag, so the
+round-tripped string never equals the input. Every caller of
+`EnsurePrivateDir` on Windows failed with `still not private after applying
+DACL` — 21 direct failures cascading through `daemon`, `cli`, `certs`,
+`relay`, `receipt`, `session` and `ws`.
+
+The remaining ~100 failures are test-suite portability, which D16's Tier 2
+definition and this record's Confirmation item 3 already anticipated in
+principle ("every skipped test carries an explicit `t.Skip` naming the
+platform reason") — but not at that volume. They fall into four groups:
+fixtures that write extensionless shell stubs and exec them (Windows needs
+`PATHEXT`); `0600`/`0666` mode assertions; test data using non-absolute Unix
+paths such as `/var/lib/mcremote`; and tests that assert XDG semantics
+directly.
+
+**The lesson worth recording:** "it compiles and vets" is evidence about the
+*port*, not about the *product*. F14 should have said so.
+
 ### Idempotency: what the word has to mean here
 
 The owner asked for pathing that "is idempotent". The current
@@ -1106,6 +1155,31 @@ Note this is strictly stronger than D20 and independent of it: D20 governs how
 touching D21, and D21 holds even if `-race` (and therefore cgo) is ever
 reinstated in a test job, because a test binary is not an artifact.
 
+**D22 — Owner-only file validation becomes a platform capability, not a mode
+check** (resolving F23a). `providerauth` stops asking `Perm()&0o077 != 0` and
+asks a per-platform helper instead: on Unix the identical mode test; on Windows
+that the file's owner SID is the current user and its DACL grants no other
+principal. The helper lives beside the existing `appdirs` security code so
+there is one implementation of "private to me", not two.
+
+This is the same shape as D4 and D7 — the security *property* is stated once
+and each platform implements it — and it is the check D4 should have caught.
+
+**D23 — The Windows private-DACL check compares ACEs, never SDDL text**
+(resolving F23b). Two changes:
+
+* the comparison resolves `OW` to the concrete owner SID and compares the
+  **set of ACEs** plus the protected bit, rather than the descriptor string,
+  because Windows rewrites that string on write;
+* the **post-write textual re-verification is removed**. `SetNamedSecurityInfo`
+  reporting success is the evidence the DACL was applied; re-deriving that from
+  a string it does not promise to round-trip is how a correct write came to be
+  reported as a failure.
+
+The comparison remains best-effort and is used only to decide whether to skip a
+redundant write (the C2 no-op requirement). A false negative costs one extra
+`SetNamedSecurityInfo` call; it can no longer manufacture an error.
+
 ### Consequences
 
 * Good, because every finding that would produce a *silently* insecure daemon
@@ -1149,6 +1223,9 @@ reinstated in a test job, because a test binary is not an artifact.
   race detector, once against the exact pure-Go `os/user` and `netgo` stack
   its release binary ships — so neither coverage is traded for the other.
 * Bad, because D20a doubles the full-suite runtime of the busiest CI job.
+* Bad, because F23 shows this record shipped two product defects that a
+  compile-and-vet gate could not catch, and claimed on that basis that the
+  Windows lane was cheap. D22 and D23 fix them; the estimate was still wrong.
 * Good, because D21 turns "our binaries are cgo-free" from a Makefile default
   that a stray environment variable defeats (F22) into an assertion on the
   published artifact that no build-system change can bypass.
@@ -1311,6 +1388,8 @@ The decision is confirmed when all of the following hold:
 | F19 | `-race` forces `CGO_ENABLED=1` off darwin; darwin exempt; `windows/arm64` is not a race port | Go `cmd/go/internal/work/init.go:194–204` (reproduced), `internal/platform/supported.go:23–34`, `zosarch.go:112–113` |
 | F20 | Self-hosted runners must not serve a public repo | [GitHub secure-use reference](https://docs.github.com/en/actions/reference/security/secure-use) |
 | F21 | Arm partner images are narrowed; `windows-11-arm` has no MSYS2 (a D19 input) | [partner-runner-images](https://github.com/actions/partner-runner-images) image READMEs |
+| F23a | `providerauth` rejects every candidate on Windows (POSIX mode gate in shared code) | `internal/providerauth/store.go:130`; CI run 33084467102 |
+| F23b | Windows DACL check fails on a directory it just secured (SDDL text round-trip) | `internal/appdirs/security_windows.go`; CI run 33084467102 |
 | F22 | cgo=0 is an overridable default; no artifact is ever checked for it | `Makefile:37–38` (env-override reproduced), `scripts/verify-build-metadata.sh:15`, `debug/buildinfo/buildinfo.go:126–150` |
 | F17 | Windows assets get no unversioned alias; `.exe` leaks into resolved versions | `ci.yml:589–600,622–630`, `scripts/install.sh:176–190`, `update/github.go:85–106` |
 | F16 | Existing Windows refusals are the model | `config/config.go:1238`, `codex/config.go:94,116`, `codex/launch.go:46` |

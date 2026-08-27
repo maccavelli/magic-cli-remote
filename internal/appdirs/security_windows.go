@@ -5,7 +5,7 @@ package appdirs
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 	"sync"
 
 	"golang.org/x/sys/windows"
@@ -87,40 +87,185 @@ func checkPrivateDir(dir string, repair bool) error {
 		return fmt.Errorf("appdirs: %s not owned by current user", dir)
 	}
 
-	// Compare the effective descriptor's SDDL against the target. Only write
-	// when it differs — that comparison is what makes a second call a no-op
-	// (the MADR 0116 D4 idempotency contract).
-	if sddlEquivalent(sd.String(), privateDACL) {
+	if isPrivateDACL(sd.String(), want) {
 		return nil
 	}
 	if !repair {
 		return fmt.Errorf("appdirs: %s does not carry the private DACL", dir)
 	}
+	return applyPrivateDACL(dir)
+}
+
+// applyPrivateDACL writes the owner-only DACL to path.
+//
+// There is deliberately NO textual re-read afterwards. Windows resolves the
+// SDDL "OW" alias to a concrete SID when the ACL is written and may add the
+// AI flag, so the descriptor does not round-trip as the string it was given;
+// an earlier version compared them and reported "still not private" for a
+// directory it had just secured correctly (MADR 0116 F23b/D23).
+// SetNamedSecurityInfo returning nil is the evidence that the DACL was applied.
+func applyPrivateDACL(path string) error {
 	acl, err := privateACL()
 	if err != nil {
 		return err
 	}
-	if err := windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		nil, nil, acl, nil); err != nil {
-		return fmt.Errorf("appdirs: set private DACL on %s: %w", dir, err)
-	}
-	// Re-read and verify, mirroring the Unix chmod re-check.
-	sd, err = windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
-	if err != nil {
-		return fmt.Errorf("appdirs: re-read security info for %s: %w", dir, err)
-	}
-	if !sddlEquivalent(sd.String(), privateDACL) {
-		return fmt.Errorf("appdirs: %s still not private after applying DACL", dir)
+		return fmt.Errorf("appdirs: set private DACL on %s: %w", path, err)
 	}
 	return nil
 }
 
-// sddlEquivalent reports whether got carries the same DACL portion as want.
-// GetNamedSecurityInfo returns a descriptor that also carries owner and group,
-// so a raw string comparison against a DACL-only SDDL never matches.
-func sddlEquivalent(got, want string) bool {
-	return extractDACL(got) == extractDACL(want)
+// isPrivateDACL reports whether sddl already grants access to nobody but the
+// owner and SYSTEM, with inheritance severed.
+//
+// It compares the SET OF ACEs, not the descriptor string, and resolves the
+// "OW" alias against the concrete owner SID — the two reasons a string
+// comparison cannot work (MADR 0116 D23). It is best-effort by design: it
+// decides only whether a redundant write can be skipped (the C2 no-op
+// requirement), so a false negative costs one extra SetNamedSecurityInfo call
+// and can never manufacture an error.
+func isPrivateDACL(sddl string, owner *windows.SID) bool {
+	dacl := extractDACL(sddl)
+	if dacl == "" {
+		return false
+	}
+	flags, aces := splitDACL(dacl)
+	// "P" (SDDL_PROTECTED) is what severs inheritance. Without it a parent's
+	// ACEs still apply, so the directory is not private whatever else it says.
+	if !strings.ContainsRune(flags, 'P') {
+		return false
+	}
+	got := make(map[string]bool, len(aces))
+	for _, ace := range aces {
+		got[canonicalACE(ace, owner)] = true
+	}
+	for _, wantACE := range []string{
+		canonicalACE("(A;OICI;FA;;;OW)", owner),
+		canonicalACE("(A;OICI;FA;;;SY)", owner),
+	} {
+		if !got[wantACE] {
+			return false
+		}
+	}
+	// Any additional trustee means someone else has access.
+	return len(got) == 2
+}
+
+// splitDACL separates the flag characters after "D:" from the ACE list.
+func splitDACL(dacl string) (flags string, aces []string) {
+	body := strings.TrimPrefix(dacl, "D:")
+	i := strings.IndexByte(body, '(')
+	if i < 0 {
+		return body, nil
+	}
+	flags = body[:i]
+	rest := body[i:]
+	depth, start := 0, 0
+	for k, r := range rest {
+		switch r {
+		case '(':
+			if depth == 0 {
+				start = k
+			}
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				aces = append(aces, rest[start:k+1])
+			}
+		}
+	}
+	return flags, aces
+}
+
+// canonicalACE normalizes an ACE so aliases and explicit SIDs compare equal.
+func canonicalACE(ace string, owner *windows.SID) string {
+	ace = strings.ToUpper(strings.TrimSpace(ace))
+	fields := strings.Split(strings.Trim(ace, "()"), ";")
+	if len(fields) < 6 {
+		return ace
+	}
+	fields[5] = canonicalTrustee(fields[5], owner)
+	return "(" + strings.Join(fields, ";") + ")"
+}
+
+// canonicalTrustee resolves the SDDL trustee aliases this code can encounter
+// to their SID strings, so "SY" and "S-1-5-18" are the same trustee.
+func canonicalTrustee(t string, owner *windows.SID) string {
+	switch t {
+	case "OW", "CO":
+		if owner != nil {
+			return strings.ToUpper(owner.String())
+		}
+		return t
+	case "SY":
+		return "S-1-5-18"
+	case "BA":
+		return "S-1-5-32-544"
+	default:
+		return t
+	}
+}
+
+// CurrentUserSID returns the SID of the process token's user.
+//
+// Exported for internal/admin, which must compare a socket file's owner
+// against the calling user (MADR 0116 D7) and would otherwise duplicate the
+// token lookup.
+func CurrentUserSID() (*windows.SID, error) { return currentUserSID() }
+
+// SecurePrivateFile applies the owner-only private DACL to a file.
+//
+// This is the file-level counterpart of EnsurePrivateDir, for callers that
+// need a single object restricted rather than a directory tree — the admin
+// socket being the one case (MADR 0116 D7). It is idempotent: the DACL is
+// written only when the current one differs.
+func SecurePrivateFile(path string) error {
+	path, err := absClean(path, "path")
+	if err != nil {
+		return err
+	}
+	if owner, err := currentUserSID(); err == nil {
+		sd, serr := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+			windows.DACL_SECURITY_INFORMATION)
+		if serr == nil && isPrivateDACL(sd.String(), owner) {
+			return nil
+		}
+	}
+	return applyPrivateDACL(path)
+}
+
+// FileIsOwnerOnly reports whether path is readable only by its owner, who must
+// be the calling user (MADR 0116 D22).
+//
+// This is the Windows half of the "private to me" property that a POSIX caller
+// expresses as Perm()&0o077 == 0. It exists because that mode test is
+// meaningless here — files report 0666 whatever their ACL says — and shared
+// code that gates on it rejects every candidate on Windows (F23a).
+func FileIsOwnerOnly(path string) (bool, error) {
+	path, err := absClean(path, "path")
+	if err != nil {
+		return false, err
+	}
+	self, err := currentUserSID()
+	if err != nil {
+		return false, err
+	}
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return false, fmt.Errorf("appdirs: read security info for %s: %w", path, err)
+	}
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return false, fmt.Errorf("appdirs: read owner of %s: %w", path, err)
+	}
+	if !owner.Equals(self) {
+		return false, nil
+	}
+	return isPrivateDACL(sd.String(), self), nil
 }
 
 // extractDACL returns the "D:..." component of an SDDL string, or "" when
@@ -153,50 +298,4 @@ func indexComponent(s, prefix string) int {
 		}
 	}
 	return -1
-}
-
-// absClean validates and cleans a directory argument shared by the Windows
-// EnsurePrivateDir and ValidateRuntimeDir entry points.
-func absClean(dir, what string) (string, error) {
-	if dir == "" {
-		return "", fmt.Errorf("appdirs: empty %s", what)
-	}
-	if !filepath.IsAbs(dir) {
-		return "", fmt.Errorf("appdirs: %s must be absolute: %q", what, dir)
-	}
-	return filepath.Clean(dir), nil
-}
-
-// CurrentUserSID returns the SID of the process token's user.
-//
-// Exported for internal/admin, which must compare a socket file's owner
-// against the calling user (MADR 0116 D7) and would otherwise duplicate the
-// token lookup.
-func CurrentUserSID() (*windows.SID, error) { return currentUserSID() }
-
-// SecurePrivateFile applies the owner-only private DACL to a file.
-//
-// This is the file-level counterpart of EnsurePrivateDir, for callers that
-// need a single object restricted rather than a directory tree — the admin
-// socket being the one case (MADR 0116 D7). It is idempotent: the DACL is
-// written only when the current one differs.
-func SecurePrivateFile(path string) error {
-	path, err := absClean(path, "path")
-	if err != nil {
-		return err
-	}
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
-	if err == nil && sddlEquivalent(sd.String(), privateDACL) {
-		return nil
-	}
-	acl, err := privateACL()
-	if err != nil {
-		return err
-	}
-	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		nil, nil, acl, nil); err != nil {
-		return fmt.Errorf("appdirs: set private DACL on %s: %w", path, err)
-	}
-	return nil
 }

@@ -1,5 +1,5 @@
 ---
-status: completed
+status: in-progress
 date: 2026-08-27
 associated-madr: "0116-MADR-windows-and-linux-arm64-build-targets.md"
 owner: [Project Owner]
@@ -1985,6 +1985,73 @@ record does not build.
 
 **No `git push` is performed by this plan.** Publishing is an explicit owner
 action.
+
+## Post-merge: first CI run (2026-08-27)
+
+The first real run of the new jobs — [33084467102][run] on `db79629` — failed.
+What it proved, and what it cost:
+
+**Both Linux failures were pre-existing flakes, confirmed by evidence rather
+than argued.** `gh run rerun --failed` on the **identical commit** turned both
+green: `Go (linux/arm64)` and `Go (test; build on tag)` passed second time with
+no code change. They are recorded here so a future reader does not re-diagnose
+them:
+
+- `TestReconcileGooseKeyringHostControls` (`internal/daemon`, `-race`) —
+  `bad file descriptor` on an `os.ReadFile`. `internal/daemon` is not in this
+  plan's diff at all. An EBADF under the race detector suggests a real,
+  pre-existing race worth its own investigation; it is **not** 0116's.
+- `TestDiagnosticRunnerExactArgvTimeoutNonzeroAndSingleFlight`
+  (`internal/provider/codex`) — a timing-sensitive single-flight assertion, on
+  a 4-vCPU `ubuntu-24.04-arm` runner it had never executed on before. This
+  plan's only change to that package is a one-line `exec.LookPath` →
+  `launch.Resolve` in `Ready()`, which on Unix *is* `exec.LookPath`.
+
+**Windows failed for real: 128 tests across 19 packages**, while `Build` and
+`Vet` passed. Two of those are product defects, now recorded as MADR **F23a**
+and **F23b** and fixed under **D22** and **D23** (see P11 below). The
+remaining ~100 are test-suite portability.
+
+The estimate that got this wrong was **F14**, which measured that the tree
+*compiles and vets* under `GOOS=windows` and concluded a Windows CI lane was
+"affordable; not a rewrite". Compiling is evidence about the port; passing is
+evidence about the product. F14 should have said which one it had.
+
+[run]: https://github.com/maccavelli/magic-cli-remote/actions/runs/33084467102
+
+### P11 — Windows test-suite portability (added 2026-08-27)
+
+**Outcome.** `go test ./...` is green on `windows-latest`, or every skip names
+its platform reason (MADR Confirmation item 3).
+
+**Status.** Product fixes D22/D23 landed. The ~100 test guards are **not yet
+done**.
+
+**The four groups, from the run's own output.**
+
+1. **Fixtures that write extensionless shell stubs and exec them** —
+   `fake-cli`, `codex-stub`. Windows resolves executables through `PATHEXT`, so
+   a file with no extension is not runnable however its bits are set.
+   Affects `procutil`, `provider/grok`, `provider/codex`, `provider/credstore`.
+   Fix: give the stub a `.bat`/`.cmd` extension on Windows via a shared test
+   helper, or skip with a named reason where the test is about POSIX process
+   groups specifically.
+2. **POSIX mode assertions in tests** — `want 0600`, `mode = -rw-rw-rw-`.
+   Affects `certs`, `credstore`, `providerauth`, `fsutil`, `session`,
+   `provider/goose`. Fix: assert through `appdirs.FileIsOwnerOnly` (D22) rather
+   than `Perm()`, which is the same property stated portably.
+3. **Non-absolute Unix paths in test data** — `/var/lib/mcremote`,
+   `/tmp/...`. `filepath.IsAbs` is false for these on Windows. Affects
+   `appdirs` (`TestInstanceKeyStable`, and this plan's own
+   `TestInstanceKeyCaseFolding`), `config`. Fix: build fixtures with
+   `t.TempDir()` or a platform-appropriate root.
+4. **Tests that assert XDG semantics directly** — `TestSystemRootsRelativeXDG`,
+   `TestSystemRootsAbsoluteXDG`, the systemd/launchd renderers. Fix:
+   `//go:build unix`, since they are testing a Unix layout by definition.
+
+**Do not** make the Windows job non-blocking to get master green. MADR D16
+claims Tier 2 means "unit-tested in CI"; a job that reports failure without
+blocking makes that claim false and stops being read.
 
 ## Deferred (named, so they are not mistaken for oversights)
 

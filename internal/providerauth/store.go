@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/fsutil"
 )
 
@@ -127,7 +128,14 @@ func (s *store) readCandidate(path string, maxBytes int64) ([]byte, error) {
 	if !fi.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: candidate is not a regular file", ErrInvalidCandidate)
 	}
-	if fi.Mode().Perm()&0o077 != 0 {
+	// Owner-only is asked as a property, not as a mode test: files report 0666
+	// on Windows whatever their ACL says, so the inline Perm()&0o077 check this
+	// replaces rejected every candidate there (MADR 0116 F23a/D22).
+	ownerOnly, err := appdirs.FileIsOwnerOnly(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidCandidate, err)
+	}
+	if !ownerOnly {
 		return nil, fmt.Errorf("%w: candidate is not owner-only", ErrInvalidCandidate)
 	}
 	if maxBytes > 0 && fi.Size() > maxBytes {
