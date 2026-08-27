@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -55,8 +56,8 @@ func Resolve(product Product, roots Roots, dataDirOverride string) (Paths, error
 		ConfigDir:  filepath.Join(roots.ConfigHome, product.Name),
 		ConfigFile: filepath.Join(roots.ConfigHome, product.Name, "config.yaml"),
 		DataDir:    filepath.Join(roots.DataHome, product.Name),
-		StateDir:   filepath.Join(roots.StateHome, product.Name),
-		CacheDir:   filepath.Join(roots.CacheHome, product.Name),
+		StateDir:   roots.joinProduct(roots.StateHome, product.Name),
+		CacheDir:   roots.joinProduct(roots.CacheHome, product.Name),
 		TempBase:   roots.Temp,
 	}
 	if roots.Logs != "" {
@@ -76,7 +77,7 @@ func Resolve(product Product, roots Roots, dataDirOverride string) (Paths, error
 	if strings.Contains(filepath.Base(rt), product.Name+"-runtime-") {
 		p.RuntimeBase = rt
 	} else {
-		p.RuntimeBase = filepath.Join(rt, product.Name)
+		p.RuntimeBase = roots.joinProduct(rt, product.Name)
 	}
 
 	dataDir := p.DataDir
@@ -125,8 +126,23 @@ func InstanceKey(dataDir string) (string, error) {
 	if dataDir == "" || !filepath.IsAbs(dataDir) {
 		return "", fmt.Errorf("appdirs: data dir for instance key must be absolute")
 	}
-	sum := sha256.Sum256([]byte(filepath.Clean(dataDir)))
+	sum := sha256.Sum256([]byte(instanceKeyInput(dataDir)))
 	return hex.EncodeToString(sum[:])[:16], nil
+}
+
+// instanceKeyInput normalizes dataDir before hashing. On a case-insensitive
+// filesystem two spellings of one directory must produce one instance key, or
+// a daemon started from a differently-cased path silently gets its own runtime
+// dir and engine registry (MADR 0116 D3).
+//
+// This is a runtime.GOOS branch rather than a build tag on purpose: the
+// behaviour has to be testable from a Unix development host.
+func instanceKeyInput(dataDir string) string {
+	clean := filepath.Clean(dataDir)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(clean)
+	}
+	return clean
 }
 
 // DefaultConfigFile is a convenience for product config.yaml via SystemRoots.

@@ -2,6 +2,7 @@ package appdirs
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -172,5 +173,103 @@ func TestProductByName(t *testing.T) {
 	}
 	if _, ok := ProductByName("nope"); ok {
 		t.Fatal("expected unknown product")
+	}
+}
+
+// TestResolveDoesNotDoubleJoinProductLeaf pins the joinProduct behaviour that
+// lets a platform whose roots are already product-scoped (Windows Known
+// Folders, MADR 0116 D3) share one pure Resolve with XDG. It runs on every
+// host precisely because Roots is injected.
+func TestResolveDoesNotDoubleJoinProductLeaf(t *testing.T) {
+	home := t.TempDir()
+	base := filepath.Join(home, "Local", "mcremote")
+	r := Roots{
+		Home:          home,
+		ConfigHome:    filepath.Join(home, "Roaming"),
+		DataHome:      filepath.Join(home, "Local"),
+		StateHome:     filepath.Join(base, "State"),
+		CacheHome:     filepath.Join(base, "Cache"),
+		RuntimeHome:   filepath.Join(base, "Runtime"),
+		Temp:          filepath.Join(home, "tmp"),
+		ProductScoped: true,
+	}
+	p, err := Resolve(ProductMcremote, r, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Roots that do NOT end in the product name still get the leaf joined.
+	if want := filepath.Join(r.ConfigHome, "mcremote"); p.ConfigDir != want {
+		t.Errorf("ConfigDir = %q, want %q", p.ConfigDir, want)
+	}
+	if want := filepath.Join(r.DataHome, "mcremote"); p.DataDir != want {
+		t.Errorf("DataDir = %q, want %q", p.DataDir, want)
+	}
+	// Roots that are already product-scoped must NOT be joined again.
+	if p.StateDir != r.StateHome {
+		t.Errorf("StateDir = %q, want %q (no second leaf)", p.StateDir, r.StateHome)
+	}
+	if p.CacheDir != r.CacheHome {
+		t.Errorf("CacheDir = %q, want %q (no second leaf)", p.CacheDir, r.CacheHome)
+	}
+	if p.RuntimeBase != r.RuntimeHome {
+		t.Errorf("RuntimeBase = %q, want %q (no second leaf)", p.RuntimeBase, r.RuntimeHome)
+	}
+}
+
+// TestJoinProductHonoursProductScoped is the other half of the contract: the
+// platform declares the shape, Resolve does not infer it from the path (MADR
+// 0116 D3 amendment).
+func TestJoinProductHonoursProductScoped(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator)+"tmp", "state")
+	unscoped := Roots{}
+	if got, want := unscoped.joinProduct(root, "mcremote"), filepath.Join(root, "mcremote"); got != want {
+		t.Errorf("unscoped joinProduct(%q) = %q, want %q", root, got, want)
+	}
+	scoped := Roots{ProductScoped: true}
+	if got := scoped.joinProduct(root, "mcremote"); got != root {
+		t.Errorf("scoped joinProduct(%q) = %q, want unchanged", root, got)
+	}
+	// The ancestor case the Base-only predicate got wrong.
+	deep := filepath.Join(root, "mcremote", "State")
+	if got := scoped.joinProduct(deep, "mcremote"); got != deep {
+		t.Errorf("scoped joinProduct(%q) = %q, want unchanged", deep, got)
+	}
+}
+
+// TestInstanceKeyCaseFolding pins MADR 0116 D3: NTFS is case-insensitive, so
+// two spellings of one directory must key one instance. On Unix, case is
+// significant and the keys must differ.
+func TestInstanceKeyCaseFolding(t *testing.T) {
+	upper, err := InstanceKey(filepath.Join(string(filepath.Separator)+"Users", "X", "Data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lower, err := InstanceKey(filepath.Join(string(filepath.Separator)+"users", "x", "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		if upper != lower {
+			t.Errorf("case-insensitive filesystem: keys differ (%q vs %q)", upper, lower)
+		}
+		return
+	}
+	if upper == lower {
+		t.Errorf("case-sensitive filesystem: keys collide (%q)", upper)
+	}
+}
+
+// TestResolveLeavesLogDirEmptyWithoutLogsRoot proves Paths.LogDir follows the
+// root rather than being synthesised, which is what lets Linux have none
+// (MADR 0116 F4).
+func TestResolveLeavesLogDirEmptyWithoutLogsRoot(t *testing.T) {
+	r := testRoots(t)
+	r.Logs = ""
+	p, err := Resolve(ProductMcremote, r, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.LogDir != "" {
+		t.Errorf("LogDir = %q, want empty", p.LogDir)
 	}
 }

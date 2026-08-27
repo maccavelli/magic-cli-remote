@@ -653,6 +653,28 @@ is lower-cased first on Windows because NTFS is case-insensitive — otherwise
 `C:\Users\X` and `c:\users\x` key two different instances of the same
 directory.
 
+**Amendment 2026-08-27 (P1 execution).** Sharing one pure `Resolve` between
+an XDG layout and a product-scoped Known Folders layout needs `Roots` to say
+which shape it is, rather than `Resolve` inferring it from the path. An earlier
+draft inferred it — "skip the product leaf when `filepath.Base(root)` already
+equals the product name" — which does not hold: the Windows `StateHome`
+(`%LocalAppData%\mcremote\State`) carries the product name as an **ancestor**,
+so its base is `State` and the leaf was appended twice
+(`...\mcremote\State\mcremote`). Caught by
+`TestResolveDoesNotDoubleJoinProductLeaf` during P1.
+
+`Roots` therefore gains a **`ProductScoped bool`**: `roots_windows.go` sets it,
+`roots_unix.go` leaves it false, and `Resolve` skips the product leaf for
+`StateHome`, `CacheHome` and `RuntimeHome` when it is set. `ConfigHome` and
+`DataHome` are unaffected — their Windows roots (`%AppData%`,
+`%LocalAppData%`) are genuinely not product-scoped and must always join.
+
+A path-shape heuristic was rejected: matching the product name against any
+path element would fire for a Linux user whose home is `/home/mcremote`,
+silently relocating `StateDir` from `~/.local/state/mcremote` to
+`~/.local/state` on an existing install. A Windows fix must not move Linux
+data.
+
 **Machine scope (owner decision 2026-08-27, resolving open question 3).** The
 table above is the interactive-user layout, which is the only one this record
 ships, because D12 selects a per-user service. Should a machine-wide service

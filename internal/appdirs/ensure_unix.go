@@ -10,8 +10,15 @@ import (
 )
 
 // EnsurePrivateDir creates dir (and parents) as a user-owned directory mode 0700.
-// It refuses to chmod through a final symlink: the leaf must be a real directory
-// owned by the current uid after creation.
+//
+// Idempotent and converging. Creates the directory and any parents if absent;
+// if present, verifies owner and access and repairs access to the private
+// state; returns an error rather than repairing when the leaf is a symlink,
+// reparse point, or not owned by the current principal. A second call on a
+// converged directory performs no writes.
+//
+// It refuses to chmod through a final symlink: the leaf must be a real
+// directory owned by the current uid after creation.
 func EnsurePrivateDir(dir string) error {
 	if dir == "" {
 		return fmt.Errorf("appdirs: empty directory")

@@ -1,11 +1,6 @@
 package appdirs
 
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
-)
+import "path/filepath"
 
 // Roots holds absolute base directories used to build Paths.
 // Tests inject Roots; production uses SystemRoots.
@@ -17,7 +12,26 @@ type Roots struct {
 	CacheHome   string
 	RuntimeHome string // XDG_RUNTIME_DIR or validated fallback parent for product
 	Temp        string
-	Logs        string // LaunchAgent stdio base on Darwin (home/Library/Logs)
+	Logs        string // service stdio base; empty where the platform has none
+
+	// ProductScoped reports that StateHome, CacheHome and RuntimeHome are
+	// already product-specific directories, so Resolve must not append the
+	// product leaf again (MADR 0116 D3).
+	//
+	// Windows Known Folders are scoped this way (%LocalAppData%\<product>\State);
+	// XDG roots are not (~/.local/state). ConfigHome and DataHome are never
+	// product-scoped on either platform and always take the leaf.
+	ProductScoped bool
+}
+
+// joinProduct appends the product leaf unless these roots are already
+// product-scoped.
+func (r Roots) joinProduct(root, name string) string {
+	clean := filepath.Clean(root)
+	if r.ProductScoped {
+		return clean
+	}
+	return filepath.Join(clean, name)
 }
 
 // Diagnostic is a non-fatal path resolution note.
@@ -26,78 +40,12 @@ type Diagnostic struct {
 	Message string `json:"message"`
 }
 
-// SystemRoots discovers XDG roots from the environment and home directory.
-// Relative $XDG_* values are ignored with a diagnostic (XDG absolute-path rule).
+// SystemRoots discovers the platform's base directories for product.
+//
+// Resolution is per-platform (MADR 0116 D3): Unix follows the XDG Base
+// Directory specification; Windows uses Known Folders. Both feed the same
+// [Resolve], which stays pure and OS-agnostic, so a test can inject either
+// layout on any host.
 func SystemRoots(product Product) (Roots, []Diagnostic, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return Roots{}, nil, fmt.Errorf("home dir: %w", err)
-	}
-	if !filepath.IsAbs(home) {
-		return Roots{}, nil, fmt.Errorf("home dir is not absolute: %q", home)
-	}
-	home = filepath.Clean(home)
-
-	var diags []Diagnostic
-	xdgOr := func(env, fallback string) string {
-		v := os.Getenv(env)
-		if v == "" {
-			return fallback
-		}
-		if !filepath.IsAbs(v) {
-			diags = append(diags, Diagnostic{
-				Code:    "xdg_relative_ignored",
-				Message: fmt.Sprintf("%s=%q is relative; using %s", env, v, fallback),
-			})
-			return fallback
-		}
-		return filepath.Clean(v)
-	}
-
-	r := Roots{
-		Home:       home,
-		ConfigHome: xdgOr("XDG_CONFIG_HOME", filepath.Join(home, ".config")),
-		DataHome:   xdgOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share")),
-		StateHome:  xdgOr("XDG_STATE_HOME", filepath.Join(home, ".local", "state")),
-		CacheHome:  xdgOr("XDG_CACHE_HOME", filepath.Join(home, ".cache")),
-		Temp:       filepath.Clean(os.TempDir()),
-		Logs:       filepath.Join(home, "Library", "Logs"),
-	}
-
-	runtimeHome, runtimeDiags := resolveRuntimeHome(home, product.Name)
-	diags = append(diags, runtimeDiags...)
-	r.RuntimeHome = runtimeHome
-
-	return r, diags, nil
-}
-
-// resolveRuntimeHome picks XDG_RUNTIME_DIR, else /run/user/$UID on Linux,
-// else a secure per-uid temp leaf. Validation of the leaf happens in Ensure.
-func resolveRuntimeHome(home, product string) (string, []Diagnostic) {
-	var diags []Diagnostic
-	if v := os.Getenv("XDG_RUNTIME_DIR"); v != "" {
-		if !filepath.IsAbs(v) {
-			diags = append(diags, Diagnostic{
-				Code:    "xdg_runtime_relative_ignored",
-				Message: fmt.Sprintf("XDG_RUNTIME_DIR=%q is relative; using fallback", v),
-			})
-		} else {
-			return filepath.Clean(v), diags
-		}
-	}
-	if runtime.GOOS == "linux" {
-		uid := os.Getuid()
-		candidate := filepath.Join("/run/user", fmt.Sprintf("%d", uid))
-		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
-			return candidate, diags
-		}
-	}
-	// Secure per-uid temp leaf (XDG allows replacement with warning).
-	uid := os.Getuid()
-	leaf := filepath.Join(os.TempDir(), fmt.Sprintf("%s-runtime-%d", product, uid))
-	diags = append(diags, Diagnostic{
-		Code:    "xdg_runtime_fallback",
-		Message: fmt.Sprintf("XDG_RUNTIME_DIR unset or unusable; using %s", leaf),
-	})
-	return leaf, diags
+	return systemRoots(product)
 }

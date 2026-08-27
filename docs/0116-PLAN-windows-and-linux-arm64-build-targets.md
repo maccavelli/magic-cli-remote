@@ -416,27 +416,50 @@ contract C2. The three `undefined:` errors in `appdirs` are gone.
    under C1: the behaviour must be testable from the Unix host, and a build
    tag would make `TestInstanceKeyCaseFolding` unrunnable on the owner's Mac.
 
-5. **Stop double-joining the product leaf.** In `Resolve`, `StateDir`,
-   `CacheDir` and `RuntimeBase` join `product.Name` onto the corresponding
-   root. Add a helper used by all three:
+5. **Stop double-joining the product leaf.**
+
+   > **Deviation 2026-08-27 (P1 execution).** ~~The step below specified a
+   > `joinProduct(root, name)` helper keyed on
+   > `filepath.Base(filepath.Clean(root)) == name`.~~ **That predicate is
+   > wrong and was replaced.** The Windows `StateHome` is
+   > `%LocalAppData%\mcremote\State`, whose base is `State`, not `mcremote` —
+   > the product name is an *ancestor*. The predicate never fired and
+   > `Resolve` appended the leaf twice
+   > (`...\mcremote\State\mcremote`), caught by
+   > `TestResolveDoesNotDoubleJoinProductLeaf`.
+   >
+   > **Resolution (owner, 2026-08-27):** add **`Roots.ProductScoped bool`** —
+   > the platform that builds the roots declares the shape instead of
+   > `Resolve` inferring it. A widened path-element heuristic was rejected: it
+   > false-positives for a Linux user whose home is `/home/mcremote` and would
+   > silently relocate `StateDir`. Files added to this step's scope:
+   > `internal/appdirs/roots.go` (the new field). MADR D3 amended to match.
+
+   In `Resolve`, `StateDir`, `CacheDir` and `RuntimeBase` join `product.Name`
+   onto the corresponding root. Gate that join on the new flag:
 
    ```go
-   // joinProduct appends the product leaf unless root already ends in it —
-   // platforms whose roots are product-scoped by construction (Windows Known
-   // Folders) would otherwise get …\mcremote\State\mcremote.
-   func joinProduct(root, name string) string {
-       if filepath.Base(filepath.Clean(root)) == name {
+   // ProductScoped reports that StateHome, CacheHome and RuntimeHome are
+   // already product-specific directories, so Resolve must not append the
+   // product leaf again (MADR 0116 D3).
+   ProductScoped bool
+   ```
+
+   ```go
+   func (r Roots) joinProduct(root, name string) string {
+       if r.ProductScoped {
            return filepath.Clean(root)
        }
        return filepath.Join(root, name)
    }
    ```
 
-   Apply to `StateDir` and `CacheDir`. `RuntimeBase` already has a
-   special case for the temp-fallback shape (`paths.go:66–71`); extend that
-   same `if` with `|| filepath.Base(rt) == product.Name`. **`ConfigDir`,
-   `DataDir` and `LogDir` are unchanged** — their Windows roots are *not*
-   product-scoped, so they must keep joining.
+   Apply to `StateDir` and `CacheDir`. `RuntimeBase` already has a special
+   case for the temp-fallback shape (`paths.go:66–71`); keep that `if` and use
+   `roots.joinProduct` in its else branch. **`ConfigDir`, `DataDir` and
+   `LogDir` are unchanged** — their Windows roots (`%AppData%`,
+   `%LocalAppData%`) are genuinely *not* product-scoped, so they must always
+   join.
 
 6. **Create `ensure_windows.go`** implementing `EnsurePrivateDir` under
    contract C2. "Private" on Windows is an explicit DACL:

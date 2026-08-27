@@ -5,6 +5,7 @@ package appdirs
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -50,16 +51,8 @@ func TestCheckSocketPathLength(t *testing.T) {
 	if err := CheckSocketPathLength("/tmp/short.sock"); err != nil {
 		t.Fatal(err)
 	}
-	long := "/" + stringsRepeat("a", MaxUnixSocketPathLen()+10)
+	long := "/" + strings.Repeat("a", MaxUnixSocketPathLen()+10)
 	if err := CheckSocketPathLength(long); err == nil {
 		t.Fatal("expected overlength error")
 	}
-}
-
-func stringsRepeat(s string, n int) string {
-	b := make([]byte, 0, n*len(s))
-	for range n {
-		b = append(b, s...)
-	}
-	return string(b)
 }
