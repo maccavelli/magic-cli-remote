@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/spf13/pflag"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestLoadFromYAMLAndAllow(t *testing.T) {
@@ -254,6 +256,7 @@ func TestPathHintsNonEmpty(t *testing.T) {
 }
 
 func TestEnsureDataDirCreatesPrivate(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dir := filepath.Join(t.TempDir(), "nested", "data")
 	if err := EnsureDataDir(dir); err != nil {
 		t.Fatal(err)

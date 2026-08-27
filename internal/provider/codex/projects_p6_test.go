@@ -10,9 +10,11 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestProjectAllSevenMethodsAndBounds(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	if upstreamProjectDefaultLimit != 25 || upstreamProjectMaximumLimit != 100 || projectListLimit != 50 {
 		t.Fatalf("project limits default=%d maximum=%d requested=%d", upstreamProjectDefaultLimit, upstreamProjectMaximumLimit, projectListLimit)
 	}
@@ -134,6 +136,7 @@ func TestProjectChangedAndThreadProjectUpdatedNotificationsArePinned(t *testing.
 }
 
 func TestProjectUpstreamBehavioralCases(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	t.Run("projects_persist_and_assign_threads", func(t *testing.T) {
 		stub := &p6RPCStub{responses: map[string][]json.RawMessage{
 			"project/create":         {json.RawMessage(`{"project":{"id":"p","name":"Persistent","roots":[{"path":"/repo"}],"metadata":{},"position":1,"createdAt":1,"updatedAt":1}}`)},

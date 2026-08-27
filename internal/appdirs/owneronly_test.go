@@ -10,7 +10,15 @@ import (
 // TestFileIsOwnerOnly pins the property MADR 0116 D22 extracted from
 // providerauth: "private to me", asked once and answered per platform.
 func TestFileIsOwnerOnly(t *testing.T) {
-	dir := t.TempDir()
+	// The file must live in a directory this project made private. A bare
+	// t.TempDir() inherits whatever the platform's temp ACL grants — on a CI
+	// runner that can include other principals — so a file created there is
+	// genuinely NOT owner-only on Windows, and asserting otherwise tests the
+	// runner's temp ACL rather than this function (MADR 0116 D26).
+	dir := filepath.Join(t.TempDir(), "private")
+	if err := EnsurePrivateDir(dir); err != nil {
+		t.Fatal(err)
+	}
 
 	tight := filepath.Join(dir, "tight")
 	if err := os.WriteFile(tight, []byte("secret"), 0o600); err != nil {

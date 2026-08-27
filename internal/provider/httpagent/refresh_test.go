@@ -9,6 +9,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // Instance recycling and diagnostics debounce (MADR 0112 A6/A10, PLAN P7
@@ -210,6 +211,7 @@ func TestRefreshSerializesAgainstConcurrentRefreshes(t *testing.T) {
 
 // TestNormalizeInstanceKey pins the directory identity used for busy checks.
 func TestNormalizeInstanceKey(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	for in, want := range map[string]string{
 		"/work/project":    "/work/project",
 		"/work/project/":   "/work/project",

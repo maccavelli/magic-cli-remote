@@ -2058,7 +2058,26 @@ Nine test files became `//go:build unix` instead, because they assert a Unix
 artifact by definition: systemd unit text, launchd plist XML, and XDG
 resolution.
 
-**Not yet verified.** The Windows suite has not been run since these changes —
+**Second CI pass (run 33099993994).** 173 failures → **23**. What the pass
+found, both of it product-level:
+
+- **F23d** — `providerauth` created its store, generation chain and pending
+  home with `os.MkdirAll(0o700)` + `os.Chmod(0o700)`, neither of which is
+  access control on Windows. Candidates written there were never owner-only, so
+  fixing the *check* in D22 left half of F23a standing. Now
+  `appdirs.EnsurePrivateDir` (**D26**), which is what makes the inherited DACL
+  on the candidate file correct.
+- **F23e** — no `.gitattributes`, so a Windows checkout rewrote LF to CRLF and
+  every `internal/receipt` golden comparison failed. Added `* text=auto eol=lf`
+  (**D27**). The working tree was already LF; only Windows checkouts change.
+
+**My own new test caught F23d**, which is the argument for having written it:
+`TestFileIsOwnerOnlyAcceptsInheritedACL` asserted that a credential in a bare
+`t.TempDir()` validates. On the runner it does not — and it should not. The
+test now creates the file inside an `EnsurePrivateDir` parent, which is both
+the real code path and the honest assertion.
+
+**Not yet verified.** The third Windows run has not happened —
 that needs a push. `go vet` passes for `GOOS=windows`, and the full Unix suite
 is green under `-race` with `CGO_ENABLED=0`, but neither proves the skips land
 where intended. Expect a second pass.

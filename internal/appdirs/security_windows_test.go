@@ -165,7 +165,15 @@ func TestNoForeignTrustee(t *testing.T) {
 // Requiring the strict enforcement DACL here would reject every real candidate
 // (MADR 0116 F23a).
 func TestFileIsOwnerOnlyAcceptsInheritedACL(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "auth.json")
+	// The credential lands in the pending home providerauth creates with
+	// EnsurePrivateDir, so it inherits that owner-only DACL. That inheritance
+	// is the mechanism D26 relies on — a bare temp dir would inherit the
+	// runner's ACL instead and prove nothing.
+	home := filepath.Join(t.TempDir(), "pending")
+	if err := EnsurePrivateDir(home); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, "auth.json")
 	if err := os.WriteFile(path, []byte(`{"k":"v"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +182,6 @@ func TestFileIsOwnerOnlyAcceptsInheritedACL(t *testing.T) {
 		t.Fatalf("FileIsOwnerOnly: %v", err)
 	}
 	if !ok {
-		t.Error("a file created under the user profile did not validate as owner-only")
+		t.Error("a file inheriting the private DACL did not validate as owner-only")
 	}
 }

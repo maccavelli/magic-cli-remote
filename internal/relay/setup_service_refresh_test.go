@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // mcrelay carries its own copy of the setup-service flag set, so --refresh has
@@ -23,6 +24,7 @@ func TestRelaySetupServiceBindsRefresh(t *testing.T) {
 }
 
 func TestRelayRunSetupServiceRefreshJSON(t *testing.T) {
+	testexec.SkipIfNoUnixServiceManager(t)
 	defer service.OverrideInstallOS("linux")()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 

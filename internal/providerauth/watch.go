@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 )
 
 // Watcher observes a provider's credential directory and checkpoints an
@@ -74,7 +75,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 		return err
 	}
 	dir := filepath.Dir(live)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := appdirs.EnsurePrivateDir(dir); err != nil {
 		return fmt.Errorf("provider auth: watch dir: %w", err)
 	}
 	fsw, err := fsnotify.NewWatcher()

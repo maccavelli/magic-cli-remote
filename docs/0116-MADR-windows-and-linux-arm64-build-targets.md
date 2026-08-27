@@ -1155,6 +1155,34 @@ Note this is strictly stronger than D20 and independent of it: D20 governs how
 touching D21, and D21 holds even if `-race` (and therefore cgo) is ever
 reinstated in a test job, because a test binary is not an artifact.
 
+**D26 — `providerauth` creates its directories privately, rather than passing
+a mode that Windows ignores** (second P11 CI pass). `store.go` and `watch.go`
+used `os.MkdirAll(dir, 0o700)` followed by `os.Chmod(dir, 0o700)`. Both are
+no-ops for access control on Windows, so the credential store, the generation
+chain and the pending home all inherited whatever ACL the parent happened to
+carry — and `ValidateCandidate` then correctly reported the credential as not
+owner-only. Fixing the *check* alone (D22) left this half of F23a standing.
+
+They now call `appdirs.EnsurePrivateDir`, which creates **and converges** the
+directory per platform. The pending home matters most: the agent CLI writes its
+credential inside it, and on Windows that file inherits the directory's DACL —
+so making the directory private is what makes the candidate valid.
+
+The lesson repeats D24's: `MkdirAll(0o700)` reads as a security measure and is
+not one off POSIX. Where privacy is the point, call the thing that enforces it.
+
+**D27 — Text files are LF in the working tree on every platform.** The
+repository had no `.gitattributes`, so a Windows checkout with
+`core.autocrlf=true` — the GitHub runner default — rewrote LF to CRLF. That
+silently broke every golden comparison in `internal/receipt`
+(`json.MarshalIndent` emits LF, the fixture on disk had CRLF), and would break
+anything a POSIX shell executes.
+
+`* text=auto eol=lf` with an explicit binary list. `eol=lf` rather than bare
+`text=auto`, which would still hand Windows CRLF; nothing here needs it. The
+working tree was already LF, so this changes only what a Windows checkout
+receives.
+
 **D24 — `isExecutableFile` becomes a platform question too** (resolving
 F23c, found during P11). `internal/cli/service/setup.go` tested
 `st.Mode()&0o111 != 0`. Go derives a Windows file mode from its attributes, so
@@ -1423,6 +1451,8 @@ The decision is confirmed when all of the following hold:
 | F19 | `-race` forces `CGO_ENABLED=1` off darwin; darwin exempt; `windows/arm64` is not a race port | Go `cmd/go/internal/work/init.go:194–204` (reproduced), `internal/platform/supported.go:23–34`, `zosarch.go:112–113` |
 | F20 | Self-hosted runners must not serve a public repo | [GitHub secure-use reference](https://docs.github.com/en/actions/reference/security/secure-use) |
 | F21 | Arm partner images are narrowed; `windows-11-arm` has no MSYS2 (a D19 input) | [partner-runner-images](https://github.com/actions/partner-runner-images) image READMEs |
+| F23d | `providerauth` created its store with a mode Windows ignores, so candidates were never owner-only | `internal/providerauth/store.go:39,70`, `watch.go:77`; CI run 33099993994 |
+| F23e | No `.gitattributes`: Windows checkout turned golden fixtures CRLF | `internal/receipt/testdata/*.json`; CI run 33099993994 |
 | F23c | `isExecutableFile` is always false on Windows; `setup-service` refuses its own binary | `internal/cli/service/setup.go:1090` (pre-fix); CI run 33084467102 |
 | F23a | `providerauth` rejects every candidate on Windows (POSIX mode gate in shared code) | `internal/providerauth/store.go:130`; CI run 33084467102 |
 | F23b | Windows DACL check fails on a directory it just secured (SDDL text round-trip) | `internal/appdirs/security_windows.go`; CI run 33084467102 |

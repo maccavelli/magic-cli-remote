@@ -36,13 +36,13 @@ func newStore(dataDir, provider string) (*store, error) {
 	}
 	s := &store{root: filepath.Join(dataDir, "provider-auth"), provider: provider}
 	for _, d := range []string{s.root, s.providerDir(), s.generationsDir(), s.pendingDir()} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
+		// EnsurePrivateDir rather than MkdirAll+Chmod: it creates the
+		// directory AND converges its access to owner-only, per platform —
+		// mode 0700 on Unix, an owner+SYSTEM DACL on Windows, where a mode
+		// carries no access control at all. The credentials retained here are
+		// exactly what that protects (MADR 0116 D22/D26).
+		if err := appdirs.EnsurePrivateDir(d); err != nil {
 			return nil, fmt.Errorf("provider auth: create store: %w", err)
-		}
-		// MkdirAll leaves an existing directory's mode alone; tighten it so a
-		// pre-existing loose directory cannot expose retained credentials.
-		if err := os.Chmod(d, 0o700); err != nil {
-			return nil, fmt.Errorf("provider auth: secure store: %w", err)
 		}
 	}
 	return s, nil
@@ -67,11 +67,13 @@ func (s *store) txnHome(id string) string { return filepath.Join(s.txnDir(id), "
 // live grant while leaving LIVE byte-identical (MADR 0074 D22/F14).
 func (s *store) createPendingHome(txnID string) (string, error) {
 	home := s.txnHome(txnID)
-	if err := os.MkdirAll(home, 0o700); err != nil {
+	// The agent CLI writes its credential in here, and ValidateCandidate then
+	// requires that file to be owner-only. On Windows the file inherits this
+	// directory's DACL, so making the directory private is what makes the
+	// candidate valid — MkdirAll's 0o700 would be silently ignored there
+	// (MADR 0116 D26).
+	if err := appdirs.EnsurePrivateDir(home); err != nil {
 		return "", fmt.Errorf("provider auth: create pending home: %w", err)
-	}
-	if err := os.Chmod(home, 0o700); err != nil {
-		return "", fmt.Errorf("provider auth: secure pending home: %w", err)
 	}
 	entries, err := os.ReadDir(home)
 	if err != nil {

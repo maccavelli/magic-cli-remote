@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestGrokDeviceAuthSuppressesHostOpen(t *testing.T) {
+	testexec.SkipIfNoPOSIXShell(t)
 	dir, extra, err := hostOpenStubDir()
 	if err != nil {
 		t.Fatal(err)
