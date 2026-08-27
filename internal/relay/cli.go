@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/signal"
-	"syscall"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
@@ -245,7 +243,7 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 				Format: fc.Log.Format,
 			})
 
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 			defer stop()
 
 			srvCfg := fc.ToServerConfig()

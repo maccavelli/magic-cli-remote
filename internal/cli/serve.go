@@ -3,10 +3,8 @@ package cli
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"os/signal"
 	"runtime/debug"
-	"syscall"
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
@@ -83,7 +81,7 @@ For a managed background process on Linux, prefer:
 				Format: cfg.Log.Format,
 			})
 
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals()...)
 			defer stop()
 			// After the first signal starts graceful shutdown, restore default
 			// signal handling so a second Ctrl-C force-quits instead of being
