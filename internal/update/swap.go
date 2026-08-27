@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -68,7 +69,14 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 
 	svc := opts.Service
 	prev := dest + ".prev"
-	_ = os.Remove(prev)
+	// A leftover .prev that cannot be removed is fatal, not ignorable. On
+	// Windows a file still open by another process refuses deletion, and the
+	// rename at dest->prev below would then fail with the swap half-done
+	// (MADR 0116 F9). Checked here, before the service stop, so the failure is
+	// free of side effects.
+	if err := os.Remove(prev); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale backup %s: %w", prev, err)
+	}
 
 	// Declared before the rollback defer so it can undo a definition rewrite.
 	var refreshed UnitRefresh
@@ -119,6 +127,9 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 		}
 	}()
 
+	// dest->prev then staged->dest, deliberately: a RUNNING .exe on Windows
+	// cannot be deleted or written, but it CAN be renamed. Turning this into a
+	// delete-then-copy would break self-update there (MADR 0116 F9).
 	if _, err := os.Stat(dest); err == nil {
 		if err := os.Rename(dest, prev); err != nil {
 			return fmt.Errorf("rename dest→prev: %w", err)
@@ -127,7 +138,11 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 	if err := os.Rename(staged, dest); err != nil {
 		return fmt.Errorf("rename staged→dest: %w", err)
 	}
-	_ = os.Chmod(dest, 0o755)
+	// Inert on Windows: the execute bit is not a Windows concept, the .exe
+	// extension is. Chmod there would only toggle the read-only attribute.
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(dest, 0o755)
+	}
 
 	// Refresh between the swap and the start: the new definition only exists
 	// once the new binary is in place, and it must be what starts. Failures

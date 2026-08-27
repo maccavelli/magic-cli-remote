@@ -71,3 +71,37 @@ func TestSumsAssetExact(t *testing.T) {
 		t.Fatalf("got %+v err=%v", a, err)
 	}
 }
+
+// TestAssetForStripsWindowsExtension is MADR 0116 Confirmation item 10 and the
+// direct F9 regression: a Windows asset carries its extension LAST, so the
+// version suffix must not include ".exe" or NewerPublished compares a filename
+// against a version.
+func TestAssetForStripsWindowsExtension(t *testing.T) {
+	rel := Release{
+		Tag:  "v0.14.10",
+		Base: "0.14.10",
+		Assets: []Asset{
+			{Name: "mcremote-windows-amd64-0.14.10.1.exe"},
+			{Name: "mcremote-linux-amd64-0.14.10.1"},
+			{Name: "SHA256SUMS-0.14.10.1"},
+		},
+	}
+	asset, ver, err := rel.AssetFor("mcremote", "windows", "amd64")
+	if err != nil {
+		t.Fatalf("AssetFor: %v", err)
+	}
+	if asset.Name != "mcremote-windows-amd64-0.14.10.1.exe" {
+		t.Errorf("asset = %q", asset.Name)
+	}
+	if ver != "0.14.10.1" {
+		t.Errorf("ver = %q, want %q (the .exe must be stripped)", ver, "0.14.10.1")
+	}
+	// The POSIX shape must be unaffected.
+	_, ver, err = rel.AssetFor("mcremote", "linux", "amd64")
+	if err != nil {
+		t.Fatalf("AssetFor linux: %v", err)
+	}
+	if ver != "0.14.10.1" {
+		t.Errorf("linux ver = %q", ver)
+	}
+}

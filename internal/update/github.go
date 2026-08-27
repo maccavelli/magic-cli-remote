@@ -99,6 +99,12 @@ func (r Release) AssetFor(product, goos, goarch string) (Asset, string, error) {
 	// Name: product-os-arch-VER  → VER is after the third hyphen-group.
 	// product may contain no hyphens; os/arch known. Strip prefix.
 	ver := strings.TrimPrefix(a.Name, prefix)
+	// Windows assets carry the extension LAST
+	// (mcremote-windows-amd64-1.2.3.4.exe), so the version suffix is
+	// everything before it. Stripping here is what keeps NewerPublished and
+	// SumsAsset comparing versions rather than filenames (MADR 0116 F9/F17,
+	// convention C5).
+	ver = strings.TrimSuffix(ver, ".exe")
 	if ver == "" {
 		return Asset{}, "", fmt.Errorf("asset %q has empty version suffix", a.Name)
 	}

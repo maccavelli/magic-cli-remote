@@ -325,3 +325,59 @@ func TestSwapSkipsRefreshWhenNil(t *testing.T) {
 		t.Fatalf("dest = %q", b)
 	}
 }
+
+// TestSwapFailsOnUndeletablePrev pins MADR 0116 F9: a stale .prev that cannot
+// be removed must abort the swap BEFORE the service is stopped, rather than
+// being discarded and resurfacing as a half-done rename.
+//
+// On Windows the real trigger is a .prev still open by another process. Here
+// the same branch is driven by making .prev a non-empty directory, which
+// os.Remove refuses on every platform — the point is that the error is
+// returned rather than swallowed.
+func TestSwapFailsOnUndeletablePrev(t *testing.T) {
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "new")
+	dest := filepath.Join(dir, "mcremote")
+	if err := os.WriteFile(staged, []byte("newbin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("oldbin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := dest + ".prev"
+	if err := os.Mkdir(prev, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prev, "occupied"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stops int
+	svc := FuncService{
+		IsActiveFn: func(string) (bool, error) { return true, nil },
+		StopFn:     func(string) error { stops++; return nil },
+		StartFn:    func(string) error { return nil },
+	}
+	err := SwapAndRestart(staged, dest, SwapOpts{
+		Product:        "mcremote",
+		RestartService: true,
+		Service:        svc,
+		Sleep:          func(time.Duration) {},
+	})
+	if err == nil {
+		t.Fatal("swap succeeded despite an undeletable .prev")
+	}
+	if !strings.Contains(err.Error(), "stale backup") {
+		t.Errorf("err = %v, want it to name the stale backup", err)
+	}
+	// The failure must be free of side effects: nothing stopped, nothing moved.
+	if stops != 0 {
+		t.Errorf("service was stopped %d times before the guard fired", stops)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "oldbin" {
+		t.Errorf("dest = %q, want the original binary untouched", b)
+	}
+	if _, err := os.Stat(staged); err != nil {
+		t.Errorf("staged binary was consumed: %v", err)
+	}
+}
