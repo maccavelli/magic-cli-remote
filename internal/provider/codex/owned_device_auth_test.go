@@ -10,6 +10,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeCodexLogin writes a stand-in `codex` whose subcommands behave like the
@@ -17,6 +18,7 @@ import (
 // CODEX_HOME, and `login status` succeeds only when a credential is there.
 func fakeCodexLogin(t *testing.T, loginBody string) string {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "codex")
 	script := `#!/bin/sh
 if [ "$1" = "login" ] && [ "$2" = "status" ]; then

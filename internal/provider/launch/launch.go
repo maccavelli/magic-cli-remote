@@ -68,3 +68,11 @@ func Resolve(bin string) (Resolved, error) { return resolve(bin) }
 func Command(ctx context.Context, r Resolved, args ...string) (*exec.Cmd, error) {
 	return command(ctx, r, args...)
 }
+
+// IsExecutableFile reports whether path names a file this platform can run.
+//
+// On Unix that is the POSIX executable bit. On Windows there is no such bit —
+// os.Stat reports 0666 for every regular file — so the question is whether the
+// extension is one the loader will execute, which is what PATHEXT lists
+// (MADR 0116 D24).
+func IsExecutableFile(path string) bool { return isExecutableFile(path) }

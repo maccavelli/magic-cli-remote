@@ -127,3 +127,53 @@ func TestFileIsOwnerOnlyWindows(t *testing.T) {
 		t.Fatalf("second SecurePrivateFile: %v", err)
 	}
 }
+
+// TestNoForeignTrustee pins the validation half of MADR 0116 D22: a file an
+// external agent CLI wrote carries an inherited ACL, and Administrators being
+// in it is not a security boundary on Windows. Another standard user is.
+func TestNoForeignTrustee(t *testing.T) {
+	owner, err := currentUserSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := owner.String()
+	other := "S-1-5-21-1111111111-2222222222-3333333333-1005"
+
+	for _, tc := range []struct {
+		name string
+		sddl string
+		want bool
+	}{
+		{"owner only", "D:P(A;;FA;;;" + sid + ")", true},
+		{"owner and SYSTEM", "D:P(A;OICI;FA;;;" + sid + ")(A;OICI;FA;;;SY)", true},
+		{"inherited profile ACL with Administrators", "D:AI(A;;FA;;;" + sid + ")(A;;FA;;;SY)(A;;FA;;;BA)", true},
+		{"another standard user", "D:AI(A;;FA;;;" + sid + ")(A;;FA;;;" + other + ")", false},
+		{"Users group", "D:AI(A;;FA;;;" + sid + ")(A;;0x1200a9;;;BU)", false},
+		{"deny ace does not widen access", "D:AI(D;;FA;;;BU)(A;;FA;;;" + sid + ")", true},
+		{"no dacl means everyone", "O:" + sid, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := noForeignTrustee(tc.sddl, owner); got != tc.want {
+				t.Errorf("noForeignTrustee(%q) = %v, want %v", tc.sddl, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFileIsOwnerOnlyAcceptsInheritedACL proves a credential written the way an
+// agent CLI writes one — a plain file under the user profile — validates.
+// Requiring the strict enforcement DACL here would reject every real candidate
+// (MADR 0116 F23a).
+func TestFileIsOwnerOnlyAcceptsInheritedACL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(path, []byte(`{"k":"v"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := FileIsOwnerOnly(path)
+	if err != nil {
+		t.Fatalf("FileIsOwnerOnly: %v", err)
+	}
+	if !ok {
+		t.Error("a file created under the user profile did not validate as owner-only")
+	}
+}

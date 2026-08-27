@@ -4,9 +4,12 @@ import (
 	"runtime"
 	"slices"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestLaunchArgumentsByTransport(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	tests := []struct {
 		name     string
 		cfg      Config

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeAdapter is a provider stand-in whose credential is a JSON object with a
@@ -121,6 +123,7 @@ func stage(t *testing.T, c *Coordinator, ad *fakeAdapter, mode string, seq int) 
 // provider child runs in must contain no credential material, because Codex
 // revokes any token it finds there before deleting it (MADR 0074 D22).
 func TestPendingHomeStartsEmpty(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	c, ad, _ := newFixture(t)
 	writeLive(t, ad, "chatgpt", 1)
 	ctx := context.Background()
@@ -203,6 +206,7 @@ func TestSeedColdHostCreatesNothing(t *testing.T) {
 // TestCommitRetentionAndRotation proves the CURRENT/PREVIOUS chain keeps
 // exactly two committed generations however many times it rotates (D23).
 func TestCommitRetentionAndRotation(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	c, ad, dataDir := newFixture(t)
 	writeLive(t, ad, "chatgpt", 1)
 	ctx := context.Background()

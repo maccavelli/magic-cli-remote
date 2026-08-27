@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func writeCfg(t *testing.T, body string) string {
@@ -89,6 +91,7 @@ func TestSetGooseKeyringDisabledIgnoresIndentedKey(t *testing.T) {
 }
 
 func TestSetGooseKeyringDisabledCreatesMissingFile(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if _, err := SetGooseKeyringDisabled(path, true); err != nil {
 		t.Fatal(err)

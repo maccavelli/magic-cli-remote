@@ -10,6 +10,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // isolate points every goose path at a temp HOME and starts from a host whose
@@ -81,6 +82,7 @@ func TestCatalogCoversGooseRegistry(t *testing.T) {
 // A key written from the phone must land under the exact name goose reads it
 // by, and the file must not be readable by anyone else.
 func TestSetCredentialWritesGooseSecretStore(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	home := isolate(t)
 	if err := setCredential(context.Background(), "together", "together:api", "sk-together-live", nil); err != nil {
 		t.Fatalf("setCredential: %v", err)

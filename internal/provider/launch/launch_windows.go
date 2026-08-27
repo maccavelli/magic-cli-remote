@@ -84,3 +84,46 @@ func commandLineLen(path string, args []string) int {
 	}
 	return n
 }
+
+// isExecutableFile reports whether path has an extension Windows will execute.
+//
+// Mode()&0o111 is always zero here: Go derives the mode from file attributes,
+// so every regular file reports 0666 and the POSIX test rejects a perfectly
+// good .exe. That is what made `mcremote setup-service` refuse its own binary
+// on Windows (MADR 0116 F23c).
+func isExecutableFile(path string) bool {
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == "" {
+		return false
+	}
+	for _, e := range pathExts() {
+		if ext == e {
+			return true
+		}
+	}
+	return false
+}
+
+// pathExts returns the lowercased PATHEXT list, with the documented default
+// when the variable is unset.
+func pathExts() []string {
+	v := os.Getenv("PATHEXT")
+	if v == "" {
+		v = ".COM;.EXE;.BAT;.CMD"
+	}
+	out := make([]string, 0, 8)
+	for _, e := range strings.Split(strings.ToLower(v), ";") {
+		if e == "" {
+			continue
+		}
+		if e[0] != '.' {
+			e = "." + e
+		}
+		out = append(out, e)
+	}
+	return out
+}

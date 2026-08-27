@@ -8,6 +8,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // gooseTestHome isolates goose's config dir. GOOSE_DISABLE_KEYRING is unset
@@ -96,6 +97,7 @@ func TestReconcileGooseKeyringHostControls(t *testing.T) {
 // TestReconcileGooseKeyringErrorIsNotFatal proves a failure to write a
 // preference cannot take the provider down.
 func TestReconcileGooseKeyringErrorIsNotFatal(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dir := gooseTestHome(t)
 	// Make the config path a directory so any write fails.
 	if err := os.MkdirAll(filepath.Join(dir, "config.yaml"), 0o700); err != nil {

@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeStatusBin writes a stand-in codex whose `login status` exit code is
 // fixed, imitating a host whose real session lives outside auth.json.
 func fakeStatusBin(t *testing.T, exitCode int) string {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "codex")
 	body := "#!/bin/sh\nif [ \"$1\" = \"login\" ] && [ \"$2\" = \"status\" ]; then exit " +
 		itoaReality(exitCode) + "; fi\nexit 0\n"

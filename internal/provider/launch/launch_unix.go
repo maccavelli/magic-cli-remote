@@ -5,6 +5,7 @@ package launch
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 )
 
@@ -33,4 +34,13 @@ func commandLineLen(path string, args []string) int {
 		n += len(a) + 3 // separator plus worst-case quoting
 	}
 	return n
+}
+
+// isExecutableFile reports whether path carries a POSIX executable bit.
+func isExecutableFile(path string) bool {
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return false
+	}
+	return st.Mode()&0o111 != 0
 }

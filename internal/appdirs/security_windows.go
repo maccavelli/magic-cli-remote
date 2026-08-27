@@ -153,6 +153,49 @@ func isPrivateDACL(sddl string, owner *windows.SID) bool {
 	return len(got) == 2
 }
 
+// noForeignTrustee reports whether every ACE in sddl names a principal that is
+// either the owner, SYSTEM, or Administrators.
+//
+// This is the VALIDATION counterpart to isPrivateDACL's ENFORCEMENT, and the
+// distinction is deliberate (MADR 0116 D22):
+//
+//   - What this project creates gets the strict owner+SYSTEM protected DACL.
+//   - What an external agent CLI writes into its own profile carries whatever
+//     ACL it inherited, which normally includes Administrators.
+//
+// Rejecting Administrators would fail every normally-created file while buying
+// nothing: an administrator on Windows can take ownership or read through
+// SeBackupPrivilege regardless, so its presence in an ACL is not a security
+// boundary. The boundary that matters — and that this enforces — is that no
+// OTHER standard user can read the credential.
+func noForeignTrustee(sddl string, owner *windows.SID) bool {
+	dacl := extractDACL(sddl)
+	if dacl == "" {
+		// No DACL at all means "everyone", not "nobody".
+		return false
+	}
+	_, aces := splitDACL(dacl)
+	allowed := map[string]bool{
+		canonicalTrustee("OW", owner): true,
+		canonicalTrustee("SY", owner): true,
+		canonicalTrustee("BA", owner): true,
+	}
+	for _, ace := range aces {
+		fields := strings.Split(strings.Trim(strings.ToUpper(strings.TrimSpace(ace)), "()"), ";")
+		if len(fields) < 6 {
+			return false
+		}
+		// Only ALLOW aces grant access; a DENY ace never widens it.
+		if !strings.HasPrefix(fields[0], "A") {
+			continue
+		}
+		if !allowed[canonicalTrustee(fields[5], owner)] {
+			return false
+		}
+	}
+	return true
+}
+
 // splitDACL separates the flag characters after "D:" from the ACE list.
 func splitDACL(dacl string) (flags string, aces []string) {
 	body := strings.TrimPrefix(dacl, "D:")
@@ -265,7 +308,7 @@ func FileIsOwnerOnly(path string) (bool, error) {
 	if !owner.Equals(self) {
 		return false, nil
 	}
-	return isPrivateDACL(sd.String(), self), nil
+	return noForeignTrustee(sd.String(), self), nil
 }
 
 // extractDACL returns the "D:..." component of an SDDL string, or "" when

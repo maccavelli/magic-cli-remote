@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func newTestStore(t *testing.T) (*Store, string) {
@@ -214,6 +216,7 @@ func TestStoreLastHashUsesHotCache(t *testing.T) {
 }
 
 func TestStorePermissions(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	s, dataDir := newTestStore(t)
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

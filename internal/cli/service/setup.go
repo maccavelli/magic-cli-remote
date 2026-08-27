@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 )
 
 //go:embed mcremote.user.service.tmpl
@@ -1088,11 +1089,12 @@ func systemdQuote(s string) string {
 }
 
 func isExecutableFile(path string) bool {
-	st, err := os.Stat(path)
-	if err != nil || st.IsDir() {
-		return false
-	}
-	return st.Mode()&0o111 != 0
+	// Delegates so there is ONE answer to "can this platform run that file".
+	// The inline Mode()&0o111 test this replaces is always false on Windows —
+	// Go derives the mode from file attributes, so a real mcremote.exe reported
+	// as not executable and setup-service refused its own binary
+	// (MADR 0116 F23c/D24).
+	return launch.IsExecutableFile(path)
 }
 
 // writeUnitAtomic writes body to unitPath via a unique temp file + rename, so

@@ -7,12 +7,15 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeCodex writes a shell script that records its argv and stdin, so the test
 // can assert on how the real binary would have been invoked.
 func fakeCodex(t *testing.T, exitCode int) (bin, argvFile, stdinFile string) {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	dir := t.TempDir()
 	argvFile = filepath.Join(dir, "argv")
 	stdinFile = filepath.Join(dir, "stdin")

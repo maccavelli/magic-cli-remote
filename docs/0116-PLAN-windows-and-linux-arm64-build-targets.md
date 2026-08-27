@@ -2024,8 +2024,44 @@ evidence about the product. F14 should have said which one it had.
 **Outcome.** `go test ./...` is green on `windows-latest`, or every skip names
 its platform reason (MADR Confirmation item 3).
 
-**Status.** Product fixes D22/D23 landed. The ~100 test guards are **not yet
-done**.
+**Status (2026-08-27).** Complete pending a CI run.
+
+**A third product bug surfaced while doing it.** `isExecutableFile`
+(`setup.go:1090`) tested `Mode()&0o111`, which Windows never sets — so
+`setup-service` refused its own `mcremote.exe`. Recorded as **F23c**, fixed
+under **D24** by moving the check to `launch.IsExecutableFile` beside the
+PATHEXT logic. That is three POSIX predicates inlined at call sites that a
+cross-compile could not see (D22, D23, D24).
+
+**A design split inside D22.** The first cut required a candidate file to carry
+the strict owner+SYSTEM protected DACL. That is wrong for *validation*: a
+credential written by an agent CLI into its own profile inherits an ACL that
+normally includes Administrators, so the strict check would have rejected every
+real candidate — the same failure F23a describes, differently caused.
+Enforcement (what we create) stays strict; validation (what others write) now
+asks `noForeignTrustee`: no principal outside {owner, SYSTEM, Administrators}
+has access. Administrators is not a boundary on Windows — an admin can take
+ownership regardless — but another standard user is, and that is what is
+enforced.
+
+**The guards, per D25.**
+
+| Gate | Uses | What it covers |
+| --- | --- | --- |
+| `SkipIfNoPOSIXModes` | 15 | assertions on `0600`/`0700` mode bits, and `chmod`-based failure injection |
+| `SkipIfNoPOSIXShell` | 12 | `#!/bin/sh` stubs standing in for an agent CLI |
+| `SkipIfNoPOSIXPaths` | 8 | fixtures using `/work/project`-style literals |
+| `SkipIfNoXDG` | 2 | hermetic config placed via `XDG_CONFIG_HOME` |
+| `SkipIfNoUnlinkOpenFile` | 1 | cleanup assertions that need POSIX unlink-while-open |
+
+Nine test files became `//go:build unix` instead, because they assert a Unix
+artifact by definition: systemd unit text, launchd plist XML, and XDG
+resolution.
+
+**Not yet verified.** The Windows suite has not been run since these changes —
+that needs a push. `go vet` passes for `GOOS=windows`, and the full Unix suite
+is green under `-race` with `CGO_ENABLED=0`, but neither proves the skips land
+where intended. Expect a second pass.
 
 **The four groups, from the run's own output.**
 

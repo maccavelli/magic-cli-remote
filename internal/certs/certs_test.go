@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestEnsureGeneratesAndReuses(t *testing.T) {
@@ -157,6 +158,7 @@ func TestStaleOrphanCertNewIsRemoved(t *testing.T) {
 }
 
 func TestKeyIsNotWorldReadable(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dir := t.TempDir()
 	b, err := certs.Ensure(certs.Options{Dir: dir})
 	if err != nil {

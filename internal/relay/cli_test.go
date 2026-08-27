@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // 0115 P8: in-process cobra execution for the command tree — the audit
@@ -54,6 +56,7 @@ func TestCLIVersionCommand(t *testing.T) {
 }
 
 func TestCLIPathsJSON(t *testing.T) {
+	testexec.SkipIfNoXDG(t)
 	home := hermeticConfig(t)
 	out, err := runCLI(t, map[string]string{"XDG_CONFIG_HOME": home}, "paths", "--json")
 	if err != nil {
@@ -72,6 +75,7 @@ func TestCLIPathsJSON(t *testing.T) {
 }
 
 func TestCLIPathsText(t *testing.T) {
+	testexec.SkipIfNoXDG(t)
 	home := hermeticConfig(t)
 	out, err := runCLI(t, map[string]string{"XDG_CONFIG_HOME": home}, "paths")
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func readJSONDoc(t *testing.T, path string) map[string]map[string]any {
@@ -97,6 +98,7 @@ func TestMergeJSONAuthKeepsUnmanagedFields(t *testing.T) {
 // A credential file must never be group- or world-readable, and the directory
 // it lands in must not be either.
 func TestMergeJSONAuthFileMode(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "auth.json")
 	if err := credstore.MergeJSONAuth(path, "kilo", "api", "sk-1"); err != nil {

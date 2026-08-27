@@ -94,7 +94,10 @@ func TestResolveRejectsRelativeOverride(t *testing.T) {
 }
 
 func TestInstanceKeyStable(t *testing.T) {
-	dir := "/var/lib/mcremote"
+	// Build the fixture from a real temp dir: "/var/lib/mcremote" is not an
+	// absolute path on Windows (filepath.IsAbs wants a volume), so InstanceKey
+	// rejects it there (MADR 0116 P11).
+	dir := filepath.Join(t.TempDir(), "mcremote")
 	a, err := InstanceKey(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -105,64 +108,6 @@ func TestInstanceKeyStable(t *testing.T) {
 	}
 	if a != b {
 		t.Errorf("InstanceKey not stable under Clean: %q vs %q", a, b)
-	}
-}
-
-func TestSystemRootsRelativeXDG(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "relative-config")
-	t.Setenv("XDG_DATA_HOME", "")
-	t.Setenv("XDG_STATE_HOME", "")
-	t.Setenv("XDG_CACHE_HOME", "")
-	t.Setenv("XDG_RUNTIME_DIR", "")
-
-	roots, diags, err := SystemRoots(ProductMcremote)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, d := range diags {
-		if d.Code == "xdg_relative_ignored" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected relative diagnostic, got %#v", diags)
-	}
-	if roots.ConfigHome != filepath.Join(home, ".config") {
-		t.Errorf("ConfigHome = %q, want fallback", roots.ConfigHome)
-	}
-}
-
-func TestSystemRootsAbsoluteXDG(t *testing.T) {
-	home := t.TempDir()
-	cfg := filepath.Join(home, "cfg")
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
-	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "rt"))
-
-	roots, diags, err := SystemRoots(ProductMcrelay)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, d := range diags {
-		if d.Code == "xdg_relative_ignored" {
-			t.Errorf("unexpected diag: %+v", d)
-		}
-	}
-	if roots.ConfigHome != cfg {
-		t.Errorf("ConfigHome = %q", roots.ConfigHome)
-	}
-	p, err := Resolve(ProductMcrelay, roots, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.ConfigDir != filepath.Join(cfg, "mcrelay") {
-		t.Errorf("ConfigDir = %q", p.ConfigDir)
 	}
 }
 
@@ -220,7 +165,7 @@ func TestResolveDoesNotDoubleJoinProductLeaf(t *testing.T) {
 // platform declares the shape, Resolve does not infer it from the path (MADR
 // 0116 D3 amendment).
 func TestJoinProductHonoursProductScoped(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator)+"tmp", "state")
+	root := filepath.Join(t.TempDir(), "state")
 	unscoped := Roots{}
 	if got, want := unscoped.joinProduct(root, "mcremote"), filepath.Join(root, "mcremote"); got != want {
 		t.Errorf("unscoped joinProduct(%q) = %q, want %q", root, got, want)
@@ -240,11 +185,12 @@ func TestJoinProductHonoursProductScoped(t *testing.T) {
 // two spellings of one directory must key one instance. On Unix, case is
 // significant and the keys must differ.
 func TestInstanceKeyCaseFolding(t *testing.T) {
-	upper, err := InstanceKey(filepath.Join(string(filepath.Separator)+"Users", "X", "Data"))
+	root := t.TempDir()
+	upper, err := InstanceKey(filepath.Join(root, "Users", "X", "Data"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	lower, err := InstanceKey(filepath.Join(string(filepath.Separator)+"users", "x", "data"))
+	lower, err := InstanceKey(filepath.Join(root, "users", "x", "data"))
 	if err != nil {
 		t.Fatal(err)
 	}

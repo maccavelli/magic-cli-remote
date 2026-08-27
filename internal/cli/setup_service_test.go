@@ -1,3 +1,9 @@
+//go:build unix
+
+// These tests assert systemd unit text, launchd plist XML and the
+// ~/.local/bin discovery that goes with them. Windows runs a Task
+// Scheduler task instead (MADR 0116 D12), covered by schtasks_test.go.
+
 package cli
 
 import (

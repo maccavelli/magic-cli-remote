@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func quietLog() *slog.Logger {
@@ -36,6 +37,7 @@ func TestGuardIsAbsentWhenNoTransactionalProviderIsEnabled(t *testing.T) {
 
 // TestGuardBuildsOnlyEnabledProviders proves construction follows config.
 func TestGuardBuildsOnlyEnabledProviders(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dataDir := t.TempDir()
 	g, err := newCredentialGuard(dataDir, true, false, quietLog())
 	if err != nil {

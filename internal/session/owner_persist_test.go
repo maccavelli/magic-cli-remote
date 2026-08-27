@@ -9,6 +9,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // MADR 0056 Phase 0 / H-4: create and first-touch ownership claim must not
@@ -17,6 +18,7 @@ import (
 // until Phase 1.
 
 func TestCreateFailsWhenOwnerPersistFails(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dir := t.TempDir()
 	store, err := session.OpenStore(dir)
 	if err != nil {
@@ -43,6 +45,7 @@ func TestCreateFailsWhenOwnerPersistFails(t *testing.T) {
 }
 
 func TestDiskClaimFailsWhenOwnerPersistFails(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dir := t.TempDir()
 	store, err := session.OpenStore(dir)
 	if err != nil {
@@ -87,6 +90,7 @@ func TestDiskClaimFailsWhenOwnerPersistFails(t *testing.T) {
 }
 
 func TestLiveClaimFailsWhenOwnerPersistFails(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dir := t.TempDir()
 	store, err := session.OpenStore(dir)
 	if err != nil {

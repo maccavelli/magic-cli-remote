@@ -9,6 +9,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 const liveGrokCred = `{"https://auth.x.ai::c1":{"key":"OLD","auth_mode":"oauth",` +
@@ -16,6 +17,7 @@ const liveGrokCred = `{"https://auth.x.ai::c1":{"key":"OLD","auth_mode":"oauth",
 
 func fakeGrokLogin(t *testing.T, body string) string {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "grok")
 	script := `#!/bin/sh
 if [ "$1" = "login" ] && [ "$2" = "--device-auth" ]; then

@@ -9,12 +9,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // TestNoSecretReachesDisk walks everything the coordinator persists and proves
 // a sentinel token value never appears outside the immutable generation
 // payloads, which are the one place it is meant to live (MADR 0074 D23/D29).
 func TestNoSecretReachesDisk(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	const sentinel = "SENTINELtokenVALUE0123456789"
 	c, ad, dataDir := newFixture(t)
 	if err := os.WriteFile(ad.live, []byte(`{"mode":"chatgpt","seq":1,"tok":"`+sentinel+`"}`), 0o600); err != nil {

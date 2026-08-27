@@ -9,12 +9,15 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeLoginScript writes a shell script that prints a device code, optionally
 // writes a credential into the home named by FAKE_HOME, then exits.
 func fakeLoginScript(t *testing.T, body string) string {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "fakelogin.sh")
 	script := "#!/bin/sh\n" +
 		"echo 'To sign in, visit https://example.test/device and enter CODE-1234'\n" +

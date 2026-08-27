@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestExecAndShellUseDistinctLabelsPoliciesAndAudit(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	stub := &p6RPCStub{responses: map[string][]json.RawMessage{
 		"command/exec":           {json.RawMessage(`{"exitCode":0,"stdout":"ok\n","stderr":""}`)},
 		"command/exec/write":     {json.RawMessage(`{}`)},
@@ -132,6 +134,7 @@ func TestTerminalNativeListTerminateAndFallback(t *testing.T) {
 }
 
 func TestEnvironmentAddStatusInfoAndSelection(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	stub := &p6RPCStub{responses: map[string][]json.RawMessage{
 		"environment/add":    {json.RawMessage(`{}`)},
 		"environment/status": {json.RawMessage(`{"status":"ready"}`)},
@@ -167,6 +170,7 @@ func TestEnvironmentAddStatusInfoAndSelection(t *testing.T) {
 }
 
 func TestProcessSpawnControlOutputExitAndGenerationOwnership(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	stub := &p6RPCStub{responses: map[string][]json.RawMessage{
 		"process/spawn":      {json.RawMessage(`{}`)},
 		"process/writeStdin": {json.RawMessage(`{}`)},
@@ -257,6 +261,7 @@ func TestTerminalOutputPushesLiveAndStaysReplayable(t *testing.T) {
 // thread would be invisible and unstoppable from the phone while still
 // holding an unsandboxed host process open.
 func TestStandaloneProcessIsListedUnderItsThread(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	registry := newTerminalRegistry(maxTerminalReplayBytes)
 	api := newExecutionAPI((&p6RPCStub{}).send, func(CapabilityID) bool { return true }, registry, 5, nil)
 	api.standaloneEnabled = true

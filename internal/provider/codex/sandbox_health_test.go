@@ -10,6 +10,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestClassifySandboxError(t *testing.T) {
@@ -102,6 +103,7 @@ func TestProbeSandboxHealth_NonLinuxShortCircuit(t *testing.T) {
 }
 
 func TestProbeSandboxHealth_FakeBinOK(t *testing.T) {
+	testexec.SkipIfNoPOSIXShell(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex-stub")
 	// Stub: when invoked as sandbox, write ok to the last arg (probe path).
@@ -123,6 +125,7 @@ echo ok > "$probe"
 }
 
 func TestProbeSandboxHealth_FakeBinDenied(t *testing.T) {
+	testexec.SkipIfNoPOSIXShell(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex-stub")
 	script := `#!/bin/sh

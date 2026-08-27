@@ -9,6 +9,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // TestStatusRequiresUsableCredentialNotJustAFile is a regression for what the
@@ -105,6 +106,7 @@ func TestStatusDoesNotSpawnAProcessPerCall(t *testing.T) {
 // TestRealityProbeRefreshesAfterItsWindow proves the cache is a bound, not a
 // freeze: a credential that appears is noticed.
 func TestRealityProbeRefreshesAfterItsWindow(t *testing.T) {
+	testexec.SkipIfNoPOSIXShell(t)
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{}`), 0o600); err != nil {

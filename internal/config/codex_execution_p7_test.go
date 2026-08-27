@@ -3,9 +3,12 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestCodexExecutionEnvironmentAndStandaloneConfigValidation(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	validEnvironment := CodexExecutionEnvironmentConfig{
 		ID: "loop", ExecServerURL: "ws://127.0.0.1:9000", ConnectTimeoutMS: 5000,
 		RuntimeWorkspaceRoots: []string{"/workspace"},

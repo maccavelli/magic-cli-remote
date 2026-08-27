@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeCLI writes a script that emits the given output then sleeps, imitating a
 // device flow that prints its code and polls.
 func fakeCLI(t *testing.T, output string, sleepSeconds int) string {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake-cli")
 	script := "#!/bin/sh\ncat <<'MCEOF'\n" + output + "\nMCEOF\nsleep " +

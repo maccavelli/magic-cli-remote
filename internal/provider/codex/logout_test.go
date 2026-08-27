@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeCodexLogout writes a stand-in codex whose `logout` records the order of
@@ -16,6 +17,7 @@ import (
 // invocation ran.
 func fakeCodexLogout(t *testing.T, journal string, exitCode int) string {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "codex")
 	script := `#!/bin/sh
 if [ "$1" = "logout" ]; then

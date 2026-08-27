@@ -1155,6 +1155,41 @@ Note this is strictly stronger than D20 and independent of it: D20 governs how
 touching D21, and D21 holds even if `-race` (and therefore cgo) is ever
 reinstated in a test job, because a test binary is not an artifact.
 
+**D24 — `isExecutableFile` becomes a platform question too** (resolving
+F23c, found during P11). `internal/cli/service/setup.go` tested
+`st.Mode()&0o111 != 0`. Go derives a Windows file mode from its attributes, so
+every regular file reports `0666` and that bit is **never** set — which made
+`setup-service` refuse its own `mcremote.exe` with "binary not found or not
+executable". The check moves to `launch.IsExecutableFile`, beside the PATHEXT
+logic that already owns "what can this platform run": the POSIX bit on Unix,
+membership of `PATHEXT` on Windows.
+
+Third instance of the same mistake in this record — after D22 and D23 — and
+worth naming as a pattern: **a POSIX predicate inlined at a call site is
+invisible to a cross-compile.** `go vet` cannot see that `Mode()&0o111`,
+`Perm()&0o077` and an SDDL string comparison are questions with different
+answers per platform. Only running the tests there can.
+
+**D25 — Test fixtures state their platform assumption once, at the fixture**
+(resolving the ~100 remaining P11 failures). `internal/testexec` holds five
+gates — `SkipIfNoPOSIXShell`, `SkipIfNoPOSIXModes`, `SkipIfNoPOSIXPaths`,
+`SkipIfNoXDG`, `SkipIfNoUnlinkOpenFile` — each carrying the reason in its own
+doc comment and skip message. Helpers call them, so one gate covers every
+dependent test and the rationale is written once rather than repeated per
+test.
+
+Test files that assert a Unix artifact *by definition* — systemd unit text,
+launchd plist XML, XDG resolution — are `//go:build unix` instead. There is no
+Windows behaviour for them to assert: that platform runs a Task Scheduler task
+(D12) covered by its own tests.
+
+What this deliberately does **not** do is port the fixtures. A `#!/bin/sh`
+stub that writes JSON and chmods it has no faithful `.cmd` translation, and
+writing one blind — with no Windows host to check it against — would trade a
+known skip for an unknown wrong answer. The flows those fixtures drive are
+platform-independent Go; what is Unix-specific is the stand-in for an agent
+CLI.
+
 **D22 — Owner-only file validation becomes a platform capability, not a mode
 check** (resolving F23a). `providerauth` stops asking `Perm()&0o077 != 0` and
 asks a per-platform helper instead: on Unix the identical mode test; on Windows
@@ -1388,6 +1423,7 @@ The decision is confirmed when all of the following hold:
 | F19 | `-race` forces `CGO_ENABLED=1` off darwin; darwin exempt; `windows/arm64` is not a race port | Go `cmd/go/internal/work/init.go:194–204` (reproduced), `internal/platform/supported.go:23–34`, `zosarch.go:112–113` |
 | F20 | Self-hosted runners must not serve a public repo | [GitHub secure-use reference](https://docs.github.com/en/actions/reference/security/secure-use) |
 | F21 | Arm partner images are narrowed; `windows-11-arm` has no MSYS2 (a D19 input) | [partner-runner-images](https://github.com/actions/partner-runner-images) image READMEs |
+| F23c | `isExecutableFile` is always false on Windows; `setup-service` refuses its own binary | `internal/cli/service/setup.go:1090` (pre-fix); CI run 33084467102 |
 | F23a | `providerauth` rejects every candidate on Windows (POSIX mode gate in shared code) | `internal/providerauth/store.go:130`; CI run 33084467102 |
 | F23b | Windows DACL check fails on a directory it just secured (SDDL text round-trip) | `internal/appdirs/security_windows.go`; CI run 33084467102 |
 | F22 | cgo=0 is an overridable default; no artifact is ever checked for it | `Makefile:37–38` (env-override reproduced), `scripts/verify-build-metadata.sh:15`, `debug/buildinfo/buildinfo.go:126–150` |

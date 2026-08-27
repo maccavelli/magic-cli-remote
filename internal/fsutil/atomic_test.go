@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestWriteFileAtomic(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "devices.json")
 	if err := WriteFileAtomic(path, []byte(`{"a":1}`), AtomicOptions{Perm: 0o600, SyncFile: true}); err != nil {
@@ -122,6 +125,7 @@ func TestWriteFileAtomicSyncDirNotRequested(t *testing.T) {
 // failure and that a failure before rename leaves any prior file untouched and
 // no temporary behind (MADR 0074 D25/D29).
 func TestWriteFileAtomicInjectedFailures(t *testing.T) {
+	testexec.SkipIfNoUnlinkOpenFile(t)
 	const prior = "PRIOR"
 	wantErr := errors.New("injected")
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeCodexAPIKey writes a stand-in codex whose `login --with-api-key` reads
@@ -16,6 +17,7 @@ import (
 // environment so a test can prove the key never appeared in either.
 func fakeCodexAPIKey(t *testing.T, journal string, exitCode int) string {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "codex")
 	script := `#!/bin/sh
 { echo "argv:$*"; env; } >> "` + journal + `"

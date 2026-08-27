@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 const managedLifecycleFixture = `{"status":"started","backend":"launchd","pid":1234,"managedCodexPath":"/opt/codex/codex","managedCodexVersion":"0.149.1","socketPath":"/tmp/codex/app-server.sock","cliVersion":"0.149.1","appServerVersion":"0.149.1"}`
@@ -42,6 +43,7 @@ func TestProxyManagedDaemonRejectsMalformedOrMultipleJSON(t *testing.T) {
 }
 
 func TestProxyManagedDaemonLeaseRequiresStartedAndMatchingIdentity(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	out, err := parseDaemonLifecycle([]byte(managedLifecycleFixture))
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +86,7 @@ func TestProxyManagedDaemonUnixOnly(t *testing.T) {
 }
 
 func TestProxyManagedDaemonStopsOnlyVerifiedOwnedLease(t *testing.T) {
+	testexec.SkipIfNoPOSIXPaths(t)
 	out, err := parseDaemonLifecycle([]byte(managedLifecycleFixture))
 	if err != nil {
 		t.Fatal(err)

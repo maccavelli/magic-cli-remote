@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestProxyPreInitializeAuthenticationFailure(t *testing.T) {
@@ -46,6 +48,7 @@ func TestProxyPreInitializeAuthenticationFailure(t *testing.T) {
 }
 
 func TestProxyCapabilityTokenFileAndVerifier(t *testing.T) {
+	testexec.SkipIfNoPOSIXModes(t)
 	runtimeDir := t.TempDir()
 	auth, err := createWebSocketAuth(runtimeDir, WSAuthCapabilityToken)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeDeviceCodex imitates codex-cli 0.146.0's device flow, including the part
@@ -18,6 +19,7 @@ import (
 // writeBack controls whether the flow "succeeds" and stores a new credential.
 func fakeDeviceCodex(t *testing.T, authPath string, writeBack bool, sleepSeconds string) string {
 	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex-device-stub")
 	after := ""
