@@ -1800,7 +1800,34 @@ coverage floor.
    fallbacks at `relay/fileconfig.go:787,796` return POSIX strings only when
    `appdirs` fails; leave them, but add a comment that they are a
    last-resort display string, not a path anyone opens.
-5. **Coverage.** Capture profiles before and after the whole plan and run the
+5. **Coverage.**
+
+   > **Deviation 2026-08-27 (P10 execution).** ~~"Any target below 80.0% gets
+   > failure-path tests in this phase."~~ **Narrowed by owner decision.**
+   > Measured against the pre-0116 baseline (`997896d`), four packages sit
+   > below the floor and **all four were already below it before this work**:
+   >
+   > | package | baseline | after 0116 | delta |
+   > | --- | --- | --- | --- |
+   > | `internal/appdirs` | 66.0% | 68.5% | **+2.5** |
+   > | `internal/fsutil` | 81.9% | 81.3% | −0.6 |
+   > | `internal/admin` | 61.6% | 61.6% | 0.0 |
+   > | `internal/procutil` | 41.5% | 41.5% | 0.0 |
+   > | `internal/update` | 77.7% | 78.0% | **+0.3** |
+   > | `internal/provider/launch` | (new) | 100.0% | n/a |
+   >
+   > Reaching the floor needs **+130 covered statements**, of which **+81 are
+   > in `procutil`** — `registry.go`, `reap.go` and `owner_darwin.go`, all Unix
+   > code this Windows port never touched. That is the debt
+   > [0113](0113-MADR-preexisting-unit-coverage-debt.md) exists to track, and
+   > doing it here would land it under the wrong number.
+   >
+   > **Resolution:** P10 covers the seams **0116 itself added** and requires
+   > that **no package regresses**. The `fsutil` −0.6pp dip is restored. The
+   > remaining shortfall stays with 0113. Recorded rather than silently
+   > skipped, because a floor that is quietly not applied stops being a floor.
+
+   Capture profiles before and after the whole plan and run the
    0112 A13 gate over the packages this plan touched:
 
    ```bash

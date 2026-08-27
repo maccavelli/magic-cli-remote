@@ -1,11 +1,16 @@
 # mcremote configuration
 
-## Locations (XDG)
+## Locations
 
+Paths are **native to each platform** (MADR 0059, extended by MADR 0116 D3).
 Linux **and** macOS use the [XDG Base Directory
-Specification](https://specifications.freedesktop.org/basedir-spec/0.8/) for
-product paths (MADR 0059). macOS does **not** use
-`~/Library/Application Support` for config/data. Relative `$XDG_*` values are
+Specification](https://specifications.freedesktop.org/basedir-spec/0.8/);
+macOS does **not** use `~/Library/Application Support` for config/data.
+**Windows uses Known Folders** — see the table below and
+[ops-windows-install.md](ops-windows-install.md).
+
+Whatever the platform, `mcremote paths` prints the resolved layout; prefer it
+over reading the table. Relative `$XDG_*` values are
 ignored with a diagnostic; product env overrides (`MCREMOTE_CONFIG`,
 `MCREMOTE_DATA_DIR`) must be absolute. CLI path flags may be relative to CWD.
 Relative YAML filesystem fields resolve against the directory containing the
@@ -28,6 +33,25 @@ loaded config file. There is no `${HOME}` / tilde expansion in YAML.
 | ACME storage (letsencrypt) | `<data_dir>/acme/` (durable — not cache) |
 | User unit (Linux) | `~/.config/systemd/user/mcremote.service` |
 | LaunchAgent (macOS) | `~/Library/LaunchAgents/com.magiccliremote.mcremote.plist` |
+| Scheduled task (Windows) | Task Scheduler task `mcremote` (at logon, LeastPrivilege) |
+
+### Windows (Known Folders)
+
+Config roams; everything machine-specific does not.
+
+| Item | Path |
+|------|------|
+| Config dir | `%AppData%\mcremote` |
+| Data dir | `%LocalAppData%\mcremote` |
+| State dir | `%LocalAppData%\mcremote\State` |
+| Cache dir | `%LocalAppData%\mcremote\Cache` (disposable) |
+| Runtime dir | `%LocalAppData%\mcremote\Runtime\<instance-key>` |
+| Logs | `%LocalAppData%\mcremote\Logs` |
+
+The `0600` modes above are Unix; on Windows the equivalent is an owner-only
+DACL applied to the containing directory, because `os.Chmod` there grants no
+access control. Directories are created private and a directory owned by
+another user is refused rather than repaired.
 | LaunchAgent logs (macOS) | `~/Library/Logs/mcremote/` (stdio only) |
 
 Inspect the effective layout (no mutation):

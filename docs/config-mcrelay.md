@@ -13,7 +13,11 @@ prefix is **`MCRELAY_`** and app dir **`mcrelay`**.
 
 ## Locations (XDG)
 
-Same policy as mcremote (MADR 0059): XDG on **Linux and macOS**. Inspect with
+Same policy as mcremote (MADR 0059, extended by MADR 0116 D3): XDG on **Linux
+and macOS**, Known Folders on **Windows** (`%AppData%\mcrelay` for config,
+`%LocalAppData%\mcrelay` for everything else — see
+[config.md](config.md#windows-known-folders) and
+[ops-windows-install.md](ops-windows-install.md)). Inspect with
 `mcrelay paths` / `mcrelay paths --json`.
 
 | Item | Path |

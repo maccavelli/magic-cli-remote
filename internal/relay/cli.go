@@ -457,14 +457,27 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 	fmt.Fprintln(out, "      listen.host and tls.mode=letsencrypt|files together; a public")
 	fmt.Fprintln(out, "      bind without TLS is refused at startup.")
 	fmt.Fprintln(out)
-	// mcrelay is a public edge: binding 443 (TLS) or 80 (ACME HTTP-01) needs
-	// privileges a user service cannot grant.
-	fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")
-	fmt.Fprintln(out, "      privileges a user service cannot grant. If you bind a port < 1024:")
-	if res.Scope == "launchd-agent" {
+	// mcrelay is a public edge. What binding 443 (TLS) or 80 (ACME HTTP-01)
+	// costs differs by platform: a privilege on Unix, a reservation collision
+	// on Windows (MADR 0116 F15).
+	switch res.Scope {
+	case "windows-task":
+		fmt.Fprintln(out, "Public ports: Windows has no privileged-port restriction, so binding 443")
+		fmt.Fprintln(out, "      or 80 needs no elevation. Two things do bite:")
+		fmt.Fprintln(out, "        * excluded ranges — check with:")
+		fmt.Fprintln(out, "            netsh int ipv4 show excludedportrange protocol=tcp")
+		fmt.Fprintln(out, "          Hyper-V, WinNAT and Docker Desktop claim wide dynamic ranges.")
+		fmt.Fprintln(out, "        * Windows Defender Firewall prompts on the first inbound bind;")
+		fmt.Fprintln(out, "          allow it for the private and/or public profile as appropriate.")
+		fmt.Fprintln(out, "      Note the task starts at logon, not at boot (MADR 0116 D12).")
+	case "launchd-agent":
+		fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")
+		fmt.Fprintln(out, "      privileges a user service cannot grant. If you bind a port < 1024:")
 		fmt.Fprintln(out, "      use a privileged front proxy/port-forward, or run behind a load balancer.")
 		fmt.Fprintln(out, "      (Not needed for the default 8443.)")
-	} else {
+	default:
+		fmt.Fprintln(out, "Public ports: binding 443 (TLS) or 80 (ACME HTTP-01) needs elevated")
+		fmt.Fprintln(out, "      privileges a user service cannot grant. If you bind a port < 1024:")
 		fmt.Fprintf(out, "        sudo setcap 'cap_net_bind_service=+ep' %s\n", res.Binary)
 		fmt.Fprintln(out, "      (Not needed for the default 8443, or behind a proxy/port-forward.)")
 	}

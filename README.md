@@ -126,21 +126,59 @@ Full per-environment detail, including WSL2 setup and the AppArmor note for
 Ubuntu 24.04 and newer, is in
 [docs/ops-linux-install.md](docs/ops-linux-install.md).
 
-### macOS notes and Windows
+### macOS notes
 
 The same one-liner installs on macOS. Full Disk Access is **not** granted by
 the script — add `~/.local/bin/mcremote` in System Settings → Privacy &
 Security after install. Unsigned upgrades drop that grant; to keep it, sign
 with `MC_CODESIGN_IDENTITY` (see
-[docs/ops-macos-tcc.md](docs/ops-macos-tcc.md)). Windows is not a supported
-host; use WSL2.
+[docs/ops-macos-tcc.md](docs/ops-macos-tcc.md)).
+
+## Install on Windows
+
+`windows/amd64` is supported natively — WSL2 is no longer required. In
+PowerShell:
+
+```powershell
+irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1 | iex
+```
+
+Binaries land in `%LOCALAPPDATA%\Programs\` and `mcremote setup-service`
+registers a Task Scheduler at-logon task — **no elevation at any point**.
+
+Read [docs/ops-windows-install.md](docs/ops-windows-install.md) before relying
+on it: the binaries are not Authenticode-signed yet, the background task starts
+at logon rather than boot, and there is a durability caveat on NTFS.
+
+## Supported platforms
+
+| Target | Tier | Notes |
+| --- | --- | --- |
+| `linux/amd64` | 1 | primary |
+| `linux/arm64` | 1 | |
+| `darwin/arm64` | 1 | |
+| `darwin/amd64` | 1 | |
+| `windows/amd64` | **2** | built and tested in CI, not exercised by the live provider suites |
+| `windows/arm64` | — | **not supported**; see below |
+
+**Tier 2** means the target is built, unit-tested and smoke-tested in CI on
+every push and tag, but is not covered by the live provider suites and ships
+with a documented list of unsupported surfaces.
+
+`windows/arm64` is **not supported** — not built, not published. That is a
+decision, not a gap: it is not a first-class Go port, it has no local
+acceptance host, and its CI image is the most divergent
+([MADR 0116](docs/0116-MADR-windows-and-linux-arm64-build-targets.md) D19).
+Windows on Arm runs the amd64 build under emulation, but the installer will
+not select it for you.
 
 ---
 
 **Current product surface (v0.8.x lineage):** Grok Build ACP, OpenCode, Goose,
 Codex, Kilo, and Fake providers; remote tool permissions; session modes / model
 catalogs / thinking levels; stream coalescing; protocol v2 reconnect/resume;
-XDG path layout with Linux/macOS parity (`mcremote paths`); engine lifecycle
+native path layout per platform — XDG on Linux/macOS, Known Folders on
+Windows (`mcremote paths`); engine lifecycle
 (`mcremote engines`); outbound mcrelay registration; Android companion
 (shipped release target) with iOS and Linux-desktop dev targets.
 
@@ -185,9 +223,11 @@ and [docs/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/0061-MADR-r
 ## Requirements
 
 - **Go 1.26.x** (module pins `go 1.26.5`)
-- **Linux** (primary) or **macOS**
+- **Linux** (primary), **macOS**, or **Windows 10 1809+** (`amd64`, Tier 2)
 - Optional mesh: Headscale + Tailscale clients ([docs/headscale.md](docs/headscale.md))
-- For `setup-service`: Linux **systemd --user**, or macOS **launchd** user LaunchAgent (no sudo)
+- For `setup-service`: Linux **systemd --user**, macOS **launchd** user
+  LaunchAgent, or Windows **Task Scheduler** at-logon task (no sudo, no
+  elevation, on any of the three)
 - Provider binaries on `PATH` as needed: `grok`, `opencode`, `goose`, `codex`,
   `kilo` (enabled providers missing a binary are listed as not ready; daemon
   still starts)
@@ -199,7 +239,7 @@ and [docs/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/0061-MADR-r
 
 Building from source, for development or on a platform the installer does not
 cover. To install prebuilt binaries on Linux instead, see
-[Install on Linux](#install-on-linux) at the top.
+[Install on Linux and macOS](#install-on-linux-and-macos) at the top.
 
 ```bash
 make build
