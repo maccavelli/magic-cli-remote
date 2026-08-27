@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-27
 decision-makers: Project Owner
 consulted: none

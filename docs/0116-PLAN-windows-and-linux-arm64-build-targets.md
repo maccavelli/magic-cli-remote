@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-08-27
 associated-madr: "0116-MADR-windows-and-linux-arm64-build-targets.md"
 owner: [Project Owner]
