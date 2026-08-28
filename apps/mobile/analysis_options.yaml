@@ -12,6 +12,14 @@ include: package:flutter_lints/flutter.yaml
 # MADR 0084 D8. strict-inference is deliberately left off: it is the noisiest
 # of the three and its findings are stylistic rather than correctness-shaped.
 analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
   language:
     strict-casts: true
     strict-raw-types: true
