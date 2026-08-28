@@ -17,11 +17,18 @@
 package testexec
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
 )
+
+// errPrivilegeNotHeld is Windows ERROR_PRIVILEGE_NOT_HELD. Declared as a plain
+// Errno so this file needs no build tag: syscall.Errno exists on every
+// supported platform and this value simply never occurs on Unix.
+const errPrivilegeNotHeld = syscall.Errno(1314)
 
 // SkipIfNoPOSIXShell skips t when a `#!/bin/sh` fixture cannot be executed.
 //
@@ -114,4 +121,43 @@ func SkipIfNoUnlinkOpenFile(t *testing.T) {
 		t.Skip("Windows cannot unlink a file while a handle is open, so a temp " +
 			"left by an injected close failure survives — see MADR 0116 P11")
 	}
+}
+
+// SkipIfNoSymlink skips t where the process cannot create a symbolic link.
+//
+// Unlike the gates above, the predicate is the machine rather than the OS
+// (MADR 0118 F3): creating a symlink on Windows needs
+// SeCreateSymbolicLinkPrivilege, which an elevated shell or Developer Mode
+// grants and an ordinary shell does not. The same windows/amd64 binary
+// therefore succeeds on one machine and fails on another, so a runtime.GOOS
+// check would discard the coverage on every Windows machine that can actually
+// run the test — CI included.
+//
+// Any probe failure other than the missing privilege is fatal: a blanket skip
+// would convert a broken filesystem into silent non-coverage (MADR 0118 D2).
+//
+// Set MC_REQUIRE_SYMLINK to turn the skip into a failure, as CI does, so a
+// runner that loses the privilege breaks the build instead of quietly ceasing
+// to verify the invariants under test (MADR 0118 D4).
+func SkipIfNoSymlink(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	target := filepath.Join(dir, "symlink-probe-target")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := os.Symlink(target, filepath.Join(dir, "symlink-probe-link"))
+	if err == nil {
+		return
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) && errno == errPrivilegeNotHeld {
+		if os.Getenv("MC_REQUIRE_SYMLINK") != "" {
+			t.Fatalf("MC_REQUIRE_SYMLINK is set but the symlink privilege is "+
+				"not held: %v", err)
+		}
+		t.Skip("symlink creation needs SeCreateSymbolicLinkPrivilege " +
+			"(Developer Mode or an elevated shell); MADR 0118")
+	}
+	t.Fatalf("symlink probe failed for an unexpected reason: %v", err)
 }

@@ -58,6 +58,7 @@ func TestWriteFileAtomicRejectsSymlinkTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	link := filepath.Join(dir, "link")
+	testexec.SkipIfNoSymlink(t)
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}

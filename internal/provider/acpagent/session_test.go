@@ -12,6 +12,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestAutoAllowPrefersAllowKind(t *testing.T) {
@@ -705,6 +706,7 @@ func TestPathWithinRootsResolvesSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	link := filepath.Join(root, "escape")
+	testexec.SkipIfNoSymlink(t)
 	if err := os.Symlink(outside, link); err != nil {
 		t.Fatal(err)
 	}

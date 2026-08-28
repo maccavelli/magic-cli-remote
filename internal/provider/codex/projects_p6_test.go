@@ -70,6 +70,7 @@ func TestProjectValidationCanonicalRootsNamesAndImportThreads(t *testing.T) {
 		t.Fatal(err)
 	}
 	linkRoot := filepath.Join(tmp, "link")
+	testexec.SkipIfNoSymlink(t)
 	if err := os.Symlink(realRoot, linkRoot); err != nil {
 		t.Fatal(err)
 	}

@@ -45,6 +45,14 @@ jobs:
     # Version stamped into both binaries; used by the release job artifact names.
     outputs:
       version: ${{ steps.build.outputs.version }}
+    # MADR 0118 D4. testexec.SkipIfNoSymlink skips where the symlink privilege
+    # is absent, which is right on a developer's unprivileged Windows shell and
+    # wrong in CI: a lane that stops verifying three symlink-escape invariants
+    # must go red, not quietly green. Inert here — Linux always holds the
+    # capability — but set explicitly so a sandbox regression surfaces as a
+    # failure rather than a SKIP line nobody reads.
+    env:
+      MC_REQUIRE_SYMLINK: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -277,6 +285,12 @@ jobs:
     # users never execute.
     env:
       CGO_ENABLED: "0"
+      # MADR 0118 D4, and the lane it exists for: run 33101607297 proved
+      # windows-latest holds SeCreateSymbolicLinkPrivilege (the three symlink
+      # tests passed there unguarded), so this asserts that capability instead
+      # of hoping for it. If GitHub ever changes runner privileges, the build
+      # breaks loudly rather than silently ceasing to test the invariants.
+      MC_REQUIRE_SYMLINK: "1"
     defaults:
       run:
         shell: ${{ matrix.shell }}
