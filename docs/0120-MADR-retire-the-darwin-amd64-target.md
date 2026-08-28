@@ -70,10 +70,27 @@ $ grep -n 'runs-on:\|runner:' .github/workflows/ci.yml
 341:  - { runner: windows-latest,    label: windows/amd64 }
 ```
 
-There is no macOS runner in CI at all — `ci.yml:322-325` records that native
-macOS CI is deliberately off to avoid paying for hosted runners. Darwin
-binaries are linked, checksummed, and asserted cgo-free and tag-correct on the
-artifact, and then published without ever having run.
+There is no macOS runner in CI at all. Darwin binaries are linked, checksummed,
+and asserted cgo-free and tag-correct on the artifact, and then published
+without ever having run.
+
+**The stated reason for that is false, and this record does not repeat it.**
+`ci.yml:322-325` says *"Re-enable a go-macos job when ready to pay for hosted
+runners again."* GitHub's runner documentation: *"Use of the standard
+GitHub-hosted runners is free and unlimited on public repositories."* macOS
+runners are standard runners — the per-minute macOS price applies to private
+repositories. This repository is public: `api.github.com` serves it
+unauthenticated. **macOS CI here would be free.** The binding limit is
+concurrency, not billing — 5 concurrent macOS jobs on Free/Pro/Team — which one
+or two legs would not approach. The comment may have been true when the
+repository was private; it is not true now.
+
+**Intel macOS CI is available, and is expiring.** `macos-13` (Intel) retired in
+December 2025. GitHub added `macos-15-intel` as the migration path, and it is
+documented as **the last x86-64 image**, available until **August 2027**, after
+which x86-64 is unsupported on GitHub Actions entirely — Apple having
+discontinued the architecture. So a native `darwin/amd64` job is possible today,
+free, for about another year, and then not at all.
 
 **`darwin/arm64` is covered off-CI; `darwin/amd64` is not covered at all.** The
 owner acceptance-tests `darwin/arm64` on an Apple Silicon laptop. There is no
@@ -137,11 +154,16 @@ self-updater or the curl installer will see this change as a failure, not as an
 absence.
 
 **F2 — `darwin/amd64` has no acceptance host and no CI execution.** No macOS
-runner exists, and the owner's Mac is Apple Silicon. It is the only target in
-the published set that no human and no machine has ever run. This is the
-strongest argument for the owner's list, and it is stronger for `darwin/amd64`
-than 0116 D19's case was for `windows/arm64` — that target at least had a
-CI image available.
+runner is configured, and the owner's Mac is Apple Silicon. It is the only
+target in the published set that no human and no machine has ever run. This is
+the strongest argument for the owner's list.
+
+It is *not* an argument that the coverage was unobtainable — F8 and F9 say a
+free, native Intel runner exists today. The point is narrower and holds anyway:
+the target has been published for the whole of its life without anyone running
+it, and the coverage that would fix that has a 2027 expiry (F9). Compare 0116
+D19's case for excluding `windows/arm64`, which rested partly on the CI image
+being divergent; here the image is fine and simply going away.
 
 **F3 — The target list has four encodings and they already disagree.**
 `ci.yml`, `verify-build-metadata.sh`, `install_test.sh`, and `README.md:1409`.
@@ -166,6 +188,19 @@ its `darwin-amd64` assertion is necessary but, on its own, buys no protection.
 0059 D9 policy. `darwin/arm64` remains in that loop, so the assertion survives;
 this is worth stating because deleting the wrong line would silently retire the
 check along with the target.
+
+**F8 — macOS CI is free for this repository, and `ci.yml` says otherwise.** The
+comment at `ci.yml:322-325` gives cost as the reason native macOS CI is off.
+Standard macOS runners are free and unlimited on public repositories, and this
+repository is public. Any argument in this record or a future one that rests on
+"macOS runners cost money" is unsound and must not be made. The comment itself
+is a defect: it will mislead the next person who asks this question.
+
+**F9 — Intel macOS CI has a hard expiry of August 2027.** `macos-15-intel` is
+GitHub's last x86-64 image; after it, the architecture is unsupported on
+Actions. So the option of *earning* `darwin/amd64` coverage is real, free, and
+time-boxed to roughly a year — after which the target would return to exactly
+the unverifiable state that motivates retiring it now.
 
 ## Decision Drivers
 
@@ -195,14 +230,27 @@ check along with the target.
 
 The owner's list is the requirement, and F2 independently justifies it: a
 target nobody runs is a target nobody can vouch for, and publishing it implies
-a claim the project cannot support. B is the option that would earn the
-coverage, and it is rejected on the same ground `ci.yml:322-325` already
-records — hosted macOS runners cost money the project chose not to spend — and
-because it would buy CI for a platform the owner does not want to support in
-the first place. C is the status quo and F2 is the argument against it. D keeps
-every cost of building and publishing the target while dropping the promise,
-which is the worst trade of the four: the artifact still exists, users still
-find it, and the docs say not to trust it.
+a claim the project cannot support.
+
+**B deserves more than it first appeared to.** The obvious rejection — hosted
+macOS runners cost money, per `ci.yml:322-325` — is simply false for a public
+repository (F8), and a native Intel runner does exist (F9). So B is not blocked
+by money or by hardware. It is rejected on two other grounds. First, F9: the
+coverage it would buy expires in August 2027 with the last x86-64 image, after
+which `darwin/amd64` returns to being unverifiable and this decision has to be
+made again with less runway. Second, and decisively, B spends effort earning
+confidence in a platform the owner has said they do not want to support —
+solving the wrong problem well. C is the status quo and F2 is the argument
+against it. D keeps every cost of building and publishing the target while
+dropping the promise, which is the worst trade of the four: the artifact still
+exists, users still find it, and the docs say not to trust it.
+
+**What B is right about survives this decision.** Its real insight is not about
+`darwin/amd64` at all — it is that free macOS CI has been available the whole
+time and the project declined it for a reason that does not hold. That applies
+to `darwin/arm64`, which after this record is the only published target with no
+automated execution anywhere. Retiring `darwin/amd64` does not answer it; it
+sharpens it. See the deferred item in the plan, and D10.
 
 The real work is not the deletion — it is F3 and F5. Shrinking `PLATFORMS` by
 one line takes a minute; making the four encodings agree and making the removal
@@ -255,6 +303,17 @@ deferred rather than done.** F6 is real, and fixing it is a CI-policy change
 with its own blast radius. This record inverts the assertion and runs the
 script by hand; it does not add a job.
 
+**D10 — Correct the false cost comment in `ci.yml`, and do not add a macOS job
+under this record.** F8. The comment at `ci.yml:322-325` must stop saying that
+re-enabling macOS CI means paying for runners; it should say that standard
+macOS runners are free on public repositories, that the concurrency cap is 5
+concurrent macOS jobs, and that `darwin/arm64` is presently covered by owner
+acceptance testing rather than CI. This is a two-line prose fix to a comment
+that is actively misleading — it is the reason this question had to be asked at
+all. **Adding the job itself is a separate decision** and does not ride along
+here: it changes what gates a release, and it belongs to the deferred
+`darwin/arm64` coverage record, not to a target retirement.
+
 ### Consequences
 
 * Good: the published set matches the set anyone can actually vouch for — three
@@ -305,11 +364,20 @@ README:1409                          → names all four targets
 * Good: the strongest argument against dropping — it converts F2 from a reason
   to retire into a solved problem, and would cover `darwin/arm64` too, which is
   currently the least-verified target in the *keep* list.
-* Bad: hosted macOS runners cost money, a trade `ci.yml:322-325` already
-  weighed and declined.
-* Bad: GitHub's macOS runners are Apple Silicon; an `darwin/amd64` job would
-  run under Rosetta, so it would not even be native execution of the target.
-* Bad: spends that money on a platform the owner has said they do not want.
+* Good: **it is free.** Standard macOS runners are free and unlimited on public
+  repositories (F8). The cost objection recorded at `ci.yml:322-325`, which an
+  earlier draft of this record repeated as evidence, does not hold here.
+* Good: **it would be native, not emulated.** `macos-15-intel` is a real x86-64
+  runner (F9). An earlier draft of this record claimed a `darwin/amd64` job
+  would run under Rosetta on Apple Silicon; that was wrong.
+* Bad: the Intel image is withdrawn in August 2027 (F9), so the coverage is
+  rented rather than bought — and when it lapses, this decision recurs with
+  less runway than it has now.
+* Bad: earns confidence in a platform the owner has said they do not want,
+  which is effort spent against the requirement rather than toward it.
+* Bad: adding a release-gating job is a larger change than a target
+  retirement. Mixing them would mean one commit that both narrows the published
+  set and widens what can block a release.
 
 ### C — Keep publishing it untested
 
@@ -350,6 +418,12 @@ README:1409                          → names all four targets
 | `install_test.sh` runs nowhere | `grep -rn 'install_test.sh' Makefile ci.yml` → empty |
 | Darwin release clause originates in 0059 | `docs/0059-MADR-...:433` (D10) |
 | `windows/arm64` exclusion precedent | `docs/0116-MADR-...` D19 |
+| Standard runners free/unlimited on public repos | [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) |
+| macOS runners are standard, not larger | same page; larger runners are a separate opt-in product |
+| 5 concurrent macOS jobs (Free/Pro/Team), 50 (Enterprise) | [Actions limits](https://docs.github.com/en/actions/reference/limits) |
+| This repository is public | unauthenticated `api.github.com` serves its runs |
+| `macos-13` (Intel) retired December 2025 | [Changelog: macOS 13 runner image closing down](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/) |
+| `macos-15-intel` is the last x86-64 image, until Aug 2027 | [runner-images #13045](https://github.com/actions/runner-images/issues/13045) |
 
 ### Related records
 
@@ -381,5 +455,17 @@ README:1409                          → names all four targets
    `scripts/` or `ci.yml` is tied to the number of targets, so the four
    encodings in F3 are the whole surface. The plan still greps to confirm
    nothing was added since.
-4. Should `darwin/arm64`'s own lack of CI execution get its own record, now
-   that retiring `darwin/amd64` makes it the only unexercised published target?
+4. **Should `darwin/arm64` get a free `macos-15` CI job?** Retiring
+   `darwin/amd64` makes it the only published target with no automated
+   execution anywhere, and F8 removes the reason the project declined that
+   coverage. This is now the most valuable question this record raises and it
+   is deliberately not answered here — adding a release-gating job is a
+   different decision from retiring a target (D10). It wants its own record,
+   and the arguments are: a `macos-15` leg is free and native; it would
+   duplicate acceptance testing the owner already does by hand; and it would
+   add a job that can block a release, on a lane nobody is yet watching.
+5. Does anything still depend on `darwin/amd64` being *buildable* rather than
+   published — a developer running `make build GOOS=darwin GOARCH=amd64`? The
+   Makefile keeps cross-compiling it either way; only the release matrix and
+   `verify-build-metadata.sh` change. Worth confirming nobody's local workflow
+   assumes the tag-policy script covers it.
