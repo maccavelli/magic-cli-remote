@@ -1,6 +1,6 @@
 ---
 status: "accepted"
-date: 2026-08-24
+date: 2026-08-28
 decision-makers: [Project Owner]
 consulted: [Local mise 2026.8.6 help and registry]
 informed: [Repository contributors using the managed user environment]
@@ -107,3 +107,55 @@ Local evidence captured on 2026-08-24:
 * Node version managed by mise: `22.23.2`;
 * registry mapping: `markdownlint-cli2 -> npm:markdownlint-cli2`; and
 * global mise configuration: `~/.config/mise/config.toml`.
+
+## Amendment — 2026-08-28: the decision is scoped to the mise-managed Linux environment
+
+The original record does not say which environment it governs, and read
+literally its rejection of `npm install --global` applies everywhere. That
+reading does not survive contact with the owner's Windows machine, where the
+decision was requested again on 2026-08-28.
+
+**Why the driver does not transfer.** The chosen option rests on "mise already
+owns the user's Node runtime". On `windows/amd64` it does not:
+
+* `mise` is not installed and not on `PATH`;
+* `~/.config/mise/` does not exist;
+* Node is a system installation at `C:\Program Files\nodejs` (v24.14.0, npm
+  11.9.0), not a mise-managed runtime;
+* the evidence in More Information is `linux-x64`, so the original execution
+  was on a different host.
+
+With no mise-managed Node to be consistent *with*, the first decision driver is
+vacuous on Windows and the remaining drivers do not by themselves select mise.
+
+**Why mise was not simply installed there.** Windows is mise's weakest target:
+tools are reached through shims only, `mise activate` has no PowerShell
+support, and `mise.toml` environment variables require `mise x` or `mise run`.
+The documented remedy for the VSCode `spawn EINVAL` failure is setting
+`windows_shim_mode` to `symlink`, which cannot work on that machine — 0118
+established it holds no `SeCreateSymbolicLinkPrivilege`. Adding a version
+manager on its weakest platform to obtain one documentation linter fails the
+"simple rollback" driver rather than serving it.
+
+**What was done instead.** `npm install --global markdownlint-cli2`, resolving
+`markdownlint-cli2@0.23.2` (markdownlint v0.41.1) into
+`C:\Users\macsm\AppData\Roaming\npm`, which is inside the user's home directory
+and already on `PATH`. Verified: `markdownlint-cli2 --version` succeeds, and a
+repository run reports `Linting: 48 files` with the MADR and PLAN globs
+excluded as before. The repository diff contains no manifest, lockfile,
+`node_modules`, or lint-configuration change, so that consequence of the
+original decision is preserved.
+
+**The one driver this does not satisfy.** "Record a concrete resolved version
+rather than leaving environment behavior dependent on a moving `latest`
+selector." A global npm install pins nothing; `npm update -g` may move it. The
+installed version is recorded here (`0.23.2`), which is weaker than a config
+entry a tool enforces. Pinning it deliberately is an open item, not a claim
+already met.
+
+**Scope of this amendment.** The chosen option stands unchanged for
+mise-managed environments. This adds that on a host with no mise-managed Node
+runtime, a home-directory global npm install is the sanctioned equivalent, and
+the original rejection of option B is read as scoped to hosts where mise owns
+Node. Nothing above alters the 2026-08-24 rationale, which was correct for the
+environment it was written in.
