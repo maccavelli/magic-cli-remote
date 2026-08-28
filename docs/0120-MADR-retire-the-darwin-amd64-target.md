@@ -1,0 +1,385 @@
+---
+status: proposed
+date: 2026-08-28
+decision-makers: Project Owner
+consulted: none
+informed: none
+---
+<!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
+
+# Retire darwin/amd64 and publish exactly four targets
+
+## Context and Problem Statement
+
+The owner has named the target set the project should support:
+
+```text
+darwin/arm64, linux/amd64, linux/arm64, windows/amd64
+```
+
+The release job builds five. `darwin/amd64` is the extra, and it is published
+today in both binaries. Nothing else in the owner's list is missing, and
+`windows/arm64` is already excluded by [0116](0116-MADR-windows-and-linux-arm64-build-targets.md)
+D19, so the whole gap is this one target.
+
+The question is not whether the list is right — the owner set it. It is what
+retiring a published Tier 1 platform actually costs, and which of the several
+places that encode the target list have to move together so the set does not
+end up meaning different things in different files.
+
+### What was measured, not assumed
+
+**`darwin/amd64` is published now, in both binaries.** The current release
+carries it, versioned and aliased:
+
+```text
+$ gh release view --json assets -q '.assets[].name' | grep darwin
+mcrelay-darwin-amd64
+mcrelay-darwin-amd64-0.14.10.1
+mcrelay-darwin-arm64
+mcrelay-darwin-arm64-0.14.10.1
+mcremote-darwin-amd64
+mcremote-darwin-amd64-0.14.10.1
+mcremote-darwin-arm64
+mcremote-darwin-arm64-0.14.10.1
+```
+
+This is not a paper target being cleaned up. It ships.
+
+**The target list is encoded in three places, and they agree.**
+`ci.yml:180-185` sets `PLATFORMS` and calls `build_matrix` twice
+(`ci.yml:213-214`), once per binary, so both get the same five.
+`scripts/verify-build-metadata.sh:20-24` independently rebuilds the same five
+to assert the build-tag policy. `scripts/install_test.sh:139-143` carries a
+`darwin-amd64` dry-run fixture.
+
+**The documentation does not agree with any of them.** `README.md:1409`
+describes the tag build as **"linux/amd64, darwin/arm64, darwin/amd64"** —
+three platforms. The actual list is five; `linux/arm64` and `windows/amd64`
+are missing from that sentence. So the docs are already stale by two targets
+*before* this change touches anything.
+
+**`darwin/amd64` has never been executed. Anywhere.**
+
+```text
+$ grep -n 'runs-on:\|runner:' .github/workflows/ci.yml
+38:    runs-on: ubuntu-latest
+274:  - { runner: ubuntu-24.04-arm,  label: linux/arm64 }
+275:  - { runner: windows-latest,    label: windows/amd64 }
+340:  - { runner: ubuntu-24.04-arm,  label: linux/arm64 }
+341:  - { runner: windows-latest,    label: windows/amd64 }
+```
+
+There is no macOS runner in CI at all — `ci.yml:322-325` records that native
+macOS CI is deliberately off to avoid paying for hosted runners. Darwin
+binaries are linked, checksummed, and asserted cgo-free and tag-correct on the
+artifact, and then published without ever having run.
+
+**`darwin/arm64` is covered off-CI; `darwin/amd64` is not covered at all.** The
+owner acceptance-tests `darwin/arm64` on an Apple Silicon laptop. There is no
+Intel Mac in the fleet. So the two Darwin targets are not in the same position:
+one has a human running it before release, the other has nobody.
+
+**Rosetta does not rescue an Intel Mac.** Rosetta 2 translates x86-64 to run on
+Apple Silicon. It does not run arm64 code on Intel hardware. An Intel Mac that
+loses `darwin/amd64` has no path to a working binary — not a slower one, none.
+
+**Both removal failure modes are clean; only one is legible.**
+
+The self-updater resolves its own asset by `runtime.GOOS`/`GOARCH`
+(`internal/update/run.go:67`) and returns a plain error when the asset is gone
+(`internal/update/github.go:92-94`):
+
+```text
+no asset matching mcremote-darwin-amd64-* in release v0.15.0
+```
+
+The curl installer maps `x86_64 → amd64` (`scripts/install.sh:85`), then fails
+at download (`:214`):
+
+```text
+could not download mcremote-darwin-amd64 from <url>
+```
+
+Neither crashes. Neither says *why*. Contrast `scripts/install.sh:88`, where an
+unpublished architecture is rejected with a reason before any network call:
+
+```sh
+die 1 "32-bit ARM ($uname_m) is not published; only amd64 and arm64 are built."
+```
+
+That is the existing house pattern for a deliberate non-target, and this change
+creates a second instance of exactly that situation.
+
+**`scripts/install_test.sh` is not run by anything.**
+
+```text
+$ grep -rn 'install_test.sh' Makefile .github/workflows/ci.yml
+(no matches)
+```
+
+`install-binary_test.sh` is in `make preflight` and in CI; `install_test.sh` —
+the one holding the installer's platform-matrix assertions, including
+`"Darwin x86_64 accepted (exit 0)"` at `:144` — is wired to neither. The
+assertion this change must invert lives in a file no gate executes.
+
+**The decision that published `darwin/amd64` is 0059, not 0116.**
+[0059](0059-MADR-native-paths-and-linux-macos-parity.md) D10: *"Release both
+`darwin/arm64` and `darwin/amd64`."* 0116 inherited the target and mentions it
+only in passing (`:124`). So this record supersedes half of 0059 D10 and leaves
+0116's decisions untouched.
+
+### Findings
+
+**F1 — `darwin/amd64` ships today and its removal is user-visible.** Both
+binaries, versioned and aliased, through `v0.14.10`. An Intel Mac user on the
+self-updater or the curl installer will see this change as a failure, not as an
+absence.
+
+**F2 — `darwin/amd64` has no acceptance host and no CI execution.** No macOS
+runner exists, and the owner's Mac is Apple Silicon. It is the only target in
+the published set that no human and no machine has ever run. This is the
+strongest argument for the owner's list, and it is stronger for `darwin/amd64`
+than 0116 D19's case was for `windows/arm64` — that target at least had a
+CI image available.
+
+**F3 — The target list has four encodings and they already disagree.**
+`ci.yml`, `verify-build-metadata.sh`, `install_test.sh`, and `README.md:1409`.
+The README is stale by two targets right now, which means the drift predates
+this change and will outlive it unless the phase that shrinks the list also
+reconciles the prose.
+
+**F4 — An Intel Mac has no fallback.** Rosetta runs amd64 on arm64, not the
+reverse. "Use the arm64 build" is not available as advice.
+
+**F5 — The removal is silent where it should be explanatory.** Both the updater
+and the installer fail cleanly and uninformatively. The installer already has
+the right pattern for this exact case (`install.sh:88`) and does not use it
+here.
+
+**F6 — The regression test for the installer's platform matrix does not run.**
+`install_test.sh` is referenced by no Makefile target and no CI job. Inverting
+its `darwin-amd64` assertion is necessary but, on its own, buys no protection.
+
+**F7 — `verify-build-metadata.sh` must not lose its Darwin arm.** Its
+`:57` loop asserts that Darwin binaries carry *no* `netgo,osusergo` — the
+0059 D9 policy. `darwin/arm64` remains in that loop, so the assertion survives;
+this is worth stating because deleting the wrong line would silently retire the
+check along with the target.
+
+## Decision Drivers
+
+* The owner has set the supported target list; this record implements it, it
+  does not relitigate it.
+* A dropped platform must be dropped *loudly* — a 404 is a bug report waiting
+  to happen, a stated reason is a decision.
+* One target list, one meaning, in every file that encodes it. F3 shows what
+  happens when that slips.
+* Retiring a target must not retire a *check* that happens to be attached to it
+  (F7).
+* Published releases are immutable. Whatever is already out stays out.
+
+## Considered Options
+
+* **A — Drop `darwin/amd64` from the next tag, and say why in the places a user
+  will hit it.**
+* **B — Keep `darwin/amd64` and add a macOS CI runner** to earn the coverage it
+  has never had.
+* **C — Keep publishing it, untested, as today.**
+* **D — Demote to Tier 2** rather than dropping: keep building, document it as
+  unsupported.
+
+## Decision Outcome
+
+**Chosen: A — drop it, and make the drop legible.**
+
+The owner's list is the requirement, and F2 independently justifies it: a
+target nobody runs is a target nobody can vouch for, and publishing it implies
+a claim the project cannot support. B is the option that would earn the
+coverage, and it is rejected on the same ground `ci.yml:322-325` already
+records — hosted macOS runners cost money the project chose not to spend — and
+because it would buy CI for a platform the owner does not want to support in
+the first place. C is the status quo and F2 is the argument against it. D keeps
+every cost of building and publishing the target while dropping the promise,
+which is the worst trade of the four: the artifact still exists, users still
+find it, and the docs say not to trust it.
+
+The real work is not the deletion — it is F3 and F5. Shrinking `PLATFORMS` by
+one line takes a minute; making the four encodings agree and making the removal
+explain itself is the rest of it.
+
+### The decisions
+
+**D1 — The published target set is exactly four:** `linux/amd64`,
+`linux/arm64`, `darwin/arm64`, `windows/amd64`. Effective from the next version
+tag.
+
+**D2 — Supersede 0059 D10's Darwin release clause additively.** 0059 is
+`accepted`; its rationale is not to be edited. Append an
+`## Amendment — 2026-08-28` section to 0059 recording that its
+"release both `darwin/arm64` and `darwin/amd64`" is narrowed to `darwin/arm64`
+by this record, and why. Everything else in D10 stands.
+
+**D3 — Every encoding of the target list moves in the same phase.**
+`ci.yml`, `scripts/verify-build-metadata.sh`, `scripts/install_test.sh`,
+`README.md` (both the platform table and the stale CI sentence at `:1409`), and
+`docs/ops-linux-install.md:66`. F3's existing drift is repaired at the same
+time — leaving `README.md:1409` naming three of five while changing five to
+four would make it wrong in a new way.
+
+**D4 — `scripts/install.sh` rejects `darwin/amd64` with a stated reason,**
+before any download, in the shape of the existing `:88` rejection. The message
+names the target, says it is not published, and states that Rosetta does not
+help (D7). Exit code matches the existing unsupported-architecture path.
+
+**D5 — Published releases are not rewritten.** `v0.14.10` and everything before
+it keep their `darwin/amd64` assets. An Intel Mac pinned to an old release
+keeps working; it simply stops receiving updates. Do not delete assets, do not
+re-cut tags.
+
+**D6 — The README states the retirement with a reason, in the row that already
+exists for this purpose.** `darwin/amd64` moves to the `windows/arm64` pattern:
+a `—` tier and a "not supported" note pointing at this record. Deleting the row
+would leave a reader who has the binary with no explanation.
+
+**D7 — Make no Rosetta claim.** F4. Any prose that mentions the retirement says
+plainly that Intel Macs have no supported build, rather than implying the arm64
+artifact substitutes.
+
+**D8 — Do not weaken `verify-build-metadata.sh` while shrinking it.** F7. After
+the change its Darwin arm still asserts the no-tags policy on `darwin/arm64`,
+and the script still fails if a Darwin binary acquires `netgo` or `osusergo`.
+
+**D9 — Wiring `install_test.sh` into a gate is out of scope, and named as
+deferred rather than done.** F6 is real, and fixing it is a CI-policy change
+with its own blast radius. This record inverts the assertion and runs the
+script by hand; it does not add a job.
+
+### Consequences
+
+* Good: the published set matches the set anyone can actually vouch for — three
+  targets exercised natively in CI plus one the owner acceptance-tests by hand.
+* Good: one fewer cross-compile per binary per release, and one fewer artifact
+  pair in every release's asset list and `SHA256SUMS`.
+* Good: F3's documentation drift is repaired rather than merely not worsened.
+* Bad: Intel Macs lose support outright, with no fallback (F4). Accepted: the
+  target was never tested, so what is being withdrawn is an implied promise the
+  project was not keeping.
+* Bad: anyone currently updating an Intel Mac install gets an error on the next
+  release. Mitigated by D4's message and by D5 leaving old releases intact —
+  not eliminated.
+* Neutral: `darwin/arm64` is unaffected in every respect, including its absence
+  from CI.
+
+### Confirmation
+
+```bash
+grep -c 'darwin/amd64' .github/workflows/ci.yml            # → 0
+grep -c 'darwin amd64' scripts/verify-build-metadata.sh    # → 0
+./scripts/verify-build-metadata.sh                         # → exit 0, 4 targets
+./scripts/install_test.sh                                  # → exit 0
+```
+
+```text
+next tag's release assets            → no mcremote/mcrelay-darwin-amd64*
+next tag's SHA256SUMS                → 8 lines (2 binaries x 4 targets)
+install.sh on a Darwin/x86_64 stub   → rejected with a reason, no download
+README platform table                → darwin/amd64 present, tier —, reason given
+README:1409                          → names all four targets
+0059                                 → carries an Amendment section
+```
+
+## Pros and Cons of the Options
+
+### A — Drop it and make the drop legible (chosen)
+
+* Good: implements the owner's list.
+* Good: the published set becomes one the project can defend (F2).
+* Good: forces the F3 drift repair, which nothing else was going to force.
+* Bad: Intel Macs lose support with no fallback (F4).
+* Bad: touches six files for what looks like a one-line change — but F3 is why
+  the one-line version would be wrong.
+
+### B — Keep it and add a macOS CI runner
+
+* Good: the strongest argument against dropping — it converts F2 from a reason
+  to retire into a solved problem, and would cover `darwin/arm64` too, which is
+  currently the least-verified target in the *keep* list.
+* Bad: hosted macOS runners cost money, a trade `ci.yml:322-325` already
+  weighed and declined.
+* Bad: GitHub's macOS runners are Apple Silicon; an `darwin/amd64` job would
+  run under Rosetta, so it would not even be native execution of the target.
+* Bad: spends that money on a platform the owner has said they do not want.
+
+### C — Keep publishing it untested
+
+* Good: no work, no user breakage.
+* Bad: F2. The project publishes a binary nobody has run, on hardware nobody
+  owns, and implies support for it.
+
+### D — Demote to Tier 2, keep building
+
+* Good: preserves a path for existing Intel users.
+* Bad: keeps the full build and publish cost while withdrawing the promise.
+* Bad: Tier 2 in this project means *"built, unit-tested and smoke-tested in CI
+  on every push and tag"* (`README.md:163`). `darwin/amd64` meets none of that,
+  so calling it Tier 2 would make the tier definition a lie.
+
+## More Information
+
+### Evidence index
+
+| Claim | Source |
+| --- | --- |
+| Five targets built, both binaries | `.github/workflows/ci.yml:180-185`, `:213-214` |
+| Same five rebuilt for tag policy | `scripts/verify-build-metadata.sh:20-24` |
+| Darwin no-tags assertion | `scripts/verify-build-metadata.sh:57` |
+| Installer darwin-amd64 fixture | `scripts/install_test.sh:139-144` |
+| `darwin/amd64` published in v0.14.10 | `gh release view --json assets` |
+| No macOS runner in CI | `.github/workflows/ci.yml:274-275, 340-341` |
+| Native macOS CI deliberately off | `.github/workflows/ci.yml:322-325` |
+| README CI sentence stale by two targets | `README.md:1409` |
+| README lists darwin/amd64 Tier 1 | `README.md:160` |
+| Tier 2 definition | `README.md:163` |
+| ops doc names both Darwin arches | `docs/ops-linux-install.md:66` |
+| Updater resolves by runtime GOOS/GOARCH | `internal/update/run.go:67` |
+| Updater missing-asset error | `internal/update/github.go:92-94` |
+| Installer arch mapping | `scripts/install.sh:85` |
+| Installer download failure | `scripts/install.sh:214` |
+| Existing stated-reason rejection | `scripts/install.sh:88` |
+| `install_test.sh` runs nowhere | `grep -rn 'install_test.sh' Makefile ci.yml` → empty |
+| Darwin release clause originates in 0059 | `docs/0059-MADR-...:433` (D10) |
+| `windows/arm64` exclusion precedent | `docs/0116-MADR-...` D19 |
+
+### Related records
+
+* [0059-MADR](0059-MADR-native-paths-and-linux-macos-parity.md) — D10 is the
+  clause this record narrows; D9 is the build-tag policy D8 protects.
+* [0116-MADR](0116-MADR-windows-and-linux-arm64-build-targets.md) — D19 is the
+  precedent for a documented non-target. Its PLAN is `in-progress`; this record
+  does not touch its decisions and does not depend on it closing.
+* [0104-MADR](0104-MADR-installer-linux-and-macos.md) — owns `install.sh`; D4
+  edits it within that record's design, not against it.
+* [0119-MADR](0119-MADR-codex-tests-fail-on-the-linux-arm64-lane.md) — the
+  arm64 lane is red, independently. This record's phases do not depend on it
+  and must not be used to fix or excuse it.
+
+### Open questions for the plan
+
+1. Does the retirement need a release-note line on the first tag that omits the
+   target, or is the README row enough? A user who never reads the README meets
+   this as an installer error.
+2. `install.sh` rejects on `uname` before it knows the OS-arch pair is
+   unpublished for *this* project version. Should the rejection be a static
+   `darwin/x86_64` case (simple, but wrong for anyone installing an old
+   version), or driven by the SHA256SUMS it already downloads (accurate, more
+   code)? D4 does not settle this.
+3. ~~Are there other asset-count assertions that assume five targets?~~
+   **Closed.** `SHA256SUMS` is generated by glob (`ci.yml:242`,
+   `sha256sum mcremote-* mcrelay-*`) and the publish job enumerates assets by
+   glob too (`ci.yml:795`). No line-count or asset-count assertion anywhere in
+   `scripts/` or `ci.yml` is tied to the number of targets, so the four
+   encodings in F3 are the whole surface. The plan still greps to confirm
+   nothing was added since.
+4. Should `darwin/arm64`'s own lack of CI execution get its own record, now
+   that retiring `darwin/amd64` makes it the only unexercised published target?
