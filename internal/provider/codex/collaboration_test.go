@@ -179,6 +179,27 @@ func TestExperimentalInitializeRetriesOnce(t *testing.T) {
 	}
 }
 
+func TestResolveBinaryIdentityHelperDoesNotCountAsLaunch(t *testing.T) {
+	dir := t.TempDir()
+	countPath := filepath.Join(dir, "launches")
+	t.Setenv("GO_WANT_CODEX_APP_SERVER_HELPER", "1")
+	t.Setenv("CODEX_HELPER_LAUNCH_LOG", countPath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	id, err := resolveBinaryIdentity(ctx, os.Args[0], "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Version != "test-helper" {
+		t.Fatalf("version = %q, want test-helper", id.Version)
+	}
+	if _, err := os.Stat(countPath); !errors.Is(err, os.ErrNotExist) {
+		n, _ := readLaunchLog(countPath)
+		t.Fatalf("identity probe wrote launch log (%d lines); --version inherited helper env", n)
+	}
+}
+
 func TestUnrelatedInitializeErrorDoesNotRetry(t *testing.T) {
 	dir := t.TempDir()
 	countPath := filepath.Join(dir, "launches")
@@ -187,6 +208,7 @@ func TestUnrelatedInitializeErrorDoesNotRetry(t *testing.T) {
 	t.Setenv("CODEX_HELPER_LAUNCH_LOG", countPath)
 
 	p := NewWithLogger(Config{Bin: os.Args[0]}, testLogger(t))
+	p.version = "0.147.0"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := p.ensureEngine(ctx); err == nil {
@@ -203,6 +225,7 @@ func TestInitializeTransportEOFDoesNotRetry(t *testing.T) {
 	t.Setenv("CODEX_HELPER_LAUNCH_LOG", countPath)
 
 	p := NewWithLogger(Config{Bin: os.Args[0]}, testLogger(t))
+	p.version = "0.147.0"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := p.ensureEngine(ctx); err == nil {

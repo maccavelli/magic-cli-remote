@@ -1024,8 +1024,11 @@ func resolveBinaryIdentity(ctx context.Context, bin, versionHint string) (Binary
 	}
 	version := strings.TrimSpace(versionHint)
 	if version == "" {
-		executable, _ := os.Executable()
-		if os.Getenv("GO_WANT_CODEX_APP_SERVER_HELPER") == "1" && sameResolvedPath(path, executable) {
+		// The helper env is the test seam. Requiring sameResolvedPath(path,
+		// os.Executable()) let ARM CI exec `bin --version` with that env
+		// inherited, so TestMain wrote the launch log before the real engine
+		// started (MADR 0119 P6, CI #391).
+		if os.Getenv("GO_WANT_CODEX_APP_SERVER_HELPER") == "1" {
 			version = "test-helper"
 		} else {
 			versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -1040,12 +1043,6 @@ func resolveBinaryIdentity(ctx context.Context, bin, versionHint string) (Binary
 		version = "unknown"
 	}
 	return BinaryIdentity{Path: path, Version: version, SHA256: fmt.Sprintf("%x", hash.Sum(nil))}, nil
-}
-
-func sameResolvedPath(left, right string) bool {
-	leftResolved, leftErr := filepath.EvalSymlinks(left)
-	rightResolved, rightErr := filepath.EvalSymlinks(right)
-	return leftErr == nil && rightErr == nil && leftResolved == rightResolved
 }
 
 func (p *Provider) supportsCapability(id CapabilityID) bool {

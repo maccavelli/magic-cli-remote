@@ -315,3 +315,59 @@ A5 holds. A6 holds on the evidence above, with the `-v` gap named.
 lane is green on this SHA with `MC_REQUIRE_SYMLINK=1`. Its arm64 redness
 after `fb0f361` was this record's, and the verdict is that `fb0f361` was
 not causal. 0118 PLAN status moves to `completed`.
+
+### Deviation — 2026-08-28: P3 made a real second launch visible
+
+CI #391 (`ea1dc3e`, docs-only, job 99034431045):
+
+```text
+--- FAIL: TestUnrelatedInitializeErrorDoesNotRetry (2.01s)
+    collaboration_test.go:195: launch count = 2, want 1
+```
+
+P3's wait is doing its job: the file existed, the count was 2, and the
+2.01 s duration is the wait timeout, so the test never saw 1. The original
+`!= 1` failure could not tell 0 from 2; this one can. **This is not the
+missing-file race P3 repaired.**
+
+Cause: `resolveBinaryIdentity` with an empty version hint execs
+`bin --version` unless `GO_WANT_CODEX_APP_SERVER_HELPER=1` **and**
+`sameResolvedPath(path, os.Executable())`. The parent test process has
+that env (via `t.Setenv`). When the path match fails, `--version` inherits
+the helper env, `TestMain` runs `runAppServerHelper`, and that writes the
+launch log. `startEngine` then launches the real helper: two writes, one
+handshake. Sibling tests avoid this by setting `p.version`; this test did
+not. 0119 C1 forbade production edits; the seam that already lives in
+`resolveBinaryIdentity` is what flakes, so P6 is a scoped amendment of
+that seam, not a new product retry.
+
+### P6 — Helper identity must not count as a launch (closes the #391 fail)
+
+`internal/provider/codex/provider.go` (`resolveBinaryIdentity`) and
+`collaboration_test.go`.
+
+1. If `GO_WANT_CODEX_APP_SERVER_HELPER=1`, treat the binary as
+   `test-helper` and do **not** exec `--version`. The env is already the
+   test seam; `sameResolvedPath` is not a required conjunct.
+2. Set `p.version` on `TestUnrelatedInitializeErrorDoesNotRetry` and
+   `TestInitializeTransportEOFDoesNotRetry`, matching the other helper
+   tests in this file.
+3. Add a regression test: helper env + launch log +
+   `resolveBinaryIdentity(bin, "")` must not create the launch log and
+   must return version `test-helper`.
+
+**Verification:**
+
+```bash
+go test -count=200 -run 'TestUnrelated|TestInitializeTransport|TestResolveBinaryIdentity' ./internal/provider/codex/
+go test -count=20 ./internal/provider/codex/
+```
+
+**P6 executed.** `resolveBinaryIdentity` treats the helper env as sufficient
+for `test-helper`. The two fail-fast helper tests set `p.version` like
+their siblings. `TestResolveBinaryIdentityHelperDoesNotCountAsLaunch`
+asserts the identity probe does not write the launch log.
+
+Verification: `go test -count=200 -run 'TestUnrelated|TestInitializeTransport|TestResolveBinaryIdentity'`
+and `go test -count=20 ./internal/provider/codex/` green locally.
+`make pre-add-check` clean on the two Go files.

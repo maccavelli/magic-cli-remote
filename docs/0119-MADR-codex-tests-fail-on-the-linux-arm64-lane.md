@@ -310,3 +310,13 @@ the repair.
 Windows run 33223300684 is
 [0122](0122-MADR-deterministic-goose-file-log-tail-attach.md), not this
 record.
+
+## Amendment — 2026-08-28: P3 surfaced a second launch from `--version`
+
+CI #391 job 99034431045: `launch count = 2, want 1` after a 2.01 s wait.
+That is a real extra process, not a missing file. `resolveBinaryIdentity`
+execs `bin --version` when the test-helper path match fails, and that
+child inherits `GO_WANT_CODEX_APP_SERVER_HELPER`, so it writes the launch
+log before the real engine starts. PLAN P6 repairs the existing test seam
+so the helper env alone is enough to skip `--version`. D4/C2 still hold:
+the test still requires exactly one launch.
