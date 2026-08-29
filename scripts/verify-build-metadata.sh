@@ -20,7 +20,6 @@ echo "Building probe binaries…"
 build_one linux amd64 "netgo,osusergo" "$tmpdir/mcremote-linux"
 build_one linux arm64 "netgo,osusergo" "$tmpdir/mcremote-linux-arm64"
 build_one darwin arm64 "" "$tmpdir/mcremote-darwin"
-build_one darwin amd64 "" "$tmpdir/mcremote-darwin-amd64"
 build_one windows amd64 "" "$tmpdir/mcremote-windows-amd64.exe"
 # NOTE: windows/arm64 is deliberately absent (MADR 0116 D19). An unbuilt target
 # must not acquire a policy assertion that implies it ships.
@@ -54,7 +53,7 @@ for bin in "$tmpdir/mcremote-linux" "$tmpdir/mcremote-linux-arm64"; do
 done
 
 echo "Checking Darwin and Windows have no netgo/osusergo…"
-for bin in "$tmpdir/mcremote-darwin" "$tmpdir/mcremote-darwin-amd64" "$tmpdir/mcremote-windows-amd64.exe"; do
+for bin in "$tmpdir/mcremote-darwin" "$tmpdir/mcremote-windows-amd64.exe"; do
   meta="$(go version -m "$bin")"
   if echo "$meta" | grep -E 'build.*tags=.*netgo|build.*-tags=.*netgo' >/dev/null; then
     echo "error: $bin has netgo" >&2

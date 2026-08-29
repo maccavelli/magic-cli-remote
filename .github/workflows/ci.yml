@@ -181,8 +181,8 @@ jobs:
           PLATFORMS="$PLATFORMS linux/amd64"
           PLATFORMS="$PLATFORMS linux/arm64"
           PLATFORMS="$PLATFORMS darwin/arm64"
-          PLATFORMS="$PLATFORMS darwin/amd64"
           PLATFORMS="$PLATFORMS windows/amd64"
+          # The Intel Darwin release target is deliberately absent (MADR 0120).
           # windows/arm64 is deliberately absent (MADR 0116 D19). Re-entry is
           # this one line plus a verify-build-metadata case and a
           # windows-11-arm go-native matrix leg.
