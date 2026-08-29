@@ -53,11 +53,14 @@ Finish line:
   re-cut tags.
 * **Wiring `install_test.sh` into CI or `make preflight`** (D9, F6). Real, and
   deferred with a reason below.
-* **Adding a macOS runner job.** Option B. Note the MADR's correction: such a
-  job would be *free* (F8) and *native* (F9), so it is not excluded on cost or
-  capability — it is excluded because adding a release-gating lane is a
-  different decision from retiring a target (D10). P3 fixes the comment that
-  says otherwise; it does not add the job.
+* **Adding a macOS runner job.** Option B. Such a job would be *free* (F8) and
+  *native* (F9), so it is excluded on neither cost nor capability. At the time
+  this plan was written it was excluded only because adding a release-gating
+  lane is a different decision from retiring a target (D10). The MADR's
+  2026-08-29 amendment goes further and declines it outright on value (F10,
+  D11) — 67 gated lines, already compile-checked. P3 fixes the misleading cost
+  comment; it does not add the job, and no later record should add one on
+  "unexercised target" reasoning.
 * **`windows/arm64`** — still excluded, still 0116 D19's call.
 * **The red `Go (linux/arm64)` lane** — that is
   [0119](0119-MADR-codex-tests-fail-on-the-linux-arm64-lane.md). This plan's
@@ -334,16 +337,24 @@ D5 limits the blast radius: every previously published release still works.
   this plan runs the script by hand. Adding a gate is a CI-policy change that
   wants its own record, and doing it inside a target-retirement plan would mean
   a phase that reddens CI for reasons unrelated to the target.
-* **A free `macos-15` job for `darwin/arm64`** (MADR open question 4, F8).
-  This is the most valuable thing this record turned up and it is deliberately
-  not done here. Once `darwin/amd64` is gone, `darwin/arm64` is the only
-  published target with no automated execution anywhere — covered solely by the
-  owner's laptop — and the reason the project declined that coverage (cost) is
-  false for a public repository. It is deferred rather than folded in because
-  adding a lane that can block a release is a different decision from removing
-  a target, and because the owner already acceptance-tests this platform by
-  hand, so the marginal value needs arguing rather than assuming. It should be
-  the next record after this one.
+* **A free `macos-15` job for `darwin/arm64`** — **not deferred; declined.**
+  This bullet previously called it "the most valuable thing this record turned
+  up" and said it "should be the next record after this one." That was wrong,
+  and the correction is MADR 0120's [2026-08-29 amendment](0120-MADR-retire-the-darwin-amd64-target.md)
+  (F10, D11): the darwin-gated surface is 67 lines in two files, there are no
+  darwin-gated test files, those 67 lines are already compile-gated on every
+  push by `make verify-build-metadata`, and the macOS logic that matters —
+  plist rendering, TCC, launchd — is not build-gated and already runs on both
+  existing lanes. A macOS job would add runtime execution of 67 lines and four
+  `runtime.GOOS` branches, against a fourth lane that can block releases. Do
+  not open this record on "unexercised target" reasoning; if it is reopened,
+  argue from the gated surface.
+* **A written macOS acceptance checklist.** This is the real gap the above
+  question was groping at, and it is a process item rather than a CI one:
+  nothing in the repository states what the owner verifies on the Mac before a
+  release, so nothing detects a release that shipped without it. Named here so
+  it is not mistaken for an oversight; it is the owner's call and needs no
+  record from this plan.
 * **A release-note line for the retirement** (MADR open question 1). The README
   row is the minimum; whether the first omitting tag also needs release-note
   prose depends on whether any Intel Mac installs actually exist, which nobody

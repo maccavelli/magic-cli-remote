@@ -455,17 +455,100 @@ README:1409                          → names all four targets
    `scripts/` or `ci.yml` is tied to the number of targets, so the four
    encodings in F3 are the whole surface. The plan still greps to confirm
    nothing was added since.
-4. **Should `darwin/arm64` get a free `macos-15` CI job?** Retiring
-   `darwin/amd64` makes it the only published target with no automated
-   execution anywhere, and F8 removes the reason the project declined that
-   coverage. This is now the most valuable question this record raises and it
-   is deliberately not answered here — adding a release-gating job is a
-   different decision from retiring a target (D10). It wants its own record,
-   and the arguments are: a `macos-15` leg is free and native; it would
-   duplicate acceptance testing the owner already does by hand; and it would
-   add a job that can block a release, on a lane nobody is yet watching.
+4. ~~**Should `darwin/arm64` get a free `macos-15` CI job?** … This is now the
+   most valuable question this record raises …~~
+   **Answered: no.** See [the 2026-08-29 amendment](#amendment--2026-08-29-the-macos-ci-job-is-not-worth-it-open-question-4-answered)
+   and D11. The question was posed on the assumption that "no automated
+   execution" implied a large untested surface. Measured, it is 67 lines in two
+   files, already compile-gated on every push, with no darwin-gated test files
+   at all and the interesting macOS logic (plist, TCC, launchd) ungated and
+   already tested on both existing lanes. The "most valuable question" framing
+   was wrong and is retained here only so the error is legible.
 5. Does anything still depend on `darwin/amd64` being *buildable* rather than
    published — a developer running `make build GOOS=darwin GOARCH=amd64`? The
    Makefile keeps cross-compiling it either way; only the release matrix and
    `verify-build-metadata.sh` change. Worth confirming nobody's local workflow
    assumes the tag-policy script covers it.
+
+## Amendment — 2026-08-29: the macOS CI job is not worth it; open question 4 answered
+
+Open question 4 asked whether `darwin/arm64` should get a free `macos-15` job,
+and called it *"the most valuable question this record raises."* That framing
+was wrong. It rested on an unmeasured assumption — that "no automated execution"
+meant a large body of untested code — and the measurement contradicts it.
+
+### What was measured
+
+**The darwin-gated surface is 67 lines in two files.**
+
+```text
+$ grep -rl '//go:build darwin' --include='*.go' . | grep -v _test
+internal/procutil/owner_darwin.go        47 lines
+internal/procutil/starttoken_darwin.go   20 lines
+```
+
+**There are no darwin-gated test files.**
+
+```text
+$ grep -rl '//go:build darwin' --include='*_test.go' .
+(empty)
+```
+
+So the usual justification for adding a platform lane — tests that exist but
+never run — does not apply. Nothing is being skipped.
+
+**The macOS-specific logic that matters is not build-gated at all.**
+`internal/cli/service/plist_render.go` (LaunchAgent rendering), `internal/tcc/`
+(Full Disk Access detection), and the launchd setup path carry no build tags.
+They are ordinary Go, and their tests already run on both existing lanes:
+
+```text
+$ go test ./internal/cli/service/ ./internal/tcc/ ./internal/procutil/
+ok  internal/cli/service
+ok  internal/tcc
+ok  internal/procutil
+```
+
+That run is from the owner's **Windows** host. The same tests run on
+`ubuntu-latest`. The interesting macOS code is therefore covered twice already.
+
+**The 67 gated lines are compile-checked on every push.**
+`make verify-build-metadata` cross-compiles `darwin/arm64`, and `procutil` is in
+the binary's dependency tree, so a compile break in either file reddens CI
+today. Confirmed: `CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...` → exit
+0, and that build is already a CI step.
+
+**Four `runtime.GOOS == "darwin"` branches exist in non-test code**
+(`appdirs/roots_unix.go:52`, `cli/service/setup.go:678`,
+`cli/setup_service.go:149`, `provider/grok/device_auth.go:87`).
+
+### The finding
+
+**F10 — a `macos-15` job would add runtime execution of 67 lines and 4
+branches, and nothing else.** Every other test it ran would be a third copy of a
+suite already green on two platforms. Those 67 lines are process-owner lookup
+and start-token derivation, whose real failure modes are launchd, TCC and
+permissions — conditions a hosted runner reproduces no better than the owner's
+own Mac, and arguably worse, since the runner's environment matches neither the
+owner's nor a user's.
+
+Against that sits a fourth lane that can block releases.
+[0119](0119-MADR-codex-tests-fail-on-the-linux-arm64-lane.md) is this record's
+own evidence for what that costs: a flaky lane consumed a day and produced false
+signal before yielding a genuine defect. A lane earns its keep by the failures it
+catches, and 67 compile-gated lines is a thin catch.
+
+**D11 — do not add a macOS CI job on this record's reasoning.** Open question 4
+is answered *no*. F8 (macOS CI is free) remains true and is still worth knowing;
+it removes the *cost* objection but never established a *benefit*, and this
+amendment supplies the missing half. Anyone reopening this should argue from the
+gated surface, not from the phrase "unexercised target".
+
+### What the measurement does not settle
+
+macOS verification is a **manual step with no record**. Nothing in the
+repository states what the owner checks before a release, and nothing detects a
+release that shipped on a week the check was skipped. That is a real exposure,
+but it is a process gap, not a test-coverage gap, and a written acceptance
+checklist addresses it far more cheaply than a CI job. It is the owner's call
+and is not a decision this record makes.
