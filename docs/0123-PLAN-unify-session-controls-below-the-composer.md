@@ -501,3 +501,64 @@ That is C3 working as intended — the row now always renders.
 * **Capacity is proven at ten**, with a real tenth icon, at both 360dp and
   320dp, scrolling at twelve, each box keeping the full 48dp height (A14–A16).
   Codex uses nine of the ten today.
+
+## Amendment — 2026-08-29: P9 and P10 (MADR D15–D17)
+
+P8's device pass returned "works, glyphs rejected". Two phases follow from the
+MADR's 2026-08-29 amendment. Scope additions: `apps/mobile/assets/ui_icons/`
+(new, bundled Lucide SVGs + their ISC notice), `apps/mobile/pubspec.yaml`
+(assets declaration only — **no new dependency**), and the existing
+`session_controls/` files.
+
+### P9 — A curated Lucide set (D15; closes the device half of P8)
+
+Replace every `IconData` in the composer row with a bundled Lucide SVG rendered
+through the `flutter_svg` already in the tree. `ComposerAction` carries an asset
+name rather than an `IconData`.
+
+The set, chosen for silhouette separation at 20dp (D14's surviving principle):
+
+| Slot | Lucide |
+| --- | --- |
+| Attach image | `image-plus` |
+| Attach audio | `audio-lines` |
+| Workspace | `folder` |
+| Shell | `square-terminal` |
+| Share | `share-2` |
+| Permissions | `shield` / `shield-check` / `shield-alert` / `shield-off` |
+| Collaboration | `list-checks` (plan) / `pencil-line` (default) |
+| Thinking | `brain` |
+| Agent settings | `sliders-horizontal` |
+
+`ios_share`, `tune`, `checklist`, `bolt` and `edit_off` all leave — they are the
+idiom-breakers the Observed section names.
+
+**Verification:** `flutter analyze`; the composer and capacity tests still pass
+at ten; every asset referenced exists (a missing SVG renders as a silent blank,
+so assert the manifest, not just the widget tree).
+
+### P10 — Normalised labels, monochrome danger (D16, D17)
+
+Title-case permission labels at the presentation layer, leaving wire ids alone.
+Remove leading colour from every card row. Give a `dangerous` mode a trailing
+monochrome marker and a description of what it actually does.
+
+**Verification:** the dangerous-mode tests must still pass **unchanged** —
+if normalising labels or removing tint breaks them, the safety behaviour moved
+and that is a failure, not a fixture update.
+
+### Acceptance additions
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A19 | Every composer icon is Lucide; no Material glyph and no `ios_share` remain | D15 |
+| A20 | Bundled under ISC with the notice shipped; no new pubspec dependency | D15 |
+| A21 | Permission labels render Title Case; wire ids unchanged | D16 |
+| A22 | No card row has a leading colour | D17 |
+| A23 | `confirmDangerousMode` still gates arming, tests unchanged | D6, D17 |
+| A24 | The permissions composer icon still changes glyph with posture | C4 |
+
+**A23 is the one to guard.** D17 removes a colour that currently signals
+danger, and the temptation while making rows uniform is to let the trailing
+marker and the description quietly stand in for the confirmation. They do not.
+The dialog is the control; the rest is only how the row reads.

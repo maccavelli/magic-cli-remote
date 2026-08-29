@@ -534,3 +534,77 @@ older daemon without the new field   -> no banner, no crash, level still settabl
    holding ten in view? Icons do not scale with `textScaleFactor`, so the
    arithmetic is unaffected, but a user who has enlarged their display has
    asked for bigger targets and D12 would keep giving them 33.6dp.
+
+## Observed — execution results (2026-08-29)
+
+**P8's device pass ran, and the geometry passed while the vocabulary failed.**
+The owner ran the build on a phone: the controls work, the back arrow is
+reachable, ten fit. The glyphs were rejected — "the small icon choices suck…
+it needs to be a showcase, not an aside."
+
+That is the outcome D14 and open question 4 anticipated in as many words: the
+arithmetic proves the geometry, only a screen proves the legibility, and if the
+glyphs fail the **vocabulary** changes rather than the budget. D12's density
+rule is untouched by this record.
+
+### Why the set failed, measured
+
+The row mixed **three icon idioms**, which no amount of per-glyph choice would
+have reconciled:
+
+| Idiom | Icons |
+| --- | --- |
+| Material *outlined* | `folder_outlined`, `terminal_outlined`, `audiotrack_outlined`, `add_photo_alternate_outlined`, `psychology_outlined`, `shield_outlined` |
+| Material *filled* | `tune`, `checklist`, `bolt`, `edit_off` |
+| *iOS* | `ios_share` |
+
+Outlined and filled glyphs sit at different optical weights, and `ios_share` is
+from a different design language entirely. The owner named `folder_outlined` as
+the one that reads well — it is from the outlined family, which is the coherent
+subset.
+
+## Amendment — 2026-08-29: a curated Lucide set, and permission labels without colour
+
+### D15 — The icon vocabulary is Lucide, bundled as SVG assets
+
+Supersedes D14's Material vocabulary; D14's *principle* — silhouette
+separation at 20dp, permissions carrying its own state — stands.
+
+Lucide is 1,500+ icons on a strict 24px grid with a 2px stroke and rounded
+joins: one grid, one stroke, one voice. It is the family `folder_outlined`
+gestures at, drawn consistently. It is **ISC licensed** (notice bundled at
+`assets/ui_icons/LICENSE`) and actively maintained.
+
+**Bundled as assets, not as a package.** `flutter_svg` is already a dependency
+and `assets/vendor_icons/` is an established bundled-monochrome-SVG pipeline
+(MADR 0082 D5), so this adds **no new dependency** and ships only the ~13
+glyphs actually used rather than a 1,500-icon font. Considered and rejected:
+`phosphor_flutter` (MIT, six weights, but last published two years ago — a
+stale runtime dependency on a project that pins its toolchain deliberately),
+and a curated Material Symbols subset (safest, but it is the family the device
+pass just rejected).
+
+### D16 — Permission labels are normalised for display
+
+The daemon sends raw ids as names — `default`, `read-only`, `auto`,
+`full access`, `build`, `plan` (`codex/mode.go:46-72`) — and the card renders
+them verbatim, lowercase and inconsistently punctuated. Normalise to Title Case
+at the presentation layer only. **The wire value is never rewritten**: ids
+remain what the daemon said, and only the label the user reads changes.
+
+### D17 — No leading colour on any permission row; danger reads monochrome
+
+No row carries a leading tint. A mode the daemon flags `dangerous` is marked by
+a trailing monochrome glyph and a plain description of what it does
+("Approves every request — no prompts"), in the same ink as every other row.
+
+**The safety control is untouched.** `confirmDangerousMode` still gates arming
+(D6), and the composer icon still changes glyph with posture (D14's principle,
+now `shield` / `shield-check` / `shield-alert` / `shield-off`). What is removed
+is colour-coding *inside the card*, not the confirmation and not the
+at-a-glance signal C4 protects — those move to form rather than hue.
+
+Considered and rejected: fully flat rows with nothing distinguishing
+auto-approve until the dialog. It is the cleanest look and it is the one option
+that weakens C4, because a row that reads identically to "read only" until
+tapped is a worse affordance than a quieter one that still says what it does.
