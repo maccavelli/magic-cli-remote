@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-08-28
 associated-madr: "0120-MADR-retire-the-darwin-amd64-target.md"
 ---
@@ -367,6 +367,11 @@ D5 limits the blast radius: every previously published release still works.
 
 ## Execution record — 2026-08-28
 
+**P1–P6 complete.** Closed 2026-08-29; see the P6 section appended below.
+
+*(Superseded note: this line first read "P1–P5 complete. P6 pending", written
+before a version tag existed.)*
+
 **P1–P5 complete. P6 pending.** P6 requires a pushed version tag, while the
 owner explicitly prohibited pushing in this execution turn. The plan remains
 `in-progress`; no release, tag, remote branch, or existing release asset was
@@ -429,3 +434,39 @@ No missed build, release, installer, documentation, or test encoding was found.
   worktree changes zero Go files, production or test (A9/C1).
 * Targeted Markdown lint found README clean and six pre-existing MD004 findings
   in `docs/ops-linux-install.md`; none is on the changed lines.
+
+
+## P6 — observed on tag v0.15.0 (2026-08-29)
+
+The one phase nothing before it could prove: the build matrix runs only on
+`github.ref_type == 'tag'`, so until a release existed, "the published set
+shrank" was an inference from a `PLATFORMS` edit rather than an observation.
+
+Tag `v0.15.0` (commit `3c28670`, run 33233980284) published, all eight jobs
+green. Its assets:
+
+```text
+mcremote-{darwin-arm64, linux-amd64, linux-arm64, windows-amd64}
+mcrelay-{darwin-arm64, linux-amd64, linux-arm64, windows-amd64}
++ versioned copies, SHA256SUMS, SHA256SUMS-0.15.0.1, install.sh, install.ps1,
+  magic-cli-remote-v0.15.0-arm64.apk
+```
+
+**No `darwin/amd64`, in either binary.** Version stamped `0.15.0.1`.
+
+**D5 confirmed — published releases untouched.** `v0.14.10` still carries
+`mcremote-darwin-amd64`, `mcremote-darwin-amd64-0.14.10.1`,
+`mcrelay-darwin-amd64` and `mcrelay-darwin-amd64-0.14.10.1`. An Intel Mac
+pinned there keeps working; it stops receiving updates, which is the
+documented consequence and not a regression.
+
+### What the plan predicted incorrectly
+
+**The checksum count.** P6 expected `SHA256SUMS` to hold 8 lines, "2 binaries x
+4 targets". It holds **9**: the Android APK shares the same manifest. The eight
+binary lines are exactly right; the prediction forgot the APK was there at all.
+
+Minor, and recorded because it is the second time in this record that a
+confident count about release artifacts was made without reading the job that
+produces them — the first being the `PLATFORMS` list that F3 found had already
+drifted from the README.
