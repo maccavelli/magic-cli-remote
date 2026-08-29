@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
+import 'package:magic_cli_remote/features/chat/session_controls/ui_icons.dart';
 
 /// Records setMode calls so a test can prove the confirmation gate actually
 /// blocks the switch rather than merely showing a dialog.
@@ -88,6 +89,13 @@ const _codexModes = [
   ),
 ];
 
+/// Finds a bundled Lucide glyph by name. The icons are SVG assets now, so
+/// `find.byIcon` no longer reaches them (MADR 0123 D15).
+Finder findGlyph(String name) => find.byWidgetPredicate(
+  (w) => w is UiIcon && w.name == name,
+  description: 'UiIcon($name)',
+);
+
 Widget _host(
   _ModeClient client, {
   required List<SessionMode> modes,
@@ -121,8 +129,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.byIcon(Icons.bolt),
-        findsWidgets,
+        findGlyph(UiIcons.shieldAuto),
+        findsOneWidget,
         reason: 'an armed auto-approve mode must be unmissable',
       );
     });
@@ -133,7 +141,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.bolt), findsNothing);
+      expect(findGlyph(UiIcons.shieldAuto), findsNothing);
+      expect(findGlyph(UiIcons.shieldFullAccess), findsNothing);
     });
 
     // Empty current_mode_id must not paint modes.first (read-only) when a
@@ -146,8 +155,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Not dangerous, so the icon must not alarm.
-      expect(find.byIcon(Icons.bolt), findsNothing);
+      // Not dangerous, so the glyph must not alarm.
+      expect(findGlyph(UiIcons.shieldAuto), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('permissions')));
       await tester.pumpAndSettle();
@@ -167,9 +176,9 @@ void main() {
       );
       // ...and exactly one is marked current: `default`, not the first-list
       // lie of read-only.
-      expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
+      expect(findGlyph(UiIcons.selected), findsOneWidget);
       final checkedRow = find.ancestor(
-        of: find.byIcon(Icons.radio_button_checked),
+        of: findGlyph(UiIcons.selected),
         matching: find.byKey(const ValueKey('session-control-option-default')),
       );
       expect(checkedRow, findsOneWidget);
@@ -184,7 +193,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.byIcon(Icons.bolt),
+        findGlyph(UiIcons.shieldAuto),
         findsNothing,
         reason:
             'a legacy daemon advertised no flag; alarming on it would '
@@ -201,7 +210,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.bolt), findsWidgets);
+      expect(findGlyph(UiIcons.shieldAuto), findsOneWidget);
     });
   });
 

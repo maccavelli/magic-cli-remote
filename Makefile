@@ -518,7 +518,8 @@ NEW_DART_FILES := \
 	lib/features/chat/session_controls/session_control_card.dart \
 	lib/features/chat/session_controls/session_control_cards.dart \
 	lib/features/chat/session_controls/composer_actions_row.dart \
-	lib/features/chat/session_controls/control_glyphs.dart
+	lib/features/chat/session_controls/control_glyphs.dart \
+	lib/features/chat/session_controls/ui_icons.dart
 
 # Assert release binaries carry the expected build tags (MADR 0059 D9).
 # Builds temporary Darwin (no tags) and Linux (netgo,osusergo) artifacts.

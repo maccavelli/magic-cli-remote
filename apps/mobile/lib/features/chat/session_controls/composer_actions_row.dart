@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'ui_icons.dart';
+
 /// One affordance in the composer-actions row.
 class ComposerAction {
   const ComposerAction({
@@ -11,7 +13,11 @@ class ComposerAction {
   });
 
   final String id;
-  final IconData icon;
+
+  /// A curated Lucide glyph name from [UiIcons], not an `IconData`. The
+  /// Material set was rejected on a device for mixing three idioms
+  /// (MADR 0123 D15).
+  final String icon;
   final String tooltip;
 
   /// Null disables the action. An action whose surface the session does not
@@ -112,7 +118,7 @@ class ComposerActionsRow extends StatelessWidget {
                 style: const ButtonStyle(
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                icon: Icon(a.icon, color: a.tint),
+                icon: UiIcon(a.icon, size: kGlyphSize, color: a.tint),
               ),
             ),
         ];

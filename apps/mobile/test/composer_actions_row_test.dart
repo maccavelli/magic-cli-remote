@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:magic_cli_remote/features/chat/session_controls/composer_actions_row.dart';
+import 'package:magic_cli_remote/features/chat/session_controls/ui_icons.dart';
 
 /// MADR 0123 D12/D13, acceptance A14–A16.
 ///
@@ -17,7 +18,7 @@ List<ComposerAction> _actions(int n) => [
   for (var i = 0; i < n; i++)
     ComposerAction(
       id: 'a$i',
-      icon: Icons.circle,
+      icon: UiIcons.workspace,
       tooltip: 'action $i',
       onPressed: () {},
     ),
@@ -146,7 +147,7 @@ void main() {
               actions: [
                 ComposerAction(
                   id: 'perms',
-                  icon: Icons.bolt,
+                  icon: UiIcons.shieldAuto,
                   tooltip: 'Permissions',
                   tint: const Color(0xFFB3261E),
                   onPressed: () {},
@@ -158,8 +159,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final icon = tester.widget<Icon>(find.byIcon(Icons.bolt));
-      expect(icon.color, const Color(0xFFB3261E));
+      final rendered = tester.widget<UiIcon>(find.byType(UiIcon));
+      expect(rendered.color, const Color(0xFFB3261E));
+      expect(rendered.name, UiIcons.shieldAuto);
     });
 
     testWidgets('an empty row still exists, holding nothing', (tester) async {
@@ -189,7 +191,7 @@ void main() {
               actions: [
                 ComposerAction(
                   id: 'off',
-                  icon: Icons.circle,
+                  icon: UiIcons.workspace,
                   tooltip: 'offline',
                 ),
               ],

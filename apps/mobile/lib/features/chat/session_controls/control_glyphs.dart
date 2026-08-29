@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/protocol/models.dart';
 import '../chat_helpers.dart';
+import 'ui_icons.dart';
 
 /// Glyphs for the session-control icons (MADR 0123 D14).
 ///
@@ -18,20 +19,23 @@ import '../chat_helpers.dart';
 /// who read colour.
 
 /// Permissions posture, most alarming first.
-IconData permissionsIcon(List<SessionMode> modes, String? currentModeId) {
+String permissionsIcon(List<SessionMode> modes, String? currentModeId) {
   final current = resolveDisplayedMode(modes, currentModeId);
-  if (current == null) return Icons.shield_outlined;
-  // Daemon-declared, never guessed from the id (MADR 0049).
-  if (current.dangerous) return Icons.bolt;
+  if (current == null) return UiIcons.shieldDefault;
   final id = current.id.toLowerCase();
   // OpenCode carries "plan" as a *session* mode rather than a collaboration
-  // mode, and the old chip gave it edit-off plus a tint because "the agent
-  // will not touch my files" is worth noticing at a glance. That signal has
-  // to survive the move (MADR 0123 C4), so it is read here too — the shield
-  // family alone would have quietly dropped it.
-  if (id == 'plan') return Icons.edit_off;
-  if (id.contains('read')) return Icons.gpp_good_outlined;
-  return Icons.shield_outlined;
+  // mode, and the old chip gave it a distinct glyph because "the agent will
+  // not touch my files" is worth noticing at a glance. That signal has to
+  // survive the move (MADR 0123 C4); the shield family alone would have
+  // quietly dropped it.
+  if (id == 'plan') return UiIcons.plan;
+  // Daemon-declared, never guessed from the id (MADR 0049). The two bypass
+  // postures are told apart: `auto` still sandboxes, `full access` does not.
+  if (current.dangerous) {
+    return id.contains('full') ? UiIcons.shieldFullAccess : UiIcons.shieldAuto;
+  }
+  if (id.contains('read')) return UiIcons.shieldReadOnly;
+  return UiIcons.shieldDefault;
 }
 
 /// Error tint only for a mode the daemon flagged dangerous; null otherwise so
@@ -50,13 +54,8 @@ Color? permissionsTint(
 }
 
 /// Collaboration: planning reads as a checklist, editing as a pencil.
-IconData collaborationIcon(
-  List<CollaborationMode> modes,
-  String? currentModeId,
-) {
-  return _isPlanning(modes, currentModeId)
-      ? Icons.checklist
-      : Icons.edit_outlined;
+String collaborationIcon(List<CollaborationMode> modes, String? currentModeId) {
+  return _isPlanning(modes, currentModeId) ? UiIcons.plan : UiIcons.edit;
 }
 
 /// Plan mode is a state worth noticing at a glance — it was tinted as a chip

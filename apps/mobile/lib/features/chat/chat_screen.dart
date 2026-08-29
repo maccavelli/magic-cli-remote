@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'diagnostics_sheet.dart';
 import 'session_controls/composer_actions_row.dart';
 import 'session_controls/control_glyphs.dart';
+import 'session_controls/ui_icons.dart';
 import 'session_controls/session_control_cards.dart';
 import 'session_share_sheet.dart';
 import 'shell_command_sheet.dart';
@@ -3072,7 +3073,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       if (canAttachImage)
                         ComposerAction(
                           id: 'attach-image',
-                          icon: Icons.add_photo_alternate_outlined,
+                          icon: UiIcons.attachImage,
                           tooltip: 'Attach image',
                           // New attachments wait for an idle composer, but any
                           // already staged images move atomically with a queued
@@ -3082,28 +3083,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       if (canAttachAudio)
                         ComposerAction(
                           id: 'attach-audio',
-                          icon: Icons.audiotrack_outlined,
+                          icon: UiIcons.attachAudio,
                           tooltip: 'Attach audio',
                           onPressed: (busy || offline) ? null : _pickAudio,
                         ),
                       if (canBrowseWorkspace)
                         ComposerAction(
                           id: 'open-workspace',
-                          icon: Icons.folder_outlined,
+                          icon: UiIcons.workspace,
                           tooltip: 'Browse workspace',
                           onPressed: offline ? null : _showWorkspaceSheet,
                         ),
                       if (canRunShell)
                         ComposerAction(
                           id: 'open-shell',
-                          icon: Icons.terminal_outlined,
+                          icon: UiIcons.shell,
                           tooltip: 'Run a command',
                           onPressed: (busy || offline) ? null : _showShellSheet,
                         ),
                       if (canReadShare)
                         ComposerAction(
                           id: 'open-share',
-                          icon: Icons.ios_share,
+                          icon: UiIcons.share,
                           tooltip: 'Sharing',
                           onPressed: offline
                               ? null
@@ -3156,7 +3157,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ))
                         ComposerAction(
                           id: 'thinking',
-                          icon: Icons.psychology_outlined,
+                          icon: UiIcons.thinking,
                           tooltip: 'Thinking',
                           onPressed: offline
                               ? null
@@ -3165,7 +3166,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       if (configOptions.isNotEmpty)
                         ComposerAction(
                           id: 'agent-settings',
-                          icon: Icons.tune,
+                          icon: UiIcons.agentSettings,
                           tooltip: 'Agent settings',
                           onPressed: offline
                               ? null

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/protocol/picker.dart';
 import '../../widgets/option_picker_sheet.dart';
+import 'ui_icons.dart';
 
 /// The one card idiom for every session control (MADR 0123 D5).
 ///
@@ -168,17 +169,34 @@ class _OptionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // No leading colour on any row (MADR 0123 D17). Selection reads as a
+    // filled mark in the same ink as the label; danger reads as a trailing
+    // glyph plus the description, not as a hue. The confirmation dialog is
+    // still what gates arming — this changes how a row reads, not what it
+    // does (D6, A23).
     return ListTile(
       key: ValueKey('session-control-option-${option.id}'),
       enabled: enabled && option.onSelected != null,
-      leading: Icon(
-        option.selected ? Icons.radio_button_checked : Icons.radio_button_off,
-        color: option.selected ? scheme.primary : scheme.onSurfaceVariant,
+      leading: UiIcon(
+        option.selected ? UiIcons.selected : UiIcons.unselected,
+        size: 20,
+        color: scheme.onSurface,
       ),
-      title: Text(option.label),
+      title: Text(
+        option.label,
+        style: TextStyle(
+          color: scheme.onSurface,
+          fontWeight: option.selected ? FontWeight.w600 : FontWeight.w400,
+        ),
+      ),
       subtitle: option.description.isEmpty ? null : Text(option.description),
       trailing: option.dangerous
-          ? Icon(Icons.bolt, size: 18, color: scheme.error)
+          ? UiIcon(
+              UiIcons.shieldAuto,
+              size: 18,
+              color: scheme.onSurfaceVariant,
+              key: const ValueKey('session-control-danger-mark'),
+            )
           : null,
       onTap: !enabled || option.onSelected == null
           ? null

@@ -6,12 +6,31 @@ import '../../../data/ws/mc_exception.dart';
 import '../../../theme/top_notification.dart';
 import '../chat_helpers.dart';
 import 'session_control_card.dart';
+import 'ui_icons.dart';
 
 /// The three session-control cards (MADR 0123 D5).
 ///
 /// Each is a thin caller over [SessionControlCard]: the shared surface owns
 /// the layout, the banner and the row treatment, so the controls cannot drift
 /// apart again the way the popup menus and the `SimpleDialog` did.
+
+/// Title-cases a daemon-supplied mode name for display (MADR 0123 D16).
+///
+/// The daemon sends raw ids as names — `default`, `read-only`, `auto`,
+/// `full access`, `build`, `plan` (`codex/mode.go:46-72`) — so the card used to
+/// render lowercase, inconsistently punctuated strings next to each other.
+///
+/// This is presentation only. The wire value is never rewritten: ids stay
+/// exactly what the daemon said, and only the label the user reads changes.
+String normalizeModeLabel(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return trimmed;
+  return trimmed
+      .split(RegExp(r'[\s_-]+'))
+      .where((w) => w.isNotEmpty)
+      .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
+      .join(' ');
+}
 
 /// Permissions — what the agent may do without asking.
 ///
@@ -35,7 +54,7 @@ Future<void> showPermissionsCard(
         for (final m in modes)
           SessionControlOption(
             id: m.id,
-            label: m.name,
+            label: normalizeModeLabel(m.name),
             description: m.description,
             selected: m.id == current?.id,
             dangerous: m.dangerous,
@@ -72,7 +91,7 @@ Future<void> showCollaborationCard(
         for (final m in modes)
           SessionControlOption(
             id: m.id,
-            label: m.name,
+            label: normalizeModeLabel(m.name),
             selected: m.id == currentId,
             onSelected: () => onSelect(m.id),
           ),
@@ -121,7 +140,7 @@ Future<void> showThinkingCard(
         for (final l in levels)
           SessionControlOption(
             id: l.id,
-            label: l.displayLabel,
+            label: normalizeModeLabel(l.displayLabel),
             description: l.description,
             selected: l.id == currentLevel,
             onSelected: () => onSelect(l.id),
@@ -144,7 +163,7 @@ Future<bool> confirmDangerousMode(
   final ok = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      icon: Icon(Icons.bolt, color: scheme.error),
+      icon: UiIcon(UiIcons.alert, size: 28, color: scheme.error),
       title: const Text('Run without approvals?'),
       content: Text(
         'This session will approve every permission request automatically, '

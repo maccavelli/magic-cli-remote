@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/features/chat/chat_screen.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
+import 'package:magic_cli_remote/features/chat/session_controls/ui_icons.dart';
 import 'package:magic_cli_remote/theme/widgets.dart';
 
 /// Minimal client: chat only calls sessionHistory() at open, and only when the
@@ -130,6 +131,11 @@ Widget _hostWithKeyboard(SessionTranscript transcript, double keyboardHeight) {
     ),
   );
 }
+
+Finder findGlyph(String name) => find.byWidgetPredicate(
+  (w) => w is UiIcon && w.name == name,
+  description: 'UiIcon($name)',
+);
 
 void main() {
   SessionTranscript seeded(List<ChatItem> items, {String status = 'idle'}) {
@@ -1267,7 +1273,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('permissions')), findsOneWidget);
-      expect(find.byIcon(Icons.edit_off), findsNothing);
+      expect(findGlyph(UiIcons.plan), findsNothing);
     });
 
     testWidgets('plan mode is called out on the icon', (tester) async {
@@ -1276,7 +1282,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       // "the agent will not touch my files" deserves more than a label.
-      expect(find.byIcon(Icons.edit_off), findsOneWidget);
+      expect(findGlyph(UiIcons.plan), findsOneWidget);
     });
   });
 

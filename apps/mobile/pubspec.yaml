@@ -68,3 +68,8 @@ flutter:
   assets:
     - assets/MC_icon.png
     - assets/vendor_icons/
+    # Curated Lucide UI glyphs, bundled as SVG (MADR 0123 D15). ISC; the
+    # notice ships alongside them at assets/ui_icons/LICENSE. Bundled rather
+    # than pulled as a package so this adds no dependency and ships only the
+    # glyphs actually used.
+    - assets/ui_icons/

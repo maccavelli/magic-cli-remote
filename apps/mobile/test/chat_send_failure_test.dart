@@ -118,7 +118,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Attach an image, type, and send.
-    await tester.tap(find.byIcon(Icons.add_photo_alternate_outlined));
+    await tester.tap(find.byKey(const ValueKey('attach-image')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'look at this');
     await tester.pumpAndSettle();

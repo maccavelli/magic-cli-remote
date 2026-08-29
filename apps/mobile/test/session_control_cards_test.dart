@@ -5,6 +5,7 @@ import 'package:magic_cli_remote/data/protocol/models.dart';
 import 'package:magic_cli_remote/data/protocol/picker.dart';
 import 'package:magic_cli_remote/features/chat/session_controls/session_control_card.dart';
 import 'package:magic_cli_remote/features/chat/session_controls/session_control_cards.dart';
+import 'package:magic_cli_remote/features/chat/session_controls/ui_icons.dart';
 
 /// MADR 0123 D5/D6/D8. One card idiom for every session control, the dangerous
 /// confirmation preserved, and the thinking card explaining a limit up front
@@ -26,6 +27,13 @@ const _levels = [
   ThinkingLevel(id: 'medium'),
   ThinkingLevel(id: 'high', description: 'Slowest, most thorough'),
 ];
+
+/// Finds a bundled Lucide glyph by name. The icons are SVG assets now, so
+/// `find.byIcon` no longer reaches them (MADR 0123 D15).
+Finder findGlyph(String name) => find.byWidgetPredicate(
+  (w) => w is UiIcon && w.name == name,
+  description: 'UiIcon($name)',
+);
 
 Widget _host(void Function(BuildContext) open) {
   return MaterialApp(
@@ -68,7 +76,10 @@ void main() {
         );
       }
       // The selection is resolved, never taken from list order (MADR 0047 D4).
-      expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
+      expect(findGlyph(UiIcons.selected), findsOneWidget);
+      // Labels are normalised for display; wire ids are untouched (D16).
+      expect(find.text('Read Only'), findsOneWidget);
+      expect(find.text('Full Access'), findsNothing);
     });
 
     testWidgets('a dangerous mode still confirms before arming', (
@@ -198,7 +209,7 @@ void main() {
         find.byKey(const ValueKey('session-control-banner')),
         findsNothing,
       );
-      expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
+      expect(findGlyph(UiIcons.selected), findsOneWidget);
     });
 
     testWidgets('unknown shows no banner either', (tester) async {
@@ -346,7 +357,40 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.bolt), findsOneWidget);
+      // D17: the danger cue is monochrome and trailing, in the same ink as
+      // every other row. The confirmation dialog remains the actual control.
+      expect(
+        find.byKey(const ValueKey('session-control-danger-mark')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('no card row carries a leading colour', (tester) async {
+      // A22. Selection and danger are form, not hue.
+      await tester.pumpWidget(
+        _host(
+          (c) => showPermissionsCard(
+            c,
+            modes: _codexModes,
+            currentModeId: 'auto',
+            onSelect: (_) async {},
+          ),
+        ),
+      );
+      await _open(tester);
+
+      final scheme = Theme.of(
+        tester.element(find.text('Permissions')),
+      ).colorScheme;
+      for (final glyph in [UiIcons.selected, UiIcons.unselected]) {
+        for (final w in tester.widgetList<UiIcon>(findGlyph(glyph))) {
+          expect(
+            w.color,
+            scheme.onSurface,
+            reason: 'leading marks must share the label ink (D17)',
+          );
+        }
+      }
     });
 
     testWidgets('close dismisses the card', (tester) async {
