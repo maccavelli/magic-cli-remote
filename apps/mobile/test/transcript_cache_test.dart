@@ -36,8 +36,12 @@ void main() {
         .whereType<File>()
         .where((f) => f.path.endsWith('.json'))
         .map(
+          // Same separator defect as the code under test had (MADR 0124 F1):
+          // on Windows this returned 'transcripts\s1', so the fixture
+          // reported ids no daemon ever produced. Assertions are untouched —
+          // only the helper's reading of the directory is corrected.
           (f) => Uri.decodeComponent(
-            f.path.split('/').last.replaceAll('.json', ''),
+            entryBasename(f.path).replaceAll('.json', ''),
           ),
         )
         .toSet();
@@ -249,6 +253,39 @@ void main() {
   // index while its entry blob stays stored — invisible to LRU eviction and to
   // clear(), i.e. prefs that grow without bound. The cache serializes them on
   // one future chain; these tests are what hold that.
+  // MADR 0124 D3. `Directory.list()` returns platform-native paths, and
+  // splitting them on '/' alone silently mangled every entry id on Windows:
+  // `retainOnly` then judged live sessions dead and emptied the LRU index.
+  //
+  // This runs on every platform on purpose. The defect it guards was invisible
+  // to CI for two records because the only host that could fail was a
+  // developer's own machine (0124 F5), so the guard is written against the
+  // helper rather than against the filesystem.
+  group('entry basename is separator-agnostic', () {
+    test('a Windows path yields a bare entry name', () {
+      expect(
+        entryBasename(r'C:\\Users\\me\\tx/transcripts\\s1.json'),
+        's1.json',
+        reason:
+            'splitting on / alone returns "transcripts\\s1.json", which still '
+            'ends in .json and is therefore admitted as a session id',
+      );
+    });
+
+    test('a POSIX path is unchanged from the old behaviour', () {
+      // 0124 C2: on every shipped platform the answer must be byte-identical
+      // to what split('/').last returned.
+      const posix = '/home/me/tx/transcripts/s1.json';
+      expect(entryBasename(posix), posix.split('/').last);
+      expect(entryBasename(posix), 's1.json');
+    });
+
+    test('a bare name survives, and a trailing separator yields empty', () {
+      expect(entryBasename('s1.json'), 's1.json');
+      expect(entryBasename('a/b/'), '');
+    });
+  });
+
   group('serialized mutations', () {
     SessionTranscript one(String id, String text) => SessionTranscript(
       sessionId: id,

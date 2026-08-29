@@ -109,6 +109,18 @@ SessionTranscript? decodeTranscriptCachePayload(
   }
 }
 
+/// The final path component, whichever separator the platform used.
+///
+/// `Directory.list()` returns platform-native paths, so on Windows this is
+/// `...\\transcripts\\s1.json`. Splitting on `/` alone returned the whole
+/// fragment, which still ends in `.json` — so an entry was admitted with
+/// `transcripts\\s1` as its *session id*, `retainOnly` then judged every live
+/// session dead, and the LRU index was rewritten empty (MADR 0124 F2).
+///
+/// Correct on `/` platforms by construction: with no backslash present this
+/// returns exactly what `split('/').last` did (0124 C2).
+String entryBasename(String path) => path.split(RegExp(r'[\\/]')).last;
+
 /// Best-effort phone-side transcript durability for process death reopen
 /// (MADR 0018 E1 / C16). Host history remains source of truth; this is a
 /// last-N item snapshot only, not a full archive.
@@ -337,7 +349,7 @@ class TranscriptCache {
     if (!dir.existsSync()) return const [];
     final out = <String>[];
     await for (final e in dir.list()) {
-      final name = e.path.split('/').last;
+      final name = entryBasename(e.path);
       if (e is File && name.endsWith('.json')) {
         out.add(_sessionIdFromFile(name));
       }
