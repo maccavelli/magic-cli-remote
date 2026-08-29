@@ -729,67 +729,72 @@ void main() {
   });
 
   group('MADR 0063 D6 — a dead transport is not retried first', () {
-    test('a mesh death reconnects over the relay', () async {
-      // The scenario: a session is up over the mesh, the mesh dies, and the
-      // reconnect resolves to the sticky value — which is, by definition, the
-      // transport that just proved itself unusable. Before D6 the phone
-      // retried the dead mesh while a working relay sat unused.
-      final relay = await _CountingEndpoint.start();
-      addTearDown(relay.close);
+    test(
+      'a mesh death reconnects over the relay',
+      () async {
+        // The scenario: a session is up over the mesh, the mesh dies, and the
+        // reconnect resolves to the sticky value — which is, by definition, the
+        // transport that just proved itself unusable. Before D6 the phone
+        // retried the dead mesh while a working relay sat unused.
+        final relay = await _CountingEndpoint.start();
+        addTearDown(relay.close);
 
-      // A mesh peer that authenticates and then drops the connection.
-      final mesh = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => mesh.close(force: true));
-      mesh.listen((req) async {
-        final ws = await WebSocketTransformer.upgrade(req);
-        ws.listen(
-          (raw) async {
-            final env = jsonDecode(raw as String) as Map<String, dynamic>;
-            if (env['type'] != 'auth') return;
-            ws.add(
-              jsonEncode({
-                'v': 1,
-                'type': 'auth_ok',
-                'id': env['id'],
-                'payload': {'device_id': 'd', 'device_name': 'n'},
-              }),
-            );
-            // The link dies right after the session comes up.
-            await Future<void>.delayed(const Duration(milliseconds: 80));
-            await ws.close();
-          },
-          onError: (_) {},
-          cancelOnError: false,
+        // A mesh peer that authenticates and then drops the connection.
+        final mesh = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => mesh.close(force: true));
+        mesh.listen((req) async {
+          final ws = await WebSocketTransformer.upgrade(req);
+          ws.listen(
+            (raw) async {
+              final env = jsonDecode(raw as String) as Map<String, dynamic>;
+              if (env['type'] != 'auth') return;
+              ws.add(
+                jsonEncode({
+                  'v': 1,
+                  'type': 'auth_ok',
+                  'id': env['id'],
+                  'payload': {'device_id': 'd', 'device_name': 'n'},
+                }),
+              );
+              // The link dies right after the session comes up.
+              await Future<void>.delayed(const Duration(milliseconds: 80));
+              await ws.close();
+            },
+            onError: (_) {},
+            cancelOnError: false,
+          );
+        }, onError: (_) {});
+
+        final host =
+            'ws://${InternetAddress.loopbackIPv4.address}:${mesh.port}';
+        final client = _newClient();
+        client.setRelayRoute(
+          relayUrl: relay.base,
+          hostId: 'hid-1',
+          authority: '${InternetAddress.loopbackIPv4.address}:${mesh.port}',
         );
-      }, onError: (_) {});
 
-      final host = 'ws://${InternetAddress.loopbackIPv4.address}:${mesh.port}';
-      final client = _newClient();
-      client.setRelayRoute(
-        relayUrl: relay.base,
-        hostId: 'hid-1',
-        authority: '${InternetAddress.loopbackIPv4.address}:${mesh.port}',
-      );
+        await client.connect(
+          hostInput: host,
+          token: 'token',
+          mode: TlsMode.off,
+          transport: TransportMode.mesh,
+        );
+        expect(client.activeTransport, TransportMode.mesh);
 
-      await client.connect(
-        hostInput: host,
-        token: 'token',
-        mode: TlsMode.off,
-        transport: TransportMode.mesh,
-      );
-      expect(client.activeTransport, TransportMode.mesh);
-
-      // The socket drops; the backoff reconnect follows ~1s later and must
-      // choose the relay rather than the mesh that just died.
-      final deadline = DateTime.now().add(const Duration(seconds: 20));
-      while (relay.connections == 0 && DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
-      expect(
-        relay.connections,
-        greaterThanOrEqualTo(1),
-        reason: 'the reconnect after a mesh death must prefer the relay',
-      );
-    }, timeout: const Timeout(Duration(seconds: 90)));
+        // The socket drops; the backoff reconnect follows ~1s later and must
+        // choose the relay rather than the mesh that just died.
+        final deadline = DateTime.now().add(const Duration(seconds: 20));
+        while (relay.connections == 0 && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        expect(
+          relay.connections,
+          greaterThanOrEqualTo(1),
+          reason: 'the reconnect after a mesh death must prefer the relay',
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
   });
 }

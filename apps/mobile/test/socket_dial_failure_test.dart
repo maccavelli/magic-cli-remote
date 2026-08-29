@@ -106,104 +106,116 @@ void main() {
     expect(client.lastErrorCode, 'connect_failed');
   });
 
-  test('a black-holed dial fails at the ready timeout, not never', () async {
-    // Accepts the TCP connection and then says nothing at all, so the
-    // WebSocket upgrade never completes and `ready` hits its own timeout.
-    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final held = <Socket>[];
-    server.listen(held.add);
-    addTearDown(() async {
-      for (final s in held) {
-        s.destroy();
+  test(
+    'a black-holed dial fails at the ready timeout, not never',
+    () async {
+      // Accepts the TCP connection and then says nothing at all, so the
+      // WebSocket upgrade never completes and `ready` hits its own timeout.
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final held = <Socket>[];
+      server.listen(held.add);
+      addTearDown(() async {
+        for (final s in held) {
+          s.destroy();
+        }
+        await server.close();
+      });
+      final client = _newClient();
+
+      // The client's own 8s `ready` bound is what must fire here; the helper's
+      // longer deadline only catches the case where nothing fires at all.
+      await _expectFailsFast(
+        client.connect(
+          hostInput:
+              'ws://${InternetAddress.loopbackIPv4.address}:${server.port}',
+          token: 'token',
+          mode: TlsMode.off,
+          enableAutoReconnect: false,
+        ),
+        within: const Duration(seconds: 20),
+      );
+      expect(client.state, McConnectionState.error);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  test(
+    'the auto-reconnect loop survives a failed dial',
+    () async {
+      // Accepts, then immediately resets — every dial fails fast, and each one
+      // is counted. Pre-fix the first dial never returns, so the backoff timer
+      // is never armed and `dials` stays at 1 forever.
+      var dials = 0;
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((socket) {
+        dials++;
+        socket.destroy();
+      });
+      addTearDown(server.close);
+      final client = _newClient();
+
+      await _expectFailsFast(
+        client.connect(
+          hostInput:
+              'ws://${InternetAddress.loopbackIPv4.address}:${server.port}',
+          token: 'token',
+          mode: TlsMode.off,
+        ),
+      );
+
+      // First backoff is 1s; give the timer room without pinning the test to it.
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (dials < 2 && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
       }
-      await server.close();
-    });
-    final client = _newClient();
+      expect(
+        dials,
+        greaterThanOrEqualTo(2),
+        reason: 'the reconnect loop must re-dial after a failed attempt',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
 
-    // The client's own 8s `ready` bound is what must fire here; the helper's
-    // longer deadline only catches the case where nothing fires at all.
-    await _expectFailsFast(
-      client.connect(
-        hostInput:
-            'ws://${InternetAddress.loopbackIPv4.address}:${server.port}',
-        token: 'token',
-        mode: TlsMode.off,
-        enableAutoReconnect: false,
-      ),
-      within: const Duration(seconds: 20),
-    );
-    expect(client.state, McConnectionState.error);
-  }, timeout: const Timeout(Duration(seconds: 60)));
+  test(
+    'a pin mismatch surfaces as cert_mismatch, not a hang',
+    () async {
+      final ctx = SecurityContext()
+        ..useCertificateChainBytes(certA.codeUnits)
+        ..usePrivateKeyBytes(keyA.codeUnits);
+      final server = await HttpServer.bindSecure(
+        InternetAddress.loopbackIPv4.address,
+        0,
+        ctx,
+      );
+      server.listen((req) async {
+        req.response.statusCode = HttpStatus.notFound;
+        await req.response.close();
+      });
+      addTearDown(() => server.close(force: true));
+      final client = _newClient();
 
-  test('the auto-reconnect loop survives a failed dial', () async {
-    // Accepts, then immediately resets — every dial fails fast, and each one
-    // is counted. Pre-fix the first dial never returns, so the backoff timer
-    // is never armed and `dials` stays at 1 forever.
-    var dials = 0;
-    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    server.listen((socket) {
-      dials++;
-      socket.destroy();
-    });
-    addTearDown(server.close);
-    final client = _newClient();
-
-    await _expectFailsFast(
-      client.connect(
-        hostInput:
-            'ws://${InternetAddress.loopbackIPv4.address}:${server.port}',
-        token: 'token',
-        mode: TlsMode.off,
-      ),
-    );
-
-    // First backoff is 1s; give the timer room without pinning the test to it.
-    final deadline = DateTime.now().add(const Duration(seconds: 10));
-    while (dials < 2 && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    }
-    expect(
-      dials,
-      greaterThanOrEqualTo(2),
-      reason: 'the reconnect loop must re-dial after a failed attempt',
-    );
-  }, timeout: const Timeout(Duration(seconds: 60)));
-
-  test('a pin mismatch surfaces as cert_mismatch, not a hang', () async {
-    final ctx = SecurityContext()
-      ..useCertificateChainBytes(certA.codeUnits)
-      ..usePrivateKeyBytes(keyA.codeUnits);
-    final server = await HttpServer.bindSecure(
-      InternetAddress.loopbackIPv4.address,
-      0,
-      ctx,
-    );
-    server.listen((req) async {
-      req.response.statusCode = HttpStatus.notFound;
-      await req.response.close();
-    });
-    addTearDown(() => server.close(force: true));
-    final client = _newClient();
-
-    // The host answers on the right address with a certificate this device
-    // never paired with: the failure must reach the user as the typed,
-    // permanent mismatch rather than being swallowed by the close await.
-    await expectLater(
-      client
-          .connect(
-            hostInput:
-                'wss://${InternetAddress.loopbackIPv4.address}:${server.port}',
-            token: 'token',
-            fingerprint: fpB,
-            mode: TlsMode.selfsigned,
-            enableAutoReconnect: false,
-          )
-          .timeout(const Duration(seconds: 10)),
-      throwsA(
-        isA<McException>()
-            .having((e) => e.code, 'code', 'cert_mismatch')
-            .having((e) => e.permanent, 'permanent', isTrue),
-      ),
-    );
-  }, timeout: const Timeout(Duration(seconds: 60)));
+      // The host answers on the right address with a certificate this device
+      // never paired with: the failure must reach the user as the typed,
+      // permanent mismatch rather than being swallowed by the close await.
+      await expectLater(
+        client
+            .connect(
+              hostInput:
+                  'wss://${InternetAddress.loopbackIPv4.address}:${server.port}',
+              token: 'token',
+              fingerprint: fpB,
+              mode: TlsMode.selfsigned,
+              enableAutoReconnect: false,
+            )
+            .timeout(const Duration(seconds: 10)),
+        throwsA(
+          isA<McException>()
+              .having((e) => e.code, 'code', 'cert_mismatch')
+              .having((e) => e.permanent, 'permanent', isTrue),
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
 }

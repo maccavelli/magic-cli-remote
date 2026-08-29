@@ -125,9 +125,11 @@ void main() {
       expect(counts.toSet(), {
         1,
       }, reason: 'one group row throughout — no oscillation');
-      expect(firstSeqs, {
-        0,
-      }, reason: 'the run keeps one identity, so the row is never re-keyed');
+      expect(
+        firstSeqs,
+        {0},
+        reason: 'the run keeps one identity, so the row is never re-keyed',
+      );
     });
 
     test('non-tool items break the run and keep source indices', () {

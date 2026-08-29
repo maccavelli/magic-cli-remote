@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/features/settings/device_flow_sheet.dart';
-
 // DeviceUrlLauncher is defined in device_flow_sheet.dart.
 
 const kiloFlow = DeviceFlowInfo(
