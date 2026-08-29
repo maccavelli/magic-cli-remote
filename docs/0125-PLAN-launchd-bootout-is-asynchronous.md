@@ -226,3 +226,78 @@ they do fail, stop leaving the daemon down.
 * **A macOS CI lane.** Would have caught none of this — the failure is timing
   under real launchd, and 0120 D11 declined the lane on value. Named so it is
   not proposed as the fix.
+
+## Execution record — 2026-08-29
+
+**P1–P3 complete. P4 not started — it cannot be done from this host.** The plan
+stays `in-progress` for that reason and no other.
+
+| Phase | Commit | Result |
+| --- | --- | --- |
+| P1 wait helper | `4ab0f9e`-range (`launchd_wait.go`) | done |
+| P2 setup path + D4 in-place restart | `4619065` | done |
+| P3 update path + rollback | `c3df966` | done |
+
+Local gate: `go build`, `go vet`, and `go test ./internal/...` all clean.
+
+### Answers the plan asked for
+
+**Open question 1 — the deadline.** 15s, matched to the active-wait already in
+`swap.go` rather than inventing a second budget. Two different numbers for
+"wait for launchd to reach a state, then give up" is a question no reader could
+answer. Poll interval is 50ms, so the fast case now returns in about one poll —
+the wait got *cheaper* than the 300ms it replaced, as well as correct.
+
+**Open question 2 — can `print` tell "gone" from "never existed"?** No. Both
+exit non-zero with nothing machine-readable to separate them. For a teardown
+wait that is harmless: the answer is "not in the domain" either way. It is *not*
+harmless for classifying a bootout failure, so the helper checks
+`launchdLoaded` **before** booting out — the only moment at which "there was
+nothing to boot out" and "bootout failed and the job is still there" are
+distinguishable.
+
+**Open question 4 — does Linux share the shape?** Read, not changed, as the
+plan required. `Stop` on linux is `systemctl --user stop` (`control.go:66`)
+without `--wait`. `systemctl stop` blocks on the job by default, so it does not
+have launchd's fire-and-return behaviour — but "blocks on the job" is not the
+same claim as "the unit is inactive on return", and this was read rather than
+tested. Left alone; if it is a real defect it gets its own record.
+
+### What the plan got wrong
+
+**The seam it assumed existed did not.** P1's verification says to drive the
+wait "through `OverrideRunLaunchctl` and `runLaunchctlCapture`". The first is
+exported; the second is package-private, so no external test could reach it.
+`OverrideRunLaunchctlCapture` had to be added — and its absence is not
+incidental. The three existing overrides all drive commands whose *error*
+matters; nothing drove the one command whose *output* decides control flow.
+That is a plausible reason this race was never covered.
+
+**A test file that could not run on the host fixing the bug.** The existing
+launchd tests are `//go:build unix`, so on Windows they do not compile and
+`go test ./internal/cli/service/` reports `ok` having run none of them. The new
+sequencing tests were put in an untagged file instead — the launchd path touches
+no Darwin API, exactly as `schtasks.go` argues for the Windows path. Worth
+recording because the package-level `ok` was actively misleading: it looked
+like coverage.
+
+**One existing test encoded the bug.** `TestDarwinSetupAgentOrder` required the
+sequence `bootout, enable, bootstrap, kickstart` on a *fresh install*, where
+nothing is loaded. Booting out an absent job is what made a bootout failure
+indistinguishable from "there was no job" (D3), so that expectation had to
+change: the test now asserts no bootout is issued when nothing is loaded, and
+the loaded case moved to a test that can actually observe it.
+
+**Two of my own tests initially passed for the wrong reason.**
+`TestDarwinSetupReportsAStuckTeardown` asserted only `err != nil` and was
+satisfied by a fixture mistake — the temp binary had no `.exe`, so Windows
+judged it non-executable and `Setup` failed long before the launchd path. It now
+pins the error text. A test that cannot fail for the right reason is not a test.
+
+### Not done
+
+* **P4 — verification on the owner's Mac.** Everything above is *sequencing*
+  proven against a scripted launchctl. Not one line of it has met the real
+  thing, and the bug is a timing race under real launchd (F7). The four rows in
+  the MADR's Confirmation block are still outstanding, and no claim of "fixed"
+  is made until they are run.
