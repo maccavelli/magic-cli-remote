@@ -119,9 +119,9 @@ for m in i686 riscv64; do
     contains "  $m message names the arch" "$OUT" "unsupported architecture"
 done
 
-# ---------------------------------------------------------------- 3 Darwin accepted / other OS rejected
+# ----------------------------------------- 3 Darwin arm64 accepted / others rejected
 
-printf '\n3. Darwin accepted, other OS rejected\n'
+printf '\n3. Darwin arm64 accepted, Intel Darwin and other OS rejected\n'
 S="$WORK/stub-darwin"; mk_stubs "$S" arm64
 # shellcheck disable=SC2016  # $1 must reach the stub literally
 printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo arm64 ;; esac\n' > "$S/uname"
@@ -139,10 +139,11 @@ esac
 S="$WORK/stub-darwin-amd64"; mk_stubs "$S" x86_64
 printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo x86_64 ;; esac\n' > "$S/uname"
 chmod 0755 "$S/uname"
-R="$WORK/rel-darwin-amd64"; mk_release "$R" amd64 darwin
-run_installer "$S" "$R" "$WORK/bin-darwin-amd64" --dry-run --verbose
-check "Darwin x86_64 accepted (exit 0)" "$RC" 0
-contains "  Darwin x86_64 maps to amd64" "$OUT" "arch:        amd64"
+run_installer "$S" - "$WORK/bin-darwin-amd64" --dry-run --verbose
+check "Darwin x86_64 rejected (exit 1)" "$RC" 1
+contains "  Darwin x86_64 message names retired target" "$OUT" "darwin/amd64 is retired"
+contains "  Darwin x86_64 message names last release" "$OUT" "v0.14.10 was the last release"
+contains "  Darwin x86_64 message rejects Rosetta fallback" "$OUT" "Rosetta cannot run darwin/arm64 on Intel"
 
 S="$WORK/stub-freebsd"; mk_stubs "$S" amd64
 printf '#!/bin/sh\ncase "$1" in -s) echo FreeBSD ;; -m) echo amd64 ;; esac\n' > "$S/uname"

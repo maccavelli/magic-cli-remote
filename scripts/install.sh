@@ -89,6 +89,12 @@ Windows is not a supported host; use WSL2."
         *)
             die 1 "unsupported architecture $uname_m; only amd64 and arm64 are published." ;;
     esac
+
+    if [ "$OS" = darwin ] && [ "$ARCH" = amd64 ]; then
+        die 1 "darwin/amd64 is retired and is not published after v0.14.10 (MADR 0120).
+Intel Macs have no supported current build; Rosetta cannot run darwin/arm64 on Intel.
+v0.14.10 was the last release to carry darwin/amd64; install it manually if needed."
+    fi
 }
 
 # native | wsl1 | wsl2 | container
