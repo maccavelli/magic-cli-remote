@@ -4,6 +4,7 @@ date: 2026-08-28
 decision-makers: Project Owner
 consulted: none
 informed: none
+associated-plan: 0121-PLAN-achieve-iphone-functional-parity.md
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -38,18 +39,19 @@ act safely, resume without corruption, and install a supported release.
 
 ### Assessment scope and method
 
-This was a read-only assessment of local HEAD `b92c4e7` (2026-08-27). The local
-branch was five commits behind its already-known `origin/master` at `88171bc`.
-Those stored commits were inspected read-only; they add MADRs 0117 and 0118,
-test portability work, analyzer exclusions, and lockfile movement, but do not
-close an iOS finding. This record therefore uses 0119 to avoid a filename
-collision when the branch is updated.
+This record was reassessed read-only at local `HEAD` and `origin/master`
+`294aee6` on 2026-08-28. That commit renames this record from its original 0119
+draft to 0121 after the branch incorporated the real 0119 and 0120 records. The
+working tree was clean before and after diagnostics. The intervening commits
+add test portability work, analyzer exclusions, lockfile movement, and MADR
+bookkeeping, but do not close an iOS finding.
 
-No build, test, package-resolution, Xcode, signing, simulator, or device command
-was run because this investigation was explicitly non-mutating. Findings are
-grounded in committed source, tests, generated state already present in the
-checkout, git history, prior verification records, the resolved plugin source
-already in the local package cache, and current official documentation.
+The reassessment ran existing non-mutating diagnostics and inspected committed
+source, tests, generated state, git history, resolved plugin source already in
+the local package cache, current Apple/Flutter documentation, the installed
+Apple toolchain, available simulators, attached devices, and local signing
+identities. It deliberately did not run an iOS build: that creates derived
+artifacts and belongs to the approved implementation plan.
 
 The review covered:
 
@@ -83,7 +85,12 @@ already implements:
 
 The shared Flutter suite is broad: 115 top-level test files cover protocol,
 transport, session state, screens, receipts, attachments, provider operations,
-and rendering. The Keychain posture is particularly thoughtful:
+and rendering. On the reassessment host, `flutter test` passed 1,310 tests with
+3 intentional skips, `flutter analyze` reported no issues, and
+`dart format --output=none --set-exit-if-changed .` checked 193 files without
+changing one. Only six test files explicitly select `TargetPlatform.iOS`, and
+there is still no `integration_test/` directory. The Keychain posture is
+particularly thoughtful:
 `SettingsStore` refuses plaintext fallback on iOS and uses
 `first_unlock_this_device` (`apps/mobile/lib/data/local/settings_store.dart:42-69`),
 then detects the Keychain-survives-reinstall inversion
@@ -243,8 +250,9 @@ All six iPhone hardware rows remain parked
 The only later iOS record is a 2026-08-25 iPhone 17e **simulator** preview of
 composer/diagnostics layout with stubbed providers and no daemon pairing
 (`docs/0112-PLAN-opencode-1.18.21-surface-parity.md:1878-1899`). Since the last
-native iOS commit on 2026-08-04, the mobile source/test surface changed by
-30,591 insertions and 1,906 deletions across 147 files. That includes provider
+native iOS commit on 2026-08-04, `apps/mobile` changed by 30,695 insertions and
+1,918 deletions across 218 files; `apps/mobile/lib` plus `apps/mobile/test`
+account for 30,089 insertions and 1,893 deletions across 139 files. That includes provider
 auth, receipts, settings, notification hardening, Codex surfaces, audio,
 workspace inspection, diagnostics, skill authoring, sharing, and shell commands.
 
@@ -407,6 +415,29 @@ The priority order follows from that root cause:
 4. add the APNs attention plane that closes the core parity gap;
 5. distribute through TestFlight and resolve App Review positioning;
 6. polish platform idiom only after correctness and delivery are measurable.
+
+### Reassessment outcome at 294aee6
+
+The original option analysis and chosen architecture remain sound. Current
+runtime evidence improves confidence in the shared Dart layer and local Apple
+toolchain, but it does not alter the product conclusion:
+
+* the host is macOS 26.6.2 with Flutter 3.44.8, Dart 3.12.2, Xcode 26.6,
+  CocoaPods 1.17.0, and a clean `flutter doctor -v` result;
+* iOS 26.5 iPhone simulators are installed, but `xcrun devicectl list devices`
+  reports no physical device and Flutter sees only macOS and Chrome targets;
+* `security find-identity -v -p codesigning` reports zero valid identities;
+* no source change since the original draft adds APNs, removes the iOS
+  foreground-task plugin, supplies iOS CI/archive/distribution, or records a
+  real-device pass;
+* `make test` passes under the conventional `0022` umask. Under this host's
+  unusual default `0077` umask, two existing file-mode assertions fail because
+  requested group-readable modes are masked to owner-only. That independent
+  baseline issue is not an iPhone defect and is outside this record.
+
+Therefore findings F1-F13 remain open, option E remains the recommended
+decision, and the record remains `proposed` until the Project Owner accepts the
+operated-gateway and Apple-program obligations.
 
 ## Decision Drivers
 
