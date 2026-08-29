@@ -94,7 +94,7 @@ void main() {
       await _pump(tester, 10, 360);
 
       for (var i = 0; i < 10; i++) {
-        expect(find.byKey(ValueKey('composer-action-a$i')), findsOneWidget);
+        expect(find.byKey(ValueKey('a$i')), findsOneWidget);
       }
       expect(
         tester.takeException(),
@@ -110,7 +110,7 @@ void main() {
 
     testWidgets('ten icons lay out at 320dp with no overflow', (tester) async {
       await _pump(tester, 10, 320);
-      expect(find.byKey(const ValueKey('composer-action-a9')), findsOneWidget);
+      expect(find.byKey(const ValueKey('a9')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -123,7 +123,7 @@ void main() {
       expect(tester.takeException(), isNull);
       // Never truncate: a hidden control is the defect being fixed.
       expect(
-        find.byKey(const ValueKey('composer-action-a11'), skipOffstage: false),
+        find.byKey(const ValueKey('a11'), skipOffstage: false),
         findsOneWidget,
       );
     });
@@ -131,9 +131,7 @@ void main() {
     testWidgets('every icon keeps the full 48dp tap height', (tester) async {
       // Width is the only dimension traded away (MADR 0123 F9).
       await _pump(tester, 10, 360);
-      final box = tester.getSize(
-        find.byKey(const ValueKey('composer-action-a0')),
-      );
+      final box = tester.getSize(find.byKey(const ValueKey('a0')));
       expect(box.height, ComposerActionsRow.kTapHeight);
       expect(box.width, closeTo(33.6, 0.5));
     });
@@ -164,14 +162,23 @@ void main() {
       expect(icon.color, const Color(0xFFB3261E));
     });
 
-    testWidgets('an empty row renders nothing', (tester) async {
+    testWidgets('an empty row still exists, holding nothing', (tester) async {
+      // Pre-existing behaviour, preserved deliberately (0123 C3): the row is
+      // always present so a session with no advertised capabilities does not
+      // restructure the column under the prompt.
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(body: ComposerActionsRow(actions: [])),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('composer-actions')), findsNothing);
+      final row = find.byKey(const ValueKey('composer-actions'));
+      expect(row, findsOneWidget);
+      expect(
+        find.descendant(of: row, matching: find.byType(IconButton)),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('a null callback disables without removing', (tester) async {
@@ -192,7 +199,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       final button = tester.widget<IconButton>(
-        find.byKey(const ValueKey('composer-action-off')),
+        find.byKey(const ValueKey('off')),
       );
       expect(button.onPressed, isNull);
     });

@@ -113,7 +113,7 @@ Widget _host(
 }
 
 void main() {
-  group('dangerous mode chip', () {
+  group('dangerous mode icon', () {
     testWidgets('an armed dangerous mode is visually alarming', (tester) async {
       await tester.pumpWidget(
         _host(_ModeClient(), modes: _opencodeModes, currentModeId: 'auto'),
@@ -123,7 +123,7 @@ void main() {
       expect(
         find.byIcon(Icons.bolt),
         findsWidgets,
-        reason: 'an armed auto-approve mode must be unmissable in the app bar',
+        reason: 'an armed auto-approve mode must be unmissable',
       );
     });
 
@@ -146,18 +146,38 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('default'), findsWidgets);
+      // Not dangerous, so the icon must not alarm.
       expect(find.byIcon(Icons.bolt), findsNothing);
-      // Open the menu: default is checked, not the first-list lie of read-only.
-      await tester.tap(find.text('default').first);
+
+      await tester.tap(find.byKey(const ValueKey('permissions')));
       await tester.pumpAndSettle();
-      expect(find.text('read-only'), findsOneWidget);
-      expect(find.text('auto'), findsOneWidget);
+
+      // Every mode is offered...
+      expect(
+        find.byKey(const ValueKey('session-control-option-default')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('session-control-option-read-only')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('session-control-option-auto')),
+        findsOneWidget,
+      );
+      // ...and exactly one is marked current: `default`, not the first-list
+      // lie of read-only.
+      expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
+      final checkedRow = find.ancestor(
+        of: find.byIcon(Icons.radio_button_checked),
+        matching: find.byKey(const ValueKey('session-control-option-default')),
+      );
+      expect(checkedRow, findsOneWidget);
     });
 
     // Legacy-daemon compat: a pre-0069 goose sends no flag, and the phone
     // must not invent danger the daemon never declared.
-    testWidgets('a goose session in auto renders a plain chip', (tester) async {
+    testWidgets('a goose session in auto renders no alarm', (tester) async {
       await tester.pumpWidget(
         _host(_ModeClient(), modes: _gooseModes, currentModeId: 'auto'),
       );
@@ -186,16 +206,12 @@ void main() {
   });
 
   group('arming confirmation', () {
-    // The app bar holds more than one PopupMenuButton<String> (the mode
-    // switcher and the session-actions menu), so target the one wrapping the
-    // current mode's chip label.
-    Future<void> openMenu(WidgetTester tester, String currentLabel) async {
-      await tester.tap(
-        find.ancestor(
-          of: find.text(currentLabel),
-          matching: find.byType(PopupMenuButton<String>),
-        ),
-      );
+    // The permissions control moved off the app bar to an icon under the
+    // composer, opening a card (MADR 0123 D1/D5). What it must prove is
+    // unchanged: arming a mode that answers permissions for the user takes a
+    // confirmation, and dismissing it never arms.
+    Future<void> openMenu(WidgetTester tester, String _) async {
+      await tester.tap(find.byKey(const ValueKey('permissions')));
       await tester.pumpAndSettle();
     }
 
@@ -208,7 +224,7 @@ void main() {
 
       await openMenu(tester, 'build');
       await tester.tap(
-        find.widgetWithText(CheckedPopupMenuItem<String>, 'auto'),
+        find.byKey(const ValueKey('session-control-option-auto')),
       );
       await tester.pumpAndSettle();
 
@@ -229,7 +245,7 @@ void main() {
 
       await openMenu(tester, 'build');
       await tester.tap(
-        find.widgetWithText(CheckedPopupMenuItem<String>, 'auto'),
+        find.byKey(const ValueKey('session-control-option-auto')),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel'));
@@ -247,7 +263,7 @@ void main() {
 
       await openMenu(tester, 'build');
       await tester.tap(
-        find.widgetWithText(CheckedPopupMenuItem<String>, 'auto'),
+        find.byKey(const ValueKey('session-control-option-auto')),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Turn on'));
@@ -265,7 +281,7 @@ void main() {
 
       await openMenu(tester, 'build');
       await tester.tap(
-        find.widgetWithText(CheckedPopupMenuItem<String>, 'plan'),
+        find.byKey(const ValueKey('session-control-option-plan')),
       );
       await tester.pumpAndSettle();
 
@@ -284,7 +300,7 @@ void main() {
 
       await openMenu(tester, 'Chat');
       await tester.tap(
-        find.widgetWithText(CheckedPopupMenuItem<String>, 'Auto'),
+        find.byKey(const ValueKey('session-control-option-auto')),
       );
       await tester.pumpAndSettle();
 
@@ -305,7 +321,7 @@ void main() {
 
       await openMenu(tester, 'Approve');
       await tester.tap(
-        find.widgetWithText(CheckedPopupMenuItem<String>, 'Auto'),
+        find.byKey(const ValueKey('session-control-option-auto')),
       );
       await tester.pumpAndSettle();
 

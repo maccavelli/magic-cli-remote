@@ -7,6 +7,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'diagnostics_sheet.dart';
+import 'session_controls/composer_actions_row.dart';
+import 'session_controls/control_glyphs.dart';
+import 'session_controls/session_control_cards.dart';
 import 'session_share_sheet.dart';
 import 'shell_command_sheet.dart';
 import 'skill_authoring_sheet.dart';
@@ -400,6 +403,97 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (_) {
       // Best-effort: a failed apply leaves the provider's own default.
     }
+  }
+
+  /// Opens the permissions card (MADR 0123 D1/D5).
+  ///
+  /// The dangerous-mode confirmation still runs inside the card (D6): a
+  /// tidier surface is not a reason to make auto-approve cheaper than it was.
+  Future<void> _openPermissionsCard(
+    String sid,
+    List<SessionMode> modes,
+    String? currentModeId,
+  ) async {
+    final client = ref.read(mcremoteClientProvider);
+    await showPermissionsCard(
+      context,
+      modes: modes,
+      currentModeId: currentModeId,
+      onSelect: (id) async {
+        try {
+          await client.setMode(sid, id);
+        } catch (e) {
+          if (mounted) reportControlFailure(context, 'Mode change', e);
+        }
+      },
+    );
+  }
+
+  /// Opens the collaboration card. Separate from permissions on purpose: what
+  /// the agent may plan and what it may do unasked are different questions
+  /// (MADR 0123 F2/D4).
+  Future<void> _openCollaborationCard(
+    String sid,
+    List<CollaborationMode> modes,
+    String? currentModeId,
+  ) async {
+    final client = ref.read(mcremoteClientProvider);
+    await showCollaborationCard(
+      context,
+      modes: modes,
+      currentModeId: currentModeId,
+      onSelect: (id) async {
+        try {
+          await client.setCollaborationMode(sid, id);
+        } catch (e) {
+          if (mounted) reportControlFailure(context, 'Plan change', e);
+        }
+      },
+    );
+  }
+
+  /// Opens the thinking card.
+  ///
+  /// The ladder is fetched from the model catalog when available and falls
+  /// back to the three universal rungs. Whether the user may pick one is the
+  /// daemon's answer, never a provider name (MADR 0123 C1) — and when the
+  /// answer is "no", the card says so under a banner rather than failing a tap
+  /// (D8).
+  Future<void> _openThinkingCard(String sid) async {
+    final client = ref.read(mcremoteClientProvider);
+    var levels = <ThinkingLevel>[
+      const ThinkingLevel(id: 'low'),
+      const ThinkingLevel(id: 'medium'),
+      const ThinkingLevel(id: 'high'),
+    ];
+    try {
+      final cat = await client.listModels(_provider, sessionId: sid);
+      for (final o in cat.options) {
+        if (o.thinkingLevels.isNotEmpty) {
+          levels = o.thinkingLevels;
+          if (cat.defaultIds.contains(o.id)) break;
+        }
+      }
+    } catch (e) {
+      // Best-effort: the universal ladder is still useful, and a catalog
+      // fetch failure must not withhold the control.
+      debugPrint('chat: listModels for thinking levels failed: $e');
+    }
+    if (!mounted) return;
+    await showThinkingCard(
+      context,
+      levels: levels,
+      currentLevel: _thinkingLevel,
+      mutability: _thinkingMutability,
+      onSelect: (level) async {
+        try {
+          await client.setThinkingLevel(sid, level);
+          if (mounted) setState(() => _thinkingLevel = level);
+        } catch (e) {
+          if (mounted) reportControlFailure(context, 'Thinking level', e);
+        }
+      },
+    );
   }
 
   /// Look up this session's provider and resolved working directory for the
@@ -2331,48 +2425,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ],
               ),
+        // Only status and navigation live here now. The session controls —
+        // permissions, collaboration, thinking, agent settings — moved to the
+        // composer-actions row (MADR 0123 D1/D2). They were variable-width
+        // *text* chips whose width tracked the selected value, so on codex
+        // ("full access", eleven characters) the actions run squeezed
+        // `leading` and hid the back arrow (0123 F1). Nothing left in this
+        // list has a width that depends on a selection.
         actions: [
           // Context-window indicator (ACP usage_update). Self-hiding until the
           // agent reports usage; working/idle status still lives on the
           // sessions list and the stop control on the composer send slot.
           _ContextUsageChip(widget.sessionId),
-          // Agent mode switcher (Phase 3) — only when the agent exposes modes.
-          if (collaborationModes.isNotEmpty)
-            _CollaborationSelector(
-              sessionId: sid,
-              modes: collaborationModes,
-              currentModeId: currentCollaborationModeId,
-              enabled: !offline && !busy,
-            ),
-          if (modes.isNotEmpty)
-            _ModeSelector(
-              sessionId: sid,
-              modes: modes,
-              currentModeId: currentModeId,
-              enabled: !offline,
-              permissionsLabel: _provider == 'codex',
-            ),
-          // Thinking level (MADR 0052) — only when /thinking is available.
-          if (remoteCommands.any(
-            (c) => c.name.toLowerCase() == 'thinking' && c.available,
-          ))
-            _ThinkingSelector(
-              sessionId: sid,
-              provider: _provider,
-              mutability: _thinkingMutability,
-              currentLevel: _thinkingLevel,
-              enabled: !offline,
-              onLevelChanged: (level) {
-                if (mounted) setState(() => _thinkingLevel = level);
-              },
-            ),
-          // Agent config options (Phase 3) — only when the agent exposes any.
-          if (configOptions.isNotEmpty)
-            IconButton(
-              tooltip: 'Agent settings',
-              icon: const Icon(Icons.tune),
-              onPressed: offline ? null : () => _showConfigSheet(configOptions),
-            ),
           PopupMenuButton<String>(
             tooltip: 'Session actions',
             onSelected: (v) {
@@ -2998,48 +3062,114 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   // Action affordances live on their own row: sharing one Row
                   // with the field squeezed the prompt to nothing once the
                   // workspace/shell/share icons shipped (0112 amendment D1).
-                  Row(
-                    key: const ValueKey('composer-actions'),
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
+                  //
+                  // The session controls joined them here (MADR 0123 D1). The
+                  // row is density-budgeted rather than a plain Row of default
+                  // IconButtons: ten 48dp buttons need 480dp and the 360dp
+                  // reference surface offers 336dp (0123 D12).
+                  ComposerActionsRow(
+                    actions: [
                       if (canAttachImage)
-                        IconButton(
+                        ComposerAction(
+                          id: 'attach-image',
+                          icon: Icons.add_photo_alternate_outlined,
                           tooltip: 'Attach image',
-                          icon: const Icon(Icons.add_photo_alternate_outlined),
                           // New attachments wait for an idle composer, but any
                           // already staged images move atomically with a queued
                           // prompt when the session becomes busy.
                           onPressed: (busy || offline) ? null : _pickImage,
                         ),
                       if (canAttachAudio)
-                        IconButton(
-                          key: const ValueKey('attach-audio'),
+                        ComposerAction(
+                          id: 'attach-audio',
+                          icon: Icons.audiotrack_outlined,
                           tooltip: 'Attach audio',
-                          icon: const Icon(Icons.audiotrack_outlined),
                           onPressed: (busy || offline) ? null : _pickAudio,
                         ),
                       if (canBrowseWorkspace)
-                        IconButton(
-                          key: const ValueKey('open-workspace'),
+                        ComposerAction(
+                          id: 'open-workspace',
+                          icon: Icons.folder_outlined,
                           tooltip: 'Browse workspace',
-                          icon: const Icon(Icons.folder_outlined),
                           onPressed: offline ? null : _showWorkspaceSheet,
                         ),
                       if (canRunShell)
-                        IconButton(
-                          key: const ValueKey('open-shell'),
+                        ComposerAction(
+                          id: 'open-shell',
+                          icon: Icons.terminal_outlined,
                           tooltip: 'Run a command',
-                          icon: const Icon(Icons.terminal_outlined),
                           onPressed: (busy || offline) ? null : _showShellSheet,
                         ),
                       if (canReadShare)
-                        IconButton(
-                          key: const ValueKey('open-share'),
+                        ComposerAction(
+                          id: 'open-share',
+                          icon: Icons.ios_share,
                           tooltip: 'Sharing',
-                          icon: const Icon(Icons.ios_share),
                           onPressed: offline
                               ? null
                               : () => _showShareSheet(canMutateShare),
+                        ),
+                      // Permissions: what the agent may do without asking. The
+                      // glyph carries the posture, so an armed auto-approve is
+                      // visible without opening anything (0123 D14/C4).
+                      if (modes.isNotEmpty)
+                        ComposerAction(
+                          id: 'permissions',
+                          icon: permissionsIcon(modes, currentModeId),
+                          tooltip: 'Permissions',
+                          tint: permissionsTint(context, modes, currentModeId),
+                          onPressed: offline
+                              ? null
+                              : () => _openPermissionsCard(
+                                  sid,
+                                  modes,
+                                  currentModeId,
+                                ),
+                        ),
+                      // Collaboration: what the agent may plan. A separate icon
+                      // because it is a separate question - the two used to be
+                      // indistinguishable chips (0123 F2).
+                      if (collaborationModes.isNotEmpty)
+                        ComposerAction(
+                          id: 'collaboration',
+                          icon: collaborationIcon(
+                            collaborationModes,
+                            currentCollaborationModeId,
+                          ),
+                          tooltip: 'Collaboration',
+                          tint: collaborationTint(
+                            context,
+                            collaborationModes,
+                            currentCollaborationModeId,
+                          ),
+                          onPressed: (offline || busy)
+                              ? null
+                              : () => _openCollaborationCard(
+                                  sid,
+                                  collaborationModes,
+                                  currentCollaborationModeId,
+                                ),
+                        ),
+                      if (remoteCommands.any(
+                        (c) =>
+                            c.name.toLowerCase() == 'thinking' && c.available,
+                      ))
+                        ComposerAction(
+                          id: 'thinking',
+                          icon: Icons.psychology_outlined,
+                          tooltip: 'Thinking',
+                          onPressed: offline
+                              ? null
+                              : () => _openThinkingCard(sid),
+                        ),
+                      if (configOptions.isNotEmpty)
+                        ComposerAction(
+                          id: 'agent-settings',
+                          icon: Icons.tune,
+                          tooltip: 'Agent settings',
+                          onPressed: offline
+                              ? null
+                              : () => _showConfigSheet(configOptions),
                         ),
                     ],
                   ),
@@ -3164,416 +3294,6 @@ class _ContextUsageChip extends ConsumerWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Agent operating-mode switcher shown in the chat app bar (ACP session modes).
-/// Renders the current mode name with a dropdown; picking one calls set_mode.
-class _ModeSelector extends ConsumerWidget {
-  const _ModeSelector({
-    required this.sessionId,
-    required this.modes,
-    required this.currentModeId,
-    required this.enabled,
-    this.permissionsLabel = false,
-  });
-
-  final String sessionId;
-  final List<SessionMode> modes;
-  final String? currentModeId;
-  final bool enabled;
-  final bool permissionsLabel;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Never invent a selection from list order alone (MADR 0047 D4).
-    final current =
-        resolveDisplayedMode(modes, currentModeId) ??
-        const SessionMode(id: '', name: '');
-    return PopupMenuButton<String>(
-      enabled: enabled,
-      tooltip: permissionsLabel ? 'Permissions' : 'Agent mode',
-      onSelected: (id) async {
-        // Switching *into* a mode that answers permissions for the user is
-        // one tap from the chat screen, so confirm it. Switching away needs
-        // no confirmation.
-        final target = modes.firstWhere(
-          (m) => m.id == id,
-          orElse: () => const SessionMode(id: '', name: ''),
-        );
-        // Read before the confirmation await: the screen can be torn out from
-        // under an open dialog (invalid-token redirect, sign-out), and `ref`
-        // throws once this element is gone (MADR 0046 L-8).
-        final client = ref.read(mcremoteClientProvider);
-        if (target.dangerous) {
-          final confirmed = await _confirmDangerousMode(context, target);
-          if (!confirmed) return;
-        }
-        try {
-          await client.setMode(sessionId, id);
-          if (!context.mounted) return;
-        } catch (e) {
-          if (context.mounted) {
-            showTopNotification(
-              context,
-              'Mode change failed: ${friendlyOpError(e)}',
-              severity: NoticeSeverity.error,
-            );
-          }
-        }
-      },
-      itemBuilder: (_) => [
-        for (final m in modes)
-          CheckedPopupMenuItem(
-            value: m.id,
-            checked: m.id == current.id,
-            child: Text(m.name),
-          ),
-      ],
-      child: _ModeChip(mode: current, permissionsLabel: permissionsLabel),
-    );
-  }
-}
-
-/// Independent Plan/Default control. Never uses the dangerous confirmation.
-class _CollaborationSelector extends ConsumerWidget {
-  const _CollaborationSelector({
-    required this.sessionId,
-    required this.modes,
-    required this.currentModeId,
-    required this.enabled,
-  });
-
-  final String sessionId;
-  final List<CollaborationMode> modes;
-  final String? currentModeId;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final currentId = currentModeId?.trim() ?? '';
-    CollaborationMode current;
-    if (modes.isEmpty) {
-      current = const CollaborationMode(id: '', name: 'Default');
-    } else {
-      current = modes.firstWhere(
-        (m) => m.id == currentId,
-        orElse: () => modes.firstWhere(
-          (m) => m.id == 'default',
-          orElse: () => modes.first,
-        ),
-      );
-    }
-    final planning = current.id.toLowerCase() == 'plan';
-    return PopupMenuButton<String>(
-      enabled: enabled,
-      tooltip: 'Plan / Default',
-      onSelected: (id) async {
-        final client = ref.read(mcremoteClientProvider);
-        try {
-          await client.setCollaborationMode(sessionId, id);
-        } catch (e) {
-          if (context.mounted) {
-            showTopNotification(
-              context,
-              'Plan change failed: ${friendlyOpError(e)}',
-              severity: NoticeSeverity.error,
-            );
-          }
-        }
-      },
-      itemBuilder: (_) => [
-        for (final m in modes)
-          CheckedPopupMenuItem(
-            value: m.id,
-            checked: m.id == current.id,
-            child: Text(m.name),
-          ),
-      ],
-      child: _CollaborationChip(label: planning ? 'Plan' : current.name),
-    );
-  }
-}
-
-class _CollaborationChip extends StatelessWidget {
-  const _CollaborationChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final planning = label.toLowerCase() == 'plan';
-    return Semantics(
-      button: true,
-      label: 'Collaboration mode $label',
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: planning
-            ? BoxDecoration(
-                color: scheme.tertiaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              )
-            : null,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (planning) ...[
-              Icon(Icons.edit_off, size: 16, color: scheme.onTertiaryContainer),
-              const SizedBox(width: 4),
-            ],
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: planning ? scheme.onTertiaryContainer : null,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Confirms arming a mode that answers permission requests without the user.
-///
-/// Returns false when the dialog is dismissed by any route (cancel, back
-/// gesture, barrier tap), so the default is always "do not arm".
-Future<bool> _confirmDangerousMode(
-  BuildContext context,
-  SessionMode mode,
-) async {
-  final scheme = Theme.of(context).colorScheme;
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      icon: Icon(Icons.bolt, color: scheme.error),
-      title: const Text('Run without approvals?'),
-      content: Text(
-        'This session will approve every permission request automatically, '
-        'including file edits and shell commands.\n\n'
-        '${mode.description.isEmpty ? '' : '${mode.description}\n\n'}'
-        'It stays on until you switch modes.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: scheme.error,
-            foregroundColor: scheme.onError,
-          ),
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Turn on'),
-        ),
-      ],
-    ),
-  );
-  return ok ?? false;
-}
-
-/// Thinking-level chip beside the mode switcher (MADR 0052 A6).
-///
-/// Grok locks the level at spawn — the chip is read-only with a "new sessions
-/// only" hint. Codex (and fake) can change it mid-session via `/thinking`.
-class _ThinkingSelector extends ConsumerWidget {
-  const _ThinkingSelector({
-    required this.sessionId,
-    required this.provider,
-    required this.mutability,
-    required this.currentLevel,
-    required this.enabled,
-    required this.onLevelChanged,
-  });
-
-  final String sessionId;
-  final String provider;
-  final ThinkingMutability mutability;
-  final String currentLevel;
-  final bool enabled;
-  final ValueChanged<String> onLevelChanged;
-
-  /// Whether the level is locked for this session.
-  ///
-  /// This used to read `provider == 'grok'`. Grok gained mid-session changes
-  /// in 1.0.5 (MADR 0106) and the check outlived the behaviour, so the app
-  /// refused a control that worked and told the user to start a new session —
-  /// a statement that was simply false (MADR 0123 F5). The daemon now reports
-  /// this per session; unknown means settable (0123 C1/C2).
-  bool get _locked => !mutability.settable;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final label = currentLevel.isEmpty ? 'thinking' : currentLevel;
-    final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: !enabled
-          ? null
-          : () async {
-              if (_locked) {
-                showTopNotification(
-                  context,
-                  'This agent applies the thinking level at session start — '
-                  'it takes effect for new sessions.',
-                );
-                return;
-              }
-              final client = ref.read(mcremoteClientProvider);
-              // Prefer the model's advertised ladder; fall back to the three
-              // universal names if the catalog is unavailable.
-              var levels = <ThinkingLevel>[
-                const ThinkingLevel(id: 'low'),
-                const ThinkingLevel(id: 'medium'),
-                const ThinkingLevel(id: 'high'),
-              ];
-              try {
-                final cat = await client.listModels(
-                  provider,
-                  sessionId: sessionId,
-                );
-                for (final o in cat.options) {
-                  if (o.thinkingLevels.isNotEmpty) {
-                    // Prefer the current session model when known from defaults.
-                    if (cat.defaultIds.contains(o.id) ||
-                        o.thinkingLevels.isNotEmpty) {
-                      levels = o.thinkingLevels;
-                      if (cat.defaultIds.contains(o.id)) break;
-                    }
-                  }
-                }
-              } catch (e) {
-                // best-effort: fall back to universal low/medium/high.
-                debugPrint('chat: listModels for thinking levels failed: $e');
-              }
-              if (!context.mounted) return;
-              final choice = await showDialog<String>(
-                context: context,
-                builder: (ctx) => SimpleDialog(
-                  title: const Text('Thinking level'),
-                  children: [
-                    for (final l in levels)
-                      ListTile(
-                        title: Text(l.displayLabel),
-                        subtitle: l.description.isEmpty
-                            ? null
-                            : Text(l.description),
-                        trailing: l.id == currentLevel
-                            ? const Icon(Icons.check)
-                            : null,
-                        onTap: () => Navigator.pop(ctx, l.id),
-                      ),
-                  ],
-                ),
-              );
-              if (choice == null || choice.isEmpty || !context.mounted) return;
-              try {
-                await client.setThinkingLevel(sessionId, choice);
-                onLevelChanged(choice);
-              } catch (e) {
-                if (context.mounted) {
-                  showTopNotification(
-                    context,
-                    'Thinking level failed: ${friendlyOpError(e)}',
-                    severity: NoticeSeverity.error,
-                  );
-                }
-              }
-            },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.psychology_outlined, size: 14, color: scheme.primary),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(color: scheme.primary),
-            ),
-            if (!_locked)
-              Icon(Icons.arrow_drop_down, size: 18, color: scheme.primary)
-            else
-              Tooltip(
-                message: 'New sessions only',
-                child: Icon(
-                  Icons.lock_outline,
-                  size: 14,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The mode switcher's label. Plan mode reads as a state, not a menu: it is
-/// tinted and carries an edit-off icon, because "the agent will not touch my
-/// files" is the one mode difference worth noticing at a glance.
-class _ModeChip extends StatelessWidget {
-  const _ModeChip({required this.mode, this.permissionsLabel = false});
-
-  final SessionMode mode;
-  final bool permissionsLabel;
-
-  static bool isPlan(SessionMode m) => m.id.toLowerCase() == 'plan';
-
-  /// Driven by the daemon's flag, never by the mode id. See [SessionMode.dangerous].
-  static bool isDangerous(SessionMode m) => m.dangerous;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final planning = isPlan(mode);
-    final dangerous = isDangerous(mode);
-
-    // Plan mode reads as "the agent will not touch my files"; a dangerous mode
-    // reads as "the agent will not ask me". Both are worth noticing at a
-    // glance, so both get a tint — dangerous gets the loudest one on the bar.
-    final (Color? bg, Color? fg) = switch ((dangerous, planning)) {
-      (true, _) => (scheme.errorContainer, scheme.onErrorContainer),
-      (false, true) => (scheme.tertiaryContainer, scheme.onTertiaryContainer),
-      _ => (null, null),
-    };
-    final icon = dangerous
-        ? Icons.bolt
-        : planning
-        ? Icons.edit_off
-        : null;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: bg == null
-          ? null
-          : BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 14, color: fg),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            mode.name.isEmpty
-                ? (permissionsLabel ? 'permissions' : 'mode')
-                : mode.name,
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(color: fg ?? scheme.primary),
-          ),
-          Icon(Icons.arrow_drop_down, size: 18, color: fg),
-        ],
       ),
     );
   }

@@ -102,8 +102,8 @@ void main() {
   ) async {
     await tester.pumpWidget(_host(_CollabClient()));
     await tester.pump();
-    expect(find.byTooltip('Plan / Default'), findsNothing);
-    expect(find.byTooltip('Permissions'), findsOneWidget);
+    expect(find.byKey(const ValueKey('collaboration')), findsNothing);
+    expect(find.byKey(const ValueKey('permissions')), findsOneWidget);
   });
 
   testWidgets('Plan and Permissions are independent controls', (tester) async {
@@ -116,12 +116,15 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.byTooltip('Plan / Default'), findsOneWidget);
-    expect(find.byTooltip('Permissions'), findsOneWidget);
+    // Two icons, two questions. This is the assertion that used to rely on a
+    // tooltip: the controls are separate affordances, and switching one must
+    // not touch the other.
+    expect(find.byKey(const ValueKey('collaboration')), findsOneWidget);
+    expect(find.byKey(const ValueKey('permissions')), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Plan / Default'));
+    await tester.tap(find.byKey(const ValueKey('collaboration')));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<String>, 'Plan'));
+    await tester.tap(find.byKey(const ValueKey('session-control-option-plan')));
     await tester.pumpAndSettle();
     expect(client.collabSwitches, ['plan']);
     expect(client.modeSwitches, isEmpty);
@@ -138,9 +141,11 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byTooltip('Plan / Default'));
+    // Disabled while the agent works: the icon is present but inert, so no
+    // card opens and nothing switches.
+    await tester.tap(find.byKey(const ValueKey('collaboration')));
     await tester.pumpAndSettle();
-    expect(find.text('Plan'), findsNothing);
+    expect(find.text('Collaboration'), findsNothing);
     expect(client.collabSwitches, isEmpty);
   });
 
@@ -154,19 +159,30 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byTooltip('Plan / Default'));
+    await tester.tap(find.byKey(const ValueKey('collaboration')));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<String>, 'Plan'));
+    await tester.tap(find.byKey(const ValueKey('session-control-option-plan')));
     await tester.pumpAndSettle();
-    expect(find.text('Default'), findsWidgets);
+    // A failed switch must not paint the new state. There is no label chip
+    // now, so the surviving evidence is that the daemon was asked, refused,
+    // and the user was told.
+    expect(client.collabSwitches, isEmpty);
     expect(find.textContaining('Plan change failed'), findsOneWidget);
   });
 
-  testWidgets('Grok keeps Agent mode tooltip, not Permissions', (tester) async {
+  testWidgets('a provider with no collaboration catalog shows one icon', (
+    tester,
+  ) async {
+    // Previously this asserted that grok's permissions chip was relabelled
+    // "Agent mode" while codex's said "Permissions" — a per-provider tooltip
+    // swap that no touch user could see, and the reason the two chips were
+    // indistinguishable (MADR 0123 F2). The control is now named by its own
+    // icon, so what matters is that grok gets the permissions affordance and
+    // no collaboration one.
     await tester.pumpWidget(_host(_CollabClient(provider: 'grok')));
     await tester.pump();
-    expect(find.byTooltip('Permissions'), findsNothing);
-    expect(find.byTooltip('Agent mode'), findsOneWidget);
+    expect(find.byKey(const ValueKey('permissions')), findsOneWidget);
+    expect(find.byKey(const ValueKey('collaboration')), findsNothing);
   });
 }
 

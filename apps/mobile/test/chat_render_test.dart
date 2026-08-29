@@ -1258,23 +1258,23 @@ void main() {
       SessionMode(id: 'plan', name: 'Plan'),
     ];
 
-    testWidgets('a normal mode is shown plainly in the app bar', (
-      tester,
-    ) async {
+    // The control moved from an app-bar chip to a composer icon (MADR 0123
+    // D1). The signal it must still carry is unchanged: planning is visible
+    // without opening anything (C4).
+    testWidgets('a normal mode is not called out', (tester) async {
       await tester.pumpWidget(
         _host(withModes(modes: planModes, current: 'default')),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Build'), findsOneWidget);
+      expect(find.byKey(const ValueKey('permissions')), findsOneWidget);
       expect(find.byIcon(Icons.edit_off), findsNothing);
     });
 
-    testWidgets('plan mode is called out in the app bar', (tester) async {
+    testWidgets('plan mode is called out on the icon', (tester) async {
       await tester.pumpWidget(
         _host(withModes(modes: planModes, current: 'plan')),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Plan'), findsOneWidget);
       // "the agent will not touch my files" deserves more than a label.
       expect(find.byIcon(Icons.edit_off), findsOneWidget);
     });

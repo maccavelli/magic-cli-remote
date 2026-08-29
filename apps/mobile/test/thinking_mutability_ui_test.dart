@@ -83,13 +83,18 @@ void main() {
     await tester.pumpWidget(_host(client));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.psychology_outlined));
+    await tester.tap(find.byKey(const ValueKey('thinking')));
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Thinking level'),
+      find.text('Thinking'),
       findsOneWidget,
       reason: 'grok reports live mutability, so the ladder must open',
+    );
+    expect(
+      find.byKey(const ValueKey('session-control-banner')),
+      findsNothing,
+      reason: 'live needs no explanation',
     );
     // The exact falsehood the old hardcoded branch printed.
     expect(find.textContaining('start a new session'), findsNothing);
@@ -108,11 +113,11 @@ void main() {
     await tester.pumpWidget(_host(client));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.psychology_outlined));
+    await tester.tap(find.byKey(const ValueKey('thinking')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Thinking level'), findsOneWidget);
-    expect(find.byIcon(Icons.lock_outline), findsNothing);
+    expect(find.text('Thinking'), findsOneWidget);
+    expect(find.byKey(const ValueKey('session-control-banner')), findsNothing);
   });
 
   testWidgets('a genuinely fixed session is locked, whatever the provider', (
@@ -127,16 +132,24 @@ void main() {
     await tester.pumpWidget(_host(client));
     await tester.pumpAndSettle();
 
-    expect(
-      find.byIcon(Icons.lock_outline),
-      findsOneWidget,
-      reason: 'fixed must read as locked before the user taps',
-    );
-
-    await tester.tap(find.byIcon(Icons.psychology_outlined));
+    await tester.tap(find.byKey(const ValueKey('thinking')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Thinking level'), findsNothing);
+    // D8: the card opens and states the limit, rather than refusing the tap
+    // and explaining afterwards. The ladder is still shown.
+    expect(
+      find.byKey(const ValueKey('session-control-banner')),
+      findsOneWidget,
+      reason: 'fixed must be explained on the card, not in a toast',
+    );
+    expect(find.textContaining('Start a new session'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('session-control-option-high')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('session-control-option-high')));
+    await tester.pumpAndSettle();
     expect(client.levelSwitches, isEmpty);
   });
 }

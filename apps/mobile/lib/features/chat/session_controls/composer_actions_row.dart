@@ -82,8 +82,11 @@ class ComposerActionsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (actions.isEmpty) return const SizedBox.shrink();
-
+    // An empty row still renders, keyed and childless. That is the behaviour
+    // the composer had before this widget existed, and 0123 C3 forbids a
+    // layout change from quietly altering it — a session advertising no
+    // capabilities keeps its (zero-height) row rather than restructuring the
+    // column beneath the prompt.
     return LayoutBuilder(
       builder: (context, constraints) {
         final available = constraints.maxWidth;
@@ -96,7 +99,11 @@ class ComposerActionsRow extends StatelessWidget {
               width: width,
               height: kTapHeight,
               child: IconButton(
-                key: ValueKey('composer-action-${a.id}'),
+                // The id IS the key. Existing tests and any future ones
+                // address these affordances by their historical names
+                // (attach-audio, open-shell, ...); prefixing would have
+                // renamed every one of them for no gain.
+                key: ValueKey(a.id),
                 tooltip: a.tooltip,
                 onPressed: a.onPressed,
                 iconSize: kGlyphSize,
