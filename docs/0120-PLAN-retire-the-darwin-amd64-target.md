@@ -353,3 +353,68 @@ D5 limits the blast radius: every previously published release still works.
 * **The red `Go (linux/arm64)` lane.** [0119](0119-MADR-codex-tests-fail-on-the-linux-arm64-lane.md).
   This plan neither fixes nor depends on it, and P6's tag run will still show
   that lane red unless 0119 lands first.
+
+## Execution record — 2026-08-28
+
+**P1–P5 complete. P6 pending.** P6 requires a pushed version tag, while the
+owner explicitly prohibited pushing in this execution turn. The plan remains
+`in-progress`; no release, tag, remote branch, or existing release asset was
+changed.
+
+The MADR was accepted and the plan started in `3e8ba6e`. Completed phase
+commits preceding this execution-record commit are:
+
+* P1 `cd398e0` — removed the Intel Darwin release/build-metadata target;
+* P2 `b2c674a` — added the static, pre-download Intel-Mac rejection and tests;
+* P3 `a1bfcd8` — reconciled platform prose and corrected the macOS CI comment;
+* P4 `e5c2725` — appended the additive 0059 amendment.
+
+P2 took the plan's recommended static branch. That means the installer rejects
+an Intel Mac even if its caller pins v0.14.10; the error says v0.14.10 was the
+last published version and directs the user to install it manually. This keeps
+the rejection before every network call and avoids adding a second
+manifest-driven platform-selection path.
+
+### P5 encoding audit
+
+The prescribed sweep returned exactly these hits:
+
+```text
+./docs/ops-linux-install.md:68:[MADR 0120](0120-MADR-retire-the-darwin-amd64-target.md). The service there is
+./README.md:160:| `darwin/amd64` | — | **retired** after v0.14.10; see [MADR 0120](docs/0120-MADR-retire-the-darwin-amd64-target.md) |
+./scripts/install.sh:94:        die 1 "darwin/amd64 is retired and is not published after v0.14.10 (MADR 0120).
+./scripts/install.sh:96:v0.14.10 was the last release to carry darwin/amd64; install it manually if needed."
+./scripts/install_test.sh:139:S="$WORK/stub-darwin-amd64"; mk_stubs "$S" x86_64
+./scripts/install_test.sh:142:run_installer "$S" - "$WORK/bin-darwin-amd64" --dry-run --verbose
+./scripts/install_test.sh:144:contains "  Darwin x86_64 message names retired target" "$OUT" "darwin/amd64 is retired"
+```
+
+Every hit is intentional:
+
+* `docs/ops-linux-install.md:68` is the decision link; the audit's `.` wildcard
+  matches the hyphen in the MADR filename, not a supported-target claim;
+* `README.md:160` is D6's required retained-and-retired platform row;
+* `scripts/install.sh:94,96` are D4's explanatory rejection;
+* `scripts/install_test.sh:139,142,144` are the retired-target fixture and its
+  message assertion.
+
+No missed build, release, installer, documentation, or test encoding was found.
+
+### Verification evidence
+
+* `grep -c 'darwin/amd64' .github/workflows/ci.yml` returned `0`.
+* `grep -c 'darwin amd64' scripts/verify-build-metadata.sh` returned `0`.
+* `bash -n` passed for all three in-scope shell scripts.
+* `./scripts/verify-build-metadata.sh` passed with four targets.
+* A deliberate `osusergo` injection into the surviving `darwin/arm64` build
+  made that script fail and name `mcremote-darwin`; reverting the injection
+  restored the passing result (A2/C2).
+* `./scripts/install_test.sh` passed all 135 assertions, including rejection
+  before download and checks for the reason, last release, and lack of a
+  Rosetta fallback.
+* `go build ./...` passed after every implementation phase and in the final
+  whole-plan run.
+* The range from the pre-execution baseline `be242ac` through the current
+  worktree changes zero Go files, production or test (A9/C1).
+* Targeted Markdown lint found README clean and six pre-existing MD004 findings
+  in `docs/ops-linux-install.md`; none is on the changed lines.
