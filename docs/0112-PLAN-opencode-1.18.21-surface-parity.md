@@ -1988,3 +1988,23 @@ stops and waits for an amended, re-approved plan.
 
 Single-commit phase; `git revert` of that commit restores the current
 composer. No migration, no persisted state, no protocol surface involved.
+
+## Amendment — 2026-08-29: P12's action row is now shared with session controls
+
+Pointer only; no step of this plan is retracted.
+
+P12 step 8 specifies a `composer_layout_test.dart` case asserting that
+`composer-actions` "contains the five expected keys/tooltips". That was correct
+when written and is now a subset:
+[0123](0123-PLAN-unify-session-controls-below-the-composer.md) moved the
+permissions, collaboration, thinking and agent-settings controls into the same
+row, taking it to nine possible slots sized by a derived density budget.
+
+The five keys this plan established are unchanged — 0123 keyed its row by bare
+action id specifically so the `audio_attachment_test.dart` references named in
+D1's risk note kept working — but the test now also carries capacity cases at
+ten and twelve icons, and the glyphs are Lucide rather than Material.
+
+Per-provider counts, measured, are in
+[0123's 2026-08-29 amendment](0123-MADR-unify-session-controls-below-the-composer.md):
+1 to 6 depending on provider and operator policy, not five.

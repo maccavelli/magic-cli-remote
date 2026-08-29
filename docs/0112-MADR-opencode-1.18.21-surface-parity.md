@@ -1074,3 +1074,33 @@ would rather track it as greenfield, it renumbers cleanly to `0115`.
   `find.byKey` + `tester.tap` (8 references). Keys and hit-testability are
   preserved by D1, so the test should pass unchanged; P12 verifies rather than
   assumes this.
+
+## Amendment — 2026-08-29: the composer action row is now shared with session controls
+
+Pointer only. Nothing in this record is retracted; the row it created is no
+longer only its own.
+
+[MADR 0123](0123-MADR-unify-session-controls-below-the-composer.md) moved the
+chat screen's session controls — permissions, collaboration, thinking and agent
+settings — out of `AppBar.actions` and into the same
+`ValueKey('composer-actions')` row this record's 2026-08-25 amendment (D1)
+created, for the same reason: variable-width controls were squeezing something
+that mattered. There it was the prompt field; there it was the back arrow.
+
+Two consequences for a reader of this record:
+
+* **The row is no longer five icons.** This record's P12 step 8 describes a
+  test asserting "the five expected keys", which was correct when written.
+  0123 raised the ceiling to nine possible slots and re-sized the row with a
+  derived density budget (0123 D12) rather than default `IconButton` sizing.
+  Actual counts are 1–6 depending on provider and operator policy — see
+  [0123's 2026-08-29 amendment](0123-MADR-unify-session-controls-below-the-composer.md)
+  for the measured per-provider table.
+* **The keys this record preserved still hold.** `attach-audio`,
+  `open-workspace`, `open-shell`, `open-share` are unchanged, deliberately:
+  0123 keyed its new row by bare action id precisely so the tests named in D1's
+  risk note continue to address them.
+
+The icons themselves were also re-drawn — 0123 D15 replaced the mixed Material
+set with a bundled Lucide one — so the glyph names in this record's tables are
+historical.
