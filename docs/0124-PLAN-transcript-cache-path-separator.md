@@ -207,3 +207,70 @@ format change. One `git revert` undoes it.
   bug against a Windows *host*; unverified, and a different subsystem.
 * **Adopting `path` / `basename` app-wide** (D5). The right long-term shape,
   deliberately not bundled into a one-line fix.
+
+## Execution record — 2026-08-29
+
+**P1 complete. P2 landed but unverified — it cannot be verified without a
+push, and the owner instructed not to push.** The plan stays `in-progress` for
+that reason and no other.
+
+| Phase | Commit | Result |
+| --- | --- | --- |
+| P1 basename + guard | `37d871d` | done, verified locally |
+| P2 Windows Flutter lane | `40b2d8c` | landed; CI observation pending a push |
+
+Final local state: `flutter analyze` clean, **1361 passing, 0 failing** — the
+first green Flutter suite on this Windows host.
+
+### What the plan got wrong
+
+**The defect was in two places, not one.** The MADR's sweep found the single
+production site and said so (F1, "it is one site, not a class"). It did not
+look at test *fixtures*. `transcript_cache_test.dart`'s own `storedIds()`
+helper carried the identical `f.path.split('/').last`, so after fixing
+production three tests still failed — reporting
+`Set:['transcripts\s1', 'transcripts\s2']` where the index assertion had
+already started passing.
+
+That is a miss in the sweep, not in the fix. The record should have grepped
+`test/` as well as `lib/`.
+
+**Fixing the helper is not C1 violated, and the diff proves it.** The whole
+deletion in that file is one line, inside `storedIds()`:
+
+```text
+-            f.path.split('/').last.replaceAll('.json', ''),
+```
+
+No assertion was touched (A2). The helper was reading the directory wrongly;
+the tests were always right about what they expected to find in it.
+
+**The guard was written against the helper, not the filesystem, and that was
+the right call.** It runs and fails on Linux too, so CI can see the regression
+class without depending on the new Windows lane existing. Proven rather than
+assumed: with the one-line fix reverted, `entry basename is separator-agnostic`
+fails with `Actual: 'transcripts\s1.json'`; restored, it passes.
+
+**One step was written and then removed for exceeding the plan.** P2 briefly
+gained an "Assert an LF checkout" step to answer open question 3 directly. It
+worked — tested in Git Bash against synthetic CRLF and LF files — but the plan
+says *"`flutter test` and nothing else"*, and open questions 3 and 4 are to be
+answered *from the run's log*. It was removed rather than kept, and is noted
+here because it is a reasonable thing for a later record to add deliberately.
+
+### Not done
+
+* **P2's CI observation.** The lane must be seen **green on the fixed tree**
+  and **red with P1 reverted**; neither has happened, because both need a push.
+  Until then this is 44 lines of YAML that parse (validated with `yaml.safe_load`,
+  job list and step list checked) and have never run. A lane never observed
+  passing is not a lane yet.
+* **MADR open questions 3 and 4** — whether `windows-latest` honours
+  `.gitattributes eol=lf`, and whether `cache: true` caches the Flutter SDK
+  there — both were to be read off P2's first run. Still open.
+
+### Deferred, unchanged
+
+`workspace_sheet.dart` was not touched (A10). D7 stands: the daemon normalises
+workspace paths to relative slash form on both ingress and egress, so its
+`split('/')` reads the contract correctly.
