@@ -278,6 +278,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Session thinking/effort level from meta; empty = provider default.
   String _thinkingLevel = '';
 
+  /// When a thinking-level change takes effect, as reported by the daemon.
+  /// Unknown until session meta arrives, and unknown means settable — the app
+  /// must never infer this from a provider name (MADR 0123 D7/C1).
+  ThinkingMutability _thinkingMutability = ThinkingMutability.unknown;
+
   /// True after we've attempted to apply the settings default session mode
   /// (MADR 0052 B2). One shot per open so we never fight the user.
   bool _appliedDefaultMode = false;
@@ -407,12 +412,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final cwd = meta?.cwd ?? '';
       final provider = meta?.provider ?? '';
       final thinking = meta?.thinkingLevel ?? '';
+      final mutability = meta?.thinkingMutability ?? ThinkingMutability.unknown;
       final live = meta?.live ?? true;
       if (!mounted) return;
       setState(() {
         if (cwd.isNotEmpty) _cwd = cwd;
         if (provider.isNotEmpty) _provider = provider;
         _thinkingLevel = thinking;
+        _thinkingMutability = mutability;
         _sessionLive = live;
         // Non-live + empty transcript: user is looking at a closed row; explain
         // why replay is empty before they blame the phone.
@@ -2352,6 +2359,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             _ThinkingSelector(
               sessionId: sid,
               provider: _provider,
+              mutability: _thinkingMutability,
               currentLevel: _thinkingLevel,
               enabled: !offline,
               onLevelChanged: (level) {
@@ -3377,6 +3385,7 @@ class _ThinkingSelector extends ConsumerWidget {
   const _ThinkingSelector({
     required this.sessionId,
     required this.provider,
+    required this.mutability,
     required this.currentLevel,
     required this.enabled,
     required this.onLevelChanged,
@@ -3384,11 +3393,19 @@ class _ThinkingSelector extends ConsumerWidget {
 
   final String sessionId;
   final String provider;
+  final ThinkingMutability mutability;
   final String currentLevel;
   final bool enabled;
   final ValueChanged<String> onLevelChanged;
 
-  bool get _spawnOnly => provider.toLowerCase() == 'grok';
+  /// Whether the level is locked for this session.
+  ///
+  /// This used to read `provider == 'grok'`. Grok gained mid-session changes
+  /// in 1.0.5 (MADR 0106) and the check outlived the behaviour, so the app
+  /// refused a control that worked and told the user to start a new session —
+  /// a statement that was simply false (MADR 0123 F5). The daemon now reports
+  /// this per session; unknown means settable (0123 C1/C2).
+  bool get _locked => !mutability.settable;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -3398,11 +3415,11 @@ class _ThinkingSelector extends ConsumerWidget {
       onTap: !enabled
           ? null
           : () async {
-              if (_spawnOnly) {
+              if (_locked) {
                 showTopNotification(
                   context,
-                  'Grok applies thinking level at session start — '
-                  'start a new session to change it.',
+                  'This agent applies the thinking level at session start — '
+                  'it takes effect for new sessions.',
                 );
                 return;
               }
@@ -3482,7 +3499,7 @@ class _ThinkingSelector extends ConsumerWidget {
                 context,
               ).textTheme.labelLarge?.copyWith(color: scheme.primary),
             ),
-            if (!_spawnOnly)
+            if (!_locked)
               Icon(Icons.arrow_drop_down, size: 18, color: scheme.primary)
             else
               Tooltip(
