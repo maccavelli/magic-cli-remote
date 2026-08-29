@@ -166,10 +166,7 @@ func TestExperimentalInitializeRetriesOnce(t *testing.T) {
 	}
 	defer p.Shutdown()
 
-	launches := launchCount(t, countPath)
-	if launches != 2 {
-		t.Fatalf("launches = %d, want 2 (true then one false retry)", launches)
-	}
+	waitLaunchCount(t, countPath, 2)
 	if p.eng == nil || p.eng.experimental {
 		t.Fatal("retry must publish a non-experimental engine")
 	}
@@ -195,9 +192,7 @@ func TestUnrelatedInitializeErrorDoesNotRetry(t *testing.T) {
 	if _, err := p.ensureEngine(ctx); err == nil {
 		t.Fatal("unrelated initialize error must fail")
 	}
-	if launchCount(t, countPath) != 1 {
-		t.Fatalf("unrelated JSON-RPC must not relaunch")
-	}
+	waitLaunchCount(t, countPath, 1)
 }
 
 func TestInitializeTransportEOFDoesNotRetry(t *testing.T) {
@@ -213,9 +208,7 @@ func TestInitializeTransportEOFDoesNotRetry(t *testing.T) {
 	if _, err := p.ensureEngine(ctx); err == nil {
 		t.Fatal("EOF initialize must fail")
 	}
-	if launchCount(t, countPath) != 1 {
-		t.Fatalf("transport EOF must not relaunch")
-	}
+	waitLaunchCount(t, countPath, 1)
 }
 
 func TestCollaborationProbeOncePerEngineGeneration(t *testing.T) {
@@ -235,9 +228,7 @@ func TestCollaborationProbeOncePerEngineGeneration(t *testing.T) {
 
 	p.probeCollaboration(ctx, p.eng)
 	p.probeCollaboration(ctx, p.eng)
-	if launchCount(t, listPath) != 1 {
-		t.Fatalf("list probes = %d, want 1", launchCount(t, listPath))
-	}
+	waitLaunchCount(t, listPath, 1)
 	ok, _, cat, gen := p.collaborationCapability()
 	if !ok || !cat.has("plan") || gen == 0 {
 		t.Fatalf("capability ok=%v catalog=%+v gen=%d", ok, cat, gen)
@@ -320,9 +311,7 @@ func TestEngineGenerationResetsCollaborationProbe(t *testing.T) {
 	if p.generation <= firstGen {
 		t.Fatalf("generation %d did not advance from %d", p.generation, firstGen)
 	}
-	if launchCount(t, listPath) != 2 {
-		t.Fatalf("replacement must probe again, list calls = %d", launchCount(t, listPath))
-	}
+	waitLaunchCount(t, listPath, 2)
 }
 
 func TestUnknownCollaborationNotificationIgnored(t *testing.T) {
@@ -343,14 +332,40 @@ func TestCollaborationSettingsFixturesAreJSON(t *testing.T) {
 	}
 }
 
-func launchCount(t *testing.T, path string) int {
+// waitLaunchCount polls path until it exists and contains want non-empty
+// lines. A missing file is not a count of zero — that conflation is what
+// let a premature read masquerade as "did not relaunch" (MADR 0119 D4).
+func waitLaunchCount(t *testing.T, path string, want int) {
 	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	sawFile := false
+	last := -1
+	for time.Now().Before(deadline) {
+		n, err := readLaunchLog(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				time.Sleep(time.Millisecond)
+				continue
+			}
+			t.Fatal(err)
+		}
+		sawFile = true
+		last = n
+		if n == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !sawFile {
+		t.Fatalf("launch log never appeared at %s (want %d launches)", path, want)
+	}
+	t.Fatalf("launch count = %d, want %d", last, want)
+}
+
+func readLaunchLog(path string) (int, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return 0
-		}
-		t.Fatal(err)
+		return 0, err
 	}
 	n := 0
 	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
@@ -358,5 +373,5 @@ func launchCount(t *testing.T, path string) int {
 			n++
 		}
 	}
-	return n
+	return n, nil
 }
