@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-28
 decision-makers: Project Owner
 consulted: none
@@ -279,3 +279,34 @@ go test -count=50 ./internal/provider/codex/   → green on the dev host
    "zero lines" and the test assert on the stronger state?
 4. Does the `internal/provider/codex` package hold further races of the same
    shape, and is a sweep in scope or its own record?
+
+## Amendment — 2026-08-28: rate measured; P1 isolation not run
+
+Subsequent `master` runs closed F6 without the four-arm experiment:
+
+| Run | Commit | linux/arm64 | windows/amd64 |
+| --- | --- | --- | --- |
+| 33101607297 | `b92c4e7` (pre-0118) | green | green |
+| 33210742346 | `88171bc` | red `TestUnrelatedInitializeErrorDoesNotRetry` | green |
+| 33219191191 | `19661ca` | red `TestDiagnosticRunnerExactArgvTimeoutNonzeroAndSingleFlight` | green |
+| 33221074719 | `08d5a2a` (docs) | green | green |
+| 33221972891 | `e12e2a8` (docs) | red `TestUnrelatedInitializeErrorDoesNotRetry` | green |
+| 33223300684 | `f8a9237` (docs) | green | red, unrelated (0122) |
+
+arm64 after 0118 is **3 red / 2 green**. The same two tests still alternate.
+Docs-only commits after `fb0f361` still flake, so `fb0f361` is not a
+deterministic cause (F2, F3). Verdict: 0118 is incidental; F4's two races
+are the work.
+
+P1 of the PLAN is not run. It needs pushes the owner did not grant in the
+execution turn, and the table above already answers the question P1 was
+for. D4 still applies: fix both races. D6's 5-of-5 on the arm64 lane stays
+the close-out and still needs a push (PLAN P4).
+
+Open question 3 is answered in the PLAN: distinguish a missing launch log
+from a zero count, then wait for the child's write. A longer sleep is not
+the repair.
+
+Windows run 33223300684 is
+[0122](0122-MADR-deterministic-goose-file-log-tail-attach.md), not this
+record.

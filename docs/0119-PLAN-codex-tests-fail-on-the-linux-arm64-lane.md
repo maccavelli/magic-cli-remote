@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-08-28
+associated-madr: "0119-MADR-codex-tests-fail-on-the-linux-arm64-lane.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -235,3 +236,23 @@ nothing behind once its branches are deleted.
   than a test-repair one.
 * **The tree-wide CRLF issue** — still deferred, still unrelated, still 0118's
   last bullet.
+
+## Execution record — 2026-08-28
+
+**P1 not run. P4 pending (needs push). P5 pending (needs P4).** Owner
+accepted the MADR and ordered execution in the same turn as 0122, without
+a push instruction.
+
+P1 is skipped, not silently dropped. The MADR amendment of the same date
+fills F6 from later `master` runs (arm64 3 red / 2 green after 0118;
+docs-only commits still flake; `fb0f361` not a deterministic cause). That
+is the "all four arms fail at some rate / D is not 100% red" reading, which
+the PLAN already said sends the remaining work to P2/P3 and clears 0118 of
+causation.
+
+A1 is therefore satisfied by the amendment table rather than by throwaway
+branches. A2's verdict: **`fb0f361` was not causal.** A5/A8 wait on P4.
+
+P2 and P3 proceed. `gofmt -l internal/provider/codex` is scoped to the
+touched files when the working tree is CRLF (0118 deferral), matching how
+0118 itself substituted.
