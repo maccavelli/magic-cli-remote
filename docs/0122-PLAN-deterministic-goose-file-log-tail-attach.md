@@ -186,3 +186,25 @@ the P1 commit restores the sleep and the flake.
 * **Package-wide poll-and-sleep sweep.** Open question 3; own record.
 * **`go test -count=1` on native lanes.** Still 0119's deferral.
 * **The CRLF working tree.** Still 0118's.
+
+## Execution record — 2026-08-28
+
+**P1 complete. P2 pending** (needs an explicit push).
+
+P1 adds `Provider.gooseTailAttached`, fires it after seek-to-EOF in
+`tailGooseFileLogs`, and rewrites `TestTailGooseFileLogsSurfacesQuota` to
+wait on that seam, `Sync` the append, and keep the quota assertions. The
+350 ms attach sleep is gone; the remaining `Sleep` in this file is
+`waitTurnBusy`, which polls a real predicate (turn parked) and is not
+the attach barrier.
+
+Verification:
+
+* `gofmt -l` of the three files: empty
+* `go vet ./internal/provider/acphttp/`: exit 0
+* `go test -count=50 -run TestTailGooseFileLogsSurfacesQuota ./internal/provider/acphttp/`: ok
+* `go test -count=20 ./internal/provider/acphttp/`: ok
+* no `Sleep` inside `TestTailGooseFileLogsSurfacesQuota`
+* `make pre-add-check` on the three files: clean (vuln DB unreachable, skipped)
+
+This host is not windows/amd64. P2 is the observation on that lane.

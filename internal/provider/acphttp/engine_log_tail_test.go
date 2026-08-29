@@ -73,27 +73,30 @@ func TestTailGooseFileLogsSurfacesQuota(t *testing.T) {
 	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}
-	// Wait until the turn is parked.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		s.mu.Lock()
-		busy := s.turnBusy && s.turnCancel != nil
-		s.mu.Unlock()
-		if busy {
-			break
+	waitTurnBusy(t, s)
+
+	attached := make(chan struct{})
+	s.p.gooseTailAttached = func(path string, offset int64) {
+		if path != logPath {
+			return
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("turn never became busy")
+		select {
+		case <-attached:
+		default:
+			close(attached)
 		}
-		time.Sleep(5 * time.Millisecond)
 	}
+	t.Cleanup(func() { s.p.gooseTailAttached = nil })
 
 	stop := make(chan struct{})
 	defer close(stop)
 	go s.p.tailGooseFileLogs(root, stop)
 
-	// Give the tailer one poll cycle to attach and seek to EOF.
-	time.Sleep(350 * time.Millisecond)
+	select {
+	case <-attached:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tailer never attached and seeked to EOF")
+	}
 
 	// Append a real goose-shaped 429 line (post-attach).
 	fresh := `{"timestamp":"2026-08-05T23:51:12Z","level":"WARN","fields":{"message":"Provider request failed with status: 429 Too Many Requests. Payload: {\"error\":{\"type\":\"GoUsageLimitError\",\"message\":\"Weekly usage limit reached. Resets in 4 days.\"}}"},"target":"goose_providers::http_status"}` + "\n"
@@ -105,7 +108,13 @@ func TestTailGooseFileLogsSurfacesQuota(t *testing.T) {
 		f.Close()
 		t.Fatal(err)
 	}
-	f.Close()
+	if err := f.Sync(); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	ev := recvType(t, s, event.TypeError)
 	if ev.ErrorKind != "quota" {
@@ -116,6 +125,23 @@ func TestTailGooseFileLogsSurfacesQuota(t *testing.T) {
 		t.Fatalf("error text not natural-language limit: %q", ev.Error)
 	}
 	close(gate)
+}
+
+func waitTurnBusy(t *testing.T, s *session) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		busy := s.turnBusy && s.turnCancel != nil
+		s.mu.Unlock()
+		if busy {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("turn never became busy")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func TestLooksLikeLongBackoffRetryDelaySome(t *testing.T) {

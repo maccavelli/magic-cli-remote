@@ -71,6 +71,10 @@ type Provider struct {
 	httpc *http.Client
 	// catalogs single-flights and TTLs the catalog probe.
 	catalogs *picker.Cache[string]
+
+	// gooseTailAttached is a test seam fired after the file tailer seeks to
+	// EOF on a newly discovered log. Nil in production (MADR 0122 D1/D5).
+	gooseTailAttached func(path string, offset int64)
 }
 
 // framer returns the live engine RPC framer, or ErrEngineDown when the engine

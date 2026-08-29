@@ -87,6 +87,9 @@ func (p *Provider) tailGooseFileLogs(dir string, stop <-chan struct{}) {
 				slog.String("path", path),
 				slog.Int64("offset", offset),
 			)
+			if hook := p.gooseTailAttached; hook != nil {
+				hook(path, offset)
+			}
 			continue
 		}
 
