@@ -319,10 +319,20 @@ jobs:
       - name: Test
         run: go test ./...
 
-  # Standard macOS runners are free and unlimited for public repositories, with
-  # a cap of 5 concurrent macOS jobs. darwin/arm64 is currently covered by owner
-  # acceptance testing rather than CI; adding a go-macos gate is a separate
-  # decision (MADR 0120 D10).
+  # No go-macos job, deliberately (MADR 0120 D11). Cost is NOT the reason:
+  # standard macOS runners are free and unlimited for public repositories (cap:
+  # 5 concurrent macOS jobs). The reason is that there is almost nothing here
+  # for such a job to run. The darwin-gated surface is 67 lines in two files
+  # (procutil/owner_darwin.go, procutil/starttoken_darwin.go), there are zero
+  # darwin-gated test files, and those 67 lines are already compile-checked on
+  # every push by `make verify-build-metadata`. The macOS logic that matters —
+  # plist rendering, TCC, launchd setup — carries no build tags and already
+  # runs on the ubuntu and windows lanes. darwin/arm64 runtime behaviour is
+  # covered by owner acceptance testing on real hardware.
+  #
+  # If you are here to add the job: argue from the gated surface, not from
+  # "darwin/arm64 has no CI lane". The latter is true and, on its own, not a
+  # reason.
 
   # ---------------------------------------------------------------------------
   # Execute the published non-amd64-Linux binaries on real hardware (MADR 0116
