@@ -777,6 +777,16 @@ func (s *session) ThinkingLevel() string {
 	return s.thinkingLevel
 }
 
+// ThinkingMutability reports live: grok 1.0.5 applies reasoning effort
+// mid-session via session/set_model `_meta.reasoningEffort`, confirmed by
+// session/resume (MADR 0106), and SetThinkingLevel never returns
+// ErrThinkingLevelFixed. The phone client hardcoded the opposite for the whole
+// of 0106's life and told users to start a new session; this method is the
+// answer it should have been asking for (MADR 0123 F5).
+func (s *session) ThinkingMutability() provider.ThinkingMutability {
+	return provider.ThinkingMutabilityLive
+}
+
 // Compile-time check: ACP sessions report ThinkingSession so /thinking is
 // advertised. SetThinkingLevel is in thinking.go (MADR 0106).
 var _ provider.ThinkingSession = (*session)(nil)

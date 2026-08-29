@@ -38,9 +38,21 @@ var ErrTurnBusy = errors.New("turn busy")
 var ErrInvalidAgent = errors.New("invalid agent")
 
 // ErrThinkingLevelFixed means the session's thinking level is locked at spawn
-// and cannot change mid-session. Grok is the case: --reasoning-effort is a
-// process flag, and session/set_model silently ignores a reasoning field
-// (MADR 0052 §2.2). The command layer renders this as "applies to new sessions".
+// and cannot change mid-session. The command layer renders it as "applies to
+// new sessions".
+//
+// No provider returns it today. Grok did when this sentinel was written
+// (MADR 0052 §2.2, when --reasoning-effort was a process flag), but 1.0.5
+// added mid-session session/set_model and acpagent stopped returning it
+// (MADR 0106); opencode never did (MADR 0112 A14). The comment that still
+// named grok here outlived the behaviour by two releases and is a large part
+// of why the phone client went on refusing grok's thinking changes.
+//
+// It is deliberately retained rather than deleted (MADR 0123 D10). It is the
+// backstop for [ThinkingMutability]: a session that advertises Fixed should
+// also return this, so a client that ignored the advertisement — or an older
+// client that never saw it — still learns the truth from the attempt. A
+// sentinel with no callers is cheap; a refusal with no explanation is not.
 var ErrThinkingLevelFixed = errors.New("thinking level is fixed for this session; start a new session to change it")
 
 // ID identifies a provider implementation.
@@ -638,6 +650,12 @@ type ThinkingSession interface {
 	Session
 	SetThinkingLevel(ctx context.Context, level string) error
 	ThinkingLevel() string
+	// ThinkingMutability reports when a SetThinkingLevel call takes effect.
+	// It is on the interface rather than in an optional side-interface so the
+	// compiler asks the question of every implementation: a provider that
+	// forgets would otherwise report the zero value and be silently treated
+	// as "assume settable" (MADR 0123 D7, P2).
+	ThinkingMutability() ThinkingMutability
 }
 
 // ThinkingMutability says *when* a change to the session's thinking level

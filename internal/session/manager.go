@@ -1531,6 +1531,16 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 		}
 		meta := e.meta
 		meta.Live = true
+		// Asked of the live session, never read from the record: mutability is
+		// a property of the provider binary in front of us right now. Grok
+		// gained mid-session changes in a point release (MADR 0106), so a
+		// value persisted before that upgrade would be stale in exactly the
+		// direction that makes a client lie (MADR 0123 D7). Dead and
+		// store-only rows keep the unknown zero value, which clients read as
+		// "assume settable".
+		if ts, ok := e.sess.(provider.ThinkingSession); ok {
+			meta.ThinkingMutability = ts.ThinkingMutability()
+		}
 		if deviceID != "" && !visibleTo(meta.OwnerDeviceID, meta.PendingHandoffTo, deviceID) {
 			continue
 		}

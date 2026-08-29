@@ -632,6 +632,18 @@ func (s *session) ThinkingLevel() string {
 	return t.ThinkingLevel()
 }
 
+// ThinkingMutability reports live for a dialect that has the control: both
+// opencode and kilo carry effort as a per-request `variant`, so a new level
+// applies to the very next request and never returns ErrThinkingLevelFixed
+// (MADR 0112 A14). A dialect without the control reports unknown, which is
+// honest: the question does not arise, because /thinking is unavailable.
+func (s *session) ThinkingMutability() provider.ThinkingMutability {
+	if _, ok := s.ds.(dialectThinking); !ok {
+		return provider.ThinkingMutabilityUnknown
+	}
+	return provider.ThinkingMutabilityLive
+}
+
 // Rename implements provider.RenameSession when the dialect owns a
 // provider-native title operation.
 func (s *session) Rename(ctx context.Context, title string) error {

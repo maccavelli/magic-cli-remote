@@ -1343,8 +1343,11 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlac
 
 // cmdThinking shows or switches the session's reasoning/thinking effort.
 // Empty arg reports the current level; a name is forwarded to ThinkingSession.
-// Providers that lock the level at spawn (grok) return ErrThinkingLevelFixed,
+// A provider that locks the level at spawn returns ErrThinkingLevelFixed,
 // which is rendered as a "new sessions only" notice rather than a hard error.
+// None does today — grok stopped in 1.0.5 (MADR 0106) and this comment named
+// it for two releases afterwards (MADR 0123 F7). The branch stays as the
+// backstop for a session advertising provider.ThinkingMutabilityFixed.
 func (m *Manager) cmdThinking(ctx context.Context, id, arg string) error {
 	arg = strings.TrimSpace(arg)
 	sess, err := m.liveSession(id)

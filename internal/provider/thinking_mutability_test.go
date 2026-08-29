@@ -82,3 +82,27 @@ func TestOnlyFixedWithholdsTheControl(t *testing.T) {
 		t.Error("an unrecognised value must not report Valid")
 	}
 }
+
+// Every ThinkingSession must state a value the type recognises. The interface
+// makes forgetting a compile error, but it cannot stop a provider returning
+// the unknown zero value and being silently read as "assume settable" — which
+// is the same silence MADR 0123 F5 came from. Implementations are listed here
+// by hand deliberately: a new provider that omits itself is a missing row in a
+// review, whereas reflection over the package would pass without anyone
+// looking (MADR 0123 P2).
+func TestEveryDeclaredMutabilityIsValid(t *testing.T) {
+	declared := map[string]provider.ThinkingMutability{
+		"acpagent (grok, MADR 0106)":        provider.ThinkingMutabilityLive,
+		"codex (turn/start effort)":         provider.ThinkingMutabilityNextTurn,
+		"httpagent (opencode/kilo variant)": provider.ThinkingMutabilityLive,
+		"fake":                              provider.ThinkingMutabilityLive,
+	}
+	for name, m := range declared {
+		if !m.Valid() {
+			t.Errorf("%s: %q is not a recognised value", name, m)
+		}
+		if m == provider.ThinkingMutabilityUnknown {
+			t.Errorf("%s: declared the unknown zero value — state the real behaviour", name)
+		}
+	}
+}

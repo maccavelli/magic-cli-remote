@@ -287,6 +287,13 @@ func (s *session) ThinkingLevel() string {
 	return s.thinkingLevel
 }
 
+// ThinkingMutability reports live. The fake exists to exercise the happy path;
+// a test that needs the fixed case should assert against a provider that
+// really is fixed rather than teaching the fake to lie.
+func (s *session) ThinkingMutability() provider.ThinkingMutability {
+	return provider.ThinkingMutabilityLive
+}
+
 // ModelCatalog implements [provider.ModelCatalogSession]: the models of this
 // session's own model provider, with its current model pre-selected. The fake's
 // session is always on "fake", which is the point — a session-scoped request

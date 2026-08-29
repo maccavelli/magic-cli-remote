@@ -1049,6 +1049,14 @@ func (s *session) ThinkingLevel() string {
 	return s.thinkingLevel
 }
 
+// ThinkingMutability reports next_turn. Effort rides on turn/start, so a level
+// chosen while a turn is in flight binds from the following message rather
+// than the one already running (codex/commandtable.go). Saying "live" here
+// would be a smaller lie than the grok one, but still a lie.
+func (s *session) ThinkingMutability() provider.ThinkingMutability {
+	return provider.ThinkingMutabilityNextTurn
+}
+
 // Compile-time check: codex sessions accept mid-session thinking changes.
 var _ provider.ThinkingSession = (*session)(nil)
 
