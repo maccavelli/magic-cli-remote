@@ -430,6 +430,51 @@ class SessionDiffResult {
       );
 }
 
+/// When a change to a session's thinking level takes effect (MADR 0123 D7).
+///
+/// The daemon reports this per session so the app can say what will happen
+/// *before* the user picks a level. It replaces a hardcoded provider-name
+/// check that went stale and refused grok's mid-session changes for two
+/// releases while telling the user to start a new session (MADR 0123 F5) —
+/// so nothing here may be inferred from a provider id ever again.
+enum ThinkingMutability {
+  /// The daemon did not say. Older daemons omit the field entirely.
+  ///
+  /// Treated as settable, deliberately: assume the provider can, and report
+  /// the refusal if it cannot. Reading absence as [fixed] would put a
+  /// confident, wrong statement in front of the user, which is the defect
+  /// this whole field exists to remove (MADR 0123 C2).
+  unknown,
+
+  /// Applies to the turn in flight and every turn after.
+  live,
+
+  /// Accepted now, applied from the next message (codex carries effort on
+  /// turn/start).
+  nextTurn,
+
+  /// Locked at spawn; changing it needs a new session.
+  fixed;
+
+  static ThinkingMutability fromWire(Object? raw) => switch (raw) {
+    'live' => ThinkingMutability.live,
+    'next_turn' => ThinkingMutability.nextTurn,
+    'fixed' => ThinkingMutability.fixed,
+    // Unrecognised values decode to unknown, not fixed: a newer daemon may
+    // name a state this build has never heard of, and guessing "fixed" would
+    // withhold a control that probably works.
+    _ => ThinkingMutability.unknown,
+  };
+
+  /// Whether the app should offer the level for selection.
+  bool get settable => this != ThinkingMutability.fixed;
+
+  /// Whether the card should explain a delay or a lock rather than staying
+  /// silent. [live] needs no explanation; the others do.
+  bool get needsBanner =>
+      this == ThinkingMutability.fixed || this == ThinkingMutability.nextTurn;
+}
+
 class SessionMeta {
   SessionMeta({
     required this.id,
@@ -437,6 +482,7 @@ class SessionMeta {
     this.name = '',
     this.model = '',
     this.thinkingLevel = '',
+    this.thinkingMutability = ThinkingMutability.unknown,
     this.permissionProfileId = '',
     this.approvalsReviewer = '',
     this.cwd,
@@ -460,6 +506,11 @@ class SessionMeta {
   /// Reasoning/thinking effort override for this session; empty = provider
   /// default (MADR 0052).
   final String thinkingLevel;
+
+  /// When a change to [thinkingLevel] would take effect. Absent from an older
+  /// daemon, which decodes to [ThinkingMutability.unknown] and is treated as
+  /// settable (MADR 0123 D7, C2).
+  final ThinkingMutability thinkingMutability;
   final String permissionProfileId;
   final String approvalsReviewer;
   final String? cwd;
@@ -492,6 +543,9 @@ class SessionMeta {
       name: json['name'] as String? ?? '',
       model: json['model'] as String? ?? '',
       thinkingLevel: json['thinking_level'] as String? ?? '',
+      thinkingMutability: ThinkingMutability.fromWire(
+        json['thinking_mutability'],
+      ),
       permissionProfileId: json['permission_profile_id'] as String? ?? '',
       approvalsReviewer: json['approvals_reviewer'] as String? ?? '',
       cwd: json['cwd'] as String?,
@@ -523,6 +577,10 @@ class SessionMeta {
       name: name ?? this.name,
       model: model,
       thinkingLevel: thinkingLevel ?? this.thinkingLevel,
+      // Carried, not defaulted: copyWith runs when the user picks a level, and
+      // dropping this would blank the card's banner at the exact moment the
+      // user is looking at it.
+      thinkingMutability: thinkingMutability,
       permissionProfileId: permissionProfileId,
       approvalsReviewer: approvalsReviewer,
       cwd: cwd,
