@@ -592,3 +592,11 @@ No dual-layout detection or migrate-paths step appears in this order.
 | [`adrg/xdg`](https://github.com/adrg/xdg) | Cross-platform CLI ecosystem precedent; informative |
 | [POSIX `sys_un.h`](https://www.man7.org/linux/man-pages/man0/sys_un.h.0p.html) | Unix socket path portability |
 | Companion [0059 plan](0059-PLAN-native-paths-and-linux-macos-parity.md) | Implementation refinements A1–A6, phases, gates |
+
+## Amendment — 2026-08-28: darwin/amd64 retired
+
+[MADR 0120](0120-MADR-retire-the-darwin-amd64-target.md) narrows D10's release
+clause from both Darwin architectures to `darwin/arm64` because the Intel
+target had neither an acceptance host nor native CI execution. The rest of D10,
+including native CI as a release gate, signing, notarization, and the stated
+minimum macOS version, is unaffected.
