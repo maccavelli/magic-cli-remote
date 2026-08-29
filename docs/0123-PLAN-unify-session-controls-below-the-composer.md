@@ -396,6 +396,17 @@ P4 restores a false refusal, P6 restores the crowded app bar.
 
 ## Deferred (named, so they are not mistaken for oversights)
 
+* **Six Windows-only test failures in `transcript_cache` and `history_replay`.**
+  `PathAccessException: Access is denied` on a temp path, with mixed
+  separators. Pre-existing, reproduced on a pristine `HEAD`, and invisible to
+  CI because the Flutter lane is `ubuntu-latest`. Real, and squarely in the
+  "never tested on Windows" territory this project is currently working
+  through — but unrelated to session controls, so it wants its own record.
+* **The stale CRLF working tree.** `.gitattributes` already mandates
+  `eol=lf`; the checkout predates it, so `dart format` and `gofmt` both report
+  files they should not. `git add --renormalize .` is the likely one-line fix.
+  0118 deferred it; it is still deferred, but the cause is now known.
+
 * **Splitting `chat_screen.dart`.** 3689 lines, with four widget classes at the
   bottom that this plan removes. That helps, but the file's size is a separate
   problem with a separate record; doing it here would bury the UI change in a
@@ -410,3 +421,83 @@ P4 restores a false refusal, P6 restores the crowded app bar.
 * **Whether `next_turn` deserves distinct UI beyond banner wording.** P1 puts
   the fact on the wire; whether codex should, say, show a pending-level marker
   until the next message is a design question this record does not open.
+
+## Execution record — 2026-08-29
+
+**P1–P7 complete. P8 complete in test, incomplete on a device.** The plan stays
+`in-progress` for that reason and no other.
+
+| Phase | Commit | Result |
+| --- | --- | --- |
+| P1 wire capability | `b67d7e4` | done |
+| P2 providers declare | `850280b` | done |
+| P3 app parses | `2521c74` | done |
+| P4 grok unblocked | `f048da0` | done |
+| P5 cards | `4a72cb0` | done |
+| P6/P7 move + cleanup | `bbf427e` | done |
+| P8 back-arrow proof | `bbf427e` | test only — see below |
+
+Final state: `flutter analyze` clean, **1346 passing, 6 failing**. All six
+failures are pre-existing and Windows-only, verified by running them on a
+pristine `HEAD` with every change of this record removed — they are
+`PathAccessException: Access is denied` on temp paths in `transcript_cache` and
+`history_replay`, which CI never sees because its Flutter lane is
+`ubuntu-latest`. Not caused here, not fixed here (see Deferred).
+
+### What the plan got wrong
+
+**P1 named `internal/protocol/messages.go` and `internal/session/store.go`; it
+needed neither.** `session.Meta` is serialised straight into
+`SessionListResultPayload` (`ws/server.go:1696`), so the wire came free. And
+mutability is deliberately **not** persisted: it is a property of the provider
+binary in front of us, not of the record. Grok gained mid-session changes in a
+*point release*, so a value written to disk before that upgrade would be stale
+in precisely the direction that makes a client lie — the defect this record
+exists to remove. The scope was narrower than budgeted, for a reason worth
+keeping.
+
+**Open question 1 was answered "enum", and the answer was load-bearing.** A
+bool would have flattened codex's `next_turn` into either a lie ("applies now")
+or a lock. The three-value enum let D8's banner say something true for codex,
+which a bool could not have expressed without being widened later by exactly
+this work.
+
+**P6 mis-specified the widget keys.** The first implementation keyed icons
+`composer-action-<id>`, which renamed five affordances that existing tests
+address by their historical keys (`attach-audio`, `open-shell`, …) and broke 13
+tests for no gain. Using the bare id as the key fixed all 13 at once. A plan
+that adds a widget should say what its keys are called.
+
+**The plan did not budget for rewriting existing tests, and 18 needed it.**
+`mode_selector_dangerous_test` (11), `collaboration_mode_test` (4),
+`chat_render_test` (2) and `composer_layout_test` (1) all drove the app-bar
+chips. Each was rewritten to drive the card while asserting the same
+invariant — the auto-approve confirmation, the resolved (not first-in-list)
+selection, the independence of the two mode controls. None was weakened; the
+dangerous-mode tests still prove that dismissing by any route does not arm.
+
+**Two tests caught a real omission.** `chat_render_test`'s plan-mode cases
+failed because the first `permissionsIcon` dropped a signal the old chip
+carried: OpenCode ships `plan` as a *session* mode, and it used to render
+`edit_off` plus a tint. C4 requires that signal to survive the move, so the
+**code** was fixed rather than the test. Without those two assertions the loss
+would have shipped silently.
+
+**One pre-existing behaviour was nearly changed by accident.** The first
+`ComposerActionsRow` returned `SizedBox.shrink()` when empty;
+`composer_layout_test` asserts the keyed row still exists, holding nothing.
+That is C3 working as intended — the row now always renders.
+
+### Not done
+
+* **P8's device pass.** The widget test proves the geometry: the back arrow is
+  present, non-zero, and on-screen at 360dp for **every** codex mode including
+  `full access`, and the app bar lays out identically whatever the mode. It
+  does **not** prove a 20dp glyph in a 33.6dp box is legible, or that the nine
+  icons read apart at a glance. That needs a real screen and has not happened.
+  MADR open question 4 is therefore still open.
+* **Icon vocabulary is provisional** for the same reason. If the glyphs do not
+  separate on a device, D14's vocabulary changes — not D12's budget.
+* **Capacity is proven at ten**, with a real tenth icon, at both 360dp and
+  320dp, scrolling at twelve, each box keeping the full 48dp height (A14–A16).
+  Codex uses nine of the ten today.
