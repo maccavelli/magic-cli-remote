@@ -64,7 +64,7 @@ func TestDarwinSetupAgentOrder(t *testing.T) {
 		t.Fatal("LogDir empty")
 	}
 
-	// Order: bootout, enable, bootstrap, kickstart
+	// Order: enable, bootstrap, kickstart (no bootout — see below).
 	var kinds []string
 	for _, c := range calls {
 		if len(c) == 0 {
@@ -196,6 +196,15 @@ func TestDarwinRemoveAgent(t *testing.T) {
 		t.Fatal("plist still present")
 	}
 
+	// Remove tears down only what is actually loaded. Nothing is here — no
+	// launchctl on this host, so the job was never in the domain — and booting
+	// out an absent job is what made a real bootout failure indistinguishable
+	// from "there was no job" (MADR 0125 D3). `disable` and the plist removal
+	// are unconditional and are what this test guards.
+	//
+	// The loaded case, where bootout must happen and must be waited on, is
+	// covered by TestDarwinRemoveWaitsForTeardownWhenLoaded in
+	// launchd_sequence_test.go — which is untagged and so runs on every host.
 	var hasBootout, hasDisable bool
 	for _, c := range calls {
 		if len(c) == 0 {
@@ -203,16 +212,19 @@ func TestDarwinRemoveAgent(t *testing.T) {
 		}
 		if c[0] == "bootout" {
 			hasBootout = true
-			if strings.Contains(strings.Join(c, " "), "system/") {
-				t.Fatalf("remove used system domain: %v", c)
-			}
+		}
+		if strings.Contains(strings.Join(c, " "), "system/") {
+			t.Fatalf("remove used system domain: %v", c)
 		}
 		if c[0] == "disable" {
 			hasDisable = true
 		}
 	}
-	if !hasBootout || !hasDisable {
-		t.Fatalf("expected bootout+disable, got %v", calls)
+	if hasBootout {
+		t.Fatalf("must not bootout an absent job: %v", calls)
+	}
+	if !hasDisable {
+		t.Fatalf("expected disable, got %v", calls)
 	}
 }
 

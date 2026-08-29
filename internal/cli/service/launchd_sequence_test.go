@@ -223,3 +223,58 @@ func TestDarwinSetupReportsAStuckTeardown(t *testing.T) {
 		}
 	}
 }
+
+// Remove must still tear a *loaded* job down, and wait for it. This lives here
+// rather than beside the other Remove test because that file is //go:build
+// unix and cannot run on the host this bug was fixed from (MADR 0125).
+func TestDarwinRemoveWaitsForTeardownWhenLoaded(t *testing.T) {
+	restoreOS := service.OverrideInstallOS("darwin")
+	defer restoreOS()
+
+	src, plistDir, cfg := newSetupDir(t)
+
+	restoreCap := service.OverrideRunLaunchctlCapture(scriptedPrint(false))
+	restoreLC := service.OverrideRunLaunchctl(func(args ...string) error { return nil })
+	if _, err := service.Setup(service.Options{
+		UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	restoreLC()
+	restoreCap()
+
+	// Loaded when Remove looks, gone after the bootout.
+	restoreCap = service.OverrideRunLaunchctlCapture(scriptedPrint(true, false))
+	defer restoreCap()
+	var calls [][]string
+	restoreLC = service.OverrideRunLaunchctl(func(args ...string) error {
+		calls = append(calls, append([]string{}, args...))
+		return nil
+	})
+	defer restoreLC()
+
+	res, err := service.Remove(service.Options{UnitDir: plistDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Removed {
+		t.Fatal("expected Removed")
+	}
+
+	kinds := kindsOf(calls)
+	bo, dis := -1, -1
+	for i, k := range kinds {
+		if k == "bootout" && bo < 0 {
+			bo = i
+		}
+		if k == "disable" && dis < 0 {
+			dis = i
+		}
+	}
+	if bo < 0 {
+		t.Fatalf("a loaded job must be booted out before removal: %v", kinds)
+	}
+	if dis < 0 || bo > dis {
+		t.Fatalf("bootout must precede disable: %v", kinds)
+	}
+}
