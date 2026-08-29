@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -100,7 +102,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final navigator = tester.state<NavigatorState>(find.byType(Navigator));
-      navigator.pushNamed('/chat');
+      unawaited(navigator.pushNamed('/chat'));
       await tester.pumpAndSettle();
 
       final back = find.byType(BackButton);
@@ -138,7 +140,7 @@ void main() {
       await tester.pumpWidget(_host(modeId));
       await tester.pumpAndSettle();
       final navigator = tester.state<NavigatorState>(find.byType(Navigator));
-      navigator.pushNamed('/chat');
+      unawaited(navigator.pushNamed('/chat'));
       await tester.pumpAndSettle();
       final title = find.byType(AppBar);
       return tester.getSize(title).width;

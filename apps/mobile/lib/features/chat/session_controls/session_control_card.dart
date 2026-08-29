@@ -188,7 +188,7 @@ class _OptionRow extends StatelessWidget {
               // the user cannot tell which one owns the message.
               final navigator = Navigator.of(context);
               final callback = option.onSelected!;
-              navigator.maybePop();
+              await navigator.maybePop();
               await callback();
             },
     );
