@@ -691,7 +691,7 @@ authorization to mutate source:
 6. **App Store readiness:** privacy policy/labels, demo/review host, metadata,
    accessibility/idiom pass, review submission and recorded outcome.
 
-A complete `0119-PLAN-achieve-iphone-functional-parity.md` must enumerate exact
+A complete `0121-PLAN-achieve-iphone-functional-parity.md` must enumerate exact
 files, commands, acceptance criteria, phase commits, gateway operations, and
 rollback before any implementation begins.
 
