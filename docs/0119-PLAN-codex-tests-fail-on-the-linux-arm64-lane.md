@@ -256,3 +256,30 @@ branches. A2's verdict: **`fb0f361` was not causal.** A5/A8 wait on P4.
 P2 and P3 proceed. `gofmt -l internal/provider/codex` is scoped to the
 touched files when the working tree is CRLF (0118 deferral), matching how
 0118 itself substituted.
+
+### P2 — `0ebe50c`
+
+`TestDiagnosticRunnerExactArgvTimeoutNonzeroAndSingleFlight` starts the
+second `RunDoctor` only after the first has entered `doctorRun`, then
+waits for two `RunDoctor` stack frames before `close(release)`. A second
+`doctorRun` call is itself a failure. `calls == 1` is unchanged.
+
+Verification: `go test -count=200 -run TestDiagnosticRunner ./internal/provider/codex/`
+and `-cpu=1 -count=50` of the same, plus `go test -count=20 ./internal/provider/codex/`,
+all green. `make pre-add-check FILES="internal/provider/codex/diagnostics_p4_test.go"`
+clean (vuln DB unreachable, skipped).
+
+### P3 — `2876467`
+
+`launchCount` no longer maps a missing file to 0. `waitLaunchCount` polls
+until the log exists with the wanted line count, and the timeout names
+"never appeared" vs a wrong count. All five former call sites (including
+the two that read the count twice in a `Fatalf`) go through it.
+
+Verification: `go test -count=200 -run 'TestUnrelated|TestInitializeTransport' ./internal/provider/codex/`
+and `go test -count=20 ./internal/provider/codex/`, both green.
+`make pre-add-check FILES="internal/provider/codex/collaboration_test.go"`
+clean.
+
+P4 still needs an explicit push to observe the arm64 lane 5/5. P5 waits
+on that. 0118 PLAN stays `in-progress`.
