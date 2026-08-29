@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-08-29
 associated-madr: "0124-MADR-transcript-cache-path-separator.md"
 ---
@@ -210,14 +210,16 @@ format change. One `git revert` undoes it.
 
 ## Execution record — 2026-08-29
 
-**P1 complete. P2 landed but unverified — it cannot be verified without a
-push, and the owner instructed not to push.** The plan stays `in-progress` for
-that reason and no other.
+**P1 and P2 complete, both observed on CI.** Closed by the owner on
+2026-08-29 with one caveat recorded below.
+
+*(Superseded note: this record first read "P2 landed but unverified"; the push
+happened later the same day and the section below is the result.)*
 
 | Phase | Commit | Result |
 | --- | --- | --- |
 | P1 basename + guard | `37d871d` | done, verified locally |
-| P2 Windows Flutter lane | `40b2d8c` | landed; CI observation pending a push |
+| P2 Windows Flutter lane | `40b2d8c` | done, green on its first CI run |
 
 Final local state: `flutter analyze` clean, **1361 passing, 0 failing** — the
 first green Flutter suite on this Windows host.
@@ -258,16 +260,51 @@ says *"`flutter test` and nothing else"*, and open questions 3 and 4 are to be
 answered *from the run's log*. It was removed rather than kept, and is noted
 here because it is a reasonable thing for a later record to add deliberately.
 
-### Not done
+### P2 on CI (run 33253799835)
 
-* **P2's CI observation.** The lane must be seen **green on the fixed tree**
-  and **red with P1 reverted**; neither has happened, because both need a push.
-  Until then this is 44 lines of YAML that parse (validated with `yaml.safe_load`,
-  job list and step list checked) and have never run. A lane never observed
-  passing is not a lane yet.
-* **MADR open questions 3 and 4** — whether `windows-latest` honours
-  `.gitattributes eol=lf`, and whether `cache: true` caches the Flutter SDK
-  there — both were to be read off P2's first run. Still open.
+```text
+Flutter (test on windows)   7m59s   PASS
+  1361 tests passed.
+```
+
+The same 1361 as the local Windows run, on a clean `windows-latest` checkout,
+with zero `[E]` lines. The formerly-failing cases are present and green in that
+log — `retainOnly keeps the index…`, `syncFromMeta evicts dead sessions…` —
+and so is the new guard, `entry basename is separator-agnostic`. A8 satisfied:
+CI can now see a Windows-only Flutter regression at all.
+
+### Open questions, answered from that run
+
+**Q3 — does `windows-latest` honour `.gitattributes eol=lf`?** Effectively
+yes. The suite passed with no path or golden-comparison failures, which is the
+signature a CRLF checkout would have produced (MADR 0116 P11). The CRLF noise
+on the developer host is a stale checkout, not a platform property.
+
+**Q4 — does `cache: true` cache the SDK there?** **Not on the first run.**
+
+```text
+Cache not found for input keys: flutter-windows-stable-3.44.8-x64-…
+Cache not found for input keys: flutter-pub-windows-stable-3.44.8-x64-…
+```
+
+Both missed, so the lane paid a full SDK download. That is most of why it took
+**7m59s against the Linux lane's 3m16s**. The cache is populated now, so the
+steady-state cost should fall — but that is a prediction, not a measurement,
+and the next push is what checks it. If it stays near eight minutes the lane is
+~2.5x the Linux one, which is worth revisiting on cost rather than accepting by
+default.
+
+### Not done — accepted at closure
+
+* **The negative proof on CI.** P2 asked for the lane to be seen **red with
+  P1's fix reverted**, and it has only been seen green. The guard was proven to
+  fail locally (`Actual: 'transcripts\s1.json'` with the one-line fix backed
+  out), and demonstrating it on CI would mean pushing a knowingly broken commit
+  to `master`. The owner accepted the local proof and closed the record.
+
+  Stated plainly because it is the one claim this plan makes that rests on a
+  local observation rather than a CI one: **the lane has been observed passing,
+  not failing.**
 
 ### Deferred, unchanged
 
