@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-08-29
 associated-madr: "0125-MADR-launchd-bootout-is-asynchronous.md"
 ---
