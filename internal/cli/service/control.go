@@ -58,8 +58,10 @@ func Stop(product string) error {
 	}
 	switch osName {
 	case "darwin":
-		label := launchdLabel(product)
-		return runLaunchctl("bootout", fmt.Sprintf("gui/%d/%s", os.Getuid(), label))
+		// Waits for the job to leave the domain. bootout alone returns while
+		// teardown is still in flight, and every caller of Stop follows it with
+		// something that cannot survive that window (MADR 0125 D1).
+		return stopAndWaitDarwin(launchdServiceTarget(product))
 	case "linux":
 		return runSystemctl("--user", "stop", product+".service")
 	case "windows":
