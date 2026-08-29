@@ -289,16 +289,16 @@ assert the capacity target rather than infer it:
 | Capacity target | 360dp | **10** | all ten laid out, no overflow, prompt keeps > half width |
 | Smallest phone | 320dp | 10 | all ten laid out, no overflow |
 | Past the floor | 320dp | 12 | row is scrollable; no icon dropped |
-| Codex today | 360dp | 9 | all nine, no overflow |
+| ~~Codex today~~ | 360dp | ~~9~~ | **Wrong — codex renders 3, not 9. See the 2026-08-29 count correction below.** |
 
-The n=10 case must be a real ten — pad with a test-only spare rather than
-asserting nine and hoping. `tester.takeException()` must be null in every case;
+The n=10 case must be a real ten — pad with test-only spares rather than
+asserting whatever codex happens to render and hoping. `tester.takeException()` must be null in every case;
 a `RenderFlex` overflow throws and would otherwise pass silently in a test that
 only checks widget presence.
 
 **Then look at it on a device.** The arithmetic proves the geometry; it does
 not prove a 20dp glyph in a 33.6dp box is still legible and distinct
-(MADR open question 4). Run the app and confirm the nine glyphs read apart at a
+(MADR open question 4). Run the app and confirm the glyphs read apart at a
 glance. If they do not, D14's vocabulary changes — not D12's budget.
 
 ### P7 — Retire the old idioms (D5; closes F3)
@@ -377,12 +377,14 @@ re-created by the fix for it. It is also the easiest to write backwards, since
 
 A8 is second, for the reason named under C1.
 
-**A14 is third, and it is the one most likely to be quietly downgraded.** The
-codex row needs nine icons; ten is the owner's stated capacity target, with the
-tenth slot deliberately spare. A phase that ships nine working icons has met
-every visible requirement and will feel finished, so the n=10 case must be
-written with a real tenth icon — a test-only spare — rather than asserted at
-nine. Capacity that is never tested at capacity is a guess.
+**A14 is third, and it is the one most likely to be quietly downgraded.** No
+provider comes close to ten — codex renders 3, opencode 4, kilo 1, and the
+ceiling across every provider is 6 (see the 2026-08-29 count correction). A
+phase that ships the icons some provider happens to need has met every visible
+requirement and will feel finished, so the n=10 case must be written with real
+test-only spares rather than asserted at whatever a live session shows.
+Capacity that is never tested at capacity is a guess — and the gap between the
+target and any real row is far larger than this plan originally believed.
 
 ## Rollout and Rollback
 
@@ -416,8 +418,9 @@ P4 restores a false refusal, P6 restores the crowded app bar.
   and forcing it into the picker idiom may be wrong. Worth asking once the
   three selection cards exist and can be compared against it.
 * **iPhone layout for the new row.** [0121](0121-MADR-achieve-iphone-functional-parity.md)
-  owns iPhone parity; eight icons at iPhone SE width is its question, not this
-  record's.
+  owns iPhone parity; the row at iPhone SE width is its question, not this
+  record's. Note the count there is at most 6, not the eight this bullet
+  originally assumed.
 * **Whether `next_turn` deserves distinct UI beyond banner wording.** P1 puts
   the fact on the wire; whether codex should, say, show a pending-level marker
   until the next message is a design question this record does not open.
@@ -493,14 +496,15 @@ That is C3 working as intended — the row now always renders.
 * **P8's device pass.** The widget test proves the geometry: the back arrow is
   present, non-zero, and on-screen at 360dp for **every** codex mode including
   `full access`, and the app bar lays out identically whatever the mode. It
-  does **not** prove a 20dp glyph in a 33.6dp box is legible, or that the nine
-  icons read apart at a glance. That needs a real screen and has not happened.
+  does **not** prove a 20dp glyph in a 33.6dp box is legible, or that the icons
+  read apart at a glance. That needs a real screen and has not happened.
   MADR open question 4 is therefore still open.
 * **Icon vocabulary is provisional** for the same reason. If the glyphs do not
   separate on a device, D14's vocabulary changes — not D12's budget.
-* **Capacity is proven at ten**, with a real tenth icon, at both 360dp and
+* **Capacity is proven at ten**, with real test-only spares, at both 360dp and
   320dp, scrolling at twelve, each box keeping the full 48dp height (A14–A16).
-  Codex uses nine of the ten today.
+  ~~Codex uses nine of the ten today.~~ **Wrong** — codex renders 3. See the
+  count correction below.
 
 ## Amendment — 2026-08-29: P9 and P10 (MADR D15–D17)
 
@@ -562,3 +566,71 @@ and that is a failure, not a fixture update.
 danger, and the temptation while making rows uniform is to let the trailing
 marker and the description quietly stand in for the confirmation. They do not.
 The dialog is the control; the rest is only how the row reads.
+
+## Correction — 2026-08-29: the per-provider icon counts were wrong
+
+Reported from a device: **kilo shows 1 icon, opencode 4, codex 3.** This record
+said codex needed nine. It does not, and the error is worth keeping because of
+how it was made.
+
+### What is actually rendered
+
+Every slot is advertised by the daemon for that live session; nothing is
+hardcoded per provider. Measured from the capability producers rather than
+inferred:
+
+| | codex | grok | goose | opencode | kilo |
+| --- | --- | --- | --- | --- | --- |
+| permissions | yes | yes | yes | yes | yes |
+| collaboration | yes | – | – | – | – |
+| thinking | yes | yes | – | yes | – |
+| workspace | – | – | – | yes | – |
+| share | – | – | – | yes | – |
+| shell | – | – | – | policy | – |
+| agent settings | – | yes | – | – | – |
+| **base total** | **3** | **3** | **1** | **4** | **1** |
+| with image+audio | up to 5 | up to 5 | up to 3 | up to 6 | up to 3 |
+
+**kilo = 1** because its dialect implements none of the optional surfaces —
+`grep 'func .*(ListWorkspace|ReadWorkspace|Share|Shell|SetThinkingLevel)'
+internal/provider/kilo/` returns nothing.
+
+**opencode = 4** because shell is gated on operator policy as well as
+implementation (`httpagent/session.go:510`, `supportsShell` requires
+`ShellAllowed()`), and `allow_remote_shell` defaults false. Its dialect
+implements all five surfaces; four are visible.
+
+**goose = 1** and will never show thinking: its command table says
+`"goose has no selectable thinking level over ACP"`.
+
+### How the wrong number was reached
+
+The nine came from counting the `if` branches in the composer row — the union
+of every slot the code can render — and reporting that union as what codex
+shows. A separate per-provider table built later made the same class of error
+one level down: it read
+
+```go
+var _ provider.WorkspaceSession = (*session)(nil)   // httpagent/session.go
+```
+
+and concluded opencode and kilo both have workspace, share and shell. That
+assertion is on the **httpagent wrapper**, which always satisfies the interface
+and delegates to the dialect at runtime, returning "not supported" when the
+dialect lacks the method. A compile-time assertion on a delegating wrapper says
+nothing about the concrete provider; the real answers are `supportsWorkspace()`
+/ `supportsShell()` and each dialect's own method set.
+
+### What this does and does not change
+
+**Unchanged:** D12's density budget, D13's scroll behaviour, and every
+acceptance criterion. The capacity tests use synthetic icon counts (10 and 12),
+so they were never measuring a live provider and remain valid.
+
+**Changed:** the headroom is much larger than stated. The ceiling across all
+providers is 6, not 9 — so ten is generous headroom rather than "one spare",
+and the tenth-slot framing in A14 was never the real risk.
+
+**Worth watching instead:** an icon appearing where the provider does not
+support it — a collaboration icon on grok, or a thinking icon on goose — is a
+real defect. That, not the count, is the thing a device pass should check.

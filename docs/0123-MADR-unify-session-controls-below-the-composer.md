@@ -608,3 +608,76 @@ Considered and rejected: fully flat rows with nothing distinguishing
 auto-approve until the dialog. It is the cleanest look and it is the one option
 that weakens C4, because a row that reads identically to "read only" until
 tapped is a worse affordance than a quieter one that still says what it does.
+
+## Amendment — 2026-08-29: what the row actually holds, per provider
+
+A device run reported **kilo 1 icon, opencode 4, codex 3**. This record's plan
+had assumed codex needed nine. It does not, and the gap matters to D12's
+framing even though it changes none of D12's arithmetic.
+
+### Measured
+
+Every slot is advertised by the daemon for the live session; nothing is
+hardcoded per provider. Read from the capability *producers* — the dialect
+method sets and `supports*` predicates — not from interface assertions:
+
+| | codex | grok | goose | opencode | kilo |
+| --- | --- | --- | --- | --- | --- |
+| permissions | yes | yes | yes | yes | yes |
+| collaboration | yes | – | – | – | – |
+| thinking | yes | yes | – | yes | – |
+| workspace | – | – | – | yes | – |
+| share | – | – | – | yes | – |
+| shell | – | – | – | policy | – |
+| agent settings | – | yes | – | – | – |
+| **base** | **3** | **3** | **1** | **4** | **1** |
+| with image+audio | up to 5 | up to 5 | up to 3 | up to 6 | up to 3 |
+
+Two mechanisms produce the spread, and neither is provider identity as such:
+
+* **The dialect, not the wrapper, decides.** `httpagent` declares
+  `var _ provider.WorkspaceSession = (*session)(nil)` and friends, but each
+  method type-asserts the dialect at runtime and refuses when it is absent.
+  Kilo's dialect implements none of workspace, share, shell or thinking, so
+  kilo renders one icon while opencode — same wrapper — renders four.
+* **Operator policy gates two of them.** `supportsShell` requires
+  `ShellAllowed()` and `supportsShareMutation` requires
+  `ShareMutationAllowed()` (`httpagent/session.go:510`, `:551`), so the same
+  provider on two hosts shows different rows. `allow_remote_shell` defaults
+  false, which is why opencode shows four rather than five.
+
+### F11 — the ceiling across every provider is 6, not 9
+
+D12 sized the row for ten and the plan described codex as needing nine, with
+"one spare". The real maximum in view today is six — opencode with shell
+permitted and an image+audio model. Ten is generous headroom, not a tight fit.
+
+### What this changes
+
+**Nothing in D12 or D13.** The density budget is derived from `available /
+count` and was verified with synthetic counts of 10 and 12; it never depended
+on what a live provider renders. The scroll behaviour past the floor is
+likewise untouched.
+
+**The framing around A14.** "Codex needs nine, ten is capacity with one spare"
+was the stated reason to guard the capacity test. That reason was wrong. The
+test is still right — capacity untested at capacity is a guess — but the risk
+it guards is smaller than claimed.
+
+**What a device pass should look for.** Not the count. An icon appearing where
+the provider does not support it — collaboration on grok, thinking on goose —
+is a real defect, and is the check worth making.
+
+### How the number was wrong
+
+Two errors of the same shape, one level apart. The nine came from counting the
+`if` branches in the composer row — the union of every slot the code *can*
+render — and reporting that union as what codex *does* render. A later
+per-provider table then read `var _ provider.WorkspaceSession = (*session)(nil)`
+in the httpagent wrapper and concluded opencode and kilo both had workspace,
+share and shell.
+
+**A compile-time assertion on a delegating wrapper says nothing about the
+concrete provider.** It proves the wrapper satisfies the interface, which it
+does by refusing at runtime. The authoritative sources are the `supports*`
+predicates and each dialect's own method set.
