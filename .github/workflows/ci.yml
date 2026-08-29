@@ -414,6 +414,50 @@ jobs:
         run: flutter test
 
   # ---------------------------------------------------------------------------
+  # Flutter tests on Windows (MADR 0124 D6).
+  #
+  # Tests only. `dart format` and `flutter analyze` answer identically on any
+  # host (0124 F7), so repeating them here would add no signal and one more way
+  # to go red for reasons that have nothing to do with Windows.
+  #
+  # This lane exists because a real defect hid behind its absence: the
+  # transcript cache split filesystem paths on '/' alone, which mangled every
+  # entry id on Windows and silently emptied the LRU index. It failed only on a
+  # developer's own machine, was written off as environmental in two records,
+  # and CI — Linux-only — could never see it.
+  #
+  # `shell: bash` is explicit because windows-latest defaults to PowerShell,
+  # exactly as go-native and smoke-native already do on this runner.
+  # ---------------------------------------------------------------------------
+  flutter-windows:
+    name: Flutter (test on windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Pinned to the same version and action SHA as the Linux lane, so the two
+      # cannot drift in toolchain and disagree for a reason that is not the
+      # platform.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Test
+        run: flutter test
+
+  # ---------------------------------------------------------------------------
   # Android APK on GitHub-hosted Ubuntu (built once; reused by the release job)
   # ---------------------------------------------------------------------------
   android-apk:
