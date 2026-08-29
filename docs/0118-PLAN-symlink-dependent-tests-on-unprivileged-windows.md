@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-08-27
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -308,6 +308,15 @@ across `Go (test; build on tag)`, `Go (windows/amd64)` and `Go (linux/arm64)`.
 That is the third Windows run [0116-PLAN](0116-PLAN-windows-and-linux-arm64-build-targets.md)
 records as "not yet verified — that needs a push"; it has happened, and it
 passed. Updating 0116's status belongs to 0116, not here.
+
+### 2026-08-28 — closed by 0119 P5
+
+P4's Windows observation is satisfied by later green `Go (windows/amd64)`
+runs with `MC_REQUIRE_SYMLINK=1`, including CI #390 attempt 1 on `58b0374`.
+The arm64 redness that appeared after `fb0f361` was
+[0119](0119-MADR-codex-tests-fail-on-the-linux-arm64-lane.md), and 0119's
+verdict is that `fb0f361` was not causal. This PLAN's status is
+`completed`.
 
 ## Deferred (named, so they are not mistaken for oversights)
 

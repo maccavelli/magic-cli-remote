@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-08-28
 associated-madr: "0122-MADR-deterministic-goose-file-log-tail-attach.md"
 ---
@@ -189,7 +189,7 @@ the P1 commit restores the sleep and the flake.
 
 ## Execution record — 2026-08-28
 
-**P1 complete. P2 pending** (needs an explicit push).
+**P1 complete. P2 complete.**
 
 P1 adds `Provider.gooseTailAttached`, fires it after seek-to-EOF in
 `tailGooseFileLogs`, and rewrites `TestTailGooseFileLogsSurfacesQuota` to
@@ -208,3 +208,13 @@ Verification:
 * `make pre-add-check` on the three files: clean (vuln DB unreachable, skipped)
 
 This host is not windows/amd64. P2 is the observation on that lane.
+
+### P2 — run 33227227673 attempt 1, job 99033191187
+
+Owner said `push`. `Go (windows/amd64)` on `58b0374` is **success**.
+`internal/provider/acphttp` is `ok … 11.134s` (not cached). No `SKIP` in
+the job log. `TestTailGooseFileLogsSurfacesQuota` has no skip path, so it
+ran. The whole workflow attempt 1 is `success`.
+
+A7 holds. This PLAN is `completed`. The CI command is not `-v`, so the
+test name itself is not in the log — same gap 0119 named for A6.

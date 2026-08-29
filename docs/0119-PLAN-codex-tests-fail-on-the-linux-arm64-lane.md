@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-08-28
 associated-madr: "0119-MADR-codex-tests-fail-on-the-linux-arm64-lane.md"
 ---
@@ -283,3 +283,35 @@ clean.
 
 P4 still needs an explicit push to observe the arm64 lane 5/5. P5 waits
 on that. 0118 PLAN stays `in-progress`.
+
+### P4 — run 33227227673 on `58b0374` (5 of 5)
+
+Owner said `push` on 2026-08-28. `294aee6..58b0374` went to `origin/master`.
+CI #390 (`https://github.com/maccavelli/magic-cli-remote/actions/runs/33227227673`)
+is the observation. The arm64 job was then rerun in place through attempt 5:
+
+| Attempt | Job ID | Result |
+| --- | --- | --- |
+| 1 | 99033191160 | success |
+| 2 | 99033763726 | success |
+| 3 | 99033891030 | success |
+| 4 | 99033997648 | success |
+| 5 | 99034131156 | success |
+
+**5 of 5 green.** Attempt 1 of the same run also completed the whole workflow
+as `success` (Ubuntu Go, Flutter, windows/amd64).
+
+`go test ./...` is not `-v`, so individual test names do not appear. Evidence
+the two tests ran rather than skipped: `internal/provider/codex` on attempt 1
+is `ok … 1.801s` (not cached), the log has no `SKIP` lines, and neither
+test calls `t.Skip`. A skipped-only package would still print `ok`, but
+these tests have no skip path.
+
+A5 holds. A6 holds on the evidence above, with the `-v` gap named.
+
+### P5 — 0118 resolved
+
+0118's remaining P4 was Windows CI observation of the symlink tests; that
+lane is green on this SHA with `MC_REQUIRE_SYMLINK=1`. Its arm64 redness
+after `fb0f361` was this record's, and the verdict is that `fb0f361` was
+not causal. 0118 PLAN status moves to `completed`.
