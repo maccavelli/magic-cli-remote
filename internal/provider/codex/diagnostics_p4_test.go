@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,8 +57,11 @@ func TestDiagnosticRunnerExactArgvTimeoutNonzeroAndSingleFlight(t *testing.T) {
 		if bin != "codex" || len(args) != 2 || args[0] != "doctor" || args[1] != "--json" {
 			t.Fatalf("argv = %q %q", bin, args)
 		}
-		if calls.Add(1) == 1 {
+		n := calls.Add(1)
+		if n == 1 {
 			close(entered)
+		} else {
+			t.Errorf("doctorRun called %d times; second caller did not join the flight", n)
 		}
 		select {
 		case <-release:
@@ -68,11 +72,12 @@ func TestDiagnosticRunnerExactArgvTimeoutNonzeroAndSingleFlight(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
-	for range 2 {
-		wg.Add(1)
-		go func() { defer wg.Done(); _, err := p.RunDoctor(context.Background()); errs <- err }()
-	}
+	wg.Add(1)
+	go func() { defer wg.Done(); _, err := p.RunDoctor(context.Background()); errs <- err }()
 	<-entered
+	wg.Add(1)
+	go func() { defer wg.Done(); _, err := p.RunDoctor(context.Background()); errs <- err }()
+	waitForRunDoctorJoin(t, 2)
 	close(release)
 	wg.Wait()
 	close(errs)
@@ -94,4 +99,22 @@ func TestDiagnosticRunnerExactArgvTimeoutNonzeroAndSingleFlight(t *testing.T) {
 	if _, err := p.RunDoctor(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("timeout error = %v", err)
 	}
+}
+
+// waitForRunDoctorJoin waits until want goroutines are inside RunDoctor.
+// The owner is blocked in doctorRun; each joiner is blocked on flight.done.
+// Timing out here is a failed test, not a licence to close(release) early
+// (MADR 0119 D4/C2).
+func waitForRunDoctorJoin(t *testing.T, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	buf := make([]byte, 1<<20)
+	for time.Now().Before(deadline) {
+		n := runtime.Stack(buf, true)
+		if strings.Count(string(buf[:n]), ".(*Provider).RunDoctor(") >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d RunDoctor frames (singleflight join)", want)
 }
