@@ -113,7 +113,7 @@ func TestStopAndWaitReportsAJobThatOutlivesTheDeadline(t *testing.T) {
 	if !strings.Contains(err.Error(), "com.magiccliremote.mcremote") {
 		t.Errorf("error must name the job: %v", err)
 	}
-	if !strings.Contains(err.Error(), launchdTeardownTimeout.String()) {
+	if !strings.Contains(err.Error(), launchdWaitTimeout.String()) {
 		t.Errorf("error must say how long it waited: %v", err)
 	}
 }

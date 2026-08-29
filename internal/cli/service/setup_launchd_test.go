@@ -76,7 +76,18 @@ func TestDarwinSetupAgentOrder(t *testing.T) {
 			t.Fatalf("must not touch system domain: %v", c)
 		}
 	}
-	wantSeq := []string{"bootout", "enable", "bootstrap", "kickstart"}
+	// No bootout: nothing was loaded, so there is nothing to tear down. This
+	// used to be unconditional, which meant "bootout failed" could not be told
+	// apart from "there was no job" and was discarded wholesale (MADR 0125 D3).
+	// The loaded case — where teardown must happen and must precede bootstrap —
+	// is covered in launchd_sequence_test.go, which is not build-tagged so it
+	// runs on every host.
+	for _, k := range kinds {
+		if k == "bootout" {
+			t.Fatalf("fresh install must not bootout an absent job: %v", kinds)
+		}
+	}
+	wantSeq := []string{"enable", "bootstrap", "kickstart"}
 	if len(kinds) < len(wantSeq) {
 		t.Fatalf("calls=%v, want at least %v", kinds, wantSeq)
 	}

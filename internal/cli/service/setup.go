@@ -215,6 +215,35 @@ func OverrideRunLaunchctl(fn func(args ...string) error) (restore func()) {
 	return func() { runLaunchctl = prev }
 }
 
+// OverrideLaunchdWaitTimings shortens the teardown wait for tests.
+// Restore with the returned func.
+//
+// Without it a test for the stuck-teardown path would really sleep
+// launchdTeardownTimeout — fifteen seconds of wall clock to assert an error
+// message. The production constants are unchanged; only tests move them.
+func OverrideLaunchdWaitTimings(timeout, interval time.Duration) (restore func()) {
+	prevT, prevI := launchdWaitTimeout, launchdWaitInterval
+	launchdWaitTimeout, launchdWaitInterval = timeout, interval
+	return func() { launchdWaitTimeout, launchdWaitInterval = prevT, prevI }
+}
+
+// OverrideRunLaunchctlCapture replaces the capturing launchctl runner for
+// tests. Restore with the returned func.
+//
+// The three overrides above drive commands whose *error* matters. This one
+// drives `launchctl print`, whose *output* decides control flow: whether a job
+// is loaded, and therefore whether a teardown is needed and when it finished
+// (MADR 0125 D1). Without it the launchd sequencing cannot be tested off
+// Darwin at all, which is why the teardown race reached a user.
+func OverrideRunLaunchctlCapture(fn func(args ...string) (string, error)) (restore func()) {
+	prev := runLaunchctlCapture
+	if fn == nil {
+		fn = func(args ...string) (string, error) { return runCmdOutput("launchctl", args...) }
+	}
+	runLaunchctlCapture = fn
+	return func() { runLaunchctlCapture = prev }
+}
+
 // OverrideRunSystemctl replaces the systemctl runner for tests. Restore with
 // the returned func. Symmetric to OverrideRunLaunchctl: it lets a test drive
 // the systemd path on a host that has no systemctl, the same way the launchd
@@ -451,8 +480,30 @@ func setupLaunchdAgent(opts Options, body string, res Result) (Result, error) {
 	manual := fmt.Sprintf("finish manually with: launchctl bootout %s; launchctl enable %s; launchctl bootstrap %s %s; launchctl kickstart -k %s",
 		svc, svc, domain, plistPath, svc)
 
-	// Ignore bootout failures (not loaded yet).
-	_ = runLaunchctl("bootout", svc)
+	// D4: when the plist on disk is already exactly what we want and the job is
+	// loaded, there is nothing to reload. Restarting in place skips the
+	// bootout/bootstrap cycle entirely, which is the window that produced
+	// error 5 here and error 37 in update. The common `update` case changes
+	// the binary, not the plist, so this is the path it takes (MADR 0125 D4).
+	if res.Unchanged && !opts.NoStart && launchdJobRunning(svc) {
+		if err := runLaunchctl("kickstart", "-k", svc); err != nil {
+			return res, fmt.Errorf("plist unchanged at %s, but launchctl kickstart failed: %w (%s)", plistPath, err, manual)
+		}
+		res.Enabled = !opts.NoEnable
+		res.Started = true
+		if note := launchdLastExitNote(svc); note != "" {
+			fmt.Fprintln(os.Stderr, note)
+		}
+		return res, nil
+	}
+
+	// Teardown is asynchronous. Bootstrapping before the job has left the
+	// domain is what returned 5 here on a real Mac; the error used to be
+	// discarded outright, so a genuine failure walked straight into a
+	// bootstrap that could not succeed (MADR 0125 D1/D3/F3).
+	if err := stopAndWaitDarwin(svc); err != nil {
+		return res, fmt.Errorf("plist installed at %s, but the existing job could not be torn down: %w (%s)", plistPath, err, manual)
+	}
 
 	if !opts.NoEnable {
 		if err := runLaunchctl("enable", svc); err != nil {
@@ -631,7 +682,9 @@ func removeLaunchdAgent(opts Options) (Result, error) {
 		Scope:    "launchd-agent",
 	}
 
-	_ = runLaunchctl("bootout", svc)
+	// Benign here — the plist is deleted next — but it goes through the same
+	// helper so there is one teardown path to reason about, not two.
+	_ = stopAndWaitDarwin(svc)
 	_ = runLaunchctl("disable", svc)
 
 	if err := os.Remove(plistPath); err != nil && !errors.Is(err, fs.ErrNotExist) {

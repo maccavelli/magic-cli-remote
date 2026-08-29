@@ -17,22 +17,22 @@ import (
 // This is the one place that models the fact. Everything that tears a launchd
 // job down goes through it.
 
-// launchdTeardownTimeout bounds the wait for a job to leave the domain.
+// launchdWaitTimeout bounds the wait for a job to leave the domain.
 //
 // Matched to the 15s active-wait already in update/swap.go rather than
 // inventing a second number: both are "wait for launchd to reach a state, then
 // give up and say so", and two different budgets for that would be a question
 // no reader could answer (MADR 0125 open question 1).
-const launchdTeardownTimeout = 15 * time.Second
+var launchdWaitTimeout = 15 * time.Second
 
-// launchdPollInterval is how often the domain is re-checked. Short on purpose:
+// launchdWaitInterval is how often the domain is re-checked. Short on purpose:
 // the previous design paid a flat 300ms on every host, so a fast Mac now
 // returns in roughly one poll instead — the wait got *cheaper* as well as
 // correct.
-const launchdPollInterval = 50 * time.Millisecond
+var launchdWaitInterval = 50 * time.Millisecond
 
 // ErrLaunchdStillLoaded is returned when a job is still in the domain after
-// launchdTeardownTimeout. It is deliberately distinguishable: a caller must be
+// launchdWaitTimeout. It is deliberately distinguishable: a caller must be
 // able to say "teardown did not finish" rather than reporting whatever the
 // next command happened to fail with.
 var ErrLaunchdStillLoaded = errors.New("launchd job still loaded after teardown wait")
@@ -73,7 +73,7 @@ func stopAndWaitDarwin(svc string) error {
 
 	bootoutErr := runLaunchctl("bootout", svc)
 
-	deadline := launchdNow().Add(launchdTeardownTimeout)
+	deadline := launchdNow().Add(launchdWaitTimeout)
 	for {
 		if !launchdLoaded(svc) {
 			return nil
@@ -83,12 +83,12 @@ func stopAndWaitDarwin(svc string) error {
 			// error when there was one — it is usually the reason.
 			if bootoutErr != nil {
 				return fmt.Errorf("%w: %s (%s): %v",
-					ErrLaunchdStillLoaded, svc, launchdTeardownTimeout, bootoutErr)
+					ErrLaunchdStillLoaded, svc, launchdWaitTimeout, bootoutErr)
 			}
 			return fmt.Errorf("%w: %s (%s)",
-				ErrLaunchdStillLoaded, svc, launchdTeardownTimeout)
+				ErrLaunchdStillLoaded, svc, launchdWaitTimeout)
 		}
-		launchdSleep(launchdPollInterval)
+		launchdSleep(launchdWaitInterval)
 	}
 }
 
