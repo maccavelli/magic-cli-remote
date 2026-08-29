@@ -86,16 +86,22 @@ type Meta struct {
 	Model string `json:"model,omitempty"`
 	// ThinkingLevel is the session's reasoning/thinking effort override.
 	// Empty means the provider default. Set at create and by /thinking.
-	ThinkingLevel       string   `json:"thinking_level,omitempty"`
-	ModeID              string   `json:"mode_id,omitempty"`
-	CollaborationModeID string   `json:"collaboration_mode_id,omitempty"`
-	PermissionProfileID string   `json:"permission_profile_id,omitempty"`
-	ApprovalsReviewer   string   `json:"approvals_reviewer,omitempty"`
-	ServiceTier         string   `json:"service_tier,omitempty"`
-	Personality         string   `json:"personality,omitempty"`
-	CWD                 string   `json:"cwd,omitempty"`
-	AgentSessionID      string   `json:"agent_session_id,omitempty"`
-	AgentSessionAliases []string `json:"agent_session_aliases,omitempty"`
+	ThinkingLevel string `json:"thinking_level,omitempty"`
+	// ThinkingMutability says when a change to ThinkingLevel takes effect, so
+	// a client can say so before the user acts rather than after a refusal.
+	// Empty means unknown — clients assume settable (MADR 0123 D7, C2).
+	// Reported by the live session; it is not persisted, because it is a
+	// property of the provider build in front of us, not of the record.
+	ThinkingMutability  provider.ThinkingMutability `json:"thinking_mutability,omitempty"`
+	ModeID              string                      `json:"mode_id,omitempty"`
+	CollaborationModeID string                      `json:"collaboration_mode_id,omitempty"`
+	PermissionProfileID string                      `json:"permission_profile_id,omitempty"`
+	ApprovalsReviewer   string                      `json:"approvals_reviewer,omitempty"`
+	ServiceTier         string                      `json:"service_tier,omitempty"`
+	Personality         string                      `json:"personality,omitempty"`
+	CWD                 string                      `json:"cwd,omitempty"`
+	AgentSessionID      string                      `json:"agent_session_id,omitempty"`
+	AgentSessionAliases []string                    `json:"agent_session_aliases,omitempty"`
 	// OwnerDeviceID is the paired device that created (or claimed) the session.
 	// Empty means legacy/unowned — visible to all devices until claimed (R4=B).
 	OwnerDeviceID string `json:"owner_device_id,omitempty"`

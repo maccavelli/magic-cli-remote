@@ -640,6 +640,61 @@ type ThinkingSession interface {
 	ThinkingLevel() string
 }
 
+// ThinkingMutability says *when* a change to the session's thinking level
+// takes effect. It is not the same question as whether /thinking is available:
+// that is a type assertion on [ThinkingSession] (session/commands.go), and it
+// answers "can this session set a level at all", never "does setting it apply
+// now" (MADR 0123 D7, F6).
+//
+// A client needs this before the user acts. Without it the app cannot say
+// whether a level will apply to the current turn, and the only prior source
+// was a hardcoded provider name in the phone client — which went stale and
+// told grok users something false for the whole of MADR 0106's lifetime
+// (0123 F5). Providers report their own value; nobody infers it from an ID.
+//
+// A bool cannot carry this. Codex applies on the *next* turn/start, grok 1.0.5
+// and OpenCode apply within the session, and a spawn-locked provider applies
+// to new sessions only — three states, and flattening them is what made the
+// distinction invisible in the first place.
+type ThinkingMutability string
+
+const (
+	// ThinkingMutabilityUnknown is the zero value and the only honest answer
+	// for a daemon or provider that has not stated one. Clients MUST treat it
+	// as "assume settable" and report the failure if the attempt is refused.
+	// Rendering it as "fixed" would recreate 0123 F5 — a confident, wrong
+	// statement about a provider's abilities (0123 C2).
+	ThinkingMutabilityUnknown ThinkingMutability = ""
+	// ThinkingMutabilityLive applies to the turn in flight and every turn
+	// after: grok 1.0.5 via session/set_model `_meta.reasoningEffort`
+	// (MADR 0106), OpenCode via the per-request `variant` (MADR 0112 A14).
+	ThinkingMutabilityLive ThinkingMutability = "live"
+	// ThinkingMutabilityNextTurn is accepted now and applied to the next
+	// turn: codex carries effort on turn/start, so a level chosen mid-turn
+	// binds from the following message (codex/commandtable.go).
+	ThinkingMutabilityNextTurn ThinkingMutability = "next_turn"
+	// ThinkingMutabilityFixed is locked at spawn: the level is a property of
+	// the process, and changing it needs a new session. A provider reporting
+	// this should also return [ErrThinkingLevelFixed] from SetThinkingLevel,
+	// so a client that ignored the advertisement still learns the truth.
+	ThinkingMutabilityFixed ThinkingMutability = "fixed"
+)
+
+// Valid reports whether m is one of the defined values. Unknown is valid: it
+// is the absent case, which every consumer must already handle.
+func (m ThinkingMutability) Valid() bool {
+	switch m {
+	case ThinkingMutabilityUnknown, ThinkingMutabilityLive,
+		ThinkingMutabilityNextTurn, ThinkingMutabilityFixed:
+		return true
+	}
+	return false
+}
+
+// Settable reports whether a client should offer the level for selection.
+// Unknown is settable — see [ThinkingMutabilityUnknown].
+func (m ThinkingMutability) Settable() bool { return m != ThinkingMutabilityFixed }
+
 // MCPStatusSession optionally exposes per-MCP-server connection state.
 // The session keeps a snapshot updated from agent lifecycle notifications;
 // polled by Diagnostics.
@@ -776,6 +831,10 @@ type AgentSessionMeta struct {
 	// single thinking-level vocabulary rather than introducing a second,
 	// parallel concept (MADR 0112 A14).
 	ThinkingLevel string `json:"thinking_level,omitempty"`
+	// ThinkingMutability says when a change to ThinkingLevel would take
+	// effect. Empty is [ThinkingMutabilityUnknown] and means "assume
+	// settable" — an older daemon omits the field entirely (MADR 0123 D7/C2).
+	ThinkingMutability ThinkingMutability `json:"thinking_mutability,omitempty"`
 	// Agent is the agent or mode name the session last ran under.
 	Agent string `json:"agent,omitempty"`
 	// Aggregate is whole-session accounting, or nil when the agent reported
