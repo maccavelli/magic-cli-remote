@@ -96,8 +96,10 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 				log("stop: " + serr.Error() + " (continuing)")
 			}
 			stopped = true
-			// Settle for ETXTBSY / launchd bootout async teardown.
-			sleep(300 * time.Millisecond)
+			// No settle sleep. Stop now waits for the job to actually leave the
+			// launchd domain (MADR 0125 D1), so the 300ms that used to stand in
+			// for that wait is both unnecessary and — as error 37 proved on a
+			// real Mac — insufficient. A constant cannot be right here (0125 C1).
 		}
 	}
 
@@ -121,9 +123,19 @@ func SwapAndRestart(staged, dest string, opts SwapOpts) (err error) {
 			}
 		}
 		if stopped && wantUp && svc != nil {
+			// The reported harm (MADR 0125 F4): this used to log and move on,
+			// so an update that failed left the daemon down while the process
+			// exited as though the rollback had worked. The two outcomes are
+			// materially different to a user and must read differently.
 			if serr := svc.Start(opts.Product); serr != nil {
-				log("restart after failure: " + serr.Error())
+				log("ROLLED BACK BUT NOT RUNNING: the previous binary is restored, " +
+					"but " + opts.Product + " could not be started: " + serr.Error())
+				log("start it with: " + opts.Product + " setup-service --force")
+				err = fmt.Errorf("%w (rolled back; %s is NOT running: %v)",
+					err, opts.Product, serr)
+				return
 			}
+			log("rolled back; " + opts.Product + " is running again")
 		}
 	}()
 
