@@ -319,10 +319,10 @@ jobs:
       - name: Test
         run: go test ./...
 
-  # Native macOS CI (macos-15 race + LaunchAgent smoke) is intentionally off.
-  # Darwin is validated locally on a Mac; Linux CI still cross-compiles Darwin
-  # artifacts on tag and runs `make verify-build-metadata` for build-tag policy.
-  # Re-enable a go-macos job when ready to pay for hosted runners again.
+  # Standard macOS runners are free and unlimited for public repositories, with
+  # a cap of 5 concurrent macOS jobs. darwin/arm64 is currently covered by owner
+  # acceptance testing rather than CI; adding a go-macos gate is a separate
+  # decision (MADR 0120 D10).
 
   # ---------------------------------------------------------------------------
   # Execute the published non-amd64-Linux binaries on real hardware (MADR 0116

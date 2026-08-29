@@ -63,9 +63,11 @@ and `-tags netgo,osusergo`, so they are **fully static** — one artifact per
 architecture runs on glibc (Ubuntu, Oracle, Rocky, Debian) and musl (Alpine)
 alike. 32-bit ARM, i686 and riscv64 are not published and are rejected by name.
 
-The same `install.sh` also installs on macOS (`darwin/amd64`, `darwin/arm64`).
-The service there is a launchd LaunchAgent, not systemd; Full Disk Access is
-a separate grant, see [ops-macos-tcc.md](ops-macos-tcc.md).
+The same `install.sh` also installs on Apple Silicon macOS (`darwin/arm64`).
+Intel Macs are not supported; see
+[MADR 0120](0120-MADR-retire-the-darwin-amd64-target.md). The service there is
+a launchd LaunchAgent, not systemd; Full Disk Access is a separate grant, see
+[ops-macos-tcc.md](ops-macos-tcc.md).
 
 ## Service backends
 

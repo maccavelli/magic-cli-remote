@@ -157,7 +157,7 @@ at logon rather than boot, and there is a durability caveat on NTFS.
 | `linux/amd64` | 1 | primary |
 | `linux/arm64` | 1 | |
 | `darwin/arm64` | 1 | |
-| `darwin/amd64` | 1 | |
+| `darwin/amd64` | — | **retired** after v0.14.10; see [MADR 0120](docs/0120-MADR-retire-the-darwin-amd64-target.md) |
 | `windows/amd64` | **2** | built and tested in CI, not exercised by the live provider suites |
 | `windows/arm64` | — | **not supported**; see below |
 
@@ -1406,7 +1406,7 @@ or manual dispatch:
 
 | Job | When | What it does |
 |-----|------|--------------|
-| `go` | always | gofmt, `go mod tidy` cleanliness, vet, race tests, version-allocator tests, systemd unit validation, build-tag policy. **On tag:** builds **mcremote** + **mcrelay** for **linux/amd64, darwin/arm64, darwin/amd64** and uploads them |
+| `go` | always | gofmt, `go mod tidy` cleanliness, vet, race tests, version-allocator tests, systemd unit validation, build-tag policy. **On tag:** builds **mcremote** + **mcrelay** for **linux/amd64, linux/arm64, darwin/arm64, windows/amd64** and uploads them |
 | `flutter` | always | `dart format` check, Flutter analyze, Flutter test (Flutter **3.44.8** pinned) |
 | `android-apk` | **tag only** | arm64 **release** APK (signing rules in workflow + ops-android-signing); asserted by `scripts/assert-flutter-release-apk.sh`. PRs/branches: build with `make apk` locally |
 | `release` | tag only | Downloads the APK and Go binaries and attaches them to the GitHub Release |
