@@ -8,7 +8,7 @@ associated-madr: "0126-MADR-codex-purge-skips-local-teardown.md"
 # PLAN 0126 — Close before purge, and bound the engine call
 
 Implements [0126-MADR-codex-purge-skips-local-teardown.md](0126-MADR-codex-purge-skips-local-teardown.md)
-decisions D1–D6, closing findings F1–F7.
+decisions D1–D9, closing findings F1–F10.
 
 ## Goal
 
@@ -18,6 +18,8 @@ says so when the engine-side delete did not happen.
 Finish line:
 
 * the manager closes locally before purging, for every provider;
+* no codex engine call on a user-facing path can outlive its own bound —
+  `Cancel` above all, because it runs on the connection's read loop;
 * the provider-side purge runs detached, under a ceiling well below the 60s
   RPC budget;
 * a purge failure reaches the caller instead of a log line;
@@ -30,7 +32,7 @@ Finish line:
 
 * `internal/session/manager.go` — `closeMatching` only: the close/purge
   sequence, the bounded context, and the error return
-* `internal/provider/codex/session.go` — `Purge` only
+* `internal/provider/codex/session.go` — `Purge` and `Cancel` (D7)
 * `internal/provider/provider.go` — the `PurgeSession` doc comment (D5)
 * `internal/session/*_test.go`, `internal/provider/codex/*_test.go` — tests
 
@@ -134,9 +136,27 @@ New cases, using a fake session:
 * a soft close (`purge=false`) still never calls `Purge` — 0095's rule that
   resume depends on that state surviving.
 
-### P2 — Codex's Purge stops being the odd one out (D3; closes F1, F2 at source)
+### P2 — Codex's engine calls stop being the odd ones out (D3, D7, D8; closes F1, F2, F8)
 
-`internal/provider/codex/session.go`, `Purge` only.
+`internal/provider/codex/session.go`, `Purge` **and `Cancel`**.
+
+`Cancel` is the more urgent of the two. It runs on the connection's read loop
+by design (`ws/server.go:757-760`), so an unbounded `sendRequest` there stops
+the daemon reading *any* frame from that phone — which is why the report is
+"all providers" and not "codex" (F8, F9).
+
+**Bound it in place; do not move it off the read loop** (D8). Its placement is
+deliberate: cancel must stay reachable while a prompt occupies an async worker.
+The read loop is not the bug.
+
+The shape to use is already in this codebase three times —
+`context.WithTimeout(context.WithoutCancel(ctx), …)` — in `httpagent.Cancel`,
+`httpagent.Purge` and `acphttp.Purge`. Match it rather than inventing a fourth.
+
+While here, check whether any other codex method passes the caller's `ctx`
+straight to `sendRequest` on a user-facing path, and say what was found — a
+count, not an impression. Fixing beyond `Cancel` and `Purge` is out of scope
+(MADR open question 3); *knowing* is not.
 
 Give it the shape its peers already have: local `Close` first, then the engine
 call detached with its own bound. After P1 the manager already guarantees both,
@@ -191,6 +211,10 @@ owner, engine wedged    -> returns within the ceiling and says the engine kept t
 | A8 | Neither timeout changed | D6, C1 |
 | A9 | `PurgeSession` documents the obligation | D5, F7 |
 | A10 | Owner confirms a codex delete returns promptly | — |
+| A11 | `codex.Cancel` is bounded and detached, still on the read loop | D7, D8, F8 |
+| A12 | No codex user-facing call passes the caller ctx to `sendRequest` unbounded | D7 |
+| A13 | The ctx-passthrough sweep is reported as a count | open q. 3 |
+| A14 | Owner confirms non-codex sessions no longer hang | F9, F10 |
 
 **A6 is the one to guard.** The change is "always close, then maybe purge", and
 the fastest way to write that wrong is to make purge unconditional too. Soft
@@ -198,8 +222,14 @@ close exists so resume can rely on engine-side state surviving; a delete-shaped
 close would destroy sessions the user only backgrounded, and no test of the
 reported bug would notice.
 
-A10 is the one that cannot be faked: everything else runs against fakes on a
-Windows host, and the report came from a Mac.
+**A14 is the one that closes the actual report.** A10 proves the codex path;
+A14 proves the amplification is gone — that an opencode or grok session ends
+promptly while a codex session is present on the same connection. The first
+draft of this record would have satisfied A10 and left the user's symptom
+intact.
+
+Both are owner-run: everything else here runs against fakes on a Windows host,
+and the report came from a Mac.
 
 ## Rollout and Rollback
 

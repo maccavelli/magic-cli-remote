@@ -17,7 +17,12 @@ finally returning to the session screen if you terminate via the menu inside
 the chat session."
 
 Three providers implement the purge path. Two follow the same shape. Codex
-follows none of it, and every reported symptom falls out of the difference.
+follows none of it.
+
+**Reported after the first draft of this record: it affects sessions on every
+provider, not only codex.** That is not a wider bug — it is the same one,
+amplified by two connection-wide mechanisms this record initially missed. The
+correction is in the 2026-08-31 amendment, and it changes the scope of the fix.
 
 ### What was measured, not assumed
 
@@ -299,3 +304,97 @@ host.
    engine defers it until the turn ends, the ceiling is doing the real work and
    the sequence should probably cancel first — which the phone already does,
    but the daemon does not.
+
+## Amendment — 2026-08-31: it is connection-wide, and Cancel is the worse half
+
+The first draft of this record explained a codex-session hang. The owner then
+reported that **sessions on every provider hang**, which that explanation
+cannot account for: opencode, kilo, goose and grok all purge correctly.
+
+The defect is the same one. What was missed is that codex's unbounded engine
+calls do not fail in isolation — two mechanisms turn one wedged codex call into
+a stall for every session on the connection.
+
+### F8 — `codex.Cancel` has the same defect as `Purge`, on a worse path
+
+`codex/session.go:854-882` ends with:
+
+```go
+_, err := fr.sendRequest(ctx, "turn/interrupt", ...)
+```
+
+The caller's context again, into a `sendRequest` with no deadline of its own.
+Its peers do not do this:
+
+| | engine round-trip | bounded |
+| --- | --- | --- |
+| `httpagent.Cancel` (`:1174`) | `ds.Abort` | `WithoutCancel` + 10s |
+| `acpagent.Cancel` (`:883`) | none — releases waiters locally | n/a |
+| `acphttp.Cancel` (`:701`) | `sendNotification` — no reply awaited | n/a |
+| **`codex.Cancel`** | **`sendRequest`, awaits a reply** | **no** |
+
+**`session.cancel` is handled on the read loop, deliberately**
+(`ws/server.go:757-760`: *"Cancel stays on the read loop: it must remain
+reachable while a prompt or create is in flight on an async worker."*) That is
+the right design for a control frame — and it means a `Cancel` that blocks
+blocks **the connection's frame reader**. While it is stuck, no frame from that
+phone is processed at all: not a delete for an opencode session, not a prompt,
+not anything.
+
+### F9 — a wedged async handler rate-limits the whole connection, and the code says so
+
+`dispatchAsync` allows `maxAsyncPerClient = 8` concurrent slow ops per socket,
+and its own comment (`ws/server.go:177-181`, `:884-891`) already names this
+failure:
+
+> *"a handler that never returns turns this into a permanent 'the host is
+> rate-limiting' for every op on the connection, and silence here made that
+> indistinguishable from a phone-side fault."*
+
+`session.delete` is async. A codex purge holding a slot for the full 60s, taken
+a few times over — and the phone's D7 fallback plus ordinary retries make that
+easy — exhausts the slots. Every subsequent op on that connection is refused
+or queued, whatever provider it belongs to.
+
+### F10 — the phone's own flow feeds both mechanisms
+
+`chat_screen.dart:1670-1680` sends `cancel` and *then* `delete`. So ending a
+codex session issues the read-loop-blocking call first and the slot-holding
+call second. The user's report — hangs, or nothing ends until a timeout —
+is those two in sequence, with every other session on the phone stalled behind
+them.
+
+### What this changes in the decisions
+
+**D1–D5 stand.** Close-before-purge, a manager-applied bound, reported
+failures and a documented obligation are all still right, and D2's ceiling is
+what stops F9.
+
+**D7 — bound every codex engine call that a user action can reach, not just
+`Purge`.** `Cancel` is the urgent one because of the path it sits on. The
+correct shape is already written three times in this codebase:
+`context.WithTimeout(context.WithoutCancel(ctx), …)`. Codex should use it
+wherever a user-facing call reaches `sendRequest`.
+
+**D8 — bound it at the call site, not by moving `Cancel` off the read loop.**
+Relocating it would make cancel unreachable during a prompt, which is the exact
+property `ws/server.go:757-760` put it there to preserve. The read loop is not
+the bug; an unbounded call on it is.
+
+**D9 — a wedged handler must be visible.** F9's comment says the symptom is
+indistinguishable from a phone-side fault. The slot-exhaustion warning already
+logs; what is missing is any signal that a *provider call* is overdue. Whether
+that is a log line or a surfaced error is the plan's to decide, but "the host
+is rate-limiting everything" must not again be the only evidence.
+
+### Why the first draft got the scope wrong
+
+It traced the reported path — end session on codex — found a real defect on it,
+and stopped. It did not ask what *else* runs on that path, nor what a call
+blocking there costs anything sharing the connection. Both answers were in
+comments already in the file: the read-loop placement of cancel, and
+`dispatchAsync`'s own warning about a handler that never returns.
+
+The lesson is narrower than "look wider". The defect was correctly identified;
+what went unasked is **what a blocked call costs its neighbours** — and on a
+multiplexed connection with a bounded worker pool, that is never nothing.
