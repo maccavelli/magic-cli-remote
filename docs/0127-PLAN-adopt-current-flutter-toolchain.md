@@ -455,6 +455,15 @@ worth landing when few branches are open.
   tell that host's operator on their next `make preflight`.
 * **Raising `environment: sdk:` past `^3.12.2`.** Not required by Dart 3.13.2
   and would drop support for no reason this record has.
+* **F-KGP — `mobile_scanner` and `speech_to_text` still apply the Kotlin Gradle
+  Plugin.** P4 found that a future Flutter release will refuse to build an app
+  whose plugins apply KGP, and both are already at their latest published
+  stable with no migrated release. `flutter_foreground_task` is fixed by P6b;
+  these two cannot be fixed from this repository. They need upstream releases,
+  and adopting `speech_to_text 7.5.0-beta.1` to get ahead of it would put a
+  prerelease in a shipped app. Track the two upstream and revisit when either
+  publishes a Built-in Kotlin release — before the Flutter version that turns
+  the warning into an error.
 
 ## Execution record — 2026-09-01
 
@@ -547,3 +556,53 @@ test/transcript_rows_test.dart
 All test files, all formatter-only — the Dart 3.13 formatter moved, exactly the
 case P3 anticipated. Applied wholesale in their own commit (commit 3 above) so
 they cannot be mistaken for semantic change.
+
+### P4 — Android revalidation
+
+```text
+flutter build apk --release --target-platform android-arm64   -> 131.5s, 40.8MB, exit 0
+assert-flutter-release-apk.sh                                 -> OK release-mode APK (39M)
+```
+
+**SDK levels unchanged.** `FlutterExtension.kt` on 3.47.2 still supplies
+`compileSdkVersion 36`, `targetSdkVersion 36`, `minSdkVersion 24` — identical to
+P0. No devices dropped. `ndkVersion` is `28.2.13676358`.
+
+**No Gradle, AGP or Kotlin bump was required.** Gradle 9.1.0, AGP 9.0.1,
+Kotlin 2.3.20 all built unchanged.
+
+**Manifest surface: identical.** The 16-line capture against the new merged
+manifest diffs clean against P0's baseline, so **0126 P3's allowlist is
+unaffected** by the toolchain move and can be committed as drafted.
+
+```text
+diff -u surface-baseline(3.44.8) surface(3.47.2)  ->  IDENTICAL
+```
+
+#### New finding — F-KGP: a future Flutter release will fail to build this app
+
+3.47.2 builds fine but emits:
+
+> WARNING: Your app uses the following plugins that apply Kotlin Gradle Plugin
+> (KGP): **flutter_foreground_task, mobile_scanner, speech_to_text**
+> Future versions of Flutter will fail to build if your app uses plugins that
+> apply KGP.
+
+Checked against pub.dev, 2026-09-01 — only one of the three is fixable today:
+
+| plugin | pinned | latest | KGP-migrated? |
+|---|---|---|---|
+| `flutter_foreground_task` | ^10.0.0 | 11.0.1 | **yes** — 11.0.0 `[FEAT] Migrate to built-in Kotlin (KGP) #385` |
+| `mobile_scanner` | ^7.4.0 | 7.4.0 | no — already latest, no migrated release exists |
+| `speech_to_text` | ^7.4.0 | 7.4.0 | no — already latest (7.5.0-beta.1 is a prerelease) |
+
+So P6b's `flutter_foreground_task` bump removes one of the three, and the
+remaining two have **no fix available at any published version**. This is a
+real future build break with no complete remedy today, and it is recorded rather
+than acted on: it needs upstream releases, and a prerelease dependency in a
+shipped app is not a trade this record makes. See Deferred.
+
+**Incidental — 0126 F8 reproduced live.** The running Gradle invocation's
+dart-defines decode to `FLUTTER_BUILD_NAME=0.1.0`, `FLUTTER_BUILD_NUMBER=1`,
+confirming that a local `flutter build apk` stamps the pubspec placeholder.
+0126 P6 fixes it.
