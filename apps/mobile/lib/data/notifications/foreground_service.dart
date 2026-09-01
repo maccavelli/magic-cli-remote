@@ -49,6 +49,15 @@ class ForegroundServiceController {
       iosNotificationOptions: const IOSNotificationOptions(
         showNotification: false,
       ),
+      // `stopWithTask` is deliberately NOT passed here (MADR 0126 D1). The
+      // service's task-removal behaviour is set by the *manifest*, and setting
+      // it from Dart is not equivalent: the plugin persists it as a preference
+      // that `ForegroundServiceUtils.isSetStopWithTaskFlag` prefers over the
+      // manifest, AND a `true` value additionally makes `ForegroundService`
+      // install a visibility tracker that stops the service every time the app
+      // becomes invisible — which is worse than the bug 0126 F1 describes.
+      // Leave it null; `android/app/src/main/AndroidManifest.xml` is the one
+      // place that decides this.
       foregroundTaskOptions: ForegroundTaskOptions(
         // No periodic callback — the service only keeps the process alive.
         eventAction: ForegroundTaskEventAction.nothing(),

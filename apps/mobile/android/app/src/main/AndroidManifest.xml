@@ -109,14 +109,47 @@
             android:name="com.maccavelli.magic_cli_remote.notification_icon"
             android:resource="@drawable/ic_stat_mc" />
 
-        <!-- flutter_foreground_task: the service that keeps the mesh socket
-             alive in the background, plus its restart receiver (relaunches the
-             service if the OS kills it). stopWithTask keeps it from lingering
-             after the app is swiped away. -->
+        <!--
+          flutter_foreground_task: the service that keeps the mesh socket alive
+          in the background, plus its restart receiver.
+
+          android:stopWithTask is DELIBERATELY ABSENT (MADR 0126 D1/D2). It used
+          to be "true", and the plugin reads that flag back through
+          ForegroundServiceUtils.isSetStopWithTaskFlag() to switch off every
+          recovery path at once — so the RestartReceiver below, and the comment
+          that said it "relaunches the service if the OS kills it", were dead
+          code in the shipped configuration. What each path is worth now:
+
+            START_STICKY                  reliable. The OS recreates the service
+                                          itself, so API 31+'s background-FGS-
+                                          start rule does not apply.
+            onDestroy restart alarm       best-effort on API 31+ (see below).
+            onTaskRemoved restart alarm   best-effort on API 31+ (see below).
+            RebootReceiver                inert: autoRunOnBoot and
+                                          autoRunOnMyPackageReplaced are both
+                                          left at their false defaults.
+
+          "Best-effort" precisely: RestartReceiver.setRestartAlarm uses
+          setAlarmClock only when canScheduleExactAlarms() is true, and this app
+          holds neither SCHEDULE_EXACT_ALARM nor USE_EXACT_ALARM, so it takes the
+          inexact AlarmManager.set(RTC_WAKEUP, ...) branch. An inexact alarm is
+          not on Android 12's foreground-service-launch exemption list, so the
+          receiver's startForegroundService throws
+          ForegroundServiceStartNotAllowedException unless the app is exempt from
+          battery optimisation. Do NOT add an exact-alarm permission to fix that
+          (0126 C3) — START_STICKY is the part that carries the feature.
+
+          The trade this makes: swiping the app off recents no longer guarantees
+          the service is gone. That was the original point of stopWithTask, and
+          it is given up on purpose, because the service existing IS the feature
+          ("walk away and get pinged"). The user keeps an explicit off switch —
+          NotificationCoordinator stops the service on sign-out and whenever the
+          notifications master toggle goes off (notification_coordinator.dart
+          :277-278, :315-321).
+        -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="remoteMessaging"
-            android:stopWithTask="true"
             android:exported="false" />
         <!--
           remoteMessaging is deliberate and must not be "tidied" to dataSync
