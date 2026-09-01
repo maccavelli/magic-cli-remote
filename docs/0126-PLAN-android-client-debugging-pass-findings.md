@@ -940,3 +940,79 @@ positive (real tree):   OK surface matches the allowlist             exit=0
 
 **Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
 `+1359 ~3`.
+
+### 2026-09-01 — P4 complete (F5, D6)
+
+**Edit 1 — `MainActivity.kt`.** `installApk` now runs on a single-thread
+`ExecutorService` (shut down in `onDestroy`), with `runOnUiThread` around
+`startActivity` and every `result.*` call — a `MethodChannel.Result` may only be
+completed on the platform thread. Behaviour is preserved exactly: session
+first, silent fallback to the v1 intent, same `bad_args` / `install_failed`
+codes. The only change is which thread copies the ~41 MB APK.
+
+One improvement kept from the phase's sketch: `sessionError` is retained, so
+when the session install *and* the fallback both fail the session's error is
+reported rather than only the second one.
+
+**Edits 2–3, in that order.** `app_update_tile.dart` now derives the download
+directory from `getTemporaryDirectory()` (documented to be `getCacheDir()` on
+Android) instead of `Directory.systemTemp`, whose resolution is an engine
+detail. Only then was `file_paths.xml` narrowed from three roots at `path="."`
+to the single `cache-path` subdirectory the updater actually writes:
+
+```xml
+<cache-path name="app_updates" path="mcremote_app_updates" />
+```
+
+The dropped `files-path name="files_updates" path="."` covered the whole of
+`getFilesDir()` — where `getApplicationSupportDirectory()` keeps the
+`transcripts/` snapshots.
+
+#### The phase's own assumption was wrong, and checking it mattered
+
+P4 said *"`app_update_tile_test.dart` injects `cacheDir`, so tests are
+unaffected; confirm that rather than assuming it."* Confirmed — and it does
+not:
+
+```text
+grep -n "cacheDir"          test/app_update_tile_test.dart  -> no matches
+grep -n "downloadAndVerify" test/app_update_tile_test.dart  -> no matches
+```
+
+**No test reached the download path at all.** The two existing tests inject
+`service` and `installApk` and stop before it, so the tests passed for the wrong
+reason: the changed line was never executed, and the narrowed FileProvider grant
+would have shipped unverified.
+
+Added `'download lands under getTemporaryDirectory/mcremote_app_updates'`,
+using the suite's existing `useFakePathProvider` support. It asserts on the
+*directory*, not on a successful install — the stubbed checksum is deliberately
+wrong, so the download fails verification after the directory is created, which
+keeps it a test of the path rather than of sha256.
+
+**Proven to discriminate — at the second attempt.** The first revert experiment
+reported "All tests passed" with the fix supposedly removed. The experiment was
+the flaw, not the test: `dart format` had reflowed the line across three lines,
+so the `str.replace()` matched nothing and silently changed the file not at all.
+Re-run with an assertion on the search string:
+
+```text
+fix REVERTED:  PROBE want=…/mcremote_testig8VBJ/mcremote_app_updates exists=false
+               Expected: true   Actual: <false>
+               00:00 +0 -1: Some tests failed.
+fix RESTORED:  00:00 +3: All tests passed!
+```
+
+Second time in this plan that a proof was itself wrong (0127 P7 gate 1 was the
+first). A revert experiment needs its edit asserted, exactly like the gate needs
+its negative test.
+
+**Verification.** `dart format` clean, `flutter analyze` clean, `flutter test`
+**`+1360 ~3`**. `./gradlew :app:compileReleaseKotlin` exits 0.
+`assert-android-manifest-surface.sh` still OK — narrowing `file_paths.xml` does
+not change the permission/exported surface.
+
+**Not verified:** the ANR itself. The threading fix is reasoned from the
+measured 40,286,708-byte APK (`proguard-rules.pro:11`) and Android's 5 s
+threshold; it has not been observed on hardware. P7 row 3 is where that is
+checked.
