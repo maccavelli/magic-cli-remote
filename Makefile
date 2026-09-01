@@ -396,6 +396,7 @@ preflight:
 	MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 $(MAKE) --no-print-directory build >/dev/null
 	@./bin/mcremote version
 	@./bin/mcrelay version
+	@echo "==> flutter pin"; ./scripts/assert-flutter-pin.sh
 	@echo "==> dart format";  cd apps/mobile && dart format --output=none --set-exit-if-changed .
 	@echo "==> flutter analyze"; cd apps/mobile && flutter analyze
 	@echo "==> flutter test";  cd apps/mobile && flutter test

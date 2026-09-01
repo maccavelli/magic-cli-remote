@@ -874,3 +874,73 @@ that previously carried this preference.
 
 **Revisit trigger:** a 11.0.x containing #1236, or Flutter's default reaching
 37. The migration analysis above still holds then, so it should be a plain bump.
+
+### P7 — Dependabot deleted, both drift gates added and proven
+
+**`.github/dependabot.yml` deleted** (`git rm`). What that gives up, recorded so
+it is not rediscovered as a surprise: the GitHub Actions SHA pins in `ci.yml`
+are now updated by hand only, and that file's own comment called the bot *"the
+only practical way to run SHA pins without them rotting"*. The gomod ecosystem
+stops too; `govulncheck` in the pre-add gate still covers *called*
+vulnerabilities there. No substitute is offered — see Deferred.
+
+**Gate 1 — lockfile reproducibility (CI).** A step in `ci.yml`'s `flutter` job,
+immediately after `Pub get`, running `git diff --exit-code --stat pubspec.lock`
+with a `::error file=` annotation naming the pinned version and the fix. `pub
+get` rewrites the lockfile in place and never fails on an unsatisfiable
+committed resolution, so comparing the tree afterwards is the only thing that
+catches it.
+
+**Gate 2 — host matches the pin (`make preflight`).**
+`scripts/assert-flutter-pin.sh` reads `FLUTTER_VERSION` out of `ci.yml` rather
+than duplicating the number, and on mismatch prints both versions and the
+*correct direction* to reconcile (`flutter upgrade` vs `flutter downgrade`,
+chosen by `sort -V`). Skips cleanly when `flutter` is absent. Wired into
+`preflight` ahead of the `dart format` step, so a mismatched host is told before
+it spends a full Go suite. Honours `MC_CI_FILE` so it can be tested against a
+copy.
+
+#### C5 — both gates observed failing before being trusted
+
+**Gate 2:**
+
+```text
+negative (copy of ci.yml pinned to 3.44.8, host 3.47.2):
+  assert-flutter-pin: FAIL
+    local  Flutter 3.47.2
+    pinned Flutter 3.44.8
+      flutter downgrade 3.44.8       # local is newer than the pin
+  exit=1
+positive (real tree):  assert-flutter-pin: OK … (3.47.2)   exit=0
+```
+
+**Gate 1** — and this one is why C5 exists. The *first* negative test did not
+fire, and the gate was right:
+
+```text
+attempt 1: edit pubspec.lock in the WORKING TREE, pub get, diff  -> clean
+```
+
+`pub get` repaired the edit back to `HEAD`, so the tree genuinely was
+reproducible and a clean diff was the correct answer. The failure mode is a
+**committed** lockfile the toolchain cannot reproduce — the `6c02c8e` shape.
+Reproduced properly, in a scratch clone:
+
+```text
+attempt 2: commit meta 1.18.0 (unsatisfiable against the SDK's ^1.18.3),
+           then pub get:
+  > meta 1.19.0 (was 1.18.0)
+  Changed 1 dependency!
+  git diff --exit-code --stat pubspec.lock
+   apps/mobile/pubspec.lock | 2 +-
+  ==> GATE 1 FIRED AS EXPECTED
+positive (real tree): GATE 1 PASSES (lockfile reproducible)
+```
+
+Had C5 not required the negative test, attempt 1's clean result would have been
+read as "gate works" and a gate that fires on nothing would have shipped —
+precisely the failure that let `6c02c8e` through.
+
+Both negative tests ran against a **copy** of `ci.yml` and a **scratch clone**;
+no tracked file was dirtied and no `git checkout --` was used on the working
+tree.

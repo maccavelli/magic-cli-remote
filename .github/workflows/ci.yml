@@ -402,6 +402,21 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      # MADR 0127 D7 gate 1. `flutter pub get` rewrites pubspec.lock in place
+      # and does NOT fail when the committed resolution is unsatisfiable under
+      # the pinned SDK — it just silently re-resolves. That is how dependabot
+      # commit 6c02c8e (2026-08-14) left the lockfile fiction for 2.5 weeks
+      # while CI built an unrecorded dependency set. Comparing the tree after
+      # the resolve is the only thing that catches it.
+      - name: Lockfile is reproducible under the pinned toolchain
+        working-directory: apps/mobile
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code --stat pubspec.lock; then
+            echo "::error file=apps/mobile/pubspec.lock::pubspec.lock is not reproducible under Flutter ${FLUTTER_VERSION}. Run 'flutter pub get' locally on that exact version and commit the result (MADR 0127 D7)."
+            exit 1
+          fi
+
       # `flutter analyze` ignores formatting, so unformatted Dart used to merge
       # green. Fix locally with `dart format .` in apps/mobile.
       - name: Format
