@@ -994,6 +994,22 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   @visibleForTesting
   Future<ClientIdentity> debugEnsureIdentity() => _ensureIdentity();
 
+  /// Whether the periodic app-ping timer is armed (MADR 0126 F2). A parked or
+  /// torn-down client must not leave one running: it is a wakeup every
+  /// [kAppPingPeriod] for a socket that no longer exists.
+  @visibleForTesting
+  bool get debugPingArmed => _pingTimer?.isActive ?? false;
+
+  /// Whether any per-socket resource is still held (MADR 0126 F2): the
+  /// channel, its subscription, the pinned HttpClient, or the relay bridge —
+  /// which owns an outer WSS, a second HttpClient and a loopback ServerSocket.
+  @visibleForTesting
+  bool get debugSocketResourcesHeld =>
+      _channel != null ||
+      _sub != null ||
+      _httpClient != null ||
+      _relayTransport != null;
+
   Future<ClientIdentity> _ensureIdentity() {
     final existing = _identityFuture;
     if (existing != null) return existing;
@@ -2492,6 +2508,22 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
       _failAllPending('connection replaced');
       debugPrint('mcremote: connection replaced by a newer login');
       _setState(McConnectionState.disconnected);
+      // Parking is a state decision, not a licence to skip cleanup
+      // (MADR 0126 D3/F2). This was the one terminal path that returned
+      // before `_teardownSocket`, leaving the 10 s ping timer armed and —
+      // on the relay path — the outer WSS, its HttpClient and the loopback
+      // ServerSocket open. 4001 means a newer login replaced us and the
+      // reconnect is deliberately deferred to the next user action, so
+      // "until the next dial" can be hours, or never; a phone in that state
+      // was holding a relay slot the whole time.
+      //
+      // suppressReconnect mirrors disconnect(); `_connectLeg` clears the
+      // latch after it adopts the next socket.
+      unawaited(
+        _teardownSocket(suppressReconnect: true).catchError((Object e) {
+          debugPrint('mcremote: replaced-close teardown failed: $e');
+        }),
+      );
       return;
     }
     // A capacity refusal (1013) may carry the daemon's estimate of when a

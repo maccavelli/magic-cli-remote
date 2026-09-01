@@ -830,3 +830,49 @@ once 0127 completes.
 * **Toolchain for the remaining phases:** Flutter 3.47.2 / Dart 3.13.2. The
   suite baseline is still `+1358 ~3`, so P2's "count must rise" criterion
   measures from 1358.
+
+### 2026-09-01 — P2 complete (F2, D3)
+
+**Edit 1 — `mcremote_client.dart`, the 4001 branch.** The `kCloseReplaced` case
+now runs `unawaited(_teardownSocket(suppressReconnect: true))` before returning,
+keeping the synchronous `_setState(disconnected)` so the park semantics and the
+existing test's timing are untouched. The two checks the phase flagged both held
+in practice: cancelling the subscription from inside its own `onDone` is legal
+on a completed subscription, and leaving `_suppressReconnect` latched is safe
+because `_connectLeg` clears it after adopting the next socket.
+
+**Edit 2 — two test seams**, in the style of the class's existing
+`debugIdentityFuture` / `debugEnsureIdentity`:
+
+```dart
+bool get debugPingArmed            // _pingTimer?.isActive ?? false
+bool get debugSocketResourcesHeld  // channel | sub | httpClient | relay
+```
+
+**Verification — the assertions were proven to fail first.** With the production
+fix temporarily reverted (via a `cp` backup and an inverse edit, restored
+immediately after — no `git checkout`):
+
+```text
+fix REVERTED:
+  00:02 +0 -1: 4001 replaced: parks disconnected, keeps pairing, never re-dials [E]
+    Expected: false
+      Actual: <true>
+    0126 F2: a parked client must not keep a ping timer armed
+
+fix RESTORED:
+  00:04 +3: All tests passed!
+```
+
+A `true` ping timer on a parked client is exactly F2: a wakeup every
+`kAppPingPeriod` for a socket that no longer exists, alongside an unreleased
+HttpClient and relay bridge.
+
+**Edit 3 — a contrast test.** `'contrast: a live connection does hold its socket
+and ping'` asserts both seams are `true` while connected. Without it the two
+new assertions would also pass against a client that never armed anything, which
+would make them prove nothing — the same trap C5 caught in 0127 P7.
+
+**Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
+**`+1359 ~3`** — up from the 1358 baseline, satisfying the acceptance criterion
+that the count must rise rather than merely stay green.
