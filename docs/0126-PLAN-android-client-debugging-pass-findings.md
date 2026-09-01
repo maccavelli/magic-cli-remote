@@ -811,12 +811,22 @@ once 0127 completes.
   toolchain-independent and were re-verified green on 3.47.2.
 * `flutter test` baseline is unchanged at `+1358 ~3`, so P2's "suite count must
   rise" acceptance criterion still measures from 1358.
-* **P3's allowlist may move.** 0127 P4 re-captures the merged manifest surface
-  on the new SDK; any difference lands in this plan's allowlist rather than
-  being discovered by its own gate.
-* **P1's evidence may need refreshing.** 0127 D4 takes
-  `flutter_foreground_task` 10.0.0 → 11.0.1, and 0127 P6b re-reads 11.x's Kotlin
-  against the six claims MADR 0126 F1 makes about 10.0.0. If 11.x moves any of
-  them, F1 and P1's manifest comment are amended to describe what ships. If it
-  invalidates the *fix* rather than the evidence, that returns here as a
-  deviation.
+* **P3's allowlist is unaffected.** 0127 P4 re-captured the merged manifest
+  surface on Flutter 3.47.2 and diffed it against the 2026-09-01 baseline:
+  **identical**, all 16 lines. The allowlist drafted in P3 can be committed as
+  written. Android SDK levels are also unchanged (compileSdk 36 / targetSdk 36 /
+  minSdk 24), so P3's `tools:node="remove"` decisions stand.
+* **P1's evidence is unchanged, only its version citation.** 0127 P6b took
+  `flutter_foreground_task` 10.0.0 → **11.0.1** and re-read 11.x's Kotlin
+  against all six claims MADR 0126 F1 makes. All six hold, at identical line
+  numbers — 11.0.0 was a Kotlin-KGP and Swift-Package-Manager packaging release,
+  not a service-lifecycle change. F1 carries a version note; P1's manifest
+  comment needed no edit. The fix is not invalidated.
+* **One extra reason P1 was worth doing:** the same bump cleared the plugin from
+  both of Flutter 3.47's future-breaking warnings (Android KGP, iOS SPM). Two
+  plugins still trip the KGP one — `mobile_scanner` and `speech_to_text`, both
+  already at their newest published version with no migrated release. Tracked as
+  0127's F-KGP.
+* **Toolchain for the remaining phases:** Flutter 3.47.2 / Dart 3.13.2. The
+  suite baseline is still `+1358 ~3`, so P2's "count must rise" criterion
+  measures from 1358.

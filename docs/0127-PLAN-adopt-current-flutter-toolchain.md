@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: complete
 date: 2026-09-01
 associated-madr: "0127-MADR-adopt-current-flutter-toolchain.md"
 ---
@@ -944,3 +944,28 @@ precisely the failure that let `6c02c8e` through.
 Both negative tests ran against a **copy** of `ci.yml` and a **scratch clone**;
 no tracked file was dirtied and no `git checkout --` was used on the working
 tree.
+
+### P8 — Handed back to 0126
+
+Whole-plan verification, 2026-09-01:
+
+```text
+flutter pub get; git status --short pubspec.lock   -> clean (idempotent)
+flutter pub outdated, direct dependencies          -> only flutter_secure_storage
+                                                      (deferred, see P6c)
+dev_dependencies                                   -> all up-to-date
+./scripts/assert-flutter-pin.sh                    -> OK (3.47.2)
+test ! -f .github/dependabot.yml                   -> removed
+grep -rn '3\.44\.' README.md .github/workflows/ci.yml -> none
+flutter analyze / flutter test                     -> clean / +1358 ~3
+release APK 41.0 MB; iOS simulator build 37.6 s
+```
+
+Acceptance criteria 1–9 met. Criterion 3 is met with one recorded exception —
+`flutter_secure_storage` — whose deferral is evidence-backed in P6c and 0066's
+amendment rather than an oversight. Criterion 10 is met: 0126 F1 carries its
+version note and 0066 carries the D1 revisit outcome.
+
+0126-PLAN's interruption entry is closed out with the measured answers: its P3
+allowlist is unaffected (manifest surface identical), and its P1 evidence holds
+against `flutter_foreground_task` 11.0.1. 0126 resumes at P2.
