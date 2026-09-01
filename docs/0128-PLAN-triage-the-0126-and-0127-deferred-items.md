@@ -402,3 +402,58 @@ asserting re-initialisation happened and delivery does not throw.
 
 **Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
 `+1367 ~3`.
+
+### P4 — The isolate-per-save cost, measured (D4, C2)
+
+`apps/mobile/test/transcript_cache_bench_test.dart`, tagged `bench` so it stays
+out of the default suite. **No production file changed** (C2).
+
+```text
+--- 0128 D4: transcript cache codec cost (N=50, 150 items) ---
+payload serialized:   59390 bytes
+encode via compute(): median 0.35ms  p90 0.69ms
+encode inline:        median 0.12ms  p90 0.21ms
+decode via compute(): median 0.58ms  p90 1.11ms
+decode inline:        median 0.15ms  p90 0.20ms
+worst-case cadence:   1 save / 400ms / session
+```
+
+**The instrument was checked before the numbers were believed.** 0.35 ms is far
+cheaper than an isolate spawn is usually assumed to cost, which is exactly the
+shape of a benchmark measuring the wrong thing — so a probe confirmed `compute`
+really does cross an isolate boundary in `flutter_test`:
+
+```text
+main isolate     : main
+callback isolate : Closure: (int) => String from Function 'probe': static.
+sideEffect seen in main: 0    (0 => separate isolate, 99 => inline)
+```
+
+A top-level variable set inside the callback was **not** visible afterwards in
+the main isolate. The spawn is real; Dart's `Isolate.run` is simply much cheaper
+than the classic `Isolate.spawn` mental model. (Probe removed; it was never
+committed.)
+
+#### Conclusion: the deferral closes, no action needed
+
+Worst case is ~2.5 saves/second/session during sustained streaming, so
+`compute`'s overhead over inline is roughly **0.6 ms per second per streaming
+session** — against a 16 ms frame budget, on a path that is already debounced
+and off the critical rendering path. There is nothing here worth optimising, and
+0126 was right to refuse to guess either way.
+
+**A more interesting observation, recorded rather than acted on.** The *inline*
+encode is 0.12 ms. MADR 0084 B2 moved this work to an isolate because the decode
+"exceeded a frame budget on a large entry" — at `kTranscriptCacheMaxItems` = 150
+neither direction comes close. Either the constant has shrunk since that
+measurement, or the original case was larger than today's cap allows. So the
+open question is not "is `compute` too expensive" but "is `compute` still
+needed" — which belongs with 0084's measurement set, not here, and is not worth
+touching for 0.2 ms either way.
+
+**Limits of the instrument**, stated so the numbers are not over-read: a desktop
+VM's isolate spawn and JSON codec are not an Android phone's. What transfers is
+the *ratio* (compute ≈ 3× inline) and the absolute payload size (58 KB); the
+per-call milliseconds do not. The payload is synthetic — 150 assistant items of
+~400 characters each — chosen to be representative of a streamed reply rather
+than a one-liner.
