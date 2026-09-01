@@ -39,9 +39,19 @@ class NotificationService {
   /// `showsUserInterface: true`.
   static const _approvalCategoryId = 'approval_actions';
 
-  final _responses = StreamController<NotifResponse>.broadcast();
+  /// Recreated by [init] after a [dispose] (MADR 0128 D3): a closed
+  /// `StreamController` cannot be reopened, and adding to one throws.
+  ///
+  /// Guarding `add` on `isClosed` instead would turn a restart into silent
+  /// non-delivery, which is the failure this app least wants — the whole point
+  /// of the class is that an approval alert reaches the user.
+  StreamController<NotifResponse> _responses =
+      StreamController<NotifResponse>.broadcast();
 
   /// Decoded taps on notification bodies / action buttons.
+  ///
+  /// Read this per use rather than caching it across a [dispose]: the
+  /// controller behind it is replaced on restart.
   Stream<NotifResponse> get responses => _responses.stream;
 
   bool _ready = false;
@@ -64,6 +74,11 @@ class NotificationService {
 
   Future<void> init() async {
     if (_ready) return;
+    // A restart after dispose() needs a live controller; the old one is closed
+    // and cannot be reopened (MADR 0128 D3).
+    if (_responses.isClosed) {
+      _responses = StreamController<NotifResponse>.broadcast();
+    }
     // Notifications are best-effort: a missing plugin (tests, unsupported
     // platform) or a denied permission must never crash the app.
     try {
@@ -512,7 +527,17 @@ class NotificationService {
     }
   }
 
+  /// Release the plugin wiring and the response stream.
+  ///
+  /// Leaves the object **restartable** (MADR 0128 D3): `_ready` is cleared so a
+  /// later [init] actually re-initialises instead of returning at its own
+  /// `if (_ready) return`, and [init] recreates the closed controller. Without
+  /// the reset, a `start()` after a `dispose()` skipped initialisation and then
+  /// threw on the first `show*` — while its counterpart,
+  /// `NotificationCoordinator.dispose()`, nulls its subscriptions precisely so
+  /// a later `start()` re-subscribes. The two halves of that pair disagreed.
   void dispose() {
+    _ready = false;
     _responses.close();
   }
 }

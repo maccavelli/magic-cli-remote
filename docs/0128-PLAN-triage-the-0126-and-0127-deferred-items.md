@@ -373,3 +373,32 @@ Previously `0.15.3`; before 0126 P6, `0.1.0`.
 
 **Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
 **`+1366 ~3`**.
+
+### P3 — `NotificationService` is restartable (D3)
+
+`dispose()` now clears `_ready`, and `init()` recreates `_responses` when it
+finds the controller closed. The controller field stopped being `final` for that
+reason.
+
+Recreating rather than guarding `add` on `isClosed`, as the phase specified: a
+guard turns a restart into silent non-delivery, which is the worst available
+outcome for a class whose whole job is getting an approval alert to the user.
+
+**Proven to fail first (C1).** With only the `_ready = false` removed:
+
+```text
+00:00 +0 -1: restart after dispose (0128 D3) … [E]
+  Expected: not null
+    Actual: <null>
+  0128 D3: dispose() must clear _ready so init() runs again
+```
+
+`initSettings` stayed null because the second `init()` returned at its own
+`if (_ready) return` — the exact skip that left the closed controller in place
+for the next `show*`.
+
+The test does `init()` → `dispose()` → `init()` → listen → `showTurnComplete`,
+asserting re-initialisation happened and delivery does not throw.
+
+**Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
+`+1367 ~3`.
