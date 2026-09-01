@@ -632,3 +632,66 @@ Corrections this record makes:
 * This record does not supersede 0094. It corrects two claims in its
   Consequences and extends its coverage; 0094's decisions remain in
   force.
+
+## Amendment, 2026-09-01 — D4's S2 row is unreachable under go_router 18.0.0
+
+Recorded while executing [0127-PLAN](0127-PLAN-adopt-current-flutter-toolchain.md)
+P6a, which bumps `go_router` 17.5.0 → 18.0.0.
+
+The D4 probe above measured S2 — *"user backed out mid-delete"* — as
+`(isActive false, isCurrent false)`. Reading those flags at all presumes the
+chat `State` is **still mounted** when the delete resolves, which was true on
+the SDK the probe ran against and which
+`chat_end_session_navigation_test.dart` states in a comment: *"its State stays
+mounted until the transition finishes."*
+
+**Under go_router 18.0.0 it is not.** The State is disposed before the in-flight
+`session.delete` completes, so `_completeEndSessionFlow`'s opening
+`if (!mounted) return;` fired and the guard never reached the route flags.
+Measured, with a `Completer`-gated delete:
+
+```text
+PROBE endedToast=0  betaRows=1  emptyState=0  listTiles=2  chatScreens=0
+PROBE Beta ancestors: DefaultTextStyle < AnimatedDefaultTextStyle < _ListTile < …
+```
+
+`chatScreens=0` (no lingering route), `endedToast=0` (the completion never
+ran), and the deleted session still rendered as a sessions-list `ListTile`.
+The host had deleted it — `deleteCalls == ['sess-b']` passed. So all three
+completion effects were skipped: `clearSession`, the toast, and
+`sessionsRevisionProvider.bump()` — and the bump is the only thing that
+refreshes the list on that path (`chat_screen.dart` → `sessions_screen.dart`'s
+`ref.listen`).
+
+### What changed, and why it is not just a probe refresh
+
+Re-measuring S2 against go_router 18 would produce a row that says "State
+disposed" — but that is not a discriminator the code can branch on, because by
+then `ref` is dead too. The decision underneath D4 is amended rather than its
+table:
+
+**The completion's *state* effects no longer run behind the `mounted` guard.**
+`clearSession` and `bump()` are not UI. The host has deleted the session, so
+the local transcript is stale and the sessions list is wrong regardless of
+whether the screen still exists. They now run first and unconditionally, using
+notifiers captured in `initState` (the pattern `app_lifecycle.dart:50-58`
+already uses for exactly this reason). Only the toast and the navigation — the
+two things that genuinely need a live `BuildContext` — remain behind `mounted`,
+and the route-flag branch below it is unchanged.
+
+This makes the S1/S3/S4/S5 rows of the D4 table still correct and still
+load-bearing, and removes S2's dependence on a timing measurement that a router
+major is entitled to change. D4's *mechanism* stands; its *precondition* — that
+the State outlives the RPC — was the part that was never guaranteed.
+
+Verified: all 10 tests in `chat_end_session_navigation_test.dart` pass, full
+suite `+1358 ~3` on Flutter 3.47.2 / go_router 18.0.0.
+
+### Follow-up not taken here
+
+The confirmed-purge path (0094 D7) in the same method has the same shape: its
+`catch` block returns early on `if (!mounted) return;` **twice**, so a delete
+whose `ok` was lost while the user backs out still leaves stale local state.
+Fixing it means deciding whether a disposed screen should keep issuing
+`session.list` round trips, which is a larger question than this amendment.
+Named so it is not mistaken for an oversight.

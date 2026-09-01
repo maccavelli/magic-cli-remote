@@ -680,3 +680,77 @@ This will become an error in a future version of Flutter.
 `flutter_foreground_task` 11.0.0 adds `[FEAT] Support Swift Package Manager
 (SPM) #387`, so **P6b's bump clears this and the Android KGP warning at once**.
 That makes P6b the highest-value of the three majors, not merely the riskiest.
+
+### P6a — `go_router` 18.0.0
+
+Changelog reviewed first: 18.0.0 is *"Migrates to material_ui and cupertino_ui"*
+plus a min-SDK bump to Flutter 3.44/Dart 3.12 (already exceeded). No API
+breaking changes listed — which turned out not to mean no breaking behaviour.
+
+`pubspec.yaml` `^17.5.0` → `^18.0.0`. Resolution pulled in Flutter's new split
+UI packages: `+ cupertino_ui 1.0.1`, `+ material_ui 1.1.0`, `+ intl 0.20.3`,
+`+ flutter_localizations` (sdk).
+
+Format clean, `flutter analyze` clean, and then **one test failed**.
+
+#### Deviation — go_router 18.0.0 shipped a user-visible regression
+
+`chat_end_session_navigation_test.dart` — *"back press while the delete is in
+flight leaves the sessions list intact"*. Attributable to the router alone: the
+same suite was `+1358 ~3` on 3.47.2 with go_router 17.5.0 (P3).
+
+Two probes, run against a `cp` backup with the test restored clean afterwards:
+
+```text
+PROBE Beta ancestors: DefaultTextStyle < AnimatedDefaultTextStyle < _ListTile < …
+PROBE endedToast=0  betaRows=1  emptyState=0  listTiles=2  chatScreens=0
+```
+
+`chatScreens=0` — no lingering route. `endedToast=0` — `_completeEndSessionFlow`
+returned at its opening `if (!mounted) return;`. The deleted session was still
+rendered as a sessions-list `ListTile`, and the host had deleted it
+(`deleteCalls == ['sess-b']` passed).
+
+Under go_router 18 the chat `State` is disposed **before** the in-flight
+`session.delete` resolves, so `clearSession`, the "Session ended" toast, and
+`sessionsRevisionProvider.bump()` were all skipped. The bump is the only thing
+that refreshes the sessions list on that path. **User-visible result: end a
+session, back out while it is in flight, and the app keeps showing a session
+the host has already deleted — no confirmation, stale transcript — until a
+manual refresh.**
+
+The test was right. What it exposed is that
+`_completeEndSessionFlow`'s branch table is documented as *"Measured at guard
+time (0095 Step 6 probe, Flutter SDK in use)"* — go_router 18 did not break
+something arbitrary, it invalidated a measurement.
+
+**Decision (owner, 2026-09-01): fix the flow, then take 18.** The alternative
+offered was deferring the `go_router` major to its own record; declining a
+discretionary upgrade would not have been a workaround, but hardening the path
+is worth more because it is fragile on *any* SDK, not just this router.
+
+**Scope added to this phase:** `apps/mobile/lib/features/chat/chat_screen.dart`,
+and an amendment to
+[0095](0095-MADR-post-0094-assessment-and-debug-pass.md) (its D4 probe's S2 row
+is no longer reachable). 0094's decisions are untouched — the pop /
+`didPopNext` path is unchanged.
+
+**The fix.** State effects and UI effects are separated, because only the second
+kind needs a live `BuildContext`:
+
+* `clearSession` and `bump()` now run **first and unconditionally**, through
+  `TranscriptsNotifier` and `SessionsRevisionController` captured in
+  `initState` — the pattern `app_lifecycle.dart:50-58` already uses for exactly
+  this hazard, and which `chat_screen.dart` already applied to `_notifCoord`.
+  `ref` dies with the element; these two notifiers are app-lifetime.
+* The toast and the route-flag branch stay behind `mounted`, unchanged. S1, S3,
+  S4 and S5 of 0095's D4 table still discriminate exactly as measured.
+
+**Verification.** All 10 tests in `chat_end_session_navigation_test.dart` pass
+(previously 9/10); full suite `+1358 ~3`; `flutter analyze` clean.
+
+**Named, not fixed:** the 0094 D7 confirmed-purge path in the same method has
+the identical shape — its `catch` block early-returns on `!mounted` twice, so a
+delete whose `ok` was lost while backing out still leaves stale local state.
+Fixing it requires deciding whether a disposed screen should keep issuing
+`session.list` round trips. Recorded in the 0095 amendment.
