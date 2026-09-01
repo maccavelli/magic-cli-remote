@@ -66,6 +66,17 @@ class ForegroundServiceController {
         // maintenance retry.
         allowWakeLock: false,
         allowWifiLock: false,
+        // MADR 0126 P3 step 2. The in-app updater replaces the package and the
+        // OS kills the service with it; without this the user must tap the
+        // "Updated" notification before alerts resume. Honoured by
+        // RebootReceiver, which the manifest already declares — this is what
+        // turns that exported receiver from an inert no-op into a reviewed,
+        // used component.
+        //
+        // autoRunOnBoot stays false, deliberately: starting a service at boot
+        // is a larger claim on the user's device than restarting one they were
+        // already using.
+        autoRunOnMyPackageReplaced: true,
       ),
     );
     _inited = true;

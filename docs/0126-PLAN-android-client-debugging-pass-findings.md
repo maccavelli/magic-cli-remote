@@ -876,3 +876,67 @@ would make them prove nothing — the same trap C5 caught in 0127 P7.
 **Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
 **`+1359 ~3`** — up from the 1358 baseline, satisfying the acceptance criterion
 that the count must rise rather than merely stay green.
+
+### 2026-09-01 — P3 complete (F3, D4)
+
+**Step 1 — the removals, decided one at a time.** Only one of the four
+undeclared permissions was dead weight:
+
+| permission | verdict | why |
+|---|---|---|
+| `ACCESS_NETWORK_STATE` | keep | connectivity_plus; feeds `onConnectivityChanged`, which `app_lifecycle.dart:128` depends on |
+| `VIBRATE` | **keep** | the ask and error channels are `Importance.high` with vibration at its default — removing it silences the buzz on approval alerts |
+| `WAKE_LOCK` | **remove** | nothing acquires one: `allowWakeLock`/`allowWifiLock` false and no scheduled notifications |
+| `RECEIVE_BOOT_COMPLETED` | keep | see step 2 |
+
+`VIBRATE` is the one this phase warned about: it reads as obvious plugin cruft
+and is load-bearing. Removing all four as a batch would have shipped a silent
+approval alert.
+
+**Step 2 — the recommended option taken.** `RECEIVE_BOOT_COMPLETED` and the
+plugin's `RebootReceiver` are **kept**, and `ForegroundTaskOptions` now sets
+`autoRunOnMyPackageReplaced: true`. The service therefore returns by itself
+after the in-app updater replaces the package, instead of the user having to tap
+the "Updated — tap to open" notification. `autoRunOnBoot` stays `false`:
+starting a service at boot is a larger claim on the user's device than
+restarting one they were already using.
+
+Verified the option still exists and is honoured at the version 0127 P6b moved
+us to — `flutter_foreground_task` **11.0.1**:
+`foreground_task_options.dart:9,25` and `RebootReceiver.kt:49-51`.
+
+This converts the exported receiver 0126 F3 complained about from an inert
+no-op into a reviewed, used component.
+
+**`WAKE_LOCK` is actually gone now.** The manifest comment claiming MADR 0084 D3
+removed it has been corrected: the plugin declares it unconditionally and the
+merger put it straight back, so the shipped APK carried it for the entire life
+of that claim. `tools:node="remove"` is what removes it; a comment cannot.
+Confirmed against the regenerated merged manifest — the surface dropped from 16
+lines to 15.
+
+**Steps 3–5 — the gate.** `scripts/assert-android-manifest-surface.sh` (reads
+the merged manifest with `xml.etree`, emits sorted `permission …` /
+`exported <tag> <name> <perm>` lines, `diff -u` against
+`apps/mobile/android/manifest-surface.allow`, fails on additions **and**
+removals), a `make manifest-surface` target, and a CI step in `android-apk`
+placed immediately after the existing Android lint step — where
+`processReleaseManifest` has already run, so it costs seconds and fails in ~1
+minute.
+
+The allowlist carries a header naming why each non-obvious entry is there
+(`DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` is AGP-injected and looks like junk;
+`RebootReceiver` is exported and unguarded because the plugin declares it that
+way — "reviewed, not liked").
+
+**Proven failing in both directions before being trusted** (C2/C5), against
+copies of the allowlist so no tracked file was dirtied:
+
+```text
+addition (allowlist missing VIBRATE):      +permission …VIBRATE      exit=1
+removal  (allowlist has BLUETOOTH):        -permission …BLUETOOTH    exit=1
+positive (real tree):   OK surface matches the allowlist             exit=0
+```
+
+**Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
+`+1359 ~3`.

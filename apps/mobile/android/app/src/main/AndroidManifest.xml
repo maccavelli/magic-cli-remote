@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
@@ -27,11 +28,28 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING"/>
     <!--
-      WAKE_LOCK was removed (MADR 0084 D3 finding): nothing used it. The
-      foreground service sets allowWakeLock: false on purpose — it keeps the
-      process alive for alerts, and must not hold radio or CPU locks while a
-      parked connection waits on its slow maintenance retry.
+      WAKE_LOCK: nothing in this app acquires one. The foreground service sets
+      allowWakeLock/allowWifiLock false on purpose (it keeps the process alive
+      for alerts and must not hold radio or CPU locks while a parked connection
+      waits on its slow maintenance retry), and no notification is scheduled.
+
+      MADR 0084 D3 said it "was removed", but flutter_foreground_task's own
+      manifest declares it unconditionally and the merger put it straight back —
+      so the shipped APK carried it for the life of that claim (MADR 0126 F3).
+      tools:node="remove" is what actually removes it; a comment cannot.
+
+      RECEIVE_BOOT_COMPLETED and the plugin's RebootReceiver are deliberately
+      KEPT (0126 P3 step 2): the app now sets autoRunOnMyPackageReplaced, so the
+      keep-alive service returns by itself after an in-app APK update instead of
+      waiting for the user to tap the "Updated" notification. autoRunOnBoot
+      stays false, so nothing starts at boot.
+
+      VIBRATE and ACCESS_NETWORK_STATE are also kept and are NOT dead weight:
+      the ask and error channels are Importance.high with vibration left at its
+      default, and connectivity_plus needs ACCESS_NETWORK_STATE for the
+      onConnectivityChanged signal the reconnect path depends on.
     -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="remove"/>
 
     <!-- Voice input (speech_to_text): dictate a prompt hands-free. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>

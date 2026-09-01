@@ -148,7 +148,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose live-codex live-codex-contract live-grok live-kilo race test-all preflight apk \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose live-codex live-codex-contract live-grok live-kilo race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target check-cgo-off
 
@@ -424,6 +424,15 @@ verify-units:
 		systemd-analyze verify "$$out" || rc=1; \
 	done; \
 	exit $$rc
+
+# Check the shipped Android permission / exported-component surface against
+# apps/mobile/android/manifest-surface.allow (MADR 0126 D4). Nothing else in
+# this repo reads the merged manifest, which is how a plugin injected WAKE_LOCK,
+# RECEIVE_BOOT_COMPLETED, VIBRATE and an exported receiver unnoticed (0126 F3).
+manifest-surface:
+	cd $(MOBILE_DIR) && flutter build apk --config-only --release --target-platform android-arm64
+	cd $(MOBILE_DIR)/android && ./gradlew :app:processReleaseManifest -q
+	./scripts/assert-android-manifest-surface.sh
 
 # Build the release Android APK locally (arm64) for on-device testing. Debug-
 # signed unless apps/mobile/android/key.properties is present; the signed,

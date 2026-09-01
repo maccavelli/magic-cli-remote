@@ -613,6 +613,18 @@ jobs:
           cd android
           ./gradlew -PmcAndroidLint=true :app:lintVitalRelease --no-daemon
 
+      # MADR 0126 D4. The step above is a manifest-STRUCTURE gate; this is a
+      # manifest-SURFACE gate. lintVitalRelease passes a plugin-injected
+      # permission or exported component without comment, which is how the app
+      # shipped WAKE_LOCK, RECEIVE_BOOT_COMPLETED, VIBRATE and an exported
+      # RebootReceiver that appear nowhere in this repository (0126 F3).
+      # Placed here rather than after the APK build so a surface change fails
+      # in ~1 minute, for the same reason the lint step sits where it does —
+      # processReleaseManifest has already run as a dependency of lintVital.
+      - name: Android manifest surface matches the allowlist
+        working-directory: apps/mobile
+        run: ../../scripts/assert-android-manifest-surface.sh
+
       # Tag/release APKs MUST be Flutter release mode (not debug/profile).
       # FLUTTER_BUILD_MODE is fail-closed: only "release" is accepted.
       #
