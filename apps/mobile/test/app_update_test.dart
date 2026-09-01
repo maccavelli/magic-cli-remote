@@ -8,19 +8,53 @@ import 'package:http/testing.dart';
 import 'package:magic_cli_remote/data/update/app_update.dart';
 
 void main() {
-  group('AppUpdateService base compare (0065)', () {
-    test('parseBase', () {
-      expect(AppUpdateService.parseBase('0.6.7'), (0, 6, 7));
-      expect(AppUpdateService.parseBase('v0.7.0'), (0, 7, 0));
-      expect(AppUpdateService.parseBase('0.6.7.4.gabc')?.$3, 7);
-      expect(AppUpdateService.parseBase('dev'), isNull);
+  group('AppUpdateService published compare (0065, 0128 D2)', () {
+    test('parseVersion', () {
+      final a = AppUpdateService.parseVersion('0.6.7')!;
+      expect([a.major, a.minor, a.patch, a.n], [0, 6, 7, 0]);
+      final b = AppUpdateService.parseVersion('v0.7.0')!;
+      expect([b.major, b.minor, b.patch, b.n], [0, 7, 0, 0]);
+      // Patch may carry a local suffix; the serial is still read.
+      final c = AppUpdateService.parseVersion('0.6.7.4.gabc')!;
+      expect([c.patch, c.n], [7, 4]);
+      expect(AppUpdateService.parseVersion('dev'), isNull);
+      expect(AppUpdateService.parseVersion('debug'), isNull);
+      expect(AppUpdateService.parseVersion('0.6'), isNull);
     });
 
-    test('isNewerBase', () {
-      expect(AppUpdateService.isNewerBase('0.6.8', '0.6.7'), isTrue);
-      expect(AppUpdateService.isNewerBase('0.6.7', '0.6.7'), isFalse);
-      expect(AppUpdateService.isNewerBase('0.6.6', '0.6.7'), isFalse);
-      expect(AppUpdateService.isNewerBase('v0.7.0', '0.6.9.1.gdev'), isTrue);
+    // Unchanged from the three-part era: these all still hold.
+    test('base differences still decide', () {
+      expect(AppUpdateService.isNewerPublished('0.6.8', '0.6.7'), isTrue);
+      expect(AppUpdateService.isNewerPublished('0.6.7', '0.6.7'), isFalse);
+      expect(AppUpdateService.isNewerPublished('0.6.6', '0.6.7'), isFalse);
+      expect(
+        AppUpdateService.isNewerPublished('v0.7.0', '0.6.9.1.gdev'),
+        isTrue,
+      );
+    });
+
+    // MADR 0128 D2 — the case the old three-part compare got wrong. Go's
+    // update/run.go has compared the serial since MADR 0103; the phone did not,
+    // so a serial-only release was offered by the CLI and withheld by the app.
+    test('a serial-only release is newer', () {
+      expect(
+        AppUpdateService.isNewerPublished('v0.15.3.3', '0.15.3.2'),
+        isTrue,
+        reason: '0128 D2: N decides when the base is equal',
+      );
+      expect(
+        AppUpdateService.isNewerPublished('v0.15.3.1', '0.15.3.2'),
+        isFalse,
+      );
+      expect(
+        AppUpdateService.isNewerPublished('v0.15.3.2', '0.15.3.2'),
+        isFalse,
+      );
+    });
+
+    test('a three-part version reads as N=0, so it never beats a serial', () {
+      expect(AppUpdateService.isNewerPublished('v0.15.3', '0.15.3.1'), isFalse);
+      expect(AppUpdateService.isNewerPublished('v0.15.3.1', '0.15.3'), isTrue);
     });
   });
 

@@ -18,10 +18,14 @@ cd ..
 flutter pub get
 # Grab the dynamic version (e.g. 0.2.3.6) and split it
 VER="$("$ROOT/scripts/next-build-version.sh" | tail -1)"
-BUILD_NAME="${VER%.*}"
+# Full four-part version, matching `make apk` and CI (MADR 0128 D2). This script
+# previously split it to three parts, and `make apk` inherited that when it was
+# taught to stamp at all — so both local paths disagreed with CI's stated intent
+# that the APK and the binaries in a release carry the same version.
+BUILD_NAME="$VER"
 BUILD_NUMBER="${VER##*.}"
 
-if [[ "$BUILD_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+if [[ "$BUILD_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ && "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
   flutter build apk --release --target-platform android-arm64 --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
 else
   flutter build apk --release --target-platform android-arm64

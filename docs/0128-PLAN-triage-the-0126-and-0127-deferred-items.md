@@ -317,3 +317,59 @@ reports a malformed file on the repository's Dependabot page rather than failing
 a build. Local YAML parsing plus the schema assertions above are necessary, not
 sufficient; the first monthly run is the real confirmation and is outside this
 plan's reach.
+
+### P2 — Published-version compare, and one stamp shape (D2)
+
+**Part 1 — the comparison.** `isNewerBase` → `isNewerPublished`, mirroring Go's
+`update.NewerPublished` (`internal/update/version.go`), which is what
+`update/run.go:81` has used since MADR 0103. `parseBase` → `parseVersion`,
+returning a named `AppVersion` with a fourth component; a three-part version
+reads as `n = 0`, matching Go's zero value, so a three-part remote never appears
+newer than the same base carrying a serial.
+
+Renamed rather than extended in place: `isNewerBase` would have been a lie the
+moment it compared serials, and the old name is exactly what made the
+divergence from Go hard to notice.
+
+The parser follows Go's `leadingInt` behaviour for the awkward inputs — a patch
+field with a local suffix (`0.6.7.4.gabc`) still yields patch 7 and serial 4,
+and a non-numeric fourth field compares as 0 rather than making the whole
+version unparseable.
+
+**Proven to discriminate (C1).** With the comparison reverted to three-part
+semantics (`return false` when the base is equal — exactly what `isNewerBase`
+did):
+
+```text
+00:00 +2 -1: … a serial-only release is newer [E]
+  Expected: true
+    Actual: <false>
+  0128 D2: N decides when the base is equal
+```
+
+The four existing three-part cases were kept unchanged and still pass, so this
+is an extension of the old behaviour rather than a replacement of it.
+
+**Part 2 — the shape divergence 0126 P6 introduced.** `make apk` now passes the
+**full four-part** version as `--build-name`, matching CI and the intent stated
+at `ci.yml:631`. `--build-number` remains the serial locally and
+`github.run_number` in CI; that difference is deliberate and documented there,
+because a `versionCode` must increase monotonically for ever while N restarts at
+1 on each new release base.
+
+`scripts/build-apk.sh` carried the same three-part split — it is the source P6
+copied from — and was **aligned too** rather than left as a second local build
+path disagreeing with the first. The plan required this to be decided rather
+than drifted into; the decision is "fix it", and the comment in the script says
+why.
+
+```text
+==> apk 0.15.3.4 (4)
+aapt: versionCode='4' versionName='0.15.3.4'
+build tags: 264 before and after   (no ledger serial claimed)
+```
+
+Previously `0.15.3`; before 0126 P6, `0.1.0`.
+
+**Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
+**`+1366 ~3`**.

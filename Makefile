@@ -448,13 +448,23 @@ manifest-surface:
 # MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 is the same pair `preflight`
 # uses: a developer's local build must not claim a serial from the shared ledger
 # or push a build/* tag. Falls back to an unstamped build if the allocator
-# cannot produce a well-formed version, exactly as scripts/build-apk.sh does.
+# cannot produce a well-formed version.
+#
+# BUILD_NAME is the FULL four-part version, matching CI (ci.yml passes
+# needs.go.outputs.version) and the intent stated there — "versionName is the
+# full Go build version so the APK and the binaries in the same release agree".
+# The first version of this target split it to three parts, copying
+# scripts/build-apk.sh; that made a local APK's versionName differ in shape from
+# a CI one for no reason (MADR 0128 D2). --build-number stays the serial
+# locally and github.run_number in CI: that difference IS deliberate, because a
+# versionCode must increase monotonically forever while N restarts at 1 on each
+# new release base.
 apk:
 	@set -e; \
 	VER="$$(MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 $(NEXT_VERSION_SH) | tail -1)"; \
-	BUILD_NAME="$${VER%.*}"; BUILD_NUMBER="$${VER##*.}"; \
+	BUILD_NAME="$$VER"; BUILD_NUMBER="$${VER##*.}"; \
 	if [ -n "$(VERSION_FROM_CLI)" ]; then BUILD_NAME="$(VERSION)"; fi; \
-	if echo "$$BUILD_NAME" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' && \
+	if echo "$$BUILD_NAME" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$$' && \
 	   echo "$$BUILD_NUMBER" | grep -qE '^[0-9]+$$'; then \
 		echo "==> apk $$BUILD_NAME ($$BUILD_NUMBER)"; \
 		cd $(MOBILE_DIR) && flutter build apk --release --target-platform android-arm64 \
