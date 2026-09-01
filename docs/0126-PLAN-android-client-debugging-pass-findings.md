@@ -1070,3 +1070,58 @@ after. Do not read a truncated test log as a result.
 **Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
 **`+1361 ~3`**. `grep -rn "server.go:165" lib/` returns only this phase's own
 explanatory text.
+
+### 2026-09-01 — P6 complete (F6, F7, F8; D7, D8, D9)
+
+**F6 — one line.** `app_lifecycle.dart`'s prefs `catchError` now uses the
+captured `_recorder` instead of `ref.read(errorRecorderProvider)`. The class had
+already captured it, with a comment saying `ref` dies with the element; this was
+the single path that did not use it — inside the handler whose whole job is to
+survive a preferences failure.
+
+**F7 — three gaps, and the fix had a bug the tests caught.**
+
+1. *Losing reads.* `load()` and `usage()` do `existsSync()` then an async read;
+   `retainOnly` can delete in between. Both now treat a `FileSystemException`
+   as a cache miss. Deliberately **not** put on the `_serialized` chain: that
+   would queue every chat-open behind a debounced save and an isolate spawn to
+   close a rare race — trading a real latency cost for a hypothetical one.
+2. *Double migration.* `_directory` memoises the **future** now, not the value,
+   so two concurrent first-touchers share one open+migrate. `_dir` was assigned
+   before awaiting `_migrateLegacyEntries`, so `load()` and `save()` racing on a
+   cold cache both ran it over the same key snapshot. The memo is cleared on
+   failure so a transient error is not cached for the process lifetime.
+3. *Stranded temp files.* `_sweepTempFiles` removes `*.json.tmp` at open. Only
+   that exact suffix — deleting anything that merely fails to parse is how a
+   cache turns into a data-loss bug, and the new test asserts the undecodable
+   file **survives**.
+
+`_sessionIdFromFile` returns null instead of throwing. **The first version of
+this caught `FormatException` and did nothing at all**: `Uri.decodeComponent`
+throws `ArgumentError` ("Invalid URL encoding"), which is an `Error`, so neither
+`on FormatException` nor `on Exception` would have caught it. The regression
+test failed on exactly that and the catch was widened, with the reason recorded
+at the call site so it is not "tidied" back to a specific type.
+
+Three tests added: `clear()` survives a `%zz.json`; `load()` returns null after
+a mid-read delete; a stranded `.json.tmp` is swept.
+
+**F8 — `make apk` stamps the version.** Resolves `BASE.N` through
+`scripts/next-build-version.sh` with `MCREMOTE_VERSION_PUSH=0
+MCREMOTE_VERSION_TAG=0` — the same pair `preflight` uses, so a developer's local
+build claims no serial from the shared ledger and pushes no `build/*` tag.
+Falls back to an unstamped build on a malformed version, as
+`scripts/build-apk.sh` already did. Verified:
+
+```text
+resolved: 0.15.3.2 -> name=0.15.3 number=2
+build tags before=264 after=264   (nothing claimed)
+```
+
+`pubspec.yaml:4` now carries a comment saying `0.1.0+1` is a placeholder
+overridden at build time, so the next reader does not "fix" it by bumping a
+literal that would be wrong the moment a release is cut.
+
+**Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
+**`+1364 ~3`**, and gate 1 still reports `pubspec.lock` reproducible after the
+pubspec comment.

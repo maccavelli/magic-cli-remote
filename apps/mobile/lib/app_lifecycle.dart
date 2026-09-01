@@ -105,11 +105,12 @@ class _ConnectionLifecycleScopeState
           // Recorded as well as printed (MADR 0084 A3): the user's alert
           // preferences silently reverting to defaults is user-visible.
           debugPrint('notifications pref read failed: $e');
-          unawaited(
-            ref
-                .read(errorRecorderProvider)
-                .record(e, st, source: ErrorSource.app),
-          );
+          // `_recorder`, not `ref` (MADR 0126 F6/D7). This handler exists to
+          // survive a preferences failure, and it can run after the scope is
+          // disposed — at which point `ref.read` throws, inside the very
+          // handler meant to keep that failure from killing the notification
+          // layer. The captured references above exist for exactly this.
+          unawaited(_recorder.record(e, st, source: ErrorSource.app));
           coord.enabled = true;
           coord.kinds = NotifyKinds.all;
           unawaited(coord.start());

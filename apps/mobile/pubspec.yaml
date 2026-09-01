@@ -1,6 +1,11 @@
 name: magic_cli_remote
 description: Magic CLI Remote — Android companion for the mcremote daemon.
 publish_to: "none"
+# PLACEHOLDER — overridden at build time and not the shipped version.
+# CI passes --build-name/--build-number (ci.yml), and `make apk` resolves them
+# from scripts/next-build-version.sh (MADR 0126 F8). Do not "fix" this by hand:
+# a literal bumped here would be wrong the moment a release is cut, and the two
+# real sources already agree with each other.
 version: 0.1.0+1
 
 environment:
