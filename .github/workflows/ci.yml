@@ -24,7 +24,7 @@ env:
   # Pinned so a Flutter stable bump cannot change analyzer results or APK
   # output without a repo change. Bump deliberately; keep in step with the
   # version developers run locally.
-  FLUTTER_VERSION: "3.44.8"
+  FLUTTER_VERSION: "3.47.2"
 
 permissions:
   contents: read
