@@ -1,0 +1,822 @@
+---
+status: proposed
+date: 2026-09-01
+associated-madr: "0126-MADR-android-client-debugging-pass-findings.md"
+---
+<!-- markdownlint-disable MD013 MD024 MD033 MD060 -->
+
+# PLAN 0126 — Make the Android client survive being backgrounded, and stop shipping surface nobody reviewed
+
+Implements [0126-MADR-android-client-debugging-pass-findings.md](0126-MADR-android-client-debugging-pass-findings.md)
+decisions D1–D9, closing findings F1–F8.
+
+## Goal
+
+The keep-alive service comes back after the OS kills it, a replaced connection
+releases everything it holds, and no plugin can widen the shipped Android
+surface again without CI saying so.
+
+Finish line:
+
+* `stopWithTask` is gone and `START_STICKY` is proven by `dumpsys`;
+* a 4001 close leaves no armed timer, no open relay and no live loopback socket,
+  asserted by a unit test;
+* `scripts/assert-android-manifest-surface.sh` fails when a permission or an
+  exported component appears that is not in the committed allowlist, and runs in
+  the `android-apk` job;
+* the installer's 40 MB copy is off the platform main thread;
+* nothing in `apps/mobile/lib/` cites a "60 s" daemon deadline, and
+  `ServerCaps.readDeadlineMs` either has a reader or is deleted;
+* `make apk` produces an APK whose `versionName` is the real build version;
+* the owner has run P7 on a physical Android device and pasted the output here.
+
+## Scope
+
+### In scope (the only files any phase may touch)
+
+Android / build:
+
+* `apps/mobile/android/app/src/main/AndroidManifest.xml`
+* `apps/mobile/android/app/src/main/kotlin/com/maccavelli/magic_cli_remote/MainActivity.kt`
+* `apps/mobile/android/app/src/main/res/xml/file_paths.xml`
+* `apps/mobile/android/manifest-surface.allow` (new)
+* `scripts/assert-android-manifest-surface.sh` (new)
+* `Makefile` (`apk`, plus one new `manifest-surface` target)
+* `.github/workflows/ci.yml` (`android-apk` job only)
+
+Dart:
+
+* `apps/mobile/lib/data/ws/mcremote_client.dart` — the 4001 branch, two test
+  seams, the stale ping comment
+* `apps/mobile/lib/data/ws/link_health.dart` — the stale deadline comment
+* `apps/mobile/lib/data/protocol/models.dart` — `ServerCaps` fields (P5 only)
+* `apps/mobile/lib/data/notifications/foreground_service.dart` — comment only
+* `apps/mobile/lib/app_lifecycle.dart` — one `catchError` body
+* `apps/mobile/lib/data/chat/transcript_cache.dart`
+* `apps/mobile/lib/features/settings/app_update_tile.dart` — download directory
+* `apps/mobile/pubspec.yaml` — one comment
+* Tests: `replaced_close_test.dart`, `transcript_cache_test.dart`,
+  `link_health_test.dart`, `app_update_tile_test.dart`, and one new
+  `manifest_surface_test` equivalent as a shell test
+
+### Out of scope
+
+* **iOS.** MADR 0067 D2 parks the socket unconditionally there and none of
+  F1–F5 applies. Do not "while we're here" the iOS lifecycle.
+* **Re-enabling R8.** `proguard-rules.pro` measured byte-identical output
+  (MADR 0084 D7). Untouched.
+* **`kAppPingPeriod`'s value, `kLinkFreshFor`, and the `LinkHealth` bands.**
+  D5 restates *why* 10 s is correct; it does not change it. Changing the
+  freshness contract is MADR 0063's record, not this one.
+* **The transcript cache's item/session caps, the `compute()` isolate strategy,
+  and the batch window.** P6 fixes three durability gaps and touches nothing
+  about performance.
+* **`AppUpdateService.isNewerBase` vs `NewerPublished`.** MADR 0126 F8 records
+  it as correct-for-now (all 97 tags are three-part) and explicitly not a
+  defect. Do not change it in this plan; it needs its own record when a
+  four-part tag is first published.
+* **Adding `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM`.** See C3.
+* **Battery-optimisation exemption prompting.** Named in P1 as the follow-on it
+  is, and deliberately not taken here.
+
+## Stability rule
+
+Every phase ends with:
+
+```bash
+cd apps/mobile && dart format . && flutter analyze && flutter test
+```
+
+then **one commit** (`git commit --no-edit`; never `-m`). Phases that touch Go
+or shell also run `make pre-add-check` before staging.
+
+`dart format` first, not last: CI runs
+`dart format --output=none --set-exit-if-changed .` and fails on it before it
+ever reaches the tests.
+
+`git push` needs an explicit instruction in the same turn.
+
+## Cross-cutting contracts
+
+**C1 — Every terminal socket path runs `_teardownSocket`.** D3. If a new branch
+in `_onSocketDone` / `_onSocketError` returns early, it owns a reason in a
+comment for why the bundle it is abandoning is already closed. F2 existed
+because "park quietly" was allowed to mean "skip the cleanup".
+
+**C2 — The allowlist is generated once, by hand, from a real build, and then
+only ever edited deliberately.** D4. Never regenerate it from the artifact to
+make CI green — that turns the gate into a rubber stamp. A red
+`assert-android-manifest-surface.sh` is a question to answer, not a file to
+overwrite.
+
+**C3 — No new permission is added to make a restart path work.** D2. The
+alarm-driven restarts are best-effort on API 31+ and the honest fix is to say
+so, not to acquire `USE_EXACT_ALARM` (which is for alarm-clock apps) or to
+quietly widen the manifest this plan exists to narrow.
+
+**C4 — No behaviour change is justified by "the tests still pass".** 1358 tests
+pass on the tree that has F1 in it. Each phase names the *new* evidence it
+produces.
+
+**C5 — Comments that state a number state where it comes from.** D5. Both F4
+sites were wrong because they hard-coded a figure and a line number that later
+moved. Cite the file and the constant, not the value.
+
+**C1 and C2 are the ones at risk.** C1 because the natural F2 fix is a two-line
+`unawaited(_teardownSocket(...))` that nobody adds a test for; C2 because the
+first time a plugin bump reddens CI, overwriting the allowlist will look like
+the obvious move.
+
+## Dependency and delivery order
+
+```text
+P1 (stopWithTask)  ─┐
+P2 (4001 teardown) ─┼─> releasable together; independent of each other
+                    │
+P3 (manifest gate) ─┘   MUST follow P1: the allowlist encodes P1's outcome
+P4 (installer)          independent
+P5 (ping cadence doc)   independent
+P6 (low-severity)       independent
+P7 (device verification) MUST follow P1, P2, P4
+```
+
+P1 and P2 are the shippable pair. P3 cannot be written before P1 because the
+allowlist has to record whether `RECEIVE_BOOT_COMPLETED` and `RebootReceiver`
+survive. P7 can only run on the owner's hardware.
+
+## Implementation Steps
+
+### P1 — Let the keep-alive service come back (D1, D2; closes F1)
+
+**Edit 1 — `AndroidManifest.xml:116-120`.** Delete the
+`android:stopWithTask="true"` attribute. Do not replace it with `"false"`; the
+absent attribute is what `ForegroundServiceUtils.isSetStopWithTaskFlag()` reads
+as false via `ServiceInfo.FLAG_STOP_WITH_TASK`, and an explicit `"false"` is
+equivalent but reads as if something turned it off rather than as the default.
+
+**Edit 2 — do not touch `ForegroundTaskOptions`.** `foreground_service.dart:52-60`
+must keep leaving `stopWithTask` unset (null). This is load-bearing and is the
+one way to get this phase wrong: setting it from Dart writes the
+`stopWithTask` preference, which `ForegroundServiceUtils.isSetStopWithTaskFlag`
+prefers over the manifest **and** which trips
+`ForegroundService.kt:130-136` into installing `TrackVisibilityUtils` — stopping
+the service every time the app becomes invisible. That is worse than the bug.
+Add a comment at the `ForegroundTaskOptions(` call saying exactly this.
+
+**Edit 3 — rewrite the manifest comment at `:112-115`** so it describes the
+artifact. It currently claims the `RestartReceiver` "relaunches the service if
+the OS kills it" while the attribute two lines below made that impossible. The
+replacement must state all four recovery paths and their real reliability:
+
+```text
+START_STICKY               reliable — the OS recreates the service itself,
+                           so API 31+'s background-FGS-start rule does not apply
+onDestroy restart alarm    best-effort on API 31+
+onTaskRemoved restart alarm best-effort on API 31+
+RebootReceiver             inert: autoRunOnBoot / autoRunOnMyPackageReplaced
+                           are both left at their false defaults
+```
+
+Best-effort, precisely (C3): `RestartReceiver.setRestartAlarm` uses
+`setAlarmClock` only when `canScheduleExactAlarms()` is true, and this app holds
+neither `SCHEDULE_EXACT_ALARM` nor `USE_EXACT_ALARM`, so it takes the inexact
+`AlarmManager.set(RTC_WAKEUP, …)` branch. An inexact alarm is not on Android
+12's foreground-service-launch exemption list, so the receiver's
+`startForegroundService` throws `ForegroundServiceStartNotAllowedException`
+unless the app is exempt from battery optimisation — which the plugin itself
+logs a warning about. Write that down; do not fix it here.
+
+**The one thing this phase changes for users:** swiping the app off recents no
+longer guarantees the service is gone. That was the original intent of
+`stopWithTask` and it is being traded away deliberately, because the service
+existing is the feature. Note in the commit that `NotificationCoordinator`
+already stops the service on sign-out and on the notifications toggle
+(`notification_coordinator.dart:277-278, 315-321`), so the user retains an
+explicit off switch.
+
+**Verification.** Structural only at this phase — no Dart test can observe it,
+which is exactly how F1 survived:
+
+```bash
+cd apps/mobile && flutter build apk --config-only --release --target-platform android-arm64
+grep -c 'stopWithTask' android/app/src/main/AndroidManifest.xml   # -> 0
+python3 - build/app/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml <<'EOF'
+import sys, xml.etree.ElementTree as ET
+A='{http://schemas.android.com/apk/res/android}'
+app=ET.parse(sys.argv[1]).getroot().find('application')
+svc=[e for e in app.findall('service') if e.get(A+'name','').endswith('ForegroundService')][0]
+assert svc.get(A+'stopWithTask') is None, svc.attrib
+print('ok: FLAG_STOP_WITH_TASK not set on the merged service')
+EOF
+```
+
+Real proof is P7. This phase ends with the structural check and the honest note
+that the behaviour is unverified until then.
+
+### P2 — A replaced connection releases what it holds (D3; closes F2)
+
+**Edit 1 — `mcremote_client.dart:2491-2497`.** Add the teardown the branch
+skips, keeping the synchronous `_setState` so the existing park semantics and
+`replaced_close_test.dart`'s timing are untouched:
+
+```dart
+if (_channel?.closeCode == kCloseReplaced) {
+  _failAllPending('connection replaced');
+  debugPrint('mcremote: connection replaced by a newer login');
+  _setState(McConnectionState.disconnected);
+  // Parking is a state decision, not a licence to skip cleanup (0126 D3/F2).
+  // Without this the 10 s ping timer stayed armed and — on the relay path —
+  // the outer WSS, its HttpClient and the loopback ServerSocket stayed open
+  // until the next dial, which for a replaced client may never come.
+  // suppressReconnect mirrors disconnect(); the next _connectLeg clears it.
+  unawaited(
+    _teardownSocket(suppressReconnect: true).catchError((Object e) {
+      debugPrint('mcremote: replaced-close teardown failed: $e');
+    }),
+  );
+  return;
+}
+```
+
+Two things to check while writing it, both of which the existing tests will
+answer: `_teardownSocketImpl` awaits `sub?.cancel()` on the very subscription
+whose `onDone` is running (legal on a completed subscription, and the second
+test in `replaced_close_test.dart` covers the contrasting path), and
+`_suppressReconnect` is deliberately left latched — `_connectLeg` clears it at
+`:2192`, immediately after `_adoptOpenedSocket`, the same way `_connectInternal`
+already relies on.
+
+**Edit 2 — two test seams**, in the style of the existing `debugIdentityFuture`
+/ `debugEnsureIdentity` on this class:
+
+```dart
+/// Whether the periodic app-ping timer is armed (0126 F2). A parked or torn
+/// down client must not leave one running.
+@visibleForTesting
+bool get debugPingArmed => _pingTimer?.isActive ?? false;
+
+/// Whether any per-socket resource is still held (0126 F2): channel,
+/// subscription, pinned HttpClient or relay bridge.
+@visibleForTesting
+bool get debugSocketResourcesHeld =>
+    _channel != null ||
+    _sub != null ||
+    _httpClient != null ||
+    _relayTransport != null;
+```
+
+**Verification.** Extend `test/replaced_close_test.dart` — the `_ClosingPeer`
+harness already does exactly the right thing. Add to the existing 4001 test,
+after the current assertions:
+
+```dart
+expect(client.debugPingArmed, isFalse,
+    reason: '0126 F2: a parked client must not keep a 10 s wakeup armed');
+expect(client.debugSocketResourcesHeld, isFalse,
+    reason: '0126 F2: the replaced socket bundle must be released');
+```
+
+Then add the guard that makes the seam meaningful, so a future early `return`
+in the same handler cannot pass:
+
+```dart
+test('contrast: a live connection does keep the ping armed', () async {
+  // …connect as above…
+  expect(client.debugPingArmed, isTrue);
+});
+```
+
+Run `flutter test test/replaced_close_test.dart` and confirm **both new
+assertions fail before Edit 1 and pass after**. Record that before/after in the
+commit; a test that was green either way proves nothing.
+
+### P3 — A committed Android surface, checked in CI (D4; closes F3)
+
+Depends on P1.
+
+**Step 1 — decide the removals, one at a time, with the reason.** The merged
+release manifest currently carries four permissions the repository does not
+declare. They are not equivalent:
+
+| permission | injected by | verdict |
+|---|---|---|
+| `ACCESS_NETWORK_STATE` | connectivity_plus | **keep** — `Connectivity().onConnectivityChanged` is the app's network-change signal (`app_lifecycle.dart:128`) |
+| `VIBRATE` | flutter_local_notifications | **keep** — the ask and error channels are `Importance.high` with `enableVibration` left at its default true; removing it silences the buzz on approval alerts |
+| `WAKE_LOCK` | flutter_foreground_task | **remove** via `tools:node="remove"` — the app sets `allowWakeLock: false` and `allowWifiLock: false` (`foreground_service.dart:58-59`) and schedules no notifications, so nothing acquires one. This is the permission `AndroidManifest.xml:29-33` already claims was removed |
+| `RECEIVE_BOOT_COMPLETED` | flutter_foreground_task | **decide** — see step 2 |
+
+Do not batch these. `VIBRATE` in particular looks like obvious dead weight and
+is not.
+
+**Step 2 — `RECEIVE_BOOT_COMPLETED` and `RebootReceiver` are one decision.**
+After P1 the receiver is still inert, because `autoRunOnBoot` and
+`autoRunOnMyPackageReplaced` both default false. Two coherent outcomes:
+
+* **Remove both** (`tools:node="remove"` on the permission and the receiver).
+  Narrowest surface; loses the option of restarting the service after an in-app
+  APK update.
+* **Keep both and set `autoRunOnMyPackageReplaced: true`** in
+  `ForegroundTaskOptions`, making the receiver do something real: the service
+  returns by itself after the updater replaces the package, instead of the user
+  having to tap the "Updated — tap to open" notification
+  (`UpdateInstaller.kt:111-148`). Boot autostart stays off.
+
+Recommend the second: it is the one that serves the same promise as P1, and it
+converts an exported no-op into a reviewed, used component. Whichever is
+chosen, record it in this plan before editing.
+
+**Step 3 — `scripts/assert-android-manifest-surface.sh`.** Follows the naming
+and fail-closed style of `scripts/assert-flutter-release-apk.sh`.
+
+* Argument: path to a merged `AndroidManifest.xml`. Default:
+  `apps/mobile/build/app/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml`.
+* Fails with a clear message if that file does not exist — never passes on a
+  missing input.
+* Emits one line per fact, `sort`ed and de-duplicated so the file has a single
+  canonical form:
+
+```text
+permission <android:name>
+exported <tag> <android:name> <android:permission or "-">
+```
+
+* Diffs against `apps/mobile/android/manifest-surface.allow`.
+* **Fails on additions and on removals**, with `diff -u` output. A removal is
+  how you find out a plugin dropped `POST_NOTIFICATIONS`.
+* Implementation: `python3` heredoc over `xml.etree` (present on macOS and on
+  `ubuntu-latest`), wrapped in `set -euo pipefail`.
+
+**Step 4 — the allowlist.** Generate it once from a real post-P1, post-step-2
+build, read every line, and commit it with a header comment naming why each
+non-obvious entry is there. C2: this file is edited by a human with a reason,
+never regenerated to clear a red build. Starting content, before step 2's
+decision and P1's removals are applied:
+
+```text
+exported activity com.maccavelli.magic_cli_remote.MainActivity -
+exported receiver androidx.profileinstaller.ProfileInstallReceiver android.permission.DUMP
+exported receiver com.pravera.flutter_foreground_task.service.RebootReceiver -
+permission android.permission.ACCESS_NETWORK_STATE
+permission android.permission.CAMERA
+permission android.permission.FOREGROUND_SERVICE
+permission android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING
+permission android.permission.INTERNET
+permission android.permission.POST_NOTIFICATIONS
+permission android.permission.RECEIVE_BOOT_COMPLETED
+permission android.permission.RECORD_AUDIO
+permission android.permission.REQUEST_INSTALL_PACKAGES
+permission android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION
+permission android.permission.VIBRATE
+permission android.permission.WAKE_LOCK
+permission com.maccavelli.magic_cli_remote.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+```
+
+That is the verbatim output of the step-3 script against the merged manifest of
+the last release build on this tree — plain `sort` order, which is why the
+`exported` lines come first. Two entries look like mistakes and are not:
+
+* `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` is injected by AGP for
+  `androidx.core`'s dynamically-registered non-exported receivers. It is a
+  signature-level permission the app defines for itself. Leave it.
+* `RebootReceiver` is exported and unguarded because the plugin declares it that
+  way; step 2 decides whether it stays at all. Its allowlist line is the record
+  that this was looked at, not that it was liked.
+
+**Step 5 — wire it in.** A `manifest-surface` target in the Makefile
+(`--config-only` build, then the script) so it is runnable locally, and a step
+in `ci.yml`'s `android-apk` job placed immediately after the existing
+"Android lint (manifest + resources)" step — that step already runs
+`flutter build apk --config-only` and `./gradlew :app:lintVitalRelease`, so the
+merged manifest exists by then and the check costs seconds. Put it there rather
+than after the APK build so a surface change fails in ~1 minute, matching the
+stated reason that lint step sits where it does.
+
+**Verification.**
+
+```bash
+make manifest-surface                                   # passes on the committed tree
+printf 'permission android.permission.BLUETOOTH\n' >> apps/mobile/android/manifest-surface.allow
+make manifest-surface                                   # MUST fail (removal detected)
+git checkout -- apps/mobile/android/manifest-surface.allow   # ← ask first; see note
+```
+
+Note: that last line discards a tracked edit. Make the negative test on a copy
+(`cp` the allowlist aside, mutate the copy, point the script at it) rather than
+dirtying the tracked file — the repository forbids `git checkout --` without
+explicit approval.
+
+### P4 — Get the 40 MB copy off the main thread (D6; closes F5)
+
+**Edit 1 — `MainActivity.kt`.** A `MethodChannel` handler runs on the platform
+main thread and `UpdateInstaller.installApkSession` streams the whole APK plus
+an `fsync` inside it. Move the work to a single-thread executor and marshal both
+the `startActivity` fallback and every `result.*` call back to the UI thread —
+`MethodChannel.Result` may only be completed there.
+
+```kotlin
+private val installExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+override fun onDestroy() {
+    installExecutor.shutdown()
+    super.onDestroy()
+}
+```
+
+and, in the handler, after the existing `path.isNullOrEmpty()` guard:
+
+```kotlin
+installExecutor.execute {
+    var sessionError: Exception? = null
+    if (preferSession) {
+        try {
+            UpdateInstaller.installApkSession(this, path)
+            runOnUiThread { result.success(null) }
+            return@execute
+        } catch (e: Exception) {
+            sessionError = e          // fall through to the v1 intent
+        }
+    }
+    try {
+        val intent = UpdateInstaller.installApkIntent(this, path)
+        runOnUiThread {
+            try {
+                startActivity(intent)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error("install_failed", e.message, null)
+            }
+        }
+    } catch (e: Exception) {
+        val msg = e.message ?: sessionError?.message
+        runOnUiThread { result.error("install_failed", msg, null) }
+    }
+}
+```
+
+Behaviour preserved exactly: session-first, silent fallback to the v1 intent,
+`bad_args` / `install_failed` codes unchanged. The only difference is which
+thread does the copying. Keep `sessionError` — today a session failure followed
+by an intent failure reports only the second, and the first is the interesting
+one.
+
+**Edit 2 — put the download somewhere the FileProvider can be narrowed to.**
+`app_update_tile.dart:100-102` uses
+`Directory('${Directory.systemTemp.path}/mcremote_app_updates')`. What
+`Directory.systemTemp` resolves to on Android is an engine detail this plan
+should not depend on. Replace it with `path_provider`'s
+`getTemporaryDirectory()` — already a dependency, documented to return
+`context.getCacheDir()` on Android — and keep the `mcremote_app_updates`
+subdirectory:
+
+```dart
+final dir = widget.cacheDir ??
+    (Directory('${(await getTemporaryDirectory()).path}/mcremote_app_updates')
+      ..createSync(recursive: true));
+```
+
+`app_update_tile_test.dart` injects `cacheDir`, so tests are unaffected; confirm
+that rather than assuming it.
+
+**Edit 3 — `res/xml/file_paths.xml`.** Reduce three roots to the one that is
+used:
+
+```xml
+<paths>
+    <!-- The updater's download directory, and nothing else (0126 D6).
+         external-cache-path and files-path were never used; files-path
+         path="." covered the whole of getFilesDir(), which is where
+         getApplicationSupportDirectory() keeps transcripts/. -->
+    <cache-path name="app_updates" path="mcremote_app_updates" />
+</paths>
+```
+
+Order matters: Edit 2 lands before Edit 3, or the next in-app update cannot
+build a content URI for its own APK. A previously downloaded APK under the old
+path becomes unreachable; it is re-downloaded, which is correct.
+
+**Verification.**
+
+```bash
+cd apps/mobile && flutter test test/app_update_tile_test.dart test/app_update_test.dart
+```
+
+plus, on device (folded into P7): install a release APK, run the in-app update,
+and confirm no ANR and no `Skipped … frames` burst in `logcat` during the copy.
+State plainly in the commit that the ANR risk is reasoned from the measured
+40,286,708-byte APK (`proguard-rules.pro:11`) and is not yet observed.
+
+### P5 — Say what actually pins the ping cadence (D5; closes F4)
+
+The MADR's 2026-09-01 amendment settles the direction: `kAppPingPeriod` is
+correct and its stated reason is not. Do **not** derive the period from
+`readDeadlineMs` — anything above `kLinkFreshFor` (15 s) renders a healthy idle
+session amber.
+
+**Edit 1 — `link_health.dart:10-15`.** `kLinkDeadAfter`'s doc says
+"Half the daemon's 60 s read deadline (`internal/ws/server.go:165`)". The
+default is 120 s with a 15 s floor (`internal/config/config.go:912`, `:939-940`)
+and the cited line no longer holds the constant. Rewrite per C5: name the config
+field, not the number.
+
+**Edit 2 — `link_health.dart:34` (`kAppPingPeriod`).** Add the reason that is
+actually load-bearing: the period must stay at or below `kLinkFreshFor` or an
+idle session cannot render green, so this is bounded by MADR 0063 D1's UI
+contract and only incidentally by the host deadline.
+
+**Edit 3 — `mcremote_client.dart:2378-2383`.** Same correction in the
+`_startPing` comment. Keep the "unconditional, this is a protocol obligation"
+point — that part is right.
+
+**Edit 4 — give `ServerCaps.readDeadlineMs` a reader, or delete it.**
+Recommended: a guard, not a driver. In `_connectLeg`, right after
+`serverCaps = ServerCaps.tryParse(...)` (`:2240`), when the advertised deadline
+is too short for the fixed cadence to hold it open:
+
+```dart
+final deadlineMs = serverCaps?.readDeadlineMs ?? 0;
+if (deadlineMs > 0 &&
+    _appPingPeriod.inMilliseconds * 3 >= deadlineMs) {
+  // The cadence is pinned by kLinkFreshFor (0063 D1) and cannot be raised
+  // to fit; say so once, rather than presenting as unexplained drops.
+  debugPrint(
+    'mcremote: host read deadline ${deadlineMs}ms is too short for a '
+    '${_appPingPeriod.inSeconds}s app ping — expect drops on idle sessions',
+  );
+}
+```
+
+with the same string recorded through `ErrorRecorder` so it reaches
+`recent_errors_screen.dart` rather than a release no-op.
+
+`ServerCaps.tryParse` has **two** call sites — the auth path at `:2240` and
+the pair path at `:2022`. Put the check in one private method and call it
+from both, or a freshly paired client is the one that never gets warned. If the owner prefers,
+delete `readDeadlineMs`, `pingIntervalMs` and `wsPingResetsDeadline` from
+`ServerCaps` instead — but D5 does not permit leaving a decoded field with no
+reader.
+
+**Verification.** A table test in `link_health_test.dart` pinning the invariant
+so a future edit to either constant fails loudly:
+
+```dart
+test('the app ping verifies inside the freshness window (0126 D5)', () {
+  expect(kAppPingPeriod, lessThanOrEqualTo(kLinkFreshFor));
+});
+```
+
+and:
+
+```bash
+grep -rn '60 s\|60s' apps/mobile/lib/data/ws/     # no daemon-deadline claims left
+grep -rn 'readDeadlineMs' apps/mobile/lib/        # has a reader, or is gone
+```
+
+### P6 — The low-severity cluster (D7, D8, D9; closes F6, F7, F8)
+
+Three unrelated fixes, one phase, because each is a handful of lines.
+
+**F6 — `app_lifecycle.dart:108-112`.** Replace `ref.read(errorRecorderProvider)`
+with the already-captured `_recorder`. The class captured it in `initState`
+with a comment saying `ref` dies with the element (`:50-58`); this is the one
+path that did not use it. One-line change, no test — the failure it guards
+needs a preferences error racing a dispose.
+
+**F7 — `transcript_cache.dart`, three gaps:**
+
+1. **`load()` and `usage()` race deletions** (`:304-314`, `:388-401`). Both do
+   `existsSync()` then an async read; `_retainOnly` can delete in between. Wrap
+   each file access so a `FileSystemException` yields "absent", not a throw:
+   `load` returns null, `usage` skips the entry. Do **not** put them on the
+   `_serialized` chain — that would queue a chat-open behind a debounced save
+   and an isolate spawn, trading a rare race for constant latency.
+2. **`_directory` runs the migration twice under concurrency** (`:170-179`).
+   `_dir` is assigned before `await _migrateLegacyEntries(dir)`, so two
+   first-touchers both migrate. Memoise the future instead of the value, and
+   clear the memo on failure so a transient error is not cached forever:
+
+   ```dart
+   Future<Directory>? _dirFuture;
+   Future<Directory> get _directory =>
+       _dirFuture ??= _openDirectory().onError<Object>((e, st) {
+         _dirFuture = null;
+         throw e;
+       });
+   ```
+
+3. **Orphans are never swept** (`:240-243`, `:228-229`, `:348-358`). A process
+   death between `writeAsString` and `rename` strands `<name>.json.tmp`, which
+   `_storedIds`' `.json` filter hides from both eviction and `clear()`. Sweep
+   `*.json.tmp` in `_openDirectory`. Separately, `_sessionIdFromFile` calls
+   `Uri.decodeComponent`, which throws on a malformed escape — one junk filename
+   makes `clear()` fail every time it is invoked. Make it return `null` on
+   `FormatException` and have `_storedIds` skip those entries.
+
+   **Do not delete unrecognised files.** Skipping an unreadable name is the fix;
+   sweeping the directory of anything that fails to parse is how a cache turns
+   into a data-loss bug.
+
+**F8 — `Makefile:432-433`.** `make apk` passes no version, so a local build is
+`versionName 0.1.0 / versionCode 1` and the in-app updater compares `v0.15.3`
+against `0.1.0` forever — breaking on-device testing of the updater itself. CI
+is already correct (`ci.yml:620-621`), and `scripts/build-apk.sh:20-28` already
+solves this; the `apk` target simply never used it. Add the same resolution,
+with the ledger explicitly not consumed:
+
+```make
+apk:
+	@set -e; \
+	VER="$$(MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 $(NEXT_VERSION_SH) | tail -1)"; \
+	BUILD_NAME="$${VER%.*}"; BUILD_NUMBER="$${VER##*.}"; \
+	...
+```
+
+`MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0` is the same pair `preflight`
+uses for its release build: a developer's local APK must not claim a serial from
+the shared ledger or push a `build/*` tag. Fall back to an unstamped build if
+the version does not match `^[0-9]+\.[0-9]+\.[0-9]+$` and `^[0-9]+$`, exactly as
+`build-apk.sh` does. Add one comment line to `pubspec.yaml:4` recording that
+`0.1.0+1` is a placeholder overridden at build time, so the next reader does not
+"fix" it by bumping it by hand.
+
+**Verification.**
+
+```bash
+cd apps/mobile && flutter test test/transcript_cache_test.dart test/history_replay_test.dart
+```
+
+plus two new `transcript_cache_test.dart` cases: `load()` returns null when the
+entry is deleted mid-read, and `clear()` still succeeds with a `%zz.json` file
+in the directory. Then:
+
+```bash
+make apk
+"$ANDROID_HOME"/build-tools/*/aapt dump badging \
+  apps/mobile/build/app/outputs/flutter-apk/app-release.apk | head -1
+# expect versionName to be the BASE.N build version, not 0.1.0
+git tag -l 'build/*' | wc -l   # unchanged — no serial claimed
+```
+
+### P7 — Owner verification on a physical Android device (closes the MADR's Confirmation block)
+
+**Cannot be done from the development host.** No emulator substitute: F1 is
+about low-memory kills and recents behaviour, and F5 is about real storage
+throughput.
+
+Install the P1–P4 release APK, pair, then run these four rows and paste the
+actual output into the execution record — not a summary:
+
+```text
+1  background, swipe from recents, raise a permission_request host-side
+   -> the alert arrives
+   adb shell dumpsys activity services | grep -A3 flutter_foreground_task
+   -> the service is present again after the swipe
+
+2  adb shell am kill com.maccavelli.magic_cli_remote  (with the app backgrounded)
+   -> START_STICKY recreates the service; the alert still arrives
+
+3  in-app update over the previous build
+   -> no ANR; logcat shows no "Skipped NNN frames" burst during the copy
+   -> after install, pairing survives and (if P3 step 2 chose it) the
+      service returns without a manual open
+
+4  adb shell dumpsys package com.maccavelli.magic_cli_remote | grep -A20 'requested permissions'
+   -> matches manifest-surface.allow exactly
+```
+
+Row 1 is the one this plan exists for. If it fails, this plan returns to P1 and
+the battery-optimisation exemption named in C3 becomes its own decision — it
+does not get added here to make a row go green.
+
+## Verification (whole plan)
+
+```bash
+cd apps/mobile && dart format --output=none --set-exit-if-changed . \
+  && flutter analyze && flutter test
+make manifest-surface
+make apk
+```
+
+```text
+unit tests              -> P2's two new assertions, P5's invariant, P6's two cache cases
+structural checks       -> no stopWithTask; allowlist matches; APK versionName stamped
+owner device run        -> P7's four rows
+```
+
+### Acceptance criteria
+
+1. `flutter analyze` clean and `flutter test` green, with the suite count
+   **above** the current 1358 — this plan adds tests, and a flat count means a
+   phase shipped without one.
+2. `test/replaced_close_test.dart` fails on the pre-P2 tree and passes after
+   (recorded in the commit).
+3. `scripts/assert-android-manifest-surface.sh` passes on the committed tree and
+   fails on a mutated copy of the allowlist, in both directions.
+4. `make apk` emits an APK whose `versionName` is `BASE.N` and which claimed no
+   `build/*` tag.
+5. No occurrence of a "60 s" daemon read deadline remains under
+   `apps/mobile/lib/`, and `readDeadlineMs` either has a reader or is deleted.
+6. P7's four rows are pasted into the execution record with real output.
+
+## Rollout and Rollback
+
+Ships in the normal tag flow; no migration and no persisted-format change. The
+transcript cache's on-disk layout is unchanged (P6 only makes its readers
+tolerant), so a downgrade reads the same files.
+
+The one user-visible behaviour change is P1: the keep-alive service now outlives
+a swipe from recents. Rollback is restoring `android:stopWithTask="true"` on the
+`ForegroundService` element — a one-attribute revert with no state to undo.
+P3's allowlist would then need the corresponding line restored, which is
+precisely the gate working.
+
+## Deferred (named, so they are not mistaken for oversights)
+
+* **Battery-optimisation exemption prompting** (`FlutterForegroundTask.requestIgnoreBatteryOptimization`).
+  It is what would make P1's alarm-driven restarts reliable on API 31+, and it
+  is a real UX intrusion with its own Play-policy shape. C3 keeps it out; if
+  P7 row 1 shows START_STICKY alone is not enough, it earns its own record.
+* **`autoRunOnBoot`.** Starting a service at boot is a bigger claim on the
+  user's device than restarting one they were already using. Not in this plan
+  under either P3 option.
+* **`AppUpdateService.isNewerBase` vs `NewerPublished`** (MADR 0126 F8's closing
+  note). Correct while every tag is three-part; needs its own record before a
+  four-part tag is published.
+* **`NotificationService.dispose()` closing `_responses` while `_ready` stays
+  true**, so a `start()` after a `dispose()` would add to a closed controller.
+  Unreachable today — the coordinator is app-lifetime — and out of scope.
+* **The `compute()` isolate spawn per debounced cache save.** Noted during the
+  pass, not measured, and a performance question rather than a defect. It
+  belongs with MADR 0084's measurements, not here.
+
+## Execution record
+
+### 2026-09-01 — P1 complete
+
+**Edits applied.**
+
+1. `android/app/src/main/AndroidManifest.xml:119` — `android:stopWithTask="true"`
+   deleted (not set to `"false"`; the absent attribute is what
+   `ForegroundServiceUtils.isSetStopWithTaskFlag()` reads as false via
+   `ServiceInfo.FLAG_STOP_WITH_TASK`).
+2. Same file, `:112-115` — the comment claiming `RestartReceiver` "relaunches
+   the service if the OS kills it" replaced with the four-path table and the
+   API 31+ best-effort caveat, plus the trade being made (swipe-away no longer
+   guarantees the service is gone) and the user's remaining off switch.
+3. `lib/data/notifications/foreground_service.dart:52-60` — the guard comment on
+   the `ForegroundTaskOptions(` call, recording why the Dart-side `stopWithTask`
+   override must stay unset: the plugin persists it as a preference that
+   `isSetStopWithTaskFlag` prefers over the manifest, and a `true` value
+   additionally installs `TrackVisibilityUtils`, stopping the service whenever
+   the app becomes invisible.
+
+**Verification.** The merged manifest is the authority and it passes:
+
+```text
+$ ./gradlew :app:processReleaseManifest   (JAVA_HOME=openjdk@21)
+BUILD SUCCESSFUL
+$ python3 <assert FLAG_STOP_WITH_TASK absent on the merged ForegroundService>
+ok: FLAG_STOP_WITH_TASK not set on the merged service
+    {'name': 'com.pravera...ForegroundService', 'exported': 'false',
+     'foregroundServiceType': 'remoteMessaging'}
+```
+
+`dart format` clean, `flutter analyze` clean, `flutter test` `+1358 ~3`.
+
+**Deviation — P1's `grep` check is not usable as written.** The phase specified
+`grep -c 'stopWithTask' … -> 0`. That cannot hold: the replacement comment
+explains the attribute's absence *by name*, so both the loose and the precise
+(`android:stopWithTask`) greps still match prose. Naming it is the more valuable
+outcome — a future reader needs to know why it is missing — so the comment
+stands and the **merged-manifest assertion above is the check**. A grep over
+source text was never able to distinguish an attribute from a comment about one.
+
+**Not verified.** Everything behavioural. P1's real proof is P7 row 1, and the
+plan says so; nothing here shows the service actually returns after a swipe.
+
+### 2026-09-01 — interrupted by 0127 between P1 and P2
+
+Executing P1 surfaced that `apps/mobile/pubspec.lock` was not reproducible under
+the repository's own pinned toolchain — dependabot commit `6c02c8e` (2026-08-14)
+had committed a resolution Flutter 3.44.8 could not honour, and every
+`flutter pub get` since had silently reversed it.
+
+That is out of this plan's scope, so it became its own pair:
+[0127](0127-MADR-adopt-current-flutter-toolchain.md) /
+[0127-PLAN](0127-PLAN-adopt-current-flutter-toolchain.md). 0126 resumes at P2
+once 0127 completes.
+
+**What changed underneath this plan** (fill in the remainder at 0127 P8):
+
+* Toolchain: Flutter 3.44.8 / Dart 3.12.2 → **3.47.2 / 3.13.2**. P1's edits are
+  toolchain-independent and were re-verified green on 3.47.2.
+* `flutter test` baseline is unchanged at `+1358 ~3`, so P2's "suite count must
+  rise" acceptance criterion still measures from 1358.
+* **P3's allowlist may move.** 0127 P4 re-captures the merged manifest surface
+  on the new SDK; any difference lands in this plan's allowlist rather than
+  being discovered by its own gate.
+* **P1's evidence may need refreshing.** 0127 D4 takes
+  `flutter_foreground_task` 10.0.0 → 11.0.1, and 0127 P6b re-reads 11.x's Kotlin
+  against the six claims MADR 0126 F1 makes about 10.0.0. If 11.x moves any of
+  them, F1 and P1's manifest comment are amended to describe what ships. If it
+  invalidates the *fix* rather than the evidence, that returns here as a
+  deviation.
