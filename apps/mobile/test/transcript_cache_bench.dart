@@ -15,8 +15,13 @@ import 'package:magic_cli_remote/data/chat/transcript_cache.dart';
 /// nothing** (0128-PLAN C2): a benchmark that arrives with an optimisation is
 /// not a measurement.
 ///
-/// Excluded from the default suite by its `bench` tag. Run with:
-///   flutter test --tags bench test/transcript_cache_bench_test.dart
+/// NOT collected by the default suite: `flutter test` globs `test/**_test.dart`
+/// and this file deliberately does not match. The `@Tags(['bench'])` annotation
+/// alone does **not** exclude anything without a `dart_test.yaml` tag config —
+/// it was doing nothing, and this benchmark ran on every `flutter test` until
+/// that was caught. Run it explicitly:
+///
+///   flutter test test/transcript_cache_bench.dart
 ///
 /// LIMIT OF THE INSTRUMENT: this is a desktop VM. Isolate spawn and JSON codec
 /// costs here are not an Android phone's, so the numbers bound the question
@@ -82,7 +87,7 @@ void main() {
 
     // ignore: avoid_print
     print('''
---- 0128 D4: transcript cache codec cost (N=$n, ${kTranscriptCacheMaxItems} items) ---
+--- 0128 D4: transcript cache codec cost (N=$n, $kTranscriptCacheMaxItems items) ---
 payload serialized:   ${encoded.length} bytes
 encode via compute(): median ${us(isolateEncode.median)}  p90 ${us(isolateEncode.p90)}
 encode inline:        median ${us(inlineEncode.median)}  p90 ${us(inlineEncode.p90)}

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: complete
 date: 2026-09-01
 associated-madr: "0128-MADR-triage-the-0126-and-0127-deferred-items.md"
 ---
@@ -405,8 +405,18 @@ asserting re-initialisation happened and delivery does not throw.
 
 ### P4 — The isolate-per-save cost, measured (D4, C2)
 
-`apps/mobile/test/transcript_cache_bench_test.dart`, tagged `bench` so it stays
-out of the default suite. **No production file changed** (C2).
+`apps/mobile/test/transcript_cache_bench.dart`. **No production file changed**
+(C2).
+
+**Correction, caught by the whole-plan gate.** It was first written as
+`transcript_cache_bench_test.dart` with `@Tags(['bench'])`, on the assumption
+that the tag kept it out of the default run. It does not: `@Tags` without a
+`dart_test.yaml` tag configuration excludes nothing, and the benchmark was
+running on every `flutter test` — visible only as the suite count going to 1368
+instead of 1367. Renamed so it no longer matches the `test/**_test.dart` glob
+`flutter test` sweeps; run it explicitly with
+`flutter test test/transcript_cache_bench.dart`. Same shape as this pair's other
+verification slips: the mechanism was assumed rather than checked.
 
 ```text
 --- 0128 D4: transcript cache codec cost (N=50, 150 items) ---
@@ -457,3 +467,46 @@ the *ratio* (compute ≈ 3× inline) and the absolute payload size (58 KB); the
 per-call milliseconds do not. The payload is synthetic — 150 assistant items of
 ~400 characters each — chosen to be representative of a streamed reply rather
 than a one-liner.
+
+### P5 — Both Deferred lists rewritten (D5, D6)
+
+Every entry in 0126 and 0127 now sits under **CLOSED**, **BLOCKED**, **GATED**
+or **OPEN**, and every non-closed one names an observable trigger rather than an
+intention (C4).
+
+```text
+0127  Actions SHA currency        CLOSED   reversed by 0128 D1
+0127  environment: sdk ^3.12.2    CLOSED   decision not to act
+0127  flutter_secure_storage 11   BLOCKED  trigger: a published 11.0.x
+                                           without the compileSdk pin (#1236)
+0127  F-KGP                       BLOCKED  trigger: either plugin publishes a
+                                           Built-in-Kotlin release
+0127  second host                 OPEN     trigger: that host's `make preflight`
+                                           fails 0127 D7 gate 2
+0126  isNewerBase/NewerPublished  CLOSED   fixed, 0128 P2
+0126  NotificationService.dispose CLOSED   fixed, 0128 P3
+0126  compute() per save          CLOSED   measured, 0128 P4 — no action
+0126  autoRunOnBoot               CLOSED   decision not to act
+0126  battery-optimisation prompt GATED    trigger: 0126 P7 row 1 shows
+                                           START_STICKY is not enough
+0126  P7 rows 1-3                 OPEN     trigger: a paired session
+```
+
+Six closed, two blocked upstream with re-checked dates, one gated on evidence
+that does not exist yet, and two open with the exact thing that would unblock
+them. Nothing left that needs re-reading to know its state — which was the goal.
+
+## Execution summary
+
+| phase | outcome |
+|---|---|
+| P1 | Dependabot restored, `github-actions` only |
+| P2 | published-version compare; local stamp shape aligned with CI |
+| P3 | `NotificationService` restartable |
+| P4 | measured: ~0.35 ms/save — deferral closed, nothing changed |
+| P5 | both lists rewritten as state + trigger |
+
+Suite `+1367 ~3`, up from 1364 at the start of this plan (P2 +1 net, P3 +1;
+P4's benchmark is excluded from the default run). Three of the four fixes carry
+a test proven to fail first (C1); P4 carries none by design (C2), and its
+instrument was itself verified before its numbers were believed.

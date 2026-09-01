@@ -729,24 +729,55 @@ a swipe from recents. Rollback is restoring `android:stopWithTask="true"` on the
 P3's allowlist would then need the corresponding line restored, which is
 precisely the gate working.
 
-## Deferred (named, so they are not mistaken for oversights)
+## Deferred — state and trigger (rewritten by 0128 P5)
 
-* **Battery-optimisation exemption prompting** (`FlutterForegroundTask.requestIgnoreBatteryOptimization`).
-  It is what would make P1's alarm-driven restarts reliable on API 31+, and it
-  is a real UX intrusion with its own Play-policy shape. C3 keeps it out; if
-  P7 row 1 shows START_STICKY alone is not enough, it earns its own record.
-* **`autoRunOnBoot`.** Starting a service at boot is a bigger claim on the
-  user's device than restarting one they were already using. Not in this plan
-  under either P3 option.
-* **`AppUpdateService.isNewerBase` vs `NewerPublished`** (MADR 0126 F8's closing
-  note). Correct while every tag is three-part; needs its own record before a
-  four-part tag is published.
-* **`NotificationService.dispose()` closing `_responses` while `_ready` stays
-  true**, so a `start()` after a `dispose()` would add to a closed controller.
-  Unreachable today — the coordinator is app-lifetime — and out of scope.
-* **The `compute()` isolate spawn per debounced cache save.** Noted during the
-  pass, not measured, and a performance question rather than a defect. It
-  belongs with MADR 0084's measurements, not here.
+Every entry names a **state** and, where open, an **observable trigger**
+(0128 D5/C4).
+
+### CLOSED
+
+**`AppUpdateService.isNewerBase` vs `NewerPublished`.** **Fixed** by 0128 P2:
+the phone now compares major, minor, patch **and the build serial**, mirroring
+`update/run.go` under MADR 0103, so a serial-only release can no longer be
+offered by the CLI and withheld by the app. A regression test covers the case
+and was proven to fail under the old three-part compare.
+
+**`NotificationService.dispose()` leaving `_ready` true.** **Fixed** by
+0128 P3: `dispose()` clears `_ready` and `init()` recreates the closed
+controller, so both halves of the coordinator/service pair now agree that
+restart is supported.
+
+**The `compute()` isolate spawn per debounced cache save.** **Measured and
+closed** by 0128 P4: ~0.35 ms median per save against a 400 ms per-session
+debounce — roughly 0.6 ms/second/session of overhead versus inline, on an
+already-debounced path off the critical rendering path. Nothing to optimise.
+The measurement raised a different question — whether `compute` is still
+*needed* here at all, since the inline encode is 0.12 ms — which belongs with
+MADR 0084's measurement set and is not worth touching for 0.2 ms.
+
+**`autoRunOnBoot`.** A decision not to act, not pending work: starting a service
+at boot is a larger claim on the user's device than restarting one they were
+already using. Note that P3 step 2 *did* enable `autoRunOnMyPackageReplaced`,
+which is the narrower sibling — the service returns after an in-app update only.
+Reopen only if alerts are shown to be lost across a device reboot, which needs
+P7 row 1 first.
+
+### GATED — on this plan's own P7
+
+**Battery-optimisation exemption prompting**
+(`FlutterForegroundTask.requestIgnoreBatteryOptimization`).
+Trigger: **P7 row 1 shows `START_STICKY` alone does not restore alerts after a
+swipe.** P7 row 1 is still open — it needs a paired session, and pairing needs a
+QR aimed through the emulator's virtual-scene camera, which cannot be driven
+from adb. Taking this before row 1 would add a real UX intrusion to fix a
+problem not yet shown to exist.
+
+### OPEN — this plan's remainder
+
+**P7 rows 1–3** (alert after swipe, `START_STICKY` recovery, no ANR during an
+in-app update). Trigger: **a physical device with a paired daemon, or one
+windowed emulator session where the owner aims the scene camera at a pair QR
+once.** Everything else in P7 is verified — see the execution record.
 
 ## Execution record
 

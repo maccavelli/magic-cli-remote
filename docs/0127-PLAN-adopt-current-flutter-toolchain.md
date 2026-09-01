@@ -441,29 +441,51 @@ the bump resolve their lockfile differently and will trip gate 1 until rebased.
 That is a transient inconvenience on open branches, not a data risk — but it is
 worth landing when few branches are open.
 
-## Deferred (named, so they are not mistaken for oversights)
+## Deferred — state and trigger (rewritten by 0128 P5)
 
-* **A replacement for dependabot's Actions SHA updates.** D5 removes the only
-  automation keeping those pins current, and this record deliberately offers no
-  substitute. If the pins matter — and `ci.yml`'s own comment argues they do —
-  the options are a scheduled `pinact`/`ratchet` job or a calendar reminder, and
-  either is its own decision.
-* **Whether `flutter_secure_storage 11.0.0` is safe to adopt.** P6c gathers the
-  evidence; if the Android backend changed, the decision leaves this plan.
-* **A second host.** 0124 was executed on Windows at 3.47.1. C1 and gate 2 apply
-  there too, but this plan cannot verify a machine it cannot reach — gate 2 will
-  tell that host's operator on their next `make preflight`.
-* **Raising `environment: sdk:` past `^3.12.2`.** Not required by Dart 3.13.2
-  and would drop support for no reason this record has.
-* **F-KGP — `mobile_scanner` and `speech_to_text` still apply the Kotlin Gradle
-  Plugin.** P4 found that a future Flutter release will refuse to build an app
-  whose plugins apply KGP, and both are already at their latest published
-  stable with no migrated release. `flutter_foreground_task` is fixed by P6b;
-  these two cannot be fixed from this repository. They need upstream releases,
-  and adopting `speech_to_text 7.5.0-beta.1` to get ahead of it would put a
-  prerelease in a shipped app. Track the two upstream and revisit when either
-  publishes a Built-in Kotlin release — before the Flutter version that turns
-  the warning into an error.
+Every entry names a **state** and, where open, an **observable trigger**. A
+trigger is checkable; "revisit later" is not (0128 D5/C4).
+
+### CLOSED
+
+**Actions SHA currency.** Was: "no replacement offered for dependabot's Actions
+updates." **Reversed** — 0128 D1 restored `.github/dependabot.yml` for the
+`github-actions` ecosystem only, after measuring that it had been working (6 of
+7 pins current) and that both incidents behind 0127 D5 were `pub`-only. See the
+amendment on 0127 D5.
+
+**Raising `environment: sdk:` past `^3.12.2`.** A decision not to act, not
+pending work. Dart 3.13.2 does not require it and raising it would drop support
+for no reason. Reopen only if a dependency demands a higher floor.
+
+### BLOCKED — upstream
+
+**`flutter_secure_storage` 11.0.0.**
+Trigger: **a published `11.0.x` whose `android/build.gradle` no longer pins
+`compileSdk`** — upstream
+[PR #1236](https://github.com/juliansteenbakker/flutter_secure_storage/pull/1236).
+Re-checked 2026-09-01: open, unmerged, last updated 2026-08-30; 11.0.0 is still
+the newest published version. Full analysis, including why the
+credential-migration risk does *not* apply to this app, is in
+[0066](0066-MADR-secure-storage-upgrade-resilience.md)'s 2026-09-01 amendment —
+which is also where the "not a release we will take" preference now lives, since
+the `dependabot.yml` comment that used to hold it is gone.
+
+**F-KGP — `mobile_scanner` and `speech_to_text` still apply KGP.**
+Trigger: **either publishes a Built-in-Kotlin release.** Re-checked 2026-09-01:
+`mobile_scanner` 7.4.0 (2026-07-20) and `speech_to_text` 7.4.0 (2026-05-19) are
+both still the newest published stable, neither migrated.
+Deadline: the Flutter release that turns the build warning into an error.
+`flutter_foreground_task` was the third and is already fixed (0127 P6b).
+Not taking `speech_to_text 7.5.0-beta.1`: a prerelease in a shipped app is the
+trade 0066 D1 already declined for a different package.
+
+### OPEN — not actionable from this repository
+
+**The second host** (Windows, Flutter 3.47.1 as of 0124).
+Trigger: **that host runs `make preflight` and 0127 D7 gate 2 fails**, naming
+both versions and the reconciling command. Nothing to do until then; the gate is
+the notification mechanism.
 
 ## Execution record — 2026-09-01
 
