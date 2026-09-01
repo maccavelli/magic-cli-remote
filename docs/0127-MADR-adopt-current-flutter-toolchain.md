@@ -249,6 +249,27 @@ The rejected options, fairly:
     path (the startup canary, `credentialsLost`, and the recovery flow) is
     re-run green. If 11.0.0 changes the Android backend, this becomes a
     superseding record for 0066 and stops being part of this one.
+
+  **Amended 2026-09-01, after P6c investigated it.** D4 said "including the
+  three majors"; the outcome is **two of three**. `go_router 18.0.0` and
+  `flutter_foreground_task 11.0.1` were taken. `flutter_secure_storage 11.0.0`
+  was **not**, and the reason is neither of the two this record anticipated:
+  the credential-migration risk turned out not to apply (the app has shipped
+  v10 since its first commit and uses none of the removed API), but the release
+  hard-pins `compileSdk = 37`, which AGP propagates to every consumer. Taking it
+  would move the whole app off `flutter.compileSdkVersion` (36) onto an API
+  level neither this host nor CI has installed. Upstream calls that a defect and
+  has an open fix verified against Flutter 3.47.0
+  ([PR #1236](https://github.com/juliansteenbakker/flutter_secure_storage/pull/1236),
+  2026-08-30). There is no 11.0.1 to take instead.
+
+  This makes D4's own criterion — "the newest version the pinned toolchain
+  supports" — decide it: a release requiring `compileSdk 37` is not supported by
+  a toolchain whose default is 36. The full analysis and the revisit 0066 D1
+  asked for are recorded in
+  [0066](0066-MADR-secure-storage-upgrade-resilience.md)'s 2026-09-01
+  amendment, deliberately placed there because D5 deletes the
+  `dependabot.yml` comment that used to hold this preference.
 * **D5 — `.github/dependabot.yml` is deleted.** Not narrowed. It has produced
   two lockfile-drift incidents and cannot see the SDK's exact pins that make its
   pub proposals unsatisfiable. Dependency currency becomes a deliberate,

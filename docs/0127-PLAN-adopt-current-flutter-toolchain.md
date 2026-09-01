@@ -824,3 +824,53 @@ here — MADR 0067 records that the owner has no iPhone, and 0121 owns that gap.
 
 **Verification.** `dart format` clean, `flutter analyze` clean, `flutter test`
 `+1358 ~3`, release APK 41.0 MB, iOS simulator build 37.6 s.
+
+### P6c — `flutter_secure_storage` 11.0.0: investigated, not taken
+
+The changelog was read **before** the bump, as this phase requires, and the
+bump was never applied — the tree stayed clean throughout.
+
+**The stop condition's rationale was checked and does not hold.** P6c said to
+stop if 11.0.0 changes the Android backend, because that would mean "a migration
+for every already-paired device". It does not, for this app:
+
+* `flutter_secure_storage: ^10.x` since `719401b` (2026-07-19), the Flutter
+  app's first commit — no release ever shipped a v9 backend, so no device holds
+  pre-v10 ciphertext, which is exactly the case the changelog warns about.
+* Zero occurrences of `encryptedSharedPreferences`, `sharedPreferencesName`,
+  `KeyCipherAlgorithm` or `StorageCipherAlgorithm` in `lib/` or `test/`.
+
+**What blocks it instead.**
+`flutter_secure_storage-11.0.0/android/build.gradle:22` hard-pins
+`compileSdk = 37`; AGP propagates that to consumers.
+
+```text
+required by plugin        compileSdk 37
+Flutter 3.47.2 default    compileSdk 36   (flutter.compileSdkVersion)
+installed platforms       android-35, android-36     <- no 37
+```
+
+**Owner asked to investigate 11.0.x before deciding; the investigation is
+conclusive.** 11.0.0 is the newest published version (no 11.0.1; 10.3.1 is
+already the newest 10.x), and upstream treats the pin as a bug with a fix in
+flight — PR
+[#1236](https://github.com/juliansteenbakker/flutter_secure_storage/pull/1236)
+(open, 2026-08-30), *"use flutter.compileSdkVersion instead of pinning
+compileSdk"*, whose description matches this finding exactly and which reports
+*"Verified with Flutter 3.47.0: an app on compileSdk 36 builds"*. Issue
+[#1224](https://github.com/juliansteenbakker/flutter_secure_storage/issues/1224)
+(open, 2026-08-07) is the same report from the day after release.
+
+**Decision: stay on `^10.3.1`.** Moving the whole app to `compileSdk 37`
+permanently, to route around a defect the maintainer is actively fixing, costs
+more than it buys — nothing is broken on 10.3.1 and none of 11.0.0's removals
+touch this app. D4's own criterion decides it: a release requiring an API level
+the pinned toolchain does not use is not "supported by the CI/CD".
+
+0127 D4 amended (two majors of three) and
+[0066](0066-MADR-secure-storage-upgrade-resilience.md) amended with the D1
+revisit outcome — placed there because P7 deletes the `dependabot.yml` comment
+that previously carried this preference.
+
+**Revisit trigger:** a 11.0.x containing #1236, or Flutter's default reaching
+37. The migration analysis above still holds then, so it should be a plain bump.
