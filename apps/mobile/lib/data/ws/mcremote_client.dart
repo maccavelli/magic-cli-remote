@@ -17,6 +17,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../chat/chat_models.dart' show kHistoryFetchLimit;
 import '../codex_execution_client.dart';
 import '../codex_threads_client.dart';
+import '../diagnostics/error_recorder.dart';
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
 import '../protocol/frame_budget.dart';
@@ -2036,6 +2037,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         _negotiated = pairNegotiated;
       }
       serverCaps = ServerCaps.tryParse(res.payload?['caps']);
+      _checkPingCadenceAgainstCaps();
 
       if (_pinnedFingerprint != null) {
         // Best-effort: the daemon has already enrolled this device — a
@@ -2254,6 +2256,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         _negotiated = negotiated;
       }
       serverCaps = ServerCaps.tryParse(auth.payload?['caps']);
+      _checkPingCadenceAgainstCaps();
 
       // Resume state (MADR 0068 D4): store the fresh token for the next
       // connection; surface this connection's outcome for the
@@ -2381,6 +2384,38 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     throw err;
   }
 
+  /// Diagnose a daemon whose advertised read deadline the fixed app-ping
+  /// cadence cannot hold open (MADR 0126 D5).
+  ///
+  /// This is a **guard, not a driver**. The cadence cannot simply be shortened
+  /// to fit: it is bounded above by [kLinkFreshFor] (anything slower renders a
+  /// healthy idle session amber) and shortening it further costs battery on the
+  /// platform this app actually ships on. What it can do is say so, once, when
+  /// an operator has configured `ws_read_deadline_seconds` near its 15 s floor
+  /// — otherwise that presents as unexplained mid-session drops with every
+  /// piece of evidence already in hand and unused.
+  ///
+  /// `caps.read_deadline_ms` had no reader at all before this; a decoded field
+  /// nothing consults is not a contract, it is a comment.
+  void _checkPingCadenceAgainstCaps() {
+    final deadlineMs = serverCaps?.readDeadlineMs ?? 0;
+    if (deadlineMs <= 0) return;
+    if (_appPingPeriod.inMilliseconds * 3 < deadlineMs) return;
+    final msg =
+        'host read deadline ${deadlineMs}ms is too short for a '
+        '${_appPingPeriod.inSeconds}s app ping — idle sessions may be dropped '
+        'by the host; raise ws_read_deadline_seconds';
+    debugPrint('mcremote: $msg');
+    lastError = msg;
+    // Best-effort and never rethrows (ErrorRecorder's own contract), so a
+    // diagnostics write cannot break a connection that is otherwise fine.
+    unawaited(
+      ErrorRecorder(
+        _settings,
+      ).record(StateError(msg), StackTrace.current, source: ErrorSource.app),
+    );
+  }
+
   void _startPing() {
     _pingTimer?.cancel();
     _missedPings = 0;
@@ -2392,11 +2427,17 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
       _evaluateHealth();
       if (_state == McConnectionState.connected) {
         // **Unconditional — this is a protocol obligation** (MADR 0063 plan
-        // amendment B1). The daemon's read loop waits for a *data* message
-        // (`internal/ws/server.go:535`, 60 s deadline at `:165`); the
-        // WebSocket keepalive of D2 is answered below the application and
+        // amendment B1). The daemon's read loop waits for a *data* message;
+        // the WebSocket keepalive of D2 is answered below the application and
         // never satisfies that read. This request is the only thing holding
-        // the host's deadline open.
+        // the host's rolling deadline open.
+        //
+        // That deadline is `limits.ws_read_deadline_seconds`
+        // (`internal/config/config.go`) — 120 s by default, floor 15 s — not
+        // the "60 s" an earlier version of this comment claimed against a line
+        // number that had moved (MADR 0126 F4). The cadence is not derived
+        // from it either way: see `kAppPingPeriod`, which is bounded by
+        // `kLinkFreshFor`.
         //
         // Do not make it conditional on freshness to save a wakeup: a session
         // streaming a long reply receives constantly and sends nothing, so

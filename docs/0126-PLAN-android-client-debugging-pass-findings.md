@@ -1016,3 +1016,57 @@ not change the permission/exported surface.
 measured 40,286,708-byte APK (`proguard-rules.pro:11`) and Android's 5 s
 threshold; it has not been observed on hardware. P7 row 3 is where that is
 checked.
+
+### 2026-09-01 — P5 complete (F4, D5)
+
+The MADR's amendment settled the direction: the cadence is correct and its
+stated reason was not. No timing value changed in this phase.
+
+**Edits 1–3 — the stale claims.** `link_health.dart`'s `kLinkDeadAfter` doc and
+`mcremote_client.dart`'s `_startPing` comment both cited "the daemon's 60 s read
+deadline" at line numbers that no longer hold the constant. Both now name the
+field instead of the number — `limits.ws_read_deadline_seconds`
+(`internal/config/config.go`), **120 s default, floor 15 s** — per C5.
+
+`kAppPingPeriod` now records what actually pins it: `kLinkFreshFor`.
+`_noteInboundFrame` stamps `lastVerifiedAt` on any inbound frame, so on an idle
+session the ping is the only thing verifying the link, and any period above the
+freshness window leaves a healthy idle session amber. Deriving from the 120 s
+deadline would give ~30 s and break the status indicator.
+
+**Edit 4 — `readDeadlineMs` has a reader.** `_checkPingCadenceAgainstCaps()`
+fires when `_appPingPeriod * 3 >= caps.read_deadline_ms`, i.e. when an operator
+has configured the deadline near its 15 s floor. It reports through
+`ErrorRecorder(_settings)` — no constructor change, no new coupling, and the
+recorder's never-throws contract means a diagnostics write cannot break a
+working connection — so it reaches `recent_errors_screen.dart` instead of a
+release-mode no-op. Called from **both** `ServerCaps.tryParse` sites (auth and
+pair), so a freshly paired client is warned too.
+
+A guard, not a driver: the cadence cannot be shortened to fit without spending
+battery on the platform that actually ships, and cannot be lengthened without
+breaking `kLinkFreshFor`. What it can do is say so, rather than presenting as
+unexplained mid-session drops with all the evidence already decoded and unused.
+
+**Edit 5 — the invariant is pinned.** `kAppPingPeriod <= kLinkFreshFor`, plus a
+classifier assertion that a link verified exactly one ping ago still reads
+`fresh`. Proven to discriminate: raising `kAppPingPeriod` to 30 s fails it with
+`Expected: <= 15s, Actual: 30s`.
+
+**Found while verifying: two existing tests encoded the same stale figure.**
+`link_health_test.dart:46-51` and `:53-58` both compared against a bare `60`
+with comments asserting the daemon "drops a silent client at 60s". **Neither
+assertion was weakened** — 60 s is kept as a deliberately conservative,
+floor-safe bound, and the comments now say that is what it is rather than
+claiming it is the default. Relaxing them to the real 120 s would have made them
+catch less; the 15 s floor case is out of reach of any static bound, which is
+what edit 4 exists for.
+
+**A verification lesson, third in this pair.** The discrimination check first
+appeared to pass because `grep … | head -5` truncated the output *before* the
+failure line — the `+11` line was the test starting, and the `-2` failure came
+after. Do not read a truncated test log as a result.
+
+**Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
+**`+1361 ~3`**. `grep -rn "server.go:165" lib/` returns only this phase's own
+explanatory text.
