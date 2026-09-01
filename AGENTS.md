@@ -151,12 +151,32 @@ other URL-based content.
 ## MADR and PLAN before mutating work
 
 Rationale: [docs/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/0105-MADR-mutating-work-requires-madr-and-plan.md).
-Grok also loads `.grok/rules/madr-plan-before-mutating-work.md`.
+Per-agent pointers to this section: `.claude/rules/madr-and-plan-skill.md`,
+`.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
 
 **Whenever the user asks for an MADR and a plan, load the
-`writing-madr-and-plans` skill first** and follow it for authoring,
+`madr-and-plan-writing` skill first** and follow it for authoring,
 naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies both to
 writing a fresh pair and to amending an existing one.
+
+The name is exact — it is the `name:` field of
+`~/.claude/skills/madr-and-plan-writing/SKILL.md`. Until 2026-09-01 all four
+per-agent files named a `writing-madr-and-plans` skill that has never existed:
+the skill directory was created 2026-08-06, the wrong name first entered this
+repo on 2026-08-15 and was propagated to every agent on 2026-08-25 (`0416ac3`).
+Not a rename — wrong from the start, then copied.
+
+That mistake does not fail loudly: the call does not resolve, and an agent that
+carries on without the skill produces something shaped like a MADR while missing
+MADR 4.0.0's heading names, the `Good, because …` argument form, and the
+mechanical slug rule.
+
+**This file is the normative copy.** `.claude/rules/`, `.grok/rules/` and
+`.opencode/rules.md` carry only the skill name and the gate, and point here for
+the rest. Do not restate this section in them: forked copies are how the skill
+name went stale in **all four** per-agent files at once, each while instructing
+the reader not to fork the workflow (F2). Adding a fifth agent means adding a
+pointer, never a copy.
 
 **Read-only investigation is allowed with no pair.** Reading, searching,
 `git log` / `git show` / `git diff`, and existing tests or diagnostics that
@@ -192,9 +212,14 @@ Follow-up vs greenfield:
   mutation until that PLAN is approved.
 
 Bootstrap exception: authoring `docs/NNNN-MADR-*`, `docs/NNNN-PLAN-*`, this
-section, and `.grok/rules/` process rules does not require a *prior* pair.
-Putting source, tests, CI, or product config in that same commit is a
-violation.
+section, and the per-agent process rules under `.claude/rules/`,
+`.grok/rules/` and `.opencode/rules.md` does not require a *prior* pair. Putting source, tests, CI, or
+product config in that same commit is a violation.
+
+(`.claude/rules/` and `.opencode/rules.md` were added to that list on
+2026-09-01: the exception named `.grok/rules/` only, because that was the only
+per-agent rules directory when it was written — the same enumeration drift as
+F2, two agents later.)
 
 `git push` and tags still need an explicit ask in the same turn.
 
