@@ -1,0 +1,54 @@
+version: 2
+
+# ONE ecosystem on purpose: github-actions. See MADR 0128 D1, which partially
+# reverses MADR 0127 D5.
+#
+# 0127 D5 deleted this file entirely after a Dependabot PR left pubspec.lock
+# unsatisfiable under the pinned Flutter for 2.5 weeks. Measured afterwards, the
+# github-actions ecosystem had been doing its job — 6 of 7 pins current, and the
+# one exception (actions/setup-java, a major behind) was the "majors get
+# reviewed by hand" policy below working as written, not rot. The deletion
+# applied a pub-shaped diagnosis to all three ecosystems.
+#
+# DO NOT "complete" this file by adding pub or gomod back:
+#
+#   pub    Dependabot resolves in its own container, WITHOUT the Flutter SDK, so
+#          it cannot see the exact pins in packages/flutter/pubspec.yaml and
+#          packages/flutter_test/pubspec.yaml (meta, matcher, test_api,
+#          vector_math, …). It will propose lockfiles that `flutter pub get`
+#          silently reverses, and pub does not fail on that — it just
+#          re-resolves. That is commit 6c02c8e and MADR 0112 finding 4, twice.
+#          MADR 0127 D7 gate 1 would now catch it in CI rather than letting it
+#          merge, which is what makes this recoverable — not a reason to retry.
+#
+#   gomod  Covered where it counts by govulncheck in the pre-add gate, which
+#          reports *called* vulnerabilities rather than merely present ones.
+#          Dependency currency for Go is a deliberate, recorded act here.
+#
+# Why actions are pinned at all: ci.yml pins every action to a full commit SHA,
+# because a mutable tag like @v6 can be repointed at new code without any change
+# in this repository. OpenSSF Scorecard's Pinned-Dependencies check names the
+# cost of that — pinning "can inhibit software updates, either because of a
+# security vulnerability or because the pinned version is compromised" — and
+# prescribes the mitigation this file is: automated notification plus prompt
+# updating. GitHub's own Actions security-hardening guidance names Dependabot
+# for exactly this job.
+#
+# Cadence is MONTHLY, not weekly: every PR Dependabot opens triggers a CI run,
+# and Actions minutes are the constraint here. Monthly keeps the update stream
+# to one small batch a month instead of weekly churn.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    # One PR for all action bumps → one CI run per month instead of one per
+    # action. "patterns: *" groups every update (majors included); action
+    # majors get reviewed by hand before merge regardless.
+    groups:
+      github-actions:
+        patterns:
+          - "*"

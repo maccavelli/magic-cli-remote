@@ -277,3 +277,43 @@ P1 and P4 add no runtime code at all.
 * **`actions/setup-java` v5 → v6.** Dependabot will now propose it in its next
   monthly PR. Taking a major action bump is a separate decision with its own CI
   blast radius, and the standing policy is that majors are reviewed by hand.
+
+## Execution record — 2026-09-01
+
+### P1 — Dependabot restored for `github-actions` only (D1)
+
+`.github/dependabot.yml` recreated from `093d7df^` with the `github-actions`
+block verbatim — `directory: "/"`, monthly, `open-pull-requests-limit: 5`,
+`commit-message.prefix: "ci"`, and the `patterns: ["*"]` grouping. None of that
+reasoning had changed, so none of it was re-derived.
+
+```text
+ecosystems: ['github-actions']
+settings preserved: monthly / prefix=ci / grouped / limit=5
+
+diff vs the deleted version:
+  <   - package-ecosystem: gomod
+  <   - package-ecosystem: pub
+  <       - dependency-name: "flutter_secure_storage"
+  <         versions: ["11.0.0"]
+```
+
+The diff is exactly the two removed ecosystems and nothing else — read rather
+than assumed, because "restored the file" and "restored the right part of the
+file" are different claims.
+
+**One thing the diff surfaces:** the `flutter_secure_storage: ["11.0.0"]` ignore
+went with the `pub` block. That preference is not lost — 0127 P6c moved it into
+[0066](0066-MADR-secure-storage-upgrade-resilience.md)'s 2026-09-01 amendment,
+with the concrete reason (the release hard-pins `compileSdk 37`) rather than the
+bare "not a release we will take" the config comment carried. It is now recorded
+where the decision lives instead of in a bot's configuration.
+
+The file's header says why `pub` and `gomod` are absent, because the obvious
+future edit is to "complete" it.
+
+**Limit of this verification:** GitHub validates `dependabot.yml` on push and
+reports a malformed file on the repository's Dependabot page rather than failing
+a build. Local YAML parsing plus the schema assertions above are necessary, not
+sufficient; the first monthly run is the real confirmation and is outside this
+plan's reach.
