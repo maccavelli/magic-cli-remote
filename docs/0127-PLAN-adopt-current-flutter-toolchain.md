@@ -606,3 +606,77 @@ shipped app is not a trade this record makes. See Deferred.
 dart-defines decode to `FLUTTER_BUILD_NAME=0.1.0`, `FLUTTER_BUILD_NUMBER=1`,
 confirming that a local `flutter build apk` stamps the pubspec placeholder.
 0126 P6 fixes it.
+
+### P5 — iOS revalidation
+
+```text
+flutter build ios --simulator --debug   -> Xcode build done, 64.7s, exit 0
+                                           built build/ios/iphonesimulator/Runner.app
+xcrun simctl install/launch (iPhone 17) -> launched, PID assigned
+```
+
+`Podfile.lock` changed by one line — the `Flutter` pod checksum
+(`cabc95a1…` → `71a624a5…`), which tracks the engine. Exactly the
+toolchain-forced change P5 allows; taken. No `pod repo update` was needed and
+`pod install` completed in 752 ms.
+
+**The app runs.** The screenshot showed only the iOS notification permission
+alert over a uniform grey field, which looked like a blank app; the logs say
+otherwise:
+
+```text
+(Flutter) [IMPORTANT:…FlutterDarwinContextMetalImpeller.mm(45)]
+         Using the Impeller rendering backend (Metal).
+(Flutter) flutter: The Dart VM service is listening on http://127.0.0.1:60970/…
+[UIFocus] FlutterView implements focusItemsInRect: …
+[UIFocus] FlutterSemanticsScrollView implements focusItemsInRect: …
+```
+
+Impeller is up, the Dart VM is serving, and a `FlutterSemanticsScrollView`
+exists — the widget tree built and contains the connect screen's scroll view.
+No Dart exception at any point. The permission alert is itself Dart-driven
+(`NotificationService.init()` → `ios.requestPermissions`), so reaching it proves
+the app got well past `main()`.
+
+**Capture caveat, worth writing down.** `xcrun simctl io booted screenshot`
+renders the Metal/Impeller surface as flat grey — the same class of limitation
+`docs/ops-android-emulator.md` gotcha 1 documents for `adb exec-out screencap`.
+System UI (the alert, status bar) captures fine, which is what makes it look
+like a broken app rather than a broken screenshot. Do not read a grey simulator
+screenshot as a blank screen; check the logs.
+
+`xcrun simctl privacy booted grant all` does **not** cover notifications, so the
+alert cannot be dismissed that way and the underlying UI stays occluded in a
+screenshot regardless.
+
+#### Observation — flutter_foreground_task's iOS BGTask registration is rejected
+
+At every launch, twice reproduced:
+
+```text
+[com.apple.BackgroundTasks:Framework] Registration rejected;
+com.pravera.flutter_foreground_task.refresh is not advertised in the
+application's Info.plist
+```
+
+Confirmed by inspection: `ios/Runner/Info.plist` declares neither
+`BGTaskSchedulerPermittedIdentifiers` nor `UIBackgroundModes`.
+
+**This is consistent with the design, not a defect.** MADR 0067 D2 parks the
+socket unconditionally on iOS because the OS suspends the process, so the app
+deliberately does no background work there — the plugin's background-refresh
+path *should* be inert. Recorded because it is a recurring error-level log line
+that will otherwise be rediscovered as a bug, and because if 0121 ever wants iOS
+background behaviour, this is the first thing that has to change.
+
+#### Second future-breaking warning, same plugin
+
+```text
+The following plugins do not support Swift Package Manager for ios:
+  - flutter_foreground_task
+This will become an error in a future version of Flutter.
+```
+
+`flutter_foreground_task` 11.0.0 adds `[FEAT] Support Swift Package Manager
+(SPM) #387`, so **P6b's bump clears this and the Android KGP warning at once**.
+That makes P6b the highest-value of the three majors, not merely the riskiest.
