@@ -1125,3 +1125,81 @@ literal that would be wrong the moment a release is cut.
 **Gate:** `dart format` clean, `flutter analyze` clean, `flutter test`
 **`+1364 ~3`**, and gate 1 still reports `pubspec.lock` reproducible after the
 pubspec comment.
+
+### 2026-09-01 — P7 partial: emulator verification
+
+**Deviation — P7 was written as device-only.** It says *"Cannot be done from
+the development host. No emulator substitute."* The owner directed that the
+host's Android emulator and iOS simulators be used for testing, so P7 ran
+against **AVD `mcremote_test`, Android 16 / API 36, headless**. That changes
+what the phase can conclude, not what it attempted, and the split is recorded
+below rather than left implied by "P7 ran".
+
+**Artifact under test:** `make apk` output after P1–P6, 41.0 MB,
+`assert-flutter-release-apk.sh` OK.
+
+#### Verified
+
+**F8 — version stamping, end to end.** The first real proof, on the artifact
+rather than the Makefile:
+
+```text
+aapt dump badging: versionCode='3' versionName='0.15.3'
+build tags before=264  after=264      (no ledger serial claimed)
+```
+
+Previously this would have been `versionName='0.1.0' versionCode='1'`, which is
+what made the in-app updater report an update for ever.
+
+**F1 — `stopWithTask` is gone from the packaged binary manifest.** Not the
+source, the APK:
+
+```text
+E: service (line=184)
+  android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+  android:exported=false
+  android:foregroundServiceType=0x00000200   (remoteMessaging)
+```
+
+Three attributes, and `stopWithTask` is not among them. That is the flag the
+plugin reads back through `isSetStopWithTaskFlag` to disable `START_STICKY`, the
+`onDestroy` and `onTaskRemoved` restart alarms, and `RebootReceiver`.
+
+**F3 / D4 — row 4 passes against the installed package.** `dumpsys package`'s
+requested permissions diff **identical** to `manifest-surface.allow`, and
+**`WAKE_LOCK` is absent from the real installed app** — the claim MADR 0084 D3
+made and the artifact contradicted for its whole life.
+
+**The build installs, launches and runs.** `adb install` Success;
+`am start -n …/.MainActivity` → `topResumedActivity=…/.MainActivity`; process
+alive; no `FATAL EXCEPTION` and no Dart error in logcat.
+
+#### Not verified, and why
+
+**Rows 1–3 need a paired connection to a live daemon, which this environment
+cannot produce.** `docs/ops-android-emulator.md` records the reason: a typed
+pair code cannot complete pairing (it carries no certificate fingerprint and the
+app refuses an unpinned host — 0046/0074 working as designed), so the QR is the
+only way in, and *"the scene camera cannot be aimed from adb … the pose is
+driven by WASD/mouse in the emulator window only. This is the one manual step."*
+Headless, there is no window to aim in at all.
+
+Without pairing there is no connection transition, so `NotificationCoordinator`
+never starts the foreground service — confirmed: `dumpsys activity services`
+shows no `ForegroundService`. That leaves unproven:
+
+* **row 1** — swipe from recents, then an alert still arrives;
+* **row 2** — `am kill` and `START_STICKY` recreates the service;
+* **row 3** — an in-app update completes with no ANR and no `Skipped … frames`
+  burst during the 41 MB copy (P4's threading fix).
+
+**These are exactly the rows the plan called load-bearing**, and P7 says so:
+*"Row 1 is the one this plan exists for."* The manifest evidence above shows the
+flag that *caused* F1 is gone; it does not show the service coming back. An
+emulator could in principle show rows 1–2 given a paired session — the blocker
+is pairing, not the emulator — so this is a gap in reachable setup, not a
+statement that emulators cannot answer it.
+
+**Status:** P7 stays **open**. Rows 1–3 need either a physical device with a
+paired daemon, or a windowed emulator session where the owner can aim the
+virtual-scene camera at the pair QR once.
