@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-01
 associated-madr: "0126-MADR-android-client-debugging-pass-findings.md"
 ---
@@ -1234,3 +1234,24 @@ statement that emulators cannot answer it.
 **Status:** P7 stays **open**. Rows 1–3 need either a physical device with a
 paired daemon, or a windowed emulator session where the owner can aim the
 virtual-scene camera at the pair QR once.
+
+### 2026-09-01 — status reconciliation
+
+Statuses were stale across the three records this session produced. Corrected:
+
+```text
+0126-MADR   proposed -> accepted     decision approved and executed (F1-F8 fixed)
+0126-PLAN   proposed -> in-progress  P1-P6 landed; P7 rows 1-3 still open
+0128-MADR   proposed -> accepted     decision approved and executed
+```
+
+This plan is **`in-progress`, not `complete`**, and the distinction is the one
+0128 P3 had just written into the skill: a plan is complete when every
+acceptance criterion is met, not when the last commit lands. Criterion 6 —
+P7's four rows — is not met.
+
+Worth naming rather than quietly fixing: 0128 P3 added the plan status
+lifecycle to `SKILL.md` in this very session, and then none of the three
+records was updated to match it. Writing a convention and applying it are
+separate acts; the second did not happen until it was asked for. Same shape as
+F2, one document later.
