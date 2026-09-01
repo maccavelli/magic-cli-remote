@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../../data/update/app_update.dart';
@@ -96,10 +97,16 @@ class AppUpdateTileState extends State<AppUpdateTile> {
       _progress = 0;
     });
     try {
+      // path_provider's getTemporaryDirectory() is documented to return
+      // context.getCacheDir() on Android, which is what `file_paths.xml`'s
+      // cache-path root addresses. `Directory.systemTemp` resolves through an
+      // engine detail this code should not depend on, and the FileProvider
+      // grant is now narrowed to exactly this subdirectory (MADR 0126 D6).
       final dir =
           widget.cacheDir ??
-          (Directory('${Directory.systemTemp.path}/mcremote_app_updates')
-            ..createSync(recursive: true));
+          (Directory(
+            '${(await getTemporaryDirectory()).path}/mcremote_app_updates',
+          )..createSync(recursive: true));
       final file = await _svc.downloadAndVerify(
         apk: r.apk!,
         sums: r.sums!,
