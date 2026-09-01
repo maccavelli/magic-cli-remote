@@ -147,13 +147,38 @@ justifies it; recording only would leave the same prose in a third document.
 
 ### Decisions
 
-* **D1 — Actions currency is a *check*, not a bot.** A script compares each
-  pinned SHA against the action's latest release and reports drift; it does not
-  update anything and opens no PRs. This is deliberate: 0127 D5 removed
-  dependabot on the owner's instruction, and re-adding an updater under a
-  different name would reverse that decision without recording it. It also
-  matches 0127 D7's shape — gates that surface drift, with a human deciding.
-  Advisory by default, so a stale upstream cannot redden an unrelated PR.
+* **D1 — Dependabot is restored for `github-actions` only.** `pub` and `gomod`
+  stay deleted. This amends [0127](0127-MADR-adopt-current-flutter-toolchain.md)
+  D5, which deleted all three because one failed.
+
+  **Revised 2026-09-01**, after the owner asked what best practice actually is.
+  The first version of D1 proposed a drift *check* rather than a bot, reasoning
+  from the instruction to turn Dependabot off rather than from the evidence.
+  Both the guidance and the local measurement point the other way:
+
+  * [OpenSSF Scorecard's `Pinned-Dependencies` check](https://github.com/ossf/scorecard/blob/main/docs/checks.md)
+    names this exact trade — *"pinning dependencies can inhibit software
+    updates, either because of a security vulnerability or because the pinned
+    version is compromised. Mitigate this risk by: using automated tools to
+    notify applications when their dependencies are outdated; quickly updating
+    applications that do pin dependencies."* A check satisfies the first clause
+    and delegates the second to whoever reads it.
+  * [GitHub's Actions security-hardening guidance](https://docs.github.com/en/actions/reference/security/secure-use)
+    is more direct: *"Using Dependabot version updates to keep actions up to
+    date … You can use Dependabot to ensure that references to actions and
+    reusable workflows used in your repository are kept up to date."*
+  * The measurement in this record shows the `github-actions` ecosystem
+    **succeeding**: 6 of 7 pins current, and `actions/setup-java` sitting one
+    major behind is the deleted config's own policy ("action majors get reviewed
+    by hand before merge") working as written, not rot.
+
+  So the deletion treated a `pub`-specific, structural failure as a
+  Dependabot-wide one. Restoring the one ecosystem that worked keeps the
+  protection 0127 D5 gave up, keeps `pub` off permanently, and leaves 0127 D7
+  gate 1 in place to catch a bad lockfile if a bot ever proposes one again.
+  `gomod` stays off on its own merits: `govulncheck` in the pre-add gate already
+  covers *called* vulnerabilities, which is the case that matters for a Go
+  binary.
 * **D2 — The phone compares published versions, not bases**, matching
   `update/run.go` under MADR 0103, so a four-part tag cannot silently withhold a
   phone update. **And `make apk` stamps the same four-part `versionName` CI
@@ -178,14 +203,19 @@ justifies it; recording only would leave the same prose in a third document.
 
 * Good, because the ten-item backlog becomes four commits, four triggers and two
   closures — nothing left that needs re-reading to understand its state.
-* Good, because D1 keeps the owner's no-bot decision intact instead of quietly
-  reversing it, and says why in the record rather than in a script comment.
+* Good, because D1 restores the protection 0127 D5 gave up, on the ecosystem
+  that measurably worked, and records the partial reversal in both records
+  rather than leaving 0127 D5 reading as still-current.
 * Good, because D2 closes a divergence this pair created, which is the kind of
   thing that otherwise ages into a puzzling difference between local and CI
   artifacts.
-* Bad, because D1's check tells you about drift and then asks a human to act;
-  on a quiet month nobody will, and the pins will still rot — more slowly, and
-  visibly. This record does not pretend otherwise.
+* Bad, because D1 reverses part of a decision the owner made explicitly, and
+  reintroduces a monthly PR plus the CI run it triggers — the Actions-minutes
+  cost the deleted config's own comment called the reason for its monthly
+  cadence. Kept monthly and grouped for exactly that reason.
+* Bad, because Dependabot proposes action *majors* too. The restored config
+  groups them, and the standing policy that majors are reviewed by hand before
+  merge is what stops a grouped PR becoming an unreviewed major bump.
 * Bad, because D4 spends a phase producing a number that may say "no action
   needed". That is the cost of not guessing.
 * Neutral, because A–D touch four unrelated areas and can land or be dropped
@@ -193,8 +223,9 @@ justifies it; recording only would leave the same prose in a third document.
 
 ### Confirmation
 
-1. `scripts/assert-actions-current.sh` reports the measured table above, and
-   flags `actions/setup-java` specifically.
+1. `.github/dependabot.yml` exists, declares **only** `github-actions`, parses
+   as YAML, and its schema is accepted by GitHub (the file is validated on push,
+   so a malformed one is silent — check the repository's Dependabot page).
 2. A four-part remote tag against a four-part local version is compared on the
    serial, proven by a unit test that fails under the old `isNewerBase`.
 3. `make apk` and CI produce the same `versionName` shape, checked with

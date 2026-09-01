@@ -29,7 +29,7 @@ Finish line:
 
 ### In scope (the only files any phase may touch)
 
-* `scripts/assert-actions-current.sh` (new), `Makefile` — P1
+* `.github/dependabot.yml` (restored, `github-actions` only) — P1
 * `apps/mobile/lib/data/update/app_update.dart`, `test/app_update_test.dart`,
   `Makefile` (`apk` target) — P2
 * `apps/mobile/lib/data/notifications/notification_service.dart`,
@@ -42,8 +42,9 @@ Finish line:
 * **Any change to `compute()` usage.** D4: P4 measures and stops. Acting on the
   number is a separate decision, and taking it here would make the measurement
   a formality.
-* **Re-adding an Actions updater.** D1 is a check. A bot is the thing 0127 D5
-  removed.
+* **Restoring the `pub` or `gomod` ecosystems.** D1 restores `github-actions`
+  and nothing else. `pub` is the ecosystem that caused both incidents 0127 D5
+  cites, and it stays deleted permanently.
 * **Bumping `actions/setup-java` to v6.** P1 builds the instrument; reading it
   and deciding is the owner's, and a major action bump has its own blast radius.
 * **`flutter_secure_storage`, the KGP plugins, battery-optimisation prompting,
@@ -73,8 +74,9 @@ truncated output. Assert on the edit, and read the whole log.
 **C2 — P4 changes no production code.** D4. A benchmark that arrives with an
 optimisation is not a measurement.
 
-**C3 — The check in P1 does not update anything.** D1. No `--fix`, no PR, no
-write outside its own stdout.
+**C3 — P1 restores one ecosystem, not the file.** D1. `pub` and `gomod` do not
+come back, and the restored file says why so the next reader does not "complete"
+it.
 
 **C4 — A trigger names an observable, not an intention.** D5. "When #1236 is in
 a published release" is checkable; "revisit later" is not.
@@ -90,27 +92,49 @@ P5 is last: it records what the earlier phases actually concluded.
 
 ## Implementation Steps
 
-### P1 — An Actions drift check, not a bot (D1)
+### P1 — Restore Dependabot for `github-actions` only (D1)
 
-`scripts/assert-actions-current.sh`. For each `uses: owner/repo@<40-hex> # tag`
-in `.github/workflows/*.yml`: resolve the action's latest release, compare the
-pinned SHA against it, print one line per action, and summarise.
+Recreate `.github/dependabot.yml` with the `github-actions` block from the
+version 0127 P7 deleted (`git show 093d7df^:.github/dependabot.yml`), verbatim
+where possible: `directory: "/"`, `interval: monthly`,
+`open-pull-requests-limit: 5`, `commit-message.prefix: "ci"`, and the
+`groups: github-actions: patterns: ["*"]` grouping. Those settings were reasoned
+about when they were written — monthly because every PR costs a CI run and
+Actions minutes are the constraint; grouped so one PR covers all bumps rather
+than one per action — and none of that reasoning changed.
 
-* Advisory by default (exit 0, drift on stdout) — a stale upstream must not
-  redden an unrelated PR.
-* `--strict` exits 1 on any drift, for deliberate invocation.
-* Degrades cleanly with no network or no `GITHUB_TOKEN` (rate limits): report
-  "unknown" per action and exit 0. **Never** report "current" for an action it
-  could not resolve — that is the failure mode that makes a check worthless.
-* `make actions-current` runs it. **Not** wired into `preflight`: it depends on
-  a network call to a third party, and preflight's promise is that green means
-  CI will be green.
+**The `pub` and `gomod` blocks are NOT restored.** Add a comment at the top
+saying so and why, because the obvious future edit is to "complete" the file:
 
-**Verification (C1/C3):** run it — it must reproduce the MADR's table including
-`actions/setup-java … behind`. Then a negative test on a **copy** of the
-workflow with one SHA replaced by an older one, asserting the check reports that
-action as behind. Confirm `git status` is clean afterwards and that the script
-made no writes.
+* `pub` resolves in Dependabot's container without the Flutter SDK, so it cannot
+  see the exact pins in `packages/flutter{,_test}/pubspec.yaml` and will propose
+  lockfiles the pinned toolchain silently reverses. That is commit `6c02c8e`
+  and 0112 finding 4 — twice.
+* `gomod` is covered where it counts by `govulncheck` in the pre-add gate, which
+  reports *called* vulnerabilities rather than merely present ones.
+
+Also record what 0127 D7 gate 1 now buys: if `pub` were ever restored, a
+lockfile Dependabot proposes that the pinned Flutter cannot reproduce fails CI
+instead of merging silently. The gate is why this is recoverable rather than a
+standing hazard.
+
+**Verification.**
+
+```bash
+python3 -c "import yaml,sys; d=yaml.safe_load(open('.github/dependabot.yml')); \
+  eco=[u['package-ecosystem'] for u in d['updates']]; \
+  assert eco==['github-actions'], eco; print('ecosystems:', eco)"
+git show 093d7df^:.github/dependabot.yml | diff - .github/dependabot.yml || true
+```
+
+The diff is expected to show exactly the removed `pub` and `gomod` blocks plus
+the new comment — read it, rather than trusting that the right thing was
+restored.
+
+GitHub validates this file on push and reports a malformed one on the
+repository's Dependabot page rather than failing a build, so YAML parsing
+locally is necessary but not sufficient; the first monthly run is the real
+confirmation and is outside this plan's reach.
 
 ### P2 — Compare published versions, and stamp one shape (D2)
 
@@ -214,7 +238,7 @@ Then move A–D's entries to whatever P1–P4 concluded.
 ```bash
 cd apps/mobile && dart format --output=none --set-exit-if-changed . \
   && flutter analyze && flutter test
-cd ../.. && make actions-current
+cd ../.. && python3 -c "import yaml; yaml.safe_load(open('.github/dependabot.yml'))"
 make apk && "$ANDROID_HOME"/build-tools/*/aapt dump badging \
   apps/mobile/build/app/outputs/flutter-apk/app-release.apk | head -1
 grep -A5 '^## Deferred' docs/0126-PLAN-*.md docs/0127-PLAN-*.md
@@ -222,8 +246,9 @@ grep -A5 '^## Deferred' docs/0126-PLAN-*.md docs/0127-PLAN-*.md
 
 ### Acceptance criteria
 
-1. `make actions-current` reproduces the MADR's table and flags `setup-java`;
-   the check has been seen to fail on a mutated copy and writes nothing.
+1. `.github/dependabot.yml` declares `github-actions` and nothing else, parses
+   as YAML, and diffs against the deleted version by exactly the `pub`/`gomod`
+   blocks plus its new comment.
 2. A four-part remote-vs-local comparison prefers the higher serial, proven to
    fail under the old code.
 3. `make apk`'s `versionName` matches CI's shape, and `build-apk.sh` either
@@ -249,8 +274,6 @@ P1 and P4 add no runtime code at all.
 ## Deferred (this plan's own)
 
 * **Acting on P4's numbers.** By construction (C2).
-* **`actions/setup-java` v5 → v6.** P1 makes the staleness visible; taking a
-  major action bump is a separate decision with its own CI blast radius.
-* **Wiring the Actions check into CI.** Advisory-by-default is the first step; a
-  scheduled job that reports is the obvious follow-on, and needs a decision
-  about where its output goes that this record does not have.
+* **`actions/setup-java` v5 → v6.** Dependabot will now propose it in its next
+  monthly PR. Taking a major action bump is a separate decision with its own CI
+  blast radius, and the standing policy is that majors are reviewed by hand.

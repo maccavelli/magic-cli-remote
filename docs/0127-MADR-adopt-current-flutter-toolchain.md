@@ -274,6 +274,19 @@ The rejected options, fairly:
   two lockfile-drift incidents and cannot see the SDK's exact pins that make its
   pub proposals unsatisfiable. Dependency currency becomes a deliberate,
   recorded act — which is what this pair is.
+
+  **Amended 2026-09-01 by [0128](0128-MADR-triage-the-0126-and-0127-deferred-items.md)
+  D1: partially reversed.** D5 deleted all three ecosystems because one of them
+  failed. Measured afterwards, the `github-actions` ecosystem had been doing its
+  job — 6 of 7 pins current, and the single exception (`actions/setup-java`, one
+  major behind) is this config's *stated policy* working, since it said action
+  majors are reviewed by hand before merge. Both failures D5 cites were
+  `pub`-only, and structurally so: Dependabot resolves without the Flutter SDK
+  and cannot see the exact pins in `packages/flutter{,_test}/pubspec.yaml`.
+
+  `github-actions` is restored; `pub` and `gomod` stay deleted. D5's reasoning
+  holds for the ecosystem that broke and did not hold for the other two — the
+  error was applying a pub-shaped diagnosis to all three.
 * **D6 — The upgrade is verified, not assumed.** Android APK build, iOS
   simulator build, the full Dart suite, and 0126 P3's manifest-surface capture
   are all re-run; a difference in any of them is a finding, not a formality.
