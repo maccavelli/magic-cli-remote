@@ -78,6 +78,19 @@ which switches off all four recovery paths:
 | restart after swipe-away | `ForegroundService.kt:218-224` | `stopSelf()`, no alarm |
 | restart on boot / package replace | `RebootReceiver.kt:31-34` | early `return` before reading either option |
 
+**Version note (0127 P6b, 2026-09-01).** The table above was read against
+`flutter_foreground_task` **10.0.0**; the app now ships **11.0.1**. All six
+claims were re-verified line by line against 11.0.1 and are **unchanged** —
+`isSetStopWithTaskFlag` is still prefs-then-manifest
+(`ForegroundServiceUtils.kt:16-25`), `onStartCommand` still returns
+`START_NOT_STICKY` under the flag (`:185-189`), `onDestroy`'s restart alarm is
+still guarded by `!isSetStopWithTaskFlag` (`:211`), `onTaskRemoved` still calls
+`stopSelf()` (`:218-225`), `RebootReceiver` still returns early (`:29-32`), and
+the Dart-side `stopWithTask` override still trips the `TrackVisibilityUtils`
+path (`ForegroundService.kt:130-136`). The line numbers are identical too:
+11.0.0 was a Kotlin-KGP and Swift-Package-Manager packaging change, not a
+service-lifecycle change.
+
 `allowAutoRestart` defaults to `true`
 (`foreground_task_options.dart:12`) and `ForegroundServiceController._ensureInit`
 (`lib/data/notifications/foreground_service.dart:52-60`) does not override it —

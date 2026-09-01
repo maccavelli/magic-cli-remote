@@ -754,3 +754,73 @@ the identical shape — its `catch` block early-returns on `!mounted` twice, so 
 delete whose `ok` was lost while backing out still leaves stale local state.
 Fixing it requires deciding whether a disposed screen should keep issuing
 `session.list` round trips. Recorded in the 0095 amendment.
+
+### P6b — `flutter_foreground_task` 11.0.1
+
+`pubspec.yaml` `^10.0.0` → `^11.0.1`. One dependency changed.
+
+**0126 F1's evidence re-read against 11.0.1, and it is unchanged.** All six
+claims verified line by line, with identical line numbers:
+
+| claim | 11.0.1 | same as 10.0.0? |
+|---|---|---|
+| `isSetStopWithTaskFlag` prefs-then-manifest | `ForegroundServiceUtils.kt:16-25` | yes |
+| `onStartCommand` → `START_NOT_STICKY` under the flag | `ForegroundService.kt:185-189` | yes |
+| `onDestroy` restart alarm guarded by `!isSetStopWithTaskFlag` | `:211` | yes |
+| `onTaskRemoved` → `stopSelf()` under the flag | `:218-225` | yes |
+| `RebootReceiver.onReceive` early return | `RebootReceiver.kt:29-32` | yes |
+| Dart `stopWithTask` trips `TrackVisibilityUtils` | `ForegroundService.kt:130-136` | yes |
+
+11.0.0 was a packaging release — `[CHORE]` min-SDK bump, `[FEAT]` Kotlin KGP
+migration, `[FEAT]` Swift Package Manager — not a service-lifecycle change. So
+0126 F1 needed a **version citation**, not a rewrite; the note is added there.
+
+**Both future-breaking warnings moved as predicted.**
+
+Android, before → after:
+
+```text
+before: plugins that apply KGP: flutter_foreground_task, mobile_scanner, speech_to_text
+after:  plugins that apply KGP: mobile_scanner, speech_to_text
+```
+
+iOS, before → after:
+
+```text
+before: The following plugins do not support Swift Package Manager for ios:
+          - flutter_foreground_task
+        This will become an error in a future version of Flutter.
+after:  All plugins found for ios are Swift Packages, but your project still has
+        CocoaPods integration. … will need to be migrated to Swift Package
+        Manager manually.
+```
+
+The iOS message is materially different: the plugin-side blocker is gone, and
+what remains is a *project-side* CocoaPods→SPM migration that is not described
+as becoming an error. The two remaining KGP plugins are F-KGP's deferred item.
+
+**Scope added to this phase — `apps/mobile/ios/Runner.xcodeproj/project.pbxproj`.**
+Not in the plan's file list; modified by the build, not by hand, as the
+mechanical consequence of an in-scope change. Because 11.0.0 ships as a Swift
+Package it is no longer a CocoaPod, so `pod install` dropped it from
+`Podfile.lock` and removed the now-empty `[CP] Embed Pods Frameworks` build
+phase, and reordered one setting alphabetically.
+
+Verified as a no-loss change before accepting it:
+
+```text
+build-setting keys   before 72   after 72   (diff clean)
+CODE_SIGN_ENTITLEMENTS   before 3   after 3   (Runner.entitlements present)
+```
+
+There was no alternative worth offering: reverting the `pbxproj` would leave the
+project referencing a pod that no longer exists. The only real choice was to
+drop the plugin bump entirely, which would also give back both warning fixes.
+
+**Unverified, and worth stating:** this `pbxproj` change is validated by a
+**simulator** build only. Removing the pod-embed phase is correct when no
+framework-bearing pods remain, but device signing and archive are not exercised
+here — MADR 0067 records that the owner has no iPhone, and 0121 owns that gap.
+
+**Verification.** `dart format` clean, `flutter analyze` clean, `flutter test`
+`+1358 ~3`, release APK 41.0 MB, iOS simulator build 37.6 s.
