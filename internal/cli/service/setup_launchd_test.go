@@ -7,6 +7,7 @@
 package service_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,20 @@ func TestDarwinSetupAgentOrder(t *testing.T) {
 		return nil
 	})
 	defer restoreLC()
+
+	// The teardown wait probes launchd through a *second* seam
+	// (runLaunchctlCapture, via launchdLoaded). Stubbing only the runner above
+	// leaves that probe talking to the real system, so on a macOS host where
+	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
+	// the developer's own live job and fails (MADR 0125 P5). These tests assert
+	// the "nothing was loaded" path in prose already; this makes it true on
+	// every host instead of only on Linux CI, where launchctl is absent and the
+	// same answer fell out by accident.
+	restoreCap := service.OverrideRunLaunchctlCapture(
+		func(...string) (string, error) {
+			return "", errors.New("launchctl: no such service")
+		})
+	defer restoreCap()
 
 	dir := t.TempDir()
 	src := filepath.Join(dir, "mcremote")
@@ -128,6 +143,20 @@ func TestDarwinSetupNeverTouchesSystemDomain(t *testing.T) {
 	})
 	defer restoreLC()
 
+	// The teardown wait probes launchd through a *second* seam
+	// (runLaunchctlCapture, via launchdLoaded). Stubbing only the runner above
+	// leaves that probe talking to the real system, so on a macOS host where
+	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
+	// the developer's own live job and fails (MADR 0125 P5). These tests assert
+	// the "nothing was loaded" path in prose already; this makes it true on
+	// every host instead of only on Linux CI, where launchctl is absent and the
+	// same answer fell out by accident.
+	restoreCap := service.OverrideRunLaunchctlCapture(
+		func(...string) (string, error) {
+			return "", errors.New("launchctl: no such service")
+		})
+	defer restoreCap()
+
 	dir := t.TempDir()
 	src := filepath.Join(dir, "mcremote")
 	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -166,6 +195,20 @@ func TestDarwinRemoveAgent(t *testing.T) {
 		return nil
 	})
 	defer restoreLC()
+
+	// The teardown wait probes launchd through a *second* seam
+	// (runLaunchctlCapture, via launchdLoaded). Stubbing only the runner above
+	// leaves that probe talking to the real system, so on a macOS host where
+	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
+	// the developer's own live job and fails (MADR 0125 P5). These tests assert
+	// the "nothing was loaded" path in prose already; this makes it true on
+	// every host instead of only on Linux CI, where launchctl is absent and the
+	// same answer fell out by accident.
+	restoreCap := service.OverrideRunLaunchctlCapture(
+		func(...string) (string, error) {
+			return "", errors.New("launchctl: no such service")
+		})
+	defer restoreCap()
 
 	dir := t.TempDir()
 	src := filepath.Join(dir, "mcremote")
