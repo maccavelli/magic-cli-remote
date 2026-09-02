@@ -763,3 +763,211 @@ nothing exits zero and proves nothing).
   the notification stays on screen for a body tap. Nothing forced that state.
 * **Acceptance criterion 5** (100 foreground/background cycles) remains
   unmet — this run did four.
+
+### P6 — Re-run of 0126 P7: rows 1 and 2 pass, row 4 partly (D1)
+
+APK `0.15.3.13`, AVD `mcremote_test` / API 36, daemon `macos-laptop`, device
+`emu-0129b`, grok session `a787cbb9`.
+
+```text
+row 1  alert after task removal      PASS
+row 2  SIGKILL recovery              PASS
+row 3  Allow with no UI isolate      passed in P5; NOT re-run here (see below)
+row 4  the title never lies          PARTLY — the case P6 targeted is fixed,
+                                     a different one is open
+```
+
+**Row 1.** Task removed, then a host-side `permission_request` was delivered by
+the service isolate with no Activity in existence:
+
+```text
+22:40:02.841  ws client disconnected  reason=peer_closed     (task removed)
+22:41:22.504  device authenticated                           (service isolate)
+22:41:22.905  mcremote/fgs: took ownership, state=connected
+22:41:22.917  mcremote/fgs: reconciled 1 pending ask(s), showing 1
+notification  when=22:41:22  [0] "Allow" -> broadcastIntent
+                             [1] "Deny"  -> broadcastIntent
+```
+
+recents 0, zero `MainActivity` ActivityRecords, process alive. No
+`reason=replaced`.
+
+**Row 2.** A real `SIGKILL`, and recovery is now **3.5 seconds**:
+
+```text
+22:42:17.266  ws client disconnected  reason=peer_closed     (SIGKILL)
+22:42:19.698  mcremote/fgs: task isolate started (system)    (START_STICKY)
+22:42:20.820  device authenticated                           (socket back)
+22:42:21.251  mcremote/fgs: reconciled 1 pending ask(s), showing 1
+```
+
+Before the `onStart` change below it was ~30 seconds, because recovery waited
+for the first `onRepeatEvent`.
+
+**Row 3 was not re-run, and this is not a pass.** The pending permission
+expired on the daemon's five-minute timer before the tap (the service isolate
+replaced it with "Permission timed out" in the shade, which is 0101 A working
+service-side — incidental evidence, not the row). It passed in P5 against
+`0.15.3.12`, and nothing in this phase touches the Allow path, but it has not
+been observed against `0.15.3.13`.
+
+#### Three defects, all in this plan's own code, all found by P6
+
+**1. The cold-start dial never claimed the connection.** P4 wired
+`claimForegroundOwnership()` into the *resume* path only. A cold start — the
+Activity recreated into a process the service kept alive, which is exactly the
+"swiped away, service took over, user reopens" flow — went straight to
+`client.connect()` in `connect_screen.dart`:
+
+```text
+21:40:12.075  device authenticated                      (UI isolate dialled)
+21:40:12.075  ws client disconnected  reason=replaced   (service's socket)
+21:40:12.361  mcremote: connection replaced by a newer login
+```
+
+A C1 violation and the 4001 self-fighting D2 exists to prevent. Fixed; after
+the fix a cold start reads:
+
+```text
+22:21:05.465  peer_closed                        (service released first)
+22:21:05.779  mcremote/fgs: released ownership
+22:21:07.232  device authenticated               (UI isolate dialled after)
+```
+
+**2. The release acknowledgement had never been delivered — not once.**
+`sendDataToMain` resolves its target through
+`IsolateNameServer.lookupPortByName`, and the plugin does not register that
+port: the app must call `FlutterForegroundTask.initCommunicationPort()` itself.
+The app never did. Every message the service isolate sent the UI isolate was
+looked up, found missing, and dropped in silence.
+
+So `claimOwnership` had only ever ended on its three-second timeout. Handover
+*appeared* to work because the service releases promptly on the heartbeat and
+the app dialled once the stopwatch ran out — the mechanism D2 is built on was
+inert, and what shipped was the fallback. Fixed in `main.dart`; the timeout
+branch has not logged once since (`grep -c 'no release ack'` = 0), and the
+cold-start handover above completes in 1.4s rather than 3s+.
+
+**3. A system-started service inherited a "Connected" title it could not back
+up.** The plugin restores the last notification content across a START_STICKY
+restart, and `onStart` deliberately corrected nothing, so the notification came
+back reading "Connected to host" and kept saying it until the first
+`onRepeatEvent` — **29 seconds** measured (21:55:15 → 21:55:41, daemon with no
+connection until 21:55:44). D3's invariant broken in the case P2 had called out
+as most likely to be stale. Fixed by taking ownership immediately when
+`starter == TaskStarter.system`; that window is now ~2s, and it also removed
+the 30s recovery delay in row 2.
+
+#### Row 4: what is fixed and what is not
+
+Sampling the foreground-service title every ~2s against the daemon's own
+connection log, across a SIGKILL and the following minutes:
+
+```text
+22:42:18  ~2s   conn=DOWN  title=Connected to host   restored notification,
+                                                     before onStart corrects
+22:43:05  ~31s  conn=DOWN  title=Connected to host
+22:43:38         conn=DOWN  title=Reconnecting to host
+```
+
+The second window is **not the notification layer**. The title mirrored the
+client's state faithfully; the client believed it was connected for ~33s after
+the socket died, and flipped to "Reconnecting" at 22:43:38 — the same instant
+it logged `Relay died under a live session; reconnecting over Mesh`. That is
+liveness detection in `McremoteClient` (0068 / 0089), reached here because this
+AVD's transport began dying every ~40s late in the session:
+
+```text
+22:43:02  mcremote: Mesh died under a live session; reconnecting over Relay
+22:43:38  mcremote: Relay died under a live session; reconnecting over Mesh
+```
+
+**Decision (owner, 2026-09-02): measure the flap before touching any timing.**
+Shortening a read deadline or ping cadence against a single flaky emulator run
+is how more aggressive reconnects and worse battery reach real networks, and it
+interacts with the per-generation fallback budget 0062 D11 protects. Whether
+~33s is a defect or the design working on a genuinely dying link is not
+established, so no transport timing is being changed on this evidence. Row 4
+stays open; see the new deferred entry below.
+
+#### Two measurement corrections, because both could have produced false passes
+
+**`lsof` was measuring the wrong thing, and earlier records lean on it.** The
+socket counts reported in P4 and P5 (`phone sockets: 1`) came from
+`lsof -iTCP:7531 -sTCP:ESTABLISHED | grep 100.64.0.2`. That entry turned out to
+be the *same* fd and source port (`0xed1300a04916be99`, `:38128`, fd `90u`)
+across an hour of connects and disconnects — a stale or persistent view, not
+the app's live connection. It read `1` continuously through a window the daemon
+logged as disconnected.
+
+The C1 conclusions in P4 and P5 still stand, but on different evidence: the
+daemon logs `reason=replaced` at exactly the moment a second login displaces a
+first, which is the definitive signal. Every `reason=replaced` in this
+session's daemon log is now accounted for — 20:44, 20:46, 21:24 (the unarmed
+heartbeat, P5), 21:40 (the unclaimed cold start, above), 22:43 (a transport
+fallback dialling before the old socket was reaped, which is 0062 behaviour and
+not an isolate conflict). Prefer the daemon log over `lsof` for this question.
+
+**A sampler that had already exited reported zero violations.** The first row-4
+run was configured for 150 samples and finished at 22:37:18; the task removal
+it was meant to cover happened at 22:40:02. `grep -c` over its output returned
+"0 violations" — a vacuous pass from an instrument that was not running. The
+re-run adds a coverage assertion (count the `conn=DOWN` samples; zero of them
+means the window was never observed, not that nothing was wrong).
+
+#### One substitution in method, stated because it is not the literal row
+
+The injected swipe gesture stopped being registered by the launcher partway
+through the session (`input swipe` and explicit `input motionevent` sequences
+both left the card in place, confirmed by screenshot). Task removal was done
+with `adb shell am stack remove 41` instead, which routes through the same
+`removeTask` path a swipe does — the path that fires `onTaskRemoved` — and the
+observable end state matches: recents 0, zero `MainActivity` ActivityRecords,
+process alive. It is the same framework operation, not the same input event.
+
+#### Tests
+
+`test/foreground_handover_test.dart` (new, 4 cases) covers the acknowledgement
+in **plain `test`, not `testWidgets`** — deliberately: the ack arrives on an
+isolate `ReceivePort`, which delivers on the real event loop, while
+`testWidgets` fakes the clock, so inside a widget test the reply never lands in
+a pump and `claimOwnership` can only ever reach its timeout. Testing it there
+would have measured the fallback and called it the mechanism. The suite is
+differential — the port registered (ack heard, well inside the timeout) against
+the port missing (times out), which is the shipped defect encoded both ways.
+
+`connect_screen_test.dart` gains a cold-start regression test asserting the
+service is *asked* before the dial, and a `flutter_foreground_task/methods`
+stub in `setUp`: unstubbed, the claim's platform call never answers, the
+"Reconnecting with saved credentials…" spinner animates forever, and
+`pumpAndSettle` cannot idle — the dial looks hung when it is only unmocked.
+
+Mutation-tested against a scratchpad copy, never the working tree: making
+`onData` ignore the acknowledgement fails exactly the ack test
+(`Expected: true  Actual: <false>`, "the release ack should have been heard").
+
+`dart format` clean, `flutter analyze` clean, `flutter test` **+1388 ~3**.
+
+### OPEN — connection liveness detection latency (from P6 row 4)
+
+**What was seen.** With the socket dead daemon-side from 22:43:05, the client
+went on reporting `connected` until 22:43:38 — ~33 seconds — and the
+foreground-service title, which mirrors that state, said "Connected to host"
+throughout. The title is not the bug; the client's belief is.
+
+**Why it is not being fixed here.** The only transport that exhibited it is
+this AVD's, which began dropping the socket every ~40s late in the session.
+Tuning a read deadline or ping cadence against that would change behaviour on
+every platform and every session on the strength of one flaky emulator, and it
+interacts with the per-generation fallback budget in 0062 D11.
+
+**Trigger to resume.** A controlled session on a transport that is not flapping,
+measuring how long the client takes to notice a socket that dies under it. If
+the gap reproduces there, fix the deadline/cadence with the measured number and
+record it against 0068 / 0089, which own connection liveness — not here.
+
+**Consequence of leaving it.** For up to ~33s after a link dies, the
+notification claims a connection that is gone, so a user glancing at the shade
+can believe alerts are arriving when they are not. 0126 P7 row 4 therefore
+stays open on its literal wording, even though the START_STICKY case it was
+written to catch is fixed (29s → ~2s).

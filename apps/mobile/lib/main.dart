@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
@@ -11,6 +12,23 @@ import 'state/app_providers.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Open the isolate port the foreground service talks back on (MADR 0129 D2).
+  //
+  // `sendDataToMain` resolves its target with
+  // `IsolateNameServer.lookupPortByName`, and the plugin never registers that
+  // port for you — the app must, once, before anything can receive from the
+  // service isolate. Without this call every message the service sends the UI
+  // isolate is looked up, found missing, and dropped in silence.
+  //
+  // That is not hypothetical: it is why the release acknowledgement D2 is
+  // built on had never once been delivered (found 2026-09-02, MADR 0129 P6).
+  // `claimOwnership` waited its full three seconds every time and then
+  // proceeded on the timeout branch, so handover appeared to work — the
+  // service does release promptly on the heartbeat — but the app was dialling
+  // on a stopwatch rather than on the acknowledgement, and paid 3s of cold
+  // start for the privilege.
+  FlutterForegroundTask.initCommunicationPort();
 
   // MADR 0084 D1. The two hooks Flutter documents, and deliberately *not*
   // runZonedGuarded: PlatformDispatcher.onError supersedes it as of Flutter

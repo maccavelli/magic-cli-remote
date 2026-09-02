@@ -102,6 +102,29 @@ class McRemoteTaskHandler extends TaskHandler {
     // the system the UI isolate is probably gone, and assuming it is present
     // would keep a stale "Connected to host" on screen for the whole grace
     // window.
+    if (starter != TaskStarter.system) return;
+    // A system start means START_STICKY, RebootReceiver or
+    // autoRunOnMyPackageReplaced — in every one of those the process that held
+    // the socket is gone, so there is no connection and no UI isolate.
+    //
+    // Take ownership *now* rather than waiting for the first onRepeatEvent.
+    // Waiting was wrong twice over (measured 2026-09-02, MADR 0129 P6 row 4):
+    // the plugin restores the last notification content across the restart, so
+    // the notification came back reading "Connected to host" and kept saying
+    // it until the first tick — 29 seconds claiming a connection the daemon
+    // did not have, which is the exact violation of D3 that this record exists
+    // to end, in the case P2 called out as the most likely to be stale. And
+    // the delay applied to recovery as well as to honesty: alerts stayed down
+    // for a grace window whose whole purpose is deciding whether a UI isolate
+    // that *might* be alive has gone, a question this branch already answers.
+    //
+    // Not awaited: _takeOwnership dials, and the plugin awaits onStart before
+    // it will dispatch anything else to this handler. Holding it open for the
+    // length of a connection attempt would delay the very callbacks the
+    // handover depends on. `_showingPaused` is set synchronously, so the first
+    // onRepeatEvent cannot start a second takeover behind this one.
+    _showingPaused = true;
+    unawaited(_takeOwnership());
   }
 
   @override
