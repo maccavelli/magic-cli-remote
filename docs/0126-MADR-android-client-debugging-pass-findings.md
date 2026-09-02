@@ -488,3 +488,35 @@ Everything else is confirmable from a build artifact or a unit test.
   [0067](0067-MADR-ios-port.md) (why iOS is out of scope for this pass),
   [0103](0103-MADR-update-tracks-release-build-and-active-service.md)
   (`NewerPublished`, the F8 note).
+
+## Amendment — 2026-09-02: the plan is complete; row 4's residual moved to 0130
+
+[The plan](0126-PLAN-android-client-debugging-pass-findings.md) is `complete`.
+All eight findings F1–F8 are addressed, and P7's owner-verification rows 1, 2
+and 3 pass — rows 1 and 2 via
+[0129](0129-MADR-background-alert-delivery-survives-task-removal.md) P6, row 3
+on 2026-09-02.
+
+**Row 4 is the exception and is recorded as unsatisfied rather than closed.**
+The stale-notification case this record targeted is fixed (29 s → ~2 s), but
+measurement found a second window with a different cause: the client can
+believe it is connected for tens of seconds after its socket dies, and every
+surface that mirrors that belief — including the foreground-service
+notification — repeats it. That is connection liveness, outside F1–F8, and now
+carries its own record:
+[0130](0130-MADR-client-can-sit-connected-with-no-socket.md), parked with the
+cause unfound.
+
+Two corrections this record should carry, because both were asserted here or in
+its plan and both were wrong:
+
+* **The in-app update was never blocked by the emulator's network.** Measured
+  2026-09-02: the emulator pulls ~38 MB from the internet without difficulty
+  and the app's own download runs at 2,880 KB/s. The earlier failures were
+  transient.
+* **In-loop SHA-256 is not a download bottleneck.** Instrumentation put hashing
+  at **3.1%** of wall time against 91.6% waiting on the network, refuting a
+  plausible reading of `app_update.dart`.
+
+Both were confident inferences from reading code, and both fell to a single
+measurement. The pattern is worth carrying forward more than either finding.

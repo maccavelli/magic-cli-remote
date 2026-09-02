@@ -143,9 +143,22 @@
                                           start rule does not apply.
             onDestroy restart alarm       best-effort on API 31+ (see below).
             onTaskRemoved restart alarm   best-effort on API 31+ (see below).
-            RebootReceiver                inert: autoRunOnBoot and
-                                          autoRunOnMyPackageReplaced are both
-                                          left at their false defaults.
+            RebootReceiver                LIVE for MY_PACKAGE_REPLACED only.
+                                          autoRunOnMyPackageReplaced is true
+                                          (0126 P3 step 2), so the service
+                                          returns by itself after an in-app
+                                          update; autoRunOnBoot stays false, so
+                                          nothing starts at boot. Measured
+                                          2026-09-02 (0126 P7 row 3): after a
+                                          package replace the OS logged
+                                          "Background started FGS: Allowed ...
+                                          code:PACKAGE_REPLACED" and the service
+                                          came back with zero MainActivity
+                                          records — no Activity was ever
+                                          started. This line previously read
+                                          "inert: ... both left at their false
+                                          defaults", which stopped being true
+                                          when P3 step 2 landed.
 
           "Best-effort" precisely: RestartReceiver.setRestartAlarm uses
           setAlarmClock only when canScheduleExactAlarms() is true, and this app

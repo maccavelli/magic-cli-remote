@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-09-01
+status: complete
+date: 2026-09-02
 associated-madr: "0126-MADR-android-client-debugging-pass-findings.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD060 -->
@@ -785,20 +785,24 @@ optimisation buys nothing. Reopen only if alerts are shown to be lost on a
 device whose OEM is more aggressive than stock AOSP; the emulator is the
 permissive case, not the hard one.
 
-### OPEN — this plan's remainder
+### ~~OPEN — this plan's remainder~~ — rows 1, 2 and 3 now pass
 
-**P7 rows 1–2 now pass** (0129 P6). What remains:
+**P7 rows 1–2 pass** (0129 P6). **Row 3 passes** (2026-09-02, this plan's
+execution record). What remains:
 
-* **row 3** (no ANR during an in-app update) — untouched by 0129 and still
-  unrun.
+* ~~**row 3** (no ANR during an in-app update) — untouched by 0129 and still
+  unrun.~~ **Closed 2026-09-02: passes in full.**
 * **row 4** (the notification never claims "Connected" while no socket exists)
   — the case it was written to catch is fixed (a system-restarted service
   inherited a stale "Connected to host" for 29 seconds; now ~2s), but a
   distinct gap remains: the client can believe it is connected for ~33s after
   the socket dies, and the title mirrors that belief. That is connection
-  liveness, not the alert path, and it is deferred pending measurement on a
-  transport that is not flapping — see 0129's "OPEN — connection liveness
-  detection latency".
+  liveness, not the alert path. **It is no longer this plan's item:** the
+  measurement 0129 asked for was taken, and the residual became its own record,
+  [0130](0130-MADR-client-can-sit-connected-with-no-socket.md), which is parked
+  with the cause unfound and no fix shipped. Row 4 as literally worded — "at no
+  point does the title claim Connected while no socket exists" — **is not
+  satisfied**, and the reason is tracked there rather than here.
 
 Note that rows 1–2 no longer need "a physical device or a scene-camera QR": the
 pairing obstacle recorded here was worked around in 0129's execution record.
@@ -1550,3 +1554,111 @@ The download instrumentation was temporary. It was written, measured with, and
 before and after, and the patch is at
 `scratchpad/0126-row3-instrumentation.patch`. Nothing in the shipping update
 path changed as a result of this measurement.
+
+### 2026-09-02 — P7 row 3 **CLOSED: passes in full**
+
+The remaining criterion — "the service returns without a manual open" — was
+recorded an hour earlier as needing the release keystore. **That was too
+pessimistic, and it was wrong for the same reason the network claim was: it was
+inferred rather than tested.**
+
+The signature mismatch blocks only the *in-app installer's* final commit. The
+criterion itself is about `MY_PACKAGE_REPLACED`, and **`adb install -r` fires
+exactly that broadcast** — two debug-signed builds replace each other happily.
+So it is testable on this host after all, with no keystore and no quota.
+
+**Measured, 0.15.3.18 → 0.15.3.19, foreground service running beforehand, and
+no Activity launched at any point:**
+
+```text
+09:30:16.657  ActivityManager: Background started FGS: Allowed
+              [callingPackage: com.maccavelli.magic_cli_remote; uidState: RCVR;
+               intent: .../com.pravera.flutter_foreground_task.service.ForegroundService;
+               code:PACKAGE_REPLACED;
+               tempAllowListReason:<android.intent.action.MY_PACKAGE_REPLACED/u0,
+               reasonCode:PACKAGE_REPLACED,duration:20000,callingUid:1000>]
+09:30:16.761  mcremote/fgs: task isolate started (system)
+09:30:17.919  mcremote/fgs: alerts started (enabled=true, asks=true)
+09:30:17.920  mcremote/fgs: took ownership, state=McConnectionState.connected
+```
+
+State after, without touching the device:
+
+```text
+version              0.15.3.19      (was 0.15.3.18)
+pid                  23696          (new process)
+fgs notification     present
+top activity         nexuslauncher
+MainActivity records 0              <- no Activity was ever started
+daemon               device authenticated
+```
+
+The `tempAllowListReason ... duration:20000` line is the mechanism: on API 31+
+a background FGS start is refused by default, and `MY_PACKAGE_REPLACED` grants
+a 20-second temporary exemption. That is why this path works where the
+`onDestroy`/`onTaskRemoved` restart alarms are only best-effort — the manifest's
+own table says so, and this is that table's `RebootReceiver` row being
+exercised for the first time.
+
+#### Row 3, complete
+
+| criterion | result |
+|---|---|
+| update offered from an older build | pass |
+| download completes, SHA-256 verified | pass — 38.8 MB, 13.8 s, 2880 KB/s |
+| no ANR | pass |
+| no `Skipped NNN frames` burst during the copy | pass — only warning was at app startup, minutes earlier |
+| pairing survives | pass |
+| service returns without a manual open | **pass** — above |
+
+**Row 3 is closed.** One caveat stated plainly rather than buried: the final
+`commit()` of the *in-app* install could not run on this host, because local
+builds are debug-signed and the published asset is CI-signed. Every behaviour
+row 3 asks about was verified — the ANR-sensitive session copy through the
+in-app path, and the package-replace restart through the identical broadcast —
+but the two halves were exercised in two runs rather than one continuous
+end-to-end install. A CI-signed local build would join them.
+
+#### A stale comment found and fixed while doing this
+
+`android/app/src/main/AndroidManifest.xml:146` described `RebootReceiver` as
+"inert: autoRunOnBoot and autoRunOnMyPackageReplaced are both left at their
+false defaults". That stopped being true when **this plan's own P3 step 2** set
+`autoRunOnMyPackageReplaced: true`; the comment was not updated with it. It now
+describes the live behaviour and cites this measurement. `make
+manifest-surface` still passes — a comment is not part of the surface.
+
+## Status — 2026-09-02: complete, with row 4's residual transferred to 0130
+
+Every phase P1–P6 landed and is recorded above. P7's four owner-verification
+rows now stand as:
+
+```text
+row 1  alert after task removal              PASS  (0129 P6)
+row 2  SIGKILL / START_STICKY recovery       PASS  (0129 P6, 3.5 s)
+row 3  in-app update: no ANR, service returns PASS (this plan, 2026-09-02)
+row 4  the title never claims a dead socket   NOT SATISFIED -> 0130
+```
+
+Each of this plan's own findings F1–F8 is addressed, and the GATED
+battery-optimisation item resolved as "not needed" once rows 1–2 passed without
+it.
+
+**Row 4 is the one thing this plan does not deliver, and it is being handed
+over rather than quietly closed.** Its original target *was* fixed — a
+system-restarted service inheriting a stale "Connected to host" for 29 seconds,
+now ~2 s. But the row as worded is absolute, and measurement found a second,
+unrelated window: the client can believe it is connected for tens of seconds
+after its socket dies, and the notification faithfully mirrors that belief.
+
+That is not one of F1–F8. It is a defect in connection liveness, discovered
+*by* this row rather than caused by anything this plan changed, and it now has
+its own record:
+[0130](0130-MADR-client-can-sit-connected-with-no-socket.md) — parked, cause
+unfound, no fix shipped, with a working `mc.trace` instrument and a named next
+step should it recur.
+
+Marking this plan `complete` therefore means: **its scope is done, and the one
+criterion it cannot satisfy is owned elsewhere and is not lost.** Keeping 0126
+open until 0130 concludes would be bookkeeping rather than accuracy — 0130 is
+parked deliberately, and nothing in this plan is waiting on it.
