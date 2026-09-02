@@ -1255,3 +1255,120 @@ lifecycle to `SKILL.md` in this very session, and then none of the three
 records was updated to match it. Writing a convention and applying it are
 separate acts; the second did not happen until it was asked for. Same shape as
 F2, one document later.
+
+### 2026-09-01 — P7 on the emulator: rows 1 and 2 FAIL, row 3 PASSES
+
+Run against AVD `mcremote_test` (Android 16 / API 36), paired to the live daemon
+at `100.64.0.3:7531` via the virtual-scene QR. Artifact: `make apk` output
+**0.15.3.5**, release-mode assertion passed, clean-installed.
+
+**A near-miss worth recording first.** The APK initially staged for this run was
+built at 15:42; `apps/mobile/lib` last changed at 15:46 — it predated 0128 P3's
+`NotificationService` fix. A timestamp comparison caught it. Had it not, P7
+would have run green against a binary missing a fix and the result recorded as
+verification of the current tree. Sixth verification-of-a-verification failure
+in this pair, and the first that would have produced a **false pass**.
+
+#### Row 1 — swipe from recents: **FAIL**
+
+The swipe genuinely happened: `RecentsView: onTaskRemoved: 25`, and
+`dumpsys activity recents` then matched the app **0** times.
+
+What survived, and what did not:
+
+```text
+process            pid 3503 unchanged
+service            isForeground=true  foregroundId=42  types=0x200 (remoteMessaging)
+                   stopIfKilled=false  oom_score_adj=200
+FGS notification   still "Connected to host"
+socket to daemon   GONE — three samples over 9s, never returned
+Dart isolate       GONE
+```
+
+**P1's fix demonstrably works.** With `android:stopWithTask="true"` the plugin's
+`onTaskRemoved` would have called `stopSelf()`; it did not, and there were zero
+`ForegroundServiceStartNotAllowed` refusals.
+
+**But the feature does not.** The Dart isolate died with the Activity. Proven by
+control rather than inference — thread names captured post-swipe, the app
+relaunched, and the two sets diffed:
+
+```text
+present when LIVE, absent after the swipe:
+  + 3.io
+  + 3.raster
+  + DartWorker
+```
+
+The WebSocket, the ping loop, the reconnect ladder and `NotificationCoordinator`
+all live in the **main Dart isolate**, bound to the Activity's `FlutterEngine`.
+Keeping the process alive does not keep that isolate alive.
+`_KeepAliveTaskHandler` — the isolate that *does* survive — is a deliberate
+no-op: empty `onStart`, empty `onRepeatEvent`.
+
+**Second defect, found here:** the foreground-service notification read
+"Connected to host" for minutes with no socket at all. MADR 0056 H-5a exists so
+that title never lies; after a swipe nothing can correct it, because no Dart code
+runs to notice.
+
+#### Row 2 — OS kill: **FAIL, and the step was wrong as written**
+
+`adb shell am kill` (what P7 specified) **does not kill a
+foreground-service process** — pid unchanged, `DartWorker` still present, socket
+still up. As written the row tested nothing. Re-run with `adb root` and a real
+`SIGKILL`:
+
+```text
+SIGKILL pid 3503        -> process gone
+after +12s              -> pid 4646   (START_STICKY recreated it)
+FGS record              -> 1
+DartWorker              -> 0
+socket to daemon        -> not restored
+```
+
+Same conclusion by a different route: the service comes back, the isolate does
+not.
+
+#### Row 3 — in-app update: **PASS**
+
+Driven through the real UI (host-side `adb emu screenrecord screenshot`; the
+guest `screencap` is black for Flutter). A deliberately older build
+(`0.14.0.1+2`) was installed so the updater had something to offer.
+
+```text
+Version tile            0.14.0.1+2          <- four-part stamping (0128 P2) on device
+check                   "Update available: v0.15.3"   <- isNewerPublished, end to end
+download                40,642,346 bytes
+landed at               cache/mcremote_app_updates/magic-cli-remote-v0.15.3-arm64.apk
+```
+
+That path is exactly the one root P4 narrowed `file_paths.xml` to, so the grant
+and the writer agree on device — not just in the test.
+
+The ANR-critical section, sampling the main thread every 2 s across the copy and
+session commit:
+
+```text
+t+02s..t+16s   main-thread state = S   (sleeping, never R or D)
+ANRs                                  0
+"Skipped N frames" warnings           0
+PackageInstallerActivity displayed    +170ms
+```
+
+**Limit of the instrument, stated plainly:** emulator storage is host-backed and
+fast, so this does **not** prove the pre-P4 code would have ANR'd on hardware.
+What it establishes is that P4's threading change did not break the install path
+and the main thread was never blocked during a real 40 MB copy.
+
+The OS then declined at the `REQUEST_INSTALL_PACKAGES` policy gate — expected for
+a sideloaded first install, and anticipated by the app's own dialog copy ("You
+may need to allow 'Install unknown apps' … the first time"). That gate is
+downstream of everything P4 changed.
+
+#### Consequence
+
+Rows 1 and 2 mean **0126 F1's fix is necessary but not sufficient**, and that the
+deferred battery-optimisation item is aimed at the wrong layer — the service is
+already alive; the isolate is not. Where the connection lives is an
+architectural decision, so it goes to its own record rather than being absorbed
+here. See 0129.
