@@ -147,6 +147,13 @@ class TranscriptCache {
   final Directory? _dirOverride;
   Directory? _dir;
 
+  /// Memoised so two concurrent first-touchers share one open+migrate
+  /// (MADR 0126 F7). `_dir` was assigned *before* awaiting the migration, so
+  /// `load()` and `save()` racing on a cold cache both ran it over the same
+  /// key snapshot. Cleared on failure, so a transient error is not cached for
+  /// the life of the process.
+  Future<Directory>? _dirFuture;
+
   /// Tail of the mutation queue. Every index write is a read-modify-write of
   /// [_indexKey]; two debounced saves interleaving across their awaits would
   /// drop one session from the index while its entry file stays on disk —
@@ -167,15 +174,46 @@ class TranscriptCache {
   Future<SharedPreferences> get _p async =>
       _prefs ??= _prefsOverride ?? await SharedPreferences.getInstance();
 
-  Future<Directory> get _directory async {
+  Future<Directory> get _directory {
     final existing = _dir;
-    if (existing != null) return existing;
+    if (existing != null) return Future<Directory>.value(existing);
+    return _dirFuture ??= _openDirectory().onError<Object>((e, st) {
+      _dirFuture = null;
+      throw e;
+    });
+  }
+
+  Future<Directory> _openDirectory() async {
     final base = _dirOverride ?? await getApplicationSupportDirectory();
     final dir = Directory('${base.path}/$_dirName');
     if (!dir.existsSync()) await dir.create(recursive: true);
-    _dir = dir;
     await _migrateLegacyEntries(dir);
+    await _sweepTempFiles(dir);
+    _dir = dir;
     return dir;
+  }
+
+  /// Remove `<name>.json.tmp` left by a process death between
+  /// [_writeFile]'s write and its rename (MADR 0126 F7).
+  ///
+  /// They are invisible to [_storedIds]' `.json` filter, so neither eviction
+  /// nor [clear] could ever reclaim them. Only this exact suffix is swept:
+  /// deleting anything that merely fails to parse is how a cache turns into a
+  /// data-loss bug.
+  static Future<void> _sweepTempFiles(Directory dir) async {
+    try {
+      await for (final e in dir.list()) {
+        if (e is File && entryBasename(e.path).endsWith('.json.tmp')) {
+          try {
+            await e.delete();
+          } catch (_) {
+            // Another writer may own it; it will be swept next open.
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('TranscriptCache temp sweep failed (non-fatal): $e');
+    }
   }
 
   /// One-way move of the v1 prefs blobs into files (MADR 0084 D3).
@@ -225,8 +263,29 @@ class TranscriptCache {
   static String _fileName(String sessionId) =>
       '${Uri.encodeComponent(sessionId)}.json';
 
-  static String _sessionIdFromFile(String name) =>
-      Uri.decodeComponent(name.substring(0, name.length - '.json'.length));
+  /// Null when the name is not a decodable entry (MADR 0126 F7).
+  ///
+  /// [_storedIds] feeds every `.json` file in the directory through here, so
+  /// one junk filename used to make [clear] and [retainOnly] fail every time
+  /// they were called, permanently.
+  ///
+  /// The catch is deliberately broad. `Uri.decodeComponent` throws
+  /// **`ArgumentError`** on a malformed escape ("Invalid URL encoding"), not
+  /// the `FormatException` its name suggests — and `ArgumentError` is an
+  /// `Error`, so neither `on FormatException` nor `on Exception` catches it.
+  /// The first version of this fix made exactly that mistake and the
+  /// regression test caught it. Anything undecodable is a skip, so the
+  /// specific type earns nothing.
+  static String? _sessionIdFromFile(String name) {
+    try {
+      return Uri.decodeComponent(
+        name.substring(0, name.length - '.json'.length),
+      );
+    } catch (e) {
+      debugPrint('TranscriptCache: skipping undecodable entry "$name": $e');
+      return null;
+    }
+  }
 
   File _entryFile(Directory dir, String sessionId) =>
       File('${dir.path}/${_fileName(sessionId)}');
@@ -306,7 +365,18 @@ class TranscriptCache {
     final dir = await _directory;
     final file = _entryFile(dir, sessionId);
     if (!file.existsSync()) return null;
-    final raw = await file.readAsString();
+    final String raw;
+    try {
+      raw = await file.readAsString();
+    } on FileSystemException catch (e) {
+      // `retainOnly` can delete between the existsSync and the read; this is a
+      // best-effort snapshot of host-owned history, so a losing read is a cache
+      // miss, not an error (MADR 0126 F7). Deliberately NOT serialized behind
+      // the mutation chain: that would queue every chat-open behind a debounced
+      // save and an isolate spawn to close a rare race.
+      debugPrint('TranscriptCache load lost a race for $sessionId: $e');
+      return null;
+    }
     if (raw.isEmpty) return null;
     // Symmetric with save()'s compute(): the decode is the larger half of the
     // work and used to run on the UI thread (MADR 0084 B2).
@@ -351,7 +421,8 @@ class TranscriptCache {
     await for (final e in dir.list()) {
       final name = entryBasename(e.path);
       if (e is File && name.endsWith('.json')) {
-        out.add(_sessionIdFromFile(name));
+        final id = _sessionIdFromFile(name);
+        if (id != null) out.add(id);
       }
     }
     return out;
@@ -394,8 +465,14 @@ class TranscriptCache {
     for (final id in index) {
       final f = _entryFile(dir, id);
       if (!f.existsSync()) continue;
-      sessions++;
-      bytes += await f.length();
+      try {
+        bytes += await f.length();
+        sessions++;
+      } on FileSystemException {
+        // Same race as load(): a concurrent eviction just removed it. It is a
+        // one-line Settings subtitle; skip the entry rather than throw.
+        continue;
+      }
     }
     return (sessions: sessions, bytes: bytes);
   }

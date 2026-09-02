@@ -7,7 +7,7 @@ import 'dart:typed_data' show Uint8List;
 import 'package:basic_utils/basic_utils.dart' show CryptoUtils;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart'
-    show ValueNotifier, debugPrint, visibleForTesting;
+    show ValueNotifier, debugPrint, kDebugMode, visibleForTesting;
 import 'package:http/io_client.dart';
 import 'package:pointycastle/export.dart' show ECPublicKey;
 import 'package:uuid/uuid.dart';
@@ -17,6 +17,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../chat/chat_models.dart' show kHistoryFetchLimit;
 import '../codex_execution_client.dart';
 import '../codex_threads_client.dart';
+import '../diagnostics/error_recorder.dart';
 import '../local/settings_store.dart';
 import '../protocol/models.dart';
 import '../protocol/frame_budget.dart';
@@ -831,8 +832,41 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
       !_manualDisconnect &&
       !_userLoggedOut;
 
+  /// Debug-only trace of the four values that disagreed during the outage in
+  /// MADR 0130: connection state, whether a socket is held, whether the ping is
+  /// armed, and the dial epoch.
+  ///
+  /// The eleven minutes that record describes are *silent* in today's logs —
+  /// the daemon says plenty, `mcremote/fgs` says plenty, and the client says
+  /// nothing at all between the failover and the manual relaunch. So this
+  /// traces the early returns as well as the transitions: the interesting
+  /// event is very likely something declining to act, and nothing today prints
+  /// that.
+  ///
+  /// `kDebugMode` so release builds are byte-identical. Remove this in the same
+  /// change that fixes the cause (0130 I1).
+  ///
+  /// `mc.trace` exists because the failure this is chasing has so far only been
+  /// seen on a *release* build, and `kDebugMode` makes exactly that build
+  /// untestable (0130 I4). It defaults to false, so a shipped build const-folds
+  /// the branch away and is unchanged; only
+  /// `--dart-define=mc.trace=true` turns it on.
+  static const _kForceTrace = bool.fromEnvironment('mc.trace');
+
+  void _trace(String at) {
+    if (!kDebugMode && !_kForceTrace) return;
+    debugPrint(
+      'mcremote/trace ${DateTime.now().toIso8601String()} '
+      'state=${_state.name} '
+      'socket=${_channel == null ? "no" : "yes"} '
+      'ping=${(_pingTimer?.isActive ?? false) ? "on" : "off"} '
+      'epoch=$_connectEpoch at=$at',
+    );
+  }
+
   void _setState(McConnectionState s) {
     _state = s;
+    _trace('setState');
     // A socket that just went away is `lost` immediately — waiting out the
     // freshness window would keep a green light on a connection we know is
     // gone.
@@ -993,6 +1027,22 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
 
   @visibleForTesting
   Future<ClientIdentity> debugEnsureIdentity() => _ensureIdentity();
+
+  /// Whether the periodic app-ping timer is armed (MADR 0126 F2). A parked or
+  /// torn-down client must not leave one running: it is a wakeup every
+  /// [kAppPingPeriod] for a socket that no longer exists.
+  @visibleForTesting
+  bool get debugPingArmed => _pingTimer?.isActive ?? false;
+
+  /// Whether any per-socket resource is still held (MADR 0126 F2): the
+  /// channel, its subscription, the pinned HttpClient, or the relay bridge —
+  /// which owns an outer WSS, a second HttpClient and a loopback ServerSocket.
+  @visibleForTesting
+  bool get debugSocketResourcesHeld =>
+      _channel != null ||
+      _sub != null ||
+      _httpClient != null ||
+      _relayTransport != null;
 
   Future<ClientIdentity> _ensureIdentity() {
     final existing = _identityFuture;
@@ -1259,6 +1309,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     _channel = opened.channel;
     _httpClient = opened.httpClient;
     _relayTransport = opened.relay;
+    _trace('adoptSocket');
     if (oldRelay != null && oldRelay != opened.relay) {
       unawaited(oldRelay.close().catchError((_) {}));
     }
@@ -2020,6 +2071,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         _negotiated = pairNegotiated;
       }
       serverCaps = ServerCaps.tryParse(res.payload?['caps']);
+      _checkPingCadenceAgainstCaps();
 
       if (_pinnedFingerprint != null) {
         // Best-effort: the daemon has already enrolled this device — a
@@ -2238,6 +2290,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         _negotiated = negotiated;
       }
       serverCaps = ServerCaps.tryParse(auth.payload?['caps']);
+      _checkPingCadenceAgainstCaps();
 
       // Resume state (MADR 0068 D4): store the fresh token for the next
       // connection; surface this connection's outcome for the
@@ -2365,22 +2418,62 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     throw err;
   }
 
+  /// Diagnose a daemon whose advertised read deadline the fixed app-ping
+  /// cadence cannot hold open (MADR 0126 D5).
+  ///
+  /// This is a **guard, not a driver**. The cadence cannot simply be shortened
+  /// to fit: it is bounded above by [kLinkFreshFor] (anything slower renders a
+  /// healthy idle session amber) and shortening it further costs battery on the
+  /// platform this app actually ships on. What it can do is say so, once, when
+  /// an operator has configured `ws_read_deadline_seconds` near its 15 s floor
+  /// — otherwise that presents as unexplained mid-session drops with every
+  /// piece of evidence already in hand and unused.
+  ///
+  /// `caps.read_deadline_ms` had no reader at all before this; a decoded field
+  /// nothing consults is not a contract, it is a comment.
+  void _checkPingCadenceAgainstCaps() {
+    final deadlineMs = serverCaps?.readDeadlineMs ?? 0;
+    if (deadlineMs <= 0) return;
+    if (_appPingPeriod.inMilliseconds * 3 < deadlineMs) return;
+    final msg =
+        'host read deadline ${deadlineMs}ms is too short for a '
+        '${_appPingPeriod.inSeconds}s app ping — idle sessions may be dropped '
+        'by the host; raise ws_read_deadline_seconds';
+    debugPrint('mcremote: $msg');
+    lastError = msg;
+    // Best-effort and never rethrows (ErrorRecorder's own contract), so a
+    // diagnostics write cannot break a connection that is otherwise fine.
+    unawaited(
+      ErrorRecorder(
+        _settings,
+      ).record(StateError(msg), StackTrace.current, source: ErrorSource.app),
+    );
+  }
+
   void _startPing() {
     _pingTimer?.cancel();
     _missedPings = 0;
+    _trace('startPing');
     // Faster than typical mobile NAT/idle timeouts so we notice drops sooner.
     _pingTimer = Timer.periodic(_appPingPeriod, (_) {
       // The freshness clock crosses its thresholds silently, so the value is
       // re-derived on the timer that is already running rather than by a
       // separate ticker in the UI (plan amendment B3).
       _evaluateHealth();
+      _trace('ping:tick');
       if (_state == McConnectionState.connected) {
         // **Unconditional — this is a protocol obligation** (MADR 0063 plan
-        // amendment B1). The daemon's read loop waits for a *data* message
-        // (`internal/ws/server.go:535`, 60 s deadline at `:165`); the
-        // WebSocket keepalive of D2 is answered below the application and
+        // amendment B1). The daemon's read loop waits for a *data* message;
+        // the WebSocket keepalive of D2 is answered below the application and
         // never satisfies that read. This request is the only thing holding
-        // the host's deadline open.
+        // the host's rolling deadline open.
+        //
+        // That deadline is `limits.ws_read_deadline_seconds`
+        // (`internal/config/config.go`) — 120 s by default, floor 15 s — not
+        // the "60 s" an earlier version of this comment claimed against a line
+        // number that had moved (MADR 0126 F4). The cadence is not derived
+        // from it either way: see `kAppPingPeriod`, which is bounded by
+        // `kLinkFreshFor`.
         //
         // Do not make it conditional on freshness to save a wakeup: a session
         // streaming a long reply receives constantly and sends nothing, so
@@ -2392,10 +2485,12 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
               .then((_) {
                 _missedPings = 0; // reset on success
                 _noteInboundFrame();
+                _trace('ping:ok');
               })
               .catchError((Object e) {
                 if (pingEpoch != _connectEpoch) return;
                 _missedPings++;
+                _trace('ping:miss($_missedPings)');
                 // First miss is advisory: the UI drops out of green via the
                 // freshness clock, but the socket is left alone. Bouncing a
                 // live connection on one lost packet is exactly the flap that
@@ -2492,6 +2587,22 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
       _failAllPending('connection replaced');
       debugPrint('mcremote: connection replaced by a newer login');
       _setState(McConnectionState.disconnected);
+      // Parking is a state decision, not a licence to skip cleanup
+      // (MADR 0126 D3/F2). This was the one terminal path that returned
+      // before `_teardownSocket`, leaving the 10 s ping timer armed and —
+      // on the relay path — the outer WSS, its HttpClient and the loopback
+      // ServerSocket open. 4001 means a newer login replaced us and the
+      // reconnect is deliberately deferred to the next user action, so
+      // "until the next dial" can be hours, or never; a phone in that state
+      // was holding a relay slot the whole time.
+      //
+      // suppressReconnect mirrors disconnect(); `_connectLeg` clears the
+      // latch after it adopts the next socket.
+      unawaited(
+        _teardownSocket(suppressReconnect: true).catchError((Object e) {
+          debugPrint('mcremote: replaced-close teardown failed: $e');
+        }),
+      );
       return;
     }
     // A capacity refusal (1013) may carry the daemon's estimate of when a
@@ -2523,15 +2634,22 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
 
   void _scheduleReconnect() {
     if (!_autoReconnect || _manualDisconnect || _userLoggedOut) {
+      _trace('scheduleReconnect:declined:autoReconnect/manual/loggedOut');
       return;
     }
     if (!hasCredentials) {
+      _trace('scheduleReconnect:declined:noCredentials');
       return;
     }
     if (_reconnectInFlight || (_reconnectTimer?.isActive ?? false)) {
+      _trace('scheduleReconnect:declined:alreadyInFlightOrArmed');
       return;
     }
     if (_state == McConnectionState.connected) {
+      // The one that matters most for 0130: the client refusing to reconnect
+      // *because* it believes it is connected. If the outage is a stuck state,
+      // this line is the eleven minutes.
+      _trace('scheduleReconnect:declined:believesConnected');
       return;
     }
     if (_handshakeFailures >= _maxHandshakeFailures) {
@@ -2710,6 +2828,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   }
 
   Future<void> _teardownSocketImpl({bool suppressReconnect = false}) async {
+    _trace('teardown:enter(suppressReconnect=$suppressReconnect)');
     if (suppressReconnect) {
       _suppressReconnect = true;
     }
@@ -2726,6 +2845,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     _sub = null;
     final channel = _channel;
     _channel = null;
+    _trace('teardown:detached');
     final httpClient = _httpClient;
     _httpClient = null;
     final relay = _relayTransport;

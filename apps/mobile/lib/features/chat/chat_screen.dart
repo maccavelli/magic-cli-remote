@@ -259,6 +259,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _questionSheetOpen = false;
   NotificationCoordinator? _notifCoord;
 
+  /// Captured with [_notifCoord] and for the same reason: the end-session
+  /// completion may land after this State is disposed, and `ref` dies with the
+  /// element (MADR 0127 P6a deviation). These two are app-lifetime notifiers,
+  /// so holding them is safe; reaching for `ref` at completion time is not.
+  late final TranscriptsNotifier _transcripts;
+  late final SessionsRevisionController _sessionsRevision;
+
   /// Pops the currently open permission/question sheet (set while one is up),
   /// so an externally resolved request can dismiss its own stale sheet.
   VoidCallback? _dismissSheet;
@@ -339,6 +346,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final coord = ref.read(notificationCoordinatorProvider);
     coord.claimSession(widget.sessionId);
     _notifCoord = coord;
+    _transcripts = ref.read(transcriptsProvider.notifier);
+    _sessionsRevision = ref.read(sessionsRevisionProvider.notifier);
     _scroll.addListener(_onScroll);
     final transcript = ref.read(sessionTranscriptProvider(widget.sessionId));
     _openSeqFloor = transcript.nextSeq;
@@ -1736,9 +1745,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// | user popped the chat mid-delete | false | false |
   /// | untracked dialog / pushed forked chat / permission sheet | true | false |
   void _completeEndSessionFlow() {
-    if (!mounted) return;
-    // Clear local state only once the host actually deleted it.
-    ref.read(transcriptsProvider.notifier).clearSession(widget.sessionId);
+    // State effects run FIRST and unconditionally (MADR 0127 P6a deviation).
+    // They are not UI: the host has deleted the session, so the local
+    // transcript is stale and the sessions list is wrong, whether or not this
+    // screen still exists. Guarding them behind `mounted` made both depend on
+    // how long the router keeps a popping route's State alive — which
+    // go_router 18.0.0 shortened. The observable failure was that ending a
+    // session while backing out left the deleted row on the sessions list with
+    // no toast and a stale transcript, until a manual refresh.
+    //
+    // Only the toast and the navigation below genuinely need a live context.
+    _transcripts.clearSession(widget.sessionId);
+    if (!mounted) {
+      // The user popped us mid-delete. The sessions screen is already on
+      // screen and its didPopNext fired before the host answered, so the
+      // revision bump is the only thing that can still refresh it.
+      _sessionsRevision.bump();
+      return;
+    }
     showTopNotification(
       context,
       'Session ended',
@@ -1751,7 +1775,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       Navigator.of(context).pop(true);
       return;
     }
-    ref.read(sessionsRevisionProvider.notifier).bump();
+    _sessionsRevision.bump();
     if (route != null && route.isActive) {
       // Still in the navigator with something above it — a sheet, a
       // dialog, or a pushed forked chat. A go exit is deterministic and
@@ -1759,8 +1783,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // bump above owns the landing-screen refresh.
       context.go('/sessions');
     }
-    // Otherwise the user popped us and is already on the landing screen;
-    // the bump is the whole job.
+    // Otherwise the route is gone but this State survived the frame; the
+    // bump above is the whole job.
   }
 
   /// Second confirmation for a broad "always" grant, so it can't be tapped by

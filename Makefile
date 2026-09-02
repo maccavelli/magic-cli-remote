@@ -148,7 +148,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose live-codex live-codex-contract live-grok live-kilo race test-all preflight apk \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-goose live-codex live-codex-contract live-grok live-kilo race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target check-cgo-off
 
@@ -396,6 +396,7 @@ preflight:
 	MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 $(MAKE) --no-print-directory build >/dev/null
 	@./bin/mcremote version
 	@./bin/mcrelay version
+	@echo "==> flutter pin"; ./scripts/assert-flutter-pin.sh
 	@echo "==> dart format";  cd apps/mobile && dart format --output=none --set-exit-if-changed .
 	@echo "==> flutter analyze"; cd apps/mobile && flutter analyze
 	@echo "==> flutter test";  cd apps/mobile && flutter test
@@ -424,13 +425,54 @@ verify-units:
 	done; \
 	exit $$rc
 
+# Check the shipped Android permission / exported-component surface against
+# apps/mobile/android/manifest-surface.allow (MADR 0126 D4). Nothing else in
+# this repo reads the merged manifest, which is how a plugin injected WAKE_LOCK,
+# RECEIVE_BOOT_COMPLETED, VIBRATE and an exported receiver unnoticed (0126 F3).
+manifest-surface:
+	cd $(MOBILE_DIR) && flutter build apk --config-only --release --target-platform android-arm64
+	cd $(MOBILE_DIR)/android && ./gradlew :app:processReleaseManifest -q
+	./scripts/assert-android-manifest-surface.sh
+
 # Build the release Android APK locally (arm64) for on-device testing. Debug-
 # signed unless apps/mobile/android/key.properties is present; the signed,
 # published release APK is produced by CI on a version tag.
 # Output: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
 # After build, scripts/assert-flutter-release-apk.sh verifies Flutter release mode.
+# MADR 0126 F8: stamp the version. Without --build-name/--build-number the APK
+# takes pubspec.yaml's placeholder (0.1.0 / 1), so AppUpdateService compares the
+# release tag against "0.1.0" and reports an update for ever — breaking the one
+# workflow that needs a local APK, namely testing the updater. CI already does
+# this (ci.yml); this target simply never did.
+#
+# MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 is the same pair `preflight`
+# uses: a developer's local build must not claim a serial from the shared ledger
+# or push a build/* tag. Falls back to an unstamped build if the allocator
+# cannot produce a well-formed version.
+#
+# BUILD_NAME is the FULL four-part version, matching CI (ci.yml passes
+# needs.go.outputs.version) and the intent stated there — "versionName is the
+# full Go build version so the APK and the binaries in the same release agree".
+# The first version of this target split it to three parts, copying
+# scripts/build-apk.sh; that made a local APK's versionName differ in shape from
+# a CI one for no reason (MADR 0128 D2). --build-number stays the serial
+# locally and github.run_number in CI: that difference IS deliberate, because a
+# versionCode must increase monotonically forever while N restarts at 1 on each
+# new release base.
 apk:
-	cd $(MOBILE_DIR) && flutter build apk --release --target-platform android-arm64
+	@set -e; \
+	VER="$$(MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 $(NEXT_VERSION_SH) | tail -1)"; \
+	BUILD_NAME="$$VER"; BUILD_NUMBER="$${VER##*.}"; \
+	if [ -n "$(VERSION_FROM_CLI)" ]; then BUILD_NAME="$(VERSION)"; fi; \
+	if echo "$$BUILD_NAME" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$$' && \
+	   echo "$$BUILD_NUMBER" | grep -qE '^[0-9]+$$'; then \
+		echo "==> apk $$BUILD_NAME ($$BUILD_NUMBER)"; \
+		cd $(MOBILE_DIR) && flutter build apk --release --target-platform android-arm64 \
+			--build-name="$$BUILD_NAME" --build-number="$$BUILD_NUMBER"; \
+	else \
+		echo "warning: no well-formed build version ($$VER); building unstamped" >&2; \
+		cd $(MOBILE_DIR) && flutter build apk --release --target-platform android-arm64; \
+	fi
 	@GRADLE_METADATA="$(MOBILE_DIR)/build/app/outputs/apk/release/output-metadata.json"; \
 	  if [ ! -f "$$GRADLE_METADATA" ]; then unset GRADLE_METADATA; fi; \
 	  GRADLE_METADATA="$${GRADLE_METADATA:-}" ./scripts/assert-flutter-release-apk.sh \

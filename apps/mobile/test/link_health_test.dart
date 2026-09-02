@@ -44,8 +44,19 @@ void main() {
 
   group('timing constants', () {
     test('red lands well inside the daemon read deadline', () {
-      // internal/ws/server.go:165 drops a silent client at 60s. Reaching a
-      // definitive state first is what keeps the two ends from disagreeing.
+      // The daemon drops a silent client after
+      // `limits.ws_read_deadline_seconds` (internal/config/config.go): 120 s by
+      // default, floor 15 s. Reaching a definitive state first is what keeps
+      // the two ends from disagreeing.
+      //
+      // The 60 s bound below is deliberately conservative and is NOT a claim
+      // about the default — an earlier comment here said the daemon "drops a
+      // silent client at 60s", which was a stale reading of a line number that
+      // had moved (MADR 0126 F4). It is kept as-is rather than relaxed to the
+      // real 120 s: a stricter bound costs nothing and a looser one would stop
+      // catching anything. A daemon configured near the 15 s floor is out of
+      // reach of any static bound and is handled at runtime by
+      // McremoteClient._checkPingCadenceAgainstCaps (0126 D5).
       expect(kLinkDeadAfter, lessThan(const Duration(seconds: 60)));
       expect(kLinkFreshFor, lessThan(kLinkDeadAfter));
     });
@@ -54,6 +65,9 @@ void main() {
       // Amendment B1: this ping is the *only* thing resetting the daemon's
       // read deadline — protocol pings do not. Several beats must fit inside
       // it so a single dropped one cannot cost the session.
+      //
+      // Same conservative 60 s bound as above, and same reason: it is not the
+      // daemon default (120 s), it is a floor-safe margin (MADR 0126 F4).
       expect(kAppPingPeriod * 3, lessThan(const Duration(seconds: 60)));
       expect(kAppPingTimeout, lessThan(kAppPingPeriod));
     });
@@ -64,5 +78,23 @@ void main() {
       // or the hard signal would arrive after the soft one and add nothing.
       expect(kProtocolPingInterval, lessThan(kLinkDeadAfter));
     });
+  });
+
+  // MADR 0126 D5. kAppPingPeriod is bounded ABOVE by kLinkFreshFor, not by the
+  // daemon's read deadline: _noteInboundFrame stamps lastVerifiedAt on any
+  // inbound frame, so on an idle session the app ping is the only thing that
+  // verifies the link. A period slower than the freshness window would leave a
+  // healthy idle session rendering amber for ever.
+  //
+  // This exists because the obvious "improvement" — deriving the cadence from
+  // caps.read_deadline_ms (120 s default) — would give ~30 s and silently
+  // break the status indicator. Fail loudly here instead.
+  test('app ping verifies inside the freshness window (0126 D5)', () {
+    expect(kAppPingPeriod, lessThanOrEqualTo(kLinkFreshFor));
+    expect(
+      classifyLinkHealth(sinceVerified: kAppPingPeriod, socketUp: true),
+      LinkHealth.fresh,
+      reason: 'a link verified exactly one ping ago must still read green',
+    );
   });
 }

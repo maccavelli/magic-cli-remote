@@ -229,89 +229,81 @@ void main() {
     return client;
   }
 
-  test(
-    'a peer that never pongs has its socket closed',
-    () async {
-      final peer = await _SilentPeer.start();
-      addTearDown(peer.close);
-      final client = newClient(pingInterval: const Duration(milliseconds: 150));
+  test('a peer that never pongs has its socket closed', () async {
+    final peer = await _SilentPeer.start();
+    addTearDown(peer.close);
+    final client = newClient(pingInterval: const Duration(milliseconds: 150));
 
-      // The upgrade succeeds, so the dial gets past `ready` and the client
-      // adopts a socket that is, in fact, attached to nothing.
-      final elapsed = Stopwatch()..start();
+    // The upgrade succeeds, so the dial gets past `ready` and the client
+    // adopts a socket that is, in fact, attached to nothing.
+    final elapsed = Stopwatch()..start();
 
-      Object? thrown;
-      try {
-        await client.connect(
-          hostInput: peer.hostInput,
-          token: 'tok',
-          mode: TlsMode.off,
-          enableAutoReconnect: false,
-          allowTransportFallback: false,
-        );
-      } catch (e) {
-        thrown = e;
-      }
-
-      expect(peer.upgrades, 1, reason: 'the handshake must have completed');
-      // Both halves matter, because "not connected" alone proves nothing here:
-      // the auth request times out on its own eventually, so a test that only
-      // checked the end state would pass with keepalive disabled.
-      //
-      //  * the failure is `connection_lost` — the socket was *closed* by the
-      //    keepalive, not abandoned by an application timeout (`auth_timeout`);
-      //  * it happened in well under the 30 s request timeout that would
-      //    otherwise have been the first thing to notice.
-      expect(
-        thrown,
-        isA<McException>().having((e) => e.code, 'code', 'connection_lost'),
-        reason:
-            'keepalive must close the socket, not wait for auth to expire '
-            '(an application timeout would surface as auth_timeout)',
+    Object? thrown;
+    try {
+      await client.connect(
+        hostInput: peer.hostInput,
+        token: 'tok',
+        mode: TlsMode.off,
+        enableAutoReconnect: false,
+        allowTransportFallback: false,
       );
-      expect(
-        elapsed.elapsed,
-        lessThan(const Duration(seconds: 10)),
-        reason: 'detection must not depend on the 30 s request timeout',
-      );
-      expect(client.state, isNot(McConnectionState.connected));
-    },
-    timeout: const Timeout(Duration(seconds: 60)),
-  );
+    } catch (e) {
+      thrown = e;
+    }
 
-  test(
-    'a peer that pongs is not torn down by keepalive',
-    () async {
-      // The negative control, and the reason D2 is safe to ship: if the daemon
-      // did not answer pings, enabling keepalive would kill healthy sessions.
-      final peer = await _HealthyPeer.start();
-      addTearDown(peer.close);
-      final client = newClient(pingInterval: const Duration(milliseconds: 120));
+    expect(peer.upgrades, 1, reason: 'the handshake must have completed');
+    // Both halves matter, because "not connected" alone proves nothing here:
+    // the auth request times out on its own eventually, so a test that only
+    // checked the end state would pass with keepalive disabled.
+    //
+    //  * the failure is `connection_lost` — the socket was *closed* by the
+    //    keepalive, not abandoned by an application timeout (`auth_timeout`);
+    //  * it happened in well under the 30 s request timeout that would
+    //    otherwise have been the first thing to notice.
+    expect(
+      thrown,
+      isA<McException>().having((e) => e.code, 'code', 'connection_lost'),
+      reason:
+          'keepalive must close the socket, not wait for auth to expire '
+          '(an application timeout would surface as auth_timeout)',
+    );
+    expect(
+      elapsed.elapsed,
+      lessThan(const Duration(seconds: 10)),
+      reason: 'detection must not depend on the 30 s request timeout',
+    );
+    expect(client.state, isNot(McConnectionState.connected));
+  }, timeout: const Timeout(Duration(seconds: 60)));
 
-      unawaited(
-        client
-            .connect(
-              hostInput: peer.hostInput,
-              token: 'tok',
-              mode: TlsMode.off,
-              enableAutoReconnect: false,
-              allowTransportFallback: false,
-            )
-            .catchError((_) {}),
-      );
+  test('a peer that pongs is not torn down by keepalive', () async {
+    // The negative control, and the reason D2 is safe to ship: if the daemon
+    // did not answer pings, enabling keepalive would kill healthy sessions.
+    final peer = await _HealthyPeer.start();
+    addTearDown(peer.close);
+    final client = newClient(pingInterval: const Duration(milliseconds: 120));
 
-      // Well past three keepalive cycles. The socket must still be open; the
-      // client is stuck waiting on `auth`, which is a different concern.
-      await Future<void>.delayed(const Duration(milliseconds: 600));
-      expect(peer.upgrades, 1);
-      expect(
-        client.lastErrorCode,
-        isNot('connection_lost'),
-        reason: 'keepalive must not close a socket whose peer is answering',
-      );
-    },
-    timeout: const Timeout(Duration(seconds: 60)),
-  );
+    unawaited(
+      client
+          .connect(
+            hostInput: peer.hostInput,
+            token: 'tok',
+            mode: TlsMode.off,
+            enableAutoReconnect: false,
+            allowTransportFallback: false,
+          )
+          .catchError((_) {}),
+    );
+
+    // Well past three keepalive cycles. The socket must still be open; the
+    // client is stuck waiting on `auth`, which is a different concern.
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    expect(peer.upgrades, 1);
+    expect(
+      client.lastErrorCode,
+      isNot('connection_lost'),
+      reason: 'keepalive must not close a socket whose peer is answering',
+    );
+  }, timeout: const Timeout(Duration(seconds: 60)));
 
   group('freshness clock (D1)', () {
     /// A clock the test moves by hand, so no assertion waits on wall time.
@@ -442,54 +434,50 @@ void main() {
       timeout: const Timeout(Duration(seconds: 60)),
     );
 
-    test(
-      'the ping keeps firing during a long one-way stream (B1)',
-      () async {
-        // The regression this guards is subtle and severe: if the heartbeat were
-        // skipped whenever inbound traffic looked fresh, a reply longer than the
-        // daemon's 60 s read deadline would be killed mid-answer, because a
-        // streaming session sends nothing upstream. Inbound events must refresh
-        // the *UI* signal without ever suppressing the outbound ping.
-        final peer = await _LivePeer.start();
-        addTearDown(peer.close);
-        final client = McremoteClient(
-          settings: SettingsStore(secure: _MemorySecureStorage()),
-          appPingPeriod: const Duration(milliseconds: 50),
-        );
-        addTearDown(() async {
-          await client.disconnect();
-          await client.dispose();
-        });
-        await client.connect(
-          hostInput: peer.hostInput,
-          token: 'tok',
-          mode: TlsMode.off,
-          enableAutoReconnect: false,
-          allowTransportFallback: false,
-        );
+    test('the ping keeps firing during a long one-way stream (B1)', () async {
+      // The regression this guards is subtle and severe: if the heartbeat were
+      // skipped whenever inbound traffic looked fresh, a reply longer than the
+      // daemon's 60 s read deadline would be killed mid-answer, because a
+      // streaming session sends nothing upstream. Inbound events must refresh
+      // the *UI* signal without ever suppressing the outbound ping.
+      final peer = await _LivePeer.start();
+      addTearDown(peer.close);
+      final client = McremoteClient(
+        settings: SettingsStore(secure: _MemorySecureStorage()),
+        appPingPeriod: const Duration(milliseconds: 50),
+      );
+      addTearDown(() async {
+        await client.disconnect();
+        await client.dispose();
+      });
+      await client.connect(
+        hostInput: peer.hostInput,
+        token: 'tok',
+        mode: TlsMode.off,
+        enableAutoReconnect: false,
+        allowTransportFallback: false,
+      );
 
-        // Stream inbound events continuously — the client looks perfectly
-        // healthy throughout, which is exactly when the ping would be
-        // "optimised" away.
-        final pingsAtStart = peer.pings;
-        final streamer = Timer.periodic(
-          const Duration(milliseconds: 10),
-          (_) => peer.pushEvent(),
-        );
-        addTearDown(streamer.cancel);
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+      // Stream inbound events continuously — the client looks perfectly
+      // healthy throughout, which is exactly when the ping would be
+      // "optimised" away.
+      final pingsAtStart = peer.pings;
+      final streamer = Timer.periodic(
+        const Duration(milliseconds: 10),
+        (_) => peer.pushEvent(),
+      );
+      addTearDown(streamer.cancel);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
 
-        expect(
-          peer.pings - pingsAtStart,
-          greaterThanOrEqualTo(3),
-          reason:
-              'the daemon read deadline is only reset by these pings; '
-              'a busy inbound stream must not suppress them',
-        );
-        expect(client.linkHealth.value, LinkHealth.fresh);
-      },
-      timeout: const Timeout(Duration(seconds: 60)),
-    );
+      expect(
+        peer.pings - pingsAtStart,
+        greaterThanOrEqualTo(3),
+        reason:
+            'the daemon read deadline is only reset by these pings; '
+            'a busy inbound stream must not suppress them',
+      );
+      expect(client.linkHealth.value, LinkHealth.fresh);
+    }, timeout: const Timeout(Duration(seconds: 60)));
   });
 }
 

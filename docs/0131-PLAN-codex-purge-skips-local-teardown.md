@@ -1,13 +1,13 @@
 ---
 status: proposed
 date: 2026-08-31
-associated-madr: "0126-MADR-codex-purge-skips-local-teardown.md"
+associated-madr: "0131-MADR-codex-purge-skips-local-teardown.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD060 -->
 
-# PLAN 0126 — Close before purge, and bound the engine call
+# PLAN 0131 — Close before purge, and bound the engine call
 
-Implements [0126-MADR-codex-purge-skips-local-teardown.md](0126-MADR-codex-purge-skips-local-teardown.md)
+Implements [0131-MADR-codex-purge-skips-local-teardown.md](0131-MADR-codex-purge-skips-local-teardown.md)
 decisions D1–D9, closing findings F1–F10.
 
 ## Goal

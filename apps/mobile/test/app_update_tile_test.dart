@@ -5,6 +5,9 @@ import 'package:http/testing.dart';
 import 'package:magic_cli_remote/data/update/app_update.dart';
 import 'package:magic_cli_remote/features/settings/app_update_tile.dart';
 import 'dart:convert';
+import 'dart:io';
+
+import 'support/fake_path_provider.dart';
 
 void main() {
   testWidgets('available state then tap downloads only after check', (
@@ -62,4 +65,78 @@ void main() {
     // Force ready without file via state is hard; ensure installApk not auto-run.
     expect(installs, 0);
   });
+
+  // MADR 0126 D6/F5. The default download directory moved from
+  // `Directory.systemTemp` to path_provider's getTemporaryDirectory(), so that
+  // `file_paths.xml` can grant the FileProvider exactly one subdirectory
+  // instead of three roots at path=".". Nothing exercised that line before —
+  // the other tests inject `service`/`installApk` and never reach the download
+  // — so the narrowed grant would have been unverified.
+  testWidgets(
+    'download lands under getTemporaryDirectory/mcremote_app_updates',
+    (tester) async {
+      final tmp = useFakePathProvider(addTearDown);
+      final client = MockClient((req) async {
+        final url = req.url.toString();
+        if (url.contains('api.github.com')) {
+          return http.Response(
+            jsonEncode({
+              'tag_name': 'v9.0.0',
+              'assets': [
+                {
+                  'name': 'magic-cli-remote-v9.0.0-arm64.apk',
+                  'browser_download_url': 'https://example/a.apk',
+                  'size': 3,
+                },
+                {
+                  'name': 'SHA256SUMS.txt',
+                  'browser_download_url': 'https://example/sums',
+                  'size': 80,
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (url.contains('sums')) {
+          // sha256 of "apk"
+          return http.Response(
+            'c15b4c8dbdff7e2f6ea6ca42ea9e35e9d6d4b0dfb1eb4a7b6f6c1e5a2b0b0e0f'
+            '  magic-cli-remote-v9.0.0-arm64.apk\n',
+            200,
+          );
+        }
+        return http.Response('apk', 200);
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AppUpdateTile(
+              service: AppUpdateService(
+                client: client,
+                localVersion: () async => '0.1.0',
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('App update'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Update available'));
+      await tester.pumpAndSettle();
+
+      // The checksum above is deliberately wrong, so the download fails
+      // verification — but only AFTER the directory has been created, which is
+      // the line under test. Asserting on the directory rather than on a
+      // successful install keeps this a test of the path, not of sha256.
+      final dir = Directory('${tmp.path}/mcremote_app_updates');
+      expect(
+        dir.existsSync(),
+        isTrue,
+        reason:
+            '0126 D6: downloads must land under getTemporaryDirectory(), '
+            'which is the one root file_paths.xml still grants',
+      );
+    },
+  );
 }

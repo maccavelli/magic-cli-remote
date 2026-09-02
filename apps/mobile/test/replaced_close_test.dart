@@ -130,8 +130,42 @@ void main() {
         1,
         reason: 'a replaced client must not reconnect-fight the newer login',
       );
+      // MADR 0126 F2: parking is not a licence to skip the teardown. This
+      // branch used to `return` before `_teardownSocket`, so a replaced phone
+      // kept a 10 s wakeup armed and — on the relay path — held an outer WSS,
+      // a pinned HttpClient and a loopback ServerSocket for as long as the
+      // user left it parked.
+      expect(
+        client.debugPingArmed,
+        isFalse,
+        reason: '0126 F2: a parked client must not keep a ping timer armed',
+      );
+      expect(
+        client.debugSocketResourcesHeld,
+        isFalse,
+        reason: '0126 F2: the replaced socket bundle must be released',
+      );
     },
   );
+
+  test('contrast: a live connection does hold its socket and ping', () async {
+    // Without this the two assertions above would also pass against a client
+    // that never armed anything, which would make them prove nothing.
+    final peer = await _ClosingPeer.start();
+    addTearDown(peer.close);
+    final client = newClient();
+
+    await client.connect(
+      hostInput: peer.hostInput,
+      token: 'tok',
+      mode: TlsMode.off,
+      allowTransportFallback: false,
+    );
+
+    expect(client.state, McConnectionState.connected);
+    expect(client.debugPingArmed, isTrue);
+    expect(client.debugSocketResourcesHeld, isTrue);
+  });
 
   test('contrast: an ordinary abnormal close still auto-reconnects', () async {
     final peer = await _ClosingPeer.start();

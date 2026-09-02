@@ -584,6 +584,73 @@ void main() {
       expect((await cache.load('s2'))?.items.first.text, 'fresh');
     },
   );
+
+  // MADR 0126 F7. `_sessionIdFromFile` runs `Uri.decodeComponent` over every
+  // `.json` file in the directory, and that throws FormatException on a
+  // malformed percent-escape. One junk filename therefore made clear() and
+  // retainOnly() fail EVERY time — the Settings "clear cache" action would
+  // have been permanently broken with nothing to indicate why.
+  test('a file with an undecodable name cannot wedge clear()', () async {
+    final cache = newCache();
+    await cache.save('s1', one2('s1', 'hello'));
+    await cache.debugWhenIdle;
+
+    // '%zz' is not a valid escape — written directly, as a torn or foreign
+    // file would be.
+    File('${tmp.path}/transcripts/%zz.json').writeAsStringSync('{}');
+
+    await cache.clear();
+    await cache.debugWhenIdle;
+
+    final names = Directory('${tmp.path}/transcripts')
+        .listSync()
+        .map((e) => entryBasename(e.path))
+        .where((n) => n.endsWith('.json'))
+        .toList();
+    expect(
+      names,
+      ['%zz.json'],
+      reason:
+          '0126 F7: clear() sweeps what it can decode and skips what it '
+          'cannot, rather than throwing — and must NOT delete an unrecognised '
+          'file, which is how a cache becomes a data-loss bug',
+    );
+    expect(await cache.load('s1'), isNull);
+  });
+
+  // MADR 0126 F7. load() does existsSync() then an async read, and an eviction
+  // can land between them. A best-effort snapshot of host-owned history treats
+  // that as a cache miss rather than propagating a FileSystemException into
+  // hydrateFromCache.
+  test('load() returns null when the entry is deleted mid-read', () async {
+    final cache = newCache();
+    await cache.save('s1', one2('s1', 'hello'));
+    await cache.debugWhenIdle;
+
+    final entry = File('${tmp.path}/transcripts/s1.json');
+    expect(entry.existsSync(), isTrue);
+    entry.deleteSync();
+
+    expect(await cache.load('s1'), isNull);
+  });
+
+  // The `.tmp` sweep (0126 F7): a process death between writeAsString and
+  // rename strands a file the `.json` filter cannot see, so neither eviction
+  // nor clear() could ever reclaim it.
+  test('a stranded .json.tmp is swept when the cache opens', () async {
+    Directory('${tmp.path}/transcripts').createSync(recursive: true);
+    File('${tmp.path}/transcripts/s9.json.tmp').writeAsStringSync('partial');
+
+    final cache = newCache();
+    await cache.save('s1', one2('s1', 'hello'));
+    await cache.debugWhenIdle;
+
+    expect(
+      File('${tmp.path}/transcripts/s9.json.tmp').existsSync(),
+      isFalse,
+      reason: '0126 F7: torn temp files must not accumulate forever',
+    );
+  });
 }
 
 SessionTranscript one2(String id, String text) => SessionTranscript(

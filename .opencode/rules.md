@@ -4,8 +4,16 @@ When reading content from GitHub, use `curl` + `api.github.com` for structured d
 
 ## MADR and plan skill
 
-Whenever the user asks for an MADR and a plan, load the `writing-madr-and-plans`
+Whenever the user asks for an MADR and a plan, load the **`madr-and-plan-writing`**
 skill first and follow it for authoring, naming (`NNNN-MADR-*` / `NNNN-PLAN-*`),
 and review. This applies both to writing a fresh pair and to amending an
-existing one. The operational copy of the full policy is `AGENTS.md`; honour
-both, do not fork a third workflow.
+existing one.
+
+The name is exact, and a mistyped one fails quietly rather than loudly: the call
+does not resolve and an agent may carry on without the skill.
+
+**Mutating work needs an approved `docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair
+first**; read-only investigation does not. The normative text — what counts as
+mutating, the approval order, the bootstrap exception — is in `AGENTS.md`. Read
+it there rather than trusting a summary; this file deliberately does not restate
+it (review 2026-09-01, F2).

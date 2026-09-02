@@ -497,6 +497,30 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             _statusIsError = false;
           });
           try {
+            // Take the connection back from the foreground-service isolate
+            // before dialling (MADR 0129 D2/C1).
+            //
+            // This is the path that matters most for it, and it was missed
+            // when P4 wired the claim into the *resume* path only: a cold
+            // start lands here whenever the Activity is recreated into a
+            // process the service kept alive — which is precisely the "swiped
+            // away, service took over, user reopens the app" flow. Dialling
+            // without the claim put two logins on one device token and the
+            // daemon closed one with 4001 (measured 2026-09-02, MADR 0129 P6:
+            // `reason=replaced` 5s after an Activity start, with the service
+            // isolate logging "connection replaced by a newer login").
+            //
+            // Never fatal to the dial: a claim that fails or times out means
+            // the service did not answer, and refusing to connect then would
+            // trade a recoverable 4001 for an app that cannot reach its host
+            // at all.
+            try {
+              await ref
+                  .read(notificationCoordinatorProvider)
+                  .claimForegroundOwnership();
+            } catch (e) {
+              debugPrint('cold-start claimForegroundOwnership failed: $e');
+            }
             // Cold start is a reconnect, not a menu session (MADR 0062 D5):
             // resolve the path from the sticky value and dial, rather than
             // spending ~1s probing and offering a choice to a user who has not

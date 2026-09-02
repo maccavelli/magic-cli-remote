@@ -82,6 +82,51 @@ class NotifPayload {
       Object.hash(kind, sessionId, permissionId, questionId, allowOptionId);
 }
 
+/// A notification action tap, encoded for the trip between isolates
+/// (MADR 0129 P5 deviation, 2026-09-02).
+///
+/// When the foreground-service isolate owns the connection it shows asks with
+/// `showsUserInterface: false`, so Android delivers the button tap to
+/// `ActionBroadcastReceiver`, which runs the app's background notification
+/// callback in a **third** isolate — one with no socket. That isolate cannot
+/// answer; it can only forward. This is what it forwards.
+///
+/// Deliberately in this file rather than beside the foreground-service message
+/// vocabulary: the wire format is pure and testable without a device, which is
+/// the whole reason this library exists. The service isolate's decoder is the
+/// only consumer.
+class NotifActionForward {
+  const NotifActionForward({required this.action, required this.payload});
+
+  final NotifAction action;
+
+  /// The notification's payload, still encoded. Kept as the original string so
+  /// exactly one decoder ([NotifPayload.decode]) parses it, on the far side.
+  final String payload;
+
+  /// Discriminator, so [decode] cannot mistake a heartbeat for a tap.
+  static const _tag = 'mc.notifAction';
+  static const _payloadKey = 'mc.notifPayload';
+
+  Map<String, Object> encode() => <String, Object>{
+    _tag: action.name,
+    _payloadKey: payload,
+  };
+
+  /// Parse a message received by the service isolate, or null when it is not
+  /// one of these. Total: an unrecognised or malformed message is not an
+  /// error, it is someone else's message.
+  static NotifActionForward? decode(Object? data) {
+    if (data is! Map) return null;
+    final name = data[_tag];
+    final payload = data[_payloadKey];
+    if (name is! String || payload is! String || payload.isEmpty) return null;
+    final action = NotifAction.values.where((a) => a.name == name).firstOrNull;
+    if (action == null) return null;
+    return NotifActionForward(action: action, payload: payload);
+  }
+}
+
 /// Session id carried by Settings' "send test notification" payloads
 /// (MADR 0101 D). The coordinator intercepts any response bearing it before
 /// the open/allow/deny routing, so a test tap can neither navigate to a

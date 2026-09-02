@@ -24,7 +24,7 @@ env:
   # Pinned so a Flutter stable bump cannot change analyzer results or APK
   # output without a repo change. Bump deliberately; keep in step with the
   # version developers run locally.
-  FLUTTER_VERSION: "3.44.8"
+  FLUTTER_VERSION: "3.47.2"
 
 permissions:
   contents: read
@@ -402,6 +402,21 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      # MADR 0127 D7 gate 1. `flutter pub get` rewrites pubspec.lock in place
+      # and does NOT fail when the committed resolution is unsatisfiable under
+      # the pinned SDK — it just silently re-resolves. That is how dependabot
+      # commit 6c02c8e (2026-08-14) left the lockfile fiction for 2.5 weeks
+      # while CI built an unrecorded dependency set. Comparing the tree after
+      # the resolve is the only thing that catches it.
+      - name: Lockfile is reproducible under the pinned toolchain
+        working-directory: apps/mobile
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code --stat pubspec.lock; then
+            echo "::error file=apps/mobile/pubspec.lock::pubspec.lock is not reproducible under Flutter ${FLUTTER_VERSION}. Run 'flutter pub get' locally on that exact version and commit the result (MADR 0127 D7)."
+            exit 1
+          fi
+
       # `flutter analyze` ignores formatting, so unformatted Dart used to merge
       # green. Fix locally with `dart format .` in apps/mobile.
       - name: Format
@@ -597,6 +612,18 @@ jobs:
           flutter build apk --config-only --release --target-platform android-arm64
           cd android
           ./gradlew -PmcAndroidLint=true :app:lintVitalRelease --no-daemon
+
+      # MADR 0126 D4. The step above is a manifest-STRUCTURE gate; this is a
+      # manifest-SURFACE gate. lintVitalRelease passes a plugin-injected
+      # permission or exported component without comment, which is how the app
+      # shipped WAKE_LOCK, RECEIVE_BOOT_COMPLETED, VIBRATE and an exported
+      # RebootReceiver that appear nowhere in this repository (0126 F3).
+      # Placed here rather than after the APK build so a surface change fails
+      # in ~1 minute, for the same reason the lint step sits where it does —
+      # processReleaseManifest has already run as a dependency of lintVital.
+      - name: Android manifest surface matches the allowlist
+        working-directory: apps/mobile
+        run: ../../scripts/assert-android-manifest-surface.sh
 
       # Tag/release APKs MUST be Flutter release mode (not debug/profile).
       # FLUTTER_BUILD_MODE is fail-closed: only "release" is accepted.

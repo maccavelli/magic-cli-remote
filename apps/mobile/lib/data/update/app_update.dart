@@ -24,28 +24,52 @@ class AppUpdateService {
   /// Path of a successfully verified APK, if any (this process).
   File? verifiedApk;
 
-  /// Three-part base compare (mirrors Go update.NewerBase).
-  static bool isNewerBase(String remote, String local) {
-    final r = parseBase(remote);
-    final l = parseBase(local);
+  /// Whether [remote] is a strictly newer **published** version than [local],
+  /// comparing major, minor, patch, then the build serial N.
+  ///
+  /// Mirrors Go's `update.NewerPublished` (`internal/update/version.go`), which
+  /// is what `update/run.go` uses. It previously mirrored `NewerBase`, which
+  /// compares three parts only and which nothing in Go calls any more since
+  /// MADR 0103 — so a release differing from the installed build **only** in
+  /// its serial (`0.15.3.1` → `0.15.3.2`) was invisible to the phone while the
+  /// CLI on the same machine offered it (MADR 0126 F8, 0128 D2).
+  ///
+  /// Harmless while every release tag is three-part, which all 97 of them are
+  /// today. This makes it stay correct when one is not.
+  static bool isNewerPublished(String remote, String local) {
+    final r = parseVersion(remote);
+    final l = parseVersion(local);
     if (r == null || l == null) return false;
-    if (r.$1 != l.$1) return r.$1 > l.$1;
-    if (r.$2 != l.$2) return r.$2 > l.$2;
-    return r.$3 > l.$3;
+    if (r.major != l.major) return r.major > l.major;
+    if (r.minor != l.minor) return r.minor > l.minor;
+    if (r.patch != l.patch) return r.patch > l.patch;
+    return r.n > l.n;
   }
 
-  static (int, int, int)? parseBase(String v) {
+  /// Parse `[v]MAJOR.MINOR.PATCH[.N]`, or null when it is not a published
+  /// version. `n` is 0 for a three-part version, matching Go's zero value, so a
+  /// three-part remote never appears newer than the same base with a serial.
+  static AppVersion? parseVersion(String v) {
     var s = v.trim();
     if (s.startsWith('v')) s = s.substring(1);
-    if (s.isEmpty || s == 'dev') return null;
+    if (s.isEmpty || s == 'dev' || s == 'debug') return null;
     final parts = s.split('.');
     if (parts.length < 3) return null;
     final maj = int.tryParse(parts[0]);
     final min = int.tryParse(parts[1]);
+    // The patch field may carry a local-build suffix; Go's leadingInt does the
+    // same and flags it as Local. Here a suffix simply does not contribute.
     final patDigits = RegExp(r'^\d+').stringMatch(parts[2]);
     final pat = patDigits == null ? null : int.tryParse(patDigits);
     if (maj == null || min == null || pat == null) return null;
-    return (maj, min, pat);
+    var n = 0;
+    if (parts.length >= 4) {
+      final nDigits = RegExp(r'^\d+$').stringMatch(parts[3]);
+      // A non-numeric or trailing-suffix 4th field means a local build; Go
+      // sets Local and leaves N at 0. Compare it as 0 rather than refusing.
+      n = nDigits == null ? 0 : (int.tryParse(nDigits) ?? 0);
+    }
+    return AppVersion(major: maj, minor: min, patch: pat, n: n);
   }
 
   Future<UpdateCheckResult> checkLatest() async {
@@ -66,7 +90,7 @@ class AppUpdateService {
         .cast<Map<String, dynamic>>();
     final apk = _pickApk(assets);
     final sums = _pickSums(assets);
-    final available = isNewerBase(tag, local);
+    final available = isNewerPublished(tag, local);
     return UpdateCheckResult(
       localVersion: local,
       remoteTag: tag,
@@ -168,6 +192,20 @@ class AppUpdateService {
     }
     return null;
   }
+}
+
+/// A parsed published version: `MAJOR.MINOR.PATCH.N`, N=0 when absent.
+class AppVersion {
+  const AppVersion({
+    required this.major,
+    required this.minor,
+    required this.patch,
+    required this.n,
+  });
+  final int major;
+  final int minor;
+  final int patch;
+  final int n;
 }
 
 class UpdateAsset {

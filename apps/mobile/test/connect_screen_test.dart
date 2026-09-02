@@ -302,6 +302,81 @@ void main() {
     // The V9 test pumps the real SettingsScreen, whose non-faked preference
     // reads go through the platform SharedPreferences channel.
     SharedPreferences.setMockInitialValues({});
+
+    // The cold-start dial now claims the connection back from the
+    // foreground-service isolate first (MADR 0129 P6), which is a real
+    // platform call. Unstubbed it never answers, so the "Reconnecting with
+    // saved credentials…" spinner animates forever and pumpAndSettle cannot
+    // idle — the dial appears to hang when it is only unmocked.
+    //
+    // false = no service is running, which is what a widget test models: there
+    // is no second isolate holding a socket. Stubbing it makes the claim
+    // resolve deterministically instead of relying on an unhandled channel
+    // erroring at the right moment.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter_foreground_task/methods'),
+          (call) async => switch (call.method) {
+            'isRunningService' => false,
+            _ => null,
+          },
+        );
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter_foreground_task/methods'),
+          null,
+        );
+  });
+
+  testWidgets('the cold dial claims the connection back before it dials', (
+    tester,
+  ) async {
+    // MADR 0129 P6. The cold-start auto-connect used to dial straight away.
+    // When the Activity is recreated into a process the foreground service
+    // kept alive, that service is holding the socket — so two logins landed on
+    // one device token and the daemon closed one with 4001. Measured
+    // 2026-09-02: `reason=replaced` daemon-side five seconds after an Activity
+    // start, with the service isolate reporting "connection replaced by a
+    // newer login".
+    //
+    // The guard is that the service is *asked* before the dial. Whether it
+    // then answers is the acknowledgement path, which cannot be exercised here
+    // — testWidgets fakes the clock while an isolate ReceivePort delivers on
+    // the real event loop, so the reply never lands inside a pump. That half
+    // is covered by foreground_handover_test.dart, which runs in real async.
+    final asked = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter_foreground_task/methods'),
+          (call) async {
+            asked.add(call.method);
+            return switch (call.method) {
+              // No service is holding the socket, so the claim resolves at
+              // once and the dial follows in the same turn.
+              'isRunningService' => false,
+              _ => null,
+            };
+          },
+        );
+
+    _useTallSurface(tester);
+    final store = FakeSettingsStore(host: '10.0.0.5:7531', token: 'mcr_saved');
+    final client = FakeMcremoteClient(
+      connectError: McException('bad token', code: 'invalid_token'),
+    );
+
+    await tester.pumpWidget(_wrap(store: store, client: client));
+    await tester.pumpAndSettle();
+
+    expect(
+      asked,
+      contains('isRunningService'),
+      reason: 'cold start must ask the foreground service before dialling',
+    );
+    expect(client.connectCalls, 1);
   });
 
   testWidgets('renders the core pairing affordances', (tester) async {

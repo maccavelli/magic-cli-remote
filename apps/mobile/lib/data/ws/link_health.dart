@@ -9,9 +9,16 @@ const kLinkFreshFor = Duration(seconds: 15);
 
 /// How long before an unverified connection is declared dead.
 ///
-/// Half the daemon's 60 s read deadline (`internal/ws/server.go:165`), so the
-/// client always reaches a definitive state — and starts recovering — before
-/// the host gives up on the session.
+/// Comfortably inside the daemon's rolling read deadline, so the client always
+/// reaches a definitive state — and starts recovering — before the host gives
+/// up on the session.
+///
+/// The deadline is `limits.ws_read_deadline_seconds`
+/// (`internal/config/config.go`): **120 s by default, floor 15 s**, and
+/// advertised to v2 clients as `caps.read_deadline_ms`. An earlier version of
+/// this comment said "half the daemon's 60 s read deadline" and cited a line
+/// number that no longer holds the constant (MADR 0126 F4). Name the config
+/// field, not the number — the number moves.
 const kLinkDeadAfter = Duration(seconds: 30);
 
 /// Cadence of the application-level `ping` request.
@@ -31,6 +38,17 @@ const kLinkDeadAfter = Duration(seconds: 30);
 ///
 /// Skipping this while inbound traffic "looks healthy" would kill long
 /// streams against a v1 daemon and still damage 0063 UI truth on any version.
+///
+/// **What actually pins this value is [kLinkFreshFor], not the host deadline**
+/// (MADR 0126 D5). [_noteInboundFrame] stamps `lastVerifiedAt` on *any* inbound
+/// frame, so on an idle session the app ping is the only thing that verifies
+/// the link — and anything above [kLinkFreshFor] would leave a perfectly
+/// healthy idle session rendering amber. Deriving the period from the daemon's
+/// 120 s deadline would give ~30 s and break the status indicator, which is why
+/// `caps.read_deadline_ms` is consulted as a *guard* (see
+/// `McremoteClient._checkPingCadenceAgainstCaps`) and never as a driver.
+///
+/// The invariant is pinned by a test: `kAppPingPeriod <= kLinkFreshFor`.
 const kAppPingPeriod = Duration(seconds: 10);
 
 /// Per-request bound for that ping.

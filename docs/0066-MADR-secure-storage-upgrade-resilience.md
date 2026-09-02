@@ -490,3 +490,70 @@ faith.
   Option A** — Keystore stays, D2–D5 carry the hardening, Option B
   remains documented in D7 as the fallback if D5 diagnostics show
   recurrence.
+
+## Amendment, 2026-09-01 — D1's revisit performed; staying on 10.3.1
+
+D1 ended *"Revisit the plugin major on its stable release."* 11.0.0 shipped
+2026-08-06, so the revisit was carried out during
+[0127-PLAN](0127-PLAN-adopt-current-flutter-toolchain.md) P6c. **Outcome: do not
+take 11.0.0 yet.** The reason is not the one D1 anticipated.
+
+### The credential risk D1 worried about does not apply
+
+11.0.0's changelog leads with *"Any data saved using deprecated algorithms or
+features will be unusable after this upgrade. If you used a version prior to
+v10, upgrade to v10 first so existing data is migrated."* Checked, and it is
+inapplicable here:
+
+* **This app was born on v10.** `flutter_secure_storage: ^10.x` has been in
+  `pubspec.yaml` since `719401b` (2026-07-19), the Flutter app's first commit.
+  No release ever shipped a v9 backend, so no device holds pre-v10 ciphertext.
+* **None of the removed API is used.** `encryptedSharedPreferences`,
+  `sharedPreferencesName`, `KeyCipherAlgorithm`, `StorageCipherAlgorithm` — zero
+  occurrences across `apps/mobile/lib/` and `apps/mobile/test/`. The only option
+  set is `AndroidOptions(resetOnError: true)` (`settings_store.dart:61`), which
+  survives, alongside the iOS `KeychainAccessibility.first_unlock_this_device`.
+
+So the "migration for every already-paired device" that made this a
+superseding-record question is not on the table, and D2–D5's hardening is
+untouched either way.
+
+### What blocks it is an upstream packaging defect
+
+`flutter_secure_storage-11.0.0/android/build.gradle:22` hard-pins
+`compileSdk = 37`. AGP propagates that to every consumer, so taking it would
+force the whole app off `flutter.compileSdkVersion` (36 on Flutter 3.47.2) onto
+a hard-coded 37 — an API level this host does not have installed
+(`platforms/` holds `android-35`, `android-36`) and that CI would also need.
+
+Upstream agrees it is a defect. **PR
+[#1236](https://github.com/juliansteenbakker/flutter_secure_storage/pull/1236)**
+(open, 2026-08-30, *"fix(android): use flutter.compileSdkVersion instead of
+pinning compileSdk"*) states the problem in the same terms:
+
+> compileSdk 37 became the minimum every consuming app had to compile against,
+> so apps on the current stable Flutter template (compileSdk 36, AGP 9.1, whose
+> maximum recommended compileSdk is 36) failed in `:app:checkAarMetadata` and
+> could not fix it without leaving the template defaults. … Verified with
+> Flutter 3.47.0: an app on compileSdk 36 builds
+
+Issue [#1224](https://github.com/juliansteenbakker/flutter_secure_storage/issues/1224)
+(open, 2026-08-07) reports the same thing the day after release. 11.0.0 is the
+newest published version — there is no 11.0.1 to take instead, and 10.3.1 is
+already the newest 10.x.
+
+### Decision
+
+**Stay on `flutter_secure_storage: ^10.3.1`.** This is declining a discretionary
+upgrade whose only obstacle is a bug the maintainer is already fixing — not a
+workaround: nothing is broken on 10.3.1, no removed API is in use, and the
+security posture is unchanged.
+
+**Revisit when #1236 ships** (a 11.0.x that derives `compileSdk` from
+`flutter.compileSdkVersion`), or if Flutter's own default reaches 37 first. At
+that point the migration analysis above still holds, so it should be a plain
+version bump.
+
+Recorded here deliberately: the equivalent note lived only in
+`.github/dependabot.yml`'s comment, and [0127](0127-MADR-adopt-current-flutter-toolchain.md)
+D5 deletes that file. This amendment is where the preference now lives.

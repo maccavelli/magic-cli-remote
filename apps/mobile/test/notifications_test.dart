@@ -889,4 +889,45 @@ void main() {
       },
     );
   });
+
+  // MADR 0128 D3. dispose() closed the response controller but left
+  // _ready == true, and init() opens with `if (_ready) return;` — so a start()
+  // after a dispose() skipped re-initialisation entirely and the first show*
+  // added to a closed controller. Unreachable while the coordinator is
+  // app-lifetime, but NotificationCoordinator.dispose() nulls its
+  // subscriptions precisely so a later start() re-subscribes: the two halves
+  // of that pair disagreed about whether restart is supported.
+  group('restart after dispose (0128 D3)', () {
+    test(
+      'init() after dispose() re-initialises and show* does not throw',
+      () async {
+        final plugin = _CapturingPlugin();
+        final s = NotificationService(plugin);
+
+        await s.init();
+        expect(plugin.initSettings, isNotNull);
+
+        s.dispose();
+
+        // The reset is what makes the second init() do anything at all.
+        plugin.initSettings = null;
+        await s.init();
+        expect(
+          plugin.initSettings,
+          isNotNull,
+          reason: '0128 D3: dispose() must clear _ready so init() runs again',
+        );
+
+        // The old controller is closed and cannot be reopened; a live stream
+        // must be available, and delivery must not throw.
+        final seen = <NotifResponse>[];
+        final sub = s.responses.listen(seen.add);
+        addTearDown(sub.cancel);
+        addTearDown(s.dispose);
+
+        await s.showTurnComplete(sessionId: 'sess-1', sessionLabel: 'After');
+        expect(plugin.shown, isNotEmpty);
+      },
+    );
+  });
 }

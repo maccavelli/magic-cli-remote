@@ -1,7 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cache paths for APK install via FileProvider (MADR 0065 P4). -->
+<!--
+  FileProvider roots for the in-app APK installer (MADR 0065 P4, narrowed by
+  MADR 0126 D6/F5).
+
+  ONE root, matching the one directory the updater writes to:
+  getTemporaryDirectory()/mcremote_app_updates (app_update_tile.dart).
+
+  Previously this granted three roots at path="." — cache, external cache and
+  files. The last of those covered the whole of getFilesDir(), which is where
+  getApplicationSupportDirectory() keeps the transcripts/ snapshots, and the
+  other two were never used at all. No call path handed out such a URI —
+  MainActivity's installApk is the only caller and it is fed a cache path — but
+  the grant was far wider than the single job it exists for, and installApk
+  accepts an arbitrary path from Dart.
+-->
 <paths>
-    <cache-path name="app_updates" path="." />
-    <external-cache-path name="ext_app_updates" path="." />
-    <files-path name="files_updates" path="." />
+    <cache-path name="app_updates" path="mcremote_app_updates" />
 </paths>

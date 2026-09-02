@@ -1,0 +1,52 @@
+# Android permission and exported-component surface of the shipped APK.
+# Checked by scripts/assert-android-manifest-surface.sh against the MERGED
+# manifest (MADR 0126 D4). Generated once from a real build, then read line by
+# line and committed.
+#
+# EDIT THIS BY HAND, WITH A REASON. Never regenerate it to clear a red build
+# (0126 C2) — a plugin bump that widens the surface is a question to answer,
+# not a file to overwrite. Removals fail too: losing POST_NOTIFICATIONS would
+# silently break the alerts this app exists to deliver.
+#
+# Sorted, de-duplicated plain text. Notes on the entries that look odd:
+#
+#   ACCESS_NETWORK_STATE  connectivity_plus. Feeds onConnectivityChanged, which
+#                         the reconnect path in app_lifecycle.dart depends on.
+#   RECEIVE_BOOT_COMPLETED  flutter_foreground_task. Kept deliberately (0126 P3
+#                         step 2): with autoRunOnMyPackageReplaced the service
+#                         returns by itself after an in-app APK update.
+#                         autoRunOnBoot stays false, so nothing starts at boot.
+#   VIBRATE               flutter_local_notifications. NOT dead weight — the ask
+#                         and error channels are Importance.high with vibration
+#                         at its default, so removing it silences the buzz on
+#                         approval alerts.
+#   DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+#                         AGP-injected, signature-level, defined by the app for
+#                         androidx.core's dynamically-registered receivers.
+#                         Looks like junk; is not. Leave it.
+#   RebootReceiver        exported=true with no permission guard, because the
+#                         plugin declares it that way. Reviewed, not liked: it
+#                         is reachable by any app on the device, and its whole
+#                         body is a set of early returns. Listed so this stays a
+#                         thing that was looked at.
+#
+# WAKE_LOCK is deliberately ABSENT: removed via tools:node="remove" in
+# AndroidManifest.xml, because nothing acquires one (allowWakeLock false, no
+# scheduled notifications). It was in the shipped APK for the whole life of
+# MADR 0084 D3's claim that it "was removed" (0126 F3).
+
+exported activity com.maccavelli.magic_cli_remote.MainActivity -
+exported receiver androidx.profileinstaller.ProfileInstallReceiver android.permission.DUMP
+exported receiver com.pravera.flutter_foreground_task.service.RebootReceiver -
+permission android.permission.ACCESS_NETWORK_STATE
+permission android.permission.CAMERA
+permission android.permission.FOREGROUND_SERVICE
+permission android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING
+permission android.permission.INTERNET
+permission android.permission.POST_NOTIFICATIONS
+permission android.permission.RECEIVE_BOOT_COMPLETED
+permission android.permission.RECORD_AUDIO
+permission android.permission.REQUEST_INSTALL_PACKAGES
+permission android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION
+permission android.permission.VIBRATE
+permission com.maccavelli.magic_cli_remote.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION

@@ -1,57 +1,33 @@
 # MADR and PLAN before mutating work
 
-Rationale: [docs/0105-MADR-mutating-work-requires-madr-and-plan.md](../../docs/0105-MADR-mutating-work-requires-madr-and-plan.md).
-The operational copy in this tree is `AGENTS.md`. Honour both; do
-not fork a third workflow.
+**Normative text lives in `AGENTS.md`**, section "MADR and PLAN before mutating
+work". Rationale: [docs/0105-MADR-mutating-work-requires-madr-and-plan.md](../../docs/0105-MADR-mutating-work-requires-madr-and-plan.md).
+
+This file used to restate that whole section. It no longer does — that fork is
+what let the skill name drift out of date in every per-agent copy at once while
+each one told the reader not to fork the workflow (review 2026-09-01, F1/F2).
+What remains is the two things that must not be missed if `AGENTS.md` is not
+loaded.
+
+## The skill
 
 **Whenever the user asks for an MADR and a plan, load the
-`writing-madr-and-plans` skill first** and follow it for authoring,
-naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies
-both to writing a fresh pair and to amending an existing one.
+`madr-and-plan-writing` skill first** and follow it for authoring, naming
+(`NNNN-MADR-*` / `NNNN-PLAN-*`) and review — for a fresh pair and for amending
+an existing one.
 
-## Gate
+The name is exact, and a mistyped one fails quietly rather than loudly.
 
-**Read-only investigation is allowed with no pair.** Reading,
-searching, `git log`/`show`/`diff`, and existing tests or
-diagnostics that do not write the tree do not need a MADR.
+## The gate
 
-**Mutating work is not.** Before the first write, name the
-`docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair being executed, or
-stop and write one.
+**Read-only investigation needs no pair.** Reading, searching, `git log` /
+`show` / `diff`, and existing tests or diagnostics that do not write the tree.
 
-Mutating means: creating, editing, or deleting files; staging or
-committing (except the bootstrap exception); dependency or lockfile
-changes; CI/config/hook changes; builds or installers that write
-the tree, `$HOME`, or a live service; generating committed
-artifacts.
+**Mutating work does.** Before the first write, name the
+`docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair being executed, or stop and write
+one.
 
-## Order
-
-1. Investigate (read-only).
-2. Write or amend the MADR (`status: proposed` unless the owner
-   already decided). Present it. Do not implement.
-3. Write or amend the PLAN. Present it.
-4. Mutate **only after** the owner explicitly approves execution
-   (`proceed`, `execute the plan`, `do phase N`). Stay inside that
-   PLAN.
-5. Out-of-scope discoveries wait: amend the pair, re-approve, then
-   continue. Completing a phase is not permission to invent the
-   next unwritten one.
-
-## Follow-up vs greenfield
-
-* **Same topic** (debug, leftover phase, bug found in that plan's
-  live run): amend that number. Add a PLAN phase or an Observed /
-  amendment in the MADR. Do not silently rewrite historical
-  rationale.
-* **Greenfield**: next unused `NNNN`, new MADR, new PLAN, same
-  slug. No mutation until that PLAN is approved.
-
-## Bootstrap exception
-
-Authoring `docs/NNNN-MADR-*`, `docs/NNNN-PLAN-*`, the MADR section
-of `AGENTS.md`, and files under `.grok/rules/` does not require a
-*prior* pair. Putting source, tests, CI, or product config in that
-same commit is a violation.
-
-`git push` and tags still need an explicit ask in the same turn.
+Everything else — what counts as mutating, the four-step approval order, the
+follow-up-vs-greenfield rule, the bootstrap exception, and the rule that
+`git push` needs an explicit ask in the same turn — is in `AGENTS.md`. Read it
+there rather than trusting a summary here.
