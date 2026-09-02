@@ -948,6 +948,21 @@ Mutation-tested against a scratchpad copy, never the working tree: making
 
 `dart format` clean, `flutter analyze` clean, `flutter test` **+1388 ~3**.
 
+### ~~OPEN — connection liveness detection latency (from P6 row 4)~~ SUPERSEDED
+
+**Superseded 2026-09-02 by
+[0130](0130-MADR-a-superseded-socket-must-not-close-the-live-one.md).** The
+measurement this entry asked for was taken, and it changed the diagnosis: the
+detection latency is not the defect. A deterministic black-hole showed the
+client notices a dead link in **25 seconds**, exactly as the 10 s ping with a
+two-miss rule predicts. What follows the failover is the problem — a superseded
+socket's close event dismantles the live one, leaving no socket, no ping and no
+reconnect while the state still reads `connected`. Eleven minutes were observed,
+seven of them on a healthy network.
+
+The original entry is kept below because its trigger — "measure on a transport
+that is not flapping" — is what produced that result.
+
 ### OPEN — connection liveness detection latency (from P6 row 4)
 
 **What was seen.** With the socket dead daemon-side from 22:43:05, the client
