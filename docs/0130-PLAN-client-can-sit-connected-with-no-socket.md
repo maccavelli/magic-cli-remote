@@ -155,6 +155,43 @@ the cause. Rollback is deleting the helper and its call sites.
 * **Detection latency for a silently dead link (~25 s).** Out of scope by
   MADR D4 and not a defect on this evidence.
 
+### I4 — the degraded state: repeated rapid failovers on a release build
+
+Added 2026-09-02 after I2 came back negative in all four configurations. I2
+eliminated the steady-state cases; this phase tests the two differences the
+execution record names between tonight's clean runs and the outage night.
+
+**The trace gate changes, and this is a deviation from I1 as written.** I1 says
+"guard the whole thing behind `kDebugMode` so release builds are unchanged",
+and that is exactly what makes the release build untestable. The gate becomes:
+
+```dart
+const _kForceTrace = bool.fromEnvironment('mc.trace');
+...
+if (!kDebugMode && !_kForceTrace) return;
+```
+
+A default release build is still byte-identical in behaviour — `mc.trace`
+defaults to false and the branch is const-folded away. Only a build made with
+`--dart-define=mc.trace=true` traces. That keeps I1's promise for anything that
+ships while making the hypothesis testable.
+
+**The protocol.** Service isolate owning the connection (task removal), then
+flap the mesh path rather than cutting it once: block ~30 s, unblock ~15 s,
+repeat. Each cycle forces a detect → failover → recover round trip, which is
+the shape the outage night's log shows over and over before it went silent.
+
+**What would confirm it:** the trace stops while the daemon shows no
+connection, and the notification keeps claiming one. That is the outage, and
+the last lines before the silence name the sequence.
+
+**What would refute it:** the client keeps cycling through an arbitrary number
+of flaps. Then the degraded-transport hypothesis is wrong too, and the record
+says so rather than reaching for a fifth configuration.
+
+Rules removed in the same session; `iptables -L -n | grep -cE '7531|8443'`
+must print 0 at the end.
+
 ## Execution record — 2026-09-02
 
 ### I1 — the trace, and what it caught before leaving the desk
@@ -240,3 +277,88 @@ the mechanism but not about the outage.
 Recorded rather than papered over: this phase ends with the question open, a
 working instrument, and four configurations eliminated. What it does **not**
 end with is a fix, and nothing here justifies landing one.
+
+### I4 — degraded state: **hypothesis not confirmed**, but the signature was seen once
+
+Release builds `0.15.3.16` and `.17`, both with `--dart-define=mc.trace=true`.
+The gate works as promised: a normal `make apk` build launched clean produced
+**0 trace lines** while the app connected and ran, so nothing that ships is
+affected.
+
+#### The instrument had a hole, and the first run fell straight into it
+
+I1 traced `startPing` but not the ping *ticks*. So when the first run went
+silent there was no way to tell whether pings were succeeding, failing, or not
+firing at all — the three possibilities that distinguish the MADR's sequences.
+Fixed by tracing `ping:tick` / `ping:ok` / `ping:miss(n)`. Recorded because the
+gap only became visible when the instrument was pointed at the real thing:
+
+```text
+06:07:01.269  state=connected socket=yes ping=off epoch=2 at=startPing
+              ... nothing at all for four minutes ...
+```
+
+#### The outage signature reproduced once, before the ping trace existed
+
+Run 1 (`0.15.3.16`, service isolate owning, single-path mesh flap):
+
+```text
+06:07:00.788  daemon: device authenticated     (relay leg)     live=2
+06:07:00.789  daemon: disconnected replaced    (mesh leg)      live=1
+06:07:05.477  daemon: disconnected peer_closed (relay leg)     live=0
+06:07:01.269  app:    last trace — connected, socket=yes
+              ... four minutes, live=0, device Awake, not dozing ...
+              notification: "Connected to host — Listening for approvals"
+              emulator socket to relay 52.2.52.22:8443 still ESTABLISHED
+```
+
+`mWakefulness=Awake`, `deviceidle mState=ACTIVE` — **sleep is not the
+explanation**, which was the first plausible theory and is now ruled out.
+
+The distinguishing feature is a **half-open relay tunnel**: the phone's TCP to
+the relay stayed up while the daemon-side leg was gone. The client held a
+socket it believed live, and the daemon had nothing.
+
+#### With the ping traced, eight alternating flaps did not reproduce it
+
+Run 2 (`0.15.3.17`, service isolate owning). The first flap protocol was
+**wrong and is recorded as such**: cutting one path only moves the client to the
+other, after which further cuts to the dead path are a no-op — the "silence" it
+produced was an idle, genuinely-connected client. Replaced with an alternating
+flap that cuts whichever path is live, forcing a failover every cycle.
+
+Result across the run: **16 epochs, 20 ping misses, 12 recoveries, never
+stuck.** Detection is tight and repeatable:
+
+```text
+06:28:02.842  ping:tick        state=connected socket=yes ping=on epoch=13
+06:28:08.848  ping:miss(1)
+06:28:18.910  ping:miss(2)  -> teardown -> error -> reconnecting
+06:28:20.900  adoptSocket   -> recovered
+```
+
+**16 seconds** from the last good tick to teardown, ~18 s to a new socket. That
+is a better measurement than 0129's ~25 s, which was taken from the moment the
+link was cut rather than from the ping tick.
+
+#### What I4 establishes
+
+* **The degraded-transport hypothesis is not confirmed.** Repeated rapid
+  failovers do not wedge the client; it survived every one of eight.
+* **Sleep is ruled out** as the cause of the silent window.
+* **The ping detector works**, on a release build, in the service isolate,
+  under sustained flapping — `miss(1)`, `miss(2)`, teardown, reconnect.
+* **The signature is real and was reproduced once**, with one distinguishing
+  feature not present in any healthy run: a half-open relay tunnel, phone-side
+  TCP alive, daemon-side leg gone.
+
+#### Still open
+
+Why, in that state, the ping did not miss. Every healthy run shows a miss
+within 6 s of a broken link; the stuck run showed none for four minutes. With
+`ping:tick` now traced, one more capture of that state would settle it — the
+next attempt should target the half-open tunnel directly (drop the daemon's
+relay leg while leaving the phone's TCP up) rather than cutting the phone's
+path, which is what every reproduction so far actually did.
+
+The held patch stays out of the tree. Nothing here vindicates it.

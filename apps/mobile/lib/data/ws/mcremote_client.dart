@@ -845,8 +845,16 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   ///
   /// `kDebugMode` so release builds are byte-identical. Remove this in the same
   /// change that fixes the cause (0130 I1).
+  ///
+  /// `mc.trace` exists because the failure this is chasing has so far only been
+  /// seen on a *release* build, and `kDebugMode` makes exactly that build
+  /// untestable (0130 I4). It defaults to false, so a shipped build const-folds
+  /// the branch away and is unchanged; only
+  /// `--dart-define=mc.trace=true` turns it on.
+  static const _kForceTrace = bool.fromEnvironment('mc.trace');
+
   void _trace(String at) {
-    if (!kDebugMode) return;
+    if (!kDebugMode && !_kForceTrace) return;
     debugPrint(
       'mcremote/trace ${DateTime.now().toIso8601String()} '
       'state=${_state.name} '
@@ -2452,6 +2460,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
       // re-derived on the timer that is already running rather than by a
       // separate ticker in the UI (plan amendment B3).
       _evaluateHealth();
+      _trace('ping:tick');
       if (_state == McConnectionState.connected) {
         // **Unconditional — this is a protocol obligation** (MADR 0063 plan
         // amendment B1). The daemon's read loop waits for a *data* message;
@@ -2476,10 +2485,12 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
               .then((_) {
                 _missedPings = 0; // reset on success
                 _noteInboundFrame();
+                _trace('ping:ok');
               })
               .catchError((Object e) {
                 if (pingEpoch != _connectEpoch) return;
                 _missedPings++;
+                _trace('ping:miss($_missedPings)');
                 // First miss is advisory: the UI drops out of green via the
                 // freshness clock, but the socket is left alone. Bouncing a
                 // live connection on one lost packet is exactly the flap that
