@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
+import '../local/settings_store.dart';
+import '../ws/mcremote_client.dart';
+
 /// How often the service isolate checks whether the UI isolate is still there
 /// (MADR 0129 P2). Not a wakeup: `allowWakeLock` is false, so this only runs
 /// while the device is already awake — which is exactly when a stale
@@ -27,6 +30,14 @@ class ForegroundServiceMessages {
   /// Title/text the UI isolate wants shown while it is alive.
   static const title = 'mc.title';
   static const text = 'mc.text';
+
+  /// Service → main: "my socket is closed; you may dial" (MADR 0129 D2).
+  ///
+  /// The main isolate waits for this before connecting, so the two never hold
+  /// a socket at once. Without it the daemon would close one of them with 4001
+  /// (0068 D3) and the app would be fighting itself — the parked-zombie state
+  /// 0126 F2 exists to repair.
+  static const released = 'mc.released';
 }
 
 /// Entry point for the foreground-service isolate.
@@ -52,6 +63,11 @@ void mcRemoteForegroundCallback() {
 class McRemoteTaskHandler extends TaskHandler {
   DateTime? _lastHeartbeat;
   bool _showingPaused = false;
+
+  /// The connection, while this isolate owns it (D1). Null whenever the UI
+  /// isolate is alive — exactly one of the two holds a client at any moment.
+  McremoteClient? _client;
+  StreamSubscription<McConnectionState>? _connSub;
 
   /// Whether the notification should read "paused" given the last heartbeat.
   ///
@@ -83,9 +99,22 @@ class McRemoteTaskHandler extends TaskHandler {
       _showingPaused = false;
       final title = data[ForegroundServiceMessages.title];
       final text = data[ForegroundServiceMessages.text];
-      if (title is String && text is String) {
-        unawaited(_update(title, text));
-      }
+      // Release first, acknowledge second, and only then let the title follow
+      // the UI isolate again. Any other order lets both isolates believe they
+      // own the connection (D2).
+      unawaited(
+        _releaseOwnership().then((_) {
+          if (title is String && text is String) {
+            unawaited(_update(title, text));
+          }
+        }),
+      );
+    } else {
+      // Already the UI isolate's connection; nothing to hand back, but it is
+      // still waiting on an acknowledgement before it dials.
+      FlutterForegroundTask.sendDataToMain(<String, Object>{
+        ForegroundServiceMessages.released: true,
+      });
     }
   }
 
@@ -94,10 +123,79 @@ class McRemoteTaskHandler extends TaskHandler {
     if (_showingPaused) return;
     if (!shouldShowPaused(_lastHeartbeat, timestamp)) return;
     _showingPaused = true;
-    // Wording is deliberate (0129 P2). "Alerts paused" is a state the user can
-    // act on; "Disconnected" reads as a fault they have to diagnose, and the
-    // connection is not faulty — nothing is maintaining it.
-    unawaited(_update('Alerts paused', 'Tap to reconnect to your host'));
+    // The UI isolate is gone, so its socket died with it (measured, 0126 P7:
+    // DartWorker absent and zero connections daemon-side). Nothing to conflict
+    // with, so this isolate can take the connection — MADR 0129 D1/D2.
+    unawaited(_takeOwnership());
+  }
+
+  /// Own the connection while no UI isolate exists (D1).
+  ///
+  /// Safe to dial unconditionally here: this runs only once the heartbeat has
+  /// been silent past [kUiIsolatePresumedGone], and an isolate that is not
+  /// answering is not holding a socket either.
+  Future<void> _takeOwnership() async {
+    await _update('Alerts paused', 'Reconnecting to your host…');
+    try {
+      final client = McremoteClient();
+      _client = client;
+      _connSub = client.connectionStates.listen((state) {
+        // The title tracks the socket the same way the UI isolate's
+        // NotificationCoordinator does (MADR 0056 H-5a) — the invariant does
+        // not lapse just because a different isolate owns the connection.
+        switch (state) {
+          case McConnectionState.connected:
+            unawaited(
+              _update(
+                'Connected to host',
+                'Listening for approvals — app closed',
+              ),
+            );
+          case McConnectionState.reconnecting:
+          case McConnectionState.connecting:
+          case McConnectionState.authenticating:
+            unawaited(_update('Reconnecting to host', 'Retrying connection'));
+          case McConnectionState.disconnected:
+          case McConnectionState.error:
+            unawaited(
+              _update('Alerts paused', 'Tap to reconnect to your host'),
+            );
+        }
+      });
+      await client.reconnectFromStore(SettingsStore());
+      debugPrint('mcremote/fgs: took ownership, state=${client.state}');
+    } catch (e) {
+      // No saved credentials, or the host is unreachable. Fall back to the
+      // honest resting state rather than leaving a "Reconnecting…" that never
+      // resolves.
+      debugPrint('mcremote/fgs: takeOwnership failed: $e');
+      await _update('Alerts paused', 'Tap to reconnect to your host');
+    }
+  }
+
+  /// Give the connection back and say so (D2).
+  ///
+  /// The acknowledgement is the whole point: the main isolate does not dial
+  /// until it arrives, so there is never a moment with two sockets.
+  Future<void> _releaseOwnership() async {
+    final client = _client;
+    _client = null;
+    await _connSub?.cancel();
+    _connSub = null;
+    if (client != null) {
+      try {
+        // manual: false — this is a handover, not a sign-out; the pairing and
+        // the stored credentials stay exactly as they are.
+        await client.disconnect(manual: false);
+        await client.dispose();
+      } catch (e) {
+        debugPrint('mcremote/fgs: release failed (non-fatal): $e');
+      }
+    }
+    FlutterForegroundTask.sendDataToMain(<String, Object>{
+      ForegroundServiceMessages.released: true,
+    });
+    debugPrint('mcremote/fgs: released ownership');
   }
 
   @override
@@ -110,6 +208,7 @@ class McRemoteTaskHandler extends TaskHandler {
   @override
   Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
     debugPrint('mcremote/fgs: task isolate destroyed (timeout=$isTimeout)');
+    await _releaseOwnership();
   }
 
   Future<void> _update(String title, String text) async {
@@ -295,6 +394,51 @@ class ForegroundServiceController {
       });
     } catch (e) {
       debugPrint('ForegroundService.heartbeat failed (non-fatal): $e');
+    }
+  }
+
+  /// Claim the connection back from the service isolate, and wait for it to
+  /// confirm its socket is closed (MADR 0129 D2 / C1).
+  ///
+  /// Call this **before** dialling on app start. The service isolate may be
+  /// holding a live connection: if both dial, the daemon closes one with 4001
+  /// (0068 D3) and the app fights itself.
+  ///
+  /// Bounded, but a timeout does **not** mean "go ahead anyway" — it means the
+  /// service did not answer, which on Android is almost always because no
+  /// service is running, and then there is nothing to conflict with. The
+  /// caller is told which happened.
+  Future<bool> claimOwnership({
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    if (!_isAndroid) return true;
+    try {
+      if (!await FlutterForegroundTask.isRunningService) return true;
+    } catch (_) {
+      return true;
+    }
+    final done = Completer<bool>();
+    void onData(Object data) {
+      if (data is Map && data[ForegroundServiceMessages.released] == true) {
+        if (!done.isCompleted) done.complete(true);
+      }
+    }
+
+    FlutterForegroundTask.addTaskDataCallback(onData);
+    try {
+      heartbeat(title: _lastTitle, text: _lastText);
+      return await done.future.timeout(
+        timeout,
+        onTimeout: () {
+          debugPrint(
+            'ForegroundService.claimOwnership: no release ack within '
+            '${timeout.inSeconds}s — proceeding (service likely not holding one)',
+          );
+          return false;
+        },
+      );
+    } finally {
+      FlutterForegroundTask.removeTaskDataCallback(onData);
     }
   }
 

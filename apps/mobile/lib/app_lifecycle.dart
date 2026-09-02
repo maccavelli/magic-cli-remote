@@ -263,12 +263,20 @@ class _ConnectionLifecycleScopeState
       _connectivityChangedSinceDial = false;
       _backgroundedAt = null;
       unawaited(
-        client.reconnectFromStore(store).catchError((Object e, StackTrace st) {
-          // A resume that cannot get the socket back is exactly the "it just
-          // stopped working" report this diary exists for (MADR 0084 A3).
-          debugPrint('ConnectionLifecycle reconnect: $e');
-          unawaited(_recorder.record(e, st, source: ErrorSource.app));
-        }),
+        // Take the connection back from the service isolate first (MADR 0129
+        // D2/C1). While this UI isolate was dead the service may have been
+        // holding the socket; dialling without waiting for its release would
+        // put two connections on one device token, and the daemon answers that
+        // by closing one with 4001.
+        _coord
+            .claimForegroundOwnership()
+            .then((_) => client.reconnectFromStore(store))
+            .catchError((Object e, StackTrace st) {
+              // A resume that cannot get the socket back is exactly the "it just
+              // stopped working" report this diary exists for (MADR 0084 A3).
+              debugPrint('ConnectionLifecycle reconnect: $e');
+              unawaited(_recorder.record(e, st, source: ErrorSource.app));
+            }),
       );
     });
   }

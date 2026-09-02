@@ -424,3 +424,90 @@ every pause transition — unnecessary work against a secret, for no ongoing
 benefit. P4 will read storage as part of doing its job, not as diagnostics.
 Gate after removal: `dart format` clean, `flutter analyze` clean,
 `flutter test` `+1372 ~3`.
+
+### P4 — The connection moved into the service isolate (D1, D2, C1)
+
+**The rule implemented**, narrower than "ownership changes on every lifecycle
+transition" and deliberately so: the service isolate takes the connection **only
+when the UI isolate is confirmed gone**, and hands it straight back when the UI
+isolate reappears. While the UI isolate lives — foreground or backgrounded — it
+keeps the socket exactly as before, so nothing about today's working behaviour
+changes.
+
+That choice also makes C1 nearly free in one direction. When the handler
+concludes the UI isolate is gone, that isolate is not holding a socket either —
+0126 P7 measured zero connections daemon-side in exactly that state — so there
+is nothing to collide with. Only the hand-back needs an acknowledgement.
+
+* `_takeOwnership()` builds an `McremoteClient`, calls
+  `reconnectFromStore(SettingsStore())` — reachable from here, proven in P3 —
+  and drives the notification title from the real connection state, so MADR
+  0056 H-5a's invariant holds no matter which isolate owns the socket.
+* `_releaseOwnership()` disconnects with `manual: false` (a handover, not a
+  sign-out: pairing and stored credentials are untouched), then sends
+  `mc.released`.
+* `ForegroundServiceController.claimOwnership()` sends a heartbeat and waits for
+  that acknowledgement. A timeout does **not** mean "dial anyway" — it means the
+  service never answered, which is almost always because no service is running,
+  and the caller is told which happened.
+* `app_lifecycle.dart` gates its `reconnectFromStore` behind that claim.
+
+#### On-device: the service takes over (APK 0.15.3.8)
+
+Swiped from recents, then watched:
+
+```text
+t+015s..t+075s   sockets=0   "Connected to host"    <- stale title, pre-takeover
+t+090s           sockets=1   "Connected to host"
+
+at t+090s, corroborated:
+  recents entries   0                      <- app swiped away
+  top activity      nexuslauncher          <- not foreground
+  engines           1.raster only          <- the service's engine, alone
+  notification      "Connected to host"
+                    "Listening for approvals — app closed"
+  handler log       took ownership, state=McConnectionState.connected
+  daemon            emu-0129b LAST_USED 2026-09-02T01:42:12Z
+```
+
+**A live, authenticated connection to the daemon, with the app swiped away and
+no Activity in existence.** That is D1, and it is the thing 0126 P7 row 1 proved
+impossible before.
+
+#### On-device: C1 across the hand-back
+
+The relaunch sampled every 500 ms for 30 s, spanning the handover:
+
+```text
+samples 60   max concurrent sockets 1   distribution: 60x 1
+handler log  released ownership
+title        "Connected to host"
+```
+
+Never two, and never zero. The acknowledgement does its job.
+
+#### Correction: `DartWorker` is not a liveness indicator
+
+Recorded because this session leaned on it repeatedly. After the relaunch the
+main isolate is unambiguously alive — `topResumedActivity` is
+`magic_cli_remote/.MainActivity`, the socket is up, and a second engine
+(`3.raster`) exists — and `DartWorker` is **absent**. It is a Dart VM worker
+thread created on demand, not a per-isolate fixture.
+
+0126 P7's conclusion still stands: it rested on a controlled before/after diff in
+which `3.io`, `3.raster` **and** `DartWorker` all disappeared together, and was
+independently corroborated by zero sockets daemon-side and no Flutter log line
+of any kind. But single-sample "DartWorker: 0" was weaker evidence than it was
+presented as, in this record and in earlier summaries. **The reliable indicators
+are the numbered engine thread groups (`N.raster` / `N.io`) and the socket.**
+
+#### Not verified
+
+* Acceptance criterion 5 asks for a hundred foreground/background cycles; this
+  was one hand-back, sampled densely. One clean handover is not a hundred.
+* P5's work — alert delivery and Allow/Deny from the service isolate — is
+  untouched. The service now holds a connection, but `NotificationCoordinator`
+  still runs only in the UI isolate, so a `permission_request` arriving while
+  the app is swiped away is received and dropped.
+
+Gate: `dart format` clean, `flutter analyze` clean, `flutter test` `+1372 ~3`.

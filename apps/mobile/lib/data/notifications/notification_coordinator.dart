@@ -557,6 +557,12 @@ class NotificationCoordinator {
     return !enabled;
   }
 
+  /// Reclaim the connection from the foreground-service isolate before this
+  /// isolate dials (MADR 0129 D2). Safe to call when no service is running.
+  Future<void> claimForegroundOwnership() async {
+    await _service.claimOwnership();
+  }
+
   /// Re-request the OS permission (used when the user flips the toggle on).
   Future<bool?> requestOsPermission() => _notifs.requestPermission();
 
