@@ -762,22 +762,47 @@ which is the narrower sibling — the service returns after an in-app update onl
 Reopen only if alerts are shown to be lost across a device reboot, which needs
 P7 row 1 first.
 
-### GATED — on this plan's own P7
+### ~~GATED — on this plan's own P7~~ RESOLVED 2026-09-02: not needed
 
-**Battery-optimisation exemption prompting**
+~~**Battery-optimisation exemption prompting**
 (`FlutterForegroundTask.requestIgnoreBatteryOptimization`).
 Trigger: **P7 row 1 shows `START_STICKY` alone does not restore alerts after a
-swipe.** P7 row 1 is still open — it needs a paired session, and pairing needs a
-QR aimed through the emulator's virtual-scene camera, which cannot be driven
-from adb. Taking this before row 1 would add a real UX intrusion to fix a
-problem not yet shown to exist.
+swipe.**~~
+
+**Resolved as "not needed"** by
+[0129](0129-PLAN-background-alert-delivery-survives-task-removal.md) P6, which
+is where rows 1 and 2 were finally run. Both pass **without** a
+battery-optimisation exemption:
+
+* row 1 — task removed, then a host-side `permission_request` arrived and was
+  delivered by the foreground service's isolate with no Activity in existence;
+* row 2 — a real `SIGKILL`, and the service, the isolate and the socket all
+  returned in 3.5 seconds under `START_STICKY` alone.
+
+So the trigger's condition — "`START_STICKY` alone does not restore alerts" —
+is false, and the UX intrusion of asking a user to exempt the app from battery
+optimisation buys nothing. Reopen only if alerts are shown to be lost on a
+device whose OEM is more aggressive than stock AOSP; the emulator is the
+permissive case, not the hard one.
 
 ### OPEN — this plan's remainder
 
-**P7 rows 1–3** (alert after swipe, `START_STICKY` recovery, no ANR during an
-in-app update). Trigger: **a physical device with a paired daemon, or one
-windowed emulator session where the owner aims the scene camera at a pair QR
-once.** Everything else in P7 is verified — see the execution record.
+**P7 rows 1–2 now pass** (0129 P6). What remains:
+
+* **row 3** (no ANR during an in-app update) — untouched by 0129 and still
+  unrun.
+* **row 4** (the notification never claims "Connected" while no socket exists)
+  — the case it was written to catch is fixed (a system-restarted service
+  inherited a stale "Connected to host" for 29 seconds; now ~2s), but a
+  distinct gap remains: the client can believe it is connected for ~33s after
+  the socket dies, and the title mirrors that belief. That is connection
+  liveness, not the alert path, and it is deferred pending measurement on a
+  transport that is not flapping — see 0129's "OPEN — connection liveness
+  detection latency".
+
+Note that rows 1–2 no longer need "a physical device or a scene-camera QR": the
+pairing obstacle recorded here was worked around in 0129's execution record.
+Everything else in P7 is verified — see the execution record below.
 
 ## Execution record
 
