@@ -816,69 +816,77 @@ jobs:
             echo "ok: ${bin}-linux-amd64 $got"
           done
 
-          # Rename to include the version. Keep any extension LAST so a Windows
-          # asset stays mcremote-windows-amd64-<ver>.exe, not ...exe-<ver>.
-          ASSETS=("$APK_OUT")
-          for f in go-bin/mcremote-* go-bin/mcrelay-*; do
-            b="$(basename "$f")"
-            case "$b" in
-              *.exe) out="${b%.exe}-${VER}.exe" ;;
-              *)     out="${b}-${VER}" ;;
-            esac
-            cp -f "$f" "$out"
-            ASSETS+=("$out")
-          done
+          # Stage the canonical release exactly as MADR 0005 defines it. The
+          # build job already produced canonical names and a SHA256SUMS over
+          # them, so staging copies rather than renames: an asset name is never
+          # rewritten after it was hashed.
+          mkdir -p staging
+          cp -f go-bin/mcremote-* go-bin/mcrelay-* staging/
+          rm -f staging/SHA256SUMS
+          cp -f go-bin/SHA256SUMS staging/SHA256SUMS
 
-          # Regenerate over the PUBLISHED names. The build-time SHA256SUMS
-          # (verified above) lists the pre-rename filenames, so shipping it
-          # as-is would hand users a checksum file that matches nothing they
-          # can download. Covers the APK too.
-          SUMS="SHA256SUMS-${VER}"
-          sha256sum "${ASSETS[@]}" > "$SUMS"
-          ASSETS+=("$SUMS")
+          # Declared extras: the installers ship with the release they know how
+          # to install, and the APK carries the tag in its basename.
+          cp -f scripts/install.sh staging/install.sh
+          cp -f scripts/install.ps1 staging/install.ps1
+          cp -f "$APK_OUT" "staging/$APK_OUT"
 
-          # Unversioned aliases so install.sh can build a URL from uname
-          # alone (MADR 0097 A2, extended to Darwin by MADR 0104). Copies
-          # of the versioned assets, made AFTER SHA256SUMS-${VER} is
-          # written, and NOT added to that manifest:
-          #
-          #   * copied from the same files that were just hashed, so an alias
-          #     can never diverge from the artifact it aliases;
-          #   * NOT added to SHA256SUMS, which keeps listing versioned names
-          #     only — that is what lets the installer discover which version
-          #     it actually resolved, with no GitHub API call. The installer
-          #     verifies by hash VALUE (matching the versioned manifest line),
-          #     never by filename, so the alias name never has to appear.
-          # Convention C5 (MADR 0116 F17): <product>-<goos>-<goarch>[-<VER>][<ext>],
-          # extension LAST. The glob must therefore tolerate a trailing
-          # extension — the pre-0116 form (mcremote-*-"${VER}") required the
-          # name to END in ${VER} and so silently skipped every Windows asset,
-          # publishing no unversioned alias for it.
-          for f in mcremote-*-"${VER}"* mcrelay-*-"${VER}"*; do
-            [ -f "$f" ] || continue
-            case "$f" in
-              SHA256SUMS*|*.apk) continue ;;
-            esac
-            base="${f%%-"${VER}"*}"          # mcremote-windows-amd64
-            ext="${f#*-"${VER}"}"            # .exe  (empty for POSIX)
-            alias_name="${base}${ext}"
-            cp -f "$f" "$alias_name"
-            ASSETS+=("$alias_name")
-          done
-          cp -f "$SUMS" SHA256SUMS
-          ASSETS+=("SHA256SUMS")
-
-          # Ship the installer with the release it knows how to install, so the
-          # script and the asset names it expects can never drift apart.
-          cp -f scripts/install.sh install.sh
-          ASSETS+=("install.sh")
-          cp -f scripts/install.ps1 install.ps1
-          ASSETS+=("install.ps1")
-
-          ls -lh "${ASSETS[@]}"
-          cat "$SUMS"
-
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --generate-notes --title "$TAG"
+          # The v0.16.0 bridge, and only v0.16.0. An installed pre-0.16 client
+          # selects <product>-<goos>-<goarch>-<VER> by prefix and then requests
+          # SHA256SUMS-<VER> with the identical suffix, which is why the
+          # compatibility suffix omits the leading "v". The copies are
+          # byte-identical to the canonical binaries and get their own manifest;
+          # SHA256SUMS keeps listing canonical names only.
+          # internal/updateclient.TestLegacySelectorCrossesTheBridge proves the
+          # frozen v0.15.3 selector resolves this exact file set.
+          if [ "$TAG" = "v0.16.0" ]; then
+            ( cd staging
+              for f in mcremote-* mcrelay-*; do
+                case "$f" in SHA256SUMS*|*-0.16.0|*-0.16.0.exe) continue ;; esac
+                case "$f" in
+                  *.exe) cp -f "$f" "${f%.exe}-0.16.0.exe" ;;
+                  *)     cp -f "$f" "${f}-0.16.0" ;;
+                esac
+              done
+              set --
+              for f in *-0.16.0 *-0.16.0.exe; do
+                [ -f "$f" ] || continue
+                set -- "$@" "$f"
+              done
+              [ "$#" -gt 0 ] || { echo "error: bridge produced no compatibility copies" >&2; exit 1; }
+              sha256sum "$@" > SHA256SUMS-0.16.0
+              cat SHA256SUMS-0.16.0
+            )
           fi
-          gh release upload "$TAG" "${ASSETS[@]}" --clobber
+
+          ls -lh staging/
+          cat staging/SHA256SUMS
+
+      - name: Upload the staged release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: magic-cli-remote-release-${{ github.ref_name }}
+          path: staging/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Publish through mcplib's reusable workflow. It validates the staged file set
+  # against the canonical contract, assembles a draft, attests it, publishes it,
+  # and waits for immutability. It never uses --clobber and refuses to touch a
+  # tag that already has a release.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish self-update release
+    if: github.ref_type == 'tag'
+    needs: [release]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: maccavelli/mcplib/.github/workflows/publish-selfupdate-release.yml@3389f793e8fd6e697a3699fa8cb47dd50c2f951c # mcplib v1.4.0
+    with:
+      artifact-name: magic-cli-remote-release-${{ github.ref_name }}
+      products-json: '["mcremote","mcrelay"]'
+      platforms-json: '[{"os":"linux","arch":"amd64"},{"os":"linux","arch":"arm64"},{"os":"darwin","arch":"arm64"},{"os":"windows","arch":"amd64"}]'
+      extra-assets-json: '["install.sh","install.ps1","magic-cli-remote-${{ github.ref_name }}-arm64.apk"]'
+      bridge-release: ${{ github.ref_name == 'v0.16.0' }}
