@@ -356,3 +356,40 @@ is the wrong way round. The alert keeps its channel; the answer takes the hop.
   (its actions already set `cancelNotification: false`) so a body tap still
   opens the app — the notification body's `SELECT_NOTIFICATION` intent is an
   Activity `PendingIntent` and is unaffected by `showsUserInterface`.
+
+## Amendment — 2026-09-02: delivered; all six acceptance criteria met
+
+[The plan](0129-PLAN-background-alert-delivery-survives-task-removal.md) is
+`complete`. The decision this record took — move the connection into the
+foreground service's isolate so alerts survive task removal — is implemented and
+verified on device.
+
+The contracts hold as written:
+
+* **C1** (one socket) — 100 foreground/background cycles, MAX concurrent 1,
+  zero `replaced`.
+* **C2/D3** (the notification never claims what nobody maintains) — held for
+  the case this record targeted; see the caveat below.
+* **C3** (no actionable notification whose buttons don't work) — an approval
+  raised while the app was swiped away was answered from the shade, resolved
+  host-side, and the agent then completed its tool call, with zero
+  `MainActivity` records throughout.
+* **C4** (every phase states its on-device observation) — each phase carries
+  one in the plan's execution record.
+
+**D4 was amended during execution and the amendment stands:**
+`onNotificationButtonPressed` cannot carry a per-ask alert, so Allow/Deny route
+`ActionBroadcastReceiver` → `notificationBackgroundHandler` → `sendDataToTask`
+→ the service isolate. That amendment also uncovered a defect predating this
+work — `ActionBroadcastReceiver` had never been declared in the app's manifest,
+so the background handler was unreachable for its whole life.
+
+**The one thing this record does not deliver.** 0126 P7 row 4 asks that the
+notification never claim a connection while none exists. The case *this* record
+caused and fixed is closed (a system-restarted service inheriting a stale
+"Connected to host" for 29 s, now ~2 s). But measurement found a second window
+with an unrelated cause: the client itself can believe it is connected for tens
+of seconds after its socket dies, and every surface mirrors that belief
+faithfully. That belongs to connection liveness, not alert delivery, and is
+tracked in [0130](0130-MADR-client-can-sit-connected-with-no-socket.md) —
+parked, cause unfound, no fix shipped.
