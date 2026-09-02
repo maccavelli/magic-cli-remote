@@ -986,3 +986,54 @@ notification claims a connection that is gone, so a user glancing at the shade
 can believe alerts are arriving when they are not. 0126 P7 row 4 therefore
 stays open on its literal wording, even though the START_STICKY case it was
 written to catch is fixed (29s → ~2s).
+
+### Acceptance criterion 5 — run at last, and it **FAILS** (C1)
+
+APK `0.15.3.16`, AVD `mcremote_test`, 100 foreground/background cycles
+(`am start` → 2 s → `KEYCODE_HOME` → 2 s), 06:45:18 → 06:54:11 local.
+
+Liveness computed as a running count over the daemon log for this device
+(`device authenticated` +1, `ws client disconnected` −1):
+
+```text
+events in window   7  (auth=3, disc=4)
+live-count seen    {0: 3, 1: 3, 2: 1}
+MAX concurrent     2          <-- C1 says this must never exceed 1
+reason=replaced    1
+```
+
+The violation, at around cycle 40:
+
+```text
+06:48:59.287  device authenticated                     (second connection)
+06:48:59.287  ws client disconnected  reason=replaced  (the first, closed by the daemon)
+06:49:00.913  ws client disconnected  reason=peer_closed
+```
+
+**This is the criterion doing its job.** The plan says of it: "the one most
+likely to be skipped and most likely to bite. 0126 F2 exists because a second
+connection was allowed to strand the first." It was skipped through P1–P6 and it
+bit on the first run.
+
+**What it is not:** the task-removal or service-isolate handover path, both of
+which P6 verified and which are not involved here. Backgrounding with HOME does
+not remove the task, so the UI isolate stays alive and keeps its socket
+throughout; the foreground service never takes over. The second connection is
+therefore the UI isolate dialling while it already held a socket.
+
+**Scope honestly stated:** one violation in 100 cycles, on a 4-second cycle a
+real user would not produce. That makes it a race, not a certainty — but C1 is
+worded "at any moment", and the daemon resolving it with 4001 is precisely the
+condition 0126 F2 was written about.
+
+**A measurement correction, recorded because it nearly produced a false pass.**
+The first computation of this window reported "no events, MAX 1, zero
+violations" — a clean pass. It was wrong: the window start was captured with
+`date -u` while the daemon logs local time, so the string comparison excluded
+every event in the range. The pass came from an empty set. Anything reading
+this should note the daemon's format is `time=2026-09-02T06:49:46.515-05:00`
+— local, not UTC.
+
+**Status:** criterion 5 is **not met**. 0129 stays `in-progress`. The finding is
+recorded here rather than acted on: it is a new defect on a path this plan did
+not change, and fixing it needs its own decision.

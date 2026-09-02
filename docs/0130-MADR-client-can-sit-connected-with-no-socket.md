@@ -218,3 +218,57 @@ alone. The record is amended with the answer before any fix is designed.
   L-2 is the stale-teardown hazard already handled inside
   `_teardownSocketImpl`, and reading it is what made the falsified mechanism
   look plausible.
+
+## Amendment — 2026-09-02: parked, cause not found, no fix shipped
+
+The investigation this record decided on was carried out (see the plan's
+execution record: I1, I2, I4). It did not find the cause, and the work stops
+here deliberately rather than continuing to hunt.
+
+**What the investigation bought, which is not nothing:**
+
+* Four healthy configurations eliminated — UI isolate and service isolate, one
+  path cut and both, on debug and release builds.
+* **Sleep ruled out.** `mWakefulness=Awake`, `deviceidle mState=ACTIVE` during
+  the silent window, so a dozing device is not the explanation.
+* **The detector proven**, under sustained flapping on a release build in the
+  service isolate: 16 epochs, 20 ping misses, 12 recoveries, detection in
+  **16 s** every time (`ping:tick` → `miss(1)` at +6 s → `miss(2)` at +16 s →
+  teardown → new socket at +18 s).
+* **`connected` with no socket shown to be reachable** — the unit suite prints
+  it at `teardown:detached`, as a sub-millisecond window the caller then closes.
+* **One distinguishing feature** of the failing state that no healthy run has:
+  a half-open relay tunnel — the phone's TCP to the relay `ESTABLISHED` while
+  the daemon-side leg is gone.
+
+**What it did not buy:** an explanation of why, in that one state, the ping did
+not miss. Every healthy run misses within 6 s of a broken link; the stuck run
+showed none for four minutes.
+
+**Decisions taken on parking:**
+
+* **The held patch is dropped.** `scratchpad/0130-hardening-unproven.patch` —
+  epoch guards on `_onSocketDone`/`_onSocketError`, and coercing `connected`
+  to imply a live socket — is not adopted. Neither change has a test that can
+  be made to fail, and the mechanism they were written for is falsified. It is
+  not carried forward as a pending item either: it would be rewritten from
+  scratch against whatever the real cause turns out to be. The scratchpad is
+  temporary and the patch will be lost, which is the intended outcome — this
+  record describes what it did in enough detail to recreate it if it ever
+  becomes relevant.
+* **The trace stays.** It is behind `kDebugMode || mc.trace`, verified to emit
+  **zero** lines in a normal `make apk` build, and it is the only instrument
+  that can answer the open question if this recurs. Turn it on with
+  `flutter build apk --release --dart-define=mc.trace=true`.
+* **No transport-core behaviour changed.** The client ships exactly as it was
+  before this record was opened.
+
+**If it recurs**, the next step is already known and should not be re-derived:
+target the half-open tunnel directly — drop the daemon's relay leg while
+leaving the phone's TCP up — with `mc.trace=true`, and read `ping:tick` /
+`ping:ok` / `ping:miss`. Every reproduction attempted so far cut the *phone's*
+path, which is a different failure and recovers correctly.
+
+Status stays `proposed` rather than `accepted`: the decision to investigate was
+executed, but the record proposes no change to the product, so there is nothing
+to accept.

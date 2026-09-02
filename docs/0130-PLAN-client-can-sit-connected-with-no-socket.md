@@ -1,5 +1,5 @@
 ---
-status: "proposed"
+status: "complete"
 date: 2026-09-02
 associated-madr: "0130-MADR-client-can-sit-connected-with-no-socket.md"
 ---
