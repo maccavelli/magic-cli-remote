@@ -1397,3 +1397,48 @@ deferred battery-optimisation item is aimed at the wrong layer — the service i
 already alive; the isolate is not. Where the connection lives is an
 architectural decision, so it goes to its own record rather than being absorbed
 here. See 0129.
+
+### 2026-09-02 — P7 row 3 attempted, **blocked by the emulator's network**
+
+Not a pass, and not a failure of the code under test: the download never got far
+enough to exercise the part row 3 is about.
+
+**Setup, which needed no provider quota.** `make apk VERSION=0.15.2.1` stamps a
+build older than the published release while keeping a higher `versionCode`
+(14), so it installs over the current build with no downgrade and the updater
+still sees `v0.15.3` as newer. Worth recording as the cheap way to exercise the
+update path — the earlier assumption that this row needs a real release cycle
+is wrong.
+
+**What worked.**
+
+* Version comparison: from `0.15.2.1+14`, Settings → App update reported
+  **"Update available: v0.15.3"**.
+* **Pairing survived the reinstall** — one of row 3's own criteria — and the app
+  reconnected on launch without re-pairing.
+* No ANR, and no `Skipped NNN frames` from this app. The one Choreographer
+  warning in the run (`Skipped 82 frames`) belongs to pid 912,
+  `com.android.systemui`, not `com.maccavelli.magic_cli_remote` (pid 11314).
+  Attributing it to the app would have been a false failure.
+
+**What blocked it.** The APK download died partway, twice, at the same place:
+
+```text
+App update
+ClientException: Connection closed while receiving data,
+uri=https://release-assets.githubusercontent.com/...
+```
+
+~40 MB over this AVD's network does not complete. The install and the
+`PackageInstaller` session copy — the ANR-sensitive path that P4 moved onto
+`Executors.newSingleThreadExecutor()`, and the only reason this row exists —
+were **never reached**. Nothing here says anything about whether that fix
+holds.
+
+**Incidental, and genuinely useful:** a connection dropped mid-download is
+surfaced in the tile as a readable error and the app stays responsive — it
+neither crashes nor hangs on a truncated body.
+
+**Still open.** Trigger: a network that can carry the release asset to the
+device — a physical device on real Wi-Fi, or the APK served from the host so
+the transfer stays local. The row itself is unchanged.
