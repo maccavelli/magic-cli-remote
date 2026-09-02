@@ -12,6 +12,10 @@ var (
 	version = "dev"
 	commit  = "none"
 	date    = "unknown"
+	// buildKind is stamped to "release" only by the tag build. A bool cannot
+	// be set with the linker's -X flag, so this is a string and only that one
+	// exact value marks a release (MADR 0005).
+	buildKind = "local"
 
 	cfgFile   string
 	logLevel  string
@@ -28,6 +32,13 @@ func SetVersionInfo(v, c, d string) {
 	}
 	if d != "" {
 		date = d
+	}
+}
+
+// SetBuildKind injects the linker-stamped build kind.
+func SetBuildKind(k string) {
+	if k != "" {
+		buildKind = k
 	}
 }
 

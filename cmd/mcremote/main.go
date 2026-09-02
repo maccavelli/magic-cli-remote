@@ -1,29 +1,35 @@
 package main
 
 import (
-	"errors"
 	"os"
 
+	"github.com/maccavelli/mcplib/selfupdate"
+
 	"github.com/maccavelli/magic-cli-remote/internal/cli"
-	"github.com/maccavelli/magic-cli-remote/internal/update"
 )
 
-// Set via -ldflags at build time.
+// Set via -ldflags at build time. buildKind is "release" only for a tag build.
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	version   = "dev"
+	commit    = "none"
+	date      = "unknown"
+	buildKind = "local"
 )
 
 func main() {
 	cli.SetVersionInfo(version, commit, date)
-	if err := cli.Execute(); err != nil {
-		if errors.Is(err, update.ErrUpdateAvailable) {
-			// mcremote update --check: scriptable exit 10 (0065 F5).
-			os.Exit(10)
-		}
+	cli.SetBuildKind(buildKind)
+	err := cli.Execute()
+	if err == nil {
+		return
+	}
+	// The library never exits the process; this main owns exit mapping.
+	// selfupdate.ExitCode returns 10 for `update --check` finding an
+	// actionable target and 1 for every other failure (MADR 0005).
+	code := selfupdate.ExitCode(selfupdate.Result{}, err)
+	if code != 10 {
 		// Cobra SilenceErrors is set; print the error for operators.
 		_, _ = os.Stderr.WriteString("error: " + err.Error() + "\n")
-		os.Exit(1)
 	}
+	os.Exit(code)
 }

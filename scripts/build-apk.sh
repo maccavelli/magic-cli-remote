@@ -16,16 +16,19 @@ cd android
 cd ..
 
 flutter pub get
-# Grab the dynamic version (e.g. 0.2.3.6) and split it
-VER="$("$ROOT/scripts/next-build-version.sh" | tail -1)"
-# Full four-part version, matching `make apk` and CI (MADR 0128 D2). This script
-# previously split it to three parts, and `make apk` inherited that when it was
-# taught to stamp at all — so both local paths disagreed with CI's stated intent
-# that the APK and the binaries in a release carry the same version.
-BUILD_NAME="$VER"
-BUILD_NUMBER="${VER##*.}"
+# Release identity is the immutable strict tag (MADR 0005): there is no BASE.N
+# build serial to allocate any more. BUILD_NAME comes from the tag CI passes in,
+# and BUILD_NUMBER stays on the CI run number so versionCode keeps increasing
+# monotonically across releases. Android update behaviour is unchanged.
+BUILD_NAME="${BUILD_NAME:-${VERSION:-}}"
+if [[ -z "$BUILD_NAME" ]]; then
+  BASE="$(git -C "$ROOT" tag -l 'v*.*.*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 | sed 's/^v//' || true)"
+  BUILD_NAME="${BASE:-0.0.0}"
+fi
+BUILD_NAME="${BUILD_NAME#v}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
 
-if [[ "$BUILD_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ && "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+if [[ "$BUILD_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
   flutter build apk --release --target-platform android-arm64 --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
 else
   flutter build apk --release --target-platform android-arm64

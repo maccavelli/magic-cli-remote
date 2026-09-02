@@ -37,11 +37,10 @@ jobs:
     name: Go (test; build on tag)
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    # Write is used only on tag runs, to claim build/<BASE>.<N> version tags on
-    # origin. PR and branch runs never push (see the build step's env), so the
-    # grant is inert there and unavailable at all on fork PRs.
+    # Read-only. The build/<BASE>.<N> ledger is gone (MADR 0005): a release is
+    # an immutable strict tag and this job pushes nothing.
     permissions:
-      contents: write
+      contents: read
     # Version stamped into both binaries; used by the release job artifact names.
     outputs:
       version: ${{ steps.build.outputs.version }}
@@ -127,11 +126,6 @@ jobs:
       - name: Test (cgo-free, all packages)
         run: CGO_ENABLED=0 go test ./...
 
-      # Guards the build/<BASE>.<N> allocator that stamps both binaries. It has
-      # always passed; it just never ran anywhere.
-      - name: Version allocator tests
-        run: ./scripts/next-build-version_test.sh
-
       # Unit files are shipped to users; a typo'd directive should not reach a
       # release. Shares its implementation with `make preflight` so local and CI
       # cannot drift.
@@ -161,10 +155,6 @@ jobs:
         id: build
         if: github.ref_type == 'tag'
         env:
-          # Claim/push build/<BASE>.<N> only on tag runs; PR and branch runs
-          # build a locally-stamped binary with no git side effects.
-          MCREMOTE_VERSION_PUSH: ${{ github.ref_type == 'tag' && '1' || '0' }}
-          MCREMOTE_VERSION_TAG: ${{ github.ref_type == 'tag' && '1' || '0' }}
           CI: "true"
         run: |
           set -euo pipefail
@@ -187,16 +177,10 @@ jobs:
           # this one line plus a verify-build-metadata case and a
           # windows-11-arm go-native matrix leg.
 
-          # Allocate the shared build/<BASE>.<N> serial ONCE. Every per-platform
-          # build below passes VERSION=, which short-circuits the allocator, so
-          # a release never mixes serials or claims extra tags. (This is the same
-          # allocation make build performs, called directly so no throwaway host
-          # build happens before the real matrix.)
-          ver="$(scripts/next-build-version.sh "$BASE" | tail -1)"
-          case "$ver" in
-            "$BASE".*) ;;
-            *) echo "error: allocated version '$ver' does not derive from tag base '$BASE'" >&2; exit 1 ;;
-          esac
+          # The immutable tag IS the version (MADR 0005). Every per-platform
+          # build passes VERSION= and BUILD_KIND=release, so the release
+          # binaries carry the tag and nothing allocates or pushes anything.
+          ver="$BASE"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
           mkdir -p dist
@@ -206,7 +190,7 @@ jobs:
               os="${p%/*}"; arch="${p#*/}"
               ext=""; [ "$os" = "windows" ] && ext=".exe"
               echo "==> $name $os/$arch"
-              make "$mk" VERSION="$ver" GOOS="$os" GOARCH="$arch" >/dev/null
+              make "$mk" VERSION="$ver" BUILD_KIND=release GOOS="$os" GOARCH="$arch" >/dev/null
               cp -f "bin/${name}${ext}" "dist/${name}-${os}-${arch}${ext}"
             done
           }

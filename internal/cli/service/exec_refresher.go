@@ -9,9 +9,21 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/maccavelli/magic-cli-remote/internal/update"
 )
+
+// UnitRefresh is what a post-swap definition reconciliation did. It lives here
+// rather than in the updater because the updater is now
+// github.com/maccavelli/mcplib/selfupdate, which owns no template, unit or
+// systemctl knowledge (MADR 0005). internal/updateclient adapts this value
+// into selfupdate.ReconcileResult.
+type UnitRefresh struct {
+	Changed    bool
+	Path       string
+	BackupPath string
+	// Output is one already-formatted human line, or empty when there is
+	// nothing worth saying.
+	Output string
+}
 
 // ExecRefresher reconciles a service definition by running
 // `<binary> setup-service --refresh --json` in a child process.
@@ -20,9 +32,9 @@ import (
 // carries the OLD template, so it cannot render the definition the release
 // ships; only the binary that was just swapped into place can (MADR 0100).
 //
-// The dependency points this way — service imports update, never the reverse —
-// because internal/update deliberately knows nothing about templates, units, or
-// systemctl (0065 P1), and this adapter is exactly that knowledge.
+// This package owns that knowledge deliberately. The shared updater knows
+// nothing about templates, units, or systemctl (0065 P1, MADR 0005), so the
+// adapter that does live here and in internal/updateclient.
 type ExecRefresher struct {
 	// Timeout bounds the child. Zero means 60s.
 	Timeout time.Duration
@@ -31,8 +43,8 @@ type ExecRefresher struct {
 // refreshTimeout is the default bound on the child process.
 const refreshTimeout = 60 * time.Second
 
-// RefreshUnit implements update.UnitRefresher.
-func (e ExecRefresher) RefreshUnit(product, binary string) (update.UnitRefresh, error) {
+// RefreshUnit implements UnitRefresher.
+func (e ExecRefresher) RefreshUnit(product, binary string) (UnitRefresh, error) {
 	timeout := e.Timeout
 	if timeout <= 0 {
 		timeout = refreshTimeout
@@ -53,14 +65,14 @@ func (e ExecRefresher) RefreshUnit(product, binary string) (update.UnitRefresh, 
 		if detail == "" {
 			detail = strings.TrimSpace(stdout.String())
 		}
-		return update.UnitRefresh{}, fmt.Errorf("%s setup-service --refresh: %w (%s)", binary, err, detail)
+		return UnitRefresh{}, fmt.Errorf("%s setup-service --refresh: %w (%s)", binary, err, detail)
 	}
 
 	var res RefreshResult
 	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
-		return update.UnitRefresh{}, fmt.Errorf("parse refresh output from %s: %w", binary, err)
+		return UnitRefresh{}, fmt.Errorf("parse refresh output from %s: %w", binary, err)
 	}
-	return update.UnitRefresh{
+	return UnitRefresh{
 		Changed:    res.Changed,
 		Path:       res.Path,
 		BackupPath: res.BackupPath,
@@ -68,10 +80,10 @@ func (e ExecRefresher) RefreshUnit(product, binary string) (update.UnitRefresh, 
 	}, nil
 }
 
-// RestoreUnit implements update.UnitRefresher. It renames the backup back and
+// RestoreUnit implements UnitRefresher. It renames the backup back and
 // reloads in-process: no template is involved, so the old binary can do it
 // while rolling an update back.
-func (e ExecRefresher) RestoreUnit(product string, r update.UnitRefresh) error {
+func (e ExecRefresher) RestoreUnit(product string, r UnitRefresh) error {
 	return RestoreUnitBackup(r.Path, r.BackupPath)
 }
 
