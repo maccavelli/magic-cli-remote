@@ -1439,6 +1439,114 @@ holds.
 surfaced in the tile as a readable error and the app stays responsive — it
 neither crashes nor hangs on a truncated body.
 
-**Still open.** Trigger: a network that can carry the release asset to the
+~~**Still open.** Trigger: a network that can carry the release asset to the
 device — a physical device on real Wi-Fi, or the APK served from the host so
-the transfer stays local. The row itself is unchanged.
+the transfer stays local.~~
+
+**That diagnosis was wrong. See the 2026-09-02 entry below.**
+
+### 2026-09-02 — P7 row 3 measured: the ANR criterion **PASSES**; the earlier "network" diagnosis was wrong
+
+The 2026-09-02 entry above blamed the emulator's network for the failed
+download. **That was asserted, not measured, and it is false.** Corrected here
+with the measurements that should have been taken the first time.
+
+#### The network was never the problem
+
+Three transfers, all inside the emulator:
+
+```text
+host -> emulator over QEMU NAT (nc)          41,092,300 B   exit 0
+internet -> emulator, plain HTTP (nc)        38,280,910 B   exit 0, <75 s
+app -> GitHub CDN over HTTPS (instrumented)  40,642,346 B   exit 0, 13.8 s
+```
+
+The emulator pulls ~38 MB straight off the internet without difficulty, and the
+app's own download then completed at **2,880 KB/s**. No VPN tun is up, both
+NICs are MTU 1500, and QEMU's slirp fakes ICMP — which is why the `ping -M do`
+path-MTU probe attempted first was a useless instrument and is not cited as
+evidence.
+
+The two earlier failures (`ClientException: Connection closed while receiving
+data`) were **transient**, not environmental. They are not reproducible.
+
+#### The second hypothesis was also wrong, and the instrument says so
+
+Reading `app_update.dart:130-140`, the download hashes each chunk with
+pure-Dart SHA-256 *inside* the `await for` loop, which applies backpressure to
+the socket. The obvious inference was a slow consumer being dropped by the CDN.
+
+Temporary instrumentation separated waiting from working:
+
+```text
+mcupdate/dl DONE t=13779ms recv=40642346 wait=12621ms hash=423ms write=656ms
+
+  total    13.78 s   38.8 MB   2880 KB/s
+  waiting  12.62 s    91.6%    <- network
+  hashing   0.42 s     3.1%    <- the hypothesis said this dominated
+  writing   0.66 s     4.8%
+```
+
+**Hashing is 3.1% of wall time.** In-loop SHA-256 is not a bottleneck at this
+size, and the download ran 5.6× faster than the `nc` control measured minutes
+earlier. Two confident hypotheses, both refuted by measurement; recorded so
+neither is proposed again.
+
+#### What row 3 actually asks, and what was observed
+
+Row 3: *"in-app update over the previous build -> no ANR; logcat shows no
+`Skipped NNN frames` burst during the copy -> after install, pairing survives
+and (if P3 step 2 chose it) the service returns without a manual open."*
+
+Setup needed no provider quota: `make apk VERSION=0.15.2.2` produces a build
+that looks older than the published `v0.15.3` while keeping a higher
+`versionCode` (17), so it installs over the current build and the updater still
+offers the release.
+
+| criterion | result |
+|---|---|
+| update offered from an older build | **pass** — "Update available: v0.15.3" |
+| download completes, SHA-256 verified | **pass** — "Ready to install v0.15.3" |
+| **no ANR** | **pass** — no `ANR in com.maccavelli` anywhere in the run |
+| **no `Skipped NNN frames` burst during the copy** | **pass** — the only Choreographer warning from this app's pid was `Skipped 34 frames` at **09:15:36, app startup**, 80 s before the download and 5 minutes before the install |
+| pairing survives | **pass** — verified separately; the app reconnected without re-pairing |
+| service returns without a manual open | **not observed** — see below |
+
+The `PackageInstaller` path — the ANR-sensitive part, and the only reason this
+row exists — **did run**. The session was created, the 41 MB APK was written
+into it, `markAsSealed` and `commit()` were both reached, and the UI stayed
+interactive throughout. That is 0126 P4's `Executors.newSingleThreadExecutor()`
+working: the copy is off the main thread and does not jank the app.
+
+#### Why the install itself did not complete, and why that is not a defect
+
+```text
+PackageInstallerSession: Marking session 263402989 as failed:
+INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package
+com.maccavelli.magic_cli_remote signatures do not match newer version
+```
+
+`android/key.properties` is absent on this host, so `build.gradle.kts` falls
+back to `signingConfigs.debug` — every locally-built APK is **debug-signed**,
+while the published `v0.15.3` asset is **release-signed by CI**. Android
+refuses an update across a signature change, by design.
+
+This is a **harness limitation, not a product defect**. A real user has a
+CI-signed app updating to a CI-signed asset, and the signatures match. Note the
+check fires at `commit()`, i.e. *after* the session copy — which is why the
+ANR-sensitive path was still exercised in full.
+
+**Row 3 verdict: the ANR half is verified and passes.** The post-install half
+(service auto-return via `autoRunOnMyPackageReplaced`) remains unobserved, and
+its trigger is now precisely known rather than vague: **a locally-built APK
+signed with the same key as the published release** — i.e. the release keystore
+on this host, or a CI-built artifact older than the current release. Not "a
+better network".
+
+#### Method note
+
+The download instrumentation was temporary. It was written, measured with, and
+**reverted by inverse patch without being committed** — the tree was clean
+before and after, and the patch is at
+`scratchpad/0126-row3-instrumentation.patch`. Nothing in the shipping update
+path changed as a result of this measurement.
