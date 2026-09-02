@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-01
 associated-madr: "0129-MADR-background-alert-delivery-survives-task-removal.md"
 ---
@@ -268,3 +268,92 @@ keeps working against the same host.
 * **Whether the app-ping cadence should differ service-side.** 0126 D5 pinned it
   to `kLinkFreshFor` for UI freshness. With no UI, that constraint may not
   apply — but changing it belongs with the measurement in 0128 P4, not here.
+
+## Execution record — 2026-09-01
+
+### P1 + P2 — Phase C complete (D3, D5)
+
+`_KeepAliveTaskHandler` — empty `onStart`, empty `onRepeatEvent` — is now
+`McRemoteTaskHandler`. `eventAction` moved from `.nothing()` to a 30 s repeat;
+the comment it replaced ("the service only keeps the process alive") *was* the
+mistaken assumption, and the code now says so.
+
+The two isolates share no memory, so the whole vocabulary between them is a
+heartbeat carrying the title and text the UI isolate wants shown. Sent on a
+timer **and** on every connection transition — the timer alone would leave up to
+one interval of staleness after a state change.
+
+**The design call worth recording:** a handler that has *never* seen a heartbeat
+reads as paused. That is the `START_STICKY` case — the system recreated the
+service after a process death, so the main isolate is gone and never checked in.
+Assuming "alive until proven otherwise" would hold a stale "Connected to host"
+for the entire grace window, which is the bug itself. Proven to discriminate:
+
+```text
+with `return false` for the never-seen case:
+  no heartbeat ever seen reads as paused [E]  Expected: true  Actual: <false>
+restored: +5 All tests passed
+```
+
+Wording is deliberate: "Alerts paused" is a state the user can act on;
+"Disconnected" reads as a fault to diagnose, and nothing is faulty — nothing is
+maintaining it.
+
+#### On-device observation (AVD `mcremote_test`, API 36, APK 0.15.3.6)
+
+Paired to the live daemon, then swiped from recents:
+
+```text
+BASELINE   title "Connected to host"; DartWorker present; socket up
+           engines 1.* and 2.*  (2.* is the new service isolate — P1's check)
+
+SWIPE      recents entries        0
+           process                alive (pid 2345)
+           FGS record             1
+           DartWorker             gone      <- main isolate dead, as in 0126 P7
+           socket                 gone
+
+RESULT     title "Alerts paused"
+           text  "Tap to reconnect to your host"      <- the check that failed in 0126 P7
+
+TAP        top activity  magic_cli_remote/.MainActivity
+           socket        restored
+           title         "Connected to host"          <- handler stood down
+```
+
+Phase C's acceptance criterion is met: the notification no longer claims a
+connection nobody is maintaining, and one tap restores it.
+
+**What this does NOT do**, restated so the record cannot be misread: alerts
+still do not arrive after a swipe. That is Phase A (P3–P6). Phase C makes the
+app honest about it, nothing more.
+
+#### Two measurement errors, both mine
+
+* The title-monitoring loop used `grep -B4 -A16 "channel=host_connection"` and
+  reported "no notification" ten times running while the notification was
+  present and correct the whole time — the pattern assumed a line ordering
+  `dumpsys` does not guarantee. A plain `grep -oE 'android\.title=...'` showed
+  the truth immediately. The flip therefore happened somewhere inside a 150 s
+  window rather than at a captured moment; the *outcome* is verified, the
+  latency is not.
+* A `DartWorker` count read 0 on a connected app, contradicting the evidence
+  0126 P7 rests on. It was a nested command substitution racing the app
+  restart; a clean re-read showed `DartWorker` present. The 0126 finding stands
+  — verified there by a controlled before/after diff, not by a single sample.
+
+Seventh and eighth verification-of-a-verification failures in this body of work.
+Both were caught because the result contradicted something already established.
+
+#### Scope addition — `docs/ops-android-emulator.md`
+
+Not in this plan's file list. Pairing failed three times with **"code already
+used"** before the cause was found: **the emulator loads the virtual-scene
+poster at boot and caches it.** Every poster swap after boot was invisible, so
+the camera kept showing the first QR, whose one-shot code had been consumed an
+hour earlier. The ops doc documented overwriting `poster.png` but not that the
+swap must precede boot. Added, with `mcremote pair list` named as the check — a
+code that was never claimed does not appear there at all.
+
+P6 will need pairing again, so leaving this undocumented would have cost the
+same hour twice.

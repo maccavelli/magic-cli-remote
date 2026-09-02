@@ -100,6 +100,14 @@ Restore the stock scene afterwards with
 
 ### Why it has to be done this way
 
+* **The scene poster is loaded at BOOT and cached.** Replacing `poster.png`
+  while the emulator is running changes nothing on screen — the camera keeps
+  showing whatever was on disk when it started. Swap the poster *first*, then
+  boot; if the emulator is already up, restart it. Found the hard way on
+  2026-09-01: three successive pair QRs were written to disk and the app kept
+  scanning the first one, failing with **"code already used"** because that
+  first one-shot code had been consumed an hour earlier. `mcremote pair list`
+  is the check — a code that was never claimed does not appear there at all.
 * **`-virtualscene-poster wall=<file>` is silently ignored** (emulator
   37.1.11). No log line, no effect — verified with a correctly formatted
   1024×1024 RGBA image on both `wall` and `table`. Overwriting the default
