@@ -357,3 +357,70 @@ code that was never claimed does not appear there at all.
 
 P6 will need pairing again, so leaving this undocumented would have cost the
 same hour twice.
+
+### P3 — Secure storage and identity from the service isolate: **both work** (D1)
+
+This phase was written as the gate — *"the phase most likely to discover that
+something does not work rather than that it does"* — with instructions to stop
+and report if a plugin could not serve the service isolate, because the
+fallbacks put a device token across an isolate boundary.
+
+**No fallback is needed. Both plugins answer.**
+
+#### Why, before the measurement
+
+`flutter_foreground_task` does not spawn a bare isolate. It creates a **full
+`FlutterEngine`** for the task
+(`ForegroundTask.kt:49`, `flutterEngine = FlutterEngine(context)`), takes that
+engine's own `binaryMessenger`, and runs the entry point through
+`DartExecutor.executeDartCallback`. That engine registers plugins, so the task
+isolate is not a "background isolate" needing
+`BackgroundIsolateBinaryMessenger.ensureInitialized` — it is a second engine
+with a working channel of its own.
+
+#### Measured, on device, twice
+
+A temporary probe in the handler read `SharedPreferences` and
+`flutter_secure_storage`, logging presence and length only — never a value,
+since this lands in a device log.
+
+With the main isolate **alive**:
+
+```text
+mcremote/fgs: task isolate started (system)
+mcremote/fgs/probe[onStart]: SharedPreferences OK, 10 keys, host=true
+mcremote/fgs/probe[onStart]: secure storage OK, device_token present=true len=68
+```
+
+With the main isolate **dead** — the case D1 actually needs — fired when the
+handler concluded the UI isolate was gone:
+
+```text
+mcremote/fgs/probe[uiIsolateGone]: SharedPreferences OK, 10 keys, host=true
+mcremote/fgs/probe[uiIsolateGone]: secure storage OK, device_token present=true len=68
+
+corroboration at the same instant:
+  DartWorker  0            <- main isolate gone
+  socket      0            <- nothing connected
+  title       "Alerts paused"
+```
+
+So the service isolate can read the host, the device id, the pins and the device
+token with no Activity in existence. **D1 is achievable as designed**, and the
+security question the phase flagged does not arise: no credential has to cross
+an isolate boundary, because the isolate that needs it can fetch it.
+
+#### Incidental: the grace window, measured
+
+The `uiIsolateGone` probe fired at **~t+90 s** after the swipe, against a 95 s
+window and a 30 s check interval. That is the flip latency P2 could not capture
+because its monitoring grep was broken — recorded here since the probe happened
+to timestamp it.
+
+#### The probe is removed
+
+It answered its question, and a permanent version would read the device token on
+every pause transition — unnecessary work against a secret, for no ongoing
+benefit. P4 will read storage as part of doing its job, not as diagnostics.
+Gate after removal: `dart format` clean, `flutter analyze` clean,
+`flutter test` `+1372 ~3`.
