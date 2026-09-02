@@ -154,3 +154,89 @@ the cause. Rollback is deleting the helper and its call sites.
   construction. Worth closing on its own merits, not as part of a fix.
 * **Detection latency for a silently dead link (~25 s).** Out of scope by
   MADR D4 and not a defect on this evidence.
+
+## Execution record — 2026-09-02
+
+### I1 — the trace, and what it caught before leaving the desk
+
+Ten `_trace` call sites behind `kDebugMode`, covering every state transition,
+socket adopt/detach, ping arm, and `_scheduleReconnect`'s early returns.
+Format:
+
+```text
+mcremote/trace 2026-09-02T05:40:33.951657 state=connected socket=yes ping=off epoch=2 at=setState
+```
+
+**The existing unit suite immediately printed the incoherent pair** — sequence
+(2) from the MADR's Confirmation block, without any device involved:
+
+```text
+mcremote/trace ... state=connected socket=no ping=off epoch=2 at=teardown:detached
+```
+
+So `connected` with no socket is genuinely reachable: `_teardownSocketImpl`
+detaches the bundle while the state still says `connected`. In every observed
+case the caller corrected it within a millisecond (`state=disconnected` at the
+next `setState`), so the window is real but ordinarily closes at once. That is
+the window a fix would have to make unreachable — and it is the first direct
+evidence for any part of this record.
+
+`flutter analyze` clean, suite unchanged at `+1388 ~3`.
+
+### I2 — the reproduction: **did not reproduce, in four configurations**
+
+Debug APK (`--debug`, versionCode 1, installed with `-r -d`; local release
+builds are debug-signed because `android/key.properties` is absent, so the
+pairing survived the swap). AVD `mcremote_test`, daemon `macos-laptop`, device
+`emu-0129b`.
+
+| # | owner | blocked | result |
+|---|---|---|---|
+| 1 | UI isolate | mesh | detected in 28 s, failed over to relay, **connected** |
+| 2 | UI isolate | mesh + relay | healthy retry ladder, epochs 4→6, never stuck; **recovered by itself** when unblocked |
+| 3 | service isolate | mesh | detected in 21 s, failed over to relay, **connected** |
+| 4 | service isolate | mesh + relay | healthy retry ladder, epochs 6→7; notification read **"Reconnecting to host / Retrying connection"**, and it **recovered by itself** when unblocked |
+
+Row 4 is the closest configuration to the outage — same isolate owning the
+socket, both paths dead — and it is precisely the case that was expected to go
+silent. It did not. The client kept cycling
+`error → connecting → error → reconnecting`, the trace never stopped, the
+notification told the truth throughout, and the connection came back
+unattended once the rules were removed.
+
+Rules applied and removed in the same session;
+`iptables -L -n | grep -cE '7531|8443'` printed 0 afterwards. Relay endpoint
+was `52.2.52.22:8443`, found from the emulator's own socket table.
+
+### What this rules out, and what is left
+
+**Ruled out** — none of these is the cause on its own:
+
+* the transport core's reconnect ladder (rows 2 and 4 exercise it hard);
+* the mesh→relay failover (rows 1 and 3);
+* the service isolate's ownership of the connection (rows 3 and 4);
+* the notification path (row 4 reported "Reconnecting" correctly for minutes).
+
+**Left standing:** the outage happened on a build and in a machine state that
+this session did not recreate. The one difference already on record is that the
+original evening's transport was **dying spontaneously every ~40 s** before the
+outage — 21:40, 21:43, 22:22, 22:43 all show unforced drops — whereas tonight's
+link was stable and every drop was one this session caused. Repeated rapid
+failovers, or the daemon/relay in the state that produced them, is the most
+obvious untested ingredient.
+
+The second difference is the build: the outage was release `0.15.3.13`,
+tonight was a debug build. Debug changes timing and enables assertions, so a
+race is exactly the kind of defect it could hide.
+
+### Deviation — I3 cannot be completed as written
+
+The plan's I3 says "amend the MADR with the answer". There is no answer yet:
+the MADR's Confirmation block asks which of four sequences occurs, and the
+reproduction produced none of them. Sequence (2) was observed *in the unit
+suite* as a sub-millisecond window that always closed, which is evidence about
+the mechanism but not about the outage.
+
+Recorded rather than papered over: this phase ends with the question open, a
+working instrument, and four configurations eliminated. What it does **not**
+end with is a fix, and nothing here justifies landing one.

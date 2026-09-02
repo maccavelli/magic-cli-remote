@@ -7,7 +7,7 @@ import 'dart:typed_data' show Uint8List;
 import 'package:basic_utils/basic_utils.dart' show CryptoUtils;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart'
-    show ValueNotifier, debugPrint, visibleForTesting;
+    show ValueNotifier, debugPrint, kDebugMode, visibleForTesting;
 import 'package:http/io_client.dart';
 import 'package:pointycastle/export.dart' show ECPublicKey;
 import 'package:uuid/uuid.dart';
@@ -832,8 +832,33 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
       !_manualDisconnect &&
       !_userLoggedOut;
 
+  /// Debug-only trace of the four values that disagreed during the outage in
+  /// MADR 0130: connection state, whether a socket is held, whether the ping is
+  /// armed, and the dial epoch.
+  ///
+  /// The eleven minutes that record describes are *silent* in today's logs —
+  /// the daemon says plenty, `mcremote/fgs` says plenty, and the client says
+  /// nothing at all between the failover and the manual relaunch. So this
+  /// traces the early returns as well as the transitions: the interesting
+  /// event is very likely something declining to act, and nothing today prints
+  /// that.
+  ///
+  /// `kDebugMode` so release builds are byte-identical. Remove this in the same
+  /// change that fixes the cause (0130 I1).
+  void _trace(String at) {
+    if (!kDebugMode) return;
+    debugPrint(
+      'mcremote/trace ${DateTime.now().toIso8601String()} '
+      'state=${_state.name} '
+      'socket=${_channel == null ? "no" : "yes"} '
+      'ping=${(_pingTimer?.isActive ?? false) ? "on" : "off"} '
+      'epoch=$_connectEpoch at=$at',
+    );
+  }
+
   void _setState(McConnectionState s) {
     _state = s;
+    _trace('setState');
     // A socket that just went away is `lost` immediately — waiting out the
     // freshness window would keep a green light on a connection we know is
     // gone.
@@ -1276,6 +1301,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     _channel = opened.channel;
     _httpClient = opened.httpClient;
     _relayTransport = opened.relay;
+    _trace('adoptSocket');
     if (oldRelay != null && oldRelay != opened.relay) {
       unawaited(oldRelay.close().catchError((_) {}));
     }
@@ -2419,6 +2445,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   void _startPing() {
     _pingTimer?.cancel();
     _missedPings = 0;
+    _trace('startPing');
     // Faster than typical mobile NAT/idle timeouts so we notice drops sooner.
     _pingTimer = Timer.periodic(_appPingPeriod, (_) {
       // The freshness clock crosses its thresholds silently, so the value is
@@ -2596,15 +2623,22 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
 
   void _scheduleReconnect() {
     if (!_autoReconnect || _manualDisconnect || _userLoggedOut) {
+      _trace('scheduleReconnect:declined:autoReconnect/manual/loggedOut');
       return;
     }
     if (!hasCredentials) {
+      _trace('scheduleReconnect:declined:noCredentials');
       return;
     }
     if (_reconnectInFlight || (_reconnectTimer?.isActive ?? false)) {
+      _trace('scheduleReconnect:declined:alreadyInFlightOrArmed');
       return;
     }
     if (_state == McConnectionState.connected) {
+      // The one that matters most for 0130: the client refusing to reconnect
+      // *because* it believes it is connected. If the outage is a stuck state,
+      // this line is the eleven minutes.
+      _trace('scheduleReconnect:declined:believesConnected');
       return;
     }
     if (_handshakeFailures >= _maxHandshakeFailures) {
@@ -2783,6 +2817,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   }
 
   Future<void> _teardownSocketImpl({bool suppressReconnect = false}) async {
+    _trace('teardown:enter(suppressReconnect=$suppressReconnect)');
     if (suppressReconnect) {
       _suppressReconnect = true;
     }
@@ -2799,6 +2834,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     _sub = null;
     final channel = _channel;
     _channel = null;
+    _trace('teardown:detached');
     final httpClient = _httpClient;
     _httpClient = null;
     final relay = _relayTransport;
