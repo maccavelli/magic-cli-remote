@@ -183,6 +183,33 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!--
+          flutter_local_notifications' action-button receiver (MADR 0129 P5).
+
+          Required for Allow/Deny to work with the app swiped away. An action
+          shown with showsUserInterface:false targets this receiver by
+          PendingIntent.getBroadcast; the receiver spins up a short-lived
+          FlutterEngine running notificationBackgroundHandler, which forwards
+          the decision to the foreground-service isolate holding the socket.
+
+          The plugin does NOT declare it — its own manifest contributes two
+          uses-permission entries and no components — and this app never had
+          it. A PendingIntent for an undeclared receiver is created without
+          error and delivered to nothing, so that path was silently dead for
+          the whole life of the background handler.
+
+          exported="false": the only legitimate sender is the notification the
+          app itself posted, and the PendingIntent carries the app's own
+          identity. Nothing outside the package has business answering a
+          permission prompt on the user's behalf. This is also why the entry
+          does not appear in manifest-surface.allow — that gate records
+          exported components and permissions, and this is neither.
+        -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <!-- FileProvider for APK install content URIs (0065 P4). -->
         <provider
             android:name="androidx.core.content.FileProvider"

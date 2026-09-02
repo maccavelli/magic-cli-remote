@@ -186,7 +186,14 @@ never zero while alerts are enabled.
 ### P5 — Alerts and answers from the service isolate (D4, C3)
 
 `NotificationCoordinator` runs service-side against the service-side client.
-`onNotificationButtonPressed` maps Allow/Deny to `respondPermission`.
+~~`onNotificationButtonPressed` maps Allow/Deny to `respondPermission`.~~
+
+> **Superseded 2026-09-02 — see the deviation entry at the end of this plan.**
+> `onNotificationButtonPressed` fires only for buttons on the foreground
+> service's *own* notification and cannot carry a per-ask alert. Allow/Deny
+> instead route `ActionBroadcastReceiver` → `notificationBackgroundHandler` →
+> `sendDataToTask` → `McRemoteTaskHandler.onReceiveData` → `respondPermission`.
+> The rest of this step stands as written.
 
 `showsUserInterface: true` on the Android actions exists precisely because the
 plugin's default routed action taps to a background isolate that could not reach
@@ -511,3 +518,248 @@ are the numbered engine thread groups (`N.raster` / `N.io`) and the socket.**
   the app is swiped away is received and dropped.
 
 Gate: `dart format` clean, `flutter analyze` clean, `flutter test` `+1372 ~3`.
+
+## Deviation — 2026-09-02: P5's answer path is a forwarding hop, not a callback
+
+**Found:** at the start of P5, before any code was written, reading the plugin
+sources rather than trusting the step.
+
+**What the plan said.** P5: "`onNotificationButtonPressed` maps Allow/Deny to
+`respondPermission`." That step is wrong as written; the original wording is
+struck through above rather than rewritten.
+
+**Evidence.** Three readings, all in the pinned plugin versions:
+
+1. `flutter_foreground_task-11.0.1/android/src/main/kotlin/com/pravera/flutter_foreground_task/service/ForegroundService.kt:563-590`
+   — `buildNotificationActions` builds button `PendingIntent`s from
+   `NotificationContent.buttons`, i.e. only the foreground service's own
+   notification. `:98-118` receives the broadcast and calls
+   `task?.invokeMethod(action, data)`. No Activity is started, which is the
+   half of D4 that survives; but nothing here can attach buttons to a per-ask
+   `flutter_local_notifications` alert.
+2. `flutter_local_notifications-22.3.0/android/src/main/java/com/dexterous/flutterlocalnotifications/FlutterLocalNotificationsPlugin.java:330-359`
+   — `showsUserInterface: true` builds `PendingIntent.getActivity(getLaunchIntent(…))`,
+   which **starts the Activity** and fails C3's gate; `false` builds
+   `PendingIntent.getBroadcast(ActionBroadcastReceiver)`.
+3. `.../ActionBroadcastReceiver.java:92-121` — `startEngine` **always**
+   constructs a new `FlutterEngine` and runs the registered background callback
+   in a third isolate. It never routes to the foreground service's isolate.
+
+**Pre-existing defect found in the same reading, and it is genuinely
+pre-existing.** `ActionBroadcastReceiver` is not declared in
+`android/app/src/main/AndroidManifest.xml` (which declares `RestartReceiver`,
+`FileProvider` and `UpdateInstallReceiver` only), and the plugin's own manifest
+contributes no components. Confirmed pre-existing by history, not by assumption:
+`git log -S ActionBroadcastReceiver --oneline -- apps/mobile/android/` returns
+**no commits**, so the receiver has never been declared in any revision. (P1–P4
+did touch `AndroidManifest.xml`, for `stopWithTask` and `WAKE_LOCK` under 0126
+P1/P3 — hence checking the whole history rather than just this plan's diff.) A `PendingIntent.getBroadcast` for an
+undeclared receiver is created without error and delivered to nothing, so
+`notificationBackgroundHandler` (`notification_service.dart:551`) has never been
+reachable in this app. Nothing has ever routed to it, which is why the gap was
+invisible.
+
+**Decision (owner, 2026-09-02): the alert keeps its own channel and the answer
+takes one hop.** Chosen over putting Allow/Deny on the foreground-service
+notification, which is the only literal use of `onNotificationButtonPressed`
+and would have dropped the ask onto the `host_connection` channel — no heads-up,
+outside the per-kind Settings toggle (0101 C), one ask at a time, and the status
+row and alert row merged. The full comparison is in the MADR amendment.
+
+```text
+service isolate  --show(showsUserInterface: false)-->  approval_needed channel
+                                                              | tap Allow
+                                                              v
+                                                  ActionBroadcastReceiver
+                                                              | new engine
+                                                              v
+                                                 notificationBackgroundHandler
+                                                              | sendDataToTask
+                                                              v
+                                          McRemoteTaskHandler.onReceiveData
+                                                              |
+                                                      respondPermission
+```
+
+The hop is in-process and Activity-free: `FlutterForegroundTask.sendDataToTask`
+→ `MethodCallHandlerImpl.kt:78` → `ForegroundServiceManager.sendData` →
+`ForegroundService.sendData`, a companion-object static guarded only by
+`isRunningServiceState`, reached through `ServiceProvider` with no
+`ActivityPluginBinding` (`FlutterForegroundTaskPlugin.kt:31-37`).
+
+**`showsUserInterface` resolves as: whoever shows the ask sets it to whether
+they are the UI isolate.** The UI isolate keeps `true` — the reasoning at
+`notification_service.dart:202-207` is unchanged and still correct for it. The
+service isolate sets `false`. This is the deliberate revisit P5 asked for, and
+it lands on "both, depending on the shower", not on one value.
+
+**Files added to P5's scope** beyond what the step named:
+
+* `apps/mobile/android/app/src/main/AndroidManifest.xml` — declare
+  `ActionBroadcastReceiver`, `exported="false"`. `manifest-surface.allow` is
+  unchanged: the gate records exported components and permissions, and this is
+  neither. That the file needs no edit is itself checked by `make
+  manifest-surface`.
+* `apps/mobile/lib/data/notifications/notification_service.dart` —
+  `showsUserInterface` becomes a parameter; `notificationBackgroundHandler`
+  gains the forwarding body.
+
+**Consequence of doing nothing:** C3 stays unmet. With the app swiped away the
+alert arrives and its buttons either do nothing (`false`, no receiver) or start
+the Activity (`true`) — the exact state 0129 exists to end. 0126 P7 row 3 and
+acceptance criterion 4 would stay open, and P6 could not run.
+
+### P5 — Alerts and answers from the service isolate: **C3 met** (D4)
+
+APK `0.15.3.12`, AVD `mcremote_test` / API 36, daemon `macos-laptop`, device
+`emu-0129b`, grok session `a787cbb9` in Plan mode.
+
+**The gate, passed.** With the app swiped from recents, a `permission_request`
+raised host-side was delivered by the service isolate and answered from the
+shade with no Activity at any point:
+
+```text
+21:45:47.047  mcremote/fgs: alerts started (enabled=true, asks=true)
+21:45:47.047  mcremote/fgs: took ownership, state=McConnectionState.connected
+21:45:47.056  mcremote/fgs: reconciled 1 pending ask(s), showing 1
+    ... user taps Allow in the notification shade ...
+21:47:23.055  mcremote/notif-bg: forwarded allow to service isolate
+21:47:23.056  mcremote/fgs: answering allow from shade
+02:47:22.757Z permission_resolved  status=resolved  option=plan_approve   (daemon, UTC)
+```
+
+Activity state, sampled either side of the tap — unchanged in every field:
+
+```text
+                 before tap        after tap
+pid              5895              5895
+recents entries  0                 0
+topResumedActivity  nexuslauncher  nexuslauncher
+MainActivity records  0            0
+phone sockets    1                 1
+```
+
+The answered notification was gone afterwards (`id=1029204051` absent from
+`dumpsys notification`), so the cancel-only-on-success rule holds service-side
+too: the shade cleared because the respond succeeded, not because the button
+was pressed.
+
+**`showsUserInterface` resolved, and the evidence is a side-by-side.** One
+`dumpsys notification` captured both isolates' versions of the same alert:
+
+```text
+id=1029204051  when=21:45:47  posted by the SERVICE isolate
+  [0] "Allow" -> PendingIntent{... broadcastIntent ...}
+  [1] "Deny"  -> PendingIntent{... broadcastIntent ...}
+
+id=137623239   when=21:37:00  posted by the UI isolate (stale, earlier ask)
+  [0] "Allow" -> PendingIntent{... startActivity ...}
+  [1] "Deny"  -> PendingIntent{... startActivity ...}
+```
+
+That is the rule working as intended: the flag tracks who is showing, not a
+global preference. The UI isolate's reasoning at `notification_service.dart` is
+unchanged and still correct for it.
+
+**Manifest.** `ActionBroadcastReceiver` declared `exported="false"`. Verified in
+the shipped binary, not just the source — `aapt dump xmltree` on
+`app-release.apk` shows `android:enabled=0xffffffff`, `android:exported=0x0`.
+`make manifest-surface` passes unchanged, as predicted: the gate records
+exported components and permissions, and this is neither.
+
+#### Two defects the gate caught, both mine, both in this plan's own code
+
+Recorded at length because in each case the code looked right, the logs said
+the alert path had started, and the thing still did not work.
+
+**1. `init()` needs an Activity, and the service isolate has none.**
+`NotificationService.init()` called `requestNotificationsPermission()`, which
+resolves against the plugin's activity. In the service isolate that is null:
+
+```text
+NotificationService.init failed (non-fatal): PlatformException(error,
+  Attempt to invoke virtual method
+  'int android.content.Context.checkPermission(java.lang.String, int, int)'
+  on a null object reference ...
+  at FlutterLocalNotificationsPlugin.requestNotificationsPermission
+```
+
+`init` threw, `_ready` stayed false, and every `show*` returned at
+`if (!await _ensureReady()) return;` — **silently**. The run reported
+`alerts started (enabled=true, asks=true)` and posted nothing. Fixed by
+skipping the permission request when `inServiceIsolate`: a permission can only
+be requested where there is UI to request it in, the UI isolate already does
+that, and the foreground service's own notification being on screen is proof
+the grant exists. Channel creation stays on both paths — it needs only the
+application context and is idempotent.
+
+That silent return is fixed too, separately: `_ensureReady` now takes the
+caller's name and logs `<what> skipped: notifications unavailable (<error>)`.
+It was the quietest failure in the app — one failed init, and every alert
+afterwards vanished with no line saying why.
+
+**2. The UI isolate went quiet while alive, and the service dialled over it.**
+`ForegroundServiceController._start()` armed the heartbeat only after a *fresh*
+`startService`; the `isRunningService` early return skipped it. That branch is
+the normal path now that 0126 P1 stopped task removal from killing the service
+— the app relaunching onto a service that outlived it. So the UI isolate sent
+no heartbeats, the service isolate concluded after `kUiIsolatePresumedGone`
+that it was gone, and dialled over a socket that isolate still held:
+
+```text
+21:24:01.988  mcremote: connection replaced by a newer login
+21:24:02.007  mcremote/fgs: task isolate destroyed (timeout=false)
+21:24:02.009  mcremote/fgs: takeOwnership failed: disconnected
+21:24:02.009  mcremote/fgs: released ownership
+```
+
+Daemon-side, `reason=replaced` at 21:24:01.681. This is a **C1 violation and
+exactly the self-fighting the 4001 close produces** — the parked-zombie state
+0126 F2 exists to repair. It is P4's code, found by P5's run. Fixed by arming
+the heartbeat in both branches (`_startHeartbeat` cancels first, so it is
+idempotent). After the fix, three takeovers with `phone sockets = 1` throughout
+and no `replaced` in the daemon log.
+
+**Neither defect has a unit test, and that is a gap, stated rather than
+hidden.** Both live behind `FlutterForegroundTask` / `FlutterLocalNotifications`
+statics that a widget test cannot reach, and the seam needed to fake them is a
+larger refactor than this phase. The on-device gate is the only check for
+them — which is at least a check that has been *seen to fail*, twice, on real
+defects rather than injected ones.
+
+#### What was tested off-device
+
+`test/notif_action_forward_test.dart`, 11 cases over the wire format — the one
+piece of the hop that is pure. Both ends are unreachable from a widget test
+(one lives in a plugin-spawned engine, the other in the foreground service), so
+the encoding is all a machine can check.
+
+Mutation-tested to confirm the tests can fail, against a **copy** of the tree in
+the scratchpad, never the working tree:
+
+* unknown action defaults to `allow` instead of being refused →
+  `an unknown action name is refused, not guessed` fails
+  (`Expected: null  Actual: <Instance of 'NotifActionForward'>`);
+* discriminator dropped so any map decodes as a tap → three fail, including
+  `the UI isolate heartbeat is not a tap` and
+  `the release acknowledgement is not a tap`.
+
+Both mutations asserted to have landed before running (a `replace` that matches
+nothing exits zero and proves nothing).
+
+#### Suite
+
+`dart format` clean, `flutter analyze` clean, `flutter test` **+1383 ~3**
+(+11 over P4's +1372).
+
+#### Not done in P5
+
+* **Questions carry no inline actions**, unchanged and deliberate — answering
+  one needs the in-app option list, so its tap opens the app. Only
+  permissions are answerable from the shade. Observed in this run: a pending
+  `question_request` produced `Question: Session a787cbb9` with no buttons.
+* **The "service not running" fallback was reasoned about, not exercised.**
+  `ForegroundService.sendData` drops the message when the service is down and
+  the notification stays on screen for a body tap. Nothing forced that state.
+* **Acceptance criterion 5** (100 foreground/background cycles) remains
+  unmet — this run did four.

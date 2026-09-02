@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'agent_notifications.dart';
@@ -17,9 +18,35 @@ class NotifResponse {
 /// decoded taps. All local — no cloud push.
 class NotificationService {
   NotificationService([FlutterLocalNotificationsPlugin? plugin])
-    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+    : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
+      inServiceIsolate = false;
+
+  /// The instance that runs inside the foreground service (MADR 0129 P5).
+  ///
+  /// The only difference is where an action tap is allowed to land: this one
+  /// must not start an Activity, because the whole premise is that no Activity
+  /// exists. See [inServiceIsolate].
+  NotificationService.forServiceIsolate([
+    FlutterLocalNotificationsPlugin? plugin,
+  ]) : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
+       inServiceIsolate = true;
 
   final FlutterLocalNotificationsPlugin _plugin;
+
+  /// Whether this instance lives in the foreground-service isolate, which
+  /// decides `showsUserInterface` on the Android action buttons and so decides
+  /// where a tap is delivered (MADR 0129 P5 deviation, 2026-09-02):
+  ///
+  /// * false — `PendingIntent.getActivity`: the tap launches the app and the
+  ///   main isolate answers on its socket. Correct while the UI isolate lives.
+  /// * true — `PendingIntent.getBroadcast`: the tap reaches
+  ///   `ActionBroadcastReceiver`, which runs [notificationBackgroundHandler]
+  ///   in a third isolate; that isolate forwards to the service isolate, which
+  ///   answers on *its* socket. No Activity is started, which is the point.
+  ///
+  /// The flag is "am I the UI isolate?", not a preference. Getting it wrong in
+  /// either direction sends the answer to an isolate holding no socket.
+  final bool inServiceIsolate;
 
   /// Android channel ids, public so Settings can map per-kind toggles to the
   /// OS channel state (MADR 0101 C). One channel per alert kind; asks
@@ -35,8 +62,14 @@ class NotificationService {
   /// iOS category carrying the Allow / Deny actions (MADR 0067 D4). Both
   /// actions are `foreground`: a suspended iOS process has no WebSocket to
   /// answer on, so the action must launch the app and route through the
-  /// main-isolate handler — the same reason the Android actions set
-  /// `showsUserInterface: true`.
+  /// main-isolate handler.
+  ///
+  /// That used to be the same reason the Android actions set
+  /// `showsUserInterface: true`, and it no longer is — Android now has an
+  /// isolate that survives the Activity and holds the socket (MADR 0129), so
+  /// its actions route by [inServiceIsolate]. iOS has no equivalent (0067 D2:
+  /// the process suspends), so `foreground` here is not a parallel choice
+  /// waiting to be revisited — it is the only option the platform offers.
   static const _approvalCategoryId = 'approval_actions';
 
   /// Recreated by [init] after a [dispose] (MADR 0128 D3): a closed
@@ -66,9 +99,19 @@ class NotificationService {
 
   /// Initialise if needed, retrying after an earlier failure. Returns whether
   /// the plugin is usable.
-  Future<bool> _ensureReady() async {
+  ///
+  /// [what] names the caller so a refusal says which alert was dropped. A bare
+  /// `return` at the call sites used to be the quietest failure in the app:
+  /// init fails once, every later `show*` returns immediately, and the user
+  /// gets no alert and no line saying why. Found in MADR 0129 P5's first
+  /// on-device run, where an Activity-scoped permission request failed init
+  /// inside the service isolate and nothing said so.
+  Future<bool> _ensureReady(String what) async {
     if (_ready) return true;
     await init();
+    if (!_ready) {
+      debugPrint('$what skipped: notifications unavailable ($_lastInitError)');
+    }
     return _ready;
   }
 
@@ -117,12 +160,27 @@ class NotificationService {
             notificationBackgroundHandler,
       );
 
-      final ios = _plugin
-          .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin
-          >();
-      if (ios != null) {
-        await ios.requestPermissions(alert: true, badge: true, sound: true);
+      // Asking for a permission is an Activity-scoped operation, and the
+      // service isolate has no Activity: the plugin resolves the request
+      // against a null one and throws
+      // `NullPointerException: Context.checkPermission on a null object`,
+      // which fails the whole init and leaves `_ready` false — so every later
+      // `show*` returns silently and the service posts nothing at all.
+      // Measured on device, MADR 0129 P5.
+      //
+      // Skipping it loses nothing. A permission can only be requested where
+      // there is a UI to request it in, the UI isolate already does that at
+      // the right moment, and by the time this isolate runs the foreground
+      // service's own notification is on screen — which is proof
+      // POST_NOTIFICATIONS is granted.
+      if (!inServiceIsolate) {
+        final ios = _plugin
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >();
+        if (ios != null) {
+          await ios.requestPermissions(alert: true, badge: true, sound: true);
+        }
       }
 
       final android = _plugin
@@ -130,7 +188,13 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin
           >();
       if (android != null) {
-        await android.requestNotificationsPermission();
+        if (!inServiceIsolate) {
+          await android.requestNotificationsPermission();
+        }
+        // Channel creation stays on both paths: it needs only the application
+        // context, and it is idempotent, so the service isolate re-declaring
+        // the channels it posts on costs nothing and removes an ordering
+        // dependency on the UI isolate having run first.
         await android.createNotificationChannel(
           const AndroidNotificationChannel(
             _permissionChannelId,
@@ -184,7 +248,7 @@ class NotificationService {
     String? detail,
     String? allowOptionId,
   }) async {
-    if (!await _ensureReady()) return;
+    if (!await _ensureReady('showPermission')) return;
     final payload = NotifPayload(
       kind: NotifKind.permission,
       sessionId: sessionId,
@@ -199,23 +263,33 @@ class NotificationService {
       importance: Importance.high,
       priority: Priority.high,
       category: AndroidNotificationCategory.call,
-      // showsUserInterface routes the tap through the MAIN-isolate handler —
-      // the plugin's default dispatches action taps to a background isolate
-      // that cannot reach the WebSocket, which made these buttons dead.
-      // cancelNotification stays false so the notification survives until the
-      // response actually succeeds (the coordinator cancels it then); a
-      // dropped respond otherwise leaves the agent blocked with no affordance.
-      actions: const [
+      // showsUserInterface picks which isolate answers, and the right answer
+      // is "whichever one holds the socket" — so it tracks [inServiceIsolate]
+      // rather than being a constant (MADR 0129 P5 deviation).
+      //
+      // It was `true` unconditionally until 2026-09-02, correctly: the
+      // plugin's default dispatches action taps to a background isolate, and
+      // before 0129 no isolate but the main one could reach the WebSocket, so
+      // that route made the buttons dead. 0129 moved the socket, not the
+      // route — the background isolate still cannot answer, but it can now
+      // forward to one that can.
+      //
+      // cancelNotification stays false in both directions so the notification
+      // survives until the response actually succeeds (the coordinator cancels
+      // it then); a dropped respond otherwise leaves the agent blocked with no
+      // affordance. It is also what makes the "service not running" fallback
+      // honest: the ask stays on screen and its body tap still opens the app.
+      actions: [
         AndroidNotificationAction(
           'allow',
           'Allow',
-          showsUserInterface: true,
+          showsUserInterface: !inServiceIsolate,
           cancelNotification: false,
         ),
         AndroidNotificationAction(
           'deny',
           'Deny',
-          showsUserInterface: true,
+          showsUserInterface: !inServiceIsolate,
           cancelNotification: false,
         ),
       ],
@@ -250,7 +324,7 @@ class NotificationService {
     required String sessionId,
     required String sessionLabel,
   }) async {
-    if (!await _ensureReady()) return;
+    if (!await _ensureReady('showTurnComplete')) return;
     final payload = NotifPayload(
       kind: NotifKind.turnComplete,
       sessionId: sessionId,
@@ -288,7 +362,7 @@ class NotificationService {
     required String sessionLabel,
     String? detail,
   }) async {
-    if (!await _ensureReady()) return;
+    if (!await _ensureReady('showError')) return;
     final payload = NotifPayload(kind: NotifKind.error, sessionId: sessionId);
     const details = AndroidNotificationDetails(
       _errorChannelId,
@@ -344,7 +418,7 @@ class NotificationService {
     required String requestId,
     required String sessionLabel,
   }) async {
-    if (!await _ensureReady()) return;
+    if (!await _ensureReady('showAskExpired')) return;
     final payload = NotifPayload(kind: kind, sessionId: sessionId);
     // Same channel as the ask it replaces, but default priority: the moment
     // has passed, this should sit in the shade rather than peek.
@@ -384,7 +458,7 @@ class NotificationService {
     required String sessionLabel,
     String? detail,
   }) async {
-    if (!await _ensureReady()) return;
+    if (!await _ensureReady('showQuestion')) return;
     final payload = NotifPayload(
       kind: NotifKind.question,
       sessionId: sessionId,
@@ -542,15 +616,62 @@ class NotificationService {
   }
 }
 
-/// Background isolate handler for taps that arrive while the app's main isolate
-/// is not running. On Android the foreground service keeps the main-isolate
-/// handler reachable so this rarely fires; on iOS the Allow/Deny actions are
-/// `foreground` (MADR 0067 D4) so action taps launch the app instead of
-/// landing here. This entry point keeps the plugin happy and is where a
-/// future fully-headless Allow/Deny path would live.
+/// Forwards an Allow/Deny tap to the isolate that holds the socket
+/// (MADR 0129 P5 deviation, 2026-09-02).
+///
+/// **This runs in a third isolate**, in a `FlutterEngine` that
+/// `ActionBroadcastReceiver` constructs on the tap — not the UI isolate and not
+/// the foreground-service isolate. It has no socket and never will, so it does
+/// not answer; it hands the decision to the service isolate, which does.
+///
+/// It fires only for actions shown with `showsUserInterface: false`, which
+/// [NotificationService] sets only when the service isolate is the one showing
+/// the ask. While the UI isolate lives, action taps launch the app instead and
+/// never reach here.
+///
+/// Until 2026-09-02 this was an empty seam whose comment described it as "where
+/// a future fully-headless Allow/Deny path would live". It was also
+/// unreachable: `ActionBroadcastReceiver` was never declared in the app's
+/// manifest, so the `PendingIntent.getBroadcast` it targets was delivered to
+/// nothing. Both halves are fixed together — the receiver is declared in
+/// `AndroidManifest.xml` and this body is real.
 @pragma('vm:entry-point')
 void notificationBackgroundHandler(NotificationResponse response) {
-  // Intentionally minimal: acting on the WebSocket requires the app process.
-  // Left as an explicit seam.
-  debugPrint('background notification action: ${response.actionId}');
+  final action = switch (response.actionId) {
+    'allow' => NotifAction.allow,
+    'deny' => NotifAction.deny,
+    // A body tap is an Activity PendingIntent and never lands here, so
+    // anything else is an action id this build does not know about. Dropping
+    // it is right: forwarding an unknown action would make the service isolate
+    // guess at an answer on the user's behalf.
+    _ => null,
+  };
+  final payload = response.payload;
+  if (action == null || payload == null || payload.isEmpty) {
+    debugPrint(
+      'mcremote/notif-bg: ignoring action=${response.actionId} '
+      '(payload ${payload == null || payload.isEmpty ? "missing" : "present"})',
+    );
+    return;
+  }
+  // Fire-and-forget by construction: sendDataToTask returns void, and this
+  // isolate's engine may be torn down as soon as the broadcast completes. The
+  // acknowledgement the user sees is the notification disappearing, which the
+  // service isolate does once the respond actually succeeds.
+  //
+  // If the service is not running the plugin drops this silently
+  // (ForegroundService.sendData is guarded by isRunningServiceState). That is
+  // the honest outcome: with no service there is no socket anywhere, and the
+  // notification stays on screen — its actions set cancelNotification: false —
+  // so the user can still tap the body to open the app and answer there.
+  try {
+    FlutterForegroundTask.sendDataToTask(
+      NotifActionForward(action: action, payload: payload).encode(),
+    );
+    debugPrint(
+      'mcremote/notif-bg: forwarded ${action.name} to service isolate',
+    );
+  } catch (e) {
+    debugPrint('mcremote/notif-bg: forward failed: $e');
+  }
 }

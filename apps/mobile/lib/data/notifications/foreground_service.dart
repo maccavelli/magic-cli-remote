@@ -5,6 +5,9 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../local/settings_store.dart';
 import '../ws/mcremote_client.dart';
+import 'agent_notifications.dart';
+import 'notification_coordinator.dart';
+import 'notification_service.dart';
 
 /// How often the service isolate checks whether the UI isolate is still there
 /// (MADR 0129 P2). Not a wakeup: `allowWakeLock` is false, so this only runs
@@ -42,20 +45,24 @@ class ForegroundServiceMessages {
 
 /// Entry point for the foreground-service isolate.
 ///
-/// **This isolate is not the one holding the WebSocket** (MADR 0129). The
-/// socket, the app ping, the reconnect ladder and `NotificationCoordinator` all
-/// live in the *main* isolate, which is bound to the Activity's FlutterEngine
-/// and dies with it — measured in 0126 P7: after a swipe from recents the
-/// process and this service survive, and `DartWorker` does not.
+/// **This isolate holds the WebSocket whenever the UI isolate does not**
+/// (MADR 0129). It runs in its own `FlutterEngine`, created by the plugin's
+/// `ForegroundTask`, so it survives what the main isolate does not: the main
+/// isolate is bound to the Activity's engine and dies with it, measured in
+/// 0126 P7 — after a swipe from recents the process and this service survive
+/// and the socket does not.
 ///
-/// Until 0129 phase A moves the connection here, this handler's job is to stop
-/// the app claiming a connection nobody is maintaining (0129 D3).
+/// The description above was inverted until P4 landed, and said so plainly
+/// ("this isolate is not the one holding the WebSocket"). Left noted rather
+/// than silently corrected: the old sentence was the accurate description of a
+/// real defect, and 0129 exists because of it.
 @pragma('vm:entry-point')
 void mcRemoteForegroundCallback() {
   FlutterForegroundTask.setTaskHandler(McRemoteTaskHandler());
 }
 
-/// Watches for the UI isolate disappearing and corrects the notification.
+/// Owns the connection, the notification title and the alert path whenever the
+/// UI isolate is gone, and hands all three back the moment it returns.
 ///
 /// Visible for testing: the pure state logic is [shouldShowPaused], which is
 /// what the tests drive. The plugin calls are not reachable from a unit test.
@@ -68,6 +75,13 @@ class McRemoteTaskHandler extends TaskHandler {
   /// isolate is alive — exactly one of the two holds a client at any moment.
   McremoteClient? _client;
   StreamSubscription<McConnectionState>? _connSub;
+
+  /// Delivers alerts and answers them, against [_client] (MADR 0129 P5).
+  ///
+  /// Non-null exactly when [_client] is: an alert path with no socket behind it
+  /// would post asks nobody can answer, which is the failure 0126 F2 already
+  /// paid for once.
+  NotificationCoordinator? _alerts;
 
   /// Whether the notification should read "paused" given the last heartbeat.
   ///
@@ -92,6 +106,16 @@ class McRemoteTaskHandler extends TaskHandler {
 
   @override
   void onReceiveData(Object data) {
+    // An Allow/Deny relayed by the notification background isolate (P5). It
+    // arrives on the same channel as the UI isolate's heartbeat because
+    // sendDataToTask is the only way into this isolate, so the discriminator
+    // in the message is what tells them apart — checked first, since a tap is
+    // the one message here a user is waiting on.
+    final forwarded = NotifActionForward.decode(data);
+    if (forwarded != null) {
+      _onForwardedAction(forwarded);
+      return;
+    }
     if (data is! Map) return;
     if (data[ForegroundServiceMessages.heartbeat] != true) return;
     _lastHeartbeat = DateTime.now();
@@ -163,6 +187,7 @@ class McRemoteTaskHandler extends TaskHandler {
         }
       });
       await client.reconnectFromStore(SettingsStore());
+      await _startAlerts(client);
       debugPrint('mcremote/fgs: took ownership, state=${client.state}');
     } catch (e) {
       // No saved credentials, or the host is unreachable. Fall back to the
@@ -180,6 +205,19 @@ class McRemoteTaskHandler extends TaskHandler {
   Future<void> _releaseOwnership() async {
     final client = _client;
     _client = null;
+    // Before the socket goes: the coordinator answers taps on this client, and
+    // one that outlived it would route an Allow into a disposed connection.
+    // Its dispose deliberately leaves the shown asks on screen — the UI isolate
+    // reconciles them from the daemon moments later (see `_serviceSide`).
+    final alerts = _alerts;
+    _alerts = null;
+    if (alerts != null) {
+      try {
+        await alerts.dispose();
+      } catch (e) {
+        debugPrint('mcremote/fgs: alert dispose failed (non-fatal): $e');
+      }
+    }
     await _connSub?.cancel();
     _connSub = null;
     if (client != null) {
@@ -209,6 +247,70 @@ class McRemoteTaskHandler extends TaskHandler {
   Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
     debugPrint('mcremote/fgs: task isolate destroyed (timeout=$isTimeout)');
     await _releaseOwnership();
+  }
+
+  /// Stand up the service-side alert path against [client] (P5, C3).
+  ///
+  /// Settings are read here rather than inherited: the two isolates share no
+  /// memory, so the master switch and the per-kind toggles have to come off
+  /// disk (reachable from this isolate since P3). Reading them wrong in the
+  /// permissive direction would post alerts a user has switched off.
+  Future<void> _startAlerts(McremoteClient client) async {
+    try {
+      final store = SettingsStore();
+      final coordinator = NotificationCoordinator.forServiceIsolate(
+        client: client,
+      );
+      coordinator.enabled = await store.getNotificationsEnabled();
+      coordinator.kinds = NotifyKinds(
+        asks: await store.getNotifyAsks(),
+        turnComplete: await store.getNotifyTurnComplete(),
+        errors: await store.getNotifyErrors(),
+      );
+      // The only navigation this isolate can perform. Taken when a tap cannot
+      // be answered headlessly — no permission id, no allow option, or the
+      // respond failed — which are exactly the cases the UI isolate handles by
+      // opening the permission sheet.
+      coordinator.onOpenSession = (_) => FlutterForegroundTask.launchApp();
+      _alerts = coordinator;
+      await coordinator.start();
+      debugPrint(
+        'mcremote/fgs: alerts started (enabled=${coordinator.enabled}, '
+        'asks=${coordinator.kinds.asks})',
+      );
+    } catch (e) {
+      // An alert path that failed to start must not take the connection down
+      // with it: the socket still keeps the session alive and the app still
+      // opens. Same best-effort rule as every other plugin call here.
+      _alerts = null;
+      debugPrint('mcremote/fgs: alert start failed (non-fatal): $e');
+    }
+  }
+
+  /// Answer an Allow/Deny that came in from the notification background isolate.
+  void _onForwardedAction(NotifActionForward forwarded) {
+    final payload = NotifPayload.decode(forwarded.payload);
+    final alerts = _alerts;
+    if (payload == null || alerts == null) {
+      // Nothing to answer with. The notification is still on screen
+      // (cancelNotification: false), so the ask is not lost — a body tap opens
+      // the app, which reconnects and reconciles it.
+      debugPrint(
+        'mcremote/fgs: dropped forwarded ${forwarded.action.name} '
+        '(payload=${payload != null}, alerts=${alerts != null})',
+      );
+      return;
+    }
+    debugPrint('mcremote/fgs: answering ${forwarded.action.name} from shade');
+    unawaited(
+      alerts
+          .handleForwardedResponse(
+            NotifResponse(action: forwarded.action, payload: payload),
+          )
+          .catchError((Object e) {
+            debugPrint('mcremote/fgs: forwarded respond failed: $e');
+          }),
+    );
   }
 
   Future<void> _update(String title, String text) async {
@@ -315,6 +417,20 @@ class ForegroundServiceController {
       _ensureInit();
       if (await FlutterForegroundTask.isRunningService) {
         lastStartOk = true;
+        // Arm the heartbeat here too, not only after a fresh startService.
+        //
+        // This branch is the app relaunching onto a service that outlived it,
+        // which is the *normal* path once 0126 P1 stopped task removal from
+        // killing the service. Leaving the timer unarmed here meant the UI
+        // isolate went quiet while very much alive: the service isolate saw no
+        // heartbeat for kUiIsolatePresumedGone, concluded the UI isolate was
+        // gone, and dialled over a socket that isolate still held. The daemon
+        // closed one with 4001 and the app fought itself — the parked-zombie
+        // state D2 exists to prevent (measured 2026-09-02, MADR 0129 P5:
+        // "connection replaced by a newer login" 95s after a relaunch).
+        //
+        // Idempotent: _startHeartbeat cancels any existing timer first.
+        _startHeartbeat();
         return;
       }
       await FlutterForegroundTask.startService(

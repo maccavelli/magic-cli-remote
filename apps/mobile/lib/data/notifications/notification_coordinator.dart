@@ -36,11 +36,47 @@ class NotificationCoordinator {
              ),
            ),
        // ignore: prefer_initializing_formals
-       _client = client;
+       _client = client,
+       _serviceSide = false;
+
+  /// The coordinator that runs **inside** the foreground service, against the
+  /// service isolate's own client (MADR 0129 P5).
+  ///
+  /// Same event routing, same ask bookkeeping, same `shouldNotify` — running a
+  /// second implementation here is exactly the fork that let four copies of the
+  /// agent rules drift apart, and the alert path is a worse place to make that
+  /// mistake. What differs is only [_serviceSide].
+  NotificationCoordinator.forServiceIsolate({
+    required McremoteClient client,
+    NotificationService? notifications,
+  }) : _notifs = notifications ?? NotificationService.forServiceIsolate(),
+       _service = ForegroundServiceController(),
+       // ignore: prefer_initializing_formals
+       _client = client,
+       _serviceSide = true {
+    // By construction: this coordinator exists only because the UI isolate is
+    // gone, so nothing is on screen and no chat screen can be watched.
+    appForegrounded = false;
+  }
 
   final McremoteClient _client;
   final NotificationService _notifs;
   final ForegroundServiceController _service;
+
+  /// Whether this coordinator is the one running in the foreground-service
+  /// isolate, which suppresses exactly two behaviours (MADR 0129 P5):
+  ///
+  /// 1. **Service lifecycle.** It *is* the service. Calling `start`/`stop` on
+  ///    itself would be a service asking the system to stop it while it runs,
+  ///    and the notification title is owned by `McRemoteTaskHandler`, which
+  ///    tracks the socket it holds and says "app closed" where the UI isolate
+  ///    says "Listening for approvals and completions".
+  /// 2. **Cancelling shown asks on dispose.** Service-side, `dispose` runs at
+  ///    handover — the UI isolate is coming back and is about to reconcile the
+  ///    same asks from the daemon's pending-ask snapshot. Cancelling here would
+  ///    blank the shade for the width of that round trip, for asks that are
+  ///    still outstanding.
+  final bool _serviceSide;
 
   StreamSubscription<SessionEvent>? _events;
   StreamSubscription<NotifResponse>? _responses;
@@ -121,15 +157,17 @@ class NotificationCoordinator {
     _events = null;
     _responses = null;
     _conn = null;
-    for (final ask in _shownAsks) {
-      unawaited(_cancelAsk(ask));
+    if (!_serviceSide) {
+      for (final ask in _shownAsks) {
+        unawaited(_cancelAsk(ask));
+      }
     }
     _shownAsks.clear();
     _knownAsks.clear();
     sessionLabels.clear();
     _maintenanceTimer?.cancel();
     _maintenanceTimer = null;
-    await _service.stop();
+    if (!_serviceSide) await _service.stop();
     _notifs.dispose();
   }
 
@@ -206,6 +244,16 @@ class NotificationCoordinator {
     }
   }
 
+  /// Route a tap that reached this isolate by some path other than the
+  /// plugin's own callback (MADR 0129 P5).
+  ///
+  /// Service-side, Allow/Deny arrive as a [NotifActionForward] relayed by the
+  /// notification background isolate rather than through `_notifs.responses` —
+  /// but they must take **exactly** the same routing as a direct tap, including
+  /// the test-notification guard and the cancel-only-on-success rule. So this
+  /// is the same `_onResponse`, not a second path beside it.
+  Future<void> handleForwardedResponse(NotifResponse r) => _onResponse(r);
+
   /// Test seam: feed a decoded notification response through the same
   /// routing a real tap takes (the plugin callback is not reachable from
   /// tests).
@@ -274,6 +322,14 @@ class NotificationCoordinator {
     // an FGS (prefer foreground — API 31+ denies background starts). H-5a:
     // titles reflect real socket state; never claim "Listening" after a failed
     // start.
+    //
+    // Service-side there is nothing to do here: McRemoteTaskHandler already
+    // holds a connectionStates subscription on the same client and drives the
+    // title from it. Two writers would race, and this one has the wrong words.
+    if (_serviceSide) {
+      _refreshMaintenanceRetry();
+      return;
+    }
     if (!enabled) {
       unawaited(_service.stop());
     } else if (state == McConnectionState.connected ||
@@ -315,14 +371,15 @@ class NotificationCoordinator {
   Future<void> setEnabled(bool value) async {
     enabled = value;
     if (!value) {
-      await _service.stop();
+      if (!_serviceSide) await _service.stop();
       _cancelMaintenanceRetry();
       _refreshAskNotifications();
       return;
     }
     final s = _client.state;
-    if (s == McConnectionState.connected ||
-        s == McConnectionState.reconnecting) {
+    if (!_serviceSide &&
+        (s == McConnectionState.connected ||
+            s == McConnectionState.reconnecting)) {
       await _service.start();
     }
     _refreshAskNotifications();
@@ -466,6 +523,15 @@ class NotificationCoordinator {
         unawaited(_cancelAsk(key));
       }
       _refreshAskNotifications();
+      if (_serviceSide) {
+        // The service isolate has no screen to check, so this line is the only
+        // way to tell "no asks were outstanding" from "the reconcile never
+        // produced one" (MADR 0129 P5).
+        debugPrint(
+          'mcremote/fgs: reconciled ${replacement.length} pending ask(s), '
+          'showing ${_shownAsks.length}',
+        );
+      }
     } catch (e) {
       debugPrint('pending ask reconciliation failed: $e');
     } finally {

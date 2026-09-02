@@ -233,3 +233,126 @@ connection is gone and tapping it restores it.
   behaviour D2 is designed around.
 * [0067](0067-MADR-ios-port.md) D2 explains why this is Android-only.
 * Row 3 of P7 passed and is unrelated to this record.
+
+## Amendment — 2026-09-02: D4's named mechanism cannot carry a per-ask alert
+
+D4 asserts that Allow/Deny are answerable from the service isolate "via
+`onNotificationButtonPressed`". The decision D4 states — the answer resolves
+without the UI isolate — stands. **The mechanism it names does not.** This was
+found at the start of P5, before any code was written.
+
+### What the plugin sources say
+
+`onNotificationButtonPressed` fires only for buttons on the **foreground
+service's own** notification. `ForegroundService.buildNotificationActions`
+(`flutter_foreground_task-11.0.1/.../service/ForegroundService.kt:563-590`)
+builds them from `NotificationContent.buttons` as
+`PendingIntent.getBroadcast(ACTION_NOTIFICATION_BUTTON_PRESSED)`; the service's
+own receiver catches it (`:98-118`) and calls `task?.invokeMethod(action, data)`
+into the service isolate. That part is exactly what C3 wants — **no Activity is
+started** — but the buttons cannot be attached to a per-ask
+`flutter_local_notifications` alert. There is one button set, on one
+notification, on the `host_connection` channel.
+
+The "What the plugin makes possible" section above listed
+`onNotificationButtonPressed` in the `TaskHandler` contract, which is accurate,
+and then inferred a capability from its presence that the Android side does not
+provide. The inference was never checked against the plugin's Kotlin.
+
+### The two routes `flutter_local_notifications` does offer
+
+`FlutterLocalNotificationsPlugin.java:330-359` branches on
+`showsUserInterface`, and both branches miss the service isolate:
+
+| value | intent built | where the tap lands |
+|---|---|---|
+| `true` (what ships today) | `PendingIntent.getActivity(getLaunchIntent(…))` | **starts the Activity** — fails C3 |
+| `false` | `PendingIntent.getBroadcast(ActionBroadcastReceiver)` | `ActionBroadcastReceiver.java:92-121` **always constructs a new `FlutterEngine`** and runs the registered background callback in a *third* isolate |
+
+So the reasoning recorded at `notification_service.dart:202-207` — that
+`showsUserInterface: true` exists because the default route "dispatches action
+taps to a background isolate that cannot reach the WebSocket" — was correct when
+written and is still correct about *that* isolate. What inverts under this MADR
+is not the routing but the destination: the socket now lives in a second isolate
+that the third one can reach, in-process, without an Activity.
+
+### A defect found in the same reading
+
+`ActionBroadcastReceiver` **is not declared in this app's merged manifest**
+(`android/app/src/main/AndroidManifest.xml` declares only `RestartReceiver`,
+`FileProvider` and `UpdateInstallReceiver`; the plugin's own manifest at
+`flutter_local_notifications-22.3.0/android/src/main/AndroidManifest.xml`
+contributes two `uses-permission` entries and no components). A
+`PendingIntent.getBroadcast` for an undeclared receiver is created without error
+and delivered to nothing.
+
+Consequence: `notificationBackgroundHandler` (`notification_service.dart:551`)
+has **never been reachable** in this app. Its comment describes it as "where a
+future fully-headless Allow/Deny path would live" — accurate about intent,
+wrong about wiring, and the wrongness is invisible because nothing has ever
+routed to it.
+
+### D4, restated
+
+**D4 (amended) — Allow/Deny must be answerable while the UI isolate is dead,
+and the answer must not start an Activity.** The mechanism is one forwarding
+hop, not a direct callback:
+
+```text
+service isolate  --show(showsUserInterface: false)-->  approval_needed channel
+                                                              | tap Allow
+                                                              v
+                                                  ActionBroadcastReceiver
+                                                              | new engine
+                                                              v
+                                                 notificationBackgroundHandler
+                                                              | sendDataToTask
+                                                              v
+                                          McRemoteTaskHandler.onReceiveData
+                                                              |
+                                                      respondPermission
+```
+
+The hop is in-process and Activity-free, verified in the plugin sources:
+`FlutterForegroundTask.sendDataToTask` → `MethodCallHandlerImpl.kt:78` →
+`ForegroundServiceManager.sendData` → `ForegroundService.sendData`, a
+companion-object static whose only guard is `isRunningServiceState`. It needs no
+`Activity` binding — `MethodCallHandlerImpl` reaches it through `ServiceProvider`,
+and `FlutterForegroundTaskPlugin.onAttachedToEngine` wires that with no
+`ActivityPluginBinding` (`FlutterForegroundTaskPlugin.kt:31-37`).
+
+Being a companion-object static is what makes the hop work from an isolate the
+foreground service never created: engine affinity does not enter into it, only
+process identity.
+
+### Why not the alternative that matches D4 as written
+
+Putting Allow/Deny on the foreground-service notification is the only way to use
+`onNotificationButtonPressed` literally, and it was considered and rejected:
+
+* Good, because it is the least code, needs no manifest change, spawns no third
+  engine, and answers with a direct call in the isolate holding the client.
+* Bad, because the ask would ride the `host_connection` channel instead of
+  `approval_needed` — it would not peek, and the per-kind approval toggle in
+  Settings would no longer govern it, contradicting
+  [0101](0101-MADR-notification-fidelity-and-test-affordance.md) C.
+* Bad, because one button set means one actionable ask at a time.
+* Bad, because the persistent status row and the alert row become the same row,
+  which undoes D3's separation of "what the connection is doing" from "what the
+  agent is asking".
+
+Trading the fidelity of the app's most important alert to keep a mechanism name
+is the wrong way round. The alert keeps its channel; the answer takes the hop.
+
+### What this costs, stated plainly
+
+* A short-lived third `FlutterEngine` per button tap. It is created only on a
+  tap, and only while the service owns the connection.
+* A manifest receiver declaration. `exported="false"`, so
+  `manifest-surface.allow` does not change — the gate records exported
+  components and permissions, and this is neither.
+* A delivery gap when the service is not running: `ForegroundService.sendData`
+  drops the message with no error. Handled by leaving the notification standing
+  (its actions already set `cancelNotification: false`) so a body tap still
+  opens the app — the notification body's `SELECT_NOTIFICATION` intent is an
+  Activity `PendingIntent` and is unaffected by `showsUserInterface`.
