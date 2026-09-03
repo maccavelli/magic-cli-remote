@@ -486,6 +486,33 @@ the warning has fired since 2026-08-21, before any of this work.
 while LIVE holds no credential to refresh, and the phone will keep receiving
 `credential_failed` until the state below is addressed.
 
+### Deviations (continued)
+
+**2026-09-03 — a zero-length read still escalated; owner chose to treat it as
+unstable.** Found while executing MADR 0136, when
+`TestUnstableLiveDefersInsteadOfWedging` failed intermittently — measured at 1
+run in 8.
+
+*Evidence.* Instrumenting `stableObservation` under the churn showed it
+correctly reporting `stable=false` on most runs. The failures come from a
+narrower window: `os.WriteFile` truncates before writing, a read landing there
+sees a zero-length file, and `FingerprintOf([])` is a *stable* value. Two
+consecutive reads that both land in a truncate window agree, so the observation
+is classified settled-and-invalid and escalates. My first reading of this as a
+flaky test was wrong — the property the test asserts is correct and the code was
+not honouring it.
+
+*Resolutions offered.* (a) treat a zero-length LIVE as unstable; (b) require
+three matching reads before trusting an invalid verdict, keeping two for valid;
+(c) accept it and rely on Phase 4's re-evaluation, which already stops such an
+escalation from being permanent. **Owner chose (a)** — an empty credential file
+carries no information either way, the fix is one branch, and it eliminates the
+class rather than making it rarer.
+
+*Not weakened:* a file with content that does not parse still reports
+settled-invalid and still escalates, so the corruption detection the
+2026-09-02 deviation deliberately preserved is untouched.
+
 ## Outstanding: the trigger needs its own decision
 
 `ObserveCredentialStore` already models this exact state as `RealityExternal`

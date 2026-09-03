@@ -62,6 +62,15 @@ type authCredentials struct {
 	// OPENAI_API_KEY while the daemon's LaunchAgent does not, so it cannot
 	// justify a durable, host-wide state (MADR 0136).
 	EnvVarsPresent string
+	// HasStoredMaterialEvidence reports whether Codex described any stored
+	// credential material at all.
+	//
+	// It is what separates "signed out" from "stored but broken". Codex omits
+	// every `stored *` detail when there is nothing stored, and emits them when
+	// there is something to describe, so their presence is the signal. Read
+	// structurally rather than by matching the summary text, which carries no
+	// stability contract (MADR 0136).
+	HasStoredMaterialEvidence bool
 	// Status and Summary are carried for logging, never for branching beyond
 	// Usable above.
 	Status  string
@@ -87,12 +96,23 @@ func parseDoctorAuth(raw []byte) (authCredentials, error) {
 		return authCredentials{}, errDoctorUnusable
 	}
 	return authCredentials{
-		StorageMode:    mode,
-		Usable:         strings.EqualFold(strings.TrimSpace(check.Status), "ok"),
-		EnvVarsPresent: detailString(check.Details, "auth env vars present"),
-		Status:         check.Status,
-		Summary:        check.Summary,
+		StorageMode:               mode,
+		Usable:                    strings.EqualFold(strings.TrimSpace(check.Status), "ok"),
+		EnvVarsPresent:            detailString(check.Details, "auth env vars present"),
+		HasStoredMaterialEvidence: hasStoredDetail(check.Details),
+		Status:                    check.Status,
+		Summary:                   check.Summary,
 	}, nil
+}
+
+// hasStoredDetail reports whether any `stored *` detail is present.
+func hasStoredDetail(details map[string]json.RawMessage) bool {
+	for k := range details {
+		if strings.HasPrefix(strings.ToLower(k), "stored ") {
+			return true
+		}
+	}
+	return false
 }
 
 // detailString reads one details value as a string, tolerating the array form

@@ -107,26 +107,19 @@ func TestStatusDoesNotSpawnAProcessPerCall(t *testing.T) {
 // freeze: a credential that appears is noticed.
 func TestRealityProbeRefreshesAfterItsWindow(t *testing.T) {
 	testexec.SkipIfNoPOSIXShell(t)
-	home := t.TempDir()
-	t.Setenv("CODEX_HOME", home)
-	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	bin := fakeStatusBin(t, 0)
+	t.Setenv("CODEX_HOME", t.TempDir())
+	bin, control := fakeDoctorBin(t, "incomplete-file.json")
 
 	first, err := ObserveCredentialStoreCached(context.Background(), bin, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first != RealityExternal {
-		t.Fatalf("reality = %q, want external", first)
+	if first != RealityBroken {
+		t.Fatalf("reality = %q, want broken", first)
 	}
 
-	// A real credential lands; a zero window forces a fresh look.
-	if err := os.WriteFile(filepath.Join(home, "auth.json"),
-		[]byte(`{"tokens":{"access_token":"a","refresh_token":"r"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// A usable credential lands; a zero window forces a fresh look.
+	setDoctorFixture(t, control, "file-protected.json")
 	got, err := ObserveCredentialStoreCached(context.Background(), bin, 0)
 	if err != nil {
 		t.Fatal(err)

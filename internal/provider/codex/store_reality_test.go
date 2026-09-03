@@ -11,88 +11,94 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
-// fakeStatusBin writes a stand-in codex whose `login status` exit code is
-// fixed, imitating a host whose real session lives outside auth.json.
-func fakeStatusBin(t *testing.T, exitCode int) string {
+// fakeDoctorBin writes a stand-in codex whose `doctor --json` prints a recorded
+// report fixture, and returns a control file the test can rewrite to change the
+// CLI's answer between calls (MADR 0136).
+//
+// The stub exits NON-ZERO for doctor, because the real one does whenever it
+// finds a problem — which is precisely when this classification matters. If the
+// probe ever regresses to trusting an exit code, every case below breaks.
+func fakeDoctorBin(t *testing.T, fixture string) (bin, control string) {
 	t.Helper()
 	testexec.SkipIfNoPOSIXShell(t)
-	path := filepath.Join(t.TempDir(), "codex")
-	body := "#!/bin/sh\nif [ \"$1\" = \"login\" ] && [ \"$2\" = \"status\" ]; then exit " +
-		itoaReality(exitCode) + "; fi\nexit 0\n"
-	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+	dir := t.TempDir()
+	control = filepath.Join(dir, "which-fixture")
+	setDoctorFixture(t, control, fixture)
+	bin = filepath.Join(dir, "codex")
+	body := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"doctor\" ]; then cat \"$(cat " + control + ")\"; exit 1; fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(bin, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return bin, control
 }
 
-func itoaReality(i int) string {
-	if i == 0 {
-		return "0"
+// setDoctorFixture points the stub at a fixture by name.
+func setDoctorFixture(t *testing.T, control, fixture string) {
+	t.Helper()
+	abs, err := filepath.Abs(filepath.Join("testdata", "doctor", fixture))
+	if err != nil {
+		t.Fatal(err)
 	}
-	var d []byte
-	for i > 0 {
-		d = append([]byte{byte('0' + i%10)}, d...)
-		i /= 10
+	if _, err := os.Stat(abs); err != nil {
+		t.Fatalf("fixture %s: %v", fixture, err)
 	}
-	return string(d)
+	if err := os.WriteFile(control, []byte(abs), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
-// TestObserveCredentialStoreAssertsReality is the fix for a false assumption
-// that produced a production lockout on 2026-08-21.
+// fakeGarbageDoctorBin is a codex whose doctor output cannot be parsed.
+func fakeGarbageDoctorBin(t *testing.T) string {
+	t.Helper()
+	testexec.SkipIfNoPOSIXShell(t)
+	bin := filepath.Join(t.TempDir(), "codex")
+	body := "#!/bin/sh\nif [ \"$1\" = \"doctor\" ]; then echo 'not json'; exit 1; fi\nexit 0\n"
+	if err := os.WriteFile(bin, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+// TestObserveCredentialStoreAssertsReality pins the classification against
+// every recorded `codex doctor --json` shape (MADR 0136).
 //
-// Reading `cli_auth_credentials_store` and defaulting to "file" answers what
-// the config says, not where the credential is. The host that broke had no
-// such key — so config said "file" — while its auth.json was the stub `{}` and
-// `codex login status` reported a live ChatGPT session. Detection must compare
-// the two and report what it actually observes.
+// This test previously drove `codex login status` and asserted that a `{}`
+// auth.json plus exit 0 meant "authenticated from outside the file". Both
+// halves of that were wrong. The exit status is always zero — a home with no
+// auth.json prints "Not logged in" and still exits 0 — so it carried no
+// information, and the `{}` file it treated as evidence of an external store
+// was written by this repository's OWN test helper, not by Codex
+// (see the MADR 0136 amendment history).
+//
+// The cases now read a structured verdict, and the two that matter most are
+// `incomplete-file` and `env-provided`: both are a file backend holding an
+// unusable credential, which is broken, not unprotectable.
 func TestObserveCredentialStoreAssertsReality(t *testing.T) {
-	const usable = `{"tokens":{"access_token":"a","refresh_token":"r"}}`
-
 	cases := []struct {
-		name       string
-		authJSON   string
-		statusExit int
-		want       StoreReality
+		name    string
+		fixture string
+		want    StoreReality
+		wantErr bool
 	}{
-		{
-			name:     "file holds the credential",
-			authJSON: usable, statusExit: 0, want: RealityFileProtected,
-		},
-		{
-			// The production case: authenticated, but not from the file.
-			name:     "authenticated from outside the file",
-			authJSON: `{}`, statusExit: 0, want: RealityExternal,
-		},
-		{
-			name:     "genuinely logged out",
-			authJSON: `{}`, statusExit: 1, want: RealityLoggedOut,
-		},
-		{
-			name:     "no file at all and logged out",
-			authJSON: "", statusExit: 1, want: RealityLoggedOut,
-		},
-		{
-			name:     "no file but authenticated elsewhere",
-			authJSON: "", statusExit: 0, want: RealityExternal,
-		},
-		{
-			name:     "unparseable file while authenticated elsewhere",
-			authJSON: `not json`, statusExit: 0, want: RealityExternal,
-		},
+		{"file holds a usable credential", "file-protected.json", RealityFileProtected, false},
+		{"nothing stored anywhere", "no-credentials.json", RealityLoggedOut, false},
+		{"stored but incomplete", "incomplete-file.json", RealityBroken, false},
+		{"env auth over an incomplete file", "env-provided.json", RealityBroken, false},
+		{"resolved keyring backend", "keyring-backend.json", RealityUnsupported, true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			home := t.TempDir()
-			t.Setenv("CODEX_HOME", home)
-			if tc.authJSON != "" {
-				if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(tc.authJSON), 0o600); err != nil {
-					t.Fatal(err)
-				}
+			t.Setenv("CODEX_HOME", t.TempDir())
+			bin, _ := fakeDoctorBin(t, tc.fixture)
+			got, err := ObserveCredentialStore(context.Background(), bin)
+			if tc.wantErr && !errors.Is(err, providerauth.ErrUnsupportedBackend) {
+				t.Fatalf("err = %v, want ErrUnsupportedBackend", err)
 			}
-			got, err := ObserveCredentialStore(context.Background(), fakeStatusBin(t, tc.statusExit))
-			if err != nil {
-				t.Fatal(err)
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected err: %v", err)
 			}
 			if got != tc.want {
 				t.Fatalf("reality = %q, want %q", got, tc.want)
@@ -101,49 +107,114 @@ func TestObserveCredentialStoreAssertsReality(t *testing.T) {
 	}
 }
 
-// TestObserveRespectsAConfiguredNonFileStore proves an explicitly configured
-// keyring is still reported without probing, because no login will ever put a
-// credential in a file there.
-func TestObserveRespectsAConfiguredNonFileStore(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CODEX_HOME", home)
-	if err := os.WriteFile(filepath.Join(home, "config.toml"),
-		[]byte("cli_auth_credentials_store = \"keyring\"\n"), 0o600); err != nil {
+// TestObserveNeverGuessesFromAnUnusableReport is the conservative fallback.
+//
+// An unparseable report, and a missing binary, must both leave the caller with
+// no reason to silence an escalation. Unknown is that answer.
+func TestObserveNeverGuessesFromAnUnusableReport(t *testing.T) {
+	t.Run("garbage output", func(t *testing.T) {
+		t.Setenv("CODEX_HOME", t.TempDir())
+		got, err := ObserveCredentialStore(context.Background(), fakeGarbageDoctorBin(t))
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if got != RealityUnknown {
+			t.Fatalf("reality = %q, want unknown", got)
+		}
+	})
+
+	t.Run("no binary to ask", func(t *testing.T) {
+		t.Setenv("CODEX_HOME", t.TempDir())
+		got, err := ObserveCredentialStore(context.Background(), "")
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if got != RealityUnknown {
+			t.Fatalf("reality = %q, want unknown", got)
+		}
+	})
+}
+
+// TestObserveIgnoresEnvironmentAuthForClassification pins that a per-process
+// fact stays out of a host-wide verdict.
+//
+// The env-provided fixture is the reporting host: `auth env vars present:
+// OPENAI_API_KEY`, and Codex reporting auth as coming from the environment.
+// The operator's shell had that variable and the daemon's LaunchAgent did not,
+// so classifying on it would be wrong for one of the two (MADR 0136).
+func TestObserveIgnoresEnvironmentAuthForClassification(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	bin, _ := fakeDoctorBin(t, "env-provided.json")
+	got, err := ObserveCredentialStore(context.Background(), bin)
+	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := ObserveCredentialStore(context.Background(), fakeStatusBin(t, 0))
-	if got != RealityUnsupported {
-		t.Fatalf("reality = %q, want %q", got, RealityUnsupported)
+	if got == RealityFileProtected || got == RealityUnsupported {
+		t.Fatalf("reality = %q: environment auth must not decide the classification", got)
 	}
-	if !errors.Is(err, providerauth.ErrUnsupportedBackend) {
-		t.Fatalf("err = %v, want ErrUnsupportedBackend", err)
+	if got != RealityBroken {
+		t.Fatalf("reality = %q, want broken", got)
 	}
 }
 
-// TestExternalCredentialStillAllowsSignIn is the lockout lesson applied to
-// this probe.
+// TestObserveRespectsAConfiguredNonFileStore proves a keyring backend is
+// reported as unprotectable, and that the CONFIG is only consulted when the CLI
+// cannot be asked.
 //
-// A credential we cannot see is a reason to tell the operator the truth, not a
-// reason to refuse the login that would replace it with one we can protect.
-// Only a store that will never produce a protectable file blocks a transaction.
-func TestExternalCredentialStillAllowsSignIn(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CODEX_HOME", home)
-	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	bin := fakeStatusBin(t, 0)
+// The resolved backend from the report outranks config.toml, which is the point
+// of reading it: config.toml is parsed here by a reader that sees only bare
+// top-level keys, so it is blind to a profile key, a -c override, and to what
+// `auto` actually resolved to (MADR 0136).
+func TestObserveRespectsAConfiguredNonFileStore(t *testing.T) {
+	t.Run("report says keyring", func(t *testing.T) {
+		t.Setenv("CODEX_HOME", t.TempDir())
+		bin, _ := fakeDoctorBin(t, "keyring-backend.json")
+		got, err := ObserveCredentialStore(context.Background(), bin)
+		if got != RealityUnsupported {
+			t.Fatalf("reality = %q, want %q", got, RealityUnsupported)
+		}
+		if !errors.Is(err, providerauth.ErrUnsupportedBackend) {
+			t.Fatalf("err = %v, want ErrUnsupportedBackend", err)
+		}
+	})
+
+	t.Run("config says keyring and there is no CLI to ask", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("CODEX_HOME", home)
+		if err := os.WriteFile(filepath.Join(home, "config.toml"),
+			[]byte("cli_auth_credentials_store = \"keyring\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ObserveCredentialStore(context.Background(), "")
+		if got != RealityUnsupported {
+			t.Fatalf("reality = %q, want %q", got, RealityUnsupported)
+		}
+		if !errors.Is(err, providerauth.ErrUnsupportedBackend) {
+			t.Fatalf("err = %v, want ErrUnsupportedBackend", err)
+		}
+	})
+}
+
+// TestBrokenCredentialStillAllowsSignIn is the lockout lesson applied to this
+// probe.
+//
+// A credential we cannot use is a reason to tell the operator the truth, not a
+// reason to refuse the login that would replace it. Only a backend that will
+// never produce a protectable file blocks a transaction.
+func TestBrokenCredentialStillAllowsSignIn(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	bin, _ := fakeDoctorBin(t, "incomplete-file.json")
 
 	reality, err := ObserveCredentialStore(context.Background(), bin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reality != RealityExternal {
-		t.Fatalf("reality = %q, want external", reality)
+	if reality != RealityBroken {
+		t.Fatalf("reality = %q, want broken", reality)
 	}
 	// The gate that gates transactions must not block this host.
 	if err := NewCredentialAdapter("codex", bin).CheckBackend(); err != nil {
-		t.Fatalf("an externally stored credential blocked sign-in: %v", err)
+		t.Fatalf("a broken stored credential blocked sign-in: %v", err)
 	}
 }
 
@@ -156,7 +227,8 @@ func TestConfiguredKeyringBlocksSignIn(t *testing.T) {
 		[]byte("cli_auth_credentials_store = \"keyring\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := NewCredentialAdapter("codex", fakeStatusBin(t, 0)).CheckBackend(); !errors.Is(err, providerauth.ErrUnsupportedBackend) {
+	keyringBin, _ := fakeDoctorBin(t, "keyring-backend.json")
+	if err := NewCredentialAdapter("codex", keyringBin).CheckBackend(); !errors.Is(err, providerauth.ErrUnsupportedBackend) {
 		t.Fatalf("err = %v, want ErrUnsupportedBackend", err)
 	}
 }

@@ -177,6 +177,20 @@ Concretely, `recoverIdle` gains three properties:
 1. **Stable observation.** It reads LIVE through the same two-matching-reads
    discipline `Reconcile` uses, with the same `StableReadInterval` /
    `StableReadDeadline` bounds (100 ms / 2 s, `bounds.go:33-34`).
+
+   **Amended 2026-09-03: a zero-length LIVE is never a settled observation.**
+   Two matching reads were not sufficient. `os.WriteFile` and equivalents
+   truncate before writing, so a read landing in that window sees an empty
+   file — and an empty file's fingerprint is the hash of empty bytes, which is
+   *stable*. Two consecutive reads that both land in a truncate window
+   therefore agree, are classified settled-and-invalid, and escalate. Measured
+   at roughly 1 failure in 8 runs of the churn test.
+
+   A zero-length credential file is never a real credential, so the
+   observation carries no information in either direction and must be treated
+   as unstable rather than as evidence. A file that has content but does not
+   parse is unaffected: it still reports settled-invalid and still escalates,
+   so corruption detection is untouched.
 2. **Unprovable is a no-op, not a verdict.** ~~An unstable, unreadable, or
    unparseable LIVE leaves the manifest exactly as it was and returns the
    current state.~~ **Amended 2026-09-02, during Phase 2 — see below.** An

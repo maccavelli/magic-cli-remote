@@ -301,4 +301,74 @@ churn goroutine writes every 10 ms, and under load the file can settle long
 enough for `stableObservation` to adopt it, breaking the manifest-unchanged
 assertion. A genuine flake, reported rather than absorbed.
 
-### Phases 3-5 — not yet done
+### Phase 3 — 2026-09-03, complete
+
+`ObserveCredentialStore` now runs `codex doctor --json` and maps the report:
+unrecognised → the config fallback (which yields `RealityUnknown` on a file
+backend); backend not `File` → `RealityUnsupported`; backend `File` →
+`RealityFileProtected` when usable, `RealityLoggedOut` when nothing is stored,
+and a new **`RealityBroken`** when something is stored but unusable.
+
+`RealityBroken` was not in the plan. It is what step 6's "not external" needs to
+be *called* so callers can branch on it — the plan described the outcome without
+naming the value. It is deliberately distinct from `RealityUnsupported`: the
+file is the store and mcremote can protect it; what is wrong is the credential,
+which is MADR 0133's escalation case.
+
+"Nothing stored" is read structurally, not from the summary text: Codex omits
+every `stored *` detail when there is nothing to describe, so
+`HasStoredMaterialEvidence` keys off the presence of those details rather than
+matching prose that carries no stability contract.
+
+`RealityExternal` is retired — `grep -rn "RealityExternal" internal/` is empty.
+`cliIsAuthenticated` and `fileHoldsUsableCredential` are gone with it.
+`describeReality` gained a sentence for broken; `backupProjection` now overrides
+the manifest only for `RealityUnsupported`, because reporting "unsupported" for
+a broken credential would hide the honest `recovery_required`.
+`DetectCredentialStore` survives as the no-probe fallback.
+
+**A real bug found while wiring it.** `CredentialIsExternal` returned the
+descriptive `ErrUnsupportedBackend` alongside `true`, and
+`providerauth.credentialIsExternal` treats *any* error as "cannot tell" — so
+keyring hosts escalated anyway. Caught by
+`TestCredentialGuardPassesTheCodexBinary` failing with
+`state = recovery_required, want external`. The observation's error is now
+discarded there: for `RealityUnsupported` it is descriptive, not a failure to
+observe, and `CheckBackend` is where that text reaches an operator.
+
+**The old tests had to be rewritten, because they asserted the defect.**
+`store_reality_test.go` contained `authJSON: {}, statusExit: 0, want:
+RealityExternal` — the case that blessed it. They now drive a stub emitting the
+Phase 1 fixtures via a control file the test can rewrite between calls, so the
+cache-window test can change the CLI's answer. The stub exits **non-zero** for
+doctor, as the real one does when it finds problems, so a regression to
+trusting an exit code breaks every case.
+
+**Verification.**
+
+```text
+go test ./internal/... ./cmd/... -count=1  -> 42 packages ok, 0 FAIL
+make pre-add-check                         -> 717 file(s) clean
+grep -rn "RealityExternal" internal/       -> (empty)
+```
+
+### Deviations (continued)
+
+**2026-09-03 — a MADR 0133 defect surfaced mid-phase and was fixed under its
+own record.** `TestUnstableLiveDefersInsteadOfWedging` failed about 1 run in 8.
+I first called it a flaky test; that was wrong. `os.WriteFile` truncates before
+writing, and an empty file's fingerprint is a *stable* value, so two reads that
+both land in a truncate window agree and escalate. The owner chose to treat a
+zero-length LIVE as unstable; amended into MADR 0133 and its plan, implemented
+in `reconcile.go`, and now 0 failures in 12 runs.
+`TestZeroLengthDefersButCorruptEscalates` pins the boundary: empty defers,
+content-that-does-not-parse still escalates.
+
+### Phases 4-5 — remaining
+
+Phase 4's assertions landed with Phase 3 rather than after it, because the
+existing tests encoded the old behaviour and could not be left failing while new
+ones were added alongside. Steps 11-14 are covered by the rewritten
+`store_reality_test.go` and step 15 by the two `internal/daemon` guard tests.
+Still outstanding: running them against the previous commit to record the
+fail-first output, and all of Phase 5 (verify on the reporting host).

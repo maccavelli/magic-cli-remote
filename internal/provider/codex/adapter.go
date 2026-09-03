@@ -97,26 +97,33 @@ func (a *CredentialAdapter) Reality(ctx context.Context) (StoreReality, error) {
 	return ObserveCredentialStore(ctx, a.bin)
 }
 
-// CredentialIsExternal implements [providerauth.RealityReporter] (MADR 0134).
+// CredentialIsExternal implements [providerauth.RealityReporter]
+// (MADR 0134, corrected by MADR 0136).
 //
-// Only RealityExternal answers true. That is the one observation which means
-// "a working credential exists and it is not in the file we protect" — the
-// state codex-cli 0.152.1 leaves this host in, with `{}` in auth.json and
-// `codex login status` reporting a live ChatGPT session.
+// Only RealityUnsupported answers true: the resolved backend is not the file
+// this coordinator protects, so no login here can produce a credential it can
+// protect and there is nothing for an operator to decide.
 //
-// RealityUnsupported, RealityUnknown and RealityLoggedOut all answer false so
-// the caller keeps its pre-0134 behaviour: none of them establishes that a
-// usable credential exists anywhere, and reporting one that does not is how a
-// genuinely broken host would stop looking broken.
+// Everything else answers false, and the distinctions matter:
+//
+//   - RealityBroken is a stored credential Codex cannot use. The file IS the
+//     store and mcremote can protect it; what is wrong is the credential, so
+//     MADR 0133's escalation to recovery_required is the correct outcome.
+//     Reporting this as external is the defect MADR 0136 exists to fix.
+//   - RealityLoggedOut and RealityUnknown establish nothing about a usable
+//     credential, so neither may silence an escalation.
 //
 // The cached observation is used because providers.list has usually just asked
 // the same question, and every managed mutation already invalidates it.
 func (a *CredentialAdapter) CredentialIsExternal(ctx context.Context) (bool, error) {
-	reality, err := ObserveCredentialStoreCached(ctx, a.bin, realityWindow)
-	if err != nil && reality == RealityUnsupported {
-		return false, err
-	}
-	return reality == RealityExternal, nil
+	reality, _ := ObserveCredentialStoreCached(ctx, a.bin, realityWindow)
+	// The observation's error is DISCARDED on purpose. For RealityUnsupported
+	// it is descriptive — "codex resolves its store to the keyring backend" —
+	// not a failure to observe, and this interface's error means only "I could
+	// not tell". Returning the descriptive one made the coordinator treat a
+	// confident answer as unknown and escalate anyway. CheckBackend is where
+	// that text reaches an operator.
+	return reality == RealityUnsupported, nil
 }
 
 // authDotJSON is the subset of Codex's auth.json this adapter reads. No token

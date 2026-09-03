@@ -140,6 +140,23 @@ func (c *Coordinator) observeWithBytes(ctx context.Context) (observation, []byte
 	if fp == FingerprintAbsent {
 		return observation{fp: FingerprintAbsent, stable: true}, nil, nil
 	}
+	if len(data) == 0 {
+		// A file that exists but is empty is NOT a settled observation
+		// (MADR 0133, amended 2026-09-03).
+		//
+		// Writers truncate before writing, so this is what a read looks like
+		// when it lands inside someone else's write. The trap is that an empty
+		// file's fingerprint is the hash of empty bytes — a stable value — so
+		// two reads that both land in a truncate window agree, and without this
+		// branch the pair is classified settled-and-invalid and escalated to a
+		// terminal state. Measured at about 1 run in 8.
+		//
+		// A zero-length credential is never real, so the observation carries no
+		// information in either direction. Note this deliberately does NOT
+		// cover a file with content that fails to parse: that is genuine
+		// corruption and must still escalate.
+		return observation{fp: fp, valid: false, stable: false}, data, nil
+	}
 	meta, err := c.adapter.Validate(ctx, data)
 	if err != nil {
 		return observation{fp: fp, valid: false, stable: true}, data, nil //nolint:nilerr // classified, not fatal

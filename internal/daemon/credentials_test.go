@@ -157,9 +157,17 @@ func TestCredentialGuardPassesTheCodexBinary(t *testing.T) {
 	}
 	t.Setenv("CODEX_HOME", codexHome)
 
-	// A CLI that reports "signed in" by exiting zero.
+	// MADR 0136: the classification now reads `codex doctor --json`, so the
+	// stub emits a report. The report is inlined rather than borrowed from the
+	// codex package's testdata: this test is about the guard passing a binary
+	// through, and it should not break when those fixtures are re-recorded.
+	const keyringReport = `{"schemaVersion":1,"checks":{"auth.credentials":` +
+		`{"id":"auth.credentials","status":"fail","summary":"no Codex credentials were found",` +
+		`"details":{"auth storage mode":"Keyring"}}}}`
 	stub := filepath.Join(t.TempDir(), "codex-stub")
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+	script := "#!/bin/sh\nif [ \"$1\" = \"doctor\" ]; then cat <<'EOF'\n" +
+		keyringReport + "\nEOF\nexit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(stub, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,8 +183,8 @@ func TestCredentialGuardPassesTheCodexBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Now Codex does what it does on the reporting host: keeps the session
-	// elsewhere and leaves a stub behind.
+	// The credential file becomes unusable while Codex reports a keyring
+	// backend — the one genuinely unprotectable shape.
 	if err := os.WriteFile(authPath, []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -187,5 +195,54 @@ func TestCredentialGuardPassesTheCodexBinary(t *testing.T) {
 	if st != providerauth.StateExternal {
 		t.Fatalf("state = %s, want external: the guard must hand the adapter a "+
 			"binary, or the reality probe can never answer", st)
+	}
+}
+
+// TestCredentialGuardEscalatesABrokenCredential is the MADR 0136 half of the
+// pair above: a FILE backend holding an unusable credential is broken, not
+// unprotectable, and must reach recovery_required.
+//
+// Before 0136 this host reached `external` and fell silent, which is the
+// regression that shipped in MADR 0134.
+func TestCredentialGuardEscalatesABrokenCredential(t *testing.T) {
+	codexHome := t.TempDir()
+	authPath := filepath.Join(codexHome, "auth.json")
+	realCred := `{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","tokens":` +
+		`{"access_token":"a","refresh_token":"r"},"last_refresh":"2026-09-01T00:00:00Z"}`
+	if err := os.WriteFile(authPath, []byte(realCred), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
+
+	const brokenReport = `{"schemaVersion":1,"checks":{"auth.credentials":` +
+		`{"id":"auth.credentials","status":"fail","summary":"stored credentials are incomplete",` +
+		`"details":{"auth storage mode":"File","stored ChatGPT tokens":"false",` +
+		`"stored auth issue":["ChatGPT auth is missing refresh metadata"]}}}}`
+	stub := filepath.Join(t.TempDir(), "codex-stub")
+	script := "#!/bin/sh\nif [ \"$1\" = \"doctor\" ]; then cat <<'EOF'\n" +
+		brokenReport + "\nEOF\nexit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(stub, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := newCredentialGuard(t.TempDir(), true, false, stub, quietLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := g.coordinator("codex")
+	if err := c.Seed(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := c.Recover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != providerauth.StateRecoveryRequired {
+		t.Fatalf("state = %s, want recovery_required: a broken credential on the "+
+			"file backend must escalate, not fall silent", st)
 	}
 }
