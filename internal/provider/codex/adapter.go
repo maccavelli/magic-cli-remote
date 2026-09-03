@@ -51,6 +51,10 @@ func NewCredentialAdapter(id string, bin ...string) *CredentialAdapter {
 	return a
 }
 
+// CredentialAdapter must satisfy the optional reality capability; a silent
+// failure to would simply route MADR 0134 back to the pre-0134 escalation.
+var _ providerauth.RealityReporter = (*CredentialAdapter)(nil)
+
 // ProviderID implements [providerauth.Adapter].
 func (a *CredentialAdapter) ProviderID() string { return a.id }
 
@@ -91,6 +95,28 @@ func (a *CredentialAdapter) CheckBackend() error {
 // Reality reports where this provider's credential actually lives.
 func (a *CredentialAdapter) Reality(ctx context.Context) (StoreReality, error) {
 	return ObserveCredentialStore(ctx, a.bin)
+}
+
+// CredentialIsExternal implements [providerauth.RealityReporter] (MADR 0134).
+//
+// Only RealityExternal answers true. That is the one observation which means
+// "a working credential exists and it is not in the file we protect" — the
+// state codex-cli 0.152.1 leaves this host in, with `{}` in auth.json and
+// `codex login status` reporting a live ChatGPT session.
+//
+// RealityUnsupported, RealityUnknown and RealityLoggedOut all answer false so
+// the caller keeps its pre-0134 behaviour: none of them establishes that a
+// usable credential exists anywhere, and reporting one that does not is how a
+// genuinely broken host would stop looking broken.
+//
+// The cached observation is used because providers.list has usually just asked
+// the same question, and every managed mutation already invalidates it.
+func (a *CredentialAdapter) CredentialIsExternal(ctx context.Context) (bool, error) {
+	reality, err := ObserveCredentialStoreCached(ctx, a.bin, realityWindow)
+	if err != nil && reality == RealityUnsupported {
+		return false, err
+	}
+	return reality == RealityExternal, nil
 }
 
 // authDotJSON is the subset of Codex's auth.json this adapter reads. No token

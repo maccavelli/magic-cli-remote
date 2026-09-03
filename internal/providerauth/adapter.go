@@ -87,6 +87,25 @@ func (m CredentialMeta) order(existing CredentialMeta, allowEqual bool) bool {
 	return false
 }
 
+// RealityReporter is an OPTIONAL Adapter capability (MADR 0134).
+//
+// An adapter that can observe where its provider's credential actually lives
+// implements it; the coordinator type-asserts and falls back to its pre-0134
+// behaviour when it is absent, so implementing it is never required.
+//
+// It answers a boolean rather than returning a richer classification on
+// purpose: the enum that models a provider's credential store lives in that
+// provider's package, and providerauth must not import a provider to read it.
+//
+// True means the narrow thing the coordinator can act on — the provider's own
+// CLI is authenticated, but not from the file this coordinator protects. It is
+// deliberately NOT true for "configured for a backend we do not support" or
+// "could not be probed": neither establishes that a working credential exists,
+// and inventing one is how a broken host would come to look healthy.
+type RealityReporter interface {
+	CredentialIsExternal(ctx context.Context) (bool, error)
+}
+
 // Adapter is the provider-specific half of a credential transaction. Every
 // method returns metadata, paths the daemon already owns, or errors — never
 // credential bytes, and no implementation may render bytes into a string or
