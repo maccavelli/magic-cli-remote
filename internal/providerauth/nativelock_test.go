@@ -94,7 +94,10 @@ func TestCommitBlocksOnTheProviderNativeLockFile(t *testing.T) {
 				if commitErr == nil {
 					t.Fatalf("Commit succeeded while %s.lock was held: it locked some other file", live)
 				}
-				if !strings.Contains(commitErr.Error(), "flock") {
+				// "flock" on Unix (lock_unix.go), "lock" on Windows
+				// (lock_windows.go, mandatory LockFileEx rather than advisory
+				// flock) — both wrappers share "lock" as the portable substring.
+				if !strings.Contains(commitErr.Error(), "lock") {
 					t.Fatalf("Commit failed for the wrong reason: %v", commitErr)
 				}
 				if got, err := os.ReadFile(live); err != nil {

@@ -364,6 +364,45 @@ in `reconcile.go`, and now 0 failures in 12 runs.
 `TestZeroLengthDefersButCorruptEscalates` pins the boundary: empty defers,
 content-that-does-not-parse still escalates.
 
+### Deviations (continued)
+
+**2026-09-03 — CI (Windows) caught two portability defects Phase 3's local
+verification could not see.** `make pre-add-check` and `go test ./...` were run
+on macOS only; the push to `master` triggered `Go (windows/amd64)`, which
+failed both `internal/daemon` and `internal/providerauth`:
+
+```text
+--- FAIL: TestCredentialGuardPassesTheCodexBinary (0.19s)
+    state = recovery_required, want external: the guard must hand the adapter a binary, ...
+--- FAIL: TestCommitBlocksOnTheProviderNativeLockFile/base_path_derives_the_provider's_lock_file
+    Commit failed for the wrong reason: fsutil: lock ...auth.json.lock: lock busy for more
+    than 200ms: The process cannot access the file because another process has locked ...
+```
+
+Both are test-fixture bugs, not classification bugs.
+
+`TestCredentialGuardPassesTheCodexBinary` and
+`TestCredentialGuardEscalatesABrokenCredential` (added in Phase 3, in
+`internal/daemon/credentials_test.go`) wrote a raw `#!/bin/sh` stub and executed
+it directly. Windows has no shebang mechanism — the codex package's own Phase 1
+tests already established this pattern (`testexec.SkipIfNoPOSIXShell`,
+documented at MADR 0116 P11) and my daemon tests simply didn't use it. Fixed by
+switching to `testexec.WriteShellStub`, the existing helper that writes the
+stub and skips the test on Windows in one call.
+
+`TestCommitBlocksOnTheProviderNativeLockFile` (added in Phase 1 of MADR 0133,
+predates this plan) asserted the failure text contained `"flock"` — the Unix
+wrapper's word (`lock_unix.go`). Windows's `LockFileEx`-based implementation
+(`lock_windows.go`) wraps the same failure as `"fsutil: lock %s: %w"`, which
+never contains "flock". Fixed by asserting on `"lock"`, the substring both
+wrappers share; re-run locally to confirm it still discriminates the
+blocked/unblocked cases in the same test.
+
+Both fixed in one commit. `go test ./internal/... ./cmd/... -count=1` (42
+packages) and `make pre-add-check` (717 files) pass on macOS; the Windows-only
+failure mode cannot be reproduced locally and is confirmed only by the next CI
+run.
+
 ### Phases 4-5 — remaining
 
 Phase 4's assertions landed with Phase 3 rather than after it, because the

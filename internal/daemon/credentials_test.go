@@ -164,12 +164,9 @@ func TestCredentialGuardPassesTheCodexBinary(t *testing.T) {
 	const keyringReport = `{"schemaVersion":1,"checks":{"auth.credentials":` +
 		`{"id":"auth.credentials","status":"fail","summary":"no Codex credentials were found",` +
 		`"details":{"auth storage mode":"Keyring"}}}}`
-	stub := filepath.Join(t.TempDir(), "codex-stub")
-	script := "#!/bin/sh\nif [ \"$1\" = \"doctor\" ]; then cat <<'EOF'\n" +
-		keyringReport + "\nEOF\nexit 1\nfi\nexit 0\n"
-	if err := os.WriteFile(stub, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	script := "if [ \"$1\" = \"doctor\" ]; then cat <<'EOF'\n" +
+		keyringReport + "\nEOF\nexit 1\nfi\nexit 0"
+	stub := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "codex-stub"), script)
 
 	g, err := newCredentialGuard(t.TempDir(), true, false, stub, quietLog())
 	if err != nil {
@@ -218,12 +215,9 @@ func TestCredentialGuardEscalatesABrokenCredential(t *testing.T) {
 		`{"id":"auth.credentials","status":"fail","summary":"stored credentials are incomplete",` +
 		`"details":{"auth storage mode":"File","stored ChatGPT tokens":"false",` +
 		`"stored auth issue":["ChatGPT auth is missing refresh metadata"]}}}}`
-	stub := filepath.Join(t.TempDir(), "codex-stub")
-	script := "#!/bin/sh\nif [ \"$1\" = \"doctor\" ]; then cat <<'EOF'\n" +
-		brokenReport + "\nEOF\nexit 1\nfi\nexit 0\n"
-	if err := os.WriteFile(stub, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	script := "if [ \"$1\" = \"doctor\" ]; then cat <<'EOF'\n" +
+		brokenReport + "\nEOF\nexit 1\nfi\nexit 0"
+	stub := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "codex-stub"), script)
 
 	g, err := newCredentialGuard(t.TempDir(), true, false, stub, quietLog())
 	if err != nil {
