@@ -467,7 +467,11 @@ jobs:
     # needs go+flutter: this build costs ~10 min, so do not spend it when the
     # tests it ships alongside are already red. `go` also supplies the version
     # the APK is stamped with, keeping one release from carrying two schemes.
-    if: github.ref_type == 'tag'
+    # Runnable on demand as well as on a tag. A tag-only job cannot be
+    # exercised BEFORE the release that depends on it, which is exactly how
+    # the manifest-surface gate shipped broken and failed its first two tag
+    # builds (MADR 0126 D4 gate, added after v0.15.3 and never run since).
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     needs: [go, flutter]
     runs-on: ubuntu-latest
     timeout-minutes: 40

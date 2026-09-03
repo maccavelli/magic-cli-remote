@@ -43,6 +43,15 @@ else
     0)
       echo "assert-android-manifest-surface: merged manifest not found under:" >&2
       echo "  $manifest_root" >&2
+      # Never fail blind again. Show the candidates that DO exist so the next
+      # AGP layout change is diagnosable from the failure itself rather than
+      # from another round of tag-and-guess.
+      echo "candidate AndroidManifest.xml files under apps/mobile (max 40):" >&2
+      find "$root/apps/mobile" -type f -name AndroidManifest.xml 2>/dev/null |
+        grep -iE "intermediates|manifest" | head -40 | sed "s|^$root/||; s|^|  |" >&2 || true
+      echo "intermediates subdirectories that exist:" >&2
+      find "$root/apps/mobile/build" -maxdepth 3 -type d -name "*manifest*" 2>/dev/null |
+        head -20 | sed "s|^$root/||; s|^|  |" >&2 || true
       echo "Generate it first, e.g.:" >&2
       echo "  cd apps/mobile && flutter build apk --config-only --release --target-platform android-arm64" >&2
       echo "  cd apps/mobile/android && ./gradlew :app:processReleaseMainManifest" >&2
