@@ -31,6 +31,13 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Manifest) error {
 	case StateRecoveryRequired, StateLoggedOut:
 		// Terminal until an operator or an explicit login acts.
 		return nil
+	case StateExternal:
+		// Deliberately NOT terminal, and deliberately not probed here
+		// (MADR 0134). Adoption is exactly how this state is left: the file
+		// becoming usable again is the event that ends it, and that is the
+		// event this function already handles. Probing would put a CLI spawn
+		// on the watcher's per-event path, which startup recovery can afford
+		// and this cannot.
 	}
 
 	cur := m.byLabel(LabelCurrent)

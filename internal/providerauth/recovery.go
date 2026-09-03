@@ -170,7 +170,40 @@ func (c *Coordinator) recoverIdle(
 		return StateIdle, nil
 	}
 
+	// Nothing here is adoptable. Before calling that an ambiguity, ask whether
+	// there is anything to be ambiguous ABOUT: a provider can be signed in with
+	// its credential held somewhere this coordinator cannot see, and then the
+	// unusable file is not evidence of a problem at all (MADR 0134).
+	//
+	// The probe is reached only on this path — an adoptable LIVE, or one
+	// matching CURRENT, has already returned above — so a healthy host never
+	// spawns a process for it.
+	if !obs.valid && c.credentialIsExternal(ctx) {
+		return c.finish(m, StateExternal)
+	}
+
 	return c.finish(m, StateRecoveryRequired)
+}
+
+// credentialIsExternal asks the adapter whether the provider is authenticated
+// from a store this coordinator cannot see.
+//
+// Three ways to answer no, all of which keep the caller's pre-0134 behaviour:
+// the adapter does not implement the capability, the probe failed, or the probe
+// says the credential is not external. A probe that cannot run is never allowed
+// to invent a healthy state out of an unreachable CLI (MADR 0134).
+func (c *Coordinator) credentialIsExternal(ctx context.Context) bool {
+	r, ok := c.adapter.(RealityReporter)
+	if !ok {
+		return false
+	}
+	external, err := r.CredentialIsExternal(ctx)
+	if err != nil {
+		c.log().Debug("could not observe where the credential lives; " +
+			"treating the unusable file as ambiguous")
+		return false
+	}
+	return external
 }
 
 // recoverPending resolves a transaction that was still isolated. Because a

@@ -208,9 +208,15 @@ requires no phone update, no release, and no user action — a wedged host clear
 itself on that restart. Nothing in the on-disk layout changes, so a host can run
 the new daemon against a manifest written by the old one and the reverse.
 
-**Rollback.** Revert the phase commits. The manifest format, the generation
-files, and the credential are untouched by this work, so a revert restores the
-previous behaviour exactly — including the wedge. A host that recovered under
+**Rollback.** Revert the phase commits. **Corrected 2026-09-03:** this section
+originally said the manifest format was untouched. It is not — Phase 4 added the
+`operator_choice` / `operator_choice_at` fields, and `loadManifest` sets
+`DisallowUnknownFields` (`manifest.go:274`), so a manifest written after Phase 4
+cannot be read by a pre-0133 binary. Rolling back past it requires removing the
+provider's manifest directory, which is safe because the generations are copies
+and `CURRENT` is re-seeded from LIVE on the next start. The generation files and
+the credential are untouched, so apart from that manual step a revert restores
+the previous behaviour exactly — including the wedge. A host that recovered under
 the new code and then rolled back keeps the credential it adopted; it is a
 normal `current` generation with no marker distinguishing it.
 

@@ -169,10 +169,31 @@ does today.
   credential file is unusable. Bounded by `ProbeTimeout` (30 s) and reached only
   on an already-degraded path, but it is a process spawn in recovery, which had
   none.
-* Bad, because a new manifest state must be tolerated by older daemons. The
-  state is a JSON string and every switch has a `default:` arm, so an older
-  binary reading `external` takes the idle path — the pre-0134 behaviour, which
-  is the correct fallback, but this must be verified rather than assumed.
+* Bad, because a new manifest state cannot be read by an older daemon at all.
+  ~~The state is a JSON string and every switch has a `default:` arm, so an
+  older binary reading `external` takes the idle path — the pre-0134 behaviour,
+  which is the correct fallback, but this must be verified rather than
+  assumed.~~ **Amended 2026-09-03: verified, and false.** `loadManifest`
+  (`manifest.go:268-283`) calls `validate()`, which rejects any state
+  `State.valid()` does not list, so a pre-0134 binary fails to load the manifest
+  entirely rather than falling back:
+
+  ```text
+  state=external (0134)  -> REJECTED: provider auth: unknown manifest state "external"
+  baseline idle          -> ACCEPTED: state="idle"
+  ```
+
+  Every coordinator call for that provider then returns that error, and the
+  daemon logs `credential recovery failed`. Recovery is to reset the provider's
+  manifest directory, from which the next start re-seeds `CURRENT` from LIVE.
+
+  This is not a hazard 0134 introduces. `loadManifest` also sets
+  `DisallowUnknownFields` (`:274`), so **any** additive manifest change is
+  one-way — MADR 0133's `operator_choice` field already made the manifest
+  unreadable to a pre-0133 binary. The format is deliberately strict: the code
+  states that a future or malformed manifest is never reconstructed and the
+  operator decides. Downgrade is therefore an operator procedure, not an
+  automatic fallback, and saying otherwise in this record was wrong.
 * Neutral, because it does nothing about the underlying question of why Codex
   moved the credential out of `auth.json`. mcremote stops mismanaging a state it
   cannot control; it does not gain the ability to protect that credential.

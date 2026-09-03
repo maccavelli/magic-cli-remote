@@ -82,6 +82,15 @@ func (g *credentialGuard) recover(ctx context.Context) {
 				"run `mcremote auth-recovery status` to inspect and "+
 				"`mcremote auth-recovery choose` to resolve",
 				slog.String("provider", r.Provider))
+		case r.State == providerauth.StateExternal:
+			// Not a warning and not a decision (MADR 0134). The provider works;
+			// mcremote simply cannot back up a credential it cannot see, and
+			// asking an operator to choose here would offer only destructive
+			// answers. Signing in from the phone is what produces a credential
+			// this daemon can protect.
+			g.log.Info("provider is signed in but keeps its credential outside the file "+
+				"mcremote can back up; signing in from here will create one it can",
+				slog.String("provider", r.Provider))
 		default:
 			g.log.Info("credential state recovered",
 				slog.String("provider", r.Provider), slog.String("state", string(r.State)))

@@ -70,11 +70,22 @@ const (
 	StateRecoveryRequired State = "recovery_required"
 	// StateLoggedOut is the intentional transition to no live credential.
 	StateLoggedOut State = "logged_out"
+	// StateExternal means the provider is authenticated from a store this
+	// coordinator cannot see, so there is nothing to protect and nothing for an
+	// operator to decide (MADR 0134).
+	//
+	// It is NOT a failure and NOT ambiguity. It is entered only when LIVE is
+	// settled and unusable AND the adapter reports the provider's own CLI
+	// authenticated from elsewhere, and it is left automatically the moment a
+	// usable credential appears in the file — every checkpoint re-evaluates it,
+	// because it caches a fact about the environment rather than about us.
+	StateExternal State = "external"
 )
 
 func (s State) valid() bool {
 	switch s {
-	case StateIdle, StatePending, StateCommitting, StateRecoveryRequired, StateLoggedOut:
+	case StateIdle, StatePending, StateCommitting, StateRecoveryRequired,
+		StateLoggedOut, StateExternal:
 		return true
 	}
 	return false

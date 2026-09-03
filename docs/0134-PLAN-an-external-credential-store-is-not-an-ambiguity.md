@@ -141,9 +141,13 @@ the tree.
 19. `StateExternal` + a usable LIVE appears → adopted, state returns to `idle`.
 20. `Commit` in `external` → `ErrUnsupportedBackend`, and `errors.Is(err,
     ErrRecoveryRequired)` is false.
-21. Compatibility: a manifest file containing `"state": "external"` loads, and
-    the pre-0134 switch arms treat it as idle. Assert by loading the manifest
-    and calling the paths, not by reading the string back.
+21. ~~Compatibility: a manifest file containing `"state": "external"` loads,
+    and the pre-0134 switch arms treat it as idle.~~ **Corrected 2026-09-03.**
+    The forward half is what is testable here and is kept: a manifest carrying
+    `"state": "external"` loads in THIS binary and is re-evaluated rather than
+    rejected. The backward half was verified out-of-tree against a pre-0134
+    worktree and is false; it is recorded in Rollback above as an operator
+    procedure instead of asserted as a fallback.
 
 Commit at the end of the phase.
 
@@ -197,11 +201,29 @@ codex login status
 no release, no protocol change, no user action. A host whose credential file is
 usable never reaches the new code path and never spawns the probe.
 
-**Rollback.** Revert the phase commits. The one durable artefact is a manifest
-that may contain `"state": "external"`; step 21 exists to prove a pre-0134
-binary reads that as idle, which is the correct fallback — it resumes managing
-the file and, on this host, escalates to `recovery_required` again. No
-credential, generation or LIVE file is altered by this work in either
+**Rollback.** Revert the phase commits, **then reset the provider's manifest
+directory if it recorded `external`.**
+
+~~step 21 exists to prove a pre-0134 binary reads that as idle, which is the
+correct fallback~~ — **corrected 2026-09-03, verified against a pre-0134
+worktree.** A pre-0134 binary rejects the manifest outright
+(`unknown manifest state "external"`), because `loadManifest` validates the
+state, and every coordinator call for that provider then returns that error.
+The procedure is:
+
+```bash
+# after reverting, ONLY if the manifest recorded the new state
+python3 -c "import json;print(json.load(open('$HOME/.local/share/mcremote/provider-auth/codex/manifest.json'))['state'])"
+rm -rf ~/.local/share/mcremote/provider-auth/codex   # generations are re-seeded from LIVE
+```
+
+This is safe — the generations are copies, and the next start re-seeds `CURRENT`
+from LIVE — but it is a manual step, and it is not unique to 0134:
+`DisallowUnknownFields` means MADR 0133's `operator_choice` field already made
+the manifest unreadable to a pre-0133 binary. The format does not support
+downgrade by design.
+
+No credential, generation or LIVE file is altered by this work in either
 direction.
 
 **What this does not fix, stated plainly.** mcremote stops mismanaging a state
@@ -214,4 +236,102 @@ backend would make this state rare rather than routine.
 
 ## Execution Record
 
-Not started. `status: proposed` — awaiting approval to execute.
+### Phases 1-5 — 2026-09-03, complete
+
+**Phase 1.** `RealityReporter` added to `adapter.go` as an optional capability
+returning a bool, not the codex `StoreReality` enum — `providerauth` must not
+import a provider to read it. `codex.CredentialAdapter.CredentialIsExternal`
+implements it over `ObserveCredentialStoreCached`, answering true only for
+`RealityExternal`; `RealityUnsupported`, `RealityUnknown` and
+`RealityLoggedOut` all answer false, because none of them establishes that a
+usable credential exists anywhere. A compile-time assertion pins the
+implementation. Nothing called it yet and the suite passed unchanged.
+
+**Phase 2.** `StateExternal` added, plus the explicit branch at every site the
+audit found rather than letting it fall into a `default:`: `reconcileLocked`
+adopts (that is how the state is left, and it deliberately does not probe —
+that would put a CLI spawn on the watcher's per-event path); `statusLocked`
+projects `BackupUnsupported` with `RecoveryAvailable` false; `Begin` permits a
+login but skips seeding from an unusable LIVE; `Abort` preserves the state the
+way it preserves `recovery_required`; `Commit`, `MarkRevoked` and `RecordLogout`
+refuse with `ErrUnsupportedBackend`.
+
+**Phase 3.** The probe sits immediately before the escalation, so an adoptable
+LIVE — or one matching CURRENT — returns without spawning anything. A missing
+capability, or a probe error, both fall through to the pre-0134 escalation.
+
+**Phase 4.** `external` logs at info and reuses the wording `describeReality`
+already had. The `recovery_required` warning is unchanged.
+
+**Phase 5 — instruments, seen to discriminate.** Running the new tests against
+the plain pre-0134 commit only proved the symbol was new (`undefined:
+StateExternal`), which establishes nothing about behaviour. A scratch worktree
+was built instead with Phase 2 and 4 present and **two mechanisms deliberately
+removed** — Phase 3's classification and Phase 2's Commit guard — each removal
+asserted to have landed before the run:
+
+```text
+--- FAIL: …/signed_in_elsewhere_is_external,_not_recovery_required
+    external_state_test.go:79: state = recovery_required, want external
+--- FAIL: …/external_is_left_automatically_when_the_file_becomes_usable
+    external_state_test.go:176: setup: state = recovery_required err = <nil>
+--- FAIL: TestCommitInExternalIsUnsupportedNotAmbiguous
+    external_state_test.go:213: commit err = <nil>, want ErrUnsupportedBackend
+--- PASS: …/not_signed_in_elsewhere_still_escalates
+--- PASS: …/a_probe_error_still_escalates
+--- PASS: …/an_adoptable_live_is_never_probed
+--- PASS: TestExternalStateManifestIsTolerated
+```
+
+The three PASSes matter as much as the FAILs: they are the guarantees that had
+to survive — MADR 0133's escalation for a genuinely broken credential, the
+refusal to trust an unreachable CLI, and the promise that a healthy host never
+pays for a probe. Note the Commit line: without the guard, publishing into a
+file the provider is not reading **succeeds silently**.
+
+**Verification.**
+
+```text
+go test ./internal/... -count=1   -> 42 packages ok, 0 FAIL
+make pre-add-check                -> 713 file(s) clean (gofmt, golint, govulncheck)
+```
+
+### Deviations
+
+**2026-09-03 — the MADR's rollback consequence was false; owner chose to keep
+the state and correct the docs.**
+
+*Evidence.* The MADR said an older binary "reading `external` takes the idle
+path … but this must be verified rather than assumed". Verified against a
+pre-0134 worktree, and it does not:
+
+```text
+state=external (0134)  -> REJECTED: provider auth: unknown manifest state "external"
+baseline idle          -> ACCEPTED: state="idle"
+```
+
+`loadManifest` validates the state, so the manifest fails to load and every
+coordinator call for that provider returns the error. `DisallowUnknownFields`
+(`manifest.go:274`) makes the same true of any added field, so MADR 0133's
+`operator_choice` had already made the manifest unreadable to a pre-0133 binary
+— a flaw in 0133's own Rollback section, corrected at the same time.
+
+*Resolutions offered.* (a) keep the state and correct the docs, treating
+downgrade as the operator procedure it already was; (b) drop the durable state
+and report `external` as a non-persisted result; (c) make `loadManifest`
+forward-tolerant first, under its own MADR. **Owner chose (a).**
+
+*Consequence of doing nothing:* a rollback past either change would leave the
+daemon logging `credential recovery failed` for that provider with no
+documented way out.
+
+*Docs amended before continuing:* the MADR's consequence and both plans'
+Rollback sections carry struck-through originals with dated corrections, and
+step 21 now claims only the forward half, which is what a test can pin.
+
+### Phase 6 — outstanding
+
+Verify on the reporting host: daemon start logs the informational line and no
+operator-decision warning for codex, `~/.codex/auth.json` still the three-byte
+stub, manifest state `external`, and no `credential_failed` on the phone with
+no sign-in performed.
