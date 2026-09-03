@@ -24,7 +24,14 @@ type credentialGuard struct {
 
 // newCredentialGuard builds coordinators for the enabled transactional
 // providers. It performs no I/O beyond creating the private store directories.
-func newCredentialGuard(dataDir string, codexEnabled, grokEnabled bool, log *slog.Logger) (*credentialGuard, error) {
+// codexBin is the configured Codex binary. It is REQUIRED, not optional: the
+// reality probe that distinguishes "no credential anywhere" from "a credential
+// this coordinator cannot see" asks the CLI, and an adapter built without a
+// binary answers RealityUnknown for both (MADR 0134). Passing "" here silently
+// routes every such host back to the pre-0134 escalation.
+func newCredentialGuard(
+	dataDir string, codexEnabled, grokEnabled bool, codexBin string, log *slog.Logger,
+) (*credentialGuard, error) {
 	g := &credentialGuard{coords: map[string]*providerauth.Coordinator{}, log: log}
 	add := func(id string, ad providerauth.Adapter) error {
 		c, err := providerauth.NewCoordinator(dataDir, ad, providerauth.CoordinatorOptions{})
@@ -35,7 +42,7 @@ func newCredentialGuard(dataDir string, codexEnabled, grokEnabled bool, log *slo
 		return nil
 	}
 	if codexEnabled {
-		if err := add("codex", codex.NewCredentialAdapter("codex")); err != nil {
+		if err := add("codex", codex.NewCredentialAdapter("codex", codexBin)); err != nil {
 			return nil, err
 		}
 	}

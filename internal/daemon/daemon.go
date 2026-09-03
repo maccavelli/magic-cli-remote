@@ -173,7 +173,8 @@ func Run(ctx context.Context, opts Options) error {
 	// Credential transactions (MADR 0074 D21). Built before any provider so a
 	// coordinated provider can be constructed with its coordinator, and before
 	// any mutation so startup recovery runs first.
-	guard, guardErr := newCredentialGuard(cfg.DataDir, cfg.Providers.Codex.Enabled, cfg.Providers.Grok.Enabled, log)
+	guard, guardErr := newCredentialGuard(cfg.DataDir, cfg.Providers.Codex.Enabled,
+		cfg.Providers.Grok.Enabled, cfg.Providers.Codex.Bin, log)
 	if guardErr != nil {
 		return fmt.Errorf("credential coordinator: %w", guardErr)
 	}

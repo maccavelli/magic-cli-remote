@@ -19,7 +19,7 @@ func quietLog() *slog.Logger {
 // neither Codex nor Grok carries none of this machinery and advertises no
 // transactional capability (MADR 0074 P20 step 12).
 func TestGuardIsAbsentWhenNoTransactionalProviderIsEnabled(t *testing.T) {
-	g, err := newCredentialGuard(t.TempDir(), false, false, quietLog())
+	g, err := newCredentialGuard(t.TempDir(), false, false, "", quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestGuardIsAbsentWhenNoTransactionalProviderIsEnabled(t *testing.T) {
 func TestGuardBuildsOnlyEnabledProviders(t *testing.T) {
 	testexec.SkipIfNoPOSIXModes(t)
 	dataDir := t.TempDir()
-	g, err := newCredentialGuard(dataDir, true, false, quietLog())
+	g, err := newCredentialGuard(dataDir, true, false, "codex", quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestGuardRecoverReportsEveryProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	g, err := newCredentialGuard(dataDir, true, true, quietLog())
+	g, err := newCredentialGuard(dataDir, true, true, "codex", quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestGuardRecoverReportsEveryProvider(t *testing.T) {
 func TestGuardWatcherFailureIsNotFatal(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("CODEX_HOME", t.TempDir())
-	g, err := newCredentialGuard(dataDir, true, false, quietLog())
+	g, err := newCredentialGuard(dataDir, true, false, "codex", quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,9 +122,70 @@ func TestGuardWatcherFailureIsNotFatal(t *testing.T) {
 // startup failed partway.
 func TestGuardCloseIsSafeBeforeStart(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
-	g, err := newCredentialGuard(t.TempDir(), true, false, quietLog())
+	g, err := newCredentialGuard(t.TempDir(), true, false, "codex", quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
 	g.close(context.Background())
+}
+
+// TestCredentialGuardPassesTheCodexBinary is the regression for a wiring defect
+// MADR 0134's unit tests could not see (found in its Phase 6, on a live host).
+//
+// The reality probe that separates "no credential anywhere" from "a credential
+// this coordinator cannot see" runs the provider's own CLI. An adapter built
+// without a binary path answers RealityUnknown for both, so every host in the
+// external state silently fell back to the pre-0134 escalation — the daemon
+// kept demanding an operator decision, and nothing in providerauth could tell,
+// because its tests supply their own adapter.
+//
+// The assertion is end-to-end on purpose: a stub CLI that exits zero stands in
+// for `codex login status` succeeding, the credential file holds Codex's `{}`
+// stub, and recovery must reach external. With the binary dropped it cannot.
+func TestCredentialGuardPassesTheCodexBinary(t *testing.T) {
+	codexHome := t.TempDir()
+	authPath := filepath.Join(codexHome, "auth.json")
+	// Seed the way the real host is seeded: a genuine credential first, so a
+	// CURRENT generation exists. Without one, recovery takes the unmanaged
+	// seeding branch and never reaches the escalation this classifies — which
+	// is harmless (no warning, and the provider still projects unsupported)
+	// but is not the state the reporting host is in.
+	realCred := `{"OPENAI_API_KEY":null,"auth_mode":"chatgpt","tokens":` +
+		`{"access_token":"a","refresh_token":"r"},"last_refresh":"2026-09-01T00:00:00Z"}`
+	if err := os.WriteFile(authPath, []byte(realCred), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
+
+	// A CLI that reports "signed in" by exiting zero.
+	stub := filepath.Join(t.TempDir(), "codex-stub")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := newCredentialGuard(t.TempDir(), true, false, stub, quietLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := g.coordinator("codex")
+	if c == nil {
+		t.Fatal("no codex coordinator")
+	}
+	if err := c.Seed(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now Codex does what it does on the reporting host: keeps the session
+	// elsewhere and leaves a stub behind.
+	if err := os.WriteFile(authPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := c.Recover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != providerauth.StateExternal {
+		t.Fatalf("state = %s, want external: the guard must hand the adapter a "+
+			"binary, or the reality probe can never answer", st)
+	}
 }

@@ -329,9 +329,70 @@ documented way out.
 Rollback sections carry struck-through originals with dated corrections, and
 step 21 now claims only the forward half, which is what a test can pin.
 
-### Phase 6 — outstanding
+### Phase 6 — 2026-09-03, host criteria met; one step needs the owner
 
-Verify on the reporting host: daemon start logs the informational line and no
-operator-decision warning for codex, `~/.codex/auth.json` still the three-byte
-stub, manifest state `external`, and no `credential_failed` on the phone with
-no sign-in performed.
+**The first install did not work, and found a wiring defect the unit tests
+could not see.** After `0.16.1.g12bea30`, the daemon still warned:
+
+```text
+2026-09-03T07:15:53  WARN provider=codex  credential state needs an operator decision …
+```
+
+Cause: `newCredentialGuard` built the adapter as
+`codex.NewCredentialAdapter("codex")` — **with no binary**. The reality probe
+runs the provider's CLI, and `ObserveCredentialStore` returns `RealityUnknown`
+when `bin == ""` deliberately ("without the CLI the two states are
+indistinguishable, and guessing is what caused the lockout"). So
+`CredentialIsExternal` answered false for every real host and every one fell
+back to the pre-0134 escalation. Nothing in `providerauth` could catch it: its
+tests supply their own adapter.
+
+Fixed by threading `cfg.Providers.Codex.Bin` through `newCredentialGuard`, with
+the parameter documented as required rather than optional.
+
+`TestCredentialGuardPassesTheCodexBinary` now pins it end-to-end — a stub CLI
+exiting zero, `{}` in the credential file, recovery must reach `external`. It
+failed twice before passing, and the second failure was informative: with the
+binary wired but no `CURRENT` seeded it returned `idle`, because an unmanaged
+provider takes the seeding branch and never reaches the classification. That is
+harmless — no warning, and `backupProjection` still reports unsupported — but it
+is not the reporting host's state, so the test now seeds a real credential first
+and only then swaps in the stub, mirroring the host exactly.
+
+**Host results after the fix.**
+
+```text
+step 22  2026-09-03T07:19:48  INFO provider=codex  "provider is signed in but keeps its
+                              credential outside the file mcremote can back up; signing in
+                              from here will create one it can"
+                              — and NO operator-decision warning
+step 23  ~/.codex/auth.json   3 bytes, `{}`, sha256 ca3d163b… — byte-identical to the
+                              value recorded before this work. mtime 07:19:02 is 46s
+                              BEFORE the daemon started at 07:19:48, so codex touched it,
+                              not recovery.
+step 24  manifest             state: external; both generations retained
+                              (previous/refresh 2026-08-23, current/device_auth 2026-09-03)
+step 25  phone                NOT YET VERIFIED — needs the owner to open Codex in Settings
+```
+
+**Verification.**
+
+```text
+go test ./internal/... -count=1   -> 42 packages ok, 0 FAIL
+make pre-add-check                -> 714 file(s) clean (gofmt, golint, govulncheck)
+```
+
+### Deviations (continued)
+
+**2026-09-03 — `internal/daemon/daemon.go` added to scope.** Threading the
+configured binary needed the call site as well as `credentials.go`, which was
+the only daemon file the plan named. One line; no other production file was
+added.
+
+### Outstanding
+
+* Step 25: the owner opens Codex in Settings on the phone and confirms no
+  `credential_failed`, with no sign-in performed.
+* Why codex-cli 0.152.1 moved the credential out of `auth.json` is still
+  unanswered. This work stops mcremote mismanaging that state; it does not
+  restore the ability to back the credential up.
