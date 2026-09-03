@@ -265,6 +265,88 @@ asset bundle and fails on the `pubspec.yaml` asset entries, so `lib`, `test`,
 pubspec and `analysis_options.yaml` alone were not enough. Recorded so the next
 negative-test run does not rediscover it.
 
-### Phase 4 — not yet done
+### Phase 4 — 2026-09-02, partially executed on the emulator
 
-Device end-to-end against the live `v0.16.0` release is outstanding.
+Run on AVD `mcremote_test` (arm64-v8a, API 36), against the **live, immutable**
+`v0.16.0` GitHub release — not a fixture.
+
+`make apk VERSION=0.15.9` (JDK 21) produced a release-mode APK, verified by
+`scripts/assert-flutter-release-apk.sh`, and `adb install -r -d` put it on the
+emulator as `versionName=0.15.9`. Settings → About → App update then reported,
+in order, on real screenshots:
+
+```text
+App update — Tap to check for updates
+App update — Update available: v0.16.0     (after the check)
+App update — Ready to install v0.16.0      (after the download)
+App update — Installer launched            (after confirming the dialog)
+```
+
+**"Ready to install v0.16.0" is the criterion this MADR exists for.** The
+client fetched the real 41,092,083-byte APK, hashed it in one pass, and matched
+it against GitHub's `digest`
+(`ab00c404a1d6d02e20417d4874eb29207645dae7a883194ce871efabeb54223d`) with no
+`SHA256SUMS` line in existence for it. The pre-0132 client stops at this exact
+step with "no checksum entry for magic-cli-remote-v0.16.0-arm64.apk".
+
+Note for the next person: `adb exec-out screencap` returns a **black frame** for
+this app's Flutter surface on API 36 — the earlier system-UI frame captured
+fine, so the emulator is not at fault. Host-side `screencapture` of the emulator
+window is what works.
+
+**The install leg did not complete, for a reason outside this MADR.**
+
+```text
+PackageManager: Existing package com.maccavelli.magic_cli_remote signatures do
+  not match newer version; ignoring!
+PackageInstallerSession: Marking session 465359785 as failed:
+  INSTALL_FAILED_UPDATE_INCOMPATIBLE
+```
+
+`apps/mobile/android/key.properties` does not exist on this host, so Gradle fell
+back to the debug key exactly as `android/app/build.gradle.kts:78` says it will,
+while the published `v0.16.0` carries the CI upload key. `~/mcremote-upload.jks`
+is present but its password is not available to the agent. Android refuses a
+cross-signature in-place upgrade — correctly.
+
+This is a property of the test rig, not of the change: verification, which is
+all 0132 alters, had already succeeded. The install handoff itself (the
+FileProvider grant and the install intent) is untouched by this work and was
+exercised under MADR 0126 D6.
+
+### Deviations (continued)
+
+**2026-09-02 — Phase 4 step 15 is unreachable on a locally built APK; owner
+chose to verify on the real device instead.** ~~Step 15: "In Settings → app
+update: check, download, verify, install v0.16.0 from the live GitHub
+release"~~ — the install half cannot run against a debug-signed local build, and
+signing one with the upload key needs a credential the agent does not hold.
+Presented to the owner with three resolutions (provision `key.properties` and
+finish on the emulator; close Phase 4 on what was proven; verify on the real
+phone). **Owner chose: verify on the real phone**, which requires a CI-signed
+APK, and separately chose to **cut a release and sideload it once**. Phase 4's
+emulator run therefore stands as recorded above — complete through verification,
+install leg deliberately not pursued here — and the install leg moves to the
+device acceptance below.
+
+Consequence of doing nothing, stated at the time: the phone in the field keeps
+failing on `v0.16.0`, because the build it runs predates the fix and no CI
+change can repair an immutable release.
+
+## Device Acceptance (outstanding)
+
+The fix cannot reach the owner's phone in-app: the installed build is the one
+whose updater is broken. One manual install is required, and it must be
+**CI-signed** — a locally built APK cannot upgrade a CI-signed install in place,
+as the emulator run above demonstrates.
+
+Route chosen by the owner: cut a release, install its APK on the phone by hand
+once, and confirm the tile then offers and installs subsequent updates.
+
+Acceptance, to be recorded here when done:
+
+* The release's `magic-cli-remote-<tag>-arm64.apk` installs over the existing
+  app without uninstalling, and pairing survives.
+* Settings → About → App update reports `Up to date (<tag>)`.
+* A later release is offered, downloaded, verified and installed entirely
+  in-app.
