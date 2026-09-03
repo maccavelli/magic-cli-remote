@@ -165,7 +165,19 @@ type Manifest struct {
 	// to remove, so an interrupted logout can be finished or refused (D26).
 	LoggedOutExpected Fingerprint `json:"logged_out_expected,omitempty"`
 	LoggedOutAt       time.Time   `json:"logged_out_at,omitzero"`
-	UpdatedAt         time.Time   `json:"updated_at"`
+	// OperatorChoice records that a human asked for a specific resolution while
+	// this provider was in recovery_required, and is written BEFORE the
+	// resolution is applied (MADR 0133).
+	//
+	// It exists for one narrow case: ResolveRecovery is documented to leave the
+	// manifest in recovery_required when it fails, so a state that automatic
+	// re-evaluation would otherwise revisit may be one an operator has already
+	// ruled on. Re-evaluating there could quietly do something other than what
+	// they asked for. A successful resolution leaves recovery_required and
+	// clears this; a failed one leaves it set, and that is the signal.
+	OperatorChoice   RecoveryChoice `json:"operator_choice,omitempty"`
+	OperatorChoiceAt time.Time      `json:"operator_choice_at,omitzero"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
 func newManifest(provider string) *Manifest {
@@ -174,6 +186,13 @@ func newManifest(provider string) *Manifest {
 		Provider: provider,
 		State:    StateIdle,
 	}
+}
+
+// clearOperatorChoice drops the recorded attempt. Called on every path that
+// successfully leaves recovery_required, so the marker only ever survives a
+// resolution that failed (MADR 0133).
+func (m *Manifest) clearOperatorChoice() {
+	m.OperatorChoice, m.OperatorChoiceAt = "", time.Time{}
 }
 
 func (m *Manifest) byLabel(l Label) *Generation {

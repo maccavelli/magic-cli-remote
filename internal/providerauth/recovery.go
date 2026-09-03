@@ -59,8 +59,20 @@ func (c *Coordinator) observeLive(ctx context.Context) (observation, []byte, err
 }
 
 func (c *Coordinator) recoverLocked(ctx context.Context, m *Manifest) (State, error) {
-	// recovery_required is terminal until an operator acts (P19).
-	if m.State == StateRecoveryRequired {
+	// recovery_required is terminal for automatic MUTATION, but it is not a
+	// reason to stop looking (MADR 0133).
+	//
+	// It used to return here unconditionally, which made one ambiguous
+	// observation permanent: reconciliation skips this state too, so the
+	// watcher stopped adopting refreshes and every later start re-logged the
+	// same warning without re-examining anything. On the reporting host that
+	// ran from 2026-08-23 to 2026-09-02 and cost a ChatGPT sign-in each time.
+	//
+	// Re-evaluating overrides no one. A successful ResolveRecovery always
+	// leaves this state, so being in it means no operator decision is in
+	// effect — with one exception, a resolution that was attempted and failed,
+	// which OperatorChoice records and which is still terminal here.
+	if m.State == StateRecoveryRequired && m.OperatorChoice != "" {
 		return StateRecoveryRequired, nil
 	}
 
@@ -77,6 +89,12 @@ func (c *Coordinator) recoverLocked(ctx context.Context, m *Manifest) (State, er
 	case StateCommitting:
 		return c.recoverCommitting(m, obs)
 	default:
+		// recovery_required arrives here too, and recoverIdle is exactly the
+		// right evaluation for it: an unstable read still defers, a LIVE that
+		// matches CURRENT or is adoptable clears the state, and anything else
+		// escalates again — which for an already-escalated provider is a
+		// no-op. The same evidence test either way, so the state cannot mean
+		// two different things depending on how it was reached.
 		return c.recoverIdle(ctx, m, obs, data)
 	}
 }

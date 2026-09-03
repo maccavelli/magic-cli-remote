@@ -202,6 +202,14 @@ func (c *Coordinator) ResolveRecovery(ctx context.Context, choice RecoveryChoice
 		if m.State != StateRecoveryRequired {
 			return fmt.Errorf("%w: provider is not awaiting an operator decision", ErrRecoveryRequired)
 		}
+		// Record the attempt before acting on it. A resolution that fails
+		// leaves the manifest in recovery_required, and startup re-evaluation
+		// must not then decide something else on this operator's behalf
+		// (MADR 0133).
+		m.OperatorChoice, m.OperatorChoiceAt = choice, time.Now().UTC()
+		if err := c.save(m); err != nil {
+			return err
+		}
 		switch choice {
 		case ChooseLoggedOut:
 			return c.resolveLoggedOut(ctx, m)
@@ -224,6 +232,7 @@ func (c *Coordinator) resolveLoggedOut(ctx context.Context, m *Manifest) error {
 	if err != nil {
 		fp = FingerprintAbsent
 	}
+	m.clearOperatorChoice()
 	m.State = StateLoggedOut
 	m.LoggedOutExpected = fp
 	m.LoggedOutAt = time.Now().UTC()
@@ -264,6 +273,7 @@ func (c *Coordinator) resolveAdoptLive(ctx context.Context, m *Manifest) error {
 		ValidatedAt: now,
 	})
 	c.rotateLocked(m, id)
+	m.clearOperatorChoice()
 	m.State = StateIdle
 	if err := c.save(m); err != nil {
 		return err
@@ -325,6 +335,7 @@ func (c *Coordinator) resolveRepublish(ctx context.Context, m *Manifest, label L
 				}
 			}
 		}
+		m.clearOperatorChoice()
 		m.State = StateIdle
 		if err := c.save(m); err != nil {
 			return err

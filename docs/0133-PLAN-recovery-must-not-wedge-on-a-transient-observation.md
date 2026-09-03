@@ -369,4 +369,60 @@ MADR's Confirmation section already lists both tests.
 which named only the grok and credstore tests. Caught by the full-suite run, not
 by the per-package one. Updated identically; no production file was added.
 
-### Phases 4-6 — not yet done
+### Phase 4 — 2026-09-02, complete
+
+`recoverLocked` no longer returns unconditionally for `StateRecoveryRequired`.
+It falls through to `recoverIdle`, which is the correct evaluation for it
+unchanged: an unstable read still defers, a LIVE that matches CURRENT or is
+adoptable clears the state, and anything else escalates again — a no-op for an
+already-escalated provider. The same evidence test either way, so the state
+cannot mean two different things depending on how it was reached.
+
+**The operator gate (step 10) earned its keep, but not for the reason the step
+gave.** Being in `recovery_required` is itself proof no operator decision is in
+effect, because every successful `ResolveRecovery` leaves the state — so a
+marker would be dead weight for the case the step described. One narrow case is
+real: `ResolveRecovery` is documented to leave the manifest in
+`recovery_required` when it **fails**, so a human may have ruled on a state that
+re-evaluation would otherwise revisit. `Manifest.OperatorChoice` /
+`OperatorChoiceAt` are therefore written *before* the resolution is applied, and
+cleared on each of the three paths that successfully leave the state
+(`resolveLoggedOut`, `resolveAdoptLive`, `resolveRepublish`). A marker that
+survives is a resolution that failed, and that is still terminal.
+
+**Step 11: no change made.** The daemon warning fires exactly when
+`RecoverAll` reports `recovery_required`, which now means "still genuinely
+ambiguous" — what the text already says. Rewording it would have been churn.
+
+**The documented transition row was amended, not deleted.**
+`recovery_required makes no automatic mutation` failed as soon as step 9 landed:
+
+```text
+--- FAIL: TestRecoveryTransitionTable/recovery_required_makes_no_automatic_mutation
+    recovery_test.go:311: state = idle, want recovery_required
+```
+
+That is the MADR's decision arriving, not a regression — and `state = idle` came
+from the sub-case where LIVE **equals CURRENT**, which is the least ambiguous
+input there is and precisely what was wedging. The row is now
+`recovery_required is re-evaluated, never mutates live` with three sub-cases:
+LIVE matching CURRENT clears the state; an older LIVE keeps it; a recorded
+operator attempt keeps it even when LIVE is adoptable. The invariant the row
+actually protected — recovery never mutates LIVE — is asserted in all three, and
+the amendment is annotated in place rather than silently rewritten.
+
+**Verification.**
+
+```text
+go test ./internal/providerauth/ -run TestRecoveryTransitionTable -count=1 -v
+  -> all 16 rows PASS, including idle/live_absent_requires_recovery and
+     idle/live_invalid_requires_recovery, which the 2026-09-02 deviation preserved
+go test ./internal/... -count=1   -> 41 packages ok, 0 FAIL
+go vet ./internal/... , gofmt -l internal   -> clean
+```
+
+### Phases 5-6 — remaining
+
+Phase 5's tests landed with the phases they cover (12-14 in Phase 3, 16 in
+Phase 4). Still outstanding: step 17's `Begin`→`Commit` conflict regression
+test, and all of Phase 6 (verify on this host).
