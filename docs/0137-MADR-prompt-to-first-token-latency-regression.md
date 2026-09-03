@@ -820,6 +820,71 @@ they track one, and the field stays absent rather than guessed.
   not blocked by the interface — they are blocked by not knowing their own
   default, which is a provider-side gap this amendment names rather than fixes.
 
+## Amendment, 2026-09-03 (ninth): the five engines report their version five ways
+
+The fifth amendment recorded `agentInfo.version` as an unconsumed ACP surface
+and the plan built step 7.5 on it, as the single version source for the grok
+and goose pins. Driving the engines shows that is true for one of them.
+
+| provider | installed | version on the wire | shape |
+| --- | --- | --- | --- |
+| kilo | 7.5.6 | `version` in `GET /global/health` | already consumed |
+| opencode | 1.18.26 | `version` in `GET /global/health` | already consumed |
+| goose | 1.48.0 | `agentInfo.version` in the `initialize` result | standard ACP |
+| grok | 1.0.13 | `_meta.agentVersion` in the `initialize` result | vendor extension |
+| codex | 0.152.1 | `userAgent` prefix at `initialize`; `cliVersion` on `thread/started` | app-server, not ACP |
+
+**grok sends no `agentInfo`.** Zero occurrences across all 247 frames of the
+full-turn fixture, which includes the complete `initialize` result. It is
+within spec to omit it: the ACP SDK types the field as optional
+(`acp-go-sdk@v0.13.5/types_gen.go:2336`, "in future versions of the protocol,
+this will be required"). What grok does send is
+`result._meta.agentVersion: "1.0.13"`, alongside a substantial vendor `_meta`
+block — `modelState.currentModelId` (`grok-4.6`), `availableModels` with
+per-model reasoning-effort rungs, `availableCommands`, and `mcpServers`.
+
+**goose does send it**, confirmed by driving the engine directly:
+`{"name":"goose","version":"1.48.0"}`.
+
+**codex is not ACP and was never covered by 7.5.** Its version arrives twice:
+embedded in the `initialize` result's `userAgent`, which mcremote already
+parses and stores in `initializeMetadata.UserAgent` but never reads for a
+version, and explicitly as `cliVersion` on `thread/started`. The userAgent
+shape is `<originator>/<CARGO_PKG_VERSION> (…)`, established from the upstream
+source (`codex-rs/login/src/auth/default_client.rs:164-170`) rather than
+inferred from the string.
+
+### Decision: read each engine's own source, rather than one source for all
+
+Each pin compares against a version the *running engine* reported. The
+alternative considered was executing `<bin> --version` at engine ready — one
+uniform mechanism, no per-engine parsing.
+
+* Good, because a pin exists to say "the wire shapes were checked against
+  *this* engine", and only the engine can say which engine it is. Codex makes
+  the difference concrete: its app-server may be a managed daemon of a
+  different build from the `codex` on `PATH`, so the subprocess answer can be
+  confidently wrong.
+* Good, because it costs no process spawn on any engine start.
+* Neutral, because it is three readers rather than one. All three sit in files
+  Phase 7 already touches.
+* Bad, because two of the three parse vendor-specific shapes that upstream may
+  change without notice. Mitigated by every reader failing to empty rather than
+  to a wrong value, and by an unreported version producing no warning at all.
+
+### A second finding: the goose fixture has no handshake
+
+`acphttp` performs `initialize` over `POST /acp` (`conn.go:109`), while the
+MADR 0137 wire capture hooks the websocket. The goose fixture's 15 frames
+therefore begin at the `session/new` result, and the question above had to be
+settled by driving the engine live rather than by reading the fixture the sixth
+amendment added for exactly this purpose.
+
+A capture hook goes into `postJSON`, under the same environment gate and the
+same redaction, and the goose fixture is re-recorded with the handshake
+included. A fixture that silently omits a transport's control plane is the same
+class of defect as the empty `frames.jsonl` Phase 1 found in its own tool.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the

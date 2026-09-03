@@ -173,6 +173,11 @@ without parsing `history.json`, and 2.5 fails against pre-change code.
 `VersionIsKnownGood` helper, and a warn-on-mismatch call from the engine-ready
 path.
 
+**Amended 2026-09-03:** the version each of those three compares against comes
+from the source step 7.5 (as amended) reads for it — `agentInfo.version` for
+goose, `_meta.agentVersion` for grok, the `userAgent` prefix for codex. 7.5
+therefore lands with, not after, this phase.
+
 3.3 **Mismatch warns; it never refuses to start.** A routine upstream upgrade
 must not become an outage. State that in a comment above each constant so a
 later reader does not harden it into a refusal.
@@ -352,9 +357,17 @@ unrouted notifications alone — they are recorded, not adopted, because
 *Test:* each notification produces exactly one provider event, and an unknown
 notification is still ignored rather than forwarded.
 
-7.5 **F10a — read `agentInfo.version` from the ACP handshake** and use it as
+7.5 ~~**F10a — read `agentInfo.version` from the ACP handshake** and use it as
 the version source for the grok and goose pins added in Phase 3, replacing
-whatever ad-hoc source those pins would otherwise need.
+whatever ad-hoc source those pins would otherwise need.~~
+
+**Amended 2026-09-03 (see the deviation below and the MADR's ninth
+amendment).** `agentInfo` is optional in ACP and grok omits it. Read each
+engine's own source instead: `agentInfo.version` for goose
+(`acphttp`), `_meta.agentVersion` for grok (`acpagent`), and the `userAgent`
+prefix for codex (`codex/provider.go`, cross-checked against `cliVersion` on
+`thread/started`). Each reader fails to empty, never to a wrong value, and an
+unreported version produces no warning.
 
 7.6 **F10b — honour `promptCapabilities` in `acphttp`.** It never reads them,
 so goose's `image: true` is unobserved and images cannot be sent to a provider
@@ -381,7 +394,16 @@ and `_x.ai/queue/changed`, and either route or explicitly decline each.
 *Test:* each routed extension produces one provider event; an unknown `_x.ai/*`
 notification is ignored rather than forwarded.
 
-**Done when:** 7.1-7.6 and 7.8 land with tests, and 7.7 is confirmed as a
+7.9 **Added 2026-09-03 — capture the `acphttp` handshake.** `initialize`,
+`authenticate` and every other `postJSON` call goes over `POST /acp`, not the
+websocket, so the goose fixture begins at the `session/new` result and contains
+no handshake at all. Hook `postJSON` (`internal/provider/acphttp/conn.go:62`)
+under the existing `MCREMOTE_WIRE_CAPTURE_DIR` gate and the existing redaction,
+then re-record the goose fixture with the handshake included.
+*Test:* a capture run records the initialize request and response; redaction is
+verified at zero occurrences on the re-recorded fixture.
+
+**Done when:** 7.1-7.6, 7.8 and 7.9 land with tests, and 7.7 is confirmed as a
 written decision rather than an oversight.
 
 ## Verification
@@ -816,4 +838,151 @@ go test ./internal/... -count=1   -> ok (whole tree)
 make pre-add-check                -> 722 file(s) clean
 ```
 
-### Phases 3-7 — not yet started
+### Phase 3 + steps 7.5 and 7.9 — 2026-09-03, complete
+
+7.5 landed with Phase 3 rather than before it, because the three new pins have
+nothing to compare against until their version source exists.
+
+**3.1** kilo `KnownGoodVersion` 7.4.23 -> **7.5.6**; opencode 1.18.21 ->
+**1.18.26**. Both constants now cite their Phase 1 fixture directory and its
+frame counts (3.4).
+
+**3.2** New `version.go` for grok (**1.0.13**), goose (**1.48.0**) and codex
+(**0.152.1**), each citing its fixture.
+
+**3.3** Every pin warns and never refuses, stated in a comment above each
+constant, including the instruction not to harden it into a gate without a
+decision record.
+
+**7.5 (amended)** Version readers, one per transport:
+
+| provider | source | file |
+| --- | --- | --- |
+| goose | `agentInfo.version` (standard ACP) | `acphttp/version.go` |
+| grok | `_meta.agentVersion` (vendor) | `acpagent/version.go` |
+| codex | `userAgent` prefix | `codex/version.go` |
+
+`provider.SameVersion` is the shared comparison: semantic, tolerant of a
+leading `v` and of pre-release/build metadata, and **never equal on
+unparseable input** — including two identical unreadable strings. A pin that
+reports agreement it never established is worse than no pin.
+
+**7.9** `acphttp.postJSON` is hooked, so the POST /acp control plane is
+captured alongside the websocket. The goose fixture was re-recorded from a
+live `hi`: 14 frames, the first three being `initialize` request, `initialize`
+response and the `session/new` response — none of which the previous 15-frame
+websocket-only capture contained.
+
+### Verification
+
+**All five engines started under one isolated daemon, all five matched their
+pin, zero drift warnings:**
+
+```text
+INFO  kilo engine version          version=7.5.6
+INFO  opencode engine version      version=1.18.26  known_good=1.18.26
+INFO  engine version               provider=goose   version=1.48.0
+INFO  engine version               provider=grok    version=1.0.13
+INFO  codex engine version         version=0.152.1
+```
+
+Engines confirmed up from the log: `provider.kilo-http`,
+`provider.opencode-http`, `provider.goose-acphttp`, `provider.grok`,
+`provider.codex`.
+
+**Six deliberate breakages, each verified to have landed, each restored from a
+`cp` backup:**
+
+```text
+G. SameVersion treats two unparseable strings as equal
+   FAIL TestSameVersionRefusesUnparseableInput
+        SameVersion("", "") = true, want false
+        SameVersion("nonsense", "nonsense") = true, want false
+
+H. read only agentInfo.version (step 7.5 exactly as originally written)
+   FAIL .../grok:_vendor__meta.agentVersion,_no_agentInfo_at_all
+        engineVersionOf = "", want "1.0.13"
+
+I. codex returns the userAgent token without checking it is a version
+   FAIL TestVersionFromUserAgent
+        versionFromUserAgent("codex_cli_rs/notaversion (x)") = "notaversion", want ""
+
+J. codex pin bumped to 0.153.0 with no fixture
+   FAIL TestPinMatchesTheFixtureItCites
+        testdata/wire/0.153.0 does not exist
+
+K. the pre-7.9 goose fixture (POST frames dropped, websocket only)
+   FAIL TestPinIsCorroboratedByItsFixture
+        no agentInfo.version: the fixture does not cover the initialize handshake
+
+L. goose pin bumped to 1.49.0 with no fixture
+   FAIL TestPinIsCorroboratedByItsFixture
+        testdata/wire/1.49.0/frames.jsonl: no such file or directory
+```
+
+Breakage H is the one worth keeping: it is step 7.5 as the plan originally
+specified it, and it leaves grok — the provider whose performance prompted this
+record — with no version at all.
+
+```text
+go build ./...                            -> ok
+go test ./internal/... ./cmd/... -count=1 -> ok
+make pre-add-check                        -> 733 file(s) clean
+```
+
+### Deviations
+
+**2026-09-03 — `agentInfo.version` is not the version source for grok.** Step
+7.5 named it as the single source for both grok and goose.
+
+*Evidence.* grok 1.0.13 sends no `agentInfo`: zero occurrences across all 247
+frames of its full-turn fixture, which contains the complete `initialize`
+result. The ACP SDK types the field as optional
+(`acp-go-sdk@v0.13.5/types_gen.go:2336`). grok reports
+`result._meta.agentVersion` instead. goose does send the standard field,
+confirmed by driving the engine. codex is not ACP and was never covered by 7.5
+at all; its version is in the `initialize` `userAgent`, whose shape is
+`<originator>/<CARGO_PKG_VERSION>` per
+`codex-rs/login/src/auth/default_client.rs:164-170`.
+
+*Not worked around.* No pin was dropped, and no version was inferred from
+`<bin> --version`, which measures the binary on PATH rather than the engine
+that is running — wrong for codex, whose app-server can be a managed daemon of
+a different build.
+
+*Resolution, chosen by the owner:* read each engine's own source. See the
+MADR's ninth amendment.
+
+**2026-09-03 — the goose fixture had no handshake.** `acphttp` initializes over
+`POST /acp` (`conn.go:109`) while the MADR 0137 capture hooked only the
+websocket, so the fixture the sixth amendment added for exactly this purpose
+could not answer the question above — it had to be settled by driving the
+engine live.
+
+*Resolution, chosen by the owner:* step 7.9, added to the plan. `postJSON` is
+hooked under the same environment gate and redaction, and the fixture is
+re-recorded with the handshake. Redaction verified at zero occurrences of the
+operator's username and zero `Users/` paths; 0 malformed JSON lines.
+
+*Files added to this phase's scope:* `internal/provider/version.go`
+and its test, `internal/provider/acphttp/{conn.go,provider.go,spec.go,version.go,conn_test.go}`,
+`internal/provider/acpagent/{acpagent.go,version.go,version_test.go}`,
+`internal/provider/codex/{provider.go,version.go,version_test.go}`,
+`internal/provider/{grok,goose}/{version.go,version_test.go}` and their Spec
+literals, `internal/provider/kilo/dialect_test.go`,
+`internal/provider/opencode/version_test.go`, and the goose fixture.
+
+**Observed, not acted on.** grok's `initialize` `_meta` carries far more than a
+version: `modelState.currentModelId` (`grok-4.6`) with `availableModels` and
+per-model reasoning-effort rungs, `availableCommands`, `mcpServers`,
+`cancelRewind`, `sessionRecap` and `voiceMode`. The model catalog half is
+already harvested (`acpagent.go:502`); the rest is unconsumed. Recorded for
+step 7.7's recorded-not-adopted list rather than changed here.
+
+**Not done in this phase.** The pin-drift *warning* paths for grok, goose and
+codex have unit tests only for the version READ, not for the warn/info/silent
+branches. The branches were exercised live — all five matched, so only the
+info branch ran — and the warning text is shared with the kilo/opencode paths
+that do have matrix tests. A drift matrix per transport belongs with Phase 5.
+
+### Phases 4-7 (except 7.5, 7.9) — not yet started

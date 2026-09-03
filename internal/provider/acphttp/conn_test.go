@@ -30,7 +30,7 @@ func TestDialWSReadLimitAdmitsLargeFrames(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	conn := newACPConn(srv.URL, Config{})
+	conn := newACPConn(srv.URL, Config{}, nil)
 	conn.connID = "test-conn"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -78,7 +78,7 @@ func TestSendNotificationOmitsJSONRPCID(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn := newACPConn(srv.URL, Config{})
+	conn := newACPConn(srv.URL, Config{}, nil)
 	conn.connID = "test-conn"
 	ws, err := conn.dialWS(ctx)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestDialWSSendsOriginHeader(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	conn := newACPConn(srv.URL, Config{})
+	conn := newACPConn(srv.URL, Config{}, nil)
 	conn.connID = "test-conn"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

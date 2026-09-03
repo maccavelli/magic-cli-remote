@@ -3,8 +3,8 @@
   "version": "1.48.0",
   "kind": "in-daemon",
   "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap)",
-  "captured_at": "2026-09-03T18:07:23Z",
-  "frames": 15,
+  "captured_at": "2026-09-03T19:18:00Z",
+  "frames": 14,
   "redacted": "operator home -> /home/user (absolute and separator-stripped forms)",
-  "note": "one hi turn"
+  "note": "one hi turn, re-recorded with the POST /acp control plane included (MADR 0137 step 7.9). The first capture covered only the websocket, so it began at the session/new result and carried no handshake — which is why grok's missing agentInfo had to be settled by driving the engine. Frames 1-3 are POST /acp (initialize request, initialize response, session/new response); the rest are websocket session/update notifications and the prompt result."
 }

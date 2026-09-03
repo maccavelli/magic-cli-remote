@@ -56,6 +56,11 @@ type Provider struct {
 	cfg  Config
 	log  *slog.Logger
 
+	// versionMu guards engineVersion, written on a start and read from
+	// doctor/status paths on other goroutines.
+	versionMu     sync.Mutex
+	engineVersion string
+
 	mu       sync.Mutex
 	eng      *engine
 	starting bool
@@ -406,13 +411,15 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		}
 	}
 
-	conn := newACPConn(url, p.cfg)
+	conn := newACPConn(url, p.cfg, p.wire)
 	caps, err := conn.initialize(ctx)
 	if err != nil {
 		_ = procutil.KillProcessGroup(cmd.Process)
 		<-waitCh
 		return "", fmt.Errorf("acp initialize: %w", err)
 	}
+
+	p.reportEngineVersion(conn.agentVersion)
 
 	ws, err := conn.dialWS(ctx)
 	if err != nil {

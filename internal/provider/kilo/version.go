@@ -7,12 +7,17 @@ import (
 )
 
 // KnownGoodVersion is the kilo CLI release every wire shape in this package
-// was live-probed against (MADR 0108, docs/kilo-spike-7.4.23/; prior spikes
-// remain as historical evidence). Kilo is a fast-moving OpenCode fork,
-// so a version drifting from this pin is worth a log line even though
-// nothing refuses to run yet — a minimum-version gate only becomes real
-// when session_tree needs one (plan PD2 / MADR Q7).
-const KnownGoodVersion = "7.4.23"
+// was live-probed against. Kilo is a fast-moving OpenCode fork, so a version
+// drifting from this pin is worth a log line even though nothing refuses to
+// run yet — a minimum-version gate only becomes real when session_tree needs
+// one (plan PD2 / MADR Q7).
+//
+// Evidence for 7.5.6: internal/provider/kilo/testdata/wire/7.5.6/, a live turn
+// captured from the SSE stream — 56 frames covering message.part.delta,
+// message.part.updated, message.updated and 18 `sync` frames (MADR 0137 Phase
+// 1). The 7.4.23 spike (MADR 0108, docs/kilo-spike-7.4.23/) remains as
+// historical evidence for the previous pin.
+const KnownGoodVersion = "7.5.6"
 
 // OnHealthy implements [httpagent.HealthyHook]: records the engine version
 // from GET /global/health ({"healthy":true,"version":"7.4.23"} on the 0108

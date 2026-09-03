@@ -13,6 +13,8 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/coder/websocket"
+
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 type acpConn struct {
@@ -20,6 +22,16 @@ type acpConn struct {
 	baseURL string
 	httpc   *http.Client
 	cfg     Config
+	// wire records the POST /acp control plane when capture is on; nil
+	// otherwise. The websocket hook in ws.go covers only session/update
+	// notifications, so without this a fixture begins at the session/new
+	// result and contains no handshake at all — which is how grok's missing
+	// agentInfo had to be settled by driving the engine instead of reading the
+	// fixture recorded for that purpose (MADR 0137 step 7.9).
+	wire *wirecap.Capture
+	// agentVersion is the engine version from the initialize response's
+	// standard ACP `agentInfo`, or "" when the agent sent none.
+	agentVersion string
 }
 
 type jsonRPCRequest struct {
@@ -45,8 +57,9 @@ func (e *jsonRPCError) Error() string {
 	return fmt.Sprintf("JSON-RPC error %d: %s", e.Code, e.Message)
 }
 
-func newACPConn(baseURL string, cfg Config) *acpConn {
+func newACPConn(baseURL string, cfg Config, wire *wirecap.Capture) *acpConn {
 	return &acpConn{
+		wire: wire,
 		httpc: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -66,6 +79,7 @@ func (c *acpConn) postJSON(ctx context.Context, method string, params any) (json
 		Method:  method,
 		Params:  params,
 	})
+	c.wire.Frame(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/acp", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -80,6 +94,7 @@ func (c *acpConn) postJSON(ctx context.Context, method string, params any) (json
 	}
 	defer res.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	c.wire.Frame(data)
 
 	// Extract connection-id from initialize response header
 	if method == "initialize" {
@@ -113,6 +128,9 @@ func (c *acpConn) initialize(ctx context.Context) (*acp.AgentCapabilities, error
 	var resp acp.InitializeResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("initialize: decode: %w", err)
+	}
+	if resp.AgentInfo != nil {
+		c.agentVersion = resp.AgentInfo.Version
 	}
 	if c.connID == "" {
 		return nil, fmt.Errorf("initialize: no Acp-Connection-Id in response")

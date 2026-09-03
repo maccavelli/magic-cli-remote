@@ -49,6 +49,7 @@ var staticModes = []event.SessionMode{
 var spec = acpagent.Spec{
 	ID:                    provider.IDGrok,
 	DefaultBin:            "grok",
+	KnownGoodVersion:      KnownGoodVersion,
 	DefaultArgs:           defaultArgs,
 	AuthStatus:            authStatus,
 	SetCredential:         setCredential,

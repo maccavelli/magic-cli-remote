@@ -21,7 +21,12 @@ const MinVersion = "1.18.0"
 // statement about what has been verified: OpenCode releases frequently, and a
 // newer engine is far more likely to be fine than broken, so drifting off the
 // pin produces one warning per engine boot rather than an outage.
-const KnownGoodVersion = "1.18.21"
+//
+// Evidence for 1.18.26: internal/provider/opencode/testdata/wire/1.18.26/, a
+// live turn captured from the SSE stream — 85 frames covering
+// message.part.delta, message.part.updated, message.updated and 45
+// `plugin.added` frames (MADR 0137 Phase 1).
+const KnownGoodVersion = "1.18.26"
 
 // VersionIsKnownGood reports whether engineVersion is exactly the release this
 // provider was assessed against. Comparison is semantic, so "v1.18.21" and

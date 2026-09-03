@@ -45,11 +45,12 @@ func newSpec(withBuiltins []string) acphttp.Spec {
 		return out
 	}
 	return acphttp.Spec{
-		ID:          provider.IDGoose,
-		DefaultBin:  "goose",
-		ServeArgs:   args,
-		HealthPath:  "/health",
-		StaticModes: staticModes,
+		ID:               provider.IDGoose,
+		KnownGoodVersion: KnownGoodVersion,
+		DefaultBin:       "goose",
+		ServeArgs:        args,
+		HealthPath:       "/health",
+		StaticModes:      staticModes,
 		// approve, not auto (MADR 0069 D3): a goose session must opt into
 		// the dangerous mode per session, like every other provider.
 		DefaultModeID:     "approve",

@@ -63,6 +63,11 @@ type Spec struct {
 	// `_meta`. Empty/nil omits the field. Grok is the only Spec that sets this
 	// (MADR 0106).
 	SessionMeta func(opts provider.StartOptions, cfg Config) map[string]any
+	// KnownGoodVersion is the agent release this Spec's wire shapes were
+	// checked against. Empty disables the check entirely. A mismatch produces
+	// one warning per engine start and NEVER refuses to run: a routine
+	// upstream upgrade must not become an outage (MADR 0137 Phase 3).
+	KnownGoodVersion string
 	// StaticModels is the fallback model picker catalog when ListModels is
 	// nil or fails. Empty + AllowCustom on ListModels default still lets the
 	// user type a free-text model id.
@@ -144,6 +149,11 @@ type Provider struct {
 	catalogMu    sync.RWMutex
 	catalogCache picker.Catalog
 	catalogHas   bool
+
+	// versionMu guards engineVersion, which is written from a spawn and read
+	// from doctor/status paths on other goroutines.
+	versionMu     sync.Mutex
+	engineVersion string
 
 	// warm is the single spare pre-initialized agent process (cfg.Prewarm).
 	// Claimed by Start when the requested argv matches the default; refilled
@@ -506,6 +516,8 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		p.catalogHas = true
 		p.catalogMu.Unlock()
 	}
+
+	p.reportEngineVersion(&initResp, initMeta.Meta.AgentVersion)
 
 	s.agentCaps = initResp.AgentCapabilities
 	s.log.Info("acp initialized",
@@ -967,7 +979,11 @@ type GrokAvailableModel struct {
 type grokInitializeMeta struct {
 	Meta struct {
 		DefaultAuthMethodID string `json:"defaultAuthMethodId"`
-		ModelState          struct {
+		// AgentVersion is grok's engine version. It is a vendor extension:
+		// grok sends no standard ACP `agentInfo`, which the protocol permits
+		// (MADR 0137, ninth amendment).
+		AgentVersion string `json:"agentVersion"`
+		ModelState   struct {
 			CurrentModelID  string               `json:"currentModelId"`
 			AvailableModels []GrokAvailableModel `json:"availableModels"`
 		} `json:"modelState"`
