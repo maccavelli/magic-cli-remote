@@ -1,0 +1,9 @@
+{
+  "provider": "opencode",
+  "version": "1.18.26",
+  "kind": "sse",
+  "source": "http://127.0.0.1:<ephemeral>/event",
+  "captured_at": "2026-09-03T17:31:48Z",
+  "frames": 85,
+  "redacted": "/Users/saxsmith -> /home/user (absolute and separator-stripped forms)"
+}

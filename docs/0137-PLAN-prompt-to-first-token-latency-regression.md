@@ -371,4 +371,108 @@ Phase 6 reports the number and the decision stays with the owner.
 
 ## Execution Record
 
-Not started. `status: proposed` — awaiting approval to execute.
+### Operator config fix — 2026-09-03 (F6b), at the owner's request
+
+`~/.codex/config.toml` had `[features] codex_hooks = true`. Backed up to
+`config.toml.bak-20260903-122714`, then the two-line block was **removed** —
+not renamed to `hooks = true`, because `hooks` is `Stable` with
+`default_enabled: true`, so the setting was redundant rather than merely
+deprecated.
+
+Verified: `codex features list` reports `hooks  stable  true`, so the feature is
+still on, and no legacy usage is attributed to the config. `codex doctor` also
+now reports `auth: ok | auth is configured` — the owner's earlier re-login took,
+independently of this change.
+
+### Phase 1 — 2026-09-03, partially complete
+
+**1.1** `scripts/capture-wire/` added: records an engine's raw `data:` payloads
+to `internal/provider/<p>/testdata/wire/<version>/frames.jsonl` plus a
+`meta.json` naming provider, version, source and capture time.
+
+**1.4 The tool was proven able to fail before any fixture was trusted, and that
+test found two real defects — one in the tool, one in my measurement:**
+
+* Reading `$?` after a pipe returned `tail`'s status, so the first run reported
+  `exit=0` for three genuine failures — the same class of measurement error that
+  produced the retracted delivery-bug claim. Re-run without the pipe:
+
+  ```text
+  no-engine:    exit=1  capture-wire: Get "http://127.0.0.1:59999/global/event": … connection refused
+  missing-flag: exit=1  capture-wire: -version is required
+  bad-kind:     exit=1  capture-wire: unsupported -kind "stdio" (only sse today; …)
+  ```
+
+* **The tool wrote an empty `frames.jsonl` on failure**, because it created the
+  file before capturing — exactly the "silently empty fixture" it exists to
+  prevent. Fixed to capture into memory and write only on success; re-verified
+  that a failed run now leaves no fixture at all.
+
+**1.2 Fixtures captured** for the two providers whose pins need updating:
+
+| fixture | frames | streaming shapes present |
+| --- | --- | --- |
+| `kilo/testdata/wire/7.5.6/` | 56 | `message.part.delta` x8, `message.part.updated` x7, `message.updated` x6, `sync` x18 |
+| `opencode/testdata/wire/1.18.26/` | 85 | `message.part.delta` x8, `message.part.updated` x7, `message.updated` x6, `plugin.added` x45 |
+
+**Redaction, added after the first capture leaked the operator's username.**
+Fixtures go to a public repository and carried `/Users/<user>` in 69 and 8
+frames. Redaction now happens at capture time, so a fixture cannot be created
+unredacted and forgotten. A first attempt was **still not clean**: both engines
+also emit the path with the leading separator stripped
+(`"path":"Users/<user>"`), which replacing the absolute path alone misses —
+caught by re-grepping a fixture that had already been "redacted". The tool now
+substitutes both forms and records it in `meta.json`. Final state: zero
+occurrences in either fixture.
+
+**Verification.**
+
+```text
+go build ./...           -> ok
+go vet ./scripts/...     -> clean
+make pre-add-check       -> 717 file(s) clean (gofmt, golint, govulncheck)
+frames.jsonl JSON parse  -> 0 malformed lines in both fixtures
+```
+
+### Deviations
+
+**2026-09-03 — Phase 1 covers two providers, not four; `-kind stdio` is not
+implemented.** Step 1.2 named kilo, opencode, goose and codex; only kilo and
+opencode are captured.
+
+*Reason.* The five do not share a transport. kilo and opencode are SSE and
+capture externally with a plain HTTP GET. goose is ACP over HTTP; grok and codex
+are stdio (ACP, and `app-server proxy`). Capturing those from outside requires
+the tool to speak each full client handshake, duplicating mcremote's own client
+logic in a script.
+
+*Not worked around.* The tool rejects `-kind stdio` with an explicit error
+rather than pretending, and no fixture exists for the three uncovered providers.
+
+*Resolution needed before Phase 3 can cite fixtures for grok, goose and codex.*
+The cheapest sound option is a capture hook inside the daemon, gated by an
+environment variable, dumping each raw frame as the dialect decodes it — one
+mechanism covering all five transports. That touches production code paths and
+is a scope change this plan does not authorise. **Raised for the owner's
+decision rather than taken.**
+
+*Consequence of doing nothing:* Phase 3 can still pin all five, but the grok,
+goose and codex pins would cite no fixture — precisely the "a pin bump with no
+fixture is a claim that nothing changed" posture this phase exists to end, and
+which kilo 7.5.6 already falsified once.
+
+**2026-09-03 — grok fixture not attempted.** Step 1.3 gates it on the owner
+confirming quota. Not yet asked, because the stdio gap above blocks it
+regardless.
+
+**Observed, not acted on:** opencode 1.18.26 emitted **45 `plugin.added` frames**
+in one short turn — a third instance of the unconditional-emit pattern behind
+F2 (`available_commands`) and F6a (`notice`). Recorded for Phase 4 to consider;
+no change made.
+
+**Also observed:** opencode did **not** warn at 1.18.26 against its 1.18.21 pin,
+because its gate is a floor (`>=`) while kilo's is exact equality. Phase 3 must
+decide deliberately which semantics each provider gets rather than copying
+whichever it starts from.
+
+### Phases 2-6 — not yet started

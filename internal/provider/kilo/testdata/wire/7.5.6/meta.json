@@ -1,0 +1,9 @@
+{
+  "provider": "kilo",
+  "version": "7.5.6",
+  "kind": "sse",
+  "source": "http://127.0.0.1:<ephemeral>/global/event",
+  "captured_at": "2026-09-03T17:31:07Z",
+  "frames": 56,
+  "redacted": "/Users/saxsmith -> /home/user (absolute and separator-stripped forms)"
+}
