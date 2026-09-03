@@ -49,9 +49,11 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Manifest) error {
 	if obs.fp == cur.Fingerprint {
 		return nil
 	}
-	if !obs.meta.Fresher(c.metaOf(ctx, cur)) {
+	if !obs.meta.NotOlder(c.metaOf(ctx, cur)) {
 		// Older, unrelated, or incomparable. Never roll a rotated token
 		// backward; startup recovery is where ambiguity gets escalated.
+		// Equality is adopted rather than refused (MADR 0133): a rewrite that
+		// leaves the provider's own clock alone has not gone backward.
 		return nil
 	}
 
@@ -100,8 +102,11 @@ func (c *Coordinator) stableObservation(ctx context.Context) (observation, []byt
 		}
 		first, data = next, nextData
 	}
-	// Never settled inside the deadline: treat as unstable.
-	return observation{fp: first.fp, valid: false}, data, nil
+	// Never settled inside the deadline: unstable, which is NOT the same as
+	// invalid and must not be reported as it (MADR 0133). `valid` stays false
+	// because nothing here may be trusted; `stable` false is what tells a
+	// caller to look again rather than to escalate.
+	return observation{fp: first.fp, valid: false, stable: false}, data, nil
 }
 
 func (c *Coordinator) observeWithBytes(ctx context.Context) (observation, []byte, error) {
@@ -109,27 +114,30 @@ func (c *Coordinator) observeWithBytes(ctx context.Context) (observation, []byte
 	if err != nil {
 		return observation{}, nil, err
 	}
+	// Every return below is one settled read: stable is true because this
+	// function reports what the file said at an instant, and stableObservation
+	// is what decides whether two such instants agreed.
 	fi, statErr := os.Lstat(live)
 	if statErr == nil {
 		if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
-			return observation{valid: false}, nil, nil
+			return observation{valid: false, stable: true}, nil, nil
 		}
 		if fi.Size() > MaxCredentialBytes {
-			return observation{valid: false}, nil, nil
+			return observation{valid: false, stable: true}, nil, nil
 		}
 	}
 	fp, data, err := liveFingerprint(live)
 	if err != nil {
-		return observation{valid: false}, nil, nil //nolint:nilerr // classified, not fatal
+		return observation{valid: false, stable: true}, nil, nil //nolint:nilerr // classified, not fatal
 	}
 	if fp == FingerprintAbsent {
-		return observation{fp: FingerprintAbsent}, nil, nil
+		return observation{fp: FingerprintAbsent, stable: true}, nil, nil
 	}
 	meta, err := c.adapter.Validate(ctx, data)
 	if err != nil {
-		return observation{fp: fp, valid: false}, data, nil //nolint:nilerr // classified, not fatal
+		return observation{fp: fp, valid: false, stable: true}, data, nil //nolint:nilerr // classified, not fatal
 	}
-	return observation{fp: fp, meta: meta, valid: true}, data, nil
+	return observation{fp: fp, meta: meta, valid: true, stable: true}, data, nil
 }
 
 // RecoverResult is one provider's outcome from RecoverAll.

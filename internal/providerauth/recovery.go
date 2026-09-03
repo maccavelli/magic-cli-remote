@@ -27,32 +27,35 @@ func (c *Coordinator) Recover(ctx context.Context) (State, error) {
 	return out, err
 }
 
-// observation is a validated view of LIVE at recovery time.
+// observation is a validated view of LIVE.
+//
+// `valid` and `stable` answer different questions and must not be conflated.
+// `valid` is "these bytes are a usable credential"; `stable` is "the file had
+// stopped changing when we looked". A file caught mid-rewrite is neither, and
+// the two demand opposite responses: an invalid settled file is a fault to
+// escalate, while an unsettled one is a bad instant to look again after
+// (MADR 0133).
 type observation struct {
-	fp    Fingerprint
-	meta  CredentialMeta
-	valid bool
+	fp     Fingerprint
+	meta   CredentialMeta
+	valid  bool
+	stable bool
 }
 
-func (c *Coordinator) observeLive(ctx context.Context) (observation, error) {
-	live, err := c.adapter.LivePath()
-	if err != nil {
-		return observation{}, err
-	}
-	fp, data, err := liveFingerprint(live)
-	if err != nil {
-		// An irregular or unreadable LIVE is an observation of "not a usable
-		// credential", not a hard failure of recovery.
-		return observation{fp: "", valid: false}, nil //nolint:nilerr // classified below
-	}
-	if fp == FingerprintAbsent {
-		return observation{fp: FingerprintAbsent}, nil
-	}
-	meta, err := c.adapter.Validate(ctx, data)
-	if err != nil {
-		return observation{fp: fp, valid: false}, nil //nolint:nilerr // classified below
-	}
-	return observation{fp: fp, meta: meta, valid: true}, nil
+// observeLive is the recovery-time view of LIVE.
+//
+// It uses the same stable read reconciliation uses. Before MADR 0133 it was a
+// single unguarded os.ReadFile, so a torn write at daemon start — or Codex's
+// transient `{}` stub during its own login — reached recoverIdle as "not a
+// usable credential" and was escalated to recovery_required, a state nothing
+// automatic can leave. Reconciliation, given the identical file, changed
+// nothing and looked again. One question must not have two answers.
+// The bytes are returned alongside the observation on purpose. Re-reading LIVE
+// after validating it reintroduces the very race the stable read removes: the
+// generation written would be a THIRD read, whose contents need not match the
+// fingerprint the manifest records for it.
+func (c *Coordinator) observeLive(ctx context.Context) (observation, []byte, error) {
+	return c.stableObservation(ctx)
 }
 
 func (c *Coordinator) recoverLocked(ctx context.Context, m *Manifest) (State, error) {
@@ -61,7 +64,7 @@ func (c *Coordinator) recoverLocked(ctx context.Context, m *Manifest) (State, er
 		return StateRecoveryRequired, nil
 	}
 
-	obs, err := c.observeLive(ctx)
+	obs, data, err := c.observeLive(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -74,12 +77,29 @@ func (c *Coordinator) recoverLocked(ctx context.Context, m *Manifest) (State, er
 	case StateCommitting:
 		return c.recoverCommitting(m, obs)
 	default:
-		return c.recoverIdle(ctx, m, obs)
+		return c.recoverIdle(ctx, m, obs, data)
 	}
 }
 
 // recoverIdle reconciles an untransacted provider against what LIVE now says.
-func (c *Coordinator) recoverIdle(ctx context.Context, m *Manifest, obs observation) (State, error) {
+func (c *Coordinator) recoverIdle(
+	ctx context.Context, m *Manifest, obs observation, data []byte,
+) (State, error) {
+	// An unsettled LIVE is not a verdict, so nothing is decided from one:
+	// leave every generation and the state exactly as they were and let the
+	// next checkpoint — the watcher, a pre-mutation reconcile, or the next
+	// start — look at a file that has stopped moving. Escalating this was the
+	// wedge (MADR 0133): recovery_required is terminal, so one bad instant
+	// cost a sign-in and every restart after it.
+	//
+	// This is checked before the fingerprint comparisons below, not after,
+	// because an unstable observation's fingerprint is a value read from a file
+	// mid-rewrite. It is not evidence of anything, including of a match.
+	if !obs.stable {
+		c.log().Debug("live credential was still changing; deferring recovery")
+		return m.State, nil
+	}
+
 	cur := m.byLabel(LabelCurrent)
 	if cur == nil {
 		// Unmanaged: seed a valid LIVE, or leave a cold host alone. Neither
@@ -101,13 +121,10 @@ func (c *Coordinator) recoverIdle(ctx context.Context, m *Manifest, obs observat
 	}
 
 	// A different LIVE is promoted only when it is valid, the same mode, and
-	// strictly fresher. Anything else preserves every generation and asks for
-	// an operator decision rather than rolling a rotated token backward (D24).
-	if obs.valid && obs.meta.Fresher(c.metaOf(ctx, cur)) {
-		data, err := c.readLiveBytes()
-		if err != nil {
-			return "", err
-		}
+	// not older. Anything else — invalid, absent, older, a different mode —
+	// preserves every generation and asks for an operator decision rather than
+	// rolling a rotated token backward (D24).
+	if obs.valid && obs.meta.NotOlder(c.metaOf(ctx, cur)) {
 		id, err := c.store.writeGeneration(data)
 		if err != nil {
 			return "", err
@@ -243,15 +260,6 @@ func (c *Coordinator) finish(m *Manifest, s State) (State, error) {
 		return "", err
 	}
 	return s, nil
-}
-
-func (c *Coordinator) readLiveBytes() ([]byte, error) {
-	live, err := c.adapter.LivePath()
-	if err != nil {
-		return nil, err
-	}
-	_, data, err := liveFingerprint(live)
-	return data, err
 }
 
 // metaOf re-derives metadata for a retained generation so freshness is compared

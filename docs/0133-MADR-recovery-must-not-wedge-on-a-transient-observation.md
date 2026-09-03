@@ -177,12 +177,34 @@ Concretely, `recoverIdle` gains three properties:
 1. **Stable observation.** It reads LIVE through the same two-matching-reads
    discipline `Reconcile` uses, with the same `StableReadInterval` /
    `StableReadDeadline` bounds (100 ms / 2 s, `bounds.go:33-34`).
-2. **Unprovable is a no-op, not a verdict.** An unstable, unreadable, or
+2. **Unprovable is a no-op, not a verdict.** ~~An unstable, unreadable, or
    unparseable LIVE leaves the manifest exactly as it was and returns the
-   current state. The next checkpoint — the watcher, a pre-mutation
-   reconcile, or the next start — looks again at a settled file.
-   `recovery_required` is reserved for a *stable, valid* LIVE that is
-   demonstrably older or of a different mode.
+   current state.~~ **Amended 2026-09-02, during Phase 2 — see below.** An
+   **unstable** LIVE — one that never settles inside `StableReadDeadline` —
+   leaves the manifest exactly as it was and returns the current state. The
+   next checkpoint — the watcher, a pre-mutation reconcile, or the next start —
+   looks again at a settled file. `recovery_required` is reserved for a
+   *settled* LIVE that is invalid, absent, demonstrably older, or of a
+   different mode.
+
+   **Amendment.** The original wording put "unreadable or unparseable" on the
+   no-op side. Building Phase 2 showed that to be both wrong and unnecessary.
+   Unnecessary, because `stableObservation` already resolves a torn write on
+   its own: the torn read and the settled read disagree, the loop continues,
+   and two matching reads return a **valid** observation. Wrong, because after
+   that resolution "invalid" no longer means "read at a bad instant" — it means
+   the file was invalid twice in a row, 100 ms apart, which is genuine
+   corruption. Treating that as a no-op would leave the phone reporting nothing
+   wrong while every session failed, and would delete two rows the transition
+   table documents and tests: `idle/live absent requires recovery`
+   (`recovery_test.go:95`) and `idle/live invalid requires recovery` (`:109`).
+
+   The distinction the code was missing is between *never settled* and *settled
+   and bad*. `stableObservation` collapses both into `valid: false` — the
+   deadline path returns `observation{fp: first.fp, valid: false}`, which is
+   byte-identical to a stably-invalid result. `observation` therefore gains an
+   explicit `stable` field, and only `!stable` is the no-op. Absent and invalid
+   escalate exactly as they do today, preserving the operator's restore path.
 3. **Equal is not older.** Adoption requires "not older" rather than "strictly
    newer", so a byte change that leaves `last_refresh` untouched is adopted
    instead of escalated. The backward direction stays forbidden.

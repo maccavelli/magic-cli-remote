@@ -87,11 +87,18 @@ Commit at the end of the phase.
 
 ### Phase 3 — unprovable is a no-op; equal is not older
 
-6. In `recoverIdle` (`recovery.go:82-138`), separate the two cases the single
-   `finish(m, StateRecoveryRequired)` at `:138` currently merges:
-   * LIVE unstable, unreadable, or invalid → leave the manifest untouched and
+6. ~~In `recoverIdle` (`recovery.go:82-138`), separate the two cases the single
+   `finish(m, StateRecoveryRequired)` at `:138` currently merges: LIVE
+   unstable, unreadable, or invalid → leave the manifest untouched and return
+   the current state; LIVE stable and valid but not adoptable → escalate
+   exactly as today.~~ **Superseded 2026-09-02 by the deviation below.** Add a
+   `stable` field to `observation`, set false only on `stableObservation`'s
+   deadline path, and in `recoverIdle` separate:
+   * LIVE **unstable** (`!obs.stable`) → leave the manifest untouched and
      return the current state. Log at debug, not warn: it is not a fault.
-   * LIVE stable and valid but not adoptable → escalate exactly as today.
+   * LIVE settled and invalid, or absent → escalate, unchanged from today, so
+     `recovery_test.go:95` and `:109` keep passing as written.
+   * LIVE settled and valid but not adoptable → escalate exactly as today.
 7. Add `NotOlder` alongside `Fresher` in `adapter.go`, with the same mode gate
    and the same refusal to guess without a comparable signal, differing only in
    accepting equality. Use it for the adoption decision in `recoverIdle` and
@@ -219,4 +226,147 @@ behaviour down with a test.
 
 ## Execution Record
 
-Not started. `status: proposed` — awaiting approval to execute.
+### Phase 1 — 2026-09-02, complete
+
+Commit `1c84b3f`. `CodexAuthLockPath` and `GrokAuthLockPath` now return the base
+credential path and let `fsutil.WithLock` derive the lock file; the four string
+assertions that encoded the old value were updated, and the `fakeAdapter`
+fixtures in `crash_test.go`, `transaction_test.go` and
+`transaction_hygiene_test.go` were moved to the corrected convention.
+
+**Instruments, seen to fail.** The new
+`TestAuthLockPathsFlockTheFileTheProviderHonors` was written and run **first,
+against unmodified paths**, and failed for both providers by name:
+
+```text
+--- FAIL: TestAuthLockPathsFlockTheFileTheProviderHonors/codex
+    no lock file at …/001/auth.json.lock: no such file or directory
+    flocked …/001/auth.json.lock.lock instead of …/001/auth.json.lock: the .lock suffix is applied twice
+--- FAIL: TestAuthLockPathsFlockTheFileTheProviderHonors/grok
+    no lock file at …/002/auth.json.lock: no such file or directory
+    flocked …/002/auth.json.lock.lock instead of …/002/auth.json.lock: the .lock suffix is applied twice
+```
+
+`TestCommitBlocksOnTheProviderNativeLockFile` was built as a two-case table
+rather than a single assertion, so the demonstration is permanent instead of a
+one-off manual run: the `pre-0133 doubled suffix` case asserts that Commit
+**sails past** an external writer holding `auth.json.lock` and leaves an
+`auth.json.lock.lock` behind. Both cases pass, which is what makes the first one
+evidence — the assertion is shown to discriminate between the two conventions,
+not merely to be satisfiable.
+
+```text
+=== RUN   TestCommitBlocksOnTheProviderNativeLockFile/base_path_derives_the_provider's_lock_file
+=== RUN   TestCommitBlocksOnTheProviderNativeLockFile/pre-0133_doubled_suffix_locks_a_file_nobody_else_takes
+--- PASS: TestCommitBlocksOnTheProviderNativeLockFile (0.40s)
+```
+
+**Verification.**
+
+```text
+go test ./internal/provider/credstore/... ./internal/provider/grok/... -count=1  -> ok, ok
+go test ./internal/providerauth/... -count=1                                     -> ok (21.593s)
+gofmt -l <the three packages>                                                    -> clean
+go vet <the three packages>                                                      -> clean
+```
+
+### Deviations
+
+**2026-09-02 — Phase 3 step 6 was wrong as written; owner chose to distinguish
+unstable from stably-invalid.** Found while building Phase 2.
+
+*Evidence.* Step 6 put "unreadable or invalid" on the no-op side. Two
+transition-table rows document the opposite and are tested:
+`idle/live absent requires recovery` (`recovery_test.go:95`) and
+`idle/live invalid requires recovery` (`:109`). Reading
+`stableObservation` (`reconcile.go:78-104`) also showed the step to be
+unnecessary for its stated purpose: a torn read disagrees with the settled read,
+the loop continues, and two matching reads return a **valid** observation — so
+Phase 2 alone resolves a torn write, and after it "invalid" means invalid twice
+100 ms apart. The genuine gap is narrower: the deadline path returns
+`observation{fp: first.fp, valid: false}`, which is indistinguishable from a
+settled-but-invalid result, so "never settled" cannot be acted on separately.
+
+*Resolutions offered.* (a) add a `stable` field and no-op only on `!stable`,
+keeping absent and invalid escalating; (b) build step 6 as written; (c) rely on
+Phase 2 alone and change no rule. **Owner chose (a).**
+
+*Consequence of doing nothing, stated at the time:* under (b) a genuinely
+corrupt or deleted credential would never escalate, so the phone would report
+nothing wrong while every session failed, and the operator would lose the
+restore prompt.
+
+*Docs amended before execution:* the MADR's Decision Outcome point 2 carries a
+struck-through original and a dated amendment; step 6 above is struck through
+and replaced. No file left Scope.
+
+### Phases 2-3 — 2026-09-02, complete
+
+**Phase 2.** `observeLive` is now three lines that call `stableObservation`; the
+duplicated single-read body is gone. `observation` gained `stable`, set true on
+every settled read in `observeWithBytes` and false only on `stableObservation`'s
+deadline path — the two were previously indistinguishable, both surfacing as
+`valid: false`.
+
+The validated **bytes** are now threaded from the observation into
+`recoverIdle` rather than re-read. The old code called `readLiveBytes()` after
+validating, so the generation it wrote was a *third* read whose contents need
+not have matched the fingerprint the manifest recorded for it. Fixing that is
+what step 5 has to mean: using the stable read and then re-reading anyway
+reintroduces the race it removes. `readLiveBytes` became dead and was deleted.
+
+**Phase 3.** `recoverIdle` defers on `!obs.stable`, **before** the fingerprint
+comparisons rather than after — an unstable observation's fingerprint is a value
+read from a file mid-rewrite and is not evidence of anything, including of a
+match. `NotOlder` was added beside `Fresher`, both delegating to one `order`
+helper so the mode gate and the "no signal, no guess" rule cannot drift apart;
+`recoverIdle` and `reconcileLocked` use `NotOlder`.
+
+**What the new tests establish, stated exactly.** Run against a
+`git worktree` at the Phase 1 baseline (`1c84b3f`), which was removed
+afterwards:
+
+```text
+--- FAIL: TestEqualOrderingIsAdoptedNotEscalated (0.04s)
+    unstable_live_test.go:113: state = recovery_required, want idle: an
+    equal-ordering rewrite has not gone backward
+```
+
+`TestUnstableLiveDefersInsteadOfWedging` **passed on that baseline**. It is
+therefore not a regression test for the original wedge, and its doc comment now
+says so. The old single-read path usually caught one of the churn's small
+complete writes and adopted it; what the test does prove is that the deferral
+branch is reachable and leaves every generation untouched when reached.
+
+**Verification.**
+
+```text
+go test ./internal/providerauth/... -count=1   -> ok (28.517s)
+go test ./internal/... -count=1                -> 41 packages ok, 0 FAIL
+go build ./... , go vet, gofmt -l              -> clean
+```
+
+### Deviations (continued)
+
+**2026-09-02 — plan step 12's prediction was wrong; recorded rather than
+worked around.** Step 12 asserts the torn-read test "must wedge" against
+unmodified code. It does not: see above. Nothing was changed to make it appear
+to — the test's claim was corrected to what it actually establishes.
+
+This exposes a real limit of the approved design that the plan did not state:
+**a torn write that stays torn across a full `StableReadInterval` is still
+escalated.** Two invalid reads 100 ms apart are evidence of corruption, not of a
+bad instant, and by the 2026-09-02 deviation above that must escalate. So the
+mechanism that demonstrably wedges on the old code is the equal-ordering one,
+and the general protection against *any* escalation being permanent is Phase 4's
+re-evaluation — which makes Phase 4 load-bearing for the reported symptom rather
+than merely a convenience for already-stuck hosts. No decision changed; the
+MADR's Confirmation section already lists both tests.
+
+**2026-09-02 — one file added to Phase 1's scope.**
+`internal/provider/codex/adapter_test.go:34` carried the same
+`lock != live+".lock"` assertion as its grok twin and was missed by step 2,
+which named only the grok and credstore tests. Caught by the full-suite run, not
+by the per-package one. Updated identically; no production file was added.
+
+### Phases 4-6 — not yet done

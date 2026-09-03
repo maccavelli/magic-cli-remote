@@ -31,8 +31,11 @@ func TestCodexAdapterPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock != live+".lock" {
-		t.Fatalf("lock = %q, want the sibling of auth.json", lock)
+	// MADR 0133: the base path WithLock derives auth.json.lock from, not the
+	// lock file itself. credstore.TestAuthLockPathsFlockTheFileTheProviderHonors
+	// asserts which file is actually flocked.
+	if lock != live {
+		t.Fatalf("lock = %q, want %q — WithLock appends the .lock suffix", lock, live)
 	}
 	if ad.CandidateName() != "auth.json" {
 		t.Fatalf("candidate name = %q", ad.CandidateName())
