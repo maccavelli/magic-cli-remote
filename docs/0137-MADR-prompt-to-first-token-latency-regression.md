@@ -156,6 +156,112 @@ side effect rather than a designed measurement.
   one. `permission_timeout_seconds: 300` and `turn_stall_notice_seconds: 300`
   are both five minutes, which would present as an indefinite hang to a user.
 
+## Amendment, 2026-09-03: the A/B ran, and it found a worse failure than prompt weight
+
+The isolation A/B was approved and executed. It **reproduced a second, more
+severe failure that this record's original Decision Outcome did not account
+for**, and it narrows the cause to a specific area of mcremote rather than to
+the provider.
+
+### What was run
+
+A dedicated kilo engine was started per arm (`kilo serve` on its own port,
+separate from the production engine), prompted with `hi` over kilo's own HTTP
+API, with SSE captured frame by frame. Then the same prompt was driven
+**through an isolated mcremote daemon** (its own port, own data dir, own
+device token, kilo enabled, production daemon untouched) so the two paths could
+be compared in the same time window against the same engine.
+
+### Result 1 — kilo alone is fast
+
+| arm | agent | TTFT |
+| --- | --- | --- |
+| direct, no `agent` | — | **0.97s** |
+| direct, `agent=code` (what mcremote sends) | code | **0.80s** |
+| direct, `agent=code` + `model={providerID:kilo, modelID:kilo-auto/balanced}` (exactly mcremote's body) | code | turn ran |
+
+Same engine, same model (`kilo-auto/balanced`), same agent, same cwd. Sub-second.
+
+### Result 2 — through mcremote, the answer never arrives
+
+Driving the *same engine* through mcremote: `session.create` completed in
+241 ms, `prompt_async` was accepted (`ok=true`, `enqueue_ms=9.7ms`), and then
+**zero events reached the client for 30-45 seconds**, across repeated runs.
+
+Querying the engine afterwards for that exact session proves the model was not
+the problem:
+
+```text
+ses_f97fab36effeQsVtlU8k  title='latprobe'  in=99 out=22
+  roles=['user','assistant']  reply='Hi! How can I help?'
+```
+
+**kilo answered. mcremote delivered nothing.** This is the reported
+"hangs indefinitely", reproduced deterministically off the phone entirely.
+
+### Where the fault is not
+
+Each of these was checked and cleared, so the next person does not re-check
+them:
+
+* **The frames are on the wire mcremote subscribes to.** A concurrent capture
+  of `/global/event` during a turn recorded **86 `message.part.delta`** plus
+  `message.part.updated`, `message.updated`, `session.turn.open/close`,
+  `session.idle`, `session.status`, `session.diff` and `sync`. The
+  per-directory `/event?directory=` stream carries an identical set, so the
+  choice of stream is not the fault.
+* **Frame decoding is correct.** `DecodeFrame`
+  (`internal/provider/kilo/dialect.go:158-177`) already handles both the
+  `{payload:{type,…}}` wrapper 7.5.6 uses and the bare form.
+* **Session-id extraction is correct.** Replaying `sessionIDOf`'s logic
+  (`:192-216`) against live 7.5.6 frames resolves a session id for every
+  message and session frame; only `sync`, `server.heartbeat` and
+  `server.connected` yield none, and those carry no session.
+* **Type coverage is complete.** Every type 7.5.6 emits, including
+  `message.part.delta` and `sync`, already appears in the kilo dialect.
+* **The pump is connected.** Both the test and production daemons hold an
+  established TCP connection to their kilo engine.
+* **It is not the model reference.** Sending mcremote's exact
+  `{providerID, modelID}` body directly still ran the turn.
+
+That leaves the SSE pump's lifecycle or the agent-session → local-session
+binding inside `internal/provider/httpagent` as the remaining candidate. It was
+not isolated further, and is deliberately **not** guessed at here.
+
+### One unexplained difference, recorded rather than resolved
+
+The production turn that *did* deliver events logged `agent=code`; the isolated
+runs that delivered nothing logged `agent=""` (the ws harness sets no mode, the
+phone does). Whether the empty agent is causal or incidental is **not
+established**, and it is the first thing to test next.
+
+### How this changes the record
+
+Both failures are real and they are different:
+
+* **Slow-but-working**, seen in production: events arrive, TTFT 5-18s, and the
+  prompt carries 13,667-27,474 input tokens with `cache.write: 0`. The prompt
+  weight finding stands.
+* **Working-but-silent**, reproduced here: the model answers in under a second
+  and the answer is never delivered.
+
+The original Decision Outcome — instrument first, then attribute prompt weight
+— remains right for the first, and is **insufficient for the second**. The
+delivery failure is a correctness bug, not a performance one, and it outranks
+the instrumentation work: no amount of latency measurement helps a turn whose
+events never arrive.
+
+The revised priority is therefore:
+
+0. **Fix event delivery for kilo 7.5.6 first**, isolating the pump/binding
+   area named above, with the `agent=""` question answered on the way.
+1-5. The original steps then follow, unchanged.
+
+This also promotes **F3** (version pinning) from a side finding to a direct
+contributor: kilo is running **7.5.6** against a pin of **7.4.23**, the daemon
+logs `wire shapes were live-probed on the pinned version` on every start, and
+it proceeds anyway. That warning described this failure before it happened.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the
