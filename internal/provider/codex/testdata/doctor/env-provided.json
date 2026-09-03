@@ -1,0 +1,27 @@
+{
+  "checks": {
+    "auth.credentials": {
+      "category": "auth",
+      "details": {
+        "auth env vars present": "OPENAI_API_KEY",
+        "auth file": "/home/user/.codex/auth.json",
+        "auth storage mode": "File",
+        "stored API key": "false",
+        "stored ChatGPT tokens": "false",
+        "stored agent identity": "false",
+        "stored auth issue": [
+          "<redacted>",
+          "ChatGPT auth is missing refresh metadata"
+        ],
+        "stored auth mode": "chatgpt"
+      },
+      "durationMs": 0,
+      "id": "auth.credentials",
+      "remediation": null,
+      "status": "warning",
+      "summary": "auth is provided by environment, but stored credentials are incomplete"
+    }
+  },
+  "codexVersion": "0.152.1",
+  "schemaVersion": 1
+}

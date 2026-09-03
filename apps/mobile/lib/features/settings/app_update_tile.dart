@@ -84,7 +84,11 @@ class AppUpdateTileState extends State<AppUpdateTile> {
 
   Future<void> download() async {
     final r = _check;
-    if (r == null || r.apk == null || r.sums == null) {
+    // MADR 0132: a release need not publish a manifest the APK appears in —
+    // since v0.16.0 none does. The APK asset alone is enough to attempt the
+    // download; downloadAndVerify decides whether it can be verified, and
+    // fails closed when it cannot.
+    if (r == null || r.apk == null) {
       setState(() {
         _state = AppUpdateUiState.error;
         _status = 'No APK asset on this release';
@@ -109,7 +113,7 @@ class AppUpdateTileState extends State<AppUpdateTile> {
           )..createSync(recursive: true));
       final file = await _svc.downloadAndVerify(
         apk: r.apk!,
-        sums: r.sums!,
+        sums: r.sums,
         cacheDir: dir,
         onProgress: (recv, total) {
           if (!mounted) return;

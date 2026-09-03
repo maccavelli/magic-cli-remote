@@ -88,10 +88,14 @@ You only need the installer once. After that the daemon updates itself:
 mcremote update
 ```
 
-Published binaries are stamped `BASE.N` (e.g. `0.13.9.1`). `update`
-follows that string, not the `v0.13.9` tag; `--force` is only for a
-local `make` build. Each command recycles only its own unit, if one
-exists.
+Releases are immutable `vX.Y.Z` tags and binaries are stamped with the tag
+(MADR 0005). `--version vX.Y.Z` installs an exact release, and a lower tag is
+an explicit rollback; `--force` is only for a local `make` build or a
+same-version reinstall. Each command recycles only its own unit, if one exists.
+
+Binaries published before v0.16.0 carry the superseded `BASE.N` build serial
+(e.g. `0.13.9.1`); an installed one still updates forward, because v0.16.0
+publishes both the canonical and the legacy asset names.
 
 `update` also reconciles the service definition: if the release changed the
 systemd unit or the launchd plist, it re-renders yours from the new template —
@@ -269,23 +273,24 @@ Relay-only install:
 make install-relay   # → ~/.local/bin/mcrelay
 ```
 
-**Build versions (ledger):** each `make build` / `make install` stamps binaries
-as `BASE.N` where `BASE` is the latest **release** tag (`v0.7.0` → `0.7.0`) and
-`N` is a global build serial (`0.7.0.1`, `0.7.0.2`, …). Local builds may append
-a uniqueness suffix when offline (e.g. `0.7.0.2.g41548d0`).
+**Build versions:** a release is an immutable strict tag and nothing else
+(MADR 0005). The tag build passes `VERSION=<tag> BUILD_KIND=release`, so a
+release binary is stamped with exactly the tag it was published under. A local
+`make build` / `make install` stamps `<base>.g<commit>` with
+`BUILD_KIND=local`, which `update` refuses to replace without `--force`.
 
 | Piece | Role |
 |-------|------|
-| Release tags `vX.Y.Z` | Product version base (manual / release process) |
-| Build tags `build/X.Y.Z.N` | **Source of truth** for N — claimed by creating+pushing the tag |
-| `.build-counter` | Local cache only (gitignored); speeds offline / reduces fetch races |
+| Release tags `vX.Y.Z` | The whole release identity — immutable once published |
+| `BUILD_KIND` | `release` only on a tag build; `local` everywhere else |
 
-Allocation (`scripts/next-build-version.sh`): fetch `build/*` tags → max N →
-create `build/BASE.N` → **push with retry** on contention. CI always pushes on
-tag runs. Local builds try to push when `origin` is reachable; offline builds
-append a uniqueness suffix.
+The `build/X.Y.Z.N` ledger, `.build-counter`, and
+`scripts/next-build-version.sh` are **gone**. Rebuilding a fix now means a new
+patch tag rather than a new serial under an old tag, which is what makes
+release assets immutable and verifiable. Historical MADRs 0065, 0100 and 0103
+describe the superseded scheme and are kept as history.
 
-Override: `make build VERSION=1.2.3`. Disable push: `MCREMOTE_VERSION_PUSH=0 make build`.
+Override: `make build VERSION=1.2.3`.
 
 All long flags use a **double dash** (`--help`, `--config`, `--listen-host`,
 `--setup-service`, …). Short `-h` is help only.

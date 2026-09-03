@@ -15,12 +15,10 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/maccavelli/magic-cli-remote/internal/update"
 )
 
-func updateRefresh(path, backup string) update.UnitRefresh {
-	return update.UnitRefresh{Changed: true, Path: path, BackupPath: backup}
+func updateRefresh(path, backup string) UnitRefresh {
+	return UnitRefresh{Changed: true, Path: path, BackupPath: backup}
 }
 
 func stubSystemctlCapture(t *testing.T, out string, err error) *[]string {

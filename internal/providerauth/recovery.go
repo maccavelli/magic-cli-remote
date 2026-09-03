@@ -27,41 +27,56 @@ func (c *Coordinator) Recover(ctx context.Context) (State, error) {
 	return out, err
 }
 
-// observation is a validated view of LIVE at recovery time.
+// observation is a validated view of LIVE.
+//
+// `valid` and `stable` answer different questions and must not be conflated.
+// `valid` is "these bytes are a usable credential"; `stable` is "the file had
+// stopped changing when we looked". A file caught mid-rewrite is neither, and
+// the two demand opposite responses: an invalid settled file is a fault to
+// escalate, while an unsettled one is a bad instant to look again after
+// (MADR 0133).
 type observation struct {
-	fp    Fingerprint
-	meta  CredentialMeta
-	valid bool
+	fp     Fingerprint
+	meta   CredentialMeta
+	valid  bool
+	stable bool
 }
 
-func (c *Coordinator) observeLive(ctx context.Context) (observation, error) {
-	live, err := c.adapter.LivePath()
-	if err != nil {
-		return observation{}, err
-	}
-	fp, data, err := liveFingerprint(live)
-	if err != nil {
-		// An irregular or unreadable LIVE is an observation of "not a usable
-		// credential", not a hard failure of recovery.
-		return observation{fp: "", valid: false}, nil //nolint:nilerr // classified below
-	}
-	if fp == FingerprintAbsent {
-		return observation{fp: FingerprintAbsent}, nil
-	}
-	meta, err := c.adapter.Validate(ctx, data)
-	if err != nil {
-		return observation{fp: fp, valid: false}, nil //nolint:nilerr // classified below
-	}
-	return observation{fp: fp, meta: meta, valid: true}, nil
+// observeLive is the recovery-time view of LIVE.
+//
+// It uses the same stable read reconciliation uses. Before MADR 0133 it was a
+// single unguarded os.ReadFile, so a torn write at daemon start — or Codex's
+// transient `{}` stub during its own login — reached recoverIdle as "not a
+// usable credential" and was escalated to recovery_required, a state nothing
+// automatic can leave. Reconciliation, given the identical file, changed
+// nothing and looked again. One question must not have two answers.
+// The bytes are returned alongside the observation on purpose. Re-reading LIVE
+// after validating it reintroduces the very race the stable read removes: the
+// generation written would be a THIRD read, whose contents need not match the
+// fingerprint the manifest records for it.
+func (c *Coordinator) observeLive(ctx context.Context) (observation, []byte, error) {
+	return c.stableObservation(ctx)
 }
 
 func (c *Coordinator) recoverLocked(ctx context.Context, m *Manifest) (State, error) {
-	// recovery_required is terminal until an operator acts (P19).
-	if m.State == StateRecoveryRequired {
+	// recovery_required is terminal for automatic MUTATION, but it is not a
+	// reason to stop looking (MADR 0133).
+	//
+	// It used to return here unconditionally, which made one ambiguous
+	// observation permanent: reconciliation skips this state too, so the
+	// watcher stopped adopting refreshes and every later start re-logged the
+	// same warning without re-examining anything. On the reporting host that
+	// ran from 2026-08-23 to 2026-09-02 and cost a ChatGPT sign-in each time.
+	//
+	// Re-evaluating overrides no one. A successful ResolveRecovery always
+	// leaves this state, so being in it means no operator decision is in
+	// effect — with one exception, a resolution that was attempted and failed,
+	// which OperatorChoice records and which is still terminal here.
+	if m.State == StateRecoveryRequired && m.OperatorChoice != "" {
 		return StateRecoveryRequired, nil
 	}
 
-	obs, err := c.observeLive(ctx)
+	obs, data, err := c.observeLive(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -74,12 +89,35 @@ func (c *Coordinator) recoverLocked(ctx context.Context, m *Manifest) (State, er
 	case StateCommitting:
 		return c.recoverCommitting(m, obs)
 	default:
-		return c.recoverIdle(ctx, m, obs)
+		// recovery_required arrives here too, and recoverIdle is exactly the
+		// right evaluation for it: an unstable read still defers, a LIVE that
+		// matches CURRENT or is adoptable clears the state, and anything else
+		// escalates again — which for an already-escalated provider is a
+		// no-op. The same evidence test either way, so the state cannot mean
+		// two different things depending on how it was reached.
+		return c.recoverIdle(ctx, m, obs, data)
 	}
 }
 
 // recoverIdle reconciles an untransacted provider against what LIVE now says.
-func (c *Coordinator) recoverIdle(ctx context.Context, m *Manifest, obs observation) (State, error) {
+func (c *Coordinator) recoverIdle(
+	ctx context.Context, m *Manifest, obs observation, data []byte,
+) (State, error) {
+	// An unsettled LIVE is not a verdict, so nothing is decided from one:
+	// leave every generation and the state exactly as they were and let the
+	// next checkpoint — the watcher, a pre-mutation reconcile, or the next
+	// start — look at a file that has stopped moving. Escalating this was the
+	// wedge (MADR 0133): recovery_required is terminal, so one bad instant
+	// cost a sign-in and every restart after it.
+	//
+	// This is checked before the fingerprint comparisons below, not after,
+	// because an unstable observation's fingerprint is a value read from a file
+	// mid-rewrite. It is not evidence of anything, including of a match.
+	if !obs.stable {
+		c.log().Debug("live credential was still changing; deferring recovery")
+		return m.State, nil
+	}
+
 	cur := m.byLabel(LabelCurrent)
 	if cur == nil {
 		// Unmanaged: seed a valid LIVE, or leave a cold host alone. Neither
@@ -101,13 +139,10 @@ func (c *Coordinator) recoverIdle(ctx context.Context, m *Manifest, obs observat
 	}
 
 	// A different LIVE is promoted only when it is valid, the same mode, and
-	// strictly fresher. Anything else preserves every generation and asks for
-	// an operator decision rather than rolling a rotated token backward (D24).
-	if obs.valid && obs.meta.Fresher(c.metaOf(ctx, cur)) {
-		data, err := c.readLiveBytes()
-		if err != nil {
-			return "", err
-		}
+	// not older. Anything else — invalid, absent, older, a different mode —
+	// preserves every generation and asks for an operator decision rather than
+	// rolling a rotated token backward (D24).
+	if obs.valid && obs.meta.NotOlder(c.metaOf(ctx, cur)) {
 		id, err := c.store.writeGeneration(data)
 		if err != nil {
 			return "", err
@@ -135,7 +170,40 @@ func (c *Coordinator) recoverIdle(ctx context.Context, m *Manifest, obs observat
 		return StateIdle, nil
 	}
 
+	// Nothing here is adoptable. Before calling that an ambiguity, ask whether
+	// there is anything to be ambiguous ABOUT: a provider can be signed in with
+	// its credential held somewhere this coordinator cannot see, and then the
+	// unusable file is not evidence of a problem at all (MADR 0134).
+	//
+	// The probe is reached only on this path — an adoptable LIVE, or one
+	// matching CURRENT, has already returned above — so a healthy host never
+	// spawns a process for it.
+	if !obs.valid && c.credentialIsExternal(ctx) {
+		return c.finish(m, StateExternal)
+	}
+
 	return c.finish(m, StateRecoveryRequired)
+}
+
+// credentialIsExternal asks the adapter whether the provider is authenticated
+// from a store this coordinator cannot see.
+//
+// Three ways to answer no, all of which keep the caller's pre-0134 behaviour:
+// the adapter does not implement the capability, the probe failed, or the probe
+// says the credential is not external. A probe that cannot run is never allowed
+// to invent a healthy state out of an unreachable CLI (MADR 0134).
+func (c *Coordinator) credentialIsExternal(ctx context.Context) bool {
+	r, ok := c.adapter.(RealityReporter)
+	if !ok {
+		return false
+	}
+	external, err := r.CredentialIsExternal(ctx)
+	if err != nil {
+		c.log().Debug("could not observe where the credential lives; " +
+			"treating the unusable file as ambiguous")
+		return false
+	}
+	return external
 }
 
 // recoverPending resolves a transaction that was still isolated. Because a
@@ -243,15 +311,6 @@ func (c *Coordinator) finish(m *Manifest, s State) (State, error) {
 		return "", err
 	}
 	return s, nil
-}
-
-func (c *Coordinator) readLiveBytes() ([]byte, error) {
-	live, err := c.adapter.LivePath()
-	if err != nil {
-		return nil, err
-	}
-	_, data, err := liveFingerprint(live)
-	return data, err
 }
 
 // metaOf re-derives metadata for a retained generation so freshness is compared

@@ -655,25 +655,33 @@ Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.servi
 | `--no-linger` | false | Linux: skip linger. macOS: no effect |
 | `--remove` | false | Stop, disable, and delete the service definition |
 
-### `mcremote update` / `mcrelay update` (MADR 0065, amended 0103)
+### `mcremote update` / `mcrelay update` (MADR 0065 and 0103, superseded by MADR 0005 in mcplib)
 
-User-initiated upgrade from GitHub Releases: discover latest, download the
-matching binary + `SHA256SUMS-<VER>`, verify SHA-256, swap into place.
-`update` compares the running binary to the published asset version
-(`BASE.N`, e.g. `0.13.9.1`), not the GitHub tag (`v0.13.9`). A newer `N`
-on the same tag is an update. Recycles the user service only when **this**
-product has a unit/plist; a crashed unit is restarted; no unit means
-binary-only.
+User-initiated upgrade from GitHub Releases, implemented once in
+`github.com/maccavelli/mcplib/selfupdate` and bound here by
+`internal/updateclient`: discover the release, select the exact
+`<product>-<goos>-<goarch>` asset and `SHA256SUMS`, verify the GitHub asset
+digest and the checksum entry, stage in the target directory, replace with a
+retained backup, and roll back on failure. Recycles the user service only when
+**this** product has a unit/plist; a crashed unit is restarted; no unit means
+binary-only. A definition reconcile, start, or health-check failure is fatal and
+rolls the binary and the definition back together.
+
+Versions are strict `vMAJOR.MINOR.PATCH` tags. The superseded `BASE.N` build
+serial is no longer published; an already-installed `BASE.N` binary is compared
+on its three-part base only.
 
 | Flag | Description |
 |------|-------------|
-| `--check` | Report only. Exit `0` if up to date, `10` if an update is available, `1` on error |
-| `--yes` | Skip the confirmation prompt |
-| `--force` | Allow updating a locally compiled build (e.g. `0.13.9.1.gdeadbeef`). A published `BASE.N` such as `0.13.9.1` does not need `--force` |
+| `--check` | Report only. Exit `0` if up to date, `10` if an actionable target exists, `1` on error. Contradicts `--yes` and `--force` |
+| `--yes`, `-y` | Approve the selected operation without prompting. A non-interactive apply without it fails rather than hanging or replacing silently |
+| `--force` | Replace a local build, or reinstall the selected version. It never bypasses version, asset, size, integrity, target, or health rules |
+| `--version vX.Y.Z` | Install that exact release. A lower tag is reported as an explicit rollback before confirmation |
 
-Optional env: `GITHUB_TOKEN` (API rate limits), `MC_CODESIGN_IDENTITY` (macOS
-re-sign after download so TCC/FDA grants survive — see
-[ops-macos-tcc.md](ops-macos-tcc.md)).
+Optional env: `GH_TOKEN` or `GITHUB_TOKEN` (API rate limits, sent only to the
+GitHub API origin), `MC_CODESIGN_IDENTITY` (macOS re-sign after verification so
+TCC/FDA grants survive — see [ops-macos-tcc.md](ops-macos-tcc.md); the installed
+digest then intentionally differs from the release digest).
 
 ### Unit file options (embedded user template)
 

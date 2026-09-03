@@ -1,8 +1,9 @@
 package codex
 
 import (
+	"bytes"
 	"context"
-	"os"
+	"fmt"
 	"os/exec"
 	"sync"
 	"time"
@@ -27,13 +28,19 @@ const (
 	// RealityFileProtected means auth.json holds usable auth material: the
 	// coordinator is protecting the thing Codex actually uses.
 	RealityFileProtected StoreReality = "file_protected"
-	// RealityExternal means the CLI is authenticated but not from the file.
-	// The credential exists somewhere this coordinator cannot see, so it
-	// cannot be backed up — but a fresh login will produce one it can.
-	RealityExternal StoreReality = "external"
-	// RealityLoggedOut means there is no credential anywhere. Nothing to
-	// protect yet, and a login is exactly the right next step.
+	// RealityLoggedOut means Codex has no credential stored at all. Nothing to
+	// protect yet, and a login is exactly the right next step. Unreachable
+	// before MADR 0136, because the exit-code probe it depended on could not
+	// report "not logged in".
 	RealityLoggedOut StoreReality = "logged_out"
+	// RealityBroken means the file backend holds a credential Codex itself
+	// reports as unusable — incomplete, corrupt, or half-written.
+	//
+	// It is deliberately NOT "unprotectable": the file is the store, mcremote
+	// can protect it, and what is wrong is the credential. This is the case
+	// MADR 0133 escalates to recovery_required, and conflating it with an
+	// external store is what MADR 0134 shipped by mistake.
+	RealityBroken StoreReality = "broken"
 	// RealityUnsupported means the configured store is not the file backend,
 	// so no login will ever produce a protectable file.
 	RealityUnsupported StoreReality = "unsupported"
@@ -42,72 +49,108 @@ const (
 	RealityUnknown StoreReality = "unknown"
 )
 
-// ObserveCredentialStore reports where the credential actually lives.
+// ObserveCredentialStore reports where the credential actually lives, from the
+// CLI's own structured verdict (MADR 0136).
 //
-// The probe is a comparison, not a lookup: does the file this coordinator can
-// protect contain what the CLI is authenticating with? Only running the CLI
-// can answer that, so this spawns `codex login status` in the effective home.
-// It is read-only, spends no tokens, and prints nothing.
+// It asks `codex doctor --json` and reads `checks["auth.credentials"]`, which
+// reports the RESOLVED storage backend and whether a usable credential is
+// stored, as separate facts.
 //
-// A non-file configured store short-circuits: it is already conclusive, and no
-// probe would change it.
+// The probe it replaced ran `codex login status` and tested the exit status.
+// That status is always zero — a home with no auth.json at all prints
+// "Not logged in" and still exits 0 — so the old check reported "authenticated"
+// unconditionally, RealityLoggedOut was unreachable, and any unusable auth.json
+// was classified as an external store. On the reporting host that silenced a
+// genuinely broken credential.
 func ObserveCredentialStore(ctx context.Context, bin string) (StoreReality, error) {
-	if _, err := DetectCredentialStore(); err != nil {
-		// Configured elsewhere: conclusive without probing.
-		return RealityUnsupported, err
+	if bin == "" {
+		// Nothing to ask. Fall back to what the config says, which is
+		// pessimistic about `auto` and blind to profile and -c overrides, but
+		// is better than inventing an answer.
+		return detectedReality()
 	}
 
-	usable := fileHoldsUsableCredential(ctx)
-	if usable {
-		// The file is the credential. Nothing else to establish.
+	auth, err := probeDoctorAuth(ctx, bin)
+	if err != nil {
+		// Unreadable or uninterpretable: never guess. The configured answer is
+		// the conservative one, and callers treat Unknown as "no external
+		// store", which keeps MADR 0133's escalation in place.
+		return detectedReality()
+	}
+
+	if auth.StorageMode != storageModeFile {
+		// A keyring-backed credential cannot be protected by this coordinator
+		// whether or not one is currently stored there.
+		return RealityUnsupported, fmt.Errorf(
+			"%w: codex resolves its credential store to the %s backend, which mcremote cannot protect",
+			providerauth.ErrUnsupportedBackend, auth.StorageMode)
+	}
+
+	// The file is the store, so the file decides. `auth env vars present` is
+	// deliberately not consulted: environment auth is per-process, and the
+	// daemon's environment is not the operator's shell.
+	if auth.Usable {
 		return RealityFileProtected, nil
 	}
-	if bin == "" {
-		// Without the CLI the two states below are indistinguishable, and
-		// guessing is what caused the lockout.
-		return RealityUnknown, nil
+	if storesNoCredential(auth) {
+		return RealityLoggedOut, nil
 	}
-	if cliIsAuthenticated(ctx, bin) {
-		return RealityExternal, nil
-	}
-	return RealityLoggedOut, nil
+	// Present but not usable — corrupt, incomplete, or half-written. This is
+	// NOT an unprotectable credential; it is the case MADR 0133 escalates.
+	return RealityBroken, nil
 }
 
-// fileHoldsUsableCredential reports whether the live auth.json parses to auth
-// material this provider understands.
-func fileHoldsUsableCredential(ctx context.Context) bool {
-	path, err := credstore.CodexAuthPath()
-	if err != nil {
-		return false
-	}
-	data, err := os.ReadFile(path) //nolint:gosec // effective codex home
-	if err != nil {
-		return false
-	}
-	_, err = NewCredentialAdapter("codex").Validate(ctx, data)
-	return err == nil
+// storageModeFile is the resolved backend this coordinator can protect, as
+// `codex doctor --json` spells it (lowercased by the parser).
+const storageModeFile = "file"
+
+// storesNoCredential distinguishes "signed out" from "stored but broken".
+//
+// Codex omits every `stored *` detail when there is nothing stored at all, and
+// emits them when there is something to describe, so their absence is the
+// signal. Read as "no evidence of stored material" rather than by matching the
+// summary text, which carries no stability contract.
+func storesNoCredential(auth authCredentials) bool {
+	return !auth.HasStoredMaterialEvidence
 }
 
-// cliIsAuthenticated runs `codex login status` in the effective home. Exit zero
-// means authenticated; the output is never captured into an error or a log,
-// because it names the account.
-func cliIsAuthenticated(ctx context.Context, bin string) bool {
+// detectedReality is the no-probe fallback: what config.toml says.
+func detectedReality() (StoreReality, error) {
+	if _, err := DetectCredentialStore(); err != nil {
+		return RealityUnsupported, err
+	}
+	return RealityUnknown, nil
+}
+
+// probeDoctorAuth runs `codex doctor --json` in the effective home and returns
+// the auth check.
+//
+// stdout is captured because the report IS the answer; it is parsed and
+// discarded, and nothing from it is logged. The report contains no token
+// material — Codex redacts its own sensitive detail values — but it is treated
+// as credential-adjacent regardless and never rendered into an error string.
+func probeDoctorAuth(ctx context.Context, bin string) (authCredentials, error) {
 	ctx, cancel := context.WithTimeout(ctx, providerauth.ProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "login", "status") //nolint:gosec // bin from provider config
-	cmd.Stdout = nil
+	cmd := exec.CommandContext(ctx, bin, "doctor", "--json") //nolint:gosec // bin from provider config
+	var out bytes.Buffer
+	cmd.Stdout = &out
 	cmd.Stderr = nil
 	procutil.SetProcessGroup(cmd)
-	return cmd.Run() == nil
+	// A non-zero exit is not fatal: doctor exits non-zero when it finds
+	// problems, which is exactly when this classification matters. The report
+	// is what decides, so only an unparseable one is a failure.
+	_ = cmd.Run()
+	return parseDoctorAuth(out.Bytes())
 }
 
 // describeReality is the operator-facing explanation for a non-protected
 // store. It names no path and no account.
 func describeReality(r StoreReality) string {
 	switch r {
-	case RealityExternal:
-		return "codex is authenticated, but its credential is not in the auth.json " +
-			"file mcremote can back up; signing in from here will create one it can"
+	case RealityBroken:
+		return "codex has a stored credential that it cannot use; signing in again " +
+			"from here will replace it"
 	case RealityUnsupported:
 		return "codex is configured to store credentials outside auth.json, which " +
 			"mcremote cannot back up or restore"

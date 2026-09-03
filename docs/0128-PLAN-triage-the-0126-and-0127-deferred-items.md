@@ -510,3 +510,45 @@ Suite `+1367 ~3`, up from 1364 at the start of this plan (P2 +1 net, P3 +1;
 P4's benchmark is excluded from the default run). Three of the four fixes carry
 a test proven to fail first (C1); P4 carries none by design (C2), and its
 instrument was itself verified before its numbers were believed.
+
+## Deliberate Go dependency act — 2026-09-02: fsnotify 1.9.0 → 1.10.1
+
+Recorded here because [D1](0128-MADR-triage-the-0126-and-0127-deferred-items.md)
+removed the `gomod` ecosystem from `.github/dependabot.yml` with the words
+"Dependency currency for Go is a deliberate, recorded act here". This is that
+act, so it lives with the policy rather than minting a decision record for a
+patch bump.
+
+**Origin.** Dependabot PR #19, opened 2026-09-01 *before* D1 landed and orphaned
+by it — the gomod ecosystem no longer runs, so nothing would ever revisit or
+retire that PR. Adopted on master by the owner's instruction and the PR closed.
+
+**What changed.** `go.mod` / `go.sum` only:
+
+```text
+github.com/fsnotify/fsnotify v1.9.0 -> v1.10.1
+```
+
+`fsnotify` is used in exactly one place, `internal/providerauth/watch.go` (plus
+its test), which watches the provider-auth directory.
+
+**Verification.**
+
+* `go mod tidy` clean, 3 lines changed across go.mod/go.sum.
+* `govulncheck ./...` — "Your code is affected by 0 vulnerabilities." (Two
+  vulnerabilities exist in required modules that this code does not call, which
+  is the pre-existing baseline and the reason D1 relies on govulncheck's
+  *called* analysis rather than presence.)
+* `go test -race ./...` — one failure, `TestDiffUsesCWDOnlyAndValidatesSHA`
+  (`internal/provider/codex/diff_fork_test.go:88: timeout`).
+
+**That failure is pre-existing and unrelated, confirmed rather than assumed.**
+Reproduced on a clean `git worktree` at HEAD — i.e. with fsnotify still at
+v1.9.0 and none of this change present — where it fails identically. `codex`
+does not import `fsnotify`; only `internal/providerauth` does. Go CI is green on
+master, so this is a local, timing-sensitive failure on a machine that had been
+running Android emulators for several hours, not a regression from this bump.
+
+**Left open deliberately:** that timeout is not investigated here. It is
+someone else's finding, it is not caused by this change, and folding it into a
+dependency bump would bury it.

@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:magic_cli_remote/data/update/app_update.dart';
 import 'package:magic_cli_remote/features/settings/app_update_tile.dart';
+import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -139,4 +140,67 @@ void main() {
       );
     },
   );
+
+  // MADR 0132. The tile used to refuse to start a download unless the release
+  // published a SHA256SUMS asset, which since v0.16.0 never lists the APK. A
+  // release whose only checksum source is the APK's own GitHub digest must
+  // reach "Ready to install", not "No APK asset on this release".
+  testWidgets('a digest-only release downloads and verifies', (tester) async {
+    final tmp = useFakePathProvider(addTearDown);
+    final apkBytes = utf8.encode('apk-body-0132');
+    final want = sha256.convert(apkBytes).toString();
+    final client = MockClient((req) async {
+      final url = req.url.toString();
+      if (url.contains('api.github.com')) {
+        return http.Response(
+          jsonEncode({
+            'tag_name': 'v0.16.0',
+            'assets': [
+              {
+                'name': 'magic-cli-remote-v0.16.0-arm64.apk',
+                'browser_download_url': 'https://example/a.apk',
+                'size': apkBytes.length,
+                'digest': 'sha256:$want',
+              },
+            ],
+          }),
+          200,
+        );
+      }
+      return http.Response.bytes(apkBytes, 200);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppUpdateTile(
+            service: AppUpdateService(
+              client: client,
+              localVersion: () async => '0.15.3.13',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('App update'));
+    await tester.pumpAndSettle();
+    // The download's tail is real file I/O (`sink.close()`), which the widget
+    // tester's fake-async zone never drains: pumping alone leaves the tile
+    // parked on "Downloading… 100%" forever. Driving the whole download inside
+    // runAsync puts it on the real event loop, so it can actually finish.
+    await tester.runAsync(() async {
+      await tester.tap(find.textContaining('Update available'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('No APK asset'), findsNothing);
+    expect(find.textContaining('Ready to install'), findsOneWidget);
+    expect(
+      File(
+        '${tmp.path}/mcremote_app_updates/'
+        'magic-cli-remote-v0.16.0-arm64.apk',
+      ).existsSync(),
+      isTrue,
+    );
+  });
 }

@@ -201,11 +201,28 @@ case "$OUT" in
     *) ok "Linux install does not print the FDA advisory" ;;
 esac
 
+# A manifest carrying BOTH shapes is ambiguous and must fail closed. This is
+# the shadowing case: before MADR 0005 the versioned line simply won, but once
+# canonical entries are legitimate a preference either way lets an appended
+# line authorize a substituted binary. Refusing to choose is the only safe
+# answer, so an appended canonical line now aborts the install.
 R="$WORK/rel-alias"; mk_release "$R" "$ARCH"
 printf 'deadbeef  mcremote-linux-%s\n' "$ARCH" >> "$R/latest/download/SHA256SUMS"
-D="$WORK/bin-alias"
+D="$WORK/bin-alias"; mkdir -p "$D"; printf 'PREEXISTING\n' > "$D/mcremote"
 run_installer "$BASE" "$R" "$D" --no-service
-check "alias line does not shadow the versioned line" "$RC" 0
+check "ambiguous manifest (canonical + versioned) exits 2" "$RC" 2
+check "  existing install untouched by an ambiguous manifest" "$(cat "$D/mcremote")" "PREEXISTING"
+check "  no temp dir left behind" "$(find "$D" -maxdepth 1 -name '.mcinstall.*' | wc -l | tr -d ' ')" 0
+
+# A canonical-only manifest is the v0.16.0-onward shape and must install.
+R="$WORK/rel-canon"; mk_release "$R" "$ARCH"
+sed -E "s/  (mcremote|mcrelay)-linux-${ARCH}-[0-9][^ ]*/  \1-linux-${ARCH}/" \
+    "$R/latest/download/SHA256SUMS" > "$R/latest/download/SHA256SUMS.new"
+mv "$R/latest/download/SHA256SUMS.new" "$R/latest/download/SHA256SUMS"
+D="$WORK/bin-canon"
+run_installer "$BASE" "$R" "$D" --no-service
+check "canonical-only manifest installs (exit 0)" "$RC" 0
+check "  mcremote installed executable" "$( [ -x "$D/mcremote" ] && echo yes || echo no )" yes
 
 run_installer "$BASE" "$R" "$D" --no-service
 check "re-run is idempotent (exit 0)" "$RC" 0

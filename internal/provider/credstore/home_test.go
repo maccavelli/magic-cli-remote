@@ -92,7 +92,9 @@ func TestDerivedPathsShareOneHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Dir(codexAuth) != codex || codexLock != codexAuth+".lock" {
+	// MADR 0133: the lock path is the base path WithLock derives the lock file
+	// from, not the lock file itself.
+	if filepath.Dir(codexAuth) != codex || codexLock != codexAuth {
 		t.Fatalf("codex paths disagree: auth=%q lock=%q", codexAuth, codexLock)
 	}
 
@@ -111,8 +113,8 @@ func TestDerivedPathsShareOneHome(t *testing.T) {
 	if filepath.Dir(grokAuth) != grok || filepath.Dir(grokCfg) != grok {
 		t.Fatalf("grok paths disagree: auth=%q cfg=%q", grokAuth, grokCfg)
 	}
-	if grokLock != grokAuth+".lock" {
-		t.Fatalf("grok lock = %q, want the sibling of auth.json", grokLock)
+	if grokLock != grokAuth {
+		t.Fatalf("grok lock = %q, want %q — WithLock appends the .lock suffix", grokLock, grokAuth)
 	}
 }
 

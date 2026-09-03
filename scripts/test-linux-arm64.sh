@@ -30,7 +30,7 @@ MSG
     exit 1
 fi
 
-GO_IMAGE="${GO_IMAGE:-golang:1.26.5}"
+GO_IMAGE="${GO_IMAGE:-golang:1.26.6}"
 echo "running the suite on native linux/arm64 in $GO_IMAGE …"
 
 # -e CGO_ENABLED=0 is REQUIRED, not tidy: the golang images default to

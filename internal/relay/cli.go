@@ -18,6 +18,8 @@ var (
 	cliVersion = "dev"
 	cliCommit  = "none"
 	cliDate    = "unknown"
+	// cliBuildKind is stamped to "release" only by the tag build (MADR 0005).
+	cliBuildKind = "local"
 )
 
 // Execute runs the mcrelay command tree.
@@ -32,6 +34,13 @@ func Execute(version, commit, date string) error {
 		cliDate = date
 	}
 	return newRootCmd().Execute()
+}
+
+// SetBuildKind injects the linker-stamped build kind.
+func SetBuildKind(k string) {
+	if k != "" {
+		cliBuildKind = k
+	}
 }
 
 // VersionString returns the human-readable mcrelay version line.

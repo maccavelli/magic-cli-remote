@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestRecoveryTransitionTable walks the exhaustive P17 step 9 table. Each case
@@ -298,25 +299,69 @@ func TestRecoveryTransitionTable(t *testing.T) {
 		}
 	})
 
-	t.Run("recovery_required makes no automatic mutation", func(t *testing.T) {
-		c, ad, dataDir, _ := arrange(t)
-		forceState(t, dataDir, "fake", StateRecoveryRequired)
-		before := writeLive(t, ad, "chatgpt", 1)
+	// AMENDED by MADR 0133. This row used to read "recovery_required makes no
+	// automatic mutation" and assert the state was still recovery_required
+	// afterwards. That made one ambiguous observation permanent — reconciliation
+	// skips the state too, so nothing automatic could ever leave it and the only
+	// exits were a CLI command or another sign-in.
+	//
+	// The invariant the row actually protects is unchanged and is asserted in
+	// every case below: recovery must never mutate LIVE. What changed is that
+	// the state is re-evaluated against fresh evidence rather than assumed to
+	// still hold, because a successful ResolveRecovery always leaves the state,
+	// so being in it means no operator decision is in effect.
+	t.Run("recovery_required is re-evaluated, never mutates live", func(t *testing.T) {
+		t.Run("live matching current clears the state", func(t *testing.T) {
+			c, ad, dataDir, _ := arrange(t)
+			forceState(t, dataDir, "fake", StateRecoveryRequired)
+			before := writeLive(t, ad, "chatgpt", 1)
 
-		st, err := c.Recover(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if st != StateRecoveryRequired {
-			t.Fatalf("state = %s, want recovery_required", st)
-		}
-		after, err := os.ReadFile(ad.live)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(after) != string(before) {
-			t.Fatal("recovery_required must not mutate LIVE")
-		}
+			st, err := c.Recover(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st != StateIdle {
+				t.Fatalf("state = %s, want idle: LIVE matches CURRENT, so nothing is ambiguous", st)
+			}
+			assertLiveUnchanged(t, ad, before)
+		})
+
+		t.Run("an older live keeps the state", func(t *testing.T) {
+			c, ad, dataDir, _ := arrange(t)
+			txn := stage(t, c, ad, "chatgpt", 5)
+			if err := c.Commit(ctx, txn); err != nil {
+				t.Fatal(err)
+			}
+			forceState(t, dataDir, "fake", StateRecoveryRequired)
+			before := writeLive(t, ad, "chatgpt", 2)
+
+			st, err := c.Recover(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st != StateRecoveryRequired {
+				t.Fatalf("state = %s, want recovery_required: an older LIVE is still ambiguous", st)
+			}
+			assertLiveUnchanged(t, ad, before)
+		})
+
+		t.Run("a recorded operator attempt keeps the state", func(t *testing.T) {
+			c, ad, dataDir, _ := arrange(t)
+			forceState(t, dataDir, "fake", StateRecoveryRequired)
+			forceOperatorChoice(t, dataDir, "fake", ChoosePrevious)
+			// LIVE is adoptable, so only the recorded attempt can hold the
+			// state: a resolution that failed must not be second-guessed.
+			before := writeLive(t, ad, "chatgpt", 1)
+
+			st, err := c.Recover(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st != StateRecoveryRequired {
+				t.Fatalf("state = %s, want recovery_required: an operator already ruled here", st)
+			}
+			assertLiveUnchanged(t, ad, before)
+		})
 	})
 
 	t.Run("no manifest seeds a valid live credential", func(t *testing.T) {
@@ -356,6 +401,34 @@ func TestRecoveryTransitionTable(t *testing.T) {
 
 // forceState rewrites only the durable state field, imitating a crash that left
 // the journal at that transition.
+// assertLiveUnchanged is the invariant every recovery_required case shares:
+// recovery may change the manifest, never the credential.
+func assertLiveUnchanged(t *testing.T, ad *fakeAdapter, want []byte) {
+	t.Helper()
+	got, err := os.ReadFile(ad.live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatal("recovery mutated LIVE")
+	}
+}
+
+// forceOperatorChoice imitates a ResolveRecovery that recorded its attempt and
+// then failed, leaving the manifest in recovery_required (MADR 0133).
+func forceOperatorChoice(t *testing.T, dataDir, provider string, ch RecoveryChoice) {
+	t.Helper()
+	path := filepath.Join(dataDir, "provider-auth", provider, "manifest.json")
+	m, err := loadManifest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.OperatorChoice, m.OperatorChoiceAt = ch, time.Now().UTC()
+	if err := saveManifest(path, m); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func forceState(t *testing.T, dataDir, provider string, s State) {
 	t.Helper()
 	path := filepath.Join(dataDir, "provider-auth", provider, "manifest.json")

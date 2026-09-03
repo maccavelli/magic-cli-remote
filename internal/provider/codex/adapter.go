@@ -51,6 +51,10 @@ func NewCredentialAdapter(id string, bin ...string) *CredentialAdapter {
 	return a
 }
 
+// CredentialAdapter must satisfy the optional reality capability; a silent
+// failure to would simply route MADR 0134 back to the pre-0134 escalation.
+var _ providerauth.RealityReporter = (*CredentialAdapter)(nil)
+
 // ProviderID implements [providerauth.Adapter].
 func (a *CredentialAdapter) ProviderID() string { return a.id }
 
@@ -91,6 +95,35 @@ func (a *CredentialAdapter) CheckBackend() error {
 // Reality reports where this provider's credential actually lives.
 func (a *CredentialAdapter) Reality(ctx context.Context) (StoreReality, error) {
 	return ObserveCredentialStore(ctx, a.bin)
+}
+
+// CredentialIsExternal implements [providerauth.RealityReporter]
+// (MADR 0134, corrected by MADR 0136).
+//
+// Only RealityUnsupported answers true: the resolved backend is not the file
+// this coordinator protects, so no login here can produce a credential it can
+// protect and there is nothing for an operator to decide.
+//
+// Everything else answers false, and the distinctions matter:
+//
+//   - RealityBroken is a stored credential Codex cannot use. The file IS the
+//     store and mcremote can protect it; what is wrong is the credential, so
+//     MADR 0133's escalation to recovery_required is the correct outcome.
+//     Reporting this as external is the defect MADR 0136 exists to fix.
+//   - RealityLoggedOut and RealityUnknown establish nothing about a usable
+//     credential, so neither may silence an escalation.
+//
+// The cached observation is used because providers.list has usually just asked
+// the same question, and every managed mutation already invalidates it.
+func (a *CredentialAdapter) CredentialIsExternal(ctx context.Context) (bool, error) {
+	reality, _ := ObserveCredentialStoreCached(ctx, a.bin, realityWindow)
+	// The observation's error is DISCARDED on purpose. For RealityUnsupported
+	// it is descriptive — "codex resolves its store to the keyring backend" —
+	// not a failure to observe, and this interface's error means only "I could
+	// not tell". Returning the descriptive one made the coordinator treat a
+	// confident answer as unknown and escalate anyway. CheckBackend is where
+	// that text reaches an operator.
+	return reality == RealityUnsupported, nil
 }
 
 // authDotJSON is the subset of Codex's auth.json this adapter reads. No token

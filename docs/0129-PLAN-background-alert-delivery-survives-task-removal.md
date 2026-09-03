@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-09-01
+status: complete
+date: 2026-09-02
 associated-madr: "0129-MADR-background-alert-delivery-survives-task-removal.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD060 -->
@@ -1037,3 +1037,185 @@ this should note the daemon's format is `time=2026-09-02T06:49:46.515-05:00`
 **Status:** criterion 5 is **not met**. 0129 stays `in-progress`. The finding is
 recorded here rather than acted on: it is a new defect on a path this plan did
 not change, and fixing it needs its own decision.
+
+### Acceptance criterion 5 — re-run and **resolved: PASSES**; the earlier failure was a partitioned zombie, not a second login
+
+The 2026-09-02 entry above recorded criterion 5 as **FAILED** (MAX concurrent 2,
+one `reason=replaced`) and left it as a suspected C1 race on the ordinary
+foreground/background path. Re-measured with `mc.trace` on a release build; that
+reading was wrong, and this entry supersedes it.
+
+#### Clean run: 100 cycles, no violation
+
+APK `0.15.3.20` (release, `--dart-define=mc.trace=true`), 100 cycles of
+`am start` → 2 s → `HOME` → 2 s, 09:39:32 → 09:46:29:
+
+```text
+connection events in window   0
+live distribution             connection held throughout
+MAX concurrent                1
+reason=replaced               0
+```
+
+**Zero** daemon connection events across the whole run. The resume path's 350 ms
+debounce and its "already up — nothing to do" early return
+(`app_lifecycle.dart:230-246`) do their job: cycling a *connected* app never
+dials.
+
+#### The failure needs a link drop, and then it is deterministic
+
+Cycling alone does not reproduce it. Cycling **with the link cut and restored
+mid-run** does, every single time — 4 rounds, 4 violations:
+
+```text
+events=12  MAX concurrent=2  replaced=4
+```
+
+Each round is identical (host clock):
+
+```text
+09:56:26.831  device authenticated              <- the new connection
+09:56:26.832  ws client disconnected  replaced  <- 1 ms later, the OLD one
+09:56:26.888  ws client disconnected  peer_closed
+```
+
+#### What it actually is
+
+The client-side trace shows **one** client, **one** dial. Across the entire
+window `09:56:13 → 09:56:27` the client reports `socket=no` on every line, a
+single monotonic epoch sequence (5→6→7→8), no `mcremote/fgs` activity at all
+(the service isolate never took over — correct, the UI isolate was alive), and
+exactly **one** `adoptSocket`:
+
+```text
+09:56:27.192  state=reconnecting socket=yes ping=off epoch=8 at=adoptSocket
+09:56:27.192  state=authenticating ...
+09:56:27.292  state=connected ...
+```
+
+That adopt appears to *follow* the daemon's auth by 361 ms, which looked like a
+second connection. It is not: **the emulator's clock runs 445 ms ahead of the
+host** (measured). Correcting for skew, the client's adopt at emulator-time
+`09:56:27.192` **is** the daemon's auth at host-time `09:56:26.831`. One dial.
+
+So the connection the daemon closed with `replaced` was not a second login by
+this app. It was the **pre-partition connection**, which the client had already
+torn down locally at `09:56:13` — but whose FIN could not reach the daemon,
+because the link was blackholed. The daemon went on counting a socket that no
+longer had a client behind it, and reaped it the moment a real login arrived.
+
+**That is 4001 `replaced` doing precisely the job [0068](0068-MADR-protocol-v2-reconnect-resilient-transport.md)
+D3 designed it for**, and no client-side change can prevent it: a partitioned
+peer cannot deliver a close. C1 — "the app must not put two connections on one
+device token" — is not violated. The app never dialled twice.
+
+#### Verdict, and the correction that matters
+
+**Criterion 5 passes.** C1 holds across 100 foreground/background cycles.
+
+The correction worth carrying: the first reading called this "a real C1
+violation on the ordinary fg/bg path" on the strength of a `reason=replaced`
+line alone. `replaced` means "a newer login displaced an older registration" —
+it does **not** distinguish *the app dialled twice* from *the daemon was holding
+a zombie*. Telling those apart needed the client-side trace and a clock-skew
+measurement. A daemon-side counter is not sufficient evidence for C1 on its own,
+and earlier entries in this plan that lean on it should be read with that in
+mind.
+
+### Acceptance criterion 4 — re-verified on the current build (C3)
+
+Criterion 4 passed in P5 against `0.15.3.12`, but P6 then changed
+`foreground_service.dart` — `onStart` now calls `_takeOwnership()` on a system
+start, adding a second entry into `_startAlerts`. The forwarding path itself
+(`notification_service.dart`, `notification_coordinator.dart`,
+`agent_notifications.dart`) has **zero commits** since, so the risk was low —
+but "low risk by code reading" has been wrong three times in this work, so it
+was re-run rather than asserted.
+
+APK `0.15.3.20`, provider **kilo** (grok's quota is exhausted), session
+`d74e4103`, one prompt.
+
+**Getting a gated permission from kilo, recorded so it need not be rediscovered:**
+kilo's default *Code* mode auto-approves read-only tools — a `ls -la` prompt
+ran to `turn_complete` with no `permission_request` at all. A **mutation**
+gates: "Create a file at /tmp/mc-c4-probe.txt containing the word hello"
+produced
+
+```text
+per_062b0557a001U47ryGokjMxmFS | external_directory
+  options: [('once','allow_once'), ('always','allow_always'), ('reject','reject_once')]
+```
+
+**The run.** Task removed → service isolate took ownership and reconciled the
+ask; the notification it posted carried `broadcastIntent` actions (not
+`startActivity`), confirming the service-side `showsUserInterface: false` path:
+
+```text
+10:18:00.534  mcremote/fgs: alerts started (enabled=true, asks=true)
+10:18:00.534  mcremote/fgs: took ownership, state=McConnectionState.connected
+10:18:00.598  mcremote/fgs: reconciled 1 pending ask(s), showing 1
+              notification "Approval needed: external_directory /tmp/*"
+                [0] "Allow" -> broadcastIntent
+                [1] "Deny"  -> broadcastIntent
+     ... Allow tapped in the shade ...
+10:19:58.196  mcremote/notif-bg: forwarded allow to service isolate
+10:19:58.197  mcremote/fgs: answering allow from shade
+15:19:57.861Z permission_resolved  status=resolved  option=once    (daemon, = 10:19:57 local)
+```
+
+Activity state, sampled either side of the tap — unchanged in every field:
+
+```text
+                      before      after
+pid                   23909       23909
+MainActivity records  0           0
+topResumedActivity    nexuslauncher   nexuslauncher
+```
+
+**And the agent then did the work.** `/tmp/mc-c4-probe.txt` was created
+containing `hello`. That is a stronger result than P5's: it proves not merely
+that the daemon recorded a resolution, but that the approval actually unblocked
+the agent's tool call — the whole point of the feature. (Artifact deleted
+afterwards.)
+
+**Criterion 4 passes on the current build.**
+
+## Status — 2026-09-02: complete
+
+All six acceptance criteria are met, each on measured evidence:
+
+```text
+1  Phase C: honest notification after a swipe          PASS  (P1+P2)
+2  swipe -> permission_request produces a notification PASS  (P6 row 1)
+3  SIGKILL -> service, isolate and socket return       PASS  (P6 row 2, 3.5 s)
+4  Allow with no UI isolate resolves host-side         PASS  (re-verified on 0.15.3.20)
+5  exactly one socket across 100 fg/bg cycles          PASS  (MAX 1, zero replaced)
+6  flutter test >= 1367; manifest-surface passes       PASS  (+1388 ~3; gate OK)
+```
+
+The goal this plan set — *"walk away from the phone and still be pinged, and
+still be able to answer"* — is delivered: with the app swiped from recents, an
+approval raised host-side is delivered by the foreground service's isolate and
+answered from the notification shade, with no Activity ever started, and the
+agent proceeds.
+
+**Three corrections this plan made to its own earlier entries**, each because a
+first reading was asserted and a later measurement disagreed:
+
+* **Criterion 5 was recorded as FAILED and is not.** A `reason=replaced` line
+  daemon-side was read as the app dialling twice. With the client trace and a
+  445 ms clock-skew measurement it resolved as the daemon reaping a
+  *partitioned zombie* — a connection the client had already abandoned but
+  whose FIN the blackholed link could not deliver. C1 holds.
+* **`lsof` was the wrong instrument** for counting connections and is not
+  trusted anywhere in this record; the daemon log's running count is.
+* **`DartWorker` is not a liveness indicator** (P4 execution record). The
+  reliable signals are the numbered engine thread groups and the socket.
+
+**What this plan does not deliver**, stated rather than rounded up: 0126 P7
+row 4's absolute wording — "the notification never claims a connection while
+none exists" — is still unsatisfied, because the client can believe it is
+connected for tens of seconds after its socket dies. That is connection
+liveness, not alert delivery; it is owned by
+[0130](0130-MADR-client-can-sit-connected-with-no-socket.md), which is parked
+with the cause unfound and a working instrument in place.

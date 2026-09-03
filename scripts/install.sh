@@ -174,13 +174,36 @@ detect_init() {
 
 # ------------------------------------------------------------- resolve/fetch
 
-# Verify by hash VALUE. SHA256SUMS lists versioned filenames
-# (mcremote-linux-amd64-0.12.0.1) while we download the unversioned alias, so
-# `sha256sum -c` would fail on the NAME. Matching the versioned manifest line
-# also yields the resolved version with no API call.
+# Verify by hash VALUE, not filename.
+#
+# Two manifest shapes exist and both must verify (MADR 0005):
+#
+#   canonical (v0.16.0 onward)  SHA256SUMS lists the exact downloaded basename,
+#                               e.g. "mcremote-linux-amd64". Preferred.
+#   legacy    (pre-v0.16.0)     SHA256SUMS lists versioned filenames, e.g.
+#                               "mcremote-linux-amd64-0.12.0.1", while we
+#                               download the unversioned alias — so the NAME
+#                               never matches and only the hash VALUE can be
+#                               compared.
+#
+# A conforming manifest contains exactly ONE of these shapes for a given
+# product/platform: SHA256SUMS lists canonical names only, and the bridge's
+# SHA256SUMS-0.16.0 lists compatibility names only. A manifest carrying BOTH is
+# anomalous, and treating it as normal is a shadowing vector: an appended
+# canonical line would silently override the real versioned entry and
+# authorize a substituted binary. So both are looked up and an ambiguous
+# manifest fails closed rather than picking a winner.
 verify_and_resolve() {
     _p=$1
-    _line=$(grep -E "  ${_p}-${OS}-${ARCH}-[0-9]" "$TMP_DIR/SHA256SUMS" | head -1) || true
+    _canon=$(grep -E "  ${_p}-${OS}-${ARCH}$" "$TMP_DIR/SHA256SUMS" | head -1) || true
+    _versioned=$(grep -E "  ${_p}-${OS}-${ARCH}-[0-9]" "$TMP_DIR/SHA256SUMS" | head -1) || true
+    if [ -n "$_canon" ] && [ -n "$_versioned" ]; then
+        die 2 "ambiguous SHA256SUMS: both a canonical and a versioned entry exist for ${_p}-${OS}-${ARCH}
+A conforming release lists one shape per manifest. Refusing to choose.
+Nothing was installed."
+    fi
+    _line=$_canon
+    [ -n "$_line" ] || _line=$_versioned
     [ -n "$_line" ] || die 2 "no checksum entry for ${_p}-${OS}-${ARCH} in SHA256SUMS"
 
     _want=$(printf '%s\n' "$_line" | awk '{print $1}')
@@ -193,7 +216,15 @@ verify_and_resolve() {
   got      $_got
 Nothing was installed."
     fi
-    RESOLVED_VER=${_name#"${_p}-${OS}-${ARCH}-"}
+    # A canonical entry carries no version in its name. Fall back to the
+    # pinned tag when one was requested, and otherwise leave it empty rather
+    # than inventing a version; the post-install check below compares only
+    # when it is set.
+    if [ "$_name" = "${_p}-${OS}-${ARCH}" ]; then
+        RESOLVED_VER=${PIN_VERSION:-}
+    else
+        RESOLVED_VER=${_name#"${_p}-${OS}-${ARCH}-"}
+    fi
     # Convention C5 (MADR 0116 F17): the extension comes LAST, so a Windows
     # manifest line yields "0.14.10.1.exe" without this. install.sh refuses to
     # run on Windows, but the manifest format is shared with install.ps1 and

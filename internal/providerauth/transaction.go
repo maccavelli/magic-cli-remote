@@ -193,6 +193,12 @@ func (c *Coordinator) statusLocked(m *Manifest) Status {
 		}
 	case StatePending, StateCommitting:
 		st.BackupState = BackupPending
+	case StateExternal:
+		// Nothing is backed up and nothing can be restored, which is what the
+		// codex provider already projected from its own reality probe; this
+		// makes the manifest agree instead of contradicting it (MADR 0134).
+		st.BackupState = BackupUnsupported
+		st.RecoveryAvailable = false
 	default:
 		switch {
 		case cur == nil:
@@ -291,7 +297,7 @@ func (c *Coordinator) Begin(ctx context.Context, src Source) (*Txn, error) {
 		// home and restores nothing, so it cannot act on the ambiguity it
 		// would resolve. Blocking it turned a recoverable state into a dead
 		// end for an operator with no retained generation at all.
-		if m.State != StateRecoveryRequired {
+		if m.State != StateRecoveryRequired && m.State != StateExternal {
 			if err := c.seedLocked(ctx, m); err != nil {
 				return err
 			}
@@ -413,6 +419,16 @@ func (c *Coordinator) Commit(ctx context.Context, txn *Txn) error {
 		if m.Transaction == nil || m.Transaction.ID != txn.ID {
 			return ErrTransactionBusy
 		}
+		// Publishing into a file the provider is not reading would report
+		// success and change nothing a session can use (MADR 0134). The
+		// unsupported-backend error is the honest one, and the phone already
+		// has a projection for it; ErrRecoveryRequired would send the operator
+		// to a prompt whose every answer is destructive here.
+		if m.State == StateExternal {
+			return fmt.Errorf(
+				"%w: the provider keeps its credential outside the file this coordinator protects",
+				ErrUnsupportedBackend)
+		}
 		pend := m.byLabel(LabelPending)
 		if pend == nil || pend.ValidatedAt.IsZero() {
 			return fmt.Errorf("%w: candidate is not validated", ErrInvalidCandidate)
@@ -506,7 +522,7 @@ func (c *Coordinator) Abort(ctx context.Context, txn *Txn) error {
 		}
 		m.dropLabel(LabelPending)
 		m.Transaction = nil
-		if m.State != StateRecoveryRequired {
+		if m.State != StateRecoveryRequired && m.State != StateExternal {
 			m.State = StateIdle
 		}
 		if err := c.save(m); err != nil {
@@ -524,6 +540,10 @@ func (c *Coordinator) Abort(ctx context.Context, txn *Txn) error {
 // never be restored or advertised as recoverable (MADR 0074 D24/F14).
 func (c *Coordinator) MarkRevoked(ctx context.Context) error {
 	return c.withProviderLock(ctx, func(m *Manifest) error {
+		if m.State == StateExternal {
+			return fmt.Errorf("%w: nothing retained here backs the live grant",
+				ErrUnsupportedBackend)
+		}
 		for i := range m.Generations {
 			m.Generations[i].Revoked = true
 		}
@@ -537,6 +557,11 @@ func (c *Coordinator) MarkRevoked(ctx context.Context) error {
 // they were (MADR 0074 D24, P18 step 11).
 func (c *Coordinator) RecordLogout(ctx context.Context) error {
 	return c.withProviderLock(ctx, func(m *Manifest) error {
+		if m.State == StateExternal {
+			return fmt.Errorf(
+				"%w: the live credential is not in the file a tombstone would remove",
+				ErrUnsupportedBackend)
+		}
 		live, err := c.adapter.LivePath()
 		if err != nil {
 			return err

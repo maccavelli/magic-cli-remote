@@ -31,6 +31,13 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Manifest) error {
 	case StateRecoveryRequired, StateLoggedOut:
 		// Terminal until an operator or an explicit login acts.
 		return nil
+	case StateExternal:
+		// Deliberately NOT terminal, and deliberately not probed here
+		// (MADR 0134). Adoption is exactly how this state is left: the file
+		// becoming usable again is the event that ends it, and that is the
+		// event this function already handles. Probing would put a CLI spawn
+		// on the watcher's per-event path, which startup recovery can afford
+		// and this cannot.
 	}
 
 	cur := m.byLabel(LabelCurrent)
@@ -49,9 +56,11 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Manifest) error {
 	if obs.fp == cur.Fingerprint {
 		return nil
 	}
-	if !obs.meta.Fresher(c.metaOf(ctx, cur)) {
+	if !obs.meta.NotOlder(c.metaOf(ctx, cur)) {
 		// Older, unrelated, or incomparable. Never roll a rotated token
 		// backward; startup recovery is where ambiguity gets escalated.
+		// Equality is adopted rather than refused (MADR 0133): a rewrite that
+		// leaves the provider's own clock alone has not gone backward.
 		return nil
 	}
 
@@ -100,8 +109,11 @@ func (c *Coordinator) stableObservation(ctx context.Context) (observation, []byt
 		}
 		first, data = next, nextData
 	}
-	// Never settled inside the deadline: treat as unstable.
-	return observation{fp: first.fp, valid: false}, data, nil
+	// Never settled inside the deadline: unstable, which is NOT the same as
+	// invalid and must not be reported as it (MADR 0133). `valid` stays false
+	// because nothing here may be trusted; `stable` false is what tells a
+	// caller to look again rather than to escalate.
+	return observation{fp: first.fp, valid: false, stable: false}, data, nil
 }
 
 func (c *Coordinator) observeWithBytes(ctx context.Context) (observation, []byte, error) {
@@ -109,27 +121,47 @@ func (c *Coordinator) observeWithBytes(ctx context.Context) (observation, []byte
 	if err != nil {
 		return observation{}, nil, err
 	}
+	// Every return below is one settled read: stable is true because this
+	// function reports what the file said at an instant, and stableObservation
+	// is what decides whether two such instants agreed.
 	fi, statErr := os.Lstat(live)
 	if statErr == nil {
 		if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
-			return observation{valid: false}, nil, nil
+			return observation{valid: false, stable: true}, nil, nil
 		}
 		if fi.Size() > MaxCredentialBytes {
-			return observation{valid: false}, nil, nil
+			return observation{valid: false, stable: true}, nil, nil
 		}
 	}
 	fp, data, err := liveFingerprint(live)
 	if err != nil {
-		return observation{valid: false}, nil, nil //nolint:nilerr // classified, not fatal
+		return observation{valid: false, stable: true}, nil, nil //nolint:nilerr // classified, not fatal
 	}
 	if fp == FingerprintAbsent {
-		return observation{fp: FingerprintAbsent}, nil, nil
+		return observation{fp: FingerprintAbsent, stable: true}, nil, nil
+	}
+	if len(data) == 0 {
+		// A file that exists but is empty is NOT a settled observation
+		// (MADR 0133, amended 2026-09-03).
+		//
+		// Writers truncate before writing, so this is what a read looks like
+		// when it lands inside someone else's write. The trap is that an empty
+		// file's fingerprint is the hash of empty bytes — a stable value — so
+		// two reads that both land in a truncate window agree, and without this
+		// branch the pair is classified settled-and-invalid and escalated to a
+		// terminal state. Measured at about 1 run in 8.
+		//
+		// A zero-length credential is never real, so the observation carries no
+		// information in either direction. Note this deliberately does NOT
+		// cover a file with content that fails to parse: that is genuine
+		// corruption and must still escalate.
+		return observation{fp: fp, valid: false, stable: false}, data, nil
 	}
 	meta, err := c.adapter.Validate(ctx, data)
 	if err != nil {
-		return observation{fp: fp, valid: false}, data, nil //nolint:nilerr // classified, not fatal
+		return observation{fp: fp, valid: false, stable: true}, data, nil //nolint:nilerr // classified, not fatal
 	}
-	return observation{fp: fp, meta: meta, valid: true}, data, nil
+	return observation{fp: fp, meta: meta, valid: true, stable: true}, data, nil
 }
 
 // RecoverResult is one provider's outcome from RecoverAll.
@@ -194,6 +226,14 @@ func (c *Coordinator) ResolveRecovery(ctx context.Context, choice RecoveryChoice
 		if m.State != StateRecoveryRequired {
 			return fmt.Errorf("%w: provider is not awaiting an operator decision", ErrRecoveryRequired)
 		}
+		// Record the attempt before acting on it. A resolution that fails
+		// leaves the manifest in recovery_required, and startup re-evaluation
+		// must not then decide something else on this operator's behalf
+		// (MADR 0133).
+		m.OperatorChoice, m.OperatorChoiceAt = choice, time.Now().UTC()
+		if err := c.save(m); err != nil {
+			return err
+		}
 		switch choice {
 		case ChooseLoggedOut:
 			return c.resolveLoggedOut(ctx, m)
@@ -216,6 +256,7 @@ func (c *Coordinator) resolveLoggedOut(ctx context.Context, m *Manifest) error {
 	if err != nil {
 		fp = FingerprintAbsent
 	}
+	m.clearOperatorChoice()
 	m.State = StateLoggedOut
 	m.LoggedOutExpected = fp
 	m.LoggedOutAt = time.Now().UTC()
@@ -256,6 +297,7 @@ func (c *Coordinator) resolveAdoptLive(ctx context.Context, m *Manifest) error {
 		ValidatedAt: now,
 	})
 	c.rotateLocked(m, id)
+	m.clearOperatorChoice()
 	m.State = StateIdle
 	if err := c.save(m); err != nil {
 		return err
@@ -317,6 +359,7 @@ func (c *Coordinator) resolveRepublish(ctx context.Context, m *Manifest, label L
 				}
 			}
 		}
+		m.clearOperatorChoice()
 		m.State = StateIdle
 		if err := c.save(m); err != nil {
 			return err

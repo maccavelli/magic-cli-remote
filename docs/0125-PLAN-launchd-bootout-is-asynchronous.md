@@ -173,6 +173,61 @@ launchctl print after each              -> state = running
 Record the actual output in this plan's execution record, not a summary. If any
 row fails, this plan returns to P1 rather than adding a retry (C3).
 
+### P5 — The darwin setup tests consult real launchd (added 2026-09-02)
+
+Found while chasing an unrelated local failure: three tests in
+`internal/cli/service/setup_launchd_test.go` —
+`TestDarwinSetupAgentOrder`, `TestDarwinSetupNeverTouchesSystemDomain` and
+`TestDarwinRemoveAgent` — **fail deterministically on any macOS host where
+mcremote is actually installed and running**, and pass everywhere else.
+
+Cause: there are two launchctl seams and the tests stub only one.
+
+```text
+runLaunchctl("bootout", svc)          -> OverrideRunLaunchctl        (stubbed)
+launchdLoaded(svc)
+  -> runLaunchctlCapture("print", svc) -> OverrideRunLaunchctlCapture (NOT stubbed)
+```
+
+`stopAndWaitDarwin` calls `launchdLoaded` before and inside its wait loop, so on
+a machine with the real job in the user domain the unstubbed probe reports
+"loaded" forever while the stubbed `bootout` does nothing. The loop spins the
+full `launchdWaitTimeout` and `Setup` fails with `ErrLaunchdStillLoaded` naming
+the developer's own live service:
+
+```text
+setup_launchd_test.go:46: plist installed at <tmp>/LaunchAgents/…plist, but the
+existing job could not be torn down: launchd job still loaded after teardown
+wait: gui/503/com.magiccliremote.mcremote (15s)
+```
+
+**The tests already state the assumption they cannot enforce.** One says "No
+bootout: nothing was loaded, so there is nothing to tear down"; the other says
+"Nothing is here — **no launchctl on this host**, so the job was never in the
+domain". That second comment is the whole bug written down: they were authored
+against Linux CI, where `launchctl` does not exist, so the capture seam errors
+and "not loaded" falls out by accident. On macOS both halves are false.
+
+CI never sees it — the lanes that run these are Linux, where the accident still
+holds — so this is a local-only failure that has been latent since the tests
+were written.
+
+**Fix:** stub the capture seam alongside the runner in those three tests, so the
+precondition they already assert in prose is enforced rather than inherited from
+the host. `OverrideRunLaunchctlCapture` already exists (`setup.go:238`) and is
+used by the in-package tests; the external `service_test` package simply never
+called it.
+
+**Not changed:** no production code, no assertion, and no timing. The tests keep
+asserting exactly what they asserted — including "a fresh install must not
+bootout an absent job" — on every host rather than only on hosts without
+launchd.
+
+**Verification:** the three tests pass on this macOS host with mcremote
+installed and running, `go test -race ./internal/cli/service/` is clean, and the
+live daemon is untouched (`launchctl print gui/503/com.magiccliremote.mcremote`
+still reports `state = running`, same pid, before and after).
+
 ## Verification (whole plan)
 
 ```bash

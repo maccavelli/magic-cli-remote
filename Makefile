@@ -1,11 +1,12 @@
 MODULE  := github.com/maccavelli/magic-cli-remote
-# Version stamping (see scripts/next-build-version.sh):
-#   release tag v0.2.1 → builds 0.2.1.1, 0.2.1.2, … claimed via git tags build/0.2.1.N
-#   CI pushes those tags so local + CI share one monotonic ledger.
+# Version stamping (MADR 0005).
+#   A release is an immutable strict tag: the tag build passes it directly as
+#   VERSION= and stamps BUILD_KIND=release. There is no BASE.N build serial and
+#   no build/<BASE>.N ledger tag any more — a rebuilt fix gets a new patch tag.
+#   A local build stamps <base>.g<commit> and BUILD_KIND=local, which the
+#   updater refuses to replace without --force.
 # Override: make build VERSION=1.2.3
 BASE_VERSION ?= $(shell git tag -l 'v*.*.*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$$' | sort -V | tail -1 | sed 's/^v//' || echo 0.0.0)
-BUILD_COUNTER_FILE := .build-counter
-NEXT_VERSION_SH := scripts/next-build-version.sh
 # -dirty marks binaries built from a modified tree (tracked changes, same rule
 # as `git describe --dirty`) — otherwise a dirty build is indistinguishable
 # from a clean build of HEAD when debugging from the version string.
@@ -40,6 +41,13 @@ endif
 CGO_ENABLED   ?= 0
 # Tags are computed after GOOS is known (see below).
 GO_LDFLAGS    := -s -w
+
+# LOCAL_VERSION is the identity of a build that is not a published release.
+# The .g<commit> suffix is the historical local shape and is what
+# internal/updateclient normalizes; BUILD_KIND is what actually decides, since
+# a bool cannot be set with the linker's -X flag.
+LOCAL_VERSION := $(BASE_VERSION).g$(COMMIT)
+BUILD_KIND ?= local
 
 # True when the user passed VERSION=... on the command line.
 VERSION_FROM_CLI := $(filter command line,$(origin VERSION))
@@ -158,15 +166,15 @@ build: check-cgo-off
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
 		VER="$(VERSION)"; \
 	else \
-		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
+		VER="$(LOCAL_VERSION)"; \
 	fi; \
 	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH), cgo=$(CGO_ENABLED), tags=$(GO_TAGS))…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
-		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
 		-o $(BIN) ./cmd/mcremote; \
 	echo "Building mcrelay $${VER}…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
-		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
 		-o $(BIN_RELAY) ./cmd/mcrelay; \
 	$(MAKE) --no-print-directory codesign-maybe
 
@@ -207,11 +215,11 @@ build-relay: check-cgo-off
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
 		VER="$(VERSION)"; \
 	else \
-		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
+		VER="$(LOCAL_VERSION)"; \
 	fi; \
 	echo "Building mcrelay $$VER ($(GOOS)/$(GOARCH))…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
-		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
 		-o $(BIN_RELAY) ./cmd/mcrelay
 
 # Build ONLY mcremote for one GOOS/GOARCH (mirror of build-relay). Lets the
@@ -224,11 +232,11 @@ build-remote: check-cgo-off
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
 		VER="$(VERSION)"; \
 	else \
-		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
+		VER="$(LOCAL_VERSION)"; \
 	fi; \
 	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH))…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
-		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
 		-o $(BIN) ./cmd/mcremote
 
 # Build for this host OS/arch and install BOTH mcremote and mcrelay into the
@@ -384,7 +392,6 @@ preflight:
 	@echo "==> go vet";        go vet ./...
 	@echo "==> staticcheck";   staticcheck ./...
 	@echo "==> go test -race"; go test -race ./...
-	@echo "==> version allocator tests"; ./scripts/next-build-version_test.sh
 	@echo "==> install/restart tests"; ./scripts/install-binary_test.sh
 	@echo "==> systemd units"; \
 	if command -v systemd-analyze >/dev/null 2>&1; then \
@@ -392,8 +399,8 @@ preflight:
 	else \
 		echo "(skipped: systemd-analyze not installed)"; \
 	fi
-	@echo "==> release build (mcremote + mcrelay, no ledger write)"; \
-	MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 $(MAKE) --no-print-directory build >/dev/null
+	@echo "==> release build (mcremote + mcrelay)"; \
+	$(MAKE) --no-print-directory build >/dev/null
 	@./bin/mcremote version
 	@./bin/mcrelay version
 	@echo "==> flutter pin"; ./scripts/assert-flutter-pin.sh
@@ -461,8 +468,8 @@ manifest-surface:
 # new release base.
 apk:
 	@set -e; \
-	VER="$$(MCREMOTE_VERSION_PUSH=0 MCREMOTE_VERSION_TAG=0 $(NEXT_VERSION_SH) | tail -1)"; \
-	BUILD_NAME="$$VER"; BUILD_NUMBER="$${VER##*.}"; \
+	VER="$(LOCAL_VERSION)"; \
+	BUILD_NAME="$$VER"; BUILD_NUMBER="$${BUILD_NUMBER:-1}"; \
 	if [ -n "$(VERSION_FROM_CLI)" ]; then BUILD_NAME="$(VERSION)"; fi; \
 	if echo "$$BUILD_NAME" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$$' && \
 	   echo "$$BUILD_NUMBER" | grep -qE '^[0-9]+$$'; then \
@@ -515,11 +522,11 @@ run:
 	if [ -n "$(VERSION_FROM_CLI)" ]; then \
 		VER="$(VERSION)"; \
 	else \
-		VER="$$( $(NEXT_VERSION_SH) "$(BASE_VERSION)" "$(BUILD_COUNTER_FILE)" )"; \
+		VER="$(LOCAL_VERSION)"; \
 	fi; \
 	echo "Running mcremote $${VER}…"; \
 	CGO_ENABLED=$(CGO_ENABLED) go run \
-		-ldflags "-X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-ldflags "-X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
 		./cmd/mcremote serve
 
 fmt:

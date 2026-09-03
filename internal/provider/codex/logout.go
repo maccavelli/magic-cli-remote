@@ -238,8 +238,10 @@ func (p *Provider) backupProjection(ctx context.Context) (string, bool) {
 	// from a file it may not own. A host authenticated from outside auth.json
 	// has nothing backed up, and saying "current" there would be a lie
 	// (MADR 0074 §15.13).
-	if reality, _ := ObserveCredentialStoreCached(ctx, p.cfg.Bin, realityWindow); reality == RealityExternal ||
-		reality == RealityUnsupported {
+	// Only an unprotectable BACKEND overrides the manifest. A broken stored
+	// credential must not: the manifest's recovery_required is the honest
+	// projection there, and reporting "unsupported" would hide it (MADR 0136).
+	if reality, _ := ObserveCredentialStoreCached(ctx, p.cfg.Bin, realityWindow); reality == RealityUnsupported {
 		return provider.BackupUnsupported, false
 	}
 	st, err := p.coord.Status(ctx)

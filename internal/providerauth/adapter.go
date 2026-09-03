@@ -49,16 +49,61 @@ type CredentialMeta struct {
 // deliberately conservative: without a comparable ordering signal the answer is
 // false, so an autonomous refresh is never promoted on a guess (D24).
 func (m CredentialMeta) Fresher(existing CredentialMeta) bool {
+	return m.order(existing, false)
+}
+
+// NotOlder is Fresher with equality allowed, and is what the adoption decision
+// uses (MADR 0133).
+//
+// The direction that matters is backward: promoting an OLDER credential over a
+// rotated one is what D24 forbids, and NotOlder forbids it just as firmly.
+// Equality is a different case entirely — a provider that rewrites its
+// credential without advancing its own clock has not gone backward, and
+// refusing to adopt it there escalated a benign rewrite into a terminal
+// recovery_required. Both still refuse to guess: without a comparable ordering
+// signal on both sides the answer is false.
+func (m CredentialMeta) NotOlder(existing CredentialMeta) bool {
+	return m.order(existing, true)
+}
+
+// order is the shared comparison. allowEqual selects >= over > so the two
+// callers cannot drift apart in the mode gate or the "no signal, no guess" rule.
+func (m CredentialMeta) order(existing CredentialMeta, allowEqual bool) bool {
 	if m.Mode != existing.Mode {
 		return false
 	}
 	if !m.ExpiresAt.IsZero() && !existing.ExpiresAt.IsZero() {
+		if allowEqual && m.ExpiresAt.Equal(existing.ExpiresAt) {
+			return true
+		}
 		return m.ExpiresAt.After(existing.ExpiresAt)
 	}
 	if m.Sequence != 0 && existing.Sequence != 0 {
+		if allowEqual {
+			return m.Sequence >= existing.Sequence
+		}
 		return m.Sequence > existing.Sequence
 	}
 	return false
+}
+
+// RealityReporter is an OPTIONAL Adapter capability (MADR 0134).
+//
+// An adapter that can observe where its provider's credential actually lives
+// implements it; the coordinator type-asserts and falls back to its pre-0134
+// behaviour when it is absent, so implementing it is never required.
+//
+// It answers a boolean rather than returning a richer classification on
+// purpose: the enum that models a provider's credential store lives in that
+// provider's package, and providerauth must not import a provider to read it.
+//
+// True means the narrow thing the coordinator can act on — the provider's own
+// CLI is authenticated, but not from the file this coordinator protects. It is
+// deliberately NOT true for "configured for a backend we do not support" or
+// "could not be probed": neither establishes that a working credential exists,
+// and inventing one is how a broken host would come to look healthy.
+type RealityReporter interface {
+	CredentialIsExternal(ctx context.Context) (bool, error)
 }
 
 // Adapter is the provider-specific half of a credential transaction. Every

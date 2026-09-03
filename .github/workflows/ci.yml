@@ -37,11 +37,10 @@ jobs:
     name: Go (test; build on tag)
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    # Write is used only on tag runs, to claim build/<BASE>.<N> version tags on
-    # origin. PR and branch runs never push (see the build step's env), so the
-    # grant is inert there and unavailable at all on fork PRs.
+    # Read-only. The build/<BASE>.<N> ledger is gone (MADR 0005): a release is
+    # an immutable strict tag and this job pushes nothing.
     permissions:
-      contents: write
+      contents: read
     # Version stamped into both binaries; used by the release job artifact names.
     outputs:
       version: ${{ steps.build.outputs.version }}
@@ -127,11 +126,6 @@ jobs:
       - name: Test (cgo-free, all packages)
         run: CGO_ENABLED=0 go test ./...
 
-      # Guards the build/<BASE>.<N> allocator that stamps both binaries. It has
-      # always passed; it just never ran anywhere.
-      - name: Version allocator tests
-        run: ./scripts/next-build-version_test.sh
-
       # Unit files are shipped to users; a typo'd directive should not reach a
       # release. Shares its implementation with `make preflight` so local and CI
       # cannot drift.
@@ -161,10 +155,6 @@ jobs:
         id: build
         if: github.ref_type == 'tag'
         env:
-          # Claim/push build/<BASE>.<N> only on tag runs; PR and branch runs
-          # build a locally-stamped binary with no git side effects.
-          MCREMOTE_VERSION_PUSH: ${{ github.ref_type == 'tag' && '1' || '0' }}
-          MCREMOTE_VERSION_TAG: ${{ github.ref_type == 'tag' && '1' || '0' }}
           CI: "true"
         run: |
           set -euo pipefail
@@ -187,16 +177,10 @@ jobs:
           # this one line plus a verify-build-metadata case and a
           # windows-11-arm go-native matrix leg.
 
-          # Allocate the shared build/<BASE>.<N> serial ONCE. Every per-platform
-          # build below passes VERSION=, which short-circuits the allocator, so
-          # a release never mixes serials or claims extra tags. (This is the same
-          # allocation make build performs, called directly so no throwaway host
-          # build happens before the real matrix.)
-          ver="$(scripts/next-build-version.sh "$BASE" | tail -1)"
-          case "$ver" in
-            "$BASE".*) ;;
-            *) echo "error: allocated version '$ver' does not derive from tag base '$BASE'" >&2; exit 1 ;;
-          esac
+          # The immutable tag IS the version (MADR 0005). Every per-platform
+          # build passes VERSION= and BUILD_KIND=release, so the release
+          # binaries carry the tag and nothing allocates or pushes anything.
+          ver="$BASE"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
           mkdir -p dist
@@ -206,7 +190,7 @@ jobs:
               os="${p%/*}"; arch="${p#*/}"
               ext=""; [ "$os" = "windows" ] && ext=".exe"
               echo "==> $name $os/$arch"
-              make "$mk" VERSION="$ver" GOOS="$os" GOARCH="$arch" >/dev/null
+              make "$mk" VERSION="$ver" BUILD_KIND=release GOOS="$os" GOARCH="$arch" >/dev/null
               cp -f "bin/${name}${ext}" "dist/${name}-${os}-${arch}${ext}"
             done
           }
@@ -483,7 +467,11 @@ jobs:
     # needs go+flutter: this build costs ~10 min, so do not spend it when the
     # tests it ships alongside are already red. `go` also supplies the version
     # the APK is stamped with, keeping one release from carrying two schemes.
-    if: github.ref_type == 'tag'
+    # Runnable on demand as well as on a tag. A tag-only job cannot be
+    # exercised BEFORE the release that depends on it, which is exactly how
+    # the manifest-surface gate shipped broken and failed its first two tag
+    # builds (MADR 0126 D4 gate, added after v0.15.3 and never run since).
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     needs: [go, flutter]
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -495,7 +483,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Java
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"
@@ -832,69 +820,77 @@ jobs:
             echo "ok: ${bin}-linux-amd64 $got"
           done
 
-          # Rename to include the version. Keep any extension LAST so a Windows
-          # asset stays mcremote-windows-amd64-<ver>.exe, not ...exe-<ver>.
-          ASSETS=("$APK_OUT")
-          for f in go-bin/mcremote-* go-bin/mcrelay-*; do
-            b="$(basename "$f")"
-            case "$b" in
-              *.exe) out="${b%.exe}-${VER}.exe" ;;
-              *)     out="${b}-${VER}" ;;
-            esac
-            cp -f "$f" "$out"
-            ASSETS+=("$out")
-          done
+          # Stage the canonical release exactly as MADR 0005 defines it. The
+          # build job already produced canonical names and a SHA256SUMS over
+          # them, so staging copies rather than renames: an asset name is never
+          # rewritten after it was hashed.
+          mkdir -p staging
+          cp -f go-bin/mcremote-* go-bin/mcrelay-* staging/
+          rm -f staging/SHA256SUMS
+          cp -f go-bin/SHA256SUMS staging/SHA256SUMS
 
-          # Regenerate over the PUBLISHED names. The build-time SHA256SUMS
-          # (verified above) lists the pre-rename filenames, so shipping it
-          # as-is would hand users a checksum file that matches nothing they
-          # can download. Covers the APK too.
-          SUMS="SHA256SUMS-${VER}"
-          sha256sum "${ASSETS[@]}" > "$SUMS"
-          ASSETS+=("$SUMS")
+          # Declared extras: the installers ship with the release they know how
+          # to install, and the APK carries the tag in its basename.
+          cp -f scripts/install.sh staging/install.sh
+          cp -f scripts/install.ps1 staging/install.ps1
+          cp -f "$APK_OUT" "staging/$APK_OUT"
 
-          # Unversioned aliases so install.sh can build a URL from uname
-          # alone (MADR 0097 A2, extended to Darwin by MADR 0104). Copies
-          # of the versioned assets, made AFTER SHA256SUMS-${VER} is
-          # written, and NOT added to that manifest:
-          #
-          #   * copied from the same files that were just hashed, so an alias
-          #     can never diverge from the artifact it aliases;
-          #   * NOT added to SHA256SUMS, which keeps listing versioned names
-          #     only — that is what lets the installer discover which version
-          #     it actually resolved, with no GitHub API call. The installer
-          #     verifies by hash VALUE (matching the versioned manifest line),
-          #     never by filename, so the alias name never has to appear.
-          # Convention C5 (MADR 0116 F17): <product>-<goos>-<goarch>[-<VER>][<ext>],
-          # extension LAST. The glob must therefore tolerate a trailing
-          # extension — the pre-0116 form (mcremote-*-"${VER}") required the
-          # name to END in ${VER} and so silently skipped every Windows asset,
-          # publishing no unversioned alias for it.
-          for f in mcremote-*-"${VER}"* mcrelay-*-"${VER}"*; do
-            [ -f "$f" ] || continue
-            case "$f" in
-              SHA256SUMS*|*.apk) continue ;;
-            esac
-            base="${f%%-"${VER}"*}"          # mcremote-windows-amd64
-            ext="${f#*-"${VER}"}"            # .exe  (empty for POSIX)
-            alias_name="${base}${ext}"
-            cp -f "$f" "$alias_name"
-            ASSETS+=("$alias_name")
-          done
-          cp -f "$SUMS" SHA256SUMS
-          ASSETS+=("SHA256SUMS")
-
-          # Ship the installer with the release it knows how to install, so the
-          # script and the asset names it expects can never drift apart.
-          cp -f scripts/install.sh install.sh
-          ASSETS+=("install.sh")
-          cp -f scripts/install.ps1 install.ps1
-          ASSETS+=("install.ps1")
-
-          ls -lh "${ASSETS[@]}"
-          cat "$SUMS"
-
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --generate-notes --title "$TAG"
+          # The v0.16.0 bridge, and only v0.16.0. An installed pre-0.16 client
+          # selects <product>-<goos>-<goarch>-<VER> by prefix and then requests
+          # SHA256SUMS-<VER> with the identical suffix, which is why the
+          # compatibility suffix omits the leading "v". The copies are
+          # byte-identical to the canonical binaries and get their own manifest;
+          # SHA256SUMS keeps listing canonical names only.
+          # internal/updateclient.TestLegacySelectorCrossesTheBridge proves the
+          # frozen v0.15.3 selector resolves this exact file set.
+          if [ "$TAG" = "v0.16.0" ]; then
+            ( cd staging
+              for f in mcremote-* mcrelay-*; do
+                case "$f" in SHA256SUMS*|*-0.16.0|*-0.16.0.exe) continue ;; esac
+                case "$f" in
+                  *.exe) cp -f "$f" "${f%.exe}-0.16.0.exe" ;;
+                  *)     cp -f "$f" "${f}-0.16.0" ;;
+                esac
+              done
+              set --
+              for f in *-0.16.0 *-0.16.0.exe; do
+                [ -f "$f" ] || continue
+                set -- "$@" "$f"
+              done
+              [ "$#" -gt 0 ] || { echo "error: bridge produced no compatibility copies" >&2; exit 1; }
+              sha256sum "$@" > SHA256SUMS-0.16.0
+              cat SHA256SUMS-0.16.0
+            )
           fi
-          gh release upload "$TAG" "${ASSETS[@]}" --clobber
+
+          ls -lh staging/
+          cat staging/SHA256SUMS
+
+      - name: Upload the staged release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: magic-cli-remote-release-${{ github.ref_name }}
+          path: staging/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Publish through mcplib's reusable workflow. It validates the staged file set
+  # against the canonical contract, assembles a draft, attests it, publishes it,
+  # and waits for immutability. It never uses --clobber and refuses to touch a
+  # tag that already has a release.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish self-update release
+    if: github.ref_type == 'tag'
+    needs: [release]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: maccavelli/mcplib/.github/workflows/publish-selfupdate-release.yml@8d4d89ff34ff79c1ed65f223cc3d83b3ec0550aa # mcplib v1.4.1
+    with:
+      artifact-name: magic-cli-remote-release-${{ github.ref_name }}
+      products-json: '["mcremote","mcrelay"]'
+      platforms-json: '[{"os":"linux","arch":"amd64"},{"os":"linux","arch":"arm64"},{"os":"darwin","arch":"arm64"},{"os":"windows","arch":"amd64"}]'
+      extra-assets-json: '["install.sh","install.ps1","magic-cli-remote-${{ github.ref_name }}-arm64.apk"]'
+      bridge-release: ${{ github.ref_name == 'v0.16.0' }}
