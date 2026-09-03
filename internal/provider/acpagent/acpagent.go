@@ -793,8 +793,14 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		s.markClosedAndKill()
 		return nil, err
 	}
-	// Re-arm the spare for the next create (also covers the cold first one).
-	defer p.EnsureWarm()
+	// The spare is NOT re-armed here (MADR 0137 F5). Re-arming on Start put a
+	// full ~3.8 s spawn — process launch, ACP initialize, model-catalog
+	// harvest — in flight at the same moment as the user's first prompt,
+	// competing with the turn they are waiting on. The turn-end path in
+	// session.go re-arms instead, when nothing is waiting.
+	//
+	// The cold first spare is armed by the daemon at startup, which is where
+	// EnsureWarm's own doc comment says the initial call belongs.
 
 	// Bind the session identity. Safe without external synchronization even
 	// on a warm claim: the agent emits no session-scoped callbacks before

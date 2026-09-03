@@ -737,7 +737,13 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// create/close races for one session serialized.
 		return s.dispatchAsync(ctx, c, env, s.handleSessionCreate)
 	case protocol.TypeSessionList:
-		return s.handleSessionList(ctx, c, env)
+		// Async since MADR 0137 F4: the list resolves each session's advertised
+		// commands and modes, which reaches provider state, so it is not the
+		// pure map read the read loop assumed.
+		return s.dispatchAsync(ctx, c, env,
+			func(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+				return s.handleSessionList(ctx, c, env)
+			})
 	case protocol.TypeSessionClose:
 		return s.dispatchAsync(ctx, c, env, s.handleSessionClose)
 	case protocol.TypeSessionDelete:
@@ -752,17 +758,37 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// pings and cancel stay readable on the connection (Phase 1.3 / P1-1).
 		return s.dispatchAsync(ctx, c, env, s.handleSessionPrompt)
 	case protocol.TypeSessionSetMode:
-		return s.handleSessionSetMode(ctx, c, env)
+		// Async since MADR 0137 F4: a mode switch is an engine call for every
+		// ACP provider, and one blocking on the read loop stalls every later
+		// frame on the connection — including the prompt behind it.
+		return s.dispatchAsync(ctx, c, env,
+			func(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+				return s.handleSessionSetMode(ctx, c, env)
+			})
 	case protocol.TypeSessionSetConfig:
-		return s.handleSessionSetConfig(ctx, c, env)
+		// Async since MADR 0137 F4, for the same reason as set_mode: model and
+		// thinking-level changes reach the engine.
+		return s.dispatchAsync(ctx, c, env,
+			func(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+				return s.handleSessionSetConfig(ctx, c, env)
+			})
 	case protocol.TypeSessionCancel:
-		// Cancel stays on the read loop: it must remain reachable while a
-		// prompt or create is in flight on an async worker.
+		// Cancel stays INLINE, deliberately (MADR 0137 F4). It is a
+		// control-plane operation whose whole purpose is to interrupt work
+		// already running, and dispatchAsync is bounded by maxAsyncPerClient:
+		// a cancel that queues behind eight in-flight prompts cannot cancel
+		// them. It must remain reachable while a prompt or create is on an
+		// async worker.
 		return s.handleSessionCancel(ctx, c, env)
 	case protocol.TypeSessionHistory:
 		// History can marshal hundreds of events; keep it off the read loop.
 		return s.dispatchAsync(ctx, c, env, s.handleSessionHistory)
 	case protocol.TypeSessionPendingAsks:
+		// Stays INLINE (MADR 0137 F4): it reads pending permission/question
+		// state the phone needs to render an ask it is already blocked on, so
+		// queueing it behind maxAsyncPerClient prompts would hide the prompt
+		// that has to be answered before those prompts can finish.
+		//
 		// Same read path as handlePermissionRespond: c.deviceID is guarded by
 		// s.mu everywhere else in this file, so take it here too rather than
 		// leave one handler outside the discipline (MADR 0046 I-2).
@@ -790,6 +816,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeProviderStartAuth:
 		return s.dispatchAsync(ctx, c, env, s.handleStartAuth)
 	case protocol.TypeOAuthCancel:
+		// Stays INLINE (MADR 0137 F4): a cancel that waits for a worker slot
+		// defeats its own purpose, exactly as with session.cancel above.
 		s.mu.Lock()
 		cancelDevice := c.deviceID
 		s.mu.Unlock()

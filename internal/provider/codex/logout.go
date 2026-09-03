@@ -241,7 +241,11 @@ func (p *Provider) backupProjection(ctx context.Context) (string, bool) {
 	// Only an unprotectable BACKEND overrides the manifest. A broken stored
 	// credential must not: the manifest's recovery_required is the honest
 	// projection there, and reporting "unsupported" would hide it (MADR 0136).
-	if reality, _ := ObserveCredentialStoreCached(ctx, p.cfg.Bin, realityWindow); reality == RealityUnsupported {
+	// Non-blocking (MADR 0137 F1): this runs on the phone-triggered
+	// providers.list path, and a cold cache used to mean a ~1.4 s
+	// `codex doctor --json` inline. An unknown answer overrides nothing, which
+	// is the same conservative outcome a failed probe already produced.
+	if reality := ObserveCredentialStoreCachedNonBlocking(p.cfg.Bin, realityWindow); reality == RealityUnsupported {
 		return provider.BackupUnsupported, false
 	}
 	st, err := p.coord.Status(ctx)

@@ -26,6 +26,10 @@ type httpSession struct {
 	h httpagent.Host
 
 	mu sync.Mutex
+	// cmdDedupe suppresses repeated identical available_commands
+	// advertisements (MADR 0137 F2). Guarded by mu: advertiseCommands runs
+	// from more than one goroutine.
+	cmdDedupe event.CommandDeduper
 	// partText tracks the actual accumulated text per part id (NOT a byte count):
 	// SSE part.updated frames carry the FULL text each time, so we emit only the
 	// suffix beyond what we already streamed. Storing the real text (rather than a

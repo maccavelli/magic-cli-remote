@@ -58,7 +58,11 @@ type session struct {
 	// wire records raw agent frames when MCREMOTE_WIRE_CAPTURE_DIR is set.
 	wire *wirecap.Capture
 
-	providerID              provider.ID
+	providerID provider.ID
+	// cmdDedupe suppresses repeated identical available_commands
+	// advertisements (MADR 0137 F2). Touched only from the notification
+	// handler goroutine, which is the sole caller of the emit site.
+	cmdDedupe               event.CommandDeduper
 	provider                *Provider
 	extNotificationHandlers map[string]ExtensionNotificationHandler
 	localID                 string
@@ -372,6 +376,23 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			s.mu.Unlock()
 			// Drain next queued prompt after the turn fully ends.
 			s.tryDrainQueue()
+			// Re-arm the spare now the turn is over, not when it began
+			// (MADR 0137 F5). Arming on Start put a full ~3.8 s spawn —
+			// process launch, ACP initialize, model-catalog harvest — in
+			// flight at the same moment as the user's first prompt,
+			// competing with the turn they were waiting on.
+			//
+			// In the deferred block rather than beside the turn_complete emit,
+			// so an errored or cancelled turn re-arms too. Arming only on the
+			// happy path would leave a session that failed its first turn with
+			// no spare at all, which is the state prewarm exists to avoid.
+			//
+			// EnsureWarm returns immediately, does its work in a goroutine and
+			// is a no-op when a spare already exists, so a long conversation
+			// arms once rather than once per turn. After tryDrainQueue on
+			// purpose: a queued prompt has already chosen to contend, and the
+			// spare must not be skipped because one was waiting.
+			s.provider.EnsureWarm()
 		}()
 
 		resp, err := s.submitPrompt(turnCtx, blocks)
@@ -1471,12 +1492,18 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 				Hint:        hint,
 			})
 		}
-		s.emit(event.Event{
-			Type:      event.TypeAvailableCommands,
-			SessionID: s.localID,
-			Timestamp: now,
-			Commands:  cmds,
-		})
+		// Skip an advertisement identical to the last one (MADR 0137 F2).
+		// grok re-sends the full list on every turn boundary — 22 times in one
+		// `hi` — and each repeat crosses the websocket, lands in session
+		// history and re-renders on the phone without carrying any news.
+		if s.cmdDedupe.ShouldEmit(cmds) {
+			s.emit(event.Event{
+				Type:      event.TypeAvailableCommands,
+				SessionID: s.localID,
+				Timestamp: now,
+				Commands:  cmds,
+			})
+		}
 	case u.Plan != nil:
 		// A plan update is the full current plan (replace-semantics); forward
 		// the mapped entries so the phone can render the agent's task list.

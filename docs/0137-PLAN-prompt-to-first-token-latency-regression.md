@@ -227,7 +227,15 @@ description produces a second.
   *(a) mcremote:* dedupe `notice` events the same way as 4.2 — suppress a
   notice whose kind and text equal the last one emitted for that session. One
   codex session recorded 77 notices; a once-per-session upstream notice must
-  not become per-session noise. Applies at every `TypeNotice` emit site.
+  not become per-session noise. ~~Applies at every `TypeNotice` emit site.~~
+
+  **Amended 2026-09-03.** There are **42** `TypeNotice` emit sites across six
+  packages. The dedupe goes in the session event pump
+  (`internal/session/manager.go`) instead, where every provider's events
+  converge and the per-session `entry` state already lives — one guard covering
+  all 42, and any future emit site, rather than 42 that a new site silently
+  opts out of. A replayed event is never suppressed. `internal/session/manager.go`
+  is added to this phase's file list.
   *(b) operator, not code:* the notice itself is caused by
   `[features] codex_hooks = true` in `~/.codex/config.toml`. `codex_hooks` is a
   legacy alias for canonical key `hooks`, which is `Stable` and
@@ -985,4 +993,130 @@ branches. The branches were exercised live — all five matched, so only the
 info branch ran — and the warning text is shared with the kilo/opencode paths
 that do have matrix tests. A drift matrix per transport belongs with Phase 5.
 
-### Phases 4-7 (except 7.5, 7.9) — not yet started
+### Phase 4 — 2026-09-03, complete
+
+**4.1 F5 — grok prewarm re-arm.** `defer p.EnsureWarm()` removed from
+`acpagent.Start`. Re-arming there put a full ~3.8 s replacement spawn — process
+launch, ACP initialize, model-catalog harvest — in flight at the same moment as
+the user's first prompt. The spare is for the NEXT session; there is no reason
+to build it while someone is waiting. The daemon still arms the cold first
+spare at startup (`daemon.go:226`), which is where `EnsureWarm`'s own doc
+comment says the initial call belongs.
+
+**4.2 F2 — `available_commands` dedupe, all four providers.**
+`event.CommandDeduper` in `internal/event/dedupe.go`, used at every emit site:
+`acpagent` (grok), `acphttp` (goose), and a shared `emitCommands` helper on
+kilo's and opencode's `httpSession`, which covers both the live and
+catalog-down fallback paths in each. The first advertisement always goes out,
+including an empty one.
+
+**4.3(a) F6 — notice dedupe, in the session event pump.**
+
+**4.4 F1 — `ObserveCredentialStoreCachedNonBlocking`.** A cold cache returns
+`RealityUnknown` at once and starts at most one background probe;
+`backupProjection` uses it, so the phone-triggered `providers.list` path no
+longer reaches a ~1.4 s `codex doctor --json`. Recovery and `CheckBackend` are
+untouched — they are not phone-triggered and MADR 0136's classification needs a
+real observation.
+
+**4.5 F4 — ws dispatch, decided per handler.** `session.list`,
+`session.set_mode` and `session.set_config` moved to `dispatchAsync`; each
+reaches provider state. `session.cancel`, `session.pending_asks` and
+`oauth.cancel` stay inline, each with a comment saying why: they are
+control-plane operations, and `dispatchAsync` is bounded by
+`maxAsyncPerClient = 8`, so a cancel that queues behind eight prompts cannot
+cancel them.
+
+### Fail-first evidence — nine breakages, each verified to have landed and each restored from a `cp` backup
+
+```text
+M. re-arm removed entirely
+   FAIL TestSpareIsRearmedAtTurnEndNotTurnStart   wanted 1 "prewarm failed", got 0
+   FAIL TestAFailedTurnStillRearmsTheSpare        wanted 1 "prewarm failed", got 0
+
+N. re-arm on the happy path only
+   FAIL TestAFailedTurnStillRearmsTheSpare        wanted 1 "prewarm failed", got 0
+
+O. arming at turn START (the pre-0137 behaviour)
+   FAIL TestSpareIsRearmedAtTurnEndNotTurnStart
+        the spare was armed 1 time(s) while the turn was still running
+
+P. session.set_config back on the read loop
+   FAIL TestSlowSetConfigDoesNotStallTheConnection
+        the prompt was not answered while set_config was blocked
+
+Q. notice dedupe removed from the pump
+   FAIL TestRepeatedNoticesAreSuppressed          got 7 notices, want 3
+
+R. the !ev.Replay guard dropped
+   FAIL TestAReplayDoesNotPoisonTheDeduper        got 1 notices, want 2
+
+S. the non-blocking probe made blocking again
+   FAIL TestNonBlockingProbeRunsNoBinaryOnAColdCache
+        the binary ran before the call returned
+
+S2. the in-flight coalescing flag removed
+   FAIL TestNonBlockingProbeCoalescesConcurrentCallers
+        20 concurrent callers started 3 probes
+
+T. the deduper aliases the caller's slice
+   FAIL TestDeduperDoesNotAliasTheCallersSlice
+        a changed description was suppressed
+```
+
+Breakage O is the one that matters for 4.1: it is the behaviour that shipped,
+and it arms the spare while the user's first turn is still running.
+
+```text
+go build ./...                            -> ok
+go test ./internal/... ./cmd/... -count=1 -> ok
+make pre-add-check                        -> 743 file(s) clean
+```
+
+### Deviations
+
+**2026-09-03 — the notice dedupe went in the pump, not at 42 emit sites.** Step
+4.3(a) said "applies at every `TypeNotice` emit site".
+
+*Evidence.* There are **42** `TypeNotice` emit sites across six packages
+(`kilo`, `opencode`, `codex`, `acpagent`, `acphttp`, `httpagent`) plus
+`internal/session`. Deduping at each would need a deduper field on six session
+types and 42 guards, and a new emit site added later would silently opt out.
+
+*Resolution, chosen by the owner:* one guard in the session event pump, where
+every provider's events converge and the per-session `entry` state already
+lives. `internal/session/manager.go` added to this phase's file list. See the
+plan's amended 4.3(a).
+
+**2026-09-03 — a re-arm on the happy path only would have been wrong.** Step
+4.1 named the emit site of `turn_complete` / `status:"idle"` as the place to
+call `EnsureWarm`. Putting it there skips the error and cancel exit paths,
+which `return` earlier — so a session whose first turn failed would be left
+with no spare at all, exactly when the engine is already having trouble. It is
+in the turn goroutine's deferred cleanup instead, which every exit path
+reaches. Breakage N is that variant, pinned.
+
+**2026-09-03 — the replay assertion first written for 4.3 was measuring
+something else.** "Three identical replayed notices produce three history
+entries" failed before the guard was even involved: `appendHistoryLocked`
+already de-duplicates any replayed event against existing history
+(`manager.go:202-208`). The test was rewritten to assert what `!ev.Replay`
+actually protects — that a replayed notice does not update the deduper's state
+and thereby silence the next genuine live one. Breakage R pins that.
+
+### Not done in this phase
+
+**The `backupProjection` call site has no unit test.** The non-blocking probe
+itself is covered by two tests with fail-first evidence, but the wiring — that
+`backupProjection` calls the non-blocking variant rather than the blocking one
+— is not, because reaching it needs a coordinator that lives in the daemon
+package. Breakage S proves the function; it does not prove the call site. This
+is the same class of gap that let Phase 2's `s.ds` defect through unit tests
+and only surface live, and it is named here rather than left implicit. Phase 5
+exercises the path on a real host.
+
+**4.2 has no live confirmation yet.** The per-provider tests drive each
+provider's real emit path, but the 22-repeats-per-turn figure that motivated
+F2 was measured on grok live. Phase 5 should re-measure it.
+
+### Phases 5-7 (except 7.5, 7.9) — not yet started

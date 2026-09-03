@@ -168,6 +168,10 @@ type entry struct {
 	// the user actually feels, which nothing in the daemon measured before: it
 	// logged how long it took to hand a prompt to an engine and then nothing
 	// until the turn ended, which is why a 20x regression produced no signal.
+	// noticeDedupe suppresses a notice identical to the one before it
+	// (MADR 0137 F6a). Guarded by m.mu, like every other entry field.
+	noticeDedupe event.NoticeDeduper
+
 	promptAt      time.Time
 	firstOutputAt time.Time
 }
@@ -1000,6 +1004,25 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					// the advertised list needs a second look.
 					reresolve = e.lastUsage == nil
 					e.lastUsage = ev.Usage
+				}
+				// Suppress a notice identical to the one before it
+				// (MADR 0137 F6a). One codex session recorded 77 copies of a
+				// single upstream deprecation warning; a once-per-engine
+				// message must not become once-per-turn noise on the phone.
+				//
+				// Here rather than at the 42 TypeNotice emit sites across six
+				// provider packages: this is where every provider's events
+				// converge and where the per-session state already lives, so
+				// one guard covers all of them and any future site — which a
+				// per-site guard would silently let opt out.
+				//
+				// A replayed event is never suppressed. session/load re-emits
+				// the prior conversation, and dropping a notice from it would
+				// rewrite history the phone is trying to reconstruct.
+				if !ev.Replay && ev.Type == event.TypeNotice &&
+					!e.noticeDedupe.ShouldEmit("", ev.Text) {
+					m.mu.Unlock()
+					continue
 				}
 				// Turn timing (MADR 0137 Phase 2). Recorded before the
 				// switch below so a turn-ending event still sees the first

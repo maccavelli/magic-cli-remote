@@ -52,6 +52,11 @@ var chunkRetryDelay = 50 * time.Millisecond
 var errConnLost = errors.New("engine connection lost")
 
 type session struct {
+	// cmdDedupe suppresses repeated identical available_commands
+	// advertisements (MADR 0137 F2). Touched only from the notification
+	// handler goroutine, which is the sole caller of the emit site.
+	cmdDedupe event.CommandDeduper
+
 	p       *Provider
 	cfg     Config
 	opts    provider.StartOptions
@@ -1267,12 +1272,18 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 				Hint:        hint,
 			})
 		}
-		s.emit(event.Event{
-			Type:      event.TypeAvailableCommands,
-			SessionID: s.localID,
-			Timestamp: now,
-			Commands:  cmds,
-		})
+		// Skip an advertisement identical to the last one (MADR 0137 F2).
+		// grok re-sends the full list on every turn boundary — 22 times in one
+		// `hi` — and each repeat crosses the websocket, lands in session
+		// history and re-renders on the phone without carrying any news.
+		if s.cmdDedupe.ShouldEmit(cmds) {
+			s.emit(event.Event{
+				Type:      event.TypeAvailableCommands,
+				SessionID: s.localID,
+				Timestamp: now,
+				Commands:  cmds,
+			})
+		}
 	case u.Plan != nil:
 		s.emit(event.Event{
 			Type:      event.TypePlan,
