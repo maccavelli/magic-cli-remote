@@ -31,12 +31,19 @@ allow="${MC_MANIFEST_ALLOW:-$root/apps/mobile/android/manifest-surface.allow}"
 #
 # Ambiguity fails closed. Two candidate manifests mean the gate cannot know
 # which one ships, and guessing is how a surface check becomes a rubber stamp.
-manifest_root="${MC_MANIFEST_ROOT:-$root/apps/mobile/build/app/intermediates/merged_manifests}"
+# Search the APP module's intermediates only, and only the output of the main
+# manifest-merge task. Observed layout under AGP 9:
+#   build/app/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml
+# Note "merged_manifest" is SINGULAR here; AGP 8 used "merged_manifests". The
+# sibling outputReleaseAppLinkSettings/AndroidManifest.xml is a decoy, and every
+# plugin has its own copy under build/<plugin>/ — matching on the MainManifest
+# task excludes both without depending on the directory name.
+manifest_root="${MC_MANIFEST_ROOT:-$root/apps/mobile/build/app/intermediates}"
 
 if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
   manifest="$1"
 else
-  matches="$(find "$manifest_root" -type f -name AndroidManifest.xml -path '*release*' 2>/dev/null | sort || true)"
+  matches="$(find "$manifest_root" -type f -name AndroidManifest.xml -path '*release*' -path '*MainManifest*' 2>/dev/null | sort || true)"
   count="$(printf '%s' "$matches" | grep -c . || true)"
   case "$count" in
     1) manifest="$matches" ;;
