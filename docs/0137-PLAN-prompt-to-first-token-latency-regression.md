@@ -52,130 +52,205 @@ avoidable cost — across every provider, with pins that match reality.
 
 ## Implementation Steps
 
-### Phase 0 — ~~restore event delivery for kilo 7.5.6~~ **withdrawn**
+Every step names the file it touches and the check that proves it. A step whose
+outcome would be a judgement call has that call made here, not deferred to
+execution.
 
-**Withdrawn 2026-09-03. There is no event-delivery bug.** The reproduction this
-phase was built on was an artifact of a harness that bound itself to a stale
-session id and prompted it, so a freshly created session was never prompted at
-all. See the MADR's "Correction, 2026-09-03". Verified with the repository's own
-`scripts/smoke-protocol`: a kilo 7.5.6 turn completes end to end through
-mcremote, producing thought chunks, assistant text and `turn_complete`.
+### Phase 0 — withdrawn
 
-Two obligations survive from it, and both move into other phases:
+**Withdrawn 2026-09-03; nothing implemented.** It was built on a reproduction
+that was my harness reusing request id `c1`, which the daemon correctly
+collapsed via idempotent replay (`internal/ws/server.go:925-928`, MADR 0095
+D6/F5). See the MADR's "Correction, 2026-09-03". Verified with
+`scripts/smoke-protocol`: a kilo 7.5.6 turn completes end to end.
 
-1. **The harness bug is itself a finding.** The daemon replays
-   `session.created` for pre-existing sessions to a newly connected client, and
-   the replay carries the original request id, so a client correlating by
-   request id can silently bind the wrong session. `scripts/smoke-protocol`
-   correlates correctly, but any client that does not — including a future
-   diagnostic — inherits this trap. Phase 2 adds the per-turn record that would
-   have made the mistake obvious immediately, and Phase 4 gains a step to make
-   replayed events distinguishable from live responses on the wire.
-2. **The unreproduced hang stays open**, tracked in Phase 5 as an observation to
-   watch for rather than a defect with a known cause.
+No daemon change follows. The one durable obligation is procedural and lands in
+Phase 1 step 1.4. The unreproduced indefinite hang stays open, watched in
+Phase 5 step 5.4.
 
-Nothing from this phase is implemented.
+### Phase 1 — a wire-capture tool, and fixtures per installed version
 
-### Phase 1 — capture wire fixtures from the installed versions
+**Files:** `scripts/capture-wire/main.go` (new);
+`internal/provider/<provider>/testdata/wire/<version>/` (new).
 
-6. For each provider, record a real turn's event sequence to
-   `testdata/wire/<provider>-<version>/`: kilo 7.5.6 (`/global/event`),
-   grok 1.0.13 (ACP notifications), goose 1.48.0, opencode 1.18.26,
-   codex 0.152.1. Note the version in the fixture, as MADR 0136's doctor
-   fixtures do.
-7. These are what make a pin move safe: a pin bump with no fixture is a claim
-   that nothing changed, and kilo 7.5.6 is the counter-example.
+1.1 Add `scripts/capture-wire/`. It connects to one provider engine's event
+stream, writes every frame verbatim to `frames.jsonl`, and writes `meta.json`
+naming provider, binary version and capture date. Transport by flag:
+`-kind=sse -url=…` for kilo/opencode/goose, `-kind=acp -bin=…` for grok/codex.
 
-Commit at the end of the phase.
+1.2 Capture one `hi` turn each for kilo **7.5.6**, opencode **1.18.26**,
+goose **1.48.0**, codex **0.152.1**.
+
+1.3 **grok 1.0.13 only after the owner confirms quota.** Standing constraint:
+no provider quota is spent on a test without asking. If declined, Phase 3 still
+adds grok's pin but its comment reads "no fixture — quota withheld", so the gap
+is visible rather than implied.
+
+1.4 Prove the tool can fail: run it against a port with no engine, confirm a
+non-zero exit and an explicit error, and record that output in the execution
+record. No fixture is trusted until this is done.
+
+**Verification:** `go build ./scripts/capture-wire`; every `frames.jsonl` is
+non-empty and its `meta.json` version equals `<bin> --version`.
+
+**Done when:** four fixture sets exist (five with grok), each version-stamped,
+and 1.4's failure output is recorded.
 
 ### Phase 2 — per-turn latency and token instrumentation
 
-8. Emit one structured record per turn: `prompt_accepted`,
-   `first_output_event`, `turn_complete`, with provider, model, and the deltas
-   between them. Info level, one line, no per-chunk logging.
-9. Include prompt weight where the provider reports it — kilo returns `input`,
-   `output`, `reasoning`, `cache.read`, `cache.write`. A 27k-token `hi` must be
-   visible when it happens.
-10. Surface first-token latency to the phone so the operator sees it without
-    reading logs. Protocol addition only if a field is genuinely needed.
-11. Verify the record reproduces the MADR's table from live turns rather than
-    from `history.json` parsing.
+**Files:** `internal/session/manager.go`, `internal/session/manager_test.go`.
 
-Commit at the end of the phase.
+2.1 Record three timestamps per turn on the session entry in
+`internal/session/manager.go`: `promptAt` in `Manager.Prompt` (line 1634);
+`firstOutputAt` in the event pump on the first `assistant_message_chunk`,
+`thought_chunk` or `tool_call` after `promptAt`; `turnEndAt` in the pump's
+existing `event.TypeTurnComplete` / `event.TypeError` case (line 1012).
 
-### Phase 3 — pins to current, for every provider
+2.2 On turn end emit exactly one info log, `msg="turn latency"`, fields:
+`session_id`, `provider`, `model`, `ttft_ms`, `turn_ms`, and when the provider
+reports them `input_tokens`, `output_tokens`, `cache_read`, `cache_write`. One
+line per turn; no per-chunk logging.
 
-12. `kilo` → **7.5.6**, `opencode` → **1.18.26**.
-13. Add `KnownGoodVersion` gates for `grok` (**1.0.13**), `goose`
-    (**1.48.0**), `codex` (**0.152.1**), reusing the existing shape.
-14. Make the mismatch actionable: report it to the phone as a provider
-    condition, not only as a log line. Do **not** refuse to start on mismatch —
-    a routine upstream upgrade must not become an outage. Record that choice in
-    the code comment.
-15. Each pin bump cites the fixture from Phase 1 that proves the wire shape was
-    re-checked at that version.
+2.3 The record states cache warmth: `cold=true` when `cache_read == 0`, else
+`cold=false`. Cold and warm are two populations; a number that does not say
+which is not evidence.
 
-Commit at the end of the phase.
+2.4 **No protocol change in this phase.** Surfacing latency to the phone is a
+separate decision, deliberately not bundled with instrumentation.
 
-### Phase 4 — per-provider optimisations
+2.5 Tests: a fake-provider turn emits exactly one `turn latency` record;
+`ttft_ms` measures to first output, not to `turn_complete`; a turn producing no
+output emits a record with `ttft_ms` absent rather than zero.
 
-16. **F5, prewarm re-arm (acpagent: grok, and any other acpagent provider).**
-    Move `defer p.EnsureWarm()` off session creation. Re-arm when the session
-    goes idle, so a ~3.8 s agent spawn no longer runs concurrently with the
-    user's first turn. Assert ordering in a test rather than by timing.
-17. **F2, `available_commands` dedupe.** Suppress an emission whose command
-    list is identical to the last one sent for that session. grok's source
-    states it bumps its generation counter even when the list is unchanged, so
-    the dedupe belongs here. Assert a session that receives N identical updates
-    emits one event.
-18. **F1, Codex probe cost.** The MADR 0136 probe went 120 ms → 1400 ms and
-    performs network reachability checks. Either narrow it to the
-    `auth.credentials` check without the network probes, lengthen the cache
-    window, or move it fully off any phone-triggered path — decide with a
-    measurement, and state the residual cost.
-19. **F4, inline ws handlers.** Move the remaining inline handlers
-    (`session.list`, `session.set_mode`, `session.set_config`,
-    `session.cancel`, `session.pending_asks`, `oauth.cancel`) to
-    `dispatchAsync`, or document why each is safe to keep inline. One blocking
-    handler currently stalls every later message on that connection.
+**Verification:** `go test ./internal/session/... -count=1`; a live `hi` on the
+isolated daemon yields one `turn latency` line whose `ttft_ms` is within 200 ms
+of the value computed from that session's `history.json`.
 
-Commit at the end of the phase.
+**Done when:** the MADR's latency table is reproducible from these log lines
+without parsing `history.json`, and 2.5 fails against pre-change code.
+
+### Phase 3 — pins at the installed versions, all five providers
+
+**Files:** `internal/provider/kilo/version.go`,
+`internal/provider/opencode/version.go`; new `version.go` under
+`internal/provider/{grok,goose,codex}/` and their engine-ready call sites.
+
+3.1 `kilo` `KnownGoodVersion` -> `"7.5.6"`; `opencode` -> `"1.18.26"`.
+
+3.2 Add `version.go` for `grok` (`"1.0.13"`), `goose` (`"1.48.0"`), `codex`
+(`"0.152.1"`), copying the kilo/opencode shape: the constant, a
+`VersionIsKnownGood` helper, and a warn-on-mismatch call from the engine-ready
+path.
+
+3.3 **Mismatch warns; it never refuses to start.** A routine upstream upgrade
+must not become an outage. State that in a comment above each constant so a
+later reader does not harden it into a refusal.
+
+3.4 Each constant cites its Phase 1 fixture directory as the evidence the wire
+shape was re-checked — or, for grok if 1.3 was declined, says no fixture exists.
+
+3.5 **No phone-facing change.** Reporting drift to the phone needs a protocol
+field and a UI affordance; neither is justified before Phase 5 shows whether
+drift is implicated. Dropped from this plan.
+
+**Verification:** `go test ./internal/provider/... -count=1`; the isolated
+daemon starts with no `differs from known-good pin` warning for any provider.
+
+**Done when:** all five constants equal the installed versions and startup is
+clean.
+
+### Phase 4 — four specific optimisations
+
+**Files:** `internal/provider/acpagent/acpagent.go`,
+`internal/provider/acpagent/session.go`,
+`internal/provider/codex/store_reality.go`,
+`internal/provider/codex/logout.go`, `internal/ws/server.go`, plus tests
+alongside each.
+
+4.1 **F5 — prewarm re-arm off session create.** Delete `defer p.EnsureWarm()`
+from `Start` (`acpagent.go:775`); call `p.EnsureWarm()` from the turn-end path
+in `session.go` where `TypeTurnComplete` and the `status:"idle"` event are
+emitted (lines 413-425). *Test:* `EnsureWarm` is not called between `Start`
+returning and the first `turn_complete`, and is called exactly once after it.
+
+4.2 **F2 — `available_commands` dedupe.** In `acpagent/session.go:1471` keep
+the last emitted list per session and skip the emit when the new list is equal
+(same names, descriptions, hints, in order). *Test:* ten identical updates
+produce one event; changing one description produces a second.
+
+4.3 **F1 — the Codex probe leaves the phone-triggered path.** Add
+`ObserveCredentialStoreCachedNonBlocking` to `store_reality.go`: return the
+cached value when fresh, else return `RealityUnknown` immediately and start at
+most one background refresh. `backupProjection` (`codex/logout.go:241`) calls
+it. Synchronous probing is unchanged on the recovery and `CheckBackend` paths,
+which are not phone-triggered. *Chosen over* narrowing `doctor --json` or
+widening the cache window: both leave a ~1.4 s network-dependent call reachable
+from `providers.list`, and this removes it outright without weakening MADR
+0136's classification. *Test:* `AuthStatus` with a cold cache invokes no binary
+and returns the unknown/unsupported projection rather than a fabricated one.
+
+4.4 **F4 — inline ws handlers, decided per handler.** In `internal/ws/server.go`
+move `session.list`, `session.set_mode` and `session.set_config` to
+`dispatchAsync`; they can touch provider state. **Keep** `session.cancel`,
+`session.pending_asks` and `oauth.cancel` inline, with a comment stating why:
+they are control-plane operations that must not queue behind
+`maxAsyncPerClient = 8`, and a cancel that waits for a slot defeats its purpose.
+*Test:* a 2 s block in `session.set_config` does not delay a following
+`session.prompt` on the same connection.
+
+**Verification:** `go test ./internal/provider/... ./internal/ws/... -count=1`;
+each of 4.1-4.4 has a test that fails against pre-change code, output recorded.
+
+**Done when:** all four land with fail-first evidence recorded.
 
 ### Phase 5 — verify on the reporting host
 
-20. `make install`, then prompt `hi` on kilo and grok from the phone. Record
-    prompt → first token from the new Phase 2 instrumentation.
-21. Compare against the MADR's baseline (0.6-2.9 s historical, 5-18.6 s
-    regressed) and against the direct-engine measurement (0.80-0.97 s for
-    kilo). State plainly whether the gap closed, partially closed, or did not.
-22. Confirm no turn is silent: every prompt produces either output or a
-    surfaced error.
+**Files:** none; verification only.
 
-### Phase 6 — attribute the remaining prompt weight
+5.1 `make install`, restart, then three `hi` turns each on kilo and grok from
+the phone.
 
-Only after the above, because until delivery is fixed and turns are measured,
-any prompt-weight change is unattributable.
+5.2 Read `ttft_ms` and `cold` from the Phase 2 records. Report cold and warm
+separately; never average across them.
 
-23. **Start with `cache.write: 0`, which is now the highest-value question.**
-    The corrected measurements show two populations, not a spread: a turn
-    either pays a ~14,000-token uncached prefill or 99 tokens against a
-    14,336-token cache read. Production showed `cache.write: 0` on every
-    observed turn, so no turn there is ever warm. Establish why, because a cache
-    that works removes most of the latency and the cost without removing any
-    capability — and without touching the model, which the accepted constraint
-    forbids.
-24. Only then run the prompt-weight A/B: with and without the `magictools` MCP
-    server, with and without the two kilo plugins. Record input tokens and
-    first-token latency per arm, and separate cold from warm turns explicitly —
-    conflating them is what produced two wrong conclusions in this record.
-25. Report the attribution to the owner with numbers. **Do not remove an MCP
-    server or plugin without approval** — that is their capability, not a
-    performance knob this plan may turn unilaterally. **Do not pin or swap a
-    model**, even if an arm shows the default is the dominant cost: the
-    accepted constraint is that providers run on their own default model
-    unless the user specifies otherwise. Report the number and stop.
+5.3 Compare against the MADR: historical 0.6-2.9 s, regressed 5-18.6 s, warm
+direct-engine 0.79-0.97 s, cold ~14 k-token prefill. State plainly whether the
+gap closed, partially closed, or did not. If warm turns are fast and cold ones
+are not, say exactly that rather than claiming a fix.
+
+5.4 Watch for the unreproduced hang. If a turn yields neither output nor error,
+capture the `turn latency` record, the session `history.json`, and the engine's
+own view of that session **before** restarting anything.
+
+**Done when:** three cold and three warm measurements per provider are in the
+execution record, with the verdict stated honestly.
+
+### Phase 6 — attribute the prompt weight (investigation, no code)
+
+**Files:** none. The output is a written finding in the execution record.
+
+6.1 **Establish why `cache.write` is 0 in production** while the isolated engine
+shows `cache_read: 14336`. Compare the two engines' configuration and the
+request bodies mcremote sends. First, because a working cache removes most of
+the latency and the cost without removing capability and without touching the
+model.
+
+6.2 Then, **and only with the owner's approval to spend quota**, run the
+prompt-weight arms: with and without the `magictools` MCP server, with and
+without the two kilo plugins. Each arm records `input_tokens`, `cache_read`,
+`ttft_ms` and `cold`, cold and warm kept separate.
+
+6.3 Report the numbers and stop. **Do not** remove an MCP server or plugin, and
+**do not** pin or swap a model — providers run on their own default model
+unless the user specifies otherwise. Phase 6 produces a recommendation, not a
+change.
+
+**Done when:** the finding is written with per-arm numbers and any proposed
+change is left for the owner to approve.
 
 ## Verification
+
+Run after every phase:
 
 ```bash
 make pre-add-check
@@ -187,32 +262,31 @@ make lint
 Host checks after Phase 5:
 
 ```bash
-grep -a "turn latency\|prompt_accepted" ~/Library/Logs/mcremote/mcremote.err.log | tail -20
-python3 - <<'PY'
-import json,glob,os,datetime
-# prompt -> first output, from live sessions, per the MADR's method
-PY
+grep -a "turn latency" ~/Library/Logs/mcremote/mcremote.err.log | tail -20
+grep -a "differs from known-good pin" ~/Library/Logs/mcremote/mcremote.err.log | tail -5
 ```
 
 ### Acceptance criteria
 
-* Every measurement in this plan separates **cold** from **warm** turns and
-  says which it is. A number that does not is not evidence.
-* Any new diagnostic harness is proven to distinguish success from failure
-  before its output is trusted — the failure that produced the withdrawn
-  Phase 0.
-* No turn is silent: every accepted prompt ends in output or a surfaced error.
-* The per-turn record reports first-token latency and, where available, token
-  counts, for kilo and grok.
-* All five providers have a `KnownGoodVersion` equal to the installed version,
-  each backed by a Phase 1 fixture.
-* A grok session receiving repeated identical command lists emits one
-  `available_commands` event, verified against the 301-event session shape.
-* The prewarm re-arm is proven by test to happen after the first turn, not at
+* Every phase's new tests fail against pre-change code, with the failure output
+  recorded. A check never seen to fail is not evidence.
+* Every latency number recorded anywhere states `cold` or `warm`. Conflating
+  them produced two wrong conclusions in this record already.
+* Any diagnostic harness written for this work uses a unique request id per
+  request and is demonstrated to fail before its output is trusted.
+* Exactly one `turn latency` line per turn, carrying `ttft_ms`, `turn_ms` and
+  `cold`; `ttft_ms` within 200 ms of the value computed from that session's
+  `history.json`.
+* All five providers have `KnownGoodVersion` equal to the installed version,
+  each citing its fixture or explicitly stating none exists.
+* `EnsureWarm` is proven by test to run after the first turn, never during
   session create.
-* The Codex probe's cost on the `AuthStatus` path is measured and stated.
-* Phase 6 reports prompt-weight attribution with numbers, and recommends
-  rather than removes.
+* Ten identical `available_commands_update` frames yield one event.
+* `AuthStatus` on a cold reality cache invokes no binary.
+* A 2 s block in `session.set_config` does not delay a following
+  `session.prompt` on the same connection.
+* Phase 6 reports numbers and recommends; it changes no model, no MCP server,
+  no plugin.
 * `git diff --stat` touches only files named in Scope.
 
 ## Rollout and Rollback
@@ -224,9 +298,11 @@ independently revertable.
 **Rollback.** Revert the phase commits. The pins are constants and the
 instrumentation is additive, so a revert restores prior behaviour exactly.
 
-**Sequencing note.** Phase 0 is withdrawn. Phase 6 must not run before Phase 2,
-or its arms cannot be compared — and its arms must separate cold from warm
-turns. Phases 1, 3 and 4 are independent and may land in any order.
+**Sequencing.** Phase 0 is withdrawn. Phase 3 depends on Phase 1 (a pin cites
+its fixture). Phase 5 depends on Phase 2 (it reads the `turn latency` record).
+Phase 6 depends on Phase 2 and on Phase 5's host numbers. Phase 4 is
+independent of all of them and may land at any point. So the order is
+1 → 2 → 3 → 5 → 6, with 4 inserted wherever convenient.
 
 **What this plan will not do.** It will not remove the operator's MCP server or
 plugins, will not change or pin a provider's default model (an accepted

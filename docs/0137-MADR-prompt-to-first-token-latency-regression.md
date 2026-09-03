@@ -328,12 +328,19 @@ finding. What follows replaces it.
 
 ### What went wrong with the instrument
 
-The purpose-built ws harness correlated `session.created` by request id. The
-daemon **replays** `session.created` for pre-existing sessions to a newly
-connected client, and those replays carry the original request id — so the
-harness bound itself to a *stale* session and then prompted that one. The
-freshly created session received no prompt at all, which is why it looked like
-"prompt accepted, nothing delivered".
+The purpose-built ws harness reused the request id `c1` for every run. The
+daemon implements **idempotent replay** for mutating async operations, keyed on
+`(deviceID, request id)` (`internal/ws/server.go:925-928`, MADR 0095 D6/F5):
+a repeated id replays the original response frame instead of executing again.
+So the harness received a replayed `session.created` for an *earlier* session,
+bound to it, and prompted that one. The freshly created session received no
+prompt at all, which is why it looked like "prompt accepted, nothing
+delivered".
+
+**The daemon was correct.** Idempotency is designed to collapse exactly this,
+and a client that reuses a request id across logically distinct requests is the
+party in the wrong. This is not a daemon defect and needs no daemon change; the
+lesson belongs to whoever writes the next diagnostic.
 
 The proof is in the test daemon's own session store: the session created by the
 silent control run recorded **no `user_message` event whatsoever**, while a
