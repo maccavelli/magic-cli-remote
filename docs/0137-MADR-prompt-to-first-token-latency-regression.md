@@ -320,6 +320,93 @@ phone, not only written to a log line nobody reads. Whether a mismatch should
 ever refuse to start is left to the plan, because refusing to run on a routine
 upstream upgrade would be its own outage.
 
+## Correction, 2026-09-03: the second amendment's central claim was wrong
+
+**Retracted:** "kilo answers, mcremote drops it." That claim was an artifact of
+a broken measurement instrument, and it should not have been recorded as a
+finding. What follows replaces it.
+
+### What went wrong with the instrument
+
+The purpose-built ws harness correlated `session.created` by request id. The
+daemon **replays** `session.created` for pre-existing sessions to a newly
+connected client, and those replays carry the original request id — so the
+harness bound itself to a *stale* session and then prompted that one. The
+freshly created session received no prompt at all, which is why it looked like
+"prompt accepted, nothing delivered".
+
+The proof is in the test daemon's own session store: the session created by the
+silent control run recorded **no `user_message` event whatsoever**, while a
+neighbouring session from the same period recorded a complete turn
+(`thought_chunk` ×2, `assistant_message_chunk` ×3, `turn_complete`). A prompt
+that was never delivered to a session cannot be evidence that the session's
+replies were dropped.
+
+Re-run with the repository's own `scripts/smoke-protocol`, which correlates
+correctly, the turn completes end to end through mcremote on kilo 7.5.6:
+
+```text
+event type=thought_chunk            text="A simple greeting warrants a brief response."
+event type=assistant_message_chunk  text="Hi. What would you like to work on?"
+event type=turn_complete            status=end_turn
+✓ smoke-protocol PASSED
+```
+
+**There is no event-delivery bug.** F3's version-drift warning did not predict
+this failure, because this failure does not exist. Every mechanism the second
+amendment "cleared" was in fact fine, and so is the one it accused.
+
+I trusted a harness I had written without first proving it could distinguish
+success from failure — the exact failure mode this repository's own rule about
+unverified instruments describes.
+
+### What the corrected measurements actually show
+
+Through mcremote, with the known-good driver, prompt → first output:
+**4.25s, 4.43s, 9.10s**. Directly against the same engine: **0.79-0.97s**.
+
+But those two sets are not comparable as stated, and the reason is the real
+finding. Token accounting for every turn on that one engine:
+
+| input | cache read | cost | turn |
+| --- | --- | --- | --- |
+| 13,637 | 2,176 | $0.0061 | cold |
+| 14,435 | 0 | $0.0445 | cold |
+| 99 | 14,336 | $0.0053 | warm |
+| 99 | 14,336 | $0.0059 | warm |
+| 99 | 14,336 | $0.0074 | warm |
+
+There are two populations, not a spread. A turn either pays a **~14,000-token
+uncached prefill** or it pays **99 tokens against a 14,336-token cache read**.
+The direct probes measured a warm cache; the mcremote runs were mostly cold.
+
+So the operative variable is **whether the ~14k-token system prompt is cached
+when the turn starts**, and the user's complaint names exactly the case that
+cannot be warm: *"starting a new agent session."*
+
+This also re-reads the production evidence in this record's first section.
+Those turns showed `cache.write: 0` on **every** observed turn — a cache that
+is never written is never warm, so every production turn pays the full prefill.
+That, not a delivery bug, is the strongest available explanation for 5-18s
+first tokens on a host whose engine can answer in under a second when warm.
+
+### What is still not established
+
+* **Why `cache.write` is 0 in production** while the isolated engine shows
+  `cache_read: 14,336`. This is now the single highest-value open question and
+  Phase 6 is re-pointed at it.
+* **What the ~14k tokens are.** Attribution to MCP tool definitions, kilo
+  plugins, or the agent system prompt is still unmeasured.
+* **Whether mcremote adds prompt weight of its own.** No injection was found in
+  the kilo path, but the two populations above were not separated by client.
+* **The indefinite hang remains unreproduced.** The reproduction I believed I
+  had was the instrument bug. It should be treated as an open report, not a
+  diagnosed defect.
+
+The decision outcome is unchanged and is, if anything, reinforced: instrument
+the turn first. Two rounds of confident conclusions have now been produced from
+unmeasured systems, and the second was wrong.
+
 ## Amendment, 2026-09-03 (third): providers run on their own default model
 
 **Accepted constraint.** A provider that has an established default model runs

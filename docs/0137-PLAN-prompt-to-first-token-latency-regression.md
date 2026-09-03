@@ -52,32 +52,29 @@ avoidable cost — across every provider, with pins that match reality.
 
 ## Implementation Steps
 
-### Phase 0 — restore event delivery for kilo 7.5.6
+### Phase 0 — ~~restore event delivery for kilo 7.5.6~~ **withdrawn**
 
-The correctness bug. Everything else is latency; this is a turn that never
-arrives.
+**Withdrawn 2026-09-03. There is no event-delivery bug.** The reproduction this
+phase was built on was an artifact of a harness that bound itself to a stale
+session id and prompted it, so a freshly created session was never prompted at
+all. See the MADR's "Correction, 2026-09-03". Verified with the repository's own
+`scripts/smoke-protocol`: a kilo 7.5.6 turn completes end to end through
+mcremote, producing thought chunks, assistant text and `turn_complete`.
 
-1. Reproduce off-phone first, so the fix has a failing case: isolated daemon
-   (own port, own data dir, own token) + kilo enabled, prompt `hi`, assert the
-   client receives no event within 30 s while the engine's
-   `/session/<id>/message` shows an assistant reply. This is the harness the
-   MADR amendment used; rebuild it in `scripts/` or as a Go test, not as a
-   scratch file.
-2. Instrument the httpagent SSE pump enough to answer one question: does it
-   receive `message.part.delta` for the session it created, and if so where is
-   the frame discarded? Add debug logging at the pump boundary — there is none
-   today, which is why this took a packet capture to narrow.
-3. Answer the recorded open question first: the delivering production turn
-   logged `agent=code`, the silent isolated runs logged `agent=""`. Test an
-   empty agent explicitly. If it is causal, that is the bug; if not, the
-   remaining candidate is the agent-session → local-session binding.
-4. Fix the cause found, not the symptom. Do not add a timeout that fabricates a
-   turn end.
-5. Regression test: a stub engine that emits kilo 7.5.6's exact frame sequence
-   (captured in Phase 1) must produce assistant text on the session, and must
-   fail against the pre-fix code.
+Two obligations survive from it, and both move into other phases:
 
-Commit at the end of the phase.
+1. **The harness bug is itself a finding.** The daemon replays
+   `session.created` for pre-existing sessions to a newly connected client, and
+   the replay carries the original request id, so a client correlating by
+   request id can silently bind the wrong session. `scripts/smoke-protocol`
+   correlates correctly, but any client that does not — including a future
+   diagnostic — inherits this trap. Phase 2 adds the per-turn record that would
+   have made the mistake obvious immediately, and Phase 4 gains a step to make
+   replayed events distinguishable from live responses on the wire.
+2. **The unreproduced hang stays open**, tracked in Phase 5 as an observation to
+   watch for rather than a defect with a known cause.
+
+Nothing from this phase is implemented.
 
 ### Phase 1 — capture wire fixtures from the installed versions
 
@@ -159,12 +156,18 @@ Commit at the end of the phase.
 Only after the above, because until delivery is fixed and turns are measured,
 any prompt-weight change is unattributable.
 
-23. Run the isolation A/B on prompt weight: with and without the `magictools`
-    MCP server, with and without the two kilo plugins, pinned model vs default.
-    Record input tokens and first-token latency per arm.
-24. Investigate `cache.write: 0`. Working prompt caching would cut cost and
-    latency together without removing any capability, and is preferable to
-    deleting tools if it is achievable.
+23. **Start with `cache.write: 0`, which is now the highest-value question.**
+    The corrected measurements show two populations, not a spread: a turn
+    either pays a ~14,000-token uncached prefill or 99 tokens against a
+    14,336-token cache read. Production showed `cache.write: 0` on every
+    observed turn, so no turn there is ever warm. Establish why, because a cache
+    that works removes most of the latency and the cost without removing any
+    capability — and without touching the model, which the accepted constraint
+    forbids.
+24. Only then run the prompt-weight A/B: with and without the `magictools` MCP
+    server, with and without the two kilo plugins. Record input tokens and
+    first-token latency per arm, and separate cold from warm turns explicitly —
+    conflating them is what produced two wrong conclusions in this record.
 25. Report the attribution to the owner with numbers. **Do not remove an MCP
     server or plugin without approval** — that is their capability, not a
     performance knob this plan may turn unilaterally. **Do not pin or swap a
@@ -193,9 +196,11 @@ PY
 
 ### Acceptance criteria
 
-* **Phase 0 is the gate.** A `hi` on kilo 7.5.6 produces assistant text on the
-  phone. The pre-fix reproduction fails and the post-fix one passes, with both
-  outputs recorded.
+* Every measurement in this plan separates **cold** from **warm** turns and
+  says which it is. A number that does not is not evidence.
+* Any new diagnostic harness is proven to distinguish success from failure
+  before its output is trusted — the failure that produced the withdrawn
+  Phase 0.
 * No turn is silent: every accepted prompt ends in output or a surfaced error.
 * The per-turn record reports first-token latency and, where available, token
   counts, for kilo and grok.
@@ -217,12 +222,11 @@ is required by any phase. Phases 0-4 are independently committable and each is
 independently revertable.
 
 **Rollback.** Revert the phase commits. The pins are constants and the
-instrumentation is additive, so a revert restores prior behaviour exactly —
-including, for Phase 0, the silent-turn bug.
+instrumentation is additive, so a revert restores prior behaviour exactly.
 
-**Sequencing note.** Phase 0 must land before Phase 5 is meaningful, and
-Phase 6 must not run before Phase 2, or its arms cannot be compared. Phases 3
-and 4 are independent of both and may land in any order.
+**Sequencing note.** Phase 0 is withdrawn. Phase 6 must not run before Phase 2,
+or its arms cannot be compared — and its arms must separate cold from warm
+turns. Phases 1, 3 and 4 are independent and may land in any order.
 
 **What this plan will not do.** It will not remove the operator's MCP server or
 plugins, will not change or pin a provider's default model (an accepted
