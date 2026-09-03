@@ -421,8 +421,74 @@ go test ./internal/... -count=1   -> 41 packages ok, 0 FAIL
 go vet ./internal/... , gofmt -l internal   -> clean
 ```
 
-### Phases 5-6 — remaining
+### Phase 5 — 2026-09-02, complete
 
-Phase 5's tests landed with the phases they cover (12-14 in Phase 3, 16 in
-Phase 4). Still outstanding: step 17's `Begin`→`Commit` conflict regression
-test, and all of Phase 6 (verify on this host).
+Steps 12-14 landed in Phase 3 and step 16 in Phase 4. **Step 17 needed no new
+test:** `TestCommitConflictOnStaleLive` (`transaction_test.go:266-288`) already
+asserts exactly what the step describes — LIVE rewritten between Begin and
+Commit yields `ErrConflict` and the other writer's bytes survive. Verified by
+reading it rather than by adding a duplicate.
+
+`make pre-add-check` → `713 file(s) clean (gofmt, golint, govulncheck)`.
+`make lint` → clean. `go test ./internal/... -count=1` → 41 packages ok.
+
+### Phase 6 — 2026-09-02, FAILED its acceptance criterion
+
+`make install` built and installed `0.16.1.gb8cf5b2` and restarted the
+LaunchAgent. Step 18 requires the start to log
+`credential state recovered provider=codex state=idle`. It did not:
+
+```text
+2026-09-02T22:32:40  WARN provider=codex  credential state needs an operator decision …
+2026-09-02T22:32:40  INFO provider=grok   credential state recovered  state=idle
+```
+
+**Why, established on the host.** LIVE is not torn, not equal-ordered, and not
+older. It is the three-byte stub:
+
+```text
+$ ls -la ~/.codex/auth.json
+-rw-------  3 bytes  Sep  2 22:29
+$ cat ~/.codex/auth.json
+{}
+$ codex login status
+Logged in using ChatGPT
+$ grep -E "credential|store|keychain" ~/.codex/config.toml
+(no matches)
+```
+
+codex-cli 0.152.1 holds a live ChatGPT subscription session while leaving `{}`
+in the file mcremote protects. That is a **stable, valid-JSON, no-auth-material**
+observation, which the 2026-09-02 deviation deliberately kept escalating — two
+settled reads of a file with no credential in it is not a bad instant.
+
+**So 0133 does not fix the reported symptom.** It fixes the mechanism that made
+the state *permanent* — which is real and is why this host stayed wedged from
+2026-08-23 to 2026-09-02 — but the *trigger* is not one of the three transient
+inputs the MADR reasoned about. The MADR named the `{}` stub as a transient
+artefact of Codex's own login (§15.13); on this host at 22:29 it is the resting
+state, an hour after a successful sign-in.
+
+Ruled out as a cause of the 22:29 write: this session's test runs. Every codex
+test isolates the home with `t.Setenv("CODEX_HOME", t.TempDir())`
+(`live_0080_test.go:33` and the rest); codex's own `logs_2.sqlite` was being
+written at 22:27-22:32, so a real codex process was live; `codex login status`
+still succeeds, which it would not if a test had destroyed the credential; and
+the warning has fired since 2026-08-21, before any of this work.
+
+**Steps 19 and 20 are not attempted.** A `refresh` generation cannot appear
+while LIVE holds no credential to refresh, and the phone will keep receiving
+`credential_failed` until the state below is addressed.
+
+## Outstanding: the trigger needs its own decision
+
+`ObserveCredentialStore` already models this exact state as `RealityExternal`
+("the CLI is authenticated but not from the file"), and `backupProjection`
+already projects it to the phone as `BackupUnsupported`. Recovery does not
+consult either: it sees an unusable file and escalates.
+
+Whether recovery should treat `RealityExternal` as "nothing to protect, not an
+ambiguity" is a new architectural decision — it changes what
+`recovery_required` means and adds a CLI probe to a path that deliberately has
+none. It is **not** in this plan's Scope and is not being implemented here. It
+needs its own MADR and plan.
