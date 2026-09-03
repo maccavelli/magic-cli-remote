@@ -65,22 +65,40 @@ func (o *httpSession) emitUsage(role string, tokens *msgTokens, model *msgModel)
 	if size == 0 {
 		size = o.d.contextLimit(o.h.Model())
 	}
-	if !o.usageChanged(used, size) {
+	// Every field kilo already reports is passed through (MADR 0137, second
+	// correction). They were parsed into msgTokens, used to compute `used`,
+	// and then discarded — so `cold`, which is derived from CacheRead == 0,
+	// could only ever be true for kilo. A warm turn reading 14336 cached
+	// tokens was recorded as cold, and two phases of analysis were drawn from
+	// that.
+	if !o.usageChanged(used, size, tokens) {
 		return
 	}
-	o.h.Emit(event.Event{Type: event.TypeUsage, Usage: &event.Usage{Used: used, Size: size}})
+	o.h.Emit(event.Event{Type: event.TypeUsage, Usage: &event.Usage{
+		Used: used, Size: size,
+		Input:      int64(tokens.Input),
+		Output:     int64(tokens.Output),
+		Reasoning:  int64(tokens.Reasoning),
+		CacheRead:  int64(tokens.Cache.Read),
+		CacheWrite: int64(tokens.Cache.Write),
+	}})
 }
 
 // usageChanged reports whether (used, size) differs from the last report
 // actually emitted, recording it when it does. turnCleanup clears the latch so
 // every turn reports at least once even when the numbers have not moved.
-func (o *httpSession) usageChanged(used, size int) bool {
+func (o *httpSession) usageChanged(used, size int, tokens *msgTokens) bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.usageSent && o.lastUsed == used && o.lastSize == size {
+	// The cache counts are part of the comparison, not just the totals. A turn
+	// can hold `used` steady while the split between fresh and cached input
+	// moves — which is exactly the transition this record cares about — and
+	// latching on the total alone would suppress the report that shows it.
+	if o.usageSent && o.lastUsed == used && o.lastSize == size &&
+		o.lastTokens == *tokens {
 		return false
 	}
-	o.usageSent, o.lastUsed, o.lastSize = true, used, size
+	o.usageSent, o.lastUsed, o.lastSize, o.lastTokens = true, used, size, *tokens
 	return true
 }
 

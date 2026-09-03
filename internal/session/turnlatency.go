@@ -104,10 +104,17 @@ func (r *turnLatency) log(l *slog.Logger) {
 		// variable that separates a sub-second answer from a multi-second one
 		// (MADR 0137 correction), so a latency number without it is not
 		// evidence.
-		attrs = append(attrs,
-			slog.Bool("cold", u.CacheRead == 0),
-			slog.Int("context_used", u.Used),
-		)
+		//
+		// It is reported ONLY when the provider reports cache accounting at
+		// all. goose reports none, and a bare `CacheRead == 0` there says
+		// "this turn was cold" when the truth is "nobody knows" — which is how
+		// four providers' warm turns were recorded as cold for two phases
+		// (MADR 0137, second correction). An engine that cannot answer must
+		// leave the field absent rather than answer wrongly.
+		if u.CacheRead > 0 || u.CacheWrite > 0 || u.Input > 0 {
+			attrs = append(attrs, slog.Bool("cold", u.CacheRead == 0))
+		}
+		attrs = append(attrs, slog.Int("context_used", u.Used))
 		if u.Input > 0 {
 			attrs = append(attrs, slog.Int64("input_tokens", u.Input))
 		}

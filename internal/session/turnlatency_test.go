@@ -359,3 +359,72 @@ func TestRecordOmitsTheModelWhenTheSessionCannotReportOne(t *testing.T) {
 		t.Errorf("model = %v on a session that reports none; it must be absent", v)
 	}
 }
+
+// TestColdIsAbsentWhenTheProviderReportsNoCacheAccounting is the second
+// correction's lesson turned into a check.
+//
+// `cold` was derived from `CacheRead == 0` unconditionally, so a provider that
+// reports no cache accounting at all was recorded as having paid a full
+// uncached prefill on every turn. Four of five providers were in that state,
+// and two phases of analysis were drawn from it before the wire was checked.
+//
+// "Nobody knows" and "this turn was cold" are opposite claims for a latency
+// investigation, and an absent field is the only honest way to say the first.
+func TestColdIsAbsentWhenTheProviderReportsNoCacheAccounting(t *testing.T) {
+	t.Run("no cache accounting at all", func(t *testing.T) {
+		// goose's shape: a context total and nothing else.
+		mgr, buf, meta := newLatencyManager(t, latencyScript{events: []scriptEvent{
+			{at: 50 * time.Millisecond, typ: event.TypeAssistantChunk},
+			{at: 80 * time.Millisecond, typ: event.TypeUsage,
+				usage: &event.Usage{Used: 7326, Size: 204800}},
+			{at: 100 * time.Millisecond, typ: event.TypeTurnComplete},
+		}})
+		if err := mgr.Prompt(context.Background(), meta.ID, "hi", nil, "dev-a"); err != nil {
+			t.Fatal(err)
+		}
+		rec := waitForTurnRecords(t, buf, 1)[0]
+		if v, ok := rec["cold"]; ok {
+			t.Errorf("cold = %v on a provider that reports no cache accounting; "+
+				"it must be absent, because \"unknown\" is not \"cold\"", v)
+		}
+		if got := num(t, rec, "context_used"); got != 7326 {
+			t.Errorf("context_used = %v, want 7326: the total is still known", got)
+		}
+	})
+
+	t.Run("cache accounting present and zero is a real cold turn", func(t *testing.T) {
+		mgr, buf, meta := newLatencyManager(t, latencyScript{events: []scriptEvent{
+			{at: 50 * time.Millisecond, typ: event.TypeAssistantChunk},
+			{at: 80 * time.Millisecond, typ: event.TypeUsage,
+				usage: &event.Usage{Used: 14488, Input: 14435, Output: 25, CacheRead: 0}},
+			{at: 100 * time.Millisecond, typ: event.TypeTurnComplete},
+		}})
+		if err := mgr.Prompt(context.Background(), meta.ID, "hi", nil, "dev-a"); err != nil {
+			t.Fatal(err)
+		}
+		rec := waitForTurnRecords(t, buf, 1)[0]
+		if rec["cold"] != true {
+			t.Errorf("cold = %v, want true: the provider reported input tokens "+
+				"and no cache read, which is a genuine cold turn", rec["cold"])
+		}
+	})
+
+	t.Run("a warm turn is reported warm", func(t *testing.T) {
+		mgr, buf, meta := newLatencyManager(t, latencyScript{events: []scriptEvent{
+			{at: 50 * time.Millisecond, typ: event.TypeAssistantChunk},
+			{at: 80 * time.Millisecond, typ: event.TypeUsage,
+				usage: &event.Usage{Used: 14570, Input: 212, Output: 22, CacheRead: 14336}},
+			{at: 100 * time.Millisecond, typ: event.TypeTurnComplete},
+		}})
+		if err := mgr.Prompt(context.Background(), meta.ID, "hi", nil, "dev-a"); err != nil {
+			t.Fatal(err)
+		}
+		rec := waitForTurnRecords(t, buf, 1)[0]
+		if rec["cold"] != false {
+			t.Errorf("cold = %v, want false on a turn reading 14336 cached tokens", rec["cold"])
+		}
+		if got := num(t, rec, "cache_read"); got != 14336 {
+			t.Errorf("cache_read = %v, want 14336", got)
+		}
+	})
+}

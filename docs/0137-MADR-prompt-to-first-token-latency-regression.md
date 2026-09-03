@@ -885,6 +885,92 @@ same redaction, and the goose fixture is re-recorded with the handshake
 included. A fixture that silently omits a transport's control plane is the same
 class of defect as the empty `frames.jsonl` Phase 1 found in its own tool.
 
+## Correction, 2026-09-03 (second): the cache was never broken — the instrument was blind
+
+**This retracts the central claim of the "What is still not established" section
+above, and the Phase 5 verdict drawn from it.** Both were built on a signal that
+cannot report what it was read as reporting.
+
+### The evidence
+
+Three turns of one kilo session through mcremote, read at the wire
+(`MCREMOTE_WIRE_CAPTURE_DIR`, MADR 0137 Phase 1):
+
+| turn | input | cache.read |
+| --- | --- | --- |
+| 1 | 14435 | 0 |
+| 2 | **212** | **14336** |
+| 3 | 13651 | 2304 |
+
+Turn 2 is a fully warm turn. Phase 2 recorded **all three as `cold=true`**.
+
+`internal/provider/kilo/usage.go` parses `Input`, `Output`, `Reasoning`,
+`Cache.Read` and `Cache.Write` into `msgTokens`, uses them to compute a context
+total, and then emits `event.Usage{Used, Size}` — discarding all five. `cold` is
+derived from `CacheRead == 0`, so for kilo it could only ever be true.
+
+### It is not one provider
+
+| provider | cache data the engine sends | mcremote maps it |
+| --- | --- | --- |
+| opencode | `cache.read` | **yes** |
+| kilo | `cache.read` (14336 observed) | no — parsed, then dropped |
+| grok | `cachedReadTokens` (11776 observed) on `_x.ai/session_notification` | no |
+| codex | `cachedInputTokens` (11136 observed) on `thread/tokenUsage/updated` | no |
+| goose | none | n/a — genuinely reports none |
+
+**Four of five engines report cache reads; mcremote reads it for one.**
+
+grok's case has a structural cause worth naming: `acpagent` maps ACP's
+`SessionUsageUpdate`, whose schema is `{Used, Size, Cost}` and carries no cache
+fields at all (`acp-go-sdk@v0.13.5/types_gen.go:5243`). grok's cache accounting
+travels on a vendor extension — one of the unrouted `_x.ai/*` notifications
+step 7.8 already covers. codex is the same shape on its own transport.
+
+### What this overturns
+
+* **"`cache.write` is 0 on every turn, so essentially the whole prompt is
+  uncached"** — unsupported. `cache.write` being 0 is how these engines account
+  for a cache *hit*: turn 2 wrote nothing because it read 14336 tokens that
+  were already there. Reading 0-write as never-warm inverted the meaning.
+* **Phase 5's "kilo never gets a warm turn"** — false. kilo gets warm turns.
+* **"opencode is the control that settles the cold/warm question"** — opencode
+  was not a control. It was the only provider whose usage mapping was finished,
+  which is also why it was the only one that could be seen to be fast.
+
+### What survives, and is independently confirmed
+
+**`kilo-auto/balanced` routes to different upstream models within one session.**
+The same three-turn capture shows `moonshotai/kimi-k3` and
+`deepseek/deepseek-v4-flash-0731` serving different turns under the one router
+alias. That is why turn 3 read only 2304 cached tokens where turn 2 read 14336:
+a different backend has a different cache. This belongs to the auto-router, not
+to mcremote, and it is a genuine cause of first-token variance on kilo.
+
+### Decision: complete the mapping, then re-measure
+
+Every engine's cache accounting is mapped onto `event.Usage`, and Phase 5's
+measurement is re-run against a working instrument.
+
+* Good, because without it no latency number in this record is attributable.
+  Separating cold from warm is the whole analytic frame here, and it has been
+  guessing for four of five providers.
+* Good, because the data is already on the wire and already parsed in kilo's
+  case — this completes existing work rather than adding a mechanism.
+* Neutral, because it puts code in Phase 6, which is specified as
+  investigation-only. Recorded as a deviation rather than absorbed.
+* Bad, because it invalidates a measurement already written into this record.
+  The Phase 5 entry is corrected rather than deleted: what was measured, and
+  why it was wrong, is more useful to a later reader than a clean number.
+
+### The lesson this record should carry
+
+MADR 0137 Phase 2 was created because the daemon measured the fast part of a
+turn and never the slow one. Phase 6 found that the measurement Phase 2 added
+was itself reporting a value it could not observe — and it was believed for two
+phases, because it was plausible and consistent. A instrument that agrees with
+the hypothesis is the one that most needs checking against the wire.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the

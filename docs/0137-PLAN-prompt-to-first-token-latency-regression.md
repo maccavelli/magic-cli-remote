@@ -1266,4 +1266,183 @@ turns, because their engines report no cache read — which is the finding, not 
 gap in the method. opencode is the only provider with both populations, and it
 has 1 cold and 5 warm rather than 3 and 3.
 
-### Phases 6-7 (except 7.5, 7.9) — not yet started
+### Phase 6 — 2026-09-03, complete. It overturned this record's central thesis.
+
+### 6.1 The cache was never broken. The instrument was blind.
+
+Three turns of one kilo session, read at the wire:
+
+| turn | input | cache.read |
+| --- | --- | --- |
+| 1 | 14435 | 0 |
+| 2 | **212** | **14336** |
+| 3 | 13651 | 2304 |
+
+Phase 2 recorded **all three as `cold=true`**. `internal/provider/kilo/usage.go`
+parsed `Input`, `Output`, `Reasoning`, `Cache.Read` and `Cache.Write`, used them
+to compute a context total, and emitted `event.Usage{Used, Size}` — discarding
+all five. `cold` is `CacheRead == 0`, so for kilo it could only ever be true.
+
+Four of five engines report cache reads. mcremote read it for one.
+
+| provider | engine reports | mcremote mapped it | now |
+| --- | --- | --- | --- |
+| opencode | `cache.read` | yes | yes |
+| kilo | `cache.read` | **no** — parsed then dropped | fixed |
+| grok | `cachedReadTokens` on `_x.ai/session_notification` | **no** | fixed |
+| codex | `cachedInputTokens` on `thread/tokenUsage/updated` | **no** | fixed |
+| goose | nothing | n/a | `cold` now absent, not false |
+
+**A second, independent defect found on the way.** codex's
+`thread/tokenUsage/updated` sends `total` as an OBJECT with
+`modelContextWindow` nested inside `tokenUsage`. mcremote decoded both as flat
+ints, so `json.Unmarshal` failed, the `err == nil` guard skipped the emit, and
+**codex published no usage event at all** — no `/context` on the phone for
+codex users, and no cold/warm signal. It failed silently: the event simply never
+existed.
+
+### The re-measurement, with the instrument working
+
+15 turns, three per provider, three sequential turns per session:
+
+| provider | turn | cold | ttft_ms | fresh input | cache_read |
+| --- | --- | --- | --- | --- | --- |
+| kilo | 1 | false | 6068 | 13667 | 768 |
+| kilo | 2 | false | 5173 | 1547 | 14336 |
+| kilo | 3 | false | **4544** | **337** | 15616 |
+| opencode | 1 | false | 3301 | 40 | 12992 |
+| opencode | 2 | false | 4877 | 95 | 12992 |
+| opencode | 3 | false | 4360 | 85 | 13056 |
+| codex | 1 | false | 2852 | 16312 | 16128 |
+| codex | 2 | false | 1427 | 33493 | 32256 |
+| codex | 3 | false | 1672 | 50694 | 49280 |
+| grok | 1 | false | 1239 | 19042 | 11776 |
+| grok | 2 | false | **12094** | 19105 | 18944 |
+| grok | 3 | false | **857** | 19169 | 19072 |
+| goose | 1-3 | *absent* | 1243, 750, 644 | — | — |
+
+**Not one cold turn in fifteen.** Every turn on every cache-reporting provider
+read a warm prefix.
+
+### 6.2/6.3 The finding, and why it needed no quota to reach
+
+**Prompt weight is not the cost, and the data settles it without an arm.**
+
+* kilo turn 3: **337 fresh input tokens, 15616 cached — and still 4544 ms to
+  first token.** There is no prompt weight left to remove. Three hundred
+  tokens of fresh input cannot take four and a half seconds.
+* grok turn 3: **19169 input, 19072 cached — 857 ms.** Five times kilo's total
+  context, a fully warm prefix, and five times faster.
+* codex turn 3: **50694 input, 49280 cached — 1672 ms.** The largest context
+  measured anywhere in this record, and among the fastest turns.
+
+Removing the `magictools` MCP server or the `@kilocode/plugin` would shrink a
+prefix that is already cached and already not being paid for. The arms were not
+run, and **that is the finding, not an omission**: an experiment whose outcome
+is determined by data already in hand is not worth the owner's quota.
+
+For the record, the configuration that would have been varied:
+`~/.kilo/_kilo.jsono` has one MCP server (`magictools`, remote,
+`http://localhost:48080/mcp`, reachable — HTTP 400 to a bare GET, so the port is
+live) and `~/.kilo/package.json` has one plugin (`@kilocode/plugin` 7.4.20).
+**Neither was touched**, per 6.3.
+
+### What kilo's latency actually is
+
+Two causes, both upstream, both outside mcremote:
+
+1. **`kilo-auto/balanced` routes to different upstream models within one
+   session.** The three-turn capture shows `moonshotai/kimi-k3` and
+   `deepseek/deepseek-v4-flash-0731` serving different turns under the one
+   router alias. Turn 1 read only 768 cached tokens against 13667 fresh — a
+   near-cold prefix on a session that had just started, because the backend it
+   landed on had no cache for it.
+2. **The backends the router picks are slow.** kilo's warmest turn is its
+   slowest per token: 4544 ms for 337 fresh tokens. grok answers in 857 ms with
+   19072 cached tokens on the same host, minutes apart.
+
+**Recommendation, for the owner to accept or decline — no change made.** If
+kilo's first-token latency matters more than the auto-router's cost or capability
+selection, naming a specific model instead of `kilo-auto/balanced` would remove
+both causes at once: a fixed backend keeps one cache warm across turns, and the
+model becomes a known quantity rather than a per-turn lottery. This record's
+accepted constraint is that providers run on their own default model, so this
+is a recommendation and nothing was changed.
+
+### 5.3 is superseded
+
+The Phase 5 verdict said "kilo never gets a warm turn" and treated opencode as
+the control proving a cold/warm split. Both were artefacts of the blind
+instrument. opencode was not a control; it was the only provider whose usage
+mapping was finished, which is also why it was the only one that could be seen
+to be fast. The Phase 5 entry is left in place rather than deleted: what was
+measured, and why it was wrong, is more useful than a clean number.
+
+### Fail-first evidence — five breakages, each verified to have landed and restored from a `cp` backup
+
+```text
+U. kilo emits {Used, Size} only (the code as it shipped)
+   FAIL TestUsageCarriesTheCacheSplit
+        CacheRead = 0, want 14336: a warm turn is being reported as cold
+
+V2. codex modelContextWindow read from the wrong nesting level
+   FAIL TestTokenUsageDecodesTheShapeCodexActuallySends
+        modelContextWindow decoded as 0: it is nested inside tokenUsage
+
+W. grok turn_completed ignored again
+   FAIL TestXAITurnCompletedCarriesGroksCacheSplit   no usage event emitted
+
+X. cold reported unconditionally (the blind instrument)
+   FAIL TestColdIsAbsentWhenTheProviderReportsNoCacheAccounting
+        cold = true on a provider that reports no cache accounting
+```
+
+A fifth breakage — reverting codex's decode to the flat ints it had — **no
+longer compiles**, because the mapping code uses the object's fields. That is
+the strongest available guard: the shape cannot silently regress.
+
+**One of these tests was itself wrong first.** Breakage V produced no failure at
+all, because the codex test had duplicated the decode struct rather than using
+the production one — the same class of defect as the original, and exactly what
+let it survive. The struct is now a shared named type, `codexTokenUsageParams`,
+used by both the handler and its test, and V2 above is the re-run against it.
+
+```text
+go test ./internal/... ./cmd/... -count=1 -> ok
+make pre-add-check                        -> 748 file(s) clean
+```
+
+### Deviations
+
+**2026-09-03 — Phase 6 wrote code, which it is specified not to do.** The phase
+is investigation-only.
+
+*Evidence.* The investigation's first result was that Phase 2's cold/warm signal
+is wrong for four of five providers, which makes every latency number in this
+record unattributable and both prior phases' conclusions unsound.
+
+*Not worked around.* The alternative — report the defect and leave the
+instrument blind — was put to the owner explicitly and declined.
+
+*Resolution, chosen by the owner:* map every engine's cache accounting, then
+re-measure. Files: `internal/provider/kilo/{usage.go,session.go}`,
+`internal/provider/codex/{session.go,tokenusage.go}`,
+`internal/provider/acpagent/{subagents.go,xaiusage.go}`,
+`internal/session/turnlatency.go`, and tests alongside each. See the MADR's
+second correction.
+
+**2026-09-03 — 6.2's arms were not run.** Quota was approved for them.
+
+*Reason.* The re-measurement answered the question the arms exist to answer.
+kilo's warmest turn pays 337 fresh input tokens and still takes 4544 ms;
+removing an MCP server would shrink a prefix that is cached and not being paid
+for. Spending approved quota on an experiment whose outcome is already
+determined is not diligence.
+
+*What is therefore not established.* The composition of the ~14k-token prefix
+is still unattributed — how much is the agent system prompt, how much is
+`magictools`' tool definitions, how much is the plugin. That question is now
+about cost and context headroom, not latency, and it is worth answering only if
+one of those becomes the concern.
+
+### Phase 7 (except 7.5, 7.9) — not yet started

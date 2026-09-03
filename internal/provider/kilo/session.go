@@ -84,9 +84,13 @@ type httpSession struct {
 	// lastUsed/lastSize/usageSent hold the last usage report actually emitted,
 	// so an unchanged token count is not re-sent (MADR 0024). usageSent is
 	// cleared by turnCleanup so every turn reports at least once.
-	lastUsed  int
-	lastSize  int
-	usageSent bool
+	lastUsed int
+	lastSize int
+	// lastTokens is the full token split of the last report emitted, so a
+	// change in the cached/fresh mix is reported even when the total holds
+	// steady (MADR 0137, second correction).
+	lastTokens msgTokens
+	usageSent  bool
 }
 
 var _ httpagent.DialectSession = (*httpSession)(nil)

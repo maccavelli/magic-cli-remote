@@ -1590,22 +1590,31 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 			})
 		}
 	case "thread/tokenUsage/updated":
+		// `total` and `last` are OBJECTS, and `modelContextWindow` is nested
+		// inside `tokenUsage` — not the flat ints this decoded before
+		// (MADR 0137, second correction). The mismatch made json.Unmarshal
+		// fail, so the `err == nil` guard skipped the emit entirely and codex
+		// reported NO usage at all: no /context for the phone, and no
+		// cold/warm signal for the latency record.
 		var p struct {
 			TokenUsage struct {
-				Total int `json:"total"`
-				Last  int `json:"last"`
+				Total              codexTokenCounts `json:"total"`
+				Last               codexTokenCounts `json:"last"`
+				ModelContextWindow int              `json:"modelContextWindow"`
 			} `json:"tokenUsage"`
-			ModelContextWindow int `json:"modelContextWindow"`
 		}
-		if err := json.Unmarshal(params, &p); err == nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			s.log.Debug("codex: tokenUsage decode", slog.String("err", err.Error()))
+		} else {
+			total, window := p.TokenUsage.Total, p.TokenUsage.ModelContextWindow
 			if s.p != nil {
-				s.p.noteRuntimeUsage(p.TokenUsage.Total, p.ModelContextWindow)
+				s.p.noteRuntimeUsage(total.TotalTokens, window)
 			}
 			s.emit(event.Event{
 				Type:           event.TypeUsage,
 				SessionID:      s.localID,
 				Timestamp:      now,
-				Usage:          &event.Usage{Used: p.TokenUsage.Total, Size: p.ModelContextWindow},
+				Usage:          total.usage(window),
 				AgentSessionID: s.agentID,
 			})
 		}
