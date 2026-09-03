@@ -26,6 +26,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 const engineStartTimeout = 60 * time.Second
@@ -47,6 +48,10 @@ type engine struct {
 
 // Provider manages an ACP-over-HTTP engine process and its sessions.
 type Provider struct {
+	// wire records raw engine frames when MCREMOTE_WIRE_CAPTURE_DIR is set;
+	// nil otherwise (MADR 0137 Phase 1).
+	wire *wirecap.Capture
+
 	spec Spec
 	cfg  Config
 	log  *slog.Logger
@@ -127,6 +132,7 @@ func NewWithLogger(spec Spec, cfg Config, log *slog.Logger) *Provider {
 	return &Provider{
 		spec: spec,
 		cfg:  cfg,
+		wire: wirecap.For(string(spec.ID)),
 		log:  l.With(slog.String("component", "provider."+string(spec.ID)+"-acphttp")),
 		httpc: &http.Client{
 			Timeout: 10 * time.Second,

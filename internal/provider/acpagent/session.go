@@ -28,6 +28,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 // defaultStreamCoalesce caps mid-stream assistant/thought updates at ~12 per
@@ -54,6 +55,9 @@ func killProcessTree(cmd *exec.Cmd) error {
 
 // session is one ACP-backed agent conversation.
 type session struct {
+	// wire records raw agent frames when MCREMOTE_WIRE_CAPTURE_DIR is set.
+	wire *wirecap.Capture
+
 	providerID              provider.ID
 	provider                *Provider
 	extNotificationHandlers map[string]ExtensionNotificationHandler

@@ -1,0 +1,10 @@
+{
+  "provider": "grok",
+  "version": "1.0.13",
+  "kind": "in-daemon",
+  "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap)",
+  "captured_at": "2026-09-03T18:07:23Z",
+  "frames": 19,
+  "redacted": "operator home -> /home/user (absolute and separator-stripped forms)",
+  "note": "session lifecycle only; no prompt sent, so no model quota spent and no message-streaming frames"
+}

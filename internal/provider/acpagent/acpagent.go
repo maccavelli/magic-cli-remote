@@ -27,6 +27,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 // startTimeout bounds ACP initialize + session/new. The process outlives
@@ -452,7 +453,12 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
 
-	conn := acp.NewClientSideConnection(s, stdin, stdout)
+	// The ACP SDK owns its own read loop, so the only seam for capturing raw
+	// agent->client frames is the reader handed to it (MADR 0137 Phase 1).
+	// wirecap.For returns nil unless MCREMOTE_WIRE_CAPTURE_DIR is set, and a
+	// nil capture's TeeReader returns the reader unchanged.
+	s.wire = wirecap.For(string(p.spec.ID))
+	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout))
 	conn.SetLogger(s.log)
 	s.conn = conn
 

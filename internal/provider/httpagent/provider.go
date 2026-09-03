@@ -25,6 +25,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 // serverStartTimeout bounds spawn → health-path healthy.
@@ -53,6 +54,10 @@ type Provider struct {
 	dialect Dialect
 	cfg     Config
 	log     *slog.Logger
+
+	// wire records raw engine frames when MCREMOTE_WIRE_CAPTURE_DIR is set;
+	// nil otherwise, so the stream path costs one nil check in production.
+	wire *wirecap.Capture
 
 	// Cached vendor catalog (MADR 0074 D16). Guarded by its own mutex because
 	// it is read on the phone's paging path, not on the engine lifecycle path.
@@ -133,6 +138,7 @@ func NewWithLogger(d Dialect, cfg Config, log *slog.Logger) *Provider {
 	p := &Provider{
 		dialect:      d,
 		cfg:          cfg,
+		wire:         wirecap.For(string(d.ID())),
 		log:          l.With(slog.String("component", "provider."+string(d.ID())+"-http")),
 		sessions:     make(map[string]*session),
 		childAliases: make(map[string]*session),
@@ -738,6 +744,7 @@ func (p *Provider) streamOnce(url string, gen int) error {
 			p.log.Warn("dropping oversized SSE line", slog.Int("limit_bytes", maxSSELine))
 		}
 		if len(line) > 0 && !tooLong && bytes.HasPrefix(line, []byte("data: ")) {
+			p.wire.Frame(line[len("data: "):])
 			if typ, props, sid, ok := p.dialect.DecodeFrame(line[len("data: "):]); ok && sid == "" {
 				// Engine-global frame: no session owns it. The dialect decides
 				// whether it invalidates diagnostics; nothing from the payload

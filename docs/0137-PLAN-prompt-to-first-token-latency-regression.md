@@ -49,6 +49,8 @@ do not share a transport, each phase states what it means per provider:
   remaining inline handlers (F4).
 * `internal/session/` and `internal/protocol/` only as far as carrying the new
   latency/version signals to the phone.
+* `internal/wirecap/` (new) — the env-gated in-daemon frame capture, plus its
+  four transport hooks in `httpagent`, `acpagent`, `acphttp` and `codex`.
 * Tests for each of the above, plus fixtures captured from the installed
   provider versions.
 
@@ -89,10 +91,18 @@ Phase 5 step 5.4.
 **Files:** `scripts/capture-wire/main.go` (new);
 `internal/provider/<provider>/testdata/wire/<version>/` (new).
 
-1.1 Add `scripts/capture-wire/`. It connects to one provider engine's event
-stream, writes every frame verbatim to `frames.jsonl`, and writes `meta.json`
-naming provider, binary version and capture date. Transport by flag:
-`-kind=sse -url=…` for kilo/opencode/goose, `-kind=acp -bin=…` for grok/codex.
+1.1 Two capture mechanisms, because the five transports do not share a seam:
+
+  *(a)* `scripts/capture-wire/` for the SSE providers (kilo, opencode) — an
+  external HTTP GET, no daemon required.
+
+  *(b)* `internal/wirecap/`, an **in-daemon** capture gated by
+  `MCREMOTE_WIRE_CAPTURE_DIR`, for the three the external tool cannot reach:
+  grok (ACP stdio, SDK owns the read loop — hooked by teeing the reader), goose
+  (ACP websocket), codex (JSON-RPC app-server). `wirecap.For` returns nil when
+  the variable is unset and every method is nil-safe, so production pays one nil
+  check per frame. Redaction runs at capture time, in both the absolute and
+  separator-stripped forms of the home path.
 
 1.2 Capture one `hi` turn each for kilo **7.5.6** (SSE), opencode **1.18.26**
 (SSE), goose **1.48.0** (ACP/HTTP) and codex **0.152.1** (app-server
@@ -100,10 +110,12 @@ JSON-RPC). The codex capture must include the session-start notifications, so
 the `deprecationNotice` of F6 is in the fixture rather than described from
 memory.
 
-1.3 **grok 1.0.13 only after the owner confirms quota.** Standing constraint:
-no provider quota is spent on a test without asking. If declined, Phase 3 still
-adds grok's pin but its comment reads "no fixture — quota withheld", so the gap
-is visible rather than implied.
+1.3 **grok 1.0.13: capture the lifecycle without spending quota.** A session
+create with no prompt yields `initialize`, session lifecycle and the `_x.ai/*`
+extension frames at zero model cost. The message-streaming shapes need a prompt
+and therefore the owner's approval; until then grok's fixture carries a `note`
+saying exactly what it does and does not contain, so the gap is visible rather
+than implied.
 
 1.4 Prove the tool can fail: run it against a port with no engine, confirm a
 non-zero exit and an explicit error, and record that output in the execution
@@ -358,8 +370,16 @@ permission mechanism that overlaps mcremote's own auto-approve; adopting it is
 a design decision needing its own record, not a gap to close here. This step
 produces no code — it exists so the next reader knows the omission is deliberate.
 
-**Done when:** 7.1-7.6 land with tests, and 7.7 is confirmed as a written
-decision rather than an oversight.
+7.8 **F11 — grok `_x.ai/*` extensions.** Four of five are unhandled. Route
+`_x.ai/mcp/init_progress` and `_x.ai/mcp/servers_updated` as provider
+conditions: they report MCP startup progress and membership changes, which bear
+directly on first-turn latency. Assess `_x.ai/announcements/update` and
+`_x.ai/settings/update` and either route or explicitly decline them.
+*Test:* each routed extension produces one provider event; an unknown `_x.ai/*`
+notification is ignored rather than forwarded.
+
+**Done when:** 7.1-7.6 and 7.8 land with tests, and 7.7 is confirmed as a
+written decision rather than an oversight.
 
 ## Verification
 
@@ -536,5 +556,61 @@ pin (`CompareVersions == 0`), the same policy as kilo; opencode additionally
 has a separate `MinVersion` hard floor for session-tree. And it *did* warn —
 `opencode engine differs from the known-good release` — which I missed by
 grepping kilo's wording against opencode's. See the MADR's fifth amendment.
+
+### Phase 1 (continued) — 2026-09-03, complete
+
+**Capture gap resolved in the daemon**, at the owner's direction.
+`internal/wirecap` records raw frames where they arrive, one hook per
+transport: the SSE line in `httpagent.streamOnce`; `conn.readPump` after
+`transport.Read` for codex; `readPump` after `ws.Read` for goose; and a tee on
+the `stdout` reader for grok, whose ACP SDK owns its own read loop. Gated by
+`MCREMOTE_WIRE_CAPTURE_DIR`; `wirecap.For` returns nil when unset and every
+method is nil-safe.
+
+**Fixtures now exist for all five providers:**
+
+| provider | version | frames | contents |
+| --- | --- | --- | --- |
+| kilo | 7.5.6 | 56 | full turn (external tool) |
+| opencode | 1.18.26 | 85 | full turn (external tool) |
+| codex | 0.152.1 | 38 | full turn (in-daemon) |
+| goose | 1.48.0 | 15 | full turn (in-daemon) |
+| grok | 1.0.13 | 19 | **session lifecycle only** — no prompt, so no quota spent and no message-streaming frames |
+
+Redaction verified at zero occurrences of the operator's username in all five.
+
+**F11 found by the grok capture:** grok emits five `_x.ai/*` extension
+notifications and mcremote handles one. `_x.ai/mcp/init_progress` and
+`_x.ai/mcp/servers_updated` report MCP startup progress and membership — the
+"why is the first turn slow" signal this record has been chasing indirectly.
+Added to Phase 7 as 7.8.
+
+**Codex routing confirmed sound:** all twelve methods emitted during a real turn
+are routed. The eight unrouted notifications are unexercised features, not
+broken basics.
+
+**Verification.**
+
+```text
+go build ./...                          -> ok
+go vet ./internal/...                   -> clean
+go test ./internal/... ./cmd/... -c=1   -> 42 packages ok, 0 FAIL
+make pre-add-check                      -> 718 file(s) clean
+```
+
+### Deviations (continued)
+
+**2026-09-03 — the in-daemon capture is a production-code change the plan did
+not originally authorise.** Raised to the owner as the recommended resolution
+and approved before implementation. Recorded in the MADR's sixth amendment as a
+decision rather than absorbed silently. The cost is one nil check per frame on
+each transport's receive path when the environment variable is unset.
+
+**2026-09-03 — grok's fixture is lifecycle-only.** The standing constraint is
+that no provider quota is spent on a test without asking, and the owner's
+approval covered resolving the capture gap, not spending grok quota. The
+zero-cost half was captured; the message-streaming half is still outstanding and
+the fixture's `note` field says so. Phase 3's grok pin must cite that limitation
+rather than implying full coverage.
 
 ### Phases 2-7 — not yet started

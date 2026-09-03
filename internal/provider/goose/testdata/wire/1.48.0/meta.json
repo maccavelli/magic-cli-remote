@@ -1,0 +1,10 @@
+{
+  "provider": "goose",
+  "version": "1.48.0",
+  "kind": "in-daemon",
+  "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap)",
+  "captured_at": "2026-09-03T18:07:23Z",
+  "frames": 15,
+  "redacted": "operator home -> /home/user (absolute and separator-stripped forms)",
+  "note": "one hi turn"
+}

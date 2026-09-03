@@ -647,6 +647,69 @@ None of F7-F10 is a latency fix. They are compatibility and correctness debt
 that accumulated silently because the only drift signal was a log line that,
 as this record has now demonstrated twice, nobody reads.
 
+## Amendment, 2026-09-03 (sixth): the capture gap is resolved in the daemon
+
+Phase 1 could only capture kilo and opencode, because the five providers do not
+share a transport: grok speaks ACP over stdio through a third-party SDK that
+owns its read loop, goose speaks ACP over a websocket, and codex speaks JSON-RPC
+over an app-server proxy. Capturing those from outside would mean
+reimplementing each client handshake in a script.
+
+**Decision: capture inside the daemon, gated by an environment variable.**
+`internal/wirecap` records raw frames at the point they arrive, with one hook
+per transport:
+
+| transport | providers | hook |
+| --- | --- | --- |
+| `httpagent` | kilo, opencode | the SSE line in `streamOnce` |
+| `codex` | codex | `conn.readPump`, after `transport.Read` |
+| `acphttp` | goose | `readPump`, after `ws.Read` |
+| `acpagent` | grok | a tee on the `stdout` reader handed to the ACP SDK |
+
+`wirecap.For` returns **nil** unless `MCREMOTE_WIRE_CAPTURE_DIR` is set, and
+every method is nil-safe, so a shipped daemon pays one nil check per frame and
+a reader can see at each call site that nothing happens in production. The grok
+hook is a tee because the SDK owns the loop and the reader is the only seam;
+a nil capture's `TeeReader` returns the reader unchanged.
+
+Redaction happens at capture time rather than afterwards, in both the absolute
+and separator-stripped forms of the home path — the second form is the one that
+survived a fixture I had already called redacted.
+
+This is a change to production code paths, which the plan did not previously
+authorise; it is recorded here as the decision rather than taken quietly.
+
+**Verified by capturing the three providers the external tool could not reach:**
+codex 0.152.1 (38 frames), goose 1.48.0 (15), grok 1.0.13 (19). All five
+providers now have a version-stamped fixture.
+
+### F11 — grok's `_x.ai/*` extension notifications are almost entirely unhandled
+
+The grok capture surfaced a namespace the earlier `initialize`-only probe did
+not: grok emits vendor-extension notifications during a session, and mcremote
+handles one of five.
+
+| notification | handled |
+| --- | --- |
+| `_x.ai/models/update` | yes |
+| `_x.ai/announcements/update` | **no** |
+| `_x.ai/mcp/init_progress` | **no** |
+| `_x.ai/mcp/servers_updated` | **no** |
+| `_x.ai/settings/update` | **no** |
+
+`_x.ai/mcp/init_progress` and `_x.ai/mcp/servers_updated` are the interesting
+pair: grok reports MCP server startup progress and membership changes, which is
+exactly the kind of "why is my first turn slow" signal this record has spent its
+length trying to obtain by other means.
+
+### What the codex fixture confirms
+
+Every method codex emitted during a real turn — twelve of them — is routed. The
+eight unrouted notifications from the fifth amendment are for features a basic
+turn does not exercise (`rawResponse*`, `thread/realtime/*`,
+`modelProvider/authRecovery*`), not broken basics. The router is sound; it is
+simply behind on surface.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the
