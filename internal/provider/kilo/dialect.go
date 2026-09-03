@@ -30,6 +30,9 @@ type httpDialect struct {
 	// auth-state-dependent default.
 	defaultModelProvider string
 	defaultModelID       string
+	// syncSeq is the last sequence seen per aggregate (session) on kilo's
+	// `sync` stream, used to detect dropped events (MADR 0137 F7).
+	syncSeq map[string]int64
 	// contextLimits is "providerID/modelID" → context-window size for the
 	// usage indicator. Empty until P3's AfterBoot harvests the catalog;
 	// a missing entry renders as a bare token count, never an error.
@@ -168,13 +171,22 @@ func (d *httpDialect) DecodeFrame(data []byte) (string, json.RawMessage, string,
 			Type       string          `json:"type"`
 			Properties json.RawMessage `json:"properties"`
 			Data       json.RawMessage `json:"data"`
+			SyncEvent  *kiloSyncEvent  `json:"syncEvent"`
 		} `json:"payload"`
 		Type       string          `json:"type"`
 		Properties json.RawMessage `json:"properties"`
 		Data       json.RawMessage `json:"data"`
+		SyncEvent  *kiloSyncEvent  `json:"syncEvent"`
 	}
 	if err := json.Unmarshal(data, &frame); err != nil {
 		return "", nil, "", false
+	}
+	// A `sync` frame is kilo's event-sourced twin of a plain frame, carrying a
+	// per-aggregate `seq`. It is NOT routed to a session — doing so would
+	// deliver every event twice — but its sequence is recorded, so a gap in
+	// the stream becomes observable (MADR 0137 F7).
+	if ev := firstSync(frame.SyncEvent, frame.Payload.SyncEvent); ev != nil {
+		d.noteSyncSeq(ev.AggregateID, ev.Seq)
 	}
 	typ, props := frame.Type, firstRaw(frame.Properties, frame.Data)
 	if frame.Payload.Type != "" {

@@ -381,7 +381,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	s.turnBusy = true
 	s.mu.Unlock()
 
-	text, blocks, attachments := buildPrompt(parts)
+	text, blocks, attachments := buildPrompt(parts, s.p.caps().PromptCapabilities, s.log)
 	// A prompt with no sendable content would issue a no-op turn; refuse.
 	if len(blocks) == 0 {
 		s.clearTurnBusy()
@@ -1700,17 +1700,44 @@ func convertHeaders(h map[string]string) []acp.HttpHeader {
 // buildPrompt flattens parts into the transcript text for the user bubble,
 // the ACP content blocks for the wire, and attachment descriptors. Text parts
 // keep their text verbatim on both paths.
-func buildPrompt(parts []provider.Content) (string, []acp.ContentBlock, []event.AttachmentInfo) {
+//
+// caps is the agent's advertised prompt capability set. Attachment kinds it
+// did not advertise are dropped with a warning rather than sent (MADR 0137
+// F10b): an image block to an agent that advertised `image: false` is a
+// protocol violation, and this path sent them unconditionally — it happened to
+// be harmless only because goose 1.48.0 advertises `image: true`. `acpagent`
+// has gated this since it was written; this brings the second ACP transport in
+// line rather than leaving one of them trusting to luck.
+func buildPrompt(
+	parts []provider.Content, caps acp.PromptCapabilities, log *slog.Logger,
+) (string, []acp.ContentBlock, []event.AttachmentInfo) {
 	var text strings.Builder
 	blocks := make([]acp.ContentBlock, 0, len(parts))
 	var attachments []event.AttachmentInfo
 	for _, p := range parts {
 		switch p.Type {
 		case "image":
+			if !caps.Image {
+				if log != nil {
+					log.Warn("dropping image prompt content: agent lacks promptCapabilities.image")
+				}
+				continue
+			}
 			blocks = append(blocks, acp.ContentBlock{
 				Image: &acp.ContentBlockImage{Type: "image", MimeType: p.MimeType, Data: p.Data},
 			})
 			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
+		case "audio":
+			if !caps.Audio {
+				if log != nil {
+					log.Warn("dropping audio prompt content: agent lacks promptCapabilities.audio")
+				}
+				continue
+			}
+			blocks = append(blocks, acp.ContentBlock{
+				Audio: &acp.ContentBlockAudio{Type: "audio", MimeType: p.MimeType, Data: p.Data},
+			})
+			attachments = append(attachments, event.AttachmentInfo{Kind: "audio", MimeType: p.MimeType})
 		default:
 			text.WriteString(p.Text)
 			blocks = append(blocks, acp.ContentBlock{

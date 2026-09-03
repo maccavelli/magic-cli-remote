@@ -96,6 +96,33 @@ var spec = acpagent.Spec{
 		// every sub-agent grok ran was invisible while its output filled the
 		// transcript.
 		"_x.ai/session_notification": acpagent.HandleXAISessionNotification,
+		// MADR 0137 F11. Measured live: grok emits ten `_x.ai/*` methods and
+		// mcremote handled three, leaving 52 of 247 frames in one `hi` turn
+		// unread. These two bear on first-token latency directly — MCP startup
+		// is work that happens between the prompt and the first token.
+		"_x.ai/mcp/servers_updated": acpagent.HandleXAIMCPServersUpdated,
+		"_x.ai/mcp/init_progress":   acpagent.HandleXAIMCPInitProgress,
+		// The remaining four are DECLINED, not overlooked (MADR 0137 step 7.7):
+		//
+		//   _x.ai/announcements/update  vendor marketing/notice copy; the
+		//                               daemon does not relay upstream product
+		//                               messaging into a transcript
+		//   _x.ai/settings/update       grok's own local settings; mcremote
+		//                               does not mirror another tool's config,
+		//                               and surfacing it invites editing it
+		//   _x.ai/sessions/changed      grok's session list; mcremote's list is
+		//                               its own, and MADR 0095 makes the daemon
+		//                               the authority on session identity
+		//   _x.ai/queue/changed         grok's internal prompt queue; mcremote
+		//                               has its own queue with its own
+		//                               semantics, and two queues reporting
+		//                               into one UI would misrepresent both
+		//
+		// _x.ai/session/prompt_complete is also declined: it duplicates the
+		// turn completion the ACP prompt RESULT already delivers, and the same
+		// turn ending twice is worse than it ending once. Its `usage` twin on
+		// _x.ai/session_notification IS read (MADR 0137, second correction) —
+		// that carries data nothing else does; this one does not.
 	},
 }
 

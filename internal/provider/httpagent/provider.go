@@ -753,6 +753,13 @@ func (p *Provider) streamOnce(url string, gen int) error {
 					ed.EngineEventNeedsDiagnostics(typ) {
 					p.noteDiagnosticsChanged(gen)
 				}
+				// A catalog the engine says has changed must not be served
+				// from memory for the rest of the process's life (MADR 0137
+				// F8). Same engine-global path, same type-only contract.
+				if cd, hasHook := p.dialect.(CatalogEventDialect); hasHook &&
+					cd.EngineEventInvalidatesCatalog(typ) {
+					p.InvalidateModelCatalogs()
+				}
 			} else if ok && sid != "" {
 				p.mu.Lock()
 				stale := p.generation != gen
@@ -1205,4 +1212,17 @@ func (w *lineRing) tail() string {
 		return ""
 	}
 	return strings.Join(w.ring, "\n")
+}
+
+// InvalidateModelCatalogs drops every memoized model catalog so the next
+// picker open re-harvests from the engine.
+//
+// Called when the engine says its catalog changed (MADR 0137 F8). Without it a
+// model added, removed or re-priced upstream stayed invisible for the life of
+// the engine process, and the phone was offered a list the engine would no
+// longer accept. The catalogs are only memoized to keep a picker open from
+// costing a multi-MB fetch each time; a change upstream is exactly the event
+// that memoization must yield to.
+func (p *Provider) InvalidateModelCatalogs() {
+	p.catalogs.Invalidate()
 }

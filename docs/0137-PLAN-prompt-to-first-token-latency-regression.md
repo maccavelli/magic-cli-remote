@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-09-03
 associated-madr: "0137-MADR-prompt-to-first-token-latency-regression.md"
 ---
@@ -1445,4 +1445,153 @@ is still unattributed — how much is the agent system prompt, how much is
 about cost and context headroom, not latency, and it is worth answering only if
 one of those becomes the concern.
 
-### Phase 7 (except 7.5, 7.9) — not yet started
+### Phase 7 — 2026-09-03, complete
+
+**7.1 F7 — kilo `sync`: gap detection, resume declined on evidence.**
+`DecodeFrame` now records the per-aggregate `seq` and warns when a jump appears.
+Sync frames are still not routed to a session — each is the event-sourced twin
+of a plain frame already on the stream, so routing both would deliver every
+message twice.
+
+**The resume half was measured and declined.** `POST /sync/history` exists and
+works — its contract is `{aggregateID: lastSeq}` returning events with
+`seq > value` — but *"aggregates not listed in the input get their full
+history"*, and mcremote can only list its own sessions. Probed live against the
+running engine:
+
+```text
+POST /sync/history {}             -> 28,351,089 bytes, 13410 events, 153 aggregates
+POST /sync/history {agg: 99999}   -> 28,350,364 bytes  (capping one removed 1 event)
+```
+
+28 MB on every reconnect, growing with every session ever created, replacing a
+targeted per-session REST resync. There is no allow-list form of the request,
+and the endpoint is annotated "Experimental HttpApi" upstream. The gap is
+therefore detected and reported, and filled by the existing resync — which
+closes the real weakness F7 named (a reconnect that dropped events was
+indistinguishable from one that did not) without taking on an unbounded fetch.
+
+**7.2 F8 — opencode `catalog.updated`.** New optional
+`httpagent.CatalogEventDialect`, same engine-global path and same type-only
+contract as the diagnostics hook. A catalog memoized at engine boot no longer
+outlives an upstream change.
+
+**7.3 F8b — `plugin.added` needs no suppressor.** It decodes with an empty
+session id, so it already takes the engine-global path and produces **zero**
+daemon events; the 45 frames are engine-to-daemon wire cost only and never
+reach the phone. Nothing to fold into 4.2/4.3. It is explicitly excluded from
+7.2's catalog hook and that exclusion is pinned by a test — treating it as a
+catalog change would re-harvest a multi-MB payload 45 times per turn, turning a
+noise finding into a performance defect.
+
+**7.4 F9 — codex `modelProvider/authRecovery*` routed.** Verified against the
+upstream source (`codex-rs/app-server-protocol/src/protocol/common.rs:1930-1931`,
+`v2/notification.rs:11`). Surfaced as a notice, not an error: recovery starting
+is not a failure. This matters because MADRs 0133/0134/0136 had to *infer*
+credential state from files, lock contention and a `codex doctor` probe — an
+inference that wedged a host for ten days. The engine now says it directly.
+
+**7.5, 7.9** — landed with Phase 3.
+
+**7.6 F10b — `acphttp` honours `promptCapabilities`.** It sent image blocks
+unconditionally, harmless only because goose 1.48.0 advertises `image: true`.
+Audio gating added at the same time; `acpagent` has gated both since it was
+written.
+
+**7.8 F11 — grok `_x.ai/*`: two routed, five declined.**
+`_x.ai/mcp/servers_updated` (membership, recorded as `connecting` — membership
+is not health) and `_x.ai/mcp/init_progress` (logged, not emitted: MCP startup
+is work between the prompt and the first token, and a progress counter is
+diagnostic detail, not transcript content).
+
+### 7.7 — Recorded, not adopted. This is the written decision the step asks for.
+
+Each of these is a surface the current engines offer that mcremote deliberately
+does not consume. None is an oversight.
+
+| surface | why not |
+| --- | --- |
+| `_x.ai/session/prompt_complete` | Duplicates the turn completion the ACP prompt *result* already delivers. The same turn ending twice is worse than once. Its `usage` twin on `_x.ai/session_notification` **is** read — that carries data nothing else does; this does not. |
+| `_x.ai/announcements/update` | Vendor product messaging. The daemon does not relay upstream marketing into a transcript. |
+| `_x.ai/settings/update` | grok's own local settings. mcremote does not mirror another tool's config, and surfacing it invites editing it. |
+| `_x.ai/sessions/changed` | grok's session list. MADR 0095 makes the daemon the authority on session identity; a second list reporting into the same UI would misrepresent both. |
+| `_x.ai/queue/changed` | grok's internal prompt queue. mcremote has its own queue with its own semantics. |
+| grok `sessionCapabilities` (`list`/`resume`/`close`) | Adopting engine-side session management is a design decision needing its own record, not a gap to close here. |
+| grok `embeddedContext` | No mcremote feature sends embedded context today. |
+| `x.ai/fs_notify`, `x.ai/hooks` | `x.ai/hooks` is a blocking permission mechanism that overlaps mcremote's own auto-approve. Adopting it needs its own decision record; two permission systems on one turn is a correctness question, not a feature. |
+| codex `rawResponse*`, `thread/realtime/*` | Serve features mcremote does not have. Forwarding them would put engine internals in a transcript. |
+
+### Fail-first evidence — six breakages, each verified to have landed and restored
+
+```text
+Y.  kilo gap report removed
+    FAIL TestSyncGapIsReported          a jump from seq 2 to 5 was not reported
+Y2. first sighting treated as a gap
+    FAIL TestFirstSyncSightingIsNotAGap a first sighting was reported as a gap
+Z.  plugin.added treated as a catalog change
+    FAIL TestPluginAddedDoesNotInvalidateTheCatalog
+AA. acphttp sends attachments ungated (the code as it shipped)
+    FAIL TestAttachmentsAreGatedOnAdvertisedCapabilities
+         attachments = 1, want 0: the agent advertised neither
+AB. codex auth-recovery unrouted again
+    FAIL TestAuthRecoveryNotificationsAreRouted   no notice event emitted
+AC. membership frame overwrites observed health
+    FAIL TestMCPServersUpdatedDoesNotOverwriteKnownState
+         [{magictools ready} {magictools connecting}], want one entry
+```
+
+```text
+go test ./internal/... ./cmd/... -count=1 -> ok
+make pre-add-check                        -> 755 file(s) clean
+```
+
+### Deviations
+
+**2026-09-03 — 7.1's resume half was not built.** The step called it the
+highest-value item and specified resuming from `seq` on reconnect.
+
+*Evidence.* Measured live, above: the only resume endpoint returns the full
+history of every aggregate the caller does not enumerate — 28 MB on this host —
+and mcremote cannot enumerate aggregates that predate it or belong to other
+clients.
+
+*Not worked around.* No partial or best-effort resume was shipped, and the
+existing REST resync is untouched.
+
+*Resolution, chosen by the owner:* consume `seq` for gap **detection** only.
+
+**2026-09-03 — 7.3 required no code.** The step said to fold `plugin.added`
+into the 4.2/4.3 dedupe. It produces no daemon event to dedupe. Recorded as a
+finding with a test pinning its exclusion, rather than inventing a suppressor
+for events that do not exist.
+
+### An error made during this phase, and how it was caught
+
+The fail-first backups were named by **basename**, and both
+`internal/provider/acphttp/session.go` and `internal/provider/codex/session.go`
+share one. The codex backup overwrote the acphttp backup, and restoring it
+wrote codex's source into `acphttp/session.go` — which then read
+`package codex`. The uncommitted 7.6 edit in that file was destroyed.
+
+*How it surfaced:* `go build ./...` failed with
+`found packages acphttp (cancel_test.go) and codex (session.go)`. Nothing else
+would have caught it; the tests for the affected package could not even compile.
+
+*Recovery:* the file's content at that moment was corruption introduced
+seconds earlier by this session, containing no work of the owner's. The tracked
+baseline was recovered with `git show HEAD:<path> > <path>` — verified first to
+be `package acphttp`, to contain the committed Phase 4 `cmdDedupe` work, and to
+lack the uncommitted 7.6 gate — and the 7.6 edit was re-applied verbatim. No
+other file collided; that was checked rather than assumed.
+
+*The lesson, since this record already carries one about instruments:* a backup
+scheme keyed on a non-unique name is a data-loss bug, not a convenience. Every
+`cp` backup in this plan's earlier phases used full-path-derived names or
+single files, which is why this was the first collision in nine phases of them.
+
+## Plan complete
+
+All seven phases are executed. The record's own conclusions were corrected
+twice along the way — once when the A/B found a worse failure than prompt
+weight, and once when Phase 6 found the cold/warm instrument was blind — and
+both corrections are kept in place rather than tidied away.

@@ -1714,7 +1714,51 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		}
 	case "serverRequest/resolved":
 		s.resolveServerRequest(params)
+	case "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted":
+		// Codex now reports credential recovery as it happens (MADR 0137 F9).
+		//
+		// This is worth surfacing precisely because MADRs 0133, 0134 and 0136
+		// had to INFER credential state from files, lock contention and a
+		// `codex doctor` probe — an inference that wedged a host into
+		// recovery_required for ten days. The engine saying "I am recovering
+		// auth for this provider, mid-turn" is the direct observation those
+		// records worked around not having.
+		//
+		// A notice, not an error: recovery starting is not a failure, and a
+		// turn that recovers and continues must not be decorated with a red
+		// bubble. The pump's dedupe (MADR 0137 F6a) collapses the started and
+		// completed pair when their text matches.
+		var p struct {
+			Provider string `json:"provider"`
+			Message  string `json:"message"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			s.log.Debug("codex: authRecovery decode", slog.String("err", err.Error()))
+			break
+		}
+		text := strings.TrimSpace(p.Message)
+		if text == "" {
+			verb := "started"
+			if method == "modelProvider/authRecoveryCompleted" {
+				verb = "completed"
+			}
+			text = fmt.Sprintf("Codex credential recovery %s", verb)
+			if p.Provider != "" {
+				text += fmt.Sprintf(" for %s", p.Provider)
+			}
+			text += "."
+		}
+		s.emit(event.Event{
+			Type:      event.TypeNotice,
+			SessionID: s.localID,
+			Timestamp: now,
+			Text:      text,
+		})
 	default:
+		// Left unrouted on purpose, not by omission: `rawResponse*` and
+		// `thread/realtime/*` serve features mcremote does not have, and
+		// forwarding them would put engine internals in a transcript
+		// (MADR 0137 step 7.7).
 		s.log.Debug("codex: unhandled notification", slog.String("method", method))
 	}
 }

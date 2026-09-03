@@ -190,6 +190,21 @@ func (d *httpDialect) EngineEventNeedsDiagnostics(typ string) bool {
 	}
 }
 
+// EngineEventInvalidatesCatalog implements [httpagent.CatalogEventDialect].
+//
+// `catalog.updated` is opencode's own announcement that its model list changed
+// — a provider connected or disconnected, a model added or withdrawn. Before
+// MADR 0137 F8 it was decoded and dropped, so the memoized catalog outlived the
+// change and the phone was offered models the engine would no longer accept.
+//
+// `plugin.added` is deliberately NOT here. It fires per plugin at boot (45
+// times in one short turn on 1.18.26) and says nothing about models; treating
+// it as a catalog change would re-harvest a multi-MB payload 45 times for no
+// new information.
+func (d *httpDialect) EngineEventInvalidatesCatalog(typ string) bool {
+	return typ == "catalog.updated"
+}
+
 func (d *httpDialect) ID() provider.ID    { return provider.IDOpencode }
 func (d *httpDialect) DefaultBin() string { return "opencode" }
 
