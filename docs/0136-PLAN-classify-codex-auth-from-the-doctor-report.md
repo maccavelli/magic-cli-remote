@@ -224,4 +224,81 @@ key `sk-test-NOT-A-REAL-KEY-0136-fixture`; the home was deleted afterwards. It
 is what settles the rule: a usable credential is exactly `status == "ok"`, and
 everything else fails closed.
 
-### Phases 2-5 — not yet done
+### Phase 2 — 2026-09-03, complete
+
+`doctorreport.go` adds a typed reader: `schemaVersion`, then
+`checks["auth.credentials"]` → `status`, `summary`, `details`. Details are
+decoded as `map[string]json.RawMessage` and read through `detailString`, because
+the values are JSON **strings** even for booleans (`"false"`) and
+`stored auth issue` is an **array** — a value of any other shape reads as empty
+rather than failing the parse, so a detail this code does not need cannot break
+the classification.
+
+Every uninterpretable input returns the single `errDoctorUnusable` sentinel:
+malformed JSON, unrecognised `schemaVersion` (including absent, which decodes as
+0), a missing `auth.credentials` key, and a missing or blank
+`auth storage mode`.
+
+`authCredentials` deliberately carries facts rather than a conclusion —
+`StorageMode`, `Usable`, `EnvVarsPresent`, `Status`, `Summary` — so the mapping
+to a `StoreReality` stays reviewable in one place in Phase 3.
+
+`Usable` is `status == "ok"`, which the Phase 1 fixtures settle: the healthy
+host reports `ok` / "auth is configured", and all four unusable shapes report
+`fail` or `warning`.
+
+**Tests.** `TestParseDoctorAuthFixtures` pins one parse per fixture.
+`TestParseDoctorAuthFailsClosed` covers ten uninterpretable inputs and ends with
+a control assertion that the real fixture still parses — so the ten are failing
+for their own reasons and not because the parser rejects everything.
+`TestStoredAuthIssueArrayDoesNotBreakParsing` pins the array-valued detail.
+
+```text
+go test ./internal/provider/codex/... -count=1  -> ok (10.050s)
+make pre-add-check                              -> 715 file(s) clean
+```
+
+Nothing calls the parser yet; behaviour is unchanged, as the phase requires.
+
+### Deviations (continued)
+
+**2026-09-03 — execution paused between Phase 2 and Phase 3 to fix two
+credential-destroying test escapes.** Not part of this plan, and not deferred:
+the owner supplied the Codex source mid-execution, which led to establishing
+that the `{}` stub in `~/.codex/auth.json` was written by **our own test
+suite**, not by Codex.
+
+`internal/provider/codex/auth_test.go`'s `fakeCodex` stub ran
+`printf '{}\n' > "$HOME/.codex/auth.json"`, and
+`TestClearCredentialRunsLogout` did not isolate `HOME`. Proven byte-identical
+(`7b7d 0a`) to the reporting host's file. Fixed in commit `4eac448` by moving
+the isolation into the helper, with `TestFakeCodexCannotEscapeItsSandbox` as the
+guard.
+
+A follow-up canary audit of the whole suite found a second escape:
+`TestRunAllowsClientKeyWithTLS` calls the real `Run()` with
+`config.Defaults()`, which reconciles the provider credential stores under
+`$HOME` — rewriting `~/.config/goose/config.yaml` and tightening `~/.codex`,
+`~/.grok` and `~/.config/mcremote` to 0700 on every run. Fixed in commit
+`52db4bb` with a package-level `TestMain` isolating `HOME`, the `XDG_*`
+variables, `CODEX_HOME` and `GROK_HOME`. Re-audit: canary home intact, one
+accepted residual (the `.config/mcremote` directory mode, mcremote's own
+directory, mode-only).
+
+**This weakens this plan's motivating evidence without invalidating its
+decision.** The exit-code probe really is broken — `codex login status` exits 0
+for a signed-out home — and `RealityLoggedOut` really is unreachable, so the
+parser and classification remain correct and worth landing. What is no longer
+supported is the belief that any host legitimately reaches the "external store"
+state: the `{}` shape that motivated `RealityExternal`, in MADR 0074 §15.13 and
+again in MADR 0134, was self-inflicted. Whether `RealityExternal` and
+`StateExternal` should exist at all is a question for the doc amendment the
+owner has sequenced after this plan.
+
+**Also found, not fixed:** `TestUnstableLiveDefersInsteadOfWedging` (MADR 0133,
+Phase 3) fails under a loaded full-suite run while passing in isolation. Its
+churn goroutine writes every 10 ms, and under load the file can settle long
+enough for `stableObservation` to adopt it, breaking the manifest-unchanged
+assertion. A genuine flake, reported rather than absorbed.
+
+### Phases 3-5 — not yet done
