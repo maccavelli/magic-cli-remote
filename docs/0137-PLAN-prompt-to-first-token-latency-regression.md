@@ -1119,4 +1119,151 @@ exercises the path on a real host.
 provider's real emit path, but the 22-repeats-per-turn figure that motivated
 F2 was measured on grok live. Phase 5 should re-measure it.
 
-### Phases 5-7 (except 7.5, 7.9) — not yet started
+### Phase 5 — 2026-09-03, complete
+
+30 turns: three sessions per provider, two sequential turns each, on the host
+that produced the original report, with the Phase 2 instrumentation reading
+every one.
+
+### 5.2 Cold and warm, kept separate — and a third population the plan did not anticipate
+
+`cold` is absent entirely when a provider reports no usage at all. That is
+**unknown**, not warm, and counting it as warm would invent a population.
+
+| provider | class | n | ttft_ms | median |
+| --- | --- | --- | --- | --- |
+| kilo | cold | 8 | 4012, 4280, 4308, 4338, 4338, 4388, 4432, 5348 | **4338** |
+| opencode | cold | 1 | 2582 | 2582 |
+| opencode | **warm** | 5 | 969, 1129, 1311, 1329, 1528 | **1311** |
+| goose | cold | 5 | 1164, 1305, 1503, 1847, 8337 | **1503** |
+| goose | no usage | 1 | — (turn produced no output) | — |
+| codex | no usage | 6 | 1111, 2127, 2165, 2907, 2933, 2975 | 2536 |
+| grok | no usage | 4 | 1362, 1426, 32461, **155096** | 16943 |
+
+**Only opencode ever reported a cache read.**
+
+| provider | turns reporting a cache read |
+| --- | --- |
+| opencode | **5 of 6** (cache_read 12992 every time) |
+| kilo | 0 of 8 |
+| goose | 0 of 6 |
+| codex | 0 of 6 |
+| grok | 0 of 4 |
+
+### 5.3 The verdict, stated plainly
+
+**The gap partially closed, and the remaining cost is not in mcremote.**
+
+* **opencode is the control, and it settles the question.** It is the one
+  provider whose cache works, and it is the one provider that is fast:
+  **1311 ms warm median against 2582 ms cold**, a 2x difference on the same
+  binary, model and host within seconds of each other. That is the cold/warm
+  split this record predicted, measured directly rather than inferred.
+* **kilo never gets a warm turn.** Eight turns, eight cold, `cache_read`
+  absent on every one — including the second turn of a session whose first
+  turn had just run. Its TTFT is correspondingly flat and high: 4012-5348 ms,
+  a 1.3x spread. Against the MADR's historical 0.6-2.9 s this is still a
+  regression; against the regressed 5-18.6 s it is the bottom of that range,
+  consistently, with the 18 s tail gone.
+* **goose and codex are in the historical band** — 1164-1847 ms and
+  1111-2975 ms — with one 8337 ms goose outlier on a first-ever turn.
+* **grok is bimodal and not explained by anything in mcremote.** Two turns at
+  ~1.4 s and two at 32 s and 155 s.
+
+Nothing here supports a claim that the regression is fixed. What the data does
+establish is **where it is not**: the two providers whose engines report a
+working prompt cache or a warm path are fast, and the ones that report no cache
+read are slow in proportion. Phase 6 owns the cache question, and it now has a
+control to compare against.
+
+### 5.5 The hang was reproduced, and it is upstream
+
+grok session `c9a285f0`, the 155 s turn. Captured before anything was
+restarted:
+
+```text
+20:27:46.572  user_message "hi"
+20:27:46.572  session_status
+              ...155 seconds of complete silence...
+20:30:21.669  thought_chunk  "The"
+20:30:21.669  thought_chunk  " user just said \"hi\" - this is a simple greeting..."
+20:30:21.677  assistant_message_chunk  "Hi"
+20:30:21.677  assistant_message_chunk  ". What do you want to work on?"
+20:30:21.770  turn_complete
+```
+
+The entire reply arrived in **100 ms**, after 155 s of nothing. mcremote had
+nothing to deliver for 155 seconds, so no amount of transport work shortens it.
+The daemon behaved correctly throughout: the turn completed, `turn_complete`
+was emitted, and the Phase 2 record captured `ttft_ms=155096 turn_ms=155197`.
+
+**Worth noting for step 7.8:** the only thing on the wire during that silence
+was a single `unhandled session update` at 16 s in — an unrouted grok
+extension. Four such updates across the run. If any of them carries progress or
+queue state, routing it (7.8) would turn a 155 s blank screen into a 155 s wait
+the user can see the reason for. That does not make the turn faster; it makes
+the silence legible.
+
+### 4.2 confirmed live — the strongest result in this phase
+
+`available_commands` events, counted from each session's own history:
+
+```text
+provider   sessions   available_commands per session
+kilo          12                1
+opencode       3                1
+grok           3                1
+goose          3                0
+codex          3                0
+```
+
+**Exactly one per session, grok included** — the provider measured at **22 in a
+single `hi` turn** before Phase 4. goose and codex show zero because they
+advertise through a different event, not because anything was suppressed.
+
+### 5.4 Codex deprecation notice — gone, and F6(b) is already resolved
+
+Zero notices in any codex session, and zero occurrences of "deprecat" anywhere
+in the daemon log across the whole run. `~/.codex/config.toml` has no
+`[features]` block — the operator fix recorded at the top of this record is
+still in place — and `codex features list` reports `hooks stable true`, so the
+capability is on with no legacy alias attributed. **F6(b) needs no further
+action.**
+
+### Deviations
+
+**2026-09-03 — measured on an isolated daemon, not via `make install` and the
+phone.** Step 5.1 says to install, restart and prompt from the phone.
+
+*What was done instead.* The same binary, on the same host, against the same
+five engines and the same config, run as an isolated daemon on port 7631 with
+its own data dir, driven by a local WebSocket client speaking `mcremote.v1`.
+
+*Why.* `make install` replaces the operator's running daemon, which their phone
+is connected to. That is a change to the owner's environment, and this plan
+does not authorise it — nor does the measurement need it. **The install is
+offered to the owner rather than taken.**
+
+*What this does not cover.* The phone client itself: rendering, reconnect
+behaviour, and anything the Flutter app does with the events. No claim is made
+about those. Everything measured here is daemon-side.
+
+**2026-09-03 — the harness reported six false hangs before it reported any
+number.** The first run said `NO TURN END` on all six kilo turns. The daemon
+log showed all six had completed in 4-7 s: the harness read `type` at the top
+of the envelope payload, where the event is actually nested under `event`
+(`protocol.EventPayload`). Fixed and re-verified against a known-good kilo turn
+before any measurement was recorded.
+
+*This is worth writing down.* Step 5.5 asks the operator to watch for a hang,
+and the first thing this phase produced was a hang that did not exist. A
+measurement harness is code and fails like code — the daemon's own record is
+what distinguished the two, which is precisely what Phase 2 was built for.
+
+**Not covered.** Three cold AND three warm per provider was not achievable as
+specified. kilo, goose, codex and grok produced no warm turns at all in 30
+turns, because their engines report no cache read — which is the finding, not a
+gap in the method. opencode is the only provider with both populations, and it
+has 1 cold and 5 warm rather than 3 and 3.
+
+### Phases 6-7 (except 7.5, 7.9) — not yet started
