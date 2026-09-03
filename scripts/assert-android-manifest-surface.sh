@@ -20,18 +20,50 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-default_manifest="$root/apps/mobile/build/app/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml"
-manifest="${1:-$default_manifest}"
 allow="${MC_MANIFEST_ALLOW:-$root/apps/mobile/android/manifest-surface.allow}"
+
+# The merged manifest is found by SEARCHING the release intermediates, not by
+# hard-coding a path. That path is an AGP implementation detail and it moved:
+# the previous default named the directory "processReleaseManifest", but the
+# app-level task under AGP 9 is :app:processReleaseMainManifest, so the gate
+# could never find the file and failed every tag build. A search survives the
+# next rename; an exact path guarantees another silent outage.
+#
+# Ambiguity fails closed. Two candidate manifests mean the gate cannot know
+# which one ships, and guessing is how a surface check becomes a rubber stamp.
+manifest_root="${MC_MANIFEST_ROOT:-$root/apps/mobile/build/app/intermediates/merged_manifests}"
+
+if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
+  manifest="$1"
+else
+  matches="$(find "$manifest_root" -type f -name AndroidManifest.xml -path '*release*' 2>/dev/null | sort || true)"
+  count="$(printf '%s' "$matches" | grep -c . || true)"
+  case "$count" in
+    1) manifest="$matches" ;;
+    0)
+      echo "assert-android-manifest-surface: merged manifest not found under:" >&2
+      echo "  $manifest_root" >&2
+      echo "Generate it first, e.g.:" >&2
+      echo "  cd apps/mobile && flutter build apk --config-only --release --target-platform android-arm64" >&2
+      echo "  cd apps/mobile/android && ./gradlew :app:processReleaseMainManifest" >&2
+      exit 2
+      ;;
+    *)
+      echo "assert-android-manifest-surface: ambiguous merged manifests under:" >&2
+      echo "  $manifest_root" >&2
+      printf '%s\n' "$matches" | sed 's/^/  /' >&2
+      echo "Refusing to guess which manifest ships." >&2
+      exit 2
+      ;;
+  esac
+fi
 
 if [ ! -f "$manifest" ]; then
   echo "assert-android-manifest-surface: merged manifest not found:" >&2
   echo "  $manifest" >&2
-  echo "Generate it first, e.g.:" >&2
-  echo "  cd apps/mobile && flutter build apk --config-only --release --target-platform android-arm64" >&2
-  echo "  cd apps/mobile/android && ./gradlew :app:processReleaseManifest" >&2
   exit 2
 fi
+echo "assert-android-manifest-surface: reading $manifest" >&2
 if [ ! -f "$allow" ]; then
   echo "assert-android-manifest-surface: allowlist not found: $allow" >&2
   exit 2
