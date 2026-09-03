@@ -262,6 +262,64 @@ contributor: kilo is running **7.5.6** against a pin of **7.4.23**, the daemon
 logs `wire shapes were live-probed on the pinned version` on every start, and
 it proceeds anyway. That warning described this failure before it happened.
 
+## Amendment, 2026-09-03 (second): scope widened to every provider, and pins move to current
+
+The owner widened the scope: pin kilo to the version actually installed, treat
+grok's degradation as in scope, and cover all providers rather than the two
+that happen to have a pin today.
+
+### Every provider has drifted, and three cannot detect it
+
+| provider | installed | pin in code | gate |
+| --- | --- | --- | --- |
+| kilo | **7.5.6** | 7.4.23 (`internal/provider/kilo/version.go:15`) | warns, proceeds |
+| opencode | **1.18.26** | 1.18.21 (`internal/provider/opencode/version.go:24`) | warns, proceeds |
+| grok | **1.0.13** | *none* | none |
+| goose | **1.48.0** | *none* | none |
+| codex | **0.152.1** | *none* | none |
+
+Upstream source for all five is checked out locally and current
+(`~/gitrepos/{kilocode,opencode,grok-build,goose,codex}`), so wire shapes can be
+read rather than guessed at when a pin is moved.
+
+### F5 — the prewarm re-arm races the user's first turn
+
+`Start` re-arms the spare with `defer p.EnsureWarm()`
+(`internal/provider/acpagent/acpagent.go:775`), so a **replacement agent process
+is spawned the instant a session is created** — which is immediately before the
+user's first prompt. The same file measures a full grok start at **~3.8 s**
+(`:287`). Prewarm exists to move that cost off the critical path, and re-arming
+at create time puts a fresh copy of it back on, concurrently with the turn the
+user is waiting for. Two grok processes were observed live on this host.
+
+This is a plausible contributor to grok's first-turn latency. It is **not**
+proven to be the dominant term — that requires the instrumentation in step 1 —
+but the ordering is wrong on its face and the fix is to re-arm when the session
+goes idle rather than when it is created.
+
+### F2 is confirmed upstream, and must be fixed on our side
+
+grok's own source states the behaviour is deliberate
+(`~/gitrepos/grok-build/crates/codegen/xai-grok-pager/src/app/agent.rs:715`):
+
+```rust
+/// Generation counter for `available_commands`. Bumped on every update
+/// (even if the list is identical).
+```
+
+grok will keep re-sending an identical command list. Since the provider will not
+stop, mcremote must dedupe before it forwards and persists — which is what
+turned 301 of 606 events in one session into pure overhead.
+
+### Pins move to the installed versions, and gain teeth
+
+Pinning is extended to all five providers and each pin is set to the version
+installed today. A pin that only warns did not prevent the kilo delivery
+failure, so the gate must also be *actionable*: the mismatch is reported to the
+phone, not only written to a log line nobody reads. Whether a mismatch should
+ever refuse to start is left to the plan, because refusing to run on a routine
+upstream upgrade would be its own outage.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the
@@ -412,5 +470,10 @@ Concretely, in priority order:
 * F3: `internal/provider/kilo/version.go:15`,
   `internal/provider/opencode/version.go:24`.
 * F4: `internal/ws/server.go:687`, `:874`, `:181`.
-* No implementation plan exists yet. Per the repository workflow, one must be
-  written and approved before any code change.
+* Implementation:
+  [0137-PLAN-prompt-to-first-token-latency-regression.md](0137-PLAN-prompt-to-first-token-latency-regression.md).
+* Provider sources read during this pass, all current as of 2026-09-03:
+  `~/gitrepos/kilocode`, `~/gitrepos/opencode`, `~/gitrepos/grok-build`,
+  `~/gitrepos/goose`, `~/gitrepos/codex`.
+* F5: `internal/provider/acpagent/acpagent.go:775` (`defer p.EnsureWarm()`),
+  `:287` (the ~3.8 s grok start measurement).
