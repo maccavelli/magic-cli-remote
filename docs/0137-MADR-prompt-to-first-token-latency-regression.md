@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-03
 decision-makers: maccavelli
 consulted: —
@@ -320,6 +320,34 @@ phone, not only written to a log line nobody reads. Whether a mismatch should
 ever refuse to start is left to the plan, because refusing to run on a routine
 upstream upgrade would be its own outage.
 
+## Amendment, 2026-09-03 (third): providers run on their own default model
+
+**Accepted constraint.** A provider that has an established default model runs
+on it. mcremote does not pin a model, substitute one, or silently prefer a
+"faster" one; a model is chosen only when the user asks for one.
+
+This binds the remediation in two places:
+
+* **Nothing in this work may pin a model to buy latency.** "Pin a fast model
+  per provider and treat the default as untrusted" was weighed as an option
+  below and is now foreclosed by this constraint, independently of the
+  correlational evidence that already made it weak.
+* **Phase 6 reports, it does not re-model.** Where prompt weight or model
+  routing is the dominant cost, the finding is reported with numbers and the
+  decision stays with the user. Attribution is not licence to change the model.
+
+The reasoning is that the default is the provider's own answer to "what should
+this agent be", and it moves as the vendor improves it. Freezing it inside
+mcremote would substitute our judgement for theirs, would go stale silently,
+and would have to be maintained per provider forever. `model: ""` in
+`config.yaml` — "use the provider's own default" — stays the correct default
+posture, and remains overridable by the user per provider or per session.
+
+What this constraint does **not** excuse: the daemon must still make the cost
+of the default visible. Reporting that a `hi` turn cost 27,474 input tokens is
+honest observability; quietly swapping the model to make that number smaller is
+not.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the
@@ -442,6 +470,8 @@ Concretely, in priority order:
   the model's contribution was never isolated from the prompt weight.
 * Bad, because a pin freezes a choice the vendor will keep evolving, and it
   would have to be maintained per provider.
+* **Foreclosed** by the accepted constraint above: providers run on their own
+  default model unless the user specifies one.
 
 ### Accept it as upstream provider behaviour and change nothing
 

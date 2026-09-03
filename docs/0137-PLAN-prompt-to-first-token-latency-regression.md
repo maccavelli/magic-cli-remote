@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-03
 associated-madr: "0137-MADR-prompt-to-first-token-latency-regression.md"
 ---
@@ -38,9 +38,11 @@ avoidable cost — across every provider, with pins that match reality.
 
 **Explicitly out of scope:**
 
-* Changing which model a provider defaults to, or pinning models in
-  `config.yaml`. The MADR records the model's contribution as unquantified;
-  this plan measures it rather than pre-empting it.
+* **Changing which model a provider defaults to, or pinning models anywhere.**
+  Per the MADR's accepted constraint, a provider with an established default
+  model runs on it, and a model is chosen only when the user asks for one. This
+  plan measures the default's cost; it never substitutes it. `model: ""` stays
+  the correct posture in `config.yaml`.
 * Removing the operator's MCP servers or kilo plugins. Prompt weight is
   attributed in Phase 6 and acted on only after.
 * The phone app. No Flutter change is required by any phase here.
@@ -165,7 +167,10 @@ any prompt-weight change is unattributable.
     deleting tools if it is achievable.
 25. Report the attribution to the owner with numbers. **Do not remove an MCP
     server or plugin without approval** — that is their capability, not a
-    performance knob this plan may turn unilaterally.
+    performance knob this plan may turn unilaterally. **Do not pin or swap a
+    model**, even if an arm shows the default is the dominant cost: the
+    accepted constraint is that providers run on their own default model
+    unless the user specifies otherwise. Report the number and stop.
 
 ## Verification
 
@@ -220,7 +225,8 @@ Phase 6 must not run before Phase 2, or its arms cannot be compared. Phases 3
 and 4 are independent of both and may land in any order.
 
 **What this plan will not do.** It will not remove the operator's MCP server or
-plugins, will not change a provider's default model, and will not upgrade or
+plugins, will not change or pin a provider's default model (an accepted
+constraint of the MADR, not merely a scoping choice), and will not upgrade or
 downgrade a provider binary. Where those turn out to be the dominant cost,
 Phase 6 reports the number and the decision stays with the owner.
 
