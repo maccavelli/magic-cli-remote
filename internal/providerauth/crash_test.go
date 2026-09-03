@@ -24,7 +24,7 @@ func TestCrashHelperProcess(t *testing.T) {
 	livePath := os.Getenv("PROVIDERAUTH_LIVE")
 	ctx := context.Background()
 
-	ad := &fakeAdapter{id: "fake", live: livePath, lock: livePath + ".lock"}
+	ad := &fakeAdapter{id: "fake", live: livePath, lock: livePath}
 	c, err := NewCoordinator(dataDir, ad, CoordinatorOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestCrashRecovery(t *testing.T) {
 			}
 
 			// Reopen exactly as a restarted daemon would.
-			ad := &fakeAdapter{id: "fake", live: livePath, lock: livePath + ".lock"}
+			ad := &fakeAdapter{id: "fake", live: livePath, lock: livePath}
 			c, err := NewCoordinator(dataDir, ad, CoordinatorOptions{})
 			if err != nil {
 				t.Fatal(err)
@@ -225,7 +225,7 @@ func TestConvergenceTableUnderRepeatedKills(t *testing.T) {
 					}
 				}
 
-				ad := &fakeAdapter{id: "fake", live: livePath, lock: livePath + ".lock"}
+				ad := &fakeAdapter{id: "fake", live: livePath, lock: livePath}
 				c, err := NewCoordinator(dataDir, ad, CoordinatorOptions{})
 				if err != nil {
 					t.Fatal(err)

@@ -68,7 +68,9 @@ func newFixture(t *testing.T) (*Coordinator, *fakeAdapter, string) {
 	ad := &fakeAdapter{
 		id:   "fake",
 		live: filepath.Join(liveDir, "auth.json"),
-		lock: filepath.Join(liveDir, "auth.json.lock"),
+		// MADR 0133: NativeLockPath returns the BASE path; fsutil.WithLock
+		// derives auth.json.lock from it.
+		lock: filepath.Join(liveDir, "auth.json"),
 	}
 	c, err := NewCoordinator(dataDir, ad, CoordinatorOptions{})
 	if err != nil {

@@ -139,7 +139,7 @@ func TestLockContentionIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	mk := func(timeout time.Duration) *Coordinator {
-		ad := &fakeAdapter{id: "fake", live: live, lock: live + ".lock"}
+		ad := &fakeAdapter{id: "fake", live: live, lock: live}
 		c, err := NewCoordinator(dataDir, ad, CoordinatorOptions{LockTimeout: timeout})
 		if err != nil {
 			t.Fatal(err)

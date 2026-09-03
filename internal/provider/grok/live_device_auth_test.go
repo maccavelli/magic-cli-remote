@@ -61,8 +61,9 @@ func TestLiveGrokEffectiveHomeAndLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock != auth+".lock" {
-		t.Fatalf("lock path = %q, want the sibling grok itself uses", lock)
+	// MADR 0133: the base path; WithLock derives auth.json.lock from it.
+	if lock != auth {
+		t.Fatalf("lock path = %q, want %q — WithLock appends the .lock suffix", lock, auth)
 	}
 	cfg, err := credstore.GrokConfigPath()
 	if err != nil {

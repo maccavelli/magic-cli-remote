@@ -30,8 +30,11 @@ func TestGrokAdapterPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock != live+".lock" {
-		t.Fatalf("lock = %q, want auth.json.lock — grok's own writer honors it", lock)
+	// MADR 0133: this is the path WithLock DERIVES the lock from, so it is
+	// auth.json; the file flocked is auth.json.lock, which grok's own writer
+	// honors. TestAuthLockPathsFlockTheFileTheProviderHonors asserts the file.
+	if lock != live {
+		t.Fatalf("lock = %q, want %q — WithLock appends the .lock suffix", lock, live)
 	}
 	if env := ad.PendingEnv("/pending"); len(env) != 1 || env[0] != "GROK_HOME=/pending" {
 		t.Fatalf("pending env = %v", env)

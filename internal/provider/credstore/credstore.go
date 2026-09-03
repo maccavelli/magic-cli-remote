@@ -192,14 +192,17 @@ func GrokAuthPath() (string, error) {
 	return filepath.Join(home, "auth.json"), nil
 }
 
-// GrokAuthLockPath is the sibling lock grok's own writer honors, so mcremote
-// serializes against a concurrent refresh instead of racing it (MADR 0074 F12).
+// GrokAuthLockPath is the path fsutil.WithLock derives grok's native lock from,
+// so mcremote serializes against a concurrent refresh instead of racing it
+// (MADR 0074 F12).
+//
+// It returns auth.json, NOT auth.json.lock. WithLock appends the ".lock"
+// suffix itself, so returning a name that already carries it made every
+// publication flock auth.json.lock.lock — a file nothing else takes — while
+// grok's own writer held auth.json.lock (MADR 0133). Return the base path here
+// and let WithLock derive the rest, the way every other caller does.
 func GrokAuthLockPath() (string, error) {
-	auth, err := GrokAuthPath()
-	if err != nil {
-		return "", err
-	}
-	return auth + ".lock", nil
+	return GrokAuthPath()
 }
 
 // GrokHomeEnv is the environment overlay pointing a grok child at home.
@@ -238,18 +241,18 @@ func CodexAuthPath() (string, error) {
 	return filepath.Join(home, "auth.json"), nil
 }
 
-// CodexAuthLockPath is the sibling lock every mcremote Codex mutation takes.
+// CodexAuthLockPath is the path fsutil.WithLock derives the lock every mcremote
+// Codex mutation takes from.
+//
+// It returns auth.json, NOT auth.json.lock, for the reason spelled out on
+// GrokAuthLockPath: WithLock appends ".lock" itself (MADR 0133).
 //
 // Codex 0.148.0 does not itself honor this lock, so it narrows but cannot
 // eliminate a race with a separately launched CLI; the coordinator verifies
 // published bytes and preserves every observed generation on conflict
 // (MADR 0074 D25).
 func CodexAuthLockPath() (string, error) {
-	auth, err := CodexAuthPath()
-	if err != nil {
-		return "", err
-	}
-	return auth + ".lock", nil
+	return CodexAuthPath()
 }
 
 // CodexHomeEnv is the environment overlay pointing a codex child at home.
