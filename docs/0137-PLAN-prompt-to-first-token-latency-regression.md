@@ -10,12 +10,28 @@ Associated MADR: [0137-MADR-prompt-to-first-token-latency-regression.md](0137-MA
 
 ## Goal
 
-Make `hi` answer in about a second again, and make the next regression
-detectable by the daemon rather than by the operator. In order: fix the turns
-that never arrive, measure the turns that arrive slowly, then remove the
-avoidable cost — across every provider, with pins that match reality.
+Make `hi` answer in about a second again on **all five providers** (grok, kilo,
+opencode, goose, codex), and make the next regression detectable by the daemon
+rather than by the operator. In order: measure the turn, pin every provider to
+the version actually installed, then remove the avoidable per-provider cost —
+including the Codex deprecation notice that fires on every session start.
+
+The providers do not share a transport, so "for all providers" is stated as a
+matrix below and each phase says what it means for each one, rather than
+assuming a fix in one package reaches the others.
 
 ## Scope
+
+**Provider coverage.** Every phase applies to all five providers. Because they
+do not share a transport, each phase states what it means per provider:
+
+| provider | transport | package | pin | prewarm | available_commands |
+| --- | --- | --- | --- | --- | --- |
+| grok | ACP stdio | `acpagent` | new | **yes (F5)** | yes |
+| kilo | HTTP+SSE | `httpagent` | update | no | yes |
+| opencode | HTTP+SSE | `httpagent` | update | no | yes |
+| goose | ACP/HTTP | `acphttp` | new | no | yes |
+| codex | app-server | `codex` | new | no | no |
 
 **In scope:**
 
@@ -78,8 +94,11 @@ stream, writes every frame verbatim to `frames.jsonl`, and writes `meta.json`
 naming provider, binary version and capture date. Transport by flag:
 `-kind=sse -url=…` for kilo/opencode/goose, `-kind=acp -bin=…` for grok/codex.
 
-1.2 Capture one `hi` turn each for kilo **7.5.6**, opencode **1.18.26**,
-goose **1.48.0**, codex **0.152.1**.
+1.2 Capture one `hi` turn each for kilo **7.5.6** (SSE), opencode **1.18.26**
+(SSE), goose **1.48.0** (ACP/HTTP) and codex **0.152.1** (app-server
+JSON-RPC). The codex capture must include the session-start notifications, so
+the `deprecationNotice` of F6 is in the fixture rather than described from
+memory.
 
 1.3 **grok 1.0.13 only after the owner confirms quota.** Standing constraint:
 no provider quota is spent on a test without asking. If declined, Phase 3 still
@@ -159,56 +178,85 @@ daemon starts with no `differs from known-good pin` warning for any provider.
 **Done when:** all five constants equal the installed versions and startup is
 clean.
 
-### Phase 4 — four specific optimisations
+### Phase 4 — optimisations, stated per provider
 
-**Files:** `internal/provider/acpagent/acpagent.go`,
-`internal/provider/acpagent/session.go`,
-`internal/provider/codex/store_reality.go`,
-`internal/provider/codex/logout.go`, `internal/ws/server.go`, plus tests
-alongside each.
+**Files:** `internal/provider/acpagent/{acpagent.go,session.go}`,
+`internal/provider/acphttp/session.go`, `internal/provider/kilo/command.go`,
+`internal/provider/opencode/command.go`,
+`internal/provider/codex/{store_reality.go,logout.go}`,
+`internal/ws/server.go`, plus tests alongside each.
 
-4.1 **F5 — prewarm re-arm off session create.** Delete `defer p.EnsureWarm()`
-from `Start` (`acpagent.go:775`); call `p.EnsureWarm()` from the turn-end path
-in `session.go` where `TypeTurnComplete` and the `status:"idle"` event are
-emitted (lines 413-425). *Test:* `EnsureWarm` is not called between `Start`
-returning and the first `turn_complete`, and is called exactly once after it.
+4.1 **F5 — prewarm re-arm off session create. grok only.** `EnsureWarm` exists
+only in `acpagent`; `httpagent`, `acphttp` and `codex` keep a shared engine and
+need no change, which is stated here so a later reader does not go looking.
+Delete `defer p.EnsureWarm()` from `Start` (`acpagent.go:775`) and call
+`p.EnsureWarm()` from the turn-end path in `session.go` (lines 413-425, where
+`TypeTurnComplete` and `status:"idle"` are emitted), so the ~3.8 s replacement
+spawn happens after the first turn rather than during it.
+*Test:* `EnsureWarm` is not called between `Start` returning and the first
+`turn_complete`, and is called exactly once after it.
 
-4.2 **F2 — `available_commands` dedupe.** In `acpagent/session.go:1471` keep
-the last emitted list per session and skip the emit when the new list is equal
-(same names, descriptions, hints, in order). *Test:* ten identical updates
-produce one event; changing one description produces a second.
+4.2 **F2 — `available_commands` dedupe. Four providers.** Emitted by
+`acpagent` (grok), `acphttp` (goose), `kilo` and `opencode`. Only grok was
+observed spamming — its source re-sends even when the list is unchanged — but
+the dedupe goes where all four inherit it: add a comparison helper in
+`internal/event` and use it at each of the four emit sites, skipping the emit
+when the new list equals the last one sent for that session (same names,
+descriptions and hints, in order).
+*Test, per provider:* ten identical updates produce one event; changing one
+description produces a second.
 
-4.3 **F1 — the Codex probe leaves the phone-triggered path.** Add
-`ObserveCredentialStoreCachedNonBlocking` to `store_reality.go`: return the
-cached value when fresh, else return `RealityUnknown` immediately and start at
-most one background refresh. `backupProjection` (`codex/logout.go:241`) calls
-it. Synchronous probing is unchanged on the recovery and `CheckBackend` paths,
-which are not phone-triggered. *Chosen over* narrowing `doctor --json` or
-widening the cache window: both leave a ~1.4 s network-dependent call reachable
-from `providers.list`, and this removes it outright without weakening MADR
-0136's classification. *Test:* `AuthStatus` with a cold cache invokes no binary
-and returns the unknown/unsupported projection rather than a fabricated one.
+4.3 **F6 — Codex deprecation notice. Two parts, two owners.**
+  *(a) mcremote:* dedupe `notice` events the same way as 4.2 — suppress a
+  notice whose kind and text equal the last one emitted for that session. One
+  codex session recorded 77 notices; a once-per-session upstream notice must
+  not become per-session noise. Applies at every `TypeNotice` emit site.
+  *(b) operator, not code:* the notice itself is caused by
+  `[features] codex_hooks = true` in `~/.codex/config.toml`. `codex_hooks` is a
+  legacy alias for canonical key `hooks`, which is `Stable` and
+  `default_enabled: true`, so **the block is redundant and can simply be
+  deleted**. Report this to the owner in Phase 5 and let them decide; mcremote
+  must not edit the user's codex config.
+  *Test:* ten identical notices produce one event; a differing notice produces
+  a second.
 
-4.4 **F4 — inline ws handlers, decided per handler.** In `internal/ws/server.go`
-move `session.list`, `session.set_mode` and `session.set_config` to
-`dispatchAsync`; they can touch provider state. **Keep** `session.cancel`,
-`session.pending_asks` and `oauth.cancel` inline, with a comment stating why:
-they are control-plane operations that must not queue behind
-`maxAsyncPerClient = 8`, and a cancel that waits for a slot defeats its purpose.
+4.4 **F1 — the Codex probe leaves the phone-triggered path. codex only.** Add
+`ObserveCredentialStoreCachedNonBlocking` to
+`internal/provider/codex/store_reality.go`: return the cached value when fresh,
+else return `RealityUnknown` immediately and start at most one background
+refresh. `backupProjection` (`codex/logout.go:241`) calls it. Synchronous
+probing is unchanged on the recovery and `CheckBackend` paths, which are not
+phone-triggered. *Chosen over* narrowing `doctor --json` or widening the cache
+window: both leave a ~1.4 s network-dependent call reachable from
+`providers.list`, and this removes it outright without weakening MADR 0136's
+classification.
+*Test:* `AuthStatus` with a cold cache invokes no binary and returns the
+unknown/unsupported projection rather than a fabricated one.
+
+4.5 **F4 — inline ws handlers, decided per handler. All providers.** In
+`internal/ws/server.go` move `session.list`, `session.set_mode` and
+`session.set_config` to `dispatchAsync`; they can touch provider state.
+**Keep** `session.cancel`, `session.pending_asks` and `oauth.cancel` inline,
+with a comment stating why: they are control-plane operations that must not
+queue behind `maxAsyncPerClient = 8`, and a cancel that waits for a slot
+defeats its own purpose.
 *Test:* a 2 s block in `session.set_config` does not delay a following
 `session.prompt` on the same connection.
 
-**Verification:** `go test ./internal/provider/... ./internal/ws/... -count=1`;
-each of 4.1-4.4 has a test that fails against pre-change code, output recorded.
+**Verification:** `go test ./internal/provider/... ./internal/ws/...
+./internal/event/... -count=1`; each of 4.1-4.5 has a test that fails against
+pre-change code, output recorded.
 
-**Done when:** all four land with fail-first evidence recorded.
+**Done when:** all five land with fail-first evidence, and 4.2/4.3 are verified
+on every provider that emits the event rather than only on grok.
 
 ### Phase 5 — verify on the reporting host
 
 **Files:** none; verification only.
 
-5.1 `make install`, restart, then three `hi` turns each on kilo and grok from
-the phone.
+5.1 `make install`, restart, then three `hi` turns on **each of the five
+providers** from the phone — not only the two that produced the original
+report.
 
 5.2 Read `ttft_ms` and `cold` from the Phase 2 records. Report cold and warm
 separately; never average across them.
@@ -218,12 +266,18 @@ direct-engine 0.79-0.97 s, cold ~14 k-token prefill. State plainly whether the
 gap closed, partially closed, or did not. If warm turns are fast and cold ones
 are not, say exactly that rather than claiming a fix.
 
-5.4 Watch for the unreproduced hang. If a turn yields neither output nor error,
+5.4 Confirm codex starts a session with **no deprecation notice repeated**, and
+report F6(b) to the owner: `[features] codex_hooks = true` in
+`~/.codex/config.toml` is a redundant legacy alias for `hooks`, which is
+enabled by default, so the block can be deleted. Do not edit that file.
+
+5.5 Watch for the unreproduced hang. If a turn yields neither output nor error,
 capture the `turn latency` record, the session `history.json`, and the engine's
 own view of that session **before** restarting anything.
 
-**Done when:** three cold and three warm measurements per provider are in the
-execution record, with the verdict stated honestly.
+**Done when:** three cold and three warm measurements exist for **each of the
+five providers** in the execution record, with the verdict stated honestly, and
+F6(b) has been reported to the owner.
 
 ### Phase 6 — attribute the prompt weight (investigation, no code)
 
@@ -281,7 +335,12 @@ grep -a "differs from known-good pin" ~/Library/Logs/mcremote/mcremote.err.log |
   each citing its fixture or explicitly stating none exists.
 * `EnsureWarm` is proven by test to run after the first turn, never during
   session create.
-* Ten identical `available_commands_update` frames yield one event.
+* Ten identical `available_commands_update` frames yield one event, verified
+  on each of the four providers that emit them (grok, goose, kilo, opencode).
+* Ten identical `notice` events yield one event; a differing notice yields a
+  second.
+* A codex session start reports its deprecation notice at most once.
+* Latency measurements exist for all five providers, not only kilo and grok.
 * `AuthStatus` on a cold reality cache invokes no binary.
 * A 2 s block in `session.set_config` does not delay a following
   `session.prompt` on the same connection.

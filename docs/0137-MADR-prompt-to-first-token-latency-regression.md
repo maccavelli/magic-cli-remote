@@ -442,6 +442,84 @@ of the default visible. Reporting that a `hi` turn cost 27,474 input tokens is
 honest observability; quietly swapping the model to make that number smaller is
 not.
 
+## Amendment, 2026-09-03 (fourth): all five providers, and the Codex deprecation notice
+
+The owner scoped this record to **all five providers** rather than the two the
+evidence happened to come from, and added a sixth finding.
+
+### The five providers do not share one transport
+
+Optimisations do not generalise across them, so the remediation is stated per
+provider rather than "for providers":
+
+| provider | transport | package |
+| --- | --- | --- |
+| grok | ACP over stdio | `internal/provider/acpagent` |
+| kilo | HTTP + SSE | `internal/provider/httpagent` |
+| opencode | HTTP + SSE | `internal/provider/httpagent` |
+| goose | ACP over HTTP | `internal/provider/acphttp` |
+| codex | app-server JSON-RPC | `internal/provider/codex` |
+
+Measured consequences of that split:
+
+* **Prewarm exists only in `acpagent`.** `EnsureWarm` appears nowhere in
+  `httpagent`, `acphttp` or `codex`; those keep a shared engine instead. So
+  **F5 is a grok-only defect**, not a general one, and the other four need no
+  change for it.
+* **`available_commands` is emitted by four of the five** — `acpagent`
+  (grok), `acphttp` (goose), `kilo` and `opencode`. Only grok was observed
+  spamming it, and grok's source says it re-sends even when the list is
+  unchanged, but the dedupe belongs where all four can inherit it rather than
+  in grok's branch alone.
+* **`notice` is emitted from all five**, and one codex session recorded **77
+  of them** — a second instance of the same "emit unconditionally, persist
+  unconditionally" pattern as F2.
+
+### F6 — Codex emits a deprecation notice on every session start
+
+Reproduced from source rather than from the symptom. Codex emits
+`DeprecationNotice` once per session for each entry in
+`config.features.legacy_feature_usages()`
+(`~/gitrepos/codex/codex-rs/core/src/session/session.rs:1052-1059`). A legacy
+usage is recorded when the config names a feature by an **alias** instead of its
+canonical key.
+
+This host's `~/.codex/config.toml` contains:
+
+```toml
+[features]
+codex_hooks = true
+```
+
+and `codex_hooks` is exactly such an alias
+(`codex-rs/features/src/legacy.rs:48-51`):
+
+```rust
+Alias { legacy_key: "codex_hooks", feature: Feature::CodexHooks },
+```
+
+whose canonical spec is `key: "hooks"`, `stage: Stable`,
+**`default_enabled: true`** (`codex-rs/features/src/lib.rs:1146-1151`).
+
+Two consequences, and they belong to different owners:
+
+1. **The operator's fix is to delete the block.** Because `hooks` is stable and
+   enabled by default, `[features] codex_hooks = true` is not merely
+   deprecated — it is redundant. Removing it silences the notice and changes
+   no behaviour. Renaming it to `hooks = true` would also work and is equally
+   redundant. This is a change to the user's own file and mcremote must not
+   make it unasked.
+2. **mcremote's fix is not to repeat it.** A notice that fires once per session
+   start is not itself a defect, but nothing dedupes notices, and the 77-notice
+   codex session shows the same unconditional-emit pattern as F2. The daemon
+   should not turn a once-per-session upstream notice into per-session noise
+   the operator learns to ignore.
+
+F6 is a *correctness-of-signal* finding, not a latency one. It is in scope
+because a warning the operator has been trained to ignore is how the next real
+warning gets missed — which is precisely how the kilo version-pin warning was
+treated.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the
