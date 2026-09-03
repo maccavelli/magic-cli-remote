@@ -103,17 +103,29 @@ class AppUpdateService {
   /// Streams the APK to [cacheDir], hashing chunks as they arrive (single pass).
   Future<File> downloadAndVerify({
     required UpdateAsset apk,
-    required UpdateAsset sums,
+    UpdateAsset? sums,
     required Directory cacheDir,
     void Function(int received, int? total)? onProgress,
   }) async {
-    final sumsResp = await _client.get(Uri.parse(sums.url));
-    if (sumsResp.statusCode != 200) {
-      throw AppUpdateException('checksums HTTP ${sumsResp.statusCode}');
+    // MADR 0132. The expected hash comes from the release asset's own `digest`
+    // first, and only then from a SHA256SUMS manifest. Since MADR 0005 moved
+    // publishing to mcplib's reusable workflow, SHA256SUMS lists exactly the
+    // canonical Go binaries — mcplib's verifier fails the publish otherwise
+    // (verify-selfupdate-release.sh:193) — so the APK has no line in it and
+    // never will. v0.16.0 shipped that way and is immutable, so the manifest
+    // path cannot be repaired for it; GitHub's per-asset digest already covers
+    // it. The manifest stays as the fallback for releases that predate the
+    // field, and no expected hash at all is still a hard failure.
+    String? want = apk.digest;
+    if (want == null && sums != null) {
+      final sumsResp = await _client.get(Uri.parse(sums.url));
+      if (sumsResp.statusCode != 200) {
+        throw AppUpdateException('checksums HTTP ${sumsResp.statusCode}');
+      }
+      want = sha256For(apk.name, sumsResp.body);
     }
-    final want = sha256For(apk.name, sumsResp.body);
     if (want == null) {
-      throw AppUpdateException('no checksum entry for ${apk.name}');
+      throw AppUpdateException('no checksum for ${apk.name}');
     }
 
     final dest = File('${cacheDir.path}/${apk.name}');
@@ -159,24 +171,44 @@ class AppUpdateService {
           name: name,
           url: a['browser_download_url'] as String? ?? '',
           size: (a['size'] as num?)?.toInt() ?? 0,
+          digest: normalizeDigest(a['digest'] as String?),
         );
       }
     }
     return null;
   }
 
+  /// The fallback manifest. Prefers the asset named exactly `SHA256SUMS` and
+  /// only then any other `SHA256SUMS*`: a release may publish more than one
+  /// (v0.16.0 ships the bridge's `SHA256SUMS-0.16.0` alongside it), and taking
+  /// whichever GitHub happened to list first made the choice depend on asset
+  /// ordering (MADR 0132).
   UpdateAsset? _pickSums(List<Map<String, dynamic>> assets) {
+    UpdateAsset? asAsset(Map<String, dynamic> a, String name) => UpdateAsset(
+      name: name,
+      url: a['browser_download_url'] as String? ?? '',
+      size: (a['size'] as num?)?.toInt() ?? 0,
+    );
+    UpdateAsset? fallback;
     for (final a in assets) {
       final name = a['name'] as String? ?? '';
-      if (name.startsWith('SHA256SUMS')) {
-        return UpdateAsset(
-          name: name,
-          url: a['browser_download_url'] as String? ?? '',
-          size: (a['size'] as num?)?.toInt() ?? 0,
-        );
-      }
+      if (name == 'SHA256SUMS') return asAsset(a, name);
+      if (name.startsWith('SHA256SUMS')) fallback ??= asAsset(a, name);
     }
-    return null;
+    return fallback;
+  }
+
+  /// Normalise a GitHub release asset `digest` to bare lowercase hex, or null
+  /// when it is absent, of an algorithm this client cannot check, or malformed.
+  /// Returning null routes the caller to the manifest fallback rather than
+  /// letting an unusable value stand in for a real hash.
+  static String? normalizeDigest(String? raw) {
+    if (raw == null) return null;
+    final v = raw.trim().toLowerCase();
+    if (!v.startsWith('sha256:')) return null;
+    final hex = v.substring('sha256:'.length);
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(hex)) return null;
+    return hex;
   }
 
   /// Exported for tests.
@@ -213,10 +245,16 @@ class UpdateAsset {
     required this.name,
     required this.url,
     required this.size,
+    this.digest,
   });
   final String name;
   final String url;
   final int size;
+
+  /// GitHub's server-computed SHA-256 for this asset, as bare lowercase hex
+  /// (the `sha256:` prefix stripped), or null when the release does not carry
+  /// one. See [AppUpdateService.normalizeDigest].
+  final String? digest;
 }
 
 class UpdateCheckResult {
