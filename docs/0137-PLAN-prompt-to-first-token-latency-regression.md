@@ -1589,6 +1589,79 @@ scheme keyed on a non-unique name is a data-loss bug, not a convenience. Every
 `cp` backup in this plan's earlier phases used full-path-derived names or
 single files, which is why this was the first collision in nine phases of them.
 
+### Post-merge — 2026-09-03: CI caught two defects the local suite could not
+
+CI run 33811336395 failed on `Test (race, all packages)` after the Phase 7 push.
+Both defects came from Phase 4's F5 change, and neither could fail locally.
+
+**1. A nil `*Provider` dereference in the turn-end re-arm.** `s.provider` is nil
+on every session built as a test fixture, and the re-arm dereferenced it. The
+panic was swallowed by the turn goroutine's own `recover`, so **four tests in
+`internal/provider/acpagent` kept passing while their turn goroutines died
+mid-cleanup**. Reproduced locally once known what to look for:
+
+```text
+before: go test ./internal/provider/acpagent/ -v | grep -c "agent turn handler panic"  -> 4
+after:  same command                                                                    -> 0
+```
+
+Fixed with a nil guard, and pinned by
+`TestATurnOnASessionWithNoProviderDoesNotPanic`, which asserts the cleanup
+*after* the re-arm completes rather than asserting "no panic" — a recovered
+panic is invisible to the latter. Verified to fail against the shipped code:
+
+```text
+AD. nil guard removed
+    FAIL TestATurnOnASessionWithNoProviderDoesNotPanic
+         the turn goroutine panicked 1 time(s)
+```
+
+**2. A data race on the ACP SDK's connection logger.** `conn.SetLogger(s.log)`
+in `spawnAgent` raced the SDK's own goroutines:
+
+```text
+Read  by goroutine 145: Connection.loggerOrDefault  <- Connection.shutdownReceive <- receive
+Write by goroutine 141: Connection.SetLogger        <- spawnAgent <- EnsureWarm
+```
+
+This is **pre-existing and latent, not new** — but Phase 4 made `EnsureWarm` run
+at the end of every turn instead of at Start, and the new prewarm test is the
+first thing in the suite to drive `spawnAgent` under `-race`, so it was the
+change that exposed it.
+
+*The SDK makes the call unusable.* Its constructor starts `go c.receive()`,
+`go c.sendCancelRequests()` and a context watcher **before returning**
+(`acp-go-sdk@v0.13.5` connection.go:110-120), while `SetLogger` is a plain
+unsynchronised field write (connection.go:125) those goroutines read through
+`loggerOrDefault`. There is no constructor option for a logger, and v0.13.5 is
+the latest release. Gating the reader — which mcremote supplies — was considered
+and rejected: `sendCancelRequests` logs from its own goroutine without any read
+having happened, so no reader-side gate closes the window.
+
+*Resolution:* the call is removed, with the reasoning recorded at the site.
+**The cost is stated rather than hidden:** the SDK's own protocol diagnostics
+("failed to parse incoming message", "connection closed", cancel-request
+failures) now go to `slog.Default()` instead of the session logger, losing its
+structured fields. mcremote's own protocol logging is unaffected. A known race
+in a daemon that runs for days is not worth those fields.
+
+*What verifies fix 2.* The SDK source is conclusive on the mechanism, and the
+race does not reproduce on macOS — `go test -race ./internal/provider/acpagent/
+-count=3` passes locally both before and after. So this fix is verified by the
+CI trace plus the source, **not** by a local failing repro, and that limitation
+is recorded here rather than glossed.
+
+```text
+go test -race ./internal/... ./cmd/... -count=1  -> ok (local, full tree)
+make pre-add-check                               -> 755 file(s) clean
+```
+
+**The lesson, alongside the two this record already carries.** A panic inside a
+`recover` is not a failure a green suite can show you. Four tests were passing
+*through* a nil dereference. The `-race` job found it only because the race
+detector fails a test on any race in its goroutines, which turned a silent
+swallow into a visible failure.
+
 ## Plan complete
 
 All seven phases are executed. The record's own conclusions were corrected

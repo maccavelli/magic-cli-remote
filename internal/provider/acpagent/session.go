@@ -392,7 +392,16 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			// arms once rather than once per turn. After tryDrainQueue on
 			// purpose: a queued prompt has already chosen to contend, and the
 			// spare must not be skipped because one was waiting.
-			s.provider.EnsureWarm()
+			//
+			// The nil check is not defensive padding. A session built without
+			// a provider is a test fixture, and this defer runs under a
+			// recover — so the nil dereference this guard prevents was caught,
+			// logged and swallowed, leaving four package tests passing while
+			// their turn goroutines died mid-cleanup. It took a -race CI run
+			// to surface it.
+			if s.provider != nil {
+				s.provider.EnsureWarm()
+			}
 		}()
 
 		resp, err := s.submitPrompt(turnCtx, blocks)

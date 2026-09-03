@@ -36,6 +36,12 @@ func (b *countingBuf) count(substr string) int {
 	return strings.Count(b.buf.String(), substr)
 }
 
+func (b *countingBuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 // rearmProvider builds a Provider whose prewarm is enabled and whose binary
 // exists but exits immediately.
 //
@@ -139,4 +145,52 @@ func TestAFailedTurnStillRearmsTheSpare(t *testing.T) {
 		<-s.events
 	}
 	_ = event.TypeError
+}
+
+// TestATurnOnASessionWithNoProviderDoesNotPanic is the regression for the
+// defect that reached master (CI run 33811336395).
+//
+// The turn-end re-arm added in MADR 0137 F5 dereferenced s.provider, which is
+// nil on every session built as a test fixture. The panic was swallowed by the
+// turn goroutine's own recover, so four tests in this package kept passing
+// while their turn goroutines died mid-cleanup — the local suite was green and
+// only a -race CI run surfaced it.
+//
+// The assertion is not "no panic": a recovered panic is invisible to that.
+// It is that the cleanup AFTER the re-arm point completes, which a dead
+// goroutine cannot do.
+func TestATurnOnASessionWithNoProviderDoesNotPanic(t *testing.T) {
+	buf := &countingBuf{}
+	s := newQueueTestSession()
+	s.log = slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	if s.provider != nil {
+		t.Fatal("this test is only meaningful with a nil provider")
+	}
+
+	s.testSubmit = func(context.Context, []acp.ContentBlock) (acp.PromptResponse, error) {
+		return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+	}
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "hi"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The turn goroutine must reach the end of its deferred cleanup: prompting
+	// is cleared there, after the re-arm.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		s.mu.Lock()
+		done := !s.prompting
+		s.mu.Unlock()
+		if done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the turn goroutine never finished its cleanup")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if n := buf.count("agent turn handler panic"); n != 0 {
+		t.Fatalf("the turn goroutine panicked %d time(s):\n%s", n, buf.String())
+	}
 }

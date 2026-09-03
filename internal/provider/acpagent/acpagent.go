@@ -469,7 +469,22 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	// nil capture's TeeReader returns the reader unchanged.
 	s.wire = wirecap.For(string(p.spec.ID))
 	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout))
-	conn.SetLogger(s.log)
+	// conn.SetLogger is NOT called, and cannot be: the SDK's constructor starts
+	// `go c.receive()`, `go c.sendCancelRequests()` and a context watcher
+	// before it returns (acp-go-sdk@v0.13.5 connection.go:110-120), while
+	// SetLogger is a plain unsynchronised field write (connection.go:125) that
+	// those goroutines read through loggerOrDefault. Any call after
+	// construction races, and the SDK offers no way to supply a logger at
+	// construction time.
+	//
+	// A gate on the reader would not close it either — sendCancelRequests logs
+	// from its own goroutine without any read having happened.
+	//
+	// The cost is that the SDK's own protocol diagnostics ("failed to parse
+	// incoming message", "connection closed", cancel-request failures) go to
+	// slog.Default() rather than this session's logger, so they lose its
+	// structured fields. mcremote's own protocol logging is unaffected. A
+	// known race in a daemon that runs for days is not worth those fields.
 	s.conn = conn
 
 	parent := ctx
