@@ -370,11 +370,14 @@ permission mechanism that overlaps mcremote's own auto-approve; adopting it is
 a design decision needing its own record, not a gap to close here. This step
 produces no code — it exists so the next reader knows the omission is deliberate.
 
-7.8 **F11 — grok `_x.ai/*` extensions.** Four of five are unhandled. Route
-`_x.ai/mcp/init_progress` and `_x.ai/mcp/servers_updated` as provider
-conditions: they report MCP startup progress and membership changes, which bear
-directly on first-turn latency. Assess `_x.ai/announcements/update` and
-`_x.ai/settings/update` and either route or explicitly decline them.
+7.8 **F11 — grok `_x.ai/*` extensions.** Measured live: grok emits ten, and
+mcremote handles three, leaving **52 of 247 frames (21%) of one turn**
+unhandled. Route the three that carry signal — `_x.ai/mcp/init_progress` and
+`_x.ai/mcp/servers_updated` (MCP startup progress and membership, which bear
+directly on first-turn latency) and `_x.ai/session/prompt_complete` (an explicit
+turn-completion signal mcremote currently infers). Assess
+`_x.ai/announcements/update`, `_x.ai/settings/update`, `_x.ai/sessions/changed`
+and `_x.ai/queue/changed`, and either route or explicitly decline each.
 *Test:* each routed extension produces one provider event; an unknown `_x.ai/*`
 notification is ignored rather than forwarded.
 
@@ -612,5 +615,40 @@ approval covered resolving the capture gap, not spending grok quota. The
 zero-cost half was captured; the message-streaming half is still outstanding and
 the fixture's `note` field says so. Phase 3's grok pin must cite that limitation
 rather than implying full coverage.
+
+### Phase 1 (grok live) — 2026-09-03, complete
+
+The owner authorised grok quota. Three live `hi` turns through mcremote against
+grok 1.0.13, in-daemon capture on.
+
+**The standing "grok quota is exhausted" note is stale.** It dated from
+2026-09-01 and had gated every grok test in this record. All three turns
+completed and returned real replies.
+
+**Latency, all cold (a fresh session each):** 5.26s, 2.57s, 14.36s. A 5.6x
+spread across three identical prompts minutes apart on one binary, model and
+host — upstream variance, not transport, and the reason Phase 2 must record
+every turn rather than sample.
+
+**grok fixture replaced** with the full turn: 247 frames covering lifecycle,
+prompt, streaming and completion, redaction verified at zero occurrences. All
+five fixtures are now full-turn except goose and codex, which are single `hi`
+turns, and none is lifecycle-only.
+
+**F11 corrected.** The earlier count ("one of five handled") came from a
+lifecycle-only capture and a substring grep, and was wrong in both directions.
+Verified by exact literal match: grok emits **ten** `_x.ai/*` methods, mcremote
+handles **three**, and the seven unhandled account for 52 of 247 frames.
+`_x.ai/session/prompt_complete` — an explicit turn-completion signal — was not
+visible at all until a real prompt ran.
+
+**F2 quantified inside a single turn:** `available_commands_update` fired **22
+times** in one `hi`. The defect was previously inferred from a 301-event
+session; this measures it per turn.
+
+**Also observed, and not fixable here:** the model emitted **93
+`agent_thought_chunk` frames** to answer `hi`. That is where the seconds go, and
+no mcremote change shortens it — it belongs to Phase 6's attribution, and under
+the accepted constraint the model stays as the provider default regardless.
 
 ### Phases 2-7 — not yet started

@@ -683,24 +683,34 @@ authorise; it is recorded here as the decision rather than taken quietly.
 codex 0.152.1 (38 frames), goose 1.48.0 (15), grok 1.0.13 (19). All five
 providers now have a version-stamped fixture.
 
-### F11 — grok's `_x.ai/*` extension notifications are almost entirely unhandled
+### F11 — grok's `_x.ai/*` extension namespace is largely unhandled
 
-The grok capture surfaced a namespace the earlier `initialize`-only probe did
-not: grok emits vendor-extension notifications during a session, and mcremote
-handles one of five.
+**Superseded by the live capture below; the counts here were taken from a
+lifecycle-only capture and a loose grep, and were wrong in both directions.**
+grok emits **ten** `_x.ai/*` methods during a real turn, and mcremote handles
+**three** — `_x.ai/models/update`, `_x.ai/session_notification` and
+`_x.ai/mcp_initialized`. Verified by exact literal match against the source
+rather than substring:
 
-| notification | handled |
-| --- | --- |
-| `_x.ai/models/update` | yes |
-| `_x.ai/announcements/update` | **no** |
-| `_x.ai/mcp/init_progress` | **no** |
-| `_x.ai/mcp/servers_updated` | **no** |
-| `_x.ai/settings/update` | **no** |
+| notification | frames in one `hi` turn | handled |
+| --- | --- | --- |
+| `_x.ai/announcements/update` | 11 | **no** |
+| `_x.ai/settings/update` | 10 | **no** |
+| `_x.ai/sessions/changed` | 9 | **no** |
+| `_x.ai/queue/changed` | 9 | **no** |
+| `_x.ai/mcp/init_progress` | 6 | **no** |
+| `_x.ai/mcp/servers_updated` | 4 | **no** |
+| `_x.ai/session/prompt_complete` | 3 | **no** |
 
-`_x.ai/mcp/init_progress` and `_x.ai/mcp/servers_updated` are the interesting
-pair: grok reports MCP server startup progress and membership changes, which is
-exactly the kind of "why is my first turn slow" signal this record has spent its
-length trying to obtain by other means.
+Seven unhandled methods, **52 of 247 frames (21%)** of a single turn. Three are
+interesting rather than merely unused: `_x.ai/mcp/init_progress` and
+`_x.ai/mcp/servers_updated` report MCP startup progress and membership — the
+"why is my first turn slow" signal this record has spent its length pursuing
+indirectly — and `_x.ai/session/prompt_complete` is an explicit turn-completion
+signal mcremote currently infers.
+
+(`_x.ai/exit_plan_mode` and `_x.ai/ask_user_question` are also implemented, as
+client-side requests rather than notifications; neither occurred in this turn.)
 
 ### What the codex fixture confirms
 
@@ -709,6 +719,50 @@ eight unrouted notifications from the fifth amendment are for features a basic
 turn does not exercise (`rawResponse*`, `thread/realtime/*`,
 `modelProvider/authRecovery*`), not broken basics. The router is sound; it is
 simply behind on surface.
+
+## Amendment, 2026-09-03 (seventh): grok tested live, end to end
+
+The owner authorised spending grok quota. Three live `hi` turns were run through
+mcremote against grok 1.0.13, with in-daemon capture on.
+
+**grok's quota is not exhausted.** A note carried since 2026-09-01 said it was,
+and that note gated every grok test in this record. It is stale: all three turns
+completed normally and returned real replies.
+
+### Latency — highly variable, and consistent with the two-population finding
+
+| run | prompt → first output |
+| --- | --- |
+| 1 | **5.26s** |
+| 2 | **2.57s** |
+| 3 | **14.36s** |
+
+Each was a fresh session, so all three are cold. Against this record's other
+grok figures — 0.90-1.25s historically (2026-08-02) and 18.55s earlier today —
+the spread is the finding: a 5.6x range across three identical prompts minutes
+apart, on the same binary, same model and same host. That is upstream variance,
+not something mcremote's transport is adding, and it is why Phase 2's
+instrumentation must record every turn rather than sampling.
+
+### What a full turn actually contains
+
+247 frames for the word `hi`:
+
+| frame | count |
+| --- | --- |
+| `session/update` → `agent_thought_chunk` | **93** |
+| `session/update` → `agent_message_chunk` | 30 |
+| `session/update` → `available_commands_update` | **22** |
+| other `session/update` | 5 |
+| `_x.ai/*` extensions | 76 |
+| JSON-RPC results | 17 |
+
+Two things stand out. The model emitted **93 reasoning chunks to say "Hi. What
+would you like to work on?"**, which is where the seconds go and which no change
+in mcremote can shorten. And `available_commands_update` fired **22 times in a
+single turn** — F2 was inferred from a 301-event session; this is the same
+defect measured inside one turn, and it is pure overhead on the wire, on the
+phone and in the history file.
 
 ## Decision Drivers
 
