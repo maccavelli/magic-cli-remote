@@ -51,6 +51,13 @@ var (
 	_ httpagent.StartAgentValidator = (*httpDialect)(nil)
 )
 
+// DefaultModel implements [httpagent.DialectDefaultModel], exposing the same
+// resolved default fallbackModel serves to prompts so the daemon can name the
+// model a default-model session is actually running on (MADR 0137).
+func (d *httpDialect) DefaultModel() (string, string) {
+	return d.fallbackModel()
+}
+
 // fallbackModel returns the catalog default for prompts with no model.
 func (d *httpDialect) fallbackModel() (string, string) {
 	d.mu.Lock()

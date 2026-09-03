@@ -160,6 +160,16 @@ type entry struct {
 	// advertised is the canonical command list last sent to clients, kept so a
 	// re-resolution only emits when the answer actually changed.
 	advertised []event.RemoteCommand
+	// Turn timing for the "turn latency" record (MADR 0137 Phase 2).
+	//
+	// promptAt is set when a prompt is accepted, firstOutputAt when the first
+	// visible output of that turn arrives. Both are cleared at turn end, so a
+	// second turn cannot inherit the first one's clock. They measure the number
+	// the user actually feels, which nothing in the daemon measured before: it
+	// logged how long it took to hand a prompt to an engine and then nothing
+	// until the turn ended, which is why a 20x regression produced no signal.
+	promptAt      time.Time
+	firstOutputAt time.Time
 }
 
 // historyTrimTo is what the ring is cut back to when it exceeds
@@ -902,6 +912,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// tool_name/detail (MADR 0077 P7).
 			var receiptReq event.Event
 			receiptReqOK := false
+			// Filled under the lock at turn end; logged after it is released,
+			// so a log write never happens with m.mu held.
+			var turnRec *turnLatency
 			m.mu.Lock()
 			e, mine := m.sessions[sess.ID()]
 			// Only touch (or broadcast for) the entry when it still belongs to
@@ -988,6 +1001,20 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					reresolve = e.lastUsage == nil
 					e.lastUsage = ev.Usage
 				}
+				// Turn timing (MADR 0137 Phase 2). Recorded before the
+				// switch below so a turn-ending event still sees the first
+				// output that preceded it.
+				if !e.promptAt.IsZero() && e.firstOutputAt.IsZero() && isTurnOutput(ev.Type) {
+					e.firstOutputAt = ev.Timestamp
+					if e.firstOutputAt.IsZero() {
+						e.firstOutputAt = time.Now().UTC()
+					}
+				}
+				if !e.promptAt.IsZero() && (ev.Type == event.TypeTurnComplete || ev.Type == event.TypeError) {
+					turnRec = newTurnLatency(e, ev)
+					e.promptAt = time.Time{}
+					e.firstOutputAt = time.Time{}
+				}
 				e.appendHistoryLocked(&ev)
 				switch ev.Type {
 				case event.TypePermission:
@@ -1019,6 +1046,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				histID = sess.ID()
 			}
 			m.mu.Unlock()
+			if turnRec != nil {
+				turnRec.log(m.log)
+			}
 			if mine && !ev.Replay && ev.Type == event.TypePermissionResolved && receiptReqOK {
 				// Outside the lock and never awaited here — D8's non-blocking
 				// requirement. A no-op instantly if receipts aren't configured
@@ -1676,7 +1706,38 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 		parts = append(parts, provider.Content{Type: "text", Text: text})
 	}
 	parts = append(parts, attachments...)
-	return sess.Prompt(ctx, parts)
+	// Start the turn clock immediately before dispatch, so the measurement
+	// covers what the user waits for and not the command routing above
+	// (MADR 0137 Phase 2). Cleared at turn end by the event pump.
+	m.markPromptStart(id)
+	if err := sess.Prompt(ctx, parts); err != nil {
+		m.clearPromptStart(id)
+		return err
+	}
+	return nil
+}
+
+// markPromptStart begins the turn clock for id. A prompt that replaces an
+// unfinished turn resets it rather than keeping the older start, so a stalled
+// turn cannot inflate the next one's measurement.
+func (m *Manager) markPromptStart(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e := m.sessions[id]; e != nil {
+		e.promptAt = time.Now().UTC()
+		e.firstOutputAt = time.Time{}
+	}
+}
+
+// clearPromptStart abandons the turn clock when dispatch itself failed: no
+// turn ran, so there is nothing to time and no record to emit.
+func (m *Manager) clearPromptStart(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e := m.sessions[id]; e != nil {
+		e.promptAt = time.Time{}
+		e.firstOutputAt = time.Time{}
+	}
 }
 
 // SetMode switches the session's active operating mode (ACP session modes).

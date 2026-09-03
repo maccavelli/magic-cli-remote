@@ -744,6 +744,43 @@ func (s *session) RecordModel(model string) {
 	s.model = model
 }
 
+// DialectDefaultModel is optionally implemented by a dialect that knows which
+// model its engine uses when a session named none. It is what makes
+// [provider.ModelReporter] answerable for a session running on the provider's
+// own default, which MADR 0137 makes the normal case.
+type DialectDefaultModel interface {
+	// DefaultModel returns the engine's current default as a (provider, model)
+	// pair, both empty when the dialect has not resolved one yet.
+	DefaultModel() (providerID, modelID string)
+}
+
+// CurrentModel implements [provider.ModelReporter].
+//
+// The explicitly recorded model wins, because a mid-session switch is a fact
+// about this session; the dialect default is consulted only when none was ever
+// named. An unresolved default yields "" rather than a placeholder — a
+// latency record that invents a model is worse than one that omits it.
+func (s *session) CurrentModel() string {
+	if m := s.Model(); m != "" {
+		return m
+	}
+	// The provider-wide dialect, not s.ds: the engine default belongs to the
+	// dialect, and s.ds is the per-session view, which knows only what this
+	// session was explicitly given — already covered by s.Model() above.
+	d, ok := s.p.dialect.(DialectDefaultModel)
+	if !ok {
+		return ""
+	}
+	mp, mid := d.DefaultModel()
+	if mid == "" {
+		return ""
+	}
+	if mp == "" {
+		return mid
+	}
+	return mp + "/" + mid
+}
+
 // ModelCatalog implements [provider.ModelCatalogSession]: the catalog for the
 // model provider *this session* is billing against, not the provider-wide
 // default set.

@@ -764,6 +764,62 @@ single turn** — F2 was inferred from a 301-event session; this is the same
 defect measured inside one turn, and it is pure overhead on the wire, on the
 phone and in the history file.
 
+## Amendment, 2026-09-03 (eighth): the latency record needs a model the daemon does not have
+
+Phase 2's per-turn record was built and verified live. It exposed a gap this
+record had not anticipated, and the gap follows directly from the third
+amendment's own decision.
+
+**`model` is empty on every default-model session.** The session manager's only
+model is `Meta.Model` (`internal/session/manager.go:773`), which is
+`StartOptions.Model` — what the *client asked for*. The third amendment made
+"providers run on their own default model" the norm, so in the normal case the
+client asks for nothing and the field is omitted. The daemon does resolve a
+real model (`kilo/kilo-auto/balanced`, logged at engine-ready), but that value
+lives inside the kilo dialect (`internal/provider/kilo/dialect.go:136-143`) and
+reaches nothing else. No event carries it.
+
+Surveyed across all five: **only kilo and opencode track a resolved default
+model at all** (`defaultModelID`), and only those two log one. grok, goose and
+codex track none.
+
+This matters because a latency record without a model cannot distinguish a
+regression in the transport from a change in what the engine is running — and
+separating those is the whole purpose of the instrumentation.
+
+### Decision: an optional provider interface, not an event field
+
+A new optional interface in `internal/provider`:
+
+```go
+// ModelReporter is optionally implemented by sessions that know the model
+// they are actually running on, including one the provider chose by default.
+type ModelReporter interface {
+    Session
+    CurrentModel() string
+}
+```
+
+The manager reads it at turn end. kilo and opencode implement it now from the
+`defaultModelID` they already hold; grok, goose and codex report nothing until
+they track one, and the field stays absent rather than guessed.
+
+* Good, because it adds no protocol surface. `event.Event` is serialized to the
+  phone, so putting the model there would be a protocol change — which Phase
+  2's step 2.4 rules out of this phase deliberately, to keep instrumentation
+  separable from a client-visible feature.
+* Good, because it follows the optional-capability pattern the codebase already
+  uses for nineteen other session facets (`ModelSession`, `CWDSession`,
+  `RuntimeSession`, …), so a provider that cannot answer simply does not
+  implement it.
+* Neutral, because it reports the session's model rather than the turn's. A
+  mid-session `/model` switch is picked up on the next turn, which is the right
+  granularity for this record and is not the same as the per-message model
+  `kilo/session.go:331` decodes.
+* Bad, because it covers two of five providers on delivery. The other three are
+  not blocked by the interface — they are blocked by not knowing their own
+  default, which is a provider-side gap this amendment names rather than fixes.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the

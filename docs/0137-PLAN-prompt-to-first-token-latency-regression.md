@@ -651,4 +651,169 @@ session; this measures it per turn.
 no mcremote change shortens it — it belongs to Phase 6's attribution, and under
 the accepted constraint the model stays as the provider default regardless.
 
-### Phases 2-7 — not yet started
+### Phase 2 — 2026-09-03, complete
+
+**2.1** `entry` carries `promptAt` and `firstOutputAt`. `promptAt` is set by
+`markPromptStart` immediately before dispatch in **both** prompt paths —
+`Manager.Prompt` and `submitUserPrompt` (`internal/session/commands.go:849`,
+the canonical-command path such as `/plan <text>`), which the plan named only
+one of. A dispatch that returns an error clears the clock, so a prompt the
+engine never accepted times nothing. `firstOutputAt` is set in the pump on the
+first `assistant_message_chunk`, `thought_chunk` or `tool_call`.
+
+No `turnEndAt` field was added. The plan named one; the turn-ending event's own
+timestamp is already in hand at that point, so a third field would have been a
+copy of a local variable. The record is built from it directly.
+
+**2.2-2.3** `internal/session/turnlatency.go` (new) builds and logs the record
+outside `m.mu`, so a log write never happens under the manager lock.
+
+**2.5 Tests fail against pre-change code — three deliberate breakages, each
+verified to have landed, each run against a `cp` backup and restored
+byte-identical:**
+
+```text
+A. pump hook removed (the pre-change tree)
+   FAIL TestTurnEmitsExactlyOneLatencyRecord              wanted 1 record, got 0
+   FAIL TestTTFTIsMeasuredToFirstOutputNotToCompletion    wanted 1 record, got 0
+   FAIL TestTurnWithNoOutputOmitsTTFT                     wanted 1 record, got 0
+
+B. ttft measured to turn end (r.ttft = end.Sub(promptAt))
+   FAIL TestTTFTIsMeasuredToFirstOutputNotToCompletion
+        ttft_ms = 1000, want ~200 (the first thought chunk)
+        turn_ms (1000) and ttft_ms (1000) are the same measurement
+
+C. ttft_ms always emitted, zero when absent
+   FAIL TestTurnWithNoOutputOmitsTTFT
+        ttft_ms = 0 on a turn that produced no output
+```
+
+Breakage A is the one that matters: it is the tree as it stood this morning, and
+it produces no record at all.
+
+**Verification.**
+
+```text
+go test ./internal/session/... -count=1   -> ok
+go test ./internal/... -count=1           -> ok (whole tree)
+make pre-add-check                        -> 719 file(s) clean
+```
+
+Live, one `hi` through the isolated daemon against kilo 7.5.6:
+
+```json
+{"msg":"turn latency","session_id":"450c2b5d-4d08-4569-94de-508ffe6d4575",
+ "provider":"kilo","turn_ms":13670,"ttft_ms":5167,"cold":true,
+ "context_used":14670}
+```
+
+Computed independently from that session's `history.json`: ttft **5167.103 ms**,
+turn **13670.725 ms**. Delta **0 ms** against the plan's 200 ms criterion. The
+MADR's latency table is now reproducible from the log alone.
+
+### Deviations
+
+**2026-09-03 — `model` is absent from the record on every default-model
+session.** Step 2.2 lists `model` among the fields.
+
+*Evidence.* The manager's only model is `Meta.Model`
+(`internal/session/manager.go:773`), set from `StartOptions.Model` — the
+client's request. This plan's own accepted constraint is that providers run on
+their default model, so that field is empty in the normal case. The live run
+above confirms it: the daemon logged `kilo default model resolved
+model=kilo/kilo-auto/balanced` at engine-ready, and the turn record carried no
+`model`. The resolved value lives in `internal/provider/kilo/dialect.go:136-143`
+and reaches nothing outside that dialect. Surveyed across all five: only kilo
+and opencode track a resolved default (`defaultModelID`) or log one.
+
+*Not worked around.* The field was not filled with `StartOptions.Model`,
+"default", or the provider id.
+
+*Resolution, chosen by the owner:* add an optional
+`provider.ModelReporter { Session; CurrentModel() string }`, read it at turn
+end, implement it for kilo and opencode. No protocol change, so step 2.4 holds.
+See the MADR's eighth amendment.
+
+*Files added to this phase's scope beyond the plan's
+`manager.go` / `manager_test.go`:* `internal/session/turnlatency.go`,
+`internal/session/turnlatency_test.go`, `internal/session/commands.go`,
+`internal/provider/provider.go`, `internal/provider/kilo/session.go`,
+`internal/provider/opencode/http.go`.
+
+*Consequence had it been deferred:* a future latency shift could not be
+attributed to a model change from the record alone, which is half of what
+Phase 6's attribution needs.
+
+**Observed, not acted on:** kilo's usage report populated only
+`context_used` and `cache_read`; `input_tokens`, `output_tokens` and
+`reasoning_tokens` were absent. Step 2.2 makes those conditional, so the record
+is correct — but Phase 6's attribution cannot rely on kilo
+reporting them.
+
+### Phase 2 (deviation resolved) — 2026-09-03, complete
+
+The owner chose the optional-provider-interface resolution.
+`provider.ModelReporter { Session; CurrentModel() string }` added; the record
+asks the session for its model outside `m.mu`, so no provider mutex nests
+inside the manager lock. `httpagent.session.CurrentModel` prefers the model the
+session explicitly recorded and falls back to a new optional
+`httpagent.DialectDefaultModel`, which kilo and opencode implement over the
+`fallbackModel()` they already had.
+
+**The first implementation was wrong, and the unit tests could not see it.** It
+asked `s.ds` — the per-session `DialectSession`, which for kilo is
+`kilo.httpSession` and implements no such method. It compiled, every
+`internal/session` test passed (they use their own fake), and a live `hi`
+produced a record with **no model at all**:
+
+```json
+{"msg":"turn latency","provider":"kilo","turn_ms":10238,"ttft_ms":5109,
+ "cold":true,"context_used":14560}
+```
+
+The engine default belongs to the provider-wide dialect. Fixed to `s.p.dialect`
+— the same field `ProviderID()` and `ModelCatalog()` already use — and pinned
+by `internal/provider/httpagent/currentmodel_test.go`, which was verified to
+fail against the defect:
+
+```text
+F. s.p.dialect reverted to s.ds (the live defect)
+   FAIL TestCurrentModelReadsTheProviderDialectNotTheSessionView
+        CurrentModel() = "", want kilo/kilo-auto/balanced
+```
+
+Two further breakages pinned the record side:
+
+```text
+D. record uses Meta.Model only (the pre-amendment code)
+   FAIL TestRecordNamesTheModelTheSessionIsActuallyRunningOn
+        model = <nil>, want kilo/kilo-auto/balanced
+
+E. fall back to the provider id when no model is known
+   FAIL TestRecordOmitsTheModelWhenTheSessionCannotReportOne
+        model = lat on a session that reports none; it must be absent
+```
+
+**Live, after the fix** — one `hi`, kilo 7.5.6, client named no model:
+
+```json
+{"msg":"turn latency","session_id":"256a12d7-c2c2-4806-b943-fac3183b575c",
+ "provider":"kilo","turn_ms":6598,"model":"kilo/kilo-auto/balanced",
+ "ttft_ms":5165,"cold":true,"context_used":14472}
+```
+
+**Coverage is two providers of five.** grok, goose and codex track no default
+model, so they implement nothing and the field stays absent. That is a
+provider-side gap this phase names, not one it closes.
+
+**Three cold kilo turns, same host, same binary, same model:** ttft 5167 /
+5109 / 5165 ms, turn 13670 / 10238 / 6598 ms. Cold TTFT is strikingly stable
+across runs while total turn time varies 2x — the wait before the first token
+is a fixed cost, and it is the 5.1s that Phase 6 has to account for.
+
+```text
+go test ./internal/... -count=1   -> ok (whole tree)
+make pre-add-check                -> 722 file(s) clean
+```
+
+### Phases 3-7 — not yet started

@@ -846,7 +846,16 @@ func (m *Manager) submitUserPrompt(ctx context.Context, id, text string, attachm
 		parts = append(parts, provider.Content{Type: "text", Text: text})
 	}
 	parts = append(parts, attachments...)
-	return sess.Prompt(ctx, parts)
+	// A canonical command that ends in a prompt is still a turn the user
+	// waits on, so it is timed like any other (MADR 0137 Phase 2). This path
+	// is reached only via runCanonical, which returns handled — so Manager.
+	// Prompt never also starts the clock for the same turn.
+	m.markPromptStart(id)
+	if err := sess.Prompt(ctx, parts); err != nil {
+		m.clearPromptStart(id)
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) cmdFast(ctx context.Context, id, arg string) error {
