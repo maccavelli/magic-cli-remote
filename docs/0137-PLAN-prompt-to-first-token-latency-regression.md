@@ -302,6 +302,65 @@ change.
 **Done when:** the finding is written with per-arm numbers and any proposed
 change is left for the owner to approve.
 
+### Phase 7 — consume the provider surface the current versions offer
+
+Added 2026-09-03 after driving all five engines (MADR fifth amendment). Pinning
+records the version; this phase is what "optimised for the current versions"
+means. Each item is independent and may land separately.
+
+**Files:** `internal/provider/kilo/dialect.go`,
+`internal/provider/httpagent/provider.go`,
+`internal/provider/opencode/http.go`, `internal/provider/codex/routing.go`,
+`internal/provider/acpagent/acpagent.go`,
+`internal/provider/acphttp/{conn.go,session.go}`.
+
+7.1 **F7 — consume kilo's `sync` stream (highest value).** 18 of 56 fixture
+frames are `sync`, carrying `seq` per `aggregateID`. Decode it, track the last
+`seq` per session, and on SSE reconnect resume from it instead of relying on
+`resyncSessions` polling. Do **not** double-deliver: `sync` duplicates the
+ad-hoc frames, so a consumed `sync` event must be de-duplicated against the
+plain frame by event id.
+*Test:* a fixture replay with a simulated stream drop delivers every event
+exactly once, and the post-drop gap is filled from `seq` rather than a poll.
+
+7.2 **F8 — handle opencode `catalog.updated`.** Invalidate the cached model
+catalog (`p.catalogs`) when it arrives, so the phone stops being offered a
+stale model list.
+*Test:* a `catalog.updated` frame invalidates the cache; the next
+`ListModels` re-harvests.
+
+7.3 **F8b — `plugin.added` noise.** 45 frames in one short turn. Fold into the
+4.2/4.3 dedupe rather than adding a third bespoke suppressor.
+
+7.4 **F9 — route codex's `modelProvider/authRecoveryStarted|Completed`.**
+Surface them as provider conditions. MADRs 0133/0134/0136 inferred credential
+state from files and probes; codex now reports it. Leave the other six
+unrouted notifications alone — they are recorded, not adopted, because
+`rawResponse*` and `thread/realtime/*` serve features mcremote does not have.
+*Test:* each notification produces exactly one provider event, and an unknown
+notification is still ignored rather than forwarded.
+
+7.5 **F10a — read `agentInfo.version` from the ACP handshake** and use it as
+the version source for the grok and goose pins added in Phase 3, replacing
+whatever ad-hoc source those pins would otherwise need.
+
+7.6 **F10b — honour `promptCapabilities` in `acphttp`.** It never reads them,
+so goose's `image: true` is unobserved and images cannot be sent to a provider
+that accepts them. Read the capability and gate image attachments on it, as
+`acpagent` already does for grok (where it is correctly `false`).
+*Test:* a stub advertising `image: true` accepts an image attachment; one
+advertising `false` rejects it before sending.
+
+7.7 **Recorded, not adopted:** grok's `sessionCapabilities`
+(`list`/`resume`/`close`), `embeddedContext`, `x.ai/fs_notify` and
+`x.ai/hooks` are unconsumed. `x.ai/hooks` in particular is a blocking
+permission mechanism that overlaps mcremote's own auto-approve; adopting it is
+a design decision needing its own record, not a gap to close here. This step
+produces no code — it exists so the next reader knows the omission is deliberate.
+
+**Done when:** 7.1-7.6 land with tests, and 7.7 is confirmed as a written
+decision rather than an oversight.
+
 ## Verification
 
 Run after every phase:
@@ -358,10 +417,11 @@ independently revertable.
 instrumentation is additive, so a revert restores prior behaviour exactly.
 
 **Sequencing.** Phase 0 is withdrawn. Phase 3 depends on Phase 1 (a pin cites
-its fixture). Phase 5 depends on Phase 2 (it reads the `turn latency` record).
-Phase 6 depends on Phase 2 and on Phase 5's host numbers. Phase 4 is
-independent of all of them and may land at any point. So the order is
-1 → 2 → 3 → 5 → 6, with 4 inserted wherever convenient.
+its fixture) and on 7.5 for the grok/goose version source. Phase 5 depends on
+Phase 2 (it reads the `turn latency` record). Phase 6 depends on Phase 2 and on
+Phase 5's host numbers. Phases 4 and 7 are independent and may land at any
+point, except that 7.3 folds into 4.2/4.3 and should follow them. Order:
+1 → 2 → 7.5 → 3 → 5 → 6, with 4 and the rest of 7 inserted where convenient.
 
 **What this plan will not do.** It will not remove the operator's MCP server or
 plugins, will not change or pin a provider's default model (an accepted
@@ -470,9 +530,11 @@ in one short turn — a third instance of the unconditional-emit pattern behind
 F2 (`available_commands`) and F6a (`notice`). Recorded for Phase 4 to consider;
 no change made.
 
-**Also observed:** opencode did **not** warn at 1.18.26 against its 1.18.21 pin,
-because its gate is a floor (`>=`) while kilo's is exact equality. Phase 3 must
-decide deliberately which semantics each provider gets rather than copying
-whichever it starts from.
+**Corrected 2026-09-03:** an earlier note here claimed opencode did not warn
+and that its gate is a floor. Both were wrong. `KnownGoodVersion` is an exact
+pin (`CompareVersions == 0`), the same policy as kilo; opencode additionally
+has a separate `MinVersion` hard floor for session-tree. And it *did* warn —
+`opencode engine differs from the known-good release` — which I missed by
+grepping kilo's wording against opencode's. See the MADR's fifth amendment.
 
-### Phases 2-6 — not yet started
+### Phases 2-7 — not yet started

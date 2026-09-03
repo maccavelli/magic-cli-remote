@@ -520,6 +520,133 @@ because a warning the operator has been trained to ignore is how the next real
 warning gets missed — which is precisely how the kilo version-pin warning was
 treated.
 
+## Amendment, 2026-09-03 (fifth): surface and protocol analysis of all five providers
+
+The owner asked three questions this record could not answer: why opencode
+pins a floor, whether the binaries were driven to evaluate their surfaces, and
+whether the protocols were analysed. The honest answers were "it does not",
+"no" and "no". This amendment is that work.
+
+### Correction: opencode does not pin a floor, and it did warn
+
+Two earlier statements in this record's Phase 1 notes were wrong.
+
+`opencode.KnownGoodVersion` is an **exact** pin — `VersionIsKnownGood` is
+`CompareVersions(v, KnownGoodVersion) == 0`, the same policy as kilo. What
+opencode has *in addition* is a separate `MinVersion = 1.18.0` hard floor that
+gates session-tree mode and can refuse `Start` via `CheckMinVersion`. Two
+constants, two deliberate policies, both documented in
+`internal/provider/opencode/version.go:11-24`.
+
+And opencode **did** warn at 1.18.26: `opencode engine differs from the
+known-good release … hint="supported, but this release has not been assessed
+against mcremote"`. I missed it because I grepped for kilo's wording
+(`differs from known-good`) against opencode's (`differs from the known-good
+release`). The gate works; my instrument did not. That is the third measurement
+error in this record, and the pattern — trusting a grep or a harness without
+first proving it can distinguish the two answers — is now the most reliable
+finding in it.
+
+### Method
+
+Each engine was driven and its live surface compared against what mcremote
+consumes: SSE frames captured from kilo and opencode (Phase 1 fixtures), an ACP
+`initialize` handshake against grok and goose (no model tokens spent), and
+codex's `ServerNotification` set read from its own source and diffed against
+`internal/provider/codex/routing.go`.
+
+### F7 — kilo 7.5.6 ships an event-sourced `sync` stream that mcremote ignores
+
+`sync` is the **most common frame in the fixture — 18 of 56** — and is
+unhandled. It wraps the same session and message events in a durable envelope:
+
+```json
+{"type":"sync","syncEvent":{"id":"evt_…","type":"session.created.1",
+ "seq":0,"aggregateID":"ses_…","data":{…}}}
+```
+
+Versioned types (`.1`), a monotonic **`seq`** per **`aggregateID`**. That is
+replay, and mcremote currently has none: `streamOnce` comments that "frames
+emitted while the stream was down are gone — the engine does not replay", and
+compensates with `resyncSessions`, which polls engine state after every
+reconnect. On 7.5.6 that statement is no longer true. Consuming `sync` would
+let a reconnect resume from the last seen `seq` instead of polling and hoping —
+closing an acknowledged reliability gap with an upstream capability that is
+already on the wire.
+
+### F8 — opencode 1.18.26 emits four unhandled types, one of them load-bearing
+
+| type | count | consequence |
+| --- | --- | --- |
+| `plugin.added` | **45** | 53% of the fixture; a fourth instance of the unconditional-emit pattern behind F2 and F6a |
+| `catalog.updated` | 2 | **the model catalog changed and mcremote does not know** — it caches catalogs in `p.catalogs`, so it will keep serving a stale model list |
+| `reference.updated` | 1 | unassessed |
+| `integration.updated` | 1 | unassessed |
+
+`catalog.updated` is the one that matters: mcremote harvests the model catalog
+once and caches it provider-wide, and the engine is now telling it when that
+cache is invalid.
+
+### F9 — codex 0.152.1 declares 83 notifications; mcremote routes 75, with none stale
+
+The router is in good shape — `routing.go` claims to be "exhaustive for the
+installed stable schema", and it is exhaustive for the schema it was written
+against. Eight have appeared since:
+
+* **`modelProvider/authRecoveryStarted` and `modelProvider/authRecoveryCompleted`**
+  — codex now *announces* credential recovery. MADRs 0133, 0134 and 0136 were
+  all spent inferring that state from files and probes; the provider has since
+  started reporting it directly.
+* `mcpServer/event/stream/notification`
+* `rawResponse/completed`, `rawResponseItem/completed`
+* `thread/realtime/item/started|completed|transcript/delta`
+
+A first pass at this diff produced a **false** finding — that
+`account/login/completed` had been renamed and mcremote was listening for a dead
+method. It had not: the variant carries an explicit
+`#[serde(rename = "account/login/completed")]` that my extraction missed
+because it only handled the macro's inline `=> "wire"` form. Corrected, there
+are **zero** stale routes. Recorded because the near-miss is the point: a
+protocol diff is only as good as its parser.
+
+### F10 — grok and goose advertise capabilities mcremote never reads
+
+Driven live. Neither provider is asked for anything it offers beyond the basics.
+
+| capability | grok 1.0.13 | goose 1.48.0 | referenced in mcremote |
+| --- | --- | --- | --- |
+| `sessionCapabilities` | `list`, `resume`, `close` | `list`, `delete`, `close` | **0** |
+| `promptCapabilities.embeddedContext` | true | true | **0** |
+| `promptCapabilities.image` | false | **true** | logged only (grok); **never read** for goose |
+| `mcpCapabilities` | http, sse | http | read |
+| `_meta` extensions | `x.ai/fs_notify`, `x.ai/hooks` (blocking `pre_tool_use`/`stop`/`subagent_stop`, decisions `deny`/`block`), `toolOverrides` | `recipeParameterScopes`, `localInference` | **0** |
+| `agentInfo.version` | — | `1.48.0` | **0** |
+
+Three of these are directly actionable:
+
+* **goose accepts images and mcremote cannot send them.** `acphttp` never reads
+  `promptCapabilities` at all, so goose's `image: true` is unobserved. `acpagent`
+  reads it but only to log it.
+* **`agentInfo.version` is a free version source.** grok and goose have no pin
+  today partly because their version was awkward to obtain; the ACP handshake
+  hands it over.
+* **`x.ai/hooks` is a blocking permission mechanism** mcremote does not use,
+  having built its own auto-approve. Whether to adopt it is a design question,
+  not a defect — but it should be a decision rather than an oversight.
+
+### What this changes
+
+Pinning alone was never going to be enough. Four of the five providers have
+grown surface since mcremote was last assessed against them, and in two cases
+(`sync`, `catalog.updated`) the new surface exists precisely to fix a
+correctness gap mcremote works around today. "Optimise for the current
+versions" therefore means consuming what the current versions offer, not only
+recording their numbers — and the plan is extended accordingly.
+
+None of F7-F10 is a latency fix. They are compatibility and correctness debt
+that accumulated silently because the only drift signal was a log line that,
+as this record has now demonstrated twice, nobody reads.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the
