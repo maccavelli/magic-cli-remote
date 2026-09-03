@@ -8,15 +8,37 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // fakeCodex writes a shell script that records its argv and stdin, so the test
 // can assert on how the real binary would have been invoked.
+//
+// The helper isolates the Codex home ITSELF rather than trusting each caller to
+// do it. It used to write its stub credential to "$HOME/.codex/auth.json" and
+// leave the environment to the test: TestClearCredentialRunsLogout did not set
+// HOME, so running this package overwrote the developer's real
+// ~/.codex/auth.json with the three-byte stub `{}` on every run — destroying a
+// live ChatGPT credential and forcing a re-login. That artefact was then
+// mistaken for Codex behaviour and reasoned about at length in MADR 0074
+// §15.13 and MADR 0134.
+//
+// CODEX_HOME is what credstore.CodexAuthPath consults first, so setting it is
+// what actually redirects the code under test; HOME is set as well so nothing
+// that falls back to ~/.codex can escape either. Both are t.Setenv, so they are
+// restored when the test ends.
 func fakeCodex(t *testing.T, exitCode int) (bin, argvFile, stdinFile string) {
 	t.Helper()
 	testexec.SkipIfNoPOSIXShell(t)
 	dir := t.TempDir()
+	codexHome := filepath.Join(dir, "codex-home")
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("HOME", dir)
+
 	argvFile = filepath.Join(dir, "argv")
 	stdinFile = filepath.Join(dir, "stdin")
 	bin = filepath.Join(dir, "codex-stub")
@@ -24,14 +46,44 @@ func fakeCodex(t *testing.T, exitCode int) (bin, argvFile, stdinFile string) {
 		"printf '%s\\n' \"$@\" > " + argvFile + "\n" +
 		"cat > " + stdinFile + "\n" +
 		"if [ " + strconv.Itoa(exitCode) + " -eq 0 ]; then\n" +
-		"  mkdir -p \"$HOME/.codex\"\n" +
-		"  printf '{}\\n' > \"$HOME/.codex/auth.json\"\n" +
+		"  mkdir -p \"" + codexHome + "\"\n" +
+		"  printf '{}\\n' > \"" + codexHome + "/auth.json\"\n" +
 		"fi\n" +
 		"exit " + strconv.Itoa(exitCode) + "\n"
 	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return bin, argvFile, stdinFile
+}
+
+// TestFakeCodexCannotEscapeItsSandbox is the regression guard for the defect
+// above. It asserts the stub writes only inside the directories the helper
+// created, so a future edit that reintroduces "$HOME/.codex" — or a caller that
+// forgets to isolate — fails here instead of on someone's real credential.
+func TestFakeCodexCannotEscapeItsSandbox(t *testing.T) {
+	realHome := t.TempDir() // stands in for the developer's home
+	t.Setenv("HOME", realHome)
+	canary := filepath.Join(realHome, ".codex", "auth.json")
+
+	bin, _, _ := fakeCodex(t, 0)
+	p := New(Config{Bin: bin})
+	if err := p.ClearCredential(context.Background(), "openai"); err != nil {
+		t.Fatalf("ClearCredential: %v", err)
+	}
+
+	if _, err := os.Stat(canary); !os.IsNotExist(err) {
+		t.Fatalf("the codex stub wrote to %s: a test must never touch the real "+
+			"credential path (err=%v)", canary, err)
+	}
+	// And it must still have written where the code under test looks, or the
+	// assertion above would pass for the wrong reason.
+	isolated, err := credstore.CodexAuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(isolated); err != nil {
+		t.Fatalf("stub did not write the isolated credential at %s: %v", isolated, err)
+	}
 }
 
 // The security property that matters here: argv is world-readable through ps
