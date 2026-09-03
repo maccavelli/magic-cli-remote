@@ -86,18 +86,135 @@ invites a destructive answer to a question with no good answer.
 
 ### What is not established
 
-**Where codex-cli 0.152.1 actually keeps the credential is unknown.** It is not
-in the login keychain under a `codex` service
-(`security find-generic-password -s codex` → "The specified item could not be
-found"), and `config.toml` carries no store key. `~/.codex/state_5.sqlite` is a
-candidate by timing but is held open by the running process and was not
-inspected. Nothing in this record depends on the answer: `RealityExternal` is
-defined as "somewhere this coordinator cannot see", and the probe that
-establishes it asks the CLI, not the filesystem.
+~~**Where codex-cli 0.152.1 actually keeps the credential is unknown.**~~
+**Established 2026-09-03 — and the answer invalidates this record's premise.
+See the amendment below.**
 
 **Whether this is configuration, a 0.152 default, or a migration is also
 unknown.** The host ran 0.146-0.148 behaviour previously (MADR 0074 §15.13
 recorded the same `{}` shape on 2026-08-21), so it is at least not new.
+
+## Amendment, 2026-09-03: the premise is false and the trigger detection is unsound
+
+Direct investigation of codex-cli 0.152.1 — `codex doctor`, the official
+documentation, and controlled probes in isolated `CODEX_HOME` directories —
+establishes that **Codex is not holding a credential somewhere this coordinator
+cannot see.** The file is the store, and the stored credential is simply broken.
+
+`codex doctor` on the reporting host:
+
+```text
+⚠ auth   auth is provided by environment, but stored credentials are incomplete
+    auth storage mode        File
+    auth file                ~/.codex/auth.json
+    auth env vars present    OPENAI_API_KEY
+    stored API key           false
+    stored ChatGPT tokens    false
+    stored agent identity    false
+    stored auth issue        ChatGPT auth is missing refresh metadata
+    stored auth mode         chatgpt
+```
+
+Three facts follow, none of which this record assumed:
+
+1. **The storage mode is `File`.** `auth.json` is the credential store Codex
+   itself intends to use. The official documentation
+   (<https://learn.chatgpt.com/docs/auth.md>) confirms `cli_auth_credentials_store`
+   takes `file`, `keyring` or `auto`; this host is on the file backend, and its
+   `config.toml` sets no such key. There is no keychain migration. The earlier
+   speculation about `state_5.sqlite` was wrong.
+2. **`OPENAI_API_KEY` is set in the interactive shell**, and Codex reports auth
+   as coming from the environment there. The daemon does **not** have it: the
+   LaunchAgent plist sets only `HOME`, `LOGNAME`, `PATH`, `USER` and the XDG
+   variables. So the environment masks the broken credential for the user at a
+   terminal while the daemon is left with the broken one — and doctor's
+   websocket check returns `http 401 Unauthorized`.
+3. **The stored credential is genuinely incomplete**, with no ChatGPT tokens and
+   "missing refresh metadata". This is the corruption case MADR 0133
+   deliberately preserved an escalation for — not an unprotectable credential.
+
+### The probe this record relies on cannot distinguish those cases
+
+`cliIsAuthenticated` (`internal/provider/codex/store_reality.go`) tests
+`cmd.Run() == nil` — the exit status of `codex login status`. That status is
+**always zero**, verified against isolated homes:
+
+```text
+home with no auth.json at all  ->  "Not logged in"              exit 0
+home containing `{}`           ->  "Logged in using ChatGPT"    exit 0
+```
+
+Therefore `cliIsAuthenticated` returns true unconditionally whenever the binary
+runs, `RealityLoggedOut` is unreachable, and `ObserveCredentialStore` answers
+`RealityExternal` for **any** host whose `auth.json` is unusable — including one
+that is simply signed out or corrupt.
+
+The consequence for this decision is direct: the `external` state observed on
+the reporting host is a **false positive**, and as implemented, 0134 converts a
+genuinely broken credential into a silent, warning-free state. That is exactly
+the risk this record's own Decision Drivers named — "over-refusing disarms
+backup; under-refusing corrupts a credential store" — landing on the
+under-refusing side.
+
+The defect predates this record: the probe was introduced with MADR 0074
+§15.13. What 0134 changed is that it made an unreliable probe load-bearing for a
+durable state transition.
+
+### What still stands, and what does not
+
+* **The decision stands in principle.** A credential the coordinator provably
+  cannot protect is not an ambiguity for an operator, and every
+  `auth-recovery choose` answer really is destructive in that state. Nothing
+  found on 2026-09-03 weakens that reasoning.
+* **The trigger does not stand.** `RealityExternal` as currently computed is not
+  evidence of that state, so the classification must not be trusted until the
+  probe is replaced.
+* **The Confirmation section's final item is invalidated.** The host check it
+  describes passed, but it passed on a false positive.
+
+### The replacement probe
+
+`codex doctor --json` emits a machine-readable verdict with a top-level
+`schemaVersion`, at `checks["auth.credentials"]`:
+
+```json
+{
+  "id": "auth.credentials",
+  "status": "warning",
+  "summary": "auth is provided by environment, but stored credentials are incomplete",
+  "details": {
+    "auth storage mode": "File",
+    "stored ChatGPT tokens": "false",
+    "stored API key": "false",
+    "stored auth issue": ["…", "ChatGPT auth is missing refresh metadata"],
+    "auth env vars present": "OPENAI_API_KEY"
+  }
+}
+```
+
+That distinguishes every case this record needs and the exit code cannot:
+storage backend, whether a usable stored credential exists, and whether auth is
+coming from the environment. It costs ~1.3 s and performs network reachability
+checks, so it belongs on the degraded path where the current probe already sits
+— never on a hot path.
+
+**Adopting it is a new decision** — a changed contract for `RealityReporter`,
+a dependency on another tool's JSON schema, and a choice about what to do when
+that schema is unrecognised. It needs its own MADR and plan, and until then the
+`external` classification should be treated as unsound. It is not amended into
+this record.
+
+### The operator remedy, which is independent of all of the above
+
+The reporting host's Codex credential is incomplete, and the daemon cannot see
+the `OPENAI_API_KEY` that masks it interactively. Completing a fresh
+`codex login` so `auth.json` holds full ChatGPT tokens **and** refresh metadata
+repairs the actual fault; doing it with `OPENAI_API_KEY` unset avoids the
+environment masking the result. Whether Codex prefers the environment variable
+over a valid stored credential is **not documented** and was not tested here —
+the official auth page does not describe a precedence order, and the
+`preferred_auth_method` setting referenced in third-party writeups does not
+appear in it.
 
 ## Decision Drivers
 

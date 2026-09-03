@@ -392,7 +392,52 @@ added.
 ### Outstanding
 
 * Step 25: the owner opens Codex in Settings on the phone and confirms no
-  `credential_failed`, with no sign-in performed.
-* Why codex-cli 0.152.1 moved the credential out of `auth.json` is still
-  unanswered. This work stops mcremote mismanaging that state; it does not
-  restore the ability to back the credential up.
+  `credential_failed`, with no sign-in performed. **Note the amendment below
+  before reading a pass here as success.**
+
+### Deviations (continued)
+
+**2026-09-03 — the upstream question was answered, and it invalidates this
+plan's Phase 6 result.** Investigated at the owner's request via `codex doctor`,
+the official documentation, and controlled probes; recorded in full as an
+amendment to the MADR.
+
+Codex did **not** move the credential anywhere. `auth storage mode` is `File`,
+so `auth.json` is the store Codex intends to use, and the stored credential is
+simply incomplete — `stored ChatGPT tokens: false`, `stored auth issue: ChatGPT
+auth is missing refresh metadata`, and doctor's websocket check returning
+`http 401 Unauthorized`. `OPENAI_API_KEY` is set in the owner's shell and masks
+this interactively; the daemon's LaunchAgent does not have it.
+
+The probe this plan wired up cannot tell that apart from a genuinely
+unprotectable credential. `codex login status` exits **0** whether a home holds
+a real credential, `{}`, or nothing at all — verified in isolated homes — so
+`cliIsAuthenticated` is true unconditionally and `RealityExternal` is returned
+for any unusable `auth.json`.
+
+**So Phase 6's host result was a false positive.** The daemon stopped warning,
+which this plan recorded as success, but it stopped warning about a credential
+that really is broken. Phases 1-5 are sound as written and the code is correct
+for the state it models; what is wrong is the evidence used to enter that state.
+
+*Consequence of leaving it:* a genuinely corrupt or signed-out Codex credential
+is now silent — no warning, no `credential_failed`, and `BackupUnsupported` on
+the phone — which is the under-refusing failure the MADR's own drivers warned
+about.
+
+*Resolution, not applied here:* replace the exit-code probe with the
+machine-readable verdict `codex doctor --json` exposes at
+`checks["auth.credentials"]`, which distinguishes storage backend, stored-token
+presence, and environment-provided auth. That changes the `RealityReporter`
+contract and takes a dependency on another tool's JSON schema, so it is a new
+decision needing its own MADR and plan. **No code was changed for it.**
+
+### Recommended next steps
+
+1. Operator: complete a fresh `codex login` with `OPENAI_API_KEY` unset, so
+   `auth.json` holds full ChatGPT tokens and refresh metadata. This repairs the
+   real fault and is independent of anything in this plan.
+2. Then re-check: `codex doctor` should report `auth.credentials` ok, and the
+   daemon should return the provider to `idle` at the next checkpoint — the
+   0133 machinery adopts a usable credential automatically.
+3. Write the probe MADR and plan before touching `store_reality.go`.
