@@ -189,4 +189,39 @@ that is not in scope.
 
 ## Execution Record
 
-Not started. `status: proposed` — awaiting approval to execute.
+### Phase 1 — 2026-09-03, complete
+
+Fixtures in `internal/provider/codex/testdata/doctor/`, all captured from
+**codex-cli 0.152.1**, all reporting **`schemaVersion: 1`** (recorded inside
+each file as `codexVersion` / `schemaVersion`, so a future mismatch is
+diagnosable):
+
+| fixture | `status` | `summary` | `auth storage mode` |
+| --- | --- | --- | --- |
+| `file-protected.json` | `ok` | auth is configured | `File` |
+| `no-credentials.json` | `fail` | no Codex credentials were found | `File` |
+| `incomplete-file.json` | `fail` | stored credentials are incomplete | `File` |
+| `env-provided.json` | `warning` | auth is provided by environment, but stored credentials are incomplete | `File` |
+| `keyring-backend.json` | `fail` | no Codex credentials were found | `Keyring` |
+
+### Deviations
+
+**2026-09-03 — fixtures are the `auth.credentials` check, not the whole
+report.** Step 1 said "verbatim". The full report carries the operator's
+absolute home paths, an MCP endpoint, endpoint-security product names and git
+repository details, none of which the parser reads and none of which belongs in
+version control. Each fixture therefore holds `schemaVersion`, `codexVersion`
+and `checks["auth.credentials"]` only, with the one remaining path value
+(`auth file`, also unread) replaced by `/home/user/.codex/auth.json`. Every
+other value is byte-verbatim. Checked by eye and by grep: no key material and no
+host paths remain.
+
+**2026-09-03 — a fifth fixture was added.** The plan named four, none of which
+is a *healthy* host, yet step 7 has to define "usable stored credential" from
+evidence. `file-protected.json` was produced by running
+`codex login --with-api-key` in a throwaway `CODEX_HOME` with the obviously fake
+key `sk-test-NOT-A-REAL-KEY-0136-fixture`; the home was deleted afterwards. It
+is what settles the rule: a usable credential is exactly `status == "ok"`, and
+everything else fails closed.
+
+### Phases 2-5 — not yet done

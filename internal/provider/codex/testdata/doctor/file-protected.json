@@ -1,0 +1,22 @@
+{
+  "checks": {
+    "auth.credentials": {
+      "category": "auth",
+      "details": {
+        "auth file": "/home/user/.codex/auth.json",
+        "auth storage mode": "File",
+        "stored API key": "true",
+        "stored ChatGPT tokens": "false",
+        "stored agent identity": "false",
+        "stored auth mode": "api_key"
+      },
+      "durationMs": 0,
+      "id": "auth.credentials",
+      "remediation": null,
+      "status": "ok",
+      "summary": "auth is configured"
+    }
+  },
+  "codexVersion": "0.152.1",
+  "schemaVersion": 1
+}
