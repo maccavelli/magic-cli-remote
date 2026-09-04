@@ -434,6 +434,13 @@ Duration opTimeoutFor(String type) {
     // command (MADR 0112 A9).
     case 'session.shell':
       return const Duration(minutes: 30) + kOpTimeoutMargin;
+    // Answering an ask calls into the provider, which on kilo/opencode is an
+    // HTTP POST to the engine under its own 10s timeout. The daemon allows 15s
+    // so its error frame beats that; the phone allows 25s so it does not beat
+    // the daemon's (MADR 0138 F4).
+    case 'permission.respond':
+    case 'question.respond':
+      return const Duration(seconds: 15) + kOpTimeoutMargin;
     default:
       return const Duration(seconds: 30) + kOpTimeoutMargin;
   }

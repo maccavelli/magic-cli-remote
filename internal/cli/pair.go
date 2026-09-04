@@ -447,7 +447,7 @@ func resolvePairHost(pairHost string, cfg config.Config) string {
 	if host := strings.TrimSpace(cfg.Pair.AdvertiseHost); host != "" {
 		return withPort(host, port)
 	}
-	return detectAdvertiseHost(port)
+	return detectAdvertiseHost(cfg.Listen.Host, port)
 }
 
 // withPort appends port unless host already carries one. "Contains a colon"
@@ -494,11 +494,26 @@ func openStoreFromFlags(cmd *cobra.Command) (*auth.Store, config.Config, error) 
 }
 
 // detectAdvertiseHost picks the address printed into the pair QR when no host
-// was configured. Preference: Tailscale IPv4 → localhost. An operator override
-// is handled one level up in resolvePairHost (pair.advertise_host).
-func detectAdvertiseHost(port int) string {
-	if ip := tailnet.IPv4(); ip != "" {
-		return fmt.Sprintf("%s:%d", ip, port)
+// was configured. An operator override is handled one level up in
+// resolvePairHost (pair.advertise_host).
+//
+// It follows the bind. A daemon listening on 127.0.0.1 that advertised its
+// tailnet address printed a QR no phone could dial — reproduced on this host:
+// `curl` to the advertised 100.64.0.3:7642 returned connection refused while
+// 127.0.0.1:7642 answered, because that was the only address in the listen set
+// (MADR 0138 F11). Only the "follow the config" hosts — empty, "tailscale",
+// or a wildcard — get the Tailscale-IPv4 preference; an explicit bind
+// advertises itself.
+func detectAdvertiseHost(listenHost string, port int) string {
+	switch h := strings.ToLower(strings.TrimSpace(listenHost)); h {
+	case "", "tailscale", "0.0.0.0", "::", "[::]":
+		if ip := tailnet.IPv4(); ip != "" {
+			return fmt.Sprintf("%s:%d", ip, port)
+		}
+		return fmt.Sprintf("127.0.0.1:%d", port)
+	default:
+		// An explicit bind is the only address that is reachable, whatever
+		// else the host happens to have.
+		return net.JoinHostPort(strings.Trim(listenHost, "[]"), strconv.Itoa(port))
 	}
-	return fmt.Sprintf("127.0.0.1:%d", port)
 }

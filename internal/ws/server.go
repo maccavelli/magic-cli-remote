@@ -121,6 +121,9 @@ type client struct {
 	// and passes the copy into the handler (Phase 1.1).
 	deviceID string
 	authed   bool
+	// shellInFlight counts session.shell goroutines, bounded separately by
+	// maxShellPerClient so a 30-minute op cannot consume the prompt's budget.
+	shellInFlight int
 	// asyncInFlight counts goroutines started by dispatchAsync. Capped at
 	// maxAsyncPerClient so a paired device cannot unbounded-spawn create/close
 	// work (Phase 1.2 / P1-3).
@@ -179,6 +182,16 @@ type client struct {
 // screen fans out on open — so it has to leave room for ordinary use: sized at
 // 2 it was one wedged handler away from rate-limiting the whole connection.
 const maxAsyncPerClient = 8
+
+// maxShellPerClient bounds concurrent session.shell work per WebSocket,
+// separately from maxAsyncPerClient.
+//
+// A shell gets a 30-minute deadline — "a command runs for as long as it runs"
+// — while a prompt gets 60 seconds. Drawing both from one pool of 8 meant eight
+// long-running commands could rate-limit every later operation on that
+// connection, prompts and cancels included (MADR 0138 F6). Two lanes, so a slow
+// lane cannot starve a fast one.
+const maxShellPerClient = 2
 
 // shutdown signals the writer loop to exit; safe to call more than once.
 func (c *client) shutdown() {
@@ -871,15 +884,25 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeSessionDiagnostics:
 		return s.dispatchAsync(ctx, c, env, s.handleSessionDiagnostics)
 	case protocol.TypePermissionRespond:
-		return s.handlePermissionRespond(ctx, c, env)
+		// Async since MADR 0138 F4. Answering a permission calls into the
+		// provider, and on kilo/opencode that is a synchronous HTTP POST to the
+		// engine under a 10-second timeout — the moment a permission is pending
+		// is exactly when an engine is most likely to be unresponsive. Inline,
+		// it stalled the connection's read loop for up to ten seconds, queueing
+		// every later message from that phone behind it, session.cancel
+		// included.
+		return s.dispatchAsync(ctx, c, env, s.handlePermissionRespond)
 	case protocol.TypePermissionReceipt:
 		return s.handlePermissionReceipt(ctx, c, env)
 	case protocol.TypeReceiptsList:
-		return s.handleReceiptsList(ctx, c, env)
+		// Reads a JSONL chain off disk and verifies its hashes.
+		return s.dispatchAsync(ctx, c, env, s.handleReceiptsList)
 	case protocol.TypeDevicesList:
-		return s.handleDevicesList(ctx, c, env)
+		// Reads the device store off disk.
+		return s.dispatchAsync(ctx, c, env, s.handleDevicesList)
 	case protocol.TypeQuestionRespond:
-		return s.handleQuestionRespond(ctx, c, env)
+		// The same provider round trip as permission.respond above.
+		return s.dispatchAsync(ctx, c, env, s.handleQuestionRespond)
 	default:
 		t := env.Type
 		if len(t) > 64 {
@@ -905,8 +928,17 @@ func (s *Server) dispatchAsync(
 	env protocol.Envelope,
 	h asyncHandler,
 ) error {
+	// session.shell has its own lane: its deadline is 30 minutes against the
+	// prompt's 60 seconds, so sharing one budget lets the slow op starve the
+	// fast one (MADR 0138 F6).
+	shell := env.Type == protocol.TypeSessionShell
+	limit, inFlight := maxAsyncPerClient, &c.asyncInFlight
+	if shell {
+		limit, inFlight = maxShellPerClient, &c.shellInFlight
+	}
+
 	s.mu.Lock()
-	if c.asyncInFlight >= maxAsyncPerClient {
+	if *inFlight >= limit {
 		deviceID := c.deviceID
 		s.mu.Unlock()
 		// Log it: a handler that never returns turns this into a permanent
@@ -915,13 +947,14 @@ func (s *Server) dispatchAsync(
 		s.log.Warn("async slots exhausted",
 			slog.String("type", env.Type),
 			slog.String("device_id", deviceID),
-			slog.Int("limit", maxAsyncPerClient),
+			slog.Int("limit", limit),
+			slog.Bool("shell_lane", shell),
 		)
 		return s.writeError(ctx, c, env.ID, "rate_limited",
 			"too many in-flight operations; try again shortly")
 	}
 	deviceID := c.deviceID
-	c.asyncInFlight++
+	*inFlight++
 	s.mu.Unlock()
 
 	go func() {
@@ -932,7 +965,7 @@ func (s *Server) dispatchAsync(
 		}()
 		defer func() {
 			s.mu.Lock()
-			c.asyncInFlight--
+			*inFlight--
 			s.mu.Unlock()
 		}()
 		// Bound work to connection lifecycle + per-op deadline (MADR 0056 H-2).
@@ -1031,6 +1064,12 @@ func asyncOpTimeout(typ string) time.Duration {
 		return 60 * time.Second
 	case protocol.TypeSessionHistory:
 		return 30 * time.Second
+	case protocol.TypePermissionRespond, protocol.TypeQuestionRespond:
+		// Above the provider's own 10s call timeout
+		// (httpagent/session.go RespondPermission), so the authoritative
+		// failure is the daemon's error frame rather than this deadline
+		// firing first (MADR 0095 D7).
+		return 15 * time.Second
 	case protocol.TypeModelsList, protocol.TypeAgentsList, protocol.TypeAgentSessionsList:
 		return 60 * time.Second
 	case protocol.TypeSessionShell:
@@ -1493,7 +1532,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 	return s.writeJSON(ctx, c, out)
 }
 
-func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.PermissionRespondPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
@@ -1501,10 +1540,6 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 	if p.SessionID == "" || p.PermissionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and permission_id required")
 	}
-	// Read path: same goroutine as setAuthed for this connection after auth.
-	s.mu.Lock()
-	deviceID := c.deviceID
-	s.mu.Unlock()
 	if err := s.sessions.RespondPermission(ctx, p.SessionID, p.PermissionID, p.OptionID, p.Cancelled, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "permission_failed", err)
 	}
@@ -1516,10 +1551,7 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 // 0078 D8). Scoped strictly by the connection's authenticated device id — a
 // device can never read another device's chain, the exact analog of session
 // ownership (§1). Empty when receipts are off or the device has no chain.
-func (s *Server) handleReceiptsList(ctx context.Context, c *client, env protocol.Envelope) error {
-	s.mu.Lock()
-	deviceID := c.deviceID
-	s.mu.Unlock()
+func (s *Server) handleReceiptsList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	entries, err := s.sessions.ReceiptEntriesFor(deviceID)
 	if err != nil {
 		return s.writeError(ctx, c, env.ID, protocol.ErrReceiptsListFailed, err.Error())
@@ -1535,7 +1567,7 @@ func (s *Server) handleReceiptsList(ctx context.Context, c *client, env protocol
 // row flagged Self. Only identity fields (id, name) — never keys. This is a
 // fleet roster (unlike receipts, which are strictly own-device): any paired
 // device may enumerate its fleetmates to hand a session to one.
-func (s *Server) handleDevicesList(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleDevicesList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	s.mu.Lock()
 	me := c.deviceID
 	s.mu.Unlock()
@@ -1681,7 +1713,7 @@ func (s *Server) sendToDevice(deviceID string, b []byte) bool {
 	return true
 }
 
-func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.QuestionRespondPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
@@ -1690,9 +1722,6 @@ func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env proto
 	if p.SessionID == "" || p.QuestionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and question_id required")
 	}
-	s.mu.Lock()
-	deviceID := c.deviceID
-	s.mu.Unlock()
 	if err := s.sessions.RespondQuestion(ctx, p.SessionID, p.QuestionID, p.Answers, p.Cancelled, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "question_failed", err)
 	}

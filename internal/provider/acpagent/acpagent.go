@@ -581,7 +581,14 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		}
 		s.log.Info("acp authenticated", slog.String("method_id", p.cfg.AuthMethodID))
 	} else if len(advertised) > 0 {
-		s.log.Warn("agent advertises auth methods but none configured; session/new may fail",
+		// Debug, not warn. This fires once per session start on any agent that
+		// advertises auth methods while auth_method_id is unset — 90 times in
+		// the operator's log, and true zero of those times: grok authenticates
+		// from its own credential store and session/new has never failed for
+		// this reason. A warning the operator is trained to ignore is how the
+		// next real warning gets missed (MADR 0138 F12). If session/new does
+		// fail, it fails loudly on its own.
+		s.log.Debug("agent advertises auth methods but none is configured",
 			slog.Int("count", len(advertised)))
 	}
 

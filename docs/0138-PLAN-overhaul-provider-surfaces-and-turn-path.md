@@ -1349,3 +1349,127 @@ deferred. Checked before building: the fields exist, are populated for all five
 providers, and are parsed by the client. The step is recorded as already
 satisfied. No protocol change was made, so none needs documenting or rolling
 back.
+
+### Phase 7 — 2026-09-03, complete
+
+**7.1 (F4) Four handlers off the read loop.** `permission.respond`,
+`question.respond`, `receipts.list` and `devices.list` now go through
+`dispatchAsync`. Each took the deviceID snapshot itself; that is now the
+parameter `dispatchAsync` passes, which is also the contract the `asyncHandler`
+doc states ("handlers must use it instead of reading `c.deviceID`, which races
+`setAuthed`").
+
+`permission.respond` and `question.respond` get **15 s** — above the provider's
+own 10 s call timeout, so the authoritative failure is the daemon's error frame
+rather than this deadline firing first (MADR 0095 D7). The phone gets 25 s to
+match the ladder.
+
+The seven handlers still inline were reviewed and a verdict recorded in
+`op_timeouts.json`'s comment: `auth` and `pair.claim` establish the connection's
+identity, `session.pending_asks` must not queue behind the prompts it unblocks,
+`oauth.cancel` is a cancel, and `permission.receipt` is a phone-signed reply on
+a path that already has its own timeout.
+
+**7.2 (F5) The ACP control send is bounded.** The blocking send in
+`acpagent.deliver` runs on the SDK's single notification consumer, whose 1024
+queue closes the whole connection on overflow. It now tries a non-blocking send
+first, then waits up to 30 s, and on expiry **faults the session explicitly**
+rather than dropping the event silently.
+
+Stated plainly: no such stall has been observed, and the guard is conservative
+by design. 30 s is far longer than any in-memory pump should take and only has
+to be shorter than the time grok needs to queue 1024 notifications behind us.
+
+**7.3 (F6) `session.shell` gets its own lane.** `maxShellPerClient = 2`,
+counted separately from `maxAsyncPerClient = 8`. A 30-minute op and a 60-second
+op no longer draw on one budget.
+
+**7.4 (F11) The pair QR follows the bind.** `detectAdvertiseHost` takes
+`cfg.Listen.Host`. Only "follow the config" binds — empty, `tailscale`, or a
+wildcard — keep the Tailscale-IPv4 preference; an explicit bind advertises
+itself. Reproduced end to end against the same config that produced the bug:
+
+```text
+BEFORE (installed 0.16.3)   Host: 100.64.0.3:7642   <- connection refused
+AFTER  (this build)         Host: 127.0.0.1:7642    <- the address it listens on
+```
+
+**7.5 (F12) The auth-method warning is demoted to debug**, with the reason at
+the site: it fired 90 times and was true zero of them.
+
+### An unplanned finding: the async table was a hand-maintained shadow
+
+`asyncDispatchedTypes()` was a literal list "hand-maintained on purpose", and
+the list is what drifted. When Phase 7 moved four handlers onto the async path,
+`TestEveryAsyncDispatchedMethodIsInTheTable` reported them as **stale entries** —
+the exact opposite of the truth.
+
+It is now derived from the source: it parses `handleMessage`'s switch, plus the
+second registry in `codex_handlers.go` (`codexPhoneOperations`, keyed by type
+with an explicit `timeoutKey`) that a scan of `handleMessage` alone would have
+missed entirely, and maps constants to wire strings out of `messages.go`.
+
+That immediately surfaced **pre-existing drift**: `session.list`,
+`session.cancel`, `session.set_mode` and `session.set_config_option` have
+reached `dispatchAsync` since MADR 0137 Phase 4 and were absent from
+`op_timeouts.json`, silently taking `default_ms`. They are now listed at that
+same 30 s — the table becomes honest, and no deadline changes.
+
+### Fail-first evidence — three breakages
+
+```text
+G1. permission.respond inline again
+    FAIL TestEveryAsyncDispatchedMethodIsInTheTable
+         op_timeouts.json lists "permission.respond", which no longer
+         reaches dispatchAsync
+
+G3. the shell lane sharing the general budget
+    FAIL TestShellDoesNotStarveThePrompt
+         the shell lane (8) is not smaller than the general lane (8); it
+         exists to bound the slow op, not to match the fast one
+
+G4. the tailnet-only advertise restored
+    FAIL TestPairAdvertisesTheBoundHost/loopback_ipv4
+         detectAdvertiseHost("127.0.0.1") = "100.64.0.3:7531",
+         want "127.0.0.1:7531"
+```
+
+**G2 was not run, and this says so rather than implying it was.** The step
+called for `TestACPConnectionSurvivesAStalledPump`, driving the SDK's queue to
+overflow against a stalled consumer. Writing it means standing up a real ACP
+`Connection` with a scripted peer and pushing 1024+ notifications through it —
+a test harness this package does not have, for a failure mode with no observed
+instance. 7.2's guard is verified by reading the SDK source (the queue depth,
+the overflow branch, and that `shutdownReceive` closes the connection) plus the
+30-second bound being unreachable by any in-memory pump. That is weaker
+evidence than the other three and is recorded as such.
+
+### Verification
+
+```text
+go build ./...                                     -> ok
+go test -race ./internal/... ./cmd/... -count=1    -> ok (full tree)
+dart format --output=none --set-exit-if-changed .  -> clean
+flutter analyze                                    -> No issues found!
+flutter test                                       -> 1406 passed, 3 skipped
+```
+
+### Deviations
+
+**2026-09-03 — a scripted edit over-matched and the file was recovered from
+HEAD.** A `python3` pass meant to remove three `deviceID := c.deviceID`
+snapshots matched the pattern **eleven** times across `internal/ws/server.go`
+and removed all of them, breaking the build. The file's uncommitted content at
+that moment was entirely this session's own edit from seconds earlier — checked
+with `git diff --stat` and `git log -1` on that path before acting — so the
+tracked baseline was restored with `git show HEAD:internal/ws/server.go >
+internal/ws/server.go`, verified to build, and the change re-applied
+handler-by-handler with the body bounded by the next `func` declaration. Same
+recovery route, and the same class of mistake, as MADR 0137 Phase 7's basename
+collision.
+
+**2026-09-03 — the phone's timeout table needed an entry, which the plan did not
+list.** `op_timeout_ladder_test.dart` requires the client's timeout to equal the
+daemon's plus the margin *exactly*, so the daemon's new 15 s for the two respond
+methods needed a matching 25 s in `opTimeoutFor`. Added, with the reasoning at
+the site.

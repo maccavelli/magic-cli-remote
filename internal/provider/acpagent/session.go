@@ -1341,11 +1341,51 @@ func (s *session) deliver(ev event.Event, control bool) {
 	}
 	// Control path (R5=A): never drop once a consumer is attached; done
 	// unblocks us if the session is torn down while we wait.
+	//
+	// Bounded, though, and that bound is not about this session. This runs on
+	// the ACP SDK's single notification-consumer goroutine, and the SDK queues
+	// notifications in a channel of 1024 whose overflow does not drop — it
+	// closes the whole connection (acp-go-sdk@v0.13.5 connection.go:108, :446,
+	// errNotificationQueueOverflow). grok emits 247 frames for the word "hi",
+	// so a pump that stalls for long enough would take the engine down with it
+	// (MADR 0138 F5).
+	//
+	// No such stall has been observed; the mechanism is real and the cost of
+	// this guard is one timer on a path that otherwise blocks forever. On
+	// expiry the session is faulted explicitly rather than the event being
+	// dropped silently, because a transcript missing a control event with no
+	// explanation is the failure this record exists to fix.
+	select {
+	case s.events <- ev:
+		return
+	case <-s.done:
+		return
+	default:
+	}
+	t := time.NewTimer(controlDeliverTimeout)
+	defer t.Stop()
 	select {
 	case s.events <- ev:
 	case <-s.done:
+	case <-t.C:
+		s.log.Error("event consumer stalled; abandoning the session before the ACP connection is torn down",
+			slog.String("type", string(ev.Type)),
+			slog.String("session_id", s.localID),
+			slog.Duration("waited", controlDeliverTimeout),
+		)
+		s.markClosedAndKill()
 	}
 }
+
+// controlDeliverTimeout bounds how long one control event may block the ACP
+// SDK's notification consumer.
+//
+// Generous on purpose: the pump it waits on is in-memory on every path
+// examined, so reaching this at all means something is badly wrong, and the
+// wrong answer here would be to fault a session that was about to be served.
+// The bound only has to be shorter than the time it takes grok to produce 1024
+// queued notifications behind us.
+const controlDeliverTimeout = 30 * time.Second
 
 // permissionResolved builds the terminal event for a permission request, so a
 // client never keeps its composer locked on a request that will never answer.
