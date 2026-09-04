@@ -135,6 +135,20 @@ type entry struct {
 	// history is a bounded ring buffer of every event this session emitted,
 	// oldest first, for session.history replay. Capped at historyBufferCap.
 	history []event.Event
+	// replayIndex maps replayKey(ev) to the positions in history carrying that
+	// key, so a session/load replay can find a duplicate without scanning the
+	// ring. It indexes every event, not only replayed ones, because the scan it
+	// replaces compared against the whole ring (MADR 0138 F15).
+	//
+	// Rebuilt on any deletion or trim; appends update it in place. Guarded by
+	// m.mu, like every other entry field.
+	replayIndex map[uint64][]int
+	// replayCompares counts the field comparisons made while confirming a hash
+	// hit. With the index it grows O(n) over a replay; the linear scan it
+	// replaces grew O(n²). Read by tests via exported_test helpers — it is the
+	// only signal that distinguishes the two implementations without timing
+	// them, and a timing assertion is not a check this repository trusts.
+	replayCompares uint64
 	// pending asks are authoritative while the live entry exists. History is
 	// bounded, so it cannot reliably answer whether an old request remains open.
 	pendingPermissions map[string]event.Event
@@ -199,12 +213,8 @@ const historyTrimTo = historyBufferCap - historyBufferCap/4
 // identity for them would let one retraction delete unrelated content.
 // Sequence gaps left by deletion are valid and expected.
 func (e *entry) appendHistoryLocked(ev *event.Event) {
-	if ev.Replay {
-		for _, existing := range e.history {
-			if existing.Type == ev.Type && existing.Text == ev.Text && existing.ToolID == ev.ToolID && existing.AgentSessionID == ev.AgentSessionID {
-				return
-			}
-		}
+	if ev.Replay && e.hasReplayDuplicateLocked(ev) {
+		return
 	}
 	switch {
 	case ev.Type == event.TypeTranscriptRemove && ev.NativeMessageID != "":
@@ -220,9 +230,102 @@ func (e *entry) appendHistoryLocked(ev *event.Event) {
 	e.seq++
 	ev.Seq = e.seq
 	e.history = append(e.history, *ev)
+	e.indexReplayLocked(len(e.history) - 1)
 	if len(e.history) > historyBufferCap {
 		e.history = slices.Delete(e.history, 0, len(e.history)-historyTrimTo)
+		e.rebuildReplayIndexLocked()
 	}
+}
+
+// replayFieldSep separates the fields folded into a replay key. Unit Separator
+// cannot occur in an event type, a tool id or an agent session id, so no two
+// distinct field tuples can produce the same byte sequence by concatenation.
+const replayFieldSep = 0x1F
+
+const (
+	fnvOffset64 uint64 = 14695981039346656037
+	fnvPrime64  uint64 = 1099511628211
+)
+
+func fnv1aString(h uint64, s string) uint64 {
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= fnvPrime64
+	}
+	return h
+}
+
+func fnv1aByte(h uint64, b byte) uint64 {
+	h ^= uint64(b)
+	h *= fnvPrime64
+	return h
+}
+
+// replayKey folds the exact four fields the replay dedupe compares — Type,
+// Text, ToolID, AgentSessionID, in that order — into one hash. It allocates
+// nothing: the loop reads the strings directly rather than concatenating them.
+func replayKey(ev *event.Event) uint64 {
+	h := fnvOffset64
+	h = fnv1aString(h, string(ev.Type))
+	h = fnv1aByte(h, replayFieldSep)
+	h = fnv1aString(h, ev.Text)
+	h = fnv1aByte(h, replayFieldSep)
+	h = fnv1aString(h, ev.ToolID)
+	h = fnv1aByte(h, replayFieldSep)
+	h = fnv1aString(h, ev.AgentSessionID)
+	return h
+}
+
+// hasReplayDuplicateLocked reports whether the ring already holds ev, by the
+// same four-field identity the pre-index scan used.
+//
+// A hash hit is confirmed field by field before anything is discarded. A 64-bit
+// collision is astronomically unlikely, but the failure it would cause —
+// silently dropping a user's message during a session/load — is exactly the
+// defect this record exists to fix, so it is not left to probability.
+func (e *entry) hasReplayDuplicateLocked(ev *event.Event) bool {
+	for _, i := range e.replayIndex[replayKey(ev)] {
+		if i < 0 || i >= len(e.history) {
+			continue
+		}
+		e.replayCompares++
+		h := &e.history[i]
+		if h.Type == ev.Type && h.Text == ev.Text &&
+			h.ToolID == ev.ToolID && h.AgentSessionID == ev.AgentSessionID {
+			return true
+		}
+	}
+	return false
+}
+
+// indexReplayLocked records the event at position i in the replay index.
+func (e *entry) indexReplayLocked(i int) {
+	if i < 0 || i >= len(e.history) {
+		return
+	}
+	if e.replayIndex == nil {
+		e.replayIndex = make(map[uint64][]int)
+	}
+	k := replayKey(&e.history[i])
+	e.replayIndex[k] = append(e.replayIndex[k], i)
+}
+
+// rebuildReplayIndexLocked recomputes the index from the ring. Every deletion
+// and every trim shifts positions, and a stale position is a wrong answer
+// rather than a slow one, so the index is rebuilt rather than patched. It is
+// O(len(history)) and runs only on a trim or a native-identity removal, both of
+// which are rare next to appends.
+func (e *entry) rebuildReplayIndexLocked() {
+	if len(e.history) == 0 {
+		e.replayIndex = nil
+		return
+	}
+	idx := make(map[uint64][]int, len(e.history))
+	for i := range e.history {
+		k := replayKey(&e.history[i])
+		idx[k] = append(idx[k], i)
+	}
+	e.replayIndex = idx
 }
 
 // removeNativeLocked deletes history rows by native identity. An empty partID
@@ -232,6 +335,7 @@ func (e *entry) removeNativeLocked(messageID, partID string) {
 	if messageID == "" {
 		return
 	}
+	before := len(e.history)
 	e.history = slices.DeleteFunc(e.history, func(h event.Event) bool {
 		if h.NativeMessageID != messageID {
 			return false
@@ -245,6 +349,9 @@ func (e *entry) removeNativeLocked(messageID, partID string) {
 		}
 		return h.NativePartID == partID
 	})
+	if len(e.history) != before {
+		e.rebuildReplayIndexLocked()
+	}
 }
 
 // removeOptimisticUserLocked drops the message-level user row the daemon wrote
@@ -253,11 +360,15 @@ func (e *entry) removeOptimisticUserLocked(messageID string) {
 	if messageID == "" {
 		return
 	}
+	before := len(e.history)
 	e.history = slices.DeleteFunc(e.history, func(h event.Event) bool {
 		return h.Type == event.TypeUserMessage &&
 			h.NativeMessageID == messageID &&
 			h.NativePartID == ""
 	})
+	if len(e.history) != before {
+		e.rebuildReplayIndexLocked()
+	}
 }
 
 // EventHandler is called for every session event (e.g. WS broadcast).
@@ -845,13 +956,18 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 			return Meta{}, ErrShuttingDown
 		}
 	}
-	m.sessions[sess.ID()] = &entry{
+	seeded := &entry{
 		meta:    meta,
 		sess:    sess,
 		cancel:  cancel,
 		history: priorHist,
 		seq:     priorSeq,
 	}
+	// The ring is seeded from disk before any append, so the replay index has
+	// to be built from it. Without this a session/load right after a restart
+	// would re-append the whole durable transcript as "new".
+	seeded.rebuildReplayIndexLocked()
+	m.sessions[sess.ID()] = seeded
 	m.mu.Unlock()
 	m.clearPurged(sess.ID())
 
@@ -1424,8 +1540,10 @@ func (m *Manager) Claim(sessionID, deviceID string) (Meta, error) {
 // (Phase D). An unknown or never-active session returns an empty (non-nil)
 // slice, not an error.
 //
-// Wire clients should prefer HistoryPage / HistoryPageFor so one response stays
-// within historyMaxResponseBytes (Phase 3.5).
+// Wire clients must use HistoryPage / HistoryPageFor instead. This copies the
+// whole ring, which is bounded by an event count today and by a byte budget
+// after MADR 0138 Phase 2 — at that size a full copy per request is the most
+// expensive thing a phone can ask the daemon to do.
 //
 // Callers that enforce ownership should use Authorize before History, or
 // HistoryFor / HistoryPageFor.
@@ -1461,64 +1579,109 @@ func (m *Manager) HistoryPage(id string, sinceSeq uint64, limit int) (events []e
 		limit = historyMaxPage
 	}
 
-	ring := m.historyRing(id)
-	if len(ring) == 0 {
+	window, more := m.historySlice(id, sinceSeq, limit)
+	if len(window) == 0 {
 		return []event.Event{}, false, 0
 	}
 
-	// Skip events at or below sinceSeq.
-	start := 0
-	if sinceSeq > 0 {
-		for start < len(ring) && ring[start].Seq <= sinceSeq {
-			start++
-		}
-	}
-	if start >= len(ring) {
-		return []event.Event{}, false, 0
-	}
-
-	end := start + limit
-	if end > len(ring) {
-		end = len(ring)
-	}
-	// Soft byte budget: shrink end until the marshalled page payload fits
-	// (MADR 0056 M-1). Always allow at least one event.
-	for end > start {
-		page := ring[start:end]
-		b, err := json.Marshal(page)
-		if err != nil {
-			break
-		}
-		if len(b) <= historyMaxResponseBytes || end == start+1 {
-			break
-		}
-		end--
-	}
-
-	out := make([]event.Event, end-start)
-	copy(out, ring[start:end])
-	truncated = end < len(ring)
+	out := window[:historyBudgetPrefix(window)]
+	truncated = more || len(out) < len(window)
 	if len(out) > 0 {
 		nextSinceSeq = out[len(out)-1].Seq
 	}
 	return out, truncated, nextSinceSeq
 }
 
-// historyRing returns a copy of live memory history, or durable disk history.
-func (m *Manager) historyRing(id string) []event.Event {
+// historyMarshal encodes one event for the page byte budget.
+//
+// A package variable so a test can count how many times the budget encodes an
+// event; it is never reassigned in production. The count is the whole point:
+// the loop this replaced re-marshalled a shrinking slice, and on the operator's
+// own data that cost 505 marshals, 709 MB of allocation and 2.5 s to return 102
+// events (MADR 0138 F14). Only a call count distinguishes the two shapes
+// without timing them.
+var historyMarshal = func(ev *event.Event) ([]byte, error) { return json.Marshal(ev) }
+
+// historyBudgetPrefix returns how many leading events of window fit inside
+// historyMaxResponseBytes once encoded as a JSON array, encoding each candidate
+// exactly once.
+//
+// At least one event is always returned, so a single event larger than the
+// budget still makes progress instead of wedging the pager at that seq forever.
+func historyBudgetPrefix(window []event.Event) int {
+	if len(window) == 0 {
+		return 0
+	}
+	// "[" and "]".
+	total := 2
+	for i := range window {
+		b, err := historyMarshal(&window[i])
+		if err != nil {
+			// An event that will not encode cannot be measured. Keep what is
+			// already measured, and never return an empty page: the caller
+			// would read it as "no history" rather than "could not encode".
+			if i == 0 {
+				return 1
+			}
+			return i
+		}
+		sep := 0
+		if i > 0 {
+			// ",".
+			sep = 1
+		}
+		if i > 0 && total+sep+len(b) > historyMaxResponseBytes {
+			return i
+		}
+		total += sep + len(b)
+	}
+	return len(window)
+}
+
+// historySlice returns up to max events with Seq > sinceSeq, plus whether more
+// remained after them. It copies only the candidate window, not the whole ring:
+// at a 32 MiB per-session budget a full-ring copy per paged read would dominate
+// every history request (MADR 0138, amendment step 1).
+//
+// The live ring is ordered by Seq ascending — appends are monotonic and the
+// deletion paths preserve order — so the start is found by binary search.
+// Deletions leave gaps in the sequence, which a search for "first Seq greater
+// than sinceSeq" handles and an equality search would not.
+func (m *Manager) historySlice(id string, sinceSeq uint64, max int) (window []event.Event, more bool) {
+	if max <= 0 {
+		return nil, false
+	}
 	m.mu.RLock()
 	e, ok := m.sessions[id]
 	if ok && !e.dead && len(e.history) > 0 {
-		out := make([]event.Event, len(e.history))
-		copy(out, e.history)
+		start := historyStartIndex(e.history, sinceSeq)
+		end := min(start+max, len(e.history))
+		out := make([]event.Event, end-start)
+		copy(out, e.history[start:end])
+		more = end < len(e.history)
 		m.mu.RUnlock()
-		return out
+		return out, more
 	}
 	m.mu.RUnlock()
 	if m.store == nil {
-		return nil
+		return nil, false
 	}
-	return m.store.LoadHistory(id)
+	disk := m.store.LoadHistory(id)
+	start := historyStartIndex(disk, sinceSeq)
+	if start >= len(disk) {
+		return nil, false
+	}
+	end := min(start+max, len(disk))
+	return disk[start:end], end < len(disk)
+}
+
+// historyStartIndex returns the first index in ring whose Seq exceeds sinceSeq,
+// or len(ring) when none does.
+func historyStartIndex(ring []event.Event, sinceSeq uint64) int {
+	if sinceSeq == 0 {
+		return 0
+	}
+	return sort.Search(len(ring), func(i int) bool { return ring[i].Seq > sinceSeq })
 }
 
 // HistoryFor returns the full history ring after an ownership check (no claim).
