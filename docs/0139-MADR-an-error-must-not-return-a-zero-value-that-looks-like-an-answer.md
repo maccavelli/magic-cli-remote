@@ -145,6 +145,13 @@ from unverified instruments:
 * **Which of the two states CI was in is unknown.** The output cannot say, which
   is the whole point of this record. It is one of the two and cannot be narrowed
   further from the evidence that exists.
+
+  **Superseded 2026-09-04:** it can, with a different experiment. It was the
+  write-failure state, triggered by a defect in this repository's own test
+  helper — see
+  [0140-MADR](0140-MADR-a-test-helper-was-closing-stdin-and-corrupting-unrelated-files.md).
+  This record's decision is unaffected: naming the failure state is what made
+  that reproduction legible in the first place.
 * **The failure was not reproduced.** 38 local attempts on macOS — 20 filtered,
   6 full-package shuffled, 12 in the specific test ordering — all `-race`, all
   clean. Linux container attempts are discounted for the reason above.

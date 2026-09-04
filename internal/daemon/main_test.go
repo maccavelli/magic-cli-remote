@@ -3,6 +3,8 @@ package daemon
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"syscall"
 	"testing"
 )
 
@@ -44,7 +46,41 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
+	fd0Open := standardFDOpen()
+
 	code := m.Run()
 	_ = os.RemoveAll(dir)
+
+	// Finalizers are the whole failure mode, so collect before checking: a
+	// descriptor leaked into an *os.File is not closed until its wrapper is
+	// collected, and a check that runs first sees nothing wrong.
+	runtime.GC()
+	runtime.GC()
+
+	if fd0Open && !standardFDOpen() {
+		fmt.Fprintln(os.Stderr, fdZeroClosedMessage)
+		if code == 0 {
+			code = 1
+		}
+	}
 	os.Exit(code)
+}
+
+// fdZeroClosedMessage explains a failure whose victim is never its cause.
+const fdZeroClosedMessage = "daemon tests: file descriptor 0 was open before this package ran and is closed now.\n" +
+	"Something here wrapped a standard descriptor in an os.File. os.NewFile's first argument\n" +
+	"is a descriptor, not a path, and it attaches a finalizer that closes it; the descriptor is\n" +
+	"then reused by the next file opened in the process and closed underneath its owner, which\n" +
+	"surfaces as `bad file descriptor` on an unrelated test. See MADR 0140.\n" +
+	"Use io.Discard or slog.DiscardHandler instead."
+
+// standardFDOpen reports whether file descriptor 0 is still a live descriptor.
+//
+// Deliberately fd 0 and not "a descriptor we opened": this guards process state
+// that one test helper can corrupt for every other test in the package, which
+// is exactly the class that went unnoticed because its victims were always
+// somewhere else (MADR 0140).
+func standardFDOpen() bool {
+	var st syscall.Stat_t
+	return syscall.Fstat(0, &st) == nil
 }

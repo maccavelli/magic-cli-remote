@@ -11,8 +11,20 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
+// quietLog is a logger that produces no output.
+//
+// It must not name a file descriptor. This read
+// `os.NewFile(0, os.DevNull)`, whose first argument is a *descriptor* and whose
+// second is only a label: it wrapped the process's own **stdin** and called it
+// /dev/null. os.NewFile attaches a closing finalizer
+// ($GOROOT/src/os/file_unix.go:225), so every call left an object whose
+// collection closed fd 0 — after which the next file opened in the process was
+// handed that descriptor and the next finalizer closed it underneath its owner.
+//
+// The result was `bad file descriptor` on arbitrary syscalls in arbitrary tests
+// across this package, for years, misattributed to the host (MADR 0140).
 func quietLog() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.NewFile(0, os.DevNull), &slog.HandlerOptions{Level: slog.LevelError}))
+	return slog.New(slog.DiscardHandler)
 }
 
 // TestGuardIsAbsentWhenNoTransactionalProviderIsEnabled proves a host running

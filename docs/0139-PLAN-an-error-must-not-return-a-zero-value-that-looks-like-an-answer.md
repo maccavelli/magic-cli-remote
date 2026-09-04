@@ -151,15 +151,15 @@ make pre-add-check FILES="internal/provider/goose/keyring.go \
 go test -race ./internal/... ./cmd/... -count=1
 ```
 
-Plus repeated independent runs of the affected package:
+Plus stress on the affected package:
 
 ```bash
-for i in $(seq 1 8); do go test -race -count=1 -shuffle=on ./internal/daemon/; done
+go test -race -count=25 -shuffle=on ./internal/daemon/
 ```
 
-**Not** `-count=25` in one process. That was this plan's original verification
-command and it is not a usable gate on the development host — see the execution
-record.
+This command was weakened during execution because it failed — see the
+execution record's deviation, and the correction below it. The cause was found
+and fixed in MADR 0140, and the original command is restored.
 
 ### Fail-first evidence required
 
@@ -347,3 +347,36 @@ change it would have printed `outcome = `.
 All seven steps executed. One deviation, recorded above: the plan's own
 verification command was wrong, and the correction is a weaker but honest gate
 plus a named, out-of-scope host condition.
+
+### Correction, 2026-09-04: the EBADF failures were ours, not the host's
+
+The deviation above attributes the `bad file descriptor` failures to "a
+host-level transient EBADF against the temp directory under `-race`,
+pre-existing, and randomly targeted", and weakens this plan's verification
+command because of it.
+
+**The observations were right and the conclusion was wrong.** The cause is one
+line of this repository's own test code: `quietLog` wrapped file descriptor 0 —
+the process's stdin — in an `*os.File`, whose finalizer closed it on collection.
+The freed descriptor was then handed to the next file opened in the process and
+closed again by the next finalizer, which is why the victim and the syscall were
+always random. Full analysis in
+[0140-MADR-a-test-helper-was-closing-stdin-and-corrupting-unrelated-files.md](0140-MADR-a-test-helper-was-closing-stdin-and-corrupting-unrelated-files.md).
+
+Two consequences for this record:
+
+* **The unidentified trigger is identified.** This plan's MADR states that
+  "which of the two states CI was in is unknown". It was the **write-failure**
+  state, caused by that bug. Restoring the line and running the stress command
+  reproduces the original failure by name:
+  `TestReconcileGooseKeyringSwitches … write …/config.yaml: bad file descriptor`.
+
+* **The verification command is restored**, because it now passes — three
+  consecutive clean runs of `-count=25 -shuffle=on` after the fix, against a
+  100% failure rate before it.
+
+The baseline experiment that produced the wrong conclusion was itself sound:
+`git archive HEAD` did fail identically, because the bug predates that commit
+too. What went wrong was the inference — "not caused by this change" was read as
+"not caused by this repository", and the investigation stopped one question
+early.
