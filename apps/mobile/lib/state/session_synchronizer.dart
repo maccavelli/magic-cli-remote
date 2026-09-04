@@ -153,7 +153,18 @@ class SessionSynchronizer extends Notifier<int> {
         final need = force || gap || last > 0;
         if (!need) continue;
         try {
-          final events = await client.sessionHistory(id);
+          // The newest page, not a forward walk from the oldest event. The
+          // walk is bounded at kHistoryMaxPages x kHistoryFetchLimit = 6,400
+          // events counted from the *oldest*, so on a longer session it
+          // returned the beginning of the conversation and never its end
+          // (MADR 0141 F2 — a 900-turn session opened on turn 291).
+          //
+          // It also has to move in lockstep with the chat-open path below:
+          // resyncHistory rebuilds from whatever it is handed, and its
+          // missedOlder branch would happily rebuild a backward-paged
+          // transcript down to the oldest events while the user was reading
+          // the newest.
+          final events = (await client.sessionHistoryNewest(id)).events;
           if (gen != _generation) return;
           if (events.isEmpty) continue;
           final local = ref.read(transcriptsProvider).peek(id);
@@ -197,7 +208,8 @@ class SessionSynchronizer extends Notifier<int> {
     final client = ref.read(mcremoteClientProvider);
     final transcripts = ref.read(transcriptsProvider.notifier);
     try {
-      final events = await client.sessionHistory(sessionId);
+      // Newest page: see resync above. These two call sites must not diverge.
+      final events = (await client.sessionHistoryNewest(sessionId)).events;
       final local = ref.read(transcriptsProvider).peek(sessionId);
       if (local == null || local.items.isEmpty) {
         await transcripts.replayHistory(sessionId, events);

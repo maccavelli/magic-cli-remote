@@ -165,7 +165,14 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
   int debugLastSeq(String sessionId) => _lastSeq[sessionId] ?? 0;
 
   @visibleForTesting
-  int debugFirstSeq(String sessionId) => _firstSeq[sessionId] ?? 0;
+  int debugFirstSeq(String sessionId) => oldestSeq(sessionId);
+
+  /// The oldest seq this client currently holds for [sessionId], or 0 when it
+  /// holds nothing.
+  ///
+  /// This is the cursor for backward paging: the next older page is everything
+  /// before it (MADR 0141).
+  int oldestSeq(String sessionId) => _firstSeq[sessionId] ?? 0;
 
   /// Whether [sessionId] carries a D8 tombstone (MADR 0094 D8 / 0095 F1).
   @visibleForTesting

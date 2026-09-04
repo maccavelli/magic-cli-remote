@@ -371,3 +371,69 @@ flutter test                                              -> 1410 passed
 ```
 
 Phase 2 is inert: nothing calls `prependHistory` until Phase 3.
+
+### Phase 3 — 2026-09-04, complete
+
+**3.1** Both history call sites in `session_synchronizer.dart` now fetch the
+newest page. They moved together, as the plan required: leaving the periodic
+resync on the forward walk would have handed `resyncHistory` the oldest events,
+and its `missedOlder` branch would have rebuilt a backward-paged transcript down
+to the beginning while the user was reading the end. `R5` is that hazard as a
+test.
+
+With the newest page, resync is a **no-op** for a paged-back transcript:
+`minSeq` is 19,601 against a local `_firstSeq` of 300, so `missedOlder` is false
+and `missedNewer` is false, and it returns early. The clobber cannot happen.
+
+**3.2** `_onScroll` triggers `_loadOlderHistory` one viewport before
+`maxScrollExtent` — the oldest end of a `reverse: true` list — so the page lands
+before the user arrives. Bounded three ways: a single-flight latch (a fling
+crosses the trigger band many times in a few frames), `kHistoryMaxPages` per
+screen, and the daemon's `prevBeforeSeq` going null at the oldest retained
+event. A failed page does not latch the screen shut; scrolling away and back
+retries.
+
+**3.3** The `(800)` in `mcremote_client.dart:3473` is now `(200)`.
+
+**3.4** `test/backward_paging_wired_test.dart` scans `lib/` and fails if
+`sessionHistoryNewest` has no production caller, or if a forward walk reappears
+in the synchronizer. The defect this record exists for was an **absence**, and
+no test that exercises code can see an absence.
+
+A public `TranscriptsNotifier.oldestSeq` replaced a reach into the
+`@visibleForTesting` `debugFirstSeq`, which the analyzer correctly rejected.
+
+### An existing test's fake was updated, deliberately
+
+`test/session_synchronizer_test.dart`'s fake client overrode `sessionHistory`
+only, so four tests failed against the real (unconnected) client once the
+synchronizer moved. The fake gained a `sessionHistoryNewest` override returning
+the same canned events as a `HistoryPage`, and incrementing the same
+`historyCalls` counter so every existing assertion keeps measuring what it
+measured before. The contract changed on purpose; the fake follows it.
+
+### Fail-first evidence — two breakages, on a scratch copy
+
+```text
+R5. the synchronizer left on the forward walk
+    FAIL the forward walk is no longer what a chat opens on
+         Expected: false  Actual: <true>
+         a forward walk left in the synchronizer would hand resyncHistory the
+         oldest events, and its missedOlder branch would rebuild a
+         backward-paged transcript down to the beginning …
+
+R6. the production callers removed
+    FAIL sessionHistoryNewest has a production caller
+         Expected: non-empty  Actual: []
+         nothing in lib/ calls sessionHistoryNewest …
+```
+
+`R6` is the regression that produced this whole record, reproduced on demand.
+
+### Verification
+
+```text
+dart format --output=none --set-exit-if-changed lib test  -> 210 files, 0 changed
+flutter analyze                                           -> No issues found
+flutter test                                              -> 1412 passed
+```

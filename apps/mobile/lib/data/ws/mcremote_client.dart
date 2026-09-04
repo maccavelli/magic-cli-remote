@@ -3470,7 +3470,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   ///
   /// Auto-pages while `truncated` is true (byte soft-cap or page size) so the
   /// phone gets the full host ring, not only the first ~512 KiB (MADR 0018 E4).
-  /// [limit] defaults to [kHistoryFetchLimit] (800).
+  /// [limit] defaults to [kHistoryFetchLimit] (200).
   Future<List<SessionEvent>> sessionHistory(
     String sessionId, {
     int limit = kHistoryFetchLimit,
