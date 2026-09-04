@@ -2508,14 +2508,50 @@ func shortAny(v any, max int) string {
 	}
 }
 
-// rawRequest sends a JSON-RPC request over the ACP connection and decodes the result into out.
-// Used for methods acp-go-sdk@v0.13.5 does not model (session/set_model, _x.ai/session/fork).
+// isExtensionMethod reports whether method is an ACP extension method.
+//
+// The protocol reserves the leading underscore for them, and the SDK enforces
+// it: CallExtension refuses anything without one. That is also what decides
+// which transport rawRequest uses below.
+func isExtensionMethod(method string) bool { return strings.HasPrefix(method, "_") }
+
+// rawConnOf reaches the SDK's underlying transport, for the standard methods
+// that have no public raw path.
+//
+// A var rather than an inline expression because the routing in rawRequest is
+// otherwise unobservable: both transports emit byte-identical JSON-RPC, so no
+// test can tell them apart by watching the wire. It can tell them apart by
+// watching whether this is called (MADR 0138 Phase 9, M5).
+var rawConnOf = func(c *acp.ClientSideConnection) *acp.Connection {
+	// Sound only because `conn` is the first field of ClientSideConnection.
+	return *(**acp.Connection)(unsafe.Pointer(c))
+}
+
+// rawRequest sends a JSON-RPC request over the ACP connection and decodes the
+// result into out. Used for methods acp-go-sdk@v0.13.5 does not model
+// (session/set_model, session/resume, _x.ai/*).
+//
+// Two transports, chosen by the method name:
+//
+//   - Extension methods (`_`-prefixed) go through the SDK's public
+//     CallExtension.
+//   - Standard methods have no public raw path, so they reach the connection by
+//     casting through unsafe.Pointer. That works only because `conn` is the
+//     first field of acp.ClientSideConnection; a field reorder upstream would
+//     silently read the wrong pointer, which is why the extension methods — the
+//     ones that have a supported API — no longer take this route
+//     (MADR 0138 Phase 9).
 func (s *session) rawRequest(ctx context.Context, method string, params any, out any) error {
 	if s.conn == nil {
 		return errors.New("no active connection")
 	}
-	rawConn := *(**acp.Connection)(unsafe.Pointer(s.conn))
-	rawResp, err := acp.SendRequest[json.RawMessage](rawConn, ctx, method, params)
+	var rawResp json.RawMessage
+	var err error
+	if isExtensionMethod(method) {
+		rawResp, err = s.conn.CallExtension(ctx, method, params)
+	} else {
+		rawResp, err = acp.SendRequest[json.RawMessage](rawConnOf(s.conn), ctx, method, params)
+	}
 	if err != nil {
 		return err
 	}

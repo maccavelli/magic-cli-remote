@@ -805,6 +805,37 @@ binds this work unchanged.
 * Bad, because it leaves the surface gap uncharacterised, which is the part of
   the brief that asked for an overhaul rather than a patch.
 
+## Amendment, 2026-09-04: F7's table conflates two interfaces that grok cannot both satisfy
+
+F7's surface-gap table lists one row as
+
+| `RevertSession` / `UndoSession` | `x.ai/rewind/points`, `x.ai/rewind/execute`, `x.ai/restore_code` |
+
+The slash reads as "either would do". Phase 9 read the grok source and it does
+not: **grok can satisfy `UndoSession` and cannot satisfy `RevertSession`.**
+
+`Revert(messageID, partID)` needs a provider-native message id and grok emits
+none — its rewind is indexed by prompt position — and `RevertSession` also
+requires `Unrevert`, for which grok has no method at all. So the row should read
+`UndoSession` only, and `/redo` stays unavailable on grok.
+
+That correction has a consequence the record did not anticipate. Every
+`UndoSession` in this repository was also a `RevertSession` — `httpagent`
+(kilo, opencode) and `fake` — so `internal/session/commands.go:630` could end
+every successful undo with *"/redo restores it."* and always be right. grok is
+the first provider for which that sentence is false, and enabling undo on it
+made the daemon offer a command it immediately refuses. The notice is now
+conditional on the same `RevertSession` assertion `OpRedo` is derived from; the
+deviation and its evidence are recorded in the plan.
+
+The wider assumption worth writing down: **an optional-interface table is not a
+menu.** Two interfaces grouped by what they do for the user can have entirely
+different requirements of the engine, and grouping them hid the fact that
+picking one of the two changes daemon behaviour elsewhere.
+
+`x.ai/restore_code` remains unread and unwired; the row's third method is
+therefore still a gap, not a decline.
+
 ## More Information
 
 Everything below was produced during this pass on 2026-09-03 against

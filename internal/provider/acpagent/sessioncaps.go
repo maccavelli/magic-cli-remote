@@ -2,7 +2,6 @@ package acpagent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -138,36 +137,32 @@ func (s *session) connOrNil() *acp.ClientSideConnection {
 	return s.conn
 }
 
-// callAgentExtension issues one grok `x.ai/*` extension request and returns its
-// raw result.
+// callAgentExtension issues one grok `x.ai/*` extension request and decodes its
+// result into out.
 //
 // Outbound, client to agent — the mirror of HandleExtensionMethod, which serves
-// the requests grok makes of *us*.
+// the requests grok makes of *us*. It adds the `_` the wire requires (grok's
+// own dispatch table spells these without it) and delegates the transport to
+// rawRequest, so there is one JSON-RPC path in this package rather than two.
 //
-// grok routes seventy such methods (`ext_method` in
-// xai-grok-shell/src/agent/mvp_agent/acp_agent.rs), and mcremote issued exactly
-// one of them before this (MADR 0138 F7). There is no capability block that
-// enumerates them, so "supported" is answered the only way the wire allows:
-// call it, and read a JSON-RPC method-not-found as "this build does not have
-// it" rather than as a failure worth showing anyone.
-func callAgentExtension(ctx context.Context, s *session, method string, params any) (json.RawMessage, error) {
-	conn := s.connOrNil()
-	if conn == nil {
-		return nil, errors.New("session is not connected")
+// grok publishes no list of its seventy ext methods, so "supported" is answered
+// the only way the wire allows: call it, and read a JSON-RPC method-not-found
+// as "this build does not have it" rather than as a failure worth showing
+// anyone.
+func callAgentExtension(ctx context.Context, s *session, method string, params any, out any) error {
+	if s.connOrNil() == nil {
+		return errors.New("session is not connected")
 	}
 	callCtx, cancel := context.WithTimeout(ctx, extCallTimeout)
 	defer cancel()
 
-	// ACP extension methods are named with a leading underscore on the wire;
-	// grok's dispatch table spells them without it.
-	raw, err := conn.CallExtension(callCtx, "_"+method, params)
-	if err != nil {
+	if err := s.rawRequest(callCtx, "_"+method, params, out); err != nil {
 		if isMethodNotFound(err) {
-			return nil, fmt.Errorf("%w: agent has no %s", provider.ErrNotImplemented, method)
+			return fmt.Errorf("%w: agent has no %s", provider.ErrNotImplemented, method)
 		}
-		return nil, fmt.Errorf("%s: %w", method, err)
+		return fmt.Errorf("%s: %w", method, err)
 	}
-	return raw, nil
+	return nil
 }
 
 // isMethodNotFound reports whether err is JSON-RPC -32601.
@@ -233,10 +228,9 @@ func (s *session) Compact(ctx context.Context) error {
 	if agentID == "" {
 		return errors.New("session has no agent session id")
 	}
-	_, err := callAgentExtension(ctx, s, "x.ai/compact_conversation", map[string]any{
+	return callAgentExtension(ctx, s, "x.ai/compact_conversation", map[string]any{
 		"sessionId": agentID,
-	})
-	return err
+	}, nil)
 }
 
 // Rename implements provider.RenameSession over grok's `x.ai/session/rename`.
@@ -249,9 +243,8 @@ func (s *session) Rename(ctx context.Context, title string) error {
 	if agentID == "" {
 		return errors.New("session has no agent session id")
 	}
-	_, err := callAgentExtension(ctx, s, "x.ai/session/rename", map[string]any{
+	return callAgentExtension(ctx, s, "x.ai/session/rename", map[string]any{
 		"sessionId": agentID,
 		"title":     title,
-	})
-	return err
+	}, nil)
 }

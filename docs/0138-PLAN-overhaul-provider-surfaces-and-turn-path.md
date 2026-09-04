@@ -1900,10 +1900,210 @@ that already arrives.
    read-only query — but it does need a live grok session, so it runs only with
    the owner's say-so.
 
-### Not started
+### Deviation — 2026-09-04: enabling undo on grok made a standing notice untrue
 
-This amendment is the research and the plan. **No code has been written for
-Phase 9.** The shapes above are transcribed from
-`~/gitrepos/grok-build` at `SOURCE_REV`, and the one thing they cannot settle is
-whether grok 1.0.13 as installed behaves as its source says — which is what
-acceptance 6 is for.
+*What was found.* `internal/session/commands.go:630` ends every successful undo
+with `"Undid the last turn — %s. /redo restores it."`. The clause landed in
+`75236ba` (2026-07-25) and was correct then: every `UndoSession` in the tree —
+`httpagent` (kilo, opencode) and `fake` — is also a `RevertSession`.
+
+Phase 9 makes grok the **first provider with undo and no redo**. The capability
+advertisement is already right — `commands.go:74` derives `OpRedo` from
+`RevertSession`, so the phone hides the control — but the notice text does not
+consult it, so grok's undo advertises a `/redo` that the same daemon then
+refuses with *"This agent can't redo a turn."*
+
+That directly contradicts this amendment's own decision: *"`/redo` stays
+unavailable on grok: there is no un-rewind, and claiming one would be worse than
+the honest 'this agent can't'."* The defect is caused by this phase — before it,
+the notice never fired for a provider that could not redo.
+
+*Why it is a deviation.* `internal/session/commands.go` is not in Phase 9's file
+list. Confirmed untouched before the fix: `git status` showed only the four
+`internal/provider/acpagent` files as modified.
+
+*Resolution chosen.* Condition the clause on the same interface `OpRedo` uses:
+
+```go
+summary = "Undid the last turn — " + summary + "."
+if _, ok := sess.(provider.RevertSession); ok {
+    summary += " /redo restores it."
+}
+```
+
+kilo and opencode keep the hint, which is true for them; grok's notice stops
+promising what it cannot do. The alternative — dropping the clause for everyone
+— was rejected because it removes a correct hint from the providers that do
+support redo in order to fix one that does not.
+
+*Scope added to Phase 9.* `internal/session/commands.go` and a test in
+`internal/session` covering both branches.
+
+### ~~Not started~~ — executed 2026-09-04
+
+~~This amendment is the research and the plan. **No code has been written for
+Phase 9.**~~ Executed in full; the record follows. The shapes above were
+transcribed from `~/gitrepos/grok-build`, and acceptance 6 has now checked them
+against grok 1.0.13 as installed.
+
+**9.1** `rawRequest` (`internal/provider/acpagent/session.go`) routes
+`_`-prefixed methods through the SDK's public
+`ClientSideConnection.CallExtension` and keeps the `unsafe.Pointer` cast only
+for the three standard methods that have no public raw path — `initialize`,
+`session/set_model`, `session/resume`.
+
+*Departure from the step as written.* The step says `callAgentExtension` "is
+folded into it and deleted". It is folded in but **not deleted**: it survives as
+a ten-line policy wrapper over `rawRequest` that adds the `_` prefix, the
+`extCallTimeout` bound, and the `-32601 → provider.ErrNotImplemented` mapping.
+Deleting it would have pushed those three concerns into all four extension call
+sites. The step's stated net effect holds — one transport helper, no `unsafe` on
+the extension path, and Phase 8's duplicate transport gone.
+
+The unsafe cast moved behind a package var, `rawConnOf`. That is not
+decoration: the two transports emit byte-identical JSON-RPC — `CallExtension`
+is a name check followed by the same `SendRequest` — so the routing is
+**unobservable on the wire**, and M5 could not otherwise be written. Counting
+calls to `rawConnOf` is what makes the route testable.
+
+**9.2** `internal/provider/acpagent/rewind.go` implements `provider.UndoSession`
+as the two calls the amendment specifies, with `mode: "all"` explicit and
+`force: false` always, and snake_case response tags. `rewindFailure` names the
+conflicting paths and their `conflict_type`; `rewindSummary` reports the
+reverted-file count and the `prompt_preview` of the prompt it undid.
+
+grok is the only provider built on `acpagent`
+(`acpagent.New` has exactly two callers, both in `internal/provider/grok`), so
+the unconditional `var _ provider.UndoSession = (*session)(nil)` grants undo to
+grok and nothing else. `internal/session/commands.go` derives `OpUndo` from that
+interface, so `/undo` became available to grok with no wiring — which is also
+what surfaced the deviation recorded above.
+
+**9.3** 8.2f and 8.2g remain declined, unchanged.
+
+### Fail-first evidence — six breakages, each on a scratch copy
+
+Run against `$SCRATCH/p9`, an rsync of the tree excluding `.git`. The working
+tree was never dirtied: `git status` showed only the phase's own files
+throughout. Every edit script asserts its own edit landed **by re-reading the
+file from disk**, because a search-and-replace that matches nothing still exits
+zero — one of them fired on the first attempt (see below).
+
+```text
+M1. rewindExecuteRequest declares no `mode` field
+    FAIL TestUndoLastSendsModeAllAndNeverForces
+         the rewind body omits `mode`. grok defaults it to All — the mode that
+         rolls back the operator's files …
+
+M2. Force: true
+    FAIL TestUndoLastSendsModeAllAndNeverForces
+         force = true, want false: forcing discards edits made since that turn
+
+M3. rewindExecuteResponse tagged camelCase (only that struct)
+    FAIL TestUndoLastDecodesSnakeCaseResponses
+         summary = "Undid the last turn; no files had changed (\"prompt 7\")"
+         — reverted_files did not decode. That is what a casing mismatch looks
+         like from here: no error, just zeros
+
+M4. UndoLast no longer inspects res.Success
+    FAIL TestUndoLastReportsConflictsAndRevertsNothing
+         a rewind that reported success=false returned the summary
+         "Undid the last turn; no files had changed (\"prompt 2\")"
+    FAIL TestUndoLastCarriesAnEngineErrorMessage   err = <nil>
+
+M5. rawRequest always takes the unsafe cast
+    FAIL TestExtensionMethodsDoNotTakeTheUnsafeTransport
+         extension methods went through the unsafe raw-connection cast:
+         [_x.ai/rewind/points+execute … _x.ai/session/fork]
+
+M6. fork's method name written without its underscore   (added, see below)
+    FAIL TestNoExtensionMethodIsWrittenWithoutItsUnderscore
+         fork.go:44:12: rawRequest("x.ai/session/fork") takes the unsafe
+         raw-connection cast, but … is not one of the three standard methods
+
+N1. the redo hint made unconditional again   (the deviation's fix)
+    FAIL TestUndoNoticeOffersRedoOnlyWhenThereIsOne
+         notice = "Undid the last turn — reverted 2 files. /redo restores it."
+         — it offers /redo to a session that cannot redo
+```
+
+**M1's first attempt proved the wrong thing, and the assertion caught it.** The
+edit script asserted `'json:"mode"' not in source` after removing the request
+field — but `rewindExecuteResponse` also carries a `mode` tag, so the assertion
+failed on a source file the edit had correctly modified. Re-run against the
+`rewindExecuteRequest` block alone, and re-read from disk. Had the assertion
+been written the other way round — checking only that *something* changed — the
+first run would have reported a fail-first that was really a no-op.
+
+**M3 was narrowed after its first run.** Switching every response tag to
+camelCase made the *points* response fail to decode first, so all four tests
+died on `nothing to undo in this session` — a real failure, but not the one the
+plan asks for. Isolated to `rewindExecuteResponse`, it produces exactly the
+predicted symptom: `no files had changed`, zero, no error.
+
+**M6 is an addition, not in the plan's list.** M5 pins the routing; it does not
+pin the *spelling*, and the mistake that actually reaches production is a new
+extension call written `x.ai/…` instead of `_x.ai/…`, which `rawRequest` would
+classify as standard and put back on the unsafe cast.
+`TestNoExtensionMethodIsWrittenWithoutItsUnderscore` parses the package with
+`go/ast` and asserts the set of methods reaching the unsafe path is exactly
+`{initialize, session/set_model, session/resume}`. It accepts
+`callAgentExtension`'s own `"_"+method` as prefixed by construction, and fails
+if it can see fewer than six call sites, so a scan that silently stops matching
+does not pass as a clean result.
+
+### Acceptance
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | two extension calls, `mode: "all"` and `force: false` in the second | **pass** — asserted on the captured wire body, and on the call list being exactly `[_x.ai/rewind/points _x.ai/rewind/execute]` |
+| 2 | a conflict produces an error naming the paths and reverts nothing | **pass** — `edited.go (content_mismatch)`, "nothing was reverted" |
+| 3 | an empty point list produces "nothing to undo in this session" | **pass** — and no `execute` is sent |
+| 4 | `unsafe.Pointer` unreached for any `_`-prefixed method, pinned over the call sites | **pass** — M5 (runtime) and M6 (`go/ast`, over all six sites) |
+| 5 | satisfies `UndoSession`, not `RevertSession` | **pass** |
+| 6 | live `_x.ai/rewind/points` decodes strictly against grok 1.0.13 | **pass, with a stated limit** — see below |
+
+```text
+go test -race ./internal/... ./cmd/... -count=1          -> ok (full tree)
+for os in windows linux darwin; go vet ./internal/... ./cmd/...  -> all clean
+go vet -tags live_grok ./internal/provider/acpagent/     -> clean
+make pre-add-check FILES=…                               -> 7 file(s) clean
+```
+
+### Acceptance 6, and what it does and does not establish
+
+Run against **grok 1.0.13 (5e9a58528b76) [stable]**, with the owner's
+approval. Read-only: it starts a session and queries rewind points, never
+prompts, and so spends no model tokens.
+
+```text
+_x.ai/rewind/points returned: {"rewind_points":[]}
+decoded 0 rewind points strictly
+```
+
+**Established.** The method exists on the installed binary, is reachable through
+`CallExtension`, and the top-level key is `rewind_points`. The last of those is
+not vacuous despite the empty array — `DisallowUnknownFields` rejects the wrong
+guess, verified directly against the captured payload:
+
+```text
+snake_case struct (what rewind.go uses): <nil>
+camelCase struct  (the wrong guess):     json: unknown field "rewind_points"
+```
+
+**Not established.** The array was empty, so the *element* shape —
+`prompt_index`, `created_at`, `num_file_snapshots`, `has_file_changes`,
+`prompt_preview` — is still confirmed only against grok's source, not against
+the binary. Populating it requires a real turn, which spends model tokens, so it
+was not done. `_x.ai/rewind/execute` was likewise never exercised live. The unit
+tests cover both shapes; what remains unproven is whether grok agrees with its
+own source about them.
+
+### One risk this phase accepts
+
+A grok build **older** than the rewind extension still advertises `/undo`,
+because `OpUndo` comes from a static interface assertion and the daemon cannot
+know what the binary supports until it asks. Such a build answers `-32601`, and
+the user sees `Undo failed: agent has no x.ai/rewind/points`. This matches how
+`/compact` and `/rename` already behave on the same transport, so it is left
+alone rather than fixed differently for one command.
