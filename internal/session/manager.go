@@ -124,16 +124,26 @@ type Meta struct {
 	// Empty means unknown — clients assume settable (MADR 0123 D7, C2).
 	// Reported by the live session; it is not persisted, because it is a
 	// property of the provider build in front of us, not of the record.
-	ThinkingMutability  provider.ThinkingMutability `json:"thinking_mutability,omitempty"`
-	ModeID              string                      `json:"mode_id,omitempty"`
-	CollaborationModeID string                      `json:"collaboration_mode_id,omitempty"`
-	PermissionProfileID string                      `json:"permission_profile_id,omitempty"`
-	ApprovalsReviewer   string                      `json:"approvals_reviewer,omitempty"`
-	ServiceTier         string                      `json:"service_tier,omitempty"`
-	Personality         string                      `json:"personality,omitempty"`
-	CWD                 string                      `json:"cwd,omitempty"`
-	AgentSessionID      string                      `json:"agent_session_id,omitempty"`
-	AgentSessionAliases []string                    `json:"agent_session_aliases,omitempty"`
+	ThinkingMutability provider.ThinkingMutability `json:"thinking_mutability,omitempty"`
+	// Cumulative token cost for this session, accrued at each turn end
+	// (MADR 0138 Phase 6). Unlike event.Usage, which is deliberately per-turn,
+	// these are session totals: the turn figure says what the last question
+	// cost, these say what the session has cost so far. Absent on a provider
+	// that reports no usage, and never guessed.
+	Turns        int   `json:"turns,omitempty"`
+	InputTokens  int64 `json:"input_tokens,omitempty"`
+	OutputTokens int64 `json:"output_tokens,omitempty"`
+	CachedTokens int64 `json:"cached_tokens,omitempty"`
+
+	ModeID              string   `json:"mode_id,omitempty"`
+	CollaborationModeID string   `json:"collaboration_mode_id,omitempty"`
+	PermissionProfileID string   `json:"permission_profile_id,omitempty"`
+	ApprovalsReviewer   string   `json:"approvals_reviewer,omitempty"`
+	ServiceTier         string   `json:"service_tier,omitempty"`
+	Personality         string   `json:"personality,omitempty"`
+	CWD                 string   `json:"cwd,omitempty"`
+	AgentSessionID      string   `json:"agent_session_id,omitempty"`
+	AgentSessionAliases []string `json:"agent_session_aliases,omitempty"`
 	// OwnerDeviceID is the paired device that created (or claimed) the session.
 	// Empty means legacy/unowned — visible to all devices until claimed (R4=B).
 	OwnerDeviceID string `json:"owner_device_id,omitempty"`
@@ -179,6 +189,11 @@ type entry struct {
 	// session was trimmed by the global budget, so a busy host does not repeat
 	// it on every event.
 	globalTrimNoticed bool
+	// ctxPressureNoticed is the highest context-pressure threshold already
+	// reported for this session, as a percentage. It is a crossing, not a
+	// level: a session that drops back below (a /compact, a /clear) re-arms,
+	// so the operator is told again the next time it climbs.
+	ctxPressureNoticed int
 	// replayIndex maps replayKey(ev) to the positions in history carrying that
 	// key, so a session/load replay can find a duplicate without scanning the
 	// ring. It indexes every event, not only replayed ones, because the scan it
@@ -1230,6 +1245,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// Sessions the global budget trimmed on this event. The notice is
 			// emitted after the lock is dropped, like advertiseCommands.
 			var globalTrimmed []string
+			// Context-pressure text for this turn, or empty. Same deal: built
+			// under the lock, emitted after it.
+			var ctxPressure string
 			m.mu.Lock()
 			e, mine := m.sessions[sess.ID()]
 			// Only touch (or broadcast for) the entry when it still belongs to
@@ -1348,6 +1366,10 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					turnRec = newTurnLatency(e, ev)
 					e.promptAt = time.Time{}
 					e.firstOutputAt = time.Time{}
+					if m := e.accrueTurnCostLocked(); m != nil {
+						persistMeta = m
+					}
+					ctxPressure = e.contextPressureLocked()
 				}
 				e.appendHistoryLocked(&ev)
 				e.lastEventAt = time.Now()
@@ -1402,6 +1424,14 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				// Outside the lock: resolution reads provider capabilities and
 				// emits its own event.
 				m.advertiseCommands(sess.ID())
+			}
+			if ctxPressure != "" {
+				m.emitEvent(sess.ID(), event.Event{
+					Type:      event.TypeNotice,
+					SessionID: sess.ID(),
+					Timestamp: time.Now().UTC(),
+					Text:      ctxPressure,
+				})
 			}
 			for _, trimmedID := range globalTrimmed {
 				// Outside the lock, and once per session: emitEvent takes m.mu

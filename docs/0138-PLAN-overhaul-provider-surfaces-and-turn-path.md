@@ -1246,3 +1246,106 @@ JSON for both delta methods through `handleNotification`, so the decode in
 `notifications.go` / `session.go` and the append lane it feeds are covered
 together — the same ground the fixture would have covered, without a capture.
 Verified to fail against the shipped code, as E1b above.
+
+### Phase 6 — 2026-09-03, complete
+
+**6.1 Context pressure (T1).** `internal/session/tokencost.go`. A notice at 75%
+and again at 90% of the model's context window, fired on a *crossing* and
+re-armed when usage drops back — a `/compact` should make the next climb worth
+reporting again. It names the numbers (`1,526,598 of 2,000,000`, thousands
+separators, because a seven-digit figure is unreadable without them) and offers
+the remedy.
+
+**Nothing is reported without a known window.** A provider that gives no `size`
+gets no notice rather than a percentage of an unknown denominator. The
+fail-first below shows what the guard prevents.
+
+**6.2 was already delivered, and is recorded rather than re-done.**
+`event.Usage` has carried `Input`, `Output`, `Reasoning`, `CacheRead`,
+`CacheWrite` and `CostUSD` since MADR 0112 A4; MADR 0137 Phase 6 populated them
+for all five providers; and `apps/mobile/lib/data/protocol/models.dart:708-745`
+already parses every one. The per-turn cache accounting is on the wire and
+reaching the phone today. The step's protocol change was unnecessary, which is
+a better outcome than making it.
+
+**6.3 Session totals (T3).** `Meta` gains `Turns`, `InputTokens`,
+`OutputTokens`, `CachedTokens`, accrued at each turn end and persisted with the
+record. Deliberately *cumulative*, where `event.Usage` is deliberately
+per-turn — MADR 0112 A4 calls labelling a per-turn figure as a session total
+"the specific error this split exists to avoid", so the two live in different
+places and are named differently. A report carrying only a context total and no
+per-turn tokens does not count as a turn.
+
+**6.4 Structured quota for kilo (F9).** `internal/provider/kilo/quota.go`. When
+`agenterr` classifies a limit from prose, the engine is asked
+`GET /kilocode/provider-usage` and the structured answer is appended to the
+error the phone sees.
+
+The types are transcribed from the engine's **own OpenAPI document**
+(`GET /doc`, `components.schemas.ProviderUsage*` on kilo 7.5.6), not inferred
+from a sample: this host's account returns `{"items":[],...}`, so a sample would
+have told us nothing about the fields that matter.
+
+The more valuable half is the negative case. When the prose classifier fires and
+structured usage does **not** confirm it, that is logged at warn — because that
+is the day a vendor changed its wording and `internal/agenterr`'s 967 lines of
+regular expressions matched something they should not have. It is the only
+signal we would get.
+
+grok's half of F9 (`x.ai/billing`, `x.ai/limit`) needs the ext-method plumbing
+Phase 8 builds and is deferred to it.
+
+### Fail-first evidence — four breakages
+
+```text
+F1x. thresholds moved to 101/102
+     FAIL TestContextPressureNoticeAtSeventyFive
+          75% of the context window must be reported
+
+F2x. guess a 200k window when the provider reports none
+     FAIL TestNoPressureNoticeWithoutAContextWindow
+          usage {Used:900000 Size:0} produced a notice:
+          "This session is using 900,000 of 0 context tokens (450%) …"
+
+F3x. the exhausted-state comparison broken
+     FAIL TestExhaustedWindowsSummarisesWhatTheEngineReports
+          summary = "", want the provider and the exhausted resource
+
+F4x. providerUsage.GeneratedAt renamed, against the live engine
+     FAIL TestLiveProviderUsageAnswersTheShapeWeParse
+          provider-usage no longer decodes into providerUsage:
+          json: unknown field "generatedAt"
+```
+
+F2x's output is the point of the guard: **"900,000 of 0 context tokens (450%)"**
+is exactly the confidently wrong number that MADR 0137 was corrected for twice.
+
+### Live verification — no model tokens spent
+
+`TestLiveProviderUsageAnswersTheShapeWeParse` (`-tags live_kilo`) is one GET
+against a read-only endpoint; it invokes no model. Run against the running
+engine:
+
+```text
+plans=0 generatedAt=2026-09-04T04:44:41.107Z exhausted=""
+--- PASS (0.57s)
+```
+
+It decodes with `DisallowUnknownFields`, so an upstream rename fails loudly
+rather than reading as a silent zero — demonstrated by F4x. Its skip path was
+also exercised (unset env → SKIP, not a silent pass), because a skip that is
+really a broken test is indistinguishable from one that ran.
+
+```text
+go build ./...                                   -> ok
+go test -race ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```
+
+### Deviation — 2026-09-03: 6.2 needed no work, and no protocol change was made
+
+The step called for extending `event.Usage` with the cache fields and carrying
+them to the phone, noting it *is* a protocol change that MADR 0137 Phase 2 had
+deferred. Checked before building: the fields exist, are populated for all five
+providers, and are parsed by the client. The step is recorded as already
+satisfied. No protocol change was made, so none needs documenting or rolling
+back.

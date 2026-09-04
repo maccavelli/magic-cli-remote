@@ -634,6 +634,12 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			if out == "" {
 				out = clip(msg, 400)
 			}
+			// kilo reports plan usage structurally, so a limit classified from
+			// prose gets confirmed against the engine rather than trusted on
+			// its wording alone (MADR 0138 F9).
+			if summary, _ := o.confirmLimit(context.Background(), cls.Kind); summary != "" {
+				out = annotateLimit(out, summary)
+			}
 			o.h.Emit(event.Event{
 				Type:      event.TypeError,
 				Error:     out,
