@@ -450,19 +450,38 @@ func (m *Manager) enforceGlobalBudgetLocked(activeID string) (firstTrimmed []str
 	}
 	sort.Slice(cold, func(i, j int) bool { return cold[i].lastEventAt.Before(cold[j].lastEventAt) })
 
-	for _, e := range cold {
-		if total <= budget {
-			break
-		}
+	share := budget / max(len(m.sessions), 1)
+	trim := func(e *entry, id string) {
 		before := e.historyBytes
-		// Squeeze this session to a share of the global budget rather than to
-		// its own per-session budget, which it is already inside.
-		if trimmed := e.trimToLocked(budget / max(len(m.sessions), 1)); trimmed {
+		// Squeeze to a share of the global budget rather than to the
+		// per-session budget, which this session is already inside.
+		if e.trimToLocked(share) {
 			total -= before - e.historyBytes
 			if !e.globalTrimNoticed {
 				e.globalTrimNoticed = true
-				firstTrimmed = append(firstTrimmed, ids[e])
+				firstTrimmed = append(firstTrimmed, id)
 			}
+		}
+	}
+
+	for _, e := range cold {
+		if total <= budget {
+			return firstTrimmed
+		}
+		trim(e, ids[e])
+	}
+
+	// Last resort: the active session gives too.
+	//
+	// "Never trim the session being prompted" is a preference, not an
+	// exemption — the same shape as the class rule, where anchors are evicted
+	// only once nothing else remains. Without this the guarantee was not
+	// `budget` but `budget + one session's per-session budget`, which a
+	// 16-session soak measured as 403.5 MB against a 384 MiB bound. A budget
+	// that can be exceeded by design is not a budget.
+	if total > budget {
+		if e, ok := m.sessions[activeID]; ok && !e.dead {
+			trim(e, activeID)
 		}
 	}
 	return firstTrimmed

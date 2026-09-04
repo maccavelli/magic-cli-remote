@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-03
+status: accepted
+date: 2026-09-04
 decision-makers: maccavelli
 consulted: —
 informed: —

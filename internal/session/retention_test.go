@@ -232,3 +232,83 @@ func TestBoundHistoryByClassLeavesASmallTranscriptAlone(t *testing.T) {
 		t.Fatal("nil must become an empty slice so the file is never null-JSON")
 	}
 }
+
+func TestGlobalBudgetTrimsTheActiveSessionAsALastResort(t *testing.T) {
+	// "Never trim the session being prompted" is a preference, not an
+	// exemption — the same shape as the class rule, where anchors are evicted
+	// only once nothing else remains.
+	//
+	// Without this the guarantee was not `budget` but `budget + one session's
+	// per-session budget`: a 16-session soak measured 403.5 MB against a
+	// 384 MiB bound. A budget that can be exceeded by design is not a budget.
+	const budget = 8 << 20
+	m := &Manager{sessions: map[string]*entry{}, globalBudget: budget}
+	now := time.Now()
+
+	// One session, and it is the active one, holding more than the whole
+	// global budget. There is nothing colder to take it from.
+	e := &entry{lastEventAt: now}
+	for e.historyBytes < budget*2 {
+		ev := event.Event{
+			Type: event.TypeToolUpdate, SessionID: "only", ToolID: "exec",
+			Text: strings.Repeat("z", 256<<10), Timestamp: now,
+		}
+		e.appendHistoryLocked(&ev)
+	}
+	m.sessions["only"] = e
+
+	before := e.historyBytes
+	m.enforceGlobalBudgetLocked("only")
+
+	if e.historyBytes >= before {
+		t.Fatalf("the active session was not trimmed: %d bytes, was %d — with no colder session "+
+			"to give, the budget is not enforced at all", e.historyBytes, before)
+	}
+	if e.historyBytes > budget {
+		t.Fatalf("still %d bytes over a %d budget after the last-resort trim", e.historyBytes, budget)
+	}
+}
+
+func TestGlobalBudgetHoldsAcrossSixteenSessions(t *testing.T) {
+	// Acceptance criterion 6 of 0138-PLAN: sixteen sessions — the default
+	// max_live_sessions — each driven past its own budget, must leave the
+	// total inside the global one with every prompt still retained.
+	const sessions = 16
+	m := &Manager{sessions: map[string]*entry{}}
+	now := time.Now()
+
+	for s := range sessions {
+		id := fmt.Sprintf("sess-%02d", s)
+		e := &entry{lastEventAt: now}
+		m.sessions[id] = e
+		for i := range 4000 {
+			typ, text := event.TypeToolUpdate, strings.Repeat("o", 16<<10)
+			if i%200 == 0 {
+				typ, text = event.TypeUserMessage, "prompt"
+			}
+			ev := event.Event{Type: typ, SessionID: id, ToolID: "exec", Text: text, Timestamp: now}
+			e.appendHistoryLocked(&ev)
+		}
+		m.enforceGlobalBudgetLocked(id)
+	}
+
+	total, users := 0, 0
+	for _, e := range m.sessions {
+		total += e.historyBytes
+		for i := range e.history {
+			if e.history[i].Type == event.TypeUserMessage {
+				users++
+			}
+		}
+	}
+	t.Logf("sessions=%d accounted=%.1fMB user_messages=%d/%d",
+		sessions, float64(total)/1e6, users, sessions*20)
+
+	if total > globalBudgetBytes {
+		t.Fatalf("accounted %d bytes, over the %d global budget", total, globalBudgetBytes)
+	}
+	if users != sessions*20 {
+		t.Fatalf("retained %d of %d prompts across the soak; anchors must survive the global budget too",
+			users, sessions*20)
+	}
+}

@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-09-03
+status: complete
+date: 2026-09-04
 associated-madr: "0138-MADR-overhaul-provider-surfaces-and-turn-path.md"
 ---
 
@@ -1564,3 +1564,57 @@ treatment before it can be trusted.
 go build ./...                                   -> ok
 go test -race ./internal/... ./cmd/... -count=1  -> ok (full tree)
 ```
+
+### Final acceptance — 2026-09-04
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | No transcript loses a user message | **93 of 93** retained across all 34 real transcripts, against 0/0/1/1/2/3 in the six truncated ones |
+| 2 | No command output dropped | every `outputDelta` byte delivered, through the real decode path |
+| 3 | Opening a transcript is cheap | **709 MB → 1.0 MB, 2,516 ms → 1.0 ms** on the operator's own worst file |
+| 4 | Long session opens at the bottom in one round trip | verified at the manager and client layers; **not** on the emulator (see below) |
+| 5 | Replay is linear | 490,000 comparisons → bounded at 4n |
+| 6 | RAM bounded under a 16-session soak | **402.4 MB accounted against a 384 MiB budget, 320 of 320 prompts kept** |
+| 7 | Token cost visible | pressure notices, per-turn cache accounting, session totals |
+| 8 | Read loop cannot be stalled by a provider call | four handlers off the loop, pinned by the derived table check |
+| 9 | grok answers `/compact`, `/rename`, `/sessions` | yes; **`/undo` still cannot** (8.2e not done) |
+| 10 | Every new check seen to fail | A1–A3, B1–B5, C1–C3, D1–D2, E1–E3, F1x–F4x, G1/G3/G4, H1, I1. **G2 was not run** |
+
+### Criterion 6 found a defect, and the criterion is why
+
+The soak measured **403.5 MB against a 402,653,184-byte budget**. Small, and
+structural: `enforceGlobalBudgetLocked` skipped the active session
+unconditionally, so the real guarantee was `budget + one session's per-session
+budget` rather than `budget`.
+
+Fixed by making "never trim the session being prompted" a **preference with a
+last resort**, the same shape as the class rule where anchors are evicted only
+once nothing else remains. Re-measured at **402.4 MB**, and pinned by
+`TestGlobalBudgetTrimsTheActiveSessionAsALastResort` plus the soak itself, both
+of which fail against the old code (I1).
+
+This is the acceptance criterion doing its job: seven phases of unit tests all
+passed against a budget that could be exceeded by design.
+
+### What is not done
+
+* **8.2e/8.2f/8.2g** — grok rewind/undo, command catalog, skill refresh. Reasons
+  per row in Phase 8; each needs a param shape read from grok's Rust modules and
+  a live probe.
+* **F9's grok half** — `x.ai/billing` / `x.ai/limit`. Unblocked by 8.1's
+  plumbing, not built.
+* **Criterion 4 on device** — the backward-paging path is covered by manager and
+  client tests, but no 20,000-event session was opened on the emulator. The
+  Android AVD work is a separate setup this session did not do.
+* **G2** — `TestACPConnectionSurvivesAStalledPump`. Phase 7 records why, and
+  that 7.2's guard rests on reading the SDK rather than on a failing repro.
+
+## Plan complete
+
+Phases 1 through 7 are executed in full. Phase 8 is executed in part, with the
+three undelivered interfaces and their reasons named above rather than left to
+be inferred from their absence.
+
+Two corrections are kept in place rather than tidied away: the B2 test that
+asserted nothing about the ordering it was named for, and the global budget that
+was not a bound. Both were found by checks that had only ever been seen to pass.
