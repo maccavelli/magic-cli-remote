@@ -25,6 +25,16 @@ const (
 	OutcomeOperatorOwned GuardOutcome = "operator_owned"
 	// OutcomeNoChange means the config already matched.
 	OutcomeNoChange GuardOutcome = "no_change"
+	// OutcomeError means the reconciliation could not run to a decision.
+	// Reason carries the cause.
+	//
+	// It exists so the zero value of Result is never mistaken for one. Both
+	// error paths below used to return a bare Result{}, whose empty Outcome
+	// reads as data — and two different environment failures ("no home
+	// directory" and "cannot write the config") were reported identically, as
+	// nothing at all. CI run 33871538458 printed `outcome = ` and named
+	// neither (MADR 0139).
+	OutcomeError GuardOutcome = "error"
 )
 
 // Result is a reconciliation's outcome plus a reason safe to log and to show
@@ -69,7 +79,7 @@ func EffectiveKeyringDisabled(cfgValue bool) (disabled, hostControls bool) {
 func Reconcile(cfgValue bool) (Result, error) {
 	secretsPath, configPath, err := goosePaths()
 	if err != nil {
-		return Result{}, err
+		return Result{Outcome: OutcomeError, Reason: err.Error()}, err
 	}
 
 	disabled, hostControls := EffectiveKeyringDisabled(cfgValue)
@@ -88,7 +98,8 @@ func Reconcile(cfgValue bool) (Result, error) {
 		return Result{Outcome: OutcomeOperatorOwned, Reason: reasonOperatorOwned}, nil
 	}
 	if err != nil {
-		return Result{}, fmt.Errorf("reconcile goose keyring setting: %w", err)
+		err = fmt.Errorf("reconcile goose keyring setting: %w", err)
+		return Result{Outcome: OutcomeError, Reason: err.Error()}, err
 	}
 	if !changed {
 		return Result{Outcome: OutcomeNoChange}, nil
