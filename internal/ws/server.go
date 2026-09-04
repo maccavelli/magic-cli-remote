@@ -1872,8 +1872,62 @@ func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protoc
 		payload.NextSinceSeq = nextSeq
 	}
 
+	s.logHistoryPage(p, deviceID, payload, first, latest)
+
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, payload)
 	return s.writeJSON(ctx, c, out)
+}
+
+// logHistoryPage records what a history request actually served.
+//
+// Every other layer is silent about this: a page is not an error, so
+// writeError never fires, and before this the daemon log was identical whether
+// the request returned nothing, one page, or 6,400 events across 32 round
+// trips (MADR 0141 F4).
+//
+// Debug for the per-page line — it is on a scroll path — and warn for the one
+// state that has no other signal.
+func (s *Server) logHistoryPage(
+	p protocol.SessionHistoryPayload,
+	deviceID string,
+	payload protocol.SessionHistoryResultPayload,
+	first, latest uint64,
+) {
+	direction := "forward"
+	cursorIn := p.SinceSeq
+	cursorOut := payload.NextSinceSeq
+	if p.BeforeSeq > 0 || p.Newest {
+		direction = "backward"
+		cursorIn = p.BeforeSeq
+		cursorOut = payload.PrevBeforeSeq
+	}
+
+	s.log.Debug("session history page",
+		slog.String("session_id", p.SessionID),
+		slog.String("device_id", deviceID),
+		slog.String("direction", direction),
+		slog.Uint64("cursor_in", cursorIn),
+		slog.Uint64("cursor_out", cursorOut),
+		slog.Int("events", len(payload.Events)),
+		slog.Bool("truncated", payload.Truncated),
+		slog.Uint64("first_seq", first),
+		slog.Uint64("latest_seq", latest),
+	)
+
+	// The silent empty: the client asked for an end of the ring — no cursor —
+	// the session demonstrably has events, and it got none. A cursor-bounded
+	// page legitimately returns zero at the oldest edge, so it is excluded.
+	if len(payload.Events) == 0 && latest > 0 && p.SinceSeq == 0 && p.BeforeSeq == 0 {
+		s.log.Warn("session history served no events for a session that has them",
+			slog.String("session_id", p.SessionID),
+			slog.String("device_id", deviceID),
+			slog.String("direction", direction),
+			slog.Uint64("first_seq", first),
+			slog.Uint64("latest_seq", latest),
+			slog.String("hint", "the phone will show an empty chat; check whether the "+
+				"transcript loaded (see the store's history warnings)"),
+		)
+	}
 }
 
 func (s *Server) handleSessionPendingAsks(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {

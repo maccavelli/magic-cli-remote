@@ -301,13 +301,34 @@ func (s *Store) LoadHistory(id string) []event.Event {
 	defer s.mu.Unlock()
 	b, err := os.ReadFile(s.historyPath(id))
 	if err != nil {
+		// A session with no transcript yet is the normal cold case; warning on
+		// it would train the reader to ignore this line. Anything else lost a
+		// transcript that exists (MADR 0141 F3).
+		if !os.IsNotExist(err) {
+			s.log.Warn("session history unreadable; transcript dropped",
+				slog.String("session_id", id),
+				slog.String("path", s.historyPath(id)),
+				slog.String("err", err.Error()),
+			)
+		}
 		return []event.Event{}
 	}
 	var hf historyFile
-	if json.Unmarshal(b, &hf) != nil {
+	if err := json.Unmarshal(b, &hf); err != nil {
+		s.log.Warn("session history did not parse; transcript dropped",
+			slog.String("session_id", id),
+			slog.Int("bytes", len(b)),
+			slog.String("err", err.Error()),
+			slog.String("hint", "the file must be {\"events\":[...]}; a bare JSON array "+
+				"decodes as no events"),
+		)
 		return []event.Event{}
 	}
 	if hf.Events == nil {
+		s.log.Warn("session history has no events key; transcript dropped",
+			slog.String("session_id", id),
+			slog.Int("bytes", len(b)),
+		)
 		return []event.Event{}
 	}
 	return boundHistoryByClass(hf.Events, historyFileBudgetBytes)
