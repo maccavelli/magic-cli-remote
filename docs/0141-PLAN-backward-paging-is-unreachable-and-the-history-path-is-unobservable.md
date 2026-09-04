@@ -516,3 +516,49 @@ real sessions intact, `config.yaml` never modified.
 All four phases executed. Two deviations are recorded above rather than folded
 away: `sealedHead` was dropped as redundant under concatenation, and the
 `toolIndex` rebase that the plan never anticipated was added.
+
+### Deviation — 2026-09-04: the Windows job failed on a test that assumed chmod worked
+
+*What was found.* CI run **33920879060** failed on `Go (windows/amd64)`:
+
+```text
+--- FAIL: TestUnreadableHistoryWarns (0.00s)
+    historylog_test.go:75: an unreadable history did not warn with its session id:
+```
+
+`os.Chmod(path, 0o000)` returns nil on Windows but only sets the read-only
+attribute; it does not deny reads. The file was therefore perfectly readable,
+`LoadHistory` parsed it, no warning was emitted, and the test failed while
+asserting something true.
+
+The test guarded against root (`os.Geteuid() == 0`) but not against a platform
+whose `Chmod` succeeds without having the requested effect — it trusted the
+return value instead of the outcome.
+
+*Why the plan's verification did not catch it.* `for os in windows linux darwin;
+do GOOS=$os go vet` was run and passed. **Vet compiles; it does not run.** A test
+whose *runtime* behaviour differs by platform is invisible to it. This is the
+second Windows break in these records with the same root shape — MADR 0140's
+`syscall.Stat_t` was a compile error that cross-vet did catch, which is
+presumably why cross-vet felt sufficient here.
+
+*Resolution.* The test now verifies its own precondition: after the chmod it
+attempts a read, and skips with a reason if the file is still readable. It
+therefore runs and asserts wherever the condition can be created, and refuses to
+pretend where it cannot — rather than being skipped by a `GOOS == "windows"`
+guess, which would also have skipped it on any future platform with the same
+behaviour for the wrong reason.
+
+Verified both ways: it passes on macOS, and against a scratch copy with the
+chmod removed to simulate Windows it **skips** rather than fails:
+
+```text
+historylog_test.go:79: this platform still reads a mode-000 file (Windows, or
+    running as root), so the unreadable case cannot be created here
+--- SKIP: TestUnreadableHistoryWarns
+```
+
+*Carried across.* The same pattern was written into
+`mcp-server-magictools`'s `TestUnreadableRegistryFailsTheLoadAndChangesNothing`
+earlier the same day (MADR 0004). It was corrected there identically rather than
+left to fail on that repository's next Windows run.

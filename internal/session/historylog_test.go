@@ -59,16 +59,29 @@ func TestColdSessionDoesNotWarn(t *testing.T) {
 }
 
 // TestUnreadableHistoryWarns covers a file that exists and cannot be read.
+//
+// The precondition is verified rather than assumed. `os.Chmod(path, 0)` returns
+// nil on Windows but only sets the read-only attribute — it does not deny
+// reads — and root ignores mode bits everywhere. Both make the file perfectly
+// readable, so the test would assert that an unreadable file warns while
+// handing the code a readable one.
+//
+// A cross-platform `go vet` does not catch this: vet compiles, it does not run.
+// The only reliable check is to try the read and skip when the platform refused
+// to create the condition.
 func TestUnreadableHistoryWarns(t *testing.T) {
 	store, buf := storeWithLog(t, "unreadable-1", []byte(`{"events":[]}`))
-	if err := os.Chmod(store.historyPath("unreadable-1"), 0o000); err != nil {
-		t.Skipf("cannot make a file unreadable here: %v", err)
+	path := store.historyPath("unreadable-1")
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Skipf("cannot change mode here: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(store.historyPath("unreadable-1"), 0o600) })
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 
-	if os.Geteuid() == 0 {
-		t.Skip("running as root; mode bits do not deny a read")
+	if _, err := os.ReadFile(path); err == nil {
+		t.Skip("this platform still reads a mode-000 file (Windows, or running as " +
+			"root), so the unreadable case cannot be created here")
 	}
+
 	_ = store.LoadHistory("unreadable-1")
 	out := buf.String()
 	if !strings.Contains(out, "unreadable") || !strings.Contains(out, "unreadable-1") {
