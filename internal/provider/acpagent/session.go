@@ -154,6 +154,11 @@ type session struct {
 	// currentModelID is the last applied ACP model id (sessionDetail or
 	// SetModel), not spawn argv. Guarded by s.mu.
 	currentModelID string
+	// engineModelID is the model the agent reported at `initialize`
+	// (`_meta.modelState.currentModelId`). It is the fallback for
+	// CurrentModel: currentModelID above starts as what the *client asked
+	// for*, which is empty whenever the provider's own default is in use.
+	engineModelID string
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.

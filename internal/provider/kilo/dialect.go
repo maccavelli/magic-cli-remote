@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,6 +115,7 @@ func (d *httpDialect) EventsPath() string { return "/global/event" }
 func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	d.logExperimentalCapabilities(ctx, api)
 	conn, err := d.connectedProviders(ctx, api)
 	if err != nil {
 		d.log.Warn("kilo default-model resolve failed; using seeded fallback",
@@ -245,4 +248,37 @@ func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
 		msgRole:   make(map[string]string),
 		subagents: make(map[string]subagentState),
 	}
+}
+
+// logExperimentalCapabilities reads GET /experimental/capabilities once at
+// engine ready and records what the engine says it can do.
+//
+// kilo 7.5.6 publishes 264 endpoints and a feature-discovery endpoint beside
+// them; mcremote read neither and worked from hardcoded assumptions
+// (MADR 0138 F10). This does not change behaviour — nothing branches on it
+// yet — it puts the engine's own answer in the log next to its version, so the
+// next assumption can be checked against a fact instead of a guess.
+//
+// Best-effort by construction: an engine that does not serve it, or serves
+// something unexpected, is not a boot failure.
+func (d *httpDialect) logExperimentalCapabilities(ctx context.Context, api httpagent.API) {
+	var caps map[string]any
+	if err := api(ctx, "GET", "/experimental/capabilities", nil, &caps); err != nil {
+		d.log.Debug("kilo experimental capabilities unavailable", slog.String("err", err.Error()))
+		return
+	}
+	if len(caps) == 0 {
+		return
+	}
+	names := make([]string, 0, len(caps))
+	for k, v := range caps {
+		if b, ok := v.(bool); ok && !b {
+			continue
+		}
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	d.log.Info("kilo experimental capabilities",
+		slog.String("enabled", strings.Join(names, ",")),
+		slog.Int("reported", len(caps)))
 }

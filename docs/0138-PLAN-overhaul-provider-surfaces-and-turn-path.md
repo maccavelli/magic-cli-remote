@@ -1473,3 +1473,94 @@ list.** `op_timeout_ladder_test.dart` requires the client's timeout to equal the
 daemon's plus the margin *exactly*, so the daemon's new 15 s for the two respond
 methods needed a matching 25 s in `opTimeoutFor`. Added, with the reasoning at
 the site.
+
+### Phase 8 — 2026-09-04, partially complete
+
+**8.1 Ext-method plumbing.** `internal/provider/acpagent/sessioncaps.go`.
+`callAgentExtension` wraps the SDK's `ClientSideConnection.CallExtension`,
+prefixes the `_` that ACP requires on the wire and grok's dispatch table omits,
+and maps JSON-RPC **-32601** onto `provider.ErrNotImplemented`.
+
+That mapping is the capability probe. grok publishes no list of its seventy ext
+methods, so "supported" can only be answered by calling; mistaking any other
+failure for method-not-found would hide a real error as a missing feature, which
+`TestIsMethodNotFoundReadsTheJSONRPCCode` pins in both directions.
+
+**A better route than the plan specified, for two of the interfaces.** The plan
+mapped every gap onto a `x.ai/*` method. But grok and goose both advertise the
+**standard** ACP `sessionCapabilities` block, and mcremote read none of it
+(F10). `AgentSessionLister` and `PurgeSession` are therefore implemented over
+`session/list` and `session/delete`, gated on what the agent advertised rather
+than on which vendor it is — so a later grok that adds `delete` starts deleting
+with no change here.
+
+**8.2 Delivered, of the seven listed:**
+
+| step | interface | route |
+| --- | --- | --- |
+| 8.2a | `CompactSession` | `x.ai/compact_conversation` |
+| 8.2b | `RenameSession` | `x.ai/session/rename` |
+| 8.2c | `PurgeSession` | **`session/delete`** (standard ACP), close as fallback |
+| 8.2d | `AgentSessionLister` | **`session/list`** (standard ACP), cursor-paged |
+
+**8.3 `ModelReporter` for grok.** `_meta.modelState.currentModelId` from the
+`initialize` result — present in the checked-in fixture and unread — captured at
+handshake as the fallback behind the per-session harvest. All seven grok
+turn-latency records in MADR 0138's table carried no model; the manager reads
+what the client *asked for*, and on the default-model path that is empty.
+
+**8.4 kilo `GET /experimental/capabilities`** is read once at engine ready and
+logged beside the version. Nothing branches on it yet, deliberately: it puts the
+engine's own answer where the next assumption can be checked against a fact.
+
+**The interface matrix moved, measured the same way MADR 0138 F8 measured it:**
+
+```text
+acpagent (grok)  12 -> 16 of 40
+```
+
+Pinned by `TestSessionSatisfiesTheInterfacesPhase8Adds`, which asserts the five
+interfaces **by name** rather than by count, so a later refactor that drops one
+fails saying which.
+
+### Fail-first evidence
+
+```text
+H1. Compact given an extra parameter, so it no longer satisfies the interface
+    FAIL TestSessionSatisfiesTheInterfacesPhase8Adds
+         the grok session no longer implements provider.CompactSession
+```
+
+H1's first two attempts broke the **build** rather than the assertion — once by
+deleting `Compact` outright (leaving `callAgentExtension` unused) and once by
+renaming `CurrentModel`, which a second test calls directly. Neither is a
+fail-first: a build failure does not show that the check under test can detect
+the defect. The third attempt kept the package compiling and made the assertion
+itself fire.
+
+### Not done, and why — 8.2e, 8.2f, 8.2g
+
+Three of the seven listed interfaces are **not** implemented. Stated plainly
+rather than left to be inferred from their absence:
+
+| step | interface | grok method | why not |
+| --- | --- | --- | --- |
+| 8.2e | `RevertSession` / `UndoSession` | `x.ai/rewind/points`, `x.ai/rewind/execute` | grok's dispatch forwards `x.ai/rewind*` to `extensions::rewind::handle(self, &args)`; the request and response shapes live inside that module and were not read. Undo/redo mutates the user's working tree — a guessed payload is the wrong thing to ship. |
+| 8.2f | `CommandCatalog` | `x.ai/commands/list` | Routed into `session_admin::handle` with the same opaque `args`. grok already pushes its command list as `available_commands_update` notifications, which mcremote consumes and dedupes, so the pull surface adds little against the risk. |
+| 8.2g | `SkillRefreshSession` | `x.ai/skills/refresh-baseline` | The response shape is visible (`{"ok": true}`) but the *effect* — `refresh_skill_baseline_for_all_sessions()` — is engine-global, not session-scoped, which is not what `SkillRefreshSession` means to the phone. Wiring it would give the button a different meaning on grok than everywhere else. |
+
+Each needs a param shape read out of the corresponding Rust module and a live
+probe against grok to confirm it, which is a further increment of this phase
+rather than something to guess at now. `/undo` on grok continues to answer "this
+agent can't", which is at least true.
+
+**8.5's recorded-not-adopted table** for the remaining ~60 ext methods stands as
+MADR 0137 step 7.7 wrote it, extended by the three rows above. F9's grok half
+(`x.ai/billing`, `x.ai/limit`) is unblocked by 8.1's plumbing but not built:
+kilo's structured quota landed in Phase 6 and grok's needs the same live probe
+treatment before it can be trusted.
+
+```text
+go build ./...                                   -> ok
+go test -race ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```

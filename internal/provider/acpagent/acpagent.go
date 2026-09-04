@@ -524,6 +524,16 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		s.log.Debug("acp defaultAuthMethodId",
 			slog.String("default_auth_method_id", initMeta.Meta.DefaultAuthMethodID))
 	}
+	// The model the agent says it is running, before any session exists. It is
+	// what ModelReporter falls back to: the per-session harvest only fires when
+	// grok sends `x.ai/sessionDetail`, and on the default-model path the
+	// requested model is empty — which is why all seven grok turn records in
+	// MADR 0138's table carried no model at all.
+	if id := strings.TrimSpace(initMeta.Meta.ModelState.CurrentModelID); id != "" {
+		s.mu.Lock()
+		s.engineModelID = id
+		s.mu.Unlock()
+	}
 	if len(initMeta.Meta.ModelState.AvailableModels) > 0 {
 		cat := modelsToCatalog(initMeta.Meta.ModelState.CurrentModelID, initMeta.Meta.ModelState.AvailableModels)
 		p.catalogMu.Lock()
