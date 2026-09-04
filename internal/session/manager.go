@@ -1801,6 +1801,131 @@ func (m *Manager) HistoryPage(id string, sinceSeq uint64, limit int) (events []e
 	return out, truncated, nextSinceSeq
 }
 
+// HistoryPageBefore returns the newest page of events with Seq < beforeSeq,
+// oldest first *within the page* so a client's reducer is unchanged. A
+// beforeSeq of 0 means "the newest page in the ring" — the page a chat screen
+// opens on.
+//
+// prevBeforeSeq is the cursor for the next older page, or 0 when this page
+// reached the oldest retained event. truncated reports whether anything older
+// remains.
+//
+// This exists because paging was forward-only, and a chat screen opens at the
+// bottom: a phone had to walk the whole ring from its oldest event before it
+// could learn where the end was, then discard everything but the tail (MADR
+// 0138 F17). At 800 events that was one round trip; at a 32 MiB budget it is
+// not.
+func (m *Manager) HistoryPageBefore(id string, beforeSeq uint64, limit int) (events []event.Event, truncated bool, prevBeforeSeq uint64) {
+	if limit <= 0 {
+		limit = historyDefaultPage
+	}
+	if limit > historyMaxPage {
+		limit = historyMaxPage
+	}
+
+	window, older := m.historySliceBefore(id, beforeSeq, limit)
+	if len(window) == 0 {
+		return []event.Event{}, false, 0
+	}
+
+	// The byte budget trims from the end of a forward page. Here the newest
+	// events are the ones that must survive, so measure from the end and keep a
+	// suffix rather than a prefix.
+	n := historyBudgetSuffix(window)
+	out := window[len(window)-n:]
+	truncated = older || n < len(window)
+	if truncated {
+		prevBeforeSeq = out[0].Seq
+	}
+	return out, truncated, prevBeforeSeq
+}
+
+// historyBudgetSuffix returns how many *trailing* events of window fit inside
+// historyMaxResponseBytes, encoding each candidate exactly once. At least one
+// event is always returned.
+func historyBudgetSuffix(window []event.Event) int {
+	if len(window) == 0 {
+		return 0
+	}
+	total := 2
+	kept := 0
+	for i := len(window) - 1; i >= 0; i-- {
+		b, err := historyMarshal(&window[i])
+		if err != nil {
+			if kept == 0 {
+				return 1
+			}
+			return kept
+		}
+		sep := 0
+		if kept > 0 {
+			sep = 1
+		}
+		if kept > 0 && total+sep+len(b) > historyMaxResponseBytes {
+			return kept
+		}
+		total += sep + len(b)
+		kept++
+	}
+	return kept
+}
+
+// historySliceBefore returns up to max events with Seq < beforeSeq, ending at
+// the newest such event, plus whether anything older than the window remains.
+// beforeSeq 0 means "from the newest event".
+func (m *Manager) historySliceBefore(id string, beforeSeq uint64, max int) (window []event.Event, older bool) {
+	if max <= 0 {
+		return nil, false
+	}
+	take := func(ring []event.Event) ([]event.Event, bool) {
+		end := len(ring)
+		if beforeSeq > 0 {
+			end = sort.Search(len(ring), func(i int) bool { return ring[i].Seq >= beforeSeq })
+		}
+		if end <= 0 {
+			return nil, false
+		}
+		start := max2(end-max, 0)
+		return ring[start:end], start > 0
+	}
+
+	m.mu.RLock()
+	e, ok := m.sessions[id]
+	if ok && !e.dead && len(e.history) > 0 {
+		slice, more := take(e.history)
+		out := make([]event.Event, len(slice))
+		copy(out, slice)
+		m.mu.RUnlock()
+		return out, more
+	}
+	m.mu.RUnlock()
+	if m.store == nil {
+		return nil, false
+	}
+	return take(m.store.LoadHistory(id))
+}
+
+// max2 is min's twin; Go's builtin min exists but there is no builtin for the
+// clamp-to-zero this needs to read clearly at the call site.
+func max2(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// HistoryPageBeforeFor is HistoryPageBefore after an ownership check.
+func (m *Manager) HistoryPageBeforeFor(sessionID, deviceID string, beforeSeq uint64, limit int) (events []event.Event, truncated bool, prevBeforeSeq uint64, err error) {
+	if err := m.Authorize(sessionID, deviceID, false); err != nil {
+		if errors.Is(err, ErrNotLive) {
+			return []event.Event{}, false, 0, nil
+		}
+		return nil, false, 0, err
+	}
+	events, truncated, prevBeforeSeq = m.HistoryPageBefore(sessionID, beforeSeq, limit)
+	return events, truncated, prevBeforeSeq, nil
+}
+
 // historyMarshal encodes one event for the page byte budget.
 //
 // A package variable so a test can count how many times the budget encodes an

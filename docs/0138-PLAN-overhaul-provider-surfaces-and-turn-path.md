@@ -1009,3 +1009,71 @@ behaviour change. `TestDurableHistoryRespectsCap` checked that the file kept the
 last 800 events; it now checks that the file stays inside its byte budget and
 keeps every `user_message`. Both names were kept so the history of what they
 guarded stays findable.
+
+### Phase 3 — 2026-09-03, complete
+
+**3.1 Protocol.** `SessionHistoryPayload` gains `BeforeSeq` (exclusive upper
+bound, newest-first) and `Newest` (the tail of the ring).
+`SessionHistoryResultPayload` gains `PrevBeforeSeq`, the backward twin of
+`NextSinceSeq`.
+
+`Newest` is a separate flag rather than a `BeforeSeq` sentinel because `0` is a
+natural "no bound" for a `uint64` with `omitempty` and cannot be told apart from
+an absent field. A pointer would work and would be the only one in the file; the
+flag reads better at both ends of the wire.
+
+**3.2 Manager.** `HistoryPageBefore` / `HistoryPageBeforeFor`, sharing Phase 1's
+`historySlice` discipline through a new `historySliceBefore` (binary search to
+the upper bound, copy only the candidate window) and a new
+`historyBudgetSuffix`.
+
+The suffix function is the reason this is not just the forward pager with
+reversed arguments: the byte budget must trim the **oldest** end of a backward
+page, because the newest events are the ones the screen is opening on. Pinned by
+`TestNewestPageEncodesEachEventOnce`, which asserts the page still ends at the
+newest seq after the budget shortened it.
+
+Pages are returned **oldest-first within the page** in both directions, so the
+client's reducer is unchanged.
+
+**3.3 Server.** The history handler routes on the new fields and refuses
+`since_seq` together with `before_seq`/`newest` as `bad_payload`. A reply
+carries the cursor for the direction it was asked in and omits the other, so a
+client cannot accidentally walk away from the screen it just rendered.
+
+**3.4 Docs.** `docs/protocol-v1.md` documents both directions, the
+mutual-exclusion rule, the backward cursor and the new byte-based retention with
+its class order. `docs/protocol-v2.md` documents `history_budget_bytes` beside
+`history_ring` and explains why the latter stays an event count. The eight
+markdownlint findings in `protocol-v1.md` are all on lines this phase did not
+touch — checked against `git show HEAD:` rather than assumed.
+
+### Fail-first evidence — three breakages
+
+```text
+C1. HistoryPageBefore returns the head of the ring
+    FAIL TestNewestPageReturnsTheTail
+         newest event in the page is seq 200, want 5000 — this page is not
+         the tail
+
+C2. since_seq and before_seq both accepted
+    FAIL TestWSSinceAndBeforeAreMutuallyExclusive
+         want error for since_seq + before_seq, got session.history_result
+
+C3. prev_before_seq dropped from the reply
+    FAIL TestBackwardPagingTerminatesAtFirstSeq
+         prev_before_seq did not advance: 0 then 0
+```
+
+### Acceptance
+
+`TestBackwardPagingTerminatesAtFirstSeq` walks a 1,000-event ring backward at
+`limit=200` and asserts **exactly 5 pages, 1,000 distinct events, and no event
+returned twice**. `TestNewestPageReturnsTheTail` gets the newest 200 of 5,000 in
+**one** call — the round trip a chat screen needs, which under forward-only
+paging would have been a walk from seq 1.
+
+```text
+go build ./...                             -> ok
+go test ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```

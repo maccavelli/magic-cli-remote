@@ -157,8 +157,11 @@ behaviour v1 daemons and clients have always had:
 - **Reconnect = full re-auth.** There is no session resumption; a
   reconnecting client re-authenticates and reconciles via `session.list`,
   `session.history {since_seq}` and `session.pending_asks`. The history ring
-  holds the last 800 events per session; `since_seq` older than the ring
-  returns silently truncated results (v2 adds gap signalling).
+  is bounded by **bytes** per session (32 MiB), not by an event count, and
+  evicts lowest-value content first — telemetry and tool output before the
+  conversation, and a `user_message` only when nothing else is left
+  (MADR 0138 Phase 2). A `since_seq` older than the ring returns silently
+  truncated results (v2 adds gap signalling).
 
 ## Authentication
 
@@ -313,7 +316,7 @@ denies transport access rather than merely a bearer secret.
 | `session.set_mode` | `{ "session_id", "mode_id" }` | `ok` / `error` |
 | `session.set_config_option` | `{ "session_id", "option_id", "kind", "value" }` | `ok` / `error` |
 | `session.cancel` | `{ "session_id" }` | `ok` / `error` |
-| `session.history` | `{ "session_id", "since_seq?", "limit?" }` | `session.history_result` |
+| `session.history` | `{ "session_id", "since_seq?", "before_seq?", "newest?", "limit?" }` | `session.history_result` |
 | `session.pending_asks` | `{}` | `session.pending_asks_result` |
 | `permission.respond` | `{ "session_id", "permission_id", "option_id"? , "cancelled"? }` | `ok` / `error` |
 | `permission.receipt` | `{ "session_id", "permission_id", "jws" }` | `ok` / `error` — reply to a server-pushed `permission.receipt_request`; see [Signed receipts](#signed-receipts-madr-0077-opt-in) |
@@ -799,15 +802,29 @@ mid-conversation can rebuild the transcript.
 {
   "session_id": "...",
   "since_seq": 0,
+  "before_seq": 0,
+  "newest": false,
   "limit": 0
 }
 ```
 
 - `since_seq` (optional, exclusive): only events with `seq` **greater than** this
-  value are returned. Use `0` or omit for the start of the ring.
+  value are returned, oldest first. Use `0` or omit for the start of the ring.
+  This pages **forward**.
+- `before_seq` (optional, exclusive): only events with `seq` **less than** this
+  value are returned, and the page is the **newest** such events. This pages
+  **backward**, one screen at a time.
+- `newest` (optional): return the tail of the ring — the page a chat screen
+  opens on. A separate flag rather than a `before_seq` sentinel because `0` is
+  a natural "no bound" for a `uint64` and could not be told apart from an
+  absent field.
+- `since_seq` and `before_seq`/`newest` are **mutually exclusive**. Setting both
+  is `bad_payload`: they are different questions about the same ring, and
+  answering both would have to pick one silently.
 - `limit` (optional): max events in this response. `0` / omitted uses the server
   default (200). The server also clamps to a soft byte budget (~512 KiB) so a
-  tool-heavy ring cannot force a multi-megabyte frame.
+  tool-heavy ring cannot force a multi-megabyte frame. On a backward page the
+  budget trims the **oldest** end, so the newest events always survive.
 
 **Reply** `session.history_result`:
 
@@ -816,7 +833,8 @@ mid-conversation can rebuild the transcript.
   "session_id": "...",
   "events": [ { ...domain event... }, … ],
   "truncated": false,
-  "next_since_seq": 0
+  "next_since_seq": 0,
+  "prev_before_seq": 0
 }
 ```
 
@@ -826,13 +844,22 @@ mid-conversation can rebuild the transcript.
   does no server-side coalescing; raw chunks are replayed as emitted and the
   client's reducer coalesces them.
 - Events are ordered oldest-first, exactly as emitted.
-- When `truncated` is true, more events remain; re-request with
-  `since_seq = next_since_seq` until `truncated` is false.
-- The daemon keeps a **bounded per-session ring buffer (800 events, oldest
-  dropped)** for each live session (aligned with the mobile client item cap;
-  MADR 0018 E4). It buffers every event kind, including the high-frequency
+- Events are ordered oldest-first **within the page**, for a backward page too,
+  so one reducer handles both directions.
+- When `truncated` is true, more events remain. Forward: re-request with
+  `since_seq = next_since_seq`. Backward: re-request with
+  `before_seq = prev_before_seq`, until `truncated` is false or
+  `prev_before_seq` reaches `first_seq`. A reply carries the cursor for the
+  direction it was asked in; the other is omitted.
+- The daemon keeps a **byte-bounded per-session ring (32 MiB)** for each live
+  session, advertised as `history_budget_bytes` in the v2 capability block. It
+  buffers every event kind, including the high-frequency
   `assistant_message_chunk` / `thought_chunk` chunks (replaying them is the
-  point).
+  point). When the budget is exceeded it evicts by content class — telemetry
+  (`available_commands`, `notice`, `usage_update`), then progress
+  (`tool_call_update`, `thought_chunk`), then content, and anchors
+  (`user_message`, `turn_complete`, permission decisions) only when nothing
+  else remains. The newest event is never evicted (MADR 0138 Phase 2).
 - **Durable transcript (Phase D):** the same 800-event tail is also written under
   `data_dir/sessions/<id>/history.json` (0600, same uid as the daemon). After a
   session closes or the daemon restarts, `session.history` still returns that
@@ -1089,7 +1116,7 @@ Domain events (inside live `event` push / history):
 | `ok` | none |
 | `session.created` | a bare session Meta object (see below) |
 | `session.list_result` | `{ "sessions": [ Meta, … ], "complete": true\|false, "degraded?", "skipped?" }` — clients must not destructively prune local transcripts unless `complete` is true (MADR 0056 H-6) |
-| `session.history_result` | `{ "session_id", "events": [ domain event, … ], "truncated?", "next_since_seq?" }` |
+| `session.history_result` | `{ "session_id", "events": [ domain event, … ], "truncated?", "next_since_seq?", "prev_before_seq?", "first_seq?", "latest_seq?" }` |
 | `providers.list_result` | `{ "providers": [ { "id", "ready", "prewarm" }, … ] }` — `prewarm` is always present on a daemon that implements MADR 0089 D7, so a client treats an **absent** key as "host has no pre-warm control" rather than as `false` |
 | `providers.prewarm` | `{ "provider_id", "prewarm", "engine" }` — broadcast to every authenticated client after `providers.set_prewarm` lands, so a second phone's switch tracks the change (MADR 0089 D7). `engine` is `running`, `stopped`, or `stopping_when_idle` |
 | `models.list_result` | picker catalog for one provider (see below) |

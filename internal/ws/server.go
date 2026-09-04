@@ -1807,21 +1807,43 @@ func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protoc
 			p.SessionID = legacy.SessionID
 		}
 	}
+	// Forward and backward paging are different questions about the same ring,
+	// and answering both at once would have to pick one silently.
+	if p.SinceSeq > 0 && (p.BeforeSeq > 0 || p.Newest) {
+		return s.writeError(ctx, c, env.ID, "bad_payload",
+			"since_seq pages forward and before_seq/newest page backward; set one, not both")
+	}
+
+	first, latest := s.sessions.SeqBounds(p.SessionID)
+	payload := protocol.SessionHistoryResultPayload{
+		SessionID: p.SessionID,
+		FirstSeq:  first,
+		LatestSeq: latest,
+	}
+
 	// History returns an empty (non-nil) slice for an unknown/never-active
 	// session — replay is not an error. Forbidden owner is still an error.
-	events, truncated, nextSeq, err := s.sessions.HistoryPageFor(p.SessionID, deviceID, p.SinceSeq, p.Limit)
-	if err != nil {
-		return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
+	if p.BeforeSeq > 0 || p.Newest {
+		events, truncated, prevSeq, err := s.sessions.HistoryPageBeforeFor(
+			p.SessionID, deviceID, p.BeforeSeq, p.Limit)
+		if err != nil {
+			return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
+		}
+		payload.Events = events
+		payload.Truncated = truncated
+		payload.PrevBeforeSeq = prevSeq
+	} else {
+		events, truncated, nextSeq, err := s.sessions.HistoryPageFor(
+			p.SessionID, deviceID, p.SinceSeq, p.Limit)
+		if err != nil {
+			return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
+		}
+		payload.Events = events
+		payload.Truncated = truncated
+		payload.NextSinceSeq = nextSeq
 	}
-	first, latest := s.sessions.SeqBounds(p.SessionID)
-	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, protocol.SessionHistoryResultPayload{
-		SessionID:    p.SessionID,
-		Events:       events,
-		Truncated:    truncated,
-		NextSinceSeq: nextSeq,
-		FirstSeq:     first,
-		LatestSeq:    latest,
-	})
+
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, payload)
 	return s.writeJSON(ctx, c, out)
 }
 
