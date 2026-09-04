@@ -2891,12 +2891,61 @@ Producing a 20,000-event session means one of:
    its own right — a second daemon, a second pairing, an APK build — rather than
    a verification step.
 
-*The toolchain is also not ready*, though it is the smaller problem: the
+~~*The toolchain is also not ready*, though it is the smaller problem: the
 `mcremote_test` AVD exists but no device is attached, and the `emulator` binary
-is not on `PATH` or at the usual SDK location.
+is not on `PATH` or at the usual SDK location.~~
 
-*What stands in its place.* Backward paging is covered by manager and client
-unit tests, and Phase 3's execution record carries its own evidence. What has
-never been observed is the interaction on a real device at a size where the
-transcript cap forces eviction. That is a real gap and it stays named rather
-than being marked done at a smaller size.
+**Correction, 2026-09-04 — that claim was wrong.** The toolchain was fine. The
+check behind it was `which emulator` plus one hardcoded path
+(`~/Library/Android/sdk/emulator/emulator`), and it ignored `ANDROID_HOME`,
+which was set in the environment the whole time:
+`/opt/homebrew/share/android-commandlinetools`. `docs/ops-android-emulator.md`
+documents the setup, and the emulator has been used repeatedly on this host.
+
+Driven properly, all of it worked: AVD booted, the current client built
+(`flutter build apk --debug`, JDK 21 per the ops doc) and installed, and the app
+came up **already paired** and `Connected to macos-laptop over Mesh`. The
+previously installed APK was v0.15.9+1 — older than every client change in this
+record — so any paging result from it would have been meaningless.
+
+### What was actually run on the device, 2026-09-04
+
+**Pass 1 — the largest real session (773 events): passed.** Opened on the
+emulator against the current client. The transcript opens at the newest end
+(F17's intent), renders real content, and scrolls back through older content
+without breaking. What it does **not** establish is that a backward *page* was
+fetched: at 773 events the client may hold the whole transcript, and neither the
+app nor the daemon logs a history request, so "paged" and "already loaded" are
+indistinguishable from the outside. Recorded as what it is.
+
+**Pass 2 — a 20,000-event synthetic fixture: inconclusive, and the fixture is
+the suspect.** A session directory was seeded into the store and opened. The
+transcript rendered **empty** despite 20,000 events on disk and a successful
+`acp session loaded`.
+
+That is **not** reported as a product defect, because the fixture is not
+realistic data: 19,600 of its 20,000 events are bare `assistant_message_chunk`
+records with no surrounding turn structure, and the client's transcript reducer
+has every reason to drop chunks it cannot attach to a message. Distinguishing a
+client bug from a bad fixture needs a fixture built from real turn scaffolding,
+which is a piece of work rather than a step.
+
+**One observation from it that is worth checking independently.** Opening the
+first fixture caused the daemon to **overwrite its `history.json`** — 3.7 MB of
+seeded events replaced by a 20 KB file holding one event. The mechanism is
+plausible: the running daemon had scanned the store at startup, a directory
+appearing afterwards took a create-fresh path, and the periodic flush wrote the
+empty in-memory ring over the file. Only fabricated data was lost here, and a
+malformed fixture may be the whole explanation — but "a store entry the running
+daemon did not load at startup can be overwritten on open" is worth confirming
+or ruling out on its own, and it is filed here rather than assumed harmless.
+
+*Cleanup.* Both fixture directories were removed and the daemon restarted. The
+operator's `config.yaml` was **not** modified — enabling the `fake` provider was
+attempted, refused by the tool sandbox, and not routed around; the fixture was
+pointed at grok instead, which needs no config change and spends no model
+tokens.
+
+*Status.* Criterion 4 is **still not met**. Pass 1 is real evidence that the
+paging path works on a device; the eviction-and-refill interaction above
+`kMaxTranscriptItems` remains unobserved.
