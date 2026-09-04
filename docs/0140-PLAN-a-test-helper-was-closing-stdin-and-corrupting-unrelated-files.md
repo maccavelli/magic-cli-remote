@@ -97,9 +97,14 @@ accurate, and its conclusion is corrected in place rather than deleted.
 
 ```bash
 make pre-add-check FILES="internal/daemon/credentials_test.go internal/daemon/main_test.go"
+for os in windows linux darwin; do GOOS=$os go vet ./internal/... ./cmd/...; done
 go test -race ./internal/... ./cmd/... -count=1
 go test -race -count=25 -shuffle=on ./internal/daemon/
 ```
+
+The cross-compile loop is not optional: the guard touches platform-specific
+syscall surface, and a single-platform vet is what let a Windows build failure
+through on the first attempt.
 
 The last one is the point: it is the command MADR 0139's plan could not use.
 
@@ -227,3 +232,48 @@ package guard is for.
 ## Plan complete
 
 All three steps executed, with the fail-first evidence above.
+
+### Deviation — 2026-09-04: the guard was not portable, and CI caught it
+
+*What was found.* The guard as first written used `syscall.Fstat(0, &st)` with
+`syscall.Stat_t`. That type does not exist on Windows, and this repository runs
+a Windows job. CI run **33893250444** failed:
+
+```text
+vet.exe: internal\daemon\main_test.go:84:17: undefined: syscall.Stat_t
+```
+
+Every other job in that run passed, including `Go (test; build on tag)` — the
+fix and the Unix behaviour were correct; only the guard's portability was not.
+
+*Why it was not caught locally.* Every verification in this plan ran on macOS.
+`go vet ./...` on one platform says nothing about the others, and nothing in the
+plan's Verification section cross-compiled.
+
+*Resolution.* The guard now uses `os.Stdin.Stat()` plus `os.SameFile`, which is
+portable — and **stronger than what it replaced**:
+
+| state | `syscall.Fstat(0)` | `os.Stdin.Stat()` + `SameFile` |
+| --- | --- | --- |
+| fd 0 closed | detected | detected (`stat /dev/stdin: bad file descriptor`) |
+| fd 0 closed **and reused by another file** | **missed** — fstat succeeds | detected (`SameFile = false`) |
+
+The recycled case is the one that matters: it is the state in which victims
+actually fail, and the original check would have passed straight through it.
+Verified by probe before adopting, and pinned by a second fail-first:
+
+```text
+L3. fd 0 closed deliberately            -> package FAILS
+L4. fd 0 closed and recycled by a file  -> package FAILS
+```
+
+*Verification section corrected.* Cross-compilation is added, because
+single-platform vet is what let this through:
+
+```bash
+for os in windows linux darwin; do GOOS=$os go vet ./internal/... ./cmd/...; done
+```
+
+All three clean. `go test -race ./internal/... ./cmd/...` and
+`go test -race -count=25 -shuffle=on ./internal/daemon/` (50.9s) both pass.
+

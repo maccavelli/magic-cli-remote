@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"syscall"
 	"testing"
 )
 
@@ -46,7 +45,7 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
-	fd0Open := standardFDOpen()
+	stdinBefore, stdinStatOK := stdinIdentity()
 
 	code := m.Run()
 	_ = os.RemoveAll(dir)
@@ -57,7 +56,7 @@ func TestMain(m *testing.M) {
 	runtime.GC()
 	runtime.GC()
 
-	if fd0Open && !standardFDOpen() {
+	if stdinStatOK && !stdinIsIntact(stdinBefore) {
 		fmt.Fprintln(os.Stderr, fdZeroClosedMessage)
 		if code == 0 {
 			code = 1
@@ -74,13 +73,32 @@ const fdZeroClosedMessage = "daemon tests: file descriptor 0 was open before thi
 	"surfaces as `bad file descriptor` on an unrelated test. See MADR 0140.\n" +
 	"Use io.Discard or slog.DiscardHandler instead."
 
-// standardFDOpen reports whether file descriptor 0 is still a live descriptor.
+// stdinIdentity snapshots what stdin is, so the end of the run can tell whether
+// it is still the same thing.
 //
-// Deliberately fd 0 and not "a descriptor we opened": this guards process state
-// that one test helper can corrupt for every other test in the package, which
-// is exactly the class that went unnoticed because its victims were always
-// somewhere else (MADR 0140).
-func standardFDOpen() bool {
-	var st syscall.Stat_t
-	return syscall.Fstat(0, &st) == nil
+// os.Stdin rather than a raw descriptor number: syscall.Stat_t does not exist
+// on Windows, and this repository runs Windows CI. It is also the stronger
+// check — a bare fstat(0) succeeds once the freed descriptor has been handed to
+// another file, which is precisely the state this guards against.
+func stdinIdentity() (os.FileInfo, bool) {
+	fi, err := os.Stdin.Stat()
+	return fi, err == nil
+}
+
+// stdinIsIntact reports whether stdin is still the file it was at startup.
+//
+// Two failures, one answer: the descriptor was closed and left closed (Stat
+// fails), or it was closed and reused by another file (Stat succeeds on
+// something else, and SameFile says so).
+//
+// Deliberately stdin and not "a descriptor we opened": this guards process
+// state that one test helper can corrupt for every other test in the package,
+// which is exactly the class that went unnoticed because its victims were
+// always somewhere else (MADR 0140).
+func stdinIsIntact(before os.FileInfo) bool {
+	after, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return os.SameFile(before, after)
 }
