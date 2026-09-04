@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-09-04
 associated-madr: "0141-MADR-backward-paging-is-unreachable-and-the-history-path-is-unobservable.md"
 ---
@@ -437,3 +437,82 @@ dart format --output=none --set-exit-if-changed lib test  -> 210 files, 0 change
 flutter analyze                                           -> No issues found
 flutter test                                              -> 1412 passed
 ```
+
+### Phase 4 — 2026-09-04, complete
+
+Run against the emulator with the Phase 3 client and a build of `master`
+installed as the daemon, using the same 900-turn fixture that produced MADR
+0141 F2. Validated through `Store.LoadHistory` before seeding —
+`authored=19800 LoadHistory=19800` — rather than after.
+
+**The fix, on device:**
+
+```text
+before (v0.16.5 client):  TURN 291 of 900   ending mid-turn, 68% never fetched
+after  (this change):     TURN 900 of 900   the actual end of the conversation
+```
+
+**Backward paging, on device.** The newest page is 200 events ≈ 9 turns, so it
+covers turns 891–900. Scrolling back reached **turns 855–857**, which is roughly
+36 turns and 800 events older — at least four backward pages fetched and
+prepended, none of which the old client could reach at all.
+
+**The designed trade, caught in the wild.** At the top of that screen sits a
+bubble containing only `"The"`, with `"working tree was clean at TURN 855 of
+900…"` as the bubble beneath it. Turn 856's message renders as one bubble; turn
+855's is split in two. That is a page boundary falling between the first and
+second chunk of one assistant message, and the concatenation keeping them apart
+instead of merging across the join — exactly the behaviour the Phase 2 deviation
+chose, at the frequency it predicted (~1 boundary in 7).
+
+Seeing it is worth more than the unit test: it confirms the join is real traffic
+rather than a hypothesis, and that the failure mode when it triggers is a split
+bubble and not a misattributed turn.
+
+### What Phase 4 could not show
+
+The per-page debug line was **not** observed. The daemon's configured log level
+is `info` (`~/.config/mcremote/config.yaml`), so the `session history page`
+records never reached the file, and the operator's config was not edited to
+change that — an earlier attempt to modify it in this work was refused by the
+tool sandbox and was not routed around.
+
+Acceptance 6 is therefore met on its primary claim — the fixture opens on turn
+900 and older pages are demonstrably fetched — but its evidence is the
+transcript's own content across page boundaries, not the daemon log. The logging
+from Phase 1 is unit-tested (`internal/ws/historylog_test.go`) and will appear
+for anyone running at debug.
+
+### Environment note: replacing a running daemon binary in place gets it killed
+
+The first swap copied over `~/.local/bin/mcremote` while launchd had it mapped.
+The daemon shut down, never logged a startup line, and `launchctl list` showed
+exit `-9`. This host has no CLI signing identity (MADR 0069), so a mapped binary
+replaced under an unsigned build is killed on exec.
+
+Replacing it as a **new inode** — write beside it, `rm`, `mv` into place, with an
+ad-hoc `codesign -s -` — starts cleanly. The operator's daemon was restored to
+`v0.16.5` immediately on the first failure and again at the end of the phase;
+downtime was about five minutes and no session data was touched.
+
+### Acceptance
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | cold session quiet; three discard paths each warn distinctly | **pass** (R1, R2) |
+| 2 | every page logs; a silent empty warns | **pass** in unit tests; not observed live (level=info) |
+| 3 | two pages join without merging turns | **pass** (R4b) — and observed on device as a split bubble |
+| 4 | a background resync does not rewind a paged transcript | **pass** (R5) |
+| 5 | `sessionHistoryNewest` has a production caller | **pass** (R6) |
+| 6 | the fixture opens on turn 900 and pages backward | **pass** — turn 900, then back to turn 855 |
+
+### Cleanup
+
+Fixture directory removed, released `v0.16.5` daemon restored and running, 34
+real sessions intact, `config.yaml` never modified.
+
+## Plan complete
+
+All four phases executed. Two deviations are recorded above rather than folded
+away: `sealedHead` was dropped as redundant under concatenation, and the
+`toolIndex` rebase that the plan never anticipated was added.
