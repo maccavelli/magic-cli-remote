@@ -1740,3 +1740,170 @@ corrected twice for reasoning from unverified instruments. Phase 7 did not use
 an instrument at all — it reasoned from source and called that verification.
 Reading a dependency tells you the mechanism; only driving it tells you whether
 your response to that mechanism is fast enough.
+
+## Amendment, 2026-09-04: Phase 9 — grok undo, and the shapes that made it safe to write
+
+Phase 8 deferred 8.2e (`RevertSession`/`UndoSession`) because grok's dispatch
+forwards `x.ai/rewind*` into `extensions::rewind::handle(self, &args)` and the
+request and response shapes were not read. They have now been read, and they
+changed the answer twice.
+
+### What the source says, and why it mattered
+
+**`RewindMode` defaults to destroying the user's files.**
+`session/acp_types.rs:261-273`:
+
+```rust
+#[serde(rename_all = "snake_case")]
+pub enum RewindMode {
+    All,               // "Roll back both conversation and files (full time-travel)"
+    ConversationOnly,  // files untouched
+    FilesOnly,         // conversation untouched
+}
+```
+
+and on `RewindRequest.mode`: *"Clients must specify this explicitly. Defaults to
+`All` for backwards compatibility with older clients."*
+
+A `/undo` sent as `{sessionId, targetPromptIndex}` — the obvious body — would
+have rolled back the operator's working tree. That is the guess Phase 8 declined
+to make, and the source confirms it would have been the wrong one.
+
+**Which mode matches the existing button.** kilo's `UndoLast`
+(`internal/provider/kilo/session_ops.go:198`) finds the last user message and
+reverts it, and kilo's engine documents that endpoint as *"Revert a specific
+message in a session, undoing its effects and restoring the previous state"* —
+conversation and files. So `/undo` already means `All` everywhere it works, and
+grok must send `mode: "all"` **explicitly** rather than inherit the default.
+
+**The response casing is not what fork's is.** `RewindResponse`,
+`RewindPointsResponse`, `RewindPointInfo` and `RewindConflictInfo` carry **no**
+`rename_all`, so they serialize **snake_case** — while the already-shipped
+`_x.ai/session/fork` response is camelCase (`newSessionId`). Two vendor methods
+on one transport with different casing; assuming either would have produced
+silent zero values.
+
+### 9.1 One extension helper, and less `unsafe`
+
+Phase 8 added `callAgentExtension` using the SDK's public
+`ClientSideConnection.CallExtension`. It did not notice that `rawRequest`
+(`session.go:2513`) already existed and does the same job — by casting through
+`unsafe.Pointer` to reach the SDK's private `conn` field:
+
+```go
+rawConn := *(**acp.Connection)(unsafe.Pointer(s.conn))
+```
+
+That works only because `conn` is the first field of `ClientSideConnection`. A
+field reorder upstream would silently read the wrong pointer.
+
+`CallExtension` cannot replace it wholesale: it rejects any method without a
+leading `_`, and three of `rawRequest`'s five call sites are standard methods
+(`initialize`, `session/set_model`, `session/resume`).
+
+So: `rawRequest` routes `_`-prefixed methods through `CallExtension` and keeps
+the unsafe path only for the standard methods that genuinely need it;
+`callAgentExtension` is folded into it and deleted. Net effect — one helper,
+`unsafe` no longer on the extension path, and the duplication Phase 8 introduced
+removed.
+
+### 9.2 `UndoSession` for grok
+
+`UndoSession`, not `RevertSession`. `Revert(messageID, partID)` needs a
+provider-native message id, and grok emits none — its rewind is indexed by
+prompt position. `UndoSession.UndoLast()` is defined as resolving "the last
+turn" itself, which is exactly what the two calls below do. `/redo`
+(`Unrevert`) stays unavailable on grok: there is no un-rewind, and claiming one
+would be worse than the honest "this agent can't".
+
+**Step 1 — `_x.ai/rewind/points`**
+
+```json
+request:  {"sessionId": "<agentID>"}
+response: {"rewind_points": [
+            {"prompt_index": 0, "created_at": "...", "num_file_snapshots": 3,
+             "has_file_changes": true, "prompt_preview": "..."}]}
+```
+
+Take the entry with the highest `prompt_index`. Empty list → return
+`nothing to undo in this session`, matching kilo's wording for the same state.
+
+**Step 2 — `_x.ai/rewind/execute`**
+
+```json
+request:  {"sessionId": "<agentID>", "targetPromptIndex": <n>,
+           "force": false, "mode": "all"}
+response: {"success": true, "target_prompt_index": 3, "mode": "all",
+           "reverted_files": ["a.go"], "clean_files": [], "conflicts": [],
+           "prompt_text": "...", "error": null}
+```
+
+Three rules, each from the source rather than from taste:
+
+* **`mode: "all"`, always explicit.** Never omitted, even though the default
+  matches: the field's own comment says clients must specify it, and a future
+  default change must not silently redefine `/undo`.
+* **`force: false`, always.** A conflict means the working tree diverged from
+  the snapshot — the operator edited files since. Forcing discards their edits.
+  On `success: false` with a non-empty `conflicts` array, report the conflicting
+  paths and change nothing. `RewindConflictInfo` is
+  `{"path": …, "conflict_type": "missing_file"|"extra_file"|"content_mismatch"}`.
+* **`success: false` is not an error to swallow.** Return the `error` string
+  when present, else a summary of the conflicts.
+
+The summary `UndoLast` returns is built from the response: the number of
+`reverted_files` and, when present, the `prompt_preview` of the undone prompt —
+so the transcript line says what was undone rather than just that something was.
+
+### 9.3 Recorded, not adopted — 8.2f and 8.2g, with better reasons than before
+
+**8.2g `x.ai/skills/*` — declined, and the reason is stronger than Phase 8's.**
+Phase 8 said the effect was engine-global. The source says more:
+`extensions/skills.rs:271-337` calls `cli_config::update_config(|cfg| …)`,
+mutating `cfg.skills.paths` — it **writes the operator's own grok config file**.
+`SkillRefreshSession` means "refresh this session's skills" to the phone.
+Wiring a config write behind it would give one button two meanings.
+
+**8.2f `x.ai/commands/list` — declined, unchanged.** The shape is now known
+(`ListCommandsRequest{kind, sessionId}`, `kind: "chat"` taking a distinct
+catalog path), but grok already pushes `available_commands_update` and mcremote
+consumes and dedupes it. A pull surface adds a second source of truth for a list
+that already arrives.
+
+### Fail-first evidence required
+
+* `M1` — send the rewind body without `mode`; a test must FAIL showing the
+  request omits it. This is the destructive default, and the assertion is on the
+  wire body, not on behaviour.
+* `M2` — set `force: true`; a test must FAIL. Same reasoning.
+* `M3` — decode a snake_case `RewindResponse` into a camelCase-tagged struct;
+  the reverted-file count must read zero and the test must FAIL, proving the
+  casing is pinned rather than assumed.
+* `M4` — return `success: false` with a conflict; `UndoLast` must return an
+  error naming the conflicting path, not a success summary.
+* `M5` — route `_x.ai/session/fork` through the unsafe path again; a test
+  asserting extension methods do not reach it must FAIL.
+
+### Acceptance
+
+1. `UndoLast` on grok issues exactly two extension calls, with
+   `mode: "all"` and `force: false` present in the second.
+2. A conflict response produces an error naming the paths and reverts nothing.
+3. An empty rewind-point list produces "nothing to undo in this session".
+4. `unsafe.Pointer` is no longer reached for any `_`-prefixed method, pinned by
+   a test over the call sites.
+5. The grok session satisfies `provider.UndoSession` and still does **not**
+   satisfy `provider.RevertSession`.
+6. Live, under `-tags live_grok`: `x.ai/rewind/points` returns a decodable
+   `rewind_points` array against grok 1.0.13, with `DisallowUnknownFields`, so a
+   shape change fails loudly. **This spends no model tokens** — it is a
+   read-only query — but it does need a live grok session, so it runs only with
+   the owner's say-so.
+
+### Not started
+
+This amendment is the research and the plan. **No code has been written for
+Phase 9.** The shapes above are transcribed from
+`~/gitrepos/grok-build` at `SOURCE_REV`, and the one thing they cannot settle is
+whether grok 1.0.13 as installed behaves as its source says — which is what
+acceptance 6 is for.
