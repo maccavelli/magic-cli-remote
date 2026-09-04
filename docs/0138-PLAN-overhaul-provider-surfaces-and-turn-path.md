@@ -1077,3 +1077,81 @@ paging would have been a walk from seq 1.
 go build ./...                             -> ok
 go test ./internal/... ./cmd/... -count=1  -> ok (full tree)
 ```
+
+### Phase 4 — 2026-09-03, complete
+
+**4.1 `kMaxTranscriptItems` 800 → 4,000.** A 5× raise, not the host's ~26×.
+Phone RAM is the scarce side of this pair, and the two budgets are deliberately
+independent: the goal is that the client stops being the *tighter* of the two
+caps, not that it matches the host.
+
+**4.2 The client reads the host's budget.** `ServerCaps` gains
+`historyBudgetBytes`, parsed from `auth_ok.caps.history_budget_bytes` and
+defaulting to 0 for a daemon that still bounds by count. `historyRing` keeps its
+meaning and is no longer assumed to be 800.
+
+**4.3 Newest-first fetch.** New `McremoteClient.sessionHistoryNewest`, returning
+a `HistoryPage` with the events, the backward cursor, and the ring bounds. The
+existing forward `sessionHistory` is untouched and still used where a full walk
+is what is wanted; the difference is that opening a screen no longer has to be
+one.
+
+Two details that are not obvious and are pinned by tests: a page whose
+`truncated` is true but which carries **no** cursor is reported as the end
+rather than retried, because a client that re-requests the same window forever
+is worse than one that shows slightly less; and `kHistoryFetchLimit` drops from
+**800 to 200**, because 800 was the exact request that made the host's old
+byte-budget loop re-encode a shrinking slice 505 times (MADR 0138 F14). A page
+is one screen plus lookahead, not the whole ring.
+
+The hardcoded `for (var page = 0; page < 32; ...)` bound, whose comment read
+*"Safety bound: ring is ≤800"*, becomes `kHistoryMaxPages`.
+
+**4.4 The FIFO trim is batched.** `_enforceCap` dropped a single item per event
+once at the cap, copying the whole list and rebuilding the whole tool index each
+time — tolerable at 800, five times worse at 4,000. It now cuts back to 75% in
+one batch, the same shape as the host's eviction, and **shifts** the tool index
+rather than rebuilding it: the map holds one entry per tool call, which is far
+smaller than the transcript.
+
+**4.5 `kTranscriptCacheMaxItems` stays at 150**, as the plan specified. Raising
+the on-disk cache is a mobile storage decision with its own trade-offs.
+
+### Fail-first evidence — two breakages, in a scratch copy of `apps/mobile`
+
+```text
+D1. the forward-only fetch restored
+    FAIL the first fetch asks for the newest page, not the oldest
+         Expected: true      Actual: <null>     ('newest' absent)
+    FAIL an older page is requested with before_seq, not newest
+         Expected: <98>      Actual: <null>
+
+D2. historyBudgetBytes hardcoded to 0 and the cap put back to 800
+    FAIL the client reads the host budget instead of assuming 800
+         Expected: <33554432>  Actual: <0>
+```
+
+The first attempt at D1 did not run at all: the `cp` that was supposed to make
+the scratch copy failed on a stale working directory, the `&&` chain stopped
+before the edit, and the `flutter test` on the following line ran against the
+**real tree** and passed. It was reported as a pass for the wrong code. Re-run
+with absolute paths, both breakages failed as shown. The real tree was confirmed
+untouched (`grep -c 'D1:'` → 0) before continuing.
+
+### Verification
+
+```text
+dart format --output=none --set-exit-if-changed .  -> Formatted 208 files (0 changed)
+flutter analyze                                     -> No issues found!
+flutter test                                        -> 1406 passed, 3 skipped
+```
+
+### Deviation — 2026-09-03: the transcript-reducer cap test was rewritten
+
+`soft cap drops oldest items` asserted the exact one-item-per-event trim
+(`items.first.text == 'm50'`). Batched trimming makes that assertion false by
+design. It now asserts the property — length within `[75%, 100%]` of the cap,
+newest item always retained, oldest derived from the length — and is joined by
+`a batched trim keeps the tool index pointing at the right items`, which catches
+the off-by-one that shifting the index rather than rebuilding it could
+introduce. The original name was kept so what it guarded stays findable.

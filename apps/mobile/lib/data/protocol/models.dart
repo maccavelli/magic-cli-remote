@@ -27,6 +27,7 @@ class ServerCaps {
     required this.wsPingResetsDeadline,
     required this.historyRing,
     required this.maxFrameBytes,
+    this.historyBudgetBytes = 0,
     required this.tlsResumed,
     this.resumeWindowMs,
     this.epoch,
@@ -40,8 +41,17 @@ class ServerCaps {
   final int readDeadlineMs;
   final int pingIntervalMs;
   final bool wsPingResetsDeadline;
+
+  /// Per-session ring size in **events**. Since MADR 0138 the daemon bounds
+  /// retention by bytes, so this is a conservative estimate derived from that
+  /// budget rather than a hard count. It stays an event count because that is
+  /// what it has always meant and this client sizes its own buffers from it.
   final int historyRing;
   final int maxFrameBytes;
+
+  /// The per-session retention budget the daemon actually enforces, in bytes
+  /// (MADR 0138 Phase 2). Zero on a daemon that still bounds by event count.
+  final int historyBudgetBytes;
 
   /// Whether this connection's TLS handshake resumed a prior session —
   /// the observable for the SecurityContext cache (0068 Q3/P5).
@@ -92,6 +102,7 @@ class ServerCaps {
       pingIntervalMs: (m['ping_interval_ms'] as num?)?.toInt() ?? 10000,
       wsPingResetsDeadline: m['ws_ping_resets_deadline'] == true,
       historyRing: (m['history_ring'] as num?)?.toInt() ?? 800,
+      historyBudgetBytes: (m['history_budget_bytes'] as num?)?.toInt() ?? 0,
       maxFrameBytes: (m['max_frame_bytes'] as num?)?.toInt() ?? (1 << 20),
       tlsResumed: m['tls_resumed'] == true,
       resumeWindowMs: resumeWindowMs,

@@ -14,7 +14,8 @@ import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../chat/chat_models.dart' show kHistoryFetchLimit;
+import '../chat/chat_models.dart'
+    show HistoryPage, kHistoryFetchLimit, kHistoryMaxPages;
 import '../codex_execution_client.dart';
 import '../codex_threads_client.dart';
 import '../diagnostics/error_recorder.dart';
@@ -3470,8 +3471,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     final out = <SessionEvent>[];
     var sinceSeq = 0;
     var prevTruncated = false;
-    // Safety bound: ring is ≤800; byte pages may be smaller.
-    for (var page = 0; page < 32; page++) {
+    for (var page = 0; page < kHistoryMaxPages; page++) {
       final res = await request(
         'session.history',
         payload: {
@@ -3522,6 +3522,70 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
       sinceSeq = nextSince;
     }
     return out;
+  }
+
+  /// The newest page of a session's transcript, plus the cursor for the page
+  /// before it.
+  ///
+  /// This is what a chat screen opens on. [sessionHistory] walks the ring
+  /// *forward* from its oldest event, which means a phone had to download the
+  /// whole transcript before it could show the bottom of it — one round trip at
+  /// 800 events, twenty-five at the host's current 32 MiB budget (MADR 0138
+  /// F17).
+  ///
+  /// [beforeSeq] of 0 asks for the tail. A non-zero value asks for the page
+  /// immediately older than that seq — pass the `prevBeforeSeq` from the
+  /// previous reply. Events come back oldest-first within the page, the same
+  /// order the reducer already expects.
+  ///
+  /// Returns `null` for `prevBeforeSeq` when the oldest retained event has been
+  /// reached, so a caller can stop asking.
+  Future<HistoryPage> sessionHistoryNewest(
+    String sessionId, {
+    int beforeSeq = 0,
+    int limit = kHistoryFetchLimit,
+  }) async {
+    final res = await request(
+      'session.history',
+      payload: {
+        'session_id': sessionId,
+        if (limit > 0) 'limit': limit,
+        if (beforeSeq > 0) 'before_seq': beforeSeq else 'newest': true,
+      },
+      expectedType: 'session.history_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'session history failed');
+    }
+    final list = res.payload?['events'];
+    if (list is! List) {
+      throw McException(
+        'session.history_result missing events array',
+        code: 'bad_payload',
+        permanent: false,
+      );
+    }
+    final events = <SessionEvent>[];
+    for (final e in list) {
+      if (e is Map<String, dynamic>) {
+        events.add(SessionEvent.fromJson(e));
+      } else if (e is Map) {
+        events.add(SessionEvent.fromJson(Map<String, dynamic>.from(e)));
+      }
+    }
+    final truncated = res.payload?['truncated'] == true;
+    final prev = res.payload?['prev_before_seq'];
+    final prevSeq = prev is num ? prev.toInt() : 0;
+    final first = res.payload?['first_seq'];
+    final latest = res.payload?['latest_seq'];
+    return HistoryPage(
+      events: events,
+      // A truncated page with no cursor cannot be continued; report it as the
+      // end rather than letting a caller spin on the same request.
+      prevBeforeSeq: truncated && prevSeq > 0 ? prevSeq : null,
+      firstSeq: first is num ? first.toInt() : 0,
+      latestSeq: latest is num ? latest.toInt() : 0,
+    );
   }
 
   /// Owner-scoped daemon snapshot of unresolved permissions and questions.
