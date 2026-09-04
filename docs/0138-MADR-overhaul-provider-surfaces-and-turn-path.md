@@ -932,6 +932,77 @@ are unavailable on grok, kilo, opencode and goose alike. Phase 10 fixes grok
 because grok is what F9 named; the other three remain a gap, now recorded rather
 than implied.
 
+## Amendment, 2026-09-04: `x.ai/restore_code` is not a method either, and omitting it hands the default to the operator's config
+
+F7's table lists three methods against `RevertSession` / `UndoSession`:
+`x.ai/rewind/points`, `x.ai/rewind/execute`, `x.ai/restore_code`. The first two
+are real and shipped in Phase 9. The third is **not a method** — it is a `_meta`
+key on `session/load`, and this is the third one in this record after
+`x.ai/limit`.
+
+The pattern is now clear enough to name: **grok's `x.ai/` namespace covers both
+methods and `_meta` keys**, a grep for the prefix returns both, and three
+entries in F7's table came from the grep rather than from the dispatch table.
+`x.ai/limit` is a page size, `x.ai/restore_code` is a boolean flag, and only the
+27 names in `acp_agent.rs:2290-2562` are callable.
+
+### What it actually does
+
+`session_setup.rs:138-157`:
+
+```rust
+AttachOperation::Load => Self {
+    no_replay: parse_no_replay(meta),
+    restore_code: explicit_restore_code.unwrap_or(agent_restore_code),
+},
+AttachOperation::Resume => Self { no_replay: true, restore_code: false },
+```
+
+and the field's own comment: *"Check the session's persisted HEAD out into the
+caller's `cwd`."* It reaches
+`restore_session_code(&session_id, &cwd, &summary, policy.restore_code)` and
+then a git checkout, guarded by `restore_code_checkout_allowed` and a refusal to
+detach a repo that is neither a grok worktree nor the session's persisted cwd.
+
+So it is a **working-tree mutation performed as a side effect of resuming a
+session**.
+
+### Why omitting it is not the same as declining it
+
+mcremote's `session/load` `_meta` carries `modelId` and `reasoningEffort` and
+nothing else (`internal/provider/grok/grok.go`, `grokSessionMeta`). grok
+therefore falls back to `agent_restore_code`, which
+`util/config/worktree.rs:200` resolves as:
+
+```rust
+restore_code_from_toml(raw_config)          // [cli] restore_code in the operator's grok config
+    .or(remote.and_then(|r| r.restore_code)) // xAI's remote settings
+    .unwrap_or(false)
+```
+
+Today, on a default install, that is `false` and nothing happens. But the value
+is taken from **two sources mcremote does not control**, one of them served
+remotely by the vendor. If either turns it on, every session resume from the
+phone checks a commit out into the operator's repository, with no request having
+asked for it and nothing in the transcript saying so.
+
+This is the same defect Phase 9 found in `RewindMode` — a destructive default
+inherited by omission — one level up, and it is worth stating as a general rule
+rather than a second coincidence: **where an engine resolves an unsent field
+from the operator's own configuration, sending nothing is a decision to accept
+whatever that configuration says, not a decision to do nothing.**
+
+`AttachOperation::Resume` hardcodes `false`, so only `session/load` is exposed,
+which is the path mcremote uses to resume (`acpagent.go:890`).
+
+### Consequence
+
+The row's third method is neither a gap nor a decline: it is a flag that must be
+**sent explicitly as `false`**, exactly as Phase 9 sends `mode: "all"`
+explicitly rather than inheriting a default that currently matches. If mcremote
+ever grows a deliberate "restore the files too" affordance, that is the place to
+set it true — from a request, not from a config file.
+
 ## More Information
 
 Everything below was produced during this pass on 2026-09-03 against

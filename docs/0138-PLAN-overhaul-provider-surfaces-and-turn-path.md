@@ -2523,3 +2523,380 @@ that happened to use short dates.
   point needs a real turn.
 * **Criterion 4 on device** — backward paging has never been driven on the
   emulator.
+
+## Amendment, 2026-09-04: Phase 11 — close the remaining open items
+
+Phase 10 ended with four things named as still open. This phase takes them, and
+the investigation changed one of them before it was written.
+
+| item | disposition |
+| --- | --- |
+| `x.ai/restore_code` | **not a gap** — a `_meta` flag that must be sent `false` (11.1) |
+| `RuntimeSession` for kilo and opencode | one shared implementation (11.2, 11.3) |
+| `RuntimeSession` for goose | from data acphttp already receives (11.4) |
+| Phase 9's rewind residual | needs a real turn; see 11.5 |
+| criterion 4 on the emulator | 11.6 |
+
+### 11.1 grok must send `x.ai/restore_code: false`
+
+Per the MADR amendment of the same date: it is not a method, it is a
+`session/load` `_meta` boolean that checks the session's persisted HEAD out into
+the caller's cwd, and grok resolves it from the operator's `[cli] restore_code`
+or **xAI's remote settings** when the client omits it.
+
+`grokSessionMeta` gains `x.ai/restore_code: false`, for the same reason Phase 9
+sends `mode: "all"` explicitly: the current default matches, and a default that
+happens to match is not the same as a value that was chosen.
+
+It must be sent on `session/load` and is harmless on `session/new`
+(`AttachOperation::Resume` hardcodes `false`), so it goes in the one meta builder
+rather than being threaded conditionally.
+
+### 11.2 `RuntimeUsage` for kilo and opencode, once
+
+Probed live against the running engines (kilo 7.5.6 on :53424, opencode on
+:57202), read-only, from each engine's own OpenAPI document:
+
+```
+GET /session/{sessionID}  ->  { "cost": number,
+                                "tokens": { "input": number, "output": number,
+                                            "reasoning": number,
+                                            "cache": { "read": number, "write": number } } }
+```
+
+**The two schemas are byte-identical**, so this lands in `internal/provider/httpagent`
+and serves both dialects from one implementation. That is the finding that makes
+this phase small: F9's amendment expected per-provider work.
+
+`cost` is a JSON number in USD — not cents, and not grok's 1e10 ticks. Three
+providers, three money units, which is exactly why each is written down at its
+decode site.
+
+kilo additionally publishes `GET /session/{sessionID}/model-usage` with
+`totals{steps,cost,tokens}` and a per-model breakdown. It is **not** used: the
+session object already carries the totals, and a second source for the same
+number is how they drift apart.
+
+### 11.3 `RuntimeStatus` via an optional dialect hook
+
+Follows the `AuthDialect` pattern already in `httpagent.go:139` — an optional
+interface a dialect may implement, with the generic path degrading to a message
+when it does not.
+
+* **kilo** — `GET /kilocode/provider-usage`, whose `providerUsage` type already
+  exists in `internal/provider/kilo/quota.go` from Phase 6.4. Reports plan
+  windows with their state, which is strictly more than grok's billing can say.
+* **opencode** — has no account-usage endpoint. Its 162 published paths contain
+  no `provider-usage`, no billing and no quota; the search was over the whole
+  document, not a guess. So its status reports the engine's model and agent and
+  says plainly that this engine publishes no plan usage, rather than inventing a
+  number or leaving `/status` dead.
+
+### 11.4 goose
+
+goose serves **no** HTTP status surface — `/status`, `/health`, `/metrics`,
+`/doc` and `/openapi.json` all return 404 on the running engine. What it does
+send is the standard ACP `SessionUsageUpdate`, which `acphttp/session.go:1303`
+already turns into `event.TypeUsage` with `Used` and `Size`.
+
+`RuntimeUsage` reports that last observed value — context occupancy, which is a
+real measurement the daemon already holds. `RuntimeStatus` reports the engine
+and the session's model where known.
+
+No cost: goose reports none, and a zero would be a claim rather than a gap.
+
+### 11.5 Phase 9's rewind residual — not done, and why
+
+Confirming the rewind **element** shape and `_x.ai/rewind/execute` against the
+binary needs a session with at least one rewind point, and a rewind point is
+created by running a turn. That spends model tokens, unlike every other live
+check in this record, so it is not run on the plan's own authority.
+
+The tests exist and are tagged. This stays open until the owner asks for it.
+
+### 11.6 Criterion 4 on the emulator
+
+Backward history paging driven on the Android AVD against a session large enough
+to page. Verification only — no code — and it either confirms what the manager
+and client tests already assert or finds something they cannot.
+
+### Files
+
+| file | change |
+| --- | --- |
+| `internal/provider/grok/grok.go` | `grokSessionMeta` sends `x.ai/restore_code: false` |
+| `internal/provider/httpagent/runtime.go` | new — `RuntimeSession`, the shared usage read, the `RuntimeDialect` hook |
+| `internal/provider/httpagent/httpagent.go` | `RuntimeDialect` optional interface |
+| `internal/provider/kilo/runtime.go` | new — kilo's `RuntimeStatus` over provider-usage |
+| `internal/provider/opencode/runtime.go` | new — opencode's `RuntimeStatus` |
+| `internal/provider/acphttp/runtime.go` | new — goose's `RuntimeSession` |
+| tests alongside each |
+
+### Deviation — 2026-09-04: opencode forbids the endpoint 11.3 chose
+
+*What was found.* 11.3 specified opencode's `RuntimeStatus` as
+`GET /experimental/capabilities`. `internal/provider/opencode/surface_contract_test.go:522`
+carries an existing accepted decision, **A11**: *"no runtime or test helper in
+this package may call an experimental endpoint."* The guard scans the package's
+own source and failed as soon as the file landed:
+
+```text
+surface_contract_test.go:545: runtime.go references an experimental OpenCode endpoint
+```
+
+The guard is right and was not weakened, skipped or scoped around. kilo calls
+the same endpoint legitimately — the rule belongs to opencode, from its 1.18.21
+parity work — which is why the plan's author (me) did not hit it when writing
+the kilo half first.
+
+*Alternatives examined.* opencode's stable endpoints were probed read-only for
+something to put in a status line. `/path` returns host directories. **`/config`
+returns provider blocks carrying plaintext `apiKey` values** — the exact hazard
+`AuthDialect`'s own documentation warns about for kilo's `/config/providers`.
+Neither is worth routing credential-bearing or host-path data through a code
+path that exists to print one line.
+
+*Resolution chosen.* `internal/provider/opencode/runtime.go` is deleted.
+httpagent's generic path already produces the right answer for an engine with
+nothing account-level to report, so opencode implements no `RuntimeDialect` at
+all and `/status` answers:
+
+```text
+Opencode · model opencode-go/minimax-m3 · agent build · this engine publishes no plan usage
+```
+
+with no engine call. This is strictly better than the plan as written: less
+code, no experimental dependency, and opencode becomes the real instance of the
+no-dialect case that `TestStatusWithoutARuntimeDialectStillAnswers` (Q5) was
+written for, rather than a hypothetical one.
+
+*Scope note.* The plan's file table loses `internal/provider/opencode/runtime.go`.
+
+### Fail-first evidence required
+
+Each against a scratch copy, from disk.
+
+* `Q1` — drop `x.ai/restore_code` from the meta. A test asserting the flag is
+  sent must FAIL. The assertion is on the wire body: the failure it guards is a
+  git checkout in the operator's repository, which is not a thing to reproduce
+  in order to test for.
+* `Q2` — send `x.ai/restore_code: true`. Same test must FAIL.
+* `Q3` — decode the session-usage response with `cost` as an integer. A test
+  must FAIL, pinning that the engines send a JSON number.
+* `Q4` — make the shared `RuntimeUsage` read `model-usage` instead of the
+  session object. A test asserting one source of truth must FAIL.
+* `Q5` — make a dialect without `RuntimeDialect` return an error from
+  `RuntimeStatus`. A test must FAIL, for the same reason as Phase 10's P4:
+  `cmdRuntime` swallows a returned error.
+* `Q6` — make goose's `RuntimeUsage` report a zero cost. A test asserting goose
+  claims no cost must FAIL.
+
+### Acceptance
+
+1. `session/load` for grok carries `x.ai/restore_code: false`, asserted on the
+   request body.
+2. `/usage` works on kilo and opencode, from one implementation, reporting
+   tokens and cost.
+3. `/status` works on kilo with plan windows, and on opencode with an honest
+   statement that the engine publishes no plan usage.
+4. `/usage` and `/status` work on goose without inventing a cost.
+5. Every provider either implements `RuntimeSession` or is recorded as unable
+   to — no transport is left silently dead.
+6. Live, read-only, against the running engines: the session-usage shape decodes
+   strictly on kilo and opencode. No model tokens.
+
+### Executed — 2026-09-04
+
+**11.1** `grokSessionMeta` sends `x.ai/restore_code: false` on every session, so
+a resume from the phone cannot inherit a file-restoring default from the
+operator's grok config or from xAI's remote settings.
+
+**11.2** `internal/provider/httpagent/runtime.go`. One `RuntimeUsage` reading
+`GET /session/{id}`, serving kilo and opencode. `sessionUsagePath` and
+`fetchSessionTotals` are split out as seams: `Provider.api` is a **method**, not
+a field, so without them no test can observe which endpoint is called or what
+comes back — the same problem Phase 9 solved with `rawConnOf`.
+
+**11.3** `RuntimeStatus` dispatches through a new optional `RuntimeDialect`,
+following the `AuthDialect` pattern. kilo implements it over
+`/kilocode/provider-usage`, reusing the `providerUsage` type Phase 6.4 already
+transcribed. **opencode implements nothing** — see the deviation above.
+
+**11.4** `internal/provider/acphttp/runtime.go`. goose serves no HTTP status
+surface at all (`/status`, `/health`, `/metrics`, `/doc`, `/openapi.json` all
+404 on the running engine), so both methods are answered from the ACP usage
+update `session.go:1303` already receives. Recorded in two atomics rather than
+behind the session mutex, because that update arrives on the notification path
+and F5 governs what may block there.
+
+### An existing assertion changed, deliberately
+
+`TestGrokSessionMeta` asserted `len(got) != 0` — "with nothing requested, send
+nothing". 11.1 changes that contract on purpose, so the assertion was rewritten
+to an **exact key set** rather than relaxed: it now requires the map to contain
+`x.ai/restore_code:false` and nothing else, so a future addition has to come to
+that test and justify itself. Recorded here because "a test changed" and "a test
+was loosened" look identical in a diff.
+
+### Fail-first evidence — six breakages, each on a scratch copy
+
+```text
+Q1. the flag is not sent
+    FAIL TestSessionMetaAlwaysSendsRestoreCodeFalse (all four cases)
+         session meta omits x.ai/restore_code. grok then takes the value from
+         the operator's own grok config or from xAI's remote settings, and a
+         session resumed from the phone can check a commit out into their repo
+    FAIL TestGrokSessionMeta   empty = map[]{}, want only x.ai/restore_code
+
+Q2. the flag is sent true
+    FAIL TestSessionMetaAlwaysSendsRestoreCodeFalse
+         x.ai/restore_code = true, want false: resuming a session must not
+         modify the working tree
+
+Q3b. the `cost` tag no longer matches the wire
+    FAIL TestSessionTotalsDecodeFromTheSessionObject   cost = 0
+    FAIL TestFormatSessionTotalsStatesSubCentCosts
+         usage = "… · $0.00", want "$0.0234"
+
+Q4. usage reads /model-usage instead of the session object
+    FAIL TestSessionUsageReadsTheSessionObjectAndNothingElse
+         engine calls = [GET /session/ses_abc/model-usage], want exactly
+         [GET /session/ses_abc]
+
+Q5. a dialect with no RuntimeDialect returns nothing
+    FAIL TestStatusWithoutARuntimeDialectStillAnswers
+         status was empty; /status would show nothing at all
+
+Q6. goose reports a zero cost
+    FAIL TestGooseUsageNeverClaimsACost
+         usage = "… (3%) · $0.00" — goose reports no cost, so a figure here is
+         invented
+
+A11. the opencode guard, made to fail on purpose after the fix
+    FAIL TestNoExperimentalRoute
+         runtime_test.go references an experimental OpenCode endpoint
+```
+
+**Q3 as the plan wrote it cannot be made to fail, and that is worth stating
+rather than dressing up.** The plan asked for `cost` decoded as an integer. Go
+will not build it: `go vet` rejects `%.2f` against an `int64`, so the mistake is
+caught before a test binary exists. What that establishes is *stronger* than a
+test — the wrong type is unrepresentable — but it is not the check that was
+asked for, so `Q3b` was run instead: a mistyped **tag**, which is silent, and
+which makes every session report `$0.00`.
+
+Two earlier attempts at Q3 broke the build rather than the assertion, including
+one where a `sessionTotals{Cost: 0.0234}` literal in the test stopped compiling.
+The test now decodes its fixtures from JSON and compares through `float64(...)`,
+so a type change surfaces as a failing assertion rather than a build error. A
+fail-first that cannot compile has demonstrated nothing.
+
+**A11 was also made to fail deliberately**, by appending the forbidden substring
+to a scratch copy. Without that it would have been a guard observed only
+passing — and it is the guard that caught this phase's own deviation.
+
+### Acceptance
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | `session/load` carries `x.ai/restore_code: false` | **pass** — asserted on the meta map, four call shapes |
+| 2 | `/usage` on kilo and opencode from one implementation | **pass** — and confirmed against both live engines |
+| 3 | `/status` on kilo with plan windows; opencode honest about having none | **pass**, opencode via the generic path — see the deviation |
+| 4 | `/usage` and `/status` on goose without inventing a cost | **pass** — Q6 |
+| 5 | every provider implements `RuntimeSession` or is recorded as unable to | **pass** — see the matrix below |
+| 6 | the session-usage shape decodes on kilo and opencode, live | **pass** |
+
+```text
+go test -race ./internal/... ./cmd/... -count=1        -> ok, no failures
+for os in windows linux darwin; go vet …               -> all clean
+```
+
+### `/status` and `/usage` across the five transports, after this phase
+
+| provider | transport | `/usage` | `/status` |
+| --- | --- | --- | --- |
+| codex | app-server | pre-existing | pre-existing |
+| grok | ACP stdio | `x.ai/session/usage` (Phase 10) | `x.ai/billing` (Phase 10) |
+| kilo | HTTP+SSE | `GET /session/{id}` | `/kilocode/provider-usage` |
+| opencode | HTTP+SSE | `GET /session/{id}` | generic line — engine publishes none |
+| goose | ACP websocket | last ACP usage update | engine + model, no plan usage |
+
+Acceptance 5 is met: no transport is left silently dead, and the two that cannot
+report account usage say so instead of failing.
+
+### Acceptance 6 — read live from both running engines
+
+Read-only, against real sessions, no model tokens:
+
+```text
+kilo     cost = 0.043495776
+         tokens = {"input":15551,"output":47,"reasoning":32,"cache":{"read":30720,"write":0}}
+opencode cost = 0
+         tokens = {"input":220,"output":146,"reasoning":0,"cache":{"read":39040,"write":0}}
+```
+
+Both payloads are now fixtures in `runtime_test.go`, so a one-off observation
+became a regression guard. Two things they settled that the schemas alone did
+not:
+
+* **kilo's real cost is `0.043495776`.** The formatter's four decimals earn
+  their place on that figure: `$0.04` would have discarded a digit on a number
+  already in cents. Rendered `$0.0435`.
+* **opencode sent `0`, a JSON integer, not `0.0`.** A `float64` field accepts
+  both; an integer field would not have accepted kilo's.
+
+Nothing here decodes with `DisallowUnknownFields`, unlike Phase 9 and 10's live
+checks, and the reason is recorded rather than left as an inconsistency: this is
+a deliberately **partial** view of a large session object, so strict decoding
+would reject every field the daemon correctly ignores.
+
+### Still open after this phase
+
+* **Phase 9's rewind residual.** Confirming the rewind element shape and
+  `_x.ai/rewind/execute` against the binary needs a session with a rewind point,
+  and a rewind point is created by running a turn. That spends model tokens,
+  unlike every other live check in this record, so it is not run on the plan's
+  own authority.
+* **Criterion 4 on the emulator** — attempted and blocked; see below.
+
+### 11.6 — criterion 4 could not be run, and the blocker is the data, not the emulator
+
+Criterion 4 asks for backward history paging driven on the emulator against a
+session large enough to page repeatedly. It is **not done**, and the reason is
+worth recording precisely because it is not the one that was expected.
+
+*The blocker is that no such session exists.* Every transcript in the operator's
+live store was counted:
+
+```text
+largest three sessions: 773, 629, 606 events
+```
+
+against a criterion written for 20,000. Backward paging is reachable at that
+size — the phone fetches `kHistoryFetchLimit = 200` per page, so 773 events is
+four pages — but that exercises the paging *path* without exercising the
+condition the criterion was written for: a transcript far past
+`kMaxTranscriptItems` (4,000), where eviction and backward refill interact.
+
+Producing a 20,000-event session means one of:
+
+1. **Writing synthetic events into the live daemon store.** Rejected without
+   asking: that mutates the operator's real session data, it is outside this
+   plan, and a store this code also reads is the wrong place to leave 20,000
+   fabricated events.
+2. **Running enough real turns to generate them.** Tens of thousands of events
+   is a very large amount of model spend.
+3. **A disposable daemon instance with its own store**, paired to the emulator,
+   seeded synthetically. This is the honest route and it is a piece of work in
+   its own right — a second daemon, a second pairing, an APK build — rather than
+   a verification step.
+
+*The toolchain is also not ready*, though it is the smaller problem: the
+`mcremote_test` AVD exists but no device is attached, and the `emulator` binary
+is not on `PATH` or at the usual SDK location.
+
+*What stands in its place.* Backward paging is covered by manager and client
+unit tests, and Phase 3's execution record carries its own evidence. What has
+never been observed is the interaction on a real device at a size where the
+transcript cap forces eviction. That is a real gap and it stays named rather
+than being marked done at a smaller size.

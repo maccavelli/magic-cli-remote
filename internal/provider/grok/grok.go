@@ -214,5 +214,18 @@ func grokSessionMeta(opts provider.StartOptions, cfg Config) map[string]any {
 	if effort != "" {
 		meta["reasoningEffort"] = effort
 	}
+	// x.ai/restore_code is a session/load flag, not a method: grok checks the
+	// session's persisted HEAD out into the caller's cwd when it is true
+	// (session_setup.rs, AttachPolicy.restore_code). When a client omits it,
+	// grok resolves it from `[cli] restore_code` in the operator's own config
+	// or from xAI's remote settings — two sources mcremote does not control,
+	// one of them served by the vendor.
+	//
+	// Sent explicitly false for the reason Phase 9 sends `mode: "all"`
+	// explicitly: the default matches today, and a default that happens to
+	// match is not a value that was chosen. Resuming a session from a phone
+	// must not check a commit out into the operator's repository
+	// (MADR 0138 Phase 11).
+	meta["x.ai/restore_code"] = false
 	return meta
 }

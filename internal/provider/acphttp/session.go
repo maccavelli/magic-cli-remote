@@ -76,6 +76,12 @@ type session struct {
 
 	staticModes []event.SessionMode
 
+	// usage is the last ACP SessionUsageUpdate the agent sent, kept so
+	// RuntimeUsage can answer without asking goose for an endpoint it does not
+	// serve (MADR 0138 Phase 11). Atomics, not a lock: it is written from the
+	// notification path, which must never block.
+	usage lastUsage
+
 	// configMu guards configOpts: the last session config options the agent
 	// reported. Retained rather than only emitted because for goose these ARE
 	// the model catalog — a `provider` select of 71 values and a `model` select
@@ -1299,6 +1305,7 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 			Entries:   []event.PlanEntry{},
 		})
 	case u.UsageUpdate != nil:
+		s.usage.record(u.UsageUpdate.Used, u.UsageUpdate.Size)
 		s.emit(event.Event{
 			Type:      event.TypeUsage,
 			SessionID: s.localID,
