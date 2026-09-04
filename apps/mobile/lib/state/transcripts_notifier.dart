@@ -724,6 +724,84 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
     );
   }
 
+  /// Prepend an older page of history ahead of the transcript on screen.
+  ///
+  /// Backward paging fetches events *older* than everything held, so it cannot
+  /// use the normal apply path: reducing them onto a populated transcript would
+  /// append them after the newest content.
+  ///
+  /// The older page is reduced into its **own** transcript and the two item
+  /// lists are concatenated. No reduction crosses the join, so the older page's
+  /// last chunk cannot fold into the newer page's first item — the guarantee a
+  /// head latch would otherwise have to enforce, made structural instead
+  /// (MADR 0141, Phase 2 deviation).
+  ///
+  /// A message split across a page boundary therefore renders as two adjacent
+  /// bubbles. That is the intended trade: merging two turns' text into one
+  /// bubble misattributes content, and splitting one message across two bubbles
+  /// does not.
+  Future<void> prependHistory(
+    String sessionId,
+    List<SessionEvent> events,
+  ) async {
+    if (events.isEmpty) return;
+    _flushSession(sessionId);
+
+    // Nothing to page back from. Prepending onto an empty transcript would
+    // leave `items.last` owned by the older page, and the next live chunk would
+    // fold into it across an arbitrary gap.
+    final before = state.peek(sessionId);
+    if (before == null || before.items.isEmpty) return;
+
+    final gen = (_historyGen[sessionId] ?? 0) + 1;
+    _historyGen[sessionId] = gen;
+
+    // Reduce the page in isolation, yielding between batches so a 200-event
+    // page does not block a frame. Nothing is committed until the end: a
+    // half-prepended transcript would visibly jump.
+    var older = SessionTranscript(sessionId: sessionId);
+    var minSeq = 0;
+    for (var i = 0; i < events.length; i++) {
+      if ((_historyGen[sessionId] ?? 0) != gen) return;
+      final seq = events[i].seq;
+      if (seq > 0 && (minSeq == 0 || seq < minSeq)) minSeq = seq;
+      older = applySessionEvent(older, events[i]);
+      if ((i + 1) % kHistoryApplyBatchSize == 0 && i < events.length - 1) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+    if ((_historyGen[sessionId] ?? 0) != gen) return;
+    if (older.items.isEmpty) return;
+
+    // Re-read: live events may have appended during the yields above, and the
+    // snapshot taken before them would drop them.
+    final current = state.peek(sessionId);
+    if (current == null || current.items.isEmpty) return;
+
+    // toolIndex maps a tool id to an *index into items*, so every existing
+    // entry moves by the number of items placed in front of it. Without this
+    // the next tool_call_update lands on the wrong card — the kind guard in
+    // _upsertTool only checks that the target is a tool, not which one.
+    final rebased = <String, int>{...older.toolIndex};
+    current.toolIndex.forEach((id, i) => rebased[id] = i + older.items.length);
+
+    _commit(
+      sessionId,
+      current.copyWith(
+        items: [...older.items, ...current.items],
+        toolIndex: rebased,
+        // The concatenated list is freshly allocated but is now published;
+        // in-place appends must not mutate it (MADR 0018 D2).
+        growableItems: false,
+      ),
+    );
+
+    final first = _firstSeq[sessionId] ?? 0;
+    if (minSeq > 0 && (first == 0 || minSeq < first)) {
+      _firstSeq[sessionId] = minSeq;
+    }
+  }
+
   /// Apply [events] onto [initial] in batches of [kHistoryApplyBatchSize]
   /// with a frame yield between batches so large histories do not freeze the
   /// UI isolate (MADR 0018 B4).

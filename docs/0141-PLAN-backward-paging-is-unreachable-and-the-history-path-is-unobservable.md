@@ -99,6 +99,49 @@ on one frame, and it must uphold the same invariants that method documents —
 continue from the transcript `_commit` returned, and record seqs only once the
 covering commit happened.
 
+### Deviation — 2026-09-04: `toolIndex` holds positions, and `sealedHead` is redundant
+
+Two findings from implementing Phase 2, one the plan missed and one where it
+asked for machinery that is not needed.
+
+**`toolIndex` invalidates on prepend, and the plan never mentions it.**
+`chat_models.dart:507` is `Map<String, int>` — tool id to an **index into
+`items`** — and `_upsertTool` dereferences `t.items[i]` directly. Prepending N
+older items shifts every existing entry by N, so the next `tool_call_update`
+either writes to the wrong card (the kind guard only checks that the target is
+*a* tool) or falls through and appends a duplicate.
+
+This is not optional: any prepend must rebase the map. `toolIndex` is the only
+position-bearing state on the transcript — `_indexOfNative` scans backwards, so
+identified items are position-independent.
+
+**`sealedHead` is redundant under concatenation.** The latch exists to stop the
+older page's last chunk folding into the newer page's first item. Folding
+happens only *during reduction* (`_appendAssistant`, `chat_models`' id-less
+path). If `prependHistory` reduces the older page into its **own** transcript
+and then concatenates the two item lists, no reduction ever crosses the join, so
+nothing can fold across it.
+
+The two approaches produce identical output. Where a page boundary falls
+mid-message — roughly one boundary in seven, at ~3 chunks per assistant message
+and 22 events per turn — both render two adjacent bubbles, because forcing that
+split is exactly what `sealedHead` was for.
+
+*Resolution chosen.* Concatenate, rebase `toolIndex`, and do not add
+`sealedHead`. The guarantee becomes structural rather than a flag, which removes
+the cost the MADR itself named for this option: *"`sealedHead` adds a second
+latch to a reducer that is already the subtlest code in the client, and two
+latches can disagree."* They cannot disagree if there is only one.
+
+*One edge case the concatenation must guard.* Prepending onto an **empty**
+transcript would leave `items.last` belonging to the older page, and the next
+live chunk would fold into it across an arbitrary gap. There is nothing to page
+back from in that state, so `prependHistory` refuses it rather than handling it.
+
+*Scope change.* Steps 2.1 and 2.2 are dropped. Step 2.3 gains the `toolIndex`
+rebase and the empty-transcript guard. Acceptance criterion 3 is unchanged — it
+asserts the outcome, not the mechanism.
+
 ### Phase 3 — Wire the pager (Dart)
 
 **3.1 Both history call sites move together.** This is the step with a
@@ -265,3 +308,66 @@ for os in windows linux darwin; go vet ./internal/... ./cmd/...  -> all clean
 go test -race ./internal/... ./cmd/... -count=1                  -> no failures
 make pre-add-check FILES=…                                       -> 4 file(s) clean
 ```
+
+### Phase 2 — 2026-09-04, complete
+
+**2.1 and 2.2 dropped**, per the deviation above: `sealedHead` is redundant
+under concatenation.
+
+**2.3** `prependHistory` reduces the older page into its own transcript,
+yielding every `kHistoryApplyBatchSize` events so a 200-event page does not
+block a frame, and commits once — a half-prepended transcript would visibly
+jump. It then concatenates the two item lists and rebases `toolIndex`.
+
+Three details that are load-bearing rather than defensive:
+
+* **It re-reads the transcript after the yields.** Live events can append while
+  the page is being reduced, and the snapshot taken before the first yield would
+  drop them.
+* **It refuses an empty transcript.** There is nothing to page back from, and
+  prepending would leave `items.last` owned by the older page for the next live
+  chunk to fold into.
+* **A generation guard** cancels the reduction if another history operation
+  starts, matching `_applyChunked`'s discipline.
+
+### Fail-first evidence — two breakages, on a scratch copy of `apps/mobile`
+
+```text
+R4a. toolIndex merged without rebasing
+     FAIL a tool update after a prepend still finds its own card
+          Expected: contains 'NEW RESULT'
+            Actual: ''
+     — the newer card never receives its own update, because its index now
+       points into the prepended page.
+
+R4b. the join folds, as an unguarded reduce would
+     FAIL a prepended page does not merge its last bubble into the newer page
+          Expected: <2>   Actual: <1>
+          the two pages' assistant messages merged into one bubble:
+          [OLDER ANSWERNEWER ANSWER]
+```
+
+**R4b failed to fail on its first attempt, and the test was wrong, not the
+code.** The original version put a `user_message` at the head of the newer page,
+so the join was never assistant-to-assistant — and the reducer only folds an
+id-less assistant chunk into a preceding id-less assistant bubble. It passed
+against a deliberately broken join because it asserted something true about a
+case that cannot fail.
+
+Rewritten so the newer page **opens mid-message**, which is also the realistic
+shape: a 200-event boundary lands mid-message roughly one time in seven, at ~3
+chunks per assistant message and 22 events per turn. The comment on the test
+records why, so the next reader does not re-simplify it back.
+
+This is the second time in this record that a check had to be corrected rather
+than the code — the same discipline that caught MADR 0138 Phase 7's guard.
+
+### Verification
+
+```text
+dart format --output=none --set-exit-if-changed lib test  -> 209 files, 0 changed
+flutter analyze                                           -> No issues found
+flutter test                                              -> 1410 passed
+```
+
+Phase 2 is inert: nothing calls `prependHistory` until Phase 3.
