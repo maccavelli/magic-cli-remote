@@ -2396,7 +2396,12 @@ func (s *session) chunkBuffer() *chunkbuf.Buffer {
 	if s.chunks == nil {
 		// WithToolLane: supersede non-terminal tool_call_update per id
 		// (MADR 0057 M-2 / OpenCode parity).
-		s.chunks = chunkbuf.New(s.cfg.streamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane())
+		// Append, not replace: codex's outputDelta notifications each carry the
+		// *next* chunk of a command's output (notifications.go
+		// item/fileChange/outputDelta, and item/commandExecution/outputDelta
+		// below), so a replacing lane discarded every line that arrived inside
+		// one coalesce window (MADR 0138 F2).
+		s.chunks = chunkbuf.New(s.cfg.streamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLaneAppend())
 	}
 	return s.chunks
 }

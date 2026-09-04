@@ -1155,3 +1155,94 @@ newest item always retained, oldest derived from the length — and is joined by
 `a batched trim keeps the tool index pointing at the right items`, which catches
 the off-by-one that shifting the index rather than rebuilding it could
 introduce. The original name was kept so what it guarded stays findable.
+
+### Phase 5 — 2026-09-03, complete
+
+**5.1 Codex gets append semantics.** `chunkbuf` gains `WithToolLaneAppend()`,
+and `mergeTool` becomes the method `mergeToolInto` so it can consult the
+buffer's mode: replace keeps the newer text (correct for a provider sending the
+current whole), append concatenates (correct for one sending an increment).
+`internal/provider/codex/session.go` switches to the append lane.
+
+Append mode needed one thing replace did not: the held text now *grows*, so it
+is flushed at the buffer's byte cap rather than being allowed to become an
+unbounded frame. `releaseTool` exists for that flush — it removes the hold
+without merging, because the held event is already the merged state and merging
+it with itself in append mode would duplicate its text.
+
+**5.2 grok gets the lane.** `acpagent` now constructs with `WithToolLane()` in
+replace mode, matching its `summarizeToolContent` emission. It was the only
+provider whose payload shape made the lane safe and the only one that did not
+have it — and, per MADR 0138 F3, the one whose event volume most needed it.
+
+**A per-provider pin.** `TestEachProviderUsesTheToolLaneModeItsPayloadNeeds`
+reads the four construction sites and asserts each matches the shape of its own
+`tool_call_update`. The mode and the payload shape are decided in different
+files; without this, flipping one silently discards (append→replace) or
+duplicates (replace→append) an agent's command output. It checks the *absence*
+of the append spelling for replace providers explicitly, because
+`WithToolLaneAppend` contains `WithToolLane` as a substring.
+
+### Fail-first evidence — four breakages
+
+```text
+E1. codex back on the replacing lane
+    FAIL TestToolLaneConcatenatesNonTerminalUpdates
+         text = "out 7", want every delta concatenated
+         ("out 0out 1out 2out 3out 4out 5out 6out 7")
+    FAIL TestEachProviderUsesTheToolLaneModeItsPayloadNeeds
+         codex does not construct its buffer with chunkbuf.WithToolLaneAppend()
+
+E1b. same, against the real notification decode path
+    FAIL TestOutputDeltaNotificationsSurviveTheLane/item/commandExecution/outputDelta
+         delivered "3 passed\n", want "compiling...\nrunning tests\n3 passed\n"
+    (identical failure for item/fileChange/outputDelta — two of three lines
+     of command output silently lost)
+
+E2. kilo/opencode switched to the append lane
+    FAIL TestEachProviderUsesTheToolLaneModeItsPayloadNeeds
+         kilo/opencode (httpagent) uses the append lane; its updates are
+         snapshots and would be duplicated
+
+E3. grok's lane removed
+    FAIL TestEachProviderUsesTheToolLaneModeItsPayloadNeeds
+         grok (acpagent) does not construct its buffer with
+         chunkbuf.WithToolLane()
+```
+
+```text
+go build ./...                                   -> ok
+go test -race ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```
+
+### Deviations
+
+**2026-09-03 — two existing codex tests pinned the defect and were rewritten.**
+`TestToolLaneSupersedesNonTerminalUpdates` and
+`TestToolLaneTerminalFlushesImmediately`
+(`internal/provider/codex/tool_lane_baseline_test.go`, neither in this phase's
+file list) asserted that the lane keeps only the **last** delta — the exact
+behaviour MADR 0138 F2 identifies as data loss. They failed the moment the fix
+landed, with `text = "out 0out 1…out 7", want last`.
+
+*This is not a contradiction of MADR 0057, it is the completion of it.* 0057 M-2
+reads: *"Measure Codex item streams and Goose tool updates before defaulting —
+opt-in flag first if behavior differs."* Codex was opted into the replacing lane
+without that measurement. 0138 F2 is the measurement, arriving late, and it
+found that the behaviour does differ. The tests are rewritten to assert the
+output survives *and* that the coalescing 0057 wanted still happens — 8 deltas,
+1 frame — with both records named at the site. The first test's name changed
+(`Supersedes` → `Concatenates`) because the old name asserts the defect.
+
+**2026-09-03 — the acceptance criterion as written could not be met, and was
+replaced rather than quietly dropped.** The step said to replay the codex wire
+fixture and compare against the concatenation of its own deltas. That fixture
+(`testdata/wire/0.152.1/frames.jsonl`) is a `hi` turn and contains **zero**
+`outputDelta` frames — it never ran a command, so it cannot exercise this path.
+Capturing one that does would spend codex quota against the live engine.
+
+*Resolution:* `TestOutputDeltaNotificationsSurviveTheLane` feeds the real wire
+JSON for both delta methods through `handleNotification`, so the decode in
+`notifications.go` / `session.go` and the append lane it feeds are covered
+together — the same ground the fixture would have covered, without a capture.
+Verified to fail against the shipped code, as E1b above.

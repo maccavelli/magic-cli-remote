@@ -1205,7 +1205,11 @@ func (s *session) emitLocked(ev event.Event) {
 // field-assembled test sessions reach emit safely. Caller holds emitMu.
 func (s *session) chunkBuffer() *chunkbuf.Buffer {
 	if s.chunks == nil {
-		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes)
+		// grok's tool updates carry the full ACP content each time
+		// (summarizeToolContent below), so the replacing lane is correct here —
+		// and grok is the provider whose event volume most needs it: one `hi`
+		// turn emits 247 frames (MADR 0138 F3).
+		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane())
 	}
 	return s.chunks
 }

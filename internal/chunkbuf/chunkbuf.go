@@ -44,6 +44,9 @@ type Buffer struct {
 
 	// toolLane enables coalescing of in-place tool updates; see WithToolLane.
 	toolLane bool
+	// toolTextAppend makes a superseding update *concatenate* its text onto the
+	// held one instead of replacing it; see WithToolLaneAppend.
+	toolTextAppend bool
 	// tools holds at most one pending update per tool id, toolIDs preserves
 	// arrival order so a drain is deterministic, and toolSince is when the
 	// oldest of them arrived (the lane's flush deadline is measured from it).
@@ -103,10 +106,35 @@ type Option func(*Buffer)
 //   - a `tool_call`, which positions the item rather than updating it;
 //   - anything, once a boundary arrives — pending tools drain ahead of it.
 //
+// The held text is *replaced*, not accumulated. That is correct only for a
+// provider whose update means "here is the current text", which is what
+// OpenCode, Kilo and Goose send. A provider whose update carries an increment
+// needs [WithToolLaneAppend] instead — see the note there.
+//
 // Opt-in because the cost it removes was measured on OpenCode's HTTP transport;
 // providers whose tool emission has not been profiled keep the old pass-through.
 func WithToolLane() Option {
 	return func(b *Buffer) { b.toolLane = true }
+}
+
+// WithToolLaneAppend is [WithToolLane] for a provider whose `tool_call_update`
+// carries the *next* chunk of output rather than the current whole.
+//
+// Codex is that provider: `item/commandExecution/outputDelta` and
+// `item/fileChange/outputDelta` each set `Text` to a delta
+// (internal/provider/codex/notifications.go, session.go). It was opted into the
+// replacing lane, so any two deltas landing inside one coalesce window
+// collapsed to the later one and a line of command output was discarded —
+// never delivered, never written to history (MADR 0138 F2).
+//
+// In append mode a superseding update concatenates onto the held text, and the
+// lane flushes when the accumulated text reaches the buffer's byte cap rather
+// than dropping anything.
+func WithToolLaneAppend() Option {
+	return func(b *Buffer) {
+		b.toolLane = true
+		b.toolTextAppend = true
+	}
 }
 
 // Enabled reports whether this Buffer coalesces at all.
@@ -152,6 +180,13 @@ func (b *Buffer) Add(ev event.Event) (out []event.Event, deadline time.Time, blo
 			break
 		}
 		b.holdTool(ev)
+		// In append mode the held text accumulates, so it has to be flushed
+		// before it can grow into an unbounded frame. Replace mode cannot grow:
+		// each update simply supersedes the last.
+		if b.toolTextAppend && len(b.tools[ev.ToolID].Text) >= b.maxBytes {
+			out = []event.Event{b.releaseTool(ev.ToolID)}
+			blocking = true
+		}
 
 	case !IsChunk(ev.Type):
 		// Order-independent: telemetry (usage_update, available_commands) and
@@ -247,7 +282,7 @@ func (b *Buffer) holdTool(ev event.Event) {
 		b.tools = make(map[string]event.Event)
 	}
 	if prev, ok := b.tools[ev.ToolID]; ok {
-		ev = mergeTool(prev, ev)
+		ev = b.mergeToolInto(prev, ev)
 	} else {
 		b.toolIDs = append(b.toolIDs, ev.ToolID)
 		if b.toolSince.IsZero() {
@@ -257,13 +292,32 @@ func (b *Buffer) holdTool(ev event.Event) {
 	b.tools[ev.ToolID] = ev
 }
 
+// releaseTool removes the held update for id and returns it as-is.
+//
+// Unlike takeTool it merges nothing: the held event is already the merged
+// state, and in append mode merging it with itself would duplicate its text.
+func (b *Buffer) releaseTool(id string) event.Event {
+	held := b.tools[id]
+	delete(b.tools, id)
+	for i, held := range b.toolIDs {
+		if held == id {
+			b.toolIDs = append(b.toolIDs[:i], b.toolIDs[i+1:]...)
+			break
+		}
+	}
+	if len(b.toolIDs) == 0 {
+		b.toolSince = time.Time{}
+	}
+	return held
+}
+
 // takeTool merges ev over anything held for its tool id and forgets the hold.
 func (b *Buffer) takeTool(ev event.Event) event.Event {
 	prev, ok := b.tools[ev.ToolID]
 	if !ok {
 		return ev
 	}
-	merged := mergeTool(prev, ev)
+	merged := b.mergeToolInto(prev, ev)
 	delete(b.tools, ev.ToolID)
 	for i, id := range b.toolIDs {
 		if id == ev.ToolID {
@@ -277,11 +331,16 @@ func (b *Buffer) takeTool(ev event.Event) event.Event {
 	return merged
 }
 
-// mergeTool layers next over prev. Superseding must not lose information: an
-// intermediate update may have carried a title or kind that the newer one
+// mergeToolInto layers next over prev. Superseding must not lose information:
+// an intermediate update may have carried a title or kind that the newer one
 // omits, and the client's upsert keeps a field only when the incoming one is
 // empty — so dropping the intermediate outright would drop that field for good.
-func mergeTool(prev, next event.Event) event.Event {
+//
+// Text follows the buffer's mode. In replace mode (the default) the newer text
+// wins, which is right for a provider that sends the current whole. In append
+// mode the texts are concatenated, because the newer one is an increment and
+// replacing it discards a line of the agent's output (MADR 0138 F2).
+func (b *Buffer) mergeToolInto(prev, next event.Event) event.Event {
 	if next.ToolName == "" {
 		next.ToolName = prev.ToolName
 	}
@@ -291,8 +350,11 @@ func mergeTool(prev, next event.Event) event.Event {
 	if next.Status == "" {
 		next.Status = prev.Status
 	}
-	if next.Text == "" {
+	switch {
+	case next.Text == "":
 		next.Text = prev.Text
+	case b.toolTextAppend:
+		next.Text = prev.Text + next.Text
 	}
 	return next
 }
