@@ -593,6 +593,42 @@ the next:
   with far less headroom than the host. The phone's budget is therefore set
   independently and lower, not copied from the host's.
 
+## Amendment, 2026-09-04: F5 is observed, and the first fix for it did not work
+
+F5 above was recorded as "a bounded structural risk, **not** an observed
+defect", because no instance appeared in the log and the pump was in-memory on
+every path examined. Phase 7 responded with a 30-second bound on the control
+send and left its fail-first check (G2) unrun.
+
+G2 has since been written and run against a real `acp.ClientSideConnection`.
+Two things follow, and both correct this record.
+
+**The mechanism is now observed, not inferred.** With the client's notification
+handler blocked, the SDK tears the connection down in **7.16 ms** — measured, by
+feeding 1,224 `session/update` frames into a stalled session. F5's chain is
+real and fast.
+
+**The bound Phase 7 shipped did not protect against it.** 30,000 ms against a
+7.16 ms fill is not a race that can be won; the guard read as protection and
+provided none. Isolating the timeout confirms it is exactly that race: at 1 µs
+the connection survives all 1,224 frames, at 50 ms and at 30 s it dies.
+
+The replacement removes the race rather than narrowing it. The control path
+never blocks: an event that cannot be handed over immediately is parked in a
+bounded per-session queue and a dedicated drainer does the waiting, so the SDK's
+consumer always returns in O(1). Ordering is preserved by keeping the in-flight
+event at the head of that queue until its send completes. A full queue faults
+the session loudly rather than dropping the event.
+
+*Why this belongs in the record and not only in the plan:* F5's classification
+was wrong in both directions. It was more real than "unobserved" implied, and
+the fix for it was less effective than "bounded" implied — and the second error
+followed from the first, because a risk believed hypothetical got a guard that
+was never driven. The implementation detail is in
+[the plan's amendment](0138-PLAN-overhaul-provider-surfaces-and-turn-path.md);
+what belongs here is that **reading a dependency establishes its mechanism, not
+the adequacy of your response to it**.
+
 ## Decision Drivers
 
 * Losing the user's own messages from the transcript is a correctness failure,

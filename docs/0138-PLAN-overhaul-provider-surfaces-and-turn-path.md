@@ -1618,3 +1618,125 @@ be inferred from their absence.
 Two corrections are kept in place rather than tidied away: the B2 test that
 asserted nothing about the ordering it was named for, and the global budget that
 was not a bound. Both were found by checks that had only ever been seen to pass.
+
+## Amendment, 2026-09-04: G2 was run, and it found Phase 7.2's guard does not work
+
+Phase 7 shipped a 30-second bound on the control send and recorded G2 —
+`TestACPConnectionSurvivesAStalledPump` — as **not run**, with 7.2 "verified by
+reading the SDK source plus the 30-second bound being unreachable by any
+in-memory pump". G2 has now been written and run. That verification was wrong,
+and this amendment corrects the Phase 7 record rather than tidying it away.
+
+### The measurement
+
+A real `acp.ClientSideConnection` was wired to pipes with the session as its
+`Client`, the pump stalled (a full `events` channel with no consumer), and 1,224
+`session/update` frames fed in.
+
+**With the consumer blocked, the SDK tears the connection down in 7.16 ms.**
+
+The bound the phase shipped was 30,000 ms. It lost the race by a factor of
+roughly 4,200, and the guard therefore protected nothing above a 7 ms fill
+rate — which is every real burst. Isolating the variable confirms it is exactly
+that race and not a defect in the test:
+
+| `controlDeliverTimeout` | `conn.Done()` | frames written |
+| --- | --- | --- |
+| 1 µs | **open** | 1,224 of 1,224 |
+| 50 ms | **closed** | writer blocked |
+| 30 s (as shipped) | **closed** | writer blocked |
+
+Reading the SDK gave the right mechanism and the wrong conclusion. No
+time-based bound can win against a queue that fills in microseconds; the
+mistake was treating "the pump is in-memory, so 30 s is unreachable" as a bound
+on the *peer's* rate, when the queue is filled by the peer and drained by us.
+
+### The fix — option B, chosen by the owner
+
+`deliver`'s control path no longer blocks at all. Every path through it returns
+in O(1):
+
+* the `events` channel takes the event; or
+* it is **parked** in a bounded per-session overflow; or
+* the overflow is full and the session is faulted.
+
+A per-session `drainOverflow` goroutine does the blocking instead — it is ours
+to stall, and the SDK's notification consumer never is. The goroutine is created
+lazily on the first overflow (creating `overflowWake` under `overflowMu` is what
+starts it), so a healthy session never spawns one, and it exits on `s.done`.
+
+**Ordering is the property this could get wrong, and it is the one pinned
+hardest.** Once anything is parked, a later event must not take the fast path
+and overtake it. The drainer therefore keeps the event it is delivering at the
+**head** of the queue until the send completes, so "overflow is empty" means
+"nothing is in flight" rather than "nothing is waiting".
+
+`controlOverflowCap = 512` is a stall detector, not a work buffer: `s.events` is
+already 256 deep and a healthy pump drains it in microseconds, so being 512
+control events behind means the pump is not running. Bounded by count rather
+than bytes because the question is "has the consumer moved", not "how much
+memory is this".
+
+`controlDeliverTimeout` is deleted. There is no timer left on this path.
+
+### Fail-first evidence — three breakages
+
+```text
+K1. the 30-second timer guard restored (what Phase 7 shipped)
+    FAIL TestACPConnectionSurvivesAStalledPump
+         the writer never finished; the SDK stopped reading, which means the
+         connection went away
+
+K2. the ordering rule removed — always try the fast path first
+    FAIL TestParkedControlEventsKeepTheirOrder
+         event 2 is t69, want t2 — a parked event was overtaken
+
+K3. the overflow cap removed
+    FAIL TestACPConnectionSurvivesAStalledPump
+         a permanently stalled consumer never faulted the session
+    FAIL TestStalledPumpFaultsTheSessionRatherThanDroppingTheEvent
+         the overflow filled without faulting the session
+```
+
+**K1 is the point of the amendment.** The same test, unchanged, passes against
+the new mechanism and fails against the one Phase 7 shipped. That is the
+difference G2 existed to detect and did not.
+
+K2's failure is worth reading twice: with the ordering rule removed, event 2
+arrived as `t69`. Sixty-seven events overtook a parked one — the transcript
+would have been silently reordered.
+
+### Tests added
+
+| test | what it pins |
+| --- | --- |
+| `TestACPConnectionSurvivesAStalledPump` | the SDK connection outlives a permanently stalled pump |
+| `TestParkedControlEventsKeepTheirOrder` | 200 events park and arrive in order |
+| `TestStalledPumpFaultsTheSessionRatherThanDroppingTheEvent` | a full overflow faults loudly rather than dropping silently |
+| `TestControlDeliveryIsNotDelayedWhenTheConsumerIsHealthy` | a healthy session parks nothing and spawns no drainer |
+| `TestOverflowDrainerExitsWithTheSession` | the goroutine does not outlive its session |
+
+### Verification
+
+```text
+go build ./...                                          -> ok
+go test -race ./internal/... ./cmd/... -count=1         -> ok (full tree)
+10 × go test -race -count=1 -shuffle=on ./…/acpagent/   -> ok, all ten
+```
+
+The G2 test also went from 10 s (blocked, failing) to 0.02 s.
+
+### What this changes about Phase 7's record
+
+Phase 7's entry for 7.2 and its acceptance row 10 ("Every new check seen to
+fail … **G2 was not run**") stand as written — they are the honest record of
+what was done at the time. This amendment supersedes the *claim* they contain:
+the guard 7.2 shipped did not hold, and the reason it was believed is recorded
+above. Acceptance criterion 8 ("the read loop cannot be stalled by a provider
+call") was and remains satisfied by 7.1; criterion 10's G2 gap is now closed.
+
+**The lesson, alongside the three this record already carries.** MADR 0137 was
+corrected twice for reasoning from unverified instruments. Phase 7 did not use
+an instrument at all — it reasoned from source and called that verification.
+Reading a dependency tells you the mechanism; only driving it tells you whether
+your response to that mechanism is fast enough.

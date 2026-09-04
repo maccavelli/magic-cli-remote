@@ -102,7 +102,24 @@ type session struct {
 	// The events channel itself is never closed: closing it while a control
 	// sender is parked in `events <- ev` is a guaranteed panic window.
 	done chan struct{}
-	cfg  Config
+
+	// Control-event overflow (MADR 0138 F5, amended).
+	//
+	// deliver runs on the ACP SDK's single notification-consumer goroutine, and
+	// that goroutine must never block: the SDK queues notifications in a
+	// channel of 1024 whose overflow closes the whole connection rather than
+	// dropping. Measured, with the consumer blocked, the SDK tears the
+	// connection down in 7.16 ms — so no time-based bound can win that race.
+	// A control event that cannot be handed over immediately is parked here,
+	// and a per-session drainer does the blocking instead.
+	//
+	// overflowWake is nil until the first overflow; creating it under
+	// overflowMu is what starts the drainer, so a healthy session never spawns
+	// one.
+	overflowMu   sync.Mutex
+	overflow     []event.Event
+	overflowWake chan struct{}
+	cfg          Config
 
 	mu     sync.Mutex
 	closed bool
@@ -1344,53 +1361,107 @@ func (s *session) deliver(ev event.Event, control bool) {
 			}
 		}
 	}
-	// Control path (R5=A): never drop once a consumer is attached; done
-	// unblocks us if the session is torn down while we wait.
+	// Control path (R5=A): never drop once a consumer is attached — and never
+	// block here either.
 	//
-	// Bounded, though, and that bound is not about this session. This runs on
-	// the ACP SDK's single notification-consumer goroutine, and the SDK queues
-	// notifications in a channel of 1024 whose overflow does not drop — it
-	// closes the whole connection (acp-go-sdk@v0.13.5 connection.go:108, :446,
-	// errNotificationQueueOverflow). grok emits 247 frames for the word "hi",
-	// so a pump that stalls for long enough would take the engine down with it
-	// (MADR 0138 F5).
+	// This runs on the ACP SDK's single notification-consumer goroutine, and
+	// the SDK queues notifications in a channel of 1024 whose overflow does not
+	// drop: it closes the whole connection (acp-go-sdk@v0.13.5
+	// connection.go:108, :446, errNotificationQueueOverflow). Driven directly,
+	// with the consumer blocked, the SDK tears the connection down in 7.16 ms —
+	// so the 30-second bound this replaced lost that race by three orders of
+	// magnitude and protected nothing (MADR 0138 F5, amended).
 	//
-	// No such stall has been observed; the mechanism is real and the cost of
-	// this guard is one timer on a path that otherwise blocks forever. On
-	// expiry the session is faulted explicitly rather than the event being
-	// dropped silently, because a transcript missing a control event with no
-	// explanation is the failure this record exists to fix.
-	select {
-	case s.events <- ev:
-		return
-	case <-s.done:
-		return
-	default:
+	// Every path below returns in O(1): the channel takes it, the overflow
+	// takes it, or the session is faulted. The waiting is done by the
+	// per-session drainer, which is ours to stall.
+	s.overflowMu.Lock()
+	// Ordering: once anything is parked, everything queues behind it. The
+	// drainer keeps the event it is delivering at the head of the slice until
+	// the send completes, so "overflow is empty" really does mean "nothing is
+	// in flight" and a direct send cannot jump ahead of a parked one.
+	if len(s.overflow) == 0 {
+		s.overflowMu.Unlock()
+		select {
+		case s.events <- ev:
+			return
+		case <-s.done:
+			return
+		default:
+		}
+		s.overflowMu.Lock()
 	}
-	t := time.NewTimer(controlDeliverTimeout)
-	defer t.Stop()
-	select {
-	case s.events <- ev:
-	case <-s.done:
-	case <-t.C:
+	if len(s.overflow) >= controlOverflowCap {
+		s.overflowMu.Unlock()
 		s.log.Error("event consumer stalled; abandoning the session before the ACP connection is torn down",
 			slog.String("type", string(ev.Type)),
 			slog.String("session_id", s.localID),
-			slog.Duration("waited", controlDeliverTimeout),
+			slog.Int("parked", controlOverflowCap),
 		)
 		s.markClosedAndKill()
+		return
+	}
+	s.overflow = append(s.overflow, ev)
+	if s.overflowWake == nil {
+		// First overflow on this session: start the drainer. A healthy session
+		// never reaches here and never spawns one.
+		s.overflowWake = make(chan struct{}, 1)
+		go s.drainOverflow()
+	}
+	wake := s.overflowWake
+	s.overflowMu.Unlock()
+	select {
+	case wake <- struct{}{}:
+	default:
 	}
 }
 
-// controlDeliverTimeout bounds how long one control event may block the ACP
-// SDK's notification consumer.
+// controlOverflowCap bounds the parked control events per session.
 //
-// Generous on purpose: the pump it waits on is in-memory on every path
-// examined, so reaching this at all means something is badly wrong, and the
-// wrong answer here would be to fault a session that was about to be served.
-// The bound only has to be shorter than the time it takes grok to produce 1024
-// queued notifications behind us.
-const controlDeliverTimeout = 30 * time.Second
+// It is a stall detector, not a work buffer: s.events is already 256 deep and a
+// healthy pump drains it in microseconds, so being this far behind means the
+// pump is not running at all. Bounded by count rather than bytes because the
+// question it answers is "has the consumer moved", not "how much memory is
+// this".
+const controlOverflowCap = 512
+
+// drainOverflow hands parked control events to the consumer one at a time,
+// blocking as long as it takes. It is the goroutine that absorbs the wait the
+// SDK's notification consumer must never take, and it exits when the session
+// ends.
+//
+// The event being delivered stays at the head of s.overflow until the send
+// completes; that is what keeps deliver's ordering rule true.
+func (s *session) drainOverflow() {
+	for {
+		s.overflowMu.Lock()
+		if len(s.overflow) == 0 {
+			wake := s.overflowWake
+			s.overflowMu.Unlock()
+			select {
+			case <-wake:
+				continue
+			case <-s.done:
+				return
+			}
+		}
+		ev := s.overflow[0]
+		s.overflowMu.Unlock()
+
+		select {
+		case s.events <- ev:
+			s.overflowMu.Lock()
+			s.overflow = s.overflow[1:]
+			if len(s.overflow) == 0 {
+				// Release the backing array once drained.
+				s.overflow = nil
+			}
+			s.overflowMu.Unlock()
+		case <-s.done:
+			return
+		}
+	}
+}
 
 // permissionResolved builds the terminal event for a permission request, so a
 // client never keeps its composer locked on a request that will never answer.
