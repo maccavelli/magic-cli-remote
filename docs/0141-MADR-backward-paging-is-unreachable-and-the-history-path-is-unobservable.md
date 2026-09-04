@@ -80,10 +80,35 @@ requests the rest. The newest content — the part a chat screen exists to show 
 is the part not fetched. `kMaxTranscriptItems = 4000` then evicts down to a
 window that is *older still*.
 
-**Derived, not observed.** No session on this host is large enough to reach it:
-the three largest are 773, 629 and 606 events. The reasoning is a direct read of
-the loop bounds, and it is exactly the shape F17 described, but it has not been
-reproduced on a device.
+**Confirmed on device, 2026-09-04, to the exact event.** A 900-turn fixture
+(19,800 events) built from the real turn scaffolding of session `32da1cc5` was
+seeded and opened on the emulator against the current client. The chat rendered
+correctly — tool calls, thoughts, user and assistant bubbles all present — and
+its newest content was:
+
+```text
+TURN 291 of 900 - please summarise the build log and push if clean
+…
+The working tree was clean at TURN 291 of 900 … All 291 local commits are on
+`origin/master`.
+```
+
+The prediction lands on the individual event. The fixture has 22 events per
+turn, so:
+
+| | |
+| --- | --- |
+| walk ceiling | 32 pages × 200 = **6,400 events** |
+| turn 291 spans | seq 6,381 – 6,402 |
+| last fetched | seq **6,400** = event 20 of turn 291 = the third `assistant_message_chunk` |
+
+That chunk — *"All 291 local commits are on `origin/master`."* — is the last text
+on screen. The turn's `turn_complete` (seq 6,402) was never fetched, so the
+transcript ends **mid-turn** with no boundary event.
+
+**610 of 900 turns — 68% of the conversation, and all of its recent half — never
+reach the phone**, and nothing in the app says so. The screen presents turn 291
+as the tail.
 
 A related inconsistency sits in the same doc comment
 (`mcremote_client.dart:3473`):
@@ -120,12 +145,23 @@ func (s *Store) LoadHistory(id string) []event.Event {
 Three ways to lose an entire session transcript, none of which logs, returns an
 error, or is distinguishable by the caller from "this session has no history".
 
-Measured directly against a 3.5 MB file of otherwise well-formed events:
+Confirmed by feeding the store the same 19,800 events twice, at the path the
+store actually reads (`<dataDir>/sessions/<id>/history.json`), differing only in
+the container:
 
 ```text
-fixture written: 3490304 bytes
-LoadHistory returned 0 of 20000 events
+{"events":[…]}   authored=19800   LoadHistory=19800   ok
+[…]              authored=19800   LoadHistory=0       silently discarded
 ```
+
+*Correction to this record's first evidence.* An earlier measurement here read
+`LoadHistory returned 0 of 20000` and attributed it to the container. The number
+was real but the cause was not: that harness wrote to `<dataDir>/<id>/` while
+`OpenStore` roots the store at `<dataDir>/sessions/`, so the file did not exist
+and the `os.ReadFile` branch returned empty. Both branches are unlogged and both
+return the same value, which is precisely the defect — **the instrument could
+not tell which branch it had hit, and neither can an operator.** The container
+claim is now tested directly rather than inferred, and it holds.
 
 **The Store has a logger.** `Store` carries `log *slog.Logger`, set to
 `slog.Default()` at `OpenStore` (`store.go:56-68`). It is used in exactly one
@@ -228,11 +264,18 @@ This is **latent, not live**, and only because of F1: nothing prepends a page
 today. It becomes reachable the moment F1 is fixed, which makes it a
 prerequisite of that work rather than a separate defect.
 
+The 900-turn fixture confirms the concern is about *page joins* and not about
+rendering: a faithfully scaffolded transcript of 290 consecutive turns renders
+with its turns correctly separated, so the adjacency rule works within a
+continuously fetched run. Only a join between two separately fetched pages is
+untested, because no such join exists yet.
+
 ### What this costs today
 
 * F17 is recorded as fixed by 0138 Phase 3 and is not fixed in the app (F1).
 * A session past 6,400 events shows its oldest content as though it were its
-  newest (F2, derived).
+  newest (F2, **observed**: a 900-turn session opens on turn 291, ending
+  mid-turn, with 68% of the conversation never fetched).
 * A transcript that fails to load is indistinguishable from a session that never
   had one, at every layer, in every log (F3, F4).
 * Wiring the backward pager without addressing the head boundary would merge
@@ -327,7 +370,11 @@ Concretely:
   fixture failure and checking the log now explains it.
 * Criterion 4 re-run on the emulator against a **correctly formatted** fixture
   (`{"events":[…]}`), with the daemon log asserting that more than one backward
-  page was served.
+  page was served. The fixture and its generator exist and are validated
+  (19,800 events, 900 turns, real scaffolding); what it cannot yet show is
+  paging, because of F1.
+* F2 needs no further confirmation: it is observed, and the fix is correct when
+  the same fixture opens on **turn 900** rather than turn 291.
 
 ## Pros and Cons of the Options
 
