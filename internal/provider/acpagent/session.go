@@ -441,7 +441,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			limitHit := s.limitNotified && limitRaw != ""
 			s.mu.Unlock()
 			if limitHit {
-				s.emitClassifiedTurnError(limitRaw)
+				s.emitClassifiedTurnErrorConfirmed(limitRaw)
 				return
 			}
 			// Cancel/close should not flood the chat with scary error bubbles.
@@ -463,7 +463,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			}
 			// Present rewrites 429/529/quota dumps into short natural-language
 			// copy; fall back to the sanitizer for unclassified failures.
-			s.emitClassifiedTurnError(err.Error())
+			s.emitClassifiedTurnErrorConfirmed(err.Error())
 			return
 		}
 		s.emit(event.Event{
@@ -574,12 +574,42 @@ func (s *session) tryDrainQueue() {
 
 // emitClassifiedTurnError writes turn_complete + Present TypeError + status
 // for a failed prompt (shared by RPC errors and stderr limit aborts).
+//
+// It must not block: noteEngineLogLine reaches it from the stderr copier
+// goroutine and from the ACP SDK's notification consumer, and blocking the
+// latter tears the connection down in milliseconds (MADR 0138 F5). Callers on
+// the turn goroutine, which may block, use emitClassifiedTurnErrorConfirmed
+// instead.
 func (s *session) emitClassifiedTurnError(raw string) {
+	s.emitClassifiedTurnErrorWith(raw, "")
+}
+
+// emitClassifiedTurnErrorConfirmed is emitClassifiedTurnError plus the billing
+// probe, for the two callers that run on the turn goroutine.
+//
+// The probe is a network round trip of up to quotaProbeTimeout, so it is
+// confined to those two paths rather than pushed into the funnel. Nothing is
+// lost by that: a stderr limit line cancels the turn, and the turn goroutine
+// then arrives here with the same text (MADR 0138 Phase 10 deviation).
+func (s *session) emitClassifiedTurnErrorConfirmed(raw string) {
+	// grok reports account credits structurally, so a quota limit classified
+	// from prose is confirmed against billing rather than trusted on its
+	// wording alone (MADR 0138 F9). Rate limits are not asked about: billing
+	// reports credits, not request windows.
+	//
+	// A detached context: the turn's own is already cancelled by the time a
+	// limit abort lands here.
+	summary, _ := s.confirmLimit(context.Background(), agenterr.Present(raw, time.Now()).Kind)
+	s.emitClassifiedTurnErrorWith(raw, summary)
+}
+
+func (s *session) emitClassifiedTurnErrorWith(raw, planUsage string) {
 	cls := agenterr.Present(raw, time.Now())
 	msg := cls.Message
 	if msg == "" {
 		msg = strings.TrimSpace(raw)
 	}
+	msg = annotateLimit(msg, planUsage)
 	now := time.Now().UTC()
 	s.emit(event.Event{
 		Type:       event.TypeTurnComplete,

@@ -836,6 +836,102 @@ picking one of the two changes daemon behaviour elsewhere.
 `x.ai/restore_code` remains unread and unwired; the row's third method is
 therefore still a gap, not a decline.
 
+## Amendment, 2026-09-04: F9 names a grok method that does not exist, and misses the one that does
+
+F9 states:
+
+> grok exposes `x.ai/billing` and `x.ai/limit` on the same dispatch table as F7.
+
+Half of that is wrong, and the correction changes what the grok half of F9 is
+built from.
+
+### `x.ai/limit` is not a method
+
+grok's ACP extension dispatch (`agent/mvp_agent/acp_agent.rs:2290-2562`) carries
+**27** `x.ai/*` request methods. `x.ai/billing` is one of them (`:2544`).
+`x.ai/limit` is not there, and does not appear as a method anywhere in the
+source.
+
+It appears as a **`_meta` key**. `session/unified_list/mod.rs:181` reads it out
+of a request's `_meta` object as a page size, alongside two siblings:
+
+```rust
+let limit = meta
+    .get("x.ai/limit")
+    .and_then(serde_json::Value::as_u64)
+    .map(|n| n as usize);
+```
+
+and grok's own test fixes the shape — `{"x.ai/facetFilters": …, "x.ai/query":
+"antelope", "x.ai/limit": 5}`. It is pagination for session listing. Calling it
+as a method returns `method_not_found`.
+
+The mistake is a legible one: `x.ai/limit` reads like a rate-limit query and was
+recorded from a name grep rather than from the dispatch table. It is corrected
+here rather than quietly dropped, because the plan's scope table was written
+from it.
+
+### The method F9 missed
+
+`x.ai/session/usage` (`acp_agent.rs:2329` → `extensions::usage::handle`). It is
+the better half of the pair, and the two answer different questions:
+
+| | `x.ai/billing` | `x.ai/session/usage` |
+| --- | --- | --- |
+| scope | the authenticated account | one session |
+| source | HTTP to the CLI chat proxy → backend `GetGrokCreditsConfig` | the in-process `UsageLedger` |
+| auth | **requires grok.com auth**; fails on an API-key install | none |
+| cost | a network round trip, 15 s upstream timeout | in-memory |
+| answers | credits, plan tier, on-demand cap, billing period | tokens, cost, turns, per-model split, folded subagent spend |
+| lifetime | account-lifetime | resets when a session is resumed in a new agent process |
+
+`x.ai/session/usage` is what `RuntimeUsage` should read: it is local, free, needs
+no credentials, and it reports **folded subagent spend**, which the per-turn
+`turn_completed` notification mcremote already consumes
+(`internal/provider/acpagent/xaiusage.go`) does not aggregate.
+
+`x.ai/billing` is what `RuntimeStatus` and F9's quota confirmation should read.
+Its auth gate matters: `extensions/billing.rs` calls `require_xai_auth` and
+answers *"Billing data requires auth with grok.com. Run `grok login` to
+authenticate."* on failure. mcremote lists `xai.api_key` as a safe headless
+credential (`internal/provider/grok/grok.go`, `SafeAuthMethodIDs`), so an
+API-key install is a supported configuration in which this method never
+succeeds. It must degrade to "unavailable", never to an error on `/status`.
+
+### One response, two casing conventions, nested
+
+`BillingConfigResponse` carries **no** `rename_all`, so its own fields are
+snake_case — `config`, `on_demand_enabled`, `subscription_tier`. The
+`BillingConfig` nested inside it carries `rename_all = "camelCase"` —
+`creditUsagePercent`, `currentPeriod`, `monthlyLimit`, `onDemandCap`,
+`prepaidBalance`, `isUnifiedBillingUser`, `billingPeriodStart`, `history`. The
+`Cent` inside *that* has no rename_all again: `{"val": 20000}`.
+
+Three nesting levels, alternating conventions. Phase 9 already established what
+a wrong guess costs here — a struct of zero values and no error — and this
+response can get it wrong twice in one decode.
+
+Two further traps the source states outright, both of which produce a plausible
+wrong number rather than a failure:
+
+* **A `$0` `Cent` arrives as `{}`.** proto3 JSON omits zero-valued scalars.
+* **`costUsdTicks` is 1e10 ticks per dollar**, and is *absent* — not zero — when
+  the bill is partial, with `costIsPartial` set to say so. Treating absent as
+  zero reports a free turn.
+
+### What this does not change
+
+F9's finding stands: quota state is still reconstructed from English in
+`internal/agenterr`, and grok still answers structurally. Only the method names
+are corrected. kilo's half shipped in Phase 6.4 and is wired
+(`internal/provider/kilo/session.go:640`).
+
+One consequence worth stating plainly, because it is larger than F9: of the five
+transports, **only codex implements `RuntimeSession`**. `/status` and `/usage`
+are unavailable on grok, kilo, opencode and goose alike. Phase 10 fixes grok
+because grok is what F9 named; the other three remain a gap, now recorded rather
+than implied.
+
 ## More Information
 
 Everything below was produced during this pass on 2026-09-03 against

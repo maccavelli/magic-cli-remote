@@ -2107,3 +2107,419 @@ know what the binary supports until it asks. Such a build answers `-32601`, and
 the user sees `Undo failed: agent has no x.ai/rewind/points`. This matches how
 `/compact` and `/rename` already behave on the same transport, so it is left
 alone rather than fixed differently for one command.
+
+## Amendment, 2026-09-04: Phase 10 — F9's grok half, and the method it named that does not exist
+
+Phase 8 left "F9's grok half — `x.ai/billing` / `x.ai/limit`. Unblocked by 8.1's
+plumbing, not built." Reading the source to build it found that **one of those
+two methods does not exist**, and that the method actually needed was never
+named. The MADR amendment of the same date carries the correction and its
+evidence; this phase is built on the corrected pair:
+
+| | what F9 said | what the source says |
+| --- | --- | --- |
+| account quota | `x.ai/limit` | **`x.ai/billing`** — `x.ai/limit` is a `_meta` page-size key, not a method |
+| session usage | not named | **`x.ai/session/usage`** |
+
+### 10.1 `RuntimeSession` for grok
+
+grok implements no `RuntimeSession` today, so `/status` and `/usage` answer
+*"This agent exposes no runtime status."* (`internal/session/commands.go:515`).
+Both halves land in a new `internal/provider/acpagent/runtime.go`.
+
+**`RuntimeUsage` ← `_x.ai/session/usage`.** Local, in-memory, no auth, no
+network, no model tokens.
+
+```json
+request:  {"sessionId": "<agentID>"}
+response: {"usage": {"inputTokens": 100, "outputTokens": 10, "totalTokens": 0,
+                     "cachedReadTokens": 0, "cacheCreationTokens": 0,
+                     "reasoningTokens": 0, "modelCalls": 1, "apiDurationMs": 0,
+                     "numTurns": 1, "costUsdTicks": 20000000,
+                     "costIsPartial": false, "usageIsIncomplete": false,
+                     "modelUsage": {"grok-build": {"inputTokens": 100, …}}}}
+```
+
+camelCase throughout, and pinned by grok's own test
+(`extensions/usage.rs`, `response_serializes_ledger_as_prompt_usage_wire_shape`)
+rather than inferred. `PromptUsage` flattens `PromptUsageModel` into the top
+level of `usage`, so the token fields are siblings of `numTurns` — not nested
+under a `totals` key, despite the Rust field being named `totals`.
+
+Three rules the source states and the implementation must not paper over:
+
+* **`costUsdTicks` is 1e10 ticks per USD.** Format as dollars from the integer;
+  never float-divide into the display without stating the unit.
+* **Absent cost is not zero cost.** The field is omitted when the bill is
+  partial or scrubbed, with `costIsPartial` explaining why. Report the tokens
+  and say the cost is incomplete — a `$0.00` on a session that spent money is
+  worse than no figure.
+* **`usageIsIncomplete` means the bill may under-count** (open subagents, a
+  drain timeout). Surface it; do not silently present a total as final.
+
+**`RuntimeStatus` ← `_x.ai/billing`.** Account-level, and unlike every other
+method this phase touches it makes a **network call with the operator's
+credentials** to grok's CLI chat proxy, with a 15-second upstream timeout.
+
+```json
+request:  {}                          (the handler takes no params)
+response: {"config": {"creditUsagePercent": 12.5,
+                      "currentPeriod": {"type": "USAGE_PERIOD_TYPE_WEEKLY",
+                                        "start": "…", "end": "…"},
+                      "monthlyLimit": {"val": 2000}, "used": {"val": 250},
+                      "onDemandCap": {"val": 0}, "prepaidBalance": {"val": 0},
+                      "isUnifiedBillingUser": false, "history": []},
+           "on_demand_enabled": true,
+           "subscription_tier": "SuperGrok Heavy"}
+```
+
+**The outer object is snake_case and the `config` inside it is camelCase.** That
+is not a transcription slip — `BillingConfigResponse` has no `rename_all` and
+`BillingConfig` has `rename_all = "camelCase"`. `Cent` has none either, so
+amounts are `{"val": …}` and a `$0` amount arrives as `{}`, because proto3 JSON
+omits zero scalars.
+
+`extensions/billing.rs` gates on `require_xai_auth`, so on an install
+authenticated by API key — a configuration mcremote supports and lists in
+`SafeAuthMethodIDs` — this method **always** fails. `RuntimeStatus` must return
+a message saying billing is unavailable and why, with `error == nil`, following
+codex (`internal/provider/codex/runtime.go:398`, which returns
+`"Codex runtime status is unavailable.", nil`). `cmdRuntime` propagates a
+returned error instead of showing it, so an error here makes `/status` fail
+silently rather than explain itself.
+
+Both calls go through `callAgentExtension`, so a grok build without the method
+already maps to `provider.ErrNotImplemented` (Phase 9), and both must degrade to
+a message rather than an error.
+
+### 10.2 Confirm a prose-classified limit against billing (F9 proper)
+
+Mirrors kilo's `confirmLimit` (`internal/provider/kilo/quota.go:92`,
+called at `internal/provider/kilo/session.go:640`), which this phase copies
+deliberately rather than inventing a second shape.
+
+grok has a single funnel: `emitClassifiedTurnError`
+(`internal/provider/acpagent/session.go:577`) handles both RPC errors and the
+stderr limit abort from `noteEngineLogLine`. One call site.
+
+* Runs only for `agenterr.KindQuota` and `agenterr.KindRateLimit`.
+* Bounded independently of grok's own 15-second upstream timeout; the probe runs
+  while a turn has **already** failed, so it must not add a visible wait.
+* A prose match that billing does **not** confirm is logged at warn, with the
+  same reasoning kilo's carries: that is the day a vendor changed its wording,
+  and it is the only signal there would be.
+* An unreachable or unauthenticated probe is *unconfirmed*, never *disproved*.
+  It must not suppress or weaken the classified error.
+
+**What "confirmed" means here is narrower than for kilo, and the difference is
+recorded rather than smoothed over.** kilo's `/kilocode/provider-usage` reports a
+per-window `state: "exhausted"`, which is a direct answer. grok's billing has no
+such field: it reports `creditUsagePercent`, `monthlyLimit`/`used` and
+`onDemandCap`. Credit exhaustion is derivable from those; a **rate-limit** window
+is not reported at all. So:
+
+* `KindQuota` can be confirmed — credits at or near the allowance, on-demand cap
+  reached.
+* `KindRateLimit` **cannot** be confirmed from billing. It is left to the prose
+  classifier, and the probe is not run for it.
+
+Narrowing 10.2 to `KindQuota` is a deviation from F9 as written, which expected
+both. It is stated here rather than discovered later.
+
+### 10.3 Recorded, not adopted
+
+* **`x.ai/auto-topup-rule`** — shares `billing.rs`'s handler and reads
+  `GetAutoTopupRule`. Declined: auto top-up is a **spending** control on the
+  operator's account. Surfacing it invites a write surface next to it
+  (`AutoTopupRule` round-trips), and the same reasoning that declined 8.2g's
+  config write applies with money attached.
+* **`x.ai/session/usage` as a replacement for the per-turn notification.** Not
+  done. `_x.ai/session_notification`'s `turn_completed` already feeds
+  `event.TypeUsage` per turn (`xaiusage.go`), which is what the transcript and
+  MADR 0138's token accounting are built on. The cumulative ledger is an
+  addition for `/usage`, not a substitute; swapping the streaming path for a
+  polled one would trade a push for a pull on the turn's hot path.
+* **`RuntimeSession` for kilo, opencode and goose.** Out of this phase's scope.
+  F9 named grok; the MADR amendment records the wider gap so it reads as a known
+  absence rather than an oversight.
+
+### Files
+
+| file | change |
+| --- | --- |
+| `internal/provider/acpagent/runtime.go` | new — `RuntimeSession`, both methods, the shapes above |
+| `internal/provider/acpagent/quota.go` | new — `confirmLimit`, `annotateLimit`, mirroring kilo |
+| `internal/provider/acpagent/session.go` | `emitClassifiedTurnError` calls `confirmLimit` |
+| `internal/provider/acpagent/runtime_test.go` | new — the fail-first checks below |
+| `internal/provider/acpagent/live_runtime_test.go` | new — `//go:build live_grok`, acceptance 5 and 6 |
+
+### Deviation — 2026-09-04: the funnel has three callers, and two of them must never block
+
+*What was found.* 10.2 says *"grok has a single funnel: `emitClassifiedTurnError`
+… One call site."* That is true of where the probe hooks in, and false of what
+reaches it. The funnel has three callers:
+
+| caller | goroutine | may block? |
+| --- | --- | --- |
+| `session.go:444` — stderr-limit abort | the turn goroutine, after `submitPrompt` returned | yes |
+| `session.go:466` — RPC error | the turn goroutine | yes |
+| `session.go:639` — `noteEngineLogLine` direct call | see below | **no** |
+
+`noteEngineLogLine` is reached from two goroutines that cannot afford a
+six-second network call:
+
+* `acpagent.go:460` sets `cmd.Stderr = &slogWriter{onLine: s.noteEngineLogLine}`.
+  Because `cmd.Stderr` is an `io.Writer` and not an `*os.File`, `os/exec` runs a
+  copier goroutine; a blocking `Write` stalls it and grok's stderr pipe backs up
+  behind it.
+* `subagents.go:96` calls it from `HandleXAISessionNotification`, which runs on
+  **the ACP SDK's single notification-consumer goroutine**.
+
+The second is F5 exactly. Phase 9's G2 measured the SDK tearing the connection
+down in **7.16 ms** with that consumer blocked; a 6,000 ms probe there would
+lose that race by three orders of magnitude, which is the same shape of mistake
+Phase 7 made and G2 disproved.
+
+The `:639` call is reachable only in the window where `prompting` is true
+(`session.go:322`) and `turnCancel` has not yet been assigned (`:371`).
+Narrow — but "narrow enough not to matter" is precisely the reasoning Phase 7
+used, so it is not relied on here.
+
+*Resolution chosen.* Probe on the turn-goroutine paths only.
+`emitClassifiedTurnError` stays free of it, and the annotation is applied by a
+wrapper used at `:444` and `:466`. Nothing is lost in practice: a stderr limit
+line normally **cancels** the turn, and the turn goroutine then emits at `:444`
+— annotated. The `:639` path fires only when there is no turn in flight, where
+there is no failing turn for a plan-usage sentence to explain.
+
+The two alternatives were real and were declined on cost: probing
+asynchronously inside the funnel keeps one call site but delays the error card
+by up to six seconds, and emitting fast then annotating later turns one failure
+into two transcript entries.
+
+*Scope note.* No new files; the wrapper lives in `quota.go` alongside
+`confirmLimit`.
+
+### Fail-first evidence required
+
+Each against a scratch copy, never the working tree, and each edit script must
+assert **from disk** that its edit landed — Phase 9's M1 passed a no-op edit on
+its first attempt and only the re-read caught it.
+
+* `P1` — decode the billing response into an all-camelCase struct. `config` must
+  read nil and the test must FAIL. This is the outer half of the mixed casing.
+* `P2` — decode it into an all-snake_case struct. `creditUsagePercent` must read
+  zero and the test must FAIL. The inner half; without both, one convention is
+  pinned and the other is a guess.
+* `P3` — feed a `$0` amount as `{}` and a missing `costUsdTicks`. A test
+  asserting the summary does not claim `$0.00` must FAIL when absent cost is
+  formatted as zero.
+* `P4` — make `RuntimeStatus` return the auth failure as an `error` rather than
+  a message. A test asserting `/status` explains itself must FAIL, since
+  `cmdRuntime` swallows the error.
+* `P5` — run `confirmLimit` for `KindRateLimit`. A test asserting billing is not
+  probed for a rate limit must FAIL.
+* `P6` — make an unreachable probe suppress the classified error. A test
+  asserting an unconfirmed limit is still reported must FAIL.
+* `P7` — flatten `usage` under a `totals` key instead of at the top level. The
+  token counts must read zero and the test must FAIL.
+
+### Acceptance
+
+1. `/usage` on grok reports tokens, turns and cost from `_x.ai/session/usage`,
+   with cost stated as incomplete when `costIsPartial` or `usageIsIncomplete` is
+   set, and never as `$0.00` when the field is absent.
+2. `/status` on grok reports plan tier and credit usage, and on an install
+   without grok.com auth reports that billing is unavailable **with
+   `error == nil`**.
+3. A quota-classified grok turn error carries the billing summary when billing
+   confirms it, and is reported unchanged when billing is unreachable.
+4. `confirmLimit` is not called for `KindRateLimit`.
+5. Live, under `-tags live_grok`: `_x.ai/session/usage` decodes strictly
+   (`DisallowUnknownFields`) against grok 1.0.13. **Spends no model tokens and
+   makes no network call** — it reads an in-process ledger.
+6. Live, under `-tags live_grok`: `_x.ai/billing` decodes strictly, or returns
+   the auth error on an API-key install — either outcome is a pass, and which
+   one occurred is recorded. **This one contacts xAI's backend with the
+   operator's credentials**, so it runs only with explicit say-so, separately
+   from acceptance 5.
+
+Acceptance 5 and 6 are deliberately separate tests: 5 is free and local, 6 is
+neither, and bundling them would make the cheap check hostage to the costly one.
+
+### Executed — 2026-09-04
+
+**10.1** `internal/provider/acpagent/runtime.go`. `RuntimeUsage` reads
+`_x.ai/session/usage`; `RuntimeStatus` reads `_x.ai/billing`. Both return their
+failures as **text with a nil error**, following codex, because
+`internal/session`'s `cmdRuntime` propagates a returned error instead of
+displaying it — an error here makes `/status` say nothing at all.
+
+`unavailableReason` keeps three failure cases distinct, because they call for
+different actions: a build without the method (`ErrNotImplemented`), an account
+that cannot use it (ACP `-32000`, which is what grok's `require_xai_auth` gate
+returns), and everything else.
+
+**10.2** `internal/provider/acpagent/quota.go`. `confirmLimit` mirrors kilo's,
+including its warn-on-unconfirmed, and is bounded at 6 s — longer than kilo's
+4 s because kilo's probe is loopback to a local engine while grok's crosses the
+network to xAI, behind grok's own 15 s upstream bound.
+
+`KindQuota` only, as the amendment states: grok's billing reports credits, a cap
+and a period, and nothing about request windows.
+
+**10.3** `x.ai/auto-topup-rule` declined, and the recorded reasons stand.
+
+### Fail-first evidence — eight breakages, each on a scratch copy
+
+Run against `$SCRATCH/p10`, an rsync of the tree excluding `.git`. Every edit
+script re-reads the file from disk to confirm its edit landed.
+
+```text
+P1. billingResponse tagged all-camelCase
+    FAIL TestBillingDecodesBothCasingsInOneResponse
+         subscription_tier = "", want the snake_case key to decode
+    FAIL TestRuntimeStatusReadsBilling
+         status = "Grok · credits 99.4% used · …" — the plan name vanished
+
+P2. billingConfig tagged all-snake_case
+    FAIL TestBillingDecodesBothCasingsInOneResponse
+         `creditUsagePercent` did not decode
+    FAIL TestBillingSummaryOnlyFiresWhenCreditsAreActuallySpent
+         99.4% used did not read as exhausted
+
+P3. an absent cost formatted as zero
+    FAIL TestUsageNeverReportsAnAbsentCostAsFree
+         summary = "… · $0.0000" — an absent cost was rendered as zero
+
+P4. RuntimeStatus returns the failure as an error
+    FAIL TestRuntimeStatusExplainsItselfRatherThanErroring
+         RuntimeStatus returned an error …; cmdRuntime would swallow it and
+         /status would say nothing at all
+
+P5. confirmLimit also probes rate limits
+    FAIL TestConfirmLimitIsNotAskedAboutRateLimits
+         kind "rate_limit" was confirmed against billing ("included credits
+         99.4% used; …")
+
+P6. an unconfirmed quota limit is swallowed
+    FAIL TestAnUnreachableProbeDoesNotSuppressTheLimit
+         no error event was emitted after an unconfirmed limit
+
+P7. promptUsage totals nested under a `totals` key
+    FAIL TestSessionUsageDecodesFlattenedTotals
+         tokens = 0 in / 0 out, want 100/10
+    FAIL TestRuntimeUsageReadsTheLedger
+         usage = "Usage: 0 input + 0 output tokens · 1 turn · cost unavailable"
+
+P8. the probe put back in the non-blocking funnel   (the deviation's fix)
+    FAIL TestTheNonBlockingFunnelNeverProbesBilling
+         emitClassifiedTurnError probed billing. It runs on the SDK's
+         notification consumer and on the stderr copier; a six-second call
+         there is F5.
+```
+
+**P2 and P5 are the two that matter most**, because neither produces an error:
+
+* P2 makes an exhausted account read as healthy. The quota confirmation stops
+  working and nothing says so.
+* P5 attaches *credit* usage to a *throttling* error — a confident wrong answer,
+  which is worse than the prose it was meant to improve on.
+
+**P1 was written as two tests and merged into one.** Pinning the outer casing
+alone leaves the inner a guess and vice versa, so both halves are asserted in the
+same test; P1 and P2 break opposite halves of it.
+
+### Acceptance
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | `/usage` reports tokens, turns and cost, never `$0.00` for an absent cost | **pass** — and confirmed live, below |
+| 2 | `/status` reports tier and credits; unavailable reported with `error == nil` | **pass** |
+| 3 | a quota error carries the billing summary, and survives an unreachable probe | **pass** — P6 |
+| 4 | `confirmLimit` is not called for `KindRateLimit` | **pass** — P5 |
+| 5 | live `_x.ai/session/usage` decodes strictly | **pass** |
+| 6 | live `_x.ai/billing` decodes strictly, or returns the auth error | **pass, authenticated** |
+
+```text
+go test -race ./internal/... ./cmd/... -count=1         -> ok (full tree)
+for os in windows linux darwin; go vet …                -> all clean
+go vet -tags live_grok ./internal/provider/acpagent/    -> clean
+make pre-add-check FILES=…                              -> 5 file(s) clean
+```
+
+### The live runs, and what they settled
+
+**Acceptance 5** — grok 1.0.13, local, no network, no model tokens:
+
+```text
+_x.ai/session/usage returned: {"usage":{"inputTokens":0,"outputTokens":0,
+  "totalTokens":0,"cachedReadTokens":0,"cacheCreationTokens":0,
+  "reasoningTokens":0,"modelCalls":0,"apiDurationMs":0,"numTurns":0}}
+session usage decoded strictly
+/usage would show: Usage: 0 input + 0 output tokens · 0 turns · cost unavailable
+```
+
+Stronger than Phase 9's rewind probe, which returned an empty array and could
+confirm only the outer key. All ten flattened fields arrived, so P7's claim is
+settled against the binary and not only the source: the totals **are** at the top
+level of `usage`, and they **are** camelCase.
+
+It also confirmed the design P3 guards, live: a zero-cost ledger omits
+`costUsdTicks` entirely rather than sending `0`, and `/usage` correctly reports
+`cost unavailable` instead of `$0.00`.
+
+**Acceptance 6** — run with the owner's explicit approval; it fetches the
+operator's billing from xAI's backend:
+
+```text
+{"config":{"creditUsagePercent":58.0,
+  "currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-09-02T11:15:25.027200+00:00",…},
+  "onDemandCap":{"val":0},"onDemandUsed":{"val":0},"prepaidBalance":{"val":0},
+  "isUnifiedBillingUser":true,"billingPeriodStart":"…"},
+ "subscription_tier":"SuperGrok"}
+billing decoded strictly
+```
+
+**The mixed casing is confirmed on the wire**, not merely in the Rust:
+`"subscription_tier"` and `"creditUsagePercent"` sit in the same response. A
+single-convention struct would have silently dropped one of them, which is what
+P1 and P2 each demonstrate.
+
+Two details the source did not settle:
+
+* `onDemandCap` arrived as `{"val":0}`, not `{}`. The proto3 omission the source
+  warns about is real but not universal, so both forms must decode — they do.
+* `on_demand_enabled`, `monthlyLimit`, `used` and `history` were all absent.
+  Optional in practice as well as in the schema.
+
+### One defect the live run found in this phase's own code
+
+`/status` rendered the period as
+`period 2026-09-02T11:15:25.027200+00:00 to 2026-09-09T11:15:25.027200+00:00` —
+sixty characters of microsecond precision in a one-line notice. grok sends full
+RFC 3339; the source showed the field was a string and said nothing about its
+shape, so this was only visible once a real response arrived.
+
+`billingDate` now shortens it to the calendar date, keeping the raw value when it
+does not parse, and `TestBillingPeriodIsADateNotATimestamp` pins it. Re-run live:
+
+```text
+/status would show: Grok · plan SuperGrok · credits 58.0% used · period 2026-09-02 to 2026-09-09
+```
+
+Recorded rather than quietly fixed, because it is the argument for running
+acceptance 6 at all: the unit tests were green against a transcribed payload
+that happened to use short dates.
+
+### Still not done after this phase
+
+* **`x.ai/restore_code`** — unread and unwired, as the F7 amendment records.
+* **`RuntimeSession` for kilo, opencode and goose.** `/status` and `/usage` work
+  on codex and now grok; the other three remain absent, which the F9 amendment
+  records as a known gap rather than an oversight.
+* **Phase 9's residual** — the rewind *element* shape and `_x.ai/rewind/execute`
+  are still confirmed against grok's source only, because populating a rewind
+  point needs a real turn.
+* **Criterion 4 on device** — backward paging has never been driven on the
+  emulator.
