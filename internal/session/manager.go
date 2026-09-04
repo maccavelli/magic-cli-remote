@@ -33,14 +33,46 @@ import (
 // process is gone. Sessions in this state are no longer live.
 const StatusDisconnected = "disconnected"
 
-// historyBufferCap bounds the per-session replay ring buffer. Aligned with the
-// mobile client's kMaxTranscriptItems (800) so cold reopen can rebuild a full
-// phone-side transcript (MADR 0018 E4). Oldest events drop.
-const historyBufferCap = 800
+// historyBudgetBytes bounds one session's replay ring.
+//
+// It replaces an 800-event count that had nothing to do with memory: it was
+// "aligned with the mobile client's kMaxTranscriptItems (800)" (MADR 0018 E4),
+// and counting events let one provider's telemetry evict the operator's own
+// words. Six of 34 stored sessions were truncated and two retained no
+// user_message at all, while a codex session spent 695 of 723 slots on the
+// stdout of one command (MADR 0138 F1).
+//
+// 32 MiB is roughly 21,000 events at the 1,523 B/event that event.Bytes
+// measures for a realistic transcript — about 26× the old cap. The daemon's
+// whole RSS is 51 MB against a 32 GB host and a 1,450 MB kilo engine, so this
+// spends headroom the process has three orders of magnitude of.
+const historyBudgetBytes = 32 << 20
 
-// HistoryRingCap exposes the ring size for the v2 capability block
+// historyTrimToBytes is what a session is cut back to once it exceeds its
+// budget. Trimming in batches rather than one event at a time keeps the
+// eviction scan amortised.
+const historyTrimToBytes = historyBudgetBytes * 3 / 4
+
+// globalBudgetBytes bounds every live session's ring together, so one chatty
+// session cannot set the daemon's memory ceiling on its own. 12× the
+// per-session budget under a default max_live_sessions of 16.
+const globalBudgetBytes = 384 << 20
+
+// historyRingCapEstimate is the event count advertised in the v2 capability
+// block. Caps.HistoryRing has always meant "events", and old phones size their
+// own buffers from it, so it stays an event count: the byte budget is
+// advertised separately as Caps.HistoryBudgetBytes. Conservative on purpose —
+// a client that under-fetches pages again, one that over-fetches gets an empty
+// page and concludes the ring is shorter than it is.
+const historyRingCapEstimate = historyBudgetBytes / 2048
+
+// HistoryRingCap exposes the advertised ring size for the v2 capability block
 // (MADR 0068 D1) so the advertised limit cannot drift from the enforced one.
-const HistoryRingCap = historyBufferCap
+const HistoryRingCap = historyRingCapEstimate
+
+// HistoryBudgetBytes exposes the enforced per-session byte budget for the same
+// capability block (MADR 0138 Phase 2).
+const HistoryBudgetBytes = historyBudgetBytes
 
 // historyDefaultPage is the default number of events returned by a single
 // session.history response when the client does not set limit.
@@ -133,8 +165,20 @@ type entry struct {
 	// tombstone (R2=A).
 	dead bool
 	// history is a bounded ring buffer of every event this session emitted,
-	// oldest first, for session.history replay. Capped at historyBufferCap.
+	// oldest first, for session.history replay. Bounded by historyBudgetBytes
+	// and evicted lowest-content-class-first (MADR 0138 Phase 2).
 	history []event.Event
+	// historyBytes is the running sum of event.Bytes over history. Maintained
+	// on append and recomputed by reindexHistoryLocked after any deletion.
+	historyBytes int
+	// lastEventAt is when this session last appended to its ring. The global
+	// budget evicts from the coldest session first, and that ordering needs a
+	// clock that tracks events rather than the metadata writes UpdatedAt tracks.
+	lastEventAt time.Time
+	// globalTrimNoticed records that the operator has already been told this
+	// session was trimmed by the global budget, so a busy host does not repeat
+	// it on every event.
+	globalTrimNoticed bool
 	// replayIndex maps replayKey(ev) to the positions in history carrying that
 	// key, so a session/load replay can find a duplicate without scanning the
 	// ring. It indexes every event, not only replayed ones, because the scan it
@@ -190,11 +234,6 @@ type entry struct {
 	firstOutputAt time.Time
 }
 
-// historyTrimTo is what the ring is cut back to when it exceeds
-// historyBufferCap. Trimming in batches instead of one-at-a-time avoids an
-// O(cap) memmove on every event past the cap.
-const historyTrimTo = historyBufferCap - historyBufferCap/4
-
 // appendHistoryLocked stamps ev with the next sequence number and records it.
 // Caller holds m.mu; the stamp is visible to the caller's broadcast copy.
 //
@@ -230,11 +269,59 @@ func (e *entry) appendHistoryLocked(ev *event.Event) {
 	e.seq++
 	ev.Seq = e.seq
 	e.history = append(e.history, *ev)
+	e.historyBytes += event.Bytes(ev)
 	e.indexReplayLocked(len(e.history) - 1)
-	if len(e.history) > historyBufferCap {
-		e.history = slices.Delete(e.history, 0, len(e.history)-historyTrimTo)
-		e.rebuildReplayIndexLocked()
+	e.enforceHistoryBudgetLocked()
+}
+
+// enforceHistoryBudgetLocked evicts until the session is back under
+// historyTrimToBytes, lowest class first and oldest first within a class.
+//
+// The newest event is never evicted: a transcript that drops what just arrived
+// is worse than one that is briefly over budget, and a single event larger than
+// the whole budget would otherwise be discarded the instant it landed.
+//
+// Returns the classes it evicted from, highest first, or ClassTelemetry-1 when
+// nothing was evicted. Callers use it to decide whether the operator needs to
+// be told that content — not just telemetry — is being dropped.
+func (e *entry) enforceHistoryBudgetLocked() (evictedUpTo event.Class, evicted bool) {
+	if e.historyBytes <= historyBudgetBytes || len(e.history) < 2 {
+		return 0, false
 	}
+	need := e.historyBytes - historyTrimToBytes
+	drop := make([]bool, len(e.history))
+	freed := 0
+	newest := len(e.history) - 1
+
+	for cls := event.ClassTelemetry; freed < need; cls++ {
+		for i := 0; i < newest && freed < need; i++ {
+			if drop[i] || event.ClassOf(e.history[i].Type) != cls {
+				continue
+			}
+			drop[i] = true
+			freed += event.Bytes(&e.history[i])
+			evictedUpTo, evicted = cls, true
+		}
+		if cls == event.ClassAnchor {
+			// Nothing ranks above an anchor. Everything evictable is gone and
+			// the session is still over budget; stop rather than loop forever.
+			break
+		}
+	}
+	if !evicted {
+		return 0, false
+	}
+
+	kept := e.history[:0]
+	for i := range e.history {
+		if drop[i] {
+			continue
+		}
+		kept = append(kept, e.history[i])
+	}
+	e.history = kept
+	e.reindexHistoryLocked()
+	return evictedUpTo, true
 }
 
 // replayFieldSep separates the fields folded into a replay key. Unit Separator
@@ -310,22 +397,123 @@ func (e *entry) indexReplayLocked(i int) {
 	e.replayIndex[k] = append(e.replayIndex[k], i)
 }
 
-// rebuildReplayIndexLocked recomputes the index from the ring. Every deletion
-// and every trim shifts positions, and a stale position is a wrong answer
-// rather than a slow one, so the index is rebuilt rather than patched. It is
-// O(len(history)) and runs only on a trim or a native-identity removal, both of
-// which are rare next to appends.
-func (e *entry) rebuildReplayIndexLocked() {
+// enforceGlobalBudgetLocked keeps every live session's ring inside
+// globalBudgetBytes, so one chatty session cannot set the daemon's memory
+// ceiling for the host.
+//
+// It evicts from the coldest session first — least recently appended to — and
+// never from activeID while any other session still has bytes to give. A
+// session being prompted right now is the one the operator is looking at.
+//
+// Returns the ids it trimmed for the first time, so the caller can tell those
+// operators their transcript is being shortened. A transcript that silently
+// shrinks is the failure this whole record is about; a global budget that
+// shrinks it silently would just move the failure.
+//
+// Caller holds m.mu.
+func (m *Manager) enforceGlobalBudgetLocked(activeID string) (firstTrimmed []string) {
+	budget := m.globalBudget
+	if budget <= 0 {
+		budget = globalBudgetBytes
+	}
+	total := 0
+	for _, e := range m.sessions {
+		total += e.historyBytes
+	}
+	if total <= budget {
+		return nil
+	}
+
+	cold := make([]*entry, 0, len(m.sessions))
+	ids := make(map[*entry]string, len(m.sessions))
+	for id, e := range m.sessions {
+		if e.dead || id == activeID {
+			continue
+		}
+		cold = append(cold, e)
+		ids[e] = id
+	}
+	sort.Slice(cold, func(i, j int) bool { return cold[i].lastEventAt.Before(cold[j].lastEventAt) })
+
+	for _, e := range cold {
+		if total <= budget {
+			break
+		}
+		before := e.historyBytes
+		// Squeeze this session to a share of the global budget rather than to
+		// its own per-session budget, which it is already inside.
+		if trimmed := e.trimToLocked(budget / max(len(m.sessions), 1)); trimmed {
+			total -= before - e.historyBytes
+			if !e.globalTrimNoticed {
+				e.globalTrimNoticed = true
+				firstTrimmed = append(firstTrimmed, ids[e])
+			}
+		}
+	}
+	return firstTrimmed
+}
+
+// trimToLocked evicts by the class rule until the session is at or under
+// budget, and reports whether anything was dropped.
+func (e *entry) trimToLocked(budget int) bool {
+	if e.historyBytes <= budget || len(e.history) < 2 {
+		return false
+	}
+	need := e.historyBytes - budget
+	drop := make([]bool, len(e.history))
+	freed := 0
+	newest := len(e.history) - 1
+	for cls := event.ClassTelemetry; freed < need; cls++ {
+		for i := 0; i < newest && freed < need; i++ {
+			if drop[i] || event.ClassOf(e.history[i].Type) != cls {
+				continue
+			}
+			drop[i] = true
+			freed += event.Bytes(&e.history[i])
+		}
+		if cls == event.ClassAnchor {
+			break
+		}
+	}
+	if freed == 0 {
+		return false
+	}
+	kept := e.history[:0]
+	for i := range e.history {
+		if !drop[i] {
+			kept = append(kept, e.history[i])
+		}
+	}
+	e.history = kept
+	e.reindexHistoryLocked()
+	return true
+}
+
+// reindexHistoryLocked recomputes the replay index and the byte total from the
+// ring. Every deletion and every eviction shifts positions, and a stale
+// position is a wrong answer rather than a slow one, so both are rebuilt rather
+// than patched.
+//
+// The index and the byte total are rebuilt together on purpose: they are two
+// views of the same slice, and letting them be maintained separately is how one
+// of them ends up describing a ring that no longer exists. It is
+// O(len(history)) and runs only on an eviction or a native-identity removal,
+// both rare next to appends.
+func (e *entry) reindexHistoryLocked() {
 	if len(e.history) == 0 {
 		e.replayIndex = nil
+		e.historyBytes = 0
 		return
 	}
 	idx := make(map[uint64][]int, len(e.history))
+	total := 0
 	for i := range e.history {
 		k := replayKey(&e.history[i])
 		idx[k] = append(idx[k], i)
+		total += event.Bytes(&e.history[i])
 	}
 	e.replayIndex = idx
+	e.historyBytes = total
 }
 
 // removeNativeLocked deletes history rows by native identity. An empty partID
@@ -350,7 +538,7 @@ func (e *entry) removeNativeLocked(messageID, partID string) {
 		return h.NativePartID == partID
 	})
 	if len(e.history) != before {
-		e.rebuildReplayIndexLocked()
+		e.reindexHistoryLocked()
 	}
 }
 
@@ -367,7 +555,7 @@ func (e *entry) removeOptimisticUserLocked(messageID string) {
 			h.NativePartID == ""
 	})
 	if len(e.history) != before {
-		e.rebuildReplayIndexLocked()
+		e.reindexHistoryLocked()
 	}
 }
 
@@ -462,6 +650,10 @@ type Manager struct {
 	// construction-order cycle (mirrors the existing onEvent/eventHub bridge).
 	receiptsMu sync.RWMutex
 	receipts   ReceiptSupport
+	// globalBudget overrides globalBudgetBytes. Zero uses the constant; tests
+	// set a small value so the cross-session eviction can be exercised without
+	// allocating hundreds of megabytes.
+	globalBudget int
 }
 
 // ReceiptTransport asks a specific device's live connection to sign a
@@ -966,7 +1158,7 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	// The ring is seeded from disk before any append, so the replay index has
 	// to be built from it. Without this a session/load right after a restart
 	// would re-append the whole durable transcript as "new".
-	seeded.rebuildReplayIndexLocked()
+	seeded.reindexHistoryLocked()
 	m.sessions[sess.ID()] = seeded
 	m.mu.Unlock()
 	m.clearPurged(sess.ID())
@@ -1035,6 +1227,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// Filled under the lock at turn end; logged after it is released,
 			// so a log write never happens with m.mu held.
 			var turnRec *turnLatency
+			// Sessions the global budget trimmed on this event. The notice is
+			// emitted after the lock is dropped, like advertiseCommands.
+			var globalTrimmed []string
 			m.mu.Lock()
 			e, mine := m.sessions[sess.ID()]
 			// Only touch (or broadcast for) the entry when it still belongs to
@@ -1155,6 +1350,8 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					e.firstOutputAt = time.Time{}
 				}
 				e.appendHistoryLocked(&ev)
+				e.lastEventAt = time.Now()
+				globalTrimmed = m.enforceGlobalBudgetLocked(sess.ID())
 				switch ev.Type {
 				case event.TypePermission:
 					if ev.PermissionID != "" {
@@ -1205,6 +1402,18 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				// Outside the lock: resolution reads provider capabilities and
 				// emits its own event.
 				m.advertiseCommands(sess.ID())
+			}
+			for _, trimmedID := range globalTrimmed {
+				// Outside the lock, and once per session: emitEvent takes m.mu
+				// itself, and a busy host must not repeat this on every event.
+				m.emitEvent(trimmedID, event.Event{
+					Type:      event.TypeNotice,
+					SessionID: trimmedID,
+					Timestamp: time.Now().UTC(),
+					Text: "Older parts of this transcript were dropped to stay " +
+						"inside the host's memory budget. The conversation itself " +
+						"is kept; tool output and status updates go first.",
+				})
 			}
 			if histID != "" {
 				m.scheduleHistoryPersist(histID)

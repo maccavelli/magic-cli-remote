@@ -862,3 +862,150 @@ acceptance criteria inherit the same substitution.
 *Not worked around.* The acceptance numbers in the table above were measured
 against the real files before this decision was taken; the substitution changes
 what is committed, not what was verified.
+
+### Phase 2 — 2026-09-03, complete
+
+**2.1/2.2 `internal/event/retention.go`.** Four classes — telemetry, progress,
+content, anchor — with `ClassOf` exhaustive over every declared `event.Type`,
+and `Bytes` reporting an event's retained size from the struct header plus every
+string and slice element it owns.
+
+Both are pinned by tests that read the *source*, not a hand-written list:
+`TestClassOfIsExhaustive` parses every `Type… Type = "…"` constant out of the
+package and checks each appears in the switch, and `TestBytesTracksStructGrowth`
+walks `Event`'s fields reflectively and fails on any string field `Bytes` does
+not sum. A list maintained by hand would be updated by the same person who
+forgot to classify the new type, so it would agree with the mistake.
+
+`Bytes` was measured against the allocator rather than asserted:
+`TestBytesDoesNotUnderReportRetainedSize` builds 20,000 realistic events and
+compares the accounting to `runtime.ReadMemStats`. It reports **1,523 B/event**
+and over-reports by 2× against `HeapAlloc` — conservative, which is the safe
+direction for a budget, and close to the 1.5 KB/event this plan's sizing table
+assumed.
+
+**2.3 The count cap is gone.** `historyBufferCap = 800` and `historyTrimTo` are
+replaced by `historyBudgetBytes = 32 MiB` and `historyTrimToBytes` (75%).
+`entry` carries a running `historyBytes`, and `enforceHistoryBudgetLocked`
+evicts lowest class first, oldest first within a class, **never the newest
+event** — a transcript that drops what just arrived is worse than one briefly
+over budget, and a single event larger than the whole budget would otherwise be
+discarded the instant it landed.
+
+`rebuildReplayIndexLocked` became `reindexHistoryLocked` and now recomputes the
+replay index and the byte total in one pass. They are two views of the same
+slice; maintaining them separately is how one ends up describing a ring that no
+longer exists.
+
+**2.4 Global budget.** `globalBudgetBytes = 384 MiB`, enforced across live
+sessions coldest-first by `lastEventAt`, and never against the session being
+prompted while any colder one still has bytes to give. The first time a session
+is trimmed this way its operator gets one notice, emitted after the manager lock
+is released and deduped by the flag on the entry. A transcript that silently
+shrinks is the failure this record is about; a global budget that shrank it
+silently would only move the failure.
+
+**2.5 `GOMEMLIMIT`.** `applyMemoryLimit` sets a 1 GiB soft ceiling unless the
+operator already set `GOMEMLIMIT`, whose value wins, and the effective limit and
+its source are logged. Verified live on both paths:
+
+```text
+msg="starting mcremote" … mem_limit_bytes=1073741824 mem_limit_source=default
+GOMEMLIMIT=256MiB …      … mem_limit_bytes=268435456  mem_limit_source=GOMEMLIMIT
+```
+
+**2.6 The durable file uses the same rule.** `store.go`'s two count re-trims are
+replaced by `boundHistoryByClass`, the class rule expressed over a plain slice,
+so the file and the ring cannot disagree about what a transcript is. Re-trimming
+by count on write would have undone the retention the ring had just enforced.
+
+**Protocol.** `Caps.HistoryBudgetBytes` is advertised beside `Caps.HistoryRing`.
+`HistoryRing` stays an event count — that is what it has always meant and phones
+size their own buffers from it — and is now a conservative estimate derived from
+the byte budget; the truthful value sits next to it. Additive, so a phone built
+before this keeps working.
+
+### Fail-first evidence — five breakages, one of which exposed a worthless test
+
+```text
+B1. user_message demoted to ClassTelemetry
+    FAIL TestAnchorsSurviveATelemetryFlood
+         retained 0 of 20 user messages; anchors must outlive telemetry
+
+B2. coldest-first ordering reversed
+    FAIL TestGlobalBudgetEvictsColdestSessionFirst
+         the coldest session was not trimmed: 10516160 bytes, was 10516160
+
+B3. a 45th string field added to Event, uncounted by Bytes
+    FAIL TestBytesTracksStructGrowth
+         string fields Bytes does not count: [Unbudgeted]
+
+B4. store.go's count trim restored
+    FAIL TestDurableHistoryRespectsCap
+         kept 2 user messages, want all 3: telemetry is evicted before the
+         conversation
+
+B5. a new event type added with no class
+    FAIL TestClassOfIsExhaustive
+         event types with no explicit class (they would fall to ClassTelemetry
+         and be evicted first): [TypeUnclassified]
+```
+
+**B2 passed on its first run, and that was the most useful result in the
+phase.** The original `TestGlobalBudgetEvictsColdestSessionFirst` sized its
+three sessions so that clearing the overage required trimming *all* of them —
+so every visit order produced the same outcome and the test asserted nothing
+about ordering at all. It was rewritten so exactly one session's worth of
+trimming clears the overage, which makes the order the only variable, and it
+then failed against the reversed comparison as shown above.
+
+A check that has only ever been seen to pass is indistinguishable from one that
+does nothing. This one was, for about ten minutes.
+
+### Acceptance — measured against the operator's real transcripts
+
+Every stored transcript replayed through the new retention:
+
+```text
+user_message events: 93 offered, 93 retained across all 34 real transcripts
+```
+
+Against the MADR's F1 table, where the six truncated sessions retained
+**0, 0, 1, 1, 2 and 3**. Nothing was evicted at all, which is the finding: those
+transcripts are a rounding error against 32 MiB and were being truncated by a
+cap that had nothing to do with memory.
+
+Synthetic acceptance, at sizes the real data does not reach:
+
+```text
+TestAnchorsSurviveATelemetryFlood
+  offered=6020 retained=421 bytes=26602673 user_messages=20/20
+```
+
+6,020 events — 20 prompts each followed by 300 lines of 64 KiB tool output,
+about 390 MiB — reduced to 421 events inside the 32 MiB budget, with **every
+prompt kept**. That is the shape of codex session `5e360a4e`, which under the
+old cap kept 695 lines of one command's stdout and one user message.
+
+```text
+go build ./...                                            -> ok
+go test ./internal/... ./cmd/... -count=1                 -> ok
+go test -race ./internal/... ./cmd/... -count=1           -> ok (full tree)
+```
+
+### Deviations
+
+**2026-09-03 — the global budget needed a seam to be testable.** As specified,
+`globalBudgetBytes` was a constant, and exercising cross-session eviction
+against 384 MiB would mean allocating that much in a unit test. A `globalBudget`
+field on `Manager` (zero means the constant) was added so tests can drive the
+rule at 24 MiB. Production behaviour is unchanged; the rule under test is the
+ordering, not the number.
+
+**2026-09-03 — two existing tests asserted the old cap and were rewritten, not
+deleted.** `TestHistoryRingBufferCapsAndOrders` checked *where* the 800-event
+drop landed; it now checks that 900 small events are all retained, which is the
+behaviour change. `TestDurableHistoryRespectsCap` checked that the file kept the
+last 800 events; it now checks that the file stays inside its byte budget and
+keeps every `user_message`. Both names were kept so the history of what they
+guarded stays findable.

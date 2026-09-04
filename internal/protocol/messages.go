@@ -237,7 +237,13 @@ type Caps struct {
 	WSPingResetsDeadline bool        `json:"ws_ping_resets_deadline"`
 	Resume               *ResumeCaps `json:"resume,omitempty"`
 	HistoryRing          int         `json:"history_ring"`
-	MaxFrameBytes        int         `json:"max_frame_bytes"`
+	// HistoryBudgetBytes is the per-session retention budget the daemon
+	// actually enforces (MADR 0138 Phase 2). HistoryRing above stays an event
+	// count because that is what it has always meant and phones size their own
+	// buffers from it; this is the truthful value beside it. Additive: absent
+	// means a daemon that still bounds retention by event count.
+	HistoryBudgetBytes int `json:"history_budget_bytes,omitempty"`
+	MaxFrameBytes      int `json:"max_frame_bytes"`
 	// TLSResumed reports whether this connection's TLS handshake resumed a
 	// prior session — the client-verifiable signal for the phone's
 	// SecurityContext cache (0068 Q3/P5).

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
@@ -24,9 +25,9 @@ func replayEvent(i int) event.Event {
 }
 
 func TestReplayDedupeIsNotQuadratic(t *testing.T) {
-	// Below historyBufferCap on purpose: a trim would drop events and make the
-	// "a second replay adds nothing" assertion measure the cap instead of the
-	// dedupe. Trim behaviour has its own test.
+	// Small enough to stay inside the byte budget: an eviction would drop
+	// events and make the "a second replay adds nothing" assertion measure the
+	// budget instead of the dedupe. Eviction has its own test.
 	const n = 700
 
 	e := &entry{}
@@ -97,14 +98,27 @@ func TestReplayDedupeSuppressesAGenuineDuplicate(t *testing.T) {
 
 func TestReplayIndexSurvivesATrim(t *testing.T) {
 	e := &entry{}
-	// Overflow the ring so a trim shifts every position.
-	for i := range historyBufferCap + historyBufferCap/2 {
-		ev := replayEvent(i)
-		ev.Replay = false
+	// Overflow the byte budget so an eviction shifts every remaining position.
+	// Each event carries 64 KiB, so 800 of them are ~50 MiB against a 32 MiB
+	// budget. A fixed count, not a loop on historyBytes: eviction always brings
+	// the total back under budget, so that loop would never end.
+	const big = 64 << 10
+	const emitted = 800
+	for i := range emitted {
+		ev := event.Event{
+			Type:      event.TypeToolUpdate,
+			ToolID:    "exec-1",
+			Text:      fmt.Sprintf("%06d|%s", i, strings.Repeat("z", big)),
+			Timestamp: time.Unix(1788000000+int64(i), 0).UTC(),
+		}
 		e.appendHistoryLocked(&ev)
 	}
-	if len(e.history) > historyBufferCap {
-		t.Fatalf("ring exceeded its cap: %d", len(e.history))
+	if e.historyBytes > historyBudgetBytes {
+		t.Fatalf("ring is %d bytes, over the %d budget", e.historyBytes, historyBudgetBytes)
+	}
+	if len(e.history) >= emitted {
+		t.Fatalf("nothing was evicted: %d of %d events retained at %d bytes",
+			len(e.history), emitted, e.historyBytes)
 	}
 
 	// Every retained event must still be found by the index, at its new
@@ -154,7 +168,7 @@ func TestSeededRingIsIndexed(t *testing.T) {
 		{Type: event.TypeAssistantChunk, Text: "also from disk", Seq: 2},
 	}
 	e := &entry{history: prior, seq: 2}
-	e.rebuildReplayIndexLocked()
+	e.reindexHistoryLocked()
 
 	again := event.Event{Type: event.TypeUserMessage, Text: "from disk", Replay: true}
 	e.appendHistoryLocked(&again)
