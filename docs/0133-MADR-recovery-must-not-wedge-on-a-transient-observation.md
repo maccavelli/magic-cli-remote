@@ -271,6 +271,39 @@ writer, and this makes the code do what that decision says.
   `credential state recovered provider=codex state=idle`, and a new `refresh`
   generation appears in the manifest after Codex next rotates its token.
 
+**Amended 2026-09-05 — a second test copied these assertions without the
+determinism that makes them checkable.** The first bullet above is met and
+stands: it specifies driving `recoverIdle` *directly* with a mid-write LIVE,
+and `TestRecoverIdleDefersOnAnUnstableObservation` does exactly that, handing
+the function a synthesised unstable observation. Nothing about that criterion
+is withdrawn.
+
+What went wrong is a test written alongside it and beyond what this section
+asked for. `TestUnstableLiveDefersInsteadOfWedging` goes through the full
+`Recover` path and tries to *induce* the transient with a background writer
+before making the same manifest assertions. Inducing is not under the test's
+control, and the assertions are only meaningful if the induction worked.
+
+Concretely: it rewrites LIVE every 10 ms while `stableObservation` reads
+100 ms apart (`internal/providerauth/bounds.go:33`), and nothing synchronises
+the two. On a loaded runner the writer is descheduled past a full interval,
+two reads agree,
+and the credential is adopted — **correctly, by this very decision**. The
+manifest then changes, and the assertion that it did not fails. CI run
+`33992360853` (tag `v0.16.6`) failed exactly there, `unstable_live_test.go:81`
+and `:86`, while the same commit passed on `master` fifteen minutes earlier
+(`33991602566`). Locally the test survived 25 isolated runs and 48 runs under
+8-way parallel load, which is what a scheduling-dependent assertion looks like
+rather than a code defect.
+
+The decision is unchanged and this section's criteria are all still met, by
+the deterministic test named above. What is withdrawn is only the churn test's
+copy of them. Its `recovery_required` assertion is kept, because that one
+holds under **either** scheduling outcome — settle-and-adopt,
+never-settle-and-defer, and the zero-length truncate window closed by the
+2026-09-03 deviation all reach a non-escalating state — and so is genuinely
+confirmable by it.
+
 ## Pros and Cons of the Options
 
 ### Give recovery the same stable read and no-op semantics as reconciliation, and re-evaluate an existing `recovery_required` against fresh evidence
@@ -335,3 +368,8 @@ writer, and this makes the code do what that decision says.
   §15.13).
 * Implementation:
   [0133-PLAN-recovery-must-not-wedge-on-a-transient-observation.md](0133-PLAN-recovery-must-not-wedge-on-a-transient-observation.md).
+* Why the churn test cannot assert an untouched manifest, and what replaces
+  that claim: the 2026-09-05 Confirmation amendment above, executed as Phase 7
+  of the plan. Churn induction appears in exactly one test file repo-wide
+  (`internal/providerauth/unstable_live_test.go`), so this is a single-site
+  correction, not a suite-wide pattern.
