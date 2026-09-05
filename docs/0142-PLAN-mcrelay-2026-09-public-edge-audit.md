@@ -1,5 +1,5 @@
 ---
-status: completed
+status: in_progress
 date: 2026-09-05
 associated-madr: "0142-MADR-mcrelay-2026-09-public-edge-audit.md"
 owner: [Project Owner]
@@ -16,8 +16,10 @@ target-milestone: "mcrelay 2026-09 hardening pass"
   choices. Every finding is in a phase, skipped with a reason, or deferred.
   Every new test has a name, a pre-fix failure, and a post-fix pass.
 * **Success Criteria**:
-  * [ ] All eight phases committed; `e2e_test.go` byte-identical to HEAD
-        of this plan
+  * [x] Phases 1–8 committed; `e2e_test.go` byte-identical to pre-flight
+        (`a2d6df96ba5d509af0476e9d16e893966ff4b891`)
+  * [ ] Phase 9: exactly two tests named below, race suite green, floor
+        still ≥ 80.0
   * [ ] Named tests in the per-phase tables fail on the pre-phase tree
         and pass after
   * [ ] `go test -race -count=1 ./internal/relay/... ./internal/relayhost/...`
@@ -56,6 +58,8 @@ target-milestone: "mcrelay 2026-09 hardening pass"
 | F37 | P2 | comment + ops paragraph; no certmagic fork (no knob in v0.25.4) | 6 |
 | F38 | P3 | **DEFER** — wire-visible `unknown_session` vs `unauthorized` | — |
 | F39 | P3 | `parseAllowParts` error has no raw input | 3 |
+| F20 apply path | P2 | `TestApplyMemoryLimitDefault` (serve-path setter) | 9 |
+| F21 files-load error | P2 | `TestListenAndServeTLSFilesMissingKey` | 9 |
 
 Kept, not in a phase: `make debug` `GOEXPERIMENT=goroutineleakprofile` (0068).
 Not added: `runtime/secret`, `encoding/json/v2`, 0-RTT, Prometheus (0017 E5).
@@ -808,6 +812,87 @@ after accept, not this phase.
 
 ---
 
+### Phase 9 — two more tests (F20 apply path, F21 files-load error)
+
+**Objective.** Cover the two 0142 production functions that Phase 8 left
+at 0% / untested-failure: `applyMemoryLimit` and
+`ListenAndServe`'s `LoadX509KeyPair` error. No production edits.
+
+**Files (only):** `internal/relay/memlimit_test.go`,
+`internal/relay/listen_policy_test.go`.
+
+**Do not** edit `memlimit.go`, `server.go`, `e2e_test.go`, or
+`internal/relayhost`.
+
+**9.1** Append to `memlimit_test.go` exactly (imports: add `"runtime/debug"`
+if not present):
+
+```go
+func TestApplyMemoryLimitDefault(t *testing.T) {
+	if _, ok := os.LookupEnv("GOMEMLIMIT"); ok {
+		t.Skip("GOMEMLIMIT already set in environment")
+	}
+	prev := debug.SetMemoryLimit(-1)
+	t.Cleanup(func() { debug.SetMemoryLimit(prev) })
+	lim, src := applyMemoryLimit()
+	if src != "default" {
+		t.Fatalf("src=%q, want default", src)
+	}
+	if lim != defaultRelayMemoryLimit {
+		t.Fatalf("lim=%d, want %d", lim, defaultRelayMemoryLimit)
+	}
+}
+```
+
+No `t.Parallel()`. The cleanup restores the process limit so later tests
+in the same `go test` process are not left under 512 MiB.
+
+**9.2** Append to `listen_policy_test.go` exactly:
+
+```go
+func TestListenAndServeTLSFilesMissingKey(t *testing.T) {
+	srv := New(Config{
+		ListenAddr:  "127.0.0.1:0",
+		Allow:       []HostCredential{testCred(t)},
+		TLSCertFile: "/no/such/mcrelay-cert.pem",
+		TLSKeyFile:  "/no/such/mcrelay-key.pem",
+		Limits:      DefaultLimits(),
+	}, nil)
+	err := srv.ListenAndServe(context.Background())
+	if err == nil {
+		t.Fatal("ListenAndServe with missing PEMs succeeded")
+	}
+}
+```
+
+This hits `tls.LoadX509KeyPair` after `limitListener` wrap
+(`server.go:253–256`): the bound listener must be closed and the error
+returned. Do not use `httptest`. `requireTLSOrLoopback` is satisfied by
+the cert/key paths being non-empty.
+
+**9.3** Run, in order:
+
+```sh
+go test -race -count=1 -run 'TestApplyMemoryLimitDefault|TestListenAndServeTLSFilesMissingKey' ./internal/relay/
+go test -race -count=1 ./internal/relay/... ./internal/relayhost/...
+git hash-object internal/relay/e2e_test.go   # == a2d6df96ba5d509af0476e9d16e893966ff4b891
+scripts/coverage-snapshot.sh --output /tmp/0142-p9 \
+  --go ./internal/relay --go ./internal/relayhost
+scripts/coverage-delta.sh floor --after /tmp/0142-p9 --minimum 80.0 \
+  --go ./internal/relay --go ./internal/relayhost
+```
+
+`TestApplyMemoryLimitDefault` may `Skip` if this environment has
+`GOMEMLIMIT` set; that is a pass, not a fail. The TLS-missing-key test
+must run.
+
+**9.4** `make pre-add-check FILES="internal/relay/memlimit_test.go internal/relay/listen_policy_test.go"`
+then `git add` those two files and `git commit --no-edit`. No `-m`. No
+push. Append one Observed bullet to the MADR with the new floor numbers
+in that same commit.
+
+---
+
 ## Verification & Testing Strategy
 
 | Level | Command / artefact | Pass |
@@ -834,8 +919,10 @@ after accept, not this phase.
 * **F22 without a revert:** `chmod 0600` the config and PEMs.
 * **F19 without a revert:** raise `limits.max_conns` (ceiling 8192) or
   `MCRELAY_LIMITS_MAX_CONNS`.
-* **Full unwind:** revert Phases 8 → 1. No migrations. Unknown YAML
+* **Full unwind:** revert Phases 9 → 1. No migrations. Unknown YAML
   `limits.max_conns` is ignored by an older binary.
+* **Phase 9:** tests only; revert is `git revert` of that commit. No
+  behaviour change.
 * **Production:** `mcrelay update --force` to the prior release. No push
   in this plan.
 
@@ -897,3 +984,8 @@ after accept, not this phase.
   - [ ] 8.3 final vet/build/race/govulncheck/fix/e2e-hash
   - [ ] 8.4 Observed waits for owner accept
   - [ ] commit
+- [ ] **Phase 9 two more tests**
+  - [ ] 9.1 `TestApplyMemoryLimitDefault` in `memlimit_test.go`
+  - [ ] 9.2 `TestListenAndServeTLSFilesMissingKey` in `listen_policy_test.go`
+  - [ ] 9.3 race suite + floor ≥ 80.0 + e2e hash
+  - [ ] 9.4 pre-add-check and commit those two files only

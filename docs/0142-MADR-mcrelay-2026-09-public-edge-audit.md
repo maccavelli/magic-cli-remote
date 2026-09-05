@@ -396,6 +396,11 @@ reason to leave the floor on 1.2.
   * F36 — two IPv6 addresses in the same /64 share one accept/join
     window (test with synthetic RemoteAddr).
   * F39 — `parseAllowParts` error text does not contain the secret.
+  * F20 apply — `TestApplyMemoryLimitDefault`: `src=="default"` and
+    `lim==512<<20` when `GOMEMLIMIT` is unset; previous memory limit
+    restored in `t.Cleanup`.
+  * F21 files-load — `TestListenAndServeTLSFilesMissingKey`:
+    `ListenAndServe` with missing PEMs returns a non-nil error.
 * `go test -cover` reports ≥ 80% for `internal/relay` and
   `internal/relayhost` (`scripts/coverage-delta.sh floor --minimum 80.0`).
 * Wire compatibility: `internal/relay/e2e_test.go` passes unmodified —
@@ -463,3 +468,36 @@ Executed as `0142-PLAN` Phases 1–8. Each phase gated on `make pre-add-check`,
 * **`go fix -diff ./internal/relay/`**: empty after Phase 7.
 * Live production smoke (`d4_live_test.go` pattern) is an operator step
   after deploy, not this execution.
+
+## Amendment — two more tests (2026-09-05)
+
+Phase 8 left `internal/relay` on the floor: **80.0385%** (1247/1558). A
+re-measure after that commit is **80.0%** of statements (`go test
+-cover`). Two 0142 production functions still have no test on the path
+that actually runs in `serve`:
+
+| Target | Uncovered now | Why it is worth a test |
+|--------|---------------|------------------------|
+| `applyMemoryLimit` (`memlimit.go:17–23`) | **5 stmts, 0%** | F20's serve-path setter. Phase 4 only tested `memoryLimitPlan` (L4) so a regression that stops calling `debug.SetMemoryLimit` would not fail CI. |
+| `ListenAndServe` files-mode `LoadX509KeyPair` error (`server.go:253–256`) | **2 stmts** | F21's files branch: a missing/corrupt PEM must close the already-bound listener and return. Happy-path files TLS is tested; the failure path is not. |
+
+Not chosen (weaker or already adjacent): `applyLetsEncrypt` (needs a CA),
+`runSetupService` (product-fork, F27 skip), `ipInNets(nil)` (1 stmt),
+`rateIPKey` To16-nil (unreachable after a successful `ParseIP` of IPv6).
+
+**Locked tests (exactly two):**
+
+1. `TestApplyMemoryLimitDefault` in `internal/relay/memlimit_test.go`
+2. `TestListenAndServeTLSFilesMissingKey` in `internal/relay/listen_policy_test.go`
+
+L4 is amended: `applyMemoryLimit` **may** be called from a test if and
+only if the previous `debug.SetMemoryLimit(-1)` value is restored in
+`t.Cleanup`, the test does not call `t.Parallel()`, and the default
+branch is skipped when `GOMEMLIMIT` is already in the process
+environment. That is restoration, not a process-wide leak into later
+tests.
+
+No production code changes. Floor must stay ≥ 80.0 after the two tests
+(it will rise; that is the point of the margin).
+
+Implementation: [0142-PLAN Phase 9](./0142-PLAN-mcrelay-2026-09-public-edge-audit.md).
