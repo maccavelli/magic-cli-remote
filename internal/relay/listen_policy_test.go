@@ -261,3 +261,17 @@ func TestListenAndServeAcceptsTLS13(t *testing.T) {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
 }
+
+func TestListenAndServeTLSFilesMissingKey(t *testing.T) {
+	srv := New(Config{
+		ListenAddr:  "127.0.0.1:0",
+		Allow:       []HostCredential{testCred(t)},
+		TLSCertFile: "/no/such/mcrelay-cert.pem",
+		TLSKeyFile:  "/no/such/mcrelay-key.pem",
+		Limits:      DefaultLimits(),
+	}, nil)
+	err := srv.ListenAndServe(context.Background())
+	if err == nil {
+		t.Fatal("ListenAndServe with missing PEMs succeeded")
+	}
+}

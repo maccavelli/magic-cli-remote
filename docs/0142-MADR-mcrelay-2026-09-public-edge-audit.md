@@ -501,3 +501,9 @@ No production code changes. Floor must stay ≥ 80.0 after the two tests
 (it will rise; that is the point of the margin).
 
 Implementation: [0142-PLAN Phase 9](./0142-PLAN-mcrelay-2026-09-public-edge-audit.md).
+
+**Observed — Phase 9 (2026-09-05):** `TestApplyMemoryLimitDefault` and
+`TestListenAndServeTLSFilesMissingKey` landed. Floor
+`internal/relay` **80.7445%** (1258/1558), `internal/relayhost`
+**81.2183%** (160/197). e2e hash unchanged
+(`a2d6df96ba5d509af0476e9d16e893966ff4b891`). Race suite green.

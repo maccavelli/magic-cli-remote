@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 date: 2026-09-05
 associated-madr: "0142-MADR-mcrelay-2026-09-public-edge-audit.md"
 owner: [Project Owner]
@@ -18,8 +18,8 @@ target-milestone: "mcrelay 2026-09 hardening pass"
 * **Success Criteria**:
   * [x] Phases 1–8 committed; `e2e_test.go` byte-identical to pre-flight
         (`a2d6df96ba5d509af0476e9d16e893966ff4b891`)
-  * [ ] Phase 9: exactly two tests named below, race suite green, floor
-        still ≥ 80.0
+  * [x] Phase 9: exactly two tests named below, race suite green, floor
+        still ≥ 80.0 (relay 80.7445%)
   * [ ] Named tests in the per-phase tables fail on the pre-phase tree
         and pass after
   * [ ] `go test -race -count=1 ./internal/relay/... ./internal/relayhost/...`
@@ -984,8 +984,8 @@ in that same commit.
   - [ ] 8.3 final vet/build/race/govulncheck/fix/e2e-hash
   - [ ] 8.4 Observed waits for owner accept
   - [ ] commit
-- [ ] **Phase 9 two more tests**
-  - [ ] 9.1 `TestApplyMemoryLimitDefault` in `memlimit_test.go`
-  - [ ] 9.2 `TestListenAndServeTLSFilesMissingKey` in `listen_policy_test.go`
-  - [ ] 9.3 race suite + floor ≥ 80.0 + e2e hash
-  - [ ] 9.4 pre-add-check and commit those two files only
+- [x] **Phase 9 two more tests**
+  - [x] 9.1 `TestApplyMemoryLimitDefault` in `memlimit_test.go`
+  - [x] 9.2 `TestListenAndServeTLSFilesMissingKey` in `listen_policy_test.go`
+  - [x] 9.3 race suite + floor ≥ 80.0 + e2e hash
+  - [x] 9.4 pre-add-check and commit those two files only
