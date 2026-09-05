@@ -57,6 +57,29 @@ func remoteIP(remoteAddr string) string {
 	return host
 }
 
+// rateIPKey canonicalizes a client address for rate-limit buckets (0142 F36).
+// IPv4 (including IPv4-mapped IPv6) is the dotted-quad /32. IPv6 is the /64
+// prefix so one subscriber cannot mint a fresh window per ephemeral address.
+func rateIPKey(host string) string {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return host
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	v6 := ip.To16()
+	if v6 == nil {
+		return host
+	}
+	out := make(net.IP, net.IPv6len)
+	copy(out, v6)
+	for i := 8; i < 16; i++ {
+		out[i] = 0
+	}
+	return out.String()
+}
+
 // clientIP returns the client address for rate limiting (MADR 0017 E1 / R36).
 //
 // Default (no trusted proxies): RemoteAddr only — X-Forwarded-For is ignored
@@ -67,12 +90,12 @@ func remoteIP(remoteAddr string) string {
 func (s *Server) clientIP(r *http.Request) string {
 	remote := remoteIP(r.RemoteAddr)
 	if len(s.trustedProxies) == 0 {
-		return remote
+		return rateIPKey(remote)
 	}
 	rip := net.ParseIP(remote)
 	if rip == nil || !ipInNets(rip, s.trustedProxies) {
 		// Direct client or untrusted hop: never honor forwarded headers.
-		return remote
+		return rateIPKey(remote)
 	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
@@ -82,14 +105,14 @@ func (s *Server) clientIP(r *http.Request) string {
 				continue
 			}
 			if !ipInNets(ip, s.trustedProxies) {
-				return ip.String()
+				return rateIPKey(ip.String())
 			}
 		}
 	}
 	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
 		if ip := net.ParseIP(xri); ip != nil && !ipInNets(ip, s.trustedProxies) {
-			return ip.String()
+			return rateIPKey(ip.String())
 		}
 	}
-	return remote
+	return rateIPKey(remote)
 }

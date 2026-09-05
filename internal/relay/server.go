@@ -108,12 +108,16 @@ func New(cfg Config, log *slog.Logger) *Server {
 	mux.HandleFunc("GET /v1/host", s.handleHost)
 	mux.HandleFunc("GET /v1/phone", s.handlePhone)
 	mux.HandleFunc("GET /v1/tunnel", s.handleTunnel)
+	p := new(http.Protocols)
+	p.SetHTTP1(true)
 	s.http = &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       httpIdleTimeout(),
 		// 0091 D3: stdlib default is 1 MiB; join-plane handshakes are small.
 		MaxHeaderBytes: maxHeaderBytes,
+		Protocols:      p,
 		// Internet scanners hit :8443 with SSLv2/TLS1.0/junk ciphers and
 		// the stdlib logs each attempt at Info via ErrorLog. Demote those
 		// to Debug so ops can still see real failures without drowning
@@ -159,7 +163,20 @@ func (s *Server) Handler() http.Handler { return s.http.Handler }
 // for. Accessed only through the two helpers.
 var firstEnvelopeTimeoutNanos atomic.Int64
 
-func init() { firstEnvelopeTimeoutNanos.Store(int64(10 * time.Second)) }
+func init() {
+	firstEnvelopeTimeoutNanos.Store(int64(10 * time.Second))
+	httpIdleTimeoutNanos.Store(int64(120 * time.Second))
+}
+
+var httpIdleTimeoutNanos atomic.Int64
+
+func httpIdleTimeout() time.Duration {
+	return time.Duration(httpIdleTimeoutNanos.Load())
+}
+
+func setHTTPIdleTimeout(d time.Duration) time.Duration {
+	return time.Duration(httpIdleTimeoutNanos.Swap(int64(d)))
+}
 
 func firstEnvelopeTimeout() time.Duration {
 	return time.Duration(firstEnvelopeTimeoutNanos.Load())
@@ -221,6 +238,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// 0142 F19: cap concurrent accepts before TLS so handshake floods count.
+	ln = limitListener(ln, s.cfg.Limits.MaxConns)
 	switch {
 	case s.cfg.TLSConfig != nil:
 		cfg := s.cfg.TLSConfig.Clone()
@@ -252,6 +271,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 // Serve serves on an existing listener (tests may pass plain TCP).
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	s.http.IdleTimeout = httpIdleTimeout()
 	s.startPendingSweeper(ctx)
 	defer s.stopPendingSweeper()
 

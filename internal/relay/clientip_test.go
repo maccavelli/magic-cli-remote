@@ -66,6 +66,45 @@ func TestClientIPXRealIPFallback(t *testing.T) {
 	}
 }
 
+func TestRateIPKeyIPv4Mapped(t *testing.T) {
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	srv := New(Config{Allow: []HostCredential{cred}}, nil)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "[::ffff:203.0.113.50]:9999"
+	if got := srv.clientIP(r); got != "203.0.113.50" {
+		t.Fatalf("mapped IPv4 got %q want 203.0.113.50", got)
+	}
+	r.RemoteAddr = "203.0.113.50:9999"
+	if got := srv.clientIP(r); got != "203.0.113.50" {
+		t.Fatalf("IPv4 got %q want 203.0.113.50", got)
+	}
+}
+
+func TestRateIPKeyIPv6SameSlash64(t *testing.T) {
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	srv := New(Config{Allow: []HostCredential{cred}}, nil)
+	a := httptest.NewRequest(http.MethodGet, "/", nil)
+	a.RemoteAddr = "[2001:db8:1::1]:1"
+	b := httptest.NewRequest(http.MethodGet, "/", nil)
+	b.RemoteAddr = "[2001:db8:1::2]:2"
+	ka, kb := srv.clientIP(a), srv.clientIP(b)
+	if ka != kb {
+		t.Fatalf("same /64 keys %q vs %q", ka, kb)
+	}
+}
+
+func TestRateIPKeyIPv6DifferentSlash64(t *testing.T) {
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	srv := New(Config{Allow: []HostCredential{cred}}, nil)
+	a := httptest.NewRequest(http.MethodGet, "/", nil)
+	a.RemoteAddr = "[2001:db8:1::1]:1"
+	b := httptest.NewRequest(http.MethodGet, "/", nil)
+	b.RemoteAddr = "[2001:db8:2::1]:1"
+	if srv.clientIP(a) == srv.clientIP(b) {
+		t.Fatal("different /64 must not share a rate key")
+	}
+}
+
 func TestParseTrustedProxiesBareAndCIDR(t *testing.T) {
 	nets, err := ParseTrustedProxies([]string{"127.0.0.1", "10.0.0.0/8", "  ", "::1"})
 	if err != nil {

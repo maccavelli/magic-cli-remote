@@ -76,6 +76,7 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 | `limits.max_phones_per_host` | `8` | `MCRELAY_LIMITS_MAX_PHONES_PER_HOST` | *(yaml/env only)* |
 | `limits.max_message_bytes` | `1048576` | `MCRELAY_LIMITS_MAX_MESSAGE_BYTES` | *(yaml/env only)* |
 | `limits.max_concurrent_join` | `64` | `MCRELAY_LIMITS_MAX_CONCURRENT_JOIN` | *(yaml/env only)* |
+| `limits.max_conns` | `1024` | `MCRELAY_LIMITS_MAX_CONNS` | *(yaml/env only)* |
 | `limits.accept_per_minute` | `120` | `MCRELAY_LIMITS_ACCEPT_PER_MINUTE` | *(yaml/env only)* |
 | `limits.join_per_minute` | `30` | `MCRELAY_LIMITS_JOIN_PER_MINUTE` | *(yaml/env only)* |
 | `limits.register_per_minute` | `20` | `MCRELAY_LIMITS_REGISTER_PER_MINUTE` | *(yaml/env only)* |
@@ -105,6 +106,10 @@ Bare IPs are accepted (`127.0.0.1` → `/32`). Only when `RemoteAddr` falls in a
 listed network does mcrelay take the **rightmost non-trusted** hop from
 `X-Forwarded-For` (then `X-Real-IP`). Never list the public internet as trusted.
 
+Rate-limit keys are the IPv4 `/32` (IPv4-mapped IPv6 is folded to dotted-quad)
+and the IPv6 `/64` prefix, so one dual-stack subscriber cannot mint a fresh
+window per ephemeral address.
+
 ### Limit ceilings (MADR 0017 D9)
 
 Config load **rejects** values above:
@@ -115,6 +120,7 @@ Config load **rejects** values above:
 | `limits.max_phones_per_host` | 256 |
 | `limits.max_message_bytes` | 16777216 (16 MiB) |
 | `limits.max_concurrent_join` | 4096 |
+| `limits.max_conns` | 8192 |
 | `limits.*_per_minute` | 100000 |
 | duration-second fields | 604800 (7 days) |
 
@@ -153,6 +159,7 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LIMITS_MAX_PHONES_PER_HOST` | `limits.max_phones_per_host` | Max concurrent phone splices per host |
 | `MCRELAY_LIMITS_MAX_MESSAGE_BYTES` | `limits.max_message_bytes` | Max WebSocket frame size |
 | `MCRELAY_LIMITS_MAX_CONCURRENT_JOIN` | `limits.max_concurrent_join` | Pending joins waiting for tunnel |
+| `MCRELAY_LIMITS_MAX_CONNS` | `limits.max_conns` | Concurrent accepted TCP connections (blocking accept cap) |
 | `MCRELAY_LIMITS_ACCEPT_PER_MINUTE` | `limits.accept_per_minute` | Pre-auth upgrades per client IP |
 | `MCRELAY_LIMITS_JOIN_PER_MINUTE` | `limits.join_per_minute` | Join attempts per client IP (R16) |
 | `MCRELAY_LIMITS_REGISTER_PER_MINUTE` | `limits.register_per_minute` | Register attempts per client IP (R16) |

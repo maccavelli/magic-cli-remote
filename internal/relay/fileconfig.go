@@ -159,6 +159,7 @@ type LimitsConfig struct {
 	MaxPhonesPerHost     int `mapstructure:"max_phones_per_host"`
 	MaxMessageBytes      int `mapstructure:"max_message_bytes"`
 	MaxConcurrentJoin    int `mapstructure:"max_concurrent_join"`
+	MaxConns             int `mapstructure:"max_conns"`
 	AcceptPerMinute      int `mapstructure:"accept_per_minute"`
 	JoinPerMinute        int `mapstructure:"join_per_minute"`
 	RegisterPerMinute    int `mapstructure:"register_per_minute"`
@@ -184,6 +185,7 @@ func DefaultsFile() FileConfig {
 			MaxPhonesPerHost:     d.MaxPhonesPerHost,
 			MaxMessageBytes:      d.MaxMessageBytes,
 			MaxConcurrentJoin:    d.MaxConcurrentJoin,
+			MaxConns:             d.MaxConns,
 			AcceptPerMinute:      d.AcceptPerMinute,
 			JoinPerMinute:        d.JoinPerMinute,
 			RegisterPerMinute:    d.RegisterPerMinute,
@@ -246,6 +248,7 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	_ = v.BindEnv("limits.max_phones_per_host", "MCRELAY_LIMITS_MAX_PHONES_PER_HOST")
 	_ = v.BindEnv("limits.max_message_bytes", "MCRELAY_LIMITS_MAX_MESSAGE_BYTES")
 	_ = v.BindEnv("limits.max_concurrent_join", "MCRELAY_LIMITS_MAX_CONCURRENT_JOIN")
+	_ = v.BindEnv("limits.max_conns", "MCRELAY_LIMITS_MAX_CONNS")
 	_ = v.BindEnv("limits.accept_per_minute", "MCRELAY_LIMITS_ACCEPT_PER_MINUTE")
 	_ = v.BindEnv("limits.join_per_minute", "MCRELAY_LIMITS_JOIN_PER_MINUTE")
 	_ = v.BindEnv("limits.register_per_minute", "MCRELAY_LIMITS_REGISTER_PER_MINUTE")
@@ -480,6 +483,7 @@ func setFileDefaults(v *viper.Viper) {
 	v.SetDefault("limits.max_phones_per_host", d.Limits.MaxPhonesPerHost)
 	v.SetDefault("limits.max_message_bytes", d.Limits.MaxMessageBytes)
 	v.SetDefault("limits.max_concurrent_join", d.Limits.MaxConcurrentJoin)
+	v.SetDefault("limits.max_conns", d.Limits.MaxConns)
 	v.SetDefault("limits.accept_per_minute", d.Limits.AcceptPerMinute)
 	v.SetDefault("limits.join_per_minute", d.Limits.JoinPerMinute)
 	v.SetDefault("limits.register_per_minute", d.Limits.RegisterPerMinute)
@@ -635,6 +639,9 @@ func validateLimitsConfig(l LimitsConfig) error {
 	if err := check("max_concurrent_join", l.MaxConcurrentJoin, MaxLimitConcurrentJoin); err != nil {
 		return err
 	}
+	if err := check("max_conns", l.MaxConns, MaxLimitConns); err != nil {
+		return err
+	}
 	if err := check("accept_per_minute", l.AcceptPerMinute, MaxLimitPerMinute); err != nil {
 		return err
 	}
@@ -719,6 +726,9 @@ func (c FileConfig) ToServerConfig() Config {
 	}
 	if c.Limits.MaxConcurrentJoin > 0 {
 		lim.MaxConcurrentJoin = c.Limits.MaxConcurrentJoin
+	}
+	if c.Limits.MaxConns > 0 {
+		lim.MaxConns = c.Limits.MaxConns
 	}
 	if c.Limits.AcceptPerMinute > 0 {
 		lim.AcceptPerMinute = c.Limits.AcceptPerMinute

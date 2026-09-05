@@ -314,6 +314,7 @@ func TestValidateLimitsCeilings(t *testing.T) {
 		{"max_phones_per_host", func(l *LimitsConfig) { l.MaxPhonesPerHost = MaxLimitPhonesPerHost + 1 }},
 		{"max_message_bytes", func(l *LimitsConfig) { l.MaxMessageBytes = MaxLimitMessageBytes + 1 }},
 		{"max_concurrent_join", func(l *LimitsConfig) { l.MaxConcurrentJoin = MaxLimitConcurrentJoin + 1 }},
+		{"max_conns", func(l *LimitsConfig) { l.MaxConns = MaxLimitConns + 1 }},
 		{"accept_per_minute", func(l *LimitsConfig) { l.AcceptPerMinute = MaxLimitPerMinute + 1 }},
 		{"join_per_minute", func(l *LimitsConfig) { l.JoinPerMinute = MaxLimitPerMinute + 1 }},
 		{"register_per_minute", func(l *LimitsConfig) { l.RegisterPerMinute = MaxLimitPerMinute + 1 }},
@@ -334,5 +335,12 @@ func TestValidateLimitsCeilings(t *testing.T) {
 	// Negative splice knobs mean "disabled" and pass.
 	if err := validateLimitsConfig(LimitsConfig{SpliceIdleSeconds: -1, SpliceMaxSeconds: -1}); err != nil {
 		t.Fatalf("negative splice knobs: %v", err)
+	}
+}
+
+func TestValidateMaxConnsCeiling(t *testing.T) {
+	err := validateLimitsConfig(LimitsConfig{MaxConns: MaxLimitConns + 1})
+	if err == nil || !strings.Contains(err.Error(), "max_conns") {
+		t.Fatalf("err=%v; want limits.max_conns ceiling rejection", err)
 	}
 }
