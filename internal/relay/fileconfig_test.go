@@ -158,6 +158,30 @@ func TestToServerConfigLegacyFlag(t *testing.T) {
 	}
 }
 
+func TestToServerConfigBlanksSecrets(t *testing.T) {
+	const secret = "sixteen-chars-min-1"
+	cfg := DefaultsFile()
+	cfg.Hosts = []HostEntry{{ID: "h1", Secret: secret}}
+	srv := cfg.ToServerConfig()
+	if cfg.Hosts[0].Secret != "" {
+		t.Fatalf("Hosts[0].Secret = %q, want empty after hash", cfg.Hosts[0].Secret)
+	}
+	if srv.Allow[0].SecretHash != HashSecret(secret) {
+		t.Fatal("SecretHash does not match HashSecret of the original")
+	}
+}
+
+func TestParseAllowPartsErrorOmitsSecret(t *testing.T) {
+	const leak = "sixteen-chars-min-secret"
+	_, _, err := parseAllowParts("not-a-pair-" + leak)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), leak) {
+		t.Fatalf("error quotes secret material: %v", err)
+	}
+}
+
 func TestLoadFlagOverride(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

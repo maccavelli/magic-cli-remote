@@ -189,7 +189,7 @@ func parseAllowParts(s string) (id, secret string, err error) {
 	s = strings.TrimSpace(s)
 	i := strings.IndexByte(s, ':')
 	if i <= 0 || i == len(s)-1 {
-		return "", "", fmt.Errorf("allow: want host_id:secret, got %q", s)
+		return "", "", fmt.Errorf("allow: want host_id:secret")
 	}
 	id = strings.TrimSpace(s[:i])
 	secret = s[i+1:]

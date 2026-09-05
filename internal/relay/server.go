@@ -567,7 +567,10 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		s.rateLimitedWS(ctx, conn, env.ID, retry)
 		return
 	}
-	if !s.hub.checkSecret(reg.HostID, reg.Secret) {
+	match := s.hub.checkSecret(reg.HostID, reg.Secret)
+	reg.Secret = ""
+	env.Payload = nil
+	if !match {
 		// Same error for unknown host_id and wrong secret (no enumeration).
 		_ = writeErr(ctx, conn, env.ID, "unauthorized", "invalid host credentials")
 		_ = conn.Close(websocket.StatusPolicyViolation, "unauthorized")
@@ -816,6 +819,9 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pending, err := s.hub.claimTunnel(tun.SessionID, tun.HostID, tun.Token, tun.Secret)
+	tun.Secret = ""
+	tun.Token = ""
+	env.Payload = nil
 	if err != nil {
 		code := errCode(err)
 		_ = writeErr(ctx, conn, env.ID, code, code)

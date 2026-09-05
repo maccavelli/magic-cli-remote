@@ -706,7 +706,7 @@ func (c FileConfig) Addr() string {
 }
 
 // ToServerConfig converts file config into the runtime server config.
-func (c FileConfig) ToServerConfig() Config {
+func (c *FileConfig) ToServerConfig() Config {
 	creds := make([]HostCredential, 0, len(c.Hosts))
 	for _, h := range c.Hosts {
 		creds = append(creds, HostCredential{
@@ -755,6 +755,9 @@ func (c FileConfig) ToServerConfig() Config {
 	}
 	if c.Limits.SpliceMaxSeconds != 0 {
 		lim.SpliceMax = time.Duration(c.Limits.SpliceMaxSeconds) * time.Second
+	}
+	for i := range c.Hosts {
+		c.Hosts[i].Secret = ""
 	}
 	tls := c.TLS.Normalized()
 	proxies, _ := ParseTrustedProxies(c.TrustedProxies) // validated in Validate
