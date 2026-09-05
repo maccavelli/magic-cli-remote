@@ -155,21 +155,38 @@ Per-agent pointers to this section: `.claude/rules/madr-and-plan-skill.md`,
 `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
 
 **Whenever the user asks for an MADR and a plan, load the
-`madr-and-plan-writing` skill first** and follow it for authoring,
+`writing-madr-and-plans` skill first** and follow it for authoring,
 naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies both to
 writing a fresh pair and to amending an existing one.
 
 The name is exact — it is the `name:` field of
-`~/.claude/skills/madr-and-plan-writing/SKILL.md`. Until 2026-09-01 all four
-per-agent files named a `writing-madr-and-plans` skill that has never existed:
-the skill directory was created 2026-08-06, the wrong name first entered this
-repo on 2026-08-15 and was propagated to every agent on 2026-08-25 (`0416ac3`).
-Not a rename — wrong from the start, then copied.
+`~/.claude/skills/writing-madr-and-plans/SKILL.md`, and that is the only MADR
+skill directory present under any skills root.
 
-That mistake does not fail loudly: the call does not resolve, and an agent that
-carries on without the skill produces something shaped like a MADR while missing
-MADR 4.0.0's heading names, the `Good, because …` argument form, and the
-mechanical slug rule.
+**Corrected 2026-09-05.** Between `e06a0b6` (2026-09-01) and this change, all
+four files named a `madr-and-plan-writing` skill and stated that
+`writing-madr-and-plans` "has never existed". That is backwards. The directory
+on disk is `writing-madr-and-plans`, its `name:` field agrees, loading it by
+that name resolves, and no `madr-and-plan-writing` directory exists under any
+skills root. `0416ac3` (2026-08-25) had the name right; `e06a0b6` changed it to
+one that does not resolve, and also asserted a directory creation date of
+2026-08-06 that does not match the filesystem (2026-08-14).
+
+Why `e06a0b6` concluded otherwise is not recoverable from this repository — the
+skill lives outside it — so this note does not guess. The durable lesson is not
+which spelling won:
+
+**Do not "correct" this name from memory, in either direction.** Both spellings
+are plausible, and the failure is silent: a call to a skill that does not exist
+does not error, and an agent that carries on without it produces something
+shaped like a MADR while missing MADR 4.0.0's heading names, the
+`Good, because …` argument form, and the mechanical slug rule. This file has now
+been wrong in both directions, which is what a documented assertion earns when
+the fact lives on the filesystem. Check before editing:
+
+```bash
+ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
+```
 
 **This file is the normative copy.** `.claude/rules/`, `.grok/rules/` and
 `.opencode/rules.md` carry only the skill name and the gate, and point here for

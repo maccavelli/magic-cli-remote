@@ -12,11 +12,19 @@ loaded.
 ## The skill
 
 **Whenever the user asks for an MADR and a plan, load the
-`madr-and-plan-writing` skill first** and follow it for authoring, naming
+`writing-madr-and-plans` skill first** and follow it for authoring, naming
 (`NNNN-MADR-*` / `NNNN-PLAN-*`) and review — for a fresh pair and for amending
 an existing one.
 
 The name is exact, and a mistyped one fails quietly rather than loudly.
+
+**Corrected 2026-09-05.** This file named `madr-and-plan-writing` from
+`e06a0b6` until now; that skill does not exist. Do not flip it back from
+memory — verify against the filesystem, and see `AGENTS.md`:
+
+```bash
+ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
+```
 
 ## The gate
 
