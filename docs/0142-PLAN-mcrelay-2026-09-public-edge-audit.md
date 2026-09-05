@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 date: 2026-09-05
 associated-madr: "0142-MADR-mcrelay-2026-09-public-edge-audit.md"
 owner: [Project Owner]

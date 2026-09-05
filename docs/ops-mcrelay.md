@@ -254,6 +254,7 @@ Never put the registration secret in the pair QR.
 | `limits.tunnel_wait_seconds` | 15 | Host must open tunnel after dial |
 | `trusted_proxies` | *(empty)* | CIDRs of reverse proxies that may set `X-Forwarded-For` (E1); empty ignores XFF |
 | `limits.max_conns` | 1024 | Concurrent accepted TCP connections (blocking accept; ceiling 8192) |
+| HTTP `IdleTimeout` | 120s | Keep-alives on `/healthz` and 404s; hijacked splices are unaffected. `WriteTimeout` stays unset. |
 
 If nginx/Caddy terminates TLS in front of mcrelay, set `trusted_proxies` to the
 proxy’s source address(es) so accept/join rate limits apply per real client.
@@ -362,4 +363,6 @@ visible as `phone slot divergence corrected` WARN lines attributable to join
 timeouts. After 0115 those lines should no longer appear for this cause; a
 divergence WARN now indicates a genuinely new accounting bug and is worth a
 report. The join/claim race is resolved under one lock (`hub.phoneGone`),
-and both sides observe the outcome immediately.
+and both sides observe the outcome immediately. 0142 F18 covers the reverse
+order (`abandonTunnel` then `phoneGone`): a receive from the already-closed
+`ready` channel no longer double-releases the slot.

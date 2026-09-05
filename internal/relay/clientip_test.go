@@ -67,6 +67,18 @@ func TestClientIPXRealIPFallback(t *testing.T) {
 	}
 }
 
+func TestRemoteIPNoPort(t *testing.T) {
+	if got := remoteIP("203.0.113.50"); got != "203.0.113.50" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRateIPKeyInvalid(t *testing.T) {
+	if got := rateIPKey("not-an-ip"); got != "not-an-ip" {
+		t.Fatalf("got %q want not-an-ip", got)
+	}
+}
+
 func TestRateIPKeyIPv4Mapped(t *testing.T) {
 	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
 	srv := New(Config{Allow: []HostCredential{cred}}, nil)

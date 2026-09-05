@@ -445,3 +445,21 @@ F38 remains deferred (wire-visible). `GOEXPERIMENT=goroutineleakprofile` on `mak
 * 0017 E5 (metrics) remains deferred.
 * Ops: `docs/ops-mcrelay.md`; production relay
   `wss://headscale.lallygag.net:8443`.
+
+## Observed — execution results (2026-09-05)
+
+Executed as `0142-PLAN` Phases 1–8. Each phase gated on `make pre-add-check`,
+`go vet`, and `go test -race -count=1 ./internal/relay/... ./internal/relayhost/...`.
+`internal/relay/e2e_test.go` hash stayed
+`a2d6df96ba5d509af0476e9d16e893966ff4b891`.
+
+* **Coverage**: `internal/relay` **80.0385%** (1247/1558);
+  `internal/relayhost` **81.2183%** (160/197)
+  (`coverage-delta.sh floor --minimum 80.0` → `pass`).
+* **Skipped as locked**: F27 (setup-service flag fork), F34 (synctest),
+  F29 on `relayhost`, F33 XFF `slices.Backward`. F38 deferred (wire-visible).
+* **Kept**: `make debug` `GOEXPERIMENT=goroutineleakprofile`. Not added:
+  `runtime/secret`, `encoding/json/v2`.
+* **`go fix -diff ./internal/relay/`**: empty after Phase 7.
+* Live production smoke (`d4_live_test.go` pattern) is an operator step
+  after deploy, not this execution.

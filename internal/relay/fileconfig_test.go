@@ -149,6 +149,72 @@ func TestValidateRejectsLimitCeilings(t *testing.T) {
 	}
 }
 
+func TestAddrDefaultHost(t *testing.T) {
+	fc := FileConfig{Listen: ListenConfig{Port: 8443}}
+	if got := fc.Addr(); got != "0.0.0.0:8443" {
+		t.Fatalf("Addr()=%q", got)
+	}
+}
+
+func TestVersionStringNonEmpty(t *testing.T) {
+	if VersionString() == "" {
+		t.Fatal("VersionString empty")
+	}
+}
+
+func TestCheckSecretFilesSkipsNonFilesMode(t *testing.T) {
+	if err := checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeOff}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckSecretFilesEmptyPaths(t *testing.T) {
+	if err := checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeFiles}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckSecretFilesMissingPEM(t *testing.T) {
+	err := checkSecretFiles(FileConfig{TLS: TLSConfig{
+		Mode:     TLSModeFiles,
+		CertFile: "/no/such/mcrelay-cert.pem",
+		KeyFile:  "/no/such/mcrelay-key.pem",
+	}})
+	if err == nil {
+		t.Fatal("want error for missing PEM")
+	}
+}
+
+func TestCheckSecretFilesRejectsWorldReadablePEM(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "key.pem")
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := appdirs.FileIsOwnerOnly(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner {
+		t.Skip("0644 still owner-only on this OS")
+	}
+	err = checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeFiles, CertFile: p, KeyFile: p}})
+	if err == nil || !strings.Contains(err.Error(), "chmod 0600") {
+		t.Fatalf("err=%v; want chmod 0600", err)
+	}
+}
+
+func TestCheckSecretFilesAcceptsOwnerOnlyPEM(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "key.pem")
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeFiles, CertFile: p, KeyFile: p}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadRejectsWorldReadableConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

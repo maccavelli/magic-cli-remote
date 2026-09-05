@@ -11,6 +11,45 @@ import (
 	"time"
 )
 
+func TestLimitedConnCloseOnce(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	limited := limitListener(ln, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+		_ = c.Close()
+	}()
+	c, err := limited.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Close() // second close must not double-release the semaphore
+	<-done
+}
+
+func TestLimitListenerNoCap(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if got := limitListener(ln, 0); got != ln {
+		t.Fatal("n<=0 must return the original listener")
+	}
+}
+
 func startPlainListenAndServe(t *testing.T, srv *Server) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
