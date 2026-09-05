@@ -1,5 +1,5 @@
 ---
-status: draft
+status: in-progress
 date: 2026-09-05
 associated-madr: "0143-MADR-ci-retries-once-and-records-every-retry.md"
 ---
@@ -182,6 +182,65 @@ the evidence for whatever is decided next.
 **Trigger to roll back:** any run where the retry masks a failure that should
 have gone red. That is the failure mode the MADR names as its central cost, and
 observing it once is grounds to stop and re-decide rather than to tune.
+
+## Execution Record
+
+### Phase 1 — 2026-09-05, decisions recorded by the owner
+
+**Q1 — retry scope: the platform legs carrying the vast majority of failures.**
+That is `Go (windows/amd64)` (9), `Go (linux/arm64)` (7) and
+`Go (test; build on tag)` (7) — 23 of 27 failures, 85 %. The Flutter legs (3)
+and the tag-gated publish jobs stay out.
+
+**Q2 — granularity: whole-step retry, via a maintained action rather than
+hand-written parsing.** The owner's condition was that a current, maintained
+project supply *meaningful instrumentation* so this repository does not write
+it. `nick-fields/retry` meets that, checked rather than assumed:
+
+* *Maintained.* Not archived; v4.0.0 released 2026-03-20; last push
+  2026-06-16; repository activity 2026-09-02; 564 stars. Runtime is `node24`,
+  which matches this workflow's `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true`.
+* *Instrumented.* `action.yml` declares outputs `total_attempts`, `exit_code`
+  and `exit_error`. **`total_attempts` is the ledger trigger, supplied free** —
+  Phase 2 no longer needs to detect *whether* a retry happened, only to name
+  the failing test. This deletes the larger half of Phase 2's original script.
+* *Visible.* `warning_on_retry` defaults to true, emitting a warning annotation
+  on every retry. That satisfies the MADR's fourth Confirmation criterion — "a
+  retried job is distinguishable from one that passed first time" — with no
+  work at all.
+* *Hook.* `on_retry_command` runs before each retry, which is where Phase 2's
+  failing-test capture will go.
+
+**Q3 — ledger: a committed TSV.** `ci-flakes.tsv`, per the MADR.
+
+**Deviation — Phase 1 lands on two legs, not one.** The phase text named
+`Go (windows/amd64)` alone. That job does not exist alone: `windows/amd64` and
+`linux/arm64` are two legs of one `go-native` matrix sharing a single `Test`
+step definition (`ci.yml:303`). Retrying only Windows would mean adding a
+matrix flag whose only purpose is to be deleted in Phase 3. The mechanism is
+therefore wired into the shared step, covering 16 of the 27 failures.
+`Go (test; build on tag)` is a separate job and is deliberately **not** touched
+until Phase 3, so the phase boundary — prove the mechanism before spreading it
+— still holds.
+
+**Settings chosen, with reasons.**
+
+* `max_attempts: 2`. The MADR decided *retry once*, not "retry until green".
+  The action's own default is 3.
+* `retry_on: error`. Deliberately **not** the action's `any` default, which
+  also retries timeouts. A test that hangs is more likely a real deadlock than
+  a flake, and retrying it away is precisely the masking risk the MADR names as
+  its central cost. A hang should stay red.
+* `timeout_minutes: 12`. The observed Windows leg runs ~2m15s, so 12 is ~5x
+  headroom; two attempts stay inside the job's `timeout-minutes: 30`.
+* Pinned to commit `ad984534de44a9489a53aefd81eb77f87c70dc60` (v4.0.0), matching
+  this workflow's existing convention of a full SHA plus a version comment. This
+  is the first third-party action in the Go lanes, and the pin is what keeps
+  that from being a standing supply-chain exposure.
+
+**Not yet done.** The exit criterion is unmet: it requires observing an induced
+flake pass on retry *and* a deliberately broken test fail both attempts, which
+needs CI runs on a scratch branch.
 
 ## Task Checklist
 
