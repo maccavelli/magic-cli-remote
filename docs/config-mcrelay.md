@@ -126,6 +126,8 @@ Config load **rejects** values above:
 
 `ResolvedLimits` also clamps the same ceilings for programmatic `Config` construction.
 
+Process heap: mcrelay sets a 512 MiB soft `GOMEMLIMIT` unless the environment already has `GOMEMLIMIT` (see [ops-mcrelay.md](ops-mcrelay.md) §5). This is not a YAML key.
+
 ## Environment variables (complete)
 
 All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.

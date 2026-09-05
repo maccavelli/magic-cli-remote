@@ -252,6 +252,8 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 				Format: fc.Log.Format,
 			})
 
+			memLimit, memLimitSource := applyMemoryLimit()
+
 			ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 			defer stop()
 
@@ -277,6 +279,8 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 				slog.String("tls", fc.TLS.Mode),
 				slog.Int("hosts_allowed", len(srvCfg.Allow)),
 				slog.String("data_dir", fc.DataDir),
+				slog.Int64("mem_limit_bytes", memLimit),
+				slog.String("mem_limit_source", memLimitSource),
 			)
 			if err := srv.ListenAndServe(ctx); err != nil && err != context.Canceled {
 				return err

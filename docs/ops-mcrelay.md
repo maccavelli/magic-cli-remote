@@ -247,10 +247,16 @@ Never put the registration secret in the pair QR.
 | `limits.accept_per_minute` | 120 | Pre-auth upgrades per client IP |
 | `limits.tunnel_wait_seconds` | 15 | Host must open tunnel after dial |
 | `trusted_proxies` | *(empty)* | CIDRs of reverse proxies that may set `X-Forwarded-For` (E1); empty ignores XFF |
+| `limits.max_conns` | 1024 | Concurrent accepted TCP connections (blocking accept; ceiling 8192) |
 
 If nginx/Caddy terminates TLS in front of mcrelay, set `trusted_proxies` to the
 proxy’s source address(es) so accept/join rate limits apply per real client.
 Leave empty when phones/hosts dial mcrelay directly.
+
+The process sets a 512 MiB soft heap ceiling (`debug.SetMemoryLimit`) unless
+`GOMEMLIMIT` is already in the environment, in which case that value wins.
+Raise `GOMEMLIMIT` in the unit file if `max_message_bytes`,
+`max_phones_per_host`, or `max_conns` are moved toward their ceilings.
 
 Shutdown (`SIGTERM` / unit stop) cancels live splices so the process exits cleanly (R17).
 
