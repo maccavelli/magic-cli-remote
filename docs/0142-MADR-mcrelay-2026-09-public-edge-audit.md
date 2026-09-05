@@ -507,3 +507,37 @@ Implementation: [0142-PLAN Phase 9](./0142-PLAN-mcrelay-2026-09-public-edge-audi
 `internal/relay` **80.7445%** (1258/1558), `internal/relayhost`
 **81.2183%** (160/197). e2e hash unchanged
 (`a2d6df96ba5d509af0476e9d16e893966ff4b891`). Race suite green.
+
+## Amendment — Windows owner-only test fixtures (2026-09-05)
+
+GitHub Actions run `33978771488` failed only in the native
+`windows/amd64` Go lane. `TestLoadFromYAMLAndAllow`,
+`TestCheckSecretFilesAcceptsOwnerOnlyPEM`, `TestLoadFlagOverride`, and
+`TestLoadLetsEncryptYAML` each wrote a fixture with
+`os.WriteFile(..., 0o600)` beneath `t.TempDir()`. On Windows the mode argument
+does not create a private DACL: the file inherits the runner temp directory's
+ACL, including a foreign readable trustee. `appdirs.FileIsOwnerOnly` therefore
+correctly rejected all four fixtures. Linux and linux/arm64 passed because
+their POSIX mode is owner-only.
+
+The Phase 5 fixture assumption is amended: any test that expects an
+owner-only file must first create its containing directory with
+`appdirs.EnsurePrivateDir`, then write the file into that directory. This uses
+the same inherited-private-DACL mechanism pinned by MADR 0116 D22/D26 and
+`TestFileIsOwnerOnlyAcceptsInheritedACL`. Tests that deliberately exercise a
+world-readable file remain in an ordinary `t.TempDir()` and keep their
+platform-aware skip.
+
+Good, because the production DACL enforcement remains enabled on Windows.
+Good, because the successful-load fixtures now model a genuinely private file
+on both POSIX and Windows. Bad, because the tests need a small setup helper to
+make their security property explicit.
+
+Implementation: [0142-PLAN Phase 10](./0142-PLAN-mcrelay-2026-09-public-edge-audit.md).
+
+**Observed — Phase 10 local verification (2026-09-05):** the four successful
+fixtures now inherit an owner-only directory. `go test -count=1
+./internal/relay/...`, the Windows/amd64 relay test-binary cross-compile, and
+`go test -race -count=1 ./...` passed. `make pre-add-check` reported both
+edited Go files clean under gofmt, golint, and govulncheck. Native Windows CI
+remains the acceptance proof after an owner-authorized push.

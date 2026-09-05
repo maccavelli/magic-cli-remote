@@ -1,5 +1,5 @@
 ---
-status: completed
+status: in_progress
 date: 2026-09-05
 associated-madr: "0142-MADR-mcrelay-2026-09-public-edge-audit.md"
 owner: [Project Owner]
@@ -20,6 +20,8 @@ target-milestone: "mcrelay 2026-09 hardening pass"
         (`a2d6df96ba5d509af0476e9d16e893966ff4b891`)
   * [x] Phase 9: exactly two tests named below, race suite green, floor
         still ≥ 80.0 (relay 80.7445%)
+  * [ ] Phase 10: owner-only relay file fixtures pass on native Windows and
+        retain the insecure-file rejection tests
   * [ ] Named tests in the per-phase tables fail on the pre-phase tree
         and pass after
   * [ ] `go test -race -count=1 ./internal/relay/... ./internal/relayhost/...`
@@ -893,6 +895,44 @@ in that same commit.
 
 ---
 
+### Phase 10 — repair Windows owner-only test fixtures
+
+**Files (only):** `internal/relay/fileconfig_test.go`,
+`internal/relay/fileconfig_tls_test.go`, this MADR, this PLAN.
+
+**10.1** Add a test helper in `fileconfig_test.go` that creates a named child
+directory beneath `t.TempDir()`, applies `appdirs.EnsurePrivateDir` to that
+child, and returns it. Use the helper for the three successful-load fixtures
+in `fileconfig_test.go` and the successful Let's Encrypt load fixture in
+`fileconfig_tls_test.go`.
+
+Do not call `SecurePrivateFile` directly and do not skip the successful-load
+tests on Windows. The private parent and inherited ACL are the supported D26
+path. Do not move `TestLoadRejectsWorldReadableConfig` or
+`TestCheckSecretFilesRejectsWorldReadablePEM` into that directory; those
+fixtures must remain insecure where the platform can represent that state.
+
+**10.2 Verification:**
+
+```bash
+gofmt -w internal/relay/fileconfig_test.go internal/relay/fileconfig_tls_test.go
+go test -count=1 ./internal/relay/...
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c ./internal/relay
+make pre-add-check FILES="internal/relay/fileconfig_test.go internal/relay/fileconfig_tls_test.go"
+go test -race -count=1 ./...
+```
+
+The cross-compile proves the edited tests build for Windows; the native GitHub
+lane is the acceptance proof for DACL behavior. After the source commit is
+pushed by the owner, observe its CI run and record the Windows result in this
+MADR/PLAN. No workflow weakening, production change, push, or rerun of the
+already-failed SHA is part of this phase.
+
+**10.3 Commit:** stage only the four Phase 10 files after the pre-add gate and
+run `git commit --no-edit`. No `-m`. No push.
+
+---
+
 ## Verification & Testing Strategy
 
 | Level | Command / artefact | Pass |
@@ -989,3 +1029,10 @@ in that same commit.
   - [x] 9.2 `TestListenAndServeTLSFilesMissingKey` in `listen_policy_test.go`
   - [x] 9.3 race suite + floor ≥ 80.0 + e2e hash
   - [x] 9.4 pre-add-check and commit those two files only
+- [ ] **Phase 10 Windows owner-only test fixtures**
+  - [x] 10.1 add the private fixture-directory helper
+  - [x] 10.2 use it for all four successful-load/PEM fixtures
+  - [x] 10.3 package test and Windows cross-compile
+  - [x] 10.4 full race suite and pre-add check
+  - [x] 10.5 commit the two tests plus the 0142 amendment; no push
+  - [ ] 10.6 native Windows CI passes after an owner-authorized push

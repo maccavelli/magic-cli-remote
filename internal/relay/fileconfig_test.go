@@ -13,7 +13,7 @@ import (
 )
 
 func TestLoadFromYAMLAndAllow(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateFixtureDir(t)
 	path := filepath.Join(dir, "config.yaml")
 	body := `
 listen:
@@ -205,7 +205,7 @@ func TestCheckSecretFilesRejectsWorldReadablePEM(t *testing.T) {
 }
 
 func TestCheckSecretFilesAcceptsOwnerOnlyPEM(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateFixtureDir(t)
 	p := filepath.Join(dir, "key.pem")
 	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestParseAllowPartsErrorOmitsSecret(t *testing.T) {
 }
 
 func TestLoadFlagOverride(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateFixtureDir(t)
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(`
 listen:
@@ -303,6 +303,15 @@ hosts:
 	if cfg.Listen.Host != "127.0.0.1" || cfg.Listen.Port != 9001 {
 		t.Fatalf("got %+v", cfg.Listen)
 	}
+}
+
+func privateFixtureDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "private")
+	if err := appdirs.EnsurePrivateDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // TestAllowEntryTrailingWhitespaceSecret pins 0115 F3: one parse for --allow
