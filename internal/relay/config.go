@@ -187,12 +187,11 @@ type Config struct {
 // copy passed validation.
 func parseAllowParts(s string) (id, secret string, err error) {
 	s = strings.TrimSpace(s)
-	i := strings.IndexByte(s, ':')
-	if i <= 0 || i == len(s)-1 {
+	id, secret, ok := strings.Cut(s, ":")
+	if !ok || id == "" || secret == "" {
 		return "", "", fmt.Errorf("allow: want host_id:secret")
 	}
-	id = strings.TrimSpace(s[:i])
-	secret = s[i+1:]
+	id = strings.TrimSpace(id)
 	if err := validateHostID(id); err != nil {
 		return "", "", err
 	}

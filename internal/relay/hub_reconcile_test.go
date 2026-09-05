@@ -83,7 +83,7 @@ func TestReconcileMatchingCountersUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One pending reservation, zero splices: counters agree; nothing to do.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if n := h.reconcilePhones(nil); n != 0 {
 			t.Fatalf("sweep %d corrected %d on agreeing counters", i, n)
 		}

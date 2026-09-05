@@ -463,7 +463,7 @@ func absAgainstCWD(p string) (string, error) {
 func expandStringList(in []string) []string {
 	var out []string
 	for _, s := range in {
-		for _, p := range strings.Split(s, ",") {
+		for p := range strings.SplitSeq(s, ",") {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				out = append(out, p)
@@ -798,7 +798,7 @@ func splitHostsCSV(csv string) []string {
 	// Support comma-separated host_id:secret entries. Secrets may contain
 	// colons after the first; split only on commas.
 	var out []string
-	for _, part := range strings.Split(csv, ",") {
+	for part := range strings.SplitSeq(csv, ",") {
 		part = strings.TrimSpace(part)
 		if part != "" {
 			out = append(out, part)

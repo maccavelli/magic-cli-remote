@@ -80,6 +80,13 @@ const slotSweepInterval = 30 * time.Second
 // spliceCopyBufSize is the io.CopyBuffer size for opaque splice (MADR 0017 E2).
 const spliceCopyBufSize = 32 * 1024
 
+var relayKeepAlive = net.KeepAliveConfig{
+	Enable:   true,
+	Idle:     25 * time.Second,
+	Interval: 5 * time.Second,
+	Count:    4,
+}
+
 // spliceBufPool reuses CopyBuffer scratch for both splice directions.
 var spliceBufPool = sync.Pool{
 	New: func() any {
@@ -227,12 +234,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	// Kernel keepalive on accepted connections (MADR 0068 P1), same shape
 	// as the daemon's listener: silent peers reaped at ~45 s.
 	lc := net.ListenConfig{
-		KeepAliveConfig: net.KeepAliveConfig{
-			Enable:   true,
-			Idle:     25 * time.Second,
-			Interval: 5 * time.Second,
-			Count:    4,
-		},
+		KeepAliveConfig: relayKeepAlive,
 	}
 	ln, err := lc.Listen(ctx, "tcp", s.cfg.ListenAddr)
 	if err != nil {
@@ -639,7 +641,7 @@ func (s *Server) pingHostControl(ctx context.Context, conn *websocket.Conn, fail
 			err := conn.Ping(pctx)
 			pcancel()
 			if err != nil {
-				s.log.Info("host control ping failed", slog.String("err", err.Error()))
+				s.log.Info("host control ping failed", slog.Any("err", err))
 				fail()
 				return
 			}
@@ -941,6 +943,7 @@ func splice(ctx context.Context, a, b *websocket.Conn, opts spliceOptions, log *
 		bufPtr := spliceBufPool.Get().(*[]byte)
 		buf := *bufPtr
 		defer func() {
+			clear(*bufPtr)
 			spliceBufPool.Put(bufPtr)
 		}()
 		for {

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
@@ -126,14 +127,9 @@ func stripHTTP2(cfg *tls.Config) {
 	if cfg == nil || len(cfg.NextProtos) == 0 {
 		return
 	}
-	out := make([]string, 0, len(cfg.NextProtos))
-	for _, p := range cfg.NextProtos {
-		if p == "h2" || p == "h2c" {
-			continue
-		}
-		out = append(out, p)
-	}
-	cfg.NextProtos = out
+	cfg.NextProtos = slices.DeleteFunc(slices.Clone(cfg.NextProtos), func(p string) bool {
+		return p == "h2" || p == "h2c"
+	})
 }
 
 func effectiveHTTPPort(p int) int {

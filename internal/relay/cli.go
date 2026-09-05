@@ -3,9 +3,11 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/signal"
+	"runtime/debug"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
@@ -257,8 +259,17 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 
 			memLimit, memLimitSource := applyMemoryLimit()
 
-			ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
+			ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals()...)
 			defer stop()
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Error("signal restorer panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+					}
+				}()
+				<-ctx.Done()
+				stop()
+			}()
 
 			srvCfg := fc.ToServerConfig()
 			if allowPlaintext {
@@ -285,7 +296,7 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 				slog.Int64("mem_limit_bytes", memLimit),
 				slog.String("mem_limit_source", memLimitSource),
 			)
-			if err := srv.ListenAndServe(ctx); err != nil && err != context.Canceled {
+			if err := srv.ListenAndServe(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				return err
 			}
 			return nil
