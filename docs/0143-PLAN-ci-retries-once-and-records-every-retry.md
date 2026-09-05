@@ -238,19 +238,59 @@ until Phase 3, so the phase boundary — prove the mechanism before spreading it
   is the first third-party action in the Go lanes, and the pin is what keeps
   that from being a standing supply-chain exposure.
 
-**Not yet done.** The exit criterion is unmet: it requires observing an induced
-flake pass on retry *and* a deliberately broken test fail both attempts, which
-needs CI runs on a scratch branch.
+**Exit criterion met — 2026-09-05, on branch `ci/0143-phase1-verify`, since
+deleted.** Both halves were observed, each with a throwaway probe in
+`internal/ciprobe` that never reached `master`.
+
+*Half 1 — an induced flake is absorbed.* Run **33997943225**. The probe failed
+the first `go test` in a job and passed afterwards, via a marker in the runner's
+temp dir. Both retry legs went green:
+
+```text
+Go (windows/amd64)  probe_test.go:28: induced first-attempt failure
+                    ##[warning]Attempt 1 failed. Reason: Child_process exited with error code 1
+                    Command completed after 2 attempt(s).          -> job success
+Go (linux/arm64)    (identical)                                    -> job success
+```
+
+*An unplanned control, and the most valuable evidence in the phase.* The same
+run, same commit, same probe: `Go (test; build on tag)` — which Phase 3 has not
+yet touched, so it has no retry — went **red** on one attempt with
+`--- FAIL: TestPhase1InducedFlake`. Retry legs green, non-retry leg red, one
+run. That isolates the retry as the cause rather than inferring it.
+
+*Half 2 — a real breakage still goes red.* Run **33998267738**, probe replaced
+with an unconditional `t.Fatal`. Both retry legs made two attempts, failed
+both, and reported failure:
+
+```text
+Go (windows/amd64)  probe_test.go:13: deterministic failure   (attempt 1)
+                    ##[group]Attempt 2
+                    probe_test.go:13: deterministic failure   (attempt 2)  -> job failure
+Go (linux/arm64)    (identical)                                            -> job failure
+```
+
+This is the half that matters. It is the difference between a retry and a
+disabled job, and it is why the phase required it.
+
+*Confirmation criterion satisfied early.* `warning_on_retry` produced
+`##[warning]Attempt 1 failed` in the Actions UI on every retry, which is the
+MADR's fourth Confirmation criterion — "a retried job is distinguishable from
+one that passed first time" — met by the action rather than by anything written
+here.
+
+*Cleanup.* Branch `ci/0143-phase1-verify` and `internal/ciprobe` deleted; the
+probes exist only in that branch's history.
 
 ## Task Checklist
 
 **Phase 1 — mechanism**
 
-* [ ] Owner answers open questions 1-3; amend this plan with the answers
-* [ ] Choose retry mechanism, naming the dependency trade in the commit message
-* [ ] Wire retry into `Go (windows/amd64)`
-* [ ] Scratch branch: induced flake passes on retry
-* [ ] Scratch branch: deliberately broken test fails both attempts and reports red
+* [x] Owner answers open questions 1-3; amend this plan with the answers
+* [x] Choose retry mechanism, naming the dependency trade in the commit message
+* [x] Wire retry into `Go (windows/amd64)` (and `linux/arm64` — shared step, see deviation)
+* [x] Scratch branch: induced flake passes on retry (run 33997943225)
+* [x] Scratch branch: deliberately broken test fails both attempts and reports red (run 33998267738)
 
 **Phase 2 — ledger**
 
