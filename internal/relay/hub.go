@@ -368,7 +368,10 @@ func (h *hub) phoneGone(p *pendingJoin) (orphan *websocket.Conn) {
 	// abandonTunnel has yet to run and will observe phoneGone.
 	p.phoneGone = true
 	select {
-	case t := <-p.ready:
+	case t, ok := <-p.ready:
+		if !ok {
+			return nil
+		}
 		h.releasePhoneLocked(p.hostID)
 		p.closeDone()
 		return t
