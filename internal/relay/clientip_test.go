@@ -3,6 +3,7 @@ package relay
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,32 @@ func TestRateIPKeyIPv6DifferentSlash64(t *testing.T) {
 	b.RemoteAddr = "[2001:db8:2::1]:1"
 	if srv.clientIP(a) == srv.clientIP(b) {
 		t.Fatal("different /64 must not share a rate key")
+	}
+}
+
+func TestParseTrustedProxiesRejectsDefaultRoute(t *testing.T) {
+	if _, err := ParseTrustedProxies([]string{"0.0.0.0/0"}); err == nil {
+		t.Fatal("0.0.0.0/0 must be rejected")
+	}
+	if _, err := ParseTrustedProxies([]string{"::/0"}); err == nil {
+		t.Fatal("::/0 must be rejected")
+	}
+}
+
+func TestParseTrustedProxiesRejectsWideV4(t *testing.T) {
+	_, err := ParseTrustedProxies([]string{"10.0.0.0/7"})
+	if err == nil || !strings.Contains(err.Error(), "/8 or narrower") {
+		t.Fatalf("err=%v; want /8 or narrower", err)
+	}
+}
+
+func TestParseTrustedProxiesAllowsSlash8(t *testing.T) {
+	nets, err := ParseTrustedProxies([]string{"10.0.0.0/8", "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nets) != 2 {
+		t.Fatalf("len=%d", len(nets))
 	}
 }
 

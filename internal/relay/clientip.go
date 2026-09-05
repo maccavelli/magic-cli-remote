@@ -32,6 +32,17 @@ func ParseTrustedProxies(entries []string) ([]*net.IPNet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("trusted_proxies[%d]: %w", i, err)
 		}
+		ones, bits := n.Mask.Size()
+		switch bits {
+		case 32:
+			if ones < 8 {
+				return nil, fmt.Errorf("trusted_proxies[%d]: IPv4 mask must be /8 or narrower", i)
+			}
+		case 128:
+			if ones < 32 {
+				return nil, fmt.Errorf("trusted_proxies[%d]: IPv6 mask must be /32 or narrower", i)
+			}
+		}
 		out = append(out, n)
 	}
 	return out, nil

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
@@ -145,6 +146,35 @@ func TestValidateRejectsLimitCeilings(t *testing.T) {
 	cfg.Limits.MaxHosts = 32
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLoadRejectsWorldReadableConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+listen:
+  host: 127.0.0.1
+  port: 8443
+tls:
+  mode: off
+hosts:
+  - id: h1
+    secret: sixteen-chars-min-1
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := appdirs.FileIsOwnerOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner {
+		t.Skip("config mode 0644 is still owner-only on this OS")
+	}
+	_, err = Load(LoadOptions{ConfigFile: path})
+	if err == nil || !strings.Contains(err.Error(), "chmod 0600") {
+		t.Fatalf("err=%v; want chmod 0600", err)
 	}
 }
 

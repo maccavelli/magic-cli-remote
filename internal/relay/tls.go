@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/certs"
 )
 
@@ -43,6 +44,9 @@ func applyLetsEncrypt(ctx context.Context, fc FileConfig, cfg *Config, log *slog
 	challenge := le.ChallengeNormalized()
 	cache := fc.ACMECacheDir()
 	verbose := strings.EqualFold(fc.Log.Level, "debug")
+	if err := appdirs.EnsurePrivateDir(cache); err != nil {
+		return nil, fmt.Errorf("acme cache: %w", err)
+	}
 
 	var bundle *certs.ACMEBundle
 	var err error

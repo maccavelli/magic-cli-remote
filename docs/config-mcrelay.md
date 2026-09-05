@@ -110,6 +110,11 @@ Rate-limit keys are the IPv4 `/32` (IPv4-mapped IPv6 is folded to dotted-quad)
 and the IPv6 `/64` prefix, so one dual-stack subscriber cannot mint a fresh
 window per ephemeral address.
 
+`trusted_proxies` rejects `0.0.0.0/0`, `::/0`, IPv4 masks wider than `/8`, and
+IPv6 masks wider than `/32`. A world-readable config file (`chmod` group/other)
+is refused at load (`chmod 0600`). Files-mode TLS PEMs are checked the same way
+at `serve`.
+
 ### Limit ceilings (MADR 0017 D9)
 
 Config load **rejects** values above:

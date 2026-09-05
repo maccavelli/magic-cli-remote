@@ -246,6 +246,9 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			if err := EnsureDataDir(fc.DataDir); err != nil {
 				return fmt.Errorf("data_dir: %w", err)
 			}
+			if err := checkSecretFiles(fc); err != nil {
+				return err
+			}
 
 			log := logging.Setup(logging.Options{
 				Level:  fc.Log.Level,

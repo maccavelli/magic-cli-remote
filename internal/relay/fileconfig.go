@@ -285,6 +285,13 @@ func Load(opts LoadOptions) (FileConfig, error) {
 			return FileConfig{}, fmt.Errorf("read config %s: %w", configFile, err)
 		}
 		usedConfigFile = configFile
+		ok, err := appdirs.FileIsOwnerOnly(usedConfigFile)
+		if err != nil {
+			return FileConfig{}, fmt.Errorf("config %s: %w", usedConfigFile, err)
+		}
+		if !ok {
+			return FileConfig{}, fmt.Errorf("config %s is readable by group/other; chmod 0600", usedConfigFile)
+		}
 	} else {
 		v.AddConfigPath(basePaths.ConfigDir)
 		v.SetConfigName("config")
@@ -295,6 +302,13 @@ func Load(opts LoadOptions) (FileConfig, error) {
 			}
 		} else {
 			usedConfigFile = v.ConfigFileUsed()
+			ok, err := appdirs.FileIsOwnerOnly(usedConfigFile)
+			if err != nil {
+				return FileConfig{}, fmt.Errorf("config %s: %w", usedConfigFile, err)
+			}
+			if !ok {
+				return FileConfig{}, fmt.Errorf("config %s is readable by group/other; chmod 0600", usedConfigFile)
+			}
 		}
 	}
 
@@ -814,4 +828,24 @@ func DataDirHint() string {
 // EnsureDataDir creates the data directory with 0700.
 func EnsureDataDir(dir string) error {
 	return appdirs.EnsurePrivateDir(dir)
+}
+
+// checkSecretFiles requires files-mode TLS PEMs to be owner-only (0142 F22).
+func checkSecretFiles(fc FileConfig) error {
+	if fc.TLS.Normalized().Mode != TLSModeFiles {
+		return nil
+	}
+	for _, path := range []string{fc.TLS.CertFile, fc.TLS.KeyFile} {
+		if path == "" {
+			continue
+		}
+		ok, err := appdirs.FileIsOwnerOnly(path)
+		if err != nil {
+			return fmt.Errorf("tls file %s: %w", path, err)
+		}
+		if !ok {
+			return fmt.Errorf("tls file %s is readable by group/other; chmod 0600", path)
+		}
+	}
+	return nil
 }
