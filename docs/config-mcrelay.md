@@ -235,6 +235,11 @@ export MCRELAY_HOSTS='devbox-1:long-random-secret-here,laptop:another-long-secre
 
 ## TLS (outer edge)
 
+The join-plane listener requires **TLS 1.3**. TLS 1.2-only scanners and
+clients fail the handshake. First-party clients (mcremote `relayhost`, Flutter)
+speak 1.3. Rollback of that floor is the Phase 6 commit of
+[0142-PLAN-mcrelay-2026-09-public-edge-audit.md](0142-PLAN-mcrelay-2026-09-public-edge-audit.md).
+
 | `tls.mode` | Behaviour |
 |------------|-----------|
 | `letsencrypt` | ACME via certmagic; challenge is `tls.letsencrypt.challenge` |

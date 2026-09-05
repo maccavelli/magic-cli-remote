@@ -243,9 +243,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	switch {
 	case s.cfg.TLSConfig != nil:
 		cfg := s.cfg.TLSConfig.Clone()
-		if cfg.MinVersion == 0 {
-			cfg.MinVersion = tls.VersionTLS12
-		}
+		cfg.MinVersion = tls.VersionTLS13
 		stripHTTP2(cfg)
 		ln = tls.NewListener(ln, cfg)
 		s.log.Info("listening", slog.String("addr", ln.Addr().String()), slog.String("tls", "managed"))
@@ -256,7 +254,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			return err
 		}
 		cfg := &tls.Config{
-			MinVersion:   tls.VersionTLS12,
+			MinVersion:   tls.VersionTLS13,
 			Certificates: []tls.Certificate{cert},
 		}
 		stripHTTP2(cfg)

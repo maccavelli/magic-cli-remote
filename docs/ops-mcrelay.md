@@ -174,9 +174,15 @@ Then set `staging: false` and restart. Certificates live under
 
 **Note:** This is the **relay leaf** only. Phone pins / `mode` still target **mcremote** (inner hop).
 
-If something else binds `:80`, ACME fails — free the port, switch to **DNS-01**
-(below), or use a non-public ACME directory with a custom `http_port` (not for
-production LE).
+If something else binds `:80`, certmagic assumes that occupant will answer
+`/.well-known/acme-challenge/` (it does not fail the bind). HTTP-01 therefore
+needs **exclusive** ownership of the challenge port. On a shared host use
+`tls.letsencrypt.challenge: dns-01`. Do not point public Let's Encrypt at a
+non-80 `http_port`.
+
+The outer hop is TLS 1.3 only (0142 F21). A TLS 1.2-only client will fail the
+handshake; first-party phones and `relayhost` speak 1.3. To roll that floor
+back, revert the Phase 6 commit.
 
 ### DNS-01 (Route 53)
 

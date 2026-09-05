@@ -185,3 +185,79 @@ func TestListenAndServeStripsH2FromManagedTLS(t *testing.T) {
 		t.Fatalf("caller TLSConfig mutated: %v", tlsCfg.NextProtos)
 	}
 }
+
+func startTLSFilesListenAndServe(t *testing.T) (addr string) {
+	t.Helper()
+	dir := t.TempDir()
+	certPath, keyPath := writeTestCert(t, dir)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr = ln.Addr().String()
+	_ = ln.Close()
+	srv := New(Config{
+		ListenAddr:  addr,
+		Allow:       []HostCredential{testCred(t)},
+		TLSCertFile: certPath,
+		TLSKeyFile:  keyPath,
+		Limits:      DefaultLimits(),
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-errCh:
+		case <-time.After(5 * time.Second):
+		}
+	})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		c, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13})
+		if err == nil {
+			_ = c.Close()
+			return addr
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("TLS ListenAndServe did not become reachable")
+	return ""
+}
+
+func TestListenAndServeRejectsTLS12(t *testing.T) {
+	addr := startTLSFilesListenAndServe(t)
+	_, err := tls.Dial("tcp", addr, &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		MaxVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true,
+	})
+	if err == nil {
+		t.Fatal("TLS 1.2-only dial succeeded; want handshake error")
+	}
+}
+
+func TestListenAndServeAcceptsTLS13(t *testing.T) {
+	addr := startTLSFilesListenAndServe(t)
+	conn, err := tls.Dial("tcp", addr, &tls.Config{
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS13,
+	})
+	if err != nil {
+		t.Fatalf("TLS 1.3 dial: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := fmt.Fprintf(conn, "GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+}
