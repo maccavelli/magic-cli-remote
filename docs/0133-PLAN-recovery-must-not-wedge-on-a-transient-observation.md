@@ -584,6 +584,48 @@ precisely because "the churn test cannot produce an unstable observation on
 demand", and it already asserts all three properties. Phase 7 removes a
 duplicate that is weaker than the original, not a unique guarantee.
 
+### Phase 7 — 2026-09-05, complete
+
+Steps 21-23 landed in `9efcc13`; the plan amendment itself in `84319f1`.
+
+**Step 24 was done first, and it is the reason the deletion is safe.** The
+obligation was to prove the surviving test really covers the property before
+removing the duplicate, so `recoverIdle` was broken deliberately in a scratch
+copy (`git archive HEAD` into the scratchpad — the tree was never dirtied) and
+`TestRecoverIdleDefersOnAnUnstableObservation` run against it.
+
+The first attempt was not a proof. Removing only the `!obs.stable` guard sent
+the observation down the escalation path, so the test failed on its
+`recovery_required` assertion at `:172` and the manifest assertions never ran —
+it demonstrated the wrong thing. Forcing the *adoption* branch as well
+(`obs.valid && …NotOlder(…)` → `true`) produced the failure that was actually
+needed:
+
+```text
+--- FAIL: TestRecoverIdleDefersOnAnUnstableObservation
+    unstable_live_test.go:177: generations changed on an untrustworthy read: 1 -> 2
+    unstable_live_test.go:182: CURRENT was moved on an untrustworthy read
+```
+
+Those are the same two properties deleted from the churn test, so the coverage
+transfers exactly rather than approximately.
+
+*Verification.* `make pre-add-check` → `794 file(s) clean (gofmt, golint,
+govulncheck)`. `make vet`, `make lint` → clean. The plan's targeted set
+(`providerauth`, `credstore`, `codex`, `grok`, `-count=1`) → 4 packages ok.
+`go test ./... -count=1` → 42 packages ok, no failures. Stress: `-race
+-count=8` on the package (187 s) and 8 concurrent `-race -count=4` runs of the
+four unstable-LIVE tests → 32 runs, zero failures.
+
+*Scope held.* No production code changed in this phase; the only source edit is
+one test function. The `before` binding was removed with the assertions it
+served.
+
+*What this does not fix.* CI failed on roughly one run in three over the last
+40, across ten unrelated tests. This closes the only one that was still live.
+Whether the tag lane should retry, or those tests be quarantined, is a separate
+decision this plan does not make.
+
 ## Outstanding: the trigger needs its own decision
 
 `ObserveCredentialStore` already models this exact state as `RealityExternal`
