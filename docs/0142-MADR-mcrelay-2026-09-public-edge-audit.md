@@ -540,4 +540,12 @@ fixtures now inherit an owner-only directory. `go test -count=1
 ./internal/relay/...`, the Windows/amd64 relay test-binary cross-compile, and
 `go test -race -count=1 ./...` passed. `make pre-add-check` reported both
 edited Go files clean under gofmt, golint, and govulncheck. Native Windows CI
-remains the acceptance proof after an owner-authorized push.
+was designated as the acceptance proof after an owner-authorized push.
+
+**Observed — Phase 10 native acceptance (2026-09-05):** the first run of
+`c704aab` passed every relay test, but an unrelated
+`TestACPConnectionSurvivesAStalledPump` timed out in `internal/provider/acpagent`.
+That test passed on the preceding SHA, and `c704aab` changed only relay tests
+and 0142 documentation. Re-running the failed job passed the complete native
+Windows Go suite in 2m7s; GitHub Actions run `33980412841` is green. No further
+source or workflow change was warranted.

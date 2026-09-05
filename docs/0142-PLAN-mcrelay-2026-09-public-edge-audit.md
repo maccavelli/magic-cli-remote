@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 date: 2026-09-05
 associated-madr: "0142-MADR-mcrelay-2026-09-public-edge-audit.md"
 owner: [Project Owner]
@@ -20,7 +20,7 @@ target-milestone: "mcrelay 2026-09 hardening pass"
         (`a2d6df96ba5d509af0476e9d16e893966ff4b891`)
   * [x] Phase 9: exactly two tests named below, race suite green, floor
         still ≥ 80.0 (relay 80.7445%)
-  * [ ] Phase 10: owner-only relay file fixtures pass on native Windows and
+  * [x] Phase 10: owner-only relay file fixtures pass on native Windows and
         retain the insecure-file rejection tests
   * [ ] Named tests in the per-phase tables fail on the pre-phase tree
         and pass after
@@ -1029,10 +1029,11 @@ run `git commit --no-edit`. No `-m`. No push.
   - [x] 9.2 `TestListenAndServeTLSFilesMissingKey` in `listen_policy_test.go`
   - [x] 9.3 race suite + floor ≥ 80.0 + e2e hash
   - [x] 9.4 pre-add-check and commit those two files only
-- [ ] **Phase 10 Windows owner-only test fixtures**
+- [x] **Phase 10 Windows owner-only test fixtures**
   - [x] 10.1 add the private fixture-directory helper
   - [x] 10.2 use it for all four successful-load/PEM fixtures
   - [x] 10.3 package test and Windows cross-compile
   - [x] 10.4 full race suite and pre-add check
   - [x] 10.5 commit the two tests plus the 0142 amendment; no push
-  - [ ] 10.6 native Windows CI passes after an owner-authorized push
+  - [x] 10.6 native Windows CI passes after an owner-authorized push (run
+        `33980412841`, failed-job rerun, 2m7s)
