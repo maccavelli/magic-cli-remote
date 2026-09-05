@@ -300,8 +300,31 @@ jobs:
       # No -race: off darwin it forces CGO_ENABLED=1
       # (cmd/go/internal/work/init.go), which C7 refuses. Race coverage is the
       # darwin gate in the plan's stability rule plus the ubuntu-latest pass.
+      #
+      # Retried once (MADR 0143). These two legs produced 16 of the 27 CI
+      # failures between 2026-08-19 and 2026-09-05, and all but one of those
+      # were timing-sensitive tests rather than broken commits. A deterministic
+      # failure still fails: it fails the retry too, which is the half of the
+      # Phase 1 exit criterion that proves this has not simply disabled the job.
+      #
+      # retry_on: error, NOT the action's `any` default — `any` also retries
+      # timeouts, and a test that hangs is more likely a real deadlock than a
+      # flake. Retrying that away is exactly the masking risk MADR 0143 names as
+      # its central cost, so a hang stays red.
+      #
+      # max_attempts: 2 because the decision was "retry once"; the action
+      # defaults to 3. `id` is here for Phase 2, which reads
+      # steps.test.outputs.total_attempts to know a retry happened without
+      # parsing any logs.
       - name: Test
-        run: go test ./...
+        id: test
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          shell: bash
+          timeout_minutes: 12
+          max_attempts: 2
+          retry_on: error
+          command: go test ./...
 
   # No go-macos job, deliberately (MADR 0120 D11). Cost is NOT the reason:
   # standard macOS runners are free and unlimited for public repositories (cap:
