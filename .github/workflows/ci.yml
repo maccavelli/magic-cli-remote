@@ -1,1 +1,1 @@
-file:///tmp/ci-upload.yml
+${file:/tmp/ci-clean-for-mcp.yml}
