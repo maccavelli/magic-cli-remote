@@ -114,7 +114,7 @@ Light local smoke (not GH download): build release-shaped
 ### MADR acceptance criteria
 
 * Exit ≠0 on any failed check; green ⇒ all selected checks ran
-* **Confirmation:** #23 tip red-reproduce on Windows; green after 0144 fix
+* **Confirmation:** `fb7305e` red-reproduce on Windows; `11e1560` green after the 0144 fix
 * F20 documented; Go from `go.mod`; mirrored-vs-omitted table above
 * No `ci.yml` change unless Mac expands scope; no 0144 fix in this MADR
 * Non-Windows `make ci-windows` / `ci-windows-smoke` print skip and exit 0
@@ -132,9 +132,9 @@ Light local smoke (not GH download): build release-shaped
 7. No `-race`
 8. No retry by default
 9. No `-tags live_*`
-10. Confirmation: tree with #23 tip / broken
+10. Confirmation: tree at `fb7305e` (PR #23 before the 0144 fix) / broken
     `TestRedactAbsoluteAndRelativeHome` ⇒ **must fail** on Windows
-11. After 0144 Windows fix on master ⇒ **must pass** on the Windows dev host
+11. At `11e1560` (the 0144 fix) ⇒ **must pass** on the Windows dev host
 
 Non-asserts in default: `paths`/`pair`/`doctor`/Ctrl+C; Flutter; GH artifact download.
 

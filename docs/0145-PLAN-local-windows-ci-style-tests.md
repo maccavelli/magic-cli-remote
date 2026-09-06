@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-06
 associated-madr: "0145-MADR-local-windows-ci-style-tests.md"
 ---
@@ -21,7 +21,7 @@ On **macOS/Linux**, those Make targets **skip with a clear message and exit 0**
 `make preflight`. No `.github/workflows` edits. Never register the Windows dev host as a GHA
 self-hosted runner (F20). No cross-OS auto-hook that invokes `ci-windows` off-Windows.
 
-**Done:** Windows host runs locked checklists; non-Windows skip+0; `#23` tip
+**Done:** Windows host runs locked checklists; non-Windows skip+0; `fb7305e`
 fails `ci-windows` on Windows; docs state Windows-host-only; drift checklist
 vs `ci.yml` in-repo.
 
@@ -97,11 +97,25 @@ Env: `CGO_ENABLED=0`, `MC_REQUIRE_SYMLINK=1`. Symlink probe; failure → FAIL.
 | A7 | No `-race` |
 | A8 | No retry unless `-RetryOnce` |
 | A9 | No `-tags live_*` |
-| A10 | Confirmation: `#23` tip → FAIL on Windows |
-| A11 | After 0144 Windows fix → PASS on the Windows dev host |
+| A10 | Confirmation: commit `fb7305e` (PR #23 before the 0144 fix) → FAIL on Windows |
+| A11 | Commit `11e1560` (the 0144 fix) → PASS on the Windows dev host |
 
 Non-asserts: paths/pair/doctor/Ctrl+C/Flutter/GH download.
 A10/A11 confirmation is Windows-only (N/A off-Windows — do not attempt).
+
+A10/A11 name commits, not "`#23` tip". When this plan was written the tip of
+PR #23 was `fb7305e` and it failed Windows; the 0144 fix then landed on that
+same branch, so "tip" now means the green commit and the predicate inverted
+without anything being edited. Pinned SHAs cannot rot that way, and once #23
+merges the branch tip stops existing at all. Reference evidence, both on
+`Go (windows/amd64)`:
+
+* `fb7305e` — run `34011907466`, `--- FAIL: TestRedactAbsoluteAndRelativeHome`
+  on both retry attempts (a hard fail, not a flake).
+* `11e1560` — run `34053036163`, green on the first attempt, no retry.
+
+If the commits become unreachable after #23 merges and its branch is deleted,
+the run IDs remain the durable record.
 
 ## Checklist B — `make ci-windows-smoke` (Windows host)
 
