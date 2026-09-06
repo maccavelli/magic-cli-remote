@@ -74,17 +74,42 @@ func (c *Capture) Frame(b []byte) {
 	_, _ = c.f.WriteString(s + "\n")
 }
 
+// stripRoot removes a leading drive letter ("C:") and then any leading path
+// separators of either flavour, yielding the rooted-but-relative form an engine
+// emits when it has trimmed the prefix ("Users/alice", `Users\alice`).
+//
+// It deliberately consults neither os.PathSeparator nor filepath.VolumeName.
+// Redaction is string surgery on bytes another process produced, so which
+// separator appears is a fact about that process, not about the host running
+// the capture. Deriving it from the host is what made the stripped form
+// unreachable on Windows (MADR 0144 amendment): os.PathSeparator is `\` there,
+// so trimming `/Users/alice` was a no-op, and a real `C:\Users\alice` starts
+// with a drive letter rather than a separator, so no Windows home ever reached
+// the replacement. filepath.VolumeName has the mirror-image problem — it
+// returns "" for `C:\...` on POSIX — which would leave the behaviour
+// host-dependent and untestable without a runtime.GOOS branch.
+func stripRoot(p string) string {
+	if len(p) >= 2 && p[1] == ':' &&
+		((p[0] >= 'a' && p[0] <= 'z') || (p[0] >= 'A' && p[0] <= 'Z')) {
+		p = p[2:]
+	}
+	return strings.TrimLeft(p, `/\`)
+}
+
 // redact rewrites the operator's home directory before it reaches a file bound
 // for a public repository. Engines carry the session directory in both the
 // absolute form and with the leading separator stripped ("Users/alice"), and
 // replacing only the absolute one leaves the username behind — found by
-// grepping a fixture that had already been "redacted" (MADR 0137 Phase 1).
+// grepping a fixture that had already been "redacted" (MADR 0137 Phase 1), and
+// again on Windows by this package's own test (MADR 0144 amendment).
 func (c *Capture) redact(s string) string {
 	if c.home == "" || c.home == "/" {
 		return s
 	}
 	s = strings.ReplaceAll(s, c.home, "/home/user")
-	if rel := strings.TrimPrefix(c.home, string(os.PathSeparator)); rel != "" && rel != c.home {
+	// rel == c.home means the home had no root to strip, so the absolute
+	// replacement above already covered every form of it.
+	if rel := stripRoot(c.home); rel != "" && rel != c.home {
 		s = strings.ReplaceAll(s, rel, "home/user")
 	}
 	return s

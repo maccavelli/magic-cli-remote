@@ -78,26 +78,68 @@ func TestFrameEscapesEmbeddedNewlines(t *testing.T) {
 	}
 }
 
+// TestRedactAbsoluteAndRelativeHome pins redaction for every home shape a host
+// can hand us, on every host.
+//
+// The earlier version of this test passed a POSIX home unconditionally and
+// failed on Go (windows/amd64) (run 34011907466), because redact derived its
+// stripped form from os.PathSeparator. MADR 0144's amendment records the
+// analysis; the fix made redact depend only on its inputs, so this table needs
+// no runtime.GOOS branch and no t.Skip. If a case here ever has to be gated by
+// platform, redact has regressed to consulting the host again.
 func TestRedactAbsoluteAndRelativeHome(t *testing.T) {
-	c := &Capture{home: "/Users/alice"}
-	in := "cwd=/Users/alice/proj and also Users/alice/proj"
-	got := c.redact(in)
-	if strings.Contains(got, "alice") {
-		t.Fatalf("username leaked after redact: %q", got)
-	}
-	if !strings.Contains(got, "/home/user/proj") {
-		t.Fatalf("absolute home not rewritten: %q", got)
-	}
-	if !strings.Contains(got, "home/user/proj") {
-		t.Fatalf("relative home not rewritten: %q", got)
+	const user = "alice"
+
+	cases := []struct {
+		name string
+		home string
+		in   string
+		want string
+	}{
+		{
+			name: "posix home, absolute and stripped forms",
+			home: "/Users/alice",
+			in:   "cwd=/Users/alice/proj and also Users/alice/proj",
+			want: "cwd=/home/user/proj and also home/user/proj",
+		},
+		{
+			name: "windows home, absolute and drive-stripped forms",
+			home: `C:\Users\alice`,
+			in:   `cwd=C:\Users\alice\proj and also Users\alice\proj`,
+			want: `cwd=/home/user\proj and also home/user\proj`,
+		},
+		{
+			name: "unc home, absolute and share-stripped forms",
+			home: `\\srv\home\alice`,
+			in:   `cwd=\\srv\home\alice\p and also srv\home\alice\p`,
+			want: `cwd=/home/user\p and also home/user\p`,
+		},
 	}
 
-	if g := (&Capture{home: ""}).redact("/Users/alice"); g != "/Users/alice" {
-		t.Fatalf("empty home should not redact, got %q", g)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := (&Capture{home: tc.home}).redact(tc.in)
+			if strings.Contains(got, user) {
+				t.Errorf("username leaked after redact: %q", got)
+			}
+			if got != tc.want {
+				t.Errorf("redact = %q, want %q", got, tc.want)
+			}
+		})
 	}
-	if g := (&Capture{home: "/"}).redact("/tmp/x"); g != "/tmp/x" {
-		t.Fatalf("root home should not redact, got %q", g)
-	}
+
+	// Disabled states stay byte-for-byte inert: redaction that fires when it was
+	// not configured would corrupt a fixture rather than protect one.
+	t.Run("empty home is inert", func(t *testing.T) {
+		if g := (&Capture{home: ""}).redact("/Users/alice"); g != "/Users/alice" {
+			t.Fatalf("empty home should not redact, got %q", g)
+		}
+	})
+	t.Run("root home is inert", func(t *testing.T) {
+		if g := (&Capture{home: "/"}).redact("/tmp/x"); g != "/tmp/x" {
+			t.Fatalf("root home should not redact, got %q", g)
+		}
+	})
 }
 
 func TestTeeReaderEmitsOnNewline(t *testing.T) {

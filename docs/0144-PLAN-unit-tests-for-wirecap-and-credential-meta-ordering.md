@@ -122,12 +122,59 @@ The Windows half cannot be verified locally on a POSIX host. It is verified by
 * [x] Phase 2 CredentialMeta table
 * [x] Phase 3 PR opened — https://github.com/maccavelli/magic-cli-remote/pull/23
 * [ ] Phase 3 exit criterion — CI green on the new packages (blocked: windows leg red)
-* [ ] Phase 4 step 1 — portable redaction table written
-* [ ] Phase 4 step 2 — table seen to fail against unmodified `redact`
-* [ ] Phase 4 step 3 — host-independent strip applied to `redact`
+* [x] Phase 4 step 1 — portable redaction table written
+* [x] Phase 4 step 2 — table seen to fail against unmodified `redact`
+* [x] Phase 4 step 3 — host-independent strip applied to `redact`
 * [ ] Phase 4 step 4 — `Go (windows/amd64)` green on PR #23
 
 ## Execution Record
+
+### Phase 4 — executed 2026-09-06
+
+**Step 1.** `TestRedactAbsoluteAndRelativeHome` rewritten as a five-case table:
+POSIX home, drive-lettered Windows home, UNC home, and the two inert states
+(`home == ""`, `home == "/"`). Each path case asserts both that no username
+survives and the exact expected output, so a redaction that fires wrongly fails
+as loudly as one that does not fire. No `runtime.GOOS` branch and no `t.Skip`.
+
+**Step 2 — the table was seen to fail before the fix existed.** Run against the
+unmodified `redact` on this POSIX host, exactly the two predicted cases failed
+and the other three passed:
+
+```text
+--- FAIL: TestRedactAbsoluteAndRelativeHome
+    --- PASS: .../posix_home,_absolute_and_stripped_forms
+    --- FAIL: .../windows_home,_absolute_and_drive-stripped_forms
+        wirecap_test.go:123: username leaked after redact: "cwd=/home/user\proj and also Users\alice\proj"
+    --- FAIL: .../unc_home,_absolute_and_share-stripped_forms
+        wirecap_test.go:123: username leaked after redact: "cwd=/home/user\p and also srv\home\alice\p"
+    --- PASS: .../empty_home_is_inert
+    --- PASS: .../root_home_is_inert
+```
+
+Worth recording: this reproduces the *Windows* leak on a POSIX host. It is
+possible because the defect was never about the host's own separator — it was
+about `redact` consulting it — so the drive-lettered and UNC homes fail
+everywhere. No Windows machine was needed to see the bug, only to find it.
+
+**Step 3.** Added unexported `stripRoot`, which removes a leading `X:` drive
+prefix and then any leading `/` or `\`, consulting neither `os.PathSeparator`
+nor `filepath.VolumeName`. `redact` calls it in place of the `TrimPrefix`; the
+early returns and the `rel != c.home` guard are unchanged, the guard now
+carrying a comment explaining what it means for a home with no root to strip.
+
+**Step 4.** All five cases pass. Gates on this host:
+
+```text
+go test ./internal/wirecap ./internal/providerauth -count=1   both ok
+go test -race ./internal/wirecap -count=1                     ok
+go build ./... && go vet ./...                                clean
+make pre-add-check FILES=...                                  2 file(s) clean
+```
+
+*Outstanding.* The exit criterion is not yet met: it requires
+`Go (windows/amd64)` green on PR #23, and that leg has not run against this
+commit. A green POSIX run does not close this phase, by the phase's own terms.
 
 ### Deviation — 2026-09-06, Phase 1's test found a product defect
 
