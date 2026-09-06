@@ -336,11 +336,13 @@ jobs:
             rc=${PIPESTATUS[0]}
             set -e
             exit "$rc"
-          on_retry_command: |
-            bash scripts/ci-flake-capture.sh \
-              --log "${RUNNER_TEMP}/ci-flake/attempt.log" \
-              --out "${RUNNER_TEMP}/ci-flake/failing-test.txt" \
-              --step Test
+          # A single bare token, deliberately. nick-fields/retry does not run
+          # on_retry_command through `shell: bash` on Windows, so an inline
+          # multi-line command's backslash continuations arrive as literal
+          # arguments — probe run 34044623679 failed exactly that way and the
+          # Windows row fell back to the step name. The wrapper reads
+          # RUNNER_TEMP and FLAKE_STEP from the environment instead.
+          on_retry_command: bash scripts/ci-flake-on-retry.sh
 
       # total_attempts > 1 is the ledger trigger (supplied free by the action).
       # Row is uploaded as an artifact; ci-flake-ledger.yml appends to the

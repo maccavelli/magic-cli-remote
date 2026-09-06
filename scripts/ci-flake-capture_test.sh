@@ -8,6 +8,7 @@ HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 CAPTURE="$HERE/ci-flake-capture.sh"
 EMIT="$HERE/ci-flake-emit.sh"
 APPEND="$HERE/ci-flake-append.sh"
+ONRETRY="$HERE/ci-flake-on-retry.sh"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
@@ -109,6 +110,43 @@ if bash "$APPEND" --ledger "$WORK/bad-ledger.tsv" --rows-dir "$WORK/rows" >/dev/
   bad "wrong header should fail"
 else
   ok "wrong header rejected"
+fi
+
+printf '\n8. on-retry wrapper: no-argument contract\n'
+# Regression guard for probe run 34044623679. The capture call used to be
+# inline in ci.yml with backslash continuations; nick-fields/retry does not run
+# on_retry_command through `shell: bash` on Windows, the "\" arrived as a
+# literal operand, capture exited 2, and the Windows row fell back to the step
+# name. The wrapper takes no arguments so there is nothing to mis-split.
+W8="$WORK/onretry"
+mkdir -p "$W8/ci-flake"
+cat > "$W8/ci-flake/attempt.log" <<'LOG'
+=== RUN   TestDelta
+--- FAIL: TestDelta (0.02s)
+FAIL
+LOG
+RUNNER_TEMP="$W8" bash "$ONRETRY" >/dev/null
+check "wrapper names the test" "$(cat "$W8/ci-flake/failing-test.txt")" "TestDelta"
+
+# Build-level failure: no FAIL line, so the step name must survive the wrapper.
+W9="$WORK/onretry-build"
+mkdir -p "$W9/ci-flake"
+printf 'x.go:1:1: undefined: nope\nFAIL\n' > "$W9/ci-flake/attempt.log"
+RUNNER_TEMP="$W9" FLAKE_STEP=Test bash "$ONRETRY" >/dev/null
+check "wrapper falls back to step" "$(cat "$W9/ci-flake/failing-test.txt")" "Test"
+
+# The wrapper must refuse rather than silently write to a bogus path.
+if RUNNER_TEMP="" bash "$ONRETRY" >/dev/null 2>"$WORK/err8"; then
+  bad "missing RUNNER_TEMP should fail"
+else
+  ok "missing RUNNER_TEMP rejected"
+fi
+
+# The defect itself: any argument at all means the caller mis-split the command.
+if RUNNER_TEMP="$W8" bash "$ONRETRY" '\' >/dev/null 2>"$WORK/err9"; then
+  bad "wrapper should reject stray operands"
+else
+  ok "stray operand rejected"
 fi
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
