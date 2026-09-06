@@ -1,5 +1,7 @@
 name: tmp-restore-ci-yml
-# One-shot: inflate zlib-base64 blob chunks into .github/workflows/ci.yml, then self-delete.
+# One-shot: inflate zlib chunks to ci.yml.restored (repo root).
+# GITHUB_TOKEN cannot update .github/workflows/* (needs workflow scope);
+# the agent copies ci.yml.restored into place via MCP afterward.
 on:
   push:
     branches: [ci/0143-phase2-ledger]
@@ -24,14 +26,9 @@ jobs:
           ref: ci/0143-phase2-ledger
           fetch-depth: 0
 
-      - name: Inflate ci.yml from zlib blob chunks
+      - name: Inflate to ci.yml.restored
         run: |
           set -euo pipefail
-          parts_dir=.github/workflows/_ci_restore_parts
-          if [ ! -d "$parts_dir" ]; then
-            echo "No parts dir; nothing to restore."
-            exit 0
-          fi
           python3 <<'PY'
           import base64, hashlib, zlib
           from pathlib import Path
@@ -39,7 +36,6 @@ jobs:
           chunks = sorted(parts_dir.glob("ci.yml.zlib.b64.*"))
           assert chunks, "no zlib b64 chunks found"
           b64 = "".join(p.read_text().strip() for p in chunks)
-          # One known MCP transcription typo in chunk 01 (eegoy vs eegoz).
           b64 = b64.replace("eegoyYGnZw", "eegozYGnZw", 1)
           raw = zlib.decompress(base64.b64decode(b64))
           want = "69f1df02b2123275abd7335771e84174e4f0c631eeda0ea0e6485f27371dbbac"
@@ -49,14 +45,14 @@ jobs:
           text = raw.decode()
           assert "ci-flake-capture.sh" in text
           assert "Emit flake ledger row" in text
-          Path(".github/workflows/ci.yml").write_bytes(raw)
-          print("wrote ci.yml", len(raw), "bytes")
+          Path("ci.yml.restored").write_bytes(raw)
+          print("wrote ci.yml.restored", len(raw), "bytes")
           PY
           rm -rf .github/workflows/_ci_restore_parts
           rm -f .github/workflows/tmp-restore-ci-yml.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A .github/workflows/ci.yml .github/workflows/_ci_restore_parts .github/workflows/tmp-restore-ci-yml.yml || true
+          git add -A ci.yml.restored .github/workflows/_ci_restore_parts .github/workflows/tmp-restore-ci-yml.yml
           git status
-          git commit -m "ci(0143): capture flake rows from go-native Test retries"
+          git commit -m "chore(0143): materialize ci.yml.restored for MCP copy into workflows"
           git push origin HEAD:ci/0143-phase2-ledger
