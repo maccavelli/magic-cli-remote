@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-06
 associated-madr: "0144-MADR-unit-tests-for-wirecap-and-credential-meta-ordering.md"
 ---
@@ -64,6 +64,6 @@ go test ./internal/wirecap ./internal/providerauth -count=1
 ## Task Checklist
 
 * [x] Owner greenlight (Chief of Staff / Mac)
-* [ ] Phase 1 wirecap tests
-* [ ] Phase 2 CredentialMeta table
-* [ ] Phase 3 PR opened
+* [x] Phase 1 wirecap tests
+* [x] Phase 2 CredentialMeta table
+* [x] Phase 3 PR opened — https://github.com/maccavelli/magic-cli-remote/pull/23
