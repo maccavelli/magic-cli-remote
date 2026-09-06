@@ -1,0 +1,3 @@
+h":"amd64"}]'
+      extra-assets: '${{ matrix.os == 'linux' && format('[{{ "path": "client/magic_cli/build/app/outputs/flutter-apk/app-release.apk", "name": "{0}-arm64.apk" }}]', github.ref_name) || '[]' }}'
+      bridge-release: ${{ github.ref_name == 'v0.16.0' }}
