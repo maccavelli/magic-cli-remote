@@ -1,3 +1,0 @@
-h":"amd64"}]'
-      extra-assets-json: '["install.sh","install.ps1","magic-cli-remote-${{ github.ref_name }}-arm64.apk"]'
-      bridge-release: ${{ github.ref_name == 'v0.16.0' }}
