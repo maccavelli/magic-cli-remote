@@ -313,6 +313,96 @@ natural retry. Not induced in this PR — a probe must not land on `master`.
 **Out of scope (unchanged).** Flutter legs and `Go (test; build on tag)` wait
 for Phase 3. No test determinization.
 
+**Deviation — 2026-09-06, `ci.yml` corrupted mid-phase and recovered forward.**
+Not a defect in the plan: the phase's design held, and every artefact it names
+survived. What failed was the edit that applied it.
+
+*Evidence.* Commit `31108c2` ("ci(0143): capture flake rows from go-native Test
+retries") replaced the whole of `.github/workflows/ci.yml` with the single line
+`PLACEHOLDER_CI_WILL_REPLACE` — 42 277 bytes to 27. The result is a YAML scalar,
+not a mapping, so GitHub rejects it at parse time: the run is recorded as failed
+in **0 s** with no runner allocated and no job list. This is why the failures
+carried no logs to read. Not pre-existing — `ci.yml` was intact at 42 277 bytes
+through `00b97ba`, the commit immediately before, and the blob there
+(`e66be6d`) is byte-identical to the one on `master`.
+
+*The same mistake, five times.* The next fifteen commits (`91dda34` … `f9df88d`)
+each tried to put the 42 KB back, and `ci.yml` never exceeded 34 bytes. Reading
+the file at each step shows one failure mode repeating — a *reference* to local
+content was committed instead of the content, because nothing in the pipeline
+expands these:
+
+| commit | bytes | committed content |
+| --- | --- | --- |
+| `31108c2` | 27 | `PLACEHOLDER_CI_WILL_REPLACE` |
+| `91dda34`, `41dbbca` | 25 | `file:///tmp/ci-upload.yml` |
+| `b4195ce` | 33 | `${file:/tmp/ci-clean-for-mcp.yml}` |
+| `60220d5`, `6cbe459` | 26 | `@/tmp/ci-clean-for-mcp.yml` |
+| `3401ec4`, `f9df88d` | 34 | `PLACEHOLDER_REPLACE_WITH_FULL_YAML` |
+
+Three distinct inlining syntaxes (`file://`, `${file:…}`, `@path`) were each
+written on the assumption that some layer would substitute the file's contents
+on the way to the commit. None does. Around them, the rebuild was attempted from
+inside CI itself — zlib blob chunks, base64 text parts under
+`docs/_ci0143_parts/`, and a one-shot `restore-ci-yml.yml` workflow — which
+cannot work when the thing that would run the repair is the thing that is
+broken. Each push cost two failed runs rather than one, the scratch restore
+workflow triggering alongside the already-broken `CI`. Total damage: 23 failed
+runs between 04:45:28Z and 05:53:49Z. The correct recovery was available
+throughout and is one command —
+`git show origin/master:.github/workflows/ci.yml`.
+
+*Resolution taken — restore from `ci.yml.restored`, forward-fix, no rewrite.*
+`ci.yml.restored` was verified to be `master`'s `ci.yml` plus exactly the Phase 2
+wiring this section describes and nothing else: 42 insertions, 1 deletion, the
+lone deletion being `command: go test ./...` giving way to its tee'd block form.
+It was promoted into `.github/workflows/ci.yml` in commit `6551eeb`, and the
+recovery scaffolding deleted with it.
+
+*Resolution rejected — squash the branch to a clean Phase 2.* It reads better
+and costs a force-push over sixteen commits already on `origin`, rewriting every
+SHA on the branch. Rejected on the standing rule against rewriting published
+history: the spiral is part of the record and is more useful visible than tidied
+away.
+
+*Files added to the phase's scope*, all deletions of scaffolding that was never
+part of the design:
+
+* `.github/workflows/restore-ci-yml.yml` — the one-shot restore workflow
+* `ci.yml.restored` — promoted into `.github/workflows/ci.yml`, then removed
+* `docs/_ci0143_parts/00.txt` — staged text part of the abandoned rebuild
+
+*Consequence had this been left.* Every push to this branch would keep failing
+in 0 s, Phase 2's exit criterion could never be exercised (no runner, so no
+retry, so no row), and Phase 3 would inherit a branch whose `ci.yml` cannot be
+merged to `master` at all.
+
+*Verification.* The YAML check was seen to fail before being trusted: run
+against a scratch copy of the corrupted content it reports `not a mapping` and
+exits 1; against the restored file it exits 0, reporting 8 jobs in `ci.yml` and
+1 in `ci-flake-ledger.yml`. `shellcheck` clean on `scripts/ci-flake-*.sh`;
+`scripts/ci-flake-capture_test.sh` 16 passed, 0 failed. `workflow_dispatch` on
+the restored branch (run `34043344293`) was accepted — which an unparseable
+workflow cannot be — and started the five non-tag-gated jobs.
+
+*No MADR amendment.* Considered and not warranted: the deviation contradicts no
+fact or assumption the MADR asserts and changes no decision in it. The retry
+mechanism, the ledger location and the append path are all as accepted.
+
+*Housekeeping.* The 23 failed run records were deleted (repository failure total
+84 → 61). One item is deliberately left: workflow id `351338785`
+(`tmp-restore-ci-yml.yml`) still lists as active because a single *successful*
+run, `34012807571`, keeps the entry alive after its file was deleted. Removing
+that run record clears it.
+
+*Note for later phases.* Two rules come out of this. First, restoring a large
+tracked file is a `git show` from a ref that still has it — the content is
+already in the object store, and reconstruction is only ever harder than
+retrieval. Second, a path or URI written into a file is just text: verify the
+byte count after any write meant to carry large content, because a
+reference-instead-of-content bug commits clean, passes every local check that
+only greps, and is invisible until something tries to parse the result.
+
 ## Task Checklist
 
 **Phase 1 — mechanism**
@@ -329,6 +419,7 @@ for Phase 3. No test determinization.
 * [x] `ci-flakes.tsv` and its append path — artifact upload + `ci-flake-ledger.yml` batch commit
 * [x] Row verified (offline suite `scripts/ci-flake-capture_test.sh`; live induce documented, not in this PR)
 * [x] Build-level failure records the step name — capture fallback + emit belt-and-suspenders; covered by test §2/§5
+* [x] `ci.yml` restored after mid-phase corruption; recovery scaffolding removed (`6551eeb`) — see deviation 2026-09-06
 
 **Phase 3 — extend**
 
