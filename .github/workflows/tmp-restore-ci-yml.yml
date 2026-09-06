@@ -32,7 +32,7 @@ jobs:
             echo "No parts dir; nothing to restore."
             exit 0
           fi
-          python3 - <<'PY'
+          python3 <<'PY'
           import base64, hashlib, zlib
           from pathlib import Path
           parts_dir = Path(".github/workflows/_ci_restore_parts")
@@ -58,13 +58,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A .github/workflows/ci.yml .github/workflows/_ci_restore_parts .github/workflows/tmp-restore-ci-yml.yml || true
           git status
-          git commit -m "$(cat <<'EOF'
-ci(0143): capture flake rows from go-native Test retries
-
-Phase 2: tee attempt logs for on_retry_command extraction, emit a 7-field
-TSV row when total_attempts != 1, upload as ci-flake-* artifact for the
-batch ledger workflow. contents:read unchanged on this workflow.
-
-EOF
-)"
+          git commit -m "ci(0143): capture flake rows from go-native Test retries"
           git push origin HEAD:ci/0143-phase2-ledger
