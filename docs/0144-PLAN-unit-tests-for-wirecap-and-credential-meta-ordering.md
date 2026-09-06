@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-09-06
 associated-madr: "0144-MADR-unit-tests-for-wirecap-and-credential-meta-ordering.md"
 ---
@@ -121,11 +121,11 @@ The Windows half cannot be verified locally on a POSIX host. It is verified by
 * [x] Phase 1 wirecap tests
 * [x] Phase 2 CredentialMeta table
 * [x] Phase 3 PR opened — https://github.com/maccavelli/magic-cli-remote/pull/23
-* [ ] Phase 3 exit criterion — CI green on the new packages (blocked: windows leg red)
+* [x] Phase 3 exit criterion — CI green on the new packages (run 34053036163)
 * [x] Phase 4 step 1 — portable redaction table written
 * [x] Phase 4 step 2 — table seen to fail against unmodified `redact`
 * [x] Phase 4 step 3 — host-independent strip applied to `redact`
-* [ ] Phase 4 step 4 — `Go (windows/amd64)` green on PR #23
+* [x] Phase 4 step 4 — `Go (windows/amd64)` green on PR #23 (run 34053036163)
 
 ## Execution Record
 
@@ -172,9 +172,26 @@ go build ./... && go vet ./...                                clean
 make pre-add-check FILES=...                                  2 file(s) clean
 ```
 
-*Outstanding.* The exit criterion is not yet met: it requires
-`Go (windows/amd64)` green on PR #23, and that leg has not run against this
-commit. A green POSIX run does not close this phase, by the phase's own terms.
+**Exit criterion met — 2026-09-06, CI run `34053036163` on `11e1560`.** All five
+jobs green, `Go (windows/amd64)` among them. Checked rather than inferred from
+the green tick, because a green leg can mean the assertion did not run:
+
+* *The leg executed the package.* `ok
+  github.com/maccavelli/magic-cli-remote/internal/wirecap 0.053s` in the Windows
+  job log. The table carries no `t.Skip` and no platform gate, so all five
+  subtests ran there.
+* *It passed on the first attempt.* No retry markers in the Windows job — no
+  "Attempt 1 failed", no retry-command warning. This mattered: MADR 0143's retry
+  is live on `master`, so a pass-on-retry would have meant something in the
+  package was still nondeterministic, and absorbing that into a green tick would
+  not be the criterion met. For contrast, the failing run `34011907466` shows
+  `--- FAIL: TestRedactAbsoluteAndRelativeHome` on *both* attempts.
+
+Phase 3's exit criterion is met by the same run, having never been met when the
+plan was first marked complete.
+
+*Not a phase, but outstanding:* PR #23 is green and unmerged. Merging is the
+owner's call and no phase of this plan depends on it.
 
 ### Deviation — 2026-09-06, Phase 1's test found a product defect
 
