@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Local CI-style Windows gates for MAC420 (MADR/PLAN 0145).
+    Local CI-style Windows gates for the dev host (MADR/PLAN 0145).
 
 .DESCRIPTION
     Windows-host-only. Mirrors CI go-native windows/amd64 unit contract by

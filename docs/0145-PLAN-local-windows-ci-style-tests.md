@@ -1,24 +1,24 @@
 ---
 status: proposed
 date: 2026-09-06
-associated-madr: "0145-MADR-local-windows-ci-style-tests-on-mac420.md"
+associated-madr: "0145-MADR-local-windows-ci-style-tests.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
 
-# Implement: Local CI-style Windows tests on MAC420
+# Implement: Local CI-style Windows tests
 
-Associated MADR: [0145-MADR-local-windows-ci-style-tests-on-mac420.md](0145-MADR-local-windows-ci-style-tests-on-mac420.md).
+Associated MADR: [0145-MADR-local-windows-ci-style-tests.md](0145-MADR-local-windows-ci-style-tests.md).
 
 ## Goal
 
-On a **Windows host** (MAC420), `make ci-windows` predicts CI `go-native`
+On a **Windows host**, `make ci-windows` predicts CI `go-native`
 windows/amd64 (hard fail, no retry); `make ci-windows-smoke` covers light
 release-shaped `version` stamps; `acceptance-windows.ps1` keeps functional
 F5/paths/doctor with hardened JSON asserts.
 
 On **macOS/Linux**, those Make targets **skip with a clear message and exit 0**
 (Mac works three OS clones; shared habits must not break). Unix hosts keep
-`make preflight`. No `.github/workflows` edits. Never register MAC420 as a GHA
+`make preflight`. No `.github/workflows` edits. Never register the Windows dev host as a GHA
 self-hosted runner (F20). No cross-OS auto-hook that invokes `ci-windows` off-Windows.
 
 **Done:** Windows host runs locked checklists; non-Windows skip+0; `#23` tip
@@ -35,7 +35,7 @@ day-1 package-subset mode; running PowerShell Windows gates on macOS/Linux.
 
 ## Prerequisites
 
-* **Windows (MAC420):** PowerShell 5.1+, Git, Go satisfying `go.mod`; symlink
+* **Windows dev host:** PowerShell 5.1+, Git, Go satisfying `go.mod`; symlink
   privilege for `MC_REQUIRE_SYMLINK=1`.
 * **macOS/Linux:** Make only — targets must skip+exit 0 without PowerShell.
 * **Mac proceed/execute** on this PLAN before implement.
@@ -87,7 +87,7 @@ Env: `CGO_ENABLED=0`, `MC_REQUIRE_SYMLINK=1`. Symlink probe; failure → FAIL.
 
 | ID | Predicate |
 | --- | --- |
-| A0 | Host is Windows. Else: one clear skip line (“Windows-only; skipping on <os>”) + exit 0 — **not** a checklist fail, **not** a PASS (message required so nobody thinks MAC420 ran); do not run go test under a fake Windows env |
+| A0 | Host is Windows. Else: one clear skip line (“Windows-only; skipping on <os>”) + exit 0 — **not** a checklist fail, **not** a PASS (message required so nobody thinks the Windows gates ran); do not run go test under a fake Windows env |
 | A1 | `CGO_ENABLED=0` for all go invocations |
 | A2 | `MC_REQUIRE_SYMLINK=1`; symlink probe succeeds else FAIL |
 | A3 | Go satisfies `go.mod` |
@@ -98,7 +98,7 @@ Env: `CGO_ENABLED=0`, `MC_REQUIRE_SYMLINK=1`. Symlink probe; failure → FAIL.
 | A8 | No retry unless `-RetryOnce` |
 | A9 | No `-tags live_*` |
 | A10 | Confirmation: `#23` tip → FAIL on Windows |
-| A11 | After 0144 Windows fix → PASS on MAC420 |
+| A11 | After 0144 Windows fix → PASS on the Windows dev host |
 
 Non-asserts: paths/pair/doctor/Ctrl+C/Flutter/GH download.
 A10/A11 confirmation is Windows-only (N/A off-Windows — do not attempt).
@@ -138,7 +138,7 @@ smoke-native: names + version identity; omit GH download.
 ## Docs
 
 * `ops-windows-install.md` + `AGENTS.md`: **Windows-host-only** — before push on
-  MAC420 → `make ci-windows`; before tag → also `ci-windows-smoke`; functional →
+  Windows dev host → `make ci-windows`; before tag → also `ci-windows-smoke`; functional →
   `acceptance-windows.ps1`. On macOS/Linux → `make preflight` (ci-windows* skips).
 * Script/Make headers cite MADR/PLAN 0145, F20, and host-only rule.
 

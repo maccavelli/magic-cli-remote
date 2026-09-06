@@ -171,12 +171,12 @@ than assumed from the build recipe:
 go version -m .\mcremote.exe | Select-String CGO_ENABLED   # must be CGO_ENABLED=0
 ```
 
-## Local CI-style gates on MAC420 (MADR/PLAN 0145)
+## Local CI-style gates on the Windows dev host (MADR/PLAN 0145)
 
 These targets are **Windows-host-only**. On macOS/Linux they print
 `Windows-only; skipping on <os>` and exit 0 (not a silent PASS). Unix hosts
 keep using `make preflight`. Do not register an auto-hook that runs
-`ci-windows` off-Windows. Never register MAC420 as a GHA self-hosted runner
+`ci-windows` off-Windows. Never register the Windows dev host as a GHA self-hosted runner
 (MADR 0116 F20).
 
 | When | Command |
@@ -186,8 +186,8 @@ keep using `make preflight`. Do not register an auto-hook that runs
 | Functional F5 / paths / doctor | `scripts/acceptance-windows.ps1` |
 
 Script: `scripts/ci-windows-local.ps1`. Decisions:
-[0145-MADR-local-windows-ci-style-tests-on-mac420.md](0145-MADR-local-windows-ci-style-tests-on-mac420.md),
-[0145-PLAN-local-windows-ci-style-tests-on-mac420.md](0145-PLAN-local-windows-ci-style-tests-on-mac420.md).
+[0145-MADR-local-windows-ci-style-tests.md](0145-MADR-local-windows-ci-style-tests.md),
+[0145-PLAN-local-windows-ci-style-tests.md](0145-PLAN-local-windows-ci-style-tests.md).
 
 ### Drift vs CI (local intentionally omits)
 

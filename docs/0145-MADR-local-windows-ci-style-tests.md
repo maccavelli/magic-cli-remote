@@ -3,24 +3,24 @@ status: accepted
 date: 2026-09-06
 decision-makers: maccavelli
 consulted: Cappy (CI/CD harness); Testbot (approve + locked pass/fail list 2026-09-06); scripts/acceptance-windows.ps1; CI go-native/smoke-native; MADR 0116 F20/D20/D17; MADR 0143
-informed: Anyone developing on Windows (MAC420) or cutting a windows/amd64 release
+informed: Anyone developing on the Windows dev host or cutting a windows/amd64 release
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
 
-# Local CI-style Windows tests on MAC420 catch go-native failures before GitHub
+# Local CI-style Windows tests catch go-native failures before GitHub
 
 ## Context and Problem Statement
 
 Windows/amd64 is a first-class native lane in CI (`go-native` on
 `windows-latest`, plus tag-only `smoke-native`), but the day-to-day local loop
-on MAC420 does not mirror that lane closely enough to catch platform-sensitive
+on the Windows dev host does not mirror that lane closely enough to catch platform-sensitive
 failures before a push.
 
 Concrete recent evidence: PR #23 / MADR 0144 — `TestRedactAbsoluteAndRelativeHome`
 green on ubuntu/linux-arm64, red on **Go (windows/amd64)** both retry attempts
 (hard fail). Local Windows CI-style gate exists to catch that class before GitHub.
 
-Mac develops this repo on **three OS clones** (Windows MAC420, macOS, Linux).
+Mac develops this repo on **three OS clones** (Windows, macOS, Linux).
 Windows-specific local gates must not break shared Make habits on unix hosts.
 
 ### What already exists
@@ -34,9 +34,9 @@ Windows-specific local gates must not break shared Make habits on unix hosts.
 
 ## Decision Drivers
 
-* Catch Windows-only **unit** failures on MAC420 before GitHub (0144-class).
+* Catch Windows-only **unit** failures on the Windows dev host before GitHub (0144-class).
 * Prefer scripts + Make; **no `.github/workflows` changes** without Mac.
-* Never register MAC420 as a self-hosted runner (F20).
+* Never register the Windows dev host as a self-hosted runner (F20).
 * Ship contract: `CGO_ENABLED=0`, no `-race` (D20 / C7).
 * **Hard local signal:** no 0143 retry in the default target.
 * Go toolchain from `go.mod` (not the Windows-preinstalled default).
@@ -134,7 +134,7 @@ Light local smoke (not GH download): build release-shaped
 9. No `-tags live_*`
 10. Confirmation: tree with #23 tip / broken
     `TestRedactAbsoluteAndRelativeHome` ⇒ **must fail** on Windows
-11. After 0144 Windows fix on master ⇒ **must pass** on MAC420
+11. After 0144 Windows fix on master ⇒ **must pass** on the Windows dev host
 
 Non-asserts in default: `paths`/`pair`/`doctor`/Ctrl+C; Flutter; GH artifact download.
 
@@ -158,12 +158,12 @@ Smoke: yes — B12–14. No day-1 fast path.
 
 ## Validation
 
-* Predicates A10–A11 and B12–B14 on MAC420; no workflow files in impl PR.
+* Predicates A10–A11 and B12–B14 on the Windows dev host; no workflow files in impl PR.
 * On macOS and Linux: `make ci-windows` and `make ci-windows-smoke` print a
   clear skip and exit 0.
 
 ## Follow-ups
 
-* PLAN 0145: [0145-PLAN-local-windows-ci-style-tests-on-mac420.md](0145-PLAN-local-windows-ci-style-tests-on-mac420.md)
-* Ops pointer for MAC420 invoke (PLAN phase)
+* PLAN 0145: [0145-PLAN-local-windows-ci-style-tests.md](0145-PLAN-local-windows-ci-style-tests.md)
+* Ops pointer for Windows dev host invoke (PLAN phase)
 * Implement only after Mac proceed/execute on the PLAN

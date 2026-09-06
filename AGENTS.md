@@ -118,7 +118,7 @@ fix the file.
 
 ## Tests
 
-**Windows MAC420 local gates (0145):** on a Windows host, before push run
+**Windows local gates (0145):** on a Windows host, before push run
 `make ci-windows`; before tag also `make ci-windows-smoke`; functional
 paths/pair/doctor → `scripts/acceptance-windows.ps1`. On macOS/Linux those
 targets skip with a clear message and exit 0 — keep using `make preflight`.
