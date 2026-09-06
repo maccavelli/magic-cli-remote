@@ -1,5 +1,5 @@
 name: tmp-restore-ci-yml
-# One-shot: reassemble ci.yml from chunked MCP uploads, then self-delete.
+# One-shot: inflate zlib-base64 blob chunks into .github/workflows/ci.yml, then self-delete.
 on:
   push:
     branches: [ci/0143-phase2-ledger]
@@ -24,21 +24,34 @@ jobs:
           ref: ci/0143-phase2-ledger
           fetch-depth: 0
 
-      - name: Reassemble ci.yml from parts
+      - name: Inflate ci.yml from zlib blob chunks
         run: |
           set -euo pipefail
-          if [ ! -d .github/workflows/_ci_restore_parts ]; then
-            echo "No parts dir; nothing to restore (already done or not staged)."
+          parts_dir=.github/workflows/_ci_restore_parts
+          if [ ! -d "$parts_dir" ]; then
+            echo "No parts dir; nothing to restore."
             exit 0
           fi
-          cat .github/workflows/_ci_restore_parts/*.txt > /tmp/ci.yml.restored
-          got=$(sha256sum /tmp/ci.yml.restored | awk '{print $1}')
-          want=69f1df02b2123275abd7335771e84174e4f0c631eeda0ea0e6485f27371dbbac
-          echo "got=$got"
-          test "$got" = "$want"
-          grep -q 'ci-flake-capture.sh' /tmp/ci.yml.restored
-          grep -q 'Emit flake ledger row' /tmp/ci.yml.restored
-          mv /tmp/ci.yml.restored .github/workflows/ci.yml
+          python3 - <<'PY'
+          import base64, hashlib, zlib
+          from pathlib import Path
+          parts_dir = Path(".github/workflows/_ci_restore_parts")
+          chunks = sorted(parts_dir.glob("ci.yml.zlib.b64.*"))
+          assert chunks, "no zlib b64 chunks found"
+          b64 = "".join(p.read_text().strip() for p in chunks)
+          # One known MCP transcription typo in chunk 01 (eegoy vs eegoz).
+          b64 = b64.replace("eegoyYGnZw", "eegozYGnZw", 1)
+          raw = zlib.decompress(base64.b64decode(b64))
+          want = "69f1df02b2123275abd7335771e84174e4f0c631eeda0ea0e6485f27371dbbac"
+          got = hashlib.sha256(raw).hexdigest()
+          print("got", got)
+          assert got == want, (got, want)
+          text = raw.decode()
+          assert "ci-flake-capture.sh" in text
+          assert "Emit flake ledger row" in text
+          Path(".github/workflows/ci.yml").write_bytes(raw)
+          print("wrote ci.yml", len(raw), "bytes")
+          PY
           rm -rf .github/workflows/_ci_restore_parts
           rm -f .github/workflows/tmp-restore-ci-yml.yml
           git config user.name "github-actions[bot]"
