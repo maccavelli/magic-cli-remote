@@ -171,3 +171,66 @@ smoke-native: names + version identity; omit GH download.
 2. ~~Doctor~~ exit 0 only
 3. ~~A/B/C~~ approved
 4. ~~A0/B0 skip semantics~~ — **ACK** 2026-09-06 (Testbot LGTM); clear for Mac proceed/execute on amended PLAN
+
+## Execution Record
+
+### Deviation — 2026-09-06, the host guard did not guard
+
+*Evidence.* `make ci-windows` on a macOS host printed the skip line and then ran
+PowerShell anyway:
+
+```text
+Windows-only; skipping on darwin (use make preflight on unix)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-windows-local.ps1
+make: powershell: No such file or directory
+make: *** [ci-windows] Error 1      exit=2
+```
+
+Both `ci-windows` and `ci-windows-smoke` behaved this way. It is A0 inverted:
+the checklist requires "one clear skip line + exit 0 — **not** a checklist
+fail", and Scope requires that macOS/Linux "must not fail when invoking
+`ci-windows*` by habit". As written, two of the three OS clones got a hard
+failure from a target whose whole purpose is to be inert on them. Phase 1's own
+step — "verify skip+0 on unix clone" — is the one that would have caught it, and
+is the reason this is recorded as a deviation rather than a discovery.
+
+*Cause.* Make runs each recipe line in its own shell. The guard's `exit 0` ended
+only the guard's shell; Make then ran the next line regardless. `make -n` shows
+the two shells plainly. `HOST_GOOS` was never at fault — it resolves correctly
+from `Makefile:59`.
+
+*Resolution taken — one shell per recipe, guard defined once.* `$(WIN_ONLY)`
+holds the guard and is prefixed to the real invocation on a single line with
+`;`, so `exit 0` ends the recipe. Both candidates were prototyped and measured
+before choosing, and were behaviourally identical — skip rc=0 off-Windows, run
+on Windows, non-zero propagated when the script fails — so the choice was made
+on maintainability, not correctness.
+
+*Resolution rejected — parse-time `ifeq ($(HOST_GOOS),windows)` gating.* Also
+correct, and it reads well while each branch is a single line. Rejected because
+it defines every target twice, once per branch: a third Windows-only target
+would have to be added in both places or silently lose its guard. That is the
+enumeration drift `AGENTS.md` records as F2, which this repository has been
+caught by twice in the last week. The chosen form adds a target as one line
+reusing `$(WIN_ONLY)`, with nothing to keep in sync. Worth revisiting if the two
+hosts ever need genuinely different prerequisites rather than one invocation
+each.
+
+*Verification.* On this darwin host both targets now print exactly one skip line
+and exit 0, and no `powershell` is attempted. `make -n ci-windows
+HOST_GOOS=windows` still ends in the PowerShell invocation, so the Windows path
+is unchanged. `make -n vet`, `-n test` and `-n build` are unaffected by the
+include.
+
+*Unverified, and named rather than left implicit.* The Windows half has not been
+run on a Windows host. A0's skip path is proven; A1–A9 still need the real host.
+
+*Adjacent risk found while diagnosing, not fixed here.* The guard keys entirely
+on `HOST_GOOS`, which `Makefile:59` derives from `uname -s`, setting `windows`
+only on a `MINGW` match. Invoked where `uname` is absent — `mingw32-make` from
+`cmd.exe`, and this repository's tooling does use `mingw32-make` — `UNAME_S`
+becomes `unknown`, and the guard would skip **on Windows itself**, reporting
+"skipping on unknown" on the one host that must run. That is a pre-existing
+property of `Makefile`, outside this plan's scope, and is recorded so a later
+phase can decide whether A0 needs a positive assertion that the host was
+identified, rather than merely found not-Windows.
