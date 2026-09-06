@@ -8,12 +8,12 @@ files at once (review 2026-09-01, F1/F2).
 
 ## The skill
 
-Whenever the user asks for an MADR and a plan, load the **`writing-madr-and-plans`**
+Whenever the user asks for an MADR and a plan, load the **`madr-and-plan-writing`**
 skill first and follow it for authoring, naming (`NNNN-MADR-*` / `NNNN-PLAN-*`)
 and review. This applies to writing a fresh pair and to amending an existing one.
 
 The name is exact. It is the `name:` field of
-`~/.claude/skills/writing-madr-and-plans/SKILL.md`, and a mistyped skill does not
+`~/.claude/skills/madr-and-plan-writing/SKILL.md`, and a mistyped skill does not
 fail loudly — the call simply does not resolve, and an agent that proceeds
 without it writes something that looks like a MADR while missing MADR 4.0.0's
 heading names, the `Good/Neutral/Bad` argument form, and the mechanical slug
@@ -29,10 +29,18 @@ rule.
 one. See `AGENTS.md` for what counts as mutating, the approval order, the
 follow-up-vs-greenfield rule, and the bootstrap exception.
 
-**Corrected 2026-09-05.** This file named `madr-and-plan-writing` from
-`e06a0b6` until now; that skill does not exist. Do not flip it back from
-memory — both spellings are plausible and the failure is silent. Verify
-against the filesystem, and see `AGENTS.md` for the full note:
+**Corrected 2026-09-06 — second reversal.** The name is
+`madr-and-plan-writing`. This file has now asserted each spelling twice
+(`0416ac3` and `fd1e75f` said `writing-madr-and-plans`; `e06a0b6` and this
+change say `madr-and-plan-writing`), so do not trust the prose here over the
+filesystem — including this sentence. Why the wrong spelling keeps being
+written is still not established, and this note does not guess. One fact that
+does matter: the skill lives outside this repository —
+`~/.claude/skills/madr-and-plan-writing` is a symlink into `~/.agents/skills/` —
+so no commit here records a change to it, and the filesystem is the only
+witness. See `AGENTS.md` for the evidence.
+
+Verify:
 
 ```bash
 ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
