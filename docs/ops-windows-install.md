@@ -170,3 +170,31 @@ than assumed from the build recipe:
 ```powershell
 go version -m .\mcremote.exe | Select-String CGO_ENABLED   # must be CGO_ENABLED=0
 ```
+
+## Local CI-style gates on MAC420 (MADR/PLAN 0145)
+
+These targets are **Windows-host-only**. On macOS/Linux they print
+`Windows-only; skipping on <os>` and exit 0 (not a silent PASS). Unix hosts
+keep using `make preflight`. Do not register an auto-hook that runs
+`ci-windows` off-Windows. Never register MAC420 as a GHA self-hosted runner
+(MADR 0116 F20).
+
+| When | Command |
+| --- | --- |
+| Before push (unit / go-native mirror) | `make ci-windows` |
+| Before tag (light release-shaped smoke) | also `make ci-windows-smoke` |
+| Functional F5 / paths / doctor | `scripts/acceptance-windows.ps1` |
+
+Script: `scripts/ci-windows-local.ps1`. Decisions:
+[0145-MADR-local-windows-ci-style-tests-on-mac420.md](0145-MADR-local-windows-ci-style-tests-on-mac420.md),
+[0145-PLAN-local-windows-ci-style-tests-on-mac420.md](0145-PLAN-local-windows-ci-style-tests-on-mac420.md).
+
+### Drift vs CI (local intentionally omits)
+
+| CI behaviour | Local default |
+| --- | --- |
+| go-native build/vet/test, CGO=0, `MC_REQUIRE_SYMLINK=1` | mirrored on Windows |
+| go-native retry-once (0143) | omitted (optional `-RetryOnce`) |
+| `-race` / flutter `preflight` | omitted |
+| smoke-native GH artifact download | omitted; light local smoke builds `dist/*-windows-amd64.exe` |
+| Run on macOS/Linux | skip + exit 0 |
