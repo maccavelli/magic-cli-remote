@@ -313,6 +313,33 @@ natural retry. Not induced in this PR — a probe must not land on `master`.
 **Out of scope (unchanged).** Flutter legs and `Go (test; build on tag)` wait
 for Phase 3. No test determinization.
 
+**Live induce — done 2026-09-06, run `34045532784`.** `internal/ciprobe` on
+throwaway branch `ci/0143-phase2-verify` failed attempt 1 and passed attempt 2
+on both go-native legs, each emitting its own artifact row:
+
+```text
+34045532784  Go (windows/amd64)  7ced2dd  fail  pass  TestCIProbeInducedFlake
+34045532784  Go (linux/arm64)    7ced2dd  fail  pass  TestCIProbeInducedFlake
+```
+
+Both name the test rather than falling back to the step, which is the half of
+the exit criterion the offline suite cannot reach. The first attempt at this
+(run `34044623679`) is why the deviation below exists: the Windows row read
+`Test`, and fixing that took `844c14e`.
+
+*Cleanup.* Branch `ci/0143-phase2-verify` and `internal/ciprobe` deleted
+2026-09-06, once the rows above were captured. Unlike Phase 1's note, this one
+does not claim the probe survives in a branch's history — that branch is gone,
+so the rows and this record are the evidence. Recreating the probe is a dozen
+lines: a test that writes a marker into `RUNNER_TEMP`, failing when absent and
+passing when present, gated to the retried legs by `RUNNER_OS`/`RUNNER_ARCH`.
+
+*Still open.* The ledger half. `ci-flakes.tsv` cannot gain these rows until this
+branch merges: `ci-flake-ledger.yml` checks out `master`, runs
+`scripts/ci-flake-append.sh` from it, and only registers for `workflow_run` /
+`schedule` / `workflow_dispatch` from the default branch. After merge,
+`workflow_dispatch` it with `source_run_id=34045532784` to ingest the rows above.
+
 **Deviation — 2026-09-06, `ci.yml` corrupted mid-phase and recovered forward.**
 Not a defect in the plan: the phase's design held, and every artefact it names
 survived. What failed was the edit that applied it.
