@@ -15,10 +15,19 @@ func TestNewDefaults(t *testing.T) {
 }
 
 func TestGrokSessionMeta(t *testing.T) {
-	if got := grokSessionMeta(provider.StartOptions{}, Config{}); len(got) != 0 {
-		t.Fatalf("empty = %#v, want empty map", got)
+	// Nothing requested means nothing *requestable* is sent — but the meta is
+	// no longer empty: x.ai/restore_code always rides along, because omitting
+	// it hands the value to the operator's grok config (MADR 0138 Phase 11).
+	// Asserted as an exact key set rather than a length, so a future addition
+	// has to come here and be justified.
+	got := grokSessionMeta(provider.StartOptions{}, Config{})
+	if len(got) != 1 {
+		t.Fatalf("empty = %#v, want only x.ai/restore_code", got)
 	}
-	got := grokSessionMeta(provider.StartOptions{}, Config{Model: "grok-4.5"})
+	if v, ok := got["x.ai/restore_code"]; !ok || v != false {
+		t.Fatalf("empty = %#v, want x.ai/restore_code:false", got)
+	}
+	got = grokSessionMeta(provider.StartOptions{}, Config{Model: "grok-4.5"})
 	if got["modelId"] != "grok-4.5" || got["reasoningEffort"] != nil {
 		t.Fatalf("model only = %#v", got)
 	}

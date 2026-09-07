@@ -174,9 +174,15 @@ Then set `staging: false` and restart. Certificates live under
 
 **Note:** This is the **relay leaf** only. Phone pins / `mode` still target **mcremote** (inner hop).
 
-If something else binds `:80`, ACME fails — free the port, switch to **DNS-01**
-(below), or use a non-public ACME directory with a custom `http_port` (not for
-production LE).
+If something else binds `:80`, certmagic assumes that occupant will answer
+`/.well-known/acme-challenge/` (it does not fail the bind). HTTP-01 therefore
+needs **exclusive** ownership of the challenge port. On a shared host use
+`tls.letsencrypt.challenge: dns-01`. Do not point public Let's Encrypt at a
+non-80 `http_port`.
+
+The outer hop is TLS 1.3 only (0142 F21). A TLS 1.2-only client will fail the
+handshake; first-party phones and `relayhost` speak 1.3. To roll that floor
+back, revert the Phase 6 commit.
 
 ### DNS-01 (Route 53)
 
@@ -247,10 +253,17 @@ Never put the registration secret in the pair QR.
 | `limits.accept_per_minute` | 120 | Pre-auth upgrades per client IP |
 | `limits.tunnel_wait_seconds` | 15 | Host must open tunnel after dial |
 | `trusted_proxies` | *(empty)* | CIDRs of reverse proxies that may set `X-Forwarded-For` (E1); empty ignores XFF |
+| `limits.max_conns` | 1024 | Concurrent accepted TCP connections (blocking accept; ceiling 8192) |
+| HTTP `IdleTimeout` | 120s | Keep-alives on `/healthz` and 404s; hijacked splices are unaffected. `WriteTimeout` stays unset. |
 
 If nginx/Caddy terminates TLS in front of mcrelay, set `trusted_proxies` to the
 proxy’s source address(es) so accept/join rate limits apply per real client.
 Leave empty when phones/hosts dial mcrelay directly.
+
+The process sets a 512 MiB soft heap ceiling (`debug.SetMemoryLimit`) unless
+`GOMEMLIMIT` is already in the environment, in which case that value wins.
+Raise `GOMEMLIMIT` in the unit file if `max_message_bytes`,
+`max_phones_per_host`, or `max_conns` are moved toward their ceilings.
 
 Shutdown (`SIGTERM` / unit stop) cancels live splices so the process exits cleanly (R17).
 
@@ -350,4 +363,6 @@ visible as `phone slot divergence corrected` WARN lines attributable to join
 timeouts. After 0115 those lines should no longer appear for this cause; a
 divergence WARN now indicates a genuinely new accounting bug and is worth a
 report. The join/claim race is resolved under one lock (`hub.phoneGone`),
-and both sides observe the outcome immediately.
+and both sides observe the outcome immediately. 0142 F18 covers the reverse
+order (`abandonTunnel` then `phoneGone`): a receive from the already-closed
+`ready` channel no longer double-releases the slot.

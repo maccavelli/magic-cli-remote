@@ -39,6 +39,12 @@ type ACMEHTTPOptions struct {
 // Obtain/Renew; keep that port free (or set HTTPPort to an alternate for
 // non-public CAs).
 //
+// 0142 F37: certmagic v0.25.4 httpSolver.serve sets no ReadHeaderTimeout,
+// and robustTryListen returns (nil, nil) if the challenge port is already
+// bound — it assumes the occupant will answer /.well-known/acme-challenge/.
+// There is no issuer knob for either behaviour. Do not fork certmagic; HTTP-01
+// requires exclusive ownership of that port. Use dns-01 on a shared host.
+//
 // Returns an [ACMEBundle] whose TLSConfig serves the certs and whose Close
 // stops renewal maintenance.
 func EnsureACMEHTTP(ctx context.Context, opts ACMEHTTPOptions) (*ACMEBundle, error) {

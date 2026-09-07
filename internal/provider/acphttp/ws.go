@@ -204,6 +204,7 @@ func (p *Provider) readPump(fr *wsFramer) {
 			p.handleWSError(err)
 			return
 		}
+		p.wire.Frame(data)
 		var msg wsMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			p.log.Debug("ws: unparseable frame", slog.String("err", err.Error()))

@@ -31,7 +31,6 @@ func TestUnstableLiveDefersInsteadOfWedging(t *testing.T) {
 	if err := c.Seed(ctx); err != nil {
 		t.Fatal(err)
 	}
-	before := readManifest(t, dataDir, "fake")
 
 	// Churn LIVE faster than the stable read can ever see two matching values,
 	// for longer than StableReadDeadline, so the observation never settles.
@@ -58,32 +57,28 @@ func TestUnstableLiveDefersInsteadOfWedging(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// KNOWN INTERMITTENT FAILURE, and it is the code that is wrong, not this
-	// test (2026-09-03).
+	// This test INDUCES the transient rather than synthesising it, so it may
+	// assert only what holds however that induction happens to be scheduled.
 	//
-	// os.WriteFile truncates before writing, so a read landing in that window
-	// sees a ZERO-LENGTH file. That read is "settled and invalid", not
-	// unstable: its fingerprint is the hash of empty bytes, which is stable, so
-	// two consecutive reads that both land in a truncate window agree and
-	// stableObservation reports stable+invalid — which escalates. Rare per run,
-	// reproducible over many.
+	// The churn writer and stableObservation are unsynchronised: the writer
+	// steps every 10 ms, the reads are StableReadInterval (100 ms) apart. On a
+	// loaded machine the writer is descheduled past a full interval, two reads
+	// agree, and the credential is adopted — correctly, per MADR 0133. The
+	// manifest then changes, which is why this test does NOT assert that the
+	// manifest is untouched. That assertion belongs to, and is made by,
+	// TestRecoverIdleDefersOnAnUnstableObservation below, which hands
+	// recoverIdle a synthesised unstable observation and so has no race to
+	// lose. Asserting it here as well cost a CI failure on tag v0.16.6 while
+	// the same commit passed on master (MADR 0133, Confirmation amendment
+	// 2026-09-05; plan Phase 7).
 	//
-	// The property asserted here is the correct one, so the assertion stays.
-	// See the MADR 0133 plan's 2026-09-03 deviation for the resolution options;
-	// 0133 Phase 4 already stops such an escalation from being permanent, which
-	// is why this is a gap rather than a regression.
+	// Not escalating IS assertable here, because every outcome the churn can
+	// produce reaches a non-escalating state: settle-and-adopt,
+	// never-settle-and-defer, and the zero-length truncate window that the
+	// 2026-09-03 deviation closed.
 	if st == StateRecoveryRequired {
 		t.Fatal("a live credential being rewritten was escalated to recovery_required: " +
 			"that state is terminal, so one bad instant costs a sign-in and every restart after it")
-	}
-	after := readManifest(t, dataDir, "fake")
-	if len(after.Generations) != len(before.Generations) {
-		t.Errorf("generations changed on an untrustworthy read: %d -> %d",
-			len(before.Generations), len(after.Generations))
-	}
-	if cur := after.byLabel(LabelCurrent); cur == nil ||
-		cur.Fingerprint != before.byLabel(LabelCurrent).Fingerprint {
-		t.Error("CURRENT was moved on an untrustworthy read")
 	}
 
 	// And once the file settles, the very same credential is adopted normally —

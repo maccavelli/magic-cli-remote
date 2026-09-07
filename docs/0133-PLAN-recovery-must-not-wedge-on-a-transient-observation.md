@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-09-02
+date: 2026-09-05
 associated-madr: "0133-MADR-recovery-must-not-wedge-on-a-transient-observation.md"
 ---
 
@@ -165,6 +165,42 @@ Commit at the end of the phase.
     that has not happened since 2026-08-23.
 20. From the phone, open Codex in Settings and confirm no `credential_failed`
     frame, with no sign-in performed.
+
+### Phase 7 — the churn test asserts only what it can control
+
+Added 2026-09-05, after the deviation recorded below. Scope is one test
+function in one file; no production code changes in this phase.
+
+21. `unstable_live_test.go`, `TestUnstableLiveDefersInsteadOfWedging`: delete
+    the two manifest assertions — the generation-count `t.Errorf` and the
+    `CURRENT`-fingerprint `t.Errorf`. They are valid only if the churn stayed
+    unstable, which nothing in the test guarantees. Both properties remain
+    asserted, deterministically, by
+    `TestRecoverIdleDefersOnAnUnstableObservation`.
+22. **Keep** the `st == StateRecoveryRequired` assertion. It holds under every
+    scheduling outcome the churn can produce, so it is the part this test can
+    actually confirm. Keep the settled-adoption tail as well: it runs after
+    `close(stop)` and `wg.Wait()`, so the file is quiet by then. `seq 500`
+    normally exceeds anything the churn reached — it starts at 100 and steps
+    every 10 ms, so a 2 s `StableReadDeadline` leaves it near 300 — and in the
+    pathological case where a slow `Recover` lets the churn reach 500 exactly,
+    `TestEqualOrderingIsAdoptedNotEscalated` pins that equal ordering is
+    adopted rather than escalated, so the tail holds there too. Do not tighten
+    this into a strict-inequality assumption.
+23. Replace the stale `KNOWN INTERMITTENT FAILURE` comment block. It blames the
+    zero-length truncate window, which the 2026-09-03 deviation **fixed** and
+    `TestZeroLengthDefersButCorruptEscalates` now pins; and it asserts "it is
+    the code that is wrong, not this test", which is the opposite of the case
+    here. Leaving it in place points the next reader at a closed issue.
+24. Verify the assertion deleted in step 21 is not the only cover for its
+    property before deleting it — read
+    `TestRecoverIdleDefersOnAnUnstableObservation` and confirm it asserts
+    generation count and `CURRENT` fingerprint against `before`. Per `AGENTS.md`
+    this is the "seen to fail first" obligation inverted: prove the surviving
+    test fails if the property breaks, by running it against a `recoverIdle`
+    scratch copy that adopts unconditionally.
+
+Commit at the end of the phase.
 
 ## Verification
 
@@ -512,6 +548,83 @@ class rather than making it rarer.
 *Not weakened:* a file with content that does not parse still reports
 settled-invalid and still escalates, so the corruption detection the
 2026-09-02 deviation deliberately preserved is untouched.
+
+**2026-09-05 — the same test failed again, in the opposite direction, and this
+time it is the test that is wrong.** Phase 7 above is the response.
+
+*Evidence.* CI run `33992360853` (tag `v0.16.6`, job `Go (test; build on tag)`)
+failed on `unstable_live_test.go:81` `generations changed on an untrustworthy
+read: 1 -> 2` and `:86` `CURRENT was moved on an untrustworthy read`. The
+`recovery_required` `t.Fatal` above them did **not** fire. The same commit
+passed on `master` fifteen minutes earlier (`33991602566`), which is the same
+tag-vs-master signature MADR 0111 used to establish nondeterminism. Locally:
+25 isolated runs and 48 runs under 8-way parallel load, all green.
+
+*Why this is not the 2026-09-03 finding.* That one was an escalation caused by
+a zero-length read, and the fix was resolution (a) in production code. This is
+the reverse: the churn *settled*, `stableObservation` correctly reported
+stable-and-valid, and the credential was adopted exactly as this plan intends.
+The manifest assertions then fail **because the code is right**. The 2026-09-03
+note that "my first reading of this as a flaky test was wrong" was correct for
+that failure and does not carry over to this one.
+
+*Why not a new MADR.* Per `AGENTS.md`, a bug found in a plan's live run is the
+same topic and amends that number; a *new architectural decision* is greenfield
+— which is how 0134 span out of this record's "Outstanding" section. Nothing
+here changes what recovery decides. The scope check: goroutine-driven file
+churn appears in exactly one test file in the repository, so this is not the
+suite-wide flake class it superficially resembles. The other CI failures of the
+past week — Windows file semantics, `linux/arm64` codex timing, a racy SDK
+logger, the AGP 9 manifest-path break — each had their own cause and their own
+fix, and none share this one.
+
+*Not weakened:* the deferral property itself keeps full coverage.
+`TestRecoverIdleDefersOnAnUnstableObservation` was written on 2026-09-02
+precisely because "the churn test cannot produce an unstable observation on
+demand", and it already asserts all three properties. Phase 7 removes a
+duplicate that is weaker than the original, not a unique guarantee.
+
+### Phase 7 — 2026-09-05, complete
+
+Steps 21-23 landed in `9efcc13`; the plan amendment itself in `84319f1`.
+
+**Step 24 was done first, and it is the reason the deletion is safe.** The
+obligation was to prove the surviving test really covers the property before
+removing the duplicate, so `recoverIdle` was broken deliberately in a scratch
+copy (`git archive HEAD` into the scratchpad — the tree was never dirtied) and
+`TestRecoverIdleDefersOnAnUnstableObservation` run against it.
+
+The first attempt was not a proof. Removing only the `!obs.stable` guard sent
+the observation down the escalation path, so the test failed on its
+`recovery_required` assertion at `:172` and the manifest assertions never ran —
+it demonstrated the wrong thing. Forcing the *adoption* branch as well
+(`obs.valid && …NotOlder(…)` → `true`) produced the failure that was actually
+needed:
+
+```text
+--- FAIL: TestRecoverIdleDefersOnAnUnstableObservation
+    unstable_live_test.go:177: generations changed on an untrustworthy read: 1 -> 2
+    unstable_live_test.go:182: CURRENT was moved on an untrustworthy read
+```
+
+Those are the same two properties deleted from the churn test, so the coverage
+transfers exactly rather than approximately.
+
+*Verification.* `make pre-add-check` → `794 file(s) clean (gofmt, golint,
+govulncheck)`. `make vet`, `make lint` → clean. The plan's targeted set
+(`providerauth`, `credstore`, `codex`, `grok`, `-count=1`) → 4 packages ok.
+`go test ./... -count=1` → 42 packages ok, no failures. Stress: `-race
+-count=8` on the package (187 s) and 8 concurrent `-race -count=4` runs of the
+four unstable-LIVE tests → 32 runs, zero failures.
+
+*Scope held.* No production code changed in this phase; the only source edit is
+one test function. The `before` binding was removed with the assertions it
+served.
+
+*What this does not fix.* CI failed on roughly one run in three over the last
+40, across ten unrelated tests. This closes the only one that was still live.
+Whether the tag lane should retry, or those tests be quarantined, is a separate
+decision this plan does not make.
 
 ## Outstanding: the trigger needs its own decision
 

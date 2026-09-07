@@ -874,18 +874,28 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
 SessionTranscript _enforceCap(SessionTranscript t) {
   if (t.items.length <= kMaxTranscriptItems) return t;
 
-  final drop = t.items.length - kMaxTranscriptItems;
+  // Trim in batches, not one item at a time.
+  //
+  // Dropping a single item per event meant copying the whole list and
+  // rebuilding the whole tool index on *every* event once the cap was reached.
+  // At 800 items that was tolerable; at the 4,000 of MADR 0138 Phase 4 it is
+  // five times worse per event. Cutting back to 75% makes that O(n) work happen
+  // once per n/4 events instead, which is the same shape as the host's own
+  // batched eviction.
+  final target = kMaxTranscriptItems - (kMaxTranscriptItems ~/ 4);
+  final drop = t.items.length - target;
+
   // New growable list so FIFO trim never mutates a published prefix list.
   final items = List<ChatItem>.of(t.items.sublist(drop), growable: true);
 
-  // Rebuild tool index relative to the new list.
+  // Shift the existing index instead of rebuilding it from the items: the map
+  // holds one entry per tool call, which is far smaller than the transcript,
+  // and every surviving entry simply moves down by `drop`.
   final toolIndex = <String, int>{};
-  for (var i = 0; i < items.length; i++) {
-    final id = items[i].toolId;
-    if (id != null && id.isNotEmpty && items[i].kind == ChatItemKind.tool) {
-      toolIndex[id] = i;
-    }
-  }
+  t.toolIndex.forEach((id, i) {
+    final moved = i - drop;
+    if (moved >= 0) toolIndex[id] = moved;
+  });
   return t.copyWith(items: items, toolIndex: toolIndex, growableItems: true);
 }
 

@@ -123,7 +123,7 @@ func TestACMECacheDir(t *testing.T) {
 }
 
 func TestLoadLetsEncryptYAML(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateFixtureDir(t)
 	path := filepath.Join(dir, "config.yaml")
 	body := `
 listen:

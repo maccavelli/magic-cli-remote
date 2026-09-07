@@ -169,21 +169,25 @@ func TestOnHealthyRecordsVersion(t *testing.T) {
 	}
 }
 
-// 7.4.23 health body (MADR 0108 probe) must record the version and never
-// fail boot.
-func TestKnownGoodVersionIs7423(t *testing.T) {
-	if KnownGoodVersion != "7.4.23" {
-		t.Fatalf("KnownGoodVersion = %q, want 7.4.23 (MADR 0108 D1)", KnownGoodVersion)
+// The pin is asserted against a literal on purpose: bumping it must be a
+// deliberate edit in two places, with a fixture to back it, rather than
+// something that drifts with whatever happens to be installed (MADR 0137
+// Phase 3).
+func TestKnownGoodVersionIs756(t *testing.T) {
+	if KnownGoodVersion != "7.5.6" {
+		t.Fatalf("KnownGoodVersion = %q, want 7.5.6 "+
+			"(MADR 0137 Phase 3; evidence: testdata/wire/7.5.6/)", KnownGoodVersion)
 	}
 }
 
-func TestOnHealthyRecords7423(t *testing.T) {
+// A health body at the pinned version must record it and never fail boot.
+func TestOnHealthyRecords756(t *testing.T) {
 	d := newTestDialect(false)
-	if err := d.OnHealthy([]byte(`{"healthy":true,"version":"7.4.23"}`)); err != nil {
-		t.Fatalf("OnHealthy 7.4.23: %v", err)
+	if err := d.OnHealthy([]byte(`{"healthy":true,"version":"7.5.6"}`)); err != nil {
+		t.Fatalf("OnHealthy 7.5.6: %v", err)
 	}
-	if v := d.EngineVersion(); v != "7.4.23" {
-		t.Fatalf("EngineVersion = %q, want 7.4.23", v)
+	if v := d.EngineVersion(); v != "7.5.6" {
+		t.Fatalf("EngineVersion = %q, want 7.5.6", v)
 	}
 }
 

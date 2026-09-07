@@ -159,6 +159,7 @@ type LimitsConfig struct {
 	MaxPhonesPerHost     int `mapstructure:"max_phones_per_host"`
 	MaxMessageBytes      int `mapstructure:"max_message_bytes"`
 	MaxConcurrentJoin    int `mapstructure:"max_concurrent_join"`
+	MaxConns             int `mapstructure:"max_conns"`
 	AcceptPerMinute      int `mapstructure:"accept_per_minute"`
 	JoinPerMinute        int `mapstructure:"join_per_minute"`
 	RegisterPerMinute    int `mapstructure:"register_per_minute"`
@@ -184,6 +185,7 @@ func DefaultsFile() FileConfig {
 			MaxPhonesPerHost:     d.MaxPhonesPerHost,
 			MaxMessageBytes:      d.MaxMessageBytes,
 			MaxConcurrentJoin:    d.MaxConcurrentJoin,
+			MaxConns:             d.MaxConns,
 			AcceptPerMinute:      d.AcceptPerMinute,
 			JoinPerMinute:        d.JoinPerMinute,
 			RegisterPerMinute:    d.RegisterPerMinute,
@@ -246,6 +248,7 @@ func Load(opts LoadOptions) (FileConfig, error) {
 	_ = v.BindEnv("limits.max_phones_per_host", "MCRELAY_LIMITS_MAX_PHONES_PER_HOST")
 	_ = v.BindEnv("limits.max_message_bytes", "MCRELAY_LIMITS_MAX_MESSAGE_BYTES")
 	_ = v.BindEnv("limits.max_concurrent_join", "MCRELAY_LIMITS_MAX_CONCURRENT_JOIN")
+	_ = v.BindEnv("limits.max_conns", "MCRELAY_LIMITS_MAX_CONNS")
 	_ = v.BindEnv("limits.accept_per_minute", "MCRELAY_LIMITS_ACCEPT_PER_MINUTE")
 	_ = v.BindEnv("limits.join_per_minute", "MCRELAY_LIMITS_JOIN_PER_MINUTE")
 	_ = v.BindEnv("limits.register_per_minute", "MCRELAY_LIMITS_REGISTER_PER_MINUTE")
@@ -282,6 +285,13 @@ func Load(opts LoadOptions) (FileConfig, error) {
 			return FileConfig{}, fmt.Errorf("read config %s: %w", configFile, err)
 		}
 		usedConfigFile = configFile
+		ok, err := appdirs.FileIsOwnerOnly(usedConfigFile)
+		if err != nil {
+			return FileConfig{}, fmt.Errorf("config %s: %w", usedConfigFile, err)
+		}
+		if !ok {
+			return FileConfig{}, fmt.Errorf("config %s is readable by group/other; chmod 0600", usedConfigFile)
+		}
 	} else {
 		v.AddConfigPath(basePaths.ConfigDir)
 		v.SetConfigName("config")
@@ -292,6 +302,13 @@ func Load(opts LoadOptions) (FileConfig, error) {
 			}
 		} else {
 			usedConfigFile = v.ConfigFileUsed()
+			ok, err := appdirs.FileIsOwnerOnly(usedConfigFile)
+			if err != nil {
+				return FileConfig{}, fmt.Errorf("config %s: %w", usedConfigFile, err)
+			}
+			if !ok {
+				return FileConfig{}, fmt.Errorf("config %s is readable by group/other; chmod 0600", usedConfigFile)
+			}
 		}
 	}
 
@@ -446,7 +463,7 @@ func absAgainstCWD(p string) (string, error) {
 func expandStringList(in []string) []string {
 	var out []string
 	for _, s := range in {
-		for _, p := range strings.Split(s, ",") {
+		for p := range strings.SplitSeq(s, ",") {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				out = append(out, p)
@@ -480,6 +497,7 @@ func setFileDefaults(v *viper.Viper) {
 	v.SetDefault("limits.max_phones_per_host", d.Limits.MaxPhonesPerHost)
 	v.SetDefault("limits.max_message_bytes", d.Limits.MaxMessageBytes)
 	v.SetDefault("limits.max_concurrent_join", d.Limits.MaxConcurrentJoin)
+	v.SetDefault("limits.max_conns", d.Limits.MaxConns)
 	v.SetDefault("limits.accept_per_minute", d.Limits.AcceptPerMinute)
 	v.SetDefault("limits.join_per_minute", d.Limits.JoinPerMinute)
 	v.SetDefault("limits.register_per_minute", d.Limits.RegisterPerMinute)
@@ -635,6 +653,9 @@ func validateLimitsConfig(l LimitsConfig) error {
 	if err := check("max_concurrent_join", l.MaxConcurrentJoin, MaxLimitConcurrentJoin); err != nil {
 		return err
 	}
+	if err := check("max_conns", l.MaxConns, MaxLimitConns); err != nil {
+		return err
+	}
 	if err := check("accept_per_minute", l.AcceptPerMinute, MaxLimitPerMinute); err != nil {
 		return err
 	}
@@ -699,7 +720,7 @@ func (c FileConfig) Addr() string {
 }
 
 // ToServerConfig converts file config into the runtime server config.
-func (c FileConfig) ToServerConfig() Config {
+func (c *FileConfig) ToServerConfig() Config {
 	creds := make([]HostCredential, 0, len(c.Hosts))
 	for _, h := range c.Hosts {
 		creds = append(creds, HostCredential{
@@ -719,6 +740,9 @@ func (c FileConfig) ToServerConfig() Config {
 	}
 	if c.Limits.MaxConcurrentJoin > 0 {
 		lim.MaxConcurrentJoin = c.Limits.MaxConcurrentJoin
+	}
+	if c.Limits.MaxConns > 0 {
+		lim.MaxConns = c.Limits.MaxConns
 	}
 	if c.Limits.AcceptPerMinute > 0 {
 		lim.AcceptPerMinute = c.Limits.AcceptPerMinute
@@ -746,6 +770,9 @@ func (c FileConfig) ToServerConfig() Config {
 	if c.Limits.SpliceMaxSeconds != 0 {
 		lim.SpliceMax = time.Duration(c.Limits.SpliceMaxSeconds) * time.Second
 	}
+	for i := range c.Hosts {
+		c.Hosts[i].Secret = ""
+	}
 	tls := c.TLS.Normalized()
 	proxies, _ := ParseTrustedProxies(c.TrustedProxies) // validated in Validate
 	return Config{
@@ -771,7 +798,7 @@ func splitHostsCSV(csv string) []string {
 	// Support comma-separated host_id:secret entries. Secrets may contain
 	// colons after the first; split only on commas.
 	var out []string
-	for _, part := range strings.Split(csv, ",") {
+	for part := range strings.SplitSeq(csv, ",") {
 		part = strings.TrimSpace(part)
 		if part != "" {
 			out = append(out, part)
@@ -801,4 +828,24 @@ func DataDirHint() string {
 // EnsureDataDir creates the data directory with 0700.
 func EnsureDataDir(dir string) error {
 	return appdirs.EnsurePrivateDir(dir)
+}
+
+// checkSecretFiles requires files-mode TLS PEMs to be owner-only (0142 F22).
+func checkSecretFiles(fc FileConfig) error {
+	if fc.TLS.Normalized().Mode != TLSModeFiles {
+		return nil
+	}
+	for _, path := range []string{fc.TLS.CertFile, fc.TLS.KeyFile} {
+		if path == "" {
+			continue
+		}
+		ok, err := appdirs.FileIsOwnerOnly(path)
+		if err != nil {
+			return fmt.Errorf("tls file %s: %w", path, err)
+		}
+		if !ok {
+			return fmt.Errorf("tls file %s is readable by group/other; chmod 0600", path)
+		}
+	}
+	return nil
 }

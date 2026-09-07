@@ -33,14 +33,46 @@ import (
 // process is gone. Sessions in this state are no longer live.
 const StatusDisconnected = "disconnected"
 
-// historyBufferCap bounds the per-session replay ring buffer. Aligned with the
-// mobile client's kMaxTranscriptItems (800) so cold reopen can rebuild a full
-// phone-side transcript (MADR 0018 E4). Oldest events drop.
-const historyBufferCap = 800
+// historyBudgetBytes bounds one session's replay ring.
+//
+// It replaces an 800-event count that had nothing to do with memory: it was
+// "aligned with the mobile client's kMaxTranscriptItems (800)" (MADR 0018 E4),
+// and counting events let one provider's telemetry evict the operator's own
+// words. Six of 34 stored sessions were truncated and two retained no
+// user_message at all, while a codex session spent 695 of 723 slots on the
+// stdout of one command (MADR 0138 F1).
+//
+// 32 MiB is roughly 21,000 events at the 1,523 B/event that event.Bytes
+// measures for a realistic transcript — about 26× the old cap. The daemon's
+// whole RSS is 51 MB against a 32 GB host and a 1,450 MB kilo engine, so this
+// spends headroom the process has three orders of magnitude of.
+const historyBudgetBytes = 32 << 20
 
-// HistoryRingCap exposes the ring size for the v2 capability block
+// historyTrimToBytes is what a session is cut back to once it exceeds its
+// budget. Trimming in batches rather than one event at a time keeps the
+// eviction scan amortised.
+const historyTrimToBytes = historyBudgetBytes * 3 / 4
+
+// globalBudgetBytes bounds every live session's ring together, so one chatty
+// session cannot set the daemon's memory ceiling on its own. 12× the
+// per-session budget under a default max_live_sessions of 16.
+const globalBudgetBytes = 384 << 20
+
+// historyRingCapEstimate is the event count advertised in the v2 capability
+// block. Caps.HistoryRing has always meant "events", and old phones size their
+// own buffers from it, so it stays an event count: the byte budget is
+// advertised separately as Caps.HistoryBudgetBytes. Conservative on purpose —
+// a client that under-fetches pages again, one that over-fetches gets an empty
+// page and concludes the ring is shorter than it is.
+const historyRingCapEstimate = historyBudgetBytes / 2048
+
+// HistoryRingCap exposes the advertised ring size for the v2 capability block
 // (MADR 0068 D1) so the advertised limit cannot drift from the enforced one.
-const HistoryRingCap = historyBufferCap
+const HistoryRingCap = historyRingCapEstimate
+
+// HistoryBudgetBytes exposes the enforced per-session byte budget for the same
+// capability block (MADR 0138 Phase 2).
+const HistoryBudgetBytes = historyBudgetBytes
 
 // historyDefaultPage is the default number of events returned by a single
 // session.history response when the client does not set limit.
@@ -92,16 +124,26 @@ type Meta struct {
 	// Empty means unknown — clients assume settable (MADR 0123 D7, C2).
 	// Reported by the live session; it is not persisted, because it is a
 	// property of the provider build in front of us, not of the record.
-	ThinkingMutability  provider.ThinkingMutability `json:"thinking_mutability,omitempty"`
-	ModeID              string                      `json:"mode_id,omitempty"`
-	CollaborationModeID string                      `json:"collaboration_mode_id,omitempty"`
-	PermissionProfileID string                      `json:"permission_profile_id,omitempty"`
-	ApprovalsReviewer   string                      `json:"approvals_reviewer,omitempty"`
-	ServiceTier         string                      `json:"service_tier,omitempty"`
-	Personality         string                      `json:"personality,omitempty"`
-	CWD                 string                      `json:"cwd,omitempty"`
-	AgentSessionID      string                      `json:"agent_session_id,omitempty"`
-	AgentSessionAliases []string                    `json:"agent_session_aliases,omitempty"`
+	ThinkingMutability provider.ThinkingMutability `json:"thinking_mutability,omitempty"`
+	// Cumulative token cost for this session, accrued at each turn end
+	// (MADR 0138 Phase 6). Unlike event.Usage, which is deliberately per-turn,
+	// these are session totals: the turn figure says what the last question
+	// cost, these say what the session has cost so far. Absent on a provider
+	// that reports no usage, and never guessed.
+	Turns        int   `json:"turns,omitempty"`
+	InputTokens  int64 `json:"input_tokens,omitempty"`
+	OutputTokens int64 `json:"output_tokens,omitempty"`
+	CachedTokens int64 `json:"cached_tokens,omitempty"`
+
+	ModeID              string   `json:"mode_id,omitempty"`
+	CollaborationModeID string   `json:"collaboration_mode_id,omitempty"`
+	PermissionProfileID string   `json:"permission_profile_id,omitempty"`
+	ApprovalsReviewer   string   `json:"approvals_reviewer,omitempty"`
+	ServiceTier         string   `json:"service_tier,omitempty"`
+	Personality         string   `json:"personality,omitempty"`
+	CWD                 string   `json:"cwd,omitempty"`
+	AgentSessionID      string   `json:"agent_session_id,omitempty"`
+	AgentSessionAliases []string `json:"agent_session_aliases,omitempty"`
 	// OwnerDeviceID is the paired device that created (or claimed) the session.
 	// Empty means legacy/unowned — visible to all devices until claimed (R4=B).
 	OwnerDeviceID string `json:"owner_device_id,omitempty"`
@@ -133,8 +175,39 @@ type entry struct {
 	// tombstone (R2=A).
 	dead bool
 	// history is a bounded ring buffer of every event this session emitted,
-	// oldest first, for session.history replay. Capped at historyBufferCap.
+	// oldest first, for session.history replay. Bounded by historyBudgetBytes
+	// and evicted lowest-content-class-first (MADR 0138 Phase 2).
 	history []event.Event
+	// historyBytes is the running sum of event.Bytes over history. Maintained
+	// on append and recomputed by reindexHistoryLocked after any deletion.
+	historyBytes int
+	// lastEventAt is when this session last appended to its ring. The global
+	// budget evicts from the coldest session first, and that ordering needs a
+	// clock that tracks events rather than the metadata writes UpdatedAt tracks.
+	lastEventAt time.Time
+	// globalTrimNoticed records that the operator has already been told this
+	// session was trimmed by the global budget, so a busy host does not repeat
+	// it on every event.
+	globalTrimNoticed bool
+	// ctxPressureNoticed is the highest context-pressure threshold already
+	// reported for this session, as a percentage. It is a crossing, not a
+	// level: a session that drops back below (a /compact, a /clear) re-arms,
+	// so the operator is told again the next time it climbs.
+	ctxPressureNoticed int
+	// replayIndex maps replayKey(ev) to the positions in history carrying that
+	// key, so a session/load replay can find a duplicate without scanning the
+	// ring. It indexes every event, not only replayed ones, because the scan it
+	// replaces compared against the whole ring (MADR 0138 F15).
+	//
+	// Rebuilt on any deletion or trim; appends update it in place. Guarded by
+	// m.mu, like every other entry field.
+	replayIndex map[uint64][]int
+	// replayCompares counts the field comparisons made while confirming a hash
+	// hit. With the index it grows O(n) over a replay; the linear scan it
+	// replaces grew O(n²). Read by tests via exported_test helpers — it is the
+	// only signal that distinguishes the two implementations without timing
+	// them, and a timing assertion is not a check this repository trusts.
+	replayCompares uint64
 	// pending asks are authoritative while the live entry exists. History is
 	// bounded, so it cannot reliably answer whether an old request remains open.
 	pendingPermissions map[string]event.Event
@@ -160,12 +233,21 @@ type entry struct {
 	// advertised is the canonical command list last sent to clients, kept so a
 	// re-resolution only emits when the answer actually changed.
 	advertised []event.RemoteCommand
-}
+	// Turn timing for the "turn latency" record (MADR 0137 Phase 2).
+	//
+	// promptAt is set when a prompt is accepted, firstOutputAt when the first
+	// visible output of that turn arrives. Both are cleared at turn end, so a
+	// second turn cannot inherit the first one's clock. They measure the number
+	// the user actually feels, which nothing in the daemon measured before: it
+	// logged how long it took to hand a prompt to an engine and then nothing
+	// until the turn ended, which is why a 20x regression produced no signal.
+	// noticeDedupe suppresses a notice identical to the one before it
+	// (MADR 0137 F6a). Guarded by m.mu, like every other entry field.
+	noticeDedupe event.NoticeDeduper
 
-// historyTrimTo is what the ring is cut back to when it exceeds
-// historyBufferCap. Trimming in batches instead of one-at-a-time avoids an
-// O(cap) memmove on every event past the cap.
-const historyTrimTo = historyBufferCap - historyBufferCap/4
+	promptAt      time.Time
+	firstOutputAt time.Time
+}
 
 // appendHistoryLocked stamps ev with the next sequence number and records it.
 // Caller holds m.mu; the stamp is visible to the caller's broadcast copy.
@@ -185,12 +267,8 @@ const historyTrimTo = historyBufferCap - historyBufferCap/4
 // identity for them would let one retraction delete unrelated content.
 // Sequence gaps left by deletion are valid and expected.
 func (e *entry) appendHistoryLocked(ev *event.Event) {
-	if ev.Replay {
-		for _, existing := range e.history {
-			if existing.Type == ev.Type && existing.Text == ev.Text && existing.ToolID == ev.ToolID && existing.AgentSessionID == ev.AgentSessionID {
-				return
-			}
-		}
+	if ev.Replay && e.hasReplayDuplicateLocked(ev) {
+		return
 	}
 	switch {
 	case ev.Type == event.TypeTranscriptRemove && ev.NativeMessageID != "":
@@ -206,9 +284,270 @@ func (e *entry) appendHistoryLocked(ev *event.Event) {
 	e.seq++
 	ev.Seq = e.seq
 	e.history = append(e.history, *ev)
-	if len(e.history) > historyBufferCap {
-		e.history = slices.Delete(e.history, 0, len(e.history)-historyTrimTo)
+	e.historyBytes += event.Bytes(ev)
+	e.indexReplayLocked(len(e.history) - 1)
+	e.enforceHistoryBudgetLocked()
+}
+
+// enforceHistoryBudgetLocked evicts until the session is back under
+// historyTrimToBytes, lowest class first and oldest first within a class.
+//
+// The newest event is never evicted: a transcript that drops what just arrived
+// is worse than one that is briefly over budget, and a single event larger than
+// the whole budget would otherwise be discarded the instant it landed.
+//
+// Returns the classes it evicted from, highest first, or ClassTelemetry-1 when
+// nothing was evicted. Callers use it to decide whether the operator needs to
+// be told that content — not just telemetry — is being dropped.
+func (e *entry) enforceHistoryBudgetLocked() (evictedUpTo event.Class, evicted bool) {
+	if e.historyBytes <= historyBudgetBytes || len(e.history) < 2 {
+		return 0, false
 	}
+	need := e.historyBytes - historyTrimToBytes
+	drop := make([]bool, len(e.history))
+	freed := 0
+	newest := len(e.history) - 1
+
+	for cls := event.ClassTelemetry; freed < need; cls++ {
+		for i := 0; i < newest && freed < need; i++ {
+			if drop[i] || event.ClassOf(e.history[i].Type) != cls {
+				continue
+			}
+			drop[i] = true
+			freed += event.Bytes(&e.history[i])
+			evictedUpTo, evicted = cls, true
+		}
+		if cls == event.ClassAnchor {
+			// Nothing ranks above an anchor. Everything evictable is gone and
+			// the session is still over budget; stop rather than loop forever.
+			break
+		}
+	}
+	if !evicted {
+		return 0, false
+	}
+
+	kept := e.history[:0]
+	for i := range e.history {
+		if drop[i] {
+			continue
+		}
+		kept = append(kept, e.history[i])
+	}
+	e.history = kept
+	e.reindexHistoryLocked()
+	return evictedUpTo, true
+}
+
+// replayFieldSep separates the fields folded into a replay key. Unit Separator
+// cannot occur in an event type, a tool id or an agent session id, so no two
+// distinct field tuples can produce the same byte sequence by concatenation.
+const replayFieldSep = 0x1F
+
+const (
+	fnvOffset64 uint64 = 14695981039346656037
+	fnvPrime64  uint64 = 1099511628211
+)
+
+func fnv1aString(h uint64, s string) uint64 {
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= fnvPrime64
+	}
+	return h
+}
+
+func fnv1aByte(h uint64, b byte) uint64 {
+	h ^= uint64(b)
+	h *= fnvPrime64
+	return h
+}
+
+// replayKey folds the exact four fields the replay dedupe compares — Type,
+// Text, ToolID, AgentSessionID, in that order — into one hash. It allocates
+// nothing: the loop reads the strings directly rather than concatenating them.
+func replayKey(ev *event.Event) uint64 {
+	h := fnvOffset64
+	h = fnv1aString(h, string(ev.Type))
+	h = fnv1aByte(h, replayFieldSep)
+	h = fnv1aString(h, ev.Text)
+	h = fnv1aByte(h, replayFieldSep)
+	h = fnv1aString(h, ev.ToolID)
+	h = fnv1aByte(h, replayFieldSep)
+	h = fnv1aString(h, ev.AgentSessionID)
+	return h
+}
+
+// hasReplayDuplicateLocked reports whether the ring already holds ev, by the
+// same four-field identity the pre-index scan used.
+//
+// A hash hit is confirmed field by field before anything is discarded. A 64-bit
+// collision is astronomically unlikely, but the failure it would cause —
+// silently dropping a user's message during a session/load — is exactly the
+// defect this record exists to fix, so it is not left to probability.
+func (e *entry) hasReplayDuplicateLocked(ev *event.Event) bool {
+	for _, i := range e.replayIndex[replayKey(ev)] {
+		if i < 0 || i >= len(e.history) {
+			continue
+		}
+		e.replayCompares++
+		h := &e.history[i]
+		if h.Type == ev.Type && h.Text == ev.Text &&
+			h.ToolID == ev.ToolID && h.AgentSessionID == ev.AgentSessionID {
+			return true
+		}
+	}
+	return false
+}
+
+// indexReplayLocked records the event at position i in the replay index.
+func (e *entry) indexReplayLocked(i int) {
+	if i < 0 || i >= len(e.history) {
+		return
+	}
+	if e.replayIndex == nil {
+		e.replayIndex = make(map[uint64][]int)
+	}
+	k := replayKey(&e.history[i])
+	e.replayIndex[k] = append(e.replayIndex[k], i)
+}
+
+// enforceGlobalBudgetLocked keeps every live session's ring inside
+// globalBudgetBytes, so one chatty session cannot set the daemon's memory
+// ceiling for the host.
+//
+// It evicts from the coldest session first — least recently appended to — and
+// never from activeID while any other session still has bytes to give. A
+// session being prompted right now is the one the operator is looking at.
+//
+// Returns the ids it trimmed for the first time, so the caller can tell those
+// operators their transcript is being shortened. A transcript that silently
+// shrinks is the failure this whole record is about; a global budget that
+// shrinks it silently would just move the failure.
+//
+// Caller holds m.mu.
+func (m *Manager) enforceGlobalBudgetLocked(activeID string) (firstTrimmed []string) {
+	budget := m.globalBudget
+	if budget <= 0 {
+		budget = globalBudgetBytes
+	}
+	total := 0
+	for _, e := range m.sessions {
+		total += e.historyBytes
+	}
+	if total <= budget {
+		return nil
+	}
+
+	cold := make([]*entry, 0, len(m.sessions))
+	ids := make(map[*entry]string, len(m.sessions))
+	for id, e := range m.sessions {
+		if e.dead || id == activeID {
+			continue
+		}
+		cold = append(cold, e)
+		ids[e] = id
+	}
+	sort.Slice(cold, func(i, j int) bool { return cold[i].lastEventAt.Before(cold[j].lastEventAt) })
+
+	share := budget / max(len(m.sessions), 1)
+	trim := func(e *entry, id string) {
+		before := e.historyBytes
+		// Squeeze to a share of the global budget rather than to the
+		// per-session budget, which this session is already inside.
+		if e.trimToLocked(share) {
+			total -= before - e.historyBytes
+			if !e.globalTrimNoticed {
+				e.globalTrimNoticed = true
+				firstTrimmed = append(firstTrimmed, id)
+			}
+		}
+	}
+
+	for _, e := range cold {
+		if total <= budget {
+			return firstTrimmed
+		}
+		trim(e, ids[e])
+	}
+
+	// Last resort: the active session gives too.
+	//
+	// "Never trim the session being prompted" is a preference, not an
+	// exemption — the same shape as the class rule, where anchors are evicted
+	// only once nothing else remains. Without this the guarantee was not
+	// `budget` but `budget + one session's per-session budget`, which a
+	// 16-session soak measured as 403.5 MB against a 384 MiB bound. A budget
+	// that can be exceeded by design is not a budget.
+	if total > budget {
+		if e, ok := m.sessions[activeID]; ok && !e.dead {
+			trim(e, activeID)
+		}
+	}
+	return firstTrimmed
+}
+
+// trimToLocked evicts by the class rule until the session is at or under
+// budget, and reports whether anything was dropped.
+func (e *entry) trimToLocked(budget int) bool {
+	if e.historyBytes <= budget || len(e.history) < 2 {
+		return false
+	}
+	need := e.historyBytes - budget
+	drop := make([]bool, len(e.history))
+	freed := 0
+	newest := len(e.history) - 1
+	for cls := event.ClassTelemetry; freed < need; cls++ {
+		for i := 0; i < newest && freed < need; i++ {
+			if drop[i] || event.ClassOf(e.history[i].Type) != cls {
+				continue
+			}
+			drop[i] = true
+			freed += event.Bytes(&e.history[i])
+		}
+		if cls == event.ClassAnchor {
+			break
+		}
+	}
+	if freed == 0 {
+		return false
+	}
+	kept := e.history[:0]
+	for i := range e.history {
+		if !drop[i] {
+			kept = append(kept, e.history[i])
+		}
+	}
+	e.history = kept
+	e.reindexHistoryLocked()
+	return true
+}
+
+// reindexHistoryLocked recomputes the replay index and the byte total from the
+// ring. Every deletion and every eviction shifts positions, and a stale
+// position is a wrong answer rather than a slow one, so both are rebuilt rather
+// than patched.
+//
+// The index and the byte total are rebuilt together on purpose: they are two
+// views of the same slice, and letting them be maintained separately is how one
+// of them ends up describing a ring that no longer exists. It is
+// O(len(history)) and runs only on an eviction or a native-identity removal,
+// both rare next to appends.
+func (e *entry) reindexHistoryLocked() {
+	if len(e.history) == 0 {
+		e.replayIndex = nil
+		e.historyBytes = 0
+		return
+	}
+	idx := make(map[uint64][]int, len(e.history))
+	total := 0
+	for i := range e.history {
+		k := replayKey(&e.history[i])
+		idx[k] = append(idx[k], i)
+		total += event.Bytes(&e.history[i])
+	}
+	e.replayIndex = idx
+	e.historyBytes = total
 }
 
 // removeNativeLocked deletes history rows by native identity. An empty partID
@@ -218,6 +557,7 @@ func (e *entry) removeNativeLocked(messageID, partID string) {
 	if messageID == "" {
 		return
 	}
+	before := len(e.history)
 	e.history = slices.DeleteFunc(e.history, func(h event.Event) bool {
 		if h.NativeMessageID != messageID {
 			return false
@@ -231,6 +571,9 @@ func (e *entry) removeNativeLocked(messageID, partID string) {
 		}
 		return h.NativePartID == partID
 	})
+	if len(e.history) != before {
+		e.reindexHistoryLocked()
+	}
 }
 
 // removeOptimisticUserLocked drops the message-level user row the daemon wrote
@@ -239,11 +582,15 @@ func (e *entry) removeOptimisticUserLocked(messageID string) {
 	if messageID == "" {
 		return
 	}
+	before := len(e.history)
 	e.history = slices.DeleteFunc(e.history, func(h event.Event) bool {
 		return h.Type == event.TypeUserMessage &&
 			h.NativeMessageID == messageID &&
 			h.NativePartID == ""
 	})
+	if len(e.history) != before {
+		e.reindexHistoryLocked()
+	}
 }
 
 // EventHandler is called for every session event (e.g. WS broadcast).
@@ -337,6 +684,10 @@ type Manager struct {
 	// construction-order cycle (mirrors the existing onEvent/eventHub bridge).
 	receiptsMu sync.RWMutex
 	receipts   ReceiptSupport
+	// globalBudget overrides globalBudgetBytes. Zero uses the constant; tests
+	// set a small value so the cross-session eviction can be exercised without
+	// allocating hundreds of megabytes.
+	globalBudget int
 }
 
 // ReceiptTransport asks a specific device's live connection to sign a
@@ -831,13 +1182,18 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 			return Meta{}, ErrShuttingDown
 		}
 	}
-	m.sessions[sess.ID()] = &entry{
+	seeded := &entry{
 		meta:    meta,
 		sess:    sess,
 		cancel:  cancel,
 		history: priorHist,
 		seq:     priorSeq,
 	}
+	// The ring is seeded from disk before any append, so the replay index has
+	// to be built from it. Without this a session/load right after a restart
+	// would re-append the whole durable transcript as "new".
+	seeded.reindexHistoryLocked()
+	m.sessions[sess.ID()] = seeded
 	m.mu.Unlock()
 	m.clearPurged(sess.ID())
 
@@ -902,6 +1258,15 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// tool_name/detail (MADR 0077 P7).
 			var receiptReq event.Event
 			receiptReqOK := false
+			// Filled under the lock at turn end; logged after it is released,
+			// so a log write never happens with m.mu held.
+			var turnRec *turnLatency
+			// Sessions the global budget trimmed on this event. The notice is
+			// emitted after the lock is dropped, like advertiseCommands.
+			var globalTrimmed []string
+			// Context-pressure text for this turn, or empty. Same deal: built
+			// under the lock, emitted after it.
+			var ctxPressure string
 			m.mu.Lock()
 			e, mine := m.sessions[sess.ID()]
 			// Only touch (or broadcast for) the entry when it still belongs to
@@ -988,7 +1353,46 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					reresolve = e.lastUsage == nil
 					e.lastUsage = ev.Usage
 				}
+				// Suppress a notice identical to the one before it
+				// (MADR 0137 F6a). One codex session recorded 77 copies of a
+				// single upstream deprecation warning; a once-per-engine
+				// message must not become once-per-turn noise on the phone.
+				//
+				// Here rather than at the 42 TypeNotice emit sites across six
+				// provider packages: this is where every provider's events
+				// converge and where the per-session state already lives, so
+				// one guard covers all of them and any future site — which a
+				// per-site guard would silently let opt out.
+				//
+				// A replayed event is never suppressed. session/load re-emits
+				// the prior conversation, and dropping a notice from it would
+				// rewrite history the phone is trying to reconstruct.
+				if !ev.Replay && ev.Type == event.TypeNotice &&
+					!e.noticeDedupe.ShouldEmit("", ev.Text) {
+					m.mu.Unlock()
+					continue
+				}
+				// Turn timing (MADR 0137 Phase 2). Recorded before the
+				// switch below so a turn-ending event still sees the first
+				// output that preceded it.
+				if !e.promptAt.IsZero() && e.firstOutputAt.IsZero() && isTurnOutput(ev.Type) {
+					e.firstOutputAt = ev.Timestamp
+					if e.firstOutputAt.IsZero() {
+						e.firstOutputAt = time.Now().UTC()
+					}
+				}
+				if !e.promptAt.IsZero() && (ev.Type == event.TypeTurnComplete || ev.Type == event.TypeError) {
+					turnRec = newTurnLatency(e, ev)
+					e.promptAt = time.Time{}
+					e.firstOutputAt = time.Time{}
+					if m := e.accrueTurnCostLocked(); m != nil {
+						persistMeta = m
+					}
+					ctxPressure = e.contextPressureLocked()
+				}
 				e.appendHistoryLocked(&ev)
+				e.lastEventAt = time.Now()
+				globalTrimmed = m.enforceGlobalBudgetLocked(sess.ID())
 				switch ev.Type {
 				case event.TypePermission:
 					if ev.PermissionID != "" {
@@ -1019,6 +1423,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				histID = sess.ID()
 			}
 			m.mu.Unlock()
+			if turnRec != nil {
+				turnRec.log(m.log)
+			}
 			if mine && !ev.Replay && ev.Type == event.TypePermissionResolved && receiptReqOK {
 				// Outside the lock and never awaited here — D8's non-blocking
 				// requirement. A no-op instantly if receipts aren't configured
@@ -1036,6 +1443,26 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				// Outside the lock: resolution reads provider capabilities and
 				// emits its own event.
 				m.advertiseCommands(sess.ID())
+			}
+			if ctxPressure != "" {
+				m.emitEvent(sess.ID(), event.Event{
+					Type:      event.TypeNotice,
+					SessionID: sess.ID(),
+					Timestamp: time.Now().UTC(),
+					Text:      ctxPressure,
+				})
+			}
+			for _, trimmedID := range globalTrimmed {
+				// Outside the lock, and once per session: emitEvent takes m.mu
+				// itself, and a busy host must not repeat this on every event.
+				m.emitEvent(trimmedID, event.Event{
+					Type:      event.TypeNotice,
+					SessionID: trimmedID,
+					Timestamp: time.Now().UTC(),
+					Text: "Older parts of this transcript were dropped to stay " +
+						"inside the host's memory budget. The conversation itself " +
+						"is kept; tool output and status updates go first.",
+				})
 			}
 			if histID != "" {
 				m.scheduleHistoryPersist(histID)
@@ -1371,8 +1798,10 @@ func (m *Manager) Claim(sessionID, deviceID string) (Meta, error) {
 // (Phase D). An unknown or never-active session returns an empty (non-nil)
 // slice, not an error.
 //
-// Wire clients should prefer HistoryPage / HistoryPageFor so one response stays
-// within historyMaxResponseBytes (Phase 3.5).
+// Wire clients must use HistoryPage / HistoryPageFor instead. This copies the
+// whole ring, which is bounded by an event count today and by a byte budget
+// after MADR 0138 Phase 2 — at that size a full copy per request is the most
+// expensive thing a phone can ask the daemon to do.
 //
 // Callers that enforce ownership should use Authorize before History, or
 // HistoryFor / HistoryPageFor.
@@ -1408,64 +1837,234 @@ func (m *Manager) HistoryPage(id string, sinceSeq uint64, limit int) (events []e
 		limit = historyMaxPage
 	}
 
-	ring := m.historyRing(id)
-	if len(ring) == 0 {
+	window, more := m.historySlice(id, sinceSeq, limit)
+	if len(window) == 0 {
 		return []event.Event{}, false, 0
 	}
 
-	// Skip events at or below sinceSeq.
-	start := 0
-	if sinceSeq > 0 {
-		for start < len(ring) && ring[start].Seq <= sinceSeq {
-			start++
-		}
-	}
-	if start >= len(ring) {
-		return []event.Event{}, false, 0
-	}
-
-	end := start + limit
-	if end > len(ring) {
-		end = len(ring)
-	}
-	// Soft byte budget: shrink end until the marshalled page payload fits
-	// (MADR 0056 M-1). Always allow at least one event.
-	for end > start {
-		page := ring[start:end]
-		b, err := json.Marshal(page)
-		if err != nil {
-			break
-		}
-		if len(b) <= historyMaxResponseBytes || end == start+1 {
-			break
-		}
-		end--
-	}
-
-	out := make([]event.Event, end-start)
-	copy(out, ring[start:end])
-	truncated = end < len(ring)
+	out := window[:historyBudgetPrefix(window)]
+	truncated = more || len(out) < len(window)
 	if len(out) > 0 {
 		nextSinceSeq = out[len(out)-1].Seq
 	}
 	return out, truncated, nextSinceSeq
 }
 
-// historyRing returns a copy of live memory history, or durable disk history.
-func (m *Manager) historyRing(id string) []event.Event {
+// HistoryPageBefore returns the newest page of events with Seq < beforeSeq,
+// oldest first *within the page* so a client's reducer is unchanged. A
+// beforeSeq of 0 means "the newest page in the ring" — the page a chat screen
+// opens on.
+//
+// prevBeforeSeq is the cursor for the next older page, or 0 when this page
+// reached the oldest retained event. truncated reports whether anything older
+// remains.
+//
+// This exists because paging was forward-only, and a chat screen opens at the
+// bottom: a phone had to walk the whole ring from its oldest event before it
+// could learn where the end was, then discard everything but the tail (MADR
+// 0138 F17). At 800 events that was one round trip; at a 32 MiB budget it is
+// not.
+func (m *Manager) HistoryPageBefore(id string, beforeSeq uint64, limit int) (events []event.Event, truncated bool, prevBeforeSeq uint64) {
+	if limit <= 0 {
+		limit = historyDefaultPage
+	}
+	if limit > historyMaxPage {
+		limit = historyMaxPage
+	}
+
+	window, older := m.historySliceBefore(id, beforeSeq, limit)
+	if len(window) == 0 {
+		return []event.Event{}, false, 0
+	}
+
+	// The byte budget trims from the end of a forward page. Here the newest
+	// events are the ones that must survive, so measure from the end and keep a
+	// suffix rather than a prefix.
+	n := historyBudgetSuffix(window)
+	out := window[len(window)-n:]
+	truncated = older || n < len(window)
+	if truncated {
+		prevBeforeSeq = out[0].Seq
+	}
+	return out, truncated, prevBeforeSeq
+}
+
+// historyBudgetSuffix returns how many *trailing* events of window fit inside
+// historyMaxResponseBytes, encoding each candidate exactly once. At least one
+// event is always returned.
+func historyBudgetSuffix(window []event.Event) int {
+	if len(window) == 0 {
+		return 0
+	}
+	total := 2
+	kept := 0
+	for i := len(window) - 1; i >= 0; i-- {
+		b, err := historyMarshal(&window[i])
+		if err != nil {
+			if kept == 0 {
+				return 1
+			}
+			return kept
+		}
+		sep := 0
+		if kept > 0 {
+			sep = 1
+		}
+		if kept > 0 && total+sep+len(b) > historyMaxResponseBytes {
+			return kept
+		}
+		total += sep + len(b)
+		kept++
+	}
+	return kept
+}
+
+// historySliceBefore returns up to max events with Seq < beforeSeq, ending at
+// the newest such event, plus whether anything older than the window remains.
+// beforeSeq 0 means "from the newest event".
+func (m *Manager) historySliceBefore(id string, beforeSeq uint64, max int) (window []event.Event, older bool) {
+	if max <= 0 {
+		return nil, false
+	}
+	take := func(ring []event.Event) ([]event.Event, bool) {
+		end := len(ring)
+		if beforeSeq > 0 {
+			end = sort.Search(len(ring), func(i int) bool { return ring[i].Seq >= beforeSeq })
+		}
+		if end <= 0 {
+			return nil, false
+		}
+		start := max2(end-max, 0)
+		return ring[start:end], start > 0
+	}
+
 	m.mu.RLock()
 	e, ok := m.sessions[id]
 	if ok && !e.dead && len(e.history) > 0 {
-		out := make([]event.Event, len(e.history))
-		copy(out, e.history)
+		slice, more := take(e.history)
+		out := make([]event.Event, len(slice))
+		copy(out, slice)
 		m.mu.RUnlock()
-		return out
+		return out, more
 	}
 	m.mu.RUnlock()
 	if m.store == nil {
-		return nil
+		return nil, false
 	}
-	return m.store.LoadHistory(id)
+	return take(m.store.LoadHistory(id))
+}
+
+// max2 is min's twin; Go's builtin min exists but there is no builtin for the
+// clamp-to-zero this needs to read clearly at the call site.
+func max2(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// HistoryPageBeforeFor is HistoryPageBefore after an ownership check.
+func (m *Manager) HistoryPageBeforeFor(sessionID, deviceID string, beforeSeq uint64, limit int) (events []event.Event, truncated bool, prevBeforeSeq uint64, err error) {
+	if err := m.Authorize(sessionID, deviceID, false); err != nil {
+		if errors.Is(err, ErrNotLive) {
+			return []event.Event{}, false, 0, nil
+		}
+		return nil, false, 0, err
+	}
+	events, truncated, prevBeforeSeq = m.HistoryPageBefore(sessionID, beforeSeq, limit)
+	return events, truncated, prevBeforeSeq, nil
+}
+
+// historyMarshal encodes one event for the page byte budget.
+//
+// A package variable so a test can count how many times the budget encodes an
+// event; it is never reassigned in production. The count is the whole point:
+// the loop this replaced re-marshalled a shrinking slice, and on the operator's
+// own data that cost 505 marshals, 709 MB of allocation and 2.5 s to return 102
+// events (MADR 0138 F14). Only a call count distinguishes the two shapes
+// without timing them.
+var historyMarshal = func(ev *event.Event) ([]byte, error) { return json.Marshal(ev) }
+
+// historyBudgetPrefix returns how many leading events of window fit inside
+// historyMaxResponseBytes once encoded as a JSON array, encoding each candidate
+// exactly once.
+//
+// At least one event is always returned, so a single event larger than the
+// budget still makes progress instead of wedging the pager at that seq forever.
+func historyBudgetPrefix(window []event.Event) int {
+	if len(window) == 0 {
+		return 0
+	}
+	// "[" and "]".
+	total := 2
+	for i := range window {
+		b, err := historyMarshal(&window[i])
+		if err != nil {
+			// An event that will not encode cannot be measured. Keep what is
+			// already measured, and never return an empty page: the caller
+			// would read it as "no history" rather than "could not encode".
+			if i == 0 {
+				return 1
+			}
+			return i
+		}
+		sep := 0
+		if i > 0 {
+			// ",".
+			sep = 1
+		}
+		if i > 0 && total+sep+len(b) > historyMaxResponseBytes {
+			return i
+		}
+		total += sep + len(b)
+	}
+	return len(window)
+}
+
+// historySlice returns up to max events with Seq > sinceSeq, plus whether more
+// remained after them. It copies only the candidate window, not the whole ring:
+// at a 32 MiB per-session budget a full-ring copy per paged read would dominate
+// every history request (MADR 0138, amendment step 1).
+//
+// The live ring is ordered by Seq ascending — appends are monotonic and the
+// deletion paths preserve order — so the start is found by binary search.
+// Deletions leave gaps in the sequence, which a search for "first Seq greater
+// than sinceSeq" handles and an equality search would not.
+func (m *Manager) historySlice(id string, sinceSeq uint64, max int) (window []event.Event, more bool) {
+	if max <= 0 {
+		return nil, false
+	}
+	m.mu.RLock()
+	e, ok := m.sessions[id]
+	if ok && !e.dead && len(e.history) > 0 {
+		start := historyStartIndex(e.history, sinceSeq)
+		end := min(start+max, len(e.history))
+		out := make([]event.Event, end-start)
+		copy(out, e.history[start:end])
+		more = end < len(e.history)
+		m.mu.RUnlock()
+		return out, more
+	}
+	m.mu.RUnlock()
+	if m.store == nil {
+		return nil, false
+	}
+	disk := m.store.LoadHistory(id)
+	start := historyStartIndex(disk, sinceSeq)
+	if start >= len(disk) {
+		return nil, false
+	}
+	end := min(start+max, len(disk))
+	return disk[start:end], end < len(disk)
+}
+
+// historyStartIndex returns the first index in ring whose Seq exceeds sinceSeq,
+// or len(ring) when none does.
+func historyStartIndex(ring []event.Event, sinceSeq uint64) int {
+	if sinceSeq == 0 {
+		return 0
+	}
+	return sort.Search(len(ring), func(i int) bool { return ring[i].Seq > sinceSeq })
 }
 
 // HistoryFor returns the full history ring after an ownership check (no claim).
@@ -1676,7 +2275,38 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 		parts = append(parts, provider.Content{Type: "text", Text: text})
 	}
 	parts = append(parts, attachments...)
-	return sess.Prompt(ctx, parts)
+	// Start the turn clock immediately before dispatch, so the measurement
+	// covers what the user waits for and not the command routing above
+	// (MADR 0137 Phase 2). Cleared at turn end by the event pump.
+	m.markPromptStart(id)
+	if err := sess.Prompt(ctx, parts); err != nil {
+		m.clearPromptStart(id)
+		return err
+	}
+	return nil
+}
+
+// markPromptStart begins the turn clock for id. A prompt that replaces an
+// unfinished turn resets it rather than keeping the older start, so a stalled
+// turn cannot inflate the next one's measurement.
+func (m *Manager) markPromptStart(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e := m.sessions[id]; e != nil {
+		e.promptAt = time.Now().UTC()
+		e.firstOutputAt = time.Time{}
+	}
+}
+
+// clearPromptStart abandons the turn clock when dispatch itself failed: no
+// turn ran, so there is nothing to time and no record to emit.
+func (m *Manager) clearPromptStart(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e := m.sessions[id]; e != nil {
+		e.promptAt = time.Time{}
+		e.firstOutputAt = time.Time{}
+	}
 }
 
 // SetMode switches the session's active operating mode (ACP session modes).

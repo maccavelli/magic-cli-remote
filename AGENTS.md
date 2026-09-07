@@ -118,6 +118,14 @@ fix the file.
 
 ## Tests
 
+**Windows local gates (0145):** on a Windows host, before push run
+`make ci-windows`; before tag also `make ci-windows-smoke`; functional
+paths/pair/doctor → `scripts/acceptance-windows.ps1`. On macOS/Linux those
+targets skip with a clear message and exit 0 — keep using `make preflight`.
+See `docs/ops-windows-install.md` and MADR/PLAN 0145. No workflow edits without
+Mac permission.
+
+
 `make test`, and `make race` / `go test -race ./...` before a commit — nothing
 runs the race suite for you, so run it. Live-tagged tests need the real
 CLIs: `go test -tags live_grok ./...`, `-tags live_opencode ./...`,
@@ -160,16 +168,56 @@ naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies both to
 writing a fresh pair and to amending an existing one.
 
 The name is exact — it is the `name:` field of
-`~/.claude/skills/madr-and-plan-writing/SKILL.md`. Until 2026-09-01 all four
-per-agent files named a `writing-madr-and-plans` skill that has never existed:
-the skill directory was created 2026-08-06, the wrong name first entered this
-repo on 2026-08-15 and was propagated to every agent on 2026-08-25 (`0416ac3`).
-Not a rename — wrong from the start, then copied.
+`~/.claude/skills/madr-and-plan-writing/SKILL.md`, and that is the only MADR
+skill directory present under any skills root.
 
-That mistake does not fail loudly: the call does not resolve, and an agent that
-carries on without the skill produces something shaped like a MADR while missing
-MADR 4.0.0's heading names, the `Good, because …` argument form, and the
-mechanical slug rule.
+**Corrected 2026-09-06, and this is the second reversal.** The name is
+`madr-and-plan-writing`. Verified three ways on 2026-09-06: the only entry under
+any skills root is `~/.claude/skills/madr-and-plan-writing`; its `SKILL.md`
+`name:` field reads `madr-and-plan-writing`; and loading it by that name in a
+live session resolved and returned the skill body. `writing-madr-and-plans` does
+not exist under `~/.claude/skills` or under the directory that path resolves to.
+
+The record of who said what, since this file has now asserted each spelling
+twice:
+
+| change | date | claimed name | correct? |
+| --- | --- | --- | --- |
+| `0416ac3` | 2026-08-25 | `writing-madr-and-plans` | no |
+| `e06a0b6` | 2026-09-01 | `madr-and-plan-writing` | **yes** |
+| `fd1e75f` | 2026-09-05 | `writing-madr-and-plans` | no |
+| this change | 2026-09-06 | `madr-and-plan-writing` | verified above |
+
+`fd1e75f` also "corrected" `e06a0b6`'s directory creation date from 2026-08-06
+to 2026-08-14. The filesystem gives a birth time of 2026-08-06 09:12:30, so
+`e06a0b6` was right on that too, and the correction of it was not.
+
+**Why this keeps going wrong is still not established, and this note does not
+guess.** A symlink was considered as the mechanism and ruled out:
+`~/.claude/skills/madr-and-plan-writing` is a symlink to
+`~/.agents/skills/madr-and-plan-writing`, but link and target share a basename,
+so following it cannot produce the other spelling. What the symlink does
+establish is where the fact lives: the skill is outside this repository, no
+commit here records a change to it, and the filesystem is therefore the only
+witness. That is the reason the check below outranks anything written about it.
+
+The durable lesson is not which spelling won:
+
+**Do not "correct" this name from memory, in either direction.** Both spellings
+are plausible, and the failure is silent: a call to a skill that does not exist
+does not error, and an agent that carries on without it produces something
+shaped like a MADR while missing MADR 4.0.0's heading names, the
+`Good, because …` argument form, and the mechanical slug rule. This file has now
+been wrong in both directions, which is what a documented assertion earns when
+the fact lives on the filesystem. Check before editing:
+
+```bash
+ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
+```
+
+**The command outranks the prose, including the prose above.** If the two ever
+disagree, the filesystem is right and this section is stale — fix the section,
+and do not "fix" the name to match what is written here.
 
 **This file is the normative copy.** `.claude/rules/`, `.grok/rules/` and
 `.opencode/rules.md` carry only the skill name and the gate, and point here for

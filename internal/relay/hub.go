@@ -91,15 +91,18 @@ func newHub(allow []HostCredential, limits Limits, allowLegacy bool, log *slog.L
 // checkSecret verifies host registration secret with constant-time work
 // for unknown and known host_id (MADR 0017 D12).
 func (h *hub) checkSecret(hostID, secret string) bool {
-	got := HashSecret(secret)
-	want, ok := h.allow[hostID]
-	var ref [32]byte
-	if ok {
-		ref = want
-	}
-	// Always compare so unknown hosts do not skip SHA-256 + compare work.
-	match := subtle.ConstantTimeCompare(ref[:], got[:]) == 1
-	return ok && match
+	var match bool
+	subtle.WithDataIndependentTiming(func() {
+		got := HashSecret(secret)
+		want, ok := h.allow[hostID]
+		var ref [32]byte
+		if ok {
+			ref = want
+		}
+		// Always compare so unknown hosts do not skip SHA-256 + compare work.
+		match = ok && subtle.ConstantTimeCompare(ref[:], got[:]) == 1
+	})
+	return match
 }
 
 func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) error {
@@ -368,7 +371,10 @@ func (h *hub) phoneGone(p *pendingJoin) (orphan *websocket.Conn) {
 	// abandonTunnel has yet to run and will observe phoneGone.
 	p.phoneGone = true
 	select {
-	case t := <-p.ready:
+	case t, ok := <-p.ready:
+		if !ok {
+			return nil
+		}
 		h.releasePhoneLocked(p.hostID)
 		p.closeDone()
 		return t

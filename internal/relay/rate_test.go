@@ -57,7 +57,7 @@ func TestAllowAcceptRateMapCap(t *testing.T) {
 		Limits: Limits{AcceptPerMinute: 1000},
 	}, nil)
 	// Fill past rateMapMax with unique IPs.
-	for i := 0; i < rateMapMax+50; i++ {
+	for i := range rateMapMax + 50 {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		r.RemoteAddr = "10.0." + itoa((i/256)%256) + "." + itoa(i%256) + ":1"
 		acceptOK(srv, r)

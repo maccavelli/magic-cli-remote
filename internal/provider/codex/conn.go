@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"unicode/utf8"
+
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 var errConnLost = errors.New("engine connection lost")
@@ -111,6 +113,9 @@ type rpcResponse struct {
 }
 
 type conn struct {
+	// wire records raw frames when MCREMOTE_WIRE_CAPTURE_DIR is set; nil otherwise.
+	wire *wirecap.Capture
+
 	transport transport
 	log       *slog.Logger
 
@@ -131,6 +136,7 @@ func newTransportConn(tr transport, log *slog.Logger) *conn {
 	return &conn{
 		transport: tr,
 		log:       log,
+		wire:      wirecap.For("codex"),
 		pending:   make(map[int64]chan rpcResponse),
 		closed:    make(chan struct{}),
 	}
@@ -256,6 +262,7 @@ type serverRequestHandler func(method string, id json.RawMessage, params json.Ra
 func (c *conn) readPump(onNotif notificationHandler, onRequest serverRequestHandler) {
 	defer func() {
 		c.failAll()
+		c.wire.Close()
 		_ = c.transport.Close()
 		c.closeOnce.Do(func() { close(c.closed) })
 	}()
@@ -270,6 +277,7 @@ func (c *conn) readPump(onNotif notificationHandler, onRequest serverRequestHand
 		if len(line) == 0 {
 			continue
 		}
+		c.wire.Frame(line)
 		var msg wireMessage
 		if err := json.Unmarshal(line, &msg); err != nil {
 			c.log.Debug("codex: unparseable frame", slog.String("err", err.Error()))

@@ -627,8 +627,24 @@ func (m *Manager) cmdUndo(ctx context.Context, id string) error {
 	if summary == "" {
 		summary = "undone"
 	}
-	m.emitNotice(id, fmt.Sprintf("Undid the last turn — %s. /redo restores it.", summary))
+	m.emitNotice(id, undoNotice(sess, summary))
 	return nil
+}
+
+// undoNotice builds the line shown after a successful undo.
+//
+// The redo hint is conditional on the same interface OpRedo is derived from
+// (see the capability block in State). grok can undo and cannot redo — its
+// rewind has no inverse — so offering /redo there would advertise a command the
+// daemon answers with "This agent can't redo a turn." Every UndoSession also
+// satisfied RevertSession until grok did not, which is why this was a plain
+// string until MADR 0138 Phase 9.
+func undoNotice(sess provider.Session, summary string) string {
+	notice := fmt.Sprintf("Undid the last turn — %s.", summary)
+	if _, ok := sess.(provider.RevertSession); ok {
+		notice += " /redo restores it."
+	}
+	return notice
 }
 
 // cmdRedo restores the last undone turn.
@@ -846,7 +862,16 @@ func (m *Manager) submitUserPrompt(ctx context.Context, id, text string, attachm
 		parts = append(parts, provider.Content{Type: "text", Text: text})
 	}
 	parts = append(parts, attachments...)
-	return sess.Prompt(ctx, parts)
+	// A canonical command that ends in a prompt is still a turn the user
+	// waits on, so it is timed like any other (MADR 0137 Phase 2). This path
+	// is reached only via runCanonical, which returns handled — so Manager.
+	// Prompt never also starts the clock for the same turn.
+	m.markPromptStart(id)
+	if err := sess.Prompt(ctx, parts); err != nil {
+		m.clearPromptStart(id)
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) cmdFast(ctx context.Context, id, arg string) error {

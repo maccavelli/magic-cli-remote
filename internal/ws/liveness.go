@@ -150,6 +150,7 @@ func (l LivenessSpec) caps(tlsResumed bool) *protocol.Caps {
 		PingIntervalMS:       l.PingInterval.Milliseconds(),
 		WSPingResetsDeadline: l.WSPingResetsDeadline,
 		HistoryRing:          session.HistoryRingCap,
+		HistoryBudgetBytes:   session.HistoryBudgetBytes,
 		MaxFrameBytes:        maxOutboundFrameBytes,
 		TLSResumed:           tlsResumed,
 	}

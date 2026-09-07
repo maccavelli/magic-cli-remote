@@ -121,6 +121,9 @@ type client struct {
 	// and passes the copy into the handler (Phase 1.1).
 	deviceID string
 	authed   bool
+	// shellInFlight counts session.shell goroutines, bounded separately by
+	// maxShellPerClient so a 30-minute op cannot consume the prompt's budget.
+	shellInFlight int
 	// asyncInFlight counts goroutines started by dispatchAsync. Capped at
 	// maxAsyncPerClient so a paired device cannot unbounded-spawn create/close
 	// work (Phase 1.2 / P1-3).
@@ -179,6 +182,16 @@ type client struct {
 // screen fans out on open — so it has to leave room for ordinary use: sized at
 // 2 it was one wedged handler away from rate-limiting the whole connection.
 const maxAsyncPerClient = 8
+
+// maxShellPerClient bounds concurrent session.shell work per WebSocket,
+// separately from maxAsyncPerClient.
+//
+// A shell gets a 30-minute deadline — "a command runs for as long as it runs"
+// — while a prompt gets 60 seconds. Drawing both from one pool of 8 meant eight
+// long-running commands could rate-limit every later operation on that
+// connection, prompts and cancels included (MADR 0138 F6). Two lanes, so a slow
+// lane cannot starve a fast one.
+const maxShellPerClient = 2
 
 // shutdown signals the writer loop to exit; safe to call more than once.
 func (c *client) shutdown() {
@@ -737,7 +750,13 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// create/close races for one session serialized.
 		return s.dispatchAsync(ctx, c, env, s.handleSessionCreate)
 	case protocol.TypeSessionList:
-		return s.handleSessionList(ctx, c, env)
+		// Async since MADR 0137 F4: the list resolves each session's advertised
+		// commands and modes, which reaches provider state, so it is not the
+		// pure map read the read loop assumed.
+		return s.dispatchAsync(ctx, c, env,
+			func(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+				return s.handleSessionList(ctx, c, env)
+			})
 	case protocol.TypeSessionClose:
 		return s.dispatchAsync(ctx, c, env, s.handleSessionClose)
 	case protocol.TypeSessionDelete:
@@ -752,17 +771,37 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		// pings and cancel stay readable on the connection (Phase 1.3 / P1-1).
 		return s.dispatchAsync(ctx, c, env, s.handleSessionPrompt)
 	case protocol.TypeSessionSetMode:
-		return s.handleSessionSetMode(ctx, c, env)
+		// Async since MADR 0137 F4: a mode switch is an engine call for every
+		// ACP provider, and one blocking on the read loop stalls every later
+		// frame on the connection — including the prompt behind it.
+		return s.dispatchAsync(ctx, c, env,
+			func(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+				return s.handleSessionSetMode(ctx, c, env)
+			})
 	case protocol.TypeSessionSetConfig:
-		return s.handleSessionSetConfig(ctx, c, env)
+		// Async since MADR 0137 F4, for the same reason as set_mode: model and
+		// thinking-level changes reach the engine.
+		return s.dispatchAsync(ctx, c, env,
+			func(ctx context.Context, c *client, env protocol.Envelope, _ string) error {
+				return s.handleSessionSetConfig(ctx, c, env)
+			})
 	case protocol.TypeSessionCancel:
-		// Cancel stays on the read loop: it must remain reachable while a
-		// prompt or create is in flight on an async worker.
+		// Cancel stays INLINE, deliberately (MADR 0137 F4). It is a
+		// control-plane operation whose whole purpose is to interrupt work
+		// already running, and dispatchAsync is bounded by maxAsyncPerClient:
+		// a cancel that queues behind eight in-flight prompts cannot cancel
+		// them. It must remain reachable while a prompt or create is on an
+		// async worker.
 		return s.handleSessionCancel(ctx, c, env)
 	case protocol.TypeSessionHistory:
 		// History can marshal hundreds of events; keep it off the read loop.
 		return s.dispatchAsync(ctx, c, env, s.handleSessionHistory)
 	case protocol.TypeSessionPendingAsks:
+		// Stays INLINE (MADR 0137 F4): it reads pending permission/question
+		// state the phone needs to render an ask it is already blocked on, so
+		// queueing it behind maxAsyncPerClient prompts would hide the prompt
+		// that has to be answered before those prompts can finish.
+		//
 		// Same read path as handlePermissionRespond: c.deviceID is guarded by
 		// s.mu everywhere else in this file, so take it here too rather than
 		// leave one handler outside the discipline (MADR 0046 I-2).
@@ -790,6 +829,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeProviderStartAuth:
 		return s.dispatchAsync(ctx, c, env, s.handleStartAuth)
 	case protocol.TypeOAuthCancel:
+		// Stays INLINE (MADR 0137 F4): a cancel that waits for a worker slot
+		// defeats its own purpose, exactly as with session.cancel above.
 		s.mu.Lock()
 		cancelDevice := c.deviceID
 		s.mu.Unlock()
@@ -843,15 +884,25 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 	case protocol.TypeSessionDiagnostics:
 		return s.dispatchAsync(ctx, c, env, s.handleSessionDiagnostics)
 	case protocol.TypePermissionRespond:
-		return s.handlePermissionRespond(ctx, c, env)
+		// Async since MADR 0138 F4. Answering a permission calls into the
+		// provider, and on kilo/opencode that is a synchronous HTTP POST to the
+		// engine under a 10-second timeout — the moment a permission is pending
+		// is exactly when an engine is most likely to be unresponsive. Inline,
+		// it stalled the connection's read loop for up to ten seconds, queueing
+		// every later message from that phone behind it, session.cancel
+		// included.
+		return s.dispatchAsync(ctx, c, env, s.handlePermissionRespond)
 	case protocol.TypePermissionReceipt:
 		return s.handlePermissionReceipt(ctx, c, env)
 	case protocol.TypeReceiptsList:
-		return s.handleReceiptsList(ctx, c, env)
+		// Reads a JSONL chain off disk and verifies its hashes.
+		return s.dispatchAsync(ctx, c, env, s.handleReceiptsList)
 	case protocol.TypeDevicesList:
-		return s.handleDevicesList(ctx, c, env)
+		// Reads the device store off disk.
+		return s.dispatchAsync(ctx, c, env, s.handleDevicesList)
 	case protocol.TypeQuestionRespond:
-		return s.handleQuestionRespond(ctx, c, env)
+		// The same provider round trip as permission.respond above.
+		return s.dispatchAsync(ctx, c, env, s.handleQuestionRespond)
 	default:
 		t := env.Type
 		if len(t) > 64 {
@@ -877,8 +928,17 @@ func (s *Server) dispatchAsync(
 	env protocol.Envelope,
 	h asyncHandler,
 ) error {
+	// session.shell has its own lane: its deadline is 30 minutes against the
+	// prompt's 60 seconds, so sharing one budget lets the slow op starve the
+	// fast one (MADR 0138 F6).
+	shell := env.Type == protocol.TypeSessionShell
+	limit, inFlight := maxAsyncPerClient, &c.asyncInFlight
+	if shell {
+		limit, inFlight = maxShellPerClient, &c.shellInFlight
+	}
+
 	s.mu.Lock()
-	if c.asyncInFlight >= maxAsyncPerClient {
+	if *inFlight >= limit {
 		deviceID := c.deviceID
 		s.mu.Unlock()
 		// Log it: a handler that never returns turns this into a permanent
@@ -887,13 +947,14 @@ func (s *Server) dispatchAsync(
 		s.log.Warn("async slots exhausted",
 			slog.String("type", env.Type),
 			slog.String("device_id", deviceID),
-			slog.Int("limit", maxAsyncPerClient),
+			slog.Int("limit", limit),
+			slog.Bool("shell_lane", shell),
 		)
 		return s.writeError(ctx, c, env.ID, "rate_limited",
 			"too many in-flight operations; try again shortly")
 	}
 	deviceID := c.deviceID
-	c.asyncInFlight++
+	*inFlight++
 	s.mu.Unlock()
 
 	go func() {
@@ -904,7 +965,7 @@ func (s *Server) dispatchAsync(
 		}()
 		defer func() {
 			s.mu.Lock()
-			c.asyncInFlight--
+			*inFlight--
 			s.mu.Unlock()
 		}()
 		// Bound work to connection lifecycle + per-op deadline (MADR 0056 H-2).
@@ -1003,6 +1064,12 @@ func asyncOpTimeout(typ string) time.Duration {
 		return 60 * time.Second
 	case protocol.TypeSessionHistory:
 		return 30 * time.Second
+	case protocol.TypePermissionRespond, protocol.TypeQuestionRespond:
+		// Above the provider's own 10s call timeout
+		// (httpagent/session.go RespondPermission), so the authoritative
+		// failure is the daemon's error frame rather than this deadline
+		// firing first (MADR 0095 D7).
+		return 15 * time.Second
 	case protocol.TypeModelsList, protocol.TypeAgentsList, protocol.TypeAgentSessionsList:
 		return 60 * time.Second
 	case protocol.TypeSessionShell:
@@ -1465,7 +1532,7 @@ func (s *Server) handleSessionCreate(ctx context.Context, c *client, env protoco
 	return s.writeJSON(ctx, c, out)
 }
 
-func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.PermissionRespondPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
@@ -1473,10 +1540,6 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 	if p.SessionID == "" || p.PermissionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and permission_id required")
 	}
-	// Read path: same goroutine as setAuthed for this connection after auth.
-	s.mu.Lock()
-	deviceID := c.deviceID
-	s.mu.Unlock()
 	if err := s.sessions.RespondPermission(ctx, p.SessionID, p.PermissionID, p.OptionID, p.Cancelled, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "permission_failed", err)
 	}
@@ -1488,10 +1551,7 @@ func (s *Server) handlePermissionRespond(ctx context.Context, c *client, env pro
 // 0078 D8). Scoped strictly by the connection's authenticated device id — a
 // device can never read another device's chain, the exact analog of session
 // ownership (§1). Empty when receipts are off or the device has no chain.
-func (s *Server) handleReceiptsList(ctx context.Context, c *client, env protocol.Envelope) error {
-	s.mu.Lock()
-	deviceID := c.deviceID
-	s.mu.Unlock()
+func (s *Server) handleReceiptsList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	entries, err := s.sessions.ReceiptEntriesFor(deviceID)
 	if err != nil {
 		return s.writeError(ctx, c, env.ID, protocol.ErrReceiptsListFailed, err.Error())
@@ -1507,7 +1567,7 @@ func (s *Server) handleReceiptsList(ctx context.Context, c *client, env protocol
 // row flagged Self. Only identity fields (id, name) — never keys. This is a
 // fleet roster (unlike receipts, which are strictly own-device): any paired
 // device may enumerate its fleetmates to hand a session to one.
-func (s *Server) handleDevicesList(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleDevicesList(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	s.mu.Lock()
 	me := c.deviceID
 	s.mu.Unlock()
@@ -1653,7 +1713,7 @@ func (s *Server) sendToDevice(deviceID string, b []byte) bool {
 	return true
 }
 
-func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env protocol.Envelope) error {
+func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
 	var p protocol.QuestionRespondPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
 		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
@@ -1662,9 +1722,6 @@ func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env proto
 	if p.SessionID == "" || p.QuestionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and question_id required")
 	}
-	s.mu.Lock()
-	deviceID := c.deviceID
-	s.mu.Unlock()
 	if err := s.sessions.RespondQuestion(ctx, p.SessionID, p.QuestionID, p.Answers, p.Cancelled, deviceID); err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "question_failed", err)
 	}
@@ -1779,22 +1836,98 @@ func (s *Server) handleSessionHistory(ctx context.Context, c *client, env protoc
 			p.SessionID = legacy.SessionID
 		}
 	}
+	// Forward and backward paging are different questions about the same ring,
+	// and answering both at once would have to pick one silently.
+	if p.SinceSeq > 0 && (p.BeforeSeq > 0 || p.Newest) {
+		return s.writeError(ctx, c, env.ID, "bad_payload",
+			"since_seq pages forward and before_seq/newest page backward; set one, not both")
+	}
+
+	first, latest := s.sessions.SeqBounds(p.SessionID)
+	payload := protocol.SessionHistoryResultPayload{
+		SessionID: p.SessionID,
+		FirstSeq:  first,
+		LatestSeq: latest,
+	}
+
 	// History returns an empty (non-nil) slice for an unknown/never-active
 	// session — replay is not an error. Forbidden owner is still an error.
-	events, truncated, nextSeq, err := s.sessions.HistoryPageFor(p.SessionID, deviceID, p.SinceSeq, p.Limit)
-	if err != nil {
-		return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
+	if p.BeforeSeq > 0 || p.Newest {
+		events, truncated, prevSeq, err := s.sessions.HistoryPageBeforeFor(
+			p.SessionID, deviceID, p.BeforeSeq, p.Limit)
+		if err != nil {
+			return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
+		}
+		payload.Events = events
+		payload.Truncated = truncated
+		payload.PrevBeforeSeq = prevSeq
+	} else {
+		events, truncated, nextSeq, err := s.sessions.HistoryPageFor(
+			p.SessionID, deviceID, p.SinceSeq, p.Limit)
+		if err != nil {
+			return s.writeSessionErr(ctx, c, env.ID, "session_history_failed", err)
+		}
+		payload.Events = events
+		payload.Truncated = truncated
+		payload.NextSinceSeq = nextSeq
 	}
-	first, latest := s.sessions.SeqBounds(p.SessionID)
-	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, protocol.SessionHistoryResultPayload{
-		SessionID:    p.SessionID,
-		Events:       events,
-		Truncated:    truncated,
-		NextSinceSeq: nextSeq,
-		FirstSeq:     first,
-		LatestSeq:    latest,
-	})
+
+	s.logHistoryPage(p, deviceID, payload, first, latest)
+
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionHistoryResult, env.ID, payload)
 	return s.writeJSON(ctx, c, out)
+}
+
+// logHistoryPage records what a history request actually served.
+//
+// Every other layer is silent about this: a page is not an error, so
+// writeError never fires, and before this the daemon log was identical whether
+// the request returned nothing, one page, or 6,400 events across 32 round
+// trips (MADR 0141 F4).
+//
+// Debug for the per-page line — it is on a scroll path — and warn for the one
+// state that has no other signal.
+func (s *Server) logHistoryPage(
+	p protocol.SessionHistoryPayload,
+	deviceID string,
+	payload protocol.SessionHistoryResultPayload,
+	first, latest uint64,
+) {
+	direction := "forward"
+	cursorIn := p.SinceSeq
+	cursorOut := payload.NextSinceSeq
+	if p.BeforeSeq > 0 || p.Newest {
+		direction = "backward"
+		cursorIn = p.BeforeSeq
+		cursorOut = payload.PrevBeforeSeq
+	}
+
+	s.log.Debug("session history page",
+		slog.String("session_id", p.SessionID),
+		slog.String("device_id", deviceID),
+		slog.String("direction", direction),
+		slog.Uint64("cursor_in", cursorIn),
+		slog.Uint64("cursor_out", cursorOut),
+		slog.Int("events", len(payload.Events)),
+		slog.Bool("truncated", payload.Truncated),
+		slog.Uint64("first_seq", first),
+		slog.Uint64("latest_seq", latest),
+	)
+
+	// The silent empty: the client asked for an end of the ring — no cursor —
+	// the session demonstrably has events, and it got none. A cursor-bounded
+	// page legitimately returns zero at the oldest edge, so it is excluded.
+	if len(payload.Events) == 0 && latest > 0 && p.SinceSeq == 0 && p.BeforeSeq == 0 {
+		s.log.Warn("session history served no events for a session that has them",
+			slog.String("session_id", p.SessionID),
+			slog.String("device_id", deviceID),
+			slog.String("direction", direction),
+			slog.Uint64("first_seq", first),
+			slog.Uint64("latest_seq", latest),
+			slog.String("hint", "the phone will show an empty chat; check whether the "+
+				"transcript loaded (see the store's history warnings)"),
+		)
+	}
 }
 
 func (s *Server) handleSessionPendingAsks(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {

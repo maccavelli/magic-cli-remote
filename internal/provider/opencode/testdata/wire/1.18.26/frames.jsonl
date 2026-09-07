@@ -1,0 +1,85 @@
+{"id":"evt_06853331a001OVGgBYyVbwOc7H","type":"server.connected","properties":{}}
+{"id":"evt_068533b19001Lvp13W1gUSw96F","type":"session.created","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"ses_f97acc4e7ffescwSFUU9SCCmBS","slug":"eager-garden","version":"1.18.26","projectID":"global","directory":"/home/user","path":"home/user","title":"smoke","model":{"id":"big-pickle","providerID":"opencode"},"cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1788456680217,"updated":1788456680217}}}}
+{"id":"evt_0685347bf001uOzi75OxaOFVjO","type":"session.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"ses_f97acc4e7ffescwSFUU9SCCmBS","slug":"eager-garden","projectID":"global","directory":"/home/user","path":"home/user","title":"smoke","agent":"build","model":{"id":"big-pickle","providerID":"opencode","variant":"default"},"version":"1.18.26","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1788456680217,"updated":1788456683453}}}}
+{"id":"evt_0685347c8001ApWMvMjxanKjM7","type":"message.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"msg_4c5bd2cd-620a-4278-bdc5-56f2b7df755a","role":"user","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","time":{"created":1788456683453},"agent":"build","model":{"providerID":"opencode","modelID":"big-pickle"}}}}
+{"id":"evt_0685347cb001OHVGxTY1UaIiry","type":"message.part.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","part":{"type":"text","text":"hi","messageID":"msg_4c5bd2cd-620a-4278-bdc5-56f2b7df755a","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","id":"prt_0685347c7001vfCNNMHpx3VSnd"},"time":1788456683467}}
+{"id":"evt_0685347cf001w08pNx54i0J2CR","type":"session.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"ses_f97acc4e7ffescwSFUU9SCCmBS","slug":"eager-garden","projectID":"global","directory":"/home/user","path":"home/user","title":"smoke","agent":"build","model":{"id":"big-pickle","providerID":"opencode","variant":"default"},"version":"1.18.26","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1788456680217,"updated":1788456683470}}}}
+{"id":"evt_0685347d6001KNbX8RT7CajUMS","type":"session.status","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","status":{"type":"busy"}}}
+{"id":"evt_0685347db001T6SXhoHivR6PYq","type":"message.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"msg_0685347db001bWRNsx17lXeKWZ","parentID":"msg_4c5bd2cd-620a-4278-bdc5-56f2b7df755a","role":"assistant","mode":"build","agent":"build","path":{"cwd":"/home/user","root":"/"},"cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"modelID":"big-pickle","providerID":"opencode","time":{"created":1788456683483},"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS"}}}
+{"id":"evt_0685347fa0014epC8HFv9DEFZc","type":"session.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"ses_f97acc4e7ffescwSFUU9SCCmBS","slug":"eager-garden","projectID":"global","directory":"/home/user","path":"home/user","title":"smoke","agent":"build","model":{"id":"big-pickle","providerID":"opencode","variant":"default"},"version":"1.18.26","summary":{"additions":0,"deletions":0,"files":0},"cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1788456680217,"updated":1788456683513}}}}
+{"id":"evt_0685347fc001bgUjvi66PYKo1B","type":"session.diff","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","diff":[]}}
+{"id":"evt_0685347fd001SvIALiZIrnIkmJ","type":"message.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"role":"user","time":{"created":1788456683453},"agent":"build","model":{"providerID":"opencode","modelID":"big-pickle"},"id":"msg_4c5bd2cd-620a-4278-bdc5-56f2b7df755a","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","summary":{"diffs":[]}}}}
+{"id":"evt_0685349ab001lN4aOOFw7SIbXi","type":"plugin.added","properties":{"id":"core/config-reference"}}
+{"id":"evt_0685349ac0019PTscu5O6jO1PF","type":"plugin.added","properties":{"id":"agent"}}
+{"id":"evt_0685349ad001VVZ7F7CGKEvhjW","type":"plugin.added","properties":{"id":"command"}}
+{"id":"evt_0685349ad002dUcQRvs0zyJ2lV","type":"plugin.added","properties":{"id":"skill"}}
+{"id":"evt_0685349af0019nyA7sWTeScqkC","type":"plugin.added","properties":{"id":"models-dev"}}
+{"id":"evt_0685349af002Ec1F246BUiWoB7","type":"plugin.added","properties":{"id":"config-agent"}}
+{"id":"evt_0685349b0001ZcfapGoIgKPE7e","type":"plugin.added","properties":{"id":"config-command"}}
+{"id":"evt_0685349b00029Q9WHIXPeUmJWC","type":"plugin.added","properties":{"id":"config-skill"}}
+{"id":"evt_0685349b1001yixi5b5oucWcCC","type":"plugin.added","properties":{"id":"alibaba"}}
+{"id":"evt_0685349b1002oJLMUJc1Nn6249","type":"plugin.added","properties":{"id":"amazon-bedrock"}}
+{"id":"evt_0685349b1003cBo7YgxkVQPx8O","type":"plugin.added","properties":{"id":"anthropic"}}
+{"id":"evt_0685349b2001f0Kf1RIXaLfJVg","type":"plugin.added","properties":{"id":"azure-cognitive-services"}}
+{"id":"evt_068534a69001DmAspnPBtnF7CN","type":"plugin.added","properties":{"id":"azure"}}
+{"id":"evt_068534a6a0013rH0oGLUedPPRq","type":"plugin.added","properties":{"id":"cerebras"}}
+{"id":"evt_068534a6b001hrrBFJAWWqGicO","type":"plugin.added","properties":{"id":"cloudflare-ai-gateway"}}
+{"id":"evt_068534a6f001ViNekaeC1qUETs","type":"plugin.added","properties":{"id":"cloudflare-workers-ai"}}
+{"id":"evt_068534a70001729SwiVnFhXUJH","type":"plugin.added","properties":{"id":"cohere"}}
+{"id":"evt_068534a71001H5HtFnC164L5Gs","type":"plugin.added","properties":{"id":"deepinfra"}}
+{"id":"evt_068534a71002EsLzn1rD4rDqxo","type":"plugin.added","properties":{"id":"gateway"}}
+{"id":"evt_068534a72001yaJe1rED5CEomA","type":"plugin.added","properties":{"id":"github-copilot"}}
+{"id":"evt_068534a72002zBxCnOHpaW31rd","type":"plugin.added","properties":{"id":"gitlab"}}
+{"id":"evt_068534a7300162CLO7JMyQBDcK","type":"plugin.added","properties":{"id":"google"}}
+{"id":"evt_068534a73002ICwfYoqZObIRhY","type":"plugin.added","properties":{"id":"google-vertex-anthropic"}}
+{"id":"evt_068534a740016iw5aTEUK2t18j","type":"plugin.added","properties":{"id":"google-vertex"}}
+{"id":"evt_068534a8d001AkO8mKTuQEPbBL","type":"plugin.added","properties":{"id":"groq"}}
+{"id":"evt_068534a8d0023ZrQP2CXYVvVQ2","type":"plugin.added","properties":{"id":"kilo"}}
+{"id":"evt_068534a8e001f0IZUGkaWytTos","type":"plugin.added","properties":{"id":"llmgateway"}}
+{"id":"evt_068534a8e0027UA9TnuEOXHFTZ","type":"plugin.added","properties":{"id":"mistral"}}
+{"id":"evt_068534a8e003IfrLui4pQxefqf","type":"plugin.added","properties":{"id":"nvidia"}}
+{"id":"evt_068534a90001sUgUqJ0xoYTFwV","type":"plugin.added","properties":{"id":"opencode"}}
+{"id":"evt_068534a910016YltOb47hGpFuK","type":"plugin.added","properties":{"id":"snowflake-cortex"}}
+{"id":"evt_068534a91002ROpr1WZvfAEbh0","type":"plugin.added","properties":{"id":"openai-compatible"}}
+{"id":"evt_068534a91003YbRGJB5nvuk9hP","type":"plugin.added","properties":{"id":"openai"}}
+{"id":"evt_068534a92001XLaPTqYgjsZ1Zn","type":"plugin.added","properties":{"id":"openrouter"}}
+{"id":"evt_068534a920028LngFekRvhzjA2","type":"plugin.added","properties":{"id":"perplexity"}}
+{"id":"evt_068534a92003pdEk4YSS8mnIW4","type":"plugin.added","properties":{"id":"sap-ai-core"}}
+{"id":"evt_068534aea001td1eS9uk07jPv1","type":"catalog.updated","properties":{}}
+{"id":"evt_068534a930019xBSEBWyrBD4wu","type":"plugin.added","properties":{"id":"togetherai"}}
+{"id":"evt_068534aea0025i0Sz8WMl0YaG5","type":"plugin.added","properties":{"id":"vercel"}}
+{"id":"evt_068534aea003WTl2YXZU8jFekm","type":"plugin.added","properties":{"id":"venice"}}
+{"id":"evt_068534aea0041pKkx3xCCNSbeg","type":"plugin.added","properties":{"id":"xai"}}
+{"id":"evt_068534aea005rh0owoYl86ATb2","type":"plugin.added","properties":{"id":"zenmux"}}
+{"id":"evt_068534aeb001eAKHYVmDl9qFi0","type":"plugin.added","properties":{"id":"dynamic-provider"}}
+{"id":"evt_068534aec001xthRVDi34XcgIJ","type":"plugin.added","properties":{"id":"config-plugin"}}
+{"id":"evt_068534aec00206qblHr4kNqfsG","type":"plugin.added","properties":{"id":"config-provider"}}
+{"id":"evt_068534aec0038Q5Lrgkj4KNmDr","type":"plugin.added","properties":{"id":"variant"}}
+{"id":"evt_068534aed0018bvfqu6g6LMO54","type":"reference.updated","properties":{}}
+{"id":"evt_068534afd001tb9S8mI5xt0INk","type":"session.status","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","status":{"type":"busy"}}}
+{"id":"evt_068534b110015cxDUu5C3XDQHC","type":"integration.updated","properties":{}}
+{"id":"evt_068534b67001dabCooTCHio3V5","type":"catalog.updated","properties":{}}
+{"id":"evt_068535262001D0RBnB3rCGipXX","type":"message.part.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","part":{"id":"prt_068535262001O13a4Edgp2xflX","messageID":"msg_0685347db001bWRNsx17lXeKWZ","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","type":"step-start"},"time":1788456686178}}
+{"id":"evt_068535289001eQg0zVH84ch6nq","type":"message.part.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","part":{"id":"prt_068535288001IqqBeGuWkF04CE","messageID":"msg_0685347db001bWRNsx17lXeKWZ","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","type":"reasoning","text":"","time":{"start":1788456686216}},"time":1788456686217}}
+{"id":"evt_06853528c001Kc0oz4RNtGXjif","type":"message.part.delta","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","messageID":"msg_0685347db001bWRNsx17lXeKWZ","partID":"prt_068535288001IqqBeGuWkF04CE","field":"text","delta":"The user said"}}
+{"id":"evt_0685352bb001muuW9g2eRAWIrC","type":"message.part.delta","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","messageID":"msg_0685347db001bWRNsx17lXeKWZ","partID":"prt_068535288001IqqBeGuWkF04CE","field":"text","delta":" \"hi\"."}}
+{"id":"evt_06853531c001dyXKBFIXiVJPWp","type":"message.part.delta","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","messageID":"msg_0685347db001bWRNsx17lXeKWZ","partID":"prt_068535288001IqqBeGuWkF04CE","field":"text","delta":" I"}}
+{"id":"evt_06853535a0017xv7lOZ5yI0LoV","type":"message.part.delta","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","messageID":"msg_0685347db001bWRNsx17lXeKWZ","partID":"prt_068535288001IqqBeGuWkF04CE","field":"text","delta":" should respond conc"}}
+{"id":"evt_0685353a40010yBdv3642P0QkL","type":"message.part.delta","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","messageID":"msg_0685347db001bWRNsx17lXeKWZ","partID":"prt_068535288001IqqBeGuWkF04CE","field":"text","delta":"isely."}}
+{"id":"evt_0685353a5001q4VRcrN7F8oDC4","type":"message.part.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","part":{"id":"prt_068535288001IqqBeGuWkF04CE","messageID":"msg_0685347db001bWRNsx17lXeKWZ","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","type":"reasoning","text":"The user said \"hi\". I should respond concisely.","time":{"start":1788456686216,"end":1788456686501}},"time":1788456686501}}
+{"id":"evt_0685353a8001iM73xug8VVpP56","type":"message.part.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","part":{"id":"prt_0685353a8001jpE60I7BWQjYgB","messageID":"msg_0685347db001bWRNsx17lXeKWZ","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","type":"text","text":"","time":{"start":1788456686504}},"time":1788456686504}}
+{"id":"evt_0685353aa0016bx3O9cSDbNONT","type":"message.part.delta","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","messageID":"msg_0685347db001bWRNsx17lXeKWZ","partID":"prt_0685353a8001jpE60I7BWQjYgB","field":"text","delta":"Hi! How can"}}
+{"id":"evt_0685353b3001fNw0l1k60gtTfp","type":"message.part.delta","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","messageID":"msg_0685347db001bWRNsx17lXeKWZ","partID":"prt_0685353a8001jpE60I7BWQjYgB","field":"text","delta":" I help you today"}}
+{"id":"evt_0685353e0001GqBkMhleQIx6fr","type":"message.part.delta","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","messageID":"msg_0685347db001bWRNsx17lXeKWZ","partID":"prt_0685353a8001jpE60I7BWQjYgB","field":"text","delta":"?"}}
+{"id":"evt_0685354110012w044lv2rRLTZZ","type":"message.part.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","part":{"id":"prt_0685353a8001jpE60I7BWQjYgB","messageID":"msg_0685347db001bWRNsx17lXeKWZ","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","type":"text","text":"Hi! How can I help you today?","time":{"start":1788456686504,"end":1788456686609}},"time":1788456686609}}
+{"id":"evt_0685354190014FeUcCNuqL8eJy","type":"message.part.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","part":{"id":"prt_0685354190010ayMoorUjKsXlq","reason":"stop","messageID":"msg_0685347db001bWRNsx17lXeKWZ","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","type":"step-finish","tokens":{"total":13058,"input":11241,"output":25,"reasoning":0,"cache":{"write":0,"read":1792}},"cost":0},"time":1788456686617}}
+{"id":"evt_06853541c001AuGSRU3XIwfjN1","type":"message.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"msg_0685347db001bWRNsx17lXeKWZ","parentID":"msg_4c5bd2cd-620a-4278-bdc5-56f2b7df755a","role":"assistant","mode":"build","agent":"build","path":{"cwd":"/home/user","root":"/"},"cost":0,"tokens":{"total":13058,"input":11241,"output":25,"reasoning":0,"cache":{"write":0,"read":1792}},"modelID":"big-pickle","providerID":"opencode","time":{"created":1788456683483,"completed":1788456686625},"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","finish":"stop"}}}
+{"id":"evt_0685354210017uugan4JheP5R8","type":"message.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"msg_0685347db001bWRNsx17lXeKWZ","parentID":"msg_4c5bd2cd-620a-4278-bdc5-56f2b7df755a","role":"assistant","mode":"build","agent":"build","path":{"cwd":"/home/user","root":"/"},"cost":0,"tokens":{"total":13058,"input":11241,"output":25,"reasoning":0,"cache":{"write":0,"read":1792}},"modelID":"big-pickle","providerID":"opencode","time":{"created":1788456683483,"completed":1788456686625},"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","finish":"stop"}}}
+{"id":"evt_068535423001UdfEC0VXpNqgRt","type":"session.status","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","status":{"type":"busy"}}}
+{"id":"evt_068535426001WWIrSX2LwGeriF","type":"session.status","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","status":{"type":"idle"}}}
+{"id":"evt_068535426002GMQgNCHisfp9ND","type":"session.idle","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS"}}
+{"id":"evt_068535427001cGml0OAdb2zeUC","type":"session.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"id":"ses_f97acc4e7ffescwSFUU9SCCmBS","slug":"eager-garden","projectID":"global","directory":"/home/user","path":"home/user","title":"smoke","agent":"build","model":{"id":"big-pickle","providerID":"opencode","variant":"default"},"version":"1.18.26","summary":{"additions":0,"deletions":0,"files":0},"cost":0,"tokens":{"input":11241,"output":25,"reasoning":0,"cache":{"read":1792,"write":0}},"time":{"created":1788456680217,"updated":1788456686631}}}}
+{"id":"evt_068535429001WOp406xRJEYy64","type":"session.diff","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","diff":[]}}
+{"id":"evt_06853542a001P0SbS5RCdBUb3t","type":"message.updated","properties":{"sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS","info":{"role":"user","time":{"created":1788456683453},"agent":"build","model":{"providerID":"opencode","modelID":"big-pickle"},"summary":{"diffs":[]},"id":"msg_4c5bd2cd-620a-4278-bdc5-56f2b7df755a","sessionID":"ses_f97acc4e7ffescwSFUU9SCCmBS"}}}
+{"id":"evt_068535a2c001C3j4zNQH9z2vGs","type":"server.heartbeat","properties":{}}
+{"id":"evt_06853813f001J49YdXHqanQoI4","type":"server.heartbeat","properties":{}}

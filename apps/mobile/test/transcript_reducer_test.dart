@@ -362,14 +362,43 @@ void main() {
     expect(ev.questions.first.options.single.optionId, 'a');
   });
 
-  test('soft cap drops oldest items', () {
+  test('soft cap drops oldest items, in batches', () {
+    // Trimming is batched (MADR 0138 Phase 4): crossing the cap cuts back to
+    // 75% rather than dropping one item per event, so the O(n) copy happens
+    // once per n/4 events instead of on every event past the cap.
+    const target = kMaxTranscriptItems - (kMaxTranscriptItems ~/ 4);
+    const emitted = kMaxTranscriptItems + 50;
+
     var t = base;
-    for (var i = 0; i < kMaxTranscriptItems + 50; i++) {
+    for (var i = 0; i < emitted; i++) {
       t = applySessionEvent(t, _ev('user_message', text: 'm$i'));
     }
-    expect(t.items.length, kMaxTranscriptItems);
-    expect(t.items.first.text, 'm50');
-    expect(t.items.last.text, 'm${kMaxTranscriptItems + 49}');
+
+    expect(t.items.length, lessThanOrEqualTo(kMaxTranscriptItems));
+    expect(t.items.length, greaterThanOrEqualTo(target));
+    // The newest item always survives; the oldest retained is whatever the
+    // batch left, so it is derived from the length rather than hardcoded.
+    expect(t.items.last.text, 'm${emitted - 1}');
+    expect(t.items.first.text, 'm${emitted - t.items.length}');
+  });
+
+  test('a batched trim keeps the tool index pointing at the right items', () {
+    // The index is shifted rather than rebuilt, so an off-by-one would leave a
+    // later tool_call_update mutating the wrong bubble.
+    var t = base;
+    t = applySessionEvent(t, _ev('tool_call', toolId: 'tool-1', text: 'start'));
+    for (var i = 0; i < kMaxTranscriptItems; i++) {
+      t = applySessionEvent(t, _ev('user_message', text: 'filler$i'));
+    }
+    // tool-1 is long gone; an update for it must not corrupt a surviving item.
+    final before = List<String?>.of(t.items.map((i) => i.text));
+    t = applySessionEvent(
+      t,
+      _ev('tool_call_update', toolId: 'tool-1', text: 'late'),
+    );
+    for (var i = 0; i < before.length; i++) {
+      expect(t.items[i].text, before[i], reason: 'item $i was mutated');
+    }
   });
 
   test('markCancelAnnounced is idempotent-ish', () {

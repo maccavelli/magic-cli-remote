@@ -25,6 +25,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 // serverStartTimeout bounds spawn → health-path healthy.
@@ -53,6 +54,10 @@ type Provider struct {
 	dialect Dialect
 	cfg     Config
 	log     *slog.Logger
+
+	// wire records raw engine frames when MCREMOTE_WIRE_CAPTURE_DIR is set;
+	// nil otherwise, so the stream path costs one nil check in production.
+	wire *wirecap.Capture
 
 	// Cached vendor catalog (MADR 0074 D16). Guarded by its own mutex because
 	// it is read on the phone's paging path, not on the engine lifecycle path.
@@ -133,6 +138,7 @@ func NewWithLogger(d Dialect, cfg Config, log *slog.Logger) *Provider {
 	p := &Provider{
 		dialect:      d,
 		cfg:          cfg,
+		wire:         wirecap.For(string(d.ID())),
 		log:          l.With(slog.String("component", "provider."+string(d.ID())+"-http")),
 		sessions:     make(map[string]*session),
 		childAliases: make(map[string]*session),
@@ -738,6 +744,7 @@ func (p *Provider) streamOnce(url string, gen int) error {
 			p.log.Warn("dropping oversized SSE line", slog.Int("limit_bytes", maxSSELine))
 		}
 		if len(line) > 0 && !tooLong && bytes.HasPrefix(line, []byte("data: ")) {
+			p.wire.Frame(line[len("data: "):])
 			if typ, props, sid, ok := p.dialect.DecodeFrame(line[len("data: "):]); ok && sid == "" {
 				// Engine-global frame: no session owns it. The dialect decides
 				// whether it invalidates diagnostics; nothing from the payload
@@ -745,6 +752,13 @@ func (p *Provider) streamOnce(url string, gen int) error {
 				if ed, hasHook := p.dialect.(EngineEventDialect); hasHook &&
 					ed.EngineEventNeedsDiagnostics(typ) {
 					p.noteDiagnosticsChanged(gen)
+				}
+				// A catalog the engine says has changed must not be served
+				// from memory for the rest of the process's life (MADR 0137
+				// F8). Same engine-global path, same type-only contract.
+				if cd, hasHook := p.dialect.(CatalogEventDialect); hasHook &&
+					cd.EngineEventInvalidatesCatalog(typ) {
+					p.InvalidateModelCatalogs()
 				}
 			} else if ok && sid != "" {
 				p.mu.Lock()
@@ -1198,4 +1212,17 @@ func (w *lineRing) tail() string {
 		return ""
 	}
 	return strings.Join(w.ring, "\n")
+}
+
+// InvalidateModelCatalogs drops every memoized model catalog so the next
+// picker open re-harvests from the engine.
+//
+// Called when the engine says its catalog changed (MADR 0137 F8). Without it a
+// model added, removed or re-priced upstream stayed invisible for the life of
+// the engine process, and the phone was offered a list the engine would no
+// longer accept. The catalogs are only memoized to keep a picker open from
+// costing a multi-MB fetch each time; a change upstream is exactly the event
+// that memoization must yield to.
+func (p *Provider) InvalidateModelCatalogs() {
+	p.catalogs.Invalidate()
 }

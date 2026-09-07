@@ -26,6 +26,10 @@ type httpSession struct {
 	h httpagent.Host
 
 	mu sync.Mutex
+	// cmdDedupe suppresses repeated identical available_commands
+	// advertisements (MADR 0137 F2). Guarded by mu: advertiseCommands runs
+	// from more than one goroutine.
+	cmdDedupe event.CommandDeduper
 	// partText tracks the actual accumulated text per part id (NOT a byte count):
 	// SSE part.updated frames carry the FULL text each time, so we emit only the
 	// suffix beyond what we already streamed. Storing the real text (rather than a
@@ -80,9 +84,13 @@ type httpSession struct {
 	// lastUsed/lastSize/usageSent hold the last usage report actually emitted,
 	// so an unchanged token count is not re-sent (MADR 0024). usageSent is
 	// cleared by turnCleanup so every turn reports at least once.
-	lastUsed  int
-	lastSize  int
-	usageSent bool
+	lastUsed int
+	lastSize int
+	// lastTokens is the full token split of the last report emitted, so a
+	// change in the cached/fresh mix is reported even when the total holds
+	// steady (MADR 0137, second correction).
+	lastTokens msgTokens
+	usageSent  bool
 }
 
 var _ httpagent.DialectSession = (*httpSession)(nil)
@@ -625,6 +633,12 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			out := cls.Message
 			if out == "" {
 				out = clip(msg, 400)
+			}
+			// kilo reports plan usage structurally, so a limit classified from
+			// prose gets confirmed against the engine rather than trusted on
+			// its wording alone (MADR 0138 F9).
+			if summary, _ := o.confirmLimit(context.Background(), cls.Kind); summary != "" {
+				out = annotateLimit(out, summary)
 			}
 			o.h.Emit(event.Event{
 				Type:      event.TypeError,

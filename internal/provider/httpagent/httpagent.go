@@ -528,6 +528,17 @@ type EngineEventDialect interface {
 	EngineEventNeedsDiagnostics(typ string) bool
 }
 
+// CatalogEventDialect is optionally implemented by a Dialect whose engine
+// announces that its model catalog changed.
+//
+// Same shape and same reasoning as [EngineEventDialect]: the type alone, never
+// the payload. A dialect that does not implement it keeps today's behaviour,
+// where a catalog cached at engine boot lives as long as the engine process
+// (MADR 0137 F8).
+type CatalogEventDialect interface {
+	EngineEventInvalidatesCatalog(typ string) bool
+}
+
 // IdentifiedPromptDialectSession is optionally implemented by a DialectSession
 // whose engine accepts a caller-supplied message id on submission.
 //

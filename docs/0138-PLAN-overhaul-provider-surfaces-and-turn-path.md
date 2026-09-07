@@ -1,0 +1,2951 @@
+---
+status: complete
+date: 2026-09-04
+associated-madr: "0138-MADR-overhaul-provider-surfaces-and-turn-path.md"
+---
+
+# Implement the turn-path content fix, the RAM-backed transcript, and the provider surface close-out
+
+Associated MADR:
+[0138-MADR-overhaul-provider-surfaces-and-turn-path.md](0138-MADR-overhaul-provider-surfaces-and-turn-path.md)
+
+## Goal
+
+Stop losing the operator's transcript and the agents' command output, spend the
+daemon's abundant RAM on keeping conversations instead of telemetry, make token
+cost visible at the moment it is incurred, and close the provider surface gap —
+in that order, because each earlier item is a precondition for the next.
+
+Concretely, when this plan is complete:
+
+* A session that produces 50,000 events still shows the operator's first prompt.
+* Two codex output deltas inside one coalesce window both reach the phone.
+* Opening a transcript costs one JSON marshal, not 505.
+* A phone opening a long session renders the newest page first, in one round
+  trip.
+* A session that has grown to 1.5M tokens of context says so before the next
+  turn, not in a log line nobody reads.
+* grok answers `/compact`, `/rename`, `/undo` and `/sessions` instead of
+  "this agent can't".
+
+## Scope
+
+### In scope
+
+| item | MADR finding |
+| --- | --- |
+| Hash-index the replay dedupe | F15 |
+| Single-pass byte budgeting in `HistoryPage` | F14 |
+| Byte-budgeted, content-classed retention (host) | F1, F13, F16 |
+| Newest-first / `before_seq` history paging | F17 |
+| Phone transcript cap raised and driven by `Caps.HistoryRing` | F13 |
+| `GOMEMLIMIT` and budget observability | amendment step 4 |
+| codex tool-output append semantics | F2 |
+| grok tool lane enabled | F3 |
+| `permission.respond` / `question.respond` off the read loop | F4 |
+| ACP notification path cannot kill an engine connection | F5 |
+| `session.shell` off the prompt's async budget | F6 |
+| Pair QR advertises the bound address | F11 |
+| Auth-method warning corrected | F12 |
+| Context-pressure, uncached-share and session-total reporting | T1–T3 |
+| grok session interfaces via `x.ai/*` ext methods | F7 |
+| kilo/grok structured quota in place of log scraping | F9 |
+| kilo `model-usage` / `context` / `capabilities` consumption | F10 |
+| `ModelReporter` for grok, goose, codex | F8 |
+
+### Out of scope
+
+* **Any model pin or substitution.** MADR 0137's third amendment stands: a
+  provider runs on its own default model unless the user asks otherwise. Every
+  token item here is *reporting*.
+* **Automatic compaction.** T1 adds the signal and the affordance. Deciding
+  that the daemon may compact a user's conversation on its own is a separate
+  decision record.
+* **kilo `/sync` seq-based resume.** Re-verified in this pass; MADR 0137 step
+  7.1's decline stands and `/sync/history` is unchanged upstream.
+* **Adopting `x.ai/hooks` as a permission mechanism.** Two permission systems
+  on one turn needs its own record (0137 step 7.7).
+* **The phone's on-disk transcript cache (`kTranscriptCacheMaxItems = 150`).**
+  Raising it touches mobile storage policy; it is named in Phase 4 as a
+  deliberate non-change.
+* **A new `codex.*`-style namespace for another vendor.** F8's raggedness is
+  recorded, not restructured, in this plan.
+
+### Sizing decisions this plan fixes
+
+These are the numbers every later step is written against. They come from the
+MADR's amendment and are restated here so the plan is executable without
+re-deriving them.
+
+| constant | today | after | basis |
+| --- | --- | --- | --- |
+| per-session retention | 800 events | **32 MiB** | 806 B/event mean × ~40k events; MADR F16 |
+| global retention | unbounded (16 × 800) | **384 MiB** | 12 × per-session, under `max_live_sessions: 16` |
+| `GOMEMLIMIT` | unset | **1 GiB** | 384 MiB budget + 51 MB baseline + headroom; host has 32 GB |
+| phone `kMaxTranscriptItems` | 800 | **4,000** | phone RAM is the scarce side; ~4× not ~50× |
+| `historyMaxPage` | 800 | **2,000** | one page must stay under the 512 KiB frame cap |
+| `historyDefaultPage` | 200 | 200 | unchanged |
+
+## Implementation Steps
+
+Every phase ends with `make pre-add-check` on the files it stages, `go test
+-race ./internal/... ./cmd/...`, and one commit (`git commit --no-edit`; the
+repo's `prepare-commit-msg` hook writes the message). No `git push` at any
+point unless the owner asks in that turn.
+
+**Every phase's new checks must be seen to fail before they are trusted.** Each
+phase below names its fail-first experiment explicitly. Per `AGENTS.md`, run
+those against a scratch copy — never by dirtying the tree — and record what the
+failure actually printed in the execution record.
+
+---
+
+### Phase 1 — Remove the two quadratics. Nothing grows before this lands.
+
+Precondition for every later phase. Both are live defects worth fixing on their
+own merits.
+
+**1.1 Hash-index the replay dedupe (F15).**
+`internal/session/manager.go:201-207`.
+
+* Add `replayKeys map[uint64]struct{}` to `entry`, keyed on a 64-bit FNV-1a of
+  `Type | 0x1F | Text | 0x1F | ToolID | 0x1F | AgentSessionID` — the exact four
+  fields the current scan compares, in that order, with a separator that cannot
+  occur in a type name.
+* On a `Replay` event, probe the map. On a hit, **still confirm by field
+  comparison against the stored candidates** before discarding: a hash
+  collision that silently drops a user's message is a worse bug than the one
+  being fixed. Store `map[uint64][]int` (indices into `e.history`) so
+  confirmation is exact.
+* Rebuild the index whenever `e.history` is trimmed or an element is removed
+  (`removeNativeLocked`, `removeOptimisticUserLocked`), or store generation
+  counters — whichever the implementer measures as cheaper; the rebuild is
+  O(n) and trims are rare.
+* Delete the linear scan.
+
+**1.2 Single-pass byte budgeting in `HistoryPage` (F14).**
+`internal/session/manager.go:1484-1494`.
+
+* Replace the shrink loop with a forward accumulation: walk `ring[start:]`,
+  marshal **each event once**, accumulate encoded length plus the two bytes of
+  separator, and stop at the first event that would exceed
+  `historyMaxResponseBytes` or `limit`. Always include at least one event.
+* Assemble the page from the already-encoded elements rather than re-marshalling
+  the slice, so total marshal work is exactly one pass over the events returned.
+* `truncated` and `nextSinceSeq` keep their current meaning.
+
+**1.3 Stop copying the whole ring to read one page.**
+`internal/session/manager.go:1508-1522` (`historyRing`) copies the entire ring
+under `RLock` for every paged read, and `History` (`:1431`) does the same.
+
+* Add `historySlice(id string, sinceSeq uint64, max int) ([]event.Event, uint64,
+  uint64, bool)` that locates the start index under the lock and copies **only
+  the candidate window** (`max` events), returning `firstSeq`, `latestSeq` and
+  whether more remain.
+* `HistoryPage` uses it. `History` keeps its full-copy contract — it has one
+  caller (`HistoryFor`, `:1532`) — but gains a doc note that wire callers must
+  not use it.
+
+**Files:** `internal/session/manager.go`, `internal/session/manager_history_test.go`.
+
+**Fail-first evidence required:**
+
+* `A1` — revert 1.1's index in a scratch copy; a new
+  `TestReplayDedupeIsNotQuadratic` (asserting a comparison counter, not wall
+  time) must FAIL.
+* `A2` — force a hash collision by stubbing the hash to a constant;
+  `TestReplayDedupeConfirmsCollisionsByField` must FAIL if the field
+  confirmation is removed, and PASS with it.
+* `A3` — restore the shrink loop; `TestHistoryPageMarshalsEachEventOnce`
+  (counting marshals via a counting `json.Marshaler` or an injected encoder)
+  must FAIL.
+
+**Acceptance:**
+
+* Replaying 20,000 distinct events costs O(n) comparisons, measured by the
+  counter in `A1`, against the 185,966,000 recorded in the MADR.
+* `HistoryPage` with `limit=800` over the operator's `a787cbb9` fixture
+  performs ≤ 606 marshals total (one per candidate event) against the measured
+  505 *re*-marshals of growing slices, and allocates under 10 MB against the
+  measured 709 MB. Fixture copied into `internal/session/testdata/`, redacted
+  the same way `internal/wirecap` redacts.
+
+---
+
+### Phase 2 — Byte-budgeted, content-classed retention
+
+This is the RAM decision. It changes what "full" means, not just how big.
+
+**2.1 Declare the content classes.** New file `internal/event/retention.go`.
+
+```go
+// Class ranks an event for eviction. Lower classes are evicted first, and no
+// event is evicted while any event of a lower class remains.
+type Class uint8
+
+const (
+    ClassTelemetry Class = iota // available_commands, remote_commands,
+                                // session_config, usage_update, notice
+    ClassProgress               // tool_call_update, thought_chunk, plan,
+                                // session_status
+    ClassContent                // assistant_message_chunk, tool_call,
+                                // artifact, session_title
+    ClassAnchor                 // user_message, turn_complete,
+                                // permission_request, permission_resolved,
+                                // question_request, question_resolved, error
+)
+
+func ClassOf(t Type) Class
+```
+
+* `ClassAnchor` is **never evicted** while any lower-class event remains, and
+  an anchor is only evicted when the ring holds nothing but anchors and is
+  still over budget. That is the property that makes the F1 table impossible to
+  reproduce.
+* The mapping is exhaustive over `event.Type` and pinned by a test that fails
+  when a new type is added without a class — the same shape as the existing
+  `internal/protocol/doc_coverage_test.go`.
+
+**2.2 Measure an event's retained size.** In the same file:
+
+```go
+// Bytes reports the approximate retained size of ev: the 44-field struct
+// header plus the length of every string and the retained size of every slice
+// element. Approximate on purpose — it is a budget input, not an allocator.
+func Bytes(ev Event) int
+```
+
+* Pinned by `TestBytesTracksStructGrowth`, which fails when
+  `unsafe.Sizeof(Event{})` changes without `Bytes`'s header constant changing.
+  A 45th field that the budget does not count is how a budget silently stops
+  bounding anything.
+
+**2.3 Replace the count cap with a byte budget.**
+`internal/session/manager.go:36-43`, `:222-225`.
+
+* `historyBufferCap` (800) → `historyBudgetBytes = 32 << 20`, with
+  `historyTrimTo` becoming `historyTrimToBytes = historyBudgetBytes * 3 / 4`.
+* `entry` carries a running `historyBytes int`, maintained on append, trim and
+  every removal path.
+* Eviction: while `historyBytes > historyBudgetBytes`, drop the **oldest event
+  of the lowest present class** until `historyBytes <= historyTrimToBytes`.
+  Implement as a class-bucketed index into the ring so eviction is O(dropped),
+  not O(ring) — the scan that Phase 1 removed must not reappear here.
+* `HistoryRingCap` (`:41-43`) is advertised in `Caps.HistoryRing` and is an
+  *event count*. Keep the field for compatibility and set it to a conservative
+  event-count estimate derived from the byte budget; add
+  `Caps.HistoryBudgetBytes` alongside it as the truthful value. Old clients
+  keep reading a number that means what it always meant.
+
+**2.4 Global budget.** New in `Manager`:
+
+* `globalBudgetBytes = 384 << 20`, tracked as the sum of live entries' bytes.
+* When exceeded, evict across sessions **least-recently-updated first**, and
+  within a session by the class rule above. A session being actively prompted
+  is never the eviction target while another live session has evictable bytes.
+* Emit one `notice` per session the first time it is trimmed by the global
+  budget, so a shrinking transcript is never silent. Deduped by
+  `event.NoticeDeduper`, which already exists (`manager.go:173`).
+
+**2.5 `GOMEMLIMIT`.** `cmd/mcremote/main.go` (serve path):
+
+* `debug.SetMemoryLimit(1 << 30)` unless `GOMEMLIMIT` is already set in the
+  environment, so an operator override wins and the default is stated in one
+  place. Log the effective limit at start alongside the existing
+  `starting mcremote` line.
+
+**2.6 Durable file follows the same policy.**
+`internal/session/store.go:278-280` re-trims to `historyBufferCap` on write,
+which would undo 2.3.
+
+* Take the already-classed, already-budgeted ring as authoritative and write it
+  whole, with an independent `historyFileBudgetBytes = 32 << 20` guard that
+  applies the *same* class rule rather than a count.
+* `LoadHistory` (`:296`) and its `:310` re-trim get the same treatment.
+
+**Files:** `internal/event/retention.go` (new), `internal/event/retention_test.go`
+(new), `internal/session/manager.go`, `internal/session/store.go`,
+`cmd/mcremote/main.go`, `internal/protocol/messages.go`.
+
+**Fail-first evidence required:**
+
+* `B1` — set `ClassOf` to return `ClassTelemetry` for `user_message`;
+  `TestAnchorsSurviveTelemetryFlood` (replay of the real `5e360a4e` fixture:
+  695 `tool_call_update` + 1 `user_message`, budget set to hold 100 events)
+  must FAIL with the user message evicted.
+* `B2` — remove the global budget's cross-session eviction;
+  `TestGlobalBudgetEvictsColdestSessionFirst` must FAIL.
+* `B3` — add a 45th field to a copy of `Event` without updating `Bytes`;
+  `TestBytesTracksStructGrowth` must FAIL.
+* `B4` — restore `store.go`'s count trim;
+  `TestDurableHistoryUsesTheClassRule` must FAIL.
+
+**Acceptance:**
+
+* Replaying every one of the operator's six truncated sessions
+  (`20e9170b`, `32da1cc5`, `5e360a4e`, `a787cbb9`, `c8ede651`, `dbc29fc3`,
+  redacted into `internal/session/testdata/`) through the new retention retains
+  **100% of `user_message` events** — against the MADR's measured 0, 0, 1, 1, 2,
+  3.
+* A synthetic session emitting 50,000 `tool_call_update` events and 20
+  `user_message` events retains all 20 user messages and stays under 32 MiB.
+* Daemon RSS after that synthetic run is under 200 MB, measured with
+  `runtime.ReadMemStats` in the test and spot-checked with `ps` on the live
+  daemon during Phase 6's acceptance run.
+
+---
+
+### Phase 3 — Newest-first history paging (F17)
+
+Without this, a bigger ring makes the phone slower, not better.
+
+**3.1 Protocol.** `internal/protocol/messages.go:386-392`:
+
+```go
+type SessionHistoryPayload struct {
+    SessionID string `json:"session_id"`
+    SinceSeq  uint64 `json:"since_seq,omitempty"`  // exclusive lower bound
+    BeforeSeq uint64 `json:"before_seq,omitempty"` // exclusive upper bound; newest-first
+    Limit     int    `json:"limit,omitempty"`
+}
+```
+
+* `BeforeSeq` and `SinceSeq` are mutually exclusive; both set is `bad_payload`.
+* `BeforeSeq: 0` **with the field present** means "the newest page". JSON cannot
+  distinguish absent from zero for a `uint64`, so add a companion
+  `Newest bool \`json:"newest,omitempty"\`` and treat `newest: true` as the
+  request for the tail. This is uglier than a pointer and is chosen because
+  every other payload in this file uses value types and `omitempty`; a pointer
+  here would be the only one.
+* `SessionHistoryResultPayload` (`:634-644`) gains
+  `PrevBeforeSeq uint64 \`json:"prev_before_seq,omitempty"\`` — the cursor for
+  the next older page — alongside the existing `NextSinceSeq`. `FirstSeq` and
+  `LatestSeq` already exist and already bound the ring.
+
+**3.2 Manager.** `HistoryPageBefore(id string, beforeSeq uint64, limit int)`,
+sharing Phase 1.3's `historySlice` and Phase 1.2's single-pass budget, walking
+backwards from the tail and returning events **oldest-first within the page**
+so the client's reducer is unchanged.
+
+**3.3 Server.** `internal/ws/server.go` history handler routes on the new
+fields. `op_timeouts.json` needs no change: `session.history` stays at 30 s.
+
+**3.4 Documentation.** `docs/protocol-v1.md` and `docs/protocol-v2.md` gain the
+new fields with the mutual-exclusion rule. The repo treats these as the wire
+contract; a field that ships undocumented is a field the next client author
+guesses at.
+
+**Files:** `internal/protocol/messages.go`, `internal/ws/server.go`,
+`internal/session/manager.go`, `docs/protocol-v1.md`, `docs/protocol-v2.md`,
+plus tests in `internal/ws/` and `internal/session/`.
+
+**Fail-first evidence required:**
+
+* `C1` — make `HistoryPageBefore` return oldest-first from the head;
+  `TestNewestPageReturnsTheTail` must FAIL.
+* `C2` — accept both `since_seq` and `before_seq`;
+  `TestSinceAndBeforeAreMutuallyExclusive` must FAIL.
+* `C3` — drop `prev_before_seq`; `TestBackwardPagingTerminatesAtFirstSeq` must
+  FAIL (the client cannot walk further back).
+
+**Acceptance:** a 20,000-event session serves its newest 200 events in **one**
+round trip, and walks backwards to `FirstSeq` in exactly
+`ceil(20000/limit)` requests with no request returning an event twice.
+
+---
+
+### Phase 4 — Raise the phone's cap and teach it the newest-first path
+
+`apps/mobile`. Runs after Phase 3 so the client has something to call.
+
+**4.1** `kMaxTranscriptItems` 800 → **4,000**
+(`apps/mobile/lib/data/chat/chat_models.dart:61`). Phone RAM is the scarce
+side; this is a 5× raise, not the host's 50×.
+
+**4.2** Read the host's advertised budget rather than assuming.
+`kHistoryFetchLimit` (`:69`) and the `for (var page = 0; page < 32; page++)`
+bound (`mcremote_client.dart:3474`) both encode "the ring is ≤800". Replace
+with `Caps.historyRing` / `Caps.historyBudgetBytes` from `auth_ok`, and a page
+bound derived from it.
+
+**4.3** `sessionHistory` fetches the **newest page first** (`newest: true`) and
+renders it, then pages backwards with `before_seq` on scroll. The current
+implementation blocks on the full forward walk before showing anything
+(`mcremote_client.dart:3466-3524`); that is the visible hang on opening a long
+session.
+
+**4.4** `_enforceCap` (`transcript_reducer.dart:873-889`) rebuilds the entire
+tool index on every drop. At 4,000 items that is 4,000 map writes per event
+once the cap is reached. Rebuild incrementally, or store items in a structure
+whose indices survive a front trim.
+
+**4.5 Deliberate non-change:** `kTranscriptCacheMaxItems = 150` (`:71`) stays.
+Raising the on-disk cache is a mobile storage decision with its own trade-offs
+and is out of scope; it is named here so a reader does not read its absence as
+an oversight.
+
+**Files:** `apps/mobile/lib/data/chat/chat_models.dart`,
+`apps/mobile/lib/data/chat/transcript_reducer.dart`,
+`apps/mobile/lib/data/ws/mcremote_client.dart`,
+`apps/mobile/lib/state/transcripts_notifier.dart`, and their tests.
+
+**Pre-commit:** `flutter analyze`, `flutter test`, and
+`dart format --output=none --set-exit-if-changed .` over `apps/mobile` — CI
+runs the format check and one unformatted file is a red build with green tests
+(`AGENTS.md`). `make preflight` runs the trio.
+
+**Fail-first evidence required:**
+
+* `D1` — restore the forward-only fetch;
+  `test/history_newest_first_test.dart` must FAIL.
+* `D2` — hardcode 800 again; a test asserting the client honours an advertised
+  budget of 4,000 must FAIL.
+* Widget tests must not assert on text-width-dependent layout: the test font is
+  fixed-width and does not match the shipping font.
+
+**Acceptance:** opening a 20,000-event session on the emulator renders the
+newest content in one round trip, and scrolling up loads older pages without
+refetching from `FirstSeq`.
+
+---
+
+### Phase 5 — The content-loss defects at the edges (F2, F3)
+
+Independent of Phases 1–4 and could land first; sequenced here because Phase 2
+changes what a lost event costs.
+
+**5.1 Codex append semantics (F2).** `internal/chunkbuf/chunkbuf.go`.
+
+* Add `WithToolLaneAppend()`, or a `ToolTextMode` option with values
+  `ToolTextReplace` (today's behaviour) and `ToolTextAppend`.
+* In append mode, `mergeTool` **concatenates** `prev.Text + next.Text` under a
+  per-tool cap (`maxPendingChunkBytes`, already defined per provider), flushing
+  when the cap is reached rather than discarding.
+* `internal/provider/codex/session.go:2399` switches to append mode. Both codex
+  delta sites (`notifications.go:65`, `session.go:1583`) are the reason and get
+  a comment naming it.
+* kilo, opencode and goose stay on replace — verified in the MADR, and pinned
+  by a test per provider so a future edit cannot flip one silently.
+
+**5.2 grok gets the lane (F3).**
+`internal/provider/acpagent/session.go:1208` gains `chunkbuf.WithToolLane()` in
+replace mode, matching its `summarizeToolContent` emission (`:1480`).
+
+**Fail-first evidence required:**
+
+* `E1` — codex on replace mode; `TestCodexOutputDeltasAreConcatenated`
+  (two deltas inside one window, asserting both lines present) must FAIL, and
+  the failure must name the missing first line rather than a count.
+* `E2` — kilo switched to append mode;
+  `TestReplaceProvidersDoNotConcatenate` must FAIL with duplicated text.
+* `E3` — grok's lane removed; `TestGrokCoalescesToolUpdates` must FAIL.
+
+**Acceptance:** the codex fixture
+(`internal/provider/codex/testdata/wire/0.152.1/frames.jsonl`) replayed through
+the session produces a transcript containing every `outputDelta` byte, compared
+against the concatenation of the fixture's own deltas.
+
+---
+
+### Phase 6 — Token cost becomes visible (T1, T2, T3)
+
+Reporting only. No compaction is triggered, no model is changed.
+
+**6.1 Context pressure (T1).** `internal/session/turnlatency.go` already
+computes `context_used` and `Usage.Size` (`:117`).
+
+* At turn end, when `Used / Size` crosses **0.75** and again at **0.90**, emit
+  one `notice` per threshold per session naming the numbers and the remedy:
+  *"This session is using 1,526,598 of 2,000,000 context tokens (76%). `/compact`
+  summarises it; `/new` starts fresh."*
+* Thresholds are crossings, not levels — a session that drops back below after
+  a compaction re-arms. Deduped through the existing `event.NoticeDeduper`.
+* When `Size` is 0 or absent, emit nothing. A percentage of an unknown
+  denominator is the kind of confident wrong number this record's predecessor
+  was corrected for twice.
+
+**6.2 Per-turn cost on the phone (T2).** Extend `event.Usage` with the fields
+0137 Phase 6 already parses for every provider — `Input`, `Output`,
+`Reasoning`, `CacheRead`, `CacheWrite` — and carry them on `usage_update`.
+
+* This **is** a protocol change (`event.Event` is serialized to the phone),
+  which 0137 Phase 2 deliberately deferred. It is taken here, additively:
+  absent fields mean an engine that does not report them, and old clients
+  ignore them.
+* The phone shows the uncached share per turn. Session `10fe2896` re-paying
+  11,090 uncached tokens on two consecutive identical turns is invisible today
+  and is exactly what this makes visible.
+
+**6.3 Session cost totals (T3).** `Meta` gains cumulative
+`InputTokens`, `CachedTokens`, `OutputTokens` and `Turns`, persisted with the
+rest of the record and returned on `session.list_result`.
+
+* The phone can then show "34 sessions, 2.7 turns each, 21% of your input
+  tokens uncached" without anyone reading a log.
+* Cheap: five integers per session, updated once per turn on a path that
+  already writes `Meta`.
+
+**6.4 Structured quota in place of prose (F9).**
+
+* kilo/opencode: on an engine limit signal, call
+  `GET /kilocode/provider-usage` (verified live in this pass) and attach the
+  structured result to the `error` event's `ErrorKind: "quota"`.
+* grok: `x.ai/billing` and `x.ai/limit` on the ext-method path Phase 8 builds.
+* `internal/agenterr` **stays** as the fallback for engines with no structured
+  source, and gains a log line when it fires *without* a structured
+  confirmation — so the day a vendor changes its wording is a day the daemon
+  reports rather than a day it goes quiet.
+
+**Files:** `internal/session/turnlatency.go`, `internal/session/manager.go`,
+`internal/event/event.go`, `internal/protocol/messages.go`,
+`internal/provider/kilo/`, `internal/provider/opencode/`,
+`internal/agenterr/agenterr.go`, `docs/protocol-v1.md`, and the mobile client.
+
+**Fail-first evidence required:**
+
+* `F1x` — set the threshold to 1.01; `TestContextPressureNoticeAtSeventyFive`
+  must FAIL.
+* `F2x` — return `Size: 0`; `TestNoPressureNoticeWithoutAContextWindow` must
+  FAIL if the guard is removed.
+* `F3x` — drop the cache fields from the wire;
+  `TestUsageEventCarriesCacheAccounting` must FAIL.
+* `F4x` — a live-tagged `make live-kilo` probe asserting
+  `/kilocode/provider-usage` answers the shape the code parses. Per `AGENTS.md`,
+  a decision resting on external CLI behaviour is pinned with a live test.
+
+**Acceptance:** replaying the operator's 15 turn-latency records through the
+new code produces a pressure notice for `1b3742ba` (1,526,598 tokens) and
+`84b277cd` (275,939), and none for the twelve turns under threshold.
+
+---
+
+### Phase 7 — The read-loop and budget defects (F4, F5, F6, F11, F12)
+
+Small, independent, no provider quota.
+
+**7.1 (F4)** Move `permission.respond` and `question.respond` to
+`dispatchAsync` (`internal/ws/server.go:874`, `:882`). Add both to
+`asyncOpTimeout` and `internal/protocol/op_timeouts.json` at **15 s** — above
+the provider's own 10 s call timeout (`httpagent/session.go:1232`) so the
+daemon's error is the authoritative one, per MADR 0095 D7.
+
+* Audit and record a verdict for the seven handlers that remain inline. `auth`
+  and `pair.claim` must stay inline (they establish the connection's identity).
+  `receipts.list` and `devices.list` read and verify from disk on the read loop
+  — move them or state why not.
+* `op_timeouts.json`'s comment — *"Methods handled inline on the daemon's read
+  loop are absent by design"* — is stale since 0137 Phase 4 and is corrected in
+  the same commit.
+
+**7.2 (F5)** `internal/provider/acpagent/session.go:1337-1342`: the control
+send blocks on `s.events` or `s.done`. Add a third arm — a bounded overflow
+buffer, or a deadline after which the session is faulted with an explicit
+`error` event — so the ACP SDK's 1024-slot notification queue
+(`connection.go:108`, `:446`) can never overflow and destroy the engine
+connection.
+
+* The MADR labels this unobserved. The fix is therefore conservative: it must
+  not change behaviour for a healthy pump, and the test drives the pathological
+  case directly.
+
+**7.3 (F6)** Give `session.shell` its own concurrency budget, separate from
+`maxAsyncPerClient` (`internal/ws/server.go:181`). Two concurrent shells per
+connection, and shell slots never consume prompt slots.
+
+**7.4 (F11)** `internal/cli/pair.go:499`: `detectAdvertiseHost` takes
+`cfg.Listen.Host`. A loopback bind advertises loopback. A bind to a specific
+non-tailnet address advertises that address. `tailscale`/empty keeps today's
+Tailscale-IPv4 preference. Reproduced in the MADR with `curl` exit 7 against
+the advertised address.
+
+**7.5 (F12)** `internal/provider/acpagent/acpagent.go:583-586`: demote to
+`Debug`, or suppress when the agent's own credential store shows it is already
+authenticated. It has fired 90 times and been true zero times.
+
+**Fail-first evidence required:**
+
+* `G1` — restore the inline permission handler;
+  `TestPermissionRespondDoesNotStallTheReadLoop` (a stalled fake engine, then a
+  `session.cancel` on the same connection asserted to complete under 1 s) must
+  FAIL.
+* `G2` — remove 7.2's third arm; `TestACPConnectionSurvivesAStalledPump` must
+  FAIL.
+* `G3` — share the shell budget again; `TestShellDoesNotStarveThePrompt` must
+  FAIL.
+* `G4` — restore the tailnet-only detection;
+  `TestPairAdvertisesTheBoundHost` must FAIL.
+
+---
+
+### Phase 8 — Close the provider surface gap (F7, F8, F10)
+
+Delivered per provider and per interface, so it can be stopped at any point
+without leaving the daemon inconsistent. grok first: it is the furthest behind.
+
+**8.1 grok ext-method plumbing.** A typed helper in
+`internal/provider/acpagent/xaiextensions.go` for `conn.ExtMethod(name, args)`,
+with per-method request/response types and a capability probe so a grok build
+that lacks a method degrades to "unsupported" rather than erroring a turn.
+
+**8.2 grok interfaces**, in this order (each is one interface, one ext method,
+one test, and can be committed alone):
+
+| step | interface | method |
+| --- | --- | --- |
+| 8.2a | `CompactSession` | `x.ai/compact_conversation` |
+| 8.2b | `RenameSession` | `x.ai/session/rename` |
+| 8.2c | `PurgeSession` | `x.ai/session/delete` |
+| 8.2d | `AgentSessionLister` | `x.ai/sessions/list` |
+| 8.2e | `RevertSession` / `UndoSession` | `x.ai/rewind/points`, `x.ai/rewind/execute` |
+| 8.2f | `CommandCatalog` | `x.ai/commands/list` |
+| 8.2g | `SkillRefreshSession` | `x.ai/skills/refresh-baseline` |
+
+Each is exercised against grok 1.0.13 under `-tags live_grok`. **Ask the owner
+before any run that spends grok quota**; the interface calls above are session
+management and should not invoke a model, which each test asserts by checking
+that no `usage_update` arrives.
+
+**8.3 `ModelReporter` for grok (F8).** grok's `initialize` result carries
+`_meta.modelState.currentModelId` — present in the checked-in fixture
+(`internal/provider/grok/testdata/wire/1.0.13/frames.jsonl`) and unread. Store
+it at handshake and implement `CurrentModel()`. Today **7 of 7** grok turn
+records carry no model. codex has `cliVersion`/model on `thread/started`; goose
+has none and stays absent rather than guessed.
+
+**8.4 kilo surfaces (F10).**
+
+* `GET /session/{id}/model-usage` → per-session cost, feeding Phase 6.3.
+* `GET /api/session/{id}/context` → the `/context` command's answer, in place
+  of an inferred one.
+* `GET /experimental/capabilities` at engine ready, replacing hardcoded
+  assumptions and logged once.
+
+**8.5 Recorded, not adopted.** A table in the execution record, following the
+pattern MADR 0137 step 7.7 set, for every grok ext method deliberately left
+unwired — `x.ai/cloud/*`, `x.ai/marketplace/*`, `x.ai/feedback*`,
+`x.ai/privacy/*`, `x.ai/consent/record`, `x.ai/getApiKey`/`setApiKey`,
+`x.ai/hooks/*` — with one sentence each. An unexplained gap reads as an
+oversight.
+
+**Acceptance:** the MADR's F8 matrix is regenerated and grok moves from 12
+implemented interfaces to at least 19, with every addition covered by a
+live-tagged test.
+
+---
+
+## Verification
+
+Run at the end of every phase:
+
+```bash
+make pre-add-check FILES="<the files this phase stages>"
+go test -race ./internal/... ./cmd/... -count=1
+```
+
+Run at the end of Phase 4 and again at Phase 8:
+
+```bash
+make preflight          # flutter analyze + flutter test + dart format check
+```
+
+Live probes, at acceptance only, and **after asking the owner** — these spend
+provider quota:
+
+```bash
+go test -tags live_kilo  ./... -count=1
+go test -tags live_grok  ./... -count=1
+go test -tags live_codex ./... -count=1
+```
+
+### Acceptance criteria for the plan as a whole
+
+1. **No transcript loses a user message.** Every one of the operator's six
+   truncated fixtures replays with 100% of its `user_message` events retained.
+   Today: 0, 0, 1, 1, 2, 3 retained out of the originals.
+2. **No command output is dropped.** The codex fixture's `outputDelta` bytes
+   appear in the transcript in full.
+3. **Opening a transcript is cheap.** `session.history` at `limit=800` over the
+   `a787cbb9` fixture allocates under 10 MB and completes under 50 ms. Today:
+   709 MB, 2,516 ms.
+4. **A long session opens at the bottom in one round trip**, verified on the
+   emulator against a 20,000-event session.
+5. **Replay is linear.** 20,000 replayed events cost O(n) comparisons, measured
+   by counter. Today: 185,966,000 comparisons, 352 ms.
+6. **RAM stays bounded.** A 16-session soak, each driven to its 32 MiB budget,
+   holds daemon RSS under 600 MB with `GOMEMLIMIT` at 1 GiB, measured with `ps`
+   against today's 51.4 MB idle baseline.
+7. **Token cost is visible.** A session crossing 75% of its context window
+   produces a notice; every `usage_update` carries cache accounting; a
+   `session.list` shows cumulative tokens per session.
+8. **The read loop cannot be stalled by a provider call.** `permission.respond`
+   against a stalled engine does not delay a concurrent `session.cancel`.
+9. **grok answers `/compact`, `/rename`, `/undo` and `/sessions`.**
+10. **Every new check has been seen to fail.** The execution record contains
+    the actual failure output for A1–A3, B1–B4, C1–C3, D1–D2, E1–E3, F1x–F4x
+    and G1–G4 — not a claim that they were run.
+
+### What would falsify this plan
+
+Named up front, because the MADR this plan serves was corrected twice for
+believing an instrument:
+
+* If the class-based eviction is measured to evict content while telemetry
+  survives on any of the six real fixtures, Phase 2's policy is wrong and the
+  budget must not ship on it.
+* If raising the phone cap to 4,000 pushes emulator memory past its budget or
+  drops frames on scroll, 4.1 reverts to a smaller number and the host budget
+  stands alone — the host and phone budgets are deliberately independent so
+  this is possible.
+* If `Bytes` is measured to under-report retained size by more than 25% against
+  `runtime.ReadMemStats` on a real ring, the budget does not bound anything and
+  Phase 2 stops until it does.
+
+## Rollout and Rollback
+
+**Order.** Phases 1 → 2 → 3 → 4 are a chain: each is a precondition for the
+next, and none may be skipped. Phases 5, 6, 7 are independent of that chain and
+of each other; any of them may land at any point. Phase 8 is last because it
+adds surface to a path the earlier phases are still repairing, and because its
+tests spend quota.
+
+**Per-phase rollout.** One commit per phase (`git commit --no-edit`). No push
+unless the owner asks in that same turn. The daemon is restarted from the
+operator's launchd agent after Phases 2, 3 and 7, and the phone is rebuilt
+after Phase 4.
+
+**Compatibility.**
+
+* Phase 2 changes the durable history format's *policy*, not its schema.
+  Existing `history.json` files load unchanged; they are simply no longer
+  re-trimmed by count. Already-truncated histories stay truncated — nothing
+  recovers them, and the MADR says so.
+* Phase 3 is additive: `before_seq`/`newest` are new optional fields; a client
+  that never sends them sees today's behaviour exactly.
+* Phase 6.2 is additive on `event.Usage`; absent fields mean an engine that
+  does not report them.
+* `Caps.HistoryRing` keeps its meaning (an event count) and gains
+  `HistoryBudgetBytes` beside it, so a phone built before Phase 4 keeps working
+  against a daemon built after Phase 2.
+
+**Rollback.**
+
+* Phases 1, 5, 7 are self-contained code changes: revert the commit.
+* Phase 2 rolls back by restoring `historyBufferCap` and the count trim. The
+  on-disk files a budgeted daemon wrote are larger than the old cap; the old
+  code re-trims them on the next write and loses the surplus. **That is
+  destructive to retained transcript**, so a rollback of Phase 2 is announced to
+  the owner before it is performed, never taken unilaterally.
+* Phase 3 rolls back by ignoring the new fields server-side; a Phase-4 client
+  then falls back to forward paging, which still works.
+* Phase 4 rolls back independently of the host — the host tolerates both client
+  behaviours by construction.
+* `GOMEMLIMIT` is a one-line revert and can also be overridden per host from
+  the launchd/systemd unit's environment without a rebuild.
+
+**Operational note.** The operator's daemon runs under
+`~/Library/LaunchAgents/com.magiccliremote.mcremote.plist` with `KeepAlive` and
+no memory limit set. Phase 2.5's `GOMEMLIMIT` default is applied in-process
+precisely so it does not require touching that plist, and so an operator who
+wants a different limit can set the environment variable there without a
+rebuild.
+
+## Execution Record
+
+### Phase 1 — 2026-09-03, complete
+
+**1.1 Replay dedupe is indexed.** `entry` gains `replayIndex map[uint64][]int`
+and `replayCompares uint64`. `replayKey` folds the exact four fields the old
+scan compared — `Type`, `Text`, `ToolID`, `AgentSessionID`, separated by
+`0x1F` — through an allocation-free FNV-1a. A hash hit is **confirmed field by
+field** before anything is discarded; a 64-bit collision is improbable, but the
+failure it would cause is precisely the defect this record exists to fix.
+
+The index is rebuilt on every trim and on both native-identity removal paths,
+and is built from the seed when a restart loads durable history into a fresh
+`entry` — without that last one, a `session/load` immediately after a restart
+would have re-appended the entire durable transcript as new content.
+
+**1.2 `HistoryPage` encodes each event once.** The shrink loop is replaced by
+`historyBudgetPrefix`, a single forward pass that encodes each candidate once
+and stops at the first event that would exceed `historyMaxResponseBytes`. It
+always returns at least one event, so a single oversized event makes progress
+instead of wedging the pager at that seq.
+
+`historyMarshal` is a package variable so a test can count encodes. It is never
+reassigned in production; a call count is the only thing that separates the two
+implementations without timing them, and a timing assertion is not a check this
+repository trusts.
+
+**1.3 Paged reads no longer copy the ring.** `historyRing` is deleted and
+replaced by `historySlice`, which binary-searches the start (the ring is
+Seq-ascending; deletions leave gaps, which "first Seq greater than since"
+handles and an equality search would not) and copies only the candidate window.
+`History` keeps its full-copy contract for its single caller and gains a doc
+note that wire callers must not use it.
+
+### Fail-first evidence — three breakages, each verified against a scratch copy
+
+Run against `…/scratchpad/failfirst/repo`, a copy of the tree. The working tree
+was never dirtied, and no `git checkout` was used to clean up.
+
+```text
+A1. the pre-index linear scan restored (counter kept inside it)
+    FAIL TestReplayDedupeIsNotQuadratic
+         replay dedupe is scanning: 490000 field comparisons for 1400
+         events, want <= 2800
+    (490,000 = n²/2 × 2 passes at n=700, exactly the quadratic)
+
+A2. field confirmation removed; trust the hash
+    FAIL TestReplayDedupeConfirmsCollisionsByField
+         a hash hit that does not match on fields must not suppress the
+         event: history has 1 entries, want 2
+
+A3. the shrink loop restored, routed through the same counted seam
+    FAIL TestHistoryPageMarshalsEachEventOnce
+         the byte budget encoded 312774 times for a 800-event window;
+         want at most one pass
+```
+
+A3's first attempt failed for the *wrong* reason: the restored loop called
+`json.Marshal` on the slice and so bypassed the counted seam entirely, tripping
+a secondary assertion (`encoded 0 times but returned 124 events`) rather than
+the one that matters. Re-run with the old loop routed through `historyMarshal`,
+the count itself is what fails. A fail-first that fails for an unintended reason
+has not tested the check.
+
+### Acceptance — measured against the operator's real transcripts
+
+`HistoryPage` at `limit=800`, the value the phone actually sends
+(`kHistoryFetchLimit`), over the live data dir:
+
+| session | ring | returned | encodes | allocated | elapsed |
+| --- | --- | --- | --- | --- | --- |
+| a787cbb9 | 606 | 102 | **103** | **1.0 MB** | **1.0 ms** |
+| 1efee1da | 629 | 251 | **252** | **1.2 MB** | **1.3 ms** |
+| 20e9170b | 799 | 799 | 799 | 1.0 MB | 1.2 ms |
+
+Against the MADR's pre-fix measurements on the same two files: 505 marshals /
+709 MB / 2,516 ms, and 379 marshals / 286 MB / 1,114 ms. **709 MB → 1.0 MB and
+2,516 ms → 1.0 ms**, returning the identical page.
+
+```text
+go build ./...                                   -> ok
+go test -race ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```
+
+### Deviation — 2026-09-03: fixtures are synthetic, not the operator's transcripts
+
+*What was found.* Phase 1's and Phase 2's acceptance criteria as written say to
+copy the operator's real `history.json` files into `internal/session/testdata/`,
+"redacted the same way `internal/wirecap` redacts". `wirecap`'s redaction strips
+the home path only — it does not remove conversation content — and
+`maccavelli/magic-cli-remote` is a **public** repository
+(`gh repo view --json visibility` → `PUBLIC`). Committing the fixtures would
+publish the operator's agent conversations permanently into git history, which
+no step of this plan asked for and which cannot be undone by deleting the file
+later.
+
+Content was inspected rather than assumed: `a787cbb9` carries 8,233 characters
+of free text, 22 absolute-home-path hits, and no emails, tokens, IP addresses or
+URLs. Benign here — but the decision is about a one-way door, not this one file.
+
+*Resolution, chosen by the owner:* **synthetic fixtures plus an env-gated real
+test.** Committed tests use a deterministic generator calibrated to the
+per-event-type byte distribution measured in MADR 0138 F16. A second test reads
+real transcripts only when `MCREMOTE_HISTORY_FIXTURE_DIR` names a directory, and
+skips otherwise, so the acceptance measurement above stays reproducible on the
+operator's own machine without shipping anything.
+
+*Scope added to Phase 1:* `internal/session/history_fixture_test.go`. Phase 2's
+acceptance criteria inherit the same substitution.
+
+*Not worked around.* The acceptance numbers in the table above were measured
+against the real files before this decision was taken; the substitution changes
+what is committed, not what was verified.
+
+### Phase 2 — 2026-09-03, complete
+
+**2.1/2.2 `internal/event/retention.go`.** Four classes — telemetry, progress,
+content, anchor — with `ClassOf` exhaustive over every declared `event.Type`,
+and `Bytes` reporting an event's retained size from the struct header plus every
+string and slice element it owns.
+
+Both are pinned by tests that read the *source*, not a hand-written list:
+`TestClassOfIsExhaustive` parses every `Type… Type = "…"` constant out of the
+package and checks each appears in the switch, and `TestBytesTracksStructGrowth`
+walks `Event`'s fields reflectively and fails on any string field `Bytes` does
+not sum. A list maintained by hand would be updated by the same person who
+forgot to classify the new type, so it would agree with the mistake.
+
+`Bytes` was measured against the allocator rather than asserted:
+`TestBytesDoesNotUnderReportRetainedSize` builds 20,000 realistic events and
+compares the accounting to `runtime.ReadMemStats`. It reports **1,523 B/event**
+and over-reports by 2× against `HeapAlloc` — conservative, which is the safe
+direction for a budget, and close to the 1.5 KB/event this plan's sizing table
+assumed.
+
+**2.3 The count cap is gone.** `historyBufferCap = 800` and `historyTrimTo` are
+replaced by `historyBudgetBytes = 32 MiB` and `historyTrimToBytes` (75%).
+`entry` carries a running `historyBytes`, and `enforceHistoryBudgetLocked`
+evicts lowest class first, oldest first within a class, **never the newest
+event** — a transcript that drops what just arrived is worse than one briefly
+over budget, and a single event larger than the whole budget would otherwise be
+discarded the instant it landed.
+
+`rebuildReplayIndexLocked` became `reindexHistoryLocked` and now recomputes the
+replay index and the byte total in one pass. They are two views of the same
+slice; maintaining them separately is how one ends up describing a ring that no
+longer exists.
+
+**2.4 Global budget.** `globalBudgetBytes = 384 MiB`, enforced across live
+sessions coldest-first by `lastEventAt`, and never against the session being
+prompted while any colder one still has bytes to give. The first time a session
+is trimmed this way its operator gets one notice, emitted after the manager lock
+is released and deduped by the flag on the entry. A transcript that silently
+shrinks is the failure this record is about; a global budget that shrank it
+silently would only move the failure.
+
+**2.5 `GOMEMLIMIT`.** `applyMemoryLimit` sets a 1 GiB soft ceiling unless the
+operator already set `GOMEMLIMIT`, whose value wins, and the effective limit and
+its source are logged. Verified live on both paths:
+
+```text
+msg="starting mcremote" … mem_limit_bytes=1073741824 mem_limit_source=default
+GOMEMLIMIT=256MiB …      … mem_limit_bytes=268435456  mem_limit_source=GOMEMLIMIT
+```
+
+**2.6 The durable file uses the same rule.** `store.go`'s two count re-trims are
+replaced by `boundHistoryByClass`, the class rule expressed over a plain slice,
+so the file and the ring cannot disagree about what a transcript is. Re-trimming
+by count on write would have undone the retention the ring had just enforced.
+
+**Protocol.** `Caps.HistoryBudgetBytes` is advertised beside `Caps.HistoryRing`.
+`HistoryRing` stays an event count — that is what it has always meant and phones
+size their own buffers from it — and is now a conservative estimate derived from
+the byte budget; the truthful value sits next to it. Additive, so a phone built
+before this keeps working.
+
+### Fail-first evidence — five breakages, one of which exposed a worthless test
+
+```text
+B1. user_message demoted to ClassTelemetry
+    FAIL TestAnchorsSurviveATelemetryFlood
+         retained 0 of 20 user messages; anchors must outlive telemetry
+
+B2. coldest-first ordering reversed
+    FAIL TestGlobalBudgetEvictsColdestSessionFirst
+         the coldest session was not trimmed: 10516160 bytes, was 10516160
+
+B3. a 45th string field added to Event, uncounted by Bytes
+    FAIL TestBytesTracksStructGrowth
+         string fields Bytes does not count: [Unbudgeted]
+
+B4. store.go's count trim restored
+    FAIL TestDurableHistoryRespectsCap
+         kept 2 user messages, want all 3: telemetry is evicted before the
+         conversation
+
+B5. a new event type added with no class
+    FAIL TestClassOfIsExhaustive
+         event types with no explicit class (they would fall to ClassTelemetry
+         and be evicted first): [TypeUnclassified]
+```
+
+**B2 passed on its first run, and that was the most useful result in the
+phase.** The original `TestGlobalBudgetEvictsColdestSessionFirst` sized its
+three sessions so that clearing the overage required trimming *all* of them —
+so every visit order produced the same outcome and the test asserted nothing
+about ordering at all. It was rewritten so exactly one session's worth of
+trimming clears the overage, which makes the order the only variable, and it
+then failed against the reversed comparison as shown above.
+
+A check that has only ever been seen to pass is indistinguishable from one that
+does nothing. This one was, for about ten minutes.
+
+### Acceptance — measured against the operator's real transcripts
+
+Every stored transcript replayed through the new retention:
+
+```text
+user_message events: 93 offered, 93 retained across all 34 real transcripts
+```
+
+Against the MADR's F1 table, where the six truncated sessions retained
+**0, 0, 1, 1, 2 and 3**. Nothing was evicted at all, which is the finding: those
+transcripts are a rounding error against 32 MiB and were being truncated by a
+cap that had nothing to do with memory.
+
+Synthetic acceptance, at sizes the real data does not reach:
+
+```text
+TestAnchorsSurviveATelemetryFlood
+  offered=6020 retained=421 bytes=26602673 user_messages=20/20
+```
+
+6,020 events — 20 prompts each followed by 300 lines of 64 KiB tool output,
+about 390 MiB — reduced to 421 events inside the 32 MiB budget, with **every
+prompt kept**. That is the shape of codex session `5e360a4e`, which under the
+old cap kept 695 lines of one command's stdout and one user message.
+
+```text
+go build ./...                                            -> ok
+go test ./internal/... ./cmd/... -count=1                 -> ok
+go test -race ./internal/... ./cmd/... -count=1           -> ok (full tree)
+```
+
+### Deviations
+
+**2026-09-03 — the global budget needed a seam to be testable.** As specified,
+`globalBudgetBytes` was a constant, and exercising cross-session eviction
+against 384 MiB would mean allocating that much in a unit test. A `globalBudget`
+field on `Manager` (zero means the constant) was added so tests can drive the
+rule at 24 MiB. Production behaviour is unchanged; the rule under test is the
+ordering, not the number.
+
+**2026-09-03 — two existing tests asserted the old cap and were rewritten, not
+deleted.** `TestHistoryRingBufferCapsAndOrders` checked *where* the 800-event
+drop landed; it now checks that 900 small events are all retained, which is the
+behaviour change. `TestDurableHistoryRespectsCap` checked that the file kept the
+last 800 events; it now checks that the file stays inside its byte budget and
+keeps every `user_message`. Both names were kept so the history of what they
+guarded stays findable.
+
+### Phase 3 — 2026-09-03, complete
+
+**3.1 Protocol.** `SessionHistoryPayload` gains `BeforeSeq` (exclusive upper
+bound, newest-first) and `Newest` (the tail of the ring).
+`SessionHistoryResultPayload` gains `PrevBeforeSeq`, the backward twin of
+`NextSinceSeq`.
+
+`Newest` is a separate flag rather than a `BeforeSeq` sentinel because `0` is a
+natural "no bound" for a `uint64` with `omitempty` and cannot be told apart from
+an absent field. A pointer would work and would be the only one in the file; the
+flag reads better at both ends of the wire.
+
+**3.2 Manager.** `HistoryPageBefore` / `HistoryPageBeforeFor`, sharing Phase 1's
+`historySlice` discipline through a new `historySliceBefore` (binary search to
+the upper bound, copy only the candidate window) and a new
+`historyBudgetSuffix`.
+
+The suffix function is the reason this is not just the forward pager with
+reversed arguments: the byte budget must trim the **oldest** end of a backward
+page, because the newest events are the ones the screen is opening on. Pinned by
+`TestNewestPageEncodesEachEventOnce`, which asserts the page still ends at the
+newest seq after the budget shortened it.
+
+Pages are returned **oldest-first within the page** in both directions, so the
+client's reducer is unchanged.
+
+**3.3 Server.** The history handler routes on the new fields and refuses
+`since_seq` together with `before_seq`/`newest` as `bad_payload`. A reply
+carries the cursor for the direction it was asked in and omits the other, so a
+client cannot accidentally walk away from the screen it just rendered.
+
+**3.4 Docs.** `docs/protocol-v1.md` documents both directions, the
+mutual-exclusion rule, the backward cursor and the new byte-based retention with
+its class order. `docs/protocol-v2.md` documents `history_budget_bytes` beside
+`history_ring` and explains why the latter stays an event count. The eight
+markdownlint findings in `protocol-v1.md` are all on lines this phase did not
+touch — checked against `git show HEAD:` rather than assumed.
+
+### Fail-first evidence — three breakages
+
+```text
+C1. HistoryPageBefore returns the head of the ring
+    FAIL TestNewestPageReturnsTheTail
+         newest event in the page is seq 200, want 5000 — this page is not
+         the tail
+
+C2. since_seq and before_seq both accepted
+    FAIL TestWSSinceAndBeforeAreMutuallyExclusive
+         want error for since_seq + before_seq, got session.history_result
+
+C3. prev_before_seq dropped from the reply
+    FAIL TestBackwardPagingTerminatesAtFirstSeq
+         prev_before_seq did not advance: 0 then 0
+```
+
+### Acceptance
+
+`TestBackwardPagingTerminatesAtFirstSeq` walks a 1,000-event ring backward at
+`limit=200` and asserts **exactly 5 pages, 1,000 distinct events, and no event
+returned twice**. `TestNewestPageReturnsTheTail` gets the newest 200 of 5,000 in
+**one** call — the round trip a chat screen needs, which under forward-only
+paging would have been a walk from seq 1.
+
+```text
+go build ./...                             -> ok
+go test ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```
+
+### Phase 4 — 2026-09-03, complete
+
+**4.1 `kMaxTranscriptItems` 800 → 4,000.** A 5× raise, not the host's ~26×.
+Phone RAM is the scarce side of this pair, and the two budgets are deliberately
+independent: the goal is that the client stops being the *tighter* of the two
+caps, not that it matches the host.
+
+**4.2 The client reads the host's budget.** `ServerCaps` gains
+`historyBudgetBytes`, parsed from `auth_ok.caps.history_budget_bytes` and
+defaulting to 0 for a daemon that still bounds by count. `historyRing` keeps its
+meaning and is no longer assumed to be 800.
+
+**4.3 Newest-first fetch.** New `McremoteClient.sessionHistoryNewest`, returning
+a `HistoryPage` with the events, the backward cursor, and the ring bounds. The
+existing forward `sessionHistory` is untouched and still used where a full walk
+is what is wanted; the difference is that opening a screen no longer has to be
+one.
+
+Two details that are not obvious and are pinned by tests: a page whose
+`truncated` is true but which carries **no** cursor is reported as the end
+rather than retried, because a client that re-requests the same window forever
+is worse than one that shows slightly less; and `kHistoryFetchLimit` drops from
+**800 to 200**, because 800 was the exact request that made the host's old
+byte-budget loop re-encode a shrinking slice 505 times (MADR 0138 F14). A page
+is one screen plus lookahead, not the whole ring.
+
+The hardcoded `for (var page = 0; page < 32; ...)` bound, whose comment read
+*"Safety bound: ring is ≤800"*, becomes `kHistoryMaxPages`.
+
+**4.4 The FIFO trim is batched.** `_enforceCap` dropped a single item per event
+once at the cap, copying the whole list and rebuilding the whole tool index each
+time — tolerable at 800, five times worse at 4,000. It now cuts back to 75% in
+one batch, the same shape as the host's eviction, and **shifts** the tool index
+rather than rebuilding it: the map holds one entry per tool call, which is far
+smaller than the transcript.
+
+**4.5 `kTranscriptCacheMaxItems` stays at 150**, as the plan specified. Raising
+the on-disk cache is a mobile storage decision with its own trade-offs.
+
+### Fail-first evidence — two breakages, in a scratch copy of `apps/mobile`
+
+```text
+D1. the forward-only fetch restored
+    FAIL the first fetch asks for the newest page, not the oldest
+         Expected: true      Actual: <null>     ('newest' absent)
+    FAIL an older page is requested with before_seq, not newest
+         Expected: <98>      Actual: <null>
+
+D2. historyBudgetBytes hardcoded to 0 and the cap put back to 800
+    FAIL the client reads the host budget instead of assuming 800
+         Expected: <33554432>  Actual: <0>
+```
+
+The first attempt at D1 did not run at all: the `cp` that was supposed to make
+the scratch copy failed on a stale working directory, the `&&` chain stopped
+before the edit, and the `flutter test` on the following line ran against the
+**real tree** and passed. It was reported as a pass for the wrong code. Re-run
+with absolute paths, both breakages failed as shown. The real tree was confirmed
+untouched (`grep -c 'D1:'` → 0) before continuing.
+
+### Verification
+
+```text
+dart format --output=none --set-exit-if-changed .  -> Formatted 208 files (0 changed)
+flutter analyze                                     -> No issues found!
+flutter test                                        -> 1406 passed, 3 skipped
+```
+
+### Deviation — 2026-09-03: the transcript-reducer cap test was rewritten
+
+`soft cap drops oldest items` asserted the exact one-item-per-event trim
+(`items.first.text == 'm50'`). Batched trimming makes that assertion false by
+design. It now asserts the property — length within `[75%, 100%]` of the cap,
+newest item always retained, oldest derived from the length — and is joined by
+`a batched trim keeps the tool index pointing at the right items`, which catches
+the off-by-one that shifting the index rather than rebuilding it could
+introduce. The original name was kept so what it guarded stays findable.
+
+### Phase 5 — 2026-09-03, complete
+
+**5.1 Codex gets append semantics.** `chunkbuf` gains `WithToolLaneAppend()`,
+and `mergeTool` becomes the method `mergeToolInto` so it can consult the
+buffer's mode: replace keeps the newer text (correct for a provider sending the
+current whole), append concatenates (correct for one sending an increment).
+`internal/provider/codex/session.go` switches to the append lane.
+
+Append mode needed one thing replace did not: the held text now *grows*, so it
+is flushed at the buffer's byte cap rather than being allowed to become an
+unbounded frame. `releaseTool` exists for that flush — it removes the hold
+without merging, because the held event is already the merged state and merging
+it with itself in append mode would duplicate its text.
+
+**5.2 grok gets the lane.** `acpagent` now constructs with `WithToolLane()` in
+replace mode, matching its `summarizeToolContent` emission. It was the only
+provider whose payload shape made the lane safe and the only one that did not
+have it — and, per MADR 0138 F3, the one whose event volume most needed it.
+
+**A per-provider pin.** `TestEachProviderUsesTheToolLaneModeItsPayloadNeeds`
+reads the four construction sites and asserts each matches the shape of its own
+`tool_call_update`. The mode and the payload shape are decided in different
+files; without this, flipping one silently discards (append→replace) or
+duplicates (replace→append) an agent's command output. It checks the *absence*
+of the append spelling for replace providers explicitly, because
+`WithToolLaneAppend` contains `WithToolLane` as a substring.
+
+### Fail-first evidence — four breakages
+
+```text
+E1. codex back on the replacing lane
+    FAIL TestToolLaneConcatenatesNonTerminalUpdates
+         text = "out 7", want every delta concatenated
+         ("out 0out 1out 2out 3out 4out 5out 6out 7")
+    FAIL TestEachProviderUsesTheToolLaneModeItsPayloadNeeds
+         codex does not construct its buffer with chunkbuf.WithToolLaneAppend()
+
+E1b. same, against the real notification decode path
+    FAIL TestOutputDeltaNotificationsSurviveTheLane/item/commandExecution/outputDelta
+         delivered "3 passed\n", want "compiling...\nrunning tests\n3 passed\n"
+    (identical failure for item/fileChange/outputDelta — two of three lines
+     of command output silently lost)
+
+E2. kilo/opencode switched to the append lane
+    FAIL TestEachProviderUsesTheToolLaneModeItsPayloadNeeds
+         kilo/opencode (httpagent) uses the append lane; its updates are
+         snapshots and would be duplicated
+
+E3. grok's lane removed
+    FAIL TestEachProviderUsesTheToolLaneModeItsPayloadNeeds
+         grok (acpagent) does not construct its buffer with
+         chunkbuf.WithToolLane()
+```
+
+```text
+go build ./...                                   -> ok
+go test -race ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```
+
+### Deviations
+
+**2026-09-03 — two existing codex tests pinned the defect and were rewritten.**
+`TestToolLaneSupersedesNonTerminalUpdates` and
+`TestToolLaneTerminalFlushesImmediately`
+(`internal/provider/codex/tool_lane_baseline_test.go`, neither in this phase's
+file list) asserted that the lane keeps only the **last** delta — the exact
+behaviour MADR 0138 F2 identifies as data loss. They failed the moment the fix
+landed, with `text = "out 0out 1…out 7", want last`.
+
+*This is not a contradiction of MADR 0057, it is the completion of it.* 0057 M-2
+reads: *"Measure Codex item streams and Goose tool updates before defaulting —
+opt-in flag first if behavior differs."* Codex was opted into the replacing lane
+without that measurement. 0138 F2 is the measurement, arriving late, and it
+found that the behaviour does differ. The tests are rewritten to assert the
+output survives *and* that the coalescing 0057 wanted still happens — 8 deltas,
+1 frame — with both records named at the site. The first test's name changed
+(`Supersedes` → `Concatenates`) because the old name asserts the defect.
+
+**2026-09-03 — the acceptance criterion as written could not be met, and was
+replaced rather than quietly dropped.** The step said to replay the codex wire
+fixture and compare against the concatenation of its own deltas. That fixture
+(`testdata/wire/0.152.1/frames.jsonl`) is a `hi` turn and contains **zero**
+`outputDelta` frames — it never ran a command, so it cannot exercise this path.
+Capturing one that does would spend codex quota against the live engine.
+
+*Resolution:* `TestOutputDeltaNotificationsSurviveTheLane` feeds the real wire
+JSON for both delta methods through `handleNotification`, so the decode in
+`notifications.go` / `session.go` and the append lane it feeds are covered
+together — the same ground the fixture would have covered, without a capture.
+Verified to fail against the shipped code, as E1b above.
+
+### Phase 6 — 2026-09-03, complete
+
+**6.1 Context pressure (T1).** `internal/session/tokencost.go`. A notice at 75%
+and again at 90% of the model's context window, fired on a *crossing* and
+re-armed when usage drops back — a `/compact` should make the next climb worth
+reporting again. It names the numbers (`1,526,598 of 2,000,000`, thousands
+separators, because a seven-digit figure is unreadable without them) and offers
+the remedy.
+
+**Nothing is reported without a known window.** A provider that gives no `size`
+gets no notice rather than a percentage of an unknown denominator. The
+fail-first below shows what the guard prevents.
+
+**6.2 was already delivered, and is recorded rather than re-done.**
+`event.Usage` has carried `Input`, `Output`, `Reasoning`, `CacheRead`,
+`CacheWrite` and `CostUSD` since MADR 0112 A4; MADR 0137 Phase 6 populated them
+for all five providers; and `apps/mobile/lib/data/protocol/models.dart:708-745`
+already parses every one. The per-turn cache accounting is on the wire and
+reaching the phone today. The step's protocol change was unnecessary, which is
+a better outcome than making it.
+
+**6.3 Session totals (T3).** `Meta` gains `Turns`, `InputTokens`,
+`OutputTokens`, `CachedTokens`, accrued at each turn end and persisted with the
+record. Deliberately *cumulative*, where `event.Usage` is deliberately
+per-turn — MADR 0112 A4 calls labelling a per-turn figure as a session total
+"the specific error this split exists to avoid", so the two live in different
+places and are named differently. A report carrying only a context total and no
+per-turn tokens does not count as a turn.
+
+**6.4 Structured quota for kilo (F9).** `internal/provider/kilo/quota.go`. When
+`agenterr` classifies a limit from prose, the engine is asked
+`GET /kilocode/provider-usage` and the structured answer is appended to the
+error the phone sees.
+
+The types are transcribed from the engine's **own OpenAPI document**
+(`GET /doc`, `components.schemas.ProviderUsage*` on kilo 7.5.6), not inferred
+from a sample: this host's account returns `{"items":[],...}`, so a sample would
+have told us nothing about the fields that matter.
+
+The more valuable half is the negative case. When the prose classifier fires and
+structured usage does **not** confirm it, that is logged at warn — because that
+is the day a vendor changed its wording and `internal/agenterr`'s 967 lines of
+regular expressions matched something they should not have. It is the only
+signal we would get.
+
+grok's half of F9 (`x.ai/billing`, `x.ai/limit`) needs the ext-method plumbing
+Phase 8 builds and is deferred to it.
+
+### Fail-first evidence — four breakages
+
+```text
+F1x. thresholds moved to 101/102
+     FAIL TestContextPressureNoticeAtSeventyFive
+          75% of the context window must be reported
+
+F2x. guess a 200k window when the provider reports none
+     FAIL TestNoPressureNoticeWithoutAContextWindow
+          usage {Used:900000 Size:0} produced a notice:
+          "This session is using 900,000 of 0 context tokens (450%) …"
+
+F3x. the exhausted-state comparison broken
+     FAIL TestExhaustedWindowsSummarisesWhatTheEngineReports
+          summary = "", want the provider and the exhausted resource
+
+F4x. providerUsage.GeneratedAt renamed, against the live engine
+     FAIL TestLiveProviderUsageAnswersTheShapeWeParse
+          provider-usage no longer decodes into providerUsage:
+          json: unknown field "generatedAt"
+```
+
+F2x's output is the point of the guard: **"900,000 of 0 context tokens (450%)"**
+is exactly the confidently wrong number that MADR 0137 was corrected for twice.
+
+### Live verification — no model tokens spent
+
+`TestLiveProviderUsageAnswersTheShapeWeParse` (`-tags live_kilo`) is one GET
+against a read-only endpoint; it invokes no model. Run against the running
+engine:
+
+```text
+plans=0 generatedAt=2026-09-04T04:44:41.107Z exhausted=""
+--- PASS (0.57s)
+```
+
+It decodes with `DisallowUnknownFields`, so an upstream rename fails loudly
+rather than reading as a silent zero — demonstrated by F4x. Its skip path was
+also exercised (unset env → SKIP, not a silent pass), because a skip that is
+really a broken test is indistinguishable from one that ran.
+
+```text
+go build ./...                                   -> ok
+go test -race ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```
+
+### Deviation — 2026-09-03: 6.2 needed no work, and no protocol change was made
+
+The step called for extending `event.Usage` with the cache fields and carrying
+them to the phone, noting it *is* a protocol change that MADR 0137 Phase 2 had
+deferred. Checked before building: the fields exist, are populated for all five
+providers, and are parsed by the client. The step is recorded as already
+satisfied. No protocol change was made, so none needs documenting or rolling
+back.
+
+### Phase 7 — 2026-09-03, complete
+
+**7.1 (F4) Four handlers off the read loop.** `permission.respond`,
+`question.respond`, `receipts.list` and `devices.list` now go through
+`dispatchAsync`. Each took the deviceID snapshot itself; that is now the
+parameter `dispatchAsync` passes, which is also the contract the `asyncHandler`
+doc states ("handlers must use it instead of reading `c.deviceID`, which races
+`setAuthed`").
+
+`permission.respond` and `question.respond` get **15 s** — above the provider's
+own 10 s call timeout, so the authoritative failure is the daemon's error frame
+rather than this deadline firing first (MADR 0095 D7). The phone gets 25 s to
+match the ladder.
+
+The seven handlers still inline were reviewed and a verdict recorded in
+`op_timeouts.json`'s comment: `auth` and `pair.claim` establish the connection's
+identity, `session.pending_asks` must not queue behind the prompts it unblocks,
+`oauth.cancel` is a cancel, and `permission.receipt` is a phone-signed reply on
+a path that already has its own timeout.
+
+**7.2 (F5) The ACP control send is bounded.** The blocking send in
+`acpagent.deliver` runs on the SDK's single notification consumer, whose 1024
+queue closes the whole connection on overflow. It now tries a non-blocking send
+first, then waits up to 30 s, and on expiry **faults the session explicitly**
+rather than dropping the event silently.
+
+Stated plainly: no such stall has been observed, and the guard is conservative
+by design. 30 s is far longer than any in-memory pump should take and only has
+to be shorter than the time grok needs to queue 1024 notifications behind us.
+
+**7.3 (F6) `session.shell` gets its own lane.** `maxShellPerClient = 2`,
+counted separately from `maxAsyncPerClient = 8`. A 30-minute op and a 60-second
+op no longer draw on one budget.
+
+**7.4 (F11) The pair QR follows the bind.** `detectAdvertiseHost` takes
+`cfg.Listen.Host`. Only "follow the config" binds — empty, `tailscale`, or a
+wildcard — keep the Tailscale-IPv4 preference; an explicit bind advertises
+itself. Reproduced end to end against the same config that produced the bug:
+
+```text
+BEFORE (installed 0.16.3)   Host: 100.64.0.3:7642   <- connection refused
+AFTER  (this build)         Host: 127.0.0.1:7642    <- the address it listens on
+```
+
+**7.5 (F12) The auth-method warning is demoted to debug**, with the reason at
+the site: it fired 90 times and was true zero of them.
+
+### An unplanned finding: the async table was a hand-maintained shadow
+
+`asyncDispatchedTypes()` was a literal list "hand-maintained on purpose", and
+the list is what drifted. When Phase 7 moved four handlers onto the async path,
+`TestEveryAsyncDispatchedMethodIsInTheTable` reported them as **stale entries** —
+the exact opposite of the truth.
+
+It is now derived from the source: it parses `handleMessage`'s switch, plus the
+second registry in `codex_handlers.go` (`codexPhoneOperations`, keyed by type
+with an explicit `timeoutKey`) that a scan of `handleMessage` alone would have
+missed entirely, and maps constants to wire strings out of `messages.go`.
+
+That immediately surfaced **pre-existing drift**: `session.list`,
+`session.cancel`, `session.set_mode` and `session.set_config_option` have
+reached `dispatchAsync` since MADR 0137 Phase 4 and were absent from
+`op_timeouts.json`, silently taking `default_ms`. They are now listed at that
+same 30 s — the table becomes honest, and no deadline changes.
+
+### Fail-first evidence — three breakages
+
+```text
+G1. permission.respond inline again
+    FAIL TestEveryAsyncDispatchedMethodIsInTheTable
+         op_timeouts.json lists "permission.respond", which no longer
+         reaches dispatchAsync
+
+G3. the shell lane sharing the general budget
+    FAIL TestShellDoesNotStarveThePrompt
+         the shell lane (8) is not smaller than the general lane (8); it
+         exists to bound the slow op, not to match the fast one
+
+G4. the tailnet-only advertise restored
+    FAIL TestPairAdvertisesTheBoundHost/loopback_ipv4
+         detectAdvertiseHost("127.0.0.1") = "100.64.0.3:7531",
+         want "127.0.0.1:7531"
+```
+
+**G2 was not run, and this says so rather than implying it was.** The step
+called for `TestACPConnectionSurvivesAStalledPump`, driving the SDK's queue to
+overflow against a stalled consumer. Writing it means standing up a real ACP
+`Connection` with a scripted peer and pushing 1024+ notifications through it —
+a test harness this package does not have, for a failure mode with no observed
+instance. 7.2's guard is verified by reading the SDK source (the queue depth,
+the overflow branch, and that `shutdownReceive` closes the connection) plus the
+30-second bound being unreachable by any in-memory pump. That is weaker
+evidence than the other three and is recorded as such.
+
+### Verification
+
+```text
+go build ./...                                     -> ok
+go test -race ./internal/... ./cmd/... -count=1    -> ok (full tree)
+dart format --output=none --set-exit-if-changed .  -> clean
+flutter analyze                                    -> No issues found!
+flutter test                                       -> 1406 passed, 3 skipped
+```
+
+### Deviations
+
+**2026-09-03 — a scripted edit over-matched and the file was recovered from
+HEAD.** A `python3` pass meant to remove three `deviceID := c.deviceID`
+snapshots matched the pattern **eleven** times across `internal/ws/server.go`
+and removed all of them, breaking the build. The file's uncommitted content at
+that moment was entirely this session's own edit from seconds earlier — checked
+with `git diff --stat` and `git log -1` on that path before acting — so the
+tracked baseline was restored with `git show HEAD:internal/ws/server.go >
+internal/ws/server.go`, verified to build, and the change re-applied
+handler-by-handler with the body bounded by the next `func` declaration. Same
+recovery route, and the same class of mistake, as MADR 0137 Phase 7's basename
+collision.
+
+**2026-09-03 — the phone's timeout table needed an entry, which the plan did not
+list.** `op_timeout_ladder_test.dart` requires the client's timeout to equal the
+daemon's plus the margin *exactly*, so the daemon's new 15 s for the two respond
+methods needed a matching 25 s in `opTimeoutFor`. Added, with the reasoning at
+the site.
+
+### Phase 8 — 2026-09-04, partially complete
+
+**8.1 Ext-method plumbing.** `internal/provider/acpagent/sessioncaps.go`.
+`callAgentExtension` wraps the SDK's `ClientSideConnection.CallExtension`,
+prefixes the `_` that ACP requires on the wire and grok's dispatch table omits,
+and maps JSON-RPC **-32601** onto `provider.ErrNotImplemented`.
+
+That mapping is the capability probe. grok publishes no list of its seventy ext
+methods, so "supported" can only be answered by calling; mistaking any other
+failure for method-not-found would hide a real error as a missing feature, which
+`TestIsMethodNotFoundReadsTheJSONRPCCode` pins in both directions.
+
+**A better route than the plan specified, for two of the interfaces.** The plan
+mapped every gap onto a `x.ai/*` method. But grok and goose both advertise the
+**standard** ACP `sessionCapabilities` block, and mcremote read none of it
+(F10). `AgentSessionLister` and `PurgeSession` are therefore implemented over
+`session/list` and `session/delete`, gated on what the agent advertised rather
+than on which vendor it is — so a later grok that adds `delete` starts deleting
+with no change here.
+
+**8.2 Delivered, of the seven listed:**
+
+| step | interface | route |
+| --- | --- | --- |
+| 8.2a | `CompactSession` | `x.ai/compact_conversation` |
+| 8.2b | `RenameSession` | `x.ai/session/rename` |
+| 8.2c | `PurgeSession` | **`session/delete`** (standard ACP), close as fallback |
+| 8.2d | `AgentSessionLister` | **`session/list`** (standard ACP), cursor-paged |
+
+**8.3 `ModelReporter` for grok.** `_meta.modelState.currentModelId` from the
+`initialize` result — present in the checked-in fixture and unread — captured at
+handshake as the fallback behind the per-session harvest. All seven grok
+turn-latency records in MADR 0138's table carried no model; the manager reads
+what the client *asked for*, and on the default-model path that is empty.
+
+**8.4 kilo `GET /experimental/capabilities`** is read once at engine ready and
+logged beside the version. Nothing branches on it yet, deliberately: it puts the
+engine's own answer where the next assumption can be checked against a fact.
+
+**The interface matrix moved, measured the same way MADR 0138 F8 measured it:**
+
+```text
+acpagent (grok)  12 -> 16 of 40
+```
+
+Pinned by `TestSessionSatisfiesTheInterfacesPhase8Adds`, which asserts the five
+interfaces **by name** rather than by count, so a later refactor that drops one
+fails saying which.
+
+### Fail-first evidence
+
+```text
+H1. Compact given an extra parameter, so it no longer satisfies the interface
+    FAIL TestSessionSatisfiesTheInterfacesPhase8Adds
+         the grok session no longer implements provider.CompactSession
+```
+
+H1's first two attempts broke the **build** rather than the assertion — once by
+deleting `Compact` outright (leaving `callAgentExtension` unused) and once by
+renaming `CurrentModel`, which a second test calls directly. Neither is a
+fail-first: a build failure does not show that the check under test can detect
+the defect. The third attempt kept the package compiling and made the assertion
+itself fire.
+
+### Not done, and why — 8.2e, 8.2f, 8.2g
+
+Three of the seven listed interfaces are **not** implemented. Stated plainly
+rather than left to be inferred from their absence:
+
+| step | interface | grok method | why not |
+| --- | --- | --- | --- |
+| 8.2e | `RevertSession` / `UndoSession` | `x.ai/rewind/points`, `x.ai/rewind/execute` | grok's dispatch forwards `x.ai/rewind*` to `extensions::rewind::handle(self, &args)`; the request and response shapes live inside that module and were not read. Undo/redo mutates the user's working tree — a guessed payload is the wrong thing to ship. |
+| 8.2f | `CommandCatalog` | `x.ai/commands/list` | Routed into `session_admin::handle` with the same opaque `args`. grok already pushes its command list as `available_commands_update` notifications, which mcremote consumes and dedupes, so the pull surface adds little against the risk. |
+| 8.2g | `SkillRefreshSession` | `x.ai/skills/refresh-baseline` | The response shape is visible (`{"ok": true}`) but the *effect* — `refresh_skill_baseline_for_all_sessions()` — is engine-global, not session-scoped, which is not what `SkillRefreshSession` means to the phone. Wiring it would give the button a different meaning on grok than everywhere else. |
+
+Each needs a param shape read out of the corresponding Rust module and a live
+probe against grok to confirm it, which is a further increment of this phase
+rather than something to guess at now. `/undo` on grok continues to answer "this
+agent can't", which is at least true.
+
+**8.5's recorded-not-adopted table** for the remaining ~60 ext methods stands as
+MADR 0137 step 7.7 wrote it, extended by the three rows above. F9's grok half
+(`x.ai/billing`, `x.ai/limit`) is unblocked by 8.1's plumbing but not built:
+kilo's structured quota landed in Phase 6 and grok's needs the same live probe
+treatment before it can be trusted.
+
+```text
+go build ./...                                   -> ok
+go test -race ./internal/... ./cmd/... -count=1  -> ok (full tree)
+```
+
+### Final acceptance — 2026-09-04
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | No transcript loses a user message | **93 of 93** retained across all 34 real transcripts, against 0/0/1/1/2/3 in the six truncated ones |
+| 2 | No command output dropped | every `outputDelta` byte delivered, through the real decode path |
+| 3 | Opening a transcript is cheap | **709 MB → 1.0 MB, 2,516 ms → 1.0 ms** on the operator's own worst file |
+| 4 | Long session opens at the bottom in one round trip | verified at the manager and client layers; **not** on the emulator (see below) |
+| 5 | Replay is linear | 490,000 comparisons → bounded at 4n |
+| 6 | RAM bounded under a 16-session soak | **402.4 MB accounted against a 384 MiB budget, 320 of 320 prompts kept** |
+| 7 | Token cost visible | pressure notices, per-turn cache accounting, session totals |
+| 8 | Read loop cannot be stalled by a provider call | four handlers off the loop, pinned by the derived table check |
+| 9 | grok answers `/compact`, `/rename`, `/sessions` | yes; **`/undo` still cannot** (8.2e not done) |
+| 10 | Every new check seen to fail | A1–A3, B1–B5, C1–C3, D1–D2, E1–E3, F1x–F4x, G1/G3/G4, H1, I1. **G2 was not run** |
+
+### Criterion 6 found a defect, and the criterion is why
+
+The soak measured **403.5 MB against a 402,653,184-byte budget**. Small, and
+structural: `enforceGlobalBudgetLocked` skipped the active session
+unconditionally, so the real guarantee was `budget + one session's per-session
+budget` rather than `budget`.
+
+Fixed by making "never trim the session being prompted" a **preference with a
+last resort**, the same shape as the class rule where anchors are evicted only
+once nothing else remains. Re-measured at **402.4 MB**, and pinned by
+`TestGlobalBudgetTrimsTheActiveSessionAsALastResort` plus the soak itself, both
+of which fail against the old code (I1).
+
+This is the acceptance criterion doing its job: seven phases of unit tests all
+passed against a budget that could be exceeded by design.
+
+### What is not done
+
+* **8.2e/8.2f/8.2g** — grok rewind/undo, command catalog, skill refresh. Reasons
+  per row in Phase 8; each needs a param shape read from grok's Rust modules and
+  a live probe.
+* **F9's grok half** — `x.ai/billing` / `x.ai/limit`. Unblocked by 8.1's
+  plumbing, not built.
+* **Criterion 4 on device** — the backward-paging path is covered by manager and
+  client tests, but no 20,000-event session was opened on the emulator. The
+  Android AVD work is a separate setup this session did not do.
+* **G2** — `TestACPConnectionSurvivesAStalledPump`. Phase 7 records why, and
+  that 7.2's guard rests on reading the SDK rather than on a failing repro.
+
+## Plan complete
+
+Phases 1 through 7 are executed in full. Phase 8 is executed in part, with the
+three undelivered interfaces and their reasons named above rather than left to
+be inferred from their absence.
+
+Two corrections are kept in place rather than tidied away: the B2 test that
+asserted nothing about the ordering it was named for, and the global budget that
+was not a bound. Both were found by checks that had only ever been seen to pass.
+
+## Amendment, 2026-09-04: G2 was run, and it found Phase 7.2's guard does not work
+
+Phase 7 shipped a 30-second bound on the control send and recorded G2 —
+`TestACPConnectionSurvivesAStalledPump` — as **not run**, with 7.2 "verified by
+reading the SDK source plus the 30-second bound being unreachable by any
+in-memory pump". G2 has now been written and run. That verification was wrong,
+and this amendment corrects the Phase 7 record rather than tidying it away.
+
+### The measurement
+
+A real `acp.ClientSideConnection` was wired to pipes with the session as its
+`Client`, the pump stalled (a full `events` channel with no consumer), and 1,224
+`session/update` frames fed in.
+
+**With the consumer blocked, the SDK tears the connection down in 7.16 ms.**
+
+The bound the phase shipped was 30,000 ms. It lost the race by a factor of
+roughly 4,200, and the guard therefore protected nothing above a 7 ms fill
+rate — which is every real burst. Isolating the variable confirms it is exactly
+that race and not a defect in the test:
+
+| `controlDeliverTimeout` | `conn.Done()` | frames written |
+| --- | --- | --- |
+| 1 µs | **open** | 1,224 of 1,224 |
+| 50 ms | **closed** | writer blocked |
+| 30 s (as shipped) | **closed** | writer blocked |
+
+Reading the SDK gave the right mechanism and the wrong conclusion. No
+time-based bound can win against a queue that fills in microseconds; the
+mistake was treating "the pump is in-memory, so 30 s is unreachable" as a bound
+on the *peer's* rate, when the queue is filled by the peer and drained by us.
+
+### The fix — option B, chosen by the owner
+
+`deliver`'s control path no longer blocks at all. Every path through it returns
+in O(1):
+
+* the `events` channel takes the event; or
+* it is **parked** in a bounded per-session overflow; or
+* the overflow is full and the session is faulted.
+
+A per-session `drainOverflow` goroutine does the blocking instead — it is ours
+to stall, and the SDK's notification consumer never is. The goroutine is created
+lazily on the first overflow (creating `overflowWake` under `overflowMu` is what
+starts it), so a healthy session never spawns one, and it exits on `s.done`.
+
+**Ordering is the property this could get wrong, and it is the one pinned
+hardest.** Once anything is parked, a later event must not take the fast path
+and overtake it. The drainer therefore keeps the event it is delivering at the
+**head** of the queue until the send completes, so "overflow is empty" means
+"nothing is in flight" rather than "nothing is waiting".
+
+`controlOverflowCap = 512` is a stall detector, not a work buffer: `s.events` is
+already 256 deep and a healthy pump drains it in microseconds, so being 512
+control events behind means the pump is not running. Bounded by count rather
+than bytes because the question is "has the consumer moved", not "how much
+memory is this".
+
+`controlDeliverTimeout` is deleted. There is no timer left on this path.
+
+### Fail-first evidence — three breakages
+
+```text
+K1. the 30-second timer guard restored (what Phase 7 shipped)
+    FAIL TestACPConnectionSurvivesAStalledPump
+         the writer never finished; the SDK stopped reading, which means the
+         connection went away
+
+K2. the ordering rule removed — always try the fast path first
+    FAIL TestParkedControlEventsKeepTheirOrder
+         event 2 is t69, want t2 — a parked event was overtaken
+
+K3. the overflow cap removed
+    FAIL TestACPConnectionSurvivesAStalledPump
+         a permanently stalled consumer never faulted the session
+    FAIL TestStalledPumpFaultsTheSessionRatherThanDroppingTheEvent
+         the overflow filled without faulting the session
+```
+
+**K1 is the point of the amendment.** The same test, unchanged, passes against
+the new mechanism and fails against the one Phase 7 shipped. That is the
+difference G2 existed to detect and did not.
+
+K2's failure is worth reading twice: with the ordering rule removed, event 2
+arrived as `t69`. Sixty-seven events overtook a parked one — the transcript
+would have been silently reordered.
+
+### Tests added
+
+| test | what it pins |
+| --- | --- |
+| `TestACPConnectionSurvivesAStalledPump` | the SDK connection outlives a permanently stalled pump |
+| `TestParkedControlEventsKeepTheirOrder` | 200 events park and arrive in order |
+| `TestStalledPumpFaultsTheSessionRatherThanDroppingTheEvent` | a full overflow faults loudly rather than dropping silently |
+| `TestControlDeliveryIsNotDelayedWhenTheConsumerIsHealthy` | a healthy session parks nothing and spawns no drainer |
+| `TestOverflowDrainerExitsWithTheSession` | the goroutine does not outlive its session |
+
+### Verification
+
+```text
+go build ./...                                          -> ok
+go test -race ./internal/... ./cmd/... -count=1         -> ok (full tree)
+10 × go test -race -count=1 -shuffle=on ./…/acpagent/   -> ok, all ten
+```
+
+The G2 test also went from 10 s (blocked, failing) to 0.02 s.
+
+### What this changes about Phase 7's record
+
+Phase 7's entry for 7.2 and its acceptance row 10 ("Every new check seen to
+fail … **G2 was not run**") stand as written — they are the honest record of
+what was done at the time. This amendment supersedes the *claim* they contain:
+the guard 7.2 shipped did not hold, and the reason it was believed is recorded
+above. Acceptance criterion 8 ("the read loop cannot be stalled by a provider
+call") was and remains satisfied by 7.1; criterion 10's G2 gap is now closed.
+
+**The lesson, alongside the three this record already carries.** MADR 0137 was
+corrected twice for reasoning from unverified instruments. Phase 7 did not use
+an instrument at all — it reasoned from source and called that verification.
+Reading a dependency tells you the mechanism; only driving it tells you whether
+your response to that mechanism is fast enough.
+
+## Amendment, 2026-09-04: Phase 9 — grok undo, and the shapes that made it safe to write
+
+Phase 8 deferred 8.2e (`RevertSession`/`UndoSession`) because grok's dispatch
+forwards `x.ai/rewind*` into `extensions::rewind::handle(self, &args)` and the
+request and response shapes were not read. They have now been read, and they
+changed the answer twice.
+
+### What the source says, and why it mattered
+
+**`RewindMode` defaults to destroying the user's files.**
+`session/acp_types.rs:261-273`:
+
+```rust
+#[serde(rename_all = "snake_case")]
+pub enum RewindMode {
+    All,               // "Roll back both conversation and files (full time-travel)"
+    ConversationOnly,  // files untouched
+    FilesOnly,         // conversation untouched
+}
+```
+
+and on `RewindRequest.mode`: *"Clients must specify this explicitly. Defaults to
+`All` for backwards compatibility with older clients."*
+
+A `/undo` sent as `{sessionId, targetPromptIndex}` — the obvious body — would
+have rolled back the operator's working tree. That is the guess Phase 8 declined
+to make, and the source confirms it would have been the wrong one.
+
+**Which mode matches the existing button.** kilo's `UndoLast`
+(`internal/provider/kilo/session_ops.go:198`) finds the last user message and
+reverts it, and kilo's engine documents that endpoint as *"Revert a specific
+message in a session, undoing its effects and restoring the previous state"* —
+conversation and files. So `/undo` already means `All` everywhere it works, and
+grok must send `mode: "all"` **explicitly** rather than inherit the default.
+
+**The response casing is not what fork's is.** `RewindResponse`,
+`RewindPointsResponse`, `RewindPointInfo` and `RewindConflictInfo` carry **no**
+`rename_all`, so they serialize **snake_case** — while the already-shipped
+`_x.ai/session/fork` response is camelCase (`newSessionId`). Two vendor methods
+on one transport with different casing; assuming either would have produced
+silent zero values.
+
+### 9.1 One extension helper, and less `unsafe`
+
+Phase 8 added `callAgentExtension` using the SDK's public
+`ClientSideConnection.CallExtension`. It did not notice that `rawRequest`
+(`session.go:2513`) already existed and does the same job — by casting through
+`unsafe.Pointer` to reach the SDK's private `conn` field:
+
+```go
+rawConn := *(**acp.Connection)(unsafe.Pointer(s.conn))
+```
+
+That works only because `conn` is the first field of `ClientSideConnection`. A
+field reorder upstream would silently read the wrong pointer.
+
+`CallExtension` cannot replace it wholesale: it rejects any method without a
+leading `_`, and three of `rawRequest`'s five call sites are standard methods
+(`initialize`, `session/set_model`, `session/resume`).
+
+So: `rawRequest` routes `_`-prefixed methods through `CallExtension` and keeps
+the unsafe path only for the standard methods that genuinely need it;
+`callAgentExtension` is folded into it and deleted. Net effect — one helper,
+`unsafe` no longer on the extension path, and the duplication Phase 8 introduced
+removed.
+
+### 9.2 `UndoSession` for grok
+
+`UndoSession`, not `RevertSession`. `Revert(messageID, partID)` needs a
+provider-native message id, and grok emits none — its rewind is indexed by
+prompt position. `UndoSession.UndoLast()` is defined as resolving "the last
+turn" itself, which is exactly what the two calls below do. `/redo`
+(`Unrevert`) stays unavailable on grok: there is no un-rewind, and claiming one
+would be worse than the honest "this agent can't".
+
+**Step 1 — `_x.ai/rewind/points`**
+
+```json
+request:  {"sessionId": "<agentID>"}
+response: {"rewind_points": [
+            {"prompt_index": 0, "created_at": "...", "num_file_snapshots": 3,
+             "has_file_changes": true, "prompt_preview": "..."}]}
+```
+
+Take the entry with the highest `prompt_index`. Empty list → return
+`nothing to undo in this session`, matching kilo's wording for the same state.
+
+**Step 2 — `_x.ai/rewind/execute`**
+
+```json
+request:  {"sessionId": "<agentID>", "targetPromptIndex": <n>,
+           "force": false, "mode": "all"}
+response: {"success": true, "target_prompt_index": 3, "mode": "all",
+           "reverted_files": ["a.go"], "clean_files": [], "conflicts": [],
+           "prompt_text": "...", "error": null}
+```
+
+Three rules, each from the source rather than from taste:
+
+* **`mode: "all"`, always explicit.** Never omitted, even though the default
+  matches: the field's own comment says clients must specify it, and a future
+  default change must not silently redefine `/undo`.
+* **`force: false`, always.** A conflict means the working tree diverged from
+  the snapshot — the operator edited files since. Forcing discards their edits.
+  On `success: false` with a non-empty `conflicts` array, report the conflicting
+  paths and change nothing. `RewindConflictInfo` is
+  `{"path": …, "conflict_type": "missing_file"|"extra_file"|"content_mismatch"}`.
+* **`success: false` is not an error to swallow.** Return the `error` string
+  when present, else a summary of the conflicts.
+
+The summary `UndoLast` returns is built from the response: the number of
+`reverted_files` and, when present, the `prompt_preview` of the undone prompt —
+so the transcript line says what was undone rather than just that something was.
+
+### 9.3 Recorded, not adopted — 8.2f and 8.2g, with better reasons than before
+
+**8.2g `x.ai/skills/*` — declined, and the reason is stronger than Phase 8's.**
+Phase 8 said the effect was engine-global. The source says more:
+`extensions/skills.rs:271-337` calls `cli_config::update_config(|cfg| …)`,
+mutating `cfg.skills.paths` — it **writes the operator's own grok config file**.
+`SkillRefreshSession` means "refresh this session's skills" to the phone.
+Wiring a config write behind it would give one button two meanings.
+
+**8.2f `x.ai/commands/list` — declined, unchanged.** The shape is now known
+(`ListCommandsRequest{kind, sessionId}`, `kind: "chat"` taking a distinct
+catalog path), but grok already pushes `available_commands_update` and mcremote
+consumes and dedupes it. A pull surface adds a second source of truth for a list
+that already arrives.
+
+### Fail-first evidence required
+
+* `M1` — send the rewind body without `mode`; a test must FAIL showing the
+  request omits it. This is the destructive default, and the assertion is on the
+  wire body, not on behaviour.
+* `M2` — set `force: true`; a test must FAIL. Same reasoning.
+* `M3` — decode a snake_case `RewindResponse` into a camelCase-tagged struct;
+  the reverted-file count must read zero and the test must FAIL, proving the
+  casing is pinned rather than assumed.
+* `M4` — return `success: false` with a conflict; `UndoLast` must return an
+  error naming the conflicting path, not a success summary.
+* `M5` — route `_x.ai/session/fork` through the unsafe path again; a test
+  asserting extension methods do not reach it must FAIL.
+
+### Acceptance
+
+1. `UndoLast` on grok issues exactly two extension calls, with
+   `mode: "all"` and `force: false` present in the second.
+2. A conflict response produces an error naming the paths and reverts nothing.
+3. An empty rewind-point list produces "nothing to undo in this session".
+4. `unsafe.Pointer` is no longer reached for any `_`-prefixed method, pinned by
+   a test over the call sites.
+5. The grok session satisfies `provider.UndoSession` and still does **not**
+   satisfy `provider.RevertSession`.
+6. Live, under `-tags live_grok`: `x.ai/rewind/points` returns a decodable
+   `rewind_points` array against grok 1.0.13, with `DisallowUnknownFields`, so a
+   shape change fails loudly. **This spends no model tokens** — it is a
+   read-only query — but it does need a live grok session, so it runs only with
+   the owner's say-so.
+
+### Deviation — 2026-09-04: enabling undo on grok made a standing notice untrue
+
+*What was found.* `internal/session/commands.go:630` ends every successful undo
+with `"Undid the last turn — %s. /redo restores it."`. The clause landed in
+`75236ba` (2026-07-25) and was correct then: every `UndoSession` in the tree —
+`httpagent` (kilo, opencode) and `fake` — is also a `RevertSession`.
+
+Phase 9 makes grok the **first provider with undo and no redo**. The capability
+advertisement is already right — `commands.go:74` derives `OpRedo` from
+`RevertSession`, so the phone hides the control — but the notice text does not
+consult it, so grok's undo advertises a `/redo` that the same daemon then
+refuses with *"This agent can't redo a turn."*
+
+That directly contradicts this amendment's own decision: *"`/redo` stays
+unavailable on grok: there is no un-rewind, and claiming one would be worse than
+the honest 'this agent can't'."* The defect is caused by this phase — before it,
+the notice never fired for a provider that could not redo.
+
+*Why it is a deviation.* `internal/session/commands.go` is not in Phase 9's file
+list. Confirmed untouched before the fix: `git status` showed only the four
+`internal/provider/acpagent` files as modified.
+
+*Resolution chosen.* Condition the clause on the same interface `OpRedo` uses:
+
+```go
+summary = "Undid the last turn — " + summary + "."
+if _, ok := sess.(provider.RevertSession); ok {
+    summary += " /redo restores it."
+}
+```
+
+kilo and opencode keep the hint, which is true for them; grok's notice stops
+promising what it cannot do. The alternative — dropping the clause for everyone
+— was rejected because it removes a correct hint from the providers that do
+support redo in order to fix one that does not.
+
+*Scope added to Phase 9.* `internal/session/commands.go` and a test in
+`internal/session` covering both branches.
+
+### ~~Not started~~ — executed 2026-09-04
+
+~~This amendment is the research and the plan. **No code has been written for
+Phase 9.**~~ Executed in full; the record follows. The shapes above were
+transcribed from `~/gitrepos/grok-build`, and acceptance 6 has now checked them
+against grok 1.0.13 as installed.
+
+**9.1** `rawRequest` (`internal/provider/acpagent/session.go`) routes
+`_`-prefixed methods through the SDK's public
+`ClientSideConnection.CallExtension` and keeps the `unsafe.Pointer` cast only
+for the three standard methods that have no public raw path — `initialize`,
+`session/set_model`, `session/resume`.
+
+*Departure from the step as written.* The step says `callAgentExtension` "is
+folded into it and deleted". It is folded in but **not deleted**: it survives as
+a ten-line policy wrapper over `rawRequest` that adds the `_` prefix, the
+`extCallTimeout` bound, and the `-32601 → provider.ErrNotImplemented` mapping.
+Deleting it would have pushed those three concerns into all four extension call
+sites. The step's stated net effect holds — one transport helper, no `unsafe` on
+the extension path, and Phase 8's duplicate transport gone.
+
+The unsafe cast moved behind a package var, `rawConnOf`. That is not
+decoration: the two transports emit byte-identical JSON-RPC — `CallExtension`
+is a name check followed by the same `SendRequest` — so the routing is
+**unobservable on the wire**, and M5 could not otherwise be written. Counting
+calls to `rawConnOf` is what makes the route testable.
+
+**9.2** `internal/provider/acpagent/rewind.go` implements `provider.UndoSession`
+as the two calls the amendment specifies, with `mode: "all"` explicit and
+`force: false` always, and snake_case response tags. `rewindFailure` names the
+conflicting paths and their `conflict_type`; `rewindSummary` reports the
+reverted-file count and the `prompt_preview` of the prompt it undid.
+
+grok is the only provider built on `acpagent`
+(`acpagent.New` has exactly two callers, both in `internal/provider/grok`), so
+the unconditional `var _ provider.UndoSession = (*session)(nil)` grants undo to
+grok and nothing else. `internal/session/commands.go` derives `OpUndo` from that
+interface, so `/undo` became available to grok with no wiring — which is also
+what surfaced the deviation recorded above.
+
+**9.3** 8.2f and 8.2g remain declined, unchanged.
+
+### Fail-first evidence — six breakages, each on a scratch copy
+
+Run against `$SCRATCH/p9`, an rsync of the tree excluding `.git`. The working
+tree was never dirtied: `git status` showed only the phase's own files
+throughout. Every edit script asserts its own edit landed **by re-reading the
+file from disk**, because a search-and-replace that matches nothing still exits
+zero — one of them fired on the first attempt (see below).
+
+```text
+M1. rewindExecuteRequest declares no `mode` field
+    FAIL TestUndoLastSendsModeAllAndNeverForces
+         the rewind body omits `mode`. grok defaults it to All — the mode that
+         rolls back the operator's files …
+
+M2. Force: true
+    FAIL TestUndoLastSendsModeAllAndNeverForces
+         force = true, want false: forcing discards edits made since that turn
+
+M3. rewindExecuteResponse tagged camelCase (only that struct)
+    FAIL TestUndoLastDecodesSnakeCaseResponses
+         summary = "Undid the last turn; no files had changed (\"prompt 7\")"
+         — reverted_files did not decode. That is what a casing mismatch looks
+         like from here: no error, just zeros
+
+M4. UndoLast no longer inspects res.Success
+    FAIL TestUndoLastReportsConflictsAndRevertsNothing
+         a rewind that reported success=false returned the summary
+         "Undid the last turn; no files had changed (\"prompt 2\")"
+    FAIL TestUndoLastCarriesAnEngineErrorMessage   err = <nil>
+
+M5. rawRequest always takes the unsafe cast
+    FAIL TestExtensionMethodsDoNotTakeTheUnsafeTransport
+         extension methods went through the unsafe raw-connection cast:
+         [_x.ai/rewind/points+execute … _x.ai/session/fork]
+
+M6. fork's method name written without its underscore   (added, see below)
+    FAIL TestNoExtensionMethodIsWrittenWithoutItsUnderscore
+         fork.go:44:12: rawRequest("x.ai/session/fork") takes the unsafe
+         raw-connection cast, but … is not one of the three standard methods
+
+N1. the redo hint made unconditional again   (the deviation's fix)
+    FAIL TestUndoNoticeOffersRedoOnlyWhenThereIsOne
+         notice = "Undid the last turn — reverted 2 files. /redo restores it."
+         — it offers /redo to a session that cannot redo
+```
+
+**M1's first attempt proved the wrong thing, and the assertion caught it.** The
+edit script asserted `'json:"mode"' not in source` after removing the request
+field — but `rewindExecuteResponse` also carries a `mode` tag, so the assertion
+failed on a source file the edit had correctly modified. Re-run against the
+`rewindExecuteRequest` block alone, and re-read from disk. Had the assertion
+been written the other way round — checking only that *something* changed — the
+first run would have reported a fail-first that was really a no-op.
+
+**M3 was narrowed after its first run.** Switching every response tag to
+camelCase made the *points* response fail to decode first, so all four tests
+died on `nothing to undo in this session` — a real failure, but not the one the
+plan asks for. Isolated to `rewindExecuteResponse`, it produces exactly the
+predicted symptom: `no files had changed`, zero, no error.
+
+**M6 is an addition, not in the plan's list.** M5 pins the routing; it does not
+pin the *spelling*, and the mistake that actually reaches production is a new
+extension call written `x.ai/…` instead of `_x.ai/…`, which `rawRequest` would
+classify as standard and put back on the unsafe cast.
+`TestNoExtensionMethodIsWrittenWithoutItsUnderscore` parses the package with
+`go/ast` and asserts the set of methods reaching the unsafe path is exactly
+`{initialize, session/set_model, session/resume}`. It accepts
+`callAgentExtension`'s own `"_"+method` as prefixed by construction, and fails
+if it can see fewer than six call sites, so a scan that silently stops matching
+does not pass as a clean result.
+
+### Acceptance
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | two extension calls, `mode: "all"` and `force: false` in the second | **pass** — asserted on the captured wire body, and on the call list being exactly `[_x.ai/rewind/points _x.ai/rewind/execute]` |
+| 2 | a conflict produces an error naming the paths and reverts nothing | **pass** — `edited.go (content_mismatch)`, "nothing was reverted" |
+| 3 | an empty point list produces "nothing to undo in this session" | **pass** — and no `execute` is sent |
+| 4 | `unsafe.Pointer` unreached for any `_`-prefixed method, pinned over the call sites | **pass** — M5 (runtime) and M6 (`go/ast`, over all six sites) |
+| 5 | satisfies `UndoSession`, not `RevertSession` | **pass** |
+| 6 | live `_x.ai/rewind/points` decodes strictly against grok 1.0.13 | **pass, with a stated limit** — see below |
+
+```text
+go test -race ./internal/... ./cmd/... -count=1          -> ok (full tree)
+for os in windows linux darwin; go vet ./internal/... ./cmd/...  -> all clean
+go vet -tags live_grok ./internal/provider/acpagent/     -> clean
+make pre-add-check FILES=…                               -> 7 file(s) clean
+```
+
+### Acceptance 6, and what it does and does not establish
+
+Run against **grok 1.0.13 (5e9a58528b76) [stable]**, with the owner's
+approval. Read-only: it starts a session and queries rewind points, never
+prompts, and so spends no model tokens.
+
+```text
+_x.ai/rewind/points returned: {"rewind_points":[]}
+decoded 0 rewind points strictly
+```
+
+**Established.** The method exists on the installed binary, is reachable through
+`CallExtension`, and the top-level key is `rewind_points`. The last of those is
+not vacuous despite the empty array — `DisallowUnknownFields` rejects the wrong
+guess, verified directly against the captured payload:
+
+```text
+snake_case struct (what rewind.go uses): <nil>
+camelCase struct  (the wrong guess):     json: unknown field "rewind_points"
+```
+
+**Not established.** The array was empty, so the *element* shape —
+`prompt_index`, `created_at`, `num_file_snapshots`, `has_file_changes`,
+`prompt_preview` — is still confirmed only against grok's source, not against
+the binary. Populating it requires a real turn, which spends model tokens, so it
+was not done. `_x.ai/rewind/execute` was likewise never exercised live. The unit
+tests cover both shapes; what remains unproven is whether grok agrees with its
+own source about them.
+
+### One risk this phase accepts
+
+A grok build **older** than the rewind extension still advertises `/undo`,
+because `OpUndo` comes from a static interface assertion and the daemon cannot
+know what the binary supports until it asks. Such a build answers `-32601`, and
+the user sees `Undo failed: agent has no x.ai/rewind/points`. This matches how
+`/compact` and `/rename` already behave on the same transport, so it is left
+alone rather than fixed differently for one command.
+
+## Amendment, 2026-09-04: Phase 10 — F9's grok half, and the method it named that does not exist
+
+Phase 8 left "F9's grok half — `x.ai/billing` / `x.ai/limit`. Unblocked by 8.1's
+plumbing, not built." Reading the source to build it found that **one of those
+two methods does not exist**, and that the method actually needed was never
+named. The MADR amendment of the same date carries the correction and its
+evidence; this phase is built on the corrected pair:
+
+| | what F9 said | what the source says |
+| --- | --- | --- |
+| account quota | `x.ai/limit` | **`x.ai/billing`** — `x.ai/limit` is a `_meta` page-size key, not a method |
+| session usage | not named | **`x.ai/session/usage`** |
+
+### 10.1 `RuntimeSession` for grok
+
+grok implements no `RuntimeSession` today, so `/status` and `/usage` answer
+*"This agent exposes no runtime status."* (`internal/session/commands.go:515`).
+Both halves land in a new `internal/provider/acpagent/runtime.go`.
+
+**`RuntimeUsage` ← `_x.ai/session/usage`.** Local, in-memory, no auth, no
+network, no model tokens.
+
+```json
+request:  {"sessionId": "<agentID>"}
+response: {"usage": {"inputTokens": 100, "outputTokens": 10, "totalTokens": 0,
+                     "cachedReadTokens": 0, "cacheCreationTokens": 0,
+                     "reasoningTokens": 0, "modelCalls": 1, "apiDurationMs": 0,
+                     "numTurns": 1, "costUsdTicks": 20000000,
+                     "costIsPartial": false, "usageIsIncomplete": false,
+                     "modelUsage": {"grok-build": {"inputTokens": 100, …}}}}
+```
+
+camelCase throughout, and pinned by grok's own test
+(`extensions/usage.rs`, `response_serializes_ledger_as_prompt_usage_wire_shape`)
+rather than inferred. `PromptUsage` flattens `PromptUsageModel` into the top
+level of `usage`, so the token fields are siblings of `numTurns` — not nested
+under a `totals` key, despite the Rust field being named `totals`.
+
+Three rules the source states and the implementation must not paper over:
+
+* **`costUsdTicks` is 1e10 ticks per USD.** Format as dollars from the integer;
+  never float-divide into the display without stating the unit.
+* **Absent cost is not zero cost.** The field is omitted when the bill is
+  partial or scrubbed, with `costIsPartial` explaining why. Report the tokens
+  and say the cost is incomplete — a `$0.00` on a session that spent money is
+  worse than no figure.
+* **`usageIsIncomplete` means the bill may under-count** (open subagents, a
+  drain timeout). Surface it; do not silently present a total as final.
+
+**`RuntimeStatus` ← `_x.ai/billing`.** Account-level, and unlike every other
+method this phase touches it makes a **network call with the operator's
+credentials** to grok's CLI chat proxy, with a 15-second upstream timeout.
+
+```json
+request:  {}                          (the handler takes no params)
+response: {"config": {"creditUsagePercent": 12.5,
+                      "currentPeriod": {"type": "USAGE_PERIOD_TYPE_WEEKLY",
+                                        "start": "…", "end": "…"},
+                      "monthlyLimit": {"val": 2000}, "used": {"val": 250},
+                      "onDemandCap": {"val": 0}, "prepaidBalance": {"val": 0},
+                      "isUnifiedBillingUser": false, "history": []},
+           "on_demand_enabled": true,
+           "subscription_tier": "SuperGrok Heavy"}
+```
+
+**The outer object is snake_case and the `config` inside it is camelCase.** That
+is not a transcription slip — `BillingConfigResponse` has no `rename_all` and
+`BillingConfig` has `rename_all = "camelCase"`. `Cent` has none either, so
+amounts are `{"val": …}` and a `$0` amount arrives as `{}`, because proto3 JSON
+omits zero scalars.
+
+`extensions/billing.rs` gates on `require_xai_auth`, so on an install
+authenticated by API key — a configuration mcremote supports and lists in
+`SafeAuthMethodIDs` — this method **always** fails. `RuntimeStatus` must return
+a message saying billing is unavailable and why, with `error == nil`, following
+codex (`internal/provider/codex/runtime.go:398`, which returns
+`"Codex runtime status is unavailable.", nil`). `cmdRuntime` propagates a
+returned error instead of showing it, so an error here makes `/status` fail
+silently rather than explain itself.
+
+Both calls go through `callAgentExtension`, so a grok build without the method
+already maps to `provider.ErrNotImplemented` (Phase 9), and both must degrade to
+a message rather than an error.
+
+### 10.2 Confirm a prose-classified limit against billing (F9 proper)
+
+Mirrors kilo's `confirmLimit` (`internal/provider/kilo/quota.go:92`,
+called at `internal/provider/kilo/session.go:640`), which this phase copies
+deliberately rather than inventing a second shape.
+
+grok has a single funnel: `emitClassifiedTurnError`
+(`internal/provider/acpagent/session.go:577`) handles both RPC errors and the
+stderr limit abort from `noteEngineLogLine`. One call site.
+
+* Runs only for `agenterr.KindQuota` and `agenterr.KindRateLimit`.
+* Bounded independently of grok's own 15-second upstream timeout; the probe runs
+  while a turn has **already** failed, so it must not add a visible wait.
+* A prose match that billing does **not** confirm is logged at warn, with the
+  same reasoning kilo's carries: that is the day a vendor changed its wording,
+  and it is the only signal there would be.
+* An unreachable or unauthenticated probe is *unconfirmed*, never *disproved*.
+  It must not suppress or weaken the classified error.
+
+**What "confirmed" means here is narrower than for kilo, and the difference is
+recorded rather than smoothed over.** kilo's `/kilocode/provider-usage` reports a
+per-window `state: "exhausted"`, which is a direct answer. grok's billing has no
+such field: it reports `creditUsagePercent`, `monthlyLimit`/`used` and
+`onDemandCap`. Credit exhaustion is derivable from those; a **rate-limit** window
+is not reported at all. So:
+
+* `KindQuota` can be confirmed — credits at or near the allowance, on-demand cap
+  reached.
+* `KindRateLimit` **cannot** be confirmed from billing. It is left to the prose
+  classifier, and the probe is not run for it.
+
+Narrowing 10.2 to `KindQuota` is a deviation from F9 as written, which expected
+both. It is stated here rather than discovered later.
+
+### 10.3 Recorded, not adopted
+
+* **`x.ai/auto-topup-rule`** — shares `billing.rs`'s handler and reads
+  `GetAutoTopupRule`. Declined: auto top-up is a **spending** control on the
+  operator's account. Surfacing it invites a write surface next to it
+  (`AutoTopupRule` round-trips), and the same reasoning that declined 8.2g's
+  config write applies with money attached.
+* **`x.ai/session/usage` as a replacement for the per-turn notification.** Not
+  done. `_x.ai/session_notification`'s `turn_completed` already feeds
+  `event.TypeUsage` per turn (`xaiusage.go`), which is what the transcript and
+  MADR 0138's token accounting are built on. The cumulative ledger is an
+  addition for `/usage`, not a substitute; swapping the streaming path for a
+  polled one would trade a push for a pull on the turn's hot path.
+* **`RuntimeSession` for kilo, opencode and goose.** Out of this phase's scope.
+  F9 named grok; the MADR amendment records the wider gap so it reads as a known
+  absence rather than an oversight.
+
+### Files
+
+| file | change |
+| --- | --- |
+| `internal/provider/acpagent/runtime.go` | new — `RuntimeSession`, both methods, the shapes above |
+| `internal/provider/acpagent/quota.go` | new — `confirmLimit`, `annotateLimit`, mirroring kilo |
+| `internal/provider/acpagent/session.go` | `emitClassifiedTurnError` calls `confirmLimit` |
+| `internal/provider/acpagent/runtime_test.go` | new — the fail-first checks below |
+| `internal/provider/acpagent/live_runtime_test.go` | new — `//go:build live_grok`, acceptance 5 and 6 |
+
+### Deviation — 2026-09-04: the funnel has three callers, and two of them must never block
+
+*What was found.* 10.2 says *"grok has a single funnel: `emitClassifiedTurnError`
+… One call site."* That is true of where the probe hooks in, and false of what
+reaches it. The funnel has three callers:
+
+| caller | goroutine | may block? |
+| --- | --- | --- |
+| `session.go:444` — stderr-limit abort | the turn goroutine, after `submitPrompt` returned | yes |
+| `session.go:466` — RPC error | the turn goroutine | yes |
+| `session.go:639` — `noteEngineLogLine` direct call | see below | **no** |
+
+`noteEngineLogLine` is reached from two goroutines that cannot afford a
+six-second network call:
+
+* `acpagent.go:460` sets `cmd.Stderr = &slogWriter{onLine: s.noteEngineLogLine}`.
+  Because `cmd.Stderr` is an `io.Writer` and not an `*os.File`, `os/exec` runs a
+  copier goroutine; a blocking `Write` stalls it and grok's stderr pipe backs up
+  behind it.
+* `subagents.go:96` calls it from `HandleXAISessionNotification`, which runs on
+  **the ACP SDK's single notification-consumer goroutine**.
+
+The second is F5 exactly. Phase 9's G2 measured the SDK tearing the connection
+down in **7.16 ms** with that consumer blocked; a 6,000 ms probe there would
+lose that race by three orders of magnitude, which is the same shape of mistake
+Phase 7 made and G2 disproved.
+
+The `:639` call is reachable only in the window where `prompting` is true
+(`session.go:322`) and `turnCancel` has not yet been assigned (`:371`).
+Narrow — but "narrow enough not to matter" is precisely the reasoning Phase 7
+used, so it is not relied on here.
+
+*Resolution chosen.* Probe on the turn-goroutine paths only.
+`emitClassifiedTurnError` stays free of it, and the annotation is applied by a
+wrapper used at `:444` and `:466`. Nothing is lost in practice: a stderr limit
+line normally **cancels** the turn, and the turn goroutine then emits at `:444`
+— annotated. The `:639` path fires only when there is no turn in flight, where
+there is no failing turn for a plan-usage sentence to explain.
+
+The two alternatives were real and were declined on cost: probing
+asynchronously inside the funnel keeps one call site but delays the error card
+by up to six seconds, and emitting fast then annotating later turns one failure
+into two transcript entries.
+
+*Scope note.* No new files; the wrapper lives in `quota.go` alongside
+`confirmLimit`.
+
+### Fail-first evidence required
+
+Each against a scratch copy, never the working tree, and each edit script must
+assert **from disk** that its edit landed — Phase 9's M1 passed a no-op edit on
+its first attempt and only the re-read caught it.
+
+* `P1` — decode the billing response into an all-camelCase struct. `config` must
+  read nil and the test must FAIL. This is the outer half of the mixed casing.
+* `P2` — decode it into an all-snake_case struct. `creditUsagePercent` must read
+  zero and the test must FAIL. The inner half; without both, one convention is
+  pinned and the other is a guess.
+* `P3` — feed a `$0` amount as `{}` and a missing `costUsdTicks`. A test
+  asserting the summary does not claim `$0.00` must FAIL when absent cost is
+  formatted as zero.
+* `P4` — make `RuntimeStatus` return the auth failure as an `error` rather than
+  a message. A test asserting `/status` explains itself must FAIL, since
+  `cmdRuntime` swallows the error.
+* `P5` — run `confirmLimit` for `KindRateLimit`. A test asserting billing is not
+  probed for a rate limit must FAIL.
+* `P6` — make an unreachable probe suppress the classified error. A test
+  asserting an unconfirmed limit is still reported must FAIL.
+* `P7` — flatten `usage` under a `totals` key instead of at the top level. The
+  token counts must read zero and the test must FAIL.
+
+### Acceptance
+
+1. `/usage` on grok reports tokens, turns and cost from `_x.ai/session/usage`,
+   with cost stated as incomplete when `costIsPartial` or `usageIsIncomplete` is
+   set, and never as `$0.00` when the field is absent.
+2. `/status` on grok reports plan tier and credit usage, and on an install
+   without grok.com auth reports that billing is unavailable **with
+   `error == nil`**.
+3. A quota-classified grok turn error carries the billing summary when billing
+   confirms it, and is reported unchanged when billing is unreachable.
+4. `confirmLimit` is not called for `KindRateLimit`.
+5. Live, under `-tags live_grok`: `_x.ai/session/usage` decodes strictly
+   (`DisallowUnknownFields`) against grok 1.0.13. **Spends no model tokens and
+   makes no network call** — it reads an in-process ledger.
+6. Live, under `-tags live_grok`: `_x.ai/billing` decodes strictly, or returns
+   the auth error on an API-key install — either outcome is a pass, and which
+   one occurred is recorded. **This one contacts xAI's backend with the
+   operator's credentials**, so it runs only with explicit say-so, separately
+   from acceptance 5.
+
+Acceptance 5 and 6 are deliberately separate tests: 5 is free and local, 6 is
+neither, and bundling them would make the cheap check hostage to the costly one.
+
+### Executed — 2026-09-04
+
+**10.1** `internal/provider/acpagent/runtime.go`. `RuntimeUsage` reads
+`_x.ai/session/usage`; `RuntimeStatus` reads `_x.ai/billing`. Both return their
+failures as **text with a nil error**, following codex, because
+`internal/session`'s `cmdRuntime` propagates a returned error instead of
+displaying it — an error here makes `/status` say nothing at all.
+
+`unavailableReason` keeps three failure cases distinct, because they call for
+different actions: a build without the method (`ErrNotImplemented`), an account
+that cannot use it (ACP `-32000`, which is what grok's `require_xai_auth` gate
+returns), and everything else.
+
+**10.2** `internal/provider/acpagent/quota.go`. `confirmLimit` mirrors kilo's,
+including its warn-on-unconfirmed, and is bounded at 6 s — longer than kilo's
+4 s because kilo's probe is loopback to a local engine while grok's crosses the
+network to xAI, behind grok's own 15 s upstream bound.
+
+`KindQuota` only, as the amendment states: grok's billing reports credits, a cap
+and a period, and nothing about request windows.
+
+**10.3** `x.ai/auto-topup-rule` declined, and the recorded reasons stand.
+
+### Fail-first evidence — eight breakages, each on a scratch copy
+
+Run against `$SCRATCH/p10`, an rsync of the tree excluding `.git`. Every edit
+script re-reads the file from disk to confirm its edit landed.
+
+```text
+P1. billingResponse tagged all-camelCase
+    FAIL TestBillingDecodesBothCasingsInOneResponse
+         subscription_tier = "", want the snake_case key to decode
+    FAIL TestRuntimeStatusReadsBilling
+         status = "Grok · credits 99.4% used · …" — the plan name vanished
+
+P2. billingConfig tagged all-snake_case
+    FAIL TestBillingDecodesBothCasingsInOneResponse
+         `creditUsagePercent` did not decode
+    FAIL TestBillingSummaryOnlyFiresWhenCreditsAreActuallySpent
+         99.4% used did not read as exhausted
+
+P3. an absent cost formatted as zero
+    FAIL TestUsageNeverReportsAnAbsentCostAsFree
+         summary = "… · $0.0000" — an absent cost was rendered as zero
+
+P4. RuntimeStatus returns the failure as an error
+    FAIL TestRuntimeStatusExplainsItselfRatherThanErroring
+         RuntimeStatus returned an error …; cmdRuntime would swallow it and
+         /status would say nothing at all
+
+P5. confirmLimit also probes rate limits
+    FAIL TestConfirmLimitIsNotAskedAboutRateLimits
+         kind "rate_limit" was confirmed against billing ("included credits
+         99.4% used; …")
+
+P6. an unconfirmed quota limit is swallowed
+    FAIL TestAnUnreachableProbeDoesNotSuppressTheLimit
+         no error event was emitted after an unconfirmed limit
+
+P7. promptUsage totals nested under a `totals` key
+    FAIL TestSessionUsageDecodesFlattenedTotals
+         tokens = 0 in / 0 out, want 100/10
+    FAIL TestRuntimeUsageReadsTheLedger
+         usage = "Usage: 0 input + 0 output tokens · 1 turn · cost unavailable"
+
+P8. the probe put back in the non-blocking funnel   (the deviation's fix)
+    FAIL TestTheNonBlockingFunnelNeverProbesBilling
+         emitClassifiedTurnError probed billing. It runs on the SDK's
+         notification consumer and on the stderr copier; a six-second call
+         there is F5.
+```
+
+**P2 and P5 are the two that matter most**, because neither produces an error:
+
+* P2 makes an exhausted account read as healthy. The quota confirmation stops
+  working and nothing says so.
+* P5 attaches *credit* usage to a *throttling* error — a confident wrong answer,
+  which is worse than the prose it was meant to improve on.
+
+**P1 was written as two tests and merged into one.** Pinning the outer casing
+alone leaves the inner a guess and vice versa, so both halves are asserted in the
+same test; P1 and P2 break opposite halves of it.
+
+### Acceptance
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | `/usage` reports tokens, turns and cost, never `$0.00` for an absent cost | **pass** — and confirmed live, below |
+| 2 | `/status` reports tier and credits; unavailable reported with `error == nil` | **pass** |
+| 3 | a quota error carries the billing summary, and survives an unreachable probe | **pass** — P6 |
+| 4 | `confirmLimit` is not called for `KindRateLimit` | **pass** — P5 |
+| 5 | live `_x.ai/session/usage` decodes strictly | **pass** |
+| 6 | live `_x.ai/billing` decodes strictly, or returns the auth error | **pass, authenticated** |
+
+```text
+go test -race ./internal/... ./cmd/... -count=1         -> ok (full tree)
+for os in windows linux darwin; go vet …                -> all clean
+go vet -tags live_grok ./internal/provider/acpagent/    -> clean
+make pre-add-check FILES=…                              -> 5 file(s) clean
+```
+
+### The live runs, and what they settled
+
+**Acceptance 5** — grok 1.0.13, local, no network, no model tokens:
+
+```text
+_x.ai/session/usage returned: {"usage":{"inputTokens":0,"outputTokens":0,
+  "totalTokens":0,"cachedReadTokens":0,"cacheCreationTokens":0,
+  "reasoningTokens":0,"modelCalls":0,"apiDurationMs":0,"numTurns":0}}
+session usage decoded strictly
+/usage would show: Usage: 0 input + 0 output tokens · 0 turns · cost unavailable
+```
+
+Stronger than Phase 9's rewind probe, which returned an empty array and could
+confirm only the outer key. All ten flattened fields arrived, so P7's claim is
+settled against the binary and not only the source: the totals **are** at the top
+level of `usage`, and they **are** camelCase.
+
+It also confirmed the design P3 guards, live: a zero-cost ledger omits
+`costUsdTicks` entirely rather than sending `0`, and `/usage` correctly reports
+`cost unavailable` instead of `$0.00`.
+
+**Acceptance 6** — run with the owner's explicit approval; it fetches the
+operator's billing from xAI's backend:
+
+```text
+{"config":{"creditUsagePercent":58.0,
+  "currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-09-02T11:15:25.027200+00:00",…},
+  "onDemandCap":{"val":0},"onDemandUsed":{"val":0},"prepaidBalance":{"val":0},
+  "isUnifiedBillingUser":true,"billingPeriodStart":"…"},
+ "subscription_tier":"SuperGrok"}
+billing decoded strictly
+```
+
+**The mixed casing is confirmed on the wire**, not merely in the Rust:
+`"subscription_tier"` and `"creditUsagePercent"` sit in the same response. A
+single-convention struct would have silently dropped one of them, which is what
+P1 and P2 each demonstrate.
+
+Two details the source did not settle:
+
+* `onDemandCap` arrived as `{"val":0}`, not `{}`. The proto3 omission the source
+  warns about is real but not universal, so both forms must decode — they do.
+* `on_demand_enabled`, `monthlyLimit`, `used` and `history` were all absent.
+  Optional in practice as well as in the schema.
+
+### One defect the live run found in this phase's own code
+
+`/status` rendered the period as
+`period 2026-09-02T11:15:25.027200+00:00 to 2026-09-09T11:15:25.027200+00:00` —
+sixty characters of microsecond precision in a one-line notice. grok sends full
+RFC 3339; the source showed the field was a string and said nothing about its
+shape, so this was only visible once a real response arrived.
+
+`billingDate` now shortens it to the calendar date, keeping the raw value when it
+does not parse, and `TestBillingPeriodIsADateNotATimestamp` pins it. Re-run live:
+
+```text
+/status would show: Grok · plan SuperGrok · credits 58.0% used · period 2026-09-02 to 2026-09-09
+```
+
+Recorded rather than quietly fixed, because it is the argument for running
+acceptance 6 at all: the unit tests were green against a transcribed payload
+that happened to use short dates.
+
+### Still not done after this phase
+
+* **`x.ai/restore_code`** — unread and unwired, as the F7 amendment records.
+* **`RuntimeSession` for kilo, opencode and goose.** `/status` and `/usage` work
+  on codex and now grok; the other three remain absent, which the F9 amendment
+  records as a known gap rather than an oversight.
+* **Phase 9's residual** — the rewind *element* shape and `_x.ai/rewind/execute`
+  are still confirmed against grok's source only, because populating a rewind
+  point needs a real turn.
+* **Criterion 4 on device** — backward paging has never been driven on the
+  emulator.
+
+## Amendment, 2026-09-04: Phase 11 — close the remaining open items
+
+Phase 10 ended with four things named as still open. This phase takes them, and
+the investigation changed one of them before it was written.
+
+| item | disposition |
+| --- | --- |
+| `x.ai/restore_code` | **not a gap** — a `_meta` flag that must be sent `false` (11.1) |
+| `RuntimeSession` for kilo and opencode | one shared implementation (11.2, 11.3) |
+| `RuntimeSession` for goose | from data acphttp already receives (11.4) |
+| Phase 9's rewind residual | needs a real turn; see 11.5 |
+| criterion 4 on the emulator | 11.6 |
+
+### 11.1 grok must send `x.ai/restore_code: false`
+
+Per the MADR amendment of the same date: it is not a method, it is a
+`session/load` `_meta` boolean that checks the session's persisted HEAD out into
+the caller's cwd, and grok resolves it from the operator's `[cli] restore_code`
+or **xAI's remote settings** when the client omits it.
+
+`grokSessionMeta` gains `x.ai/restore_code: false`, for the same reason Phase 9
+sends `mode: "all"` explicitly: the current default matches, and a default that
+happens to match is not the same as a value that was chosen.
+
+It must be sent on `session/load` and is harmless on `session/new`
+(`AttachOperation::Resume` hardcodes `false`), so it goes in the one meta builder
+rather than being threaded conditionally.
+
+### 11.2 `RuntimeUsage` for kilo and opencode, once
+
+Probed live against the running engines (kilo 7.5.6 on :53424, opencode on
+:57202), read-only, from each engine's own OpenAPI document:
+
+```
+GET /session/{sessionID}  ->  { "cost": number,
+                                "tokens": { "input": number, "output": number,
+                                            "reasoning": number,
+                                            "cache": { "read": number, "write": number } } }
+```
+
+**The two schemas are byte-identical**, so this lands in `internal/provider/httpagent`
+and serves both dialects from one implementation. That is the finding that makes
+this phase small: F9's amendment expected per-provider work.
+
+`cost` is a JSON number in USD — not cents, and not grok's 1e10 ticks. Three
+providers, three money units, which is exactly why each is written down at its
+decode site.
+
+kilo additionally publishes `GET /session/{sessionID}/model-usage` with
+`totals{steps,cost,tokens}` and a per-model breakdown. It is **not** used: the
+session object already carries the totals, and a second source for the same
+number is how they drift apart.
+
+### 11.3 `RuntimeStatus` via an optional dialect hook
+
+Follows the `AuthDialect` pattern already in `httpagent.go:139` — an optional
+interface a dialect may implement, with the generic path degrading to a message
+when it does not.
+
+* **kilo** — `GET /kilocode/provider-usage`, whose `providerUsage` type already
+  exists in `internal/provider/kilo/quota.go` from Phase 6.4. Reports plan
+  windows with their state, which is strictly more than grok's billing can say.
+* **opencode** — has no account-usage endpoint. Its 162 published paths contain
+  no `provider-usage`, no billing and no quota; the search was over the whole
+  document, not a guess. So its status reports the engine's model and agent and
+  says plainly that this engine publishes no plan usage, rather than inventing a
+  number or leaving `/status` dead.
+
+### 11.4 goose
+
+goose serves **no** HTTP status surface — `/status`, `/health`, `/metrics`,
+`/doc` and `/openapi.json` all return 404 on the running engine. What it does
+send is the standard ACP `SessionUsageUpdate`, which `acphttp/session.go:1303`
+already turns into `event.TypeUsage` with `Used` and `Size`.
+
+`RuntimeUsage` reports that last observed value — context occupancy, which is a
+real measurement the daemon already holds. `RuntimeStatus` reports the engine
+and the session's model where known.
+
+No cost: goose reports none, and a zero would be a claim rather than a gap.
+
+### 11.5 Phase 9's rewind residual — not done, and why
+
+Confirming the rewind **element** shape and `_x.ai/rewind/execute` against the
+binary needs a session with at least one rewind point, and a rewind point is
+created by running a turn. That spends model tokens, unlike every other live
+check in this record, so it is not run on the plan's own authority.
+
+The tests exist and are tagged. This stays open until the owner asks for it.
+
+### 11.6 Criterion 4 on the emulator
+
+Backward history paging driven on the Android AVD against a session large enough
+to page. Verification only — no code — and it either confirms what the manager
+and client tests already assert or finds something they cannot.
+
+### Files
+
+| file | change |
+| --- | --- |
+| `internal/provider/grok/grok.go` | `grokSessionMeta` sends `x.ai/restore_code: false` |
+| `internal/provider/httpagent/runtime.go` | new — `RuntimeSession`, the shared usage read, the `RuntimeDialect` hook |
+| `internal/provider/httpagent/httpagent.go` | `RuntimeDialect` optional interface |
+| `internal/provider/kilo/runtime.go` | new — kilo's `RuntimeStatus` over provider-usage |
+| `internal/provider/opencode/runtime.go` | new — opencode's `RuntimeStatus` |
+| `internal/provider/acphttp/runtime.go` | new — goose's `RuntimeSession` |
+| tests alongside each |
+
+### Deviation — 2026-09-04: opencode forbids the endpoint 11.3 chose
+
+*What was found.* 11.3 specified opencode's `RuntimeStatus` as
+`GET /experimental/capabilities`. `internal/provider/opencode/surface_contract_test.go:522`
+carries an existing accepted decision, **A11**: *"no runtime or test helper in
+this package may call an experimental endpoint."* The guard scans the package's
+own source and failed as soon as the file landed:
+
+```text
+surface_contract_test.go:545: runtime.go references an experimental OpenCode endpoint
+```
+
+The guard is right and was not weakened, skipped or scoped around. kilo calls
+the same endpoint legitimately — the rule belongs to opencode, from its 1.18.21
+parity work — which is why the plan's author (me) did not hit it when writing
+the kilo half first.
+
+*Alternatives examined.* opencode's stable endpoints were probed read-only for
+something to put in a status line. `/path` returns host directories. **`/config`
+returns provider blocks carrying plaintext `apiKey` values** — the exact hazard
+`AuthDialect`'s own documentation warns about for kilo's `/config/providers`.
+Neither is worth routing credential-bearing or host-path data through a code
+path that exists to print one line.
+
+*Resolution chosen.* `internal/provider/opencode/runtime.go` is deleted.
+httpagent's generic path already produces the right answer for an engine with
+nothing account-level to report, so opencode implements no `RuntimeDialect` at
+all and `/status` answers:
+
+```text
+Opencode · model opencode-go/minimax-m3 · agent build · this engine publishes no plan usage
+```
+
+with no engine call. This is strictly better than the plan as written: less
+code, no experimental dependency, and opencode becomes the real instance of the
+no-dialect case that `TestStatusWithoutARuntimeDialectStillAnswers` (Q5) was
+written for, rather than a hypothetical one.
+
+*Scope note.* The plan's file table loses `internal/provider/opencode/runtime.go`.
+
+### Fail-first evidence required
+
+Each against a scratch copy, from disk.
+
+* `Q1` — drop `x.ai/restore_code` from the meta. A test asserting the flag is
+  sent must FAIL. The assertion is on the wire body: the failure it guards is a
+  git checkout in the operator's repository, which is not a thing to reproduce
+  in order to test for.
+* `Q2` — send `x.ai/restore_code: true`. Same test must FAIL.
+* `Q3` — decode the session-usage response with `cost` as an integer. A test
+  must FAIL, pinning that the engines send a JSON number.
+* `Q4` — make the shared `RuntimeUsage` read `model-usage` instead of the
+  session object. A test asserting one source of truth must FAIL.
+* `Q5` — make a dialect without `RuntimeDialect` return an error from
+  `RuntimeStatus`. A test must FAIL, for the same reason as Phase 10's P4:
+  `cmdRuntime` swallows a returned error.
+* `Q6` — make goose's `RuntimeUsage` report a zero cost. A test asserting goose
+  claims no cost must FAIL.
+
+### Acceptance
+
+1. `session/load` for grok carries `x.ai/restore_code: false`, asserted on the
+   request body.
+2. `/usage` works on kilo and opencode, from one implementation, reporting
+   tokens and cost.
+3. `/status` works on kilo with plan windows, and on opencode with an honest
+   statement that the engine publishes no plan usage.
+4. `/usage` and `/status` work on goose without inventing a cost.
+5. Every provider either implements `RuntimeSession` or is recorded as unable
+   to — no transport is left silently dead.
+6. Live, read-only, against the running engines: the session-usage shape decodes
+   strictly on kilo and opencode. No model tokens.
+
+### Executed — 2026-09-04
+
+**11.1** `grokSessionMeta` sends `x.ai/restore_code: false` on every session, so
+a resume from the phone cannot inherit a file-restoring default from the
+operator's grok config or from xAI's remote settings.
+
+**11.2** `internal/provider/httpagent/runtime.go`. One `RuntimeUsage` reading
+`GET /session/{id}`, serving kilo and opencode. `sessionUsagePath` and
+`fetchSessionTotals` are split out as seams: `Provider.api` is a **method**, not
+a field, so without them no test can observe which endpoint is called or what
+comes back — the same problem Phase 9 solved with `rawConnOf`.
+
+**11.3** `RuntimeStatus` dispatches through a new optional `RuntimeDialect`,
+following the `AuthDialect` pattern. kilo implements it over
+`/kilocode/provider-usage`, reusing the `providerUsage` type Phase 6.4 already
+transcribed. **opencode implements nothing** — see the deviation above.
+
+**11.4** `internal/provider/acphttp/runtime.go`. goose serves no HTTP status
+surface at all (`/status`, `/health`, `/metrics`, `/doc`, `/openapi.json` all
+404 on the running engine), so both methods are answered from the ACP usage
+update `session.go:1303` already receives. Recorded in two atomics rather than
+behind the session mutex, because that update arrives on the notification path
+and F5 governs what may block there.
+
+### An existing assertion changed, deliberately
+
+`TestGrokSessionMeta` asserted `len(got) != 0` — "with nothing requested, send
+nothing". 11.1 changes that contract on purpose, so the assertion was rewritten
+to an **exact key set** rather than relaxed: it now requires the map to contain
+`x.ai/restore_code:false` and nothing else, so a future addition has to come to
+that test and justify itself. Recorded here because "a test changed" and "a test
+was loosened" look identical in a diff.
+
+### Fail-first evidence — six breakages, each on a scratch copy
+
+```text
+Q1. the flag is not sent
+    FAIL TestSessionMetaAlwaysSendsRestoreCodeFalse (all four cases)
+         session meta omits x.ai/restore_code. grok then takes the value from
+         the operator's own grok config or from xAI's remote settings, and a
+         session resumed from the phone can check a commit out into their repo
+    FAIL TestGrokSessionMeta   empty = map[]{}, want only x.ai/restore_code
+
+Q2. the flag is sent true
+    FAIL TestSessionMetaAlwaysSendsRestoreCodeFalse
+         x.ai/restore_code = true, want false: resuming a session must not
+         modify the working tree
+
+Q3b. the `cost` tag no longer matches the wire
+    FAIL TestSessionTotalsDecodeFromTheSessionObject   cost = 0
+    FAIL TestFormatSessionTotalsStatesSubCentCosts
+         usage = "… · $0.00", want "$0.0234"
+
+Q4. usage reads /model-usage instead of the session object
+    FAIL TestSessionUsageReadsTheSessionObjectAndNothingElse
+         engine calls = [GET /session/ses_abc/model-usage], want exactly
+         [GET /session/ses_abc]
+
+Q5. a dialect with no RuntimeDialect returns nothing
+    FAIL TestStatusWithoutARuntimeDialectStillAnswers
+         status was empty; /status would show nothing at all
+
+Q6. goose reports a zero cost
+    FAIL TestGooseUsageNeverClaimsACost
+         usage = "… (3%) · $0.00" — goose reports no cost, so a figure here is
+         invented
+
+A11. the opencode guard, made to fail on purpose after the fix
+    FAIL TestNoExperimentalRoute
+         runtime_test.go references an experimental OpenCode endpoint
+```
+
+**Q3 as the plan wrote it cannot be made to fail, and that is worth stating
+rather than dressing up.** The plan asked for `cost` decoded as an integer. Go
+will not build it: `go vet` rejects `%.2f` against an `int64`, so the mistake is
+caught before a test binary exists. What that establishes is *stronger* than a
+test — the wrong type is unrepresentable — but it is not the check that was
+asked for, so `Q3b` was run instead: a mistyped **tag**, which is silent, and
+which makes every session report `$0.00`.
+
+Two earlier attempts at Q3 broke the build rather than the assertion, including
+one where a `sessionTotals{Cost: 0.0234}` literal in the test stopped compiling.
+The test now decodes its fixtures from JSON and compares through `float64(...)`,
+so a type change surfaces as a failing assertion rather than a build error. A
+fail-first that cannot compile has demonstrated nothing.
+
+**A11 was also made to fail deliberately**, by appending the forbidden substring
+to a scratch copy. Without that it would have been a guard observed only
+passing — and it is the guard that caught this phase's own deviation.
+
+### Acceptance
+
+| # | criterion | result |
+| --- | --- | --- |
+| 1 | `session/load` carries `x.ai/restore_code: false` | **pass** — asserted on the meta map, four call shapes |
+| 2 | `/usage` on kilo and opencode from one implementation | **pass** — and confirmed against both live engines |
+| 3 | `/status` on kilo with plan windows; opencode honest about having none | **pass**, opencode via the generic path — see the deviation |
+| 4 | `/usage` and `/status` on goose without inventing a cost | **pass** — Q6 |
+| 5 | every provider implements `RuntimeSession` or is recorded as unable to | **pass** — see the matrix below |
+| 6 | the session-usage shape decodes on kilo and opencode, live | **pass** |
+
+```text
+go test -race ./internal/... ./cmd/... -count=1        -> ok, no failures
+for os in windows linux darwin; go vet …               -> all clean
+```
+
+### `/status` and `/usage` across the five transports, after this phase
+
+| provider | transport | `/usage` | `/status` |
+| --- | --- | --- | --- |
+| codex | app-server | pre-existing | pre-existing |
+| grok | ACP stdio | `x.ai/session/usage` (Phase 10) | `x.ai/billing` (Phase 10) |
+| kilo | HTTP+SSE | `GET /session/{id}` | `/kilocode/provider-usage` |
+| opencode | HTTP+SSE | `GET /session/{id}` | generic line — engine publishes none |
+| goose | ACP websocket | last ACP usage update | engine + model, no plan usage |
+
+Acceptance 5 is met: no transport is left silently dead, and the two that cannot
+report account usage say so instead of failing.
+
+### Acceptance 6 — read live from both running engines
+
+Read-only, against real sessions, no model tokens:
+
+```text
+kilo     cost = 0.043495776
+         tokens = {"input":15551,"output":47,"reasoning":32,"cache":{"read":30720,"write":0}}
+opencode cost = 0
+         tokens = {"input":220,"output":146,"reasoning":0,"cache":{"read":39040,"write":0}}
+```
+
+Both payloads are now fixtures in `runtime_test.go`, so a one-off observation
+became a regression guard. Two things they settled that the schemas alone did
+not:
+
+* **kilo's real cost is `0.043495776`.** The formatter's four decimals earn
+  their place on that figure: `$0.04` would have discarded a digit on a number
+  already in cents. Rendered `$0.0435`.
+* **opencode sent `0`, a JSON integer, not `0.0`.** A `float64` field accepts
+  both; an integer field would not have accepted kilo's.
+
+Nothing here decodes with `DisallowUnknownFields`, unlike Phase 9 and 10's live
+checks, and the reason is recorded rather than left as an inconsistency: this is
+a deliberately **partial** view of a large session object, so strict decoding
+would reject every field the daemon correctly ignores.
+
+### Still open after this phase
+
+* **Phase 9's rewind residual.** Confirming the rewind element shape and
+  `_x.ai/rewind/execute` against the binary needs a session with a rewind point,
+  and a rewind point is created by running a turn. That spends model tokens,
+  unlike every other live check in this record, so it is not run on the plan's
+  own authority.
+* **Criterion 4 on the emulator** — attempted and blocked; see below.
+
+### 11.6 — criterion 4 could not be run, and the blocker is the data, not the emulator
+
+Criterion 4 asks for backward history paging driven on the emulator against a
+session large enough to page repeatedly. It is **not done**, and the reason is
+worth recording precisely because it is not the one that was expected.
+
+*The blocker is that no such session exists.* Every transcript in the operator's
+live store was counted:
+
+```text
+largest three sessions: 773, 629, 606 events
+```
+
+against a criterion written for 20,000. Backward paging is reachable at that
+size — the phone fetches `kHistoryFetchLimit = 200` per page, so 773 events is
+four pages — but that exercises the paging *path* without exercising the
+condition the criterion was written for: a transcript far past
+`kMaxTranscriptItems` (4,000), where eviction and backward refill interact.
+
+Producing a 20,000-event session means one of:
+
+1. **Writing synthetic events into the live daemon store.** Rejected without
+   asking: that mutates the operator's real session data, it is outside this
+   plan, and a store this code also reads is the wrong place to leave 20,000
+   fabricated events.
+2. **Running enough real turns to generate them.** Tens of thousands of events
+   is a very large amount of model spend.
+3. **A disposable daemon instance with its own store**, paired to the emulator,
+   seeded synthetically. This is the honest route and it is a piece of work in
+   its own right — a second daemon, a second pairing, an APK build — rather than
+   a verification step.
+
+~~*The toolchain is also not ready*, though it is the smaller problem: the
+`mcremote_test` AVD exists but no device is attached, and the `emulator` binary
+is not on `PATH` or at the usual SDK location.~~
+
+**Correction, 2026-09-04 — that claim was wrong.** The toolchain was fine. The
+check behind it was `which emulator` plus one hardcoded path
+(`~/Library/Android/sdk/emulator/emulator`), and it ignored `ANDROID_HOME`,
+which was set in the environment the whole time:
+`/opt/homebrew/share/android-commandlinetools`. `docs/ops-android-emulator.md`
+documents the setup, and the emulator has been used repeatedly on this host.
+
+Driven properly, all of it worked: AVD booted, the current client built
+(`flutter build apk --debug`, JDK 21 per the ops doc) and installed, and the app
+came up **already paired** and `Connected to macos-laptop over Mesh`. The
+previously installed APK was v0.15.9+1 — older than every client change in this
+record — so any paging result from it would have been meaningless.
+
+### What was actually run on the device, 2026-09-04
+
+**Pass 1 — the largest real session (773 events): passed.** Opened on the
+emulator against the current client. The transcript opens at the newest end
+(F17's intent), renders real content, and scrolls back through older content
+without breaking. What it does **not** establish is that a backward *page* was
+fetched: at 773 events the client may hold the whole transcript, and neither the
+app nor the daemon logs a history request, so "paged" and "already loaded" are
+indistinguishable from the outside. Recorded as what it is.
+
+**Pass 2 — a 20,000-event synthetic fixture: inconclusive, and the fixture is
+the suspect.** A session directory was seeded into the store and opened. The
+transcript rendered **empty** despite 20,000 events on disk and a successful
+`acp session loaded`.
+
+That is **not** reported as a product defect, because the fixture is not
+realistic data: 19,600 of its 20,000 events are bare `assistant_message_chunk`
+records with no surrounding turn structure, and the client's transcript reducer
+has every reason to drop chunks it cannot attach to a message. Distinguishing a
+client bug from a bad fixture needs a fixture built from real turn scaffolding,
+which is a piece of work rather than a step.
+
+**One observation from it that is worth checking independently.** Opening the
+first fixture caused the daemon to **overwrite its `history.json`** — 3.7 MB of
+seeded events replaced by a 20 KB file holding one event. The mechanism is
+plausible: the running daemon had scanned the store at startup, a directory
+appearing afterwards took a create-fresh path, and the periodic flush wrote the
+empty in-memory ring over the file. Only fabricated data was lost here, and a
+malformed fixture may be the whole explanation — but "a store entry the running
+daemon did not load at startup can be overwritten on open" is worth confirming
+or ruling out on its own, and it is filed here rather than assumed harmless.
+
+*Cleanup.* Both fixture directories were removed and the daemon restarted. The
+operator's `config.yaml` was **not** modified — enabling the `fake` provider was
+attempted, refused by the tool sandbox, and not routed around; the fixture was
+pointed at grok instead, which needs no config change and spends no model
+tokens.
+
+*Status.* Criterion 4 is **still not met**. Pass 1 is real evidence that the
+paging path works on a device; the eviction-and-refill interaction above
+`kMaxTranscriptItems` remains unobserved.

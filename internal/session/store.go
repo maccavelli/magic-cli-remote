@@ -211,7 +211,8 @@ func (s *Store) Delete(id string) error {
 }
 
 // historyFile is the on-disk shape of a durable transcript (Phase D).
-// Same retention as the live ring: last historyBufferCap events, oldest drop.
+// Same retention policy as the live ring: bounded by bytes, evicted lowest
+// content class first (MADR 0138 Phase 2).
 type historyFile struct {
 	// Events is oldest-first, each stamped with Seq from the live pump.
 	Events []event.Event `json:"events"`
@@ -262,7 +263,14 @@ func (s *Store) SaveEpoch(epoch string, clean bool) error {
 }
 
 // SaveHistory atomically writes the durable transcript for a session.
-// events may be nil or longer than historyBufferCap; only the tail is kept.
+//
+// The caller's slice is already classed and budgeted by the live ring, so this
+// writes it whole. The independent guard below exists for the paths that do not
+// come from a live ring — a caller passing arbitrary history — and applies the
+// same class rule rather than a count: re-trimming by count here would undo the
+// retention the ring just enforced, which is what made two of the operator's
+// sessions lose every user_message (MADR 0138 F1).
+//
 // Files are 0600 under the session dir (same uid as the daemon; no off-host sync).
 func (s *Store) SaveHistory(id string, events []event.Event) error {
 	s.mu.Lock()
@@ -274,14 +282,9 @@ func (s *Store) SaveHistory(id string, events []event.Event) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	// Cap to the live ring budget so disk cannot grow without bound.
-	if len(events) > historyBufferCap {
-		events = events[len(events)-historyBufferCap:]
-	}
-	// Always write a concrete slice so the file is never null-JSON for events.
-	if events == nil {
-		events = []event.Event{}
-	}
+	// Bound the file so disk cannot grow without bound, by the same policy the
+	// live ring uses.
+	events = boundHistoryByClass(events, historyFileBudgetBytes)
 	b, err := json.Marshal(historyFile{Events: events})
 	if err != nil {
 		return err
@@ -298,17 +301,87 @@ func (s *Store) LoadHistory(id string) []event.Event {
 	defer s.mu.Unlock()
 	b, err := os.ReadFile(s.historyPath(id))
 	if err != nil {
+		// A session with no transcript yet is the normal cold case; warning on
+		// it would train the reader to ignore this line. Anything else lost a
+		// transcript that exists (MADR 0141 F3).
+		if !os.IsNotExist(err) {
+			s.log.Warn("session history unreadable; transcript dropped",
+				slog.String("session_id", id),
+				slog.String("path", s.historyPath(id)),
+				slog.String("err", err.Error()),
+			)
+		}
 		return []event.Event{}
 	}
 	var hf historyFile
-	if json.Unmarshal(b, &hf) != nil {
+	if err := json.Unmarshal(b, &hf); err != nil {
+		s.log.Warn("session history did not parse; transcript dropped",
+			slog.String("session_id", id),
+			slog.Int("bytes", len(b)),
+			slog.String("err", err.Error()),
+			slog.String("hint", "the file must be {\"events\":[...]}; a bare JSON array "+
+				"decodes as no events"),
+		)
 		return []event.Event{}
 	}
 	if hf.Events == nil {
+		s.log.Warn("session history has no events key; transcript dropped",
+			slog.String("session_id", id),
+			slog.Int("bytes", len(b)),
+		)
 		return []event.Event{}
 	}
-	if len(hf.Events) > historyBufferCap {
-		return hf.Events[len(hf.Events)-historyBufferCap:]
+	return boundHistoryByClass(hf.Events, historyFileBudgetBytes)
+}
+
+// historyFileBudgetBytes bounds one session's durable transcript. Equal to the
+// live per-session budget: a file larger than the ring it seeds would be
+// silently truncated on load anyway, and a smaller one would throw away
+// retention the ring had already decided to keep.
+const historyFileBudgetBytes = historyBudgetBytes
+
+// boundHistoryByClass returns events unchanged when it fits budget, and
+// otherwise drops lowest-class-first, oldest-first within a class, until it
+// does. The newest event is always kept.
+//
+// This is the same rule entry.enforceHistoryBudgetLocked applies in memory,
+// expressed over a plain slice so the file and the ring cannot disagree about
+// what a transcript is.
+func boundHistoryByClass(events []event.Event, budget int) []event.Event {
+	if events == nil {
+		// Always write a concrete slice so the file is never null-JSON.
+		return []event.Event{}
 	}
-	return hf.Events
+	total := 0
+	for i := range events {
+		total += event.Bytes(&events[i])
+	}
+	if total <= budget || len(events) < 2 {
+		return events
+	}
+
+	need := total - budget
+	drop := make([]bool, len(events))
+	freed := 0
+	newest := len(events) - 1
+	for cls := event.ClassTelemetry; freed < need; cls++ {
+		for i := 0; i < newest && freed < need; i++ {
+			if drop[i] || event.ClassOf(events[i].Type) != cls {
+				continue
+			}
+			drop[i] = true
+			freed += event.Bytes(&events[i])
+		}
+		if cls == event.ClassAnchor {
+			break
+		}
+	}
+
+	out := make([]event.Event, 0, len(events))
+	for i := range events {
+		if !drop[i] {
+			out = append(out, events[i])
+		}
+	}
+	return out
 }

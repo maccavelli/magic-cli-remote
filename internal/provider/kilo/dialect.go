@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +32,9 @@ type httpDialect struct {
 	// auth-state-dependent default.
 	defaultModelProvider string
 	defaultModelID       string
+	// syncSeq is the last sequence seen per aggregate (session) on kilo's
+	// `sync` stream, used to detect dropped events (MADR 0137 F7).
+	syncSeq map[string]int64
 	// contextLimits is "providerID/modelID" → context-window size for the
 	// usage indicator. Empty until P3's AfterBoot harvests the catalog;
 	// a missing entry renders as a bare token count, never an error.
@@ -50,6 +55,13 @@ var (
 	_ httpagent.ChildFrame          = (*httpDialect)(nil)
 	_ httpagent.StartAgentValidator = (*httpDialect)(nil)
 )
+
+// DefaultModel implements [httpagent.DialectDefaultModel], exposing the same
+// resolved default fallbackModel serves to prompts so the daemon can name the
+// model a default-model session is actually running on (MADR 0137).
+func (d *httpDialect) DefaultModel() (string, string) {
+	return d.fallbackModel()
+}
 
 // fallbackModel returns the catalog default for prompts with no model.
 func (d *httpDialect) fallbackModel() (string, string) {
@@ -103,6 +115,7 @@ func (d *httpDialect) EventsPath() string { return "/global/event" }
 func (d *httpDialect) AfterBoot(ctx context.Context, api httpagent.API) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	d.logExperimentalCapabilities(ctx, api)
 	conn, err := d.connectedProviders(ctx, api)
 	if err != nil {
 		d.log.Warn("kilo default-model resolve failed; using seeded fallback",
@@ -161,13 +174,22 @@ func (d *httpDialect) DecodeFrame(data []byte) (string, json.RawMessage, string,
 			Type       string          `json:"type"`
 			Properties json.RawMessage `json:"properties"`
 			Data       json.RawMessage `json:"data"`
+			SyncEvent  *kiloSyncEvent  `json:"syncEvent"`
 		} `json:"payload"`
 		Type       string          `json:"type"`
 		Properties json.RawMessage `json:"properties"`
 		Data       json.RawMessage `json:"data"`
+		SyncEvent  *kiloSyncEvent  `json:"syncEvent"`
 	}
 	if err := json.Unmarshal(data, &frame); err != nil {
 		return "", nil, "", false
+	}
+	// A `sync` frame is kilo's event-sourced twin of a plain frame, carrying a
+	// per-aggregate `seq`. It is NOT routed to a session — doing so would
+	// deliver every event twice — but its sequence is recorded, so a gap in
+	// the stream becomes observable (MADR 0137 F7).
+	if ev := firstSync(frame.SyncEvent, frame.Payload.SyncEvent); ev != nil {
+		d.noteSyncSeq(ev.AggregateID, ev.Seq)
 	}
 	typ, props := frame.Type, firstRaw(frame.Properties, frame.Data)
 	if frame.Payload.Type != "" {
@@ -226,4 +248,37 @@ func (d *httpDialect) NewSession(h httpagent.Host) httpagent.DialectSession {
 		msgRole:   make(map[string]string),
 		subagents: make(map[string]subagentState),
 	}
+}
+
+// logExperimentalCapabilities reads GET /experimental/capabilities once at
+// engine ready and records what the engine says it can do.
+//
+// kilo 7.5.6 publishes 264 endpoints and a feature-discovery endpoint beside
+// them; mcremote read neither and worked from hardcoded assumptions
+// (MADR 0138 F10). This does not change behaviour — nothing branches on it
+// yet — it puts the engine's own answer in the log next to its version, so the
+// next assumption can be checked against a fact instead of a guess.
+//
+// Best-effort by construction: an engine that does not serve it, or serves
+// something unexpected, is not a boot failure.
+func (d *httpDialect) logExperimentalCapabilities(ctx context.Context, api httpagent.API) {
+	var caps map[string]any
+	if err := api(ctx, "GET", "/experimental/capabilities", nil, &caps); err != nil {
+		d.log.Debug("kilo experimental capabilities unavailable", slog.String("err", err.Error()))
+		return
+	}
+	if len(caps) == 0 {
+		return
+	}
+	names := make([]string, 0, len(caps))
+	for k, v := range caps {
+		if b, ok := v.(bool); ok && !b {
+			continue
+		}
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	d.log.Info("kilo experimental capabilities",
+		slog.String("enabled", strings.Join(names, ",")),
+		slog.Int("reported", len(caps)))
 }

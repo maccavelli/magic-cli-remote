@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"context"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -32,8 +31,7 @@ func BenchmarkSpliceRoundTrip(b *testing.B) {
 	defer ts.Close()
 	base := "ws" + strings.TrimPrefix(ts.URL, "http")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	hostConn, _, err := websocket.Dial(ctx, base+"/v1/host", nil)
 	if err != nil {

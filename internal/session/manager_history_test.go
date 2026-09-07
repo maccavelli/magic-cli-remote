@@ -144,10 +144,15 @@ func (p *scriptedProvider) Start(_ context.Context, opts provider.StartOptions) 
 	return s, nil
 }
 
-// The per-session ring buffer caps at historyBufferCap and drops the oldest
-// events; History returns the survivors in emission order, unknown -> empty.
+// The per-session ring keeps every event that fits its byte budget, in
+// emission order; unknown -> empty.
+//
+// 900 events used to overflow an 800-event cap and lose the first 300 (MADR
+// 0018 E4). Under the byte budget they all survive: 900 small chunks are a
+// rounding error against 32 MiB. The assertions below therefore check that
+// nothing was dropped, where they used to check where the drop landed.
 func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
-	const emitted = historyBufferCap + 100
+	const emitted = 900
 
 	reg := provider.NewRegistry()
 	reg.Register(&scriptedProvider{count: emitted})
@@ -182,11 +187,11 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 	}
 
 	hist := mgr.History(meta.ID)
-	// Trimming happens in batches: the ring never exceeds the cap and never
-	// shrinks below the trim floor. This is a property of the whole ring, so it
-	// counts every event in it.
-	if len(hist) > historyBufferCap || len(hist) < historyTrimTo {
-		t.Fatalf("history len = %d, want within [%d, %d]", len(hist), historyTrimTo, historyBufferCap)
+	// Every emitted event fits the byte budget, so every one is retained. The
+	// ring also holds the daemon's own command advertisement.
+	if len(hist) < emitted {
+		t.Fatalf("history len = %d, want at least the %d emitted events; nothing this small should be evicted",
+			len(hist), emitted)
 	}
 	// Content and ordering are about the conversation. The daemon's own command
 	// advertisement shares the ring and is emitted from Create while the pump is
@@ -194,13 +199,14 @@ func TestHistoryRingBufferCapsAndOrders(t *testing.T) {
 	// reached it yet — varies from run to run; counting it here made the
 	// arithmetic below off by one at random.
 	chat := transcript(hist)
-	// The newest event always survives; the oldest retained is whatever the
-	// batch trim left.
+	if len(chat) != emitted {
+		t.Fatalf("retained %d conversation events, want all %d", len(chat), emitted)
+	}
 	if got := chat[len(chat)-1].Text; got != strconv.Itoa(emitted-1) {
 		t.Fatalf("newest retained = %q, want %q", got, strconv.Itoa(emitted-1))
 	}
-	if got, _ := strconv.Atoi(chat[0].Text); got != emitted-len(chat) {
-		t.Fatalf("oldest retained = %d, want %d", got, emitted-len(chat))
+	if got := chat[0].Text; got != "0" {
+		t.Fatalf("oldest retained = %q, want %q — the first event must not be evicted", got, "0")
 	}
 	// Strictly increasing (emission) order, and monotonically increasing seq.
 	for i := 1; i < len(chat); i++ {

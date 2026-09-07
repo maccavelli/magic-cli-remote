@@ -57,6 +57,25 @@ class _HistoryClient extends McremoteClient {
     historyCalls++;
     return historyBySession[sessionId] ?? const [];
   }
+
+  /// The synchronizer fetches the newest page rather than walking forward from
+  /// the oldest event (MADR 0141 F2). The canned events stand in for that page,
+  /// and `historyCalls` keeps counting the same thing it always did.
+  @override
+  Future<HistoryPage> sessionHistoryNewest(
+    String sessionId, {
+    int beforeSeq = 0,
+    int limit = kHistoryFetchLimit,
+  }) async {
+    historyCalls++;
+    final events = historyBySession[sessionId] ?? const <SessionEvent>[];
+    return HistoryPage(
+      events: events,
+      prevBeforeSeq: null,
+      firstSeq: events.isEmpty ? 0 : events.first.seq,
+      latestSeq: events.isEmpty ? 0 : events.last.seq,
+    );
+  }
 }
 
 void main() {

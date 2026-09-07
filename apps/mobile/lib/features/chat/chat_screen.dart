@@ -241,6 +241,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final ValueNotifier<int> _unreadWhileScrolledUp = ValueNotifier(0);
   int _seqAtLeaveBottom = 0;
 
+  /// Backward history paging (MADR 0141). A chat opens on the newest page, so
+  /// everything older is fetched on demand as the user scrolls toward it.
+  ///
+  /// `_olderInFlight` is the single-flight latch: a fling crosses the trigger
+  /// band many times in a few frames, and without it each crossing would launch
+  /// its own request for the same page.
+  bool _olderInFlight = false;
+  int _olderPagesFetched = 0;
+  bool _noOlderHistory = false;
+
   /// Prompts submitted while the agent was mid-turn, in send order. Flushed
   /// one per completed turn by [_maybeFlushQueue]; each shows as a removable
   /// chip above the composer until it goes out. Identity-keyed so two chips
@@ -646,6 +656,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!_scroll.hasClients) return;
     final pos = _scroll.position;
     // reverse:true list — pixels ≈ 0 is the live (newest) end.
+    // Approaching the oldest end of a reverse:true list: pixels grows toward
+    // older content, so maxScrollExtent is the top of the conversation. One
+    // viewport of lead time so the page lands before the user arrives.
+    if (pos.hasContentDimensions &&
+        pos.pixels > pos.maxScrollExtent - pos.viewportDimension) {
+      unawaited(_loadOlderHistory());
+    }
     final near = pos.pixels < 120;
     if (near != _userNearBottom.value) {
       _userNearBottom.value = near;
@@ -656,6 +673,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _seqAtLeaveBottom = t.nextSeq;
         _unreadWhileScrolledUp.value = 0;
       }
+    }
+  }
+
+  /// Fetch the page immediately older than what is held and prepend it.
+  ///
+  /// Bounded three ways, because this runs off a scroll handler: a single-flight
+  /// latch, [kHistoryMaxPages] per screen, and the daemon's own `prevBeforeSeq`
+  /// going null when the oldest retained event has been reached.
+  Future<void> _loadOlderHistory() async {
+    if (_olderInFlight || _noOlderHistory) return;
+    if (_olderPagesFetched >= kHistoryMaxPages) return;
+
+    final transcripts = ref.read(transcriptsProvider.notifier);
+    final oldest = transcripts.oldestSeq(widget.sessionId);
+    // Nothing held yet: the newest page has not landed, and asking for what is
+    // older than nothing would fetch the tail a second time.
+    if (oldest <= 0) return;
+
+    _olderInFlight = true;
+    try {
+      final page = await ref
+          .read(mcremoteClientProvider)
+          .sessionHistoryNewest(widget.sessionId, beforeSeq: oldest);
+      if (!mounted) return;
+      if (page.events.isEmpty) {
+        _noOlderHistory = true;
+        return;
+      }
+      _olderPagesFetched++;
+      await transcripts.prependHistory(widget.sessionId, page.events);
+      if (!page.hasOlder) _noOlderHistory = true;
+    } catch (e) {
+      // A failed page must not latch the screen shut: the user can scroll away
+      // and back to retry, and a transient socket error is the common case.
+      debugPrint('chat: older history page failed: $e');
+    } finally {
+      _olderInFlight = false;
     }
   }
 

@@ -11,14 +11,18 @@ import (
 
 // Spec describes static provider metadata for an ACP-over-HTTP engine.
 type Spec struct {
-	ID            provider.ID
-	DefaultBin    string
-	ServeArgs     func(port int) []string
-	HealthPath    string
-	StaticModels  []picker.Option
-	StaticModes   []event.SessionMode
-	DefaultModeID string
-	Commands      command.Table
+	ID         provider.ID
+	DefaultBin string
+	// KnownGoodVersion is the agent release this Spec's wire shapes were
+	// checked against. Empty disables the check. A mismatch warns once per
+	// engine start and never refuses to run (MADR 0137 Phase 3).
+	KnownGoodVersion string
+	ServeArgs        func(port int) []string
+	HealthPath       string
+	StaticModels     []picker.Option
+	StaticModes      []event.SessionMode
+	DefaultModeID    string
+	Commands         command.Table
 	// AuthStatus, when non-nil, reports the agent's upstream credential state
 	// (MADR 0074 D3). Nil means the agent contributes no auth block.
 	AuthStatus func(ctx context.Context) (provider.AuthState, error)

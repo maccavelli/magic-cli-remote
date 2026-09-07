@@ -33,6 +33,14 @@ func reconcileGooseKeyring(keyringDisabled bool, log *slog.Logger) goose.Result 
 			slog.String("provider", "goose"))
 	case goose.OutcomeNoChange:
 		// Nothing to say: the config already matched.
+	case goose.OutcomeError:
+		// Unreachable from here — Reconcile returns a non-nil error alongside
+		// it, so the branch above already logged and returned. Present so the
+		// outcome set is handled exhaustively at the one place that reads it,
+		// and so a future error path that forgets to return an error is still
+		// reported rather than silently ignored.
+		log.Warn("goose keyring reconciliation reported a failure: "+res.Reason,
+			slog.String("provider", "goose"))
 	}
 	return res
 }

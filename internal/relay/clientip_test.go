@@ -3,6 +3,7 @@ package relay
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +64,83 @@ func TestClientIPXRealIPFallback(t *testing.T) {
 	r.Header.Set("X-Real-IP", "198.51.100.20")
 	if got := srv.clientIP(r); got != "198.51.100.20" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRemoteIPNoPort(t *testing.T) {
+	if got := remoteIP("203.0.113.50"); got != "203.0.113.50" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRateIPKeyInvalid(t *testing.T) {
+	if got := rateIPKey("not-an-ip"); got != "not-an-ip" {
+		t.Fatalf("got %q want not-an-ip", got)
+	}
+}
+
+func TestRateIPKeyIPv4Mapped(t *testing.T) {
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	srv := New(Config{Allow: []HostCredential{cred}}, nil)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "[::ffff:203.0.113.50]:9999"
+	if got := srv.clientIP(r); got != "203.0.113.50" {
+		t.Fatalf("mapped IPv4 got %q want 203.0.113.50", got)
+	}
+	r.RemoteAddr = "203.0.113.50:9999"
+	if got := srv.clientIP(r); got != "203.0.113.50" {
+		t.Fatalf("IPv4 got %q want 203.0.113.50", got)
+	}
+}
+
+func TestRateIPKeyIPv6SameSlash64(t *testing.T) {
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	srv := New(Config{Allow: []HostCredential{cred}}, nil)
+	a := httptest.NewRequest(http.MethodGet, "/", nil)
+	a.RemoteAddr = "[2001:db8:1::1]:1"
+	b := httptest.NewRequest(http.MethodGet, "/", nil)
+	b.RemoteAddr = "[2001:db8:1::2]:2"
+	ka, kb := srv.clientIP(a), srv.clientIP(b)
+	if ka != kb {
+		t.Fatalf("same /64 keys %q vs %q", ka, kb)
+	}
+}
+
+func TestRateIPKeyIPv6DifferentSlash64(t *testing.T) {
+	cred, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	srv := New(Config{Allow: []HostCredential{cred}}, nil)
+	a := httptest.NewRequest(http.MethodGet, "/", nil)
+	a.RemoteAddr = "[2001:db8:1::1]:1"
+	b := httptest.NewRequest(http.MethodGet, "/", nil)
+	b.RemoteAddr = "[2001:db8:2::1]:1"
+	if srv.clientIP(a) == srv.clientIP(b) {
+		t.Fatal("different /64 must not share a rate key")
+	}
+}
+
+func TestParseTrustedProxiesRejectsDefaultRoute(t *testing.T) {
+	if _, err := ParseTrustedProxies([]string{"0.0.0.0/0"}); err == nil {
+		t.Fatal("0.0.0.0/0 must be rejected")
+	}
+	if _, err := ParseTrustedProxies([]string{"::/0"}); err == nil {
+		t.Fatal("::/0 must be rejected")
+	}
+}
+
+func TestParseTrustedProxiesRejectsWideV4(t *testing.T) {
+	_, err := ParseTrustedProxies([]string{"10.0.0.0/7"})
+	if err == nil || !strings.Contains(err.Error(), "/8 or narrower") {
+		t.Fatalf("err=%v; want /8 or narrower", err)
+	}
+}
+
+func TestParseTrustedProxiesAllowsSlash8(t *testing.T) {
+	nets, err := ParseTrustedProxies([]string{"10.0.0.0/8", "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nets) != 2 {
+		t.Fatalf("len=%d", len(nets))
 	}
 }
 

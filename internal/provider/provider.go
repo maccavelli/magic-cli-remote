@@ -639,6 +639,29 @@ type ModelSession interface {
 	SetModel(ctx context.Context, model string) error
 }
 
+// ModelReporter is optionally implemented by sessions that know the model they
+// are actually running on, including one the provider chose for itself.
+//
+// It exists because [Meta.Model] is what the CLIENT ASKED FOR, and MADR 0137's
+// accepted constraint is that a session runs on the provider's own default —
+// so in the normal case the client asks for nothing and the daemon knows
+// nothing. A latency record without a model cannot separate a transport
+// regression from a change in what the engine is running, which is the whole
+// purpose of that instrumentation (MADR 0137, eighth amendment).
+//
+// The answer is the SESSION's current model, not the turn's: a mid-session
+// switch is picked up on the following turn. That is the right granularity
+// here and is deliberately not the per-assistant-message model the kilo and
+// opencode dialects decode.
+//
+// Returning "" is the correct answer for a session that does not know, and is
+// what grok, goose and codex do today. A caller must treat empty as "no
+// model reported" and never substitute a guess.
+type ModelReporter interface {
+	Session
+	CurrentModel() string
+}
+
 // ThinkingSession accepts a thinking/reasoning level. Absence is the honest
 // answer for goose, which exposes no per-session effort control (MADR 0052 D6).
 // Codex applies the level on the next turn/start; grok 1.0.5 applies it on

@@ -123,12 +123,12 @@ func TestVersionIsKnownGoodMatrix(t *testing.T) {
 		want bool
 	}{
 		{KnownGoodVersion, true},
-		{"1.18.21", true},
-		{"v1.18.21", true},
-		{"1.18.21+build.7", true},
-		{"1.18.21-rc.1", true},
-		{"1.18.20", false},
-		{"1.18.22", false},
+		{"1.18.26", true},
+		{"v1.18.26", true},
+		{"1.18.26+build.7", true},
+		{"1.18.26-rc.1", true},
+		{"1.18.25", false},
+		{"1.18.27", false},
 		{"1.19.0", false},
 		{"1.18", false},
 		{"", false},
@@ -204,12 +204,12 @@ func TestKnownGoodHealthMatrix(t *testing.T) {
 		wantLevel   slog.Level
 	}{
 		{
-			name: "exact known-good logs info", body: `{"healthy":true,"version":"1.18.21"}`,
-			wantVersion: "1.18.21", wantMsg: msgExact, wantLevel: slog.LevelInfo,
+			name: "exact known-good logs info", body: `{"healthy":true,"version":"1.18.26"}`,
+			wantVersion: "1.18.26", wantMsg: msgExact, wantLevel: slog.LevelInfo,
 		},
 		{
-			name: "newer release warns as drift", body: `{"healthy":true,"version":"1.18.22"}`,
-			wantVersion: "1.18.22", wantMsg: msgDrift, wantLevel: slog.LevelWarn,
+			name: "newer release warns as drift", body: `{"healthy":true,"version":"1.18.27"}`,
+			wantVersion: "1.18.27", wantMsg: msgDrift, wantLevel: slog.LevelWarn,
 		},
 		{
 			name: "much newer release warns as drift", body: `{"healthy":true,"version":"2.0.0"}`,

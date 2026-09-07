@@ -8,11 +8,12 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestLoadFromYAMLAndAllow(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateFixtureDir(t)
 	path := filepath.Join(dir, "config.yaml")
 	body := `
 listen:
@@ -148,6 +149,101 @@ func TestValidateRejectsLimitCeilings(t *testing.T) {
 	}
 }
 
+func TestAddrDefaultHost(t *testing.T) {
+	fc := FileConfig{Listen: ListenConfig{Port: 8443}}
+	if got := fc.Addr(); got != "0.0.0.0:8443" {
+		t.Fatalf("Addr()=%q", got)
+	}
+}
+
+func TestVersionStringNonEmpty(t *testing.T) {
+	if VersionString() == "" {
+		t.Fatal("VersionString empty")
+	}
+}
+
+func TestCheckSecretFilesSkipsNonFilesMode(t *testing.T) {
+	if err := checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeOff}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckSecretFilesEmptyPaths(t *testing.T) {
+	if err := checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeFiles}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckSecretFilesMissingPEM(t *testing.T) {
+	err := checkSecretFiles(FileConfig{TLS: TLSConfig{
+		Mode:     TLSModeFiles,
+		CertFile: "/no/such/mcrelay-cert.pem",
+		KeyFile:  "/no/such/mcrelay-key.pem",
+	}})
+	if err == nil {
+		t.Fatal("want error for missing PEM")
+	}
+}
+
+func TestCheckSecretFilesRejectsWorldReadablePEM(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "key.pem")
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := appdirs.FileIsOwnerOnly(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner {
+		t.Skip("0644 still owner-only on this OS")
+	}
+	err = checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeFiles, CertFile: p, KeyFile: p}})
+	if err == nil || !strings.Contains(err.Error(), "chmod 0600") {
+		t.Fatalf("err=%v; want chmod 0600", err)
+	}
+}
+
+func TestCheckSecretFilesAcceptsOwnerOnlyPEM(t *testing.T) {
+	dir := privateFixtureDir(t)
+	p := filepath.Join(dir, "key.pem")
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeFiles, CertFile: p, KeyFile: p}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadRejectsWorldReadableConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+listen:
+  host: 127.0.0.1
+  port: 8443
+tls:
+  mode: off
+hosts:
+  - id: h1
+    secret: sixteen-chars-min-1
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := appdirs.FileIsOwnerOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner {
+		t.Skip("config mode 0644 is still owner-only on this OS")
+	}
+	_, err = Load(LoadOptions{ConfigFile: path})
+	if err == nil || !strings.Contains(err.Error(), "chmod 0600") {
+		t.Fatalf("err=%v; want chmod 0600", err)
+	}
+}
+
 func TestToServerConfigLegacyFlag(t *testing.T) {
 	cfg := DefaultsFile()
 	cfg.Hosts = []HostEntry{{ID: "h1", Secret: "sixteen-chars-min-1"}}
@@ -158,8 +254,32 @@ func TestToServerConfigLegacyFlag(t *testing.T) {
 	}
 }
 
+func TestToServerConfigBlanksSecrets(t *testing.T) {
+	const secret = "sixteen-chars-min-1"
+	cfg := DefaultsFile()
+	cfg.Hosts = []HostEntry{{ID: "h1", Secret: secret}}
+	srv := cfg.ToServerConfig()
+	if cfg.Hosts[0].Secret != "" {
+		t.Fatalf("Hosts[0].Secret = %q, want empty after hash", cfg.Hosts[0].Secret)
+	}
+	if srv.Allow[0].SecretHash != HashSecret(secret) {
+		t.Fatal("SecretHash does not match HashSecret of the original")
+	}
+}
+
+func TestParseAllowPartsErrorOmitsSecret(t *testing.T) {
+	const leak = "sixteen-chars-min-secret"
+	_, _, err := parseAllowParts("not-a-pair-" + leak)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), leak) {
+		t.Fatalf("error quotes secret material: %v", err)
+	}
+}
+
 func TestLoadFlagOverride(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateFixtureDir(t)
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(`
 listen:
@@ -183,6 +303,15 @@ hosts:
 	if cfg.Listen.Host != "127.0.0.1" || cfg.Listen.Port != 9001 {
 		t.Fatalf("got %+v", cfg.Listen)
 	}
+}
+
+func privateFixtureDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "private")
+	if err := appdirs.EnsurePrivateDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // TestAllowEntryTrailingWhitespaceSecret pins 0115 F3: one parse for --allow
@@ -314,6 +443,7 @@ func TestValidateLimitsCeilings(t *testing.T) {
 		{"max_phones_per_host", func(l *LimitsConfig) { l.MaxPhonesPerHost = MaxLimitPhonesPerHost + 1 }},
 		{"max_message_bytes", func(l *LimitsConfig) { l.MaxMessageBytes = MaxLimitMessageBytes + 1 }},
 		{"max_concurrent_join", func(l *LimitsConfig) { l.MaxConcurrentJoin = MaxLimitConcurrentJoin + 1 }},
+		{"max_conns", func(l *LimitsConfig) { l.MaxConns = MaxLimitConns + 1 }},
 		{"accept_per_minute", func(l *LimitsConfig) { l.AcceptPerMinute = MaxLimitPerMinute + 1 }},
 		{"join_per_minute", func(l *LimitsConfig) { l.JoinPerMinute = MaxLimitPerMinute + 1 }},
 		{"register_per_minute", func(l *LimitsConfig) { l.RegisterPerMinute = MaxLimitPerMinute + 1 }},
@@ -334,5 +464,12 @@ func TestValidateLimitsCeilings(t *testing.T) {
 	// Negative splice knobs mean "disabled" and pass.
 	if err := validateLimitsConfig(LimitsConfig{SpliceIdleSeconds: -1, SpliceMaxSeconds: -1}); err != nil {
 		t.Fatalf("negative splice knobs: %v", err)
+	}
+}
+
+func TestValidateMaxConnsCeiling(t *testing.T) {
+	err := validateLimitsConfig(LimitsConfig{MaxConns: MaxLimitConns + 1})
+	if err == nil || !strings.Contains(err.Error(), "max_conns") {
+		t.Fatalf("err=%v; want limits.max_conns ceiling rejection", err)
 	}
 }

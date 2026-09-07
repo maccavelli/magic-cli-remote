@@ -59,7 +59,8 @@ built from the same specification the server enforces with
   "ping_interval_ms": 10000,
   "ws_ping_resets_deadline": true,
   "resume": {"window_ms": 120000},
-  "history_ring": 800,
+  "history_ring": 16384,
+  "history_budget_bytes": 33554432,
   "max_frame_bytes": 1048576,
   "tls_resumed": false,
   "epoch": "a1b2c3d4e5f60718",
@@ -87,7 +88,13 @@ built from the same specification the server enforces with
 - `resume` — present on every v2 `auth_ok` since 0068 P4:
   `{"window_ms": <granted resume window>}` (server ceiling
   `limits.ws_resume_window_seconds`, default 120 s).
-- `history_ring` — per-session event ring size (v1: implicit 800).
+- `history_ring` — per-session ring size **in events**. Since MADR 0138 the
+  daemon bounds retention by bytes, so this is a conservative estimate derived
+  from that budget rather than a hard count; it stays an event count because
+  that is what it has always meant and clients size their own buffers from it.
+- `history_budget_bytes` — the per-session retention budget the daemon actually
+  enforces (MADR 0138 Phase 2). Additive: absent means a daemon that still
+  bounds retention by an event count.
 - `max_frame_bytes` — both directions' frame cap (v1: implicit 1 MiB).
 - `tls_resumed` — whether this connection's TLS handshake resumed a prior
   session. Lets clients verify their TLS session cache works (0068 Q3).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -301,27 +302,47 @@ func TestDurableHistoryRespectsCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Synthetic oversized slice: SaveHistory keeps only the tail.
-	events := make([]event.Event, historyBufferCap+50)
-	for i := range events {
-		events[i] = event.Event{
-			Type:      event.TypeAssistantChunk,
+	// Oversized on purpose: the file is bounded by bytes, and by the same class
+	// rule the live ring uses. A count-based re-trim here would undo the
+	// retention the ring just enforced, which is how two of the operator's
+	// sessions ended up with no user_message at all (MADR 0138 F1).
+	const chunk = 64 << 10
+	events := make([]event.Event, 0, 1200)
+	for i := range 1200 {
+		typ := event.TypeToolUpdate
+		text := strings.Repeat("o", chunk)
+		if i%400 == 0 {
+			typ = event.TypeUserMessage
+			text = "prompt " + strconv.Itoa(i)
+		}
+		events = append(events, event.Event{
+			Type:      typ,
 			SessionID: "big",
 			Seq:       uint64(i + 1),
-			Text:      strconv.Itoa(i),
-		}
+			ToolID:    "exec-1",
+			Text:      text,
+		})
 	}
 	if err := store.SaveHistory("big", events); err != nil {
 		t.Fatal(err)
 	}
 	got := store.LoadHistory("big")
-	if len(got) != historyBufferCap {
-		t.Fatalf("len=%d want %d", len(got), historyBufferCap)
+
+	total := 0
+	users := 0
+	for i := range got {
+		total += event.Bytes(&got[i])
+		if got[i].Type == event.TypeUserMessage {
+			users++
+		}
 	}
-	if got[0].Text != strconv.Itoa(50) {
-		t.Fatalf("oldest kept text=%q want %q", got[0].Text, strconv.Itoa(50))
+	if total > historyFileBudgetBytes {
+		t.Fatalf("durable transcript is %d bytes, over the %d budget", total, historyFileBudgetBytes)
 	}
-	if got[len(got)-1].Text != strconv.Itoa(historyBufferCap+49) {
-		t.Fatalf("newest text=%q", got[len(got)-1].Text)
+	if users != 3 {
+		t.Fatalf("kept %d user messages, want all 3: telemetry is evicted before the conversation", users)
+	}
+	if got[len(got)-1].Seq != 1200 {
+		t.Fatalf("newest event seq = %d, want 1200", got[len(got)-1].Seq)
 	}
 }

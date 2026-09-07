@@ -32,9 +32,11 @@ type subagentState struct {
 //	subagent_progress {subagent_id, duration_ms, turn_count, tokens_used, …}
 //	subagent_finished {subagent_id, status, tool_calls, turns, output, …}
 //
-// Every other variant on this channel is ignored: `tool_call_delta_chunk` and
-// `turn_completed` also arrive here, including for the child, and none of them
-// is status this session should publish.
+// Every other variant on this channel is ignored: `tool_call_delta_chunk` also
+// arrives here, including for the child, and it is not status this session
+// should publish. `turn_completed` is now read for its token accounting only
+// (MADR 0137, second correction) — never for status, which the ACP turn result
+// already owns.
 //
 // `subagent_finished.output` is deliberately dropped — it is the sub-agent's
 // full report, i.e. exactly the content MADR 0051 keeps out of the transcript.
@@ -53,6 +55,12 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 			// "error_type":"auth","message":"Unauthorized (401) from …"}.
 			Type    string `json:"type"`
 			Message string `json:"message"`
+			// turn_completed carries grok's token accounting, including the
+			// cached share of the input. ACP's own SessionUsageUpdate has no
+			// cache fields at all (acp-go-sdk types_gen.go:5243), so this
+			// vendor channel is the ONLY place grok's cold/warm signal exists
+			// (MADR 0137, second correction).
+			Usage *xaiUsage `json:"usage"`
 		} `json:"update"`
 	}
 	if err := json.Unmarshal(params, &env); err != nil {
@@ -79,6 +87,10 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 	// Non-terminal states (silent retry sleeps) go through the same
 	// limit-abort machinery as stderr scraping, which dedupes via
 	// limitNotified and only ever acts on classified limit text.
+	if u.SessionUpdate == "turn_completed" && u.Usage != nil {
+		s.emitXAIUsage(u.Usage)
+		return
+	}
 	if u.SessionUpdate == "retry_state" {
 		if u.Type != "failed" && u.Message != "" {
 			s.noteEngineLogLine(u.Message)

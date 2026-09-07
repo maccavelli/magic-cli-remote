@@ -55,6 +55,19 @@ func TestCLIVersionCommand(t *testing.T) {
 	}
 }
 
+func TestSetBuildKind(t *testing.T) {
+	prev := cliBuildKind
+	t.Cleanup(func() { cliBuildKind = prev })
+	SetBuildKind("")
+	if cliBuildKind != prev {
+		t.Fatal("empty kind must not overwrite")
+	}
+	SetBuildKind("release")
+	if cliBuildKind != "release" {
+		t.Fatalf("got %q", cliBuildKind)
+	}
+}
+
 func TestCLIPathsJSON(t *testing.T) {
 	testexec.SkipIfNoXDG(t)
 	home := hermeticConfig(t)

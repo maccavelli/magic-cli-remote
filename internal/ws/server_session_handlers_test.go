@@ -783,3 +783,65 @@ func TestWSProjectsListRejectsUnreadyProvider(t *testing.T) {
 		t.Errorf("code = %q, want %q", e.Code, protocol.ErrProviderUnavailable)
 	}
 }
+
+func TestWSSinceAndBeforeAreMutuallyExclusive(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	// Forward and backward paging are different questions about the same ring.
+	// Answering both at once would have to pick one silently, and a client
+	// would then page in a direction it did not ask for.
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionHistory, "both", protocol.SessionHistoryPayload{
+		SessionID: ws.meta.ID,
+		SinceSeq:  1,
+		BeforeSeq: 100,
+	})
+	ws.send(t, env)
+	got := ws.recvSkipEvents(t)
+	if got.Type != protocol.TypeError {
+		t.Fatalf("want error for since_seq + before_seq, got %s payload=%s", got.Type, string(got.Payload))
+	}
+
+	env2, _ := protocol.NewEnvelope(protocol.TypeSessionHistory, "both2", protocol.SessionHistoryPayload{
+		SessionID: ws.meta.ID,
+		SinceSeq:  1,
+		Newest:    true,
+	})
+	ws.send(t, env2)
+	got2 := ws.recvSkipEvents(t)
+	if got2.Type != protocol.TypeError {
+		t.Fatalf("want error for since_seq + newest, got %s payload=%s", got2.Type, string(got2.Payload))
+	}
+}
+
+func TestWSNewestPageCarriesABackwardCursor(t *testing.T) {
+	ws := setupWSSession(t, "test")
+	defer ws.close(t)
+
+	env, _ := protocol.NewEnvelope(protocol.TypeSessionHistory, "newest", protocol.SessionHistoryPayload{
+		SessionID: ws.meta.ID,
+		Newest:    true,
+		Limit:     2,
+	})
+	ws.send(t, env)
+	got := ws.recvSkipEvents(t)
+	if got.Type != protocol.TypeSessionHistoryResult {
+		t.Fatalf("want session.history_result, got %s payload=%s", got.Type, string(got.Payload))
+	}
+	var payload protocol.SessionHistoryResultPayload
+	if err := json.Unmarshal(got.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	// A newest-first page must never answer with the forward cursor: a client
+	// that walked it would page away from the screen it just rendered.
+	if payload.NextSinceSeq != 0 {
+		t.Fatalf("a newest-first page set next_since_seq=%d; it must answer with prev_before_seq",
+			payload.NextSinceSeq)
+	}
+	if payload.Truncated && payload.PrevBeforeSeq == 0 {
+		t.Fatal("a truncated backward page must carry prev_before_seq or the client cannot continue")
+	}
+	if len(payload.Events) > 2 {
+		t.Fatalf("limit=2 returned %d events", len(payload.Events))
+	}
+}

@@ -57,6 +57,11 @@ type Provider struct {
 	log       *slog.Logger
 	configErr error
 
+	// versionMu guards engineVersion, written on a start and read from
+	// doctor/status paths on other goroutines.
+	versionMu     sync.Mutex
+	engineVersion string
+
 	mu       sync.Mutex
 	eng      *engine
 	starting bool
@@ -810,6 +815,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	if initResp.CodexHome != "" {
 		p.log.Debug("codex: engine ready", slog.String("codex_home", initResp.CodexHome))
 	}
+	p.reportEngineVersion(initResp.UserAgent)
 
 	manifest, err := loadEmbeddedContractManifest()
 	if err != nil {

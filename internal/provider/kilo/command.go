@@ -79,11 +79,8 @@ func (o *httpSession) advertiseCommands(ctx context.Context) {
 	if err := o.h.API()(ctx, "GET", "/command"+o.dir(), nil, &cmds); err != nil {
 		o.h.Log().Debug("list commands for advertise failed", slog.String("err", err.Error()))
 		// Static fallback names so /init still routes when catalog is down.
-		o.h.Emit(event.Event{
-			Type: event.TypeAvailableCommands,
-			Commands: []event.AvailableCommand{
-				{Name: "init", Description: "guided AGENTS.md setup"},
-			},
+		o.emitCommands([]event.AvailableCommand{
+			{Name: "init", Description: "guided AGENTS.md setup"},
 		})
 		return
 	}
@@ -98,7 +95,7 @@ func (o *httpSession) advertiseCommands(ctx context.Context) {
 			Description: strings.TrimSpace(c.Description),
 		})
 	}
-	o.h.Emit(event.Event{Type: event.TypeAvailableCommands, Commands: out})
+	o.emitCommands(out)
 }
 
 // soleSlashCommand returns (name, arguments, true) when parts is a single text
@@ -196,4 +193,21 @@ func (o *httpSession) handleCommandExecuted(props json.RawMessage) {
 		msg += " " + clip(p.Arguments, 80)
 	}
 	o.h.Emit(event.Event{Type: event.TypeNotice, Text: msg})
+}
+
+// emitCommands advertises a command list, skipping an advertisement identical
+// to the last one sent for this session (MADR 0137 F2).
+//
+// Engines re-send the full list on turn boundaries whether or not it changed —
+// grok managed 22 repeats in a single `hi` turn — and each repeat crosses the
+// websocket, lands in session history and re-renders on the phone while
+// carrying no news. The first advertisement is always sent, including an empty
+// one: "this session offers no commands" is a fact a client needs told once.
+func (o *httpSession) emitCommands(cmds []event.AvailableCommand) {
+	o.mu.Lock()
+	send := o.cmdDedupe.ShouldEmit(cmds)
+	o.mu.Unlock()
+	if send {
+		o.h.Emit(event.Event{Type: event.TypeAvailableCommands, Commands: cmds})
+	}
 }

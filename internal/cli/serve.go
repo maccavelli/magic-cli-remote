@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"os/signal"
 	"runtime/debug"
 
@@ -96,11 +97,15 @@ For a managed background process on Linux, prefer:
 				stop()
 			}()
 
+			memLimit, memLimitSource := applyMemoryLimit()
+
 			logger.Info("starting mcremote",
 				"version", version,
 				"listen", cfg.Addr(),
 				"scheme", cfg.TLS.Scheme(),
 				"data_dir", cfg.DataDir,
+				"mem_limit_bytes", memLimit,
+				"mem_limit_source", memLimitSource,
 			)
 
 			if err := daemon.Run(ctx, daemon.Options{
@@ -133,4 +138,28 @@ For a managed background process on Linux, prefer:
 	cmd.Flags().String("tls-route53-region", "", "AWS region for the Route 53 API")
 	cmd.Flags().String("tls-route53-profile", "", "AWS shared-config profile for the Route 53 API")
 	return cmd
+}
+
+// defaultMemoryLimit is the soft heap ceiling the daemon runs under.
+//
+// Sized against what the transcript budget can hold: 384 MiB of global
+// retention (internal/session.globalBudgetBytes) plus the daemon's own ~51 MB
+// working set, with room for the paging and persistence copies on top. The
+// host this was measured on has 32 GB and runs a single kilo engine at 1,450 MB,
+// so the daemon is not the process competing for that memory — the limit exists
+// so a retention bug degrades into GC pressure rather than an OOM on somebody's
+// laptop (MADR 0138, amendment step 4).
+const defaultMemoryLimit = 1 << 30
+
+// applyMemoryLimit sets the soft heap ceiling unless the operator already set
+// GOMEMLIMIT, whose value wins. It reports the effective limit and where it
+// came from, so the number is in the log rather than only in this file.
+func applyMemoryLimit() (int64, string) {
+	if _, ok := os.LookupEnv("GOMEMLIMIT"); ok {
+		// The runtime already parsed and applied it at startup. Read it back
+		// rather than re-parsing the string ourselves.
+		return debug.SetMemoryLimit(-1), "GOMEMLIMIT"
+	}
+	debug.SetMemoryLimit(defaultMemoryLimit)
+	return defaultMemoryLimit, "default"
 }

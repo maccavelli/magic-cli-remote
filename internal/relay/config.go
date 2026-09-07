@@ -15,6 +15,7 @@ const (
 	MaxLimitPhonesPerHost   = 256
 	MaxLimitMessageBytes    = 16 << 20 // 16 MiB
 	MaxLimitConcurrentJoin  = 4096
+	MaxLimitConns           = 8192
 	MaxLimitPerMinute       = 100_000
 	MaxLimitDurationSeconds = 7 * 24 * 3600 // 7 days
 	ControlReadLimitBytes   = 64 << 10      // 64 KiB host-control frames (D16)
@@ -28,7 +29,9 @@ type Limits struct {
 	MaxPhonesPerHost  int
 	MaxMessageBytes   int
 	MaxConcurrentJoin int // pending joins waiting for host tunnel
-	AcceptPerMinute   int // pre-auth WS upgrades per remote IP (all paths)
+	// MaxConns caps concurrent accepted TCP connections (0142 F19).
+	MaxConns        int
+	AcceptPerMinute int // pre-auth WS upgrades per remote IP (all paths)
 	// JoinPerMinute is per-IP join attempts (MADR 0016 R16).
 	JoinPerMinute int
 	// RegisterPerMinute is per-IP register attempts (R16).
@@ -51,6 +54,7 @@ func DefaultLimits() Limits {
 		MaxPhonesPerHost:     8,
 		MaxMessageBytes:      1 << 20, // 1 MiB
 		MaxConcurrentJoin:    64,
+		MaxConns:             1024,
 		AcceptPerMinute:      120,
 		JoinPerMinute:        30,
 		RegisterPerMinute:    20,
@@ -79,6 +83,9 @@ func ResolvedLimits(l Limits) Limits {
 	}
 	if l.MaxConcurrentJoin <= 0 {
 		l.MaxConcurrentJoin = d.MaxConcurrentJoin
+	}
+	if l.MaxConns <= 0 {
+		l.MaxConns = d.MaxConns
 	}
 	if l.AcceptPerMinute <= 0 {
 		l.AcceptPerMinute = d.AcceptPerMinute
@@ -114,6 +121,7 @@ func ClampLimits(l Limits) Limits {
 	l.MaxPhonesPerHost = clampInt(l.MaxPhonesPerHost, 1, MaxLimitPhonesPerHost)
 	l.MaxMessageBytes = clampInt(l.MaxMessageBytes, 1, MaxLimitMessageBytes)
 	l.MaxConcurrentJoin = clampInt(l.MaxConcurrentJoin, 1, MaxLimitConcurrentJoin)
+	l.MaxConns = clampInt(l.MaxConns, 1, MaxLimitConns)
 	l.AcceptPerMinute = clampInt(l.AcceptPerMinute, 1, MaxLimitPerMinute)
 	l.JoinPerMinute = clampInt(l.JoinPerMinute, 1, MaxLimitPerMinute)
 	l.RegisterPerMinute = clampInt(l.RegisterPerMinute, 1, MaxLimitPerMinute)
@@ -179,12 +187,11 @@ type Config struct {
 // copy passed validation.
 func parseAllowParts(s string) (id, secret string, err error) {
 	s = strings.TrimSpace(s)
-	i := strings.IndexByte(s, ':')
-	if i <= 0 || i == len(s)-1 {
-		return "", "", fmt.Errorf("allow: want host_id:secret, got %q", s)
+	id, secret, ok := strings.Cut(s, ":")
+	if !ok || id == "" || secret == "" {
+		return "", "", fmt.Errorf("allow: want host_id:secret")
 	}
-	id = strings.TrimSpace(s[:i])
-	secret = s[i+1:]
+	id = strings.TrimSpace(id)
 	if err := validateHostID(id); err != nil {
 		return "", "", err
 	}

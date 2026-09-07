@@ -58,11 +58,26 @@ class ChatAttachment {
 }
 
 /// Soft cap on retained chat items per session (FIFO drop from the front).
-const int kMaxTranscriptItems = 800;
+///
+/// Raised from 800 with MADR 0138 Phase 4. The host now retains 32 MiB per
+/// session instead of 800 events, but phone RAM is the scarce side of this
+/// pair, so this is a 5x raise rather than the host's ~26x: the point is that
+/// the client stops being the tighter of the two caps, not that it matches the
+/// host. The two budgets are deliberately independent.
+const int kMaxTranscriptItems = 4000;
 
-/// Matches host [historyMaxPage] / ring page size for `session.history` fetches.
-/// Host ring and max page are 800 (MADR 0018 E4); clients auto-page when truncated.
-const int kHistoryFetchLimit = 800;
+/// Page size for `session.history` fetches.
+///
+/// Deliberately far below the host's `historyMaxPage`: a page is one screen's
+/// worth plus lookahead, not the whole ring. Asking for 800 was what made the
+/// host's byte-budget loop re-encode a shrinking slice 505 times to return 102
+/// events (MADR 0138 F14); asking for a screen's worth costs one pass.
+const int kHistoryFetchLimit = 200;
+
+/// Hard bound on pages fetched in one backward walk, so a client cannot spin on
+/// a daemon that keeps reporting `truncated` without advancing its cursor.
+/// [kMaxTranscriptItems] / [kHistoryFetchLimit], with headroom.
+const int kHistoryMaxPages = 32;
 
 /// Finalized assistant bubbles above this length get a "Show more" clamp (E3).
 const int kAssistantShowMoreChars = 6000;
@@ -669,4 +684,28 @@ class TranscriptsState {
   }
 
   TranscriptsState clearAll() => const TranscriptsState();
+}
+
+/// One page of `session.history`, plus the cursor for the page before it.
+///
+/// [prevBeforeSeq] is null when the oldest retained event is already in this
+/// page, so a caller stops asking rather than re-requesting the same window.
+class HistoryPage {
+  const HistoryPage({
+    required this.events,
+    required this.prevBeforeSeq,
+    required this.firstSeq,
+    required this.latestSeq,
+  });
+
+  final List<SessionEvent> events;
+  final int? prevBeforeSeq;
+
+  /// Oldest and newest seq the host still retains. A page that starts at
+  /// [firstSeq] has reached the beginning of what survived retention — which is
+  /// not necessarily the beginning of the conversation.
+  final int firstSeq;
+  final int latestSeq;
+
+  bool get hasOlder => prevBeforeSeq != null;
 }

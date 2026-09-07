@@ -156,3 +156,32 @@ func TestAbandonAfterPhoneGone(t *testing.T) {
 	}
 	assertNoDivergence(t, h)
 }
+
+// Phone's tunnel_ok write fails first (abandonTunnel closes ready); then the
+// phone times out and calls phoneGone. The canary join must still hold one
+// slot — a receive from the closed ready channel must not release again
+// (0142 F18).
+func TestPhoneGoneAfterAbandon(t *testing.T) {
+	h := raceHub(t)
+	if _, err := h.beginJoin("h1", nil); err != nil {
+		t.Fatal(err)
+	}
+	p, err := h.beginJoin("h1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.claimTunnel(p.sessionID, "h1", p.tunnelToken, ""); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	h.abandonTunnel(p)
+	if orphan := h.phoneGone(p); orphan != nil {
+		t.Fatalf("phoneGone after abandon returned %v, want nil", orphan)
+	}
+	if got := h.phoneCount("h1"); got != 1 {
+		t.Fatalf("phones=%d, want 1 (exactly-once release)", got)
+	}
+	if !doneClosed(p) {
+		t.Fatal("done must be closed after abandon")
+	}
+	assertNoDivergence(t, h)
+}

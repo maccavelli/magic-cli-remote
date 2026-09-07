@@ -173,6 +173,9 @@ var realityCache struct {
 	home    string
 	reality StoreReality
 	err     error
+	// refreshing is set while a non-blocking caller has a background probe in
+	// flight, so a burst of providers.list calls spawns one, not one each.
+	refreshing bool
 }
 
 // ObserveCredentialStoreCached is ObserveCredentialStore with a bounded cache.
@@ -200,6 +203,66 @@ func ObserveCredentialStoreCached(ctx context.Context, bin string, window time.D
 	realityCache.err = obsErr
 	return reality, obsErr
 }
+
+// ObserveCredentialStoreCachedNonBlocking answers from the cache and never
+// waits for a probe (MADR 0137 F1).
+//
+// ObserveCredentialStoreCached runs `codex doctor --json` on a cold cache — a
+// subprocess plus a network-dependent call, measured at ~1.4 s. That was
+// reachable from `providers.list`, which the phone issues on every connect, so
+// a routine screen refresh could block on codex talking to its backend.
+//
+// A cold cache returns RealityUnknown immediately and starts at most one
+// background refresh, so the answer is right on the next call rather than late
+// on this one. RealityUnknown is the correct conservative value: every caller
+// already treats it as "no reality override", which is exactly the pre-MADR
+// 0134 behaviour.
+//
+// This is deliberately NOT used on the recovery or CheckBackend paths. Those
+// are not phone-triggered, they must not act on a stale or unknown answer, and
+// MADR 0136's classification depends on a real observation.
+func ObserveCredentialStoreCachedNonBlocking(bin string, window time.Duration) StoreReality {
+	home, err := credstore.CodexHome()
+	if err != nil {
+		return RealityUnknown
+	}
+
+	realityCache.mu.Lock()
+	if realityCache.home == home && !realityCache.at.IsZero() &&
+		(window <= 0 || time.Since(realityCache.at) < window) {
+		reality, cachedErr := realityCache.reality, realityCache.err
+		realityCache.mu.Unlock()
+		if cachedErr != nil {
+			return RealityUnknown
+		}
+		return reality
+	}
+	if realityCache.refreshing {
+		realityCache.mu.Unlock()
+		return RealityUnknown
+	}
+	realityCache.refreshing = true
+	realityCache.mu.Unlock()
+
+	go func() {
+		defer func() {
+			realityCache.mu.Lock()
+			realityCache.refreshing = false
+			realityCache.mu.Unlock()
+		}()
+		// Its own timeout, not the caller's: the caller has already returned,
+		// and a request-scoped context would be cancelled out from under this.
+		ctx, cancel := context.WithTimeout(context.Background(), realityProbeTimeout)
+		defer cancel()
+		_, _ = ObserveCredentialStoreCached(ctx, bin, 0)
+	}()
+	return RealityUnknown
+}
+
+// realityProbeTimeout bounds a background reality probe. Generous, because
+// nothing waits on it and a probe that gives up too early just leaves the
+// cache cold for another cycle.
+const realityProbeTimeout = 30 * time.Second
 
 // InvalidateRealityCache forces the next observation to re-probe. Every managed
 // credential mutation calls it, so a sign-in or logout is reflected at once

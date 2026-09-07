@@ -1590,22 +1590,31 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 			})
 		}
 	case "thread/tokenUsage/updated":
+		// `total` and `last` are OBJECTS, and `modelContextWindow` is nested
+		// inside `tokenUsage` — not the flat ints this decoded before
+		// (MADR 0137, second correction). The mismatch made json.Unmarshal
+		// fail, so the `err == nil` guard skipped the emit entirely and codex
+		// reported NO usage at all: no /context for the phone, and no
+		// cold/warm signal for the latency record.
 		var p struct {
 			TokenUsage struct {
-				Total int `json:"total"`
-				Last  int `json:"last"`
+				Total              codexTokenCounts `json:"total"`
+				Last               codexTokenCounts `json:"last"`
+				ModelContextWindow int              `json:"modelContextWindow"`
 			} `json:"tokenUsage"`
-			ModelContextWindow int `json:"modelContextWindow"`
 		}
-		if err := json.Unmarshal(params, &p); err == nil {
+		if err := json.Unmarshal(params, &p); err != nil {
+			s.log.Debug("codex: tokenUsage decode", slog.String("err", err.Error()))
+		} else {
+			total, window := p.TokenUsage.Total, p.TokenUsage.ModelContextWindow
 			if s.p != nil {
-				s.p.noteRuntimeUsage(p.TokenUsage.Total, p.ModelContextWindow)
+				s.p.noteRuntimeUsage(total.TotalTokens, window)
 			}
 			s.emit(event.Event{
 				Type:           event.TypeUsage,
 				SessionID:      s.localID,
 				Timestamp:      now,
-				Usage:          &event.Usage{Used: p.TokenUsage.Total, Size: p.ModelContextWindow},
+				Usage:          total.usage(window),
 				AgentSessionID: s.agentID,
 			})
 		}
@@ -1705,7 +1714,51 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		}
 	case "serverRequest/resolved":
 		s.resolveServerRequest(params)
+	case "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted":
+		// Codex now reports credential recovery as it happens (MADR 0137 F9).
+		//
+		// This is worth surfacing precisely because MADRs 0133, 0134 and 0136
+		// had to INFER credential state from files, lock contention and a
+		// `codex doctor` probe — an inference that wedged a host into
+		// recovery_required for ten days. The engine saying "I am recovering
+		// auth for this provider, mid-turn" is the direct observation those
+		// records worked around not having.
+		//
+		// A notice, not an error: recovery starting is not a failure, and a
+		// turn that recovers and continues must not be decorated with a red
+		// bubble. The pump's dedupe (MADR 0137 F6a) collapses the started and
+		// completed pair when their text matches.
+		var p struct {
+			Provider string `json:"provider"`
+			Message  string `json:"message"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			s.log.Debug("codex: authRecovery decode", slog.String("err", err.Error()))
+			break
+		}
+		text := strings.TrimSpace(p.Message)
+		if text == "" {
+			verb := "started"
+			if method == "modelProvider/authRecoveryCompleted" {
+				verb = "completed"
+			}
+			text = fmt.Sprintf("Codex credential recovery %s", verb)
+			if p.Provider != "" {
+				text += fmt.Sprintf(" for %s", p.Provider)
+			}
+			text += "."
+		}
+		s.emit(event.Event{
+			Type:      event.TypeNotice,
+			SessionID: s.localID,
+			Timestamp: now,
+			Text:      text,
+		})
 	default:
+		// Left unrouted on purpose, not by omission: `rawResponse*` and
+		// `thread/realtime/*` serve features mcremote does not have, and
+		// forwarding them would put engine internals in a transcript
+		// (MADR 0137 step 7.7).
 		s.log.Debug("codex: unhandled notification", slog.String("method", method))
 	}
 }
@@ -2343,7 +2396,12 @@ func (s *session) chunkBuffer() *chunkbuf.Buffer {
 	if s.chunks == nil {
 		// WithToolLane: supersede non-terminal tool_call_update per id
 		// (MADR 0057 M-2 / OpenCode parity).
-		s.chunks = chunkbuf.New(s.cfg.streamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane())
+		// Append, not replace: codex's outputDelta notifications each carry the
+		// *next* chunk of a command's output (notifications.go
+		// item/fileChange/outputDelta, and item/commandExecution/outputDelta
+		// below), so a replacing lane discarded every line that arrived inside
+		// one coalesce window (MADR 0138 F2).
+		s.chunks = chunkbuf.New(s.cfg.streamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLaneAppend())
 	}
 	return s.chunks
 }

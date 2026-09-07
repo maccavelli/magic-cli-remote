@@ -237,7 +237,13 @@ type Caps struct {
 	WSPingResetsDeadline bool        `json:"ws_ping_resets_deadline"`
 	Resume               *ResumeCaps `json:"resume,omitempty"`
 	HistoryRing          int         `json:"history_ring"`
-	MaxFrameBytes        int         `json:"max_frame_bytes"`
+	// HistoryBudgetBytes is the per-session retention budget the daemon
+	// actually enforces (MADR 0138 Phase 2). HistoryRing above stays an event
+	// count because that is what it has always meant and phones size their own
+	// buffers from it; this is the truthful value beside it. Additive: absent
+	// means a daemon that still bounds retention by event count.
+	HistoryBudgetBytes int `json:"history_budget_bytes,omitempty"`
+	MaxFrameBytes      int `json:"max_frame_bytes"`
 	// TLSResumed reports whether this connection's TLS handshake resumed a
 	// prior session — the client-verifiable signal for the phone's
 	// SecurityContext cache (0068 Q3/P5).
@@ -386,7 +392,22 @@ type SessionReleasePayload struct {
 type SessionHistoryPayload struct {
 	SessionID string `json:"session_id"`
 	// SinceSeq is exclusive: only events with Seq > SinceSeq are returned.
+	// Pages forward, oldest first.
 	SinceSeq uint64 `json:"since_seq,omitempty"`
+	// BeforeSeq is exclusive: only events with Seq < BeforeSeq are returned,
+	// and the page is the *newest* such events rather than the oldest. Pages
+	// backward, one screen at a time.
+	//
+	// Mutually exclusive with SinceSeq; both set is bad_payload.
+	BeforeSeq uint64 `json:"before_seq,omitempty"`
+	// Newest asks for the tail of the ring — the page a chat screen opens on.
+	//
+	// A separate flag rather than BeforeSeq: 0 is a natural "no bound" for a
+	// uint64 with omitempty, so there is no value of BeforeSeq that can mean
+	// "the newest page" and be distinguishable from an absent field. Every
+	// other payload in this file uses value types, and a pointer here would be
+	// the only one (MADR 0138 F17).
+	Newest bool `json:"newest,omitempty"`
 	// Limit caps events in this response (server clamps; 0 = default).
 	Limit int `json:"limit,omitempty"`
 }
@@ -641,6 +662,11 @@ type SessionHistoryResultPayload struct {
 	// existed. Zero/absent means an empty ring (or a pre-P3 daemon).
 	FirstSeq  uint64 `json:"first_seq,omitempty"`
 	LatestSeq uint64 `json:"latest_seq,omitempty"`
+	// PrevBeforeSeq is the cursor for the next *older* page: request again with
+	// before_seq=PrevBeforeSeq until it is 0 or equals FirstSeq. It is the
+	// backward twin of NextSinceSeq, and without it a client walking backwards
+	// has no way to continue (MADR 0138 Phase 3).
+	PrevBeforeSeq uint64 `json:"prev_before_seq,omitempty"`
 }
 
 // SessionPendingAsksResultPayload is an owner-scoped snapshot of unresolved

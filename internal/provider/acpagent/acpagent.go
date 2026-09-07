@@ -27,6 +27,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 // startTimeout bounds ACP initialize + session/new. The process outlives
@@ -62,6 +63,11 @@ type Spec struct {
 	// `_meta`. Empty/nil omits the field. Grok is the only Spec that sets this
 	// (MADR 0106).
 	SessionMeta func(opts provider.StartOptions, cfg Config) map[string]any
+	// KnownGoodVersion is the agent release this Spec's wire shapes were
+	// checked against. Empty disables the check entirely. A mismatch produces
+	// one warning per engine start and NEVER refuses to run: a routine
+	// upstream upgrade must not become an outage (MADR 0137 Phase 3).
+	KnownGoodVersion string
 	// StaticModels is the fallback model picker catalog when ListModels is
 	// nil or fails. Empty + AllowCustom on ListModels default still lets the
 	// user type a free-text model id.
@@ -143,6 +149,11 @@ type Provider struct {
 	catalogMu    sync.RWMutex
 	catalogCache picker.Catalog
 	catalogHas   bool
+
+	// versionMu guards engineVersion, which is written from a spawn and read
+	// from doctor/status paths on other goroutines.
+	versionMu     sync.Mutex
+	engineVersion string
 
 	// warm is the single spare pre-initialized agent process (cfg.Prewarm).
 	// Claimed by Start when the requested argv matches the default; refilled
@@ -452,8 +463,28 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
 
-	conn := acp.NewClientSideConnection(s, stdin, stdout)
-	conn.SetLogger(s.log)
+	// The ACP SDK owns its own read loop, so the only seam for capturing raw
+	// agent->client frames is the reader handed to it (MADR 0137 Phase 1).
+	// wirecap.For returns nil unless MCREMOTE_WIRE_CAPTURE_DIR is set, and a
+	// nil capture's TeeReader returns the reader unchanged.
+	s.wire = wirecap.For(string(p.spec.ID))
+	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout))
+	// conn.SetLogger is NOT called, and cannot be: the SDK's constructor starts
+	// `go c.receive()`, `go c.sendCancelRequests()` and a context watcher
+	// before it returns (acp-go-sdk@v0.13.5 connection.go:110-120), while
+	// SetLogger is a plain unsynchronised field write (connection.go:125) that
+	// those goroutines read through loggerOrDefault. Any call after
+	// construction races, and the SDK offers no way to supply a logger at
+	// construction time.
+	//
+	// A gate on the reader would not close it either — sendCancelRequests logs
+	// from its own goroutine without any read having happened.
+	//
+	// The cost is that the SDK's own protocol diagnostics ("failed to parse
+	// incoming message", "connection closed", cancel-request failures) go to
+	// slog.Default() rather than this session's logger, so they lose its
+	// structured fields. mcremote's own protocol logging is unaffected. A
+	// known race in a daemon that runs for days is not worth those fields.
 	s.conn = conn
 
 	parent := ctx
@@ -493,6 +524,16 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		s.log.Debug("acp defaultAuthMethodId",
 			slog.String("default_auth_method_id", initMeta.Meta.DefaultAuthMethodID))
 	}
+	// The model the agent says it is running, before any session exists. It is
+	// what ModelReporter falls back to: the per-session harvest only fires when
+	// grok sends `x.ai/sessionDetail`, and on the default-model path the
+	// requested model is empty — which is why all seven grok turn records in
+	// MADR 0138's table carried no model at all.
+	if id := strings.TrimSpace(initMeta.Meta.ModelState.CurrentModelID); id != "" {
+		s.mu.Lock()
+		s.engineModelID = id
+		s.mu.Unlock()
+	}
 	if len(initMeta.Meta.ModelState.AvailableModels) > 0 {
 		cat := modelsToCatalog(initMeta.Meta.ModelState.CurrentModelID, initMeta.Meta.ModelState.AvailableModels)
 		p.catalogMu.Lock()
@@ -500,6 +541,8 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		p.catalogHas = true
 		p.catalogMu.Unlock()
 	}
+
+	p.reportEngineVersion(&initResp, initMeta.Meta.AgentVersion)
 
 	s.agentCaps = initResp.AgentCapabilities
 	s.log.Info("acp initialized",
@@ -548,7 +591,14 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		}
 		s.log.Info("acp authenticated", slog.String("method_id", p.cfg.AuthMethodID))
 	} else if len(advertised) > 0 {
-		s.log.Warn("agent advertises auth methods but none configured; session/new may fail",
+		// Debug, not warn. This fires once per session start on any agent that
+		// advertises auth methods while auth_method_id is unset — 90 times in
+		// the operator's log, and true zero of those times: grok authenticates
+		// from its own credential store and session/new has never failed for
+		// this reason. A warning the operator is trained to ignore is how the
+		// next real warning gets missed (MADR 0138 F12). If session/new does
+		// fail, it fails loudly on its own.
+		s.log.Debug("agent advertises auth methods but none is configured",
 			slog.Int("count", len(advertised)))
 	}
 
@@ -775,8 +825,14 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		s.markClosedAndKill()
 		return nil, err
 	}
-	// Re-arm the spare for the next create (also covers the cold first one).
-	defer p.EnsureWarm()
+	// The spare is NOT re-armed here (MADR 0137 F5). Re-arming on Start put a
+	// full ~3.8 s spawn — process launch, ACP initialize, model-catalog
+	// harvest — in flight at the same moment as the user's first prompt,
+	// competing with the turn they are waiting on. The turn-end path in
+	// session.go re-arms instead, when nothing is waiting.
+	//
+	// The cold first spare is armed by the daemon at startup, which is where
+	// EnsureWarm's own doc comment says the initial call belongs.
 
 	// Bind the session identity. Safe without external synchronization even
 	// on a warm claim: the agent emits no session-scoped callbacks before
@@ -961,7 +1017,11 @@ type GrokAvailableModel struct {
 type grokInitializeMeta struct {
 	Meta struct {
 		DefaultAuthMethodID string `json:"defaultAuthMethodId"`
-		ModelState          struct {
+		// AgentVersion is grok's engine version. It is a vendor extension:
+		// grok sends no standard ACP `agentInfo`, which the protocol permits
+		// (MADR 0137, ninth amendment).
+		AgentVersion string `json:"agentVersion"`
+		ModelState   struct {
 			CurrentModelID  string               `json:"currentModelId"`
 			AvailableModels []GrokAvailableModel `json:"availableModels"`
 		} `json:"modelState"`

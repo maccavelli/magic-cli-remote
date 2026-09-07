@@ -28,6 +28,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
+	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
 // defaultStreamCoalesce caps mid-stream assistant/thought updates at ~12 per
@@ -54,7 +55,14 @@ func killProcessTree(cmd *exec.Cmd) error {
 
 // session is one ACP-backed agent conversation.
 type session struct {
-	providerID              provider.ID
+	// wire records raw agent frames when MCREMOTE_WIRE_CAPTURE_DIR is set.
+	wire *wirecap.Capture
+
+	providerID provider.ID
+	// cmdDedupe suppresses repeated identical available_commands
+	// advertisements (MADR 0137 F2). Touched only from the notification
+	// handler goroutine, which is the sole caller of the emit site.
+	cmdDedupe               event.CommandDeduper
 	provider                *Provider
 	extNotificationHandlers map[string]ExtensionNotificationHandler
 	localID                 string
@@ -94,7 +102,24 @@ type session struct {
 	// The events channel itself is never closed: closing it while a control
 	// sender is parked in `events <- ev` is a guaranteed panic window.
 	done chan struct{}
-	cfg  Config
+
+	// Control-event overflow (MADR 0138 F5, amended).
+	//
+	// deliver runs on the ACP SDK's single notification-consumer goroutine, and
+	// that goroutine must never block: the SDK queues notifications in a
+	// channel of 1024 whose overflow closes the whole connection rather than
+	// dropping. Measured, with the consumer blocked, the SDK tears the
+	// connection down in 7.16 ms — so no time-based bound can win that race.
+	// A control event that cannot be handed over immediately is parked here,
+	// and a per-session drainer does the blocking instead.
+	//
+	// overflowWake is nil until the first overflow; creating it under
+	// overflowMu is what starts the drainer, so a healthy session never spawns
+	// one.
+	overflowMu   sync.Mutex
+	overflow     []event.Event
+	overflowWake chan struct{}
+	cfg          Config
 
 	mu     sync.Mutex
 	closed bool
@@ -146,6 +171,11 @@ type session struct {
 	// currentModelID is the last applied ACP model id (sessionDetail or
 	// SetModel), not spawn argv. Guarded by s.mu.
 	currentModelID string
+	// engineModelID is the model the agent reported at `initialize`
+	// (`_meta.modelState.currentModelId`). It is the fallback for
+	// CurrentModel: currentModelID above starts as what the *client asked
+	// for*, which is empty whenever the provider's own default is in use.
+	engineModelID string
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.
@@ -368,6 +398,32 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			s.mu.Unlock()
 			// Drain next queued prompt after the turn fully ends.
 			s.tryDrainQueue()
+			// Re-arm the spare now the turn is over, not when it began
+			// (MADR 0137 F5). Arming on Start put a full ~3.8 s spawn —
+			// process launch, ACP initialize, model-catalog harvest — in
+			// flight at the same moment as the user's first prompt,
+			// competing with the turn they were waiting on.
+			//
+			// In the deferred block rather than beside the turn_complete emit,
+			// so an errored or cancelled turn re-arms too. Arming only on the
+			// happy path would leave a session that failed its first turn with
+			// no spare at all, which is the state prewarm exists to avoid.
+			//
+			// EnsureWarm returns immediately, does its work in a goroutine and
+			// is a no-op when a spare already exists, so a long conversation
+			// arms once rather than once per turn. After tryDrainQueue on
+			// purpose: a queued prompt has already chosen to contend, and the
+			// spare must not be skipped because one was waiting.
+			//
+			// The nil check is not defensive padding. A session built without
+			// a provider is a test fixture, and this defer runs under a
+			// recover — so the nil dereference this guard prevents was caught,
+			// logged and swallowed, leaving four package tests passing while
+			// their turn goroutines died mid-cleanup. It took a -race CI run
+			// to surface it.
+			if s.provider != nil {
+				s.provider.EnsureWarm()
+			}
 		}()
 
 		resp, err := s.submitPrompt(turnCtx, blocks)
@@ -385,7 +441,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			limitHit := s.limitNotified && limitRaw != ""
 			s.mu.Unlock()
 			if limitHit {
-				s.emitClassifiedTurnError(limitRaw)
+				s.emitClassifiedTurnErrorConfirmed(limitRaw)
 				return
 			}
 			// Cancel/close should not flood the chat with scary error bubbles.
@@ -407,7 +463,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			}
 			// Present rewrites 429/529/quota dumps into short natural-language
 			// copy; fall back to the sanitizer for unclassified failures.
-			s.emitClassifiedTurnError(err.Error())
+			s.emitClassifiedTurnErrorConfirmed(err.Error())
 			return
 		}
 		s.emit(event.Event{
@@ -518,12 +574,42 @@ func (s *session) tryDrainQueue() {
 
 // emitClassifiedTurnError writes turn_complete + Present TypeError + status
 // for a failed prompt (shared by RPC errors and stderr limit aborts).
+//
+// It must not block: noteEngineLogLine reaches it from the stderr copier
+// goroutine and from the ACP SDK's notification consumer, and blocking the
+// latter tears the connection down in milliseconds (MADR 0138 F5). Callers on
+// the turn goroutine, which may block, use emitClassifiedTurnErrorConfirmed
+// instead.
 func (s *session) emitClassifiedTurnError(raw string) {
+	s.emitClassifiedTurnErrorWith(raw, "")
+}
+
+// emitClassifiedTurnErrorConfirmed is emitClassifiedTurnError plus the billing
+// probe, for the two callers that run on the turn goroutine.
+//
+// The probe is a network round trip of up to quotaProbeTimeout, so it is
+// confined to those two paths rather than pushed into the funnel. Nothing is
+// lost by that: a stderr limit line cancels the turn, and the turn goroutine
+// then arrives here with the same text (MADR 0138 Phase 10 deviation).
+func (s *session) emitClassifiedTurnErrorConfirmed(raw string) {
+	// grok reports account credits structurally, so a quota limit classified
+	// from prose is confirmed against billing rather than trusted on its
+	// wording alone (MADR 0138 F9). Rate limits are not asked about: billing
+	// reports credits, not request windows.
+	//
+	// A detached context: the turn's own is already cancelled by the time a
+	// limit abort lands here.
+	summary, _ := s.confirmLimit(context.Background(), agenterr.Present(raw, time.Now()).Kind)
+	s.emitClassifiedTurnErrorWith(raw, summary)
+}
+
+func (s *session) emitClassifiedTurnErrorWith(raw, planUsage string) {
 	cls := agenterr.Present(raw, time.Now())
 	msg := cls.Message
 	if msg == "" {
 		msg = strings.TrimSpace(raw)
 	}
+	msg = annotateLimit(msg, planUsage)
 	now := time.Now().UTC()
 	s.emit(event.Event{
 		Type:       event.TypeTurnComplete,
@@ -1171,7 +1257,11 @@ func (s *session) emitLocked(ev event.Event) {
 // field-assembled test sessions reach emit safely. Caller holds emitMu.
 func (s *session) chunkBuffer() *chunkbuf.Buffer {
 	if s.chunks == nil {
-		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes)
+		// grok's tool updates carry the full ACP content each time
+		// (summarizeToolContent below), so the replacing lane is correct here —
+		// and grok is the provider whose event volume most needs it: one `hi`
+		// turn emits 247 frames (MADR 0138 F3).
+		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane())
 	}
 	return s.chunks
 }
@@ -1301,11 +1391,105 @@ func (s *session) deliver(ev event.Event, control bool) {
 			}
 		}
 	}
-	// Control path (R5=A): never drop once a consumer is attached; done
-	// unblocks us if the session is torn down while we wait.
+	// Control path (R5=A): never drop once a consumer is attached — and never
+	// block here either.
+	//
+	// This runs on the ACP SDK's single notification-consumer goroutine, and
+	// the SDK queues notifications in a channel of 1024 whose overflow does not
+	// drop: it closes the whole connection (acp-go-sdk@v0.13.5
+	// connection.go:108, :446, errNotificationQueueOverflow). Driven directly,
+	// with the consumer blocked, the SDK tears the connection down in 7.16 ms —
+	// so the 30-second bound this replaced lost that race by three orders of
+	// magnitude and protected nothing (MADR 0138 F5, amended).
+	//
+	// Every path below returns in O(1): the channel takes it, the overflow
+	// takes it, or the session is faulted. The waiting is done by the
+	// per-session drainer, which is ours to stall.
+	s.overflowMu.Lock()
+	// Ordering: once anything is parked, everything queues behind it. The
+	// drainer keeps the event it is delivering at the head of the slice until
+	// the send completes, so "overflow is empty" really does mean "nothing is
+	// in flight" and a direct send cannot jump ahead of a parked one.
+	if len(s.overflow) == 0 {
+		s.overflowMu.Unlock()
+		select {
+		case s.events <- ev:
+			return
+		case <-s.done:
+			return
+		default:
+		}
+		s.overflowMu.Lock()
+	}
+	if len(s.overflow) >= controlOverflowCap {
+		s.overflowMu.Unlock()
+		s.log.Error("event consumer stalled; abandoning the session before the ACP connection is torn down",
+			slog.String("type", string(ev.Type)),
+			slog.String("session_id", s.localID),
+			slog.Int("parked", controlOverflowCap),
+		)
+		s.markClosedAndKill()
+		return
+	}
+	s.overflow = append(s.overflow, ev)
+	if s.overflowWake == nil {
+		// First overflow on this session: start the drainer. A healthy session
+		// never reaches here and never spawns one.
+		s.overflowWake = make(chan struct{}, 1)
+		go s.drainOverflow()
+	}
+	wake := s.overflowWake
+	s.overflowMu.Unlock()
 	select {
-	case s.events <- ev:
-	case <-s.done:
+	case wake <- struct{}{}:
+	default:
+	}
+}
+
+// controlOverflowCap bounds the parked control events per session.
+//
+// It is a stall detector, not a work buffer: s.events is already 256 deep and a
+// healthy pump drains it in microseconds, so being this far behind means the
+// pump is not running at all. Bounded by count rather than bytes because the
+// question it answers is "has the consumer moved", not "how much memory is
+// this".
+const controlOverflowCap = 512
+
+// drainOverflow hands parked control events to the consumer one at a time,
+// blocking as long as it takes. It is the goroutine that absorbs the wait the
+// SDK's notification consumer must never take, and it exits when the session
+// ends.
+//
+// The event being delivered stays at the head of s.overflow until the send
+// completes; that is what keeps deliver's ordering rule true.
+func (s *session) drainOverflow() {
+	for {
+		s.overflowMu.Lock()
+		if len(s.overflow) == 0 {
+			wake := s.overflowWake
+			s.overflowMu.Unlock()
+			select {
+			case <-wake:
+				continue
+			case <-s.done:
+				return
+			}
+		}
+		ev := s.overflow[0]
+		s.overflowMu.Unlock()
+
+		select {
+		case s.events <- ev:
+			s.overflowMu.Lock()
+			s.overflow = s.overflow[1:]
+			if len(s.overflow) == 0 {
+				// Release the backing array once drained.
+				s.overflow = nil
+			}
+			s.overflowMu.Unlock()
+		case <-s.done:
+			return
+		}
 	}
 }
 
@@ -1467,12 +1651,18 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 				Hint:        hint,
 			})
 		}
-		s.emit(event.Event{
-			Type:      event.TypeAvailableCommands,
-			SessionID: s.localID,
-			Timestamp: now,
-			Commands:  cmds,
-		})
+		// Skip an advertisement identical to the last one (MADR 0137 F2).
+		// grok re-sends the full list on every turn boundary — 22 times in one
+		// `hi` — and each repeat crosses the websocket, lands in session
+		// history and re-renders on the phone without carrying any news.
+		if s.cmdDedupe.ShouldEmit(cmds) {
+			s.emit(event.Event{
+				Type:      event.TypeAvailableCommands,
+				SessionID: s.localID,
+				Timestamp: now,
+				Commands:  cmds,
+			})
+		}
 	case u.Plan != nil:
 		// A plan update is the full current plan (replace-semantics); forward
 		// the mapped entries so the phone can render the agent's task list.
@@ -2348,14 +2538,50 @@ func shortAny(v any, max int) string {
 	}
 }
 
-// rawRequest sends a JSON-RPC request over the ACP connection and decodes the result into out.
-// Used for methods acp-go-sdk@v0.13.5 does not model (session/set_model, _x.ai/session/fork).
+// isExtensionMethod reports whether method is an ACP extension method.
+//
+// The protocol reserves the leading underscore for them, and the SDK enforces
+// it: CallExtension refuses anything without one. That is also what decides
+// which transport rawRequest uses below.
+func isExtensionMethod(method string) bool { return strings.HasPrefix(method, "_") }
+
+// rawConnOf reaches the SDK's underlying transport, for the standard methods
+// that have no public raw path.
+//
+// A var rather than an inline expression because the routing in rawRequest is
+// otherwise unobservable: both transports emit byte-identical JSON-RPC, so no
+// test can tell them apart by watching the wire. It can tell them apart by
+// watching whether this is called (MADR 0138 Phase 9, M5).
+var rawConnOf = func(c *acp.ClientSideConnection) *acp.Connection {
+	// Sound only because `conn` is the first field of ClientSideConnection.
+	return *(**acp.Connection)(unsafe.Pointer(c))
+}
+
+// rawRequest sends a JSON-RPC request over the ACP connection and decodes the
+// result into out. Used for methods acp-go-sdk@v0.13.5 does not model
+// (session/set_model, session/resume, _x.ai/*).
+//
+// Two transports, chosen by the method name:
+//
+//   - Extension methods (`_`-prefixed) go through the SDK's public
+//     CallExtension.
+//   - Standard methods have no public raw path, so they reach the connection by
+//     casting through unsafe.Pointer. That works only because `conn` is the
+//     first field of acp.ClientSideConnection; a field reorder upstream would
+//     silently read the wrong pointer, which is why the extension methods — the
+//     ones that have a supported API — no longer take this route
+//     (MADR 0138 Phase 9).
 func (s *session) rawRequest(ctx context.Context, method string, params any, out any) error {
 	if s.conn == nil {
 		return errors.New("no active connection")
 	}
-	rawConn := *(**acp.Connection)(unsafe.Pointer(s.conn))
-	rawResp, err := acp.SendRequest[json.RawMessage](rawConn, ctx, method, params)
+	var rawResp json.RawMessage
+	var err error
+	if isExtensionMethod(method) {
+		rawResp, err = s.conn.CallExtension(ctx, method, params)
+	} else {
+		rawResp, err = acp.SendRequest[json.RawMessage](rawConnOf(s.conn), ctx, method, params)
+	}
 	if err != nil {
 		return err
 	}

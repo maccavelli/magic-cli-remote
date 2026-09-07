@@ -52,6 +52,11 @@ var chunkRetryDelay = 50 * time.Millisecond
 var errConnLost = errors.New("engine connection lost")
 
 type session struct {
+	// cmdDedupe suppresses repeated identical available_commands
+	// advertisements (MADR 0137 F2). Touched only from the notification
+	// handler goroutine, which is the sole caller of the emit site.
+	cmdDedupe event.CommandDeduper
+
 	p       *Provider
 	cfg     Config
 	opts    provider.StartOptions
@@ -70,6 +75,12 @@ type session struct {
 	stallTimer  *time.Timer
 
 	staticModes []event.SessionMode
+
+	// usage is the last ACP SessionUsageUpdate the agent sent, kept so
+	// RuntimeUsage can answer without asking goose for an endpoint it does not
+	// serve (MADR 0138 Phase 11). Atomics, not a lock: it is written from the
+	// notification path, which must never block.
+	usage lastUsage
 
 	// configMu guards configOpts: the last session config options the agent
 	// reported. Retained rather than only emitted because for goose these ARE
@@ -376,7 +387,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	s.turnBusy = true
 	s.mu.Unlock()
 
-	text, blocks, attachments := buildPrompt(parts)
+	text, blocks, attachments := buildPrompt(parts, s.p.caps().PromptCapabilities, s.log)
 	// A prompt with no sendable content would issue a no-op turn; refuse.
 	if len(blocks) == 0 {
 		s.clearTurnBusy()
@@ -1267,12 +1278,18 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 				Hint:        hint,
 			})
 		}
-		s.emit(event.Event{
-			Type:      event.TypeAvailableCommands,
-			SessionID: s.localID,
-			Timestamp: now,
-			Commands:  cmds,
-		})
+		// Skip an advertisement identical to the last one (MADR 0137 F2).
+		// grok re-sends the full list on every turn boundary — 22 times in one
+		// `hi` — and each repeat crosses the websocket, lands in session
+		// history and re-renders on the phone without carrying any news.
+		if s.cmdDedupe.ShouldEmit(cmds) {
+			s.emit(event.Event{
+				Type:      event.TypeAvailableCommands,
+				SessionID: s.localID,
+				Timestamp: now,
+				Commands:  cmds,
+			})
+		}
 	case u.Plan != nil:
 		s.emit(event.Event{
 			Type:      event.TypePlan,
@@ -1288,6 +1305,7 @@ func (s *session) handleUpdate(updateJSON json.RawMessage) {
 			Entries:   []event.PlanEntry{},
 		})
 	case u.UsageUpdate != nil:
+		s.usage.record(u.UsageUpdate.Used, u.UsageUpdate.Size)
 		s.emit(event.Event{
 			Type:      event.TypeUsage,
 			SessionID: s.localID,
@@ -1689,17 +1707,44 @@ func convertHeaders(h map[string]string) []acp.HttpHeader {
 // buildPrompt flattens parts into the transcript text for the user bubble,
 // the ACP content blocks for the wire, and attachment descriptors. Text parts
 // keep their text verbatim on both paths.
-func buildPrompt(parts []provider.Content) (string, []acp.ContentBlock, []event.AttachmentInfo) {
+//
+// caps is the agent's advertised prompt capability set. Attachment kinds it
+// did not advertise are dropped with a warning rather than sent (MADR 0137
+// F10b): an image block to an agent that advertised `image: false` is a
+// protocol violation, and this path sent them unconditionally — it happened to
+// be harmless only because goose 1.48.0 advertises `image: true`. `acpagent`
+// has gated this since it was written; this brings the second ACP transport in
+// line rather than leaving one of them trusting to luck.
+func buildPrompt(
+	parts []provider.Content, caps acp.PromptCapabilities, log *slog.Logger,
+) (string, []acp.ContentBlock, []event.AttachmentInfo) {
 	var text strings.Builder
 	blocks := make([]acp.ContentBlock, 0, len(parts))
 	var attachments []event.AttachmentInfo
 	for _, p := range parts {
 		switch p.Type {
 		case "image":
+			if !caps.Image {
+				if log != nil {
+					log.Warn("dropping image prompt content: agent lacks promptCapabilities.image")
+				}
+				continue
+			}
 			blocks = append(blocks, acp.ContentBlock{
 				Image: &acp.ContentBlockImage{Type: "image", MimeType: p.MimeType, Data: p.Data},
 			})
 			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
+		case "audio":
+			if !caps.Audio {
+				if log != nil {
+					log.Warn("dropping audio prompt content: agent lacks promptCapabilities.audio")
+				}
+				continue
+			}
+			blocks = append(blocks, acp.ContentBlock{
+				Audio: &acp.ContentBlockAudio{Type: "audio", MimeType: p.MimeType, Data: p.Data},
+			})
+			attachments = append(attachments, event.AttachmentInfo{Kind: "audio", MimeType: p.MimeType})
 		default:
 			text.WriteString(p.Text)
 			blocks = append(blocks, acp.ContentBlock{
