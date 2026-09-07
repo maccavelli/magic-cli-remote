@@ -493,3 +493,62 @@ bugs hide.
 does nothing outside its env guard, and the assertion it protects — that a
 dying engine fails startup promptly rather than spinning `serverStartTimeout` —
 now runs on every platform and every shell, which it previously did not.
+
+## Amendment — 2026-09-07 (second): D8 is reversed, on its own terms
+
+**F14 — the third instance appeared, from the census D9 required.** Running the
+whole-suite skip comparison A5 asks for, after every phase had landed:
+
+| Shell | Skips across `go test ./...` |
+| --- | --- |
+| Git Bash | 119 |
+| PowerShell | 120 |
+
+The difference is `TestHandleWSErrorKillsEngine`
+(`internal/provider/acphttp/provider_test.go:59`), which calls
+`exec.Command("sleep", "60")`. `sleep` is a POSIX binary resolved from `PATH`:
+present under Git Bash, absent under PowerShell, where `cmd.Start()` fails and
+the test takes its `t.Skipf`. It has therefore never failed anywhere — CI runs
+bash and sees it pass, the gate ran PowerShell and saw it skip — while quietly
+not testing that `handleWSError` kills the engine. Same class as F4, same
+silent shape as F7.
+
+D8 rejected a class guard and named its own falsification: *"If a third
+instance appears, that is the evidence to revisit this."* It appeared within
+the same session, produced by the very verification the amendment added. A rule
+that states a falsifiable condition and is then ignored when the condition
+fires is worse than no rule, so D8 is reversed.
+
+**What changed the answer is not only the count.** D8's objection was specific
+and correct: a denylist of POSIX binary names *does* rot. The inventory taken
+for this amendment shows the guard does not need to be a denylist. Every
+`exec.Command`/`exec.LookPath` on a bare string literal across all `_test.go`
+files falls into four groups:
+
+| Group | Example | Legitimate? |
+| --- | --- | --- |
+| Live-tagged CLI tests (`live_*_test.go`) | `exec.LookPath("codex")` | Yes — resolving the real CLI is their purpose |
+| Platform-specific files (`*_windows_test.go`) | `exec.Command("cmd.exe")` | Yes — the file only builds there |
+| The Go toolchain | `exec.LookPath("go")` | Yes — `go test` cannot run without it |
+| Everything else | `exec.Command("sleep", "60")` | **No** — this is the class |
+
+The first two exemptions are *structural* — a build tag and a filename suffix,
+both of which a new file carries automatically — and the third is a single
+justified name. That is a rule about the shape of a call in a context, not a
+list of programs somebody must remember to extend.
+
+**D10 — fix the third instance.** `TestHandleWSErrorKillsEngine` must spawn a
+process that lives without resolving one from `PATH`, by the same
+helper-process idiom as D9. Closes F14.
+
+**D11 — add the class guard, structurally scoped.** A test asserts that no
+`_test.go` file which builds on every platform in the default build calls
+`exec.Command`, `exec.CommandContext` or `exec.LookPath` with a bare string
+literal, excepting `go`. Files carrying a `live_*` build constraint and files
+with a platform filename suffix are out of its scope by construction, not by
+enumeration. This supersedes D8.
+
+**What would falsify D11 in turn.** If the guard ever has to grow a third
+hand-maintained name, D8's original objection has won and the guard should be
+deleted rather than extended — record that, so the next person has the same
+falsifiable condition D8 gave and this amendment honoured.

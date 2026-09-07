@@ -7,7 +7,10 @@ date: 2026-09-07
 # PLAN 0147 — Make the Windows gate measure the code, not the shell, the PATH, or the checkout
 
 Implements [0147-MADR-windows-gate-measures-the-host-not-the-code.md](0147-MADR-windows-gate-measures-the-host-not-the-code.md)
-decisions D1–D8, closing findings F1–F12.
+decisions D1–D11, closing findings F1–F14.
+
+D9 was added by the first 2026-09-07 amendment (P6); D10 and D11 by the second
+(P7, P8). D11 supersedes D8.
 
 ## Goal
 
@@ -38,6 +41,8 @@ Observable states, all on a Windows host at `cc2e467` or later:
 | `internal/provider/httpagent/connected_test.go` | P4 | `Bin` call sites (D3) |
 | `internal/provider/httpagent/currentmodel_test.go` | P4 | `Bin` call sites (D3) |
 | `internal/provider/httpagent/modelcatalog_test.go` | P4 | `Bin` call sites (D3) |
+| `internal/provider/acphttp/provider_test.go` | P7 | `sleep` from `PATH` (D10, amendment 2) |
+| `internal/testexec/pathbinaries_test.go` (new) | P8 | the class guard (D11, amendment 2) |
 
 ### Out of scope
 
@@ -99,7 +104,11 @@ it does not touch the files read.
 `powershell -File scripts/ci-windows-local.ps1` behave as documented in
 `AGENTS.md` and `docs/ops-windows-install.md`.
 
-**C6 — no meta-test and no new CI lane** (D8).
+**C6 — no new CI lane.** Originally "no meta-test and no new CI lane" (D8).
+The meta-test half was reversed by the second 2026-09-07 amendment: D11 adds one
+(P8), on the evidence D8 itself named. The CI-lane half stands — a second
+30-minute Windows job is still not the answer, and AGENTS.md forbids workflow
+edits without explicit permission.
 
 **The contract most at risk is C1**, in P4. If `os.Executable()` interacts
 awkwardly with `launch.Resolve` for any call site, adding a two-line resolver
@@ -113,7 +122,9 @@ opening the seam.
 ## Dependency and delivery order
 
 P1 and P2 are independent of everything and of each other. P3 must precede P4,
-and **P5 must come last.**
+and **P5 must come last** of the original five. P7 and P8 were added after P5
+had landed; P7 must precede P8, or the guard fails on the very instance P7
+exists to remove and its first green run proves nothing.
 
 The ordering is not cosmetic. Running the suite under bash makes `false` resolve
 (MADR F4), so landing P5 early would turn F4 and F7 green without fixing either
@@ -276,6 +287,48 @@ exit.
 verified by running `go test` directly in each shell, not through the gate, so
 the gate's own shell is irrelevant to it.
 
+### P7 — the third instance goes (D10; closes F14)
+
+Added by the second 2026-09-07 amendment. `TestHandleWSErrorKillsEngine`
+(`internal/provider/acphttp/provider_test.go:59`) spawns `sleep` from `PATH`
+and skips where it is absent, so it has been silently not testing that
+`handleWSError` kills the engine under PowerShell.
+
+Replace `exec.Command("sleep", "60")` with the test binary re-invoked as a
+helper that blocks — the D9 idiom, adapted: the helper waits rather than exits,
+since this test needs a process that stays alive to be killed. Guard it so it
+is inert in a normal run, and make sure it cannot outlive the test.
+
+**Verification.** From both shells the test must *run*, not skip, and the
+package must stay green. Confirm the assertion still bites by making
+`handleWSError` not kill (locally, reverted after): the test must fail with
+"engine process still alive after ws read failure".
+
+### P8 — the class guard (D11; supersedes D8)
+
+A new test in `internal/testexec` walks every `_test.go` in the module and
+fails on `exec.Command`, `exec.CommandContext` or `exec.LookPath` called with a
+bare string literal — a name with no path separator, which means `PATH`
+resolution.
+
+Scope is structural, not a list:
+
+* skip files with a `live_*` build constraint — resolving the real CLI is the
+  point of those tests;
+* skip files with a platform filename suffix (`_windows_test.go`,
+  `_linux_test.go`, `_darwin_test.go`, `_unix_test.go`) — they only build there;
+* allow the single name `go`, because `go test` cannot run without it.
+
+Parse with `go/ast` rather than grep: the check must not fire on a string that
+merely looks like a call, and `internal/event/retention_test.go` already
+establishes AST scanning as the house idiom.
+
+**Verification.** The guard passes on the tree as it stands after P7. Then
+prove it fires: add `exec.Command("sleep", "1")` to a normal test temporarily
+and confirm the guard names that file and line, then revert. Confirm it does
+*not* fire on `live_*` files by checking the count of files it skipped is
+non-zero and includes the codex/goose/grok/kilo/opencode live tests.
+
 ## Verification (whole plan)
 
 ```bash
@@ -307,6 +360,13 @@ skips in the other means a `PATH`- or shell-dependency survived.
 | A9 | The CRLF guard fails when the normalisation is reverted | Confirmation 5 |
 | A10 | `git diff --stat` shows no production `.go` file and no line-ending churn | C1, C3 |
 | A11 | No `_test.go` in `internal/provider/httpagent` resolves `false` from `PATH` | D9 (amendment) |
+| A12 | The whole-suite skip census is identical in both shells | D10 (amendment 2) |
+| A13 | The class guard fires on a planted violation and skips `live_*` files | D11 (amendment 2) |
+
+**A12 is A5 measured across `go test ./...` rather than one package.** A5 was
+reported met after P6 on the strength of a single-package census; the
+whole-suite census is what found F14. Take A12 over the whole suite, in both
+shells, or it will keep being met locally and false globally.
 
 **A5 was unmet as originally written, and the fix is P6, not a reworded
 criterion.** Running the census A5 demands is what exposed the contradiction
