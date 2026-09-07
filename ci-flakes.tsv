@@ -1,1 +1,2 @@
 run_id	job_name	commit_sha	first_attempt_result	retry_result	failing_test	timestamp
+34139293426	Go (windows/amd64)	631cbc323a1976829285454d272ba86f7836e546	fail	pass	TestACPConnectionSurvivesAStalledPump	2026-09-07T15:40:24Z
