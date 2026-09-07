@@ -178,6 +178,13 @@ try {
             $probe = go test ./internal/testexec/ -run '^TestSkipIfNoSymlinkProbeNeverFails$' -count=1 -v | Out-String
             Write-Host $probe
             if ($LASTEXITCODE -ne 0) {
+                # A2 runs before A4, so a compile error reaches this branch
+                # first. Blaming the privilege for a build break sends the
+                # reader to Developer Mode for a missing brace; say which of
+                # the two it actually is.
+                if ($probe -match '\[build failed\]|cannot find package|undefined:') {
+                    throw "probe inconclusive: internal/testexec did not compile, so the symlink capability was never exercised. Fix the build (see A4) and re-run."
+                }
                 throw "symlink capability probe failed -- enable Developer Mode and REBOOT (the setting is read at logon), or use an elevated shell; exit $LASTEXITCODE"
             }
             # `go test -run` exits 0 when its pattern matches nothing, so a
