@@ -444,3 +444,52 @@ Remaining for the plan to settle, being mechanical rather than directional:
    non-zero exit, so D3 does not reach it and its `exec.LookPath` skip at
    `provider_test.go:33` stays correct. The plan should say so explicitly, so the
    surviving `false` reference is not mistaken for a missed edit.
+
+   **Answered wrongly. See the 2026-09-07 amendment below** — the answer was
+   self-consistent but contradicted acceptance criterion A5, and executing P4
+   is what exposed it.
+
+## Amendment — 2026-09-07: D3 extends to the last PATH-resolved binary
+
+Executing P4 produced the skip census A5 asks for, and it does not match:
+
+| Shell | Skips in `internal/provider/httpagent` |
+| --- | --- |
+| Git Bash | `TestNormalizeInstanceKey` |
+| PowerShell | `TestNormalizeInstanceKey`, `TestStartServerBailsWhenEngineExitsImmediately` |
+
+**F13 — the record contradicted itself, and only execution revealed it.** D3
+and C2 deliberately exempted `TestStartServerBailsWhenEngineExitsImmediately`,
+while A5 requires an identical pass/skip set in both shells and C4 requires
+every assertion that runs on Linux to run on Windows. Both cannot hold. The
+exemption was not a regression — the `exec.LookPath` skip predates this record
+— but it means the record shipped a criterion it had already decided to
+violate, and open question 2 above answered the narrow question ("is the
+surviving `false` an oversight?") without noticing the wider one.
+
+This is worth stating plainly because it is a failure of the record, not of the
+code: the contradiction was present when the MADR was written and survived
+review, and it took running the census to see it.
+
+**D9 — the last `false` goes too.** `TestStartServerBailsWhenEngineExitsImmediately`
+must supply its own immediately-exiting process rather than resolve one from
+`PATH`, using Go's standard helper-process idiom: re-exec `os.Args[0]` with
+`-test.run` pointed at a helper test that exits non-zero, gated by an
+environment variable so it is inert in a normal run. Its `exec.LookPath` skip
+is removed with it — there is nothing left to look up. Closes F13, and makes
+A5 true as written rather than true-with-an-asterisk.
+
+The alternative considered and rejected was narrowing A5 to permit the
+documented exception. It is cheaper and would have been defensible, but this
+record's entire subject is tests that measure their environment instead of
+their subject; stopping at 23 of 24 and writing the exception into the
+acceptance criteria would leave the one remaining instance blessed by the
+document that exists to remove them. The rejected option's strongest argument
+stands, and is recorded here rather than dismissed: the helper-process idiom is
+more machinery than a one-line skip, and machinery in a test is itself a place
+bugs hide.
+
+**Consequence.** The package gains a small exported-to-nobody helper test that
+does nothing outside its env guard, and the assertion it protects — that a
+dying engine fails startup promptly rather than spinning `serverStartTimeout` —
+now runs on every platform and every shell, which it previously did not.

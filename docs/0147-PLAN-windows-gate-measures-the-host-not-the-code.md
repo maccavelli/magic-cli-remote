@@ -230,6 +230,52 @@ should be told that, not shown a confusing test failure.
 that P4 did the work and not P5: `git stash` the P5 commit, run the suite from
 PowerShell, and see it still pass.
 
+### P6 — the last PATH-resolved binary goes (D9; closes F13)
+
+Added by the 2026-09-07 amendment, after executing P4 showed A5 could not be
+met while `TestStartServerBailsWhenEngineExitsImmediately` still resolved
+`false` from `PATH`.
+
+Replace `Config{Bin: "false"}` in that test with the running test binary
+re-invoked as a helper process — Go's standard idiom:
+
+```go
+// TestHelperProcessExitsNonZero is not a test. It is the immediately-exiting
+// engine TestStartServerBailsWhenEngineExitsImmediately needs, and it is inert
+// unless the guard variable is set.
+func TestHelperProcessExitsNonZero(t *testing.T) {
+	if os.Getenv("MC_HELPER_EXIT_NONZERO") != "1" {
+		return
+	}
+	os.Exit(1)
+}
+```
+
+The provider is then pointed at `os.Executable()` with
+`Args: []string{"-test.run=^TestHelperProcessExitsNonZero$"}` and the guard set
+in its environment. **The plan must confirm how `Config` passes extra args and
+env to the spawned engine before assuming this shape** — if it cannot, say so
+and stop rather than adding a production seam (C1).
+
+Remove the `exec.LookPath("false")` skip: with nothing to look up, the skip has
+nothing to guard, and leaving it would re-create the gap in a new place.
+
+**Verification.** From **both** shells:
+
+```bash
+go test ./internal/provider/httpagent/ -count=1 -v   # census: skips must match
+```
+
+`TestStartServerBailsWhenEngineExitsImmediately` must now *run* in both, not
+skip in one. Then re-check A5 and A11, which is the whole point of the phase.
+The test's own assertion — prompt failure well under `serverStartTimeout` — must
+still hold, so confirm it fails when the helper is made to linger rather than
+exit.
+
+**Ordering.** P6 may land before or after P5. It cannot be masked by P5: A5 is
+verified by running `go test` directly in each shell, not through the gate, so
+the gate's own shell is irrelevant to it.
+
 ## Verification (whole plan)
 
 ```bash
@@ -260,6 +306,12 @@ skips in the other means a `PATH`- or shell-dependency survived.
 | A8 | No `Ready()`-gated test resolves a binary from `PATH` | Confirmation 4 |
 | A9 | The CRLF guard fails when the normalisation is reverted | Confirmation 5 |
 | A10 | `git diff --stat` shows no production `.go` file and no line-ending churn | C1, C3 |
+| A11 | No `_test.go` in `internal/provider/httpagent` resolves `false` from `PATH` | D9 (amendment) |
+
+**A5 was unmet as originally written, and the fix is P6, not a reworded
+criterion.** Running the census A5 demands is what exposed the contradiction
+between it and the D3/C2 exemption (MADR F13). A5 stands unchanged; P6 makes it
+achievable.
 
 **A7 is the criterion most likely to be quietly dropped.** It requires running a
 test *expecting it to fail*, in a specific shell, at a specific commit, before
