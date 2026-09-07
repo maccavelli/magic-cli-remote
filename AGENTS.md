@@ -118,6 +118,14 @@ fix the file.
 
 ## Tests
 
+**Windows local gates (0145):** on a Windows host, before push run
+`make ci-windows`; before tag also `make ci-windows-smoke`; functional
+paths/pair/doctor → `scripts/acceptance-windows.ps1`. On macOS/Linux those
+targets skip with a clear message and exit 0 — keep using `make preflight`.
+See `docs/ops-windows-install.md` and MADR/PLAN 0145. No workflow edits without
+Mac permission.
+
+
 `make test`, and `make race` / `go test -race ./...` before a commit — nothing
 runs the race suite for you, so run it. Live-tagged tests need the real
 CLIs: `go test -tags live_grok ./...`, `-tags live_opencode ./...`,

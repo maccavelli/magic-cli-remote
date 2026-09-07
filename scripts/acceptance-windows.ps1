@@ -6,14 +6,12 @@
 .DESCRIPTION
     Run this on the owner's Windows laptop. It builds, vets and tests the tree,
     then exercises the functional paths that only a real Windows host can
-    prove: the resolved path layout, pairing (the direct MADR 0116 F5
-    regression), and a graceful Ctrl+C drain.
+    prove: the resolved path layout (hardened JSON asserts, PLAN 0145 C1),
+    pairing (MADR 0116 F5), and doctor exit 0 (C3).
 
     This laptop is NOT a CI runner and must never be registered as a
-    self-hosted GitHub Actions runner: this repository is public, so anyone who
-    can fork it and open a pull request could execute code on it, and
-    self-hosted runners are non-ephemeral by default (MADR 0116 F20). CI for
-    windows/amd64 is the hosted windows-latest job.
+    self-hosted GitHub Actions runner (MADR 0116 F20). Unit/CI-mirror gates
+    live in scripts/ci-windows-local.ps1 (`make ci-windows`).
 
 .PARAMETER SkipTests
     Skip the Go suite and run only the functional checks.
@@ -24,8 +22,18 @@ param([switch]$SkipTests)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
-# Contract C7 (MADR 0116 D20): cgo-free, builds and tests. No -race here — off
-# darwin it forces CGO_ENABLED=1, which C7 refuses.
+# Host guard: Windows-only; skip+exit 0 off-Windows (message ≠ PASS).
+$isWin = $false
+try { if ($IsWindows) { $isWin = $true } } catch { }
+if (-not $isWin -and $env:OS -match 'Windows') { $isWin = $true }
+if (-not $isWin) {
+    $osDesc = $env:OS
+    try { $osDesc = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription } catch { }
+    Write-Host "Windows-only; skipping on $osDesc"
+    exit 0
+}
+
+# Contract C7 (MADR 0116 D20): cgo-free. No -race.
 $env:CGO_ENABLED = '0'
 
 $script:Failures = 0
@@ -46,10 +54,22 @@ function Invoke-Check {
     }
 }
 
+function Get-FullPathCI([string]$p) {
+    return [IO.Path]::GetFullPath($p)
+}
+
+function Assert-SamePath([string]$Got, [string]$Want, [string]$Label) {
+    $g = Get-FullPathCI $Got
+    $w = Get-FullPathCI $Want
+    if (-not $g.Equals($w, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label: got '$g' want '$w'"
+    }
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
-    Write-Host "acceptance: windows/amd64, CGO_ENABLED=$env:CGO_ENABLED"
+    Write-Host "acceptance: windows/amd64, CGO_ENABLED=$env:CGO_ENABLED (0145 C)"
 
     Invoke-Check 'go build ./...' { go build ./... }
     Invoke-Check 'go vet ./...' { go vet ./... }
@@ -74,23 +94,81 @@ try {
 
     Invoke-Check 'mcremote version' { & $bin version }
 
-    # Prints the resolved Known Folders layout (MADR 0116 D3). Eyeball it:
-    # config under %AppData%, everything else under %LocalAppData%\mcremote,
-    # and no "-1" anywhere (F4).
-    Invoke-Check 'mcremote paths' { & $bin paths }
+    # C1: paths --json hardened asserts (PLAN 0145)
+    Invoke-Check 'mcremote paths --json (C1)' {
+        $raw = & $bin paths --json
+        if ($LASTEXITCODE -ne 0) { throw "exit $LASTEXITCODE" }
+        $j = $raw | ConvertFrom-Json
 
-    # THE direct F5 regression: before D5, SyncDir returned "Access is denied"
-    # on Windows and pairing reported failure on a write that had landed.
+        $blob = ($raw | Out-String)
+        if ($blob -match '(^|[\\/])-1([\\/]|$)' -or $blob -match 'mcremote-runtime--1') {
+            throw 'forbidden -1 path segment / mcremote-runtime--1 present'
+        }
+
+        if ($j.product -ne 'mcremote') { throw "product=$($j.product)" }
+
+        $appData = $env:APPDATA
+        $local = $env:LOCALAPPDATA
+        if (-not $appData -or -not $local) { throw 'APPDATA/LOCALAPPDATA unset' }
+
+        $cfg = Get-FullPathCI $j.config_dir
+        $appRoot = Get-FullPathCI (Join-Path $appData 'mcremote')
+        if (-not $cfg.StartsWith($appRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "config_dir not under APPDATA\mcremote: $cfg"
+        }
+        $localRoot = Get-FullPathCI $local
+        if ($cfg.StartsWith($localRoot, [StringComparison]::OrdinalIgnoreCase) -and
+            $cfg.IndexOf('\Local\', [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            # Allow only if somehow overlapping; require not under LOCALAPPDATA\mcremote
+        }
+        $localMc = Get-FullPathCI (Join-Path $local 'mcremote')
+        if ($cfg.StartsWith($localMc, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "config_dir must not be under LOCALAPPDATA\mcremote: $cfg"
+        }
+
+        Assert-SamePath $j.data_dir (Join-Path $local 'mcremote') 'data_dir'
+        Assert-SamePath $j.state_dir (Join-Path $local 'mcremote\State') 'state_dir'
+        Assert-SamePath $j.cache_dir (Join-Path $local 'mcremote\Cache') 'cache_dir'
+
+        if ($j.instance_key -notmatch '^[0-9a-f]{16}$') {
+            throw "instance_key invalid: $($j.instance_key)"
+        }
+        if ($j.instance_key -eq '-1') { throw 'instance_key is -1' }
+
+        $rtBase = Join-Path $local 'mcremote\Runtime'
+        $wantRt = Join-Path $rtBase $j.instance_key
+        Assert-SamePath $j.runtime_dir $wantRt 'runtime_dir'
+
+        if ($j.PSObject.Properties.Name -contains 'log_dir' -and $j.log_dir) {
+            Assert-SamePath $j.log_dir (Join-Path $local 'mcremote\Logs') 'log_dir'
+        }
+
+        Assert-SamePath $j.admin_socket (Join-Path $j.runtime_dir 'admin.sock') 'admin_socket'
+
+        foreach ($field in @('config_dir','data_dir','state_dir','cache_dir','runtime_dir','admin_socket')) {
+            $p = $j.$field
+            if (-not [IO.Path]::IsPathRooted($p)) { throw "$field not absolute: $p" }
+        }
+
+        if (-not $j.engine_registry_dir) { throw 'engine_registry_dir empty' }
+    }
+
+    # C2 pair (F5)
     $dataDir = Join-Path $env:TEMP ("mcaccept-" + [Guid]::NewGuid().ToString('N'))
-    Invoke-Check 'mcremote pair create (F5 regression)' {
+    Invoke-Check 'mcremote pair create (F5 / C2)' {
         & $bin pair create --name acceptance --data-dir $dataDir
     }
-    Invoke-Check 'mcremote pair list' {
-        & $bin pair list --data-dir $dataDir
+    Invoke-Check 'mcremote pair list (C2)' {
+        $out = & $bin pair list --data-dir $dataDir | Out-String
+        if ($out -notmatch 'acceptance') { throw "pair list missing name: $out" }
     }
     Remove-Item -Path $dataDir -Recurse -Force -ErrorAction SilentlyContinue
 
-    Invoke-Check 'mcremote doctor' { & $bin doctor }
+    # C3 doctor: exit 0 only (no healthy-service assert)
+    Invoke-Check 'mcremote doctor exit 0 (C3)' {
+        & $bin doctor
+        if ($LASTEXITCODE -ne 0) { throw "doctor exit $LASTEXITCODE" }
+    }
 
     Write-Host ''
     if ($script:Failures -eq 0) {
