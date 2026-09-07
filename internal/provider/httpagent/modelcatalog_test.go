@@ -14,7 +14,7 @@ import (
 // /model picker silently got the provider-wide default set instead of the
 // session's own vendor.
 func TestSessionReportsAModelCatalog(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	var s provider.Session = &session{p: p}
 	if _, ok := s.(provider.ModelCatalogSession); !ok {
 		t.Fatal("httpagent session does not implement provider.ModelCatalogSession")
@@ -39,7 +39,7 @@ func TestSessionModelProviderResolution(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := NewWithLogger(&fakeDialect{id: "test"},
-				Config{Bin: "false", Model: tc.configModel}, nil)
+				Config{Bin: testBin(t), Model: tc.configModel}, nil)
 			s := &session{p: p, model: tc.sessionModel}
 			// fakeDialect is not a ModelProviderLister, so the last-resort
 			// branch resolves to "" rather than booting anything.
@@ -55,7 +55,7 @@ func TestSessionModelProviderResolution(t *testing.T) {
 // the correct scoping, not a fallback — and it must not error, or the picker
 // loses the free-text fallback the daemon depends on.
 func TestSessionCatalogWithoutModelProviders(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false", Model: "m"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t), Model: "m"}, nil)
 	s := &session{p: p}
 	cat, err := s.ModelCatalog(context.Background(), provider.CatalogScopeModels)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestSessionCatalogWithoutModelProviders(t *testing.T) {
 // answer, which is right; a silently empty catalog would make the client hide
 // its provider step for the wrong reason.
 func TestSessionProvidersScopeNeedsALister(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	s := &session{p: p}
 	if _, err := s.ModelCatalog(context.Background(), provider.CatalogScopeProviders); err == nil {
 		t.Fatal("expected an error for a dialect that lists no model providers")

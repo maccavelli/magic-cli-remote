@@ -72,7 +72,7 @@ func TestFetchConfigProviderIDsDropsKey(t *testing.T) {
 }
 
 func TestVerifyHappyPathHitsConfigNotProvider(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	var hits []string
 	api := spyAPI(t, map[string]string{
 		"/config/providers": configProvidersJSON("togetherai"),
@@ -88,7 +88,7 @@ func TestVerifyHappyPathHitsConfigNotProvider(t *testing.T) {
 }
 
 func TestVerifyDisputeEscalatesOnce(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	var hits []string
 	api := spyAPI(t, map[string]string{
 		"/config/providers": configProvidersJSON(),
@@ -116,7 +116,7 @@ func TestVerifyDisputeEscalatesOnce(t *testing.T) {
 }
 
 func TestVerifyDisputeAcceptsIfProviderConnected(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	var hits []string
 	api := spyAPI(t, map[string]string{
 		"/config/providers": configProvidersJSON(),
@@ -128,7 +128,7 @@ func TestVerifyDisputeAcceptsIfProviderConnected(t *testing.T) {
 }
 
 func TestConnectedCacheServesWithinTTL(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	p.Remember(map[string]struct{}{"togetherai": {}}, "config")
 	snap := p.Snapshot()
 	if !snap.Fresh {
@@ -140,7 +140,7 @@ func TestConnectedCacheServesWithinTTL(t *testing.T) {
 }
 
 func TestNegativeCacheSuppressesReread(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	var hits []string
 	var mu sync.Mutex
 	api := spyAPI(t, map[string]string{
@@ -166,7 +166,7 @@ func TestNegativeCacheSuppressesReread(t *testing.T) {
 }
 
 func TestSingleFlightProviderFetch(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	var started atomic.Int32
 	gate := make(chan struct{})
 	var hits atomic.Int32
@@ -204,7 +204,7 @@ func TestSingleFlightProviderFetch(t *testing.T) {
 }
 
 func TestMutationRingWraps(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	for i := 0; i < 40; i++ {
 		p.Note("set", fmt.Sprintf("v%d", i))
 	}
@@ -217,7 +217,7 @@ func TestMutationRingWraps(t *testing.T) {
 }
 
 func TestAfterCredentialWriteCompensates(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	var hits []string
 	api := spyAPI(t, map[string]string{
 		"/config/providers": configProvidersJSON(),
@@ -263,7 +263,7 @@ func TestMergeConnectedSnapshotAddsVerifiedID(t *testing.T) {
 }
 
 func TestVerifyDoesNotLogSecret(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	var hits []string
 	api := spyAPI(t, map[string]string{
 		"/config/providers": configProvidersJSON(),

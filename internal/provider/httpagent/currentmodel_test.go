@@ -29,7 +29,7 @@ func TestCurrentModelReadsTheProviderDialectNotTheSessionView(t *testing.T) {
 		fakeDialect: fakeDialect{id: "test"},
 		mp:          "kilo",
 		mid:         "kilo-auto/balanced",
-	}, Config{Bin: "false"}, nil)
+	}, Config{Bin: testBin(t)}, nil)
 	s := &session{p: p}
 
 	var _ provider.ModelReporter = s
@@ -47,7 +47,7 @@ func TestCurrentModelPrefersTheSessionsOwnModel(t *testing.T) {
 		fakeDialect: fakeDialect{id: "test"},
 		mp:          "kilo",
 		mid:         "kilo-auto/balanced",
-	}, Config{Bin: "false"}, nil)
+	}, Config{Bin: testBin(t)}, nil)
 	s := &session{p: p, model: "anthropic/claude-opus-5"}
 
 	if got := s.CurrentModel(); got != "anthropic/claude-opus-5" {
@@ -60,7 +60,7 @@ func TestCurrentModelPrefersTheSessionsOwnModel(t *testing.T) {
 // a caller must not be handed a guess it cannot distinguish from a fact.
 func TestCurrentModelIsEmptyWhenNothingKnowsOne(t *testing.T) {
 	t.Run("dialect implements no default", func(t *testing.T) {
-		p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+		p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 		s := &session{p: p}
 		if got := s.CurrentModel(); got != "" {
 			t.Fatalf("CurrentModel() = %q, want empty", got)
@@ -68,7 +68,7 @@ func TestCurrentModelIsEmptyWhenNothingKnowsOne(t *testing.T) {
 	})
 	t.Run("dialect has not resolved one yet", func(t *testing.T) {
 		p := NewWithLogger(&defaultingDialect{fakeDialect: fakeDialect{id: "test"}},
-			Config{Bin: "false"}, nil)
+			Config{Bin: testBin(t)}, nil)
 		s := &session{p: p}
 		if got := s.CurrentModel(); got != "" {
 			t.Fatalf("CurrentModel() = %q, want empty before a default is known", got)

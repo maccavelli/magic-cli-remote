@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -13,6 +14,30 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
+
+// testBin returns a path that resolves through launch.Resolve on every
+// platform: the running test binary.
+//
+// Nothing executes it. It exists only so Provider.Ready() is true, because the
+// tests that need a "present" engine binary inject the engine itself through
+// withFakeEngine. `false` was used for this and resolved from PATH, which is
+// not a property of the platform but of the shell: Git Bash puts
+// C:\Program Files\Git\usr\bin on PATH and PowerShell does not, so
+// TestDiscoveryForwardsToDialectWhenEngineIsUp passed under one and failed
+// under the other on the same commit (MADR 0147 F4, F6).
+//
+// os.Executable() is used rather than another always-present binary name
+// (`cmd`, `go`) deliberately: a name chosen because it happens to exist on
+// both platforms is the same bug with a longer fuse. Config.Bin is already the
+// seam, so this needs no production code.
+func testBin(t *testing.T) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	return exe
+}
 
 func TestWithConfiguredDefaultOverridesLiveDefault(t *testing.T) {
 	cat := picker.SingleCatalog(picker.SourceLive, []picker.Option{{ID: "engine/default"}}, "engine/default", true)
@@ -29,6 +54,12 @@ func TestWithConfiguredDefaultOverridesLiveDefault(t *testing.T) {
 // at once, not spin the full serverStartTimeout probing a corpse on
 // connection-refused. `false` exits non-zero immediately, so the health poll
 // never connects; the fix watches cmd.Wait and bails as soon as it exits.
+// This is the one test in the package that keeps `false`, and the only one
+// that may (MADR 0147 D3). Every other site wanted a binary that merely
+// *resolves*, and now uses testBin; this one actually runs it and depends on
+// its immediate non-zero exit, which testBin cannot provide — the test binary
+// would re-enter the suite. The exec.LookPath skip below is therefore correct
+// here and is not an oversight left behind by the sweep.
 func TestStartServerBailsWhenEngineExitsImmediately(t *testing.T) {
 	if _, err := exec.LookPath("false"); err != nil {
 		t.Skip("no 'false' binary on PATH")
@@ -58,7 +89,7 @@ func TestStartServerBailsWhenEngineExitsImmediately(t *testing.T) {
 // searches it, so it is cached. A credential write must drop that cache,
 // because the catalog carries the per-vendor status the user just changed.
 func TestAuthCatalogCacheHitsThenInvalidates(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 
 	if _, ok := p.cachedCatalog(); ok {
 		t.Fatal("a fresh provider reported a cached catalog")
@@ -81,7 +112,7 @@ func TestAuthCatalogCacheHitsThenInvalidates(t *testing.T) {
 // An expired entry is a miss, so a vendor list that changed under a long-lived
 // daemon is picked up without a restart.
 func TestAuthCatalogCacheExpires(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	p.storeCatalog(provider.AuthCatalog{Upstreams: []provider.UpstreamAuth{{ID: "x"}}})
 	p.authCatalogMu.Lock()
 	p.authCatalogExpiry = time.Now().Add(-time.Second)
@@ -122,7 +153,7 @@ func (d *discoveryDialect) ListProjectsLive(context.Context, API) ([]provider.Pr
 // look" are different answers, and only one of them should invite the user to
 // start a fresh session.
 func TestDiscoveryUnsupportedWithoutDialectSupport(t *testing.T) {
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 
 	if _, err := p.ListAgentSessions(context.Background()); err == nil {
 		t.Error("ListAgentSessions must fail on a dialect without discovery")
@@ -158,7 +189,7 @@ func TestDiscoveryRequiresAReachableEngine(t *testing.T) {
 // The provider satisfies both shared optional interfaces, so the WebSocket
 // layer's type assertions find it.
 func TestProviderImplementsDiscoveryInterfaces(t *testing.T) {
-	p := NewWithLogger(&discoveryDialect{fakeDialect: fakeDialect{id: "test"}}, Config{Bin: "false"}, nil)
+	p := NewWithLogger(&discoveryDialect{fakeDialect: fakeDialect{id: "test"}}, Config{Bin: testBin(t)}, nil)
 	if _, ok := any(p).(provider.AgentSessionLister); !ok {
 		t.Error("Provider must implement provider.AgentSessionLister")
 	}
@@ -189,7 +220,7 @@ func TestDiscoveryForwardsToDialectWhenEngineIsUp(t *testing.T) {
 		}},
 		projects: []provider.ProjectMeta{{ID: "p1", Name: "repo", Worktree: "/work/repo"}},
 	}
-	p := NewWithLogger(d, Config{Bin: "false"}, nil)
+	p := NewWithLogger(d, Config{Bin: testBin(t)}, nil)
 	withFakeEngine(t, p, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[]`))
 	})
@@ -240,7 +271,7 @@ func TestDiscoveryPropagatesDialectErrors(t *testing.T) {
 		sessionsErr: sessionsErr,
 		projectsErr: projectsErr,
 	}
-	p := NewWithLogger(d, Config{Bin: "false"}, nil)
+	p := NewWithLogger(d, Config{Bin: testBin(t)}, nil)
 	withFakeEngine(t, p, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[]`))
 	})
