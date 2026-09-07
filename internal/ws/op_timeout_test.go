@@ -3,7 +3,9 @@ package ws
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +36,28 @@ func loadOpTimeouts(t *testing.T) opTimeoutTable {
 	return tbl
 }
 
+// readSource reads a Go source file for scanning and strips carriage returns.
+//
+// These scans measure the *source*, and the checkout's line endings are not
+// part of the source. On a Windows working tree they can differ file by file:
+// `.gitattributes` declares `* text=auto eol=lf`, but that binds at checkout,
+// so a tree checked out before that rule — or under core.autocrlf=true — keeps
+// CRLF in files no later pull has rewritten. On 2026-09-07 this package's own
+// server.go was LF while codex_handlers.go beside it was CRLF, and the
+// "\n}\n" delimiter below found nothing (MADR 0147 F8, F11).
+//
+// Normalising here rather than at each use site is deliberate: the delimiters
+// and the `$`-anchored regexps are spread across three scans, and every one of
+// them is silently CRLF-fragile (F9).
+func readSource(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
+}
+
 // asyncDispatchedTypes returns every message type routed through
 // dispatchAsync, read out of handleMessage's own switch.
 //
@@ -45,11 +69,39 @@ func loadOpTimeouts(t *testing.T) opTimeoutTable {
 func asyncDispatchedTypes(t *testing.T) []string {
 	t.Helper()
 
-	src, err := os.ReadFile("server.go")
-	if err != nil {
-		t.Fatalf("read server.go: %v", err)
+	out := switchDispatchedConstants(t, readSource(t, "server.go"))
+	// Codex-capability operations live in a second registry, keyed by type
+	// with an explicit timeoutKey (codex_handlers.go codexPhoneOperations).
+	// Scanning only handleMessage would miss every one of them.
+	out = append(out, codexDispatchedConstantsIn(t, readSource(t, "codex_handlers.go"))...)
+
+	if len(out) < 25 {
+		t.Fatalf("only found %d async-dispatched types; the source scan is broken", len(out))
 	}
-	body := string(src)
+
+	// Constant name -> wire string, so the test compares what the JSON holds.
+	wire := map[string]string{}
+	for _, kv := range protocolTypeConstants(t) {
+		wire[kv[0]] = kv[1]
+	}
+	methods := make([]string, 0, len(out))
+	for _, name := range out {
+		v, ok := wire[name]
+		if !ok {
+			t.Fatalf("protocol.%s has no string value; the constant scan is broken", name)
+		}
+		methods = append(methods, v)
+	}
+	return methods
+}
+
+// switchDispatchedConstants walks handleMessage's switch in body and returns
+// the constant name of every case label whose arm reaches dispatchAsync.
+//
+// Takes the body rather than reading it, so the CRLF guard can run the real
+// walk over synthesised input (MADR 0147 D5).
+func switchDispatchedConstants(t *testing.T, body string) []string {
+	t.Helper()
 	i := strings.Index(body, "func (s *Server) handleMessage(")
 	if i < 0 {
 		t.Fatal("handleMessage not found; the source scan is broken, not the dispatch")
@@ -81,40 +133,17 @@ func asyncDispatchedTypes(t *testing.T) []string {
 			pending = nil
 		}
 	}
-	// Codex-capability operations live in a second registry, keyed by type
-	// with an explicit timeoutKey (codex_handlers.go codexPhoneOperations).
-	// Scanning only handleMessage would miss every one of them.
-	out = append(out, codexAsyncDispatchedConstants(t)...)
-
-	if len(out) < 25 {
-		t.Fatalf("only found %d async-dispatched types; the source scan is broken", len(out))
-	}
-
-	// Constant name -> wire string, so the test compares what the JSON holds.
-	wire := map[string]string{}
-	for _, kv := range protocolTypeConstants(t) {
-		wire[kv[0]] = kv[1]
-	}
-	methods := make([]string, 0, len(out))
-	for _, name := range out {
-		v, ok := wire[name]
-		if !ok {
-			t.Fatalf("protocol.%s has no string value; the constant scan is broken", name)
-		}
-		methods = append(methods, v)
-	}
-	return methods
+	return out
 }
 
-// codexAsyncDispatchedConstants reads codexPhoneOperations and returns the
-// constant name of every entry whose handler reaches dispatchAsync.
-func codexAsyncDispatchedConstants(t *testing.T) []string {
+// codexDispatchedConstantsIn reads codexPhoneOperations out of body and returns
+// the constant name of every entry whose handler reaches dispatchAsync.
+//
+// Takes the body rather than reading it, for the same reason as
+// switchDispatchedConstants: this is the scan the CRLF guard exercises, since
+// its "\n}\n" delimiter is the one that actually broke (MADR 0147 F8).
+func codexDispatchedConstantsIn(t *testing.T, body string) []string {
 	t.Helper()
-	src, err := os.ReadFile("codex_handlers.go")
-	if err != nil {
-		t.Fatalf("read codex_handlers.go: %v", err)
-	}
-	body := string(src)
 	i := strings.Index(body, "var codexPhoneOperations = map[string]codexPhoneOperation{")
 	if i < 0 {
 		t.Fatal("codexPhoneOperations not found; the source scan is broken")
@@ -146,12 +175,8 @@ func codexAsyncDispatchedConstants(t *testing.T) []string {
 // internal/protocol/messages.go, as {constant name, wire string}.
 func protocolTypeConstants(t *testing.T) [][2]string {
 	t.Helper()
-	src, err := os.ReadFile("../protocol/messages.go")
-	if err != nil {
-		t.Fatalf("read messages.go: %v", err)
-	}
 	re := regexp.MustCompile(`(?m)^\t(Type\w+)\s*=\s*"([a-z_.]+)"`)
-	ms := re.FindAllStringSubmatch(string(src), -1)
+	ms := re.FindAllStringSubmatch(readSource(t, "../protocol/messages.go"), -1)
 	if len(ms) < 40 {
 		t.Fatalf("only found %d protocol type constants; the scan is broken", len(ms))
 	}
@@ -160,6 +185,53 @@ func protocolTypeConstants(t *testing.T) [][2]string {
 		out = append(out, [2]string{m[1], m[2]})
 	}
 	return out
+}
+
+// TestSourceScansSurviveCRLF is the guard for MADR 0147 D5: these scans must
+// measure the source, not the line endings the checkout happened to write.
+//
+// The CRLF input is synthesised at runtime rather than committed. A CRLF
+// fixture under testdata/ would be normalised back to LF by `.gitattributes`
+// (`* text=auto eol=lf`) on the next fresh clone, so the guard would quietly
+// stop guarding — the same class of silent decay it exists to prevent.
+//
+// Both scans are covered, not just the one that broke. The "\n}\n" delimiter
+// in codexDispatchedConstantsIn is what failed on 2026-09-07 (F8), but the
+// `^\tcase (.+):$` anchor in switchDispatchedConstants is fragile in exactly
+// the same way and survived only because server.go happened to be LF (F9).
+func TestSourceScansSurviveCRLF(t *testing.T) {
+	// crlf writes a CRLF copy of path into t.TempDir() and returns its
+	// location. Reading through readSource is the whole point: the assertion
+	// is that the reader normalises, not that the parser tolerates.
+	crlf := func(t *testing.T, path string) string {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		lf := strings.ReplaceAll(string(b), "\r\n", "\n")
+		dst := filepath.Join(t.TempDir(), filepath.Base(path))
+		if err := os.WriteFile(dst, []byte(strings.ReplaceAll(lf, "\n", "\r\n")), 0o600); err != nil {
+			t.Fatalf("write %s: %v", dst, err)
+		}
+		return dst
+	}
+
+	t.Run("codexPhoneOperations", func(t *testing.T) {
+		want := codexDispatchedConstantsIn(t, readSource(t, "codex_handlers.go"))
+		got := codexDispatchedConstantsIn(t, readSource(t, crlf(t, "codex_handlers.go")))
+		if !slices.Equal(got, want) {
+			t.Errorf("CRLF copy scanned differently:\n got %v\nwant %v", got, want)
+		}
+	})
+
+	t.Run("handleMessage", func(t *testing.T) {
+		want := switchDispatchedConstants(t, readSource(t, "server.go"))
+		got := switchDispatchedConstants(t, readSource(t, crlf(t, "server.go")))
+		if !slices.Equal(got, want) {
+			t.Errorf("CRLF copy scanned differently:\n got %v\nwant %v", got, want)
+		}
+	})
 }
 
 // asyncOpTimeout is the daemon's half of the timeout ladder (MADR 0095 D7).

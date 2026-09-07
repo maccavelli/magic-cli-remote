@@ -83,11 +83,18 @@ func TestClassOfIsExhaustive(t *testing.T) {
 	// constant.
 	declared := declaredTypes(t)
 
+	// Carriage returns are stripped before scanning: the "\n}\n" delimiter
+	// below is LF-only, and a Windows working tree can hold this file either
+	// way — `.gitattributes` says `* text=auto eol=lf`, but that binds at
+	// checkout, so a file no later pull has rewritten keeps whatever it was
+	// checked out as. The identical idiom in internal/ws/op_timeout_test.go
+	// failed exactly this way on 2026-09-07 (MADR 0147 F8, F10); retention.go
+	// was LF that day, which is luck rather than a guarantee.
 	src, err := os.ReadFile("retention.go")
 	if err != nil {
 		t.Fatalf("read retention.go: %v", err)
 	}
-	body := string(src)
+	body := strings.ReplaceAll(string(src), "\r\n", "\n")
 	start := strings.Index(body, "func ClassOf(")
 	if start < 0 {
 		t.Fatal("ClassOf not found")
