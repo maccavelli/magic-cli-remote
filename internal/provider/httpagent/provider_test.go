@@ -224,21 +224,31 @@ func TestDiscoveryForwardsToDialectWhenEngineIsUp(t *testing.T) {
 }
 
 // A dialect-level failure must surface, not degrade to an empty list.
+//
+// The assertion names the error it expects, and that is the point (MADR 0147
+// D4). `err != nil` is not an assertion when a second error path reaches the
+// same line: ListAgentSessions fails the Ready() gate before it ever consults
+// the dialect, so on a host where Config.Bin does not resolve this test used
+// to receive "false binary not found" and pass — green, while testing nothing
+// (0147 F7). That is exactly what happened under PowerShell, where `false` is
+// not on PATH, for as long as the test existed.
 func TestDiscoveryPropagatesDialectErrors(t *testing.T) {
+	sessionsErr := errors.New("session listing blew up")
+	projectsErr := errors.New("project listing blew up")
 	d := &discoveryDialect{
 		fakeDialect: fakeDialect{id: "test"},
-		sessionsErr: errors.New("session listing blew up"),
-		projectsErr: errors.New("project listing blew up"),
+		sessionsErr: sessionsErr,
+		projectsErr: projectsErr,
 	}
 	p := NewWithLogger(d, Config{Bin: "false"}, nil)
 	withFakeEngine(t, p, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[]`))
 	})
 
-	if _, err := p.ListAgentSessions(context.Background()); err == nil {
-		t.Error("a dialect error must surface")
+	if _, err := p.ListAgentSessions(context.Background()); !errors.Is(err, sessionsErr) {
+		t.Errorf("ListAgentSessions err = %v, want the dialect's %v", err, sessionsErr)
 	}
-	if _, err := p.ListProjects(context.Background()); err == nil {
-		t.Error("a dialect error must surface")
+	if _, err := p.ListProjects(context.Background()); !errors.Is(err, projectsErr) {
+		t.Errorf("ListProjects err = %v, want the dialect's %v", err, projectsErr)
 	}
 }
