@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -54,17 +54,49 @@ func TestWithConfiguredDefaultOverridesLiveDefault(t *testing.T) {
 // at once, not spin the full serverStartTimeout probing a corpse on
 // connection-refused. `false` exits non-zero immediately, so the health poll
 // never connects; the fix watches cmd.Wait and bails as soon as it exits.
-// This is the one test in the package that keeps `false`, and the only one
-// that may (MADR 0147 D3). Every other site wanted a binary that merely
-// *resolves*, and now uses testBin; this one actually runs it and depends on
-// its immediate non-zero exit, which testBin cannot provide — the test binary
-// would re-enter the suite. The exec.LookPath skip below is therefore correct
-// here and is not an oversight left behind by the sweep.
-func TestStartServerBailsWhenEngineExitsImmediately(t *testing.T) {
-	if _, err := exec.LookPath("false"); err != nil {
-		t.Skip("no 'false' binary on PATH")
+// helperExitEnv arms TestHelperProcessExitsNonZero. It is only ever set by
+// t.Setenv in the test below, and the helper additionally requires the engine
+// marker that production code puts in the child's environment, so the helper
+// stays inert in the parent even if the two ever overlap.
+const helperExitEnv = "MC_HELPER_EXIT_NONZERO"
+
+// TestHelperProcessExitsNonZero is not a test. It is the immediately-exiting
+// engine that TestStartServerBailsWhenEngineExitsImmediately needs, reached by
+// re-executing the test binary — Go's standard helper-process idiom.
+//
+// Both guards must hold before it exits: the arming variable, and
+// procutil.EnvEngineID, which Provider.startServer adds to the spawned
+// engine's environment and which no parent test process carries. One guard
+// would be enough under Go's sequential execution within a package; two mean a
+// future t.Parallel cannot turn this into an os.Exit(1) of the whole suite.
+func TestHelperProcessExitsNonZero(t *testing.T) {
+	if os.Getenv(helperExitEnv) != "1" || os.Getenv(procutil.EnvEngineID) == "" {
+		return
 	}
-	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: "false"}, nil)
+	os.Exit(1)
+}
+
+// exitingDialect points ServeArgs at that helper, so the engine the provider
+// spawns is this test binary re-invoked, rather than a PATH-resolved `false`.
+type exitingDialect struct{ fakeDialect }
+
+func (d *exitingDialect) ServeArgs(int) []string {
+	return []string{"-test.run=^TestHelperProcessExitsNonZero$"}
+}
+
+// This test genuinely executes the engine binary and depends on its immediate
+// non-zero exit, so testBin alone is not enough — it needs a process that
+// *exits*, not merely one that resolves.
+//
+// It used to use `false`, which made it the last test in the package to
+// resolve a POSIX binary from PATH: it ran under Git Bash and skipped under
+// PowerShell, so the assertion below did not hold on Windows at all. That is
+// MADR 0147 F13, and the amendment's D9 is why the skip is gone rather than
+// guarded — with nothing to look up, a skip would only re-create the gap
+// somewhere new.
+func TestStartServerBailsWhenEngineExitsImmediately(t *testing.T) {
+	t.Setenv(helperExitEnv, "1")
+	p := NewWithLogger(&exitingDialect{fakeDialect{id: "test"}}, Config{Bin: testBin(t)}, nil)
 
 	start := time.Now()
 	_, err := p.startServer(context.Background())
