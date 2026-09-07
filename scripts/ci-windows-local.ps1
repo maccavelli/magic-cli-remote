@@ -65,6 +65,30 @@ function Pass([string]$Msg) {
     Write-Host "PASS  $Msg" -ForegroundColor Green
 }
 
+# Resolve-GitBash returns the Git-for-Windows bash, which is what GitHub's
+# `shell: bash` runs on windows-latest (MADR 0147 D2).
+#
+# Deliberately NOT `bash` from PATH. On this host that resolves to
+# C:\WINDOWS\system32\bash.exe -- the WSL launcher -- which fails with
+# "execvpe(/bin/bash) failed: No such file or directory" when no distro is
+# installed, and if one were installed would run the suite inside Linux rather
+# than on the Windows host this gate exists to test. Either outcome is wrong,
+# and the second silently so.
+function Resolve-GitBash {
+    $cands = @()
+    # git.exe lives in <install>\cmd\git.exe, bash in <install>\bin\bash.exe.
+    $git = (Get-Command git -ErrorAction SilentlyContinue).Source
+    if ($git) {
+        $cands += (Join-Path (Split-Path -Parent (Split-Path -Parent $git)) 'bin\bash.exe')
+    }
+    if ($env:ProgramFiles) { $cands += (Join-Path $env:ProgramFiles 'Git\bin\bash.exe') }
+    if (${env:ProgramFiles(x86)}) { $cands += (Join-Path ${env:ProgramFiles(x86)} 'Git\bin\bash.exe') }
+    foreach ($c in $cands) {
+        if ((Test-Path $c) -and ($c -notlike "*\System32\*")) { return $c }
+    }
+    throw "Git Bash not found (looked in: $($cands -join '; ')). CI runs the Windows unit lane under `shell: bash`, so this gate does too -- install Git for Windows, or run go test yourself from a Git Bash prompt."
+}
+
 function Invoke-Checked {
     param([string]$Name, [scriptblock]$Body)
     Write-Host ""
@@ -207,12 +231,23 @@ try {
         if ($SkipTests) {
             Write-Host 'WARN  A6 skipped (-SkipTests); not a full ci-windows green' -ForegroundColor Yellow
         } else {
-            Invoke-Checked 'A6 go test ./... (no -race, no live_*)' {
-                go test ./...
+            # Run the tests under Git Bash, matching ci.yml:259 and :327, which
+            # pin `shell: bash` for the Windows unit lane (MADR 0147 D2). The
+            # host checks above stay in PowerShell; it is the *test* invocation
+            # that has to match CI, because anything PATH-derived differs
+            # between the two shells and CI can never see it.
+            #
+            # `go version` is echoed because A3 validated PowerShell's go while
+            # this step runs bash's; the go.mod toolchain directive reconciles
+            # them, but the log should say which one actually ran.
+            Invoke-Checked 'A6 go test ./... (Git Bash, as CI; no -race, no live_*)' {
+                $bash = Resolve-GitBash
+                Write-Host "using $bash"
+                & $bash --noprofile --norc -eo pipefail -c 'go version; go test ./...'
                 if ($LASTEXITCODE -ne 0) {
                     if ($RetryOnce) {
                         Write-Host 'retry once (-RetryOnce)...' -ForegroundColor Yellow
-                        go test ./...
+                        & $bash --noprofile --norc -eo pipefail -c 'go test ./...'
                         if ($LASTEXITCODE -ne 0) { throw "exit $LASTEXITCODE after retry" }
                     } else {
                         throw "exit $LASTEXITCODE"
