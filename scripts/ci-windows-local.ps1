@@ -157,19 +157,35 @@ try {
             }
         }
 
+        # Probe with the mechanism the suite uses, not PowerShell's own (MADR
+        # 0147 D1). Windows PowerShell 5.1's `New-Item -ItemType SymbolicLink`
+        # never requests SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE, so it
+        # demands the privilege Developer Mode deliberately does not grant: the
+        # old probe threw "cannot create symlinks" on 2026-09-07 on a host where
+        # os.Symlink succeeded and all four symlink tests passed (0147 F1, F3).
+        #
+        # testexec.SkipIfNoSymlink is what every symlink test calls, and
+        # TestSkipIfNoSymlinkProbeNeverFails exercises it. Delegating here makes
+        # the gate and the suite agree by construction rather than by
+        # coincidence — they are now the same call.
         Invoke-Checked 'A2 symlink probe (MC_REQUIRE_SYMLINK=1)' {
-            $target = Join-Path $env:TEMP ('mc-symlink-target-' + [guid]::NewGuid().ToString('N'))
-            $link = Join-Path $env:TEMP ('mc-symlink-link-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType File -Path $target -Force | Out-Null
-            try {
-                New-Item -ItemType SymbolicLink -Path $link -Target $target -ErrorAction Stop | Out-Null
-            } catch {
-                throw "cannot create symlinks (SeCreateSymbolicLinkPrivilege?): $_"
-            } finally {
-                Remove-Item -LiteralPath $link, $target -Force -ErrorAction SilentlyContinue
-            }
+            # Asserted before the probe runs, not after: with MC_REQUIRE_SYMLINK
+            # unset the helper skips instead of failing, so the probe below
+            # would pass without asserting the capability at all.
             if ($env:MC_REQUIRE_SYMLINK -ne '1') { throw 'MC_REQUIRE_SYMLINK not set to 1' }
             if ($env:CGO_ENABLED -ne '0') { throw 'CGO_ENABLED not 0' }
+
+            $probe = go test ./internal/testexec/ -run '^TestSkipIfNoSymlinkProbeNeverFails$' -count=1 -v | Out-String
+            Write-Host $probe
+            if ($LASTEXITCODE -ne 0) {
+                throw "symlink capability probe failed -- enable Developer Mode and REBOOT (the setting is read at logon), or use an elevated shell; exit $LASTEXITCODE"
+            }
+            # `go test -run` exits 0 when its pattern matches nothing, so a
+            # renamed test would silently turn this check into a no-op. Require
+            # the subtest to have actually passed.
+            if ($probe -notmatch '--- PASS: TestSkipIfNoSymlinkProbeNeverFails/probe') {
+                throw 'probe did not run: -run matched no test, or the subtest skipped (was it renamed?)'
+            }
         }
 
         Invoke-Checked 'A4 go build ./...' {
