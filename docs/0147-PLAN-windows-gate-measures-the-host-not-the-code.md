@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-07
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -418,3 +418,99 @@ on all of this (F12), which is why none of it can regress there.
 * **Withdrawing or rewording 0145's "mirrors CI" claim.** After P5 the claim is
   true, so no edit is needed. If a future divergence makes it false again, the
   honest fix is to narrow the claim in 0145 rather than to widen this record.
+
+## Execution record (2026-09-07)
+
+All eight phases ran, in one session, on the Windows dev laptop at `cc2e467`
+onward. Final state: `ci-windows-local: ALL SELECTED CHECKS PASSED`, and the
+whole-suite skip census is byte-identical in both shells at 119.
+
+| Phase | Commit | Closed |
+| --- | --- | --- |
+| P1 | `52ecc0a`, `3f55155` | F1, F3 |
+| P2 | `a511fb1` | F8, F9, F10 |
+| P3 | `6e20420` | F7 |
+| P4 | `28a8f4b` | F4, F6 |
+| P5 | `93078fb` | F5 |
+| P6 | `a5c5301` | F13 |
+| P7 | `8c44e13` | F14 |
+| P8 | `f0f5e01` | the class D8 declined to guard |
+
+Two amendments were required mid-execution (`318454a`, `3232e90`). Both came
+from running verification steps this plan itself demanded, which is the single
+most useful thing to carry forward from it.
+
+### What the plan predicted incorrectly
+
+**The plan was wrong about `Config` carrying args and env (P6).** It sketched
+`Args: []string{"-test.run=..."}` on `Config`. There is no such field:
+`startServer` takes args from `p.dialect.ServeArgs(port)` and the child
+inherits `os.Environ()`. The plan's own instruction — *"confirm how `Config`
+passes extra args and env before assuming this shape"* — is the only reason
+this did not become a production seam and a C1 violation. **Keep writing that
+instruction into phases that sketch an API.**
+
+**A5 was self-contradictory from the moment it was written.** It demanded an
+identical pass/skip set in both shells while D3/C2 exempted a test that skips
+in one. Nobody noticed until P4 produced the census. A criterion that
+contradicts a contract in the same document is not caught by review; it is
+caught by execution.
+
+**A5 was then reported met on the wrong scope.** After P6 the census was taken
+over one package, matched, and was recorded as met. The whole-suite census
+found a third instance immediately (F14). **A criterion phrased "the pass/skip
+set" without naming its scope will be measured on the cheapest scope
+available.** A12 exists to say "the whole suite" out loud.
+
+**P1's verification step could not be performed as written.** It said to point
+the probe at "a directory where symlink creation is impossible". After D1
+delegated the probe to `go test`, there is no directory argument to point
+anywhere. The real evidence came from elsewhere: the same test had been
+observed failing under `MC_REQUIRE_SYMLINK=1` before the reboot. **A
+verification step written against the old implementation may not survive the
+change it verifies.**
+
+**P1 introduced a defect the plan did not anticipate.** Delegating A2 to
+`go test` made it run before A4, so a compile error was reported as "enable
+Developer Mode and REBOOT". Cost one extra commit (`3f55155`). The plan had no
+phase-level instruction to ask *what else does this check now depend on?*
+
+**D8 was wrong, and said how it would know.** It rejected a class guard because
+"F4 and F10 are the only known instances", adding that a third would be the
+evidence to revisit. The third appeared in the same session, from the census
+the first amendment introduced. The decision was reversible only because it
+named its falsification; D11 now carries one of its own.
+
+### What the plan got right, and is worth repeating
+
+**Ordering P5 last was correct and load-bearing.** Running the suite under bash
+makes `false` resolve, so landing it early would have turned F4 and F7 green
+without fixing either. Verified after the fact: with P5 stashed, the tests
+still pass under PowerShell on their own merits.
+
+**A7 was correctly flagged as the criterion most likely to be dropped.** It
+required running a test *expecting failure*, in a specific shell, at a specific
+commit, and the evidence is unrecoverable once P4 lands. Naming that in advance
+is what caused it to be captured and quoted into `6e20420`.
+
+**"A guard that cannot fail is not a guard" earned its place three times.** The
+CRLF guard, the class guard, and both helper-process substitutions were each
+sabotaged and observed failing. One of those sabotage attempts silently did not
+apply — a bad escape meant the anchor was never found and the run printed `ok`.
+It was caught only because the expected result had been stated first. **State
+the expected outcome before running a negative check, or a no-op will read as a
+pass.**
+
+### Deferred, still
+
+Unchanged from the Deferred section above: the 1668-file CRLF renormalisation
+(D6, awaiting the MADR 0118 successor), the local `gofmt -l` noise it causes,
+the `TestACPConnectionSurvivesAStalledPump` flake in the 0143 ledger, and the
+no-new-CI-lane half of C6.
+
+One item is added:
+`internal/ws/op_timeout_test.go` indexes `FindAllStringSubmatch(...)[0][1]`
+without a nil check, so a `case` label carrying no `protocol.Type…` reference
+panics the scan. It was preserved verbatim through P2's extraction because no
+0147 decision reaches it. It is a robustness bug in a test, not a line-ending
+one, and wants its own record.
