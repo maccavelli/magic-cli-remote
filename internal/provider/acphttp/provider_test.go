@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -55,12 +56,48 @@ func TestListAgentSessionsRequiresNegotiatedCapability(t *testing.T) {
 // with a live engine process used to leave every session hanging in its last
 // state forever. The read failure must kill the process so the
 // wait-goroutine teardown (serverDied) fires and the next Start respawns.
+// helperBlockEnv arms TestHelperProcessBlocks. It is set only on the child's
+// environment, never on this process's, so the helper cannot fire in the
+// parent no matter how the suite is scheduled.
+const helperBlockEnv = "MC_HELPER_BLOCK"
+
+// TestHelperProcessBlocks is not a test. It is the long-lived engine process
+// that TestHandleWSErrorKillsEngine needs something to kill, reached by
+// re-executing the test binary — Go's standard helper-process idiom.
+//
+// It replaced `sleep 60`, which resolved from PATH: present under Git Bash,
+// absent under PowerShell, where cmd.Start failed and the test took its
+// t.Skipf. So it never failed anywhere and quietly stopped asserting that a
+// ws read error kills the engine (MADR 0147 F14, D10).
+//
+// The 60s bound matches the sleep it replaced: long enough that the 5s
+// assertion below is decisive, short enough that a failure to kill leaves a
+// process that reaps itself rather than one that outlives the run.
+func TestHelperProcessBlocks(t *testing.T) {
+	if os.Getenv(helperBlockEnv) != "1" {
+		return
+	}
+	time.Sleep(60 * time.Second)
+}
+
 func TestHandleWSErrorKillsEngine(t *testing.T) {
-	cmd := exec.Command("sleep", "60")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	cmd := exec.Command(exe, "-test.run=^TestHelperProcessBlocks$")
+	cmd.Env = append(os.Environ(), helperBlockEnv+"=1")
 	procutil.SetProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
-		t.Skipf("cannot spawn sleep: %v", err)
+		t.Fatalf("spawn helper engine: %v", err)
 	}
+	// The assertion is that handleWSError kills it; this only stops a failing
+	// run from leaving the helper behind for its full 60s.
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
 	waitCh := make(chan error, 1)
 	go func() { waitCh <- cmd.Wait() }()
 
