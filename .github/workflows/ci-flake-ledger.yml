@@ -38,10 +38,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # workflow_run always targets the default branch; schedule/dispatch too.
-    # Skip fork CI completions — their artifacts are not ours to commit.
+    #
+    # Skip fork CI completions — their artifacts are not ours to commit. The
+    # test MUST be head_repository, not repository: `repository` is where the
+    # run happened, and a fork PR's CI runs in the BASE repo, so it equals
+    # github.repository and the guard would pass. `head_repository` is the repo
+    # the head branch lives in, which is the fork. This repository is public, so
+    # anyone can open such a PR.
+    #
+    # What this guards against is bounded but real: the checkout below pins
+    # `ref: master`, so scripts/ci-flake-append.sh is always master's trusted
+    # copy and never the PR's, and it treats rows as data (no eval, line-by-line
+    # reads, 7-field + non-empty + dedupe validation). So the exposure is not
+    # code execution — it is a fork inducing a retry with a doctored
+    # ci-flake-emit.sh and getting arbitrary TSV rows committed to master by
+    # this job, unreviewed.
     if: >
       github.event_name != 'workflow_run' ||
-      github.event.workflow_run.repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository
     steps:
       - name: Checkout master
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -430,6 +430,53 @@ byte count after any write meant to carry large content, because a
 reference-instead-of-content bug commits clean, passes every local check that
 only greps, and is invisible until something tries to parse the result.
 
+### Deviation — 2026-09-07, the fork guard tested the wrong field
+
+Found in a pre-merge review of `ci-flake-ledger.yml`, before the workflow had
+ever run: it is only registered once it reaches the default branch, so this was
+caught while it was still inert.
+
+*Evidence.* The guard read
+
+```yaml
+github.event.workflow_run.repository.full_name == github.repository
+```
+
+under the comment "Skip fork CI completions". It does not do that.
+`workflow_run.repository` is the repository the run *happened in*, and a fork
+PR's CI runs in the **base** repo, so the field equals `github.repository` and
+the guard passes. The fork is `workflow_run.head_repository`. Both fields
+confirmed present on a real run payload (`34053036163`); they match there only
+because that PR's branch was in-repo.
+
+| scenario | `.repository` | `.head_repository` | old | new |
+| --- | --- | --- | --- | --- |
+| push to master | base | base | run | run |
+| PR, in-repo branch | base | base | run | run |
+| PR from a fork | base | **fork** | **run** | skip |
+
+*Why it matters here.* The repository is public (`visibility=PUBLIC`,
+`forks=0` at the time of writing), so anyone may open such a PR. This job holds
+`contents: write` and ends in `git push origin HEAD:master`.
+
+*What the exposure was, stated precisely rather than inflated.* Not code
+execution. The checkout pins `ref: master`, so `scripts/ci-flake-append.sh` is
+always master's trusted copy and never the PR's, and it treats rows as data:
+no `eval`, line-by-line reads so no embedded newlines, and validation for seven
+tab-separated fields, non-empty `failing_test`, header match and dedupe. The
+realistic worst case is a fork doctoring `ci-flake-emit.sh` in its own branch,
+inducing a retry, and getting arbitrary TSV rows committed to `ci-flakes.tsv` on
+the default branch by `github-actions[bot]`, unreviewed.
+
+*Resolution.* Test `head_repository`. One word, and the comment now says why the
+other field is wrong so it is not "simplified" back later.
+
+*Accepted, not fixed, and named so it is not mistaken for an oversight.* Merging
+this branch makes a workflow that pushes to `master` live — on every CI
+completion plus a daily cron. That is this record's own Q3 decision and is
+owner-approved, not a defect. It does mean any future bug in the append path
+reaches `master` without review.
+
 ## Task Checklist
 
 **Phase 1 — mechanism**
