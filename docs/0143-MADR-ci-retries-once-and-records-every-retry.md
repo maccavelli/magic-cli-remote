@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-05
 decision-makers: maccavelli
 consulted: GitHub Actions run history 2026-08-19 → 2026-09-05 (115 completed runs); MADRs 0111, 0118, 0119, 0133
@@ -127,10 +127,13 @@ it argues against doing it first, blind. After a few weeks of ledger the
 conversion work can be aimed at the tests that actually fail, in order, instead
 of at all 28 on the assumption that each is equally guilty.
 
-**This decision is `proposed`, not accepted.** It commits to a retry policy the
-owner has not yet chosen; the retry count, the scope (all jobs, or only the
-platform legs), and whether the ledger is a committed file or a workflow
-artifact are all open in the plan.
+**This decision is `accepted` as of Phase 1 (2026-09-05).** The owner answered
+the three open parameters in the plan's Phase 1 execution record: retry the
+platform legs carrying most failures (wired on the shared go-native `Test`
+step for windows/amd64 + linux/arm64; tag job deferred to Phase 3); whole-step
+retry via pinned `nick-fields/retry` v4.0.0; committed `ci-flakes.tsv` appended
+by a batch job rather than a commit-per-retry. Phase 2 (2026-09-06) lands the
+ledger file, capture/emit/append scripts, and `.github/workflows/ci-flake-ledger.yml`.
 
 ### Consequences
 
@@ -247,3 +250,12 @@ artifact are all open in the plan.
 * Workflow under discussion: `.github/workflows/ci.yml`.
 * Implementation:
   [0143-PLAN-ci-retries-once-and-records-every-retry.md](0143-PLAN-ci-retries-once-and-records-every-retry.md).
+
+## Amendment — 2026-09-06 (Phase 2 ledger)
+
+Phase 2 implements Confirmation criterion 1's prerequisite: the ledger file
+exists at repository root as `ci-flakes.tsv` (header only until the first
+retry is ingested). Rows are produced by the go-native retry path and committed
+by a separate workflow with `contents: write`, so the test job itself never
+pushes. Visibility beyond `warning_on_retry`: job step summary table and a
+`::notice` annotation naming `failing_test` and `retry_result`.

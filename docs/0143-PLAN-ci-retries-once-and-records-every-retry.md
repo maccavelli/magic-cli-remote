@@ -282,6 +282,201 @@ here.
 *Cleanup.* Branch `ci/0143-phase1-verify` and `internal/ciprobe` deleted; the
 probes exist only in that branch's history.
 
+
+### Phase 2 — 2026-09-05/06, ledger path
+
+**Mechanism.** Attempt 1 of the go-native `Test` step tees `go test` into
+`$RUNNER_TEMP/ci-flake/attempt.log`. `on_retry_command` runs
+`scripts/ci-flake-capture.sh`, which takes the first `^--- FAIL: (\S+)` or
+falls back to the step name (`Test`) so the field is never empty. After the
+retry action, when `steps.test.outputs.total_attempts != '1'`,
+`scripts/ci-flake-emit.sh` writes one 7-field TSV row and a step-summary /
+`::notice` annotation; the row is uploaded as artifact
+`ci-flake-<run_id>-<runner>` (label contains `/`, which artifact names forbid).
+
+**Append path — artifact + batch commit, not commit-per-retry.** Phase 1 left
+no append path. Q3's recommendation stands: `.github/workflows/ci-flake-ledger.yml`
+listens for `workflow_run` of `CI` (plus daily schedule / `workflow_dispatch`),
+downloads `ci-flake-*` artifacts from that run, runs
+`scripts/ci-flake-append.sh` (dedupe on `run_id+job_name`), and pushes one
+commit to `master` only when `ci-flakes.tsv` changed. `contents: write` lives
+only on that workflow; `ci.yml` stays `contents: read`.
+
+**Row verification (how; induce separate).** Offline suite
+`scripts/ci-flake-capture_test.sh` covers: FAIL extraction, build-failure →
+step-name fallback, emit pass/fail rows (7 fields), append dedupe + malformed
+skip, wrong-header refusal. Inducing a live flake row is the same scratch-branch
+probe used in Phase 1 (`internal/ciprobe` on a throwaway branch); after merge,
+`workflow_dispatch` the ledger workflow with that run id, or wait for the next
+natural retry. Not induced in this PR — a probe must not land on `master`.
+
+**Out of scope (unchanged).** Flutter legs and `Go (test; build on tag)` wait
+for Phase 3. No test determinization.
+
+**Live induce — done 2026-09-06, run `34045532784`.** `internal/ciprobe` on
+throwaway branch `ci/0143-phase2-verify` failed attempt 1 and passed attempt 2
+on both go-native legs, each emitting its own artifact row:
+
+```text
+34045532784  Go (windows/amd64)  7ced2dd  fail  pass  TestCIProbeInducedFlake
+34045532784  Go (linux/arm64)    7ced2dd  fail  pass  TestCIProbeInducedFlake
+```
+
+Both name the test rather than falling back to the step, which is the half of
+the exit criterion the offline suite cannot reach. The first attempt at this
+(run `34044623679`) is why the deviation below exists: the Windows row read
+`Test`, and fixing that took `844c14e`.
+
+*Cleanup.* Branch `ci/0143-phase2-verify` and `internal/ciprobe` deleted
+2026-09-06, once the rows above were captured. Unlike Phase 1's note, this one
+does not claim the probe survives in a branch's history — that branch is gone,
+so the rows and this record are the evidence. Recreating the probe is a dozen
+lines: a test that writes a marker into `RUNNER_TEMP`, failing when absent and
+passing when present, gated to the retried legs by `RUNNER_OS`/`RUNNER_ARCH`.
+
+*Still open.* The ledger half. `ci-flakes.tsv` cannot gain these rows until this
+branch merges: `ci-flake-ledger.yml` checks out `master`, runs
+`scripts/ci-flake-append.sh` from it, and only registers for `workflow_run` /
+`schedule` / `workflow_dispatch` from the default branch. After merge,
+`workflow_dispatch` it with `source_run_id=34045532784` to ingest the rows above.
+
+**Deviation — 2026-09-06, `ci.yml` corrupted mid-phase and recovered forward.**
+Not a defect in the plan: the phase's design held, and every artefact it names
+survived. What failed was the edit that applied it.
+
+*Evidence.* Commit `31108c2` ("ci(0143): capture flake rows from go-native Test
+retries") replaced the whole of `.github/workflows/ci.yml` with the single line
+`PLACEHOLDER_CI_WILL_REPLACE` — 42 277 bytes to 27. The result is a YAML scalar,
+not a mapping, so GitHub rejects it at parse time: the run is recorded as failed
+in **0 s** with no runner allocated and no job list. This is why the failures
+carried no logs to read. Not pre-existing — `ci.yml` was intact at 42 277 bytes
+through `00b97ba`, the commit immediately before, and the blob there
+(`e66be6d`) is byte-identical to the one on `master`.
+
+*The same mistake, five times.* The next fifteen commits (`91dda34` … `f9df88d`)
+each tried to put the 42 KB back, and `ci.yml` never exceeded 34 bytes. Reading
+the file at each step shows one failure mode repeating — a *reference* to local
+content was committed instead of the content, because nothing in the pipeline
+expands these:
+
+| commit | bytes | committed content |
+| --- | --- | --- |
+| `31108c2` | 27 | `PLACEHOLDER_CI_WILL_REPLACE` |
+| `91dda34`, `41dbbca` | 25 | `file:///tmp/ci-upload.yml` |
+| `b4195ce` | 33 | `${file:/tmp/ci-clean-for-mcp.yml}` |
+| `60220d5`, `6cbe459` | 26 | `@/tmp/ci-clean-for-mcp.yml` |
+| `3401ec4`, `f9df88d` | 34 | `PLACEHOLDER_REPLACE_WITH_FULL_YAML` |
+
+Three distinct inlining syntaxes (`file://`, `${file:…}`, `@path`) were each
+written on the assumption that some layer would substitute the file's contents
+on the way to the commit. None does. Around them, the rebuild was attempted from
+inside CI itself — zlib blob chunks, base64 text parts under
+`docs/_ci0143_parts/`, and a one-shot `restore-ci-yml.yml` workflow — which
+cannot work when the thing that would run the repair is the thing that is
+broken. Each push cost two failed runs rather than one, the scratch restore
+workflow triggering alongside the already-broken `CI`. Total damage: 23 failed
+runs between 04:45:28Z and 05:53:49Z. The correct recovery was available
+throughout and is one command —
+`git show origin/master:.github/workflows/ci.yml`.
+
+*Resolution taken — restore from `ci.yml.restored`, forward-fix, no rewrite.*
+`ci.yml.restored` was verified to be `master`'s `ci.yml` plus exactly the Phase 2
+wiring this section describes and nothing else: 42 insertions, 1 deletion, the
+lone deletion being `command: go test ./...` giving way to its tee'd block form.
+It was promoted into `.github/workflows/ci.yml` in commit `6551eeb`, and the
+recovery scaffolding deleted with it.
+
+*Resolution rejected — squash the branch to a clean Phase 2.* It reads better
+and costs a force-push over sixteen commits already on `origin`, rewriting every
+SHA on the branch. Rejected on the standing rule against rewriting published
+history: the spiral is part of the record and is more useful visible than tidied
+away.
+
+*Files added to the phase's scope*, all deletions of scaffolding that was never
+part of the design:
+
+* `.github/workflows/restore-ci-yml.yml` — the one-shot restore workflow
+* `ci.yml.restored` — promoted into `.github/workflows/ci.yml`, then removed
+* `docs/_ci0143_parts/00.txt` — staged text part of the abandoned rebuild
+
+*Consequence had this been left.* Every push to this branch would keep failing
+in 0 s, Phase 2's exit criterion could never be exercised (no runner, so no
+retry, so no row), and Phase 3 would inherit a branch whose `ci.yml` cannot be
+merged to `master` at all.
+
+*Verification.* The YAML check was seen to fail before being trusted: run
+against a scratch copy of the corrupted content it reports `not a mapping` and
+exits 1; against the restored file it exits 0, reporting 8 jobs in `ci.yml` and
+1 in `ci-flake-ledger.yml`. `shellcheck` clean on `scripts/ci-flake-*.sh`;
+`scripts/ci-flake-capture_test.sh` 16 passed, 0 failed. `workflow_dispatch` on
+the restored branch (run `34043344293`) was accepted — which an unparseable
+workflow cannot be — and started the five non-tag-gated jobs.
+
+*No MADR amendment.* Considered and not warranted: the deviation contradicts no
+fact or assumption the MADR asserts and changes no decision in it. The retry
+mechanism, the ledger location and the append path are all as accepted.
+
+*Housekeeping.* The 23 failed run records were deleted (repository failure total
+84 → 61). One item is deliberately left: workflow id `351338785`
+(`tmp-restore-ci-yml.yml`) still lists as active because a single *successful*
+run, `34012807571`, keeps the entry alive after its file was deleted. Removing
+that run record clears it.
+
+*Note for later phases.* Two rules come out of this. First, restoring a large
+tracked file is a `git show` from a ref that still has it — the content is
+already in the object store, and reconstruction is only ever harder than
+retrieval. Second, a path or URI written into a file is just text: verify the
+byte count after any write meant to carry large content, because a
+reference-instead-of-content bug commits clean, passes every local check that
+only greps, and is invisible until something tries to parse the result.
+
+### Deviation — 2026-09-07, the fork guard tested the wrong field
+
+Found in a pre-merge review of `ci-flake-ledger.yml`, before the workflow had
+ever run: it is only registered once it reaches the default branch, so this was
+caught while it was still inert.
+
+*Evidence.* The guard read
+
+```yaml
+github.event.workflow_run.repository.full_name == github.repository
+```
+
+under the comment "Skip fork CI completions". It does not do that.
+`workflow_run.repository` is the repository the run *happened in*, and a fork
+PR's CI runs in the **base** repo, so the field equals `github.repository` and
+the guard passes. The fork is `workflow_run.head_repository`. Both fields
+confirmed present on a real run payload (`34053036163`); they match there only
+because that PR's branch was in-repo.
+
+| scenario | `.repository` | `.head_repository` | old | new |
+| --- | --- | --- | --- | --- |
+| push to master | base | base | run | run |
+| PR, in-repo branch | base | base | run | run |
+| PR from a fork | base | **fork** | **run** | skip |
+
+*Why it matters here.* The repository is public (`visibility=PUBLIC`,
+`forks=0` at the time of writing), so anyone may open such a PR. This job holds
+`contents: write` and ends in `git push origin HEAD:master`.
+
+*What the exposure was, stated precisely rather than inflated.* Not code
+execution. The checkout pins `ref: master`, so `scripts/ci-flake-append.sh` is
+always master's trusted copy and never the PR's, and it treats rows as data:
+no `eval`, line-by-line reads so no embedded newlines, and validation for seven
+tab-separated fields, non-empty `failing_test`, header match and dedupe. The
+realistic worst case is a fork doctoring `ci-flake-emit.sh` in its own branch,
+inducing a retry, and getting arbitrary TSV rows committed to `ci-flakes.tsv` on
+the default branch by `github-actions[bot]`, unreviewed.
+
+*Resolution.* Test `head_repository`. One word, and the comment now says why the
+other field is wrong so it is not "simplified" back later.
+
+*Accepted, not fixed, and named so it is not mistaken for an oversight.* Merging
+this branch makes a workflow that pushes to `master` live — on every CI
+completion plus a daily cron. That is this record's own Q3 decision and is
+owner-approved, not a defect. It does mean any future bug in the append path
+reaches `master` without review.
+
 ## Task Checklist
 
 **Phase 1 — mechanism**
@@ -294,10 +489,11 @@ probes exist only in that branch's history.
 
 **Phase 2 — ledger**
 
-* [ ] Extraction script (`^--- FAIL:` match, step-name fallback)
-* [ ] `ci-flakes.tsv` and its append path
-* [ ] Row verified correct for an induced flake
-* [ ] Build-level failure records the step name
+* [x] Extraction script (`^--- FAIL:` match, step-name fallback) — `scripts/ci-flake-capture.sh`
+* [x] `ci-flakes.tsv` and its append path — artifact upload + `ci-flake-ledger.yml` batch commit
+* [x] Row verified (offline suite `scripts/ci-flake-capture_test.sh`; live induce documented, not in this PR)
+* [x] Build-level failure records the step name — capture fallback + emit belt-and-suspenders; covered by test §2/§5
+* [x] `ci.yml` restored after mid-phase corruption; recovery scaffolding removed (`6551eeb`) — see deviation 2026-09-06
 
 **Phase 3 — extend**
 

@@ -1,0 +1,141 @@
+# MADR 0143 Phase 2 — batch-commit flake ledger rows.
+#
+# go-native uploads one artifact per retried matrix leg (ci-flake-<run>-<runner>).
+# This workflow does NOT run inside the test job: a retry must not produce a
+# commit per flake (plan Q3 recommendation). Instead it:
+#   * reacts to CI completion (workflow_run), and
+#   * catches stragglers on a daily schedule / manual dispatch,
+# appending new rows into the committed ci-flakes.tsv on master.
+#
+# contents: write is required only here, and only to amend the ledger file.
+name: CI flake ledger
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  schedule:
+    # Daily catch-up if a workflow_run append was skipped or raced.
+    - cron: "17 11 * * *"
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Optional CI run id whose ci-flake-* artifacts to ingest"
+        required: false
+        type: string
+
+concurrency:
+  group: ci-flake-ledger
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  append:
+    name: Append flake rows
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # workflow_run always targets the default branch; schedule/dispatch too.
+    #
+    # Skip fork CI completions — their artifacts are not ours to commit. The
+    # test MUST be head_repository, not repository: `repository` is where the
+    # run happened, and a fork PR's CI runs in the BASE repo, so it equals
+    # github.repository and the guard would pass. `head_repository` is the repo
+    # the head branch lives in, which is the fork. This repository is public, so
+    # anyone can open such a PR.
+    #
+    # What this guards against is bounded but real: the checkout below pins
+    # `ref: master`, so scripts/ci-flake-append.sh is always master's trusted
+    # copy and never the PR's, and it treats rows as data (no eval, line-by-line
+    # reads, 7-field + non-empty + dedupe validation). So the exposure is not
+    # code execution — it is a fork inducing a retry with a doctored
+    # ci-flake-emit.sh and getting arbitrary TSV rows committed to master by
+    # this job, unreviewed.
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.head_repository.full_name == github.repository
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          persist-credentials: true
+
+      - name: Resolve source run id
+        id: src
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rid=""
+          case "${{ github.event_name }}" in
+          workflow_run)
+            rid="${{ github.event.workflow_run.id }}"
+            ;;
+          workflow_dispatch)
+            rid="${{ inputs.source_run_id }}"
+            ;;
+          schedule)
+            rid="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?status=completed&per_page=5" \
+              --jq '.workflow_runs[0].id')"
+            ;;
+          esac
+          if [ -z "$rid" ]; then
+            echo "no source run id — nothing to ingest"
+            echo "has_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run_id=$rid" >> "$GITHUB_OUTPUT"
+          echo "has_run=true" >> "$GITHUB_OUTPUT"
+          echo "Ingesting artifacts from CI run $rid"
+
+      - name: Download flake row artifacts
+        id: dl
+        if: steps.src.outputs.has_run == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: ci-flake-*
+          merge-multiple: true
+          path: flake-rows
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.src.outputs.run_id }}
+
+      - name: Append rows into ci-flakes.tsv
+        id: append
+        if: steps.src.outputs.has_run == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -d flake-rows ] || [ -z "$(find flake-rows -type f 2>/dev/null | head -1)" ]; then
+            echo "No ci-flake-* artifacts for run ${{ steps.src.outputs.run_id }} (no retries, or download missed)."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Downloaded:"
+          find flake-rows -type f -print
+          out="$(bash scripts/ci-flake-append.sh --ledger ci-flakes.tsv --rows-dir flake-rows)"
+          echo "$out"
+          {
+            echo "### CI flake ledger append"
+            echo ""
+            echo "- source run: \`${{ steps.src.outputs.run_id }}\`"
+            echo "- result: \`$out\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if git diff --quiet -- ci-flakes.tsv; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit ledger if changed
+        if: steps.src.outputs.has_run == 'true' && steps.append.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ci-flakes.tsv
+          git commit -m "chore(ci): append MADR 0143 flake ledger rows"
+          git push origin HEAD:master

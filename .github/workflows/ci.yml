@@ -316,6 +316,10 @@ jobs:
       # defaults to 3. `id` is here for Phase 2, which reads
       # steps.test.outputs.total_attempts to know a retry happened without
       # parsing any logs.
+      # Tee attempt output so on_retry_command can extract ^--- FAIL: from
+      # attempt 1 before attempt 2 overwrites the log (MADR 0143 Phase 2).
+      # Artifact + scheduled/batch commit keeps this job from pushing to the
+      # ledger itself — see .github/workflows/ci-flake-ledger.yml.
       - name: Test
         id: test
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
@@ -324,7 +328,46 @@ jobs:
           timeout_minutes: 12
           max_attempts: 2
           retry_on: error
-          command: go test ./...
+          command: |
+            set -euo pipefail
+            mkdir -p "${RUNNER_TEMP}/ci-flake"
+            set +e
+            go test ./... 2>&1 | tee "${RUNNER_TEMP}/ci-flake/attempt.log"
+            rc=${PIPESTATUS[0]}
+            set -e
+            exit "$rc"
+          # A single bare token, deliberately. nick-fields/retry does not run
+          # on_retry_command through `shell: bash` on Windows, so an inline
+          # multi-line command's backslash continuations arrive as literal
+          # arguments — probe run 34044623679 failed exactly that way and the
+          # Windows row fell back to the step name. The wrapper reads
+          # RUNNER_TEMP and FLAKE_STEP from the environment instead.
+          on_retry_command: bash scripts/ci-flake-on-retry.sh
+
+      # total_attempts > 1 is the ledger trigger (supplied free by the action).
+      # Row is uploaded as an artifact; ci-flake-ledger.yml appends to the
+      # committed ci-flakes.tsv so a retry does not produce a commit per flake.
+      - name: Emit flake ledger row
+        if: always() && steps.test.outputs.total_attempts != '1'
+        env:
+          FLAKE_RUN_ID: ${{ github.run_id }}
+          FLAKE_JOB_NAME: Go (${{ matrix.label }})
+          FLAKE_COMMIT_SHA: ${{ github.sha }}
+          FLAKE_EXIT_CODE: ${{ steps.test.outputs.exit_code }}
+          FLAKE_FAILING_TEST_FILE: ${{ runner.temp }}/ci-flake/failing-test.txt
+          FLAKE_ROW_OUT: ${{ runner.temp }}/ci-flake/row.tsv
+          FLAKE_STEP: Test
+        run: bash scripts/ci-flake-emit.sh
+
+      - name: Upload flake ledger row
+        if: always() && steps.test.outputs.total_attempts != '1'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # matrix.label contains '/', which artifact names forbid.
+          name: ci-flake-${{ github.run_id }}-${{ matrix.runner }}
+          path: ${{ runner.temp }}/ci-flake/row.tsv
+          if-no-files-found: warn
+          retention-days: 30
 
   # No go-macos job, deliberately (MADR 0120 D11). Cost is NOT the reason:
   # standard macOS runners are free and unlimited for public repositories (cap:
