@@ -552,3 +552,31 @@ enumeration. This supersedes D8.
 hand-maintained name, D8's original objection has won and the guard should be
 deleted rather than extended — record that, so the next person has the same
 falsifiable condition D8 gave and this amendment honoured.
+
+## Amendment — 2026-09-07 (third): Option B's cost was wrong
+
+Option B above ("Renormalise the tree to LF, leave the scans LF-only") is
+rejected against a stated cost of "a 1668-file diff that touches nearly every
+review". **That cost is not real, and the sentence should not be trusted.**
+
+Measured under MADR 0148: `git add --renormalize .` stages **zero** changes.
+Every blob in `HEAD` is already LF; the CRLF exists only in the working tree,
+which git treats as clean. There is no diff, no commit, and no review burden —
+the refresh is a local operation with an empty `git status` on both sides of it.
+It was executed on 2026-09-07 and took the census from 1069 files to 0 without
+producing a commit.
+
+**The rejection still stands, for the reasons that were true.** Option B fixes
+neither F1 (the A2 probe), nor F4 (the shell-dependent `false`), nor F7 (the
+silent false pass), and D6's judgement — that the tree-wide question belongs in
+its own record rather than buried in a test fix — was right; that record is now
+0148. Only the cost estimate was wrong.
+
+The original argument is left unedited above, because what a record believed at
+decision time is the thing it exists to preserve. This note is how a reader who
+reaches that sentence learns not to rely on it.
+
+**D5 of this record is unaffected.** 0148 D3 keeps the read-time normalisation
+deliberately: it protects any contributor whose checkout is stale the way this
+one was, and a locally-clean tree is not a reason to remove it. See 0148 C2,
+which names that removal as the contract most at risk.

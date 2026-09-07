@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-07
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -214,3 +214,54 @@ always produced LF, which is why CI has never seen any of this.
 * **`core.autocrlf` at system scope.** Left alone by D4. If a future repository
   without a `.gitattributes` is worked on from this host, that setting will
   matter — but that is that repository's problem to declare, not this one's.
+
+## Execution record (2026-09-07)
+
+Both phases ran. P1 took the working tree from 1069 CRLF files to 0 **without
+producing a commit**; P2 amended 0147.
+
+| Criterion | Result |
+| --- | --- |
+| A1 CRLF census 0 | met — 1069 → 0 |
+| A2 status empty both sides, no new commit | met — empty before and after, HEAD `304b90c` unchanged |
+| A3 `gofmt -l` over all tracked `.go` empty | met — first time since `e929614` |
+| A4 build, `go test ./...`, `-race`, gate | met — all green; gate `ALL SELECTED CHECKS PASSED` |
+| A5 `TestSourceScansSurviveCRLF` present and passing | met |
+| A6 untracked untouched | met — `apps/mobile/build` survived |
+| A7 `core.autocrlf` unchanged | met — local/global empty, system `true` |
+| A8 0147 amended, Option B unedited | met |
+
+The refresh itself was two commands and a few seconds. The `git rm --cached -r .`
+/ `git reset --hard` recipe behaved exactly as the scratch-repo rehearsal
+predicted, which is the one thing this plan predicted *correctly* and worth
+noting: rehearsing a destructive-looking command on a synthetic reproduction
+cost minutes and removed all doubt from the real run.
+
+### What the plan predicted incorrectly
+
+**The before-count was wrong, and the record cannot explain it.** The MADR
+states ~1671 CRLF files, measured earlier the same day. The census immediately
+before the refresh read **1069**. Roughly 600 files converted between the two
+measurements, and the work done in between — a handful of file edits, a
+`git stash`/`pop` cycle, one `git checkout-index` probe — accounts for a few
+files at most, not six hundred.
+
+This is recorded as unexplained rather than reconciled. The likeliest candidate
+is that some earlier git operation refreshed part of the tree as a side effect,
+but that is a guess and is marked as one. **The outcome does not depend on it:**
+the after-count is 0 and `git status` was empty on both sides, which is the
+claim the record actually makes. But a number quoted in a MADR that cannot be
+reproduced hours later is a defect in the record, and pretending the smaller
+figure was always the figure would be worse than saying so.
+
+**The lesson generalises:** a census taken once and quoted as a fixed quantity
+will drift if anything touches the tree in between. Where a count is
+load-bearing, take it immediately before the operation it justifies — which the
+plan did require, and which is the only reason the discrepancy was noticed at
+all rather than silently papered over.
+
+### Deferred, unchanged
+
+Other stale Windows checkouts, a permanent CRLF check, the
+`internal/ws/op_timeout_test.go` nil-index panic, and `core.autocrlf` at system
+scope — all as named in the Deferred section above.
