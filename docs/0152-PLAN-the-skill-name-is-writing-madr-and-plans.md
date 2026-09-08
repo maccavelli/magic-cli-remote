@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-07
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -209,3 +209,25 @@ This is worth recording rather than quietly rewording, because a criterion
 phrased as a bare `grep -c … == 0` is exactly the kind that gets satisfied by
 deleting the explanation along with the error. The plan's own C3 asks for the
 qualification that A1 would have removed.
+
+## Execution record — 2026-09-07
+
+Both phases ran: `596a9f1` (P1), `c50ea33` (P2, with the A1 amendment).
+
+| # | Result |
+| --- | --- |
+| A1 | met as amended — no file gives the other spelling as the skill to load |
+| A2 | met — four files, each naming the skill and `~/.claude/skills` |
+| A3 | met — all four retain the check block |
+| A4 | met — ledger, symlink paragraph, verification note and birth-time dispute all gone |
+| A5 | met — five explanatory mentions, one per file plus the fixture path in `AGENTS.md` |
+| A6 | met — `git diff --stat` over `internal/`, `docs/0106-*`, `docs/kilo-spike-7.4.20/` is empty |
+| A7 | met — nothing under `~` was touched |
+| A8 | met — `writing-madr-and-plans` returned the skill body this session; `madr-and-plan-writing` returned `Unknown skill` |
+
+**What the plan predicted wrongly.** A1, as written, forbade what D3 requires;
+see the amendment. The plan also budgeted P2 as "the same three edits in each",
+and one file was not the same: `.claude/rules/madr-and-plan-skill.md` carried
+its stale block *after* the gate section rather than inside the skill section,
+so a replacement bounded by `## The gate` left it untouched. Caught by the A4
+grep, not by reading. That is the argument for A4 being a grep at all.
