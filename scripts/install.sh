@@ -76,7 +76,8 @@ detect_arch() {
         Darwin) OS=darwin ;;
         *)
             die 1 "this installer supports Linux and macOS only (found $uname_s).
-Windows is not a supported host; use WSL2."
+Windows has its own PowerShell installer (install.ps1) at the same release
+URL; see README.md and docs/ops-windows-install.md."
             ;;
     esac
 

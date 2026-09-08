@@ -1588,3 +1588,58 @@ The distinction matters for how this record should be read: before 0150 the
 survival of a provider's descendants depended on a property of the descendant.
 After it, it does not. That is the difference between a guarantee and a
 coincidence, and D9's bullet was only ever claiming the former.
+
+## Amendment — 2026-09-08, install.sh message + README lineage wording
+
+Two documentation defects were noticed while reviewing the record against
+the current tree. Neither changes a decision; both make the record match
+what a reader will see today.
+
+### A1. F13 is no longer accurate
+
+F13 was a snapshot of the pre-shipment state, and its four bullets are now
+all false:
+
+* `ci.yml:165` was `windows/amd64` commented out. It is now uncommented
+  (`ci.yml:174`); `windows/amd64` is in the release matrix.
+* `install.sh:78–79` said *"Windows is not a supported host; use WSL2."*
+  Windows is Tier 2 today, and the script now points Windows users at
+  `install.ps1` instead. The fix is the only mutating change in this
+  amendment: the message, not the policy, was wrong.
+* `verify-build-metadata.sh:19–21` did not build `windows/*`. It does now
+  (line 33: `build_one windows amd64 "" ...`), and explicitly refuses to
+  build `windows/arm64` (D19).
+* There is a `windows-latest` runner now — `go-native` and `smoke-native`
+  both have a windows/amd64 leg.
+
+F13 is **kept verbatim above** because it is the record of what was true
+when the decision was made, and the gating finding (no Windows
+verification at acceptance time) was the reason D17 wired a `windows-latest`
+runner in the first place. A reader cross-checking the MADR against the
+tree would otherwise be left to wonder which copy is wrong.
+
+### A2. The install.sh comment is a passing observation, not a policy
+
+`install.sh:228–232` reads:
+
+> "Convention C5 (MADR 0116 F17): the extension comes LAST, so a Windows
+> manifest line yields "0.14.10.1.exe" without this. install.sh refuses to
+> run on Windows, but the manifest format is shared with install.ps1 and
+> with update/github.go, and all three must parse it the same way."
+
+The phrase "install.sh refuses to run on Windows" is still factually
+correct — `install.sh` runs only on Linux/macOS — but reads oddly once A1
+is taken into account. No edit: the comment describes the script's own
+behaviour, not the platform posture, and the surrounding line is the
+load-bearing note (the `.exe` strip). Recording the omission rather than
+touching unrelated lines.
+
+### A3. No decision changed
+
+This amendment does not supersede, reverse, or extend D1–D21. It is a
+correction to the user-facing script message and to the README's "v0.8.x
+lineage" framing, both of which predated the first Windows release. The
+same record-keeping rule that kept the historical findings in place
+applies to this amendment: nothing above this heading is edited, including
+D13's references to `install.ps1` and `ci.yml:160–165`, which now read as
+implementation history rather than current specs.

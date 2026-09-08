@@ -178,7 +178,7 @@ not select it for you.
 
 ---
 
-**Current product surface (v0.8.x lineage):** Grok Build ACP, OpenCode, Goose,
+**Current product surface:** Grok Build ACP, OpenCode, Goose,
 Codex, Kilo, and Fake providers; remote tool permissions; session modes / model
 catalogs / thinking levels; stream coalescing; protocol v2 reconnect/resume;
 native path layout per platform — XDG on Linux/macOS, Known Folders on

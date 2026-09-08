@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-08-27
+status: complete
+date: 2026-09-08
 associated-madr: "0116-MADR-windows-and-linux-arm64-build-targets.md"
 owner: [Project Owner]
 target-milestone: "Windows amd64/arm64 + linux/arm64 build targets"
@@ -2160,3 +2160,67 @@ blocking makes that claim false and stops being read.
 * `internal/receipt/store.go:51,55` builds filenames as `deviceID+".jsonl"`
   with no sanitisation. Device IDs are UUIDs today, so this is latent, not
   live — worth a follow-up, not a scope expansion here.
+
+---
+
+## Amendment — 2026-09-08, P9: documentation defects against shipped tree
+
+P9 was a single-commit follow-up, opened because the user-facing install
+message on Windows and the README's "Current product surface (v0.8.x
+lineage)" framing were left over from the pre-Windows era. Neither is
+a MADR decision; both are out-of-scope for the original eight phases and
+amend the record without re-opening it.
+
+### P9.1 — `scripts/install.sh:78-79`
+
+**Before:**
+
+```sh
+die 1 "this installer supports Linux and macOS only (found $uname_s).
+Windows is not a supported host; use WSL2."
+```
+
+**After:**
+
+```sh
+die 1 "this installer supports Linux and macOS only (found $uname_s).
+Windows has its own PowerShell installer (install.ps1) at the same release
+URL; see README.md and docs/ops-windows-install.md."
+```
+
+The new message points Windows users at the correct installer (D13's
+`install.ps1`) instead of telling them to use WSL2, which contradicts
+the README and `docs/ops-windows-install.md`. The check itself is
+unchanged: `install.sh` still runs only on Linux/macOS; only the message
+the user sees is fixed.
+
+### P9.2 — `README.md:181`
+
+**Before:** `**Current product surface (v0.8.x lineage):** Grok Build ACP, ...`
+**After:** `**Current product surface:** Grok Build ACP, ...`
+
+The latest tag at the time of this amendment is `v0.16.6`. The "v0.8.x
+lineage" qualifier predated the first Windows release and was never
+updated; dropping it makes the sentence read as a current spec rather
+than a stale one.
+
+### P9.3 — Verification
+
+* `shellcheck -s sh scripts/install.sh` — clean.
+* `git diff --stat` — 3 insertions, 2 deletions across `README.md` and
+  `scripts/install.sh`.
+* No Go file changed, so the pre-add rule (`scripts/go-precheck.sh`)
+  does not apply.
+* The historical MADR 0116 F13 finding is **kept verbatim** in the MADR
+  (see its Amendment A1); this plan does not re-derive it. The PLAN's
+  own scope list, "In scope" section, and phase structure are unchanged.
+* MADR 0116 status remains `accepted`; the PLAN's status moves to
+  `complete` after this commit lands, because every acceptance criterion
+  in the original eight phases is met **and** P9 is itself a single
+  commit with no open acceptance criteria.
+
+### P9.4 — Rollback
+
+`git revert` of this commit restores the previous `install.sh` error
+message and the "v0.8.x lineage" framing. No persisted state, no
+protocol surface, no asset names touched.
