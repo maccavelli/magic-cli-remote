@@ -13,6 +13,16 @@
 // It is inert unless MCREMOTE_WIRE_CAPTURE_DIR is set, and is intended for a
 // developer capturing fixtures — never for production. Frames are written
 // verbatim, so a fixture reproduces the engine's own bytes.
+//
+// What redaction covers, and what it does not: [Capture.redact] replaces the
+// operator's home directory and nothing else. A frame may carry any other
+// identifier the engine chooses to send — an email address, an account id, a
+// hostname, a project name — and none of it is removed. That is not a gap
+// waiting to be closed by a longer list; the committed grok fixture carried an
+// email address and an account UUID for four days on exactly this basis
+// (MADR 0151 F5, F8). A capture bound for a public repository needs reading,
+// not just redacting. TestCommittedFixturesCarryNoIdentifiers guards the two
+// shapes that have actually reached a fixture.
 package wirecap
 
 import (
