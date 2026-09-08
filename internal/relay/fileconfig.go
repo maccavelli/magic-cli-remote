@@ -608,9 +608,6 @@ func (c FileConfig) Validate() error {
 			return fmt.Errorf("tls.cert_file and tls.key_file are required for files mode")
 		}
 	}
-	if len(c.Hosts) == 0 {
-		return fmt.Errorf("at least one host must be configured (hosts: in YAML, MCRELAY_HOSTS, or --allow)")
-	}
 	seen := map[string]struct{}{}
 	for i, h := range c.Hosts {
 		if err := validateHostID(h.ID); err != nil {
@@ -634,6 +631,28 @@ func (c FileConfig) Validate() error {
 }
 
 // validateLimitsConfig enforces MADR 0017 D9 ceilings (reject, do not silently start).
+// ValidateServeable reports whether this config is well-formed AND describes a
+// relay that could actually serve. The difference is exactly one rule: a relay
+// with no configured hosts is well-formed and simply has nothing to do.
+//
+// serve calls this; Load calls [FileConfig.Validate]. That split is the reason
+// `mcrelay paths` answers on a host with no configuration at all, which it did
+// not before MADR 0154 — it was inheriting a serve-readiness precondition to
+// print a directory name.
+//
+// A caller that validates and then serves without this method starts a relay
+// nobody can register with. If a second such caller ever appears, it belongs
+// here rather than repeating the check.
+func (c FileConfig) ValidateServeable() error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if len(c.Hosts) == 0 {
+		return fmt.Errorf("at least one host must be configured (hosts: in YAML, MCRELAY_HOSTS, or --allow)")
+	}
+	return nil
+}
+
 func validateLimitsConfig(l LimitsConfig) error {
 	check := func(name string, v, max int) error {
 		if v > max {

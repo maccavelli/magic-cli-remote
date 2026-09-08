@@ -240,7 +240,9 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			fc.TLS.LetsEncrypt.Domains = expandStringList(fc.TLS.LetsEncrypt.Domains)
 			fc.TrustedProxies = expandStringList(fc.TrustedProxies)
 
-			if err := fc.Validate(); err != nil {
+			// ValidateServeable, not Validate: serving is the one caller that
+			// additionally requires at least one configured host (MADR 0154 D2).
+			if err := fc.ValidateServeable(); err != nil {
 				return err
 			}
 			fc.TLS = fc.TLS.Normalized()
