@@ -289,3 +289,35 @@ private will stop the daemon. That is the decision, not an oversight.
   proposes one by reflection; if it proves fragile it should be dropped rather
   than nursed, and the deferral recorded — MADR 0149 D11's bar is that a class
   guard earns its place at the third instance, and this would be the first.
+
+## Amendment — 2026-09-08: the predicate needs provenance, not a Config value
+
+D7 and P1 describe `HasInlineSecret` as a method on `Config`. It cannot be one,
+and the reason is a fact neither the MADR nor the plan accounted for.
+
+**`MCREMOTE_RELAY_SECRET` and `--relay-secret` populate the same field as
+`relay.secret` in YAML.** `load.go` calls `v.SetEnvPrefix("MCREMOTE")` and
+`v.AutomaticEnv()`, and binds flags into the same viper instance, so by the
+time a `Config` exists its `Relay.Secret` may have come from any of the three.
+A method on the merged value cannot tell which — it would report a secret for
+the arrangement `RelayConfig`'s own doc comment *recommends* (url and host_id
+in YAML, secret from the environment), and fail the daemon over a config that
+has nothing sensitive on disk.
+
+**Corrected P1.** A package-level function taking a provenance oracle:
+
+```go
+var secretConfigKeys = []string{"relay.secret"}
+
+func HasInlineSecret(inFile func(key string) bool) bool
+```
+
+Production passes `viper.InConfig`, which answers for the config file
+specifically; tests pass a map. The list of secret keys stays in exactly one
+place, which is what D7 and C3 were actually protecting — that part is
+unchanged, and the guard test enforces it.
+
+**P2 inherits a constraint from this.** The oracle is the viper instance, so
+the check must run where that instance is in scope, not from a `Config` handed
+onward. This makes P2's already-awkward ordering — parse, then decide — the
+only workable one, rather than merely the preferable one.

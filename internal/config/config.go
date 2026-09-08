@@ -1412,3 +1412,40 @@ func (r RelayConfig) validate() error {
 	}
 	return nil
 }
+
+// secretConfigKeys are the viper keys whose values are credentials.
+//
+// This list is the single point of truth for "which settings are secret". It
+// exists so the permission check in Load asks a question about the
+// configuration type rather than about one field name: the next secret-bearing
+// field will be added by someone who has not read MADR 0155, and a literal
+// check at the call site would fail open for them with no signal (0155 D7,
+// PLAN C3).
+//
+// Adding a field here is the whole change. TestSecretConfigKeysCoversEveryTag
+// fails if a struct tag that looks like a credential is not listed.
+var secretConfigKeys = []string{"relay.secret"}
+
+// HasInlineSecret reports whether any secret-bearing key was set by the config
+// FILE, as opposed to the environment or a command-line flag.
+//
+// Provenance is the entire point, and it is why this takes an oracle instead of
+// inspecting a [Config] value: MCREMOTE_RELAY_SECRET and --relay-secret
+// populate exactly the same field as relay.secret in YAML, so a merged Config
+// cannot say where the value came from. A daemon that receives its secret from
+// the environment has put nothing on disk to protect, and failing its startup
+// over a world-readable config would be a false positive.
+//
+// Production passes viper's InConfig, which answers for the config file
+// specifically. Tests pass a fake.
+func HasInlineSecret(inFile func(key string) bool) bool {
+	if inFile == nil {
+		return false
+	}
+	for _, key := range secretConfigKeys {
+		if inFile(key) {
+			return true
+		}
+	}
+	return false
+}
