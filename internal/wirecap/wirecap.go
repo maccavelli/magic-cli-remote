@@ -106,11 +106,34 @@ func (c *Capture) redact(s string) string {
 	if c.home == "" || c.home == "/" {
 		return s
 	}
-	s = strings.ReplaceAll(s, c.home, "/home/user")
+	s = replaceBothForms(s, c.home, "/home/user")
 	// rel == c.home means the home had no root to strip, so the absolute
 	// replacement above already covered every form of it.
 	if rel := stripRoot(c.home); rel != "" && rel != c.home {
-		s = strings.ReplaceAll(s, rel, "home/user")
+		s = replaceBothForms(s, rel, "home/user")
+	}
+	return s
+}
+
+// replaceBothForms replaces needle as written and as JSON encodes it.
+//
+// Every frame this package records is a JSON document (MADR 0151 F3), and
+// encoding/json escapes a backslash — so a Windows home reaches the file with
+// its separators doubled while c.home holds single ones. Neither of the two
+// needles redact builds could ever match it, which made redaction a complete
+// no-op on Windows from the day the package was written until 0151 D1.
+//
+// The escaped needle is added rather than substituted, and that distinction is
+// the whole correctness argument: substituting would fix Windows and silently
+// stop redacting raw POSIX homes, while every existing test still passed,
+// because a POSIX needle has no backslash to escape and the two forms are then
+// identical. For the same reason the doubling is unconditional rather than
+// gated on the host — deriving behaviour from the host running the capture is
+// what MADR 0144's amendment found and removed, and 0151 D2 keeps it out.
+func replaceBothForms(s, needle, with string) string {
+	s = strings.ReplaceAll(s, needle, with)
+	if esc := strings.ReplaceAll(needle, `\`, `\\`); esc != needle {
+		s = strings.ReplaceAll(s, esc, with)
 	}
 	return s
 }

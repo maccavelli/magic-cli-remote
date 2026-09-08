@@ -2,6 +2,7 @@ package wirecap
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -127,6 +128,29 @@ func TestRedactAbsoluteAndRelativeHome(t *testing.T) {
 			}
 		})
 	}
+
+	// The forms above are what a home looks like in isolation. What reaches
+	// frames.jsonl is a JSON document, and encoding/json escapes a backslash, so
+	// a Windows home arrives doubled and matches neither needle above.
+	// Redaction was a complete no-op on Windows until MADR 0151 D1; its F3
+	// records that every capture site hands Frame a JSON document, so this is
+	// the only form that reaches the file, not an edge case.
+	//
+	// The inputs come from json.Marshal rather than from hand-written literals
+	// on purpose: a literal could drift from what the encoder actually
+	// produces, and the gap between the two is this test's whole subject.
+	t.Run("json-escaped homes", func(t *testing.T) {
+		for _, home := range []string{"/Users/alice", `C:\Users\alice`, `\srv\home\alice`} {
+			frame, err := json.Marshal(map[string]string{"cwd": home + `\proj`, "alt": home + "/proj"})
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			got := (&Capture{home: home}).redact(string(frame))
+			if strings.Contains(got, user) {
+				t.Errorf("home %q: username leaked after redact: %s", home, got)
+			}
+		}
+	})
 
 	// Disabled states stay byte-for-byte inert: redaction that fires when it was
 	// not configured would corrupt a fixture rather than protect one.
