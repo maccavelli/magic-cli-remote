@@ -1531,3 +1531,60 @@ The decision is confirmed when all of the following hold:
 **All open questions are now resolved.** What remains outstanding is not a
 decision but a verification: the `[unverified]` findings (F3's resolver
 impact, F9's `.prev` removal) become facts on the first Windows CI run.
+
+## Amendment — 2026-09-07: D8 describes an implementation that did not ship
+
+D8's original text is left exactly as written above. It is wrong in three
+specifics, and MADR 0150 was written because that wrongness went unnoticed for
+eleven days while two records rested on it.
+
+**What D8 says, and what `procutil_windows.go` actually does.** Read at
+`f4aabbb`:
+
+| D8 claims | What shipped |
+| --- | --- |
+| `SetProcessGroup` creates the Job Object and assigns the child | it sets `CREATE_NEW_PROCESS_GROUP` and nothing else |
+| `TerminateProcessGroup` closes the job after a graceful `CTRL_BREAK_EVENT` | it sends `CTRL_BREAK_EVENT`, waits, then escalates to `TerminateProcess`; it never touches a job |
+| `KillProcessGroup` terminates the job | it opens the process and calls `TerminateProcess` on that one process |
+
+The job object is real and correct, but it lives in a fourth function D8 does
+not mention: `SuperviseStarted`, added in the same commit (`ef52386`,
+2026-08-27). The reason it could not live where D8 put it is structural rather
+than an oversight in the code — `os/exec` exposes no hook between
+`CreateProcess` and the caller regaining control, so nothing inside
+`SetProcessGroup` can see a started process to assign. Assignment has to happen
+after `Start`, in the caller, which must then hold the returned release for the
+process's lifetime. 0150 D4 keeps it that way deliberately.
+
+**D9's first survivability bullet was aspirational, and is now true.** It reads
+"orphaned provider processes are already prevented by D8's Job Object". From
+`ef52386` (2026-08-27) until 0150 landed (`f4aabbb`, 2026-09-07) nothing called
+`SuperviseStarted` — the function had zero production callers, and could not
+have gained one from shared code, because it was declared only in the Windows
+file and a cross-platform call site failed to compile. Ending the scheduled
+task did not take provider trees with it.
+
+It does now, by the mechanism D9 assumed: the daemon holds one job handle per
+supervised process for that process's lifetime, so however the daemon dies its
+handles close, `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` fires, and the trees go
+with it. Six of the twelve `SetProcessGroup` sites are wired — the three engine
+providers, agent terminals, the codex engine, and the auth CLI. The other six
+are `cmd.Run` sites that wait for their child inside the call, which bounds the
+exposure to the call's duration; 0150 D5 defers them, and that is the residue
+of this bullet that is still not covered.
+
+**The gap was narrower than "no tree-kill", which is worth stating precisely.**
+Measured while building 0150's wiring test (0150 F10): with supervision present
+but inert, a grandchild left in the engine's console process group still died,
+because `GenerateConsoleCtrlEvent` delivers `CTRL_BREAK_EVENT` to every process
+in the target group and a child spawned without `CREATE_NEW_PROCESS_GROUP`
+inherits its parent's. So `TerminateProcessGroup`'s graceful phase was already
+reaching one level deeper than "the direct child". What it could not reach —
+and what the job object exists for — is a descendant in another process group,
+one that ignores the event, and every descendant on the escalation path, where
+`TerminateProcess` takes the direct child alone.
+
+The distinction matters for how this record should be read: before 0150 the
+survival of a provider's descendants depended on a property of the descendant.
+After it, it does not. That is the difference between a guarantee and a
+coincidence, and D9's bullet was only ever claiming the former.

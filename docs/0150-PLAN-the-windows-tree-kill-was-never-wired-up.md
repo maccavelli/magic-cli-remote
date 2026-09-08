@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-07
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -355,3 +355,51 @@ exercised by existing tests — ten `StartCLIDeviceFlow` calls including the
 this phase rests on compilation, the shared shape, and review. P4's test covers
 `httpagent` only. That is a real gap and is recorded here rather than implied
 away by a green suite.
+
+## Execution record — 2026-09-07
+
+All five phases landed, one commit each, on `master`.
+
+| Phase | Commit | What it did |
+| --- | --- | --- |
+| P1 | `7303077` | `SuperviseStarted` declared on every platform, no-op off Windows |
+| P2 | `c6db124` | the three engine providers supervise |
+| P4 | `aa30bbf` | the wiring test, and MADR F10 with it |
+| P3 | `f4aabbb` | codex, agent terminals, the auth CLI; idempotent release |
+| P5 | this commit | MADR 0116 amended |
+
+P4 ran before P3, against the order this plan set. The reason was worth the
+deviation: P4 is what turns P2 from "compiles and reasons correctly" into
+"demonstrated", and writing it while only three call sites existed kept the
+test's subject small. It also paid for itself immediately — the first version
+of the test passed a sabotage it should have failed, which is how F10 was
+found, and finding that before P3 rather than after meant P3's three sites were
+wired with the correct model of what the job object is actually for.
+
+### Acceptance criteria
+
+| # | Criterion | Result |
+| --- | --- | --- |
+| A1 | All three targets build | met — `CGO_ENABLED=0` for windows/linux/darwin at every phase |
+| A2 | Six production `SuperviseStarted` calls at the six long-lived sites | met — six, and twelve `SetProcessGroup` sites total, so the six `cmd.Run` sites account for the difference exactly |
+| A3 | Zero `defer release` at any spawn site | met — the only match repo-wide is the warning comment in `procutil_windows.go` |
+| A4 | A supervision error fails the spawn | met by construction at all six sites; **no test exercises the error path**, because forcing `CreateJobObject` to fail needs a seam none of the six has |
+| A5 | The P4 test fails against the pre-P2 tree | met twice, both sabotages reverted; see the P4 amendment |
+| A6 | Unix `go test ./...` unchanged by P1 | **not verified locally** — this host is Windows and has no Unix runner. The Linux CI lane was green on `c6db124`, and the no-op is `return func() {}, nil`, but the byte-for-byte comparison C1 describes was never run |
+| A7 | 0116 amended; original D8/D9 unedited | met — the diff is 57 insertions, 0 deletions |
+| A8 | Windows gate green; `go test -race` green | met at every phase |
+
+### What this record did not do
+
+* **The six `cmd.Run` sites** stay unsupervised (D5). Their exposure is bounded
+  by the call, and supervising them means restructuring each into
+  `Start`/`Wait`.
+* **Two of P3's three sites have no test that spawns through them** —
+  `acpagent/terminal.go` and codex's `launchEngineProcess`. P4 covers
+  `httpagent`; `providerauth` is covered by its existing suite. The gap is
+  named in the P3 amendment and is the most likely place for this fix to be
+  silently undone.
+* **F5 is still inferred.** Whether `GenerateConsoleCtrlEvent` fails under a
+  running scheduled task was not tested, and F10 makes that question sharper
+  rather than softer: the graceful phase turns out to do more of the work than
+  this record assumed, so knowing when it is unavailable matters more.
