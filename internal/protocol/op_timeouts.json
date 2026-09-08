@@ -6,7 +6,6 @@
         "session.create": 120000,
         "session.prompt": 60000,
         "session.list": 30000,
-        "session.cancel": 30000,
         "session.set_mode": 30000,
         "session.set_config_option": 30000,
         "session.delete": 60000,
