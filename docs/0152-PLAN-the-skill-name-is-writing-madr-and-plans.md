@@ -231,3 +231,38 @@ and one file was not the same: `.claude/rules/madr-and-plan-skill.md` carried
 its stale block *after* the gate section rather than inside the skill section,
 so a replacement bounded by `## The gate` left it untouched. Caught by the A4
 grep, not by reading. That is the argument for A4 being a grep at all.
+
+## Execution record — 2026-09-08 (second pass, reversed name)
+
+Owner reversed the name on 2026-09-08. MADR 0152's second amendment records the
+decision (D8, D9) and chooses option B, which this record had already analysed
+and rejected only on the premise that has now changed.
+
+**What ran.** The skill directory was renamed
+`~/.claude/skills/writing-madr-and-plans` → `madr-and-plan-writing`, its
+`SKILL.md` `name:` field updated to match, and the four instruction files
+flipped to the new name.
+
+**A8 is met, and it is the only criterion that could have caught the mistake
+this pass nearly made.** Before the rename, calling `madr-and-plan-writing`
+returned `Unknown skill`. After it, the harness re-read the skills directory and
+the name appeared in the available-skills list. Had this plan changed only the
+documents — which is what "make everything that" could have been read to mean —
+all of A1 through A7 would have passed while every agent on this host silently
+loaded nothing.
+
+**What this pass got wrong, recorded because it is the same defect twice in one
+session.** The flip was done with a blanket string replacement, which rewrote
+the *explanatory* sentences too: each file ended up asserting that
+`madr-and-plan-writing` had been this host's entry until 2026-09-08, which is
+precisely backwards. Caught by reading the result, not by any check in this
+plan. The identical failure — a blanket replace corrupting the text that
+mentions both sides of a rename — hit `killTree` twice during MADR 0150 P2. The
+lesson that did not transfer: when the old and new strings both appear in prose
+*about* the change, a blanket replace is never the right tool.
+
+**Also deliberately not done:** `git revert` of `596a9f1` and `c50ea33`. It
+would have reversed the name in one command and restored four false claims with
+it — the fabricated 2026-09-06 verification, the `~/.agents` symlink, the
+reversal ledger, and the birth-time dispute. Those are false under either
+spelling.

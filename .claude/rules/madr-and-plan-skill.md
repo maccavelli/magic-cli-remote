@@ -8,7 +8,7 @@ files at once (review 2026-09-01, F1/F2).
 
 ## The skill
 
-Whenever the user asks for an MADR and a plan, load the **`writing-madr-and-plans`**
+Whenever the user asks for an MADR and a plan, load the **`madr-and-plan-writing`**
 skill first and follow it for authoring, naming (`NNNN-MADR-*` / `NNNN-PLAN-*`)
 and review. This applies to writing a fresh pair and to amending an existing
 one.
@@ -18,14 +18,13 @@ call returns `Unknown skill`, and an agent that proceeds without the skill
 writes something shaped like a MADR while missing MADR 4.0.0's heading names,
 the `Good/Neutral/Bad` argument form, and the mechanical slug rule.
 
-**Settled 2026-09-07 by owner decision, with the cause established (MADR 0152).**
-The name reversed four times because it was never a typo: both spellings are
-true about different machines. A directory named `madr-and-plan-writing` exists
-under a *different agent's* skills root on the POSIX host — evidenced by the
-grok wire fixture captured 2026-09-03, which contains that engine's own skill
-listing. On this host, under `~/.claude/skills`, the name is
-`writing-madr-and-plans`. Finding the other spelling under some other root is
-not a bug here, and is not a reason to edit this file.
+**Settled 2026-09-08 by owner decision, and by a rename rather than a document
+(MADR 0152, second amendment).** The name reversed five times because it was
+never a typo: the two spellings were true of two different machines. The Mac's
+grok skills root has held `madr-and-plan-writing` since at least 2026-09-03,
+while this host's `~/.claude/skills` held `writing-madr-and-plans`. The
+directory here has now been renamed to match, so one name covers both machines
+and there is no second spelling left to discover and "correct" to.
 
 The filesystem still outranks this paragraph. Verify:
 

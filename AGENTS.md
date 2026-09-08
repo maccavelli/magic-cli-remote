@@ -163,27 +163,27 @@ Per-agent pointers to this section: `.claude/rules/madr-and-plan-skill.md`,
 `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
 
 **Whenever the user asks for an MADR and a plan, load the
-`writing-madr-and-plans` skill first** and follow it for authoring,
+`madr-and-plan-writing` skill first** and follow it for authoring,
 naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies both to
 writing a fresh pair and to amending an existing one.
 
 The name is exact — it is the `name:` field of
-`~/.claude/skills/writing-madr-and-plans/SKILL.md`, which is the only entry
-under this host's skills root. Owner decision, 2026-09-07 (MADR 0152).
+`~/.claude/skills/madr-and-plan-writing/SKILL.md`, which is the only entry
+under this host's skills root. Owner decision, 2026-09-08 (MADR 0152, second
+amendment).
 
-**Why this name reversed four times, established at last (MADR 0152 F5).** It
-was never a typo, and the answer is that both spellings are true statements
-about different machines. The grok wire fixture captured 2026-09-03 on the
-POSIX host contains that engine's own skill listing —
-`/home/user/.grok/skills/madr-and-plan-writing/SKILL.md` — so a directory with
-the other spelling really does exist there, under a *different agent's* skills
-root. Every author who checked a filesystem was right about the one they
-checked, and wrong to write it without saying which.
+**Why this name reversed five times, and why it is settled now (MADR 0152 F5,
+F8).** It was never a typo: the two spellings were true of two different
+machines. The Mac's grok skills root has held `madr-and-plan-writing` since at
+least 2026-09-03 — the wire fixture captured that day contains that engine's
+own skill listing, `/home/user/.grok/skills/madr-and-plan-writing/SKILL.md` —
+while this host's `~/.claude/skills` held `writing-madr-and-plans`. Every
+author who checked a filesystem was right about the one they checked, and wrong
+to write it without saying which.
 
-So: on this host, under `~/.claude/skills`, the name is
-`writing-madr-and-plans`. An agent that finds `madr-and-plan-writing` under
-some other root has not found a bug — it is on the other machine, and the fix
-there is a rename, not an edit to this file.
+What ends it is not another document. On 2026-09-08 the directory here was
+renamed to match the Mac, so both machines now carry one name and there is no
+longer a second spelling for a future reader to discover and "correct" to.
 
 A mistyped skill does not fail loudly: the call returns `Unknown skill`, and an
 agent that proceeds without the skill writes something shaped like a MADR while

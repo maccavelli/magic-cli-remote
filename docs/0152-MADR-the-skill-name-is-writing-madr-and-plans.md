@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-09-07
+date: 2026-09-08
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -276,3 +276,74 @@ git diff --stat -- internal/provider/ docs/0106-* docs/kilo-spike-7.4.20/   # ex
 2. **Do the other three agent roots need the pointer file at all?** `.grok/` and
    `.opencode/` rules exist for agents that have no skills configured on this
    host. Out of scope here; renaming them is cheaper than deciding that.
+
+## Amendment — 2026-09-08: option B is chosen after all, and the divergence is gone
+
+Owner decision, 2026-09-08: the name is `madr-and-plan-writing`. This reverses
+D1 one day after it was made, and it is the fifth reversal of this fact.
+
+It is also the first one that fixes anything, and the difference is worth
+stating precisely: **the four previous reversals edited a document; this one
+renamed a directory.**
+
+**F8 — the two-machine divergence is closed by convergence, not by prose.**
+F5 established that both spellings were locally correct — `madr-and-plan-writing`
+under the Mac's `~/.grok/skills`, `writing-madr-and-plans` under this host's
+`~/.claude/skills`. D3 responded by qualifying every claim by machine, which
+made the documents true but left two names in the world for a sixth reader to
+find and "correct". Renaming this host's directory to match the Mac removes the
+second name. There is now one spelling on both machines, so the condition that
+produced five reversals no longer exists.
+
+**D8 — the name is `madr-and-plan-writing`, and this host was renamed to it.**
+`~/.claude/skills/writing-madr-and-plans` → `~/.claude/skills/madr-and-plan-writing`,
+with the `name:` field in its `SKILL.md` updated to match. The four instruction
+files follow.
+
+**D9 — D6 is reversed.** D6 said "do not rename anything under `~`", on the
+reasoning that editing a user's global environment to make a document right is
+the wrong direction of authority. That reasoning was correct for what was being
+asked then — the document was wrong and the filesystem was right. It does not
+apply here: the owner has changed which name is wanted, so the filesystem is
+what is now out of date, and renaming it is the direction of authority working
+properly rather than being inverted.
+
+This is exactly **option B**, whose analysis this record already contains. It
+was rejected only because "the owner decided the other way", and that premise
+has changed. Its recorded argument stands unaltered: it makes the repository's
+text true with no per-machine qualification, and it matches the Mac.
+
+**What was verified, 2026-09-08.** Before the rename, calling
+`madr-and-plan-writing` in this session returned `Unknown skill`. After it, the
+harness re-read the skills directory and the name appeared in the available
+skills list with the correct description. `ls -d ~/.claude/skills/*` returns one
+entry, `madr-and-plan-writing`, and its `SKILL.md` `name:` field agrees.
+
+**What is corrected in the amendment above rather than left standing.** The
+Consequences section said "the Mac's `~/.grok/skills/madr-and-plan-writing` is
+untouched and unreachable from here, so an agent run there still sees the other
+spelling". That is now the *desired* state rather than a defect, and the Mac
+needs no change at all.
+
+**What is deliberately not undone.** P1 and P2 also deleted `AGENTS.md`'s
+"verified three ways on 2026-09-06" note (F3), the `~/.agents` symlink claim
+(F4), the reversal ledger, and the birth-time dispute (F6). Those are false
+regardless of which name wins, so this amendment changes the name and leaves
+the deletions in place. A `git revert` of P1/P2 would have been the fast way to
+reverse the name and would have restored four false claims with it.
+
+**The honest residue.** This record has now asserted, in one calendar day, that
+the name is `writing-madr-and-plans` (D1, with evidence) and that it is
+`madr-and-plan-writing` (D8, by decision). Both were accurate statements at the
+time about a fact the owner controls. The lesson is not about the spelling: a
+fact that lives outside the repository, on more than one machine, cannot be
+settled by a repository document — only recorded by one. It is settled by making
+the machines agree, which is what D8 does.
+
+**The title and filename are left as they are.** Both say
+`writing-madr-and-plans`, which D8 reverses. They are not corrected because the
+slug is how this record is referenced — from `AGENTS.md`, from the three rule
+files, and from the commits that executed it — and because a record's title is
+what it concluded on the day it was written. The amendment is the current
+answer; the title is the history. Renaming the file to hide a reversal would be
+the same instinct that produced the reversals.
