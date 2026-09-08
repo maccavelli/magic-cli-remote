@@ -266,3 +266,41 @@ itself worth knowing.
   source-scan meta-test. MADR 0149 D11 shows how to write one that does not rot,
   but that record also set the bar: a class guard is justified by a third
   instance, and this is the first.
+
+## Amendment — 2026-09-07: P4 lands in the provider package, not procutil
+
+The scope table names `internal/procutil/supervise_wiring_test.go` for P4. That
+file cannot hold this test: the assertions D7 asks for read `engine.release`
+and call `Provider.startServer`, both unexported in
+`internal/provider/httpagent`. A test in `procutil` can only reach `procutil`,
+which is exactly the mechanism-not-wiring test that already exists.
+
+**Corrected in-scope file for P4:**
+`internal/provider/httpagent/supervise_wiring_test.go` (new). No production
+file is touched by P4; the scope table's other rows are unchanged.
+
+`httpagent` was chosen over the other two supervised providers because its
+start path is reachable with a fake engine at the lowest cost: `Config.Bin` is
+already the seam, `ServeArgs` hands the helper the port, and the health poll
+goes green as soon as the helper serves one route. The test exercises the real
+`startServer` and the real `Shutdown`, not a constructed `engine` value.
+
+**A5 is met, twice.** The plan warned this criterion is the one most likely to
+be skipped. Both sabotages were run against the P4 test in the current tree and
+then reverted:
+
+| Sabotage at the publish site | Result |
+| --- | --- |
+| `release: nil` (the pre-P2 shape) | FAIL — "engine has no release" |
+| `release: func() {}` (stored, inert) | FAIL — "grandchild ... survived teardown" (30.1s) |
+
+The second sabotage is the one that mattered. On its first form the test
+**passed** it, because the grandchild was inheriting the engine's console
+process group and `CTRL_BREAK_EVENT` was killing it without the job object's
+help. That is MADR 0150 F10, added by amendment, and the test now places the
+grandchild in its own process group on Windows so the assertion has something
+only supervision can satisfy.
+
+**Verification run.** `gofmt` clean; `CGO_ENABLED=0` builds for
+windows/linux/darwin; the new test green at `-count=3`; `go test ./...` and
+`go test -race ./...` green.

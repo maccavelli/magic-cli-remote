@@ -345,3 +345,59 @@ go test ./... && go test -race ./...
 4. **Does F5 hold in practice?** Whether `GenerateConsoleCtrlEvent` actually
    fails under the scheduled task is inferred. It changes nothing about the fix,
    but it does change how the graceful phase should be described.
+
+## Amendment — 2026-09-07: CTRL_BREAK already reached part of the tree
+
+Executing P4 produced a measurement that narrows F1. It does not withdraw it,
+and it does not change any decision above, but leaving it out would let this
+record keep a claim it can no longer make in full.
+
+**F10 — on Windows, `TerminateProcessGroup` already killed in-group
+descendants.** Measured on this host, Windows 11, Go 1.26.6, by sabotaging the
+P4 test's subject and watching the result:
+
+| Spawn stores | Grandchild's process group | Grandchild after teardown |
+| --- | --- | --- |
+| `release` from `SuperviseStarted` | engine's | dead |
+| `func() {}` (job never closed) | engine's | **dead** |
+| `func() {}` (job never closed) | its own (`CREATE_NEW_PROCESS_GROUP`) | **alive after 30s** |
+
+The second row is the finding. With supervision present but inert — the job
+handle held open, so nothing the job does can be credited — a grandchild in the
+engine's console process group still died. `GenerateConsoleCtrlEvent` delivers
+`CTRL_BREAK_EVENT` to every process in the target group, and a child spawned
+without `CREATE_NEW_PROCESS_GROUP` inherits its parent's, so the graceful phase
+was already reaching one process deeper than "the direct child".
+
+**What F1 still says, precisely.** The tree-kill guarantee was absent, and the
+job object remains the only thing that supplies it, for the descendants the
+console control event cannot reach:
+
+* one in another process group — the `node`/`python`/`git`-under-an-agent-CLI
+  case 0116 D8 was written for, and the third row above;
+* one that ignores `CTRL_BREAK_EVENT`, which a process may simply do;
+* every descendant on the escalation path, where the graceful phase fails or
+  times out and `TerminateProcess` takes the direct child alone. **[reasoned
+  from the API contract, not measured]**
+
+So the pre-0150 exposure was narrower than "no tree-kill at all" and wider than
+nothing: descendants that behaved like well-mannered console children were
+already being killed, and precisely the ones the job object was chosen for were
+not. The correction is worth having on the record because it is the difference
+between a guarantee and a coincidence — the old behaviour depended on a
+property of the child, and the new behaviour does not.
+
+**D8 — the wiring test asserts against a descendant the console cannot
+reach.** Its helper puts the grandchild in its own process group on Windows, so
+the assertion fails when supervision is removed; off Windows it deliberately
+leaves the grandchild in the engine's group, because a `setpgid` escape there
+is the residual gap the no-op release cannot close and never claimed to. The
+test therefore proves the wiring on every platform (the release is stored at
+spawn, and teardown invokes it) and proves the tree-kill only on Windows, which
+is the only place it exists.
+
+The evidence for D7 is the same table: sabotaging the spawn to store no release
+fails the test on the stored-release assertion, and sabotaging it to store an
+inert one fails the test on the surviving grandchild. Without the second, the
+test would have passed against unsupervised code — it did, at first, and that
+is how F10 was found.
