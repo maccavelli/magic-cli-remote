@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-07
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -317,3 +317,45 @@ straightforward to stop.
 for it on the strength of a measurement (exactly one `switch env.Type` today);
 the implementation made a second one an explicit error, and a test row proves
 it.
+
+## Execution record addendum (2026-09-07) — P3 answered, P4 done
+
+The owner resolved D7 the same day: delete the entry. P4 (`a52a92a`) removed the
+single line, and the MADR amendment (`bfbd42e`) recorded D8 with its evidence
+before the file was touched — `op_timeouts.json` was out of scope until that
+decision existed, and staying out of it until then is the point of D7.
+
+| Criterion | Result |
+| --- | --- |
+| A9 `op_timeouts.json` loses exactly one line | met — `1 file changed, 1 deletion(-)` |
+| A10 Go suite and `-race` green, no test modified | met — only the JSON changed |
+| A11 Flutter ladder test passes in CI | **pending — cannot be run here** |
+
+The Windows gate reports `ALL SELECTED CHECKS PASSED`.
+
+**A11 is not met, it is pending.** Flutter is not installed on this host, so
+`apps/mobile/test/op_timeout_ladder_test.dart` has not run. The claim that the
+phone's timeout is unchanged is arithmetic — `opTimeoutFor` has no
+`'session.cancel'` case, the deleted value equalled `default_ms`, so the listed
+and unlisted paths both resolve to 40 s — and arithmetic from reading source is
+weaker evidence than an executed test. **This plan is complete in the sense that
+every phase ran; it is not fully verified until CI's Flutter lane reports.**
+
+### What this half of the plan predicted incorrectly
+
+**Nothing, which is itself worth recording.** P4 was written after the
+investigation that justified it, so it predicted a one-line diff and a green
+suite and got exactly that. The contrast with P1–P3 is the point: those phases
+were planned before their subject was fully understood and needed two
+corrections; P4 was planned after, and needed none. Plans written across a
+discovery boundary are the ones that drift.
+
+**The one thing worth carrying forward** is that D7 held. The plan stopped at a
+red suite with a one-line fix available, and the fix that eventually landed was
+that same line — which is exactly the situation where stopping looks like
+pedantry in hindsight. It was not: the investigation between P3 and P4 produced
+the precedent argument (two of three inline ops already absent) and killed a
+plausible alternative (completing the table would assert a deadline the daemon
+does not enforce). Deleting the line immediately would have reached the same
+diff with none of that reasoning attached, and no way to tell it from a
+convenience.
