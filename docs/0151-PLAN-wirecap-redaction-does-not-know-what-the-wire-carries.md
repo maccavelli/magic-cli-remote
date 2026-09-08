@@ -253,3 +253,32 @@ would then fail P3's guard, which is the correct coupling.
   accepting drive-absolute paths, and `WriteFileAtomic` having no retry for
   sharing violations. Both are Windows-correctness, neither is privacy, and
   neither shares a file with this record.
+
+## Amendment — 2026-09-07: the guard is an address shape, not a bare `@`
+
+P3 specified "an `@` between two non-space runs", and MADR open question 2
+chose that strict form on the reasoning that it is stricter and the reversal is
+one line. Executing P2 produced the evidence that settles it the other way.
+
+After the scrub, the grok fixture still contains ten `@`, and none is an
+address:
+
+| Occurrence | Count | What it is |
+| --- | --- | --- |
+| `@src/main.rs` | 10 | grok's file-reference prompt syntax, in help text |
+| `@!.github/workflows` | 10 | the same syntax, negated form |
+| `user@example.com` | 4 | P2's own placeholder |
+
+**Corrected P3:** the guard matches an address shape, and allows the RFC 2606
+documentation domains (`example.com`, `.org`, `.net`) so that P2's placeholder
+does not trip it.
+
+The strict form would have fired on ten legitimate lines of the one fixture
+this guard exists for, and a guard that cries wolf on its own subject gets
+weakened or deleted — which is a worse outcome than a narrower guard adopted
+deliberately. It would also have rejected the placeholder P2 introduced, so the
+two phases as written could not both have been satisfied.
+
+**A4's verification command is corrected with it.** `grep -c '@' … # 0` cannot
+hold and never could; the check is that no address outside a documentation
+domain appears, which is what the guard asserts.
