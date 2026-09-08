@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,6 +127,22 @@ func Load(opts LoadOptions) (Config, error) {
 	cfg.DisplayName = strings.TrimSpace(cfg.DisplayName)
 	cfg.Diagnostics = diags
 	cfg.ConfigFile = usedConfigFile
+
+	// The config may hold relay.secret, which is the same registration
+	// credential mcrelay stores as hosts[].secret and guards at read time.
+	// mcremote guarded neither until MADR 0155.
+	//
+	// This runs after Unmarshal on purpose, and the ordering looks backwards:
+	// the natural instinct is to refuse to read a file before parsing it.
+	// Reading it is not the harm — the file is already on disk and already
+	// readable by whoever the permissions allow. The harm is continuing to
+	// *serve* with a credential that has been exposed, and deciding that needs
+	// the parsed config's provenance (0155 D2/D3).
+	if usedConfigFile != "" {
+		if err := guardConfigFile(&cfg, usedConfigFile, v.InConfig); err != nil {
+			return Config{}, err
+		}
+	}
 
 	if err := cfg.finalizePaths(basePaths, opts); err != nil {
 		return Config{}, err
@@ -431,4 +448,59 @@ func isNotExist(err error) bool {
 	}
 	// viper may wrap path errors
 	return strings.Contains(err.Error(), "no such file")
+}
+
+// configPermCode is the Diagnostic code for a config file other principals can
+// read. Callers that render diagnostics (mcremote paths --json) key on it.
+const configPermCode = "config_not_owner_only"
+
+// guardConfigFile enforces MADR 0155 on the config file that was actually read.
+//
+// Fatal when the file itself carries a credential; a warning plus a Diagnostic
+// otherwise (0155 D3). The asymmetry is deliberate: a world-readable config
+// with no secret in it is untidy, and stopping a daemon over it would be a
+// self-update that breaks working installations — the measured reason 0155
+// rejected mirroring mcrelay's hard fail.
+//
+// On Unix a loose file is tightened to 0600 first and re-tested, so the common
+// case repairs itself (D8). On Windows the equivalent repair is a private DACL
+// on the directory, which PLAN 0155 P3 applies at startup.
+//
+// PLAN 0155 C1: nothing here logs a secret, a field name, or a value. It names
+// the path. An operator who needs to know which setting is exposed can open the
+// file; a log line that names it is a map for anyone who later gets read
+// access.
+func guardConfigFile(cfg *Config, path string, inFile func(string) bool) error {
+	ok, err := appdirs.FileIsOwnerOnly(path)
+	if err != nil {
+		return fmt.Errorf("config %s: %w", path, err)
+	}
+	if !ok {
+		if repaired, rerr := repairOwnerOnly(path); rerr == nil && repaired {
+			slog.Default().Warn("tightened config file permissions",
+				slog.String("path", path),
+				slog.String("mode", "0600"))
+			if ok, err = appdirs.FileIsOwnerOnly(path); err != nil {
+				return fmt.Errorf("config %s: %w", path, err)
+			}
+		}
+	}
+	if ok {
+		return nil
+	}
+
+	// Exposed. Whether that stops the daemon depends on what is in the file.
+	if HasInlineSecret(inFile) {
+		// MADR 0155 D9. Fixing the permissions does not un-read a file that was
+		// already readable, and an operator told only to tighten it will
+		// reasonably believe the problem is over. The advice belongs here and
+		// not in the warning below, where there is no credential to rotate.
+		return fmt.Errorf("config %s is readable by another principal and contains a credential: %s; "+
+			"treat that credential as exposed and rotate it",
+			path, ownerOnlyRemedy(path))
+	}
+	msg := fmt.Sprintf("config %s is readable by another principal: %s", path, ownerOnlyRemedy(path))
+	slog.Default().Warn("config file is not private", slog.String("path", path))
+	cfg.Diagnostics = append(cfg.Diagnostics, appdirs.Diagnostic{Code: configPermCode, Message: msg})
+	return nil
 }

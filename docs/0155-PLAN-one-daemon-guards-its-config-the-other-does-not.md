@@ -321,3 +321,54 @@ unchanged, and the guard test enforces it.
 the check must run where that instance is in scope, not from a `Config` handed
 onward. This makes P2's already-awkward ordering — parse, then decide — the
 only workable one, rather than merely the preferable one.
+
+## Amendment — 2026-09-08: what P2 actually needed
+
+Four deviations from P2 as written, none of them changing D2, D3 or D8.
+
+**One check site, not two.** The plan says "at both `ReadInConfig` sites". Both
+branches converge on `usedConfigFile`, so the guard runs once against that,
+after `Unmarshal`. This is strictly better: two call sites is two places for a
+future edit to update one of.
+
+**Two new files, because the repair is platform-specific.** The scope table
+lists only `load.go`. `chmod` is meaningless on Windows — it toggles the
+read-only attribute and touches no ACL — so a shared implementation would
+report a repair that did not happen, which is exactly the failure MADR 0116 D22
+exists to prevent. `repair_unix.go` / `repair_other.go` carry
+`repairOwnerOnly` and `ownerOnlyRemedy`, split by build tag rather than by
+`runtime.GOOS` (MADR 0144's rule). P4 moves the remedy beside
+`appdirs.FileIsOwnerOnly` so mcrelay's three sites share it.
+
+**The warning needed a logger, because diagnostics are never surfaced.**
+`cfg.Diagnostics` is populated by `Load` and rendered by exactly one consumer —
+`mcremote paths --json`. Nothing in `daemon.go` or `serve.go` reads it, so a
+Diagnostic alone would be invisible to the operator of a running daemon and D3's
+"logged warning" would not exist. The guard emits both: `slog.Default().Warn`
+for the operator, and a `Diagnostic` with code `config_not_owner_only` for
+`paths --json`.
+
+*That diagnostics are collected and never logged is worth its own look. It is
+not this record's subject and is not fixed here.*
+
+**D9's sentence goes only in the fatal message.** The warning path exists
+precisely because there is no credential in the file; telling that operator to
+"rotate the exposed credential" would be advice about a secret that is not
+there.
+
+### The fixture was the hard part, and it is the part that matters
+
+The first version of the tests skipped the tolerate-case and the fatal-case on
+Windows, because making a file non-private there is not a `chmod`. That would
+have left the security control this record exists to add **untested on the only
+platform where its migration risk is real** — the same shape as the skips this
+codebase has spent MADR 0147, 0151 and 0154 removing.
+
+`configperm_windows_test.go` grants `*S-1-5-32-545` (BUILTIN\Users) read access
+with `icacls`, chosen because `FileIsOwnerOnly` tolerates only the owner,
+SYSTEM and Administrators, and Users exists on every Windows install. Crucially
+it adds an **explicit** ACE rather than relying on inheritance: this host has a
+third-party group inherited into `%TEMP%`, and a fixture built on that would
+pass or fail according to which machine ran it.
+
+All five tables now run on both platforms with no skips.
