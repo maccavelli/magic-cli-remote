@@ -473,3 +473,45 @@ func TestValidateMaxConnsCeiling(t *testing.T) {
 		t.Fatalf("err=%v; want limits.max_conns ceiling rejection", err)
 	}
 }
+
+// The three tests below pin MADR 0154's split. Validate answers "is this
+// configuration well-formed"; ValidateServeable additionally answers "could
+// this relay serve". Keeping them separate is what lets `mcrelay paths` run on
+// a host with no relay configured.
+
+func TestValidateAcceptsNoHosts(t *testing.T) {
+	cfg := FileConfig{Listen: ListenConfig{Host: "0.0.0.0", Port: 8443}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate rejected a hostless config: %v", err)
+	}
+}
+
+// This is C2's guard. If the hosts rule is ever moved back into Validate, or
+// dropped, this fails and says which.
+func TestValidateServeableRequiresHosts(t *testing.T) {
+	cfg := FileConfig{Listen: ListenConfig{Host: "0.0.0.0", Port: 8443}}
+	err := cfg.ValidateServeable()
+	if err == nil {
+		t.Fatal("ValidateServeable accepted a relay with no hosts")
+	}
+	if !strings.Contains(err.Error(), "at least one host") {
+		t.Fatalf("err=%v; want the no-hosts refusal, byte-identical to the old one", err)
+	}
+}
+
+// ValidateServeable composes rather than replaces: a config that is both
+// hostless and malformed must report the malformation, because that is the
+// error Validate would have raised and callers still depend on it.
+func TestValidateServeableRunsShapeChecksToo(t *testing.T) {
+	cfg := FileConfig{
+		Listen: ListenConfig{Host: "0.0.0.0", Port: 8443},
+		Hosts:  []HostEntry{{ID: "h", Secret: "short"}},
+	}
+	err := cfg.ValidateServeable()
+	if err == nil {
+		t.Fatal("ValidateServeable accepted a too-short secret")
+	}
+	if strings.Contains(err.Error(), "at least one host") {
+		t.Fatalf("err=%v; want the shape error, not the hosts error", err)
+	}
+}

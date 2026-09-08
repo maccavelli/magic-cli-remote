@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
@@ -109,6 +110,51 @@ func TestCLIServeInvalidConfig(t *testing.T) {
 	}, "serve")
 	if err == nil || !strings.Contains(err.Error(), "at least one host") {
 		t.Fatalf("err=%v; want the no-hosts refusal", err)
+	}
+}
+
+// TestCLIPathsWithNoHostsConfigured is the regression test for MADR 0154.
+//
+// paths is a diagnostic: it answers "where does this thing keep its files",
+// which does not depend on whether any host may register. It used to inherit
+// serve's precondition through Load and exit 1 on a relay with no hosts
+// configured -- the state an operator is in precisely when they are most
+// likely to ask.
+//
+// The config is passed with --config rather than placed under
+// XDG_CONFIG_HOME, and that is deliberate: Windows resolves its config
+// directory from a Known Folders syscall, so XDG_CONFIG_HOME cannot redirect
+// it there (MADR 0116 D3, and why TestCLIPathsJSON skips on Windows). A test
+// that relied on discovery would pass on this host only because no real
+// mcrelay config happens to exist, and would start passing for the wrong
+// reason the moment one did. --config is honoured identically on every
+// platform.
+//
+// The assertion covers the output as well as the error: a command that exited
+// 0 and printed nothing would satisfy the weaker half.
+func TestCLIPathsWithNoHostsConfigured(t *testing.T) {
+	// The directory is created through the product's own primitive rather than
+	// t.TempDir() alone. Load refuses a config any other trustee can read, and
+	// on Windows that is an ACL test, not a mode test: a file under %TEMP%
+	// inherits access for SYSTEM and Administrators and is correctly rejected.
+	// EnsurePrivateDir is what the daemon uses for its own directories, so this
+	// asks of the fixture exactly the privacy the product demands of itself.
+	dir := filepath.Join(t.TempDir(), "cfg")
+	if err := appdirs.EnsurePrivateDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "config.yaml")
+	// Valid in every respect except that it configures no hosts.
+	body := "listen:\n  port: 8443\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCLI(t, map[string]string{"MCRELAY_HOSTS": ""}, "paths", "--config", cfg)
+	if err != nil {
+		t.Fatalf("paths failed on a config with no hosts: %v", err)
+	}
+	if !strings.Contains(out, "data_dir:") {
+		t.Fatalf("paths printed no data_dir; got: %s", out)
 	}
 }
 

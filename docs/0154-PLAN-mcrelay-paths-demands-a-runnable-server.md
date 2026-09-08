@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-08
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -217,3 +217,56 @@ failing. Nothing that used to succeed changes.
 * **W-1, W-2 and W-4** from the 2026-09-08 Windows drive. W-1 (pair codes
   advertise the configured port rather than the bound one) is the most
   user-visible of the three and has no record yet.
+
+## Execution record — 2026-09-08
+
+Both phases ran: `84c3cd0` (P1), this commit (P2).
+
+| # | Result |
+| --- | --- |
+| A1 | met — `mcrelay paths` exits 0 with no config and no env |
+| A2 | met — `paths --json` likewise |
+| A3 | met — `TestCLIServeInvalidConfig` passes unmodified |
+| A4 | met — a short secret and a malformed host id still fail `paths` |
+| A5 | met — `ValidateServeable` has one production caller, `serve` |
+| A6 | met — the regression test fails against the pre-P1 tree with the exact reported error |
+| A7 | met — 88 insertions, **0 deletions** across both test files |
+| A8 | met — one occurrence of the message, byte-identical |
+
+### What the plan predicted incorrectly
+
+**A4 could not be checked the way the plan wrote it.** The plan verified "still
+fails on a malformed config" with a `--config` file. On Windows that file is
+rejected before shape validation ever runs, because `Load` requires the config
+to be readable by nobody else and `appdirs.FileIsOwnerOnly` implements that as
+an **ACL** test there, not a mode test. A file under `%TEMP%` inherits access
+for SYSTEM and Administrators and is correctly refused. A4 was met instead
+through `MCRELAY_HOSTS`, which bypasses the file entirely.
+
+**That same fact broke the regression test, twice, before it was understood.**
+The first version placed a config under `XDG_CONFIG_HOME`, which Windows
+ignores — it resolves its config directory from a Known Folders syscall
+(MADR 0116 D3), which is why `TestCLIPathsJSON` and `TestCLIPathsText` skip
+there. That version passed on this host only because no real mcrelay config
+happens to exist, and would have started passing for the wrong reason the
+moment one did — the exact class MADR 0147 was written about. The second
+version used `--config` and hit the ACL refusal above.
+
+The version that landed creates its config directory with
+`appdirs.EnsurePrivateDir`, the primitive the daemon uses for its own
+directories, and passes it with `--config`. It is hermetic on every platform
+and asks of the fixture exactly the privacy the product demands of itself.
+
+### Discovered, not addressed here
+
+**`mcrelay` refuses a `--config` file in most Windows locations, and
+`mcremote` has no such check at all.** The refusal is correct on its own terms
+— a config under `%TEMP%`, `Documents`, or a repository checkout genuinely is
+readable by SYSTEM and Administrators — but it means `--config` is unusable on
+Windows outside a directory someone deliberately made private, with a message
+(`chmod 0600`) that names a POSIX remedy no Windows user can apply. Meanwhile
+`grep` finds no equivalent check anywhere in `internal/config`, so `mcremote`
+accepts any config file it can read.
+
+One of those two is wrong, and this record does not say which. It is not W-3
+and is out of scope here; it wants its own pair.
