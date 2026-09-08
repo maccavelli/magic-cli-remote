@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // AtomicOptions controls WriteFileAtomic.
@@ -26,6 +27,9 @@ type fileOps struct {
 	closeFile  func(f *os.File) error
 	rename     func(oldpath, newpath string) error
 	syncDir    func(dir string) error
+	// sleep paces the rename retry. Injected so the retry tables cost no real
+	// time; production sleeps (MADR 0153 D5).
+	sleep func(d time.Duration)
 }
 
 func realOps() fileOps {
@@ -37,6 +41,7 @@ func realOps() fileOps {
 		closeFile:  (*os.File).Close,
 		rename:     os.Rename,
 		syncDir:    syncDir,
+		sleep:      time.Sleep,
 	}
 }
 
@@ -108,7 +113,7 @@ func writeFileAtomic(path string, data []byte, opts AtomicOptions, ops fileOps) 
 	if err := ops.closeFile(f); err != nil {
 		return fmt.Errorf("fsutil: close temp: %w", err)
 	}
-	if err := ops.rename(tmp, path); err != nil {
+	if err := renameWithRetry(ops, tmp, path); err != nil {
 		return fmt.Errorf("fsutil: rename: %w", err)
 	}
 	cleanup = false
@@ -123,4 +128,42 @@ func writeFileAtomic(path string, data []byte, opts AtomicOptions, ops fileOps) 
 		}
 	}
 	return nil
+}
+
+// renameBackoffs paces the retry in [renameWithRetry]: five attempts, ~150ms
+// of waiting in total.
+//
+// The budget is derived from the failure being transient rather than from a
+// measurement of how long a real holder keeps a file — MADR 0153 D4 records
+// that as unverified. It is long enough to outlast something touching a small
+// file and short enough that a permanent ERROR_ACCESS_DENIED (0153 F4) costs a
+// caller a sixth of a second before failing exactly as it does today.
+var renameBackoffs = []time.Duration{
+	10 * time.Millisecond,
+	20 * time.Millisecond,
+	40 * time.Millisecond,
+	80 * time.Millisecond,
+}
+
+// renameWithRetry renames oldpath to newpath, retrying while the destination is
+// merely held open by something else.
+//
+// On POSIX this is exactly one call: retryableRenameErr is a compile-time false
+// there, because a rename cannot be blocked by a reader (MADR 0153 C1). On
+// Windows it rides out an antivirus scan, a backup agent, an editor, or the
+// daemon's own concurrent reader — any of which makes MoveFileEx fail while its
+// handle is open, and none of which lasts (0153 F1, F3).
+//
+// The error returned on exhaustion is the last attempt's, unchanged, so a
+// permanent failure reports what it always reported (0153 C3).
+func renameWithRetry(ops fileOps, oldpath, newpath string) error {
+	err := ops.rename(oldpath, newpath)
+	for attempt := 0; err != nil && attempt < len(renameBackoffs); attempt++ {
+		if !retryableRenameErr(err) {
+			return err
+		}
+		ops.sleep(renameBackoffs[attempt])
+		err = ops.rename(oldpath, newpath)
+	}
+	return err
 }
