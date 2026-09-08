@@ -29,6 +29,7 @@ decisions D1–D7, closing findings F1–F8.
 | File | Phase | Why |
 | --- | --- | --- |
 | `internal/ws/op_timeout_test.go` | P1, P2 | the scan and its tests (D1–D4) |
+| `internal/protocol/op_timeouts.json` | P4 | delete the `session.cancel` entry (D8, amendment) |
 
 ### Out of scope
 
@@ -36,9 +37,10 @@ decisions D1–D7, closing findings F1–F8.
   it, never the reverse (D5). Editing the `TypeSessionCancel` comment to dodge
   F8 would be the worst possible fix — it would hide the defect and leave the
   next comment to re-trigger it.
-* **`internal/protocol/op_timeouts.json`.** Deleting `session.cancel` is a
-  protocol-visible change to a table the phone reads (D7). P3 surfaces it and
-  stops.
+* **`internal/protocol/op_timeouts.json` — was out of scope through P3.**
+  Deleting `session.cancel` is a protocol-visible change to a table the phone
+  reads (D7), so P3 surfaced it and stopped. The owner resolved it on
+  2026-09-07 (D8), which is what puts it in scope for P4 and nothing earlier.
 * **`codexDispatchedConstantsIn` and `internal/event/retention_test.go`.** They
   do not share the defect (D6).
 * **The `TestSourceScansSurviveCRLF` guard** added by MADR 0147 P2. It must keep
@@ -168,6 +170,26 @@ stop:
 unmodified; `git status` shows no change to it. A green suite at the end of this
 phase means C3 was violated.
 
+### P4 — delete the stale entry (D8; closes the failure P3 exposed)
+
+Added after the owner resolved D7. Remove the single line
+
+```json
+"session.cancel": 30000,
+```
+
+from `internal/protocol/op_timeouts.json`. Nothing else in that file changes,
+and no test changes with it — if a test needs adjusting to accommodate this,
+something is wrong with the diagnosis, not the test (C3 still holds).
+
+**Verification.** `TestEveryAsyncDispatchedMethodIsInTheTable` passes;
+`TestAsyncOpTimeoutMatchesSharedTable` passes (it iterates the table, so the
+removed key simply is not checked); the whole Go suite and `-race` are green;
+the JSON still parses and its remaining 47 entries are untouched. The phone half
+cannot be run here — Flutter is not installed — so CI's Flutter lane is the
+confirmation for `apps/mobile/test/op_timeout_ladder_test.dart`, and the push
+must not be treated as verified until it reports.
+
 ## Verification (whole plan)
 
 ```bash
@@ -188,6 +210,9 @@ gofmt -l internal/ws/op_timeout_test.go
 | A6 | `op_timeouts.json` unmodified; the exposed failure is reported | C3, D7 |
 | A7 | `server.go` unmodified | D5 |
 | A8 | No production `.go` file changed | C1 |
+| A9 | `op_timeouts.json` loses exactly one line, the `session.cancel` entry | D8 |
+| A10 | The Go suite and `-race` are green with no test modified to achieve it | C3, D8 |
+| A11 | The Flutter ladder test passes in CI | D8, F11 |
 
 **A6 is the criterion this plan is most likely to violate**, for the reason in
 C3: it is the only one whose satisfaction looks like failure. A reviewer

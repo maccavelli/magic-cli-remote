@@ -344,3 +344,51 @@ go test ./internal/ws/ -run 'TestEveryAsyncDispatchedMethodIsInTheTable|TestAsyn
    list of dispatched types captured before and after the rewrite, compared
    exactly. The plan should record that list rather than trusting the consuming
    test to notice a difference.
+
+## Amendment — 2026-09-07: D7 resolved — the entry is deleted
+
+D7 left the `session.cancel` question open for the owner. Answered: **delete the
+entry.** Recorded here with the evidence the decision rested on, because "we
+removed a line from the shared protocol table" is exactly the kind of change a
+future reader will want justified.
+
+**F9 — `session.cancel` is the outlier among three deliberately inline ops.**
+MADR 0137 F4 made three operations inline: `session.cancel`,
+`session.pending_asks` and `oauth.cancel`. Two of the three are already absent
+from `op_timeouts.json`. Only `session.cancel` is listed — not by a design
+decision about it, but because nothing ever caught it (F8 is why).
+
+| Op (MADR 0137 F4, inline) | In `op_timeouts.json` |
+| --- | --- |
+| `session.cancel` | 30000 |
+| `session.pending_asks` | absent |
+| `oauth.cancel` | absent |
+
+**F10 — the daemon never reads the value.** `asyncOpTimeout` is called from
+exactly one site, `server.go:978`, inside `dispatchAsync` (declared line 925).
+An inline op never reaches it. `asyncOpTimeout` also has no `TypeSessionCancel`
+case, so even if it were reached it would return the same 30 s default.
+
+**F11 — deleting it changes the phone's timeout by zero.** `opTimeoutFor` in
+`apps/mobile/lib/data/ws/mcremote_client.dart` has no `'session.cancel'` case
+and falls to `default: 30 s + kOpTimeoutMargin` (10 s) = 40 s. The JSON value is
+30000 and `default_ms` is also 30000, so the ladder test's expectation for a
+*listed* entry (`daemon + margin` = 40 s) is identical to the fallback it pins
+separately for an *unlisted* method (`default_ms + margin` = 40 s). 34 of the 48
+entries equal the default, so a value at the default carries no information.
+**[Arithmetic from the Dart source and `apps/mobile/test/op_timeout_ladder_test.dart`;
+not executed — Flutter is not installed on this host. CI's Flutter lane closes
+this gap.]**
+
+**D8 — delete `"session.cancel": 30000` from `internal/protocol/op_timeouts.json`.**
+Closes F9, and closes the failure P3 exposed. The test's model — the table lists
+async-dispatched ops — is left intact and keeps its teeth.
+
+**The alternatives, and why not.** Relaxing the test to permit entries for
+inline ops would remove the only mechanism that can catch a genuinely stale
+entry, which is the drift 0138 F4 caused. Completing the table instead — adding
+`session.pending_asks` and `oauth.cancel` — was rejected on a harder ground:
+inline handlers run under the read loop's context and get no
+`context.WithTimeout` at all, so a table value for one would assert an
+enforcement the daemon does not perform. Listing a false deadline is worse than
+listing none.
