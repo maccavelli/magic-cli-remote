@@ -86,6 +86,24 @@ func Run(ctx context.Context, opts Options) error {
 	if err := appdirs.EnsurePrivateDir(cfg.DataDir); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
+	// Converge the product's own config directory too, so an installation that
+	// never re-runs setup-service still repairs (MADR 0155 D1). On Windows this
+	// re-propagates to the config file already inside it, which is what makes
+	// the check in config.Load pass for an operator who did nothing (0155 F7).
+	//
+	// Scoped deliberately to the directory the product owns. A --config
+	// pointing into a repository checkout or a home directory must NOT have its
+	// inheritance severed: that directory belongs to the operator for other
+	// purposes, and making it private is not this daemon's business. When the
+	// config lives elsewhere the guard in config.Load still reports it; only
+	// the automatic repair is withheld.
+	if cfg.ConfigFile != "" && cfg.Paths.ConfigDir != "" &&
+		filepath.Dir(cfg.ConfigFile) == filepath.Clean(cfg.Paths.ConfigDir) {
+		if err := appdirs.EnsurePrivateDir(cfg.Paths.ConfigDir); err != nil {
+			log.Warn("could not make the config directory private",
+				slog.String("dir", cfg.Paths.ConfigDir), slog.Any("err", err))
+		}
+	}
 
 	// macOS privacy probe (MADR 0069 D5): a headless daemon cannot be
 	// prompted and a denial otherwise first surfaces as a confusing agent

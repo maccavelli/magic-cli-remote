@@ -1077,12 +1077,14 @@ func ensureDefaultConfig(opts Options) (path string, created bool, err error) {
 		}
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	// EnsurePrivateDir, not MkdirAll+Chmod: the 0700 is ignored by Windows, so
+	// the old pair made this directory private on POSIX only while the config
+	// inside it may hold a registration secret (MADR 0155 D1/F4). The primitive
+	// is converging — it repairs a pre-existing directory, which is what the
+	// Chmod below it used to do on one platform — and on Windows installing a
+	// private DACL re-propagates to the files already inside (0155 F7).
+	if err := appdirs.EnsurePrivateDir(dir); err != nil {
 		return path, false, fmt.Errorf("create config dir %s: %w", dir, err)
-	}
-	// Tighten pre-existing dir (MkdirAll is a no-op on 0755).
-	if st, err := os.Stat(dir); err == nil && st.IsDir() && st.Mode().Perm() != 0o700 {
-		_ = os.Chmod(dir, 0o700)
 	}
 
 	if st, err := os.Stat(path); err == nil && !st.IsDir() {

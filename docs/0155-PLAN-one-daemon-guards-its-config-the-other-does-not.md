@@ -372,3 +372,44 @@ third-party group inherited into `%TEMP%`, and a fixture built on that would
 pass or fail according to which machine ran it.
 
 All five tables now run on both platforms with no skips.
+
+## Amendment — 2026-09-08 (second): P3 must not converge a directory it does not own
+
+P3 says "converge the config directory next to the existing data-directory
+call". Taken literally that is wrong, and dangerously so.
+
+`--config` may point anywhere: a repository checkout, a home directory, a
+shared ops path. `EnsurePrivateDir` severs inheritance and installs a DACL
+naming only the owner and SYSTEM. Applying that to whatever directory happens
+to contain the config would silently re-permission a directory the operator
+keeps for other purposes — a far larger side effect than the problem being
+fixed, and one no message would explain.
+
+**Corrected P3.** The daemon converges `cfg.Paths.ConfigDir` — the directory
+the product owns — and only when the config it actually read lives inside it:
+
+```go
+if cfg.ConfigFile != "" && cfg.Paths.ConfigDir != "" &&
+    filepath.Dir(cfg.ConfigFile) == filepath.Clean(cfg.Paths.ConfigDir) {
+```
+
+A config elsewhere still gets the guard from P2; only the automatic repair is
+withheld. That is the right split: detecting an exposure is always this
+daemon's business, and re-permissioning someone else's directory never is.
+
+The failure to converge is a warning rather than fatal. The daemon has not yet
+established that anything is wrong — P2 already decided whether to start — so a
+repair that could not run must not become a second, later refusal.
+
+### Verified end to end on Windows, against the built binary
+
+| Config | Result |
+| --- | --- |
+| exposed, carries `relay.secret` | **exit 1**: *"…contains a credential: move it under the private config directory, or re-run: mcremote setup-service --force; treat that credential as exposed and rotate it"* |
+| exposed, no secret | **exit 0**, `WARN config file is not private`, layout printed |
+| exposed, no secret, `--json` | **exit 0**, stdout is valid JSON carrying a `config_not_owner_only` diagnostic |
+
+The message names no `chmod`, names no field, and carries D9's rotation advice
+only where a credential exists. The warning goes to stderr, so `--json` stdout
+stays machine-readable — checked, because a diagnostic that corrupts the JSON
+it is reported in would be worse than no diagnostic.
