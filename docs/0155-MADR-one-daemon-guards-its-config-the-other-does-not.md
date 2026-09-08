@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-08
 decision-makers: Project Owner
 consulted: none
@@ -242,6 +242,34 @@ through a self-update feed to interactive users the way mcremote is.
 record asserts that `--config` is unusable on Windows. It is amended to point
 here.
 
+**D7 — the fatal condition asks the config type, not a field name.** `Config`
+gains a predicate (`HasInlineSecret()` or equivalent) that reports whether any
+secret-bearing field is set inline in the file, and the check calls that.
+Owner decision, 2026-09-08, resolving open question 1: `relay.secret` is the
+only such field today, and the second one will be added by someone who has not
+read this record. A literal field check would fail open for them silently,
+which is the worst available failure mode for a security check.
+
+**D8 — on POSIX, a non-private config file is repaired to `0600` and the repair
+is logged.** Owner decision, 2026-09-08, resolving open question 2, which
+investigation had already answered on the facts: `EnsurePrivateDir` is
+`MkdirAll` plus `validatePrivateDir(dir)` there, which `Lstat`s the directory
+and never enumerates children — so D1's convergence cannot self-heal a file the
+way it does on Windows.
+
+Repairing matches what the product already does when it *creates* the config
+(`ensureDefaultConfig` chmods `0600`), and it makes the outcome the same on
+both platforms rather than real on one and advisory on the other. The cost is
+accepted and recorded: an operator who deliberately made the file
+group-readable for a shared account has that choice silently reversed, which is
+why the repair is logged rather than silent.
+
+**D9 — the message says the secret may already be exposed.** One sentence, no
+mechanism. Owner decision, 2026-09-08, resolving open question 3. Tightening
+the permissions does not un-leak a credential that was readable; a product that
+fixes the file and says nothing leaves the operator believing the problem is
+over.
+
 ### Consequences
 
 * Good: the weaker end of the shared secret gains the protection the stronger
@@ -374,19 +402,23 @@ go test ./internal/relay/ -count=1
 
 ### Open questions for the plan
 
-1. **Should the fatal case key on `relay.secret` alone, or on any future
-   secret-bearing field?** D3 names the one field that exists. A plan should
-   decide whether that is a literal check or a predicate the config type owns,
-   because the second field will be added by someone who has not read this.
-2. **Does `EnsurePrivateDir` converge existing files on POSIX?** It was measured
-   on Windows only (F7). On POSIX the directory mode changes but a file's own
-   mode does not, so the answer is probably no — which is F8's asymmetry and
-   should be confirmed before the plan claims a self-healing migration on both
-   platforms. **[unverified]**
-3. **Should mcremote tell the operator to rotate a secret that was found
-   world-readable?** The Consequences section notes nothing does. It may belong
-   in the error text rather than in a separate mechanism.
-4. **Is `CodexSandboxUsers` this machine's own artefact, or something the
-   product created?** It reached `%AppData%\Roaming`, `%TEMP%`, `Documents` and
-   the repository checkout. If any tooling in this project created it, that is a
-   separate and more serious finding. **[unverified]**
+All four are resolved; the plan implements D7–D9.
+
+1. ~~**Should the fatal case key on `relay.secret` alone?**~~ **Resolved
+   2026-09-08 by owner decision: a predicate on the config type.** Recorded in
+   **D7**.
+2. ~~**Does `EnsurePrivateDir` converge existing files on POSIX?**~~
+   **Resolved 2026-09-08 by reading the source: no.** `ensure_unix.go` is
+   `MkdirAll(0o700)` followed by `validatePrivateDir(dir)`, which `Lstat`s the
+   directory and never enumerates children. F8's asymmetry is therefore
+   confirmed rather than suspected, and **D8** is the answer to it.
+3. ~~**Should mcremote advise rotating a secret found world-readable?**~~
+   **Resolved 2026-09-08 by owner decision: yes, one sentence.** Recorded in
+   **D9**.
+4. ~~**Is `CodexSandboxUsers` this project's artefact?**~~ **Resolved
+   2026-09-08: no.** `grep -rin 'CodexSandboxUsers|SandboxUsers|net localgroup|New-LocalGroup'`
+   across every `.go`, `.ps1`, `.sh` and `.yml` in the repository returns
+   nothing. Nothing here creates local groups. The group is the host's own —
+   most plausibly the Codex CLI's sandboxing — and its only role in this record
+   is as the thing that made F5's refusals reproducible and F1's migration risk
+   concrete.
