@@ -4,24 +4,23 @@ When reading content from GitHub, use `curl` + `api.github.com` for structured d
 
 ## MADR and plan skill
 
-Whenever the user asks for an MADR and a plan, load the **`madr-and-plan-writing`**
-skill first and follow it for authoring, naming (`NNNN-MADR-*` / `NNNN-PLAN-*`),
-and review. This applies both to writing a fresh pair and to amending an
-existing one.
+**Whenever the user asks for an MADR and a plan, load the
+`writing-madr-and-plans` skill first** and follow it for authoring, naming
+(`NNNN-MADR-*` / `NNNN-PLAN-*`) and review — for a fresh pair and for amending
+an existing one.
 
-The name is exact, and a mistyped one fails quietly rather than loudly: the call
-does not resolve and an agent may carry on without the skill.
+The name is exact, and a mistyped one fails quietly rather than loudly: the
+call returns `Unknown skill` and an agent may carry on without the skill.
 
-**Corrected 2026-09-06 — second reversal.** The name is
-`madr-and-plan-writing`. This file has now asserted each spelling twice
-(`0416ac3` and `fd1e75f` said `writing-madr-and-plans`; `e06a0b6` and this
-change say `madr-and-plan-writing`), so do not trust the prose here over the
-filesystem — including this sentence. Why the wrong spelling keeps being
-written is still not established, and this note does not guess. One fact that
-does matter: the skill lives outside this repository —
-`~/.claude/skills/madr-and-plan-writing` is a symlink into `~/.agents/skills/` —
-so no commit here records a change to it, and the filesystem is the only
-witness. See `AGENTS.md` for the evidence.
+**Settled 2026-09-07 by owner decision, with the cause established (MADR 0152).**
+The name reversed four times because it was never a typo: both spellings are
+true about different machines. A directory named `madr-and-plan-writing` exists
+under a *different agent's* skills root on the POSIX host — evidenced by the
+grok wire fixture captured 2026-09-03. On this host, under `~/.claude/skills`,
+the name is `writing-madr-and-plans`. Finding the other spelling under some
+other root is not a bug here.
+
+The filesystem still outranks this paragraph. Verify:
 
 ```bash
 ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md

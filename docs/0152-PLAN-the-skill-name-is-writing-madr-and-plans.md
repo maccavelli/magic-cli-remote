@@ -187,3 +187,25 @@ different correction, not a safe resting state.
   It is deferred because it asserts against a path outside the repository,
   which no other test here does, and that is a precedent worth deciding
   deliberately rather than in passing.
+
+## Amendment — 2026-09-07: A1 as written contradicts D3
+
+A1 read "No instruction file carries `madr-and-plan-writing`". Executing P1
+made it immediately false, and correctly so: D3 requires each file to *name*
+the other spelling in order to say what finding it means. Five such mentions
+now exist across the four files, and every one of them is the sentence D3 asks
+for.
+
+**Corrected A1:** no instruction file gives `madr-and-plan-writing` as the
+skill to load. The name may appear only in the sentence explaining the
+two-machine divergence.
+
+```bash
+grep -rn 'load the \*\*`madr-and-plan-writing`\|`madr-and-plan-writing` skill first' \
+  AGENTS.md .claude/ .grok/ .opencode/    # expect none
+```
+
+This is worth recording rather than quietly rewording, because a criterion
+phrased as a bare `grep -c … == 0` is exactly the kind that gets satisfied by
+deleting the explanation along with the error. The plan's own C3 asks for the
+qualification that A1 would have removed.
