@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-07
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -282,3 +282,60 @@ two phases as written could not both have been satisfied.
 **A4's verification command is corrected with it.** `grep -c '@' … # 0` cannot
 hold and never could; the check is that no address outside a documentation
 domain appears, which is what the guard asserts.
+
+## Execution record — 2026-09-07
+
+All four phases ran, one commit each, in the planned order.
+
+| Phase | Commit | Result |
+| --- | --- | --- |
+| P1 | `12bebe6` | escaped-form redaction and the `json.Marshal` rows |
+| P2 | `5f863a8` | four frames scrubbed, 247 lines before and after |
+| P3 | `79d1de6` | fixture guard, both arms sabotage-tested |
+| P4 | `6b78e3f` | the package comment says what redaction does not cover |
+
+### Acceptance criteria
+
+| # | Result |
+| --- | --- |
+| A1 | met — the escaped windows and UNC rows pass |
+| A2 | met — all three original rows pass unmodified |
+| A3 | met in substance; **the criterion's command was wrong** (see below) |
+| A4 | met as amended — no address outside a documentation domain, no account id |
+| A5 | met — the new rows failed before P1's change and passed after |
+| A6 | met on both arms — the pre-scrub fixture and an injected `C:\Users\alice` each fail the guard |
+| A7 | met — the guard fails if its glob matches fewer than five files |
+| A8 | met — P4 |
+
+### What the plan predicted incorrectly
+
+**A3's command does not test A3.** It greps the package for `runtime.GOOS`,
+`os.PathSeparator` and `filepath.VolumeName` and expects nothing. It prints six
+matches, every one inside a comment explaining why those functions are *not*
+used — comments MADR 0144's amendment left deliberately. The criterion holds
+(no code consults the host) but the check cannot distinguish code from prose,
+and a future reader running it verbatim would conclude the contract was broken.
+A correct check would exclude comments or, more simply, be the test table
+itself: C2's real guarantee is that no row needs a platform gate, and the table
+demonstrates that on every run.
+
+**P3's guard shape was wrong**, and P2 is what proved it. Recorded in the first
+amendment above.
+
+**Two of the three edits in this plan were made with a blanket string
+replacement, and both were corrupted by it.** P1's `replaceBothForms` was
+written by a script whose escaping collapsed `` `\` `` and `` `\` `` into the
+same string, producing a function that compiled, read correctly, and did
+nothing — `esc` always equalled `needle`, so the escaped branch never ran. The
+test caught it immediately, which is the only reason A5's ordering mattered
+twice over. The doc comment in the same edit lost its doubled separators the
+same way. This is the third instance in one session of a blanket replace
+damaging text that mentions both sides of a change (MADR 0150 P2's `killTree`,
+MADR 0152's name flip). The pattern is now well enough evidenced to state as a
+rule: when old and new strings both appear in the surrounding prose, a blanket
+replace is the wrong tool, and a compiler is not a sufficient check on one.
+
+### Verification at completion
+
+`gofmt` clean; `go test ./...` and `go test -race ./...` green; the Windows
+gate reports `ALL SELECTED CHECKS PASSED`.
