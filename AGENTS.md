@@ -163,53 +163,32 @@ Per-agent pointers to this section: `.claude/rules/madr-and-plan-skill.md`,
 `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
 
 **Whenever the user asks for an MADR and a plan, load the
-`madr-and-plan-writing` skill first** and follow it for authoring,
+`writing-madr-and-plans` skill first** and follow it for authoring,
 naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies both to
 writing a fresh pair and to amending an existing one.
 
 The name is exact — it is the `name:` field of
-`~/.claude/skills/madr-and-plan-writing/SKILL.md`, and that is the only MADR
-skill directory present under any skills root.
+`~/.claude/skills/writing-madr-and-plans/SKILL.md`, which is the only entry
+under this host's skills root. Owner decision, 2026-09-07 (MADR 0152).
 
-**Corrected 2026-09-06, and this is the second reversal.** The name is
-`madr-and-plan-writing`. Verified three ways on 2026-09-06: the only entry under
-any skills root is `~/.claude/skills/madr-and-plan-writing`; its `SKILL.md`
-`name:` field reads `madr-and-plan-writing`; and loading it by that name in a
-live session resolved and returned the skill body. `writing-madr-and-plans` does
-not exist under `~/.claude/skills` or under the directory that path resolves to.
+**Why this name reversed four times, established at last (MADR 0152 F5).** It
+was never a typo, and the answer is that both spellings are true statements
+about different machines. The grok wire fixture captured 2026-09-03 on the
+POSIX host contains that engine's own skill listing —
+`/home/user/.grok/skills/madr-and-plan-writing/SKILL.md` — so a directory with
+the other spelling really does exist there, under a *different agent's* skills
+root. Every author who checked a filesystem was right about the one they
+checked, and wrong to write it without saying which.
 
-The record of who said what, since this file has now asserted each spelling
-twice:
+So: on this host, under `~/.claude/skills`, the name is
+`writing-madr-and-plans`. An agent that finds `madr-and-plan-writing` under
+some other root has not found a bug — it is on the other machine, and the fix
+there is a rename, not an edit to this file.
 
-| change | date | claimed name | correct? |
-| --- | --- | --- | --- |
-| `0416ac3` | 2026-08-25 | `writing-madr-and-plans` | no |
-| `e06a0b6` | 2026-09-01 | `madr-and-plan-writing` | **yes** |
-| `fd1e75f` | 2026-09-05 | `writing-madr-and-plans` | no |
-| this change | 2026-09-06 | `madr-and-plan-writing` | verified above |
-
-`fd1e75f` also "corrected" `e06a0b6`'s directory creation date from 2026-08-06
-to 2026-08-14. The filesystem gives a birth time of 2026-08-06 09:12:30, so
-`e06a0b6` was right on that too, and the correction of it was not.
-
-**Why this keeps going wrong is still not established, and this note does not
-guess.** A symlink was considered as the mechanism and ruled out:
-`~/.claude/skills/madr-and-plan-writing` is a symlink to
-`~/.agents/skills/madr-and-plan-writing`, but link and target share a basename,
-so following it cannot produce the other spelling. What the symlink does
-establish is where the fact lives: the skill is outside this repository, no
-commit here records a change to it, and the filesystem is therefore the only
-witness. That is the reason the check below outranks anything written about it.
-
-The durable lesson is not which spelling won:
-
-**Do not "correct" this name from memory, in either direction.** Both spellings
-are plausible, and the failure is silent: a call to a skill that does not exist
-does not error, and an agent that carries on without it produces something
-shaped like a MADR while missing MADR 4.0.0's heading names, the
-`Good, because …` argument form, and the mechanical slug rule. This file has now
-been wrong in both directions, which is what a documented assertion earns when
-the fact lives on the filesystem. Check before editing:
+A mistyped skill does not fail loudly: the call returns `Unknown skill`, and an
+agent that proceeds without the skill writes something shaped like a MADR while
+missing MADR 4.0.0's heading names, the `Good, because …` argument form, and
+the mechanical slug rule. Check, do not remember:
 
 ```bash
 ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
