@@ -304,3 +304,54 @@ only supervision can satisfy.
 **Verification run.** `gofmt` clean; `CGO_ENABLED=0` builds for
 windows/linux/darwin; the new test green at `-count=3`; `go test ./...` and
 `go test -race ./...` green.
+
+## Amendment — 2026-09-07 (second): P3 needs an idempotent release
+
+P3's three sites do not each have one teardown path the way P2's did, and the
+scope table did not anticipate what that costs.
+
+**`internal/procutil/procutil_windows.go` is in scope for P3 as well as P1.**
+The release `SuperviseStarted` returns is now wrapped in a `sync.Once`. The
+reason is not tidiness: a second `CloseHandle` on the same value is not a
+wasted call, because the handle number can have been reused by then and the
+second close would take an unrelated handle with it. Codex alone reaches its
+engine from three teardown paths — `Shutdown`, `reapAttempt`, and the death
+monitor — and `Shutdown` racing the death monitor is a real interleaving, not a
+hypothetical one: `handleUnexpectedEngineExit` can be past its `p.closed` check
+when `Shutdown` takes the engine. Without idempotence every such site needs its
+own guard, and the site that forgot would be a Windows-only handle bug of
+exactly the class this record exists to remove.
+
+**Where `release` lives, per site** (the MADR's open question 1, answered for
+the last three):
+
+| Site | Field | Invoked from |
+| --- | --- | --- |
+| `codex/provider.go` | `engineAttempt.release`, copied to `engine.release` | `reapAttempt`, `Shutdown`, `handleUnexpectedEngineExit` |
+| `acpagent/terminal.go` | `terminalProc.release` | `killIfRunning`, which all three teardown paths already funnel through |
+| `providerauth/cli.go` | `CLIFlow.release` | `Kill`, inside the existing `once` |
+
+Two decisions inside those rows are worth recording rather than leaving in the
+diff:
+
+* **`killIfRunning` now releases even when the child is already reaped.** It
+  returned early on a closed `done` channel, because signalling a recycled PID
+  is worse than doing nothing. That reasoning does not extend to the job: a
+  terminal whose own process has exited can still have descendants, and on
+  Windows nothing has signalled them. The kill keeps its guard; the release
+  sits outside it.
+* **`CLIFlow` releases only from `Kill`.** A flow that ends on its own never
+  calls `Kill`, so its job handle stays open until the daemon exits — where
+  `KILL_ON_JOB_CLOSE` takes anything still running, which is the property 0116
+  D9 wants. Releasing at child-reap was considered and rejected: for a
+  shim-based CLI the surviving grandchild may still *be* the flow, and killing
+  it there would break sign-in on Windows only, with no way to test it from
+  this host. One held handle per device flow is the cheaper mistake.
+
+**Coverage, stated plainly.** Of the three sites, only `providerauth` is
+exercised by existing tests — ten `StartCLIDeviceFlow` calls including the
+`Kill` paths, green on this Windows host. `acpagent/terminal.go` and codex's
+`launchEngineProcess` have no test that spawns through them, so for those two
+this phase rests on compilation, the shared shape, and review. P4's test covers
+`httpagent` only. That is a real gap and is recorded here rather than implied
+away by a green suite.

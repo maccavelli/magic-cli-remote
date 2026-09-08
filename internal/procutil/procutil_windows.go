@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 
@@ -142,5 +143,13 @@ func SuperviseStarted(p *os.Process) (release func(), err error) {
 		windows.CloseHandle(job)
 		return nil, fmt.Errorf("procutil: assign process %d to job: %w", p.Pid, err)
 	}
-	return func() { windows.CloseHandle(job) }, nil
+	// release is idempotent. A second CloseHandle on the same value is not
+	// merely a wasted call: the handle number can have been reused by then, and
+	// the second close would take an unrelated handle with it. Callers with
+	// more than one teardown path — codex reaches its engine from Shutdown,
+	// from reapAttempt and from the death monitor — would otherwise each need
+	// their own guard, and the one that forgot would be a Windows-only bug of
+	// exactly the kind this record exists to remove (MADR 0150, P3 amendment).
+	var once sync.Once
+	return func() { once.Do(func() { windows.CloseHandle(job) }) }, nil
 }

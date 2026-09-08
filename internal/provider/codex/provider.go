@@ -42,6 +42,9 @@ type engine struct {
 	cleanup         func()
 	managedLease    *managedDaemonLease
 	ready           bool
+	// release closes the job object holding this engine's descendant tree
+	// (MADR 0150 D2/D3); see engineAttempt.release.
+	release func()
 }
 
 type initializeMetadata struct {
@@ -441,6 +444,11 @@ type engineAttempt struct {
 	stderr       *lineRing
 	cleanup      func()
 	managedLease *managedDaemonLease
+	// release closes the job object holding this engine's descendant tree.
+	// Calling it KILLS the tree, so it belongs in teardown, never in a defer
+	// at the spawn site (MADR 0150 D3). It is idempotent, which is what lets
+	// the three teardown paths below each call it without coordinating.
+	release func()
 }
 
 func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdentity) (*engineAttempt, error) {
@@ -574,6 +582,31 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 		}
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
+	// Bind the engine's descendants to a job object so they die with it
+	// (MADR 0150 D2). release is NOT deferred: closing the job kills the tree,
+	// so it is carried on the attempt, copied onto the engine, and called from
+	// each teardown path (0150 D3). A failure to supervise fails the spawn
+	// rather than running an engine whose grandchildren are known to be
+	// unreachable (0150 C4).
+	release, superviseErr := procutil.SuperviseStarted(cmd.Process)
+	if superviseErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		_, _ = cmd.Process.Wait()
+		if auth != nil {
+			auth.remove()
+		}
+		if lease != nil {
+			p.stopManagedLease(context.Background(), lease)
+		}
+		return nil, fmt.Errorf("supervise %s: %w", p.cfg.Bin, superviseErr)
+	}
+	// killTree replaces the bare KillProcessGroup on the startup failure paths
+	// below: on Windows the group call reaches only descendants the console
+	// control event can find, and releasing the job is what takes the rest.
+	killTree := func() {
+		release()
+		_ = procutil.KillProcessGroup(cmd.Process)
+	}
 	registryLease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
 		ID:       engineID,
 		Provider: "codex",
@@ -582,7 +615,7 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 		Owner:    procutil.OwnerToken(),
 	})
 	if regErr != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
+		killTree()
 		_, _ = cmd.Process.Wait()
 		if auth != nil {
 			auth.remove()
@@ -634,7 +667,7 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 		tr, err = dialPipeWebSocketTransport(ctx, stdout, stdin)
 	}
 	if err != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
+		killTree()
 		<-waitCh
 		cleanup()
 		if lease != nil {
@@ -648,7 +681,7 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 	// read pump runs leaves the response in stdout unread until the caller's
 	// context expires.
 	go cn.readPump(p.routeNotification, p.routeServerRequest)
-	return &engineAttempt{cmd: cmd, conn: cn, waitCh: waitCh, dead: dead, stderr: stderr, cleanup: cleanup, managedLease: lease}, nil
+	return &engineAttempt{cmd: cmd, conn: cn, waitCh: waitCh, dead: dead, stderr: stderr, cleanup: cleanup, managedLease: lease, release: release}, nil
 }
 
 func dialTransportWithBackoff(ctx context.Context, dial func(context.Context) (transport, error)) (transport, error) {
@@ -691,6 +724,10 @@ func (p *Provider) reapAttempt(att *engineAttempt) {
 		return
 	}
 	_ = procutil.KillProcessGroup(att.cmd.Process)
+	// Closing the job takes any descendant the engine left behind (0150 D2/D3).
+	if att.release != nil {
+		att.release()
+	}
 	<-att.waitCh
 	_ = att.conn.transport.Close()
 	if att.cleanup != nil {
@@ -851,6 +888,7 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 		},
 		cleanup:      att.cleanup,
 		managedLease: att.managedLease,
+		release:      att.release,
 	}
 	p.eng = eng
 	execution := newExecutionAPI(eng.conn.sendReadOnlyOrWriteRequest, p.supportsCapability, p.terminals, gen, p.cfg.Environments)
@@ -931,6 +969,13 @@ func (p *Provider) handleUnexpectedEngineExit(gen int, att *engineAttempt, exitE
 		execution.CleanupProcesses(context.Background())
 	}
 
+	// The engine process is already reaped, but its descendants are not: on
+	// Windows nothing has signalled them, so releasing the job here is what
+	// stops a crashed engine leaking its tree before the reconnect below
+	// starts a replacement (MADR 0150 D2).
+	if att.release != nil {
+		att.release()
+	}
 	if att.cleanup != nil {
 		att.cleanup()
 	}
@@ -1097,6 +1142,11 @@ func (p *Provider) Shutdown() {
 	if eng != nil && eng.cmd != nil && eng.cmd.Process != nil {
 		_ = eng.conn.transport.Close()
 		procutil.TerminateProcessGroup(eng.cmd.Process, eng.dead, engineStopTimeout)
+		// After the graceful phase: closing the job takes any descendant the
+		// engine left behind (MADR 0150 D2/D3).
+		if eng.release != nil {
+			eng.release()
+		}
 		if eng.cleanup != nil {
 			eng.cleanup()
 		}

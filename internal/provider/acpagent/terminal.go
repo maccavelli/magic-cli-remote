@@ -35,10 +35,17 @@ func killIfRunning(p *terminalProc) {
 	}
 	select {
 	case <-p.done:
-		return
 	default:
+		_ = procutil.KillProcessGroup(p.cmd.Process)
 	}
-	_ = procutil.KillProcessGroup(p.cmd.Process)
+	// The release runs either way. A terminal whose own process has already
+	// been reaped can still have descendants: on Windows nothing signalled
+	// them, and closing the job is the only thing that reaches them
+	// (MADR 0150 D2/D3). It is idempotent, so the Release-then-CloseAll
+	// ordering costs nothing.
+	if p.release != nil {
+		p.release()
+	}
 }
 
 type terminalProc struct {
@@ -48,6 +55,10 @@ type terminalProc struct {
 	done     chan struct{}
 	exit     acp.WaitForTerminalExitResponse
 	waitOnce sync.Once
+	// release closes the job object holding this terminal's descendant tree.
+	// Calling it KILLS the tree, so it belongs in teardown, never in a defer
+	// at the spawn site (MADR 0150 D3).
+	release func()
 }
 
 func newTerminalHost() *terminalHost {
@@ -100,12 +111,23 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 		}
 		return acp.CreateTerminalResponse{}, fmt.Errorf("start command: %w", err)
 	}
+	// Bind the terminal's descendants to a job object so they die with it
+	// (MADR 0150 D2). An agent terminal is the spawn site most likely to have
+	// grandchildren — the command is agent-supplied and routed through a shell
+	// on whole-line form. A failure to supervise fails the create rather than
+	// running an unreachable tree (0150 C4).
+	release, superviseErr := procutil.SuperviseStarted(cmd.Process)
+	if superviseErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		return acp.CreateTerminalResponse{}, fmt.Errorf("supervise command: %w", superviseErr)
+	}
 
 	p := &terminalProc{
-		id:   id,
-		cmd:  cmd,
-		buf:  buf,
-		done: make(chan struct{}),
+		id:      id,
+		cmd:     cmd,
+		buf:     buf,
+		done:    make(chan struct{}),
+		release: release,
 	}
 	go p.reap()
 
@@ -114,9 +136,7 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 		// Session torn down while we were starting: kill the orphan now, it
 		// would otherwise outlive the session unkillably (own process group).
 		h.mu.Unlock()
-		if cmd.Process != nil {
-			_ = procutil.KillProcessGroup(cmd.Process)
-		}
+		killIfRunning(p)
 		return acp.CreateTerminalResponse{}, fmt.Errorf("session closed")
 	}
 	h.byID[id] = p

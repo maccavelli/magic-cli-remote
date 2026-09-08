@@ -57,6 +57,20 @@ type CLIFlow struct {
 	// Wait and Kill callers cannot disagree about how the flow ended.
 	termOnce sync.Once
 	term     error
+
+	// release closes the job object holding this CLI's descendant tree.
+	// Calling it KILLS the tree, so it belongs in teardown, never in a defer
+	// at the spawn site (MADR 0150 D3).
+	//
+	// A flow that ends on its own never calls Kill, so its job handle stays
+	// open until the daemon exits — at which point KILL_ON_JOB_CLOSE takes
+	// anything still running, which is the property 0116 D9 wants. Releasing
+	// it earlier, when the child is reaped, was considered and rejected: for a
+	// shim-based CLI the surviving grandchild may still be the flow, and
+	// killing it there would break sign-in on Windows only, with no way to
+	// test it from this host. Device flows are rare enough that one held
+	// handle per flow is the cheaper mistake to make.
+	release func()
 }
 
 // StartCLIDeviceFlow spawns bin with args and scans its output for a
@@ -107,8 +121,22 @@ func StartCLIDeviceFlow(
 	}
 	// The child must hold the only write end, or the reader never sees EOF.
 	_ = pw.Close()
+	// Bind the CLI's descendants to a job object so they die with it
+	// (MADR 0150 D2). This is the site the grandchild problem was first
+	// observed at — see the SetProcessGroup comment above — and on Windows the
+	// group is not what reaches them. A failure to supervise fails the flow
+	// rather than starting an auth CLI whose tree is unreachable (0150 C4).
+	release, superviseErr := procutil.SuperviseStarted(cmd.Process)
+	if superviseErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		// Neither goroutine below has started, so nothing else will reap this
+		// child; the kill is what makes the wait terminate.
+		_, _ = cmd.Process.Wait()
+		_ = pr.Close()
+		return Classification{}, nil, fmt.Errorf("supervise %s: %w", bin, superviseErr)
+	}
 
-	f := &CLIFlow{cmd: cmd, exited: make(chan struct{})}
+	f := &CLIFlow{cmd: cmd, exited: make(chan struct{}), release: release}
 	scanned := make(chan Classification, 1)
 	scanDone := make(chan struct{})
 	go func() {
@@ -244,10 +272,14 @@ func (f *CLIFlow) Kill() {
 		f.mu.Unlock()
 	}
 	f.once.Do(func() {
-		if f.cmd == nil || f.cmd.Process == nil {
-			return
+		if f.cmd != nil && f.cmd.Process != nil {
+			procutil.TerminateProcessGroup(f.cmd.Process, f.exited, killTimeout)
 		}
-		procutil.TerminateProcessGroup(f.cmd.Process, f.exited, killTimeout)
+		// After the graceful phase: closing the job takes any descendant the
+		// CLI left behind (MADR 0150 D2/D3).
+		if f.release != nil {
+			f.release()
+		}
 	})
 }
 
