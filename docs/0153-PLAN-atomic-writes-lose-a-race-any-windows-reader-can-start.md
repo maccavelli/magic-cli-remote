@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-08
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -217,3 +217,59 @@ therefore latency on a permanent failure, not correctness.
   is reported outside it. It cannot grant access, and no client is known to
   send that form; it would matter only if a workspace root ever needed
   extended-length addressing to exceed `MAX_PATH`.
+
+## Execution record — 2026-09-08
+
+Both phases ran: `cf7f427` (P1), `8d39a6d` (P2).
+
+| # | Result |
+| --- | --- |
+| A1 | met — `CGO_ENABLED=0` builds for windows/linux/darwin at both phases |
+| A2 | met — `rename_other.go` is `func retryableRenameErr(error) bool { return false }` |
+| A3 | met — no `runtime.GOOS` in `internal/fsutil` |
+| A4 | met — two failures then success, three rename calls |
+| A5 | met — exactly five calls, and `errors.Is(err, ERROR_ACCESS_DENIED)` still holds on the returned error |
+| A6 | met — a non-retryable error returns after exactly one call |
+| A7 | met — the real held-handle case passes, and **fails against the wrong predicate** |
+| A8 | met — `git diff` over the four caller packages is empty |
+
+### A7 was worth the trouble, and it is now provable
+
+The plan predicted A7 would be the criterion most likely to be skipped, on the
+grounds that it is the only one that can catch a predicate keyed on
+`ERROR_SHARING_VIOLATION`. That was tested rather than asserted: the predicate
+was temporarily reduced to `errors.Is(err, windows.ERROR_SHARING_VIOLATION)`
+and the suite run.
+
+```text
+--- FAIL: TestRenameRetriesWhileTheDestinationIsHeld
+--- FAIL: TestRenameGivesUpAfterTheBudget          rename called 1 times, want exactly 5
+--- FAIL: TestWriteFileAtomicSurvivesARealHeldHandle
+        write lost the race against a real reader: ... Access is denied.
+```
+
+Three tests fail, and the third fails with the operating system's own error
+rather than an injected one. Reverted.
+
+### What the plan predicted incorrectly
+
+**The retry tests could not live in `atomic_test.go`.** The scope table put them
+there, which assumed the retry behaves the same everywhere. It cannot: C1 makes
+`retryableRenameErr` a compile-time `false` off Windows, so "fails twice then
+succeeds" is not a POSIX behaviour to assert — POSIX has exactly one attempt by
+construction. Splitting the tests by build tag, mirroring the production files,
+was the only shape that tests each platform's actual contract instead of
+gating a shared table on `runtime.GOOS` — which C2 forbids in production and
+which would be no better in a test.
+
+**The scope table also missed `atomic.go`'s new dependency.** Adding an
+injectable `sleep` to `fileOps` was implied by D5 but not listed; it is a new
+field on an existing struct and a new `time` import. Every existing test builds
+its ops from `realOps()`, so none needed changing — which is the reason that
+seam was worth using rather than adding a package-level variable.
+
+### Verification at completion
+
+`gofmt` clean; `GOOS=linux` and `GOOS=darwin` `go vet` pass over the package
+including its non-Windows test arm; `go test ./...` and `go test -race ./...`
+green; the Windows gate reports `ALL SELECTED CHECKS PASSED`.
