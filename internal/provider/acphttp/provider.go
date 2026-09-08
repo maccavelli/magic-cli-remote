@@ -44,6 +44,10 @@ type engine struct {
 	url  string
 	port int
 	dead chan struct{}
+	// release closes the job object holding this engine's descendant tree.
+	// Calling it KILLS the tree, so it belongs in teardown, never in a defer
+	// at the spawn site (MADR 0150 D3).
+	release func()
 }
 
 // Provider manages an ACP-over-HTTP engine process and its sessions.
@@ -349,6 +353,23 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
+	// Bind the engine's descendants to a job object so they die with it
+	// (MADR 0150 D2). release is NOT deferred: closing the job kills the tree,
+	// so it is held on the engine and called from teardown (0150 D3).
+	// A failure to supervise fails the spawn rather than running an engine
+	// whose grandchildren are known to be unreachable (0150 C4).
+	release, superviseErr := procutil.SuperviseStarted(cmd.Process)
+	if superviseErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		return "", fmt.Errorf("supervise %s: %w", p.cfg.Bin, superviseErr)
+	}
+	// killTree replaces the bare KillProcessGroup on every startup failure
+	// path below: on Windows the group call reaches only the direct child, and
+	// releasing the job is what takes the descendants with it.
+	killTree := func() {
+		release()
+		_ = procutil.KillProcessGroup(cmd.Process)
+	}
 	lease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
 		ID:       engineID,
 		Provider: string(p.spec.ID),
@@ -357,7 +378,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		Owner:    procutil.OwnerToken(),
 	})
 	if regErr != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
+		killTree()
 		return "", fmt.Errorf("register engine: %w", regErr)
 	}
 
@@ -378,7 +399,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	deadline := time.Now().Add(engineStartTimeout)
 	for {
 		if ctx.Err() != nil || time.Now().After(deadline) {
-			_ = procutil.KillProcessGroup(cmd.Process)
+			killTree()
 			<-waitCh
 			tail := stderr.tail()
 			if tail != "" {
@@ -414,7 +435,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	conn := newACPConn(url, p.cfg, p.wire)
 	caps, err := conn.initialize(ctx)
 	if err != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
+		killTree()
 		<-waitCh
 		return "", fmt.Errorf("acp initialize: %w", err)
 	}
@@ -423,7 +444,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 
 	ws, err := conn.dialWS(ctx)
 	if err != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
+		killTree()
 		<-waitCh
 		return "", fmt.Errorf("ws dial: %w", err)
 	}
@@ -433,11 +454,12 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		p.mu.Unlock()
 		ws.Close(websocket.StatusNormalClosure, "shutdown")
 		_ = procutil.TerminateProcessGroup(cmd.Process, dead, engineStopTimeout)
+		release()
 		<-waitCh
 		return "", fmt.Errorf("provider shut down")
 	}
 	fr := newWSFramer(ws, p.log)
-	p.eng = &engine{cmd: cmd, url: url, port: port, dead: dead}
+	p.eng = &engine{cmd: cmd, url: url, port: port, dead: dead, release: release}
 	p.ws = ws
 	p.fr = fr
 	p.connID = conn.connID
@@ -504,6 +526,11 @@ func (p *Provider) Shutdown() {
 	}
 	if eng != nil && eng.cmd != nil && eng.cmd.Process != nil {
 		procutil.TerminateProcessGroup(eng.cmd.Process, eng.dead, engineStopTimeout)
+		// After the graceful phase: closing the job takes any descendant the
+		// engine left behind (MADR 0150 D2/D3).
+		if eng.release != nil {
+			eng.release()
+		}
 	}
 }
 
@@ -615,6 +642,9 @@ func (p *Provider) handleWSError(err error) {
 	}
 	if eng != nil && eng.cmd != nil && eng.cmd.Process != nil {
 		_ = procutil.KillProcessGroup(eng.cmd.Process)
+		if eng.release != nil {
+			eng.release()
+		}
 	}
 }
 

@@ -76,6 +76,10 @@ type session struct {
 	procDir string
 	conn    *acp.ClientSideConnection
 	cmd     *exec.Cmd
+	// release closes the job object holding this agent's descendant tree.
+	// Calling it KILLS the tree, so it is teardown state, not a defer at the
+	// spawn site (MADR 0150 D3). Nil until spawnAgent supervises the process.
+	release func()
 	terms   *terminalHost
 	log     *slog.Logger
 	events  chan event.Event
@@ -1182,6 +1186,11 @@ func (s *session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	if !s.procExited && s.cmd != nil && s.cmd.Process != nil {
 		_ = killProcessTree(s.cmd)
+		// The group signal reaches only the direct child on Windows; closing
+		// the job takes the agent's own descendants (MADR 0150 D2/D3).
+		if s.release != nil {
+			s.release()
+		}
 	}
 	s.mu.Unlock()
 	return nil

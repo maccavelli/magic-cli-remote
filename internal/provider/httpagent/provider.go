@@ -46,6 +46,10 @@ type engine struct {
 	// written to so any number of waiters can observe the exit without
 	// stealing the exit status from the single cmd.Wait owner.
 	dead chan struct{}
+	// release closes the job object holding this engine's descendant tree.
+	// Calling it KILLS the tree, so it belongs in teardown, never in a defer
+	// at the spawn site (MADR 0150 D3).
+	release func()
 }
 
 // Provider manages one shared engine process and its SSE stream for a
@@ -442,6 +446,11 @@ func (p *Provider) Shutdown() {
 		return
 	}
 	graceful := procutil.TerminateProcessGroup(eng.cmd.Process, eng.dead, engineStopTimeout)
+	// After the graceful phase: closing the job takes any descendant the engine
+	// left behind (MADR 0150 D2/D3).
+	if eng.release != nil {
+		eng.release()
+	}
 	p.log.Info("engine stopped",
 		slog.String("bin", p.cfg.Bin),
 		slog.Int("pid", eng.cmd.Process.Pid),
@@ -518,6 +527,23 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start %s server: %w", p.cfg.Bin, err)
 	}
+	// Bind the engine's descendants to a job object so they die with it
+	// (MADR 0150 D2). release is NOT deferred: closing the job kills the tree,
+	// so it is held on the engine and called from teardown (0150 D3). A
+	// failure to supervise fails the spawn rather than running an engine whose
+	// grandchildren are known to be unreachable (0150 C4).
+	release, superviseErr := procutil.SuperviseStarted(cmd.Process)
+	if superviseErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		return "", fmt.Errorf("supervise %s: %w", p.cfg.Bin, superviseErr)
+	}
+	// killTree replaces the bare KillProcessGroup on the startup failure paths
+	// below: on Windows the group call reaches only the direct child, and
+	// releasing the job is what takes the descendants with it.
+	killTree := func() {
+		release()
+		_ = procutil.KillProcessGroup(cmd.Process)
+	}
 	lease, regErr := procutil.RegisterEngine("", procutil.EngineRecord{
 		ID:       engineID,
 		Provider: string(p.dialect.ID()),
@@ -526,7 +552,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		Owner:    procutil.OwnerToken(),
 	})
 	if regErr != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
+		killTree()
 		return "", fmt.Errorf("register engine: %w", regErr)
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -559,7 +585,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	deadline := time.Now().Add(serverStartTimeout)
 	for {
 		if ctx.Err() != nil || time.Now().After(deadline) {
-			_ = procutil.KillProcessGroup(cmd.Process)
+			killTree()
 			<-waitCh
 			tail := stderr.tail()
 			if tail != "" {
@@ -579,7 +605,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 			if res.StatusCode == http.StatusOK {
 				if hh, ok := p.dialect.(HealthyHook); ok {
 					if herr := hh.OnHealthy(body); herr != nil {
-						_ = procutil.KillProcessGroup(cmd.Process)
+						killTree()
 						<-waitCh
 						return "", fmt.Errorf("%s health check rejected: %w", p.cfg.Bin, herr)
 					}
@@ -612,6 +638,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		// registering it — gracefully, since it is healthy and holds state.
 		p.mu.Unlock()
 		procutil.TerminateProcessGroup(cmd.Process, dead, engineStopTimeout)
+		release()
 		<-waitCh
 		return "", fmt.Errorf("provider shut down")
 	}
@@ -620,7 +647,7 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	// startServer returns), pumpEvents could run its first liveness check
 	// (p.eng.url == url) before it was set, see no engine, and exit immediately —
 	// permanently killing the SSE stream for this engine generation.
-	p.eng = &engine{cmd: cmd, url: url, port: port, dead: dead, id: engineID}
+	p.eng = &engine{cmd: cmd, url: url, port: port, dead: dead, id: engineID, release: release}
 	p.generation++
 	gen := p.generation
 	p.mu.Unlock()

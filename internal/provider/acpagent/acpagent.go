@@ -462,6 +462,21 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
+	// Bind the agent's descendants to a job object so they die with it
+	// (MADR 0150 D2). Stored on the session and called from teardown, never
+	// deferred here: closing the job kills the tree (0150 D3). A failure to
+	// supervise fails the spawn rather than running an agent whose
+	// grandchildren are known to be unreachable (0150 C4).
+	release, superviseErr := procutil.SuperviseStarted(cmd.Process)
+	if superviseErr != nil {
+		_ = procutil.KillProcessGroup(cmd.Process)
+		return nil, fmt.Errorf("supervise %s: %w", p.cfg.Bin, superviseErr)
+	}
+	s.release = release
+	killTree := func() {
+		release()
+		_ = procutil.KillProcessGroup(cmd.Process)
+	}
 
 	// The ACP SDK owns its own read loop, so the only seam for capturing raw
 	// agent->client frames is the reader handed to it (MADR 0137 Phase 1).
@@ -506,14 +521,14 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		// cmd.Wait (not Process.Wait) so exec closes the parent ends of the
 		// stdio pipes — Process.Wait leaks two fds per failed spawn. Safe
 		// here: the exit watcher starts only after initialize succeeds.
-		_ = procutil.KillProcessGroup(cmd.Process)
+		killTree()
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("acp initialize: %w", err)
 	}
 
 	var initResp acp.InitializeResponse
 	if err := json.Unmarshal(rawInit, &initResp); err != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
+		killTree()
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("acp initialize decode: %w", err)
 	}
@@ -567,13 +582,13 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		}
 		id, err := selectACPAuthMethod(advertised, p.cfg.AuthMethodID, p.spec.SafeAuthMethodIDs, hasKey)
 		if err != nil {
-			_ = procutil.KillProcessGroup(cmd.Process)
+			killTree()
 			_ = cmd.Wait()
 			return nil, err
 		}
 		if id != "" {
 			if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{MethodId: id}); err != nil {
-				_ = procutil.KillProcessGroup(cmd.Process)
+				killTree()
 				_ = cmd.Wait()
 				return nil, fmt.Errorf("acp authenticate (%s): %w", id, err)
 			}
@@ -585,7 +600,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{
 			MethodId: p.cfg.AuthMethodID,
 		}); err != nil {
-			_ = procutil.KillProcessGroup(cmd.Process)
+			killTree()
 			_ = cmd.Wait()
 			return nil, fmt.Errorf("acp authenticate (%s): %w", p.cfg.AuthMethodID, err)
 		}
