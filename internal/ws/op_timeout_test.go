@@ -2,6 +2,11 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -95,45 +100,149 @@ func asyncDispatchedTypes(t *testing.T) []string {
 	return methods
 }
 
-// switchDispatchedConstants walks handleMessage's switch in body and returns
-// the constant name of every case label whose arm reaches dispatchAsync.
+// switchDispatchedConstants walks handleMessage's `switch env.Type` in body and
+// returns the constant name of every case label whose arm calls dispatchAsync.
+//
+// Parsed as Go, not as text (MADR 0149 D1). The previous version used two
+// regular expressions and was wrong on three of the four ways a case label can
+// be written — `case A, B:` kept only A, the continuation form kept neither,
+// and a label with no protocol.Type panicked on an unchecked [0] — and it
+// decided an arm was asynchronous by looking for the *string* "dispatchAsync"
+// anywhere in it, so a comment mentioning it counted. That last one was not
+// hypothetical: TypeSessionCancel is inline by deliberate decision (MADR 0137
+// F4) and its comment names dispatchAsync, so the scan reported it as
+// dispatched and the "nothing is stale" check could not flag its
+// op_timeouts.json entry. Two defects concealing each other (0149 F8).
+//
+// The AST has none of those failure modes: clause.List is a slice, so every
+// label form collapses to the same shape, and comments are not nodes.
 //
 // Takes the body rather than reading it, so the CRLF guard can run the real
 // walk over synthesised input (MADR 0147 D5).
 func switchDispatchedConstants(t *testing.T, body string) []string {
 	t.Helper()
-	i := strings.Index(body, "func (s *Server) handleMessage(")
-	if i < 0 {
-		t.Fatal("handleMessage not found; the source scan is broken, not the dispatch")
+	types, problems, err := scanDispatchSwitch(body)
+	if err != nil {
+		t.Fatal(err)
 	}
-	j := strings.Index(body[i:], "\n// asyncHandler is a slow WS op")
-	if j < 0 {
-		t.Fatal("handleMessage body not delimited")
+	// Reported, never ignored: a label the scan cannot classify is the silence
+	// this whole record is about (0149 D3).
+	for _, p := range problems {
+		t.Error(p)
 	}
-	sw := body[i : i+j]
+	return types
+}
 
-	// Walk the switch, remembering the case labels seen since the last arm and
-	// attributing them to whichever dispatch that arm reaches. One arm may
-	// carry several labels.
-	caseLabel := regexp.MustCompile(`^\tcase (.+):$`)
-	constName := regexp.MustCompile(`protocol\.(Type\w+)`)
-	var pending []string
+// scanDispatchSwitch is switchDispatchedConstants without the *testing.T, so
+// the table-driven tests can assert on the failure paths as data rather than
+// having to observe a test failing. err covers structural problems that make
+// the scan meaningless; problems covers individual clauses it cannot read.
+func scanDispatchSwitch(body string) (types []string, problems []string, err error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "server.go", body, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse handleMessage source: %w", err)
+	}
+
+	var fn *ast.FuncDecl
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "handleMessage" {
+			fn = fd
+			break
+		}
+	}
+	if fn == nil {
+		return nil, nil, errors.New("handleMessage not found; the source scan is broken, not the dispatch")
+	}
+
+	// Key on the tag expression rather than taking the first switch: there is
+	// exactly one `switch env.Type` in handleMessage today, and if that stops
+	// being true this must say so rather than silently scan the wrong one.
+	var sw *ast.SwitchStmt
+	ambiguous := false
+	ast.Inspect(fn, func(n ast.Node) bool {
+		st, ok := n.(*ast.SwitchStmt)
+		if !ok {
+			return true
+		}
+		if sel, ok := st.Tag.(*ast.SelectorExpr); ok && sel.Sel.Name == "Type" {
+			if x, ok := sel.X.(*ast.Ident); ok && x.Name == "env" {
+				if sw != nil {
+					ambiguous = true
+				}
+				sw = st
+			}
+		}
+		return true
+	})
+	if ambiguous {
+		return nil, nil, errors.New("more than one `switch env.Type` in handleMessage; the scan cannot tell which one dispatches")
+	}
+	if sw == nil {
+		return nil, nil, errors.New("no `switch env.Type` in handleMessage; the source scan is broken")
+	}
+
+	for _, stmt := range sw.Body.List {
+		clause, ok := stmt.(*ast.CaseClause)
+		if !ok || clause.List == nil {
+			continue // `default:` carries no labels
+		}
+		names := protocolTypeNames(clause.List)
+		if len(names) == 0 {
+			problems = append(problems, fmt.Sprintf(
+				"%s: case label carries no protocol.Type constant; the scan "+
+					"cannot classify it and would otherwise ignore it",
+				fset.Position(clause.Pos())))
+			continue
+		}
+		if clauseDispatchesAsync(clause) {
+			types = append(types, names...)
+		}
+	}
+	return types, problems, nil
+}
+
+// protocolTypeNames returns the Type… constant named by each `protocol.TypeX`
+// label in a case clause. Every label form — one per clause, several on one
+// line, or several across lines — arrives here as the same slice.
+func protocolTypeNames(list []ast.Expr) []string {
 	var out []string
-	for _, line := range strings.Split(sw, "\n") {
-		if m := caseLabel.FindStringSubmatch(line); m != nil {
-			pending = append(pending, constName.FindAllStringSubmatch(m[1], -1)[0][1])
+	for _, e := range list {
+		sel, ok := e.(*ast.SelectorExpr)
+		if !ok {
 			continue
 		}
-		if strings.Contains(line, "dispatchAsync") {
-			out = append(out, pending...)
-			pending = nil
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || pkg.Name != "protocol" || !strings.HasPrefix(sel.Sel.Name, "Type") {
 			continue
 		}
-		if strings.Contains(line, "return s.handle") || strings.Contains(line, "return s.write") {
-			pending = nil
-		}
+		out = append(out, sel.Sel.Name)
 	}
 	return out
+}
+
+// clauseDispatchesAsync reports whether the arm calls dispatchAsync. Inspect
+// rather than a scan of top-level statements: no arm dispatches from inside an
+// `if` today, but one that did would otherwise be missed silently.
+func clauseDispatchesAsync(clause *ast.CaseClause) bool {
+	found := false
+	for _, stmt := range clause.Body {
+		ast.Inspect(stmt, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "dispatchAsync" {
+				found = true
+				return false
+			}
+			return true
+		})
+		if found {
+			return true
+		}
+	}
+	return false
 }
 
 // codexDispatchedConstantsIn reads codexPhoneOperations out of body and returns
@@ -185,6 +294,102 @@ func protocolTypeConstants(t *testing.T) [][2]string {
 		out = append(out, [2]string{m[1], m[2]})
 	}
 	return out
+}
+
+// TestSwitchScanReadsEveryLabelForm is the guard for MADR 0149 D4.
+//
+// Each row is a way `handleMessage`'s switch can legally be written. Four of
+// them were wrong before the AST rewrite: two dropped labels silently, one
+// panicked, and one counted a *comment* as a dispatch — the last of which was
+// live, crediting TypeSessionCancel as async and hiding a stale
+// op_timeouts.json entry (0149 F8).
+//
+// "comment mentions dispatchAsync" and "dispatch inside an if" are both present
+// deliberately: an implementation that scanned only top-level statements would
+// pass the first and fail the second, and one that matched raw text would do
+// the reverse. Neither alone proves the scan reads calls rather than strings.
+func TestSwitchScanReadsEveryLabelForm(t *testing.T) {
+	wrap := func(arms string) string {
+		return "package ws\n\nfunc (s *Server) handleMessage() error {\n\tswitch env.Type {\n" +
+			arms + "\t}\n\treturn nil\n}\n"
+	}
+
+	for _, tc := range []struct {
+		name         string
+		arms         string
+		want         []string
+		wantProblems int
+	}{{
+		name: "one label per clause",
+		arms: "\tcase protocol.TypeA:\n\t\treturn s.dispatchAsync(ctx, c, env, s.handleA)\n",
+		want: []string{"TypeA"},
+	}, {
+		name: "several labels on one line",
+		arms: "\tcase protocol.TypeA, protocol.TypeB:\n\t\treturn s.dispatchAsync(ctx, c, env, s.handleA)\n",
+		want: []string{"TypeA", "TypeB"},
+	}, {
+		name: "several labels across lines",
+		arms: "\tcase protocol.TypeA,\n\t\tprotocol.TypeB:\n\t\treturn s.dispatchAsync(ctx, c, env, s.handleA)\n",
+		want: []string{"TypeA", "TypeB"},
+	}, {
+		name: "comment mentions dispatchAsync but the arm is inline",
+		arms: "\tcase protocol.TypeA:\n\t\t// stays inline; dispatchAsync is bounded by maxAsyncPerClient\n\t\treturn s.handleA(ctx, c, env)\n",
+		want: nil,
+	}, {
+		name: "dispatch nested inside an if",
+		arms: "\tcase protocol.TypeA:\n\t\tif cond {\n\t\t\treturn s.dispatchAsync(ctx, c, env, s.handleA)\n\t\t}\n\t\treturn nil\n",
+		want: []string{"TypeA"},
+	}, {
+		name:         "label the scan cannot classify",
+		arms:         "\tcase someLocalConst:\n\t\treturn s.dispatchAsync(ctx, c, env, s.handleA)\n",
+		want:         nil,
+		wantProblems: 1,
+	}, {
+		name: "default carries no labels and is not a problem",
+		arms: "\tdefault:\n\t\treturn s.writeError(ctx, c, env.ID, \"unknown\", \"nope\")\n",
+		want: nil,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, problems, err := scanDispatchSwitch(wrap(tc.arms))
+			if err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("types = %v, want %v", got, tc.want)
+			}
+			if len(problems) != tc.wantProblems {
+				t.Errorf("problems = %d %v, want %d", len(problems), problems, tc.wantProblems)
+			}
+		})
+	}
+}
+
+// A switch the scan cannot locate must be an error, not an empty result that
+// reads as "nothing dispatches asynchronously".
+func TestSwitchScanReportsAnUnusableSource(t *testing.T) {
+	for _, tc := range []struct{ name, src, wantErr string }{{
+		name:    "no handleMessage",
+		src:     "package ws\n\nfunc other() {}\n",
+		wantErr: "handleMessage not found",
+	}, {
+		name:    "no switch on env.Type",
+		src:     "package ws\n\nfunc (s *Server) handleMessage() error {\n\tswitch other.Type {\n\tcase protocol.TypeA:\n\t}\n\treturn nil\n}\n",
+		wantErr: "no `switch env.Type`",
+	}, {
+		name:    "two switches on env.Type",
+		src:     "package ws\n\nfunc (s *Server) handleMessage() error {\n\tswitch env.Type {\n\tcase protocol.TypeA:\n\t}\n\tswitch env.Type {\n\tcase protocol.TypeB:\n\t}\n\treturn nil\n}\n",
+		wantErr: "more than one",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := scanDispatchSwitch(tc.src)
+			if err == nil {
+				t.Fatal("expected an error; an unreadable switch must not look like an empty one")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("err = %q, want it to mention %q", err, tc.wantErr)
+			}
+		})
+	}
 }
 
 // TestSourceScansSurviveCRLF is the guard for MADR 0147 D5: these scans must
