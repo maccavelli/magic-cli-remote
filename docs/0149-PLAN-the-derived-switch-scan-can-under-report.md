@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-07
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -219,3 +219,76 @@ at a distance.
   single dropped type, but with the parser fixed it is a backstop for a
   different failure (a wholly broken scan) and tightening it is a guess without
   a case to calibrate against.
+
+## Execution record (2026-09-07) — P1 and P2 done, P3 open
+
+P1 and P2 ran and are committed (`82d28fa`). **P3 is deliberately unfinished:**
+it ends in a question for the owner, and the suite is red until that question is
+answered. `status` stays `in-progress` for that reason, not because work was
+abandoned.
+
+| Criterion | Result |
+| --- | --- |
+| A1 every label/arm form behaves | met — 7 rows, all pass |
+| A2 bare label errors with its position, no panic | met |
+| A3 list is 40, differing only by `TypeSessionCancel` | met |
+| A4 both lists captured, compared element-wise | met — the diff is in the commit |
+| A5 `TestSourceScansSurviveCRLF` still passes | met |
+| A6 `op_timeouts.json` unmodified, failure reported | met |
+| A7 `server.go` unmodified | met |
+| A8 no production `.go` changed | met |
+
+### The open question (D7)
+
+```text
+op_timeout_test.go:474: op_timeouts.json lists "session.cancel",
+which no longer reaches dispatchAsync
+```
+
+`session.cancel` is in the table at 30000 ms. `handleSessionCancel` is inline by
+deliberate decision (MADR 0137 F4), so by the table's own contract the entry
+does not belong. But `op_timeouts.json` is shared with the phone, which must
+exceed every value, so deleting the entry changes what the phone budgets for a
+cancel.
+
+**Delete the entry, or keep it and narrow the test's model of what the table
+covers?** Answering it needs the phone's behaviour in view, which is why the
+plan stops here rather than guessing. Whichever way it goes belongs in an
+amendment to this record.
+
+### What the plan predicted incorrectly
+
+**One commit per phase did not survive P2.** P2's rows must assert on the
+scan's failure paths, and while the scan reported through `*testing.T` the only
+way to observe a failure was to let a subtest fail — which fails the parent
+too. That forced `scanDispatchSwitch` to be split out as a pure function
+returning `(types, problems, err)`, which reshaped P1's code. Committing P1
+separately would have meant reconstructing a shape that never existed.
+
+**The lesson is about testability, not about commits:** a helper that reports
+through `*testing.T` cannot have its failure paths tested. If a phase plans to
+test error behaviour, the interface has to return the error, and that is a
+design constraint worth naming in the phase rather than discovering in it.
+
+**The plan under-specified the table.** It listed six rows; ten were needed.
+`default:` had to be added (it carries no labels and must not be reported as a
+problem), and three rows for structural failures — no `handleMessage`, no
+`switch env.Type`, two such switches — because D1 introduced those error paths
+and nothing in the plan required proving them.
+
+### What the plan got right
+
+**Requiring an element-wise comparison, not a count.** A3 as written would have
+been satisfied by "40, as expected"; A4 forced the diff, and the diff is the
+only thing that shows the single removal was `TypeSessionCancel` and not some
+other type balanced by a new one.
+
+**Naming C3/A6 as most at risk, and why.** The phase does end with a red suite
+and a one-line deletion available that would make it green. Having written down
+in advance that the red line is the *correct* outcome is what makes it
+straightforward to stop.
+
+**Keying the switch on its tag rather than taking the first.** The plan called
+for it on the strength of a measurement (exactly one `switch env.Type` today);
+the implementation made a second one an explicit error, and a test row proves
+it.
