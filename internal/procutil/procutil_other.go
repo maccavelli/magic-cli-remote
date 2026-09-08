@@ -13,6 +13,14 @@ import (
 // (MADR 0116 D8).
 func SetProcessGroup(cmd *exec.Cmd) {}
 
+// SuperviseStarted is a no-op on this residual set of platforms: with neither
+// process groups nor job objects there is nothing to attach a descendant tree
+// to. The returned release does nothing (MADR 0150 D1).
+func SuperviseStarted(p *os.Process) (release func(), err error) {
+	_ = p
+	return func() {}, nil
+}
+
 // KillProcessGroup falls back to Process.Kill.
 func KillProcessGroup(p *os.Process) error {
 	if p == nil {

@@ -22,7 +22,11 @@ import (
 //
 // This does NOT create the job object: os/exec exposes no hook between
 // CreateProcess and the caller regaining control, so the tree-kill guarantee
-// comes from [SuperviseStarted], which the caller invokes right after Start.
+// comes from [SuperviseStarted], which the caller must invoke right after
+// Start and whose release must live as long as the process.
+//
+// MADR 0116 D8 describes this function as creating the job. It does not, for
+// the reason above; 0150 D4 keeps it that way and records the correction.
 func SetProcessGroup(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -98,6 +102,16 @@ func TerminateProcessGroup(p *os.Process, exited <-chan struct{}, timeout time.D
 // there is signalled as a unit, whereas on Windows only a job object gives the
 // same guarantee for grandchildren (node, python, git spawned by an agent
 // CLI). It is a no-op on Unix (MADR 0116 D8).
+//
+// release KILLS THE TREE — it closes the job handle, and the job carries
+// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. Store it for the process's lifetime and
+// call it from teardown. `defer release()` at the spawn site compiles, reads
+// correctly, and kills the engine the moment the starting function returns
+// (MADR 0150 D3/F8).
+//
+// Until MADR 0150 this had no caller at all: it was declared only here, so a
+// cross-platform call site failed to compile off Windows, and the tree-kill
+// guarantee 0116 D8/D9 assume was absent for every provider (0150 F1/F2).
 func SuperviseStarted(p *os.Process) (release func(), err error) {
 	if p == nil {
 		return func() {}, nil

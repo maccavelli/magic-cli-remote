@@ -19,6 +19,19 @@ func SetProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+// SuperviseStarted is a no-op on Unix, where [SetProcessGroup]'s setpgid has
+// already made the descendants signallable as a unit before the process
+// starts. Windows has no such thing and needs a job object attached after
+// CreateProcess, which is why this exists at all (MADR 0150 D1).
+//
+// The returned release is safe to call and does nothing. It is NOT a no-op on
+// Windows: there it kills the tree, so callers must treat it as teardown
+// rather than as a deferred cleanup (MADR 0150 D3).
+func SuperviseStarted(p *os.Process) (release func(), err error) {
+	_ = p
+	return func() {}, nil
+}
+
 // KillProcessGroup sends SIGKILL to the process group of p.
 // Falls back to Process.Kill if pgid is unavailable.
 func KillProcessGroup(p *os.Process) error {
