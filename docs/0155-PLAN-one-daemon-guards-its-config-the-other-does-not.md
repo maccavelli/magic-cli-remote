@@ -550,3 +550,55 @@ defect rather than coexisting with it.
 P6 runs before P4. P4 moves the remedy text into a shared helper, so it should
 move the corrected messages, not the broken ones. One commit, and no push
 without an explicit instruction.
+
+## Execution record — 2026-09-12: P6
+
+P6 ran and is committed as `410e1d6`. It was not pushed. P4 and P5 have still not
+run, so the plan stays `in-progress`.
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| A12 | **Met on Linux** | WSL Ubuntu-24.04, uid 1000, ext4 `/tmp`: fatal, the file is owner-only afterwards, and the message says `tightened to 0600` |
+| A13 | **Met** | The same run: the message contains `rotate` and the path, names no field or value, and does not contain `chmod` |
+| A14 | **Met** | `TestGuardConfigFileToleratesAnExposedConfigWithoutASecret` passes on Linux unchanged: repaired, no Diagnostic |
+| A15 | **Met** | All five `TestGuardConfigFile*` pass natively on Windows; the fatal test's Windows branch asserts the file stays exposed |
+| A16 | **Met** | Linux: the pre-P6 tree fails with CI's exact message, and so do P6's tests over pre-P6 `load.go` |
+| A17 | **Pending** | Needs CI after the owner pushes |
+
+Also on Linux: `go vet ./internal/config/`, `go test ./...` for the whole module,
+and `CGO_ENABLED=1 go test -race ./internal/config/` all pass. On Windows:
+`ci-windows-local` passes all checks, and gofmt is clean.
+
+### What the amendment predicted incorrectly
+
+1. **The stability rule's cross-build fails on this host as written.**
+   `GOOS=linux go build ./...` errors inside `runtime/cgo`
+   (`grp.h: No such file or directory`). `~/toolchains/mingw64` puts a gcc on
+   `PATH`, so `CGO_ENABLED` defaults to 1 and Go tries to compile Linux's cgo
+   runtime against Windows headers. With `CGO_ENABLED=0`, which is how CI and
+   MADR 0116 C7 build, windows/linux/darwin builds, linux/darwin vet and
+   linux/darwin test compilation all pass. The rule should say
+   `CGO_ENABLED=0` explicitly. Whether P1–P3's "cross-build" ever ran on this
+   host as written is not recorded.
+2. **The distro has gcc.** P6 allowed for its absence and said to record it.
+   Instead the race detector ran, which covers the `ubuntu-latest` lane locally.
+3. **A fresh clone's `go test ./...` needs the whole module graph.** The plan
+   did not anticipate that, and fetching it would have gone beyond the approved
+   toolchain download. It was served from the Windows host's existing cache
+   through `GOPROXY=file:///mnt/c/Users/macsm/go/pkg/mod/cache/download`, with
+   no network fallback, `go.sum` still verifying every hash, and Linux-side
+   `GOMODCACHE`/`GOCACHE`. The `go: downloading` lines in that run are unpacks
+   from that cache.
+4. **Driving WSL from Git Bash needs two workarounds** the verification block
+   did not show. `wsl.exe` arguments containing `?`/`&` are mangled, and Git
+   Bash rewrites `/mnt/c/...` into a Windows path unless `MSYS_NO_PATHCONV=1`.
+   Every WSL step therefore ran as a script file invoked by path.
+
+### Toolchain installed for this
+
+`go1.26.6.linux-amd64.tar.gz` (66,890,545 bytes, SHA-256
+`708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89`, matching the
+go.dev release index), installed at `~/sdk/go1.26.6` in the WSL user's home.
+There were no profile edits and no sudo, so it is not on `PATH` by default.
+The verification clone is `~/mcr-0155`, with caches under
+`~/.cache/mcr-0155`. It is disposable.
