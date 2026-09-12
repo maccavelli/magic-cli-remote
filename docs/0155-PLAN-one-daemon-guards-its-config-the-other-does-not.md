@@ -602,3 +602,105 @@ go.dev release index), installed at `~/sdk/go1.26.6` in the WSL user's home.
 There were no profile edits and no sudo, so it is not on `PATH` by default.
 The verification clone is `~/mcr-0155`, with caches under
 `~/.cache/mcr-0155`. It is disposable.
+
+## Amendment — 2026-09-12 (second): P4 as written contradicts C4; A17 observed
+
+### A17 — met
+
+CI run `34719805496` on `72386e2` passed. `internal/config` was `ok` on all four
+Go lanes: `ubuntu-latest` with `-race`, `ubuntu-latest` cgo-free,
+`ubuntu-24.04-arm` and `windows-latest`. There were zero `FAIL` lines, and the
+flake-ledger steps were skipped on both `go-native` legs, so nothing passed
+only on a retry.
+
+### The contradiction
+
+**MADR D4** (accepted) says the Windows message names the failing trustee and
+never says `chmod`, and that *"mcrelay's three sites get the same treatment"*.
+**PLAN C4** says mcrelay's *"existing tests pass unmodified"*. Both cannot hold:
+
+* `internal/relay/fileconfig_test.go:202`
+  (`TestCheckSecretFilesRejectsWorldReadablePEM`) and `:242`
+  (`TestLoadRejectsWorldReadableConfig`) write a `0644` file in a bare
+  `t.TempDir()` and skip only if it is still owner-only. They then assert the
+  error contains `chmod 0600`.
+* On this Windows host neither test skips. Measured with `-v` on 2026-09-12,
+  both show `--- PASS`, because `%TEMP%` carries the third-party group recorded
+  in MADR F5. They pass only because mcrelay's Windows message still says
+  `chmod 0600`, which is the F6 defect P4 exists to remove.
+* CI runs `go test` without `-v`, so whether they run or skip on
+  `windows-latest` is not observable from its logs. Whatever tests P4 changes
+  must hold in both cases.
+
+`fileconfig_test.go` is not in P4's scope table, so this needs approval.
+
+### Resolution proposed
+
+**C4 is narrowed to what it was for: mcrelay's *semantics*.** Every assertion
+about *whether* mcrelay refuses stays byte-identical. The two assertions about
+*wording* keep `chmod 0600` on Unix exactly as now, and on Windows assert the D4
+wording instead (the trustee is named, and there is no `chmod`). No other line
+of `fileconfig_test.go` changes. The diff is checked mechanically.
+
+**D4's "real remedy" differs by product, and the plan's P4 text did not see
+it.** "Move it under the private config directory, or re-run
+`setup-service`" is mcremote's remedy. mcrelay has no `setup-service` and does
+not make its config directory private, and a TLS key file has no "config
+directory". So the shared helper states the cause and a remedy that works for
+any file, and mcremote appends its product-specific alternative.
+
+### P4, specified
+
+**In scope (the only files P4 may touch):**
+
+| File | Change |
+| --- | --- |
+| `internal/appdirs/owneronly_message.go` (new) | `NotOwnerOnlyDetail(path) string`: cause plus remedy, platform-accurate, documented |
+| `internal/appdirs/owneronly_message_unix.go` (new) | `readable by group/other; run: chmod 0600 <path>` |
+| `internal/appdirs/owneronly_message_windows.go` (new) | names each trustee (see below), then an `icacls` remedy |
+| `internal/appdirs/security_windows.go` | `foreignTrustees(sddl, owner) []string`, beside `noForeignTrustee` and sharing its allow-list, so the names printed can never disagree with the predicate that failed |
+| `internal/appdirs/owneronly_message_test.go` (new), `internal/appdirs/owneronly_message_windows_test.go` (new) | message tests (below) |
+| `internal/relay/fileconfig.go` | the three sites call the helper, and each adds D9's rotate sentence |
+| `internal/relay/fileconfig_test.go` | the two wording assertions only, as above |
+| `internal/config/load.go`, `repair_unix.go`, `repair_other.go`, `configperm_test.go` | mcremote uses the shared detail; `ownerOnlyRemedy` keeps only the product-specific Windows alternative |
+
+**Windows trustees.** The owner, if it is not the calling user, is named first
+(`FileIsOwnerOnly` fails on that alone). Then every ALLOW ACE trustee outside
+{owner, SYSTEM, Administrators} — the same set `noForeignTrustee` enforces —
+resolved with `SID.LookupAccount` to `DOMAIN\name`, falling back to the SID
+string when lookup fails. C1 permits naming a trustee; nothing about the file's
+contents is printed.
+
+**The Windows remedy must be measured before it is printed to an operator.**
+The candidate is `icacls "<path>" /inheritance:r /grant:r "<DOMAIN\user>:F"`.
+P4's Windows test runs that exact command on a fixture made non-private with an
+explicit ACE, then asserts `FileIsOwnerOnly` is true. If it is not, the remedy
+text changes until it is. Advice that does not work is F6 again.
+
+**D9 at mcrelay's sites.** Every mcrelay refusal concerns a credential-bearing
+file: the config carries host secrets, and the PEM is a private key. Each
+refusal therefore gains one sentence: the config's secrets, or the TLS key,
+should be treated as exposed and rotated or reissued. This is wording only;
+when mcrelay refuses is unchanged (C4 as narrowed).
+
+**Verification.**
+
+```bash
+CGO_ENABLED=0 GOOS=windows go build ./... && CGO_ENABLED=0 GOOS=linux go build ./... && CGO_ENABLED=0 GOOS=darwin go build ./...
+go test ./internal/appdirs/ ./internal/relay/ ./internal/config/ -count=1 -v
+git diff HEAD -- internal/relay/fileconfig_test.go   # only the two wording assertions (+ a runtime import if needed)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-windows-local.ps1
+```
+
+Plus Linux in the WSL lane as uid 1000 from a private clone: `internal/appdirs`,
+`internal/relay` and `internal/config` must pass, and the relay wording tests
+must still find `chmod 0600` there. The stability rule's cross-build carries
+`CGO_ENABLED=0`, per the P6 record.
+
+**Acceptance added:** A18 — on Windows, the refusal names the foreign trustee
+and the printed remedy, executed, makes `FileIsOwnerOnly` true. A19 — mcrelay's
+refusal conditions are unchanged, and the `fileconfig_test.go` diff touches
+only the two wording assertions. A6, A7 and A10 from the original table are
+checked as written.
+
+**P5 still runs last**, and describes what shipped.
