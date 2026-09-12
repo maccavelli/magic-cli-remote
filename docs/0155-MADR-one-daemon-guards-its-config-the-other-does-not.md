@@ -498,3 +498,48 @@ Options considered at decision time: **repair then fatal (chosen)**; repair,
 warn with D9 advice, and continue (rejected: POSIX and Windows would diverge,
 undoing D8); fix only the fixture (rejected: a repaired secret config would stay
 silent, contradicting D9).
+
+## Observed — execution results (2026-09-12)
+
+Additive. PLAN 0155 has run to completion (P1–P6); its execution records
+carry the detail. The decisions above are left as written.
+
+**Borne out**
+
+* **D3/D8/D9 hold on both platforms, as the 2026-09-12 amendment reads them.**
+  A config readable by another principal and carrying a credential is refused
+  on Windows and on Linux (CI `34719805496`, all four Go lanes). On Unix it is
+  first repaired to `0600`, and the refusal says so and to rotate the
+  credential. Secret-free configs warn on Windows and are repaired and accepted
+  on Unix.
+* **D1/F4: setup leaves the config directory private on both platforms.**
+  `TestEnsureDefaultConfigPrivate` starts from a non-private directory, and
+  fails on both platforms if P3's change is reverted.
+* **D4/F6: the message is now actionable on Windows.** Both daemons explain a
+  failure through `appdirs.NotOwnerOnlyDetail`. On Windows that names the
+  principals that can read the file, which on this host were
+  `BUILTIN\Users, MAC420\CodexSandboxUsers` and an unresolved SID in one
+  real failure report. It gives an `icacls` command that was **executed**
+  under cmd and PowerShell, against explicit and inherited grants, and leaves
+  the file owner-only. On Unix it is unchanged: `chmod 0600`.
+* **D5: when mcrelay refuses did not change.** Only its wording did, and its
+  tests' diff touches only the two wording assertions.
+* **D6: PLAN 0154's false claim is corrected where it was made**, and the
+  correction also fixes a second error there (SYSTEM and Administrators were
+  never the cause).
+* **D7/C3: the fatal path asks `HasInlineSecret`**, from one call site.
+
+**Qualified**
+
+* **D4's remedy is product-specific.** mcremote's "move under the private
+  config directory, or re-run setup-service" does not exist for mcrelay. The
+  shared helper gives an `icacls` remedy that works for any file, and mcremote
+  appends its alternative.
+* **The first remedy proposed in PLAN 0155's amendment would not have worked.**
+  `/inheritance:r /grant:r` alone leaves an explicit foreign grant in place;
+  `/remove:g` per trustee was needed. This was found by executing the command,
+  not by review.
+* **Confirmation 3 named a test that did not exist until closing**
+  (`TestEnsureDefaultConfigPrivate`, added in `ce64d0c`).
+* **C5 (starts with no config) is pinned hermetically on POSIX only.** On
+  Windows the config root is not redirectable from a test.

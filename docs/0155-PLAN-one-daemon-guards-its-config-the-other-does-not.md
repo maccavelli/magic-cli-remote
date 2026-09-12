@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-12
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -704,3 +704,88 @@ only the two wording assertions. A6, A7 and A10 from the original table are
 checked as written.
 
 **P5 still runs last**, and describes what shipped.
+
+## Execution record — 2026-09-12 (final): P4, P5, and closing verification
+
+Every phase has now run. Nothing in this record was pushed.
+
+| Commit | What |
+| --- | --- |
+| `4ec514d` | Amendment: P4 contradicted C4; A17 met |
+| `bf360f6` | **P4**: `appdirs.NotOwnerOnlyDetail`, shared by both daemons |
+| `3c44262` | **P5**: PLAN 0154's false claim corrected, additively |
+| `ce64d0c` | **P3, completed late**: `TestEnsureDefaultConfigPrivate` (A4) |
+
+### Acceptance criteria, as observed
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| A1 | **Met** | `TestGuardConfigFileIsFatalWithAnInlineSecret`: Windows natively, Linux in WSL, and CI `34719805496` on all four Go lanes |
+| A2 | **Met** | `TestGuardConfigFileToleratesAnExposedConfigWithoutASecret`: warns with a Diagnostic on Windows; repaired, with no Diagnostic, on Unix |
+| A3 | **Met** | Linux: the file is `0600` after the guard and `WARN tightened config file permissions` is logged. The file starts world-readable, so the check is not vacuous. |
+| A4 | **Met, late** | `TestEnsureDefaultConfigPrivate`, from a non-private directory. Negative control on both platforms: with P3's line reverted to `MkdirAll`, it fails. |
+| A5 | **Met** | `TestEnsurePrivateDirConvergesAnExistingDir` (P3) |
+| A6 | **Met** | `TestNotOwnerOnlyDetailNamesTheTrustee`. Real mcrelay refusal on this host: `readable by BUILTIN\Users; run: icacls "…" /inheritance:r /remove:g *S-1-5-32-545 /grant:r *S-1-5-21-…:F`, with no `chmod` |
+| A7 | **Met** | mcremote's fatal refusals say to rotate; mcrelay's config refusal says to rotate the host secrets; its TLS refusal says to reissue when the readable file is the key. mcremote's secret-free warning has no exposure sentence, by design (first P2 amendment) |
+| A8 | **Met** | `TestGuardConfigFileMessageNamesNoSecret`; the fatal test's C1 assertions; no message template references a secret field |
+| A9 | **Met** | `HasInlineSecret` has one call site, `guardConfigFile` |
+| A10 | **Met, as narrowed by the amendment** | See A19 |
+| A11 | **Met on POSIX; not hermetic on Windows** | `TestLoadDisplayNameUnset` loads with `XDG_CONFIG_HOME` pointed at an empty temp dir, and the guard runs only `if usedConfigFile != ""`. On Windows the root comes from `KnownFolderPath`, so that test reads the real per-user location. |
+| A12–A16 | **Met** | P6 record |
+| A17 | **Met** | CI `34719805496` |
+| A18 | **Met** | `TestNotOwnerOnlyDetailRemedyWorks`: the printed command, executed under cmd and PowerShell, on explicit and inherited grants, leaves the file owner-only and readable by its owner. Mutations: dropping `/remove:g` reds both explicit cases; dropping `/inheritance:r` reds both inherited ones |
+| A19 | **Met** | The `fileconfig_test.go` diff is the `runtime` import plus the two wording assertions. Both run on this host (neither skips). On Linux they still find `chmod 0600`. |
+
+**Whole-plan verification.**
+* Windows: `ci-windows-local` passes all checks on the final tree, and
+  windows/linux/darwin build with `CGO_ENABLED=0`.
+* Linux (WSL Ubuntu, uid 1000, committed HEAD plus the A4 files): `go test ./...`
+  and **`go test -race ./...` for the whole module** both pass. This is the
+  race coverage the stability rule asks for and this Windows host cannot
+  provide.
+* The commits since `72386e2` have not been through CI, because they are not
+  pushed.
+
+### What the plan predicted incorrectly
+
+1. **P4 contradicted C4.** D4 required mcrelay's Windows wording to change, and
+   two mcrelay tests asserted the old wording behind a skip that does not fire
+   on this host. The amendment `4ec514d` narrowed C4 to semantics, with owner
+   approval.
+2. **The amendment's own remedy would not have worked.** It proposed
+   `icacls "<path>" /inheritance:r /grant:r "<DOMAIN\user>:F"`. That removes
+   inherited grants but not explicit ones, so a file with an explicit
+   BUILTIN\Users ACE stays exposed. The shipped remedy adds `/remove:g` per
+   foreign trustee. Mutation R1 is that candidate, and it fails both explicit
+   cases. This is the strongest argument in this record for executing advice
+   before printing it.
+3. **D4's "real remedy" was product-specific.** "Move it under the private
+   config directory, or re-run setup-service" is mcremote's only. mcrelay has
+   neither, and a TLS key has no config directory.
+4. **P3 was reported complete without A4's test.** MADR Confirmation 3 ran
+   `TestEnsureDefaultConfigPrivate`, which did not exist. The file the plan
+   named for it, `setup_test.go`, could not host it: it is Unix-only and in the
+   external test package. The test now lives in package `service`.
+5. **The first A4 test broke a repository rule** that only a whole-module run
+   shows: `testexec.TestNoTestResolvesABareBinaryName` (MADR 0147 D9/D10)
+   rejects `exec.Command("icacls")` in a cross-platform test file. The exposure
+   helper moved into `_unix`/`_windows` test files, the same split
+   `configperm_*_test.go` already uses. Running only the packages under change
+   would not have caught it.
+6. **The whole-plan C3 grep is broader than its intent.**
+   `grep 'Relay.Secret' internal/config/load.go` "expects none" but matches
+   `v.SetDefault("relay.secret", d.Relay.Secret)` in `setDefaults`, a line from
+   `a8b05e7` (2026-07-23) that registers a default and is not on the fatal
+   path. C3 holds; the grep does not test it.
+7. **A11 has no Windows-hermetic test**, because the Windows config root is not
+   redirectable from a test. Recorded rather than papered over.
+8. **One Windows branch is untested:** a file owned by *another* account,
+   where icacls cannot help and the message says so. Fixturing it needs
+   administrator rights.
+9. **Tooling, again.** Python through a Git Bash heredoc collapses `\\`, which
+   aborted one edit. A Git Bash fork failure (`couldn't create signal pipe`)
+   silently skipped a script update, so one WSL run tested an incomplete file
+   set. In both cases the failure was visible in the output and the step was
+   redone. Script files written directly are the reliable path.
+
+Status: `completed`.
