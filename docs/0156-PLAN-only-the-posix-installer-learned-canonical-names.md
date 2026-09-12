@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-12
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -583,3 +583,28 @@ versioned entry.
 * **`install_test.sh` on Windows hosts.** Its stub-`PATH` approach cannot work
   under Git Bash. Either it declares itself POSIX-only with a clear skip, or the
   stub strategy changes. That belongs with the item above, not here.
+
+## Execution record — 2026-09-12 (second): A12 observed in CI
+
+The owner merged and pushed; CI run `34717428526` ran on `5edaec3`. On the
+`Go (windows/amd64)` job, all four installer steps executed and succeeded, and
+each logged the shell it actually ran under:
+
+| Step | Step shell | Result |
+| --- | --- | --- |
+| Installer unit test (Windows PowerShell 5.1) | `5.1.26100.33296 (Desktop)` | 32 passed, 0 failed |
+| Installer unit test (PowerShell 7) | `7.6.5 (Core)` | 32 passed, 0 failed |
+| Installer fixture test (Windows PowerShell 5.1) | `5.1.26100.33296 (Desktop)` | 32 passed, 0 failed |
+| Installer fixture test (PowerShell 7) | `7.6.5 (Core)`, `C:\Program Files\PowerShell\pwsh.exe` | 32 passed, 0 failed |
+
+**A12 is met, and with it every criterion that was not a host limitation.** The
+runner's builds differ from this laptop's (5.1 `.33296` versus `.9444`; pwsh
+7.6.5 MSI versus 7.6.6 Store package), so the result is not an artefact of one
+machine.
+
+The run as a whole was red, but not because of this plan. The only failure was
+`TestGuardConfigFileIsFatalWithAnInlineSecret` (MADR/PLAN 0155), on the two
+Linux lanes, first executed by the same push. It is recorded and amended in
+0155 (`c10d01d`). No 0156 file is involved.
+
+Status: `completed`.
