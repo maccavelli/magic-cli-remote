@@ -369,6 +369,55 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      # scripts/install.ps1 under test, on both shells (MADR 0156 D8). It
+      # shipped as a release asset for a release and a half without ever being
+      # executed, and broke against canonical manifest names unnoticed (F7).
+      #
+      # Windows leg only; the tests are Windows-specific. `!cancelled()` rather
+      # than the default success() so a Go test failure above does not hide the
+      # installer's result, and each layer x shell is its own step so a red run
+      # names both. 5.1 is the script's #Requires minimum; 7 is what Windows
+      # Terminal users run `irm | iex` from (F14). Each step prints the shell it
+      # actually ran under rather than trusting the `shell:` key, since the
+      # runner image's pwsh version is not pinned here. Fixture steps carry an
+      # explicit timeout: a hung loopback listener must fail, not idle (C8).
+      # This job gates `release`, which publishes install.ps1.
+      - name: Installer unit test (Windows PowerShell 5.1)
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        shell: powershell
+        timeout-minutes: 5
+        run: |
+          "step shell: PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_unit_test.ps1
+          exit $LASTEXITCODE
+
+      - name: Installer unit test (PowerShell 7)
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          "step shell: PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_unit_test.ps1
+          exit $LASTEXITCODE
+
+      - name: Installer fixture test (Windows PowerShell 5.1)
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        shell: powershell
+        timeout-minutes: 10
+        run: |
+          "step shell: PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_test.ps1 -Shell powershell
+          exit $LASTEXITCODE
+
+      - name: Installer fixture test (PowerShell 7)
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          "step shell: PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_test.ps1 -Shell pwsh
+          exit $LASTEXITCODE
+
   # No go-macos job, deliberately (MADR 0120 D11). Cost is NOT the reason:
   # standard macOS runners are free and unlimited for public repositories (cap:
   # 5 concurrent macOS jobs). The reason is that there is almost nothing here
