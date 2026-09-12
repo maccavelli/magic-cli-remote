@@ -1,6 +1,6 @@
 ---
 status: completed
-date: 2026-09-08
+date: 2026-09-12
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -270,3 +270,50 @@ accepts any config file it can read.
 
 One of those two is wrong, and this record does not say which. It is not W-3
 and is out of scope here; it wants its own pair.
+
+## Amendment — 2026-09-12: the "unusable on Windows" claim was false (MADR 0155 F5)
+
+Additive, per MADR 0155 D6 and PLAN 0155 P5. The section *Discovered, not
+addressed here* above is left as written. It is corrected here, next to where
+the claim was made, so a reader who finds the claim also finds that it did not
+hold.
+
+**Two statements in that section were wrong.**
+
+1. *"`--config` is unusable on Windows outside a directory someone deliberately
+   made private."* MADR 0155 measured the same config written to four
+   locations on the same host. It was refused under a `%TEMP%` subdirectory,
+   under `Documents`, and under the repository checkout, and **accepted** in a
+   user-home subdirectory. Every refusal traced to one group,
+   `MAC420\CodexSandboxUsers`, which exists on this machine and is inherited
+   into those three paths. On a Windows install without such a group, the
+   standard locations pass. The conclusion generalised from one host, which is
+   the same error this codebase keeps finding in its own tests.
+2. *"A config under `%TEMP%`, `Documents`, or a repository checkout genuinely is
+   readable by SYSTEM and Administrators."* SYSTEM and Administrators were never
+   the cause. `appdirs.FileIsOwnerOnly` tolerates both by design (MADR 0116
+   D22: an administrator can read through `SeBackupPrivilege` regardless, so
+   their presence is not a security boundary). The refusals were caused by the
+   foreign group above.
+
+**The check was correct; its message was not.** The part of that section that
+stands is that the refusal named `chmod 0600`, a remedy no Windows operator can
+apply, and did not say which trustee caused it.
+
+**The open question is answered.** *"One of those two is wrong, and this record
+does not say which."* Both were, in different ways, and MADR/PLAN 0155 fixed
+both:
+
+* **mcremote had no check.** It now guards the config it actually read.
+  Exposure with an inline credential is fatal; without one, it warns. On Unix
+  the file is first repaired to `0600`, but a repaired file that carried a
+  credential is still refused (0155 P2, P6).
+* **mcrelay's check was right, and its message was wrong.** Both daemons now
+  explain a failure through `appdirs.NotOwnerOnlyDetail` (0155 P4). On Windows
+  that names the principals that can read the file and gives an `icacls`
+  command tested to make it owner-only. On Unix it is still `chmod 0600`. When
+  mcrelay refuses is unchanged.
+
+See [0155-MADR-one-daemon-guards-its-config-the-other-does-not.md](0155-MADR-one-daemon-guards-its-config-the-other-does-not.md)
+F5 and F6 for the measurements, and PLAN 0155's execution records for what
+shipped.
