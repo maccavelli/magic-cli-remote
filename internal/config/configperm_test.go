@@ -88,11 +88,23 @@ func TestGuardConfigFileToleratesAnExposedConfigWithoutASecret(t *testing.T) {
 }
 
 // The fatal case: exposed, and the exposure includes a credential.
+//
+// It is fatal on every platform, and on Unix it is fatal even though the guard
+// repairs the file first (MADR 0155 amendment, 2026-09-12). The first version
+// of this test tried to make the file "unrepairable" by dropping write on its
+// directory. That does not stop chmod(2) on a file the process owns, so on
+// Linux the repair succeeded, the guard returned nil, and the daemon would
+// have started with an exposed credential. CI run 34717428526 found it; every
+// earlier run of this test was on Windows, where no repair happens.
+//
+// The two platforms reach the two fatal messages naturally, so there is no
+// production seam here: Unix takes the repaired branch, Windows the
+// not-repaired one, which is also the path a failed Unix repair takes.
 func TestGuardConfigFileIsFatalWithAnInlineSecret(t *testing.T) {
 	path := privateConfig(t, secretConfig)
 	makeNonPrivate(t, path)
-	if !makeUnrepairable(t, path) {
-		t.Skip("cannot reach the fatal branch here: the guard can always repair the file")
+	if ok, err := appdirs.FileIsOwnerOnly(path); err != nil || ok {
+		t.Fatalf("fixture did not make the file non-private (ok=%v err=%v); the test would assert nothing", ok, err)
 	}
 
 	cfg := Config{}
@@ -100,11 +112,42 @@ func TestGuardConfigFileIsFatalWithAnInlineSecret(t *testing.T) {
 	if err == nil {
 		t.Fatal("a config readable by another principal and carrying a credential must be fatal")
 	}
-	if !strings.Contains(err.Error(), "rotate") {
+	msg := err.Error()
+	if !strings.Contains(msg, "rotate") {
 		t.Errorf("err=%v; D9 requires the message to say the credential is exposed", err)
 	}
-	if !strings.Contains(err.Error(), path) {
+	if !strings.Contains(msg, path) {
 		t.Errorf("err=%v; the message must name the file", err)
+	}
+	if strings.Contains(msg, "relay.secret") || strings.Contains(msg, "0123456789abcdef") {
+		t.Errorf("err=%v; PLAN 0155 C1 forbids naming the field or the value", err)
+	}
+	if len(cfg.Diagnostics) != 0 {
+		t.Errorf("a fatal refusal also produced diagnostics: %v", cfg.Diagnostics)
+	}
+
+	ok, ferr := appdirs.FileIsOwnerOnly(path)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if runtime.GOOS == "windows" {
+		if ok {
+			t.Error("the file became private on Windows, where repair is deliberately a no-op")
+		}
+		if !strings.Contains(msg, "is readable by another principal") {
+			t.Errorf("err=%v; an unrepaired file must be described as still readable", err)
+		}
+		return
+	}
+	// Unix: D8 ran before the refusal, so the refusal is not vacuous about A3.
+	if !ok {
+		t.Error("D8 repair did not make the file owner-only before refusing")
+	}
+	if !strings.Contains(msg, "tightened to 0600") {
+		t.Errorf("err=%v; a repaired file's refusal must say the permissions were tightened", err)
+	}
+	if strings.Contains(msg, "chmod") {
+		t.Errorf("err=%v; the chmod has already been done, so the message must not ask for it", err)
 	}
 }
 

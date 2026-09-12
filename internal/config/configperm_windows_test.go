@@ -27,11 +27,3 @@ func makeNonPrivate(t *testing.T, path string) {
 		t.Skipf("icacls could not grant Users read on %s (%v): %s", path, err, out)
 	}
 }
-
-// makeUnrepairable is a no-op on Windows and reports that the fatal branch is
-// reachable without help.
-//
-// repairOwnerOnly is deliberately a no-op here (MADR 0155 D8), so a file made
-// non-private by makeNonPrivate stays that way through the guard and falls
-// through to the fatal branch on its own.
-func makeUnrepairable(*testing.T, string) bool { return true }

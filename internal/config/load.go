@@ -462,42 +462,65 @@ const configPermCode = "config_not_owner_only"
 // self-update that breaks working installations — the measured reason 0155
 // rejected mirroring mcrelay's hard fail.
 //
-// On Unix a loose file is tightened to 0600 first and re-tested, so the common
-// case repairs itself (D8). On Windows the equivalent repair is a private DACL
-// on the directory, which PLAN 0155 P3 applies at startup.
+// On Unix a loose file is tightened to 0600 (D8). On Windows the equivalent
+// repair is a private DACL on the directory, which PLAN 0155 P3 applies at
+// startup.
+//
+// Exposure is judged on the file as it was found, not as repaired (MADR 0155
+// amendment, 2026-09-12). A repair that succeeds does not cancel a refusal: once
+// the file is private there is no later moment at which anyone could still tell
+// the operator that the credential inside it was readable. Deciding after the
+// repair is how the first implementation made the fatal branch unreachable on
+// every POSIX host while Windows refused the same file.
 //
 // PLAN 0155 C1: nothing here logs a secret, a field name, or a value. It names
 // the path. An operator who needs to know which setting is exposed can open the
 // file; a log line that names it is a map for anyone who later gets read
 // access.
 func guardConfigFile(cfg *Config, path string, inFile func(string) bool) error {
-	ok, err := appdirs.FileIsOwnerOnly(path)
+	private, err := appdirs.FileIsOwnerOnly(path)
 	if err != nil {
 		return fmt.Errorf("config %s: %w", path, err)
 	}
-	if !ok {
-		if repaired, rerr := repairOwnerOnly(path); rerr == nil && repaired {
-			slog.Default().Warn("tightened config file permissions",
-				slog.String("path", path),
-				slog.String("mode", "0600"))
-			if ok, err = appdirs.FileIsOwnerOnly(path); err != nil {
-				return fmt.Errorf("config %s: %w", path, err)
-			}
-		}
-	}
-	if ok {
+	if private {
 		return nil
 	}
 
-	// Exposed. Whether that stops the daemon depends on what is in the file.
+	// Exposed as found. Repair regardless of what comes next: a tighter file is
+	// the right state whether or not the daemon goes on to start.
+	repaired := false
+	if ok, rerr := repairOwnerOnly(path); rerr == nil && ok {
+		slog.Default().Warn("tightened config file permissions",
+			slog.String("path", path),
+			slog.String("mode", "0600"))
+		// Trust the predicate, not the chmod's return: a repair that did not
+		// actually make the file private is treated as no repair.
+		if repaired, err = appdirs.FileIsOwnerOnly(path); err != nil {
+			return fmt.Errorf("config %s: %w", path, err)
+		}
+	}
+
+	// Whether exposure stops the daemon depends on what is in the file (D3).
 	if HasInlineSecret(inFile) {
 		// MADR 0155 D9. Fixing the permissions does not un-read a file that was
 		// already readable, and an operator told only to tighten it will
 		// reasonably believe the problem is over. The advice belongs here and
 		// not in the warning below, where there is no credential to rotate.
+		if repaired {
+			// The remedy has already been applied, so do not tell the operator
+			// to chmod; tell them what is still theirs to do.
+			return fmt.Errorf("config %s was readable by another principal and contains a credential; "+
+				"its permissions have been tightened to 0600, but treat that credential as exposed: "+
+				"rotate it, then start again", path)
+		}
 		return fmt.Errorf("config %s is readable by another principal and contains a credential: %s; "+
 			"treat that credential as exposed and rotate it",
 			path, ownerOnlyRemedy(path))
+	}
+	if repaired {
+		// No credential, and the file is private now: nothing is left to report
+		// beyond the repair already logged.
+		return nil
 	}
 	msg := fmt.Sprintf("config %s is readable by another principal: %s", path, ownerOnlyRemedy(path))
 	slog.Default().Warn("config file is not private", slog.String("path", path))
