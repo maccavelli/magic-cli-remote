@@ -496,3 +496,55 @@ through all three is not testing D1–D4.
 4. Does `-WhatIf` need to exercise the lookup? It currently returns before
    downloading `SHA256SUMS`, so it cannot detect this class of failure at all.
    Worth deciding, not assuming.
+
+## Observed — execution results (2026-09-12)
+
+Additive. PLAN 0156 ran P1–P3 (`0f2b43e`, `0f303c9`, `a5057ef`); its
+execution record has the detail. The rationale above is left as written at
+decision time.
+
+**Borne out**
+
+* **F1/F2 and the fix.** With D1–D4 in place, `install.ps1` installs from the
+  live `v0.17.1` release under both Windows PowerShell 5.1 and PowerShell 7.6.6.
+  Both hashes match the published `SHA256SUMS`, and the installed `mcremote`
+  reports `0.17.1 (199c5c4)`.
+* **F3, observed rather than inferred.** Given a manifest with both shapes, the
+  pre-fix script (`71bc2e5`) logged `mcremote verified, version 9.9.9.1`. It
+  took the versioned line without refusing, and it stopped only because the
+  other product lacked a versioned entry.
+* **F7.** Both new tests fail against the pre-fix script. The fixture test hits
+  exactly the user-reported `no checksum entry for mcremote-windows-amd64-*`
+  error, with zero fetch errors, so the tests detect this defect rather than
+  merely coexisting with it.
+* **F12/D11.** Loading `Select-ManifestEntry` from the AST works identically on
+  both shells, with no guard in the installer. Mutation checks M1–M3 each turn
+  named cases red, identically on both shells.
+* **F13/D6/D7.** The loopback transport passed in all four host/child shell
+  pairings. `Get-File` is byte-identical to the approved revision. Teardown by
+  host-side `Close()` never hung.
+* **D9.** The CI change is one hunk, 49 lines added and none removed. The
+  release staging and bridge steps are untouched.
+
+**Not contradicted, but qualified**
+
+* **D8 is implemented but not yet observed in Actions.** No push was
+  authorised. The step bodies ran locally with Actions' shell wrapping, and a
+  forced failure propagates as a red step on both shells.
+* **Confirmation 6 ("`install_test.sh` passes") cannot hold on a Windows host.**
+  It failed identically before this change (64 ok / 39 FAIL), because its stub
+  `PATH` breaks Git Bash. What Confirmation 6 was for — that `install.sh`'s
+  behaviour is unchanged — held: the fail set was identical after every phase,
+  and the POSIX files were never modified. `install_test.sh` also turns out to
+  run nowhere in CI, the same shape as F7 on the other installer.
+* **F10 remains [unverified].** Nothing in this plan touched the self-updater,
+  and nothing observed bears on it.
+
+**New facts**
+
+* `Start-Process` from a PowerShell 7 host passes pwsh's `PSModulePath` to a
+  Windows PowerShell child, which then cannot resolve `Get-FileHash`. `&` does
+  not do this. Measured; affects process-launching test harnesses, not the
+  installer.
+* On 5.1, `Start-Process -PassThru` yields an empty `ExitCode` unless the
+  process handle is read while the child is running.

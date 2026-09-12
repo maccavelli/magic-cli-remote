@@ -473,3 +473,113 @@ by this plan and needs no fix.
   release-pipeline change, which D9 puts out of scope here, and it deserves its
   own MADR — the interesting question is whether it gates the release or merely
   reports on it.
+
+## Execution record — 2026-09-12
+
+All three phases ran, in order, one commit each, on this Windows host (Windows
+PowerShell `5.1.26100.9444`, PowerShell `7.6.6` Store package). Nothing was
+pushed; no tag was made.
+
+| Commit | Phase |
+| --- | --- |
+| `8aa677e` | MADR accepted, plan approved (docs only) |
+| `0f2b43e` | P1 — dual-shape lookup, `Select-ManifestEntry`, unit test |
+| `0f303c9` | P2 — loopback fixture test |
+| `a5057ef` | P3 — four CI steps on `go-native`'s Windows leg |
+
+**Status stays `in-progress`, deliberately.** Every criterion that can be
+checked from this host passes, but A12 needs a real Actions run, and this plan
+forbids the push that would produce one (see prediction 1). The plan becomes
+`completed` once a run on the pushed commits shows the four `Installer …`
+steps executing and green.
+
+### Acceptance criteria, as observed
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| A1 | **Met** | Live install from `v0.17.1` under both shells: both products verified and installed, SHA-256 matched the published manifest, `mcremote version` → `0.17.1 (199c5c4)`. Temp dirs removed. |
+| A2 | **Met, by fixture only** | Fixture case 2 (legacy manifest, `-Version 9.9.9.1`). No pre-0.16 release is still published, so there is no live legacy release to install from. |
+| A3 | **Met** | U4/U4b; fixture case 3, install dir empty. |
+| A4 | **Met** | Fixture case 4: `mcremote verified` logged, then `checksum mismatch for mcrelay`, install dir empty. |
+| A5 | **Met** | 32/32 checks, U1–U11, both shells, identical output apart from the version banner. |
+| A6 | **Met** | M1 → U1 U2 U4 U4b U5 U10 U10b U11; M2 → U4 U4b; M3 → U3 U3b; identical on both shells; recorded in `0f2b43e`. Each is a superset of the plan's required set. |
+| A7 | **Met** | Function loaded via `Parser::ParseFile`; `install.ps1` contains no `InvocationName`/test-env guard (grep). |
+| A8 | **Met** | No script-scope or I/O reference in the function body, checked case-insensitively after prediction 6. |
+| A9 | **Met** | 32/32 in all four host/child pairings, 3–4 s each. |
+| A10 | **Met** | Against `git show 71bc2e5`: exit 1 (not 124) on both shells; case 1 fails on `no checksum entry for mcremote-windows-amd64-* in SHA256SUMS`; zero fetch errors. |
+| A11 | **Met** | Case 1 asserts the three downloads were served by the loopback listener. The test has no other network path. |
+| A12 | **Not yet observed** | Step bodies run locally with Actions' powershell/pwsh wrapping: all four exit 0 and log the expected shell; a forced-red test turns the step red on both shells. A real run is still required. |
+| A13 | **Met** | `Get-File` byte-identical to `8aa677e`. |
+| A14 | **Met** | `git diff HEAD -- scripts/install.sh scripts/install_test.sh` empty after every phase. |
+| A15 | **Not met as written; held to baseline instead** | See prediction 2. |
+| A16 | **Met** | No run hit a timeout; no teardown warning printed; the listener is closed in `finally` by the test process. |
+
+### What the plan predicted incorrectly
+
+1. **P3's verification contradicts the stability rule.** P3 asks for "CI green
+   on the pushed branch", and the stability rule authorises no push. A plan
+   cannot require both. Future plans that change CI should either authorise a
+   push to a branch for verification or name local step simulation as the
+   check, and say which.
+2. **`./scripts/install_test.sh` cannot pass on a Windows host, and never
+   could.** Before any change it exited 1 with 64 ok / 39 FAIL: its stub `PATH`
+   breaks Git Bash's own binaries (`error while loading shared libraries`). Two
+   baseline runs gave the identical fail set, so every phase was held to "fail
+   set identical to baseline" rather than to a pass. This measures C1, which is
+   the rule's purpose, but A15 as written was unachievable here. The plan should
+   have run its own stability commands before being approved. Separately,
+   nothing in CI or any Makefile runs `install_test.sh` (see Deferred below).
+3. **The post-install version guard P1 was to add already existed**
+   (`if ($resolvedVersion -and …)`). No change was needed.
+4. **"Small stub `.exe` files are sufficient" was wrong.** The installer runs
+   `mcremote.exe version` after installing, so a non-PE stub throws there and
+   fails every success case for a reason unrelated to the test. Fixtures use
+   `HOSTNAME.EXE` with a product-specific tail appended: it runs on both shells,
+   and each product gets a distinct hash.
+5. **The first unit-test design could not satisfy A6.** Under M1 the suite
+   aborted at U1 (`ErrorActionPreference Stop`) and named no failing cases. The
+   mutation check found this, as it exists to. Non-throwing cases now go through
+   `pick`, which reports an unexpected throw and continues.
+6. **C7's own check was case-sensitive in a case-insensitive language.** The
+   function's local `$version` is the same name as the script's `-Version`.
+   Safe as written, but invisible to a case-sensitive grep. Renamed to
+   `$resolved`, and the purity check is now case-insensitive.
+7. **The five fixture cases did not prove pin wiring.** A legacy entry takes its
+   version from the filename, so case 2 passes even if `-Version` never reaches
+   the selector. Case 1b (canonical, pinned) was added; a canonical entry only
+   reports a version if the pin arrives.
+8. **Two harness defects the probes had not surfaced:**
+   * On 5.1, `Start-Process -PassThru` reports an empty `ExitCode` unless the
+     process handle is opened while the child runs. Three success cases
+     reported `exit []` over correct installs.
+   * From a PowerShell 7 host, `Start-Process` passes pwsh's `PSModulePath` to
+     a Windows PowerShell child, which then cannot find `Get-FileHash`. `&`
+     does not do this. The harness removes the variable for that child only,
+     reproducing what a user typing `powershell` inside pwsh gets. This affects
+     the harness only, not users or the installer.
+9. **pwsh writes ANSI colour codes into redirected stderr**
+   (`[31;1mException:`). Harmless to the substring assertions, none of which
+   span a colour boundary, but worth knowing before asserting on exact error
+   text.
+10. **A tooling note, not a plan error:** in this Git Bash, `grep -c $'\r$'`
+    counts every line of a pure-LF file, which briefly reported LF files as CRLF.
+    Byte counts (`tr -cd '\r' | wc -c`) and `git ls-files --eol` were
+    authoritative.
+
+### Negative control, and F3 observed directly
+
+Against the pre-fix script, fixture case 3 (both shapes present) showed the old
+behaviour F3 describes. Under pwsh the old script logged
+`mcremote verified, version 9.9.9.1`: it took the versioned line instead of
+refusing, and installed nothing only because `mcrelay` happened to have no
+versioned entry.
+
+### Deferred, added by execution
+
+* **`scripts/install_test.sh` is not run by CI or any Makefile target.** The
+  POSIX installer's test suite exists but executes nowhere automatically. That
+  is the same shape as F7, on the other installer. It needs a Linux lane, and
+  touching CI for `install.sh` is outside this plan's scope.
+* **`install_test.sh` on Windows hosts.** Its stub-`PATH` approach cannot work
+  under Git Bash. Either it declares itself POSIX-only with a clear skip, or the
+  stub strategy changes. That belongs with the item above, not here.
