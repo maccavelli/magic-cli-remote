@@ -1,2 +1,3 @@
 run_id	job_name	commit_sha	first_attempt_result	retry_result	failing_test	timestamp
 34139293426	Go (windows/amd64)	631cbc323a1976829285454d272ba86f7836e546	fail	pass	TestACPConnectionSurvivesAStalledPump	2026-09-07T15:40:24Z
+34717428526	Go (linux/arm64)	5edaec379c8c6d40d726169b286e932e3ccc1619	fail	fail	TestGuardConfigFileIsFatalWithAnInlineSecret	2026-09-12T20:34:28Z
