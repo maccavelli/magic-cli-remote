@@ -8,11 +8,23 @@
     them against the release SHA256SUMS manifest, and installs them under
     %LOCALAPPDATA%\Programs (MADR 0116 D13) — per-user, no elevation.
 
-    Verification is by hash VALUE, never by filename. SHA256SUMS lists
-    versioned names (mcremote-windows-amd64-0.14.10.1.exe) while this script
-    downloads the unversioned alias, so matching the manifest line by name
-    would fail; matching by value also yields the resolved version with no API
-    call. This mirrors scripts/install.sh exactly.
+    Verification is by hash VALUE, compared against the manifest line for the
+    product. Two manifest shapes exist and both verify (MADR 0005, MADR 0156):
+
+      canonical (v0.16.0 onward)  SHA256SUMS lists the downloaded basename,
+                                  mcremote-windows-amd64.exe. Preferred.
+      legacy    (pre-v0.16.0)     SHA256SUMS lists versioned names,
+                                  mcremote-windows-amd64-0.14.10.1.exe, while
+                                  the unversioned alias is what gets downloaded.
+
+    A manifest carrying BOTH shapes for one product is refused and nothing is
+    installed: an appended canonical line could otherwise shadow the real
+    versioned entry and authorise a substituted binary.
+
+    Mirrored from scripts/install.sh: the two shapes and the preference for
+    canonical, the fail-closed ambiguity rule, case-sensitive name matching,
+    and the version rule (a canonical entry yields the pinned -Version or
+    nothing, never an invented one; the trailing .exe is stripped).
 
 .PARAMETER Version
     Install a specific release (e.g. 0.14.10) instead of the latest.
@@ -76,40 +88,104 @@ function Get-File {
     }
 }
 
+# Select-ManifestEntry decides which SHA256SUMS line authorises a product, and
+# nothing else. It is pure (MADR 0156 D10, PLAN C7): every input is a
+# parameter, it reads no script-scope variable, and it does no I/O, so
+# scripts/install_ps1_unit_test.ps1 can call it with in-memory lines.
+#
+# Two manifest shapes exist (see .DESCRIPTION). Each is looked up on its own,
+# against the filename field rather than a substring of the whole line, and
+# both being present is fatal rather than a tie to break. Names match
+# case-sensitively, as install.sh's grep does (PLAN C2).
+function Select-ManifestEntry {
+    param(
+        [string[]]$Sums,
+        [string]$Product,
+        [string]$Arch,
+        [string]$PinnedVersion
+    )
+    $canonicalName = "$Product-windows-$Arch.exe"
+    $legacyPrefix = "$Product-windows-$Arch-"
+    $legacyPattern = '^' + [regex]::Escape($legacyPrefix) + '[0-9]'
+
+    $canonical = $null
+    $legacy = $null
+    foreach ($raw in $Sums) {
+        if ($null -eq $raw) { continue }
+        $line = $raw.Trim()
+        if (-not $line) { continue }
+        $fields = @($line -split '\s+' | Where-Object { $_ })
+        if ($fields.Count -lt 2) { continue }
+        $entry = [pscustomobject]@{ Hash = $fields[0].ToLower(); Name = $fields[-1] }
+        if (($null -eq $canonical) -and ($entry.Name -ceq $canonicalName)) {
+            $canonical = $entry
+        } elseif (($null -eq $legacy) -and ($entry.Name -cmatch $legacyPattern)) {
+            $legacy = $entry
+        }
+    }
+
+    if ($canonical -and $legacy) {
+        throw @"
+ambiguous SHA256SUMS: both a canonical and a versioned entry exist for $Product-windows-$Arch
+  canonical  $($canonical.Name)
+  versioned  $($legacy.Name)
+A conforming release lists one shape per manifest. Refusing to choose.
+Nothing was installed.
+"@
+    }
+
+    if ($canonical) {
+        # A canonical name carries no version. Report the pinned one if the
+        # caller asked for a release, and otherwise nothing: never invent one.
+        $resolved = ''
+        if ($PinnedVersion) { $resolved = $PinnedVersion }
+        $selected = $canonical
+        $shape = 'canonical'
+    } elseif ($legacy) {
+        $resolved = $legacy.Name.Substring($legacyPrefix.Length)
+        $selected = $legacy
+        $shape = 'legacy'
+    } else {
+        throw "no checksum entry for $canonicalName (or a versioned $legacyPrefix<version>.exe) in SHA256SUMS"
+    }
+
+    # Convention C5 (MADR 0116 F17): the extension comes LAST, so strip it to
+    # get the version. Without this the resolved version reads "0.14.10.1.exe".
+    if ($resolved.EndsWith('.exe')) {
+        $resolved = $resolved.Substring(0, $resolved.Length - 4)
+    }
+
+    return [pscustomobject]@{
+        Hash    = $selected.Hash
+        Name    = $selected.Name
+        Shape   = $shape
+        Version = $resolved
+    }
+}
+
 # Resolve-Product verifies a downloaded binary against the manifest by hash
-# value and returns the version recorded for it.
+# value and returns the version recorded for it. The choice of manifest line
+# is Select-ManifestEntry's; this function owns only the file hash.
 function Resolve-Product {
     param(
         [string]$Product,
         [string]$Arch,
         [string]$BinaryPath,
-        [string[]]$Sums
+        [string[]]$Sums,
+        [string]$PinnedVersion
     )
-    $prefix = "$Product-windows-$Arch-"
-    $line = $Sums | Where-Object { $_ -match [regex]::Escape($prefix) } | Select-Object -First 1
-    if (-not $line) {
-        throw "no checksum entry for $prefix* in SHA256SUMS"
-    }
-    $fields = $line -split '\s+' | Where-Object { $_ }
-    $want = $fields[0]
-    $name = $fields[-1]
+    $entry = Select-ManifestEntry -Sums $Sums -Product $Product -Arch $Arch -PinnedVersion $PinnedVersion
 
     $got = (Get-FileHash -Path $BinaryPath -Algorithm SHA256).Hash.ToLower()
-    if ($want.ToLower() -ne $got) {
+    if ($entry.Hash -ne $got) {
         throw @"
 checksum mismatch for $Product
-  expected $($want.ToLower())
+  expected $($entry.Hash)
   got      $got
 Nothing was installed.
 "@
     }
-    # Convention C5 (MADR 0116 F17): the extension comes LAST, so strip it to
-    # get the version. Without this the resolved version reads "0.14.10.1.exe".
-    $resolved = $name.Substring($prefix.Length)
-    if ($resolved.EndsWith('.exe')) {
-        $resolved = $resolved.Substring(0, $resolved.Length - 4)
-    }
-    return $resolved
+    return $entry.Version
 }
 
 function Add-ToPathNotice {
@@ -160,8 +236,12 @@ unversioned alias assets (releases before MADR 0116 do not, for Windows).
     foreach ($p in $Products) {
         $dl = Join-Path $tmp "$p.exe"
         Get-File -Url "$urlDir/$p-windows-$arch.exe" -Destination $dl
-        $resolvedVersion = Resolve-Product -Product $p -Arch $arch -BinaryPath $dl -Sums $sums
-        Write-Log "$p verified, version $resolvedVersion"
+        $resolvedVersion = Resolve-Product -Product $p -Arch $arch -BinaryPath $dl -Sums $sums -PinnedVersion $Version
+        if ($resolvedVersion) {
+            Write-Log "$p verified, version $resolvedVersion"
+        } else {
+            Write-Log "$p verified"
+        }
     }
 
     foreach ($p in $Products) {
