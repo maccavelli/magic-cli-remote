@@ -595,7 +595,7 @@ each logged the shell it actually ran under:
 | Installer unit test (Windows PowerShell 5.1) | `5.1.26100.33296 (Desktop)` | 32 passed, 0 failed |
 | Installer unit test (PowerShell 7) | `7.6.5 (Core)` | 32 passed, 0 failed |
 | Installer fixture test (Windows PowerShell 5.1) | `5.1.26100.33296 (Desktop)` | 32 passed, 0 failed |
-| Installer fixture test (PowerShell 7) | `7.6.5 (Core)`, `C:\Program Files\PowerShell\pwsh.exe` | 32 passed, 0 failed |
+| Installer fixture test (PowerShell 7) | `7.6.5 (Core)`, `C:\Program Files\PowerShell\7\pwsh.exe` | 32 passed, 0 failed |
 
 **A12 is met, and with it every criterion that was not a host limitation.** The
 runner's builds differ from this laptop's (5.1 `.33296` versus `.9444`; pwsh
