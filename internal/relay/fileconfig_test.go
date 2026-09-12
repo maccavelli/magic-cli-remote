@@ -3,6 +3,7 @@ package relay
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -199,8 +200,12 @@ func TestCheckSecretFilesRejectsWorldReadablePEM(t *testing.T) {
 		t.Skip("0644 still owner-only on this OS")
 	}
 	err = checkSecretFiles(FileConfig{TLS: TLSConfig{Mode: TLSModeFiles, CertFile: p, KeyFile: p}})
-	if err == nil || !strings.Contains(err.Error(), "chmod 0600") {
-		t.Fatalf("err=%v; want chmod 0600", err)
+	want := "chmod 0600"
+	if runtime.GOOS == "windows" {
+		want = "icacls " // MADR 0155 D4: the remedy must exist on the platform
+	}
+	if err == nil || !strings.Contains(err.Error(), want) || (runtime.GOOS == "windows" && strings.Contains(err.Error(), "chmod")) {
+		t.Fatalf("err=%v; want %s", err, want)
 	}
 }
 
@@ -239,8 +244,12 @@ hosts:
 		t.Skip("config mode 0644 is still owner-only on this OS")
 	}
 	_, err = Load(LoadOptions{ConfigFile: path})
-	if err == nil || !strings.Contains(err.Error(), "chmod 0600") {
-		t.Fatalf("err=%v; want chmod 0600", err)
+	want := "chmod 0600"
+	if runtime.GOOS == "windows" {
+		want = "icacls " // MADR 0155 D4: the remedy must exist on the platform
+	}
+	if err == nil || !strings.Contains(err.Error(), want) || (runtime.GOOS == "windows" && strings.Contains(err.Error(), "chmod")) {
+		t.Fatalf("err=%v; want %s", err, want)
 	}
 }
 

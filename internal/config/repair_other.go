@@ -15,12 +15,14 @@ package config
 // to `chmod 0600`.
 func repairOwnerOnly(string) (bool, error) { return false, nil }
 
-// ownerOnlyRemedy names the fix a Windows operator can actually perform.
+// ownerOnlyAlternative is mcremote's product-specific addition to
+// appdirs.NotOwnerOnlyDetail, which already names who can read the file and
+// gives an icacls command that works for any file (MADR 0155 D4, F6).
 //
-// Never "chmod": there is no such command here, and the mode bits are not what
-// was tested — FileIsOwnerOnly asks about the owner SID and the DACL on this
-// platform (MADR 0116 D22). Telling a Windows operator to chmod is how the
-// existing mcrelay message wasted an hour of this author's time (0155 F6).
-func ownerOnlyRemedy(string) string {
-	return "move it under the private config directory, or re-run: mcremote setup-service --force"
+// mcremote alone owns a private config directory and a setup-service that
+// writes into it, so only mcremote can offer this. mcrelay has neither, which
+// is why this is not part of the shared detail. Never "chmod": there is no
+// such command here.
+func ownerOnlyAlternative() string {
+	return "; or move it under the private config directory, or re-run: mcremote setup-service --force"
 }

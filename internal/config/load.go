@@ -513,16 +513,16 @@ func guardConfigFile(cfg *Config, path string, inFile func(string) bool) error {
 				"its permissions have been tightened to 0600, but treat that credential as exposed: "+
 				"rotate it, then start again", path)
 		}
-		return fmt.Errorf("config %s is readable by another principal and contains a credential: %s; "+
+		return fmt.Errorf("config %s contains a credential and is %s%s; "+
 			"treat that credential as exposed and rotate it",
-			path, ownerOnlyRemedy(path))
+			path, appdirs.NotOwnerOnlyDetail(path), ownerOnlyAlternative())
 	}
 	if repaired {
 		// No credential, and the file is private now: nothing is left to report
 		// beyond the repair already logged.
 		return nil
 	}
-	msg := fmt.Sprintf("config %s is readable by another principal: %s", path, ownerOnlyRemedy(path))
+	msg := fmt.Sprintf("config %s is %s%s", path, appdirs.NotOwnerOnlyDetail(path), ownerOnlyAlternative())
 	slog.Default().Warn("config file is not private", slog.String("path", path))
 	cfg.Diagnostics = append(cfg.Diagnostics, appdirs.Diagnostic{Code: configPermCode, Message: msg})
 	return nil

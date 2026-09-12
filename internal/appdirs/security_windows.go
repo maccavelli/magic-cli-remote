@@ -175,11 +175,7 @@ func noForeignTrustee(sddl string, owner *windows.SID) bool {
 		return false
 	}
 	_, aces := splitDACL(dacl)
-	allowed := map[string]bool{
-		canonicalTrustee("OW", owner): true,
-		canonicalTrustee("SY", owner): true,
-		canonicalTrustee("BA", owner): true,
-	}
+	allowed := tolerableTrustees(owner)
 	for _, ace := range aces {
 		fields := strings.Split(strings.Trim(strings.ToUpper(strings.TrimSpace(ace)), "()"), ";")
 		if len(fields) < 6 {
@@ -194,6 +190,61 @@ func noForeignTrustee(sddl string, owner *windows.SID) bool {
 		}
 	}
 	return true
+}
+
+// tolerableTrustees is the set noForeignTrustee accepts: the owner, SYSTEM and
+// Administrators, canonicalised. It is a function rather than a literal inside
+// noForeignTrustee so that foreignTrustees reads the same set, and a refusal
+// can never name a trustee the predicate did not object to, or miss one it did.
+func tolerableTrustees(owner *windows.SID) map[string]bool {
+	return map[string]bool{
+		canonicalTrustee("OW", owner): true,
+		canonicalTrustee("SY", owner): true,
+		canonicalTrustee("BA", owner): true,
+	}
+}
+
+// foreignTrustees lists the trustees that make noForeignTrustee false, in ACE
+// order and without duplicates, so an operator can be told who can read a file
+// rather than only that someone can (MADR 0155 D4, F6).
+//
+// Entries are SDDL trustee strings as canonicalTrustee leaves them: a SID
+// string, or an alias such as "BU" or "WD" that windows.StringToSid resolves. A
+// missing DACL grants everyone, so it is reported as "WD" (Everyone). An ACE
+// too short to parse makes the predicate fail, so it is reported too, as "?",
+// rather than letting the list claim the file has no foreign trustee.
+//
+// Invariant, pinned by TestForeignTrusteesAgreesWithPredicate:
+// noForeignTrustee(s, o) == (len(foreignTrustees(s, o)) == 0).
+func foreignTrustees(sddl string, owner *windows.SID) []string {
+	dacl := extractDACL(sddl)
+	if dacl == "" {
+		return []string{"WD"}
+	}
+	_, aces := splitDACL(dacl)
+	allowed := tolerableTrustees(owner)
+	var out []string
+	seen := map[string]bool{}
+	for _, ace := range aces {
+		fields := strings.Split(strings.Trim(strings.ToUpper(strings.TrimSpace(ace)), "()"), ";")
+		if len(fields) < 6 {
+			if !seen["?"] {
+				seen["?"] = true
+				out = append(out, "?")
+			}
+			continue
+		}
+		if !strings.HasPrefix(fields[0], "A") {
+			continue
+		}
+		t := canonicalTrustee(fields[5], owner)
+		if allowed[t] || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
 }
 
 // splitDACL separates the flag characters after "D:" from the ACE list.

@@ -290,7 +290,7 @@ func Load(opts LoadOptions) (FileConfig, error) {
 			return FileConfig{}, fmt.Errorf("config %s: %w", usedConfigFile, err)
 		}
 		if !ok {
-			return FileConfig{}, fmt.Errorf("config %s is readable by group/other; chmod 0600", usedConfigFile)
+			return FileConfig{}, notPrivateConfigErr(usedConfigFile)
 		}
 	} else {
 		v.AddConfigPath(basePaths.ConfigDir)
@@ -307,7 +307,7 @@ func Load(opts LoadOptions) (FileConfig, error) {
 				return FileConfig{}, fmt.Errorf("config %s: %w", usedConfigFile, err)
 			}
 			if !ok {
-				return FileConfig{}, fmt.Errorf("config %s is readable by group/other; chmod 0600", usedConfigFile)
+				return FileConfig{}, notPrivateConfigErr(usedConfigFile)
 			}
 		}
 	}
@@ -849,6 +849,17 @@ func EnsureDataDir(dir string) error {
 	return appdirs.EnsurePrivateDir(dir)
 }
 
+// notPrivateConfigErr is mcrelay's refusal for a config other principals can
+// read. When mcrelay refuses is unchanged (MADR 0155 D5, PLAN C4); this is only
+// what it says. The cause and remedy are appdirs.NotOwnerOnlyDetail, so Windows
+// operators are told who can read the file and given a command that works there
+// rather than "chmod 0600" (D4, F6). mcrelay's config exists to carry host
+// secrets, so the refusal always includes D9's rotate advice.
+func notPrivateConfigErr(path string) error {
+	return fmt.Errorf("config %s is %s; treat the host secrets in it as exposed and rotate them",
+		path, appdirs.NotOwnerOnlyDetail(path))
+}
+
 // checkSecretFiles requires files-mode TLS PEMs to be owner-only (0142 F22).
 func checkSecretFiles(fc FileConfig) error {
 	if fc.TLS.Normalized().Mode != TLSModeFiles {
@@ -863,7 +874,14 @@ func checkSecretFiles(fc FileConfig) error {
 			return fmt.Errorf("tls file %s: %w", path, err)
 		}
 		if !ok {
-			return fmt.Errorf("tls file %s is readable by group/other; chmod 0600", path)
+			// D9 applies to the key, which is secret; a certificate is public,
+			// so telling the operator to reissue over a readable cert would be
+			// advice about nothing. A combined PEM is the key file too.
+			if path == fc.TLS.KeyFile {
+				return fmt.Errorf("tls file %s is %s; treat the private key as exposed and reissue the certificate",
+					path, appdirs.NotOwnerOnlyDetail(path))
+			}
+			return fmt.Errorf("tls file %s is %s", path, appdirs.NotOwnerOnlyDetail(path))
 		}
 	}
 	return nil

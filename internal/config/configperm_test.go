@@ -134,8 +134,16 @@ func TestGuardConfigFileIsFatalWithAnInlineSecret(t *testing.T) {
 		if ok {
 			t.Error("the file became private on Windows, where repair is deliberately a no-op")
 		}
-		if !strings.Contains(msg, "is readable by another principal") {
-			t.Errorf("err=%v; an unrepaired file must be described as still readable", err)
+		// P4 (D4, F6): the unrepaired refusal names who can read the file and
+		// gives remedies that exist on Windows. makeNonPrivate granted
+		// BUILTIN\Users, so its SID is what the icacls remedy must remove.
+		for _, want := range []string{"readable by ", "icacls ", "*S-1-5-32-545", "mcremote setup-service --force"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("err=%v; an unrepaired Windows refusal must contain %q", err, want)
+			}
+		}
+		if strings.Contains(strings.ToLower(msg), "chmod") {
+			t.Errorf("err=%v; Windows has no chmod", err)
 		}
 		return
 	}
@@ -172,16 +180,20 @@ func TestGuardConfigFileMessageNamesNoSecret(t *testing.T) {
 	}
 }
 
-// The remedy must be the one the operator's platform actually has.
-func TestOwnerOnlyRemedyIsPlatformCorrect(t *testing.T) {
-	got := ownerOnlyRemedy("/tmp/config.yaml")
+// mcremote's addition to the shared detail must be one the platform has. The
+// shared cause and remedy are pinned in internal/appdirs (PLAN 0155 P4).
+func TestOwnerOnlyAlternativeIsPlatformCorrect(t *testing.T) {
+	got := ownerOnlyAlternative()
 	if runtime.GOOS == "windows" {
 		if strings.Contains(strings.ToLower(got), "chmod") {
-			t.Errorf("Windows remedy says chmod, which does not exist there: %q", got)
+			t.Errorf("Windows alternative says chmod, which does not exist there: %q", got)
+		}
+		if !strings.Contains(got, "setup-service") {
+			t.Errorf("Windows alternative %q does not offer setup-service", got)
 		}
 		return
 	}
-	if !strings.Contains(got, "chmod 0600") {
-		t.Errorf("Unix remedy = %q, want it to name chmod 0600", got)
+	if got != "" {
+		t.Errorf("Unix alternative = %q; the shared detail's chmod 0600 is the whole fix there", got)
 	}
 }

@@ -25,10 +25,7 @@ func repairOwnerOnly(path string) (bool, error) {
 	return true, nil
 }
 
-// ownerOnlyRemedy names the fix a Unix operator can actually perform.
-//
-// P4 moves this beside appdirs.FileIsOwnerOnly so mcrelay's three call sites
-// share it; until then it lives with the repair it pairs with.
-func ownerOnlyRemedy(path string) string {
-	return "run: chmod 0600 " + path
-}
+// ownerOnlyAlternative is mcremote's product-specific addition to
+// appdirs.NotOwnerOnlyDetail. On Unix there is none: chmod 0600 is the whole
+// fix, and the detail already says it (MADR 0155 D4, PLAN P4).
+func ownerOnlyAlternative() string { return "" }
