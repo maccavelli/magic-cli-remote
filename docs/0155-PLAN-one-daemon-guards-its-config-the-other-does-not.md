@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-08
+status: in-progress
+date: 2026-09-12
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -413,3 +413,140 @@ The message names no `chmod`, names no field, and carries D9's rotation advice
 only where a credential exists. The warning goes to stderr, so `--json` stdout
 stays machine-readable — checked, because a diagnostic that corrupts the JSON
 it is reported in would be worse than no diagnostic.
+
+## Amendment — 2026-09-12: P2's ordering made the POSIX fatal branch unreachable
+
+Implements the MADR amendment of the same date. D3, D8 and D9 are unchanged;
+this corrects how P2 composed them.
+
+**Status correction.** This plan's frontmatter said `proposed` while P1–P3 had
+already been committed (`de149c8`, `a372e06`, `71bc2e5`). It is `in-progress`:
+P4 and P5 have not run, and P6 below is new.
+
+### What went wrong in P2
+
+P2 said: repair to `0600`, re-test, and *"if still not private: fatal when a
+secret is present"*. On POSIX the repair succeeds for any file the process owns,
+so the fatal branch could never be reached. MADR Confirmation 1 required
+`exit non-zero` there. The fixture meant to reach that branch
+(`makeUnrepairable`, unix) removed write permission from the directory. That
+does not prevent `chmod(2)`, which needs only file ownership. All of P2's
+verification ran on Windows, where both problems are invisible. CI run
+`34717428526` found it on the first Linux execution.
+
+### P6 — exposure is judged on the file as found (D3, D8, D9; MADR amendment 2026-09-12)
+
+**In scope (the only files this phase may touch):**
+
+* `internal/config/load.go` — `guardConfigFile` only
+* `internal/config/configperm_test.go`
+* `internal/config/configperm_unix_test.go`
+* `internal/config/configperm_windows_test.go`
+* this pair's two documents
+
+**Change.** In `guardConfigFile`, record whether the file was private **before**
+any repair, and decide fatal-or-warn from that:
+
+1. `exposed := !FileIsOwnerOnly(path)`. If not exposed, return nil (unchanged).
+2. If exposed, attempt the D8 repair and log it exactly as now (unchanged).
+3. If exposed and `HasInlineSecret`: **fatal, whether or not the repair
+   succeeded.**
+   * Repaired: the message says the file *was* readable by another principal
+     and contains a credential, that its permissions have been tightened to
+     `0600`, and that the credential must be treated as exposed and rotated
+     before starting again. No `chmod` remedy, since it has already been done.
+   * Not repaired: the current message, with `ownerOnlyRemedy` and the rotate
+     advice (unchanged).
+4. If exposed, no secret, and repaired: return nil with no Diagnostic
+   (unchanged; the tolerate test's POSIX branch already asserts this).
+5. If exposed, no secret, and not repaired: WARN plus the
+   `config_not_owner_only` Diagnostic (unchanged).
+
+**Tests.**
+
+* Delete `makeUnrepairable` from both platform files. Its unix premise is false,
+  and the fatal case no longer depends on repair failing.
+* `TestGuardConfigFileIsFatalWithAnInlineSecret` runs on every platform with no
+  skip. It asserts: an error; the error contains `rotate` and the path; it names
+  no field or value (C1). **On POSIX** it also asserts the file is now owner-only
+  (the repair ran; A3 non-vacuous) and that the message says the permissions
+  were tightened and does not tell the operator to `chmod`. **On Windows** it
+  also asserts the file is still not private (no repair; unchanged remedy).
+* The not-repaired fatal message keeps its coverage through the Windows run.
+  `repairOwnerOnly` returns false there, which is the same code path a failed
+  POSIX repair takes, so no test seam is added to production code.
+
+### Contracts for P6
+
+* **C6-1 — No production seam for tests.** No injectable repair function, no
+  test-only flag. The two fatal messages are reached by the platforms that
+  naturally produce them.
+* **C6-2 — The secret-free path does not change.** P6 must not turn a repaired
+  secret-free config into a refusal or a Diagnostic. This is the contract most
+  at risk: "fatal when exposed" is one conditional away from "fatal when exposed
+  and a secret is present".
+* **C6-3 — Evidence from the platform that failed.** A Windows-only green run
+  does not verify P6. That is the precise way P2 shipped broken. Linux
+  verification is required before commit (below), not left to CI after push.
+
+### Verification
+
+On the Windows host, as the stability rule already requires:
+
+```bash
+GOOS=windows go build ./... && GOOS=linux go build ./... && GOOS=darwin go build ./...
+GOOS=linux go vet ./internal/config/
+go test ./internal/config/ -count=1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-windows-local.ps1
+```
+
+**And on Linux, as a non-root user**, in this host's WSL `Ubuntu-24.04`
+distribution (uid 1000, ext4 `/tmp`). It has no Go today, so this step needs
+the official `go1.26.6.linux-amd64` toolchain installed under the WSL user's
+home. That download requires the owner's permission:
+
+Run from a private clone on the WSL ext4 filesystem, never the Windows working
+tree. `chmod` on `/mnt/c` (DrvFs) does not behave like POSIX, and a `git stash`
+there would rewrite the Windows checkout.
+
+```bash
+# clone HEAD (pre-P6) into WSL
+wsl -d Ubuntu-24.04 -- bash -lc 'rm -rf ~/mcr-0155 && git clone -q /mnt/c/Users/macsm/gitrepos/magic-cli-remote ~/mcr-0155'
+# 1. baseline: the unmodified tree reproduces CI's failure on Linux
+wsl -d Ubuntu-24.04 -- bash -lc 'cd ~/mcr-0155 && go test ./internal/config/ -run TestGuardConfigFile -count=1'
+# 2. negative control: P6's TESTS over pre-P6 load.go must still fail
+#    (copy only the three *_test.go files from the Windows tree)
+# 3. the fix: copy P6's load.go too; everything passes
+wsl -d Ubuntu-24.04 -- bash -lc 'cd ~/mcr-0155 && go test ./internal/config/ -count=1 && go test ./... -count=1'
+# 4. the race lane, if the distro has a C toolchain
+wsl -d Ubuntu-24.04 -- bash -lc 'cd ~/mcr-0155 && CGO_ENABLED=1 go test -race ./internal/config/ -count=1'
+```
+
+Steps 1 and 2 must fail with CI's exact message
+(`…carrying a credential must be fatal`) before step 3 is trusted. Step 4 covers
+the `ubuntu-latest` lane's `-race`, which cannot run on this Windows host (it
+needs cgo, refused by MADR 0116 C7). If the distro has no `gcc`, record that
+step 4 did not run. Do not install a compiler to make it pass; CI's race lane
+remains the check for it.
+
+### Acceptance for P6
+
+| # | Criterion | Source |
+| --- | --- | --- |
+| A12 | Linux, non-root: an exposed config carrying a secret is fatal **and** the file is `0600` afterwards | D3, D8, MADR Confirmation 1 |
+| A13 | That fatal message says the permissions were tightened, says to rotate, names the path, and names no field or value | D9, C1 |
+| A14 | Linux: an exposed secret-free config is repaired and starts with no Diagnostic, unchanged | D3, C6-2 |
+| A15 | Windows: all five `TestGuardConfigFile*` tables pass unchanged in outcome | D3 |
+| A16 | The Linux negative control fails with CI's message before the fix | C6-3 |
+| A17 | `go test ./...` green on `ubuntu-latest` (with `-race`), `ubuntu-24.04-arm` and `windows-latest` in CI after the owner pushes | CI run to be named in the execution record |
+
+**A16 is the one most likely to be skipped.** Once the fix is written it feels
+redundant. But P2's own tests passed everywhere they were run, and only a run on
+the failing platform, against the unfixed code, proves the new test detects the
+defect rather than coexisting with it.
+
+### Delivery
+
+P6 runs before P4. P4 moves the remedy text into a shared helper, so it should
+move the corrected messages, not the broken ones. One commit, and no push
+without an explicit instruction.

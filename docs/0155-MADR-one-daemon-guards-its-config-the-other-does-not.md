@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-09-08
+date: 2026-09-12
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -422,3 +422,79 @@ All four are resolved; the plan implements D7–D9.
    most plausibly the Codex CLI's sandboxing — and its only role in this record
    is as the thing that made F5's refusals reproducible and F1's migration risk
    concrete.
+
+## Amendment — 2026-09-12: exposure is judged on the file as found; a repair does not cancel the refusal
+
+Additive. D3, D8 and D9 are unchanged. This records that the implementation of
+PLAN 0155 P2 did not meet them on POSIX, and states the owner's reading of how
+they compose, so the next implementation cannot drift the same way.
+
+### What was observed
+
+The first CI run that executed 0155 on Linux, run `34717428526` on
+`5edaec3` (2026-09-12), failed `TestGuardConfigFileIsFatalWithAnInlineSecret`
+three times: once on `ubuntu-latest` (`go test -race`), and twice on
+`ubuntu-24.04-arm` (attempt and retry, so not a flake). The log line just
+before each failure is the repair:
+
+```text
+WARN tightened config file permissions path=/tmp/TestGuardConfigFileIsFatalWithAnInlineSecret…/cfg/config.yaml mode=0600
+--- FAIL: TestGuardConfigFileIsFatalWithAnInlineSecret (0.00s)
+    configperm_test.go:101: a config readable by another principal and carrying a credential must be fatal
+```
+
+So on POSIX a world-readable config carrying `relay.secret` is tightened to
+`0600`, a WARN is logged, and `guardConfigFile` returns nil: **the daemon
+starts, and says nothing about the credential.** The same file on Windows is
+fatal, because repair is a no-op there.
+
+### Why it happened
+
+* **PLAN P2 put the steps in the wrong order.** It says "chmod `0600`… re-test;
+  if **still** not private: fatal when a secret is present". Once the repair
+  succeeds, "still not private" is false, so the fatal branch is unreachable on
+  POSIX for any file the process owns. That is nearly every real config.
+* **That ordering contradicts this record.** Confirmation 1 specifies
+  `(POSIX) chmod 0644 config.yaml with relay.secret set -> exit non-zero`. D9
+  says *"a product that fixes the file and says nothing leaves the operator
+  believing the problem is over"*, which is what POSIX now does. D8 justified
+  repairing because it *"makes the outcome the same on both platforms"*, and it
+  made them differ.
+* **The test that should have caught it rested on a false premise.**
+  `makeUnrepairable` (unix) drops write permission on the containing directory,
+  on the belief that this stops `chmod`. It does not: `chmod(2)` on a file
+  requires only ownership of that file, and directory write permission governs
+  creating, removing and renaming entries, not an existing file's mode. The
+  helper returned "unrepairable" and the repair succeeded anyway.
+* **It was only ever run on Windows.** Every 0155 verification, including the
+  end-to-end table in the plan's second amendment, ran on the Windows host,
+  where `makeUnrepairable` is `return true` and repair never happens. The POSIX
+  branch first executed in CI, after merge.
+
+### The reading, by owner decision (2026-09-12)
+
+**Exposure is a property of the file as the daemon found it.** If the file was
+readable by another principal and carries an inline secret, the daemon refuses
+to start (D3), even if D8 has just made the file private. D8 still runs first
+and is still logged. The refusal says the permissions have been tightened, and
+that the credential must be treated as exposed and rotated before starting
+again (D9).
+
+Consequences:
+
+* Good: POSIX and Windows now reach the same outcome for the same file, which is
+  D8's stated purpose.
+* Good: the operator is told about the exposure at the only moment it can be
+  detected. After the repair the file looks private, so a later start could not
+  tell anyone.
+* Neutral: the next start finds a private file and runs, so the refusal is
+  one-shot and needs no manual `chmod`.
+* Bad: a POSIX installation whose config was loose and carried a secret stops
+  once on upgrade. This is D3's accepted cost, which the implementation had
+  quietly waived on one platform. Secret-free configs are unaffected: they are
+  repaired and start, as before.
+
+Options considered at decision time: **repair then fatal (chosen)**; repair,
+warn with D9 advice, and continue (rejected: POSIX and Windows would diverge,
+undoing D8); fix only the fixture (rejected: a repaired secret config would stay
+silent, contradicting D9).
