@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-09-12
+date: 2026-09-13
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -548,3 +548,96 @@ decision time.
   installer.
 * On 5.1, `Start-Process -PassThru` yields an empty `ExitCode` unless the
   process handle is read while the child is running.
+
+## Amendment — 2026-09-13: the documented one-liner still failed, and nothing tested it
+
+Additive. D1–D11 are unchanged. This records a second defect in
+`scripts/install.ps1`, reported by the owner against the published `v0.17.2`,
+and a gap in this record's own test design that let it ship.
+
+### What was observed
+
+```text
+PS C:\Users\macsm> irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1 | iex
+install: source https://github.com/maccavelli/magic-cli-remote/releases/latest/download
+install: target windows/amd64 -> C:\Users\macsm\AppData\Local\Programs
+install: mcremote verified
+install: mcrelay verified
+iex : The variable '$PSCmdlet' cannot be retrieved because it has not been set.
+```
+
+D1–D4 worked: both products verified. The run then died before installing. It
+left one empty directory, `%LOCALAPPDATA%\Programs\mcremote`, and no binaries.
+
+### Why
+
+* **The install loop reads `$PSCmdlet`.** `install.ps1:251` is
+  `if ($PSCmdlet.ShouldProcess($target, 'install'))`. `$PSCmdlet` exists only
+  when the text is invoked *as a script*, meaning `-File` or `& script.ps1`.
+  `irm | iex` evaluates the text as statements in the caller's scope, so no
+  cmdlet binding happens, and `Set-StrictMode -Version Latest` (line 45) turns
+  reading the unset variable into a terminating error. Measured on 5.1.26100.9444
+  and 7.6.6 with a two-line script: via `iex` it fails with that exact message;
+  via `-File` it succeeds.
+* **It has been there since the script was written** (`aed19da`, 2026-08-27).
+  Before `v0.17.2` the lookup defect (F1/F2) stopped every run earlier, so no
+  run through the one-liner had ever reached line 251.
+* **Every test in this record, and all four CI steps, invoke the installer with
+  `-File`.** So does every verification in PLAN 0156's execution records, including
+  the "published installer, both shells" check after release. The path the
+  README and `ops-windows-install.md` document, and the path the owner ran, was
+  never executed. This is F7's own shape: the thing users run was the thing
+  nothing ran.
+
+### Further measurements (2026-09-13)
+
+* Under `iex`, `param()` defaults always apply. Setting `$BaseUrl` in the calling
+  scope beforehand fails with *"Cannot overwrite variable BaseUrl because the
+  variable has been optimized"*, on both shells. A test therefore cannot
+  redirect an `iex` run by presetting variables.
+* Under `iex`, `$PSScriptRoot` and `$MyInvocation.MyCommand.Path` are empty
+  (both shells). `install.ps1` uses neither; `$PSCmdlet` is its only
+  construct that breaks under `iex`.
+
+### Decisions (owner-approved, 2026-09-13)
+
+**D12 — The install loop must run without `$PSCmdlet`.** Guard the
+`ShouldProcess` call on the variable existing: when it exists (`-File`), behave
+exactly as now, including `-Confirm` prompting. When it does not (`iex`),
+install. `-WhatIf` is unaffected: the script already returns before
+downloading when `$WhatIfPreference` is set.
+
+**D13 — The fixture test runs the installer the way the one-liner does.** It
+evaluates the script text with `Invoke-Expression` in a child shell, for both
+5.1 and 7, against the loopback release. At minimum it covers a successful
+install and the C3 partial failure.
+
+**D14 — That text differs from the real script in exactly one literal**: the
+`-BaseUrl` default, replaced with the loopback URL. The test asserts that the
+literal occurs exactly once and is replaced exactly once, so any other drift
+fails loudly. The child's `LOCALAPPDATA` points at a scratch directory, so the
+installer's default target is never the real one. This refines PLAN C6
+("never a copy"): C6 exists to stop a test vendoring a function that then
+drifts from the shipped script. Executing the shipped bytes with one asserted
+substitution is not that.
+
+**D15 — The unit test forbids the constructs that silently misbehave under
+`iex`**: `$PSScriptRoot`, `$PSCommandPath` and `$MyInvocation`. Those do not
+error, they are just empty, so only a static check catches them before a user
+does. `$PSCmdlet` is allowed only behind D12's guard.
+
+### Option rejected for D14, with its strongest argument
+
+**An environment-variable base URL**, mirroring `install.sh`'s
+`MC_TEST_BASE_URL`. The strongest argument for it: the test would execute the
+published bytes with no substitution at all, and the two installers would share
+a mechanism, which is this record's whole theme. Rejected because it adds a
+download-redirect input to a script users pipe from the internet, and PLAN C5
+exists precisely to refuse production behaviour that is there for tests. A
+one-literal substitution, asserted, gets nearly the same fidelity without it.
+
+### Consequence
+
+The fix reaches users only in a release after `v0.17.2`. Until then, the working
+path is to download `install.ps1` and run it with `-File`, which PLAN 0156's
+execution record verified against `v0.17.2` on both shells.

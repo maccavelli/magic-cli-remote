@@ -1,6 +1,6 @@
 ---
-status: completed
-date: 2026-09-12
+status: in-progress
+date: 2026-09-13
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -608,3 +608,77 @@ Linux lanes, first executed by the same push. It is recorded and amended in
 0155 (`c10d01d`). No 0156 file is involved.
 
 Status: `completed`.
+
+## Amendment — 2026-09-13: reopened; P4 makes the one-liner work, and tests it
+
+**Status reverts from `completed` to `in-progress`.** The owner ran the documented
+one-liner against `v0.17.2` and it failed on `$PSCmdlet` after both products
+verified (MADR 0156 amendment, 2026-09-13). Every test and verification this plan
+ran used `-File`; none ran `irm | iex`.
+
+### P4 — the installer survives `iex`, and the fixture test runs it that way (D12–D15)
+
+**In scope (the only files P4 may touch):**
+
+| File | Change |
+| --- | --- |
+| `scripts/install.ps1` | D12: `ShouldProcess` only when `$PSCmdlet` exists (`Test-Path variable:PSCmdlet`) |
+| `scripts/install_ps1_test.ps1` | D13/D14: an `iex` mode for the success case and the C3 partial-failure case |
+| `scripts/install_ps1_unit_test.ps1` | D15: static check for `$PSScriptRoot`, `$PSCommandPath`, `$MyInvocation`, and unguarded `$PSCmdlet` |
+| this pair's documents | records |
+
+No workflow change is needed: P3's four CI steps already run both test files,
+and the new cases ride along.
+
+**Contracts for P4**
+
+* **C9 — The `-File` path is unchanged.** All 32 existing fixture checks and 32
+  unit checks pass without modification, and `-Confirm` still prompts under
+  `-File`.
+* **C10 — The `iex` text differs from `install.ps1` in exactly one asserted
+  literal** (D14). A test that substitutes more, or silently substitutes
+  nothing, fails.
+* **C11 — No real install directory is touched.** The `iex` child's
+  `LOCALAPPDATA` is a scratch directory, and the test asserts the binaries land
+  there. This is the contract most at risk: an `iex` run cannot take
+  `-InstallDir`, so forgetting the redirect installs into the developer's real
+  `%LOCALAPPDATA%\Programs`, which is exactly what the owner's machine has.
+* **C4 (plan-wide) still holds:** loopback only.
+
+**Verification**
+
+```bash
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_unit_test.ps1
+pwsh       -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_unit_test.ps1
+timeout 300 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_test.ps1 -Shell powershell
+timeout 300 pwsh       -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_test.ps1 -Shell pwsh
+# negative control: the published v0.17.2 installer must FAIL the iex cases on the $PSCmdlet message
+git show v0.17.2:scripts/install.ps1 > "$TEMP/install.v0172.ps1"
+timeout 300 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_test.ps1 -Shell powershell -Installer "$TEMP/install.v0172.ps1"
+timeout 300 pwsh       -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_test.ps1 -Shell pwsh -Installer "$TEMP/install.v0172.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-windows-local.ps1
+```
+
+The negative control must fail **only** the `iex` cases, on
+`'$PSCmdlet' cannot be retrieved`. The `-File` cases pass against `v0.17.2`,
+because D1–D11 shipped in it. A control that also fails the `-File` cases would
+mean the harness is broken, not that the bug was caught.
+
+**Acceptance**
+
+| # | Criterion |
+| --- | --- |
+| A17 | Via `iex`, on 5.1 and 7, the installer installs both products from the loopback release into the redirected `LOCALAPPDATA`, with the served bytes |
+| A18 | Via `iex`, a bad `mcrelay` hash after `mcremote` verifies installs nothing (C3), on both shells |
+| A19 | Against `v0.17.2`, exactly the `iex` cases fail, on the `$PSCmdlet` message |
+| A20 | The `-File` cases and the U-cases pass unmodified (C9) |
+| A21 | D15's static check passes on the fixed script, and fails on a script that reads `$PSScriptRoot` |
+| A22 | After push: the four CI installer steps are green |
+
+**Deferred, named:** the published one-liner working for users requires a
+release after `v0.17.2`. That is the owner's tag, not part of this phase.
+
+**A19 is the one most likely to be skipped**, and the reason matters: P2's
+negative control was run and passed, and it still proved nothing about `iex`,
+because it tested the path this bug does not live on. A negative control is only
+as good as the invocation it uses.
