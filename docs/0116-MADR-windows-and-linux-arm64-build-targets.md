@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-08-27
+date: 2026-09-13
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -1643,3 +1643,82 @@ same record-keeping rule that kept the historical findings in place
 applies to this amendment: nothing above this heading is edited, including
 D13's references to `install.ps1` and `ci.yml:160–165`, which now read as
 implementation history rather than current specs.
+
+## Amendment — 2026-09-13: D12's task definition is written in an encoding Task Scheduler rejects
+
+Additive. D12 is unchanged. This records that its implementation cannot register
+a task on a current Windows build, which no automated test could have caught,
+and that PLAN 0116 acceptance row 12 was never evidenced.
+
+### What was observed
+
+The owner ran `mcremote setup-service` from `v0.17.3` in a non-elevated shell:
+
+```text
+Service file:      Task Scheduler\mcremote
+error: register scheduled task "mcremote": exit status 1 (ERROR: The task XML is malformed.
+(1,40)::ERROR: unable to switch the encoding)
+```
+
+The default config had already been written. No task was registered or started.
+
+### What was measured, not assumed (2026-09-13, Windows 11 build 26100)
+
+The task XML that `v0.17.3` renders (`setup-service --print-only`) was written in
+four encodings and passed to `schtasks /create /xml`. Each copy carried one
+deliberately invalid value (`<ExecutionTimeLimit>NOT_A_DURATION`), so a
+successful *parse* still fails validation and nothing is registered. The
+throwaway task name was deleted afterwards, and was confirmed absent.
+
+| Written as | First bytes | `schtasks /create` |
+| --- | --- | --- |
+| UTF-8, no BOM, `encoding="UTF-8"` (what the code writes) | `3C 3F 78 6D` | **The task XML is malformed** |
+| UTF-8 with BOM, `encoding="UTF-8"` | `EF BB BF 3C` | **The task XML is malformed** |
+| UTF-16LE with BOM, `encoding="UTF-16"` | `FF FE 3C 00` | parsed; rejected only the invalid value |
+| UTF-8, no BOM, no declaration | `3C 54 61 73` | parsed; rejected only the invalid value |
+
+Also measured: `schtasks /query /tn \Microsoft\Windows\Defrag\ScheduledDefrag /xml ONE`
+written to a pipe is 8-bit text (1,516 bytes, starting `3C 3F 78 6D`, no zero
+bytes, no BOM).
+
+### Findings
+
+**F24 — The task file is UTF-8 with a UTF-8 declaration, which Task Scheduler
+will not parse.** `renderTaskXML` returns `xml.Header + body`, and Go's
+`xml.Header` is `<?xml version="1.0" encoding="UTF-8"?>`. `setupSchtasks` writes
+that string to disk as UTF-8. The comment above the return reads *"Task
+Scheduler requires a UTF-16 declaration in the file it imports; the declaration
+below plus a BOM-less UTF-8 body is accepted by schtasks /xml in practice."* The
+comment names the requirement and the code does not meet it. The "accepted in
+practice" claim does not hold on build 26100.
+
+**F25 — Nothing automated ever parsed the file with Task Scheduler.**
+`schtasks_test.go` substitutes `runSchtasks` with a stub, so every test checks
+arguments and control flow and none checks the bytes on disk. PLAN 0116
+acceptance row 12 (*"`setup-service` registers a Task Scheduler task from a
+non-elevated shell; a second run reports `Unchanged`"*) cites those tests and
+"Windows acceptance". `scripts/acceptance-windows.ps1` prints that step as a
+**manual** instruction it cannot assert, and no record shows it being run. Row
+12 was accepted without evidence. This is the same shape as MADR 0156 F7 and
+0155's P2: the path users take was the path nothing ran.
+
+**F26 — Two comments misdescribe the query side, harmlessly.** The comment in
+`setup_schtasks.go` says `schtasks /query /xml` "returns UTF-16". Into a pipe it
+returns 8-bit text, which `normalizeTaskXML` compares as text, so idempotency is
+not broken by encoding. **[unverified]** Whether Task Scheduler rewrites other
+fields on registration (adding `<URI>`, `<Date>`, reordering), so that a second
+`setup-service` reports "exists with different content" instead of `Unchanged`.
+That needs a registered task, and is recorded as the plan's open risk.
+
+### Decision (owner-approved, 2026-09-13)
+
+**D24 — The task definition is written to disk as UTF-16LE with a byte-order
+mark, under an `encoding="UTF-16"` declaration**, which is the format
+`schtasks` itself exports. One function produces those bytes, and registration
+uses nothing else to write the file. The declaration and the encoding can
+therefore not disagree again. Tests check the actual bytes, and on Windows a
+test passes those bytes to the real `schtasks.exe` using the invalid-value
+technique above, so a successful parse cannot register anything.
+
+"No declaration, UTF-8" also parses, and was rejected: it relies on the
+parser's default, where UTF-16 with a BOM is what Task Scheduler writes itself.

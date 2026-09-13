@@ -1,6 +1,6 @@
 ---
-status: complete
-date: 2026-09-08
+status: in-progress
+date: 2026-09-13
 associated-madr: "0116-MADR-windows-and-linux-arm64-build-targets.md"
 owner: [Project Owner]
 target-milestone: "Windows amd64/arm64 + linux/arm64 build targets"
@@ -2224,3 +2224,77 @@ than a stale one.
 `git revert` of this commit restores the previous `install.sh` error
 message and the "v0.8.x lineage" framing. No persisted state, no
 protocol surface, no asset names touched.
+
+## Amendment — 2026-09-13: reopened; P12 writes the task XML in an encoding Task Scheduler accepts
+
+**Status corrected from `complete` to `in-progress`.** `complete` was never a
+valid status word (the vocabulary is `proposed`, `in-progress`, `completed`,
+`abandoned`). More substantively, `setup-service` cannot register a task on
+Windows build 26100 (MADR 0116 amendment, 2026-09-13, F24–F26). Acceptance row
+12 was accepted without evidence.
+
+### P12 — the task file is UTF-16LE with a BOM, and a real `schtasks` parses it (D24; closes F24, F25)
+
+**In scope (the only files P12 may touch):**
+
+| File | Change |
+| --- | --- |
+| `internal/cli/service/schtasks.go` | `renderTaskXML` emits an `encoding="UTF-16"` declaration; new `encodeTaskXML(body) []byte` returns BOM plus UTF-16LE; correct the comment |
+| `internal/cli/service/setup_schtasks.go` | write `encodeTaskXML(body)`, not the string; correct the "returns UTF-16" comment (F26) |
+| `internal/cli/service/schtasks_test.go` | byte-level tests for `encodeTaskXML` and for the declaration/encoding agreement |
+| `internal/cli/service/schtasks_windows_test.go` (new) | real `schtasks /create` on the encoded bytes, with the invalid-value technique; plus a negative control showing the old UTF-8 bytes are "malformed" |
+| this pair's documents | records |
+
+**Contracts for P12**
+
+* **C8 — No test registers a task.** The Windows test makes every file it
+  passes to `schtasks` invalid by one value, uses a throwaway name, and deletes
+  that name in cleanup whatever happens. A test that could leave an at-logon task
+  behind on a developer's machine is not acceptable. This is the contract most
+  at risk: "prove it registers" is the natural test to write, and it must not
+  be written that way.
+* **C9 — One writer.** Production registration and the real-`schtasks` test use
+  the same `encodeTaskXML`. A test that encodes the bytes itself proves
+  nothing about what `setupSchtasks` writes.
+* **C10 — Rendering is otherwise unchanged.** Every existing `schtasks_test.go`
+  assertion about content, arguments, `LeastPrivilege`, `InteractiveToken` and
+  idempotency passes without modification.
+
+**Locale.** `schtasks` messages are localised. The Windows test recognises the
+English "malformed" and "incorrectly formatted" texts and **skips** on output it
+cannot classify, saying so. GitHub's `windows-latest` is English, so CI always
+classifies. A silent pass on an unknown locale would be worse than a skip.
+
+**Verification**
+
+```bash
+CGO_ENABLED=0 go vet ./internal/cli/service/ && CGO_ENABLED=0 GOOS=linux go vet ./internal/cli/service/
+go test ./internal/cli/service/ -run 'TaskXML|Schtasks' -count=1 -v
+# negative control: with renderTaskXML/encodeTaskXML reverted to UTF-8 bytes, the real-schtasks test must fail on "malformed"
+go test ./internal/cli/service/ ./internal/testexec/ -count=1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-windows-local.ps1
+```
+
+Plus the WSL lane (the package still builds and tests on Linux, where the
+Windows test is excluded), and CI after push.
+
+**Acceptance**
+
+| # | Criterion |
+| --- | --- |
+| 14 | `encodeTaskXML` output begins `FF FE`, decodes back to the rendered text, and that text declares `encoding="UTF-16"` |
+| 15 | Real `schtasks /create` parses the encoded bytes (fails only on the injected invalid value), on the dev host and on `windows-latest` |
+| 16 | The same test run on the pre-P12 UTF-8 bytes reports "malformed" (negative control) |
+| 17 | No task remains registered after any test run (C8) |
+| 18 | The owner's `mcremote setup-service` registers and starts the task, from a release carrying P12 |
+
+**Row 18 is the one this plan is most likely to close early**, which is exactly
+how row 12 was accepted. Rows 14–17 prove the file parses. Only an actual
+`setup-service` on a real account proves registration, logon triggering and
+starting work end to end. It closes only when the owner's run succeeds.
+
+**Open risk, named:** F26's unverified question of whether a second
+`setup-service` reports `Unchanged` on a real registration. If it does not, the
+owner will see "exists with different content (pass --force to overwrite)" on a
+re-run. That is recoverable and not a registration failure, and it is checked
+during row 18.
