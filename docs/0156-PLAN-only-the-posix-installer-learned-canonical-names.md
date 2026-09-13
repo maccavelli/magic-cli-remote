@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-13
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -715,3 +715,25 @@ after a push, and the published one-liner reaches users only in a release after
    passed. All used `-File`. Three layers of verification agreed with each
    other, because they shared one invocation, and it was not the one users
    run.
+
+## Execution record — 2026-09-13 (second): A22 met in CI; plan completed
+
+CI run `34755699318` on `e611b40` passed every job, with zero `FAIL` lines and no
+retries (the flake-ledger steps were skipped). On `Go (windows/amd64)`, each
+installer step logged its shell and result:
+
+| Step | Shell | Result |
+| --- | --- | --- |
+| Installer unit test | Windows PowerShell 5.1.26100.33296 | 36 passed, 0 failed |
+| Installer unit test | PowerShell 7.6.5 | 36 passed, 0 failed |
+| Installer fixture test | Windows PowerShell 5.1.26100.33296 | 43 passed, 0 failed |
+| Installer fixture test | PowerShell 7.6.5 | 43 passed, 0 failed |
+
+The counts are P4's: 36 includes U12a–d, and 43 includes cases `1i` and `4i`.
+The `iex` one-liner path therefore passed on GitHub's runner, which runs as the
+built-in Administrator account, as well as on the development host.
+
+Users get the fixed one-liner in the release after `v0.17.2`. That release is
+tagged next, from this commit's successor on green CI.
+
+Status: `completed`.
