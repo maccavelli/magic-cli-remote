@@ -208,9 +208,8 @@ func tolerableTrustees(owner *windows.SID) map[string]bool {
 // order and without duplicates, so an operator can be told who can read a file
 // rather than only that someone can (MADR 0155 D4, F6).
 //
-// Entries are SDDL trustee strings as canonicalTrustee leaves them: a SID
-// string, or an alias such as "BU" or "WD" that windows.StringToSid resolves. A
-// missing DACL grants everyone, so it is reported as "WD" (Everyone). An ACE
+// Entries are SID strings, as canonicalTrustee resolves them. A missing DACL
+// grants everyone, so it is reported as S-1-1-0 (Everyone). An ACE
 // too short to parse makes the predicate fail, so it is reported too, as "?",
 // rather than letting the list claim the file has no foreign trustee.
 //
@@ -219,7 +218,7 @@ func tolerableTrustees(owner *windows.SID) map[string]bool {
 func foreignTrustees(sddl string, owner *windows.SID) []string {
 	dacl := extractDACL(sddl)
 	if dacl == "" {
-		return []string{"WD"}
+		return []string{"S-1-1-0"} // Everyone
 	}
 	_, aces := splitDACL(dacl)
 	allowed := tolerableTrustees(owner)
@@ -285,8 +284,21 @@ func canonicalACE(ace string, owner *windows.SID) string {
 	return "(" + strings.Join(fields, ";") + ")"
 }
 
-// canonicalTrustee resolves the SDDL trustee aliases this code can encounter
-// to their SID strings, so "SY" and "S-1-5-18" are the same trustee.
+// canonicalTrustee resolves an SDDL trustee to its SID string, so "SY" and
+// "S-1-5-18" are the same trustee.
+//
+// Every alias must be resolved, not only the ones this code expects to see.
+// Windows renders some account SIDs by alias when it writes SDDL: the built-in
+// Administrator, RID 500, comes back as "LA" (MADR 0155 second amendment,
+// measured). Left unresolved, an ACE granting that account its own file never
+// equals the owner's SID, counts as a foreign trustee, and FileIsOwnerOnly
+// refuses a file that is private. GitHub's Windows runner is that account.
+//
+// Resolution maps an alias to the SID it names and nothing more, so "BU" is
+// still BUILTIN\Users and still foreign (PLAN 0155 C7-1). OW and CO are the
+// exception, kept from before: in these checks they stand for the object's
+// owner, not for the OWNER RIGHTS and CREATOR OWNER well-known SIDs that
+// StringToSid would return.
 func canonicalTrustee(t string, owner *windows.SID) string {
 	switch t {
 	case "OW", "CO":
@@ -298,9 +310,14 @@ func canonicalTrustee(t string, owner *windows.SID) string {
 		return "S-1-5-18"
 	case "BA":
 		return "S-1-5-32-544"
-	default:
+	}
+	if strings.HasPrefix(t, "S-") {
 		return t
 	}
+	if sid, err := windows.StringToSid(t); err == nil {
+		return strings.ToUpper(sid.String())
+	}
+	return t
 }
 
 // CurrentUserSID returns the SID of the process token's user.

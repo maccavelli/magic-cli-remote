@@ -35,12 +35,12 @@ func TestForeignTrusteesAgreesWithPredicate(t *testing.T) {
 	}{
 		{"owner only", "O:" + o + "D:P(A;;FA;;;" + o + ")", nil},
 		{"owner, SYSTEM, Administrators", "O:" + o + "D:(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;BA)", nil},
-		{"explicit Users read", "O:" + o + "D:(A;;FA;;;" + o + ")(A;;FR;;;BU)", []string{"BU"}},
-		{"inherited Users read", "O:" + o + "D:AI(A;ID;FA;;;" + o + ")(A;ID;0x1200a9;;;BU)", []string{"BU"}},
-		{"two foreign, one repeated", "O:" + o + "D:(A;;FR;;;BU)(A;;FR;;;WD)(A;OICI;FR;;;BU)", []string{"BU", "WD"}},
+		{"explicit Users read", "O:" + o + "D:(A;;FA;;;" + o + ")(A;;FR;;;BU)", []string{usersSID}},
+		{"inherited Users read", "O:" + o + "D:AI(A;ID;FA;;;" + o + ")(A;ID;0x1200a9;;;BU)", []string{usersSID}},
+		{"two foreign, one repeated", "O:" + o + "D:(A;;FR;;;BU)(A;;FR;;;WD)(A;OICI;FR;;;BU)", []string{usersSID, "S-1-1-0"}},
 		{"foreign SID string", "O:" + o + "D:(A;;FR;;;S-1-5-21-9-9-9-500)", []string{"S-1-5-21-9-9-9-500"}},
 		{"a DENY for a foreign trustee does not count", "O:" + o + "D:(A;;FA;;;OW)(D;;FA;;;WD)", nil},
-		{"no DACL means everyone", "O:" + o, []string{"WD"}},
+		{"no DACL means everyone", "O:" + o, []string{"S-1-1-0"}},
 		{"unparsable ACE", "O:" + o + "D:(A;;FA)", []string{"?"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

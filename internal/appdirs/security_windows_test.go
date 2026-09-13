@@ -5,7 +5,10 @@ package appdirs
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 // TestIsPrivateDACL is the direct MADR 0116 F23b regression.
@@ -183,5 +186,65 @@ func TestFileIsOwnerOnlyAcceptsInheritedACL(t *testing.T) {
 	}
 	if !ok {
 		t.Error("a file inheriting the private DACL did not validate as owner-only")
+	}
+}
+
+// TestAliasedOwnerIsNotForeign is the MADR 0155 second-amendment regression
+// (PLAN 0155 A20, A21).
+//
+// Windows renders some account SIDs in SDDL by alias. The built-in
+// Administrator, RID 500, comes back as "LA". canonicalTrustee used to resolve
+// only OW/CO/SY/BA, so a DACL granting that account access to its own file read
+// as a foreign trustee, and FileIsOwnerOnly refused a private file. Nothing
+// caught it until GitHub's Windows runner, which runs as that account, executed
+// PLAN 0155 P4's remedy test.
+//
+// The test does not need to BE the built-in Administrator. It takes this
+// machine's own "LA" SID, builds a descriptor owned by and granting that SID,
+// and renders it back, so it fails on every Windows host if the resolution is
+// removed.
+func TestAliasedOwnerIsNotForeign(t *testing.T) {
+	la, err := windows.StringToSid("LA")
+	if err != nil {
+		t.Skipf("this host cannot resolve the LA alias: %v", err)
+	}
+	laSID := la.String()
+
+	render := func(sddl string) string {
+		t.Helper()
+		sd, err := windows.SecurityDescriptorFromString(sddl)
+		if err != nil {
+			t.Fatalf("parse %q: %v", sddl, err)
+		}
+		return sd.String()
+	}
+
+	file := render("O:" + laSID + "D:P(A;;FA;;;" + laSID + ")(A;;FA;;;SY)")
+	if !strings.Contains(file, ";LA)") {
+		t.Fatalf("fixture did not exercise the alias; Windows rendered %q", file)
+	}
+	if !noForeignTrustee(file, la) {
+		t.Errorf("an ACE for the owner rendered as LA was treated as foreign: %q", file)
+	}
+	if got := foreignTrustees(file, la); len(got) != 0 {
+		t.Errorf("foreignTrustees = %q for a DACL naming only the owner and SYSTEM", got)
+	}
+
+	dir := render("O:" + laSID + "D:P(A;OICI;FA;;;" + laSID + ")(A;OICI;FA;;;SY)")
+	if !isPrivateDACL(dir, la) {
+		t.Errorf("isPrivateDACL rejected the private DACL owned by LA: %q", dir)
+	}
+
+	// C7-1: resolving aliases must not tolerate them. BUILTIN\Users, rendered
+	// BU, is still a foreign trustee, and is reported by SID.
+	exposed := render("O:" + laSID + "D:P(A;;FA;;;" + laSID + ")(A;;FR;;;BU)")
+	if !strings.Contains(exposed, ";BU)") {
+		t.Fatalf("fixture did not exercise the BU alias; Windows rendered %q", exposed)
+	}
+	if noForeignTrustee(exposed, la) {
+		t.Errorf("BUILTIN\\Users became tolerated after alias resolution: %q", exposed)
+	}
+	if got := foreignTrustees(exposed, la); len(got) != 1 || got[0] != "S-1-5-32-545" {
+		t.Errorf("foreignTrustees = %q, want [S-1-5-32-545]", got)
 	}
 }
