@@ -8,10 +8,12 @@ package service
 // off Darwin (MADR 0116 D12).
 
 import (
+	"encoding/binary"
 	"encoding/xml"
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf16"
 )
 
 // runSchtasks runs schtasks.exe and returns its combined output. It is a
@@ -130,10 +132,37 @@ func renderTaskXML(opts Options, user string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("render task xml: %w", err)
 	}
-	// Task Scheduler requires a UTF-16 declaration in the file it imports; the
-	// declaration below plus a BOM-less UTF-8 body is accepted by schtasks /xml
-	// in practice, and is what keeps this diffable.
-	return xml.Header + string(body) + "\n", nil
+	// The declaration names UTF-16 because the file on disk IS UTF-16: see
+	// encodeTaskXML, the only thing that writes it. This used to be
+	// xml.Header (encoding="UTF-8") written as UTF-8, under a comment claiming
+	// schtasks accepted that "in practice". On Windows build 26100 it does not:
+	// "The task XML is malformed ... unable to switch the encoding" (MADR 0116
+	// F24, measured). The string stays text so tests and --print-only can read
+	// it; only the bytes handed to schtasks are UTF-16.
+	return taskXMLDeclaration + string(body) + "\n", nil
+}
+
+// taskXMLDeclaration is the declaration renderTaskXML emits. It must name the
+// encoding encodeTaskXML actually produces; a mismatch is exactly what
+// schtasks rejects.
+const taskXMLDeclaration = `<?xml version="1.0" encoding="UTF-16"?>` + "\n"
+
+// encodeTaskXML returns body as UTF-16LE with a byte-order mark, the encoding
+// Task Scheduler parses and the one `schtasks /query /xml` exports (MADR 0116
+// D24). It is the only code that turns a task definition into file bytes, so
+// the declaration and the encoding cannot drift apart again (PLAN C9).
+//
+// Measured on build 26100 with the rendered definition: UTF-8 with or without
+// a BOM under a UTF-8 declaration is "malformed"; UTF-16LE with a BOM under a
+// UTF-16 declaration parses.
+func encodeTaskXML(body string) []byte {
+	units := utf16.Encode([]rune(body))
+	out := make([]byte, 2+2*len(units))
+	out[0], out[1] = 0xFF, 0xFE
+	for i, u := range units {
+		binary.LittleEndian.PutUint16(out[2+2*i:], u)
+	}
+	return out
 }
 
 // serveArgs builds the argv the task runs, in the SAME order and with the same

@@ -35,7 +35,8 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 			return res, fmt.Errorf("stage task xml: %w", err)
 		}
 		defer os.Remove(tmp.Name())
-		if _, err := tmp.WriteString(body); err != nil {
+		// UTF-16LE with a BOM, never the string as-is: see encodeTaskXML.
+		if _, err := tmp.Write(encodeTaskXML(body)); err != nil {
 			tmp.Close()
 			return res, fmt.Errorf("write task xml: %w", err)
 		}
@@ -77,9 +78,12 @@ func removeSchtasks(opts Options) (Result, error) {
 // sameTaskDefinition compares a registered definition with a freshly rendered
 // one, ignoring the whitespace and XML declaration the task engine rewrites.
 //
-// schtasks /query /xml returns UTF-16 with its own formatting, so a byte
-// comparison would report every task as changed and re-register on every run —
-// defeating the idempotency contract this function exists to uphold.
+// schtasks /query /xml returns the definition with its own formatting and
+// declaration, so a byte comparison would report every task as changed and
+// re-register on every run, defeating the idempotency contract this function
+// exists to uphold. Into a pipe that output is 8-bit text, not UTF-16 as this
+// comment used to say (MADR 0116 F26, measured), so comparing it as text is
+// correct.
 func sameTaskDefinition(existing, want string) bool {
 	return normalizeTaskXML(existing) == normalizeTaskXML(want)
 }

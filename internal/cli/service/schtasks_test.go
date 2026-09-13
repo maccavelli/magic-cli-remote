@@ -1,8 +1,11 @@
 package service
 
 import (
+	"encoding/binary"
+	"os"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 // withSchtasks substitutes the schtasks runner so the Windows branch is
@@ -246,5 +249,86 @@ func TestSetupDispatchesToWindows(t *testing.T) {
 	}
 	if sawCreate {
 		t.Error("--print-only issued a /create")
+	}
+}
+
+// decodeUTF16LEWithBOM is the test's own reading of the task file bytes, kept
+// independent of encodeTaskXML so the two cannot share a bug.
+func decodeUTF16LEWithBOM(t *testing.T, b []byte) string {
+	t.Helper()
+	if len(b) < 2 || b[0] != 0xFF || b[1] != 0xFE {
+		t.Fatalf("task file does not start with the UTF-16LE BOM FF FE: first bytes % X", b[:min(len(b), 4)])
+	}
+	if len(b)%2 != 0 {
+		t.Fatalf("task file has an odd byte count (%d); not UTF-16", len(b))
+	}
+	units := make([]uint16, (len(b)-2)/2)
+	for i := range units {
+		units[i] = binary.LittleEndian.Uint16(b[2+2*i:])
+	}
+	return string(utf16.Decode(units))
+}
+
+// TestEncodeTaskXMLIsUTF16LEWithBOM is PLAN 0116 row 14 (MADR 0116 D24): the
+// bytes are UTF-16LE with a BOM, they decode back to exactly the rendered text,
+// and that text declares the encoding the bytes are actually in. The mismatch
+// between those last two is what Task Scheduler rejected (F24).
+func TestEncodeTaskXMLIsUTF16LEWithBOM(t *testing.T) {
+	body, err := renderTaskXML(windowsOpts(), `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(body, `<?xml version="1.0" encoding="UTF-16"?>`) {
+		t.Fatalf("rendered declaration does not name UTF-16: %q", body[:min(len(body), 60)])
+	}
+	if strings.Contains(body, `encoding="UTF-8"`) {
+		t.Error("rendered task XML still declares UTF-8")
+	}
+	if got := decodeUTF16LEWithBOM(t, encodeTaskXML(body)); got != body {
+		t.Error("encodeTaskXML does not round-trip the rendered text")
+	}
+	// Non-ASCII must survive: a Windows user or path can carry it.
+	const s = `C:\Users\Zoë\AppData\Local\Programs\mcremote\mcremote.exe`
+	if got := decodeUTF16LEWithBOM(t, encodeTaskXML(s)); got != s {
+		t.Errorf("non-ASCII did not round-trip: %q", got)
+	}
+}
+
+// TestSetupSchtasksWritesUTF16 is PLAN C9: the file setupSchtasks hands to
+// `schtasks /create /xml` is encodeTaskXML's output, not the string. The stub
+// reads the staged file while it still exists.
+func TestSetupSchtasksWritesUTF16(t *testing.T) {
+	opts := windowsOpts()
+	body, err := renderTaskXML(opts, `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staged []byte
+	withSchtasks(t, func(args ...string) (string, error) {
+		if args[0] == "/create" {
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == "/xml" {
+					b, rerr := os.ReadFile(args[i+1])
+					if rerr != nil {
+						t.Errorf("read staged task file: %v", rerr)
+					}
+					staged = b
+				}
+			}
+			return "", nil
+		}
+		if args[0] == "/query" {
+			return "", errNotRegistered{} // nothing registered yet, so /create runs
+		}
+		return "", nil // /run and anything else succeed
+	})
+	if _, err := setupSchtasks(opts, body, Result{}); err != nil {
+		t.Fatalf("setupSchtasks: %v", err)
+	}
+	if staged == nil {
+		t.Fatal("setupSchtasks never issued /create with an /xml file")
+	}
+	if got := decodeUTF16LEWithBOM(t, staged); got != body {
+		t.Error("the staged task file does not decode to the rendered definition")
 	}
 }
