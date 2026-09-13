@@ -1,5 +1,5 @@
 ---
-status: completed
+status: in-progress
 date: 2026-09-12
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -789,3 +789,74 @@ Every phase has now run. Nothing in this record was pushed.
    redone. Script files written directly are the reliable path.
 
 Status: `completed`.
+
+## Amendment — 2026-09-12 (third): reopened; P7 resolves every SDDL alias
+
+**Status reverts from `completed` to `in-progress`.** This plan was closed before
+P4 had been through CI, and the first CI run found a defect (MADR 0155
+amendment, second, same date). Closing on local verification alone was the
+mistake. The record's own P6 lesson was that the platform where something
+fails is the one that has to run it, and GitHub's Windows runner is a
+different kind of Windows account from the development host.
+
+### P7 — `canonicalTrustee` resolves any SDDL alias (MADR 0155 second amendment; MADR 0116 D22)
+
+**In scope (the only files P7 may touch):**
+
+| File | Change |
+| --- | --- |
+| `internal/appdirs/security_windows.go` | `canonicalTrustee`: `OW`/`CO` still map to the owner; `SY`/`BA` stay as literals; any other trustee goes through `windows.StringToSid`, and resolves to its SID string when that succeeds. `foreignTrustees`' no-DACL entry becomes the Everyone SID, `S-1-1-0`, so every entry has one form. |
+| `internal/appdirs/security_windows_test.go` | a regression test built from this machine's own `LA` SID |
+| `internal/appdirs/owneronly_message_windows_test.go` | `TestForeignTrusteesAgreesWithPredicate` expects SID strings where it expected aliases (`BU` becomes `S-1-5-32-545`, `WD` becomes `S-1-1-0`) |
+| this pair's documents | records |
+
+**The regression test must fail on every Windows host, not only on an
+administrator runner.** It does not need to *be* the built-in Administrator.
+It takes `StringToSid("LA")` for the machine it runs on, builds a descriptor
+owned by and granting that SID, renders it back to SDDL, and asserts:
+
+* the rendered string contains `LA`, so the fixture really exercises the alias;
+* `noForeignTrustee` is true and `foreignTrustees` is empty for that owner;
+* `isPrivateDACL` is true for a protected `OICI` owner+SYSTEM DACL owned by
+  that SID.
+
+It also covers one alias that is **not** the owner (`BU`), which must still be
+foreign. That proves the fix resolves aliases rather than tolerating them.
+
+**Contracts for P7**
+
+* **C7-1 — Never widen what counts as the owner.** Resolution maps an alias to
+  the SID it names, and nothing else. `BU`, `WD`, `AU` and the rest must still
+  be foreign. This is the contract most at risk: "treat unknown aliases as
+  fine" would make the failing test pass while turning off the check.
+* **C7-2 — No behaviour change for ordinary accounts.** Every existing appdirs,
+  config, relay and service test passes unmodified, apart from the alias-to-SID
+  expectation change named above.
+
+**Verification**
+
+```bash
+CGO_ENABLED=0 go vet ./internal/appdirs/ && CGO_ENABLED=0 GOOS=linux go vet ./internal/appdirs/
+go test ./internal/appdirs/ ./internal/config/ ./internal/relay/ ./internal/cli/service/ -count=1
+# negative control: with the StringToSid branch removed, the regression test must fail
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-windows-local.ps1
+```
+
+Plus the WSL lane: the module builds and tests on Linux (`appdirs` Windows
+files are excluded there, so this checks nothing broke). Then push, and read
+the Windows CI run's `TestNotOwnerOnlyDetailRemedyWorks` and
+`TestEnsureDefaultConfigPrivate` results **by name**. Only that run exercises
+a RID-500 account.
+
+**Acceptance**
+
+| # | Criterion |
+| --- | --- |
+| A20 | The `LA` regression test passes, and fails with the `StringToSid` branch removed |
+| A21 | `BU` rendered in a DACL is still a foreign trustee (C7-1) |
+| A22 | Windows CI on the pushed commit: `TestNotOwnerOnlyDetailRemedyWorks` passes in all four cases, as the built-in Administrator |
+
+**A22 is the criterion most likely to be declared met early**, exactly as P4
+was. Local green proves the rendering fix. It does not prove the runner's
+account behaves as the probe predicts. The plan returns to `completed` only
+after A22 is read from the CI log.

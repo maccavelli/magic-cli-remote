@@ -543,3 +543,58 @@ carry the detail. The decisions above are left as written.
   (`TestEnsureDefaultConfigPrivate`, added in `ce64d0c`).
 * **C5 (starts with no config) is pinned hermetically on POSIX only.** On
   Windows the config root is not redirectable from a test.
+
+## Amendment — 2026-09-12 (second): the owner check does not recognise the built-in Administrator
+
+Additive. No decision in this record changes. This records a defect in the
+Windows predicate this record relies on, `appdirs.FileIsOwnerOnly`
+(MADR 0116 D22), found by the first CI run of PLAN 0155 P4.
+
+### What was observed
+
+CI run `34725111324` on `189286d` failed `TestNotOwnerOnlyDetailRemedyWorks`
+on `windows-latest`, in all four cases (cmd and PowerShell, explicit and
+inherited), on the attempt and on the retry. Each time, the printed `icacls`
+command exited successfully and the file was still reported as not
+owner-only. The runner's user SID ends in `-500`, which is the built-in
+Administrator account. All four cases pass on the development host, whose
+user is an ordinary local account (`-1001`).
+
+### Why
+
+Windows renders a few well-known account SIDs in SDDL by alias, not SID
+string. Measured on the development host, using that machine's own RID-500
+SID:
+
+```text
+owner …-1001 renders as: O:S-1-5-21-…-1001D:P(A;;FA;;;S-1-5-21-…-1001)(A;;FA;;;SY)   noForeignTrustee = true
+owner …-500  renders as: O:LAD:P(A;;FA;;;LA)(A;;FA;;;SY)                                noForeignTrustee = false, foreignTrustees = ["LA"]
+StringToSid("LA") = S-1-5-21-…-500
+```
+
+`canonicalTrustee` resolves only `OW`, `CO`, `SY` and `BA`. Every other alias
+is compared as a raw string, so an ACE that grants the built-in Administrator
+access to its own file reads as `LA`, never equals the owner's SID, and
+counts as a foreign trustee. Before P4 the owner's access reached the file
+only through the inherited `OW` ACE, which *is* resolved, so nothing surfaced.
+P4's remedy grants the owner an explicit ACE (`/grant:r *<self>:F`), and that
+ACE is rendered `LA`.
+
+The same gap makes `isPrivateDACL` report a private directory owned by the
+built-in Administrator as not private. `EnsurePrivateDir` then reapplies the
+DACL on every call instead of recognising it is already done. That is
+wasteful, not unsafe.
+
+### Consequence for this record
+
+For an operator running as the built-in Administrator (the default on many
+Windows servers, and on GitHub's runners), P4's advice would have been
+followed and the file still refused: F6 again, from the other direction. The
+remedy test did its job. It is the reason this was found before a user hit it.
+
+### Reading
+
+An SDDL trustee alias names a SID. The predicate compares SIDs, so it must
+resolve any alias that `windows.StringToSid` can resolve. The exception is
+`OW` and `CO`, which keep mapping to the object's owner, as they do today.
+PLAN 0155 P7 implements this.
