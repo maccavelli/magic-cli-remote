@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-12
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -860,3 +860,39 @@ a RID-500 account.
 was. Local green proves the rendering fix. It does not prove the runner's
 account behaves as the probe predicts. The plan returns to `completed` only
 after A22 is read from the CI log.
+
+## Execution record — 2026-09-12: P7, and the plan closed on CI evidence
+
+P7 ran as specified. Its commits (`a49f853` amendment, `b8df949` fix) were
+pushed after being rebased over one flake-ledger commit from the bot
+(`261f030`). The code tree was identical to what had been verified locally.
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| A20 | **Met** | `TestAliasedOwnerIsNotForeign` passes. With the `StringToSid` branch removed, it fails on the development host with the runner's symptom: `an ACE for the owner rendered as LA was treated as foreign`, and `isPrivateDACL rejected the private DACL owned by LA` |
+| A21 | **Met** | The same test: a `BU` grant rendered in the DACL is still foreign, reported as `S-1-5-32-545` |
+| A22 | **Met** | CI `34728438104` on `b8df949`: `Go (windows/amd64)` reports `ok` for `internal/appdirs`, whose `TestNotOwnerOnlyDetailRemedyWorks` has no skip path. The runner account is RID 500 (`…-295617607-500`, from the failing run `34725111324`). All five Go and Flutter jobs passed, with zero `FAIL` lines and no retries |
+
+C7-2 held: appdirs, config, relay, service and testexec pass on Windows and in
+every CI lane. The only expectation that changed is the alias-to-SID one the
+amendment named.
+
+### What this round predicted incorrectly
+
+1. **The previous closing record declared `completed` before CI had run on
+   P4.** The development host's account is an ordinary local user, and the
+   runner's is the built-in Administrator. Those differ in how Windows renders
+   their SID, so local verification could not have seen the defect. The rule
+   this plan now follows, and the next should adopt from the start: a phase
+   that changes platform-security code is not done until CI has run it.
+2. **The alias gap predates this record.** It was in `canonicalTrustee` since
+   MADR 0116, hidden because the owner's access normally arrives through the
+   inherited `OW` ACE, which *was* resolved. It took a remedy that grants the
+   owner explicitly to make Windows render the owner by alias. A test that only
+   checks files the product created itself will never see this class of bug.
+3. **The first push was rejected** because the ledger bot had appended to
+   `ci-flakes.tsv` in response to the red run's retry. A red run on `master`
+   produces an upstream commit, so the next push after one should expect to
+   rebase.
+
+Status: `completed`.
