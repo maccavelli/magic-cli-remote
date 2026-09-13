@@ -682,3 +682,36 @@ release after `v0.17.2`. That is the owner's tag, not part of this phase.
 negative control was run and passed, and it still proved nothing about `iex`,
 because it tested the path this bug does not live on. A negative control is only
 as good as the invocation it uses.
+
+## Execution record — 2026-09-13: P4
+
+P4 ran as specified: commits `2ce85d6` (amendment) and `b5a8e14` (fix and
+tests). Not pushed. **Status stays `in-progress`:** A22 can only be read from CI
+after a push, and the published one-liner reaches users only in a release after
+`v0.17.2`.
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| A17 | **Met** | Case `1i` on 5.1.26100.9444 and 7.6.6: `Get-Content -Raw \| Invoke-Expression` installs both products, with the served bytes, into the redirected `LOCALAPPDATA`, with no `$PSCmdlet` error |
+| A18 | **Met** | Case `4i` on both shells: a bad `mcrelay` hash after `mcremote` verifies exits non-zero, reports `checksum mismatch for mcrelay`, and installs nothing |
+| A19 | **Met, as corrected below** | Against `git show v0.17.2:scripts/install.ps1`, on both shells: exit 1, no hang, only `1i` red, failing with the owner's exact output (`install: mcremote verified`, `install: mcrelay verified`, then `The variable '$PSCmdlet' cannot be retrieved…`). `install.ps1`'s entire diff since `v0.17.2` is the one guarded line, so this control is also the mutation check for the fix |
+| A20 | **Met** | Fixture 43/43, of which the 32 `-File` checks are unchanged; unit 36/36, of which U1–U11 are unchanged (C9) |
+| A21 | **Met** | U12 passes on `install.ps1`; U12b catches `$PSScriptRoot`, U12c an unguarded `$PSCmdlet`, and U12d allows the guarded form |
+| A22 | **Pending** | CI after push |
+| C11 | **Held** | `iex cases left the real LOCALAPPDATA install untouched` passes on every run, including both negative controls |
+
+`ci-windows-local` passes all checks.
+
+### What P4 predicted incorrectly
+
+1. **A19 said "exactly the `iex` cases fail" against `v0.17.2`.** Only `1i` does.
+   `4i` correctly passes against `v0.17.2`: its bad hash stops the run in
+   `Resolve-Product`, before the install loop that holds the bug. A negative
+   control can only fail cases that reach the defect. The criterion should
+   have named `1i`.
+2. **The mechanism that made every earlier check miss this is worth stating
+   plainly.** P2's negative control, P3's four CI steps, and the post-release
+   check of the published installer against `v0.17.2` were all real and all
+   passed. All used `-File`. Three layers of verification agreed with each
+   other, because they shared one invocation, and it was not the one users
+   run.
