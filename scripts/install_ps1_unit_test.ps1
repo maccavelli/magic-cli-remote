@@ -181,6 +181,46 @@ $e = pick 'U11' -Sums $real -Product 'mcrelay'
 check 'U11 mcrelay canonical'  $e.Shape 'canonical'
 check 'U11 mcrelay hash'       $e.Hash  '49f63af6bf85cfb48cc690c235088df06e692a5954a632d03ad4b0fb706bf323'
 
+Write-Host ''
+Write-Host 'U12. nothing that breaks or goes silently empty under irm | iex (MADR 0156 D15)'
+# Under iex, $PSScriptRoot, $PSCommandPath and $MyInvocation's path are empty
+# rather than an error, and $PSCmdlet does not exist at all -- v0.17.2 died on
+# it. Only a static check sees the silent ones before a user does.
+function Find-IexHostile {
+    param([string]$Text)
+    $tk = $null
+    $pe = $null
+    $root = [System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tk, [ref]$pe)
+    $found = @()
+    $vars = $root.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)
+    foreach ($v in $vars) {
+        $name = $v.VariablePath.UserPath
+        if (@('PSScriptRoot', 'PSCommandPath', 'MyInvocation') -contains $name) {
+            $found += "$name (line $($v.Extent.StartLineNumber))"
+            continue
+        }
+        if ($name -eq 'PSCmdlet') {
+            # Allowed only inside an expression that first asks whether it exists.
+            $guarded = $false
+            $p = $v.Parent
+            while ($p -and -not ($p -is [System.Management.Automation.Language.StatementBlockAst])) {
+                if ($p.Extent.Text -match 'Test-Path\s+variable:PSCmdlet') { $guarded = $true; break }
+                $p = $p.Parent
+            }
+            if (-not $guarded) { $found += "unguarded PSCmdlet (line $($v.Extent.StartLineNumber))" }
+        }
+    }
+    return , $found
+}
+$hostile = Find-IexHostile ([System.IO.File]::ReadAllText($installer))
+check 'U12 install.ps1 has no iex-hostile construct' ($hostile -join '; ') ''
+$probe = Find-IexHostile 'Join-Path $PSScriptRoot "x"'
+check 'U12b the check catches $PSScriptRoot' $probe.Count 1
+$probe = Find-IexHostile 'if ($PSCmdlet.ShouldProcess("t", "install")) { 1 }'
+check 'U12c the check catches an unguarded $PSCmdlet' $probe.Count 1
+$probe = Find-IexHostile 'if (-not (Test-Path variable:PSCmdlet) -or $PSCmdlet.ShouldProcess("t", "install")) { 1 }'
+check 'U12d a guarded $PSCmdlet is allowed' $probe.Count 0
+
 # ------------------------------------------------------------------ summary
 
 Write-Host ''

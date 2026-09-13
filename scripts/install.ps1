@@ -248,7 +248,14 @@ unversioned alias assets (releases before MADR 0116 do not, for Windows).
         $productDir = Join-Path $InstallDir $p
         New-Item -ItemType Directory -Path $productDir -Force | Out-Null
         $target = Join-Path $productDir "$p.exe"
-        if ($PSCmdlet.ShouldProcess($target, 'install')) {
+        # $PSCmdlet exists only when this text runs as a script (-File, or
+        # & install.ps1). The documented one-liner, `irm ... | iex`, evaluates
+        # it as statements with no cmdlet binding, and under StrictMode Latest
+        # reading the unset variable is fatal. That is how v0.17.2 verified
+        # both products and then died here (MADR 0156 D12). -WhatIf already
+        # returned above, so ShouldProcess only matters for -Confirm, which
+        # only a script invocation can pass.
+        if (-not (Test-Path variable:PSCmdlet) -or $PSCmdlet.ShouldProcess($target, 'install')) {
             # Move-Item -Force replaces a running binary's directory entry the
             # same way the self-updater does: a running .exe cannot be deleted
             # or written on Windows, but it can be renamed out of the way.

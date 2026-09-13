@@ -161,13 +161,42 @@ function Stop-FixtureServer {
 # timeout. Start-Process with redirected streams, not `& $shell ... 2>&1`:
 # under 5.1 that redirect turns every stderr line into an ErrorRecord, which
 # ErrorActionPreference Stop in THIS script would throw on.
+# The -BaseUrl default as it appears in install.ps1. The iex mode swaps exactly
+# this literal and nothing else (MADR 0156 D14, PLAN C10).
+$script:BaseUrlLiteral = "'https://github.com/maccavelli/magic-cli-remote/releases'"
+
 function Invoke-Installer {
-    param([string]$BaseUrl, [string]$InstallDir, [string]$Version)
+    param([string]$BaseUrl, [string]$InstallDir, [string]$Version, [switch]$Iex, [string]$LocalAppData)
     $outFile = Join-Path $work ('out-' + [Guid]::NewGuid().ToString('N') + '.txt')
     $errFile = "$outFile.err"
-    $argList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$Installer`"",
-        '-BaseUrl', "`"$BaseUrl`"", '-InstallDir', "`"$InstallDir`"")
-    if ($Version) { $argList += @('-Version', $Version) }
+    if ($Iex) {
+        # The documented one-liner is `irm .../install.ps1 | iex`. Under iex the
+        # text runs as statements: param() defaults always apply (presetting
+        # $BaseUrl fails with "variable has been optimized", measured), there is
+        # no $PSCmdlet, and -InstallDir cannot be passed. So the child evaluates
+        # the real script text with one asserted change -- the -BaseUrl default
+        # becomes the loopback URL -- and its LOCALAPPDATA is redirected so the
+        # default install target is a scratch directory (D13, D14, C10, C11).
+        $original = [System.IO.File]::ReadAllText($Installer)
+        $occurrences = ([regex]::Matches($original, [regex]::Escape($script:BaseUrlLiteral))).Count
+        if ($occurrences -ne 1) {
+            return [pscustomobject]@{ ExitCode = -2; TimedOut = $false
+                Output = "iex setup: expected the -BaseUrl default literal exactly once in $Installer, found $occurrences" }
+        }
+        $swapped = $original.Replace($script:BaseUrlLiteral, "'" + $BaseUrl + "'")
+        if ($swapped.Replace("'" + $BaseUrl + "'", $script:BaseUrlLiteral) -cne $original) {
+            return [pscustomobject]@{ ExitCode = -2; TimedOut = $false
+                Output = 'iex setup: the substituted text differs from install.ps1 by more than the -BaseUrl literal' }
+        }
+        $iexScript = Join-Path $work ('iex-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+        [System.IO.File]::WriteAllText($iexScript, $swapped)
+        $argList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+            "`"Get-Content -Raw -LiteralPath '$iexScript' | Invoke-Expression`"")
+    } else {
+        $argList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$Installer`"",
+            '-BaseUrl', "`"$BaseUrl`"", '-InstallDir', "`"$InstallDir`"")
+        if ($Version) { $argList += @('-Version', $Version) }
+    }
 
     # Launching Windows PowerShell from a PowerShell 7 host: `& powershell`
     # hands the child a Windows PowerShell module path, but Start-Process
@@ -184,11 +213,14 @@ function Invoke-Installer {
         $savedModulePath = $env:PSModulePath
         Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
     }
+    $savedLocalAppData = $env:LOCALAPPDATA
+    if ($LocalAppData) { $env:LOCALAPPDATA = $LocalAppData }
     try {
         $proc = Start-Process -FilePath $shellExe -ArgumentList $argList -NoNewWindow -PassThru `
             -RedirectStandardOutput $outFile -RedirectStandardError $errFile
     } finally {
         if ($clearModulePath) { $env:PSModulePath = $savedModulePath }
+        $env:LOCALAPPDATA = $savedLocalAppData
     }
     # On .NET Framework (5.1) ExitCode reads back empty unless the process
     # handle was opened while the process was still running. Measured: all
@@ -340,6 +372,47 @@ try {
     $url = Start-FixtureServer $c.Root
     try { $run = Invoke-Installer -BaseUrl $url -InstallDir $c.InstallDir } finally { Stop-FixtureServer }
     Assert-Refused '5' $run $c.InstallDir 'no checksum entry'
+    # ----------------------------------------------------------------- iex
+    # The one-liner path (MADR 0156 D13). v0.17.2 verified both products and
+    # then died on $PSCmdlet; nothing had run the installer this way before.
+    # The real per-user install target is watched too: an iex run cannot take
+    # -InstallDir, so a missed LOCALAPPDATA redirect would install for real
+    # (PLAN C11).
+    $realTargets = @('mcremote', 'mcrelay') | ForEach-Object {
+        Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'Programs') $_) "$_.exe"
+    }
+    $realBefore = $realTargets | ForEach-Object {
+        if (Test-Path -LiteralPath $_) { (Get-Item -LiteralPath $_).LastWriteTimeUtc.Ticks } else { 'absent' }
+    }
+
+    Write-Host ''
+    Write-Host '1i. canonical manifest, latest, via irm | iex'
+    $c = New-Case 'case1i'
+    $lad = Join-Path $work 'case1i-localappdata'
+    New-Item -ItemType Directory -Path $lad -Force | Out-Null
+    New-Release -Root $c.Root -UrlDir 'latest/download' -Lines @(
+        "$HM  mcremote-windows-amd64.exe", "$HR  mcrelay-windows-amd64.exe")
+    $url = Start-FixtureServer $c.Root
+    try { $run = Invoke-Installer -BaseUrl $url -Iex -LocalAppData $lad } finally { Stop-FixtureServer }
+    Assert-Success '1i' $run (Join-Path $lad 'Programs')
+    contains '1i mcremote verified' $run.Output 'mcremote verified'
+    if ($run.Output.Contains('PSCmdlet')) { bad '1i no $PSCmdlet error' (Tail-Text $run.Output) } else { ok '1i no $PSCmdlet error' }
+
+    Write-Host ''
+    Write-Host '4i. mcrelay hash corrupted after mcremote verifies, via irm | iex: nothing installed'
+    $c = New-Case 'case4i'
+    $lad = Join-Path $work 'case4i-localappdata'
+    New-Item -ItemType Directory -Path $lad -Force | Out-Null
+    New-Release -Root $c.Root -UrlDir 'latest/download' -Lines @(
+        "$HM  mcremote-windows-amd64.exe", "$BAD  mcrelay-windows-amd64.exe")
+    $url = Start-FixtureServer $c.Root
+    try { $run = Invoke-Installer -BaseUrl $url -Iex -LocalAppData $lad } finally { Stop-FixtureServer }
+    Assert-Refused '4i' $run (Join-Path $lad 'Programs') 'checksum mismatch for mcrelay'
+
+    $realAfter = $realTargets | ForEach-Object {
+        if (Test-Path -LiteralPath $_) { (Get-Item -LiteralPath $_).LastWriteTimeUtc.Ticks } else { 'absent' }
+    }
+    check 'iex cases left the real LOCALAPPDATA install untouched' ($realAfter -join ',') ($realBefore -join ',')
 } finally {
     Stop-FixtureServer
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
