@@ -2298,3 +2298,40 @@ starting work end to end. It closes only when the owner's run succeeds.
 owner will see "exists with different content (pass --force to overwrite)" on a
 re-run. That is recoverable and not a registration failure, and it is checked
 during row 18.
+
+## Execution record — 2026-09-13: P12
+
+P12 ran as specified: commits `9a074c6` (amendment) and `afc12ac` (fix and
+tests). Not pushed. **Status stays `in-progress`:** row 15 needs
+`windows-latest`, and row 18 needs the owner's `setup-service` from a release
+carrying P12.
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| 14 | **Met** | `TestEncodeTaskXMLIsUTF16LEWithBOM`: the bytes begin `FF FE`, decode back to the rendered text, the text declares `encoding="UTF-16"`, and non-ASCII round-trips. `TestSetupSchtasksWritesUTF16` shows the file `setupSchtasks` actually stages is those bytes (C9) |
+| 15 | **Met on the dev host; CI pending** | `TestTaskXMLParsesInRealSchtasks/UTF-16LE_with_BOM_parses` ran (did not skip) on Windows 11 build 26100: real `schtasks /create` parsed the bytes and rejected only the injected value |
+| 16 | **Met** | The same test's negative control: the pre-P12 UTF-8 bytes are reported "malformed". Separately, a mutation restoring `xml.Header` and raw UTF-8 bytes turned all three new tests red, the real one with `ERROR: The task XML is malformed.` (the owner's error) |
+| 17 | **Met** | No probe task registered after any run, including the mutation run (`schtasks /query` shows none) |
+| 18 | **Pending** | The owner's `mcremote setup-service`, from a release carrying P12 |
+
+C10 held: all five pre-existing `schtasks_test.go` tests pass unmodified.
+Wider gates: `internal/cli/service` and `internal/testexec` pass;
+`ci-windows-local` passes all checks; windows/linux/darwin build, and linux/darwin
+vet and test compilation, all cgo-free; the Linux (WSL) whole-module run passes.
+
+### What P12 predicted incorrectly, or learned
+
+1. **The new stub test first failed for a reason unrelated to encoding.**
+   `setupSchtasks` calls `/run` after `/create`, and the stub answered every
+   non-`/create` call with "not found". A stub has to model the whole sequence
+   the code performs, not only the call under test.
+2. **The first mutation attempt silently did not mutate.** Python passed
+   through a Git Bash heredoc lost `\n` escaping, the anchor did not match, and
+   the "mutated" test run was really the unmutated code passing. It was caught
+   only because the result was checked for failures that should have appeared.
+   A mutation check that reports green is not evidence until the mutation is
+   shown to be present, as the rerun's `MUTATION` marker grep did.
+3. **Row 12's history deserves stating once, plainly.** Acceptance was written
+   against tests that stub the one external program the feature depends on,
+   plus a manual step nobody recorded running. Rows 15 and 18 exist so that
+   cannot recur for this path.
