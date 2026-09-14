@@ -40,6 +40,20 @@ configure it are `mcremote serve` (`internal/cli/serve.go:80-83`) and
 `internal/cli/service/setup_schtasks.go:32-49`). A Task Scheduler process runs
 detached with no console, so the inherited `stderr` has no reader.
 
+**Windows rotation semantics are measured on this host, 3/3 identical runs
+(2026-09-13, go1.26.6 windows/amd64).** A probe program exercising the exact
+rotator operations — with a live `powershell Get-Content -Wait` reader attached
+to the active file — established: `os.Rename` of the tailed active file
+**succeeds**; recreating the active file `O_CREATE|O_APPEND|O_WRONLY 0600` and
+writing to it succeeds; a second rotation succeeds while the reader still holds
+the first backup; `os.Rename` **onto an existing target succeeds** (Go issues
+`MoveFileEx` with `MOVEFILE_REPLACE_EXISTING`, so a backup-name collision is a
+silent overwrite, not an error); `os.Remove` of a backup the reader is holding
+succeeds (prune can never be blocked by a tail); and the reader process survives
+rotation but follows its **handle** — after a rename, `Get-Content -Wait` keeps
+reading the backup, not the new active file, so an operator's tail must be
+re-attached after each rotation.
+
 **Nothing creates the log directory.** `daemon.Run` converges only `DataDir` and
 `ConfigDir` (`internal/daemon/daemon.go:86`, `100-106`). The Windows path
 (`setupSchtasks`) never creates `Paths.LogDir`, unlike the macOS path, which
@@ -75,6 +89,26 @@ Darwin (`internal/appdirs/roots_unix.go:48-54`), and that is pinned by
 `TestSystemRootsDispatches` (`internal/appdirs/systempaths_test.go:38-41`,
 "only darwin has a stdio base (MADR 0116 F4)"). A unified default requires
 adding an XDG-correct Linux root and amending that finding.
+
+**The XDG-correct Linux log root collides with `StateDir`.** `StateDir` is
+`joinProduct(StateHome, product)` = `$XDG_STATE_HOME/mcremote`
+(`internal/appdirs/paths.go:59`, `roots_unix.go:44`). Setting the `Logs` base to
+`$XDG_STATE_HOME` and resolving `LogDir` with the same `joinProduct` rule yields
+the identical directory, so on Linux — and only Linux — the log file lives
+beside the state tree (`instances/…`). The rotator's prune scan is prefix- and
+suffix-gated (`<product>-<timestamp>.log[.gz]`) and cannot match state content,
+so the overlap is inert; it is nonetheless a visible layout fact and must be
+documented and pinned by a test rather than discovered later.
+
+**Flag binding is `Changed`-gated, so zero-valued flag defaults cannot shadow
+viper defaults.** Both products bind flags with `v.BindPFlag`
+(`internal/config/load.go:435`, `internal/relay/fileconfig.go:545`); viper only
+prefers the flag value when `flag.HasChanged()`, and falls back to its own
+default otherwise. An `IntVar` flag registered with default `0` therefore does
+not clobber `SetDefault("log.max_size_mb", 10)`, while an explicit
+`--log-max-size-mb 0` still means "unbounded". mcrelay's persistent flags reach
+`serve` through the inherited `cmd.Flags()` passed to `Load`
+(`internal/relay/cli.go:217-221`).
 
 **The service manager's capture is not a superset of what we want.** certmagic's
 logger writes straight to `os.Stderr` through zap
@@ -168,6 +202,24 @@ same way.
 table at `docs/ops-windows-install.md:51-58` lists it; the acceptance script
 checks it. This work fills a promise rather than inventing one.
 
+**F16 — On Windows, rotation under a tail succeeds, rename-over-existing
+silently replaces, and prune cannot be blocked** (host probe, 3/3 runs,
+2026-09-13). Consequences: the rotator must never rely on a rename failing when
+a reader is attached; it **must** avoid backup-name collisions itself, because
+`MOVEFILE_REPLACE_EXISTING` would silently destroy the previous backup; and a
+`Get-Content -Wait` tail follows the renamed file, so operator guidance must say
+the tail needs re-attaching after a rotation.
+
+**F17 — Under D3, Linux `LogDir` equals `StateDir`**
+(`$XDG_STATE_HOME/<product>`; `paths.go:59` + the new `Logs` base). The prune
+scan cannot match state content, but the overlap is a layout fact that must be
+stated in the docs and pinned by a test.
+
+**F18 — Flag/env/config precedence already behaves as D4 needs.** `BindPFlag`
+is `Changed`-gated (`load.go:435`, `fileconfig.go:545`), so int/bool flags
+registered with zero-value defaults coexist with `SetDefault`, and an explicit
+`--log-max-size-mb 0` still selects "unbounded".
+
 ## Decision Drivers
 
 * **The daemon, not the service manager, must be the source of truth for its
@@ -229,10 +281,15 @@ to produce the file. The active file is opened for **append across restarts —
 never truncated** — so restarting the daemon does not erase the record of why it
 restarted. *(F1, F2, F3)*
 
-**D2 — Tee, do not replace.** The sink is an `io.MultiWriter(file, os.Stderr)`
-(or an equivalent that writes every record to both). journald/launchd capture,
-interactive `serve`, and certmagic's direct `os.Stderr` output all survive; the
-file is additive. *(F6)*
+**D2 — Tee, do not replace.** Every record is written to both the file and the
+process's `stderr`, and the two writes are **failure-independent**: a failing
+file must not suppress the stderr copy, and a failing stderr must not suppress
+the file copy. `io.MultiWriter` does not provide this — it aborts at the first
+failing writer — so the implementation is a small tee that ignores the stderr
+result and returns only the file's. This matters most on Windows, where a
+detached Task Scheduler daemon's `stderr` may have no reader at all.
+journald/launchd capture, interactive `serve`, and certmagic's direct
+`os.Stderr` output all survive; the file is additive. *(F6)*
 
 **D3 — One unified default path, computed from `Roots` (amends MADR 0116 F4).**
 `Resolve` builds `Paths.LogDir` via `roots.joinProduct(roots.Logs, product.Name)`,
@@ -248,7 +305,13 @@ and the per-platform `Logs` base becomes: Darwin `~/Library/Logs`, Linux
 
 This fixes F4 (the Windows double leaf), makes `docs/ops-windows-install.md:58`
 and `acceptance-windows.ps1:142-143` true, and gives Linux the XDG-correct
-location (XDG designates `XDG_STATE_HOME` for logs). *(F4, F5, F15)*
+location (XDG designates `XDG_STATE_HOME` for logs). On Linux this makes
+`LogDir` and `StateDir` the same directory (`$XDG_STATE_HOME/<product>`); that
+is accepted deliberately — the XDG root is correct, the prune scan is prefix-
+and suffix-gated so it cannot touch state content, and a dedicated `logs/` leaf
+would require platform-specific `Resolve` logic, which is exactly what D3
+removes. A test pins the equality so it cannot drift unnoticed. *(F4, F5, F15,
+F17)*
 
 **D4 — Every knob is available as config, environment variable, and flag**, in
 the same shape as `log.level`/`log.format` (mcremote `config.go:416-420`,
@@ -287,8 +350,12 @@ unbounded retention explicitly. *(F14)*
 exceed `max_size_mb`, rotate first. On open, rotate if the existing active file
 is already at or over the cap. A single record larger than the cap is written to
 a fresh file rather than dropped. Rotated names are
-`<base>-<UTC timestamp>.log`, gaining `.gz` when compressed. Pruning by count
-and by age runs after each rotation. Writes and rotation are serialized by a
+`<base>-<UTC timestamp>.log` (millisecond precision), gaining `.gz` when
+compressed. Because `os.Rename` onto an existing target **succeeds silently on
+Windows** (`MOVEFILE_REPLACE_EXISTING`, F16), a name collision would destroy the
+previous backup: the rotator therefore appends `-1`, `-2`, … before the
+extension until the name is free, and prune's timestamp parser accepts the
+suffix. Pruning by count and by age runs after each rotation. Writes and rotation are serialized by a
 mutex. The active file is opened `0600` inside a directory converged with
 `appdirs.EnsurePrivateDir`, so the file is private on both POSIX and Windows.
 The name stays `<product>.log` — per-product, not per-`InstanceKey` — so two
@@ -314,7 +381,9 @@ No new module; `go.mod`/`go.sum` are untouched and CI's tidy gate stays green.
 **D10 — `setup-service` reports the real log path on every platform.** `Setup`
 sets `Result.LogDir` for all three OSes from the resolved paths; `result_print.go`
 gains a `windows-task` case that prints the log path and a Windows tail command
-(`Get-Content -Wait`), and keeps the launchd and systemd cases. The launchd
+(`Get-Content -Wait`), and keeps the launchd and systemd cases. The docs and the
+printed guidance state the F16 caveat: after a rotation the tail is following
+the renamed backup and must be re-attached to see new lines. The launchd
 path's hardcoded `filepath.Join(home, "Library", "Logs", opts.Product)`
 (`setup.go:431`) is replaced by the resolved `Paths.LogDir`, so the plist's
 stdio directory and the daemon's own file cannot diverge. *(F7, F8)*
@@ -358,6 +427,12 @@ output; it does not probe content. *(F7)*
   `--data-dir` share one active file. Accepted as the existing macOS behaviour
   (F10), and stated in the docs; a future record may key the filename by
   `InstanceKey`.
+* Neutral: on Linux the log file lives inside `StateDir` (F17). Accepted: the
+  XDG root is correct, prune cannot match state content, and the alternative
+  (a `logs/` leaf) would reintroduce per-platform `Resolve` logic. Pinned by a
+  test so the overlap stays a decision, not a surprise.
+* Neutral: a Windows `Get-Content -Wait` tail follows the backup after a
+  rotation (F16) and must be re-attached. Documented beside the tail command.
 * Neutral: the rotator is ours to maintain. Bounded by a small, well-defined
   contract and a test matrix the plan pins.
 
@@ -367,6 +442,7 @@ output; it does not probe content. *(F7)*
 # Path contract (fixes F4; must hold on all three OSes)
 mcremote paths --json | jq -r .log_dir   → platform default from D3, no doubled product leaf
 mcrelay  paths --json | jq -r .log_dir   → the same, for mcrelay
+Linux only: .log_dir == .state_dir       → the F17 overlap, pinned not assumed
 
 # Self-owned file exists and grows
 mcremote serve --log-file <tmp>/m.log ... ; assert <tmp>/m.log contains the startup line
@@ -374,10 +450,17 @@ mcremote serve --log-file <tmp>/m.log ... ; assert <tmp>/m.log contains the star
 # Rotation and retention
 serve with log.max_size_mb=1, log.max_backups=2, log.compress=true
   → active file rotates; ≤2 backups retained; backups end in .log.gz
+  → observed active-plus-backups size recorded from the run (OQ2: a number,
+    not the 60 MB bound)
+  → a backup-name collision yields a -1/-2/… suffix; no backup is overwritten
 
 # Rotation failure does not drop lines
 make the directory read-only mid-run → the next record still appears on stderr
   and on the active file; one warning is emitted
+
+# Rotation under a Windows tail (measured 3/3 on this host; acceptance re-pins)
+Get-Content -Wait attached → os.Rename succeeds, daemon keeps writing the new
+  active file, the tail follows the backup and is re-attachable
 
 # Disable, close, and report
 log.file: "off" (or --log-file off) → no file is created; stderr only
@@ -472,7 +555,13 @@ start the task; assert %LocalAppData%\mcremote\Logs\mcremote.log contains the st
 | Only `DataDir`/`ConfigDir` are converged | `internal/daemon/daemon.go:86`, `100-106` |
 | launchd path creates its log dir; its `Result.LogDir` comment says macOS-only | `internal/cli/service/setup.go:431-435`, `112-113` |
 | certmagic logs directly to `os.Stderr` | `internal/certs/acme.go:191-203` |
-| `slog` logger methods ignore a handler's write error, so a writer that errors loses the record | Go 1.26.6 `src/log/slog/handler.go:322` returns the `Write` error; `Logger.Info`/`Warn`/… do not observe it |
+| `slog` logger methods ignore a handler's write error, so a writer that errors loses the record | Go 1.26.6 `src/log/slog/handler.go:322` returns the `Write` error; `Logger.Info`/`Warn`/… do not observe it. Re-verified against the locally installed `go1.26.6 windows/amd64` GOROOT source (`commonHandler.handle`: `_, err := h.w.Write(*state.buf); return err`) |
+| Windows rename-while-tailed succeeds; rename replaces existing targets; open backups are removable; the tail follows the handle | Host probe 2026-09-13, go1.26.6 windows/amd64, 3/3 identical runs: `os.Rename` under a live `Get-Content -Wait` reader, recreate+append, second rotation, rename-over-existing, `os.Remove` of the held backup — all `err=<nil>` |
+| Linux `LogDir` would equal `StateDir` under the D3 `Logs` base | `internal/appdirs/paths.go:59` (`StateDir = joinProduct(StateHome, name)`), `roots_unix.go:44` (`StateHome = $XDG_STATE_HOME`) |
+| `BindPFlag` is `Changed`-gated, so zero-value flag defaults cannot shadow `SetDefault` | `internal/config/load.go:435`, `internal/relay/fileconfig.go:545`; viper `find()` prefers a pflag only when `HasChanged()`, else falls back to env/config/defaults |
+| Startup log lines the acceptance script asserts | `internal/cli/serve.go:102` (`"starting mcremote"`), `internal/relay/cli.go:292` (`"mcrelay starting"`) |
+| Test seams the plan relies on exist | `OverrideInstallOS` (`internal/cli/service/setup.go:202`), `resolveProductPaths` (`setup.go:1030`), `installOS` dispatch (`setup.go:301-315`) |
+| `make ci-windows` / `ci-windows-smoke` targets | `GNUmakefile` + `make/ci-windows.mk` (MADR/PLAN 0145); they run `scripts/ci-windows-local.ps1` |
 | `result_print.go` has no `windows-task` case | `internal/cli/service/result_print.go:44-56`, `118-135` |
 | mcrelay `paths` omits `log_dir` | `internal/relay/cli.go:126-138`, `140-150` |
 | Log path is per-product, not per-instance | `internal/appdirs/paths.go:70`, `96-99`; `internal/cli/service/plist_render.go:56-61` |
@@ -507,15 +596,16 @@ start the task; assert %LocalAppData%\mcremote\Logs\mcremote.log contains the st
 
 ### Open questions for the plan
 
-1. **Windows rename-while-tailed behaviour is [unverified].** Whether
-   `os.Rename` of the active file succeeds while a `Get-Content -Wait` reader
-   holds it depends on the reader's share mode and must be probed on the
-   Windows host. D7 already defines the fallback (keep appending, warn once);
-   the plan must confirm which path is actually taken and pin it, rather than
-   assume the happy one.
-2. **Steady-state size is a bound, not a measurement.** D5 states the
-   uncompressed ceiling; the plan should record an observed active-plus-backups
-   size from a real run so "intelligent" is a number, not a claim.
-3. **Manual rotation.** Should the daemon also rotate on `SIGHUP` (or a Windows
-   console-close/`schtasks`-adjacent signal) for operators who rotate out of
-   band, or is rotation-on-size sufficient for this release?
+1. **Windows rename-while-tailed behaviour — CLOSED (probed 2026-09-13).** Was
+   [unverified]; the host probe (3/3 identical runs, go1.26.6 windows/amd64)
+   measured rename-under-tail success, rename-replaces-existing, and removable
+   open backups (F16). D7's fallback stays as the portable behaviour for a
+   genuinely failed rename (e.g. a reader that opens without `FILE_SHARE_DELETE`,
+   or a future Windows change); the happy path is now the *expected* path, and
+   PLAN P7 re-pins it on the acceptance host rather than discovering it.
+2. **Steady-state size is a bound, not a measurement — assigned to PLAN P7.**
+   D5 states the uncompressed ceiling; P7's rotation run records the observed
+   active-plus-backups size so "intelligent" is a number, not a claim.
+3. **Manual rotation — CLOSED as deferred.** Rotation-on-size bounds the file
+   for this release; SIGHUP/console-signal rotation is named in the PLAN's
+   Deferred section (Windows has no SIGHUP, so it needs its own record).
