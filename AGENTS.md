@@ -158,7 +158,7 @@ other URL-based content.
 
 ## MADR and PLAN before mutating work
 
-Rationale: [docs/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/0105-MADR-mutating-work-requires-madr-and-plan.md).
+Rationale: [docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md).
 Per-agent pointers to this section: `.claude/rules/madr-and-plan-skill.md`,
 `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
 

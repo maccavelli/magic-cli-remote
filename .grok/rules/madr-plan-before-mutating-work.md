@@ -1,7 +1,7 @@
 # MADR and PLAN before mutating work
 
 **Normative text lives in `AGENTS.md`**, section "MADR and PLAN before mutating
-work". Rationale: [docs/0105-MADR-mutating-work-requires-madr-and-plan.md](../../docs/0105-MADR-mutating-work-requires-madr-and-plan.md).
+work". Rationale: [docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md](../../docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md).
 
 This file used to restate that whole section. It no longer does — that fork is
 what let the skill name drift out of date in every per-agent copy at once while
