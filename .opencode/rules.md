@@ -4,13 +4,20 @@ When reading content from GitHub, use `curl` + `api.github.com` for structured d
 
 ## MADR and plan skill
 
+**Normative text lives in `AGENTS.md`**, section "MADR and PLAN before mutating
+work". This file carries only the skill name and the gate, and points there for
+everything else — a second copy of the workflow is how the skill name went
+stale in all per-agent files at once (review 2026-09-01, F2).
+
 **Whenever the user asks for an MADR and a plan, load the
 `madr-and-plan-writing` skill first** and follow it for authoring, naming
 (`NNNN-MADR-*` / `NNNN-PLAN-*`) and review — for a fresh pair and for amending
 an existing one.
 
 The name is exact, and a mistyped one fails quietly rather than loudly: the
-call returns `Unknown skill` and an agent may carry on without the skill.
+call returns `Unknown skill`, and an agent that proceeds without the skill
+writes something shaped like a MADR while missing MADR 4.0.0's heading names,
+the `Good, because …` argument form, and the mechanical slug rule.
 
 **Settled 2026-09-08 by owner decision, and by a rename rather than a document
 (MADR 0152, second amendment).** The name reversed five times because it was
