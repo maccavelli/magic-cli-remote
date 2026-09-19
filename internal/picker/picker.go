@@ -51,7 +51,7 @@ type Option struct {
 	Meta map[string]string `json:"meta,omitempty"`
 	// ThinkingLevels are the reasoning/thinking settings this model accepts,
 	// cheapest-first. Empty means the model has no selectable level — which is
-	// the honest answer for goose, and for any codex/grok/opencode model that
+	// the honest answer for any codex/grok/opencode model that
 	// does not advertise one (MADR 0052 D5). OpenCode advertises its rungs as
 	// the per-model `variants` map, which maps onto this same field rather than
 	// a second effort control (MADR 0112 A14).

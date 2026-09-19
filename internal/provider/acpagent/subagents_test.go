@@ -229,7 +229,7 @@ func TestEmitClassifiedTurnErrorGrok401(t *testing.T) {
 
 // retry_state on _x.ai/session_notification: a non-terminal retry with limit
 // text mid-turn goes through the same abort machinery as stderr scraping —
-// the structured analog of goose's "Backing off for 3600s" lines.
+// the structured analog of "Backing off for 3600s" stderr lines (MADR 0073).
 func TestRetryStateNotificationAbortsTurn(t *testing.T) {
 	s := modeSession(t)
 	s.pending = map[string]*permWaiter{}

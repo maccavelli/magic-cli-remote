@@ -5,7 +5,7 @@
 // It exists because the five providers do not share a transport. kilo and
 // opencode stream SSE over HTTP and can be captured by an external tool; grok
 // speaks ACP over stdio through a third-party SDK that owns its read loop,
-// goose speaks ACP over a websocket, and codex speaks JSON-RPC over an
+// and codex speaks JSON-RPC over an
 // app-server proxy. Capturing those from outside would mean reimplementing
 // each client handshake in a script. Capturing them from inside is one hook per
 // transport at the point the bytes arrive.

@@ -52,7 +52,7 @@ func TestSessionModeFromOlderDaemonDecodesSafely(t *testing.T) {
 	}
 	if m.Dangerous {
 		t.Fatal("an absent flag must mean not-dangerous; defaulting the other " +
-			"way would alarm on goose's normal state")
+			"way would alarm on a provider whose default is an unflagged auto")
 	}
 }
 

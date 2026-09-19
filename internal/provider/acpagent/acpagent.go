@@ -121,7 +121,7 @@ type Spec struct {
 	//
 	// The id is never forwarded to the agent — SetMode intercepts it — and an
 	// agent that advertises its own `auto` is never shadowed. Off by default
-	// so an agent with a native auto (goose) does not get a second one.
+	// so an agent with a native auto does not get a second one.
 	SynthesizeAutoMode bool
 	// ListModels, when non-nil, supplies a live (or merged) catalog. Called
 	// from [Provider.ListModels] with the provider config.

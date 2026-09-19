@@ -61,7 +61,7 @@ func TestHelperProcessGrandchild(t *testing.T) {
 			_ = c.Close()
 		}
 	}()
-	// Bounded like acphttp's TestHelperProcessBlocks: long enough that the
+	// Bounded long enough that the
 	// assertions below are decisive, short enough that a failure to kill leaves
 	// a process that reaps itself rather than one that outlives the run.
 	time.Sleep(60 * time.Second)

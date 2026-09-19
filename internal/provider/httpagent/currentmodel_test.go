@@ -55,7 +55,7 @@ func TestCurrentModelPrefersTheSessionsOwnModel(t *testing.T) {
 	}
 }
 
-// TestCurrentModelIsEmptyWhenNothingKnowsOne covers grok, goose and codex, and
+// TestCurrentModelIsEmptyWhenNothingKnowsOne covers grok and codex, and
 // a dialect that has not resolved its default yet. Empty is the honest answer;
 // a caller must not be handed a guess it cannot distinguish from a fact.
 func TestCurrentModelIsEmptyWhenNothingKnowsOne(t *testing.T) {

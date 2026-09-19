@@ -58,7 +58,7 @@ func TestSessionStatusRetryNotice(t *testing.T) {
 
 // Long next delay / quota message must end the turn with a classified limit
 // card instead of leaving the phone on "running" while Kilo sleeps (parity
-// with goose/codex/grok — MADR 0073).
+// with codex/grok — MADR 0073).
 func TestSessionStatusRetryHardLimitEndsTurn(t *testing.T) {
 	h := newStatusTestHost()
 	d := &httpDialect{log: slog.Default()}

@@ -18,9 +18,9 @@ import (
 // model out of the engine's connected-provider catalog.
 //
 // This is the MADR 0073 escape — move off a quota-blocked vendor to one that is
-// already authenticated, with no credential work — and OpenCode needs it as
-// much as goose did: `opencode-go` is the same weekly-quota product that wedged
-// goose.
+// already authenticated, with no credential work — and OpenCode needs it:
+// `opencode-go` is the same weekly-quota product MADR 0073 records wedging an
+// agent.
 func (d *httpDialect) SetActiveUpstream(ctx context.Context, api httpagent.API, upstreamID string) error {
 	upstreamID = strings.TrimSpace(upstreamID)
 	if upstreamID == "" {

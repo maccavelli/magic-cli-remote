@@ -32,7 +32,7 @@ import (
 )
 
 // defaultStreamCoalesce caps mid-stream assistant/thought updates at ~12 per
-// second (MADR 0024 / 0057). Matches httpagent/acphttp/codex defaults.
+// second (MADR 0024 / 0057). Matches httpagent/codex defaults.
 const defaultStreamCoalesce = 80 * time.Millisecond
 
 // maxPendingChunkBytes force-flushes a coalesced run that grows large before
@@ -149,8 +149,8 @@ type session struct {
 	autoApprovals []event.ApprovalItem
 
 	// turnCancel aborts an in-flight session/prompt when engine stderr
-	// reports a quota/rate-limit the agent is silently retrying (parity
-	// with acphttp/goose — MADR 0073 F1). limitNotified / limitRaw keep
+	// reports a quota/rate-limit the agent is silently retrying (shared
+	// quota path — MADR 0073 F1). limitNotified / limitRaw keep
 	// the abort path from double-emitting and preserve the provider text.
 	turnCancel    context.CancelFunc
 	limitNotified bool
@@ -1551,8 +1551,8 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	// conversation: the sub-agent reports to the main agent, and the parent's
 	// reply carries the conclusion (MADR 0051 D6).
 	//
-	// The other two transports already do this lookup — acphttp routes by
-	// sessionId and drops misses, codex the same by threadId. This is the stdio
+	// The codex transport already does this lookup — it routes by threadId
+	// and drops misses. This is the stdio
 	// transport catching up.
 	//
 	// Compared against the live agent id rather than dropping unknown ids
@@ -2020,7 +2020,7 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 	// cfg.AlwaysApprove stays first so operator config behaves exactly as
 	// before; the per-session arm is the synthetic auto mode (MADR 0049 D5).
 	if s.cfg.AlwaysApprove || auto {
-		// ACP auto-approval used to leave no record at all: grok and goose
+		// ACP auto-approval used to leave no record at all: grok
 		// answered silently and the user had no way to scroll back and see what
 		// ran on their behalf. One collapsing card per turn, same contract as
 		// the other providers (MADR 0051 Phase 3).

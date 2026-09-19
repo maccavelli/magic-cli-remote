@@ -112,14 +112,14 @@ func TestSetCredentialReachesProvider(t *testing.T) {
 // turn. The client is told to retry, with a transient code.
 func TestSetCredentialBusyIsTransient(t *testing.T) {
 	p := &writableProvider{
-		authProbeProvider: authProbeProvider{id: "goose", state: sampleState()},
+		authProbeProvider: authProbeProvider{id: "opencode", state: sampleState()},
 		setErr:            provider.ErrAuthBusy,
 	}
 	w, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w.close()
 
 	got := sendAndAwait(t, w, protocol.TypeProviderSetCredential, protocol.SetCredentialPayload{
-		ProviderID: "goose", UpstreamID: "opencode_go", Secret: "sk-x",
+		ProviderID: "opencode", UpstreamID: "opencode_go", Secret: "sk-x",
 	})
 	if got.Type != protocol.TypeError {
 		t.Fatalf("want error, got %s", got.Type)
@@ -303,15 +303,15 @@ func (p *switchableProvider) lastSwitch() string {
 	return p.switched
 }
 
-// MADR 0074 D14 over the wire: the phone moves goose off a quota-blocked
+// MADR 0074 D14 over the wire: the phone moves an agent off a quota-blocked
 // upstream without touching a credential. This is the MADR 0073 fix.
 func TestSetActiveUpstreamOverWire(t *testing.T) {
-	p := &switchableProvider{authProbeProvider: authProbeProvider{id: "goose", state: sampleState()}}
+	p := &switchableProvider{authProbeProvider: authProbeProvider{id: "opencode", state: sampleState()}}
 	w, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w.close()
 
 	got := sendAndAwait(t, w, protocol.TypeProviderSetActiveUpstrm, protocol.SetActiveUpstreamPayload{
-		ProviderID: "goose", UpstreamID: "gemini_oauth",
+		ProviderID: "opencode", UpstreamID: "gemini_oauth",
 	})
 	if got.Type != protocol.TypeOK {
 		t.Fatalf("want ok, got %s %s", got.Type, got.Payload)

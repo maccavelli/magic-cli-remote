@@ -231,7 +231,7 @@ func TestPresentNaturalLanguage(t *testing.T) {
 		t.Fatalf("529 message not natural: %q", got.Message)
 	}
 
-	// Goose weekly quota — keep the provider prose (already readable) and
+	// Weekly quota prose from a structured log line — keep the provider prose (already readable) and
 	// parse the reset delay.
 	raw := "Weekly usage limit reached. Resets in 4 days."
 	got = Present(raw, now)
@@ -255,15 +255,15 @@ func TestPresentNaturalLanguage(t *testing.T) {
 	}
 }
 
-func TestExtractTextGooseJSON(t *testing.T) {
-	line := `{"timestamp":"2026-08-05T23:15:39Z","level":"WARN","fields":{"message":"Provider request failed with status: 429 Too Many Requests. Payload: {\"type\":\"error\",\"error\":{\"type\":\"GoUsageLimitError\",\"message\":\"Weekly usage limit reached. Resets in 4 days.\"}}"},"target":"goose_providers::http_status"}`
+func TestExtractTextStructuredJSON(t *testing.T) {
+	line := `{"timestamp":"2026-08-05T23:15:39Z","level":"WARN","fields":{"message":"Provider request failed with status: 429 Too Many Requests. Payload: {\"type\":\"error\",\"error\":{\"type\":\"GoUsageLimitError\",\"message\":\"Weekly usage limit reached. Resets in 4 days.\"}}"},"target":"engine_providers::http_status"}`
 	got := ExtractText(line)
 	if !strings.Contains(got, "Weekly usage limit") {
 		t.Fatalf("ExtractText = %q", got)
 	}
 	cls := Present(line, now)
 	if cls.Kind != KindQuota {
-		t.Fatalf("goose JSON line kind = %q (msg %q)", cls.Kind, cls.Message)
+		t.Fatalf("structured log line kind = %q (msg %q)", cls.Kind, cls.Message)
 	}
 }
 
@@ -305,7 +305,7 @@ func TestIsLimit(t *testing.T) {
 }
 
 func TestExtractTextRustDebugString(t *testing.T) {
-	// Live goose 1.45 shape: Payload is Rust Debug, not JSON.
+	// Rust Debug shape (MADR 0073): Payload is Rust Debug, not JSON.
 	raw := `Provider request failed with status: 429 Too Many Requests. Payload: Some(Object {"type": String("error"), "error": Object {"type": String("GoUsageLimitError"), "message": String("Weekly usage limit reached. Resets in 4 days.")}})`
 	got := ExtractText(raw)
 	if !strings.Contains(got, "Weekly usage limit") {

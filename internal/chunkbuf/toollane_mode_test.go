@@ -29,7 +29,7 @@ func TestAppendLaneKeepsEveryDelta(t *testing.T) {
 }
 
 func TestReplaceLaneStillSupersedes(t *testing.T) {
-	// The default must not change: kilo, opencode and goose send the current
+	// The default must not change: OpenCode and Kilo send the current
 	// whole, and concatenating those would duplicate the output instead of
 	// losing it.
 	b := toolBuf()

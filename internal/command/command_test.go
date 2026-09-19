@@ -84,16 +84,16 @@ func TestResolveLoop(t *testing.T) {
 	if rOff.Available {
 		t.Fatal("unaadvertised loop must be unavailable")
 	}
-	rGoose, _ := Resolve("loop", Table{"loop": {Kind: KindNone, Note: "loop is a Grok-specific capability"}}, stOn)
-	if rGoose.Available {
-		t.Fatal("goose loop KindNone must stay unavailable even if advertised")
+	rNone, _ := Resolve("loop", Table{"loop": {Kind: KindNone, Note: "loop is a Grok-specific capability"}}, stOn)
+	if rNone.Available {
+		t.Fatal("KindNone loop must stay unavailable even if advertised")
 	}
 }
 
 // T-F2: grok's advertised review skill is available; other providers stay KindNone.
 func TestResolveGrokReviewForwardsWhenAdvertised(t *testing.T) {
 	grokTbl := Table{"review": {Kind: KindNative, Native: "review"}}
-	gooseTbl := Table{"review": {Kind: KindNone, Note: ReasonNoReview}}
+	noneTbl := Table{"review": {Kind: KindNone, Note: ReasonNoReview}}
 
 	r, ok := Resolve("review", grokTbl, SessionState{AgentCommands: []string{"review"}})
 	if !ok || !r.Available || r.Mapping.Kind != KindNative {
@@ -103,15 +103,15 @@ func TestResolveGrokReviewForwardsWhenAdvertised(t *testing.T) {
 	if rOff.Available {
 		t.Fatal("unaadvertised grok review must be unavailable")
 	}
-	rGoose, _ := Resolve("review", gooseTbl, SessionState{AgentCommands: []string{"review"}})
-	if rGoose.Available || rGoose.Mapping.Kind != KindNone {
-		t.Fatalf("goose review must stay KindNone, got avail=%v kind=%s", rGoose.Available, rGoose.Mapping.Kind)
+	rNone, _ := Resolve("review", noneTbl, SessionState{AgentCommands: []string{"review"}})
+	if rNone.Available || rNone.Mapping.Kind != KindNone {
+		t.Fatalf("KindNone review must stay unavailable, got avail=%v kind=%s", rNone.Available, rNone.Mapping.Kind)
 	}
 }
 
 func TestResolveGrokForkIsOpWhenSessionCanFork(t *testing.T) {
 	grokTbl := Table{"fork": {Kind: KindOp, Op: OpFork}}
-	gooseTbl := Table{"fork": {Kind: KindNone, Note: ReasonNoFork}}
+	noneTbl := Table{"fork": {Kind: KindNone, Note: ReasonNoFork}}
 
 	r, ok := Resolve("fork", grokTbl, SessionState{Ops: map[Op]bool{OpFork: true}})
 	if !ok || !r.Available || r.Mapping.Kind != KindOp || r.Mapping.Op != OpFork {
@@ -121,9 +121,9 @@ func TestResolveGrokForkIsOpWhenSessionCanFork(t *testing.T) {
 	if rOff.Available {
 		t.Fatal("grok fork without Ops[OpFork] must be unavailable")
 	}
-	rGoose, _ := Resolve("fork", gooseTbl, SessionState{Ops: map[Op]bool{OpFork: true}})
-	if rGoose.Available || rGoose.Mapping.Kind != KindNone {
-		t.Fatalf("goose fork must stay KindNone, got avail=%v kind=%s", rGoose.Available, rGoose.Mapping.Kind)
+	rNone, _ := Resolve("fork", noneTbl, SessionState{Ops: map[Op]bool{OpFork: true}})
+	if rNone.Available || rNone.Mapping.Kind != KindNone {
+		t.Fatalf("KindNone fork must stay unavailable, got avail=%v kind=%s", rNone.Available, rNone.Mapping.Kind)
 	}
 }
 

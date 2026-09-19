@@ -85,8 +85,8 @@ type AuthMethod struct {
 	Inputs []AuthInput
 
 	// Unavailable marks a method the daemon cannot drive on this host, with
-	// Reason as the wire code (MADR 0083 D4) — e.g. goose's api-key methods
-	// on a keyring-managed host. The transport-generic reasons (browser_only,
+	// Reason as the wire code (MADR 0083 D4) — e.g. a method whose keys live in a
+	// host keyring. The transport-generic reasons (browser_only,
 	// device_unsupported) are annotated centrally at payload time; only
 	// provider-specific knowledge belongs here.
 	Unavailable bool

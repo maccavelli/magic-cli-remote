@@ -10,8 +10,7 @@ import (
 
 // engineVersionOf returns the version an ACP agent reported at initialize.
 //
-// Two sources, in that order. `agentInfo.version` is the standard field and is
-// what goose sends; the protocol types it as optional and says a future
+// Two sources, in that order. `agentInfo.version` is the standard field; the protocol types it as optional and says a future
 // version will require it, so it is preferred wherever present. metaVersion is
 // the transport's vendor fallback — grok's `_meta.agentVersion` — because grok
 // 1.0.13 sends no agentInfo at all, verified across the whole of its 247-frame

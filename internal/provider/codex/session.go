@@ -2314,7 +2314,7 @@ func (s *session) emitClassifiedError(raw string) {
 }
 
 // noteProviderLimit aborts an in-flight turn when engine stderr reports a
-// quota/rate-limit (shared path with goose/acphttp — MADR 0073 F1).
+// quota/rate-limit (MADR 0073 F1).
 //
 // Codex returns from turn/start quickly and then streams; a hang after start
 // has no request to cancel, so we force a classified turn end instead.

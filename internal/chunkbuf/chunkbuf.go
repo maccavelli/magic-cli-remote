@@ -108,7 +108,7 @@ type Option func(*Buffer)
 //
 // The held text is *replaced*, not accumulated. That is correct only for a
 // provider whose update means "here is the current text", which is what
-// OpenCode, Kilo and Goose send. A provider whose update carries an increment
+// OpenCode and Kilo send. A provider whose update carries an increment
 // needs [WithToolLaneAppend] instead — see the note there.
 //
 // Opt-in because the cost it removes was measured on OpenCode's HTTP transport;

@@ -10,7 +10,7 @@ import (
 // the two-source read (MADR 0137, ninth amendment).
 //
 // The plan originally named `agentInfo.version` as the single source for both
-// grok and goose. grok sends none — zero occurrences of "agentInfo" across all
+// grok and every other ACP agent. grok sends none — zero occurrences of "agentInfo" across all
 // 247 frames of its full-turn fixture — and reports `_meta.agentVersion`
 // instead, which the protocol permits because the SDK types agentInfo as
 // optional. A reader that knows only the standard field is silent on grok,
@@ -23,9 +23,9 @@ func TestEngineVersionPrefersAgentInfoAndFallsBackToVendorMeta(t *testing.T) {
 		want string
 	}{
 		{
-			name: "goose: standard agentInfo",
+			name: "agent: standard agentInfo",
 			resp: &acp.InitializeResponse{AgentInfo: &acp.Implementation{
-				Name: "goose", Version: "1.48.0"}},
+				Name: "agent", Version: "1.48.0"}},
 			want: "1.48.0",
 		},
 		{

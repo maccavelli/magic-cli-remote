@@ -967,7 +967,7 @@ func TestWSAgentSessionsListIsDirectAndMetadataOnly(t *testing.T) {
 	reg.Register(listingProvider{
 		Provider: fake.New(),
 		sessions: []provider.AgentSessionMeta{{
-			ID: "goose-1", CWD: "/work", Title: "A native session",
+			ID: "native-1", CWD: "/work", Title: "A native session",
 		}},
 	})
 	srv := ws.New(ws.Options{
@@ -1000,7 +1000,7 @@ func TestWSAgentSessionsListIsDirectAndMetadataOnly(t *testing.T) {
 	if err := protocol.DecodePayload(got, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Provider != "fake" || len(payload.Sessions) != 1 || payload.Sessions[0].ID != "goose-1" || payload.Sessions[0].Title != "A native session" {
+	if payload.Provider != "fake" || len(payload.Sessions) != 1 || payload.Sessions[0].ID != "native-1" || payload.Sessions[0].Title != "A native session" {
 		t.Fatalf("payload = %#v", payload)
 	}
 }

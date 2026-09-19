@@ -14,16 +14,16 @@ func TestLogStderrTail(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 
-	LogStderrTail(log, "goose", "boom line 1\nboom line 2")
+	LogStderrTail(log, "agent", "boom line 1\nboom line 2")
 	out := buf.String()
 	if !strings.Contains(out, "WARN") || !strings.Contains(out, "boom line 1") {
 		t.Fatalf("tail not warn-logged: %s", out)
 	}
 
 	buf.Reset()
-	LogStderrTail(log, "goose", "")
+	LogStderrTail(log, "agent", "")
 	if buf.Len() != 0 {
 		t.Fatalf("empty tail must not log: %s", buf.String())
 	}
-	LogStderrTail(nil, "goose", "x") // must not panic
+	LogStderrTail(nil, "agent", "x") // must not panic
 }

@@ -106,7 +106,7 @@ func (r *turnLatency) log(l *slog.Logger) {
 		// evidence.
 		//
 		// It is reported ONLY when the provider reports cache accounting at
-		// all. goose reports none, and a bare `CacheRead == 0` there says
+		// all. For a provider that reports no cache counters, a bare `CacheRead == 0` there says
 		// "this turn was cold" when the truth is "nobody knows" — which is how
 		// four providers' warm turns were recorded as cold for two phases
 		// (MADR 0137, second correction). An engine that cannot answer must

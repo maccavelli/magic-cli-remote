@@ -45,9 +45,9 @@ func TestDefaultModeNeverResolvesToADangerousMode(t *testing.T) {
 			ok:    true,
 		},
 		{
-			// goose ships auto as its *default* and does not flag it, so the
-			// existing behaviour must be untouched.
-			name: "goose_unflagged_auto_is_still_eligible",
+			// A provider whose default is an unflagged auto (a pre-0069
+			// daemon's shape): the existing behaviour must be untouched.
+			name: "unflagged_default_auto_is_still_eligible",
 			modes: []event.SessionMode{
 				{ID: "auto"}, {ID: "approve"}, {ID: "smart_approve"}, {ID: "chat"},
 			},

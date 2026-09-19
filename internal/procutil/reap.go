@@ -8,7 +8,7 @@ import (
 )
 
 // Environment variables stamped onto every engine subprocess mcremote spawns
-// (goose, opencode, codex — anything started via [SetProcessGroup] that
+// (opencode, kilo, codex — anything started via [SetProcessGroup] that
 // outlives a single request).
 //
 // They exist so an engine can be attributed to the daemon that started it.

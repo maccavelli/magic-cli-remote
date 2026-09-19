@@ -43,7 +43,7 @@ func (e *CWDPermissionError) Unwrap() error { return e.Err }
 // explicit cwd, else the provider's default_cwd, else the daemon user's
 // home. Under a service manager the daemon's process cwd is an accident of
 // the unit file, so empty always means home — never os.Getwd(). 0069 P1
-// made this uniform across providers (codex and acphttp previously fell
+// made this uniform across providers (codex previously fell
 // back to Getwd with no validation at all).
 //
 // Validation preserves the errno (0069 D4): a TCC/OS-policy denial must

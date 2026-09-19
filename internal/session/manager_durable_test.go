@@ -121,7 +121,7 @@ func TestDurableHistorySurvivesManagerRestart(t *testing.T) {
 
 // CloseAll is a soft close (purge=false). Every live session must remain on
 // the next manager's list as a non-live resume row — not vanish the way a
-// goose session did after last night's daemon restart.
+// session did after a daemon restart (MADR 0095).
 func TestCloseAllKeepsSessionsListable(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenStore(dir)
@@ -141,8 +141,8 @@ func TestCloseAllKeepsSessionsListable(t *testing.T) {
 		t.Fatal(err)
 	}
 	second, err := mgr1.Create(ctx, provider.IDFake, provider.StartOptions{
-		LocalSessionID: "sess-goose",
-		Name:           "goose-chat",
+		LocalSessionID: "sess-codex",
+		Name:           "codex-chat",
 	}, "phone")
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestCloseAllKeepsSessionsListable(t *testing.T) {
 	//
 	// CloseAll writes both rows back-to-back, so their timestamps can be
 	// equal — and ListSnapshot's documented tie-break is then `ID >`, under
-	// which "sess-grok" precedes "sess-goose" legitimately. Asserting
+	// which "sess-grok" precedes "sess-codex" legitimately. Asserting
 	// "newest first" unconditionally made this a coin flip: measured on the
 	// untouched baseline b0e7261, 5 failures in 30 runs (MADR 0095 F12).
 	// Assert the rule the sort actually implements, not the tie.

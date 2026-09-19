@@ -54,7 +54,7 @@ var Specs = []Spec{
 		Args:        "[level]",
 		Description: "Show or switch the reasoning/thinking effort",
 		// KindOp so the command is advertised only when the live session
-		// implements ThinkingSession — opencode/goose never claim it
+		// implements ThinkingSession — opencode never claims it
 		// (MADR 0052 D6 / A4).
 		Default: Mapping{Kind: KindOp, Op: OpSetThinkingLevel},
 	},

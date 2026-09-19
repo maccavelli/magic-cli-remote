@@ -567,8 +567,7 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 		log:    p.log,
 		prefix: "codex-stderr",
 		max:    20,
-		// Surface silent 429/quota/backoff from engine stderr the same way
-		// goose/acphttp does (MADR 0073 F1).
+		// Surface silent 429/quota/backoff from engine stderr (MADR 0073 F1).
 		onLine: p.onEngineLogLine,
 	}
 	cmd.Stderr = stderr

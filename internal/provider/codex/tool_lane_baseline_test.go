@@ -14,7 +14,7 @@ import (
 // TestToolLaneConcatenatesNonTerminalUpdates is MADR 0057 M-2 for codex, with
 // the measurement M-2 asked for and did not get.
 //
-// M-2 said: "Measure Codex item streams and Goose tool updates before
+// MADR 0073 M-2 said: "Measure Codex item streams […] before
 // defaulting — opt-in flag first if behavior differs." Codex was opted into the
 // *replacing* lane without that measurement. It differs: every codex
 // `tool_call_update` sets Text to a delta, not to the current whole

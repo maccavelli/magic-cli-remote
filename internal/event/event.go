@@ -460,9 +460,9 @@ type SessionMode struct {
 	// them. Clients may style it distinctly and confirm before switching to it.
 	//
 	// The provider declares this rather than the client inferring it from the
-	// id, because only the provider knows what a mode costs: goose has shipped
-	// an `auto` mode for a while and it is goose's *default*, so id-matching
-	// would alarm on a normal state (MADR 0044 D1 / plan §5.0).
+	// id, because only the provider knows what a mode costs: a provider may
+	// ship a dangerous-sounding mode such as `auto` as its *default* (MADR 0069
+	// D3), so id-matching would alarm on a normal state (MADR 0044 D1 / plan §5.0).
 	//
 	// Optional: omitted means "no special treatment", which is what every
 	// provider predating this field wants.

@@ -139,7 +139,7 @@ func TestAutoModeAdvertisedWhenOptedIn(t *testing.T) {
 }
 
 func TestAutoModeAbsentWhenNotOptedIn(t *testing.T) {
-	// Guards goose and every other ACP agent that did not ask for this.
+	// Guards every ACP agent that did not ask for this.
 	s := modeSession(t)
 	s.emitModesOrStatic(nil)
 

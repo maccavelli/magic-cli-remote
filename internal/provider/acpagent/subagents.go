@@ -80,7 +80,7 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 
 	u := env.Update
 	// retry_state is grok's structured channel for provider-API trouble
-	// mid-turn — the analog of goose's stderr backoff lines. A terminal
+	// mid-turn — the analog of stderr backoff lines (MADR 0073). A terminal
 	// "failed" is skipped on purpose: the session/prompt JSON-RPC error that
 	// carries the same cause (in its `data` field) arrives immediately after
 	// and owns the turn's error emission — handling both would double-post.

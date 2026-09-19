@@ -38,7 +38,7 @@ type latencyProvider struct {
 	script latencyScript
 	// reportsModel makes Start return a session implementing
 	// provider.ModelReporter, standing in for kilo and opencode. Empty returns
-	// a plain session, standing in for grok, goose and codex.
+	// a plain session, standing in for grok and codex.
 	reportsModel string
 }
 
@@ -341,7 +341,7 @@ func TestRecordNamesTheModelTheSessionIsActuallyRunningOn(t *testing.T) {
 
 // TestRecordOmitsTheModelWhenTheSessionCannotReportOne is the other half.
 //
-// grok, goose and codex track no default, and a record that filled the gap
+// grok and codex track no default, and a record that filled the gap
 // with the provider id, the string "default", or the client's empty request
 // would be a fabrication a reader could not tell from a real answer.
 func TestRecordOmitsTheModelWhenTheSessionCannotReportOne(t *testing.T) {
@@ -372,7 +372,7 @@ func TestRecordOmitsTheModelWhenTheSessionCannotReportOne(t *testing.T) {
 // investigation, and an absent field is the only honest way to say the first.
 func TestColdIsAbsentWhenTheProviderReportsNoCacheAccounting(t *testing.T) {
 	t.Run("no cache accounting at all", func(t *testing.T) {
-		// goose's shape: a context total and nothing else.
+		// A context-total-only shape: a context total and nothing else.
 		mgr, buf, meta := newLatencyManager(t, latencyScript{events: []scriptEvent{
 			{at: 50 * time.Millisecond, typ: event.TypeAssistantChunk},
 			{at: 80 * time.Millisecond, typ: event.TypeUsage,

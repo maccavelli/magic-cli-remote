@@ -46,8 +46,8 @@ func TestOrderModelsNewestFirst(t *testing.T) {
 	eq(t, ids(picker.OrderModels(in, "")), []string{"new", "mid", "old", "gone"})
 }
 
-// TestOrderModelsKeepsEngineOrderWithoutDates is the honesty guard: goose and
-// grok report no dates, and inventing an order for them (alphabetical, or a
+// TestOrderModelsKeepsEngineOrderWithoutDates is the honesty guard: grok and
+// codex report no dates, and inventing an order for them (alphabetical, or a
 // version-name heuristic) would be a claim the data does not support. The
 // engine's own order must survive untouched.
 func TestOrderModelsKeepsEngineOrderWithoutDates(t *testing.T) {

@@ -15,16 +15,13 @@ import (
 // This file consumes the standard ACP `sessionCapabilities` block that grok has
 // been advertising and mcremote has never read.
 //
-// MADR 0138 F10 measured it: grok offers `list`, `resume` and `close`; goose
-// offers `list`, `delete` and `close`; mcremote referenced **none** of them.
+// MADR 0138 F10 measured it: grok offers `list`, `resume` and `close`, and
+// mcremote referenced **none** of them.
 // F7's table then mapped grok's vendor `x.ai/session/*` methods onto the same
 // gaps — but where the standard surface exists it is the better answer, because
 // it is gated on what the agent advertised rather than on which vendor it is.
 //
-// This package is grok only. goose speaks ACP over a websocket through
-// `internal/provider/acphttp`, which already lists and purges sessions by its
-// own route; what changes here is that grok stops being the ACP provider with
-// neither.
+// This package is grok only.
 //
 // Everything here is gated on what the agent advertised at `initialize`. An
 // agent that offers nothing gets asked for nothing, and the corresponding

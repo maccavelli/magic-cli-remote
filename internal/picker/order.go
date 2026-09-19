@@ -47,7 +47,7 @@ const StatusDeprecated = "deprecated"
 //     recommends is the answer regardless of when it shipped;
 //  3. then by MetaReleaseDate descending, newest first;
 //  4. then in source order — the engine's own order, which is the only honest
-//     answer for a provider that reports no dates (goose, grok, codex);
+//     answer for a provider that reports no dates (grok, codex);
 //  5. MetaStatus == StatusDeprecated last regardless of date.
 //
 // The sort is stable, so options without a date keep their relative engine

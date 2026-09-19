@@ -5,7 +5,7 @@
 //
 // Present builds a short natural-language Error string for the phone while
 // still leaving ErrorKind/RetryAt for the limit card. Engine stderr scrapers
-// (goose silent 429 backoff) feed the same path via ExtractText + Present.
+// (a silent 429 backoff in structured engine logs, MADR 0073) feed the same path via ExtractText + Present.
 package agenterr
 
 import (
@@ -117,8 +117,8 @@ var rateWords = []string{
 	"capacity exceeded",
 	"server is busy",
 	"temporarily unavailable",
-	"backing off",  // goose/provider retry sleep after 429/quota
-	"retry_delay",  // goose Debug: RateLimitExceeded { retry_delay: Some(3600s) }
+	"backing off",  // provider retry sleep after 429/quota
+	"retry_delay",  // Rust Debug payloads: RateLimitExceeded { retry_delay: Some(3600s) }
 	"rate limited", // OpenCode session.status retry message
 }
 
@@ -312,20 +312,20 @@ func Present(msg string, now time.Time) Classification {
 }
 
 // IsLimit reports whether Present would classify msg as a usage/rate limit.
-// Providers use this before aborting a silent mid-turn hang (goose file logs,
-// codex/grok stderr, OpenCode long session.status retries).
+// Providers use this before aborting a silent mid-turn hang (structured
+// engine logs, codex/grok stderr, OpenCode long session.status retries).
 func IsLimit(msg string, now time.Time) bool {
 	cls := Present(msg, now)
 	return cls.Kind == KindQuota || cls.Kind == KindRateLimit
 }
 
 // LongBackoffMin is the shortest silent retry delay that should end a turn
-// rather than leave the phone on "running". Matches goose's 3600s backoff and
+// rather than leave the phone on "running". Matches the 3600s backoff of MADR 0073 and
 // OpenCode session.status next delays of a minute or more.
 const LongBackoffMin = 60 * time.Second
 
 // LooksLikeLongBackoff reports whether line describes a provider retry sleep
-// of at least LongBackoffMin. Covers goose prose ("Backing off for 3600s")
+// of at least LongBackoffMin. Covers provider retry-sleep prose ("Backing off for 3600s")
 // and Debug forms ("retry_delay: Some(3600s)").
 func LooksLikeLongBackoff(line string) bool {
 	for _, re := range []*regexp.Regexp{reBackoffSecs, reRetryDelaySome} {
@@ -345,11 +345,11 @@ func LooksLikeLongBackoff(line string) bool {
 // Unit-less or trailing "s" only — longer units go through parseReset.
 var reBackoffSecs = regexp.MustCompile(`(?i)backing off for\s+(\d+(?:\.\d+)?)\s*s`)
 
-// reRetryDelaySome matches goose/provider Debug: retry_delay: Some(3600s).
+// reRetryDelaySome matches Rust Debug payloads: retry_delay: Some(3600s).
 var reRetryDelaySome = regexp.MustCompile(`(?i)retry_delay:\s*Some\((\d+(?:\.\d+)?)s\)`)
 
 // ExtractText pulls a human-readable message out of structured engine logs
-// (goose JSON lines, nested OpenAI/Anthropic error objects). Returns the
+// (structured JSON log lines, nested OpenAI/Anthropic error objects). Returns the
 // input unchanged when no structured body is found.
 func ExtractText(raw string) string {
 	raw = strings.TrimSpace(raw)
@@ -368,7 +368,7 @@ func ExtractText(raw string) string {
 			return extracted
 		}
 	}
-	// Goose/Rust Debug payloads: String("Weekly usage limit reached…") when
+	// Rust Debug payloads: String("Weekly usage limit reached…") when
 	// the embedded body is not valid JSON (Some(Object {…})).
 	if m := reRustDebugString.FindStringSubmatch(raw); m != nil {
 		if unquoted := unquoteRustString(m[1]); unquoted != "" && isUsefulProse(unquoted) {
@@ -378,8 +378,8 @@ func ExtractText(raw string) string {
 	return raw
 }
 
-// reRustDebugString pulls the first Debug-format String("…") body. Goose
-// logs 429 payloads as Rust Debug, not JSON, so nested error.message is only
+// reRustDebugString pulls the first Debug-format String("…") body. Some
+// engines log 429 payloads as Rust Debug (MADR 0073), not JSON, so nested error.message is only
 // reachable this way.
 var reRustDebugString = regexp.MustCompile(`String\("((?:\\.|[^"\\])*)"\)`)
 
@@ -410,7 +410,7 @@ func extractJSONMessage(js string) string {
 	if err := json.Unmarshal([]byte(js), &top); err != nil {
 		return ""
 	}
-	// goose structured log: {"fields":{"message":"…"}, …}
+	// structured engine log: {"fields":{"message":"…"}, …}
 	if fields, ok := top["fields"].(map[string]any); ok {
 		if m, ok := fields["message"].(string); ok && strings.TrimSpace(m) != "" {
 			// Recurse: the message itself may embed a Payload JSON object.
@@ -771,7 +771,7 @@ var unitDur = map[string]time.Duration{
 	"d": 24 * time.Hour, "day": 24 * time.Hour, "days": 24 * time.Hour,
 }
 
-// Goose / provider retry loops log "Backing off for 3600s before retry"
+// Provider retry loops log "Backing off for 3600s before retry"
 // without any other reset phrase — treat that as the retry-at hint.
 var reBackoff = regexp.MustCompile(`(?i)backing off for\s+(\d+(?:\.\d+)?)\s*(ms|s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?)?\b`)
 

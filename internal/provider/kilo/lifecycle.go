@@ -119,7 +119,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 		next := time.Duration(p.Status.Next) * time.Millisecond
 		// Hard limit / long silent wait: surface a limit card and end the
 		// turn so the phone is not stuck "running" for minutes/hours while
-		// OpenCode sleeps (parity with goose/codex/grok — MADR 0073).
+		// OpenCode sleeps (parity with codex/grok — MADR 0073).
 		// Short transient retries keep the existing notice-only path.
 		cls := agenterr.Present(msg, time.Now())
 		hard := cls.Kind == agenterr.KindQuota ||

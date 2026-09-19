@@ -14,7 +14,7 @@ import (
 // boots the daemon against config.Defaults() — and those defaults enable the
 // providers, so startup reconciles the credential stores under $HOME. With the
 // developer's real HOME in scope, TestRunAllowsClientKeyWithTLS rewrote
-// ~/.config/goose/config.yaml and tightened the permissions on ~/.codex,
+// credential stores and tightened the permissions on ~/.codex,
 // ~/.grok and ~/.config/mcremote on every run. `cfg.DataDir = t.TempDir()`
 // isolates mcremote's own state and nothing else.
 //
