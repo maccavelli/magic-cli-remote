@@ -61,16 +61,28 @@ func isInstalledWindows(product string) (bool, error) {
 	return found, nil
 }
 
-// startWindows runs the task now.
+// startWindows enables the task, then runs it now. Enabling first undoes a
+// stop (which disables; see stopWindows), so the watchdog trigger is live
+// again once the daemon is (MADR 0159 D5).
 func startWindows(product string) error {
 	name := taskName(product)
+	if out, err := runSchtasks("/change", "/tn", name, "/enable"); err != nil {
+		return fmt.Errorf("enable scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
+	}
 	if out, err := runSchtasks("/run", "/tn", name); err != nil {
 		return fmt.Errorf("start scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
 	}
 	return nil
 }
 
-// stopWindows ends the running task.
+// stopWindows disables the task, then ends it if it is running.
+//
+// Disabling comes first because the task carries a repeating watchdog trigger
+// (MADR 0159 D5): a bare /end is undone within a minute, which would restart a
+// daemon that `update` stopped in order to replace its binary. A disabled task
+// is not relaunched (measured, MADR 0159 probe 8). Whether to /end is decided
+// by the state probe rather than by parsing /end's localised error for a task
+// that is not running.
 //
 // `schtasks /end` is a TerminateProcess, NOT a graceful signal: the daemon gets
 // no drain (MADR 0116 D9). That is survivable by construction — provider trees
@@ -79,6 +91,16 @@ func startWindows(product string) error {
 // future reader must not mistake it for an oversight.
 func stopWindows(product string) error {
 	name := taskName(product)
+	if out, err := runSchtasks("/change", "/tn", name, "/disable"); err != nil {
+		return fmt.Errorf("disable scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
+	}
+	state, found, err := taskState(name)
+	if err != nil {
+		return fmt.Errorf("stop scheduled task %q: %w", name, err)
+	}
+	if !found || state != taskStateRunning {
+		return nil
+	}
 	if out, err := runSchtasks("/end", "/tn", name); err != nil {
 		return fmt.Errorf("stop scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
 	}

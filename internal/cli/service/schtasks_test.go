@@ -181,19 +181,86 @@ type errNotRegistered struct{}
 
 func (errNotRegistered) Error() string { return "ERROR: The system cannot find the file specified." }
 
-// TestStopMapsToEnd pins that Stop uses /end — and, by the comment it carries,
-// that the ungraceful termination is a recorded decision (MADR 0116 D9).
-func TestStopMapsToEnd(t *testing.T) {
-	var got []string
+// TestStopDisablesThenEnds pins stop's sequence (MADR 0159 D5): disable first,
+// so the watchdog trigger cannot relaunch a daemon that was stopped on purpose,
+// then /end only if the task is running. /end is still the ungraceful
+// termination MADR 0116 D9 recorded.
+func TestStopDisablesThenEnds(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state int
+		found bool
+		want  []string
+	}{
+		{"running", taskStateRunning, true, []string{"/change /tn mcremote /disable", "/end /tn mcremote"}},
+		{"ready", 3, true, []string{"/change /tn mcremote /disable"}},
+		{"absent", 0, false, []string{"/change /tn mcremote /disable"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []string
+			withSchtasks(t, func(args ...string) (string, error) {
+				calls = append(calls, strings.Join(args, " "))
+				return "", nil
+			})
+			withTaskState(t, func(string) (int, bool, error) { return tc.state, tc.found, nil })
+			if err := stopWindows("mcremote"); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(calls, " | ") != strings.Join(tc.want, " | ") {
+				t.Errorf("stopWindows issued %q, want %q", calls, tc.want)
+			}
+		})
+	}
+}
+
+// TestStartEnablesThenRuns: start undoes a stop's disable before /run, so the
+// watchdog is live again (MADR 0159 D5).
+func TestStartEnablesThenRuns(t *testing.T) {
+	var calls []string
 	withSchtasks(t, func(args ...string) (string, error) {
-		got = args
+		calls = append(calls, strings.Join(args, " "))
 		return "", nil
 	})
-	if err := stopWindows("mcremote"); err != nil {
+	if err := startWindows("mcremote"); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) < 3 || got[0] != "/end" || got[1] != "/tn" || got[2] != "mcremote" {
-		t.Errorf("stopWindows issued %v, want /end /tn mcremote", got)
+	want := []string{"/change /tn mcremote /enable", "/run /tn mcremote"}
+	if strings.Join(calls, " | ") != strings.Join(want, " | ") {
+		t.Errorf("startWindows issued %q, want %q", calls, want)
+	}
+}
+
+// TestRenderTaskXMLHasTheWatchdogTrigger: the task carries the repeating
+// trigger alongside the logon trigger, and the render is byte-stable so setup
+// stays idempotent (MADR 0159 D5, D14).
+func TestRenderTaskXMLHasTheWatchdogTrigger(t *testing.T) {
+	a, err := renderTaskXML(windowsOpts(), `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := renderTaskXML(windowsOpts(), `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != b {
+		t.Error("two renders of the same options differ; setup could never report unchanged")
+	}
+	f, err := taskFieldsFromXML(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.LogonTriggers != 1 {
+		t.Errorf("logon triggers = %d, want 1", f.LogonTriggers)
+	}
+	if len(f.TimeTriggers) != 1 {
+		t.Fatalf("time triggers = %d, want 1", len(f.TimeTriggers))
+	}
+	w := f.TimeTriggers[0]
+	if w.StartBoundary != taskWatchdogBoundary || w.Interval != "PT1M" || !w.Enabled || w.StopAtDurationEnd {
+		t.Errorf("watchdog trigger = %+v", w)
+	}
+	if f.MultipleInstancesPolicy != "IgnoreNew" {
+		t.Errorf("MultipleInstancesPolicy = %q; anything else lets the watchdog start a second daemon", f.MultipleInstancesPolicy)
 	}
 }
 

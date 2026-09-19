@@ -78,6 +78,12 @@ three consequences worth knowing before you rely on it:
 
 - **It starts at logon, not at boot.** There is no unattended operation, and
   `mcrelay` in particular cannot serve a headless Windows server this way.
+- **A stopped or crashed daemon is restarted within about a minute.** The task
+  carries a trigger that fires every minute and starts the daemon if it is not
+  running (it never starts a second copy). Task Scheduler's own restart-on-
+  failure setting does not restart a program that exits, so this trigger is
+  what does (MADR 0159 D5). Systemd restarts within 5 s; Windows cannot go
+  below one minute.
 - **`schtasks /end` terminates the process** rather than asking it to drain.
   Provider process trees still die with it — they are held in a Job Object —
   and a stale admin socket is detected and cleared on the next start. What is
@@ -95,8 +101,8 @@ schtasks /change /tn mcremote /disable; schtasks /end /tn mcremote # stop, and k
 mcremote setup-service --remove                                    # deregister
 ```
 
-Stop by disabling first: a disabled task is not started again until you enable
-it. `setup-service` itself is safe to re-run: it compares what it would register
+Stop by disabling first. A bare `schtasks /end` is undone within a minute by
+the restart trigger; a disabled task stays stopped until you enable it. `setup-service` itself is safe to re-run: it compares what it would register
 with what Task Scheduler holds and reports the task unchanged when they match
 (MADR 0159 D14).
 

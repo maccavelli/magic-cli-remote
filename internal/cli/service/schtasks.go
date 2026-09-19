@@ -48,6 +48,14 @@ type taskDefinition struct {
 			Enabled bool   `xml:"Enabled"`
 			UserID  string `xml:"UserId"`
 		} `xml:"LogonTrigger"`
+		TimeTrigger struct {
+			StartBoundary string `xml:"StartBoundary"`
+			Enabled       bool   `xml:"Enabled"`
+			Repetition    struct {
+				Interval          string `xml:"Interval"`
+				StopAtDurationEnd bool   `xml:"StopAtDurationEnd"`
+			} `xml:"Repetition"`
+		} `xml:"TimeTrigger"`
 	} `xml:"Triggers"`
 
 	Principals struct {
@@ -110,6 +118,18 @@ func renderTaskXML(opts Options, user string) (string, error) {
 	t.Triggers.LogonTrigger.Enabled = true
 	t.Triggers.LogonTrigger.UserID = account
 
+	// The watchdog (MADR 0159 D5). RestartOnFailure below does NOT restart a
+	// program that exits, whether it exits 0, 1, or is ended (measured: one run
+	// in 4 min 42 s; MADR 0159 F7, probe 8). A trigger that fires every minute
+	// does: with MultipleInstancesPolicy IgnoreNew it relaunches a daemon that
+	// is not running and never starts a second one. The boundary is a constant
+	// in the past, so the render is identical every time (setup's idempotency,
+	// D14). Stop disables the task so the trigger cannot undo a deliberate stop.
+	t.Triggers.TimeTrigger.StartBoundary = taskWatchdogBoundary
+	t.Triggers.TimeTrigger.Enabled = true
+	t.Triggers.TimeTrigger.Repetition.Interval = taskWatchdogInterval
+	t.Triggers.TimeTrigger.Repetition.StopAtDurationEnd = false
+
 	t.Principals.Principal.ID = "Author"
 	t.Principals.Principal.UserID = principal
 	t.Principals.Principal.LogonType = "InteractiveToken"
@@ -126,8 +146,9 @@ func renderTaskXML(opts Options, user string) (string, error) {
 	// PT0S = no execution time limit. A daemon that the scheduler kills after
 	// three days is not a daemon.
 	t.Settings.ExecutionTimeLimit = "PT0S"
-	// The closest analogue to the systemd unit's Restart= that the task engine
-	// offers.
+	// RestartOnFailure covers a task that fails to LAUNCH. It is not the
+	// analogue of the systemd unit's Restart=: it does not restart a program
+	// that exits (MADR 0159 F7, measured). The watchdog trigger above is.
 	t.Settings.RestartOnFailure.Interval = "PT1M"
 	t.Settings.RestartOnFailure.Count = 3
 
@@ -149,6 +170,14 @@ func renderTaskXML(opts Options, user string) (string, error) {
 	// it; only the bytes handed to schtasks are UTF-16.
 	return taskXMLDeclaration + string(body) + "\n", nil
 }
+
+// taskWatchdogBoundary and taskWatchdogInterval shape the repeating trigger
+// that restarts an exited daemon (MADR 0159 D5). One minute is the task
+// engine's minimum repetition interval.
+const (
+	taskWatchdogBoundary = "2000-01-01T00:00:00"
+	taskWatchdogInterval = "PT1M"
+)
 
 // taskXMLDeclaration is the declaration renderTaskXML emits. It must name the
 // encoding encodeTaskXML actually produces; a mismatch is exactly what

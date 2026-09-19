@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -54,16 +55,48 @@ func resolveFixtureAccount(t *testing.T) {
 	t.Cleanup(func() { sameTaskAccount = prev })
 }
 
-// TestSameTaskDefinitionMatchesARealExport is MADR 0159 F19's regression test.
-// The registered copy of a task differs textually from what setup rendered
-// (defaults dropped, SID principal, URI and IdleSettings added), and the old
-// normalised-text comparison therefore never matched on a real host.
-func TestSameTaskDefinitionMatchesARealExport(t *testing.T) {
-	resolveFixtureAccount(t)
-	want, err := renderTaskXML(fixtureOptions(), fixtureAccount)
+// timeTriggerRe matches the watchdog trigger in a rendered definition.
+var timeTriggerRe = regexp.MustCompile(`(?s)\s*<TimeTrigger>.*?</TimeTrigger>`)
+
+// renderV0174Shape renders the fixture's options WITHOUT the watchdog trigger
+// MADR 0159 P9 added: the shape v0.17.4 rendered, and so the shape the
+// fixture's export was registered from.
+func renderV0174Shape(t *testing.T) string {
+	t.Helper()
+	body, err := renderTaskXML(fixtureOptions(), fixtureAccount)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !timeTriggerRe.MatchString(body) {
+		t.Fatal("the current render has no TimeTrigger to strip")
+	}
+	return timeTriggerRe.ReplaceAllString(body, "")
+}
+
+// currentShapeExport is the fixture as Task Scheduler would export a task
+// registered from the CURRENT render: the watchdog trigger added, with its
+// Enabled omitted as an export omits a default.
+func currentShapeExport(t *testing.T) string {
+	t.Helper()
+	export := loadTaskExportFixture(t)
+	if !strings.Contains(export, "</LogonTrigger>") {
+		t.Fatal("fixture has no LogonTrigger")
+	}
+	return strings.Replace(export, "</LogonTrigger>", "</LogonTrigger>"+watchdogExportBlock, 1)
+}
+
+// watchdogExportBlock is the watchdog trigger as an export formats it (the
+// fixture's \r\r\n line endings and indentation).
+const watchdogExportBlock = "\r\r\n    <TimeTrigger>\r\r\n      <StartBoundary>2000-01-01T00:00:00</StartBoundary>\r\r\n      <Repetition>\r\r\n        <Interval>PT1M</Interval>\r\r\n        <StopAtDurationEnd>false</StopAtDurationEnd>\r\r\n      </Repetition>\r\r\n    </TimeTrigger>"
+
+// TestSameTaskDefinitionMatchesARealExport is MADR 0159 F19's regression test.
+// The registered copy of a task differs textually from what setup rendered
+// (defaults dropped, SID principal, URI and IdleSettings added), and the old
+// normalised-text comparison therefore never matched on a real host. The
+// fixture was registered by v0.17.4, so it is compared with that shape.
+func TestSameTaskDefinitionMatchesARealExport(t *testing.T) {
+	resolveFixtureAccount(t)
+	want := renderV0174Shape(t)
 	if !sameTaskDefinition(loadTaskExportFixture(t), want) {
 		a, _ := taskFieldsFromXML(loadTaskExportFixture(t))
 		b, _ := taskFieldsFromXML(want)
@@ -71,29 +104,44 @@ func TestSameTaskDefinitionMatchesARealExport(t *testing.T) {
 	}
 }
 
-// TestSameTaskDefinitionNeedsTheAccountResolved pins the dependency on the
-// principal: a rendered DOMAIN\user and a registered SID are only equal once
-// resolved. MADR 0159 P6 removes the dependency by rendering the SID.
-func TestSameTaskDefinitionNeedsTheAccountResolved(t *testing.T) {
+// TestV0174ExportDiffersFromTheCurrentRender: a task registered before the
+// watchdog trigger (MADR 0159 D5) is not what setup renders now, which is what
+// makes --refresh report "refreshed" for it (P10).
+func TestV0174ExportDiffersFromTheCurrentRender(t *testing.T) {
+	resolveFixtureAccount(t)
 	want, err := renderTaskXML(fixtureOptions(), fixtureAccount)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sameTaskDefinition(loadTaskExportFixture(t), want) {
+		t.Fatal("a task without the watchdog trigger compared equal to the current render")
+	}
+}
+
+// TestSameTaskDefinitionNeedsTheAccountResolved pins the dependency on the
+// principal: a rendered DOMAIN\user and a registered SID are only equal once
+// resolved. MADR 0159 P6 removes the dependency by rendering the SID.
+func TestSameTaskDefinitionNeedsTheAccountResolved(t *testing.T) {
+	if sameTaskDefinition(loadTaskExportFixture(t), renderV0174Shape(t)) {
 		t.Fatal("an unresolved account name compared equal to a SID")
 	}
 }
 
 // TestSameTaskDefinitionDetectsEveryControlledField proves the comparison is
-// not vacuous: each field setup controls, changed in the registered copy,
-// makes the definitions differ.
+// not vacuous: starting from an export that EQUALS the current render, each
+// field setup controls, changed in the registered copy, makes them differ.
 func TestSameTaskDefinitionDetectsEveryControlledField(t *testing.T) {
 	resolveFixtureAccount(t)
 	want, err := renderTaskXML(fixtureOptions(), fixtureAccount)
 	if err != nil {
 		t.Fatal(err)
 	}
-	export := loadTaskExportFixture(t)
+	export := currentShapeExport(t)
+	if !sameTaskDefinition(export, want) {
+		a, _ := taskFieldsFromXML(export)
+		b, _ := taskFieldsFromXML(want)
+		t.Fatalf("the base export must equal the current render, or every case below is vacuous\nexport: %+v\nrender: %+v", a, b)
+	}
 	cases := map[string][2]string{
 		"arguments":         {"serve --config", "serve --data-dir X --config"},
 		"command":           {`Programs\mcremote\mcremote.exe`, `Programs\mcremote\other.exe`},
@@ -103,7 +151,9 @@ func TestSameTaskDefinitionDetectsEveryControlledField(t *testing.T) {
 		"time limit":        {"<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>", "<ExecutionTimeLimit>PT1H</ExecutionTimeLimit>"},
 		"principal":         {fixtureSID, "S-1-5-21-9-9-9-1001"},
 		"logon type":        {"<LogonType>InteractiveToken</LogonType>", "<LogonType>Password</LogonType>"},
-		"extra trigger":     {"</LogonTrigger>", "</LogonTrigger><TimeTrigger><StartBoundary>2000-01-01T00:00:00</StartBoundary><Repetition><Interval>PT1M</Interval></Repetition></TimeTrigger>"},
+		"watchdog interval": {"<Interval>PT1M</Interval>\r\r\n        <StopAtDurationEnd>", "<Interval>PT5M</Interval>\r\r\n        <StopAtDurationEnd>"},
+		"watchdog boundary": {"<StartBoundary>2000-01-01T00:00:00</StartBoundary>", "<StartBoundary>2026-01-01T00:00:00</StartBoundary>"},
+		"watchdog removed":  {watchdogExportBlock, ""},
 		"disabled":          {"<StartWhenAvailable>true</StartWhenAvailable>", "<StartWhenAvailable>true</StartWhenAvailable><Enabled>false</Enabled>"},
 	}
 	for name, c := range cases {
