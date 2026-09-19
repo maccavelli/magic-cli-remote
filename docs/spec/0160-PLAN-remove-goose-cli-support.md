@@ -92,6 +92,8 @@ Modify:
 * `configs/config.example.yaml`
 * `configs/config.mesh-grok.yaml`
 * `configs/config.prod.example.yaml`
+* `internal/wirecap/fixtures_test.go` — floor only (step 13; added by the
+  2026-09-18 execution amendment)
 
 **P2 — every remaining Go comment and fixture (no behaviour change):**
 
@@ -454,6 +456,16 @@ Do not start P2 until P1's A4–A6 pass.
     lists. `chunkbuf/provider_mode_test.go`: delete the
     `goose (acphttp)` case (`:41-44`).
 
+13. **Wire-fixture guard (added 2026-09-18, found by running P1).**
+    `internal/wirecap/fixtures_test.go` `TestCommittedFixturesCarryNoIdentifiers`
+    requires at least 5 committed `internal/provider/*/testdata/wire/*/frames.jsonl`
+    fixtures, so that a glob which silently stops matching fails loudly (MADR
+    0147 D11). Step 1 deletes `internal/provider/goose/testdata/wire/1.48.0/frames.jsonl`,
+    one of the five, which leaves codex, grok, kilo and opencode. Lower the floor
+    to 4 and change the comment "Five fixtures exist today" to "Four fixtures
+    exist today (the Goose one went with MADR 0160)". The per-fixture checks
+    are unchanged. This keeps the guard at its purpose, not a count (C2).
+
 **Verification (P1):**
 
 ```bash
@@ -462,10 +474,19 @@ git grep -n -e 'internal/provider/goose"' -e 'internal/provider/acphttp"' -- '*.
 git grep -n -E 'IDGoose|GooseProviderConfig|Providers\.Goose|credstore\.(Goose|ReadGoose|SetGoose|DeleteGoose|ErrGoose)|reconcileGooseKeyring' -- '*.go'   # → none
 git grep -n 'providers.goose' -- '*.go' ':!internal/config/retired_goose*.go'          # → none
 go test ./internal/config/ -run 'RetiredGoose' -v 2>&1 | grep -E '^(--- |ok|FAIL)'   # → 7 PASS
-go test ./internal/cli/service/ -run 'Template' -v 2>&1 | grep -E '^(--- FAIL|ok|FAIL)'  # → ok
+go test ./internal/cli/service/ -run 'Template' -v 2>&1 | grep -E '^(--- |ok|FAIL)'  # → 4 PASS — on Linux (WSL), see below
+go test ./internal/wirecap/ -run TestCommittedFixturesCarryNoIdentifiers -v 2>&1 | grep -E '^(--- |ok|FAIL)'  # → PASS, 4 subtests
 go mod tidy && git diff --exit-code go.mod go.sum                                    # → exit 0
 # plus the Stability rule, plus the binary drive in A4 (MADR Confirmation §4)
 ```
+
+**The template-parity tests do not run on Windows** (added 2026-09-18, found by
+running P1). `template_parity_test.go` is `//go:build unix`, so on this host
+the line above prints `ok … [no tests to run]` and verifies nothing. That is
+the check F18 exists for. Run it in the WSL lane against the P1 tree and
+expect `TestTemplateProviderKeysMatchExample`, `TestTemplateTopLevelKeysMatchExample`,
+`TestTemplatesSpellEveryConfigKey` and `TestTemplateGrokPermissionModeIsDefault`
+to PASS.
 
 ### P2 — De-goose every remaining Go comment and fixture (D7, D8, D12, D14; closes F6, F7, F22)
 

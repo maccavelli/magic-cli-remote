@@ -916,3 +916,25 @@ host, which since the later 2026-09-18 install includes this Windows host
 (F21); (3) the record list is fixed by D9 and F20,
 and there is no `0073-PLAN`; (4) `docs/protocol-v1.md` Goose examples are
 rewritten onto `grok`. None remain open.
+
+## Amendment — 2026-09-18: the wire-fixture guard counts the Goose fixture
+
+Found by running P1, not by reading. `internal/wirecap/fixtures_test.go`
+`TestCommittedFixturesCarryNoIdentifiers` (MADR 0147 D11, 0151) fails any
+`go test ./...` in which fewer than 5 `internal/provider/*/testdata/wire/*/frames.jsonl`
+fixtures exist. One of the five was `internal/provider/goose/testdata/wire/1.48.0/frames.jsonl`,
+which D1 deletes. After P1's deletions the glob matches 4 (codex, grok, kilo,
+opencode), and the test fails with "glob matched 4 fixtures, want at least 5".
+
+**F24 — Deleting the Goose tree lowers a fixture floor that another package
+enforces.** The inventory (F22) searched for the word "goose", and this test
+never says it; it counts files.
+
+**D15.** Lower that floor to 4 in the same commit as D1 (PLAN 0160 P1 step 13).
+The floor exists to catch a glob that silently stops matching, and it still
+does. The per-fixture redaction checks are unchanged.
+
+Also found by running P1: `internal/cli/service/template_parity_test.go` is
+`//go:build unix`. The parity check that F18 depends on therefore runs only on
+Linux or macOS. On the Windows host `-run 'Template'` reports
+`[no tests to run]`, so the P1 verification must run it in WSL.
