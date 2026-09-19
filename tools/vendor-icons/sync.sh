@@ -2,9 +2,8 @@
 # Regenerate the bundled vendor brand icons (MADR 0082 D5).
 #
 # Inputs, both committed next to this script:
-#   ids.txt   — one upstream id per line: the union of the goose pinned table
-#               (internal/provider/goose/catalog.go), a live opencode/kilo
-#               catalog dump, and the five agent ids. Grows by hand when a
+#   ids.txt   — one upstream id per line: the union of a live opencode/kilo
+#               catalog dump and the agent ids. Grows by hand when a
 #               catalog gains vendors worth a real logo; anything missing
 #               renders as a monogram, so staleness is cosmetic.
 #   map.json  — id → Lobe Icons slug overrides for names that differ.

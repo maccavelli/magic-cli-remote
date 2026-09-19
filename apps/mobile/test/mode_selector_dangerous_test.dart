@@ -46,11 +46,11 @@ const _opencodeModes = [
   ),
 ];
 
-/// A *pre-0069* goose daemon's list: `auto` was the default and carried no
+/// A *pre-0069* daemon's list: `auto` was the default and carried no
 /// flag. Kept as the legacy-daemon compat fixture — the phone must keep
 /// rendering it plainly rather than inventing danger the daemon never
 /// declared.
-const _gooseModes = [
+const _legacyUnflaggedModes = [
   SessionMode(
     id: 'auto',
     name: 'Auto',
@@ -61,10 +61,10 @@ const _gooseModes = [
   SessionMode(id: 'chat', name: 'Chat'),
 ];
 
-/// Goose after MADR 0069 D3: `auto` is flagged dangerous and `approve` is
+/// After MADR 0069 D3: `auto` is flagged dangerous and `approve` is
 /// the default — the bypass mode takes the 0049 confirmation like every
 /// other provider's.
-const _gooseModes0069 = [
+const _flaggedModes = [
   SessionMode(
     id: 'auto',
     name: 'Auto',
@@ -184,11 +184,17 @@ void main() {
       expect(checkedRow, findsOneWidget);
     });
 
-    // Legacy-daemon compat: a pre-0069 goose sends no flag, and the phone
+    // Legacy-daemon compat: a pre-0069 daemon sends no flag, and the phone
     // must not invent danger the daemon never declared.
-    testWidgets('a goose session in auto renders no alarm', (tester) async {
+    testWidgets('a legacy unflagged auto session renders no alarm', (
+      tester,
+    ) async {
       await tester.pumpWidget(
-        _host(_ModeClient(), modes: _gooseModes, currentModeId: 'auto'),
+        _host(
+          _ModeClient(),
+          modes: _legacyUnflaggedModes,
+          currentModeId: 'auto',
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -201,12 +207,12 @@ void main() {
       );
     });
 
-    // MADR 0069 D3 (U3): the current daemon flags goose auto, and the
-    // generic machinery must alarm on it with zero goose-specific code.
-    testWidgets('a 0069 goose session in auto alarms like any dangerous '
+    // MADR 0069 D3 (U3): the current daemon flags auto, and the
+    // generic machinery must alarm on it with zero provider-specific code.
+    testWidgets('a flagged dangerous auto session alarms like any dangerous '
         'mode', (tester) async {
       await tester.pumpWidget(
-        _host(_ModeClient(), modes: _gooseModes0069, currentModeId: 'auto'),
+        _host(_ModeClient(), modes: _flaggedModes, currentModeId: 'auto'),
       );
       await tester.pumpAndSettle();
 
@@ -298,12 +304,12 @@ void main() {
       expect(client.modeSwitches, ['plan']);
     });
 
-    // Legacy-daemon compat: a pre-0069 goose sends no flag, so switching
+    // Legacy-daemon compat: a pre-0069 daemon sends no flag, so switching
     // to its (then-default) auto stays one tap.
-    testWidgets('a goose auto switch is not gated', (tester) async {
+    testWidgets('a legacy unflagged auto switch is not gated', (tester) async {
       final client = _ModeClient();
       await tester.pumpWidget(
-        _host(client, modes: _gooseModes, currentModeId: 'chat'),
+        _host(client, modes: _legacyUnflaggedModes, currentModeId: 'chat'),
       );
       await tester.pumpAndSettle();
 
@@ -317,14 +323,14 @@ void main() {
       expect(client.modeSwitches, ['auto']);
     });
 
-    // MADR 0069 D3 (U3): with the flag advertised, goose auto takes the
+    // MADR 0069 D3 (U3): with the flag advertised, auto takes the
     // 0049 confirmation — and confirming still switches.
-    testWidgets('a 0069 goose auto switch is gated and confirmable', (
+    testWidgets('a flagged dangerous auto switch is gated and confirmable', (
       tester,
     ) async {
       final client = _ModeClient();
       await tester.pumpWidget(
-        _host(client, modes: _gooseModes0069, currentModeId: 'approve'),
+        _host(client, modes: _flaggedModes, currentModeId: 'approve'),
       );
       await tester.pumpAndSettle();
 

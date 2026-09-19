@@ -160,8 +160,8 @@ void main() {
               ),
               SessionMeta(
                 id: 'newclosed',
-                provider: 'goose',
-                name: 'new goose',
+                provider: 'opencode',
+                name: 'new opencode',
                 live: false,
                 updatedAt: DateTime.utc(2026, 8, 16, 6),
               ),
@@ -186,7 +186,7 @@ void main() {
           .toList();
       expect(titles.skipWhile((t) => !t.startsWith('live')).toList(), [
         'live grok',
-        'new goose',
+        'new opencode',
         'old kilo',
       ]);
     },

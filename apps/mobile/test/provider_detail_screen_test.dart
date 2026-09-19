@@ -229,12 +229,12 @@ void main() {
     final (client, _) = await pump(
       tester,
       providers: [
-        providerWith('goose', const [configuredTogether]),
+        providerWith('agent-x', const [configuredTogether]),
       ],
-      providerId: 'goose',
+      providerId: 'agent-x',
     );
     client.credentialError = McException(
-      'goose keeps secrets in the OS keyring; …',
+      'the agent keeps secrets in the OS keyring; …',
       code: 'keyring_managed',
     );
 

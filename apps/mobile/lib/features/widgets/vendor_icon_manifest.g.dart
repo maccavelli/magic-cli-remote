@@ -43,7 +43,6 @@ const Map<String, String> kVendorIconAssets = {
   'google': 'assets/vendor_icons/google.svg',
   'google-vertex': 'assets/vendor_icons/vertexai.svg',
   'google-vertex-anthropic': 'assets/vendor_icons/vertexai.svg',
-  'goose': 'assets/vendor_icons/goose.svg',
   'grok': 'assets/vendor_icons/grok.svg',
   'groq': 'assets/vendor_icons/groq.svg',
   'huggingface': 'assets/vendor_icons/huggingface.svg',

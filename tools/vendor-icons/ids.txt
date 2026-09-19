@@ -80,7 +80,6 @@ gmicloud
 google
 google-vertex
 google-vertex-anthropic
-goose
 greenpt
 grok
 groq

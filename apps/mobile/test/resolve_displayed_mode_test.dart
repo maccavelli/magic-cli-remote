@@ -14,7 +14,7 @@ void main() {
       SessionMode(id: 'plan', name: 'plan'),
       SessionMode(id: 'auto', name: 'auto', dangerous: true),
     ];
-    const goose = [
+    const legacyUnflagged = [
       SessionMode(id: 'auto', name: 'Auto'),
       SessionMode(id: 'approve', name: 'Approve'),
       SessionMode(id: 'chat', name: 'Chat'),
@@ -40,8 +40,8 @@ void main() {
       expect(resolveDisplayedMode(opencode, '')?.id, 'build');
     });
 
-    test('empty current keeps goose auto (unflagged, first non-plan)', () {
-      expect(resolveDisplayedMode(goose, '')?.id, 'auto');
+    test('empty current keeps a legacy unflagged auto (first non-plan)', () {
+      expect(resolveDisplayedMode(legacyUnflagged, '')?.id, 'auto');
     });
 
     test('empty current prefers code on kilo-shaped list', () {

@@ -164,12 +164,12 @@ void main() {
     tester,
   ) async {
     final catalog = _providers([
-      _provider('goose', connected: true, label: 'Goose'),
+      _provider('acme', connected: true, label: 'Acme'),
       _provider('other', connected: false),
     ]);
     await _open(tester, providers: catalog, loader: _Loader({}));
     final tile = tester.widget<ListTile>(
-      find.ancestor(of: find.text('Goose'), matching: find.byType(ListTile)),
+      find.ancestor(of: find.text('Acme'), matching: find.byType(ListTile)),
     );
     expect(tile.subtitle, isNull);
   });

@@ -2305,8 +2305,8 @@ class SessionMode {
   /// have — today, one that answers permission requests without them.
   ///
   /// The daemon declares this; the UI never infers it from the mode id. Only
-  /// the provider knows what a mode costs: goose has shipped an `auto` mode
-  /// for a while and it is goose's *default*, so id-matching would alarm on a
+  /// the provider knows what a mode costs: a provider may ship an `auto` mode
+  /// as its *default* (MADR 0069 D3), so id-matching would alarm on a
   /// perfectly normal state. Defaults to false, which is what every daemon
   /// predating the field sends.
   final bool dangerous;

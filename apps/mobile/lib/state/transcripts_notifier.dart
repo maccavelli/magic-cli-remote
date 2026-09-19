@@ -104,7 +104,7 @@ bool _isNeutralInFold(SessionEvent ev) => ev.type == 'usage_update';
 ///
 /// The window a tombstone protects is the seconds between a delete's `ok`
 /// and the next host snapshot, so entries far past that are dead weight.
-/// Mirrors `maxAnsweredPerms` in internal/provider/acphttp/session.go.
+/// Mirrors `maxAnsweredPerms` in internal/provider/codex/session.go.
 const kMaxClearedSessions = 256;
 
 class TranscriptsNotifier extends Notifier<TranscriptsState> {

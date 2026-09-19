@@ -73,9 +73,9 @@ void main() {
   });
 
   testWidgets('a 71-value catalog scrolls', (tester) async {
-    // Goose's `provider` config option really has 71 values. The agent-settings
-    // sheet used to render them in a bare Column with no scroll view, which
-    // overflowed and could not be reached (MADR 0043 D12).
+    // An agent's `provider` config option was measured at 71 values. The
+    // agent-settings sheet used to render them in a bare Column with no scroll
+    // view, which overflowed and could not be reached (MADR 0043 D12).
     final catalog = PickerCatalog(
       options: [
         for (var i = 0; i < 71; i++)
@@ -220,7 +220,7 @@ void main() {
             'id': 'anthropic',
             'meta': {'model_count': '2', 'default_model': 'anthropic/claude'},
           },
-          {'id': 'goose'},
+          {'id': 'acme'},
         ],
       });
 

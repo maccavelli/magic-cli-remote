@@ -12,8 +12,8 @@ void main() {
       updatedAt: DateTime.utc(2026, 8, 1),
     );
     final closedNew = SessionMeta(
-      id: 'goose',
-      provider: 'goose',
+      id: 'opencode-new',
+      provider: 'opencode',
       live: false,
       createdAt: DateTime.utc(2026, 8, 16, 4, 54),
       updatedAt: DateTime.utc(2026, 8, 16, 6, 23, 19),
@@ -36,7 +36,7 @@ void main() {
       ..sort(compareSessionsRecency);
     expect(shuffled.map((s) => s.id).toList(), [
       'live-old',
-      'goose',
+      'opencode-new',
       'grok-closed',
       'kilo-ghost',
     ]);
@@ -51,7 +51,7 @@ void main() {
     );
     final b = SessionMeta(
       id: 'bbb',
-      provider: 'goose',
+      provider: 'opencode',
       live: false,
       createdAt: DateTime.utc(2026, 8, 16),
     );

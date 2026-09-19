@@ -3,7 +3,7 @@
 /// Bundled monochrome SVG when the id has one (see
 /// tools/vendor-icons/sync.sh), tinted to the theme; otherwise a
 /// deterministic two-letter monogram. The fallback is mandatory, not a
-/// degenerate case: goose's pinned table and future engine catalogs will
+/// degenerate case: pinned tables and future engine catalogs will
 /// always contain ids no icon set covers.
 library;
 

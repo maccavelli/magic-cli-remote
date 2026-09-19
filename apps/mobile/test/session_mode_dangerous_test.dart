@@ -55,10 +55,10 @@ void main() {
       expect(a.hashCode, equals(b.hashCode));
     });
 
-    // Goose has shipped `auto` as its *default* mode for a while and does not
-    // send the flag. Nothing about it may change.
-    test('a goose mode list is entirely undangerous', () {
-      final goose = [
+    // A provider may ship `auto` as its *default* mode without sending the
+    // flag (a pre-0069 daemon's shape). Nothing about it may change.
+    test('a legacy unflagged mode list is entirely undangerous', () {
+      final legacyUnflagged = [
         {
           'id': 'auto',
           'name': 'Auto',
@@ -70,11 +70,11 @@ void main() {
       ].map(SessionMode.fromJson).toList();
 
       expect(
-        goose.every((m) => !m.dangerous),
+        legacyUnflagged.every((m) => !m.dangerous),
         isTrue,
         reason:
-            'goose sends no dangerous flag; inferring danger from the id '
-            '"auto" would alarm on its default state',
+            'a legacy daemon sends no dangerous flag; inferring danger from '
+            'the id "auto" would alarm on its default state',
       );
     });
   });

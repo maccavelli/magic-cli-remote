@@ -147,7 +147,7 @@ class _UpstreamCatalogSheetState extends State<UpstreamCatalogSheet> {
     final theme = Theme.of(context);
     // The 0079 sheet chrome (MADR 0082 D6): shared height and keyboard
     // handling, and the header's source badge distinguishes a live engine
-    // catalog from goose's pinned table for free. The list below stays this
+    // catalog from a pinned offline table for free. The list below stays this
     // sheet's own machinery — PickerCatalogView renders complete in-memory
     // catalogs, and this catalog is server-paged (MADR 0074 D16), a boundary
     // deliberately not blurred.

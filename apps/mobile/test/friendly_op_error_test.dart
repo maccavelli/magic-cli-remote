@@ -12,6 +12,14 @@ void main() {
     expect(friendlyOpError(ex('keyring_managed')), contains('host'));
   });
 
+  // MADR 0160 D13: a session whose agent the host no longer registers answers
+  // unknown_provider; the phone must say so rather than show the raw code.
+  test('unknown_provider says the agent is gone from the host', () {
+    final copy = friendlyOpError(ex('unknown_provider', 'unknown provider'));
+    expect(copy, contains('no longer available'));
+    expect(copy, isNot('unknown provider'));
+  });
+
   test('method_unsupported suggests the API-key path', () {
     expect(friendlyOpError(ex('method_unsupported')), contains('API key'));
   });

@@ -131,7 +131,7 @@ class PickerOption {
   final Map<String, String> meta;
 
   /// Reasoning/thinking settings this model accepts, cheapest-first.
-  /// Empty means no selectable level (opencode, goose, some models).
+  /// Empty means no selectable level (opencode, some models).
   final List<ThinkingLevel> thinkingLevels;
 
   String get displayLabel => label.isNotEmpty ? label : id;

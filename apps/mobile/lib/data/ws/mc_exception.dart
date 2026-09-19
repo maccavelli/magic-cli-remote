@@ -46,7 +46,13 @@ String friendlyOpError(Object e) {
       // sentence; the daemon's raw text stays in its log, not on a toast.
       case 'keyring_managed':
         return 'This agent keeps its keys in the host\'s OS keyring — add '
-            'the key on the host (e.g. goose configure).';
+            'the key on the host.';
+      // MADR 0160 D13: a session whose agent the host no longer registers
+      // (e.g. one started before that agent was removed) answers with
+      // unknown_provider; say so instead of showing the bare code.
+      case 'unknown_provider':
+        return 'The agent for this session is no longer available on the '
+            'host.';
       case 'method_unsupported':
         return 'This sign-in method can\'t be driven from the phone for '
             'this agent — try an API key instead.';

@@ -190,7 +190,7 @@ void main() {
   testWidgets('a keyring-managed row is disabled with the keyring chip', (
     tester,
   ) async {
-    // MADR 0083 D4: goose on a keyring-managed host — the wall is stated
+    // MADR 0083 D4: an agent on a keyring-managed host — the wall is stated
     // before the user can type a key.
     final fake = _FakeCatalog([
       const UpstreamAuth(

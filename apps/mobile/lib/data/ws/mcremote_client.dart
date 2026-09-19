@@ -3758,7 +3758,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
   /// Fetch one page of an agent's full upstream catalog (MADR 0074 D16).
   ///
   /// This is what makes every vendor an agent supports reachable — 184 for
-  /// OpenCode, 185 for Kilo, 73 for goose — rather than only the handful the
+  /// OpenCode, 185 for Kilo — rather than only the handful the
   /// host already has a credential for. It is a separate request from
   /// `providers.list` precisely because of that size: the status block rides
   /// on every listing, this does not.

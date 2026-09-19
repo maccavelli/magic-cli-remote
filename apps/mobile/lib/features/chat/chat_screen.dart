@@ -1196,10 +1196,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                       trailing: const Icon(Icons.arrow_drop_down),
                       onTap: () async {
-                        // Through the shared picker, not a bare Column: goose
-                        // reports 71 values for its `provider` option, and the
-                        // unscrollable column this replaced simply overflowed
-                        // (MADR 0043 D12). Search comes for free.
+                        // Through the shared picker, not a bare Column: an
+                        // option can carry dozens of values (71 were measured),
+                        // and the unscrollable column this replaced simply
+                        // overflowed (MADR 0043 D12). Search comes for free.
                         final result = await showOptionPicker(
                           sheetCtx,
                           catalog: PickerCatalog(
