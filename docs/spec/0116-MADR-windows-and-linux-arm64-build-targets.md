@@ -1722,3 +1722,17 @@ technique above, so a successful parse cannot register anything.
 
 "No declaration, UTF-8" also parses, and was rejected: it relies on the
 parser's default, where UTF-16 with a BOM is what Task Scheduler writes itself.
+
+## Amendment — 2026-09-19: the D14 signing hook waits for a certificate
+
+MADR 0159 F13 found that D14's `MC_WINDOWS_SIGN_*` hook was never wired:
+`MC_WINDOWS_SIGN` and `signtool` appear only in documentation, and
+`Makefile`'s `codesign-maybe` is gated to `darwin`. `docs/ops-windows-install.md`
+described the hook in the present tense.
+
+MADR 0159 D10 decides the hook waits for a code-signing certificate. Until one
+exists, nothing could call the hook, so it could not be verified. The ops page
+now says the binaries are unsigned and that no signing step exists yet. When a
+certificate is procured, the hook is a new record, built beside
+`codesign-maybe`. The rest of D14 (signing is not SmartScreen trust; reputation
+accrues over releases) stands.

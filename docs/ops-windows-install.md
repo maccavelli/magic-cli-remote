@@ -39,9 +39,10 @@ of `~/.local/bin` on Unix.
 
 The published binaries are **not Authenticode-signed yet**. Windows SmartScreen
 may warn on first run, and Smart App Control may block them outright. This is
-expected. Signing is designed into the build (`MC_WINDOWS_SIGN_*`) but the
-certificate has not been procured; note that signing alone does not grant
-SmartScreen trust — reputation accrues over releases.
+expected. No signing step exists in the build yet: a signing hook waits for a
+code-signing certificate, because a hook nothing can call cannot be verified
+(MADR 0159 D10). Note that signing alone does not grant SmartScreen trust —
+reputation accrues over releases.
 
 ## Where things live
 
