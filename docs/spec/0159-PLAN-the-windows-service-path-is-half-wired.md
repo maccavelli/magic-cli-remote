@@ -1008,6 +1008,65 @@ Plus the Stability rule.
 | A11 | (moved to v0.18.1) No console host for the task-launched daemon, at `schtasks /run` (S3b) and at a real logon (owner) | D7 |
 | A13 | The installer prints a PATH notice for every product folder that is not on the User `Path`, with advice that reads the User `Path` | D15 |
 
+### P15 — The installer puts its folders on the User Path (D16; second amendment, 2026-09-19)
+
+Added by the owner's decision of 2026-09-19. It ships in v0.18.1 with P13 and
+P14.
+
+1. `scripts/install.ps1`:
+   * `-NoPathUpdate` switch; `MCREMOTE_INSTALL_NO_PATH_UPDATE=1` has the same
+     effect.
+   * `Add-ToUserPath -Dir <d> [-Key <registry path>]`:
+     * `-Key` defaults to `HKCU:\Environment`, and exists so the unit test can
+       use a scratch key;
+     * reads `Path` unexpanded, and appends `<d>` unless an entry equals it
+       once expanded, trimmed of a trailing `\`, and compared case-blind, or the
+       Machine `Path` already has it;
+     * writes back with the original value kind (`ExpandString` if absent);
+     * adds `<d>` to `$env:Path`;
+     * returns whether it changed anything.
+   * `Send-EnvironmentChange` broadcasts `WM_SETTINGCHANGE` through
+     `SendMessageTimeout`, using `Add-Type` P/Invoke with a 5 s timeout. A
+     failure is a warning, not an error.
+   * Main: for each product, `Add-ToUserPath`, unless opted out, in which case
+     `Add-ToPathNotice`. Broadcast once if anything changed. Under `-WhatIf`,
+     log "would add … to the User Path".
+2. `scripts/install_ps1_unit_test.ps1` (U14), against
+   `HKCU:\Software\mcremote-install-unit-<guid>`, removed in `finally`:
+   * absent → appended, and a second call returns false with the value
+     unchanged;
+   * a `REG_EXPAND_SZ` value containing `%USERPROFILE%\x` keeps both its kind
+     and the literal `%USERPROFILE%\x`;
+   * `<d>\` and an upper-cased `<d>` count as present;
+   * a missing value is created as `ExpandString`;
+   * a static check: the main block's `foreach` over `$Products` calls
+     `Add-ToUserPath`, and that call sits behind the opt-out;
+   * the U13e static check is updated to accept the notice in the opt-out
+     branch.
+3. `scripts/install_ps1_test.ps1`: the child process gets
+   `MCREMOTE_INSTALL_NO_PATH_UPDATE=1` in every mode. A new check compares
+   the real `HKCU\Environment` `Path` (raw, and its kind) before and after the
+   whole run.
+4. `docs/ops-windows-install.md` (Install): the installer adds both folders to
+   the User `Path`, and explains how to opt out.
+
+**Scope (P15):** `scripts/install.ps1`, `scripts/install_ps1_unit_test.ps1`,
+`scripts/install_ps1_test.ps1`, `docs/ops-windows-install.md` (the Install
+section).
+
+**Verification (P15):** P14's four commands, plus:
+* a mutation check: reading `Path` expanded, or writing it as `String`, fails
+  U14;
+* the Stability rule's `make ci-windows`.
+
+The real User `Path` of this host is checked unchanged after the test runs.
+
+**Acceptance (addition).**
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A14 | A default install puts both product folders on the User `Path`, preserves `%VAR%` entries and the value kind, and is idempotent. The opt-out restores the notice. | D16 |
+
 **Rollout (v0.18.1).** The owner cuts v0.18.1. Then, on this host, with the
 owner's go-ahead:
 

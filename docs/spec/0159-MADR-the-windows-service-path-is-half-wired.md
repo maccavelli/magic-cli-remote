@@ -1166,3 +1166,70 @@ install_ps1_unit_test.ps1 (5.1 and 7)  the notice is issued once per product; th
 acceptance-windows-service.ps1          S3b: no console host appears for the task-launched daemon at schtasks /run
 owner, after installing the D7 release  no window at `mcremote update`'s restart, and none after logging off and on
 ```
+
+## Amendment — 2026-09-19 (second): the installer puts its folders on the User Path
+
+Owner decision, 2026-09-19. The owner asked why the Windows install does not
+land somewhere already on `PATH`, as it does on macOS and Linux. Of the three
+options offered, the owner chose to keep MADR 0116 D13's per-product folders
+and have the installer add them to the User `Path`. The rejected options were
+a single shared folder (a migration of the task's `Command`, `setup-service`'s
+binary discovery, and `update`'s in-place backups) and
+`%LOCALAPPDATA%\Microsoft\WindowsApps` (reserved for app execution aliases).
+D15's clause "It still does not change `Path` itself" is replaced by D16. The
+rest of D15 stands.
+
+### What was measured, not assumed
+
+* **No per-user folder for arbitrary programs is on `PATH` by default.** The
+  one a new profile carries, `%LOCALAPPDATA%\Microsoft\WindowsApps`, holds the
+  Store's app execution aliases. This host's User `Path` shows the Windows
+  convention instead: winget, Scoop, Go, VS Code, Ollama and others each
+  appended their own folder.
+* **`install.sh` does not edit `PATH` either** (`scripts/install.sh:281-287`
+  prints a note). `~/.local/bin` is usually on `PATH` because Linux profiles
+  add it, not because the installer does.
+* **A default registry read expands `%VAR%` references.** In a scratch key
+  holding `REG_EXPAND_SZ` `%USERPROFILE%\bin;C:\x`, `GetValue('Path')`
+  returned `C:\Users\macsm\bin;C:\x`. Only `GetValue(…,
+  'DoNotExpandEnvironmentNames')` returned the stored text.
+  `[Environment]::GetEnvironmentVariable('Path', 'User')` equals the expanded
+  form. So writing that value back turns every `%VAR%` entry into a literal.
+  This host's value is `REG_SZ` with no `%`, so it cannot show the damage, but a
+  default Windows profile's User `Path` is `REG_EXPAND_SZ` and holds
+  `%USERPROFILE%\AppData\Local\Microsoft\WindowsApps`. The scratch key was
+  removed.
+* **The e2e installer test runs the real script, including under `irm | iex`,
+  where no parameter can be passed** (`scripts/install_ps1_test.ps1:173-197`).
+  Without an opt-out that an environment variable can reach, every test run
+  would write temporary folders into the tester's own User `Path`.
+
+### Decision
+
+* **D16 — The installer adds each product folder to the User `Path`.**
+  * For each product folder not already on the User or Machine `Path`, the
+    installer appends it to the User `Path`. Entries are compared after
+    expansion, without a trailing `\`, ignoring case.
+  * It reads `HKCU\Environment` `Path` unexpanded
+    (`DoNotExpandEnvironmentNames`) and writes it back with the value kind it
+    had, `ExpandString` when it did not exist. Existing entries are kept
+    byte-for-byte.
+  * It broadcasts `WM_SETTINGCHANGE` ("Environment"), so newly started
+    programs see the change, and it adds the folder to the running session's
+    `$env:Path`, so the next command in the same shell works.
+  * It prints what it changed.
+  * **Opt-out:** `-NoPathUpdate`, or the environment variable
+    `MCREMOTE_INSTALL_NO_PATH_UPDATE=1`, which also reaches an `irm | iex`
+    run. Either one restores D15's notice.
+  * `-WhatIf` reports the change and makes none.
+  * Removing the entries on uninstall is out of scope: there is no uninstall
+    script.
+
+### Confirmation (additions)
+
+```text
+install_ps1_unit_test.ps1 (5.1 and 7), against a scratch registry key:
+  appends when absent; a second run changes nothing; %VAR% entries and REG_EXPAND_SZ survive;
+  an entry differing only in case or a trailing \ counts as present; a missing Path value is created as ExpandString
+install_ps1_test.ps1 (5.1 and 7): runs with the opt-out, and the tester's real User Path is byte-identical before and after
+```
