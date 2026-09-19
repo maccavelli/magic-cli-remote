@@ -24,7 +24,8 @@ Official references:
 
 ## Prerequisites
 
-1. Flutter 3.44+ / Dart 3.12+ (`flutter doctor`).
+1. Flutter **3.47.2** / Dart **3.13.2**, the CI pin (`FLUTTER_VERSION` in
+   `.github/workflows/ci.yml`); check with `flutter --version`.
 2. An Android device or emulator visible to Flutter:
 
    ```bash

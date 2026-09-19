@@ -17,7 +17,9 @@ target**; a Linux desktop target is included for local development.
 
 ## Prerequisites
 
-- Flutter 3.44+ / Dart 3.12+
+- Flutter **3.47.2** / Dart **3.13.2** — the CI pin (`FLUTTER_VERSION` in
+  `.github/workflows/ci.yml`). Use exactly this version: CI fails when
+  `flutter pub get` changes `pubspec.lock`.
 - One of:
   - **Linux desktop** (easiest on this host — no Android emulator required)
   - Android emulator / physical device on Headscale
