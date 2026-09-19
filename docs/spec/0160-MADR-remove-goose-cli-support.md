@@ -964,3 +964,22 @@ keep the honest name and extend the list rather than rename the function.
 `internal/config/load.go` (the D3 call site). The list is now eight paths. The
 same pass rewords one comment added by P1 step 13
 (`internal/wirecap/fixtures_test.go:50`) so that it no longer names Goose.
+
+## Observed — execution complete (2026-09-18)
+
+All five phases ran: `9a567bf` (P1), `a7914f4` (P2), `2bd5114` (P3), `c57019b`
+(P4), `7494c4a` (P5). Every acceptance criterion in PLAN 0160 is met. A10 holds
+under the baseline rule, and its one failing test is the pre-existing F21
+defect.
+
+Execution found five defects in the plan, and each was amended with owner
+approval before the affected edit:
+
+* F24 / D15: the wire-fixture floor.
+* The template-parity tests are unix-only.
+* D14 did not list `load.go`.
+* Its "fixture strings unchanged" rule collided with D14.
+* One prescribed rename would have made a tie-break test flaky.
+
+In short, the plan's word inventory (F22) was complete for the word "goose" but
+not for things that merely count Goose, and not for its own later additions.

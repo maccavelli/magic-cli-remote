@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-18
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -884,4 +884,74 @@ file list.
    name. `stderr_tail_test.go` had three `"goose"` labels. All of these were
    in P2's files.
 
-**P3–P5 have not run.** P4 can run on this host (Flutter 3.47.2).
+P2 was pushed on the owner's instruction; CI run `35415382656` on `71f4ce5`
+succeeded.
+
+### P3 (2026-09-18)
+
+`2bd5114`: 8 files, +36 −96, exactly P3's list.
+
+* After P3, only `AGENTS.md`, `README.md` and `docs/config.md` mention Goose
+  among its files. `AGENTS.md` keeps lines 67 and 148 (C6). `README.md` and
+  `docs/config.md` each have one line: the 0160 design row and the retired-key
+  row.
+* `make -n live-goose` reports no rule.
+* `go test ./internal/protocol/ ./internal/cli/service/`: ok
+  (`keyring_managed` is still documented, C7).
+* `markdownlint-cli2` findings in the eight files: 23 before and 23 after,
+  identical apart from line numbers. The baseline came from a detached worktree
+  at `HEAD`.
+* Two small calls the plan did not spell out:
+  * The README box-diagram provider line was re-separated with commas so it
+    fits inside the box. It had overflowed the border before, with Goose in it.
+  * `docs/protocol-v1.md`'s two provider-id lists now name `kilo` where `goose`
+    was. Kilo is a registered provider that the lists had omitted. The
+    `agent_sessions.list` example uses `grok`, which advertises
+    `sessionCapabilities.list` (MADR 0138 F10).
+
+### P4 (2026-09-18)
+
+Ran on this Windows host under Flutter 3.47.2 / Dart 3.13.2, which meets the
+"Flutter host" definition. `c57019b`: 22 files (`goose.svg` deleted, 21
+modified), exactly P4's list.
+
+* `dart format --set-exit-if-changed`: 0 changed. The one reflow, in
+  `mode_selector_dangerous_test.dart` after its test names grew, was applied
+  with `dart format` before staging.
+* `flutter analyze`: no issues.
+* `flutter test`: **1416** passed (1415 before plus the new
+  `unknown_provider` test). `flutter pub get` left `pubspec.lock` unchanged.
+* Plan misses, all in P4's files:
+  * `transcripts_notifier.dart:107` cited `maxAnsweredPerms` in the deleted
+    `acphttp/session.go`. The same constant (256) lives on in
+    `internal/provider/codex/session.go:1098`, and the comment now points there.
+  * Upstream-vendor ids in the picker tests were retargeted to the synthetic
+    `acme` / `Acme`, and the keyring-managed provider id to `agent-x`, so no
+    real agent's code path is implied.
+
+### P5 (2026-09-18)
+
+`7494c4a`: 9 files. 0110 and 0122 are marked `superseded by
+0160-MADR-remove-goose-cli-support.md`. Seven files carry the banner, and
+numstat is exactly `2 0` for each banner file and `2 2` for each YAML file.
+0073 is unchanged since `b3d3355`. The protocol and service tests pass.
+
+### Whole-plan verification (2026-09-18, at `7494c4a`)
+
+| # | Result |
+| --- | --- |
+| A1 | Both trees are gone, and no Go file imports them. |
+| A2 | `git grep -il goose -- . ':!docs/spec'` prints exactly the 8 amended paths. |
+| A3 | Windows: 40 `ok` plus the baseline failure only. Linux: 41 `ok`, clean. Race is the same on both. `go mod tidy`: no diff. (Measured at P2; P3–P5 changed no Go.) |
+| A4–A6 | Driven through the built binary at P1 (see P1). |
+| A7 | Format, analyze and 1416 tests pass; no `goose.svg`; `keyring_managed` copy names no agent; `unknown_provider` has copy and a test. |
+| A8 | 0110 and 0122 superseded; 7 banners; nothing else changed. |
+| A9 | 0073 is byte-identical. |
+| A10 | `make ci-windows`: A2 through A5 pass. A6 fails only on the baseline `TestLoadDisplayNameUnset`, so A10 is met under the baseline rule. |
+| A11 | `ErrKeyringManaged` and `AuthReasonKeyringManaged` are present, and `docs/protocol-v1.md` documents the string. |
+| A12 | `AGENTS.md` names Goose only at lines 67 and 148. |
+| A13 | The `agenterr` suite passes, and the renamed structured-JSON and Rust-Debug tests still classify the captured lines. |
+| A14 | 3300 passing Go tests after P2, equal to P1. |
+
+CI passed on P1 (`445a1d0`) and P2 (`71f4ce5`). P3–P5 are committed locally
+and not pushed; pushing needs the owner's instruction.
