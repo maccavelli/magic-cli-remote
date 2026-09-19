@@ -49,7 +49,10 @@ If `flutter run -d linux` fails with a display error on a headless AWS box, you 
 - `Xvfb :99 &` then `export DISPLAY=:99`, or  
 - a real Android device/emulator elsewhere
 
-**Linux keyring:** headless sessions often hit `KeyringLocked` from `flutter_secure_storage`. The app falls back to SharedPreferences for the device token so connect still works. Unlock/login your desktop keyring for production-like secure storage.
+**Linux keyring:** headless sessions often hit `KeyringLocked` from
+`flutter_secure_storage`. The app falls back to SharedPreferences for the
+device token so connect still works. Unlock/login your desktop keyring for
+production-like secure storage.
 
 Build-only (no GUI):
 
