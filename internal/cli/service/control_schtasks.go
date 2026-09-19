@@ -2,41 +2,63 @@ package service
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
-// isActiveWindows reports whether the scheduled task is currently running.
-func isActiveWindows(product string) (bool, error) {
-	out, err := runSchtasks("/query", "/tn", taskName(product), "/fo", "LIST", "/v")
-	if err != nil {
-		return false, nil // not registered → not active
+// taskStateRunning is Task Scheduler's numeric state for a running task
+// (MSFT_ScheduledTask State: 0 Unknown, 1 Disabled, 2 Queued, 3 Ready, 4 Running).
+const taskStateRunning = 4
+
+// taskNameRe bounds what may be interpolated into the PowerShell probe. Task
+// names here are product names, so this rejects nothing legitimate.
+var taskNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// taskState reports a task's numeric state, and whether it is registered at
+// all, without parsing localised text (MADR 0159 D9). `schtasks /query /fo LIST`
+// prints "Status: Running" in the UI language, which the previous parser matched
+// as English. Get-ScheduledTask's State is an enum, and absent tasks come back
+// as $null (measured: 4 for the live task, "absent" for a missing one, about
+// 1.3 s per call; MADR 0159 probe 11). A failure to run the probe is an error,
+// not "not running". It is a variable so tests can drive it.
+var taskState = func(name string) (state int, found bool, err error) {
+	if !taskNameRe.MatchString(name) {
+		return 0, false, fmt.Errorf("invalid task name %q", name)
 	}
-	return taskStatusRunning(out), nil
+	script := `$t = Get-ScheduledTask -TaskPath '\' -TaskName '` + name +
+		"' -ErrorAction SilentlyContinue; if ($t) { [int]$t.State } else { 'absent' }"
+	out, err := runCmdOutput("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+	text := strings.TrimSpace(out)
+	if err != nil {
+		return 0, false, fmt.Errorf("query scheduled task %q: %w (%s)", name, err, text)
+	}
+	if text == "absent" {
+		return 0, false, nil
+	}
+	n, convErr := strconv.Atoi(text)
+	if convErr != nil {
+		return 0, false, fmt.Errorf("query scheduled task %q: unexpected output %q", name, text)
+	}
+	return n, true, nil
 }
 
-// taskStatusRunning parses `schtasks /query /fo LIST /v` output.
-//
-// The status line is localised on a non-English Windows, so this matches the
-// English value and treats anything else as "not running" — the conservative
-// answer, which at worst makes `update` start a task that is already up
-// (harmless: MultipleInstancesPolicy is IgnoreNew).
-func taskStatusRunning(out string) bool {
-	for _, line := range strings.Split(out, "\n") {
-		key, value, ok := strings.Cut(line, ":")
-		if !ok || !strings.EqualFold(strings.TrimSpace(key), "Status") {
-			continue
-		}
-		return strings.EqualFold(strings.TrimSpace(value), "Running")
+// isActiveWindows reports whether the scheduled task is currently running.
+func isActiveWindows(product string) (bool, error) {
+	state, found, err := taskState(taskName(product))
+	if err != nil {
+		return false, err
 	}
-	return false
+	return found && state == taskStateRunning, nil
 }
 
 // isInstalledWindows reports whether the task is registered at all.
 func isInstalledWindows(product string) (bool, error) {
-	if _, err := runSchtasks("/query", "/tn", taskName(product)); err != nil {
-		return false, nil
+	_, found, err := taskState(taskName(product))
+	if err != nil {
+		return false, err
 	}
-	return true, nil
+	return found, nil
 }
 
 // startWindows runs the task now.

@@ -181,28 +181,6 @@ type errNotRegistered struct{}
 
 func (errNotRegistered) Error() string { return "ERROR: The system cannot find the file specified." }
 
-// TestTaskStatusRunning pins the /query parsing, including the conservative
-// answer for a localised or unexpected status.
-func TestTaskStatusRunning(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		out  string
-		want bool
-	}{
-		{"running", "TaskName: \\mcremote\r\nStatus:  Running\r\n", true},
-		{"ready", "TaskName: \\mcremote\r\nStatus:  Ready\r\n", false},
-		{"disabled", "Status: Disabled\r\n", false},
-		{"localised", "Status: En cours d'exécution\r\n", false},
-		{"absent", "", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := taskStatusRunning(tc.out); got != tc.want {
-				t.Errorf("taskStatusRunning(%q) = %v, want %v", tc.out, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestStopMapsToEnd pins that Stop uses /end — and, by the comment it carries,
 // that the ungraceful termination is a recorded decision (MADR 0116 D9).
 func TestStopMapsToEnd(t *testing.T) {
@@ -408,5 +386,67 @@ func TestSetupFailsBeforeSchtasksWithoutAPrincipal(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Errorf("schtasks ran %d times before the principal error", calls)
+	}
+}
+
+// withTaskState injects the Get-ScheduledTask probe.
+func withTaskState(t *testing.T, fn func(name string) (int, bool, error)) {
+	t.Helper()
+	prev := taskState
+	taskState = fn
+	t.Cleanup(func() { taskState = prev })
+}
+
+// TestTaskStateDrivesActiveAndInstalled replaces the English-text parser
+// (MADR 0159 F12, D9): the numeric state decides, and a probe failure is an
+// error rather than "not running".
+func TestTaskStateDrivesActiveAndInstalled(t *testing.T) {
+	probeErr := errors.New("powershell failed")
+	for _, tc := range []struct {
+		name          string
+		state         int
+		found         bool
+		err           error
+		wantActive    bool
+		wantInstalled bool
+		wantErr       bool
+	}{
+		{"running", 4, true, nil, true, true, false},
+		{"ready", 3, true, nil, false, true, false},
+		{"disabled", 1, true, nil, false, true, false},
+		{"absent", 0, false, nil, false, false, false},
+		{"probe error", 0, false, probeErr, false, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var asked string
+			withTaskState(t, func(name string) (int, bool, error) {
+				asked = name
+				return tc.state, tc.found, tc.err
+			})
+			active, err := isActiveWindows("mcremote")
+			if (err != nil) != tc.wantErr || active != tc.wantActive {
+				t.Errorf("isActiveWindows = %v, %v; want %v, err=%v", active, err, tc.wantActive, tc.wantErr)
+			}
+			installed, err := isInstalledWindows("mcremote")
+			if (err != nil) != tc.wantErr || installed != tc.wantInstalled {
+				t.Errorf("isInstalledWindows = %v, %v; want %v, err=%v", installed, err, tc.wantInstalled, tc.wantErr)
+			}
+			if tc.wantErr && !errors.Is(err, probeErr) {
+				t.Errorf("the probe error was not propagated: %v", err)
+			}
+			if asked != "mcremote" {
+				t.Errorf("probed task %q, want mcremote", asked)
+			}
+		})
+	}
+}
+
+// TestTaskStateRejectsAnUnsafeName: only product-shaped names reach the
+// PowerShell command line.
+func TestTaskStateRejectsAnUnsafeName(t *testing.T) {
+	for _, name := range []string{"", "a b", "x';calc;'", `a\b`} {
+		if _, _, err := taskState(name); err == nil {
+			t.Errorf("taskState(%q) accepted an unsafe name", name)
+		}
 	}
 }
