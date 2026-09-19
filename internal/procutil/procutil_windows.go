@@ -19,8 +19,18 @@ import (
 // GenerateConsoleCtrlEvent and the CREATE_* flags, so it is declared here — the
 // same NewLazySystemDLL idiom internal/cli/service/detach_windows.go uses for
 // FreeConsole (MADR 0159 F36).
-var procGetConsoleProcessList = windows.NewLazySystemDLL("kernel32.dll").
-	NewProc("GetConsoleProcessList")
+var (
+	kernel32                  = windows.NewLazySystemDLL("kernel32.dll")
+	procGetConsoleProcessList = kernel32.NewProc("GetConsoleProcessList")
+	procAttachConsole         = kernel32.NewProc("AttachConsole")
+	procFreeConsole           = kernel32.NewProc("FreeConsole")
+)
+
+// consoleMu serializes borrowing a child's console in [signalBreak]. What it
+// guards is not a variable but the process: AttachConsole and FreeConsole change
+// state shared by every goroutine, so two concurrent polite stops would
+// otherwise detach each other's console mid-signal.
+var consoleMu sync.Mutex
 
 // hasConsole reports whether this process is attached to a console.
 //
@@ -65,6 +75,20 @@ func consoleState() bool {
 		consoleCached = &v
 	}
 	return *consoleCached
+}
+
+// NoteConsoleDetached records that this process has given up its console, so
+// the cached answer cannot be stale in the one direction that matters.
+//
+// `serve --detach-console` calls FreeConsole at start-up (MADR 0159 D7), before
+// anything spawns, so in practice the cache would take the right answer anyway.
+// This makes it true by construction rather than by ordering, because the
+// ordering is not visible from here.
+func NoteConsoleDetached() {
+	consoleStateMu.Lock()
+	defer consoleStateMu.Unlock()
+	detached := false
+	consoleCached = &detached
 }
 
 // creationFlags returns the CreateProcess flags a child is started with.
@@ -133,21 +157,62 @@ func KillProcessGroup(p *os.Process) error {
 	return nil
 }
 
+// signalBreak asks the process group led by pid to stop, the polite phase of
+// [TerminateProcessGroup].
+//
+// GenerateConsoleCtrlEvent only reaches a process group that shares the
+// CALLER's console, so a daemon that has dropped its own console cannot use it
+// directly: it fails with ERROR_INVALID_HANDLE and nothing is signalled. That is
+// what made the graceful stop unreachable for the task-launched daemon from
+// v0.18.1 (MADR 0159 F24, probe 9).
+//
+// The way out is to borrow the child's console for the length of one call
+// (0159 D22, probe 11): attach, signal, detach. The event reaches only the named
+// group, so this does not signal the daemon itself — measured, and the reason
+// this is safe at all. Console attachment is process-wide state, so two
+// providers stopping at once must not interleave; consoleMu is what prevents it.
+func signalBreak(pid uint32) error {
+	if consoleState() {
+		// We have a console, so children we started share it and the event can
+		// be addressed to them directly. This is the interactive path —
+		// `mcremote serve` in a terminal — and it is deliberately unchanged.
+		return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
+	}
+
+	consoleMu.Lock()
+	defer consoleMu.Unlock()
+
+	if r, _, err := procAttachConsole.Call(uintptr(pid)); r == 0 {
+		// The child has already exited, or never had a console of its own.
+		return fmt.Errorf("procutil: attach to console of pid %d: %w", pid, err)
+	}
+	// Give the console back on every path out, including the error one: holding
+	// it would make the next hasConsole() answer "yes" and quietly deny
+	// CREATE_NO_WINDOW to the next child started (0159 D17).
+	defer procFreeConsole.Call()
+
+	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, pid)
+}
+
 // TerminateProcessGroup stops p politely, then kills it if it has not exited
 // within timeout. It reports whether the polite signal alone was enough.
 //
 // The polite signal is CTRL_BREAK_EVENT, which requires the child to have been
-// started with CREATE_NEW_PROCESS_GROUP ([SetProcessGroup]); without that the
-// event would be delivered to this process's group too. Semantics match the
-// Unix implementation: true iff the graceful phase sufficed.
+// started with CREATE_NEW_PROCESS_GROUP ([Command]); without that the event
+// would be delivered to this process's group too. Semantics match the Unix
+// implementation: true iff the graceful phase sufficed.
 func TerminateProcessGroup(p *os.Process, exited <-chan struct{}, timeout time.Duration) bool {
 	if p == nil {
 		return true
 	}
-	if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(p.Pid)); err != nil {
-		// No console, or the child is not in its own group: there is nothing
-		// gentler left to try, so escalate immediately and report that the
-		// polite phase did not do it.
+	if err := signalBreak(uint32(p.Pid)); err != nil {
+		if !processAlive(p.Pid) {
+			// Already gone, so there is nothing to escalate to and nothing was
+			// hard-killed. Unix reports ESRCH the same way.
+			return true
+		}
+		// Alive but unreachable by a console event: escalate, and report that
+		// the polite phase did not do it.
 		_ = KillProcessGroup(p)
 		return false
 	}

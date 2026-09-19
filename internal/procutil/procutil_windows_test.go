@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -167,16 +170,79 @@ func TestConsoleRoleHelper(t *testing.T) {
 		hwnd, _, _ := testGetConsoleWindow.Call()
 		fmt.Printf("%s0x%x\n", childConsoleMarker, hwnd)
 
-	case "parent":
-		// Become the daemon: drop the console this process inherited, then
-		// discard the cached answer so the constructor asks again. Production
-		// code has no such ordering problem — `serve --detach-console` detaches
-		// before anything spawns — but a test process is already running.
-		testFreeConsole.Call()
-		consoleStateMu.Lock()
-		consoleCached = nil
-		consoleStateMu.Unlock()
+	case "sleeper":
+		// A child that drains on a polite stop. CTRL_BREAK_EVENT arrives as
+		// SIGINT, not as a Windows-specific signal — syscall.SIGBREAK does not
+		// exist on this platform (MADR 0159 F35).
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		if path := os.Getenv(readyFileEnv); path != "" {
+			if err := os.WriteFile(path, []byte("ready"), 0o600); err != nil {
+				fmt.Printf("SLEEPER_ERR %v\n", err)
+				os.Exit(9)
+			}
+		}
+		select {
+		case <-sig:
+			os.Exit(drainExitCode)
+		case <-time.After(10 * time.Second):
+			os.Exit(8) // never signalled
+		}
 
+	case "politestop":
+		detachAndForgetConsole()
+		cmd, exited, err := startSleeper()
+		if err != nil {
+			fmt.Printf("START_ERR %v\n", err)
+			return
+		}
+		polite := TerminateProcessGroup(cmd.Process, exited, 5*time.Second)
+		<-exited
+		fmt.Printf("%s%v exit=%d\n", politeMarker, polite, cmd.ProcessState.ExitCode())
+		// Probe 11's most important observation: borrowing the child's console
+		// must not signal, or strand, the process doing the borrowing.
+		fmt.Printf("%shasConsole=%v\n", parentAliveMarker, hasConsole())
+
+	case "concurrentstop":
+		detachAndForgetConsole()
+		type result struct {
+			polite bool
+			code   int
+		}
+		results := make(chan result, 2)
+		for range 2 {
+			go func() {
+				cmd, exited, err := startSleeper()
+				if err != nil {
+					results <- result{false, -1}
+					return
+				}
+				polite := TerminateProcessGroup(cmd.Process, exited, 5*time.Second)
+				<-exited
+				results <- result{polite, cmd.ProcessState.ExitCode()}
+			}()
+		}
+		for range 2 {
+			r := <-results
+			fmt.Printf("%s%v exit=%d\n", politeMarker, r.polite, r.code)
+		}
+
+	case "deadchild":
+		detachAndForgetConsole()
+		cmd, exited, err := startSleeper()
+		if err != nil {
+			fmt.Printf("START_ERR %v\n", err)
+			return
+		}
+		_ = KillProcessGroup(cmd.Process)
+		<-exited
+		// The polite phase cannot reach a process that is already gone, and must
+		// report that as "nothing left to do" rather than as a hard kill.
+		polite := TerminateProcessGroup(cmd.Process, exited, time.Second)
+		fmt.Printf("%s%v exit=%d\n", politeMarker, polite, cmd.ProcessState.ExitCode())
+
+	case "parent":
+		detachAndForgetConsole()
 		cmd := Command(context.Background(), os.Args[0], "-test.run=^TestConsoleRoleHelper$")
 		cmd.Env = append(os.Environ(), consoleRoleEnv+"=child")
 		out, err := cmd.CombinedOutput()
@@ -247,4 +313,141 @@ func TestHasConsoleIsNotFooledByAPseudoconsole(t *testing.T) {
 			"this is the GetConsoleWindow mistake D17 exists to prevent")
 	}
 	t.Logf("console attached=%v console_hwnd=0x%x (a pseudoconsole reports 0)", attached, hwnd)
+}
+
+// --- MADR 0159 D22: a console-less parent still stops a child politely ---
+
+const (
+	// readyFileEnv names the file a sleeper touches once its signal handler is
+	// installed. A file rather than a pipe: os/exec forbids reading a StdoutPipe
+	// concurrently with Wait, and a fixed sleep would be a race dressed up as a
+	// delay.
+	readyFileEnv = "GO_PROCUTIL_READY_FILE"
+	// drainExitCode is what a sleeper exits with when it drained on a signal
+	// rather than being killed, which is how a test tells the two apart.
+	drainExitCode = 7
+
+	politeMarker      = "PROCUTIL_POLITE="
+	parentAliveMarker = "PROCUTIL_PARENT_ALIVE "
+)
+
+// detachAndForgetConsole makes this process look like the task-launched daemon:
+// no console, and no cached belief that it has one.
+//
+// Production code needs no such reset — `serve --detach-console` detaches before
+// anything spawns, and DetachConsole calls NoteConsoleDetached — but a test
+// process is already running by the time it decides to become the daemon.
+func detachAndForgetConsole() {
+	testFreeConsole.Call()
+	consoleStateMu.Lock()
+	consoleCached = nil
+	consoleStateMu.Unlock()
+}
+
+// startSleeper launches a child that drains on a polite stop, and returns once
+// that child's signal handler is actually installed.
+func startSleeper() (*exec.Cmd, <-chan struct{}, error) {
+	dir, err := os.MkdirTemp("", "procutil-ready")
+	if err != nil {
+		return nil, nil, err
+	}
+	ready := filepath.Join(dir, "ready")
+
+	cmd := Command(context.Background(), os.Args[0], "-test.run=^TestConsoleRoleHelper$")
+	cmd.Env = append(os.Environ(), consoleRoleEnv+"=sleeper", readyFileEnv+"="+ready)
+	if err := cmd.Start(); err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, nil, err
+	}
+
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		_ = os.RemoveAll(dir)
+		close(exited)
+	}()
+
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			return cmd, exited, nil
+		}
+		select {
+		case <-exited:
+			return nil, nil, fmt.Errorf("sleeper exited before signalling readiness")
+		default:
+		}
+		if time.Now().After(deadline) {
+			_ = KillProcessGroup(cmd.Process)
+			return nil, nil, fmt.Errorf("sleeper never became ready")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// runRole re-executes this test binary in the named helper role and returns
+// everything it printed.
+func runRole(t *testing.T, role string) string {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestConsoleRoleHelper$")
+	cmd.Env = append(os.Environ(), consoleRoleEnv+"="+role)
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot re-execute this test binary (%v); role %q needs a child process", err, role)
+	}
+	waitErr := cmd.Wait()
+	out := buf.String()
+	if !strings.Contains(out, politeMarker) && !strings.Contains(out, childConsoleMarker) {
+		t.Fatalf("role %q printed no marker (wait err %v); output:\n%s", role, waitErr, out)
+	}
+	return out
+}
+
+// TestPoliteStopWorksWithoutAConsole is acceptance criterion A18, and the
+// regression test for MADR 0159 F24: from v0.18.1 a task-launched daemon could
+// not deliver CTRL_BREAK at all, so every provider was hard-killed instead of
+// asked to drain. Probe 11 is what this pins.
+func TestPoliteStopWorksWithoutAConsole(t *testing.T) {
+	out := runRole(t, "politestop")
+
+	if want := politeMarker + "true"; !strings.Contains(out, want) {
+		t.Errorf("wanted %q — the polite phase should have sufficed; got:\n%s", want, out)
+	}
+	if want := fmt.Sprintf("exit=%d", drainExitCode); !strings.Contains(out, want) {
+		t.Errorf("wanted %q — the child should have drained on the signal rather than "+
+			"being killed; got:\n%s", want, out)
+	}
+	// Borrowing the child's console must leave the borrower unsignalled and
+	// console-less afterwards; holding it would silently deny the next child
+	// CREATE_NO_WINDOW (0159 D17).
+	if want := parentAliveMarker + "hasConsole=false"; !strings.Contains(out, want) {
+		t.Errorf("wanted %q — the parent must survive and give the console back; got:\n%s",
+			want, out)
+	}
+}
+
+// TestPoliteStopIsSerialized is acceptance criterion A19. Console attachment is
+// process-wide, so two providers stopping at once would detach each other's
+// console mid-signal without the mutex.
+func TestPoliteStopIsSerialized(t *testing.T) {
+	out := runRole(t, "concurrentstop")
+
+	if got := strings.Count(out, politeMarker+"true"); got != 2 {
+		t.Errorf("polite stops that succeeded = %d, want 2; output:\n%s", got, out)
+	}
+	if got := strings.Count(out, fmt.Sprintf("exit=%d", drainExitCode)); got != 2 {
+		t.Errorf("children that drained = %d, want 2; output:\n%s", got, out)
+	}
+}
+
+// TestPoliteStopOnAnAlreadyDeadChild pins the Unix parity D22 restores: a group
+// that is already gone is "nothing left to do", not a failed polite phase.
+func TestPoliteStopOnAnAlreadyDeadChild(t *testing.T) {
+	out := runRole(t, "deadchild")
+
+	if want := politeMarker + "true"; !strings.Contains(out, want) {
+		t.Errorf("wanted %q — an already-exited child reports the group gone, as "+
+			"Unix does for ESRCH; got:\n%s", want, out)
+	}
 }
