@@ -1084,12 +1084,12 @@ owner's go-ahead:
 
 Release 1 was published as **v0.18.0** (CI run `35461886119`, 10 of 10 jobs
 green, 12 assets). The owner updated both products on this host, which
-produced the amendment above. The amendment is `ad7e08a`.
+produced the amendment above. The amendment is `2825289`.
 
 | Phase | Commit | Result |
 | --- | --- | --- |
-| P13 | `532c3ce` | `serve --detach-console` in both products; the task renders it last, and refresh recovers it. `acceptance-windows-service.ps1` **ALL CHECKS PASSED under PowerShell 7 and 5.1**, including the new S3b and C3. |
-| P14 | `d565260` | The PATH notice runs for every product, and its advice appends to the User `Path`. The unit test passes 41/41 and the e2e test 43/43, each under 5.1 and 7. |
+| P13 | `43bd535` | `serve --detach-console` in both products; the task renders it last, and refresh recovers it. `acceptance-windows-service.ps1` **ALL CHECKS PASSED under PowerShell 7 and 5.1**, including the new S3b and C3. |
+| P14 | `9511991` | The PATH notice runs for every product, and its advice appends to the User `Path`. The unit test passes 41/41 and the e2e test 43/43, each under 5.1 and 7. |
 
 **S3b has teeth.** A throwaway task (C7) ran the same mcrelay build, once
 without the flag and once with it, sampled by the S3b method:
@@ -1141,7 +1141,7 @@ The Stability rule held for both phases:
    failed. The fix is to mark new files intent-to-add before exporting the
    patch.
 
-**P15 (`82ff8e7`), added by the second amendment (`38e7b15`).** The installer
+**P15 (`781420f`), added by the second amendment (`153c5da`).** The installer
 adds both folders to the User `Path` (D16).
 
 * **Unit test:** 61/61 under 5.1 and 7, with 20 new U14 checks against a
