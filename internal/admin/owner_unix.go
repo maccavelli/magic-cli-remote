@@ -20,7 +20,7 @@ func ownedByCurrentUser(_ string, fi fs.FileInfo) (bool, error) {
 
 // socketIdentity returns a value that changes if the path stops naming the
 // same socket. On Unix that is the inode.
-func socketIdentity(fi fs.FileInfo) (uint64, bool) {
+func socketIdentity(_ string, fi fs.FileInfo) (uint64, bool) {
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
 		return 0, false

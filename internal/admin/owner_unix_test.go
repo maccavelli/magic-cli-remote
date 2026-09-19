@@ -48,14 +48,14 @@ func TestSocketIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, ok := socketIdentity(fi)
+	id, ok := socketIdentity(path, fi)
 	if !ok {
 		t.Fatal("socketIdentity reported not-ok for a real file")
 	}
 	if id == 0 {
 		t.Error("socketIdentity returned 0 with ok=true; callers treat 0 as unknown")
 	}
-	if _, ok := socketIdentity(fakeInfo{}); ok {
+	if _, ok := socketIdentity(path, fakeInfo{}); ok {
 		t.Error("socketIdentity reported ok for an uninspectable FileInfo")
 	}
 }

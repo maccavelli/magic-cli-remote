@@ -128,7 +128,7 @@ func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Log
 	// Capture inode for safe shutdown removal.
 	var sockInode uint64
 	if fi, err := os.Lstat(socketPath); err == nil {
-		if id, ok := socketIdentity(fi); ok {
+		if id, ok := socketIdentity(socketPath, fi); ok {
 			sockInode = id
 		}
 	}
@@ -144,7 +144,7 @@ func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Log
 		_ = ln.Close()
 		// Remove only if path still names this listener's socket inode.
 		if fi, err := os.Lstat(socketPath); err == nil {
-			if id, ok := socketIdentity(fi); ok && sockInode != 0 && id == sockInode {
+			if id, ok := socketIdentity(socketPath, fi); ok && sockInode != 0 && id == sockInode {
 				_ = os.Remove(socketPath)
 			}
 		}
