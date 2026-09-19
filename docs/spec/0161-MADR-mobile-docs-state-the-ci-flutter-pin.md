@@ -190,3 +190,34 @@ D1 and D2 landed verbatim in `7c4479b`; D3 held, with `pubspec.yaml` and the
 root README untouched. Confirmation §1–§4 passed as written. The only surprise
 is the one recorded in PLAN 0161's execution record: the existing MD013 finding
 moved from line 50 to line 52.
+
+## Amendment — 2026-09-18: fix the MD013 finding, and stop citing it by line number
+
+Owner instruction: "Fix the lint and the line number". The original text above,
+including "`apps/mobile/README.md:50` MD013", is left as measured at `b3d3355`.
+
+**F5 — The one lint finding in scope was left in place, and was cited by a line
+number that the fix itself moved.** `markdownlint-cli2` v0.23.2 reports MD013
+(248 characters, limit 200) on the single-line paragraph beginning
+"**Linux keyring:**" in `apps/mobile/README.md`. It was line 50 at `b3d3355` and
+line 52 after `7c4479b`, because D1 turned one line into three. Confirmation §3
+and the evidence index named the old number.
+
+**D4.** Re-wrap that paragraph so that no line exceeds 80 characters, with no
+change to its words or punctuation. Identify lint findings by the text of the
+offending line from now on, not by line number.
+
+Confirmation §3 is superseded by:
+
+```bash
+# 3 (amended). No lint findings in the two files.
+markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/mobile-profiling.md):'
+#   → 0
+# and the re-wrap changed no words:
+git diff --word-diff=porcelain HEAD~1 -- apps/mobile/README.md | grep -E '^[-+][^-+]'
+#   → nothing
+```
+
+Option considered and rejected: exempt the file from MD013 or raise
+`line_length` in `.markdownlint-cli2.jsonc`. That clears the report without
+fixing the line, and the config applies to every Markdown file in the tree.
