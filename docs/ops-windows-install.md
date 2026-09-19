@@ -112,6 +112,35 @@ after the product, and `update` looks it up by that name. `--env` is refused
 because Task Scheduler cannot carry environment variables in the task
 definition; a Windows delivery path for it is planned (MADR 0159 D6).
 
+## Updating
+
+```powershell
+mcremote update           # check, download, verify, replace, restart
+mcremote update --check   # only report whether an update is available
+```
+
+When the background task is installed, `update` stops it (disable, then end),
+replaces the binary, and asks the **new** binary to refresh the task
+definition. The refresh keeps every option baked into the task and re-registers
+it only if this release's template differs. `update` then starts the task
+again (enable, then run) and waits for it to report running. If any step after
+the swap fails, it rolls back: the previous binary is restored, and so is the
+previous task definition, which the refresh saved under
+`%LocalAppData%\mcremote\State` (MADR 0159 D1).
+
+**Updating from v0.17.x or earlier.** Those releases cannot restore a task
+definition. If an update from one of them fails after the refresh, the binary is
+rolled back but the refreshed definition stays (MADR 0159 F18). It still runs
+the old binary, because the refresh keeps the same arguments. If the task does
+not come back to running, re-register it with the binary now in place:
+
+```powershell
+mcremote setup-service --force
+```
+
+Before MADR 0159, `update` on Windows always rolled back, because the task
+definition could not be refreshed (F1).
+
 ## Durability caveat
 
 `WriteFileAtomic` writes to a temp file, fsyncs it, and renames it into place.

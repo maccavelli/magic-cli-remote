@@ -119,8 +119,12 @@ func RefreshUnit(opts Options, ro RefreshOptions) (RefreshResult, error) {
 		return refreshSystemd(opts, ro)
 	case "darwin":
 		return refreshLaunchd(opts, ro)
+	case "windows":
+		// MADR 0159 D1: without this arm every managed `update` on Windows
+		// failed reconciliation and rolled back (F1).
+		return refreshSchtasks(opts, ro)
 	default:
-		return res, fmt.Errorf("setup-service --refresh is only supported on Linux and macOS (running on %s)", osName)
+		return res, fmt.Errorf("setup-service --refresh is only supported on Linux, macOS and Windows (running on %s)", osName)
 	}
 }
 
@@ -129,6 +133,12 @@ func RefreshUnit(opts Options, ro RefreshOptions) (RefreshResult, error) {
 func RestoreUnitBackup(path, backup string) error {
 	if path == "" || backup == "" {
 		return fmt.Errorf("path and backup are required")
+	}
+	// A Task Scheduler definition is not a file: re-register the saved copy
+	// (MADR 0159 D1). A binary older than this cannot, which is why task
+	// argument changes wait for a later release (F18).
+	if strings.HasPrefix(path, taskPathPrefix) {
+		return restoreSchtasksBackup(path, backup)
 	}
 	if err := os.Rename(backup, path); err != nil {
 		return fmt.Errorf("restore %s from %s: %w", path, backup, err)
