@@ -64,7 +64,7 @@ func TestCommandNativeIsPassThrough(t *testing.T) {
 // enforced on every platform so a pathological argv fails identically.
 func TestCommandRejectsOverlongCommandLine(t *testing.T) {
 	r := Resolved{Path: "engine", Kind: KindNative}
-	_, err := Command(context.Background(), r, strings.Repeat("a", maxCommandLine+1))
+	_, err := Command(context.Background(), r, strings.Repeat("a", maxCommandLineNative+1))
 	if !errors.Is(err, ErrCommandLineTooLong) {
 		t.Fatalf("err = %v, want ErrCommandLineTooLong", err)
 	}

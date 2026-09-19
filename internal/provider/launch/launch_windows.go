@@ -9,14 +9,24 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
-// safeBatchArg matches the characters an argument may contain when it must
-// pass through cmd.exe. The rejected set is deliberately broad: & | < > ^ %
-// ! " ( ) are all cmd.exe metacharacters, and % and ! survive quoting under
-// delayed expansion, so quoting is NOT treated as a substitute for rejection
-// (MADR 0116 D11).
-const safeBatchChars = `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ._:\/@=+,'-`
+// batchFlags are the cmd.exe switches every shim invocation carries, in front
+// of /c. Each one removes a way the interpreter could change what runs
+// (MADR 0159 D23):
+//
+//	/d      skip AutoRun. HKCU\Software\Microsoft\Command Processor\AutoRun runs
+//	        before the given command on every cmd.exe start, and HKCU is
+//	        user-writable, so without /d a persistence entry there would execute
+//	        on every provider launch (0159 F34).
+//	/s      make outer-quote handling deterministic: the first and last quote of
+//	        the line are stripped and everything between is taken literally,
+//	        instead of cmd.exe applying its "is this a whole command?" heuristics.
+//	/v:off  delayed expansion off, so `!VAR!` is inert (measured: probe 13).
+var batchFlags = []string{"/d", "/s", "/v:off", "/c"}
 
 // resolve finds bin on PATH and classifies it.
 //
@@ -36,34 +46,102 @@ func resolve(bin string) (Resolved, error) {
 	return Resolved{Path: p, Kind: kind}, nil
 }
 
-// command builds the *exec.Cmd, routing a batch shim through cmd.exe /c.
+// command builds the *exec.Cmd, routing a batch shim through a cmd.exe whose
+// behaviour is pinned and whose command line this package writes itself.
 func command(ctx context.Context, r Resolved, args ...string) (*exec.Cmd, error) {
-	if r.Kind == KindBatch {
-		for _, a := range args {
-			if bad, ok := unsafeBatchChar(a); ok {
-				return nil, fmt.Errorf(
-					"%w: %q contains %q — point the provider's `bin` at the real executable "+
-						"instead of the %s shim", ErrUnsafeBatchArgs, a, bad, filepath.Ext(r.Path))
-			}
+	if r.Kind != KindBatch {
+		if n := commandLineLen(r.Path, args); n > maxCommandLineNative {
+			return nil, fmt.Errorf("%w: %d characters, CreateProcessW accepts %d",
+				ErrCommandLineTooLong, n, maxCommandLineNative)
 		}
-		full := append([]string{"/c", r.Path}, args...)
-		if n := commandLineLen(comspec(), full); n > maxCommandLine {
-			return nil, fmt.Errorf("%w: %d characters", ErrCommandLineTooLong, n)
+		return procutil.Command(ctx, r.Path, args...), nil
+	}
+
+	// The shim path is quoted into the same line as the arguments, so it is
+	// subject to the same rule. A path is not attacker-chosen as often as an
+	// argument, but `%` in one would expand just the same.
+	if bad, ok := unrepresentableForBatch(r.Path); ok {
+		return nil, fmt.Errorf("%w: the shim path %q contains %s", ErrUnsafeBatchArgs, r.Path, bad)
+	}
+	for _, a := range args {
+		if bad, ok := unrepresentableForBatch(a); ok {
+			return nil, fmt.Errorf(
+				"%w: %q contains %s — point the provider's `bin` at the real executable "+
+					"instead of the %s shim", ErrUnsafeBatchArgs, a, bad, filepath.Ext(r.Path))
 		}
-		return exec.CommandContext(ctx, comspec(), full...), nil
 	}
-	if n := commandLineLen(r.Path, args); n > maxCommandLine {
-		return nil, fmt.Errorf("%w: %d characters", ErrCommandLineTooLong, n)
+
+	line := batchCommandLine(comspec(), r.Path, args)
+	if n := len(line) + 1; n > maxCommandLineBatch {
+		return nil, fmt.Errorf("%w: %d characters, cmd.exe accepts %d",
+			ErrCommandLineTooLong, n, maxCommandLineBatch)
 	}
-	return exec.CommandContext(ctx, r.Path, args...), nil
+
+	// Args stays the logical argv, for logs and tests; CmdLine is what Windows
+	// actually receives, because os/exec's own escaping is wrong for cmd.exe.
+	cmd := procutil.Command(ctx, comspec(), append(append([]string{}, batchFlags...),
+		append([]string{r.Path}, args...)...)...)
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CmdLine = line
+	return cmd, nil
 }
 
-// unsafeBatchChar reports the first character cmd.exe would reinterpret.
-func unsafeBatchChar(arg string) (string, bool) {
+// batchCommandLine assembles the exact line Windows receives:
+//
+//	cmd.exe /d /s /v:off /c ""<shim>" "<arg>" ..."
+//
+// The outer pair is what /s strips; each element carries its own pair, which is
+// what makes & | < > ^ ( ) and spaces literal (measured: probe 13).
+func batchCommandLine(interpreter, shim string, args []string) string {
+	var b strings.Builder
+	b.WriteString(interpreter)
+	for _, f := range batchFlags {
+		b.WriteString(" " + f)
+	}
+	b.WriteString(` ""`)
+	b.WriteString(shim)
+	b.WriteString(`"`)
+	for _, a := range args {
+		b.WriteString(` "` + a + `"`)
+	}
+	b.WriteString(`"`)
+	return b.String()
+}
+
+// unrepresentableForBatch reports the first part of arg that cmd.exe would act
+// on even inside quotes, and therefore cannot be passed at all.
+//
+// This is a refusal of four shapes, not an allowlist of permitted characters.
+// The allowlist it replaces (MADR 0116 D11) was simultaneously too strict and
+// too blunt: it refused `(` and `)`, so an ordinary `C:\Program Files (x86)\…`
+// argument could not be passed, while offering no protection at all because
+// nothing called it (0159 F29/F31).
+//
+// Rust's standard library takes the same approach for the same reason — it
+// returns an error rather than guessing an escaping — after CVE-2024-24576.
+func unrepresentableForBatch(arg string) (string, bool) {
 	for _, r := range arg {
-		if !strings.ContainsRune(safeBatchChars, r) {
-			return string(r), true
+		switch r {
+		case '"':
+			// Ends the quoted run early; there is no escape cmd.exe honours.
+			return `a double quote`, true
+		case '%':
+			// %VAR% expands inside double quotes too (measured: probes 12, 13).
+			return `a percent sign`, true
+		case '\r', '\n':
+			// Cannot appear in a command line at all.
+			return `a line break`, true
 		}
+	}
+	// A trailing backslash meets the closing quote as \", which the shim's own
+	// consumer — node, python, whatever the .cmd execs — unescapes back into a
+	// literal quote, breaking out of the quoted run one layer down. cmd.exe and
+	// CommandLineToArgvW disagree about backslashes, and no single spelling
+	// satisfies both, so this is refused rather than guessed at.
+	if strings.HasSuffix(arg, `\`) {
+		return `a trailing backslash`, true
 	}
 	return "", false
 }

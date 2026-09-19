@@ -499,7 +499,16 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := procutil.Command(context.Background(), p.cfg.Bin, p.dialect.ServeArgs(port)...)
+	// launch.Command applies the Windows batch-shim rules (MADR 0159 D23/D24);
+	// on Unix it is procutil.Command with a length check.
+	resolved, err := launch.Resolve(p.cfg.Bin)
+	if err != nil {
+		return "", err
+	}
+	cmd, err := launch.Command(context.Background(), resolved, p.dialect.ServeArgs(port)...)
+	if err != nil {
+		return "", err
+	}
 	// Process supervision: procutil.Command places the engine in its own group;
 	// SetDeathSignal (Linux Pdeathsig) SIGKILLs the engine if the daemon dies
 	// un-gracefully; TerminateProcessGroup sends SIGTERM-then-SIGKILL to the group

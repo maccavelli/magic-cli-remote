@@ -527,7 +527,23 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 		}
 		return nil, err
 	}
-	cmd := procutil.Command(context.Background(), p.cfg.Bin, args...)
+	// Resolved, not p.cfg.Bin, because on Windows an npm-installed CLI is a
+	// batch shim and launch.Command is what quotes its argv safely for the
+	// cmd.exe that CreateProcess supplies either way (MADR 0159 D23/D24).
+	var cmd *exec.Cmd
+	resolved, err := launch.Resolve(p.cfg.Bin)
+	if err == nil {
+		cmd, err = launch.Command(context.Background(), resolved, args...)
+	}
+	if err != nil {
+		if auth != nil {
+			auth.remove()
+		}
+		if lease != nil {
+			p.stopManagedLease(context.Background(), lease)
+		}
+		return nil, err
+	}
 	procutil.SetDeathSignal(cmd)
 	// Stamp ownership into the environment (Linux reaping) and registry (cross-platform).
 	engineID := uuid.NewString()

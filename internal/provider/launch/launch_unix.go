@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
 // resolve is exec.LookPath: every executable on Unix is invoked directly.
@@ -18,13 +20,15 @@ func resolve(bin string) (Resolved, error) {
 	return Resolved{Path: p, Kind: KindNative}, nil
 }
 
-// command is exec.CommandContext. The length check is kept on both platforms
-// so a pathological argv fails the same way everywhere.
+// command is procutil.Command plus the length check, which is kept on both
+// platforms so a pathological argv fails the same way everywhere. There is no
+// interpreter in the way here: every executable on Unix is invoked directly, so
+// the batch rules in launch_windows.go have no counterpart.
 func command(ctx context.Context, r Resolved, args ...string) (*exec.Cmd, error) {
-	if n := commandLineLen(r.Path, args); n > maxCommandLine {
+	if n := commandLineLen(r.Path, args); n > maxCommandLineNative {
 		return nil, fmt.Errorf("%w: %d characters", ErrCommandLineTooLong, n)
 	}
-	return exec.CommandContext(ctx, r.Path, args...), nil
+	return procutil.Command(ctx, r.Path, args...), nil
 }
 
 // commandLineLen approximates the assembled command line length.

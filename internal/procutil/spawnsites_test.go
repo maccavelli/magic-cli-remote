@@ -20,11 +20,6 @@ import (
 var spawnAllowlist = map[string]string{
 	"internal/updateclient/codesign_darwin.go": "darwin-only: runs codesign(1) during a macOS update, " +
 		"never a child of the Windows daemon, and the file does not build on Windows",
-	"internal/provider/launch/launch_windows.go": "builds the command line itself, which os/exec cannot " +
-		"escape correctly for a batch shim (0159 D23); 0159 P19 makes it obtain the command from " +
-		"procutil.Command first and then set CmdLine",
-	"internal/provider/launch/launch_unix.go": "the Unix half of the same constructor pair as " +
-		"launch_windows.go, kept symmetrical so the platform files differ only where behaviour does",
 }
 
 // bannedSpawns are the calls that start a process behind the constructor's

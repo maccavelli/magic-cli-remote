@@ -420,7 +420,18 @@ func (p *Provider) Ready() bool {
 // absolute directory that will match the eventual ACP session cwd when the
 // process is reused for a real session — MCP stdio children inherit it.
 func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string) (*session, error) {
-	cmd := procutil.Command(context.Background(), p.cfg.Bin, args...)
+	// launch.Command, not procutil.Command directly: on Windows the configured
+	// bin may resolve to an npm batch shim, whose argv has to be quoted into a
+	// command line this project builds rather than one os/exec escapes by the
+	// wrong rules (MADR 0159 D23/D24).
+	resolved, err := launch.Resolve(p.cfg.Bin)
+	if err != nil {
+		return nil, err
+	}
+	cmd, err := launch.Command(context.Background(), resolved, args...)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Dir = procDir
 	log := p.log
 	stdin, err := cmd.StdinPipe()
