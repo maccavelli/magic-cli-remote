@@ -1,8 +1,10 @@
 package service
 
 import (
+	"encoding/xml"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 )
 
@@ -75,46 +77,199 @@ func removeSchtasks(opts Options) (Result, error) {
 	return res, nil
 }
 
-// sameTaskDefinition compares a registered definition with a freshly rendered
-// one, ignoring the whitespace and XML declaration the task engine rewrites.
+// sameTaskDefinition reports whether a registered definition and a freshly
+// rendered one describe the same task.
 //
-// schtasks /query /xml returns the definition with its own formatting and
-// declaration, so a byte comparison would report every task as changed and
-// re-register on every run, defeating the idempotency contract this function
-// exists to uphold. Into a pipe that output is 8-bit text, not UTF-16 as this
-// comment used to say (MADR 0116 F26, measured), so comparing it as text is
-// correct.
+// It compares the fields setup controls, not text (MADR 0159 D14). Task
+// Scheduler rewrites a definition on registration: it drops elements that hold
+// their default value (RunLevel, AllowHardTerminate, Enabled, Hidden,
+// RunOnlyIfNetworkAvailable, the trigger's Enabled), stores the principal as a
+// SID, and adds URI, IdleSettings and UseUnifiedSchedulingEngine. The previous
+// normalised-text comparison therefore never matched a real registered task,
+// so setup was never idempotent on Windows (F19, measured against the
+// installed v0.17.4). A definition that cannot be parsed is never "the same".
 func sameTaskDefinition(existing, want string) bool {
-	return normalizeTaskXML(existing) == normalizeTaskXML(want)
+	a, err := taskFieldsFromXML(existing)
+	if err != nil {
+		return false
+	}
+	b, err := taskFieldsFromXML(want)
+	if err != nil {
+		return false
+	}
+	return a.equal(b)
 }
 
-// normalizeTaskXML strips the declaration, BOM and all whitespace between
-// tags, leaving the semantic content.
-func normalizeTaskXML(s string) string {
-	s = strings.TrimPrefix(s, "\ufeff") // UTF-8 BOM
-	if i := strings.Index(s, "<Task"); i >= 0 {
-		s = s[i:]
+// sameTaskAccount reports whether two principal UserIds name the same account.
+// Task Scheduler stores a SID where setup may have written DOMAIN\user, so a
+// rendered name and a registered SID are equal only once resolved. It is a
+// seam: the default compares case-insensitively, and MADR 0159 P6 renders the
+// principal as the SID itself so a registered task compares equal without a
+// lookup.
+var sameTaskAccount = func(a, b string) bool { return strings.EqualFold(a, b) }
+
+// taskTimeTrigger is the part of a TimeTrigger setup controls.
+type taskTimeTrigger struct {
+	StartBoundary     string
+	Enabled           bool
+	Interval          string
+	StopAtDurationEnd bool
+}
+
+// taskFields is the part of a task definition setup controls, with Task
+// Scheduler's defaults applied, so a rendered definition and the registered
+// copy of it compare equal.
+type taskFields struct {
+	LogonTriggers              int
+	LogonUser                  string
+	LogonEnabled               bool
+	TimeTriggers               []taskTimeTrigger
+	PrincipalUser              string
+	LogonType                  string
+	RunLevel                   string
+	MultipleInstancesPolicy    string
+	DisallowStartIfOnBatteries bool
+	StopIfGoingOnBatteries     bool
+	AllowHardTerminate         bool
+	StartWhenAvailable         bool
+	RunOnlyIfNetworkAvailable  bool
+	Enabled                    bool
+	Hidden                     bool
+	ExecutionTimeLimit         string
+	RestartInterval            string
+	RestartCount               int
+	Execs                      int
+	Command                    string
+	Arguments                  string
+	WorkingDirectory           string
+}
+
+func (a taskFields) equal(b taskFields) bool {
+	if !sameTaskAccount(a.PrincipalUser, b.PrincipalUser) || !sameTaskAccount(a.LogonUser, b.LogonUser) {
+		return false
 	}
-	var b strings.Builder
-	b.Grow(len(s))
-	inTag, prevSpace := false, false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			inTag, prevSpace = true, false
-			b.WriteRune(r)
-		case r == '>':
-			inTag, prevSpace = false, false
-			b.WriteRune(r)
-		case r == ' ' || r == '\t' || r == '\r' || r == '\n':
-			if inTag && !prevSpace {
-				b.WriteRune(' ')
-				prevSpace = true
-			}
-		default:
-			prevSpace = false
-			b.WriteRune(r)
+	a.PrincipalUser, b.PrincipalUser, a.LogonUser, b.LogonUser = "", "", "", ""
+	if len(a.TimeTriggers) != len(b.TimeTriggers) {
+		return false
+	}
+	for i := range a.TimeTriggers {
+		if a.TimeTriggers[i] != b.TimeTriggers[i] {
+			return false
 		}
 	}
-	return b.String()
+	a.TimeTriggers, b.TimeTriggers = nil, nil
+	return reflect.DeepEqual(a, b)
+}
+
+// taskParse mirrors the registered XML with pointers where an element may be
+// omitted, so an absent element can take its schema default.
+type taskParse struct {
+	Triggers struct {
+		Logon []struct {
+			Enabled *string `xml:"Enabled"`
+			UserID  string  `xml:"UserId"`
+		} `xml:"LogonTrigger"`
+		Time []struct {
+			StartBoundary string  `xml:"StartBoundary"`
+			Enabled       *string `xml:"Enabled"`
+			Repetition    struct {
+				Interval          string  `xml:"Interval"`
+				StopAtDurationEnd *string `xml:"StopAtDurationEnd"`
+			} `xml:"Repetition"`
+		} `xml:"TimeTrigger"`
+	} `xml:"Triggers"`
+	Principals struct {
+		Principal struct {
+			UserID    string  `xml:"UserId"`
+			LogonType string  `xml:"LogonType"`
+			RunLevel  *string `xml:"RunLevel"`
+		} `xml:"Principal"`
+	} `xml:"Principals"`
+	Settings struct {
+		MultipleInstancesPolicy    *string `xml:"MultipleInstancesPolicy"`
+		DisallowStartIfOnBatteries *string `xml:"DisallowStartIfOnBatteries"`
+		StopIfGoingOnBatteries     *string `xml:"StopIfGoingOnBatteries"`
+		AllowHardTerminate         *string `xml:"AllowHardTerminate"`
+		StartWhenAvailable         *string `xml:"StartWhenAvailable"`
+		RunOnlyIfNetworkAvailable  *string `xml:"RunOnlyIfNetworkAvailable"`
+		Enabled                    *string `xml:"Enabled"`
+		Hidden                     *string `xml:"Hidden"`
+		ExecutionTimeLimit         *string `xml:"ExecutionTimeLimit"`
+		RestartOnFailure           *struct {
+			Interval string `xml:"Interval"`
+			Count    int    `xml:"Count"`
+		} `xml:"RestartOnFailure"`
+	} `xml:"Settings"`
+	Actions struct {
+		Exec []struct {
+			Command          string `xml:"Command"`
+			Arguments        string `xml:"Arguments"`
+			WorkingDirectory string `xml:"WorkingDirectory"`
+		} `xml:"Exec"`
+	} `xml:"Actions"`
+}
+
+// taskFieldsFromXML parses a rendered or exported task definition. The XML
+// declaration is skipped: an export read through a pipe is 8-bit text that
+// still declares UTF-16 (MADR 0116 F26), which encoding/xml would refuse.
+func taskFieldsFromXML(s string) (taskFields, error) {
+	i := strings.Index(s, "<Task")
+	if i < 0 {
+		return taskFields{}, fmt.Errorf("no <Task> element")
+	}
+	var p taskParse
+	if err := xml.Unmarshal([]byte(s[i:]), &p); err != nil {
+		return taskFields{}, fmt.Errorf("parse task xml: %w", err)
+	}
+	str := func(v *string, def string) string {
+		if v == nil {
+			return def
+		}
+		return strings.TrimSpace(*v)
+	}
+	boolean := func(v *string, def bool) bool {
+		if v == nil {
+			return def
+		}
+		return strings.EqualFold(strings.TrimSpace(*v), "true")
+	}
+	// Schema defaults (Task Scheduler 2.0): the values an export omits.
+	f := taskFields{
+		LogonTriggers:              len(p.Triggers.Logon),
+		PrincipalUser:              strings.TrimSpace(p.Principals.Principal.UserID),
+		LogonType:                  strings.TrimSpace(p.Principals.Principal.LogonType),
+		RunLevel:                   str(p.Principals.Principal.RunLevel, "LeastPrivilege"),
+		MultipleInstancesPolicy:    str(p.Settings.MultipleInstancesPolicy, "IgnoreNew"),
+		DisallowStartIfOnBatteries: boolean(p.Settings.DisallowStartIfOnBatteries, true),
+		StopIfGoingOnBatteries:     boolean(p.Settings.StopIfGoingOnBatteries, true),
+		AllowHardTerminate:         boolean(p.Settings.AllowHardTerminate, true),
+		StartWhenAvailable:         boolean(p.Settings.StartWhenAvailable, false),
+		RunOnlyIfNetworkAvailable:  boolean(p.Settings.RunOnlyIfNetworkAvailable, false),
+		Enabled:                    boolean(p.Settings.Enabled, true),
+		Hidden:                     boolean(p.Settings.Hidden, false),
+		ExecutionTimeLimit:         str(p.Settings.ExecutionTimeLimit, "PT72H"),
+		Execs:                      len(p.Actions.Exec),
+	}
+	if len(p.Triggers.Logon) > 0 {
+		f.LogonUser = strings.TrimSpace(p.Triggers.Logon[0].UserID)
+		f.LogonEnabled = boolean(p.Triggers.Logon[0].Enabled, true)
+	}
+	for _, t := range p.Triggers.Time {
+		f.TimeTriggers = append(f.TimeTriggers, taskTimeTrigger{
+			StartBoundary:     strings.TrimSpace(t.StartBoundary),
+			Enabled:           boolean(t.Enabled, true),
+			Interval:          strings.TrimSpace(t.Repetition.Interval),
+			StopAtDurationEnd: boolean(t.Repetition.StopAtDurationEnd, false),
+		})
+	}
+	if r := p.Settings.RestartOnFailure; r != nil {
+		f.RestartInterval, f.RestartCount = strings.TrimSpace(r.Interval), r.Count
+	}
+	if len(p.Actions.Exec) > 0 {
+		e := p.Actions.Exec[0]
+		f.Command = strings.TrimSpace(e.Command)
+		f.Arguments = strings.TrimSpace(e.Arguments)
+		f.WorkingDirectory = strings.TrimSpace(e.WorkingDirectory)
+	}
+	return f, nil
 }
