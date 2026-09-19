@@ -1170,3 +1170,372 @@ alone under the opt-out.
   That covers the update from v0.18.0, the check that no window opens, and the
   log off and on for P13 step 6. **A11's logon half stays open until then.**
 * P12 follows in a later release, unchanged.
+
+## Amendment — 2026-09-19 (third): P16–P21 ship in v0.19.0, and the scope widens to F24, F28 and F29
+
+Owner report and owner instruction, 2026-09-19 (MADR amendment of the same date,
+third: F22–F37, D17–D26). Where this section and the sections above disagree,
+this section wins.
+
+**What the v0.18.1 rollout showed.** `mcremote update -y` opened **no window** —
+the `schtasks /run` half of A11 now passes on the real host, not only in S3b.
+Verified alongside it: the task is `Running`/`Enabled` as `macsm`, its arguments
+end with `--detach-console`, `setup-service --refresh --json` reports
+`unchanged`, and the daemon (PID 18572, parent `svchost.exe`) has **no child
+processes at all**.
+
+**What it then showed.** Starting an agent session opened a window, and closing
+that window killed the session. P13 is correct and is not reverted; the window
+belongs to the provider CLI now (F22). Investigating it surfaced F24, F28 and
+F29, and the owner widened the scope to all three.
+
+```text
+[v0.18.1] ──► P16 ──► P17 ──► P18 ──► P19 ──► P20 ──► [v0.19.0] ──► P12 ──► [release 3]
+```
+
+**A11's logon half stays open** and is folded into the v0.19.0 rollout, which
+ends with the same check.
+
+### Scope (additions — the only files P16–P20 may touch)
+
+```text
+P16  internal/procutil/procutil_windows.go        D17, D18: the constructor, the flag, the cached console state
+     internal/procutil/procutil_unix.go           D18: the constructor, no flags
+     internal/procutil/procutil_other.go          D18: the constructor, no flags
+     internal/procutil/command.go           (new) D18: the portable doc comment and the shared seam
+     internal/procutil/procutil_windows_test.go   D20 helper-process test, creationFlags table
+     internal/procutil/procutil_test.go           D18 constructor behaviour, all platforms
+P17  internal/provider/codex/diagnostics.go       D19
+     internal/provider/codex/managed_daemon.go    D19
+     internal/provider/codex/sandbox_health.go    D19
+     internal/provider/codex/provider.go          D19 (the --version probe and the engine spawn)
+     internal/provider/codex/adapter.go           D19
+     internal/provider/codex/auth.go              D19
+     internal/provider/codex/logout.go            D19
+     internal/provider/codex/store_reality.go     D19
+     internal/provider/acpagent/acpagent.go       D19
+     internal/provider/acpagent/terminal.go       D19
+     internal/provider/httpagent/provider.go      D19
+     internal/providerauth/cli.go                 D19
+     internal/tailnet/tailnet.go                  D19
+     internal/cli/service/setup.go                D19 (runCmd, runCmdOutput)
+     internal/cli/service/exec_refresher.go       D19
+     internal/procutil/spawnsites_test.go   (new) D19 static ban and its reasoned allowlist
+P18  internal/procutil/procutil_windows.go        D22: attach, signal, detach, serialized
+     internal/procutil/procutil_windows_test.go   D22 tests
+     internal/cli/service/detach_windows.go       D22: notify procutil that the console is gone
+     internal/cli/service/detach_other.go         D22: unchanged signature
+P19  internal/provider/launch/launch.go           D23, D25: errors, limits, doc correction
+     internal/provider/launch/launch_windows.go   D23: quoting, CmdLine, cmd /d /s /v:off /c
+     internal/provider/launch/launch_unix.go      D23: unchanged behaviour, shared signature
+     internal/provider/launch/launch_windows_test.go  D23 cases
+     internal/provider/launch/launch_test.go      D23 portable cases
+     internal/provider/codex/provider.go          D24: spawn through launch.Command
+     internal/provider/acpagent/acpagent.go       D24: same
+     internal/provider/httpagent/provider.go      D24: same
+P20  docs/ops-windows-install.md                  D26
+```
+
+Out of scope, named so the boundary is not mistaken for an oversight: resolving
+an npm shim to its real target (which is what would make `%` representable),
+P12's `--env` work, and any change to the task definition. All in Deferred.
+
+### Stability rule (unchanged, and it now matters more)
+
+Every phase ends with `make pre-add-check FILES=...` on its Go files, then
+`make ci-windows`, then `go test -race ./internal/...` for the packages it
+touched. P17 and P19 additionally run the WSL Linux lane, because both change
+files that compile on Linux. `git push` and tags still need an explicit
+instruction in the same turn.
+
+### P16 — The constructor, and no window for a console-less parent's children (D17, D18, D20; closes F22, F23, F25)
+
+1. `internal/procutil/command.go` (new, portable): declare
+   `func Command(ctx context.Context, name string, args ...string) *exec.Cmd`
+   with the doc comment stating that it is **the** way a child process is built
+   in this repository, that it applies the process group and, on Windows, the
+   D17 window flag, and that D19's test enforces its use. It delegates to an
+   unexported `newCommand` per platform.
+2. `procutil_unix.go`, `procutil_other.go`: `newCommand` is
+   `exec.CommandContext` plus `SetProcessGroup`. No behaviour change.
+3. `procutil_windows.go`:
+   * `hasConsole() bool` via a `GetConsoleProcessList` lazy proc — F36 measured
+     that `x/sys` does not export it. A zero return means no console. **Not
+     `GetConsoleWindow`**: D17 records the measurement that rules it out.
+   * `consoleState()` caches the answer behind a `sync.Once`, with a doc comment
+     giving D22's reason for caching rather than sampling: an attachment made
+     while signalling must not be observed by a concurrent spawn.
+   * `creationFlags(hasConsole bool) uint32` returns
+     `windows.CREATE_NEW_PROCESS_GROUP`, plus `windows.CREATE_NO_WINDOW` when
+     false. Both constants exist in `x/sys` v0.47.0 (F36), so declare no local
+     constant.
+   * `newCommand` builds the command, then applies `creationFlags(consoleState())`.
+   * `SetProcessGroup` keeps its current body and name (D18) and is now only for
+     callers holding a command they built another way.
+4. `procutil_test.go`: `Command` returns a runnable command on every platform;
+   `Path`, `Args` and `SysProcAttr` are set as expected; a `nil` context is
+   rejected the way `exec.CommandContext` does.
+5. `procutil_windows_test.go`:
+   * `creationFlags` table: with a console, `CREATE_NO_WINDOW` is **absent**;
+     without, present. The with-console row is the one that protects the
+     interactive path — it asserts an absence, and A16 exists so it is not
+     deleted as redundant.
+   * the D20 integration test, three processes deep, because two is not enough:
+     the test process cannot be assumed to lack a console. Roles come from an
+     environment variable and re-execute the test binary (`TestHelperProcess`
+     idiom): role `parent` calls `FreeConsole`, builds the child with
+     `procutil.Command` — the real path, not a copy — starts it and relays its
+     output; role `child` prints `GetConsoleWindow()`. Assert `0`. Skip with a
+     stated reason if the helper cannot be re-executed; never skip silently.
+
+**Verification (P16).**
+
+```powershell
+go test ./internal/procutil/ -run 'Command|Console|CreationFlags' -v
+go test -race ./internal/procutil/
+git stash ; go test ./internal/procutil/ -run Console ; git stash pop   # must FAIL pre-fix
+```
+
+Mutations that must be caught: replacing `hasConsole()` with
+`GetConsoleWindow() == 0` fails the with-console row; dropping
+`CREATE_NO_WINDOW` fails the D20 test; sampling live instead of caching is
+covered by P18's concurrency test, not here.
+
+### P17 — Every child process is built by the constructor (D19; closes F28)
+
+1. Replace `exec.Command`/`exec.CommandContext` with `procutil.Command` at every
+   site in the P17 scope list, deleting the now-redundant `SetProcessGroup` call
+   that follows 11 of them. Where a site holds a `context`, pass it; where it
+   does not (`acpagent.go:424`, `httpagent/provider.go:502`,
+   `providerauth/cli.go:94`, `codex/provider.go:530`), pass
+   `context.Background()` and leave the existing lifetime mechanism alone —
+   changing cancellation semantics is not this phase's job.
+2. `internal/tailnet/tailnet.go`: the `execCommand` seam keeps its signature and
+   calls `procutil.Command`, so the test stub is unaffected.
+3. `internal/cli/service/setup.go`: `runCmd` and `runCmdOutput` build through
+   the constructor, which covers all 12 `runSchtasks` call sites at once.
+4. `internal/procutil/spawnsites_test.go` (new): walk every non-test `.go` file
+   under `cmd/` and `internal/`, parse with `go/ast` rather than by regex, and
+   fail on any `exec.Command` or `exec.CommandContext` call outside
+   `internal/procutil`. The allowlist is a map in the test file from path to
+   reason; seed it only with what genuinely cannot route through the
+   constructor:
+   * `internal/updateclient/codesign_darwin.go` — darwin-only `codesign`,
+     never a daemon child on Windows;
+   * `internal/provider/launch/launch_windows.go` and `launch_unix.go` — they
+     build the command the constructor cannot (D23's `CmdLine`), and P19 makes
+     them call the constructor first.
+   The test fails if an allowlist entry has an empty reason, and fails if an
+   allowlisted path no longer contains a matching call — so the list cannot rot.
+
+**Verification (P17).**
+
+```powershell
+go test ./internal/procutil/ -run SpawnSites -v
+go build ./... ; go vet ./...
+go test ./internal/provider/... ./internal/providerauth/ ./internal/tailnet/ ./internal/cli/service/
+make ci-windows
+```
+
+WSL lane: `go build ./... && go test ./internal/...` on Linux, since every file
+in this phase compiles there. Mutation: reintroduce one bare `exec.Command` and
+the test must name that file and line.
+
+### P18 — A console-less daemon stops a child politely (D22; closes F24, pins F32)
+
+1. `internal/procutil/procutil_windows.go`:
+   * lazy procs for `AttachConsole` and `FreeConsole` (F36).
+   * `var consoleMu sync.Mutex` guarding the borrow, with a comment naming what
+     is shared: console attachment is process-wide.
+   * `signalBreak(pid uint32) error`:
+     * if `consoleState()` says we have a console, call
+       `windows.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)` — today's path,
+       for `mcremote serve` in a terminal;
+     * otherwise take `consoleMu`, `AttachConsole(pid)`, and on success
+       `defer FreeConsole()` before `GenerateConsoleCtrlEvent`, so no early
+       return can leave a borrowed console attached.
+     * `AttachConsole` failing — the child already exited, or has no console —
+       returns the error and changes nothing.
+   * `TerminateProcessGroup` calls `signalBreak` in place of its direct
+     `GenerateConsoleCtrlEvent`, keeping its existing escalation and its
+     `bool` contract unchanged: `true` iff the polite phase sufficed.
+2. `internal/cli/service/detach_windows.go`: after `FreeConsole`, call the new
+   `procutil.NoteConsoleDetached()` so the cached state is authoritative even if
+   something sampled it earlier. Keep `DetachConsole` where it is — moving it
+   into `procutil` is tempting but `internal/cli/service` is where P13 put it and
+   the import direction is already proven; the note is a one-line seam instead.
+   `detach_other.go` gains the same no-op for signature parity.
+3. `procutil_windows_test.go`:
+   * the polite-stop test, built on P16's helper-process harness: role `parent`
+     calls `FreeConsole`, starts a child that notifies on **SIGINT** (F35 — there
+     is no `syscall.SIGBREAK` on Windows, and CTRL_BREAK arrives as SIGINT),
+     calls `TerminateProcessGroup`, and asserts it returned **true**, that the
+     child exited with the code it uses for a clean drain, and that **the parent
+     is still alive afterwards** — probe 11's most important observation, and the
+     one a reader would never think to check.
+   * a concurrency test: two children, `TerminateProcessGroup` on both from
+     separate goroutines, run under `-race`; both must report `true`, which is
+     what the mutex buys.
+   * an already-exited child: `signalBreak` must return an error and
+     `TerminateProcessGroup` must still report the process gone rather than hang.
+
+**Verification (P18).**
+
+```powershell
+go test ./internal/procutil/ -run 'Terminate|Polite|Concurrent' -v
+go test -race ./internal/procutil/ -count 2
+```
+
+Mutation: drop the mutex and the concurrency test under `-race` must fail or
+flake visibly; drop `defer FreeConsole()` and the polite-stop test's follow-up
+assertion — that the parent reports no console afterwards — must fail.
+
+### P19 — Batch arguments are quoted, refused only when unrepresentable, and the guard is actually reached (D23, D24, D25; closes F29, F30, F31, F34, F37)
+
+1. `internal/provider/launch/launch.go`:
+   * correct the package doc: `CreateProcess` starts a batch file directly and
+     supplies `cmd.exe` **implicitly** (F33, probe 12), so routing through
+     `cmd.exe` is how the interpreter is controlled, not how it is reached, and
+     the guard must apply either way.
+   * replace `ErrUnsafeBatchArgs`'s message to name the character and say it
+     cannot be represented rather than that it is unsafe.
+   * split the ceiling (D25): `maxCommandLineNative = 32767` (CreateProcessW)
+     and `maxCommandLineBatch = 8191` (cmd.exe), each with its source in a
+     comment, and `ErrCommandLineTooLong` reporting which applied.
+2. `internal/provider/launch/launch_windows.go`:
+   * delete `safeBatchChars` and `unsafeBatchChar`'s allowlist. Refuse exactly
+     `"`, `%`, `\r` and `\n`, each with its reason in the error (D23), and
+     accept everything else.
+   * build the batch command line explicitly:
+     `comspec + " /d /s /v:off /c " + quoted(shim, args...)`, where `quoted`
+     wraps the whole run in one outer pair and each element in its own quotes,
+     matching probe 13's measured shape exactly. Set it on
+     `cmd.SysProcAttr.CmdLine` and leave `cmd.Args` informative only — this is
+     the workaround Go's own issues point to (#69939).
+   * a trailing backslash inside a quoted element is the one shape probe 13
+     showed passing through oddly; add a test case for it and, if the batch
+     receives it altered, refuse it too rather than guessing.
+   * call `procutil.Command` to build the command before setting `CmdLine`, so
+     the D17 flag and the process group still apply and P17's allowlist entry
+     stays honest.
+   * check the assembled line against `maxCommandLineBatch`.
+3. `launch_unix.go`: unchanged behaviour; only the signature follows if step 1
+   changes it, and it routes through `procutil.Command` too.
+4. `internal/provider/{codex,acpagent,httpagent}`: replace
+   `procutil.Command(ctx, p.cfg.Bin, args...)` with `launch.Resolve` + `launch.Command`,
+   reusing the `Resolved` the `Ready`/validation path already computes instead of
+   resolving twice. On resolve failure the existing error path is kept.
+5. Tests:
+   * `launch_windows_test.go`: a table over probe 12 and 13's exact inputs —
+     `a&calc`, `a|b`, `a>out.txt`, `a^b`, `a!PATH!`, `C:\Program Files (x86)\tool\x`,
+     `two words`, `trailing\`, `a"b`, `%PATH%`, `a\nb`. Each case asserts either
+     the refusal with its reason, or the exact `CmdLine` produced. The
+     `(x86)` and `two words` cases assert acceptance — they are what the old
+     allowlist got wrong, and they are the rows that prove this is a fix and not
+     just a tightening.
+   * an integration test, Windows-only, that writes a `.cmd` echoing `%*` into
+     `t.TempDir()`, runs it through `launch.Command`, and asserts the batch
+     received `a&calc` **literally** and that no extra process was created. This
+     is the test that would have caught F30.
+   * `launch_test.go`: the length ceiling per kind, and that `Command` refuses a
+     line over the batch limit while allowing the same length for a native
+     binary.
+   * provider-level tests asserting each spawn goes through `launch.Command`
+     (D24) — the existing fake-binary fixtures in `httpagent/provider_test.go`
+     already resolve through `launch.Resolve`, so extend rather than invent.
+
+**Verification (P19).**
+
+```powershell
+go test ./internal/provider/launch/ -v
+go test ./internal/provider/... -run 'Spawn|Launch|Command'
+go test -race ./internal/provider/...
+make ci-windows
+```
+
+WSL lane: `go test ./internal/provider/...` on Linux, since `launch_unix.go` and
+every provider file here compiles there. Mutations: restore the old allowlist and
+the `(x86)` case fails; drop `/v:off` and the `a!PATH!` case fails; drop `/d` and
+nothing fails — which is why F34's protection is asserted by a static check that
+the built line contains `/d`, not by behaviour.
+
+### P20 — The Windows page stops describing a guard that was never reached (D26)
+
+1. `docs/ops-windows-install.md`, "Provider CLIs installed by npm": replace the
+   claim that only the `.cmd` is launchable and that Windows requires
+   `cmd.exe /c` (F33) with what was measured — the shim launches directly, cmd.exe
+   is supplied implicitly, and `mcremote` therefore routes through it explicitly
+   to control it with `/d /s /v:off`. Replace the rejected-character list with
+   D23's: `"`, `%`, and line breaks, with the reason, and note that `&`, `|`,
+   `(`, `)`, `^`, `!` and spaces are passed through literally. Keep the existing
+   advice about pointing `bin` at the real executable, now as the remedy for a
+   `%` in an argument.
+2. "It runs without a window": add that the agent CLIs the daemon starts are
+   windowless too from v0.19.0, and that v0.18.1 opened one per session which
+   closing would kill.
+3. Same list: a stopped session is now asked to drain first even when the daemon
+   has no console, and how (borrowing the child's console). State the previous
+   behaviour in one clause so an operator reading release notes can tell what
+   changed.
+4. A one-line security note that this closes a command-injection path for
+   npm-shim providers (BatBadBut class, CVE-2024-24576), with the pointer to
+   MADR 0159 F30.
+
+**Verification (P20):** `markdownlint-cli2` clean; every statement checked
+against the shipped code rather than against this plan, and the npm section
+re-read against probe 12's output specifically.
+
+### Acceptance criteria (additions)
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A15 | A child built by `procutil.Command` from a console-less parent reports `GetConsoleWindow() == 0`; the test fails pre-fix | D17, D20 |
+| A16 | With a console, `creationFlags` adds nothing beyond `CREATE_NEW_PROCESS_GROUP` | D17 |
+| A17 | No non-test file outside `internal/procutil` calls `exec.Command*`, except allowlisted paths that each carry a reason | D19 |
+| A18 | A console-less parent stops a child politely: `TerminateProcessGroup` returns `true`, the child drains, and the parent survives | D22 |
+| A19 | Two concurrent polite stops both succeed under `-race` | D22 |
+| A20 | `a&calc` reaches a batch shim as the literal string, and `%` is refused with a reason | D23 |
+| A21 | `C:\Program Files (x86)\tool\x` and `two words` are accepted | D23, F31 |
+| A22 | The built batch line contains `/d /s /v:off /c`, asserted statically | D23, F34 |
+| A23 | Each of the three providers spawns through `launch.Command` | D24 |
+| A24 | A batch line over 8191 characters is refused; a native one of the same length is not | D25 |
+| A25 | Owner, on v0.19.0: an agent session opens no window and survives; A11's logon half passes | D17, D21 |
+
+**A16 and A22 are the two most likely to be dropped under pressure**, and for
+the same reason: each asserts something that is *not* there. A16 guards the
+interactive path from silently acquiring F24; A22 guards `/d`, whose absence
+changes no observable behaviour on a host with no AutoRun — which is every
+developer host until it is the one that matters.
+
+### Rollout (v0.19.0)
+
+1. P16 → P20, one commit each, Stability rule between them.
+2. `make ci-windows-smoke` before the tag, per 0145.
+3. Tag `v0.19.0` after a green CI run, on explicit instruction.
+4. Owner: `mcremote update -y`; start an agent session — **no window, and it
+   survives**; stop the session and confirm it is not hard-killed; then log off
+   and on and start another, closing **A11's logon half** and **A25**.
+5. Record results here, including anything the plan predicted incorrectly.
+
+Rollback: no task definition and no installer behaviour changes, so `update`'s
+binary rollback is the whole rollback. A downgrade to v0.18.x needs no
+`setup-service --force`, because the task's arguments are untouched.
+
+### Deferred (additions)
+
+* **Resolving an npm shim to its real target.** It is the only way to make `%`
+  representable and to leave cmd.exe out of the tree entirely: read the shim,
+  find the `node` invocation and the script path, and spawn those. It is a
+  parsing job against a format npm can change, so it needs its own decision and
+  its own live-tagged test. Until then a `%` in an argument is refused with
+  advice to point `bin` at the real executable.
+* **Draining on the provider side.** D22 delivers the event; whether each CLI
+  drains on it is the CLI's behaviour, and F35 says a Go one must listen on
+  SIGINT. Measuring what grok, codex, opencode and kilo actually do with
+  CTRL_BREAK belongs with the live-tagged provider suites.
+* **P12 (`--env` through a private file)** follows in a later release,
+  unchanged.
+* **Moving `DetachConsole` into `procutil`.** One package owning console state
+  would be tidier than P18's `NoteConsoleDetached` seam, but it moves a file
+  0159 P13 just placed and re-opens the import-direction question for no
+  behavioural gain.

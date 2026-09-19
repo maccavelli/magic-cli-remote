@@ -1233,3 +1233,350 @@ install_ps1_unit_test.ps1 (5.1 and 7), against a scratch registry key:
   an entry differing only in case or a trailing \ counts as present; a missing Path value is created as ExpandString
 install_ps1_test.ps1 (5.1 and 7): runs with the opt-out, and the tester's real User Path is byte-identical before and after
 ```
+
+## Amendment — 2026-09-19 (third): D7 moved the window to the children, and the three defects found beside it are fixed with it
+
+Owner report, 2026-09-19, after the v0.18.1 update on this host, followed by an
+owner instruction to widen the scope: *"expand scope to include F24, F28 and
+F29 — while we are fixing things let's fix lots of things."* Everything above is
+unchanged. This section adds sixteen findings (F22–F37) and ten decisions
+(D17–D26), and names a release.
+
+**D7 worked.** Verified on the real host: the task's `mcremote.exe` (PID 18572,
+parent `svchost.exe`) has **no child processes at all**, its arguments end with
+`--detach-console`, and `setup-service --refresh --json` reports `unchanged`.
+
+**And then an agent session opened a window, which closing killed.** The window
+is no longer the daemon's — it belongs to the provider CLI, because a child of a
+console-less parent creates a console of its own. Investigating that turned up
+three further defects in the same spawn path, two of them latent since 0116 and
+one of them a command-injection hole; the owner chose to fix all of them in one
+release rather than leave three known defects behind a cosmetic fix.
+
+### What was measured, not assumed
+
+**Probe 8 — what console a child gets when its parent has none.** A Go probe
+(`conprobe`) calls `FreeConsole()`, starts a child with a chosen
+`CreationFlags`, and has each generation report `GetConsoleWindow()`,
+`IsWindowVisible()`, whether `CONOUT$` opens, its screen-buffer geometry, and
+`GetConsoleProcessList()` — the pid list that distinguishes an *inherited*
+console from a *fresh* one. The child starts a grandchild with **no creation
+flags at all**, which is how a provider CLI's own `node`, `git` and `python`
+children are started, by code this project does not own.
+
+| Flags on the child | child console | child window | grandchild console | grandchild window |
+| --- | --- | --- | --- | --- |
+| `CREATE_NEW_PROCESS_GROUP` (0x200) — **what ships today** | fresh, `120x30`, `sharers=[child]` | `hwnd=0x2707f2`, **visible** | joins the child's | same hwnd, **visible** |
+| `… \| CREATE_NO_WINDOW` (0x8000200) | fresh, `CONOUT$` opens, `120x9001`, `sharers=[child]` | `hwnd=0`, none | joins the child's, `sharers=[grandchild, child]` | `hwnd=0`, none |
+| `… \| DETACHED_PROCESS` (0x208) | **none**: `CONOUT$` unopenable, `sharers=none` | none | **fresh one of its own**, `120x30` | `hwnd=0x720298`, **visible** |
+
+The parent's pid is absent from every `sharers` list, so the `CREATE_NO_WINDOW`
+console is fresh and not the parent's; its `120x9001` geometry matching the
+parent's is a coincidence of the windowless default, and
+`GetConsoleProcessList` is what settles it. In all three rows the child's stdout
+still reached the parent's pipe, so redirection is unaffected.
+
+**Probe 9 — can a console-less parent signal a child directly?**
+`GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, childPid)` after `FreeConsole()`
+returns **0 with `ERROR_INVALID_HANDLE`**, with and without
+`CREATE_NO_WINDOW`; the child slept its full 5 s.
+
+**Probe 10 — giving the daemon a console back.** `FreeConsole()` then
+`AllocConsole()` produced `console_hwnd=0x200802`, `IsWindowVisible` **true**,
+shared by the whole tree (`sharers=[grandchild, child, parent]`).
+
+**Probe 11 — signalling by attaching to the child's own console.** From a
+parent with no console: `AttachConsole(childPid)` → **ret 1**,
+`GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, childPid)` → **ret 1**, the child (a
+Go program on `signal.Notify`) reported `received interrupt` and exited **7**
+within **0 s**, `FreeConsole()` restored `hasConsole=false`, and the parent
+**survived** with `hwnd=0`.
+
+**Probe 12 — what an npm shim does with hostile arguments, as spawned today.**
+`exec.LookPath("codex")` → `C:\Users\macsm\AppData\Roaming\npm\codex.cmd`.
+`exec.Command(that, "--version")` **succeeds** (`codex-cli 0.154.0`), so no
+`cmd.exe` routing is needed to launch it. Then, with a `.cmd` that echoes `%*`:
+
+| Argument passed | What the batch file received | Verdict |
+| --- | --- | --- |
+| `a&calc` | `a` — and **Calculator started** | command injection |
+| `a\|b` | command broke, exit 255 | cmd.exe parsed the pipe |
+| `%PATH%` | the fully expanded PATH | variable expansion |
+| `a^b` | `ab` | escape character eaten |
+| `a"b` | `a\"b` | quote mangled |
+| `a!b!` | `a!b!` | inert (delayed expansion off) |
+
+The Calculator process (PID 28040) was confirmed running and terminated.
+
+**Probe 13 — the same arguments, quoted, through a controlled interpreter.**
+Command line built by hand into `SysProcAttr.CmdLine` as
+`cmd.exe /d /s /v:off /c ""<shim>" "<arg>""`:
+
+| Argument | What the batch file received | Verdict |
+| --- | --- | --- |
+| `a&calc` | `a&calc` | inert, literal |
+| `a\|b`, `a>out.txt` | `a\|b`, `a>out.txt` | inert, literal |
+| `a^b` | `a^b` | preserved |
+| `a!PATH!` | `a!PATH!` | inert, `/v:off` |
+| `C:\Program Files (x86)\tool\x` | unchanged | preserved |
+| `two words` | unchanged | preserved |
+| `%PATH%` | the expanded PATH | **still expands** |
+
+**`GetConsoleWindow()` is not a test for "has a console".** The probe's own
+parent, under this harness's ConPTY, reported `console_hwnd=0x0` while `CONOUT$`
+opened with a `120x9001` buffer and `sharers` held three pids.
+
+**The toolchain and the host.** Go 1.26.6, `golang.org/x/sys v0.47.0`. `grok`
+resolves to `C:\Users\macsm\.grok\bin\grok.exe`, a native executable; `codex`,
+`opencode` and `kilo` are npm shims under `%AppData%\npm`, each present as the
+extensionless script, `.cmd` and `.ps1`. `HKCU` and `HKLM`
+`Software\Microsoft\Command Processor\AutoRun` are both **unset** on this host.
+
+**Published research this rests on.** The injection class is **BatBadBut**
+(CVE-2024-24576): `CreateProcess` spawns `cmd.exe` implicitly for a batch file,
+and language runtimes escape arguments by `CommandLineToArgvW` rules rather than
+cmd.exe's. Rust fixed it in 1.77.2 by making `Command` **return an error** when
+an argument cannot be escaped safely. Go has **not** fixed it — golang/go#68313
+(`appendEscapeArg` does not escape all necessary characters) and #69939 (special-
+case `cmd.exe /c`) are open, and the sanctioned workaround is to build the line
+yourself and pass it as `SysProcAttr.CmdLine`. Probe 12 is that gap, measured on
+this toolchain.
+
+### Findings
+
+**F22 — D7 did not remove the console window; it multiplied it.** Every provider
+spawn sets `CREATE_NEW_PROCESS_GROUP` through `procutil.SetProcessGroup` and
+nothing else, so by probe 8 row 1 each agent CLI now creates a fresh console
+*with a visible window*. Before D7 the daemon held a console and its children
+inherited it: one window existed. The count went from one at logon to one **per
+agent session**. `procutil` contains no `CREATE_NO_WINDOW` anywhere.
+
+**F23 — Closing that window kills the agent session.** Owner-observed;
+mechanism measured. The CLI and its whole descendant tree share that console
+(probe 8 `sharers`), and closing a console window delivers `CTRL_CLOSE_EVENT` to
+every process attached to it. This is F21 one level down and worse: F21's daemon
+is restarted by D5's watchdog within a minute, while a provider CLI has no
+watchdog.
+
+**F24 — Graceful termination has been unreachable for the task-launched daemon
+since v0.18.1.** By probe 9 `TerminateProcessGroup`'s `CTRL_BREAK_EVENT` cannot
+be delivered by a console-less process, so it escalates to `KillProcessGroup`
+immediately, for every provider. Trees still die — that guarantee is the job
+object (0150 D2), not the signal — so what is lost is the drain. The function's
+comment already anticipated the case, which is why it degraded silently. Neither
+caused nor fixed by D17: probe 9 measured it with and without the flag.
+
+**F25 — `CREATE_NO_WINDOW` is the only flag that keeps a console and shows no
+window.** Probe 8 row 2, including the part that matters: a grandchild started
+with no flags at all joins the child's console and stays windowless.
+
+**F26 — `DETACHED_PROCESS` would move the window one level down.** Probe 8
+row 3: the child gets no console and its grandchild allocates a fresh visible
+one — worse, and intermittently so, since it appears only for CLIs that spawn
+console children.
+
+**F27 — Re-attaching a console to the daemon trades this bug for the one D7
+fixed.** Probe 10 restores `CTRL_BREAK` but re-creates a visible window, and
+re-enters probe 6's open question: a console here is handed to Windows Terminal,
+and whether a tab is visible on the operator's screen is **[unverified]**,
+measurable only by eye. `CREATE_NO_WINDOW` has nothing to hide and nothing to
+hand off — the same reasoning that chose `FreeConsole` over `-H windowsgui`.
+
+**F28 — Five spawn sites bypass the choke point, and all five compile
+everywhere.** `procutil.SetProcessGroup` has 11 non-test callers;
+`exec.Command*` appears at 16 non-test sites. Not calling it:
+`codex/diagnostics.go:308` (`runDoctorCommand`), `codex/managed_daemon.go:96`,
+`codex/sandbox_health.go:118`, `codex/provider.go:1086` (the `--version` probe)
+and `tailnet/tailnet.go:26` (the `tailscale ip -4` seam). **None of the five
+carries a build tag**, so each is compiled into the Windows daemon; under F22
+each pops a window of its own, briefly, which is harder to diagnose than a
+persistent one. `internal/cli/service`'s `runCmd`/`runCmdOutput` — the seam under
+all 12 `runSchtasks` calls — are in the same position.
+
+**F29 — `launch.Command` has no non-test caller.** All three providers call
+`launch.Resolve(p.cfg.Bin)` for validation, **discard the result**, and spawn
+with `exec.Command(p.cfg.Bin, …)` (`acpagent.go:411`/`:424`,
+`codex/provider.go:222`/`:530`, `httpagent/provider.go:165`/`:502`). So the
+`cmd.exe` routing, the `ErrUnsafeBatchArgs` guard and the length check —
+MADR 0116 D11, documented to users in `docs/ops-windows-install.md` — are not in
+the spawn path. The 0150 F1 pattern a third time: a Windows-only helper that
+exists, is tested, is documented as active, and is never called.
+
+**F30 — The missing guard is a live command-injection hole, not a hygiene
+gap.** Probe 12: an argument of `a&calc` passed to an npm-shim provider **ran
+Calculator**, `%PATH%` expanded into the argument, `|` broke the command and `^`
+was eaten. Go does not escape for batch files and does not intend to yet
+(#68313, #69939); `CreateProcess` supplies `cmd.exe` whether the caller asks for
+it or not. Today only provider `bin`, model names, socket paths and a port reach
+that argv, so exploitation needs control of config or session state rather than
+a plain prompt — the guard is what keeps it that way.
+
+**F31 — Quoting neutralises everything except `%`, and admits arguments the
+current allowlist refuses.** Probe 13: with `cmd.exe /d /s /v:off /c` and each
+argument quoted, `&`, `|`, `>`, `^` and `!` are literal, while
+`C:\Program Files (x86)\tool\x` and `two words` pass through unchanged. Only
+`%VAR%` still expands. So the safe rule is *quote, and refuse only what cannot
+be represented* — which is **both stricter where it matters and looser where it
+does not** than `safeBatchChars`, whose allowlist rejects `(` and `)` and would
+refuse an ordinary `Program Files (x86)` path.
+
+**F32 — A console-less parent can still stop a child politely.** Probe 11: the
+`AttachConsole` → `GenerateConsoleCtrlEvent` → `FreeConsole` sequence delivered
+the event, the child drained and exited, and the parent was not signalled —
+`GenerateConsoleCtrlEvent` reaches only the named process group, so the daemon
+does not kill itself by borrowing the child's console. F24 is therefore fixable
+without giving the daemon a console of its own (F27).
+
+**F33 — `launch`'s stated premise is false on this toolchain, and so is the
+user-facing page.** The package doc quotes CreateProcessW's "to run a batch file
+you must start the command interpreter", but probe 12 ran `codex.cmd` directly
+and got `codex-cli 0.154.0`. `ops-windows-install.md` tells users "Only the
+`.cmd` is launchable, and Windows requires it to go through `cmd.exe /c`". Both
+are wrong in the same way, and the correction matters: routing through cmd.exe
+is how the interpreter is **controlled**, not how it is reached, so the guard
+must cover the direct path too.
+
+**F34 — cmd.exe runs AutoRun before the command it was given.** `HKCU`/`HKLM`
+`Software\Microsoft\Command Processor\AutoRun` executes on every `cmd.exe` start
+that lacks `/d`. Measured unset on this host, so this is defence in depth rather
+than a live bug — but it is per-user writable, which makes it a persistence
+mechanism that every un-`/d`'d spawn would honour.
+
+**F35 — On Windows, CTRL_BREAK arrives as SIGINT and CTRL_CLOSE as SIGTERM.**
+`syscall.SIGBREAK` does not exist (the probe failed to compile against it);
+`runtime/os_windows.go` maps `_CTRL_C_EVENT` and `_CTRL_BREAK_EVENT` to SIGINT,
+and `_CTRL_CLOSE_/LOGOFF_/SHUTDOWN_EVENT` to SIGTERM. Probe 11's child, notified
+on SIGINT, reported `received interrupt`. Anything of ours that wants to drain on
+a polite stop must listen on SIGINT, not on a Windows-specific signal.
+
+**F36 — Half of the needed API is missing from `x/sys/windows` v0.47.0.**
+Exported: `CREATE_NO_WINDOW` (0x08000000), `CREATE_NEW_PROCESS_GROUP`,
+`DETACHED_PROCESS`, and `GenerateConsoleCtrlEvent`. **Not exported**:
+`AttachConsole`, `FreeConsole`, `GetConsoleProcessList`. Those three need
+`NewLazySystemDLL` procs — the idiom `internal/cli/service/detach_windows.go`
+already uses. No local flag constant is needed.
+
+**F37 — The batch length ceiling is the wrong number.**
+`launch.maxCommandLine` is 32767, CreateProcessW's limit. When cmd.exe
+interprets the line, its own ~8191-character limit applies first, so a batch
+invocation is checked against a ceiling four times too high.
+**[documented, not measured]**
+
+### Decisions
+
+* **D17 — A child gets `CREATE_NO_WINDOW` exactly when this process has no
+  console.** Nothing extra when it has one: children then inherit it and
+  `CTRL_BREAK` keeps working on the interactive path, so the fix cannot extend
+  F24 to `mcremote serve` in a terminal. The console test is
+  `GetConsoleProcessList`, **not** `GetConsoleWindow` — measured above, a
+  ConPTY-hosted process has a real console and no console window, so the obvious
+  API would set the flag in Windows Terminal, VS Code and mintty, exactly where
+  it must not be. Chosen over F26 and F27. Closes **F22**, **F23**.
+* **D18 — The choke point becomes a constructor: `procutil.Command(ctx, name,
+  args...) *exec.Cmd`.** Every child process in this repository is built by it,
+  and it applies the process group and the D17 flag itself. A constructor cannot
+  be forgotten, because it is how you obtain the `*exec.Cmd`; a post-hoc
+  mutation can be, and was — three times (0150 F1, F28, F29).
+  `SetProcessGroup` stays exported and keeps its accurate, narrow name for
+  callers that already hold a command they built another way.
+* **D19 — Bare `exec.Command` outside `procutil` is banned, and a test
+  enforces it.** A static test over the repository's non-test Go files fails on
+  any `exec.Command`/`exec.CommandContext` outside `internal/procutil`, except an
+  allowlist whose every entry carries its reason in the test file. Closes
+  **F28**.
+* **D20 — F25 is pinned by a test, not by this record.** A Windows-only Go test
+  re-executes itself three deep — `FreeConsole`, spawn through the real
+  constructor, report `GetConsoleWindow()` — and asserts `0`. It must fail
+  against the pre-D17 code.
+* **D21 — This ships as v0.19.0, not a patch.** It changes how provider
+  arguments are handled and adds a graceful stop, both behavioural; a patch
+  number would understate it. F24's drain is included; nothing is left for a
+  later release except the items the PLAN names as deferred.
+* **D22 — Graceful stop works without a console: attach, signal, detach,
+  serialized.** `TerminateProcessGroup` keeps signalling directly when this
+  process shares a console with the child; otherwise it does probe 11's
+  sequence — `AttachConsole(pid)`, `GenerateConsoleCtrlEvent(CTRL_BREAK, pid)`,
+  `FreeConsole()` — under a package mutex, since console attachment is
+  process-wide state and two providers may stop at once. Every failure falls
+  through to today's `KillProcessGroup`, so the worst case is what ships now.
+  Console state is **cached, not sampled per spawn**: a live sample taken during
+  a transient attachment would tell a concurrently starting child that it has a
+  console and let it inherit another provider's. Closes **F24**; pinned by
+  **F32**.
+* **D23 — Batch arguments are quoted, and only the unrepresentable ones
+  refused.** This replaces 0116 D11's character allowlist.
+  * Refuse `"`, `%`, CR and LF, each because it cannot be represented: a quote
+    ends the quoted run, `%VAR%` expands inside quotes (probe 13), and a line
+    break cannot appear in a command line.
+  * Quote every argument, and build the line into `SysProcAttr.CmdLine` rather
+    than letting `os/exec` escape it — the workaround Go itself points to.
+  * Invoke `cmd.exe /d /s /v:off /c`: `/d` skips AutoRun (**F34**), `/s` makes
+    outer-quote stripping deterministic, `/v:off` makes `!` inert.
+  * Everything else — `&`, `|`, `<`, `>`, `^`, `(`, `)`, spaces — is passed
+    through literally, which **fixes** the `Program Files (x86)` rejection the
+    old allowlist would have caused. Closes **F30**, **F31**, **F34**.
+* **D24 — `launch.Command` is wired into every provider spawn.** The three
+  providers stop calling `exec.Command(p.cfg.Bin, …)` and take the command from
+  `launch.Command`, which is what makes D23 real rather than documented. The
+  package doc's false premise is corrected in the same change. Closes **F29**,
+  and the code half of **F33**.
+* **D25 — The length ceiling is the interpreter's.** 8191 for `KindBatch`,
+  32767 for `KindNative`, with the constant named for which limit it is. Closes
+  **F37**.
+* **D26 — Every user-facing claim this record contradicts is corrected in the
+  same release.** `docs/ops-windows-install.md`: the npm section's launch claim
+  and its rejected-character list (F33, D23), agent CLIs being windowless, the
+  graceful stop, and AutoRun. A page that describes a guard the code does not
+  have is worse than a page that says nothing.
+
+### Consequences (additions)
+
+* Good, because the reported symptom and three latent defects are closed in one
+  release, each pinned by a test that fails against the current code.
+* Good, because the hardening is net *more* permissive where it was wrong:
+  `(x86)` paths and spaces now work, while `&` and `%PATH%` stop being live.
+* Good, because the constructor makes the invariant structural rather than
+  remembered — the failure mode behind 0150 F1, F28 and F29.
+* Bad, because `procutil.Command` touches 16 call sites across six packages, in
+  a release that also changes provider launching. The PLAN keeps each in its own
+  phase so a bisect lands on one of them.
+* Bad, because `%` remains unrepresentable for batch shims: an argument
+  containing it is refused, not escaped. No quoting makes it safe; only avoiding
+  cmd.exe would, which means resolving the shim's real target.
+* Neutral, because the daemon briefly holds a borrowed console while signalling
+  a child. Measured safe (probe 11), serialized by a mutex, and invisible.
+
+### Confirmation (additions)
+
+```text
+go test ./internal/procutil/ (Windows)   D20 helper test: child reports console_hwnd == 0; must fail pre-D17
+go test ./internal/procutil/ (Windows)   D22: a console-less parent drains a child that handles SIGINT; parent survives
+go test ./internal/procutil/             D19 static ban: no bare exec.Command outside procutil, allowlist reasons present
+go test ./internal/provider/launch/      D23: " % CR LF refused; & | > ^ ! ( ) and spaces pass through quoted
+go test ./internal/provider/...          D24: each provider's spawn goes through launch.Command
+make ci-windows && make race             green
+owner, after installing v0.19.0          an agent session opens no window and survives; a session stops without a hard kill
+```
+
+### Evidence index (additions)
+
+| Claim | Source |
+| --- | --- |
+| The v0.18.1 daemon is windowless and its task is correct | measured 2026-09-19: PID 18572, parent `svchost.exe`, zero children; args end `--detach-console`; `--refresh --json` → `unchanged` |
+| A child of a console-less parent gets a visible console window | measured, probe 8 row 1 (`hwnd=0x2707f2`, `visible=true`) |
+| `CREATE_NO_WINDOW` keeps a usable console, and grandchildren inherit it | measured, probe 8 row 2 (`CONOUT$` opens `120x9001`; grandchild `hwnd=0`) |
+| That console is fresh, not the parent's | measured, probe 8: `sharers=[child]`, parent pid absent |
+| `DETACHED_PROCESS` moves the visible window to the grandchild | measured, probe 8 row 3 (`hwnd=0x720298`) |
+| A console-less parent cannot signal directly | measured, probe 9: ret 0, `ERROR_INVALID_HANDLE`, child slept 5 s |
+| `AllocConsole` re-creates a visible window | measured, probe 10 (`hwnd=0x200802`, `IsWindowVisible` true) |
+| Attach/signal/detach drains the child and spares the parent | measured, probe 11: both calls ret 1, child exit 7 in 0 s, parent survived |
+| An npm shim spawns directly, with no cmd.exe routing | measured, probe 12: `codex-cli 0.154.0` from `exec.Command` on `codex.cmd` |
+| `a&calc` through a shim executes `calc` | measured, probe 12: CalculatorApp PID 28040, terminated |
+| Quoting neutralises `&  \| > ^ !` and preserves `(x86)` and spaces | measured, probe 13 |
+| `%VAR%` expands even quoted | measured, probes 12 and 13 |
+| cmd.exe AutoRun is unset on this host | measured: `HKCU`/`HKLM` `Command Processor\AutoRun` absent |
+| Go does not escape batch arguments and has no fix | research: golang/go#68313, #69939; BatBadBut / CVE-2024-24576; Rust 1.77.2 errors instead |
+| CTRL_BREAK is SIGINT, CTRL_CLOSE is SIGTERM | measured: `syscall.SIGBREAK` undefined; probe 11 child reported `interrupt` |
+| `x/sys` exports the flags but not the console calls | measured: `types_windows.go:243-253`; `go doc` finds no `AttachConsole`/`FreeConsole`/`GetConsoleProcessList` |
+| Provider argv carries flags, paths and a port, not free text | measured: `launchArguments(cfg, endpoint, secretFile)`, `dialect.ServeArgs(port)` |
+| cmd.exe's own line limit is ~8191 | documented, not measured |
