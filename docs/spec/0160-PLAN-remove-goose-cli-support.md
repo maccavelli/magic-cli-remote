@@ -25,8 +25,9 @@ The finish line, as observable states:
 
 1. `internal/provider/goose/` and `internal/provider/acphttp/` do not exist, and
    no `.go` file imports either path.
-2. `git grep -il goose -- . ':!docs/spec'` prints **exactly** the seven paths in
-   A2, in that order.
+2. `git grep -il goose -- . ':!docs/spec'` prints **exactly** the eight paths in
+   A2, in that order (seven until the 2026-09-18 P2 amendment added
+   `internal/config/load.go`).
 3. `go build ./...`, `go vet ./...` pass; `go test ./...` and
    `go test -race ./...` report no failure except, on a Windows host whose live
    `%APPDATA%\mcremote\config.yaml` sets `display_name`, the pre-existing
@@ -137,6 +138,8 @@ Modify:
 * `internal/wirecap/wirecap.go`
 * `internal/ws/credential_write_test.go`
 * `internal/ws/server_test.go`
+* `internal/wirecap/fixtures_test.go` — the step-13 comment only (added by the
+  2026-09-18 P2 amendment)
 
 **P3 — build, living docs, governance:**
 
@@ -490,9 +493,10 @@ to PASS.
 
 ### P2 — De-goose every remaining Go comment and fixture (D7, D8, D12, D14; closes F6, F7, F22)
 
-Rule for this phase (D14): after it, `git grep -il goose -- '*.go'` prints
-exactly `internal/config/retired_goose.go` and
-`internal/config/retired_goose_test.go`. Provenance is cited by MADR number.
+Rule for this phase (D14 as amended 2026-09-18): after it,
+`git grep -il goose -- '*.go'` prints exactly `internal/config/load.go` (the
+`noteRetiredGoose` call P1 step 5 placed there), `internal/config/retired_goose.go`
+and `internal/config/retired_goose_test.go`. Provenance is cited by MADR number.
 No assertion changes; no test is deleted. Edits, by file:
 
 * **`agenterr.go`** `:8,120,121,315,323,328,348,352,371,381,413,774`: say
@@ -550,12 +554,15 @@ No assertion changes; no test is deleted. Edits, by file:
   `"goose"` → `"opencode"` (no WS handler branches on it; MADR measurement);
   comment `:306` "the phone moves an agent off a quota-blocked upstream".
 * **`ws/server_test.go:970,1003`**: `"goose-1"` → `"native-1"`.
+* **`wirecap/fixtures_test.go:50`** (amendment): "(the Goose one went with
+  MADR 0160)" → "(one was removed by MADR 0160)".
 
 **Verification (P2):**
 
 ```bash
 git grep -il goose -- '*.go'
-#   → exactly: internal/config/retired_goose.go
+#   → exactly: internal/config/load.go
+#              internal/config/retired_goose.go
 #              internal/config/retired_goose_test.go
 git diff --stat HEAD~1 -- '*.go' | tail -1        # only the P2 files changed
 # plus the Stability rule; test count per package must equal P1's
@@ -693,7 +700,7 @@ make ci-windows
 | # | Criterion | MADR |
 | --- | --- | --- |
 | A1 | `internal/provider/goose/` and `internal/provider/acphttp/` do not exist; no `.go` imports them | D1, D2 (Confirmation §1) |
-| A2 | `git grep -il goose -- . ':!docs/spec'` prints exactly: `AGENTS.md`, `README.md`, `docs/agent_cli_slash_commands_matrix.md`, `docs/config.md`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
+| A2 | `git grep -il goose -- . ':!docs/spec'` prints exactly: `AGENTS.md`, `README.md`, `docs/agent_cli_slash_commands_matrix.md`, `docs/config.md`, `internal/config/load.go`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
 | A3 | build, vet, `go test`, `go test -race` green under the baseline rule; `go mod tidy` no diff | D1, D8 (§3) |
 | A4 | `mcremote paths --json` on a leftover-block config and on a copy of this host's live config exits 0 with `retired_provider_goose` | D3 (§4) |
 | A5 | `MCREMOTE_PROVIDERS_GOOSE_ENABLED=true` → exit 0, diagnostic names the variable | D3 (§4) |

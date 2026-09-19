@@ -951,3 +951,16 @@ not work as written on Windows. The copy inherits `%TEMP%`'s ACL, and MADR
 0155's credential guard then refuses it. Restrict the copy to the owner
 (`icacls … /inheritance:r /grant:r *<SID>:F`) before loading it. See PLAN 0160's
 execution record.
+
+## Amendment — 2026-09-18: D14's allow-list gains `internal/config/load.go`
+
+Found when P2 started. D14 said that after P2 only `retired_goose.go` and
+`retired_goose_test.go` may mention Goose among Go files. But `Load` must call
+the detector, and P1 step 5 named that call `noteRetiredGoose` and placed it in
+`internal/config/load.go:130`. The record contradicted itself. Owner decision:
+keep the honest name and extend the list rather than rename the function.
+
+**D14 (amended).** Confirmation §2's output gains one path, sorted in place:
+`internal/config/load.go` (the D3 call site). The list is now eight paths. The
+same pass rewords one comment added by P1 step 13
+(`internal/wirecap/fixtures_test.go:50`) so that it no longer names Goose.
