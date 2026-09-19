@@ -206,10 +206,14 @@ type LoadOptions struct {
 	AllowExtra []string
 }
 
+// systemRoots resolves the platform roots Load searches for config.yaml. It
+// is a variable only so tests can point it at a temp dir (MADR 0162 D1).
+var systemRoots = appdirs.SystemRoots
+
 // Load reads defaults → optional YAML → env → flags → --allow merge.
 // Precedence: flags > env > file > defaults; --allow always merges in.
 func Load(opts LoadOptions) (FileConfig, error) {
-	roots, diags, err := appdirs.SystemRoots(appdirs.ProductMcrelay)
+	roots, diags, err := systemRoots(appdirs.ProductMcrelay)
 	if err != nil {
 		return FileConfig{}, err
 	}
@@ -630,7 +634,6 @@ func (c FileConfig) Validate() error {
 	return nil
 }
 
-// validateLimitsConfig enforces MADR 0017 D9 ceilings (reject, do not silently start).
 // ValidateServeable reports whether this config is well-formed AND describes a
 // relay that could actually serve. The difference is exactly one rule: a relay
 // with no configured hosts is well-formed and simply has nothing to do.
@@ -653,6 +656,7 @@ func (c FileConfig) ValidateServeable() error {
 	return nil
 }
 
+// validateLimitsConfig enforces MADR 0017 D9 ceilings (reject, do not silently start).
 func validateLimitsConfig(l LimitsConfig) error {
 	check := func(name string, v, max int) error {
 		if v > max {

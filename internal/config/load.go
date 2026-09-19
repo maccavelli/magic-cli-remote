@@ -20,10 +20,14 @@ type LoadOptions struct {
 	Flags *pflag.FlagSet
 }
 
+// systemRoots resolves the platform roots Load searches for config.yaml. It
+// is a variable only so tests can point it at a temp dir (MADR 0162 D1).
+var systemRoots = appdirs.SystemRoots
+
 // Load reads configuration from defaults, optional YAML file, env, and flags.
 // Precedence: flags > env > file > defaults.
 func Load(opts LoadOptions) (Config, error) {
-	roots, diags, err := appdirs.SystemRoots(appdirs.ProductMcremote)
+	roots, diags, err := systemRoots(appdirs.ProductMcremote)
 	if err != nil {
 		return Config{}, err
 	}

@@ -87,6 +87,7 @@ providers:
 }
 
 func TestGrokAuthMethodEnvOverride(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_PROVIDERS_GROK_AUTH_METHOD_ID", "envauth")
 	cfg, err := config.Load(config.LoadOptions{})
 	if err != nil {

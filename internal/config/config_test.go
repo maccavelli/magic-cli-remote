@@ -49,6 +49,7 @@ func TestDefaults(t *testing.T) {
 // viper's key set and AutomaticEnv silently ignores the env var (the same
 // gap TestRoute53MaxRetriesEnvOverride guards for route53.max_retries).
 func TestReceiptsEnvOverride(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_RECEIPTS_ENABLED", "true")
 	t.Setenv("MCREMOTE_RECEIPTS_ALLOW_PATTERNS", "*rm -rf*,*push --force*")
 	cfg, err := config.Load(config.LoadOptions{})
@@ -64,6 +65,7 @@ func TestReceiptsEnvOverride(t *testing.T) {
 }
 
 func TestRequireClientKeyEnvOverride(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_AUTH_REQUIRE_CLIENT_KEY", "false")
 	cfg, err := config.Load(config.LoadOptions{})
 	if err != nil {
@@ -78,6 +80,7 @@ func TestRequireClientKeyEnvOverride(t *testing.T) {
 // timeout keys that previously had no viper default (AutomaticEnv only
 // resolves known keys, so a missing default silently ignored the env var).
 func TestProviderEnvOverrides(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ENABLED", "true")
 	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_MODEL", "anthropic/claude-sonnet-4-5")
 	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_PERMISSION_TIMEOUT_SECONDS", "120")
@@ -103,6 +106,7 @@ func TestProviderEnvOverrides(t *testing.T) {
 // the key is absent from the key set and AutomaticEnv silently ignores the env
 // var.
 func TestRoute53MaxRetriesEnvOverride(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES", "7")
 	cfg, err := config.Load(config.LoadOptions{})
 	if err != nil {
@@ -176,7 +180,7 @@ func TestLoadDisplayNameFromFile(t *testing.T) {
 }
 
 func TestLoadDisplayNameFromEnv(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_DISPLAY_NAME", "Env Name")
 	cfg, err := config.Load(config.LoadOptions{})
 	if err != nil {
@@ -218,7 +222,7 @@ func TestLoadDisplayNameTooLong(t *testing.T) {
 }
 
 func TestLoadDisplayNameUnset(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_DISPLAY_NAME", "")
 	cfg, err := config.Load(config.LoadOptions{})
 	if err != nil {
@@ -664,6 +668,7 @@ func TestDefaultsKilo(t *testing.T) {
 // Kilo env overrides must resolve via AutomaticEnv — every key needs a viper
 // default or MCREMOTE_PROVIDERS_KILO_* is silently ignored.
 func TestKiloEnvOverrides(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_PROVIDERS_KILO_ENABLED", "true")
 	t.Setenv("MCREMOTE_PROVIDERS_KILO_MODEL", "kilo/~anthropic/claude-sonnet")
 	t.Setenv("MCREMOTE_PROVIDERS_KILO_PERMISSION_TIMEOUT_SECONDS", "60")
@@ -1064,6 +1069,7 @@ func TestLoadSessionTreeKillSwitch(t *testing.T) {
 
 // The retired env override must be caught too, not just the file key.
 func TestLoadRejectsRetiredOpencodeTransportFromEnv(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT", "acp")
 	if _, err := config.Load(config.LoadOptions{}); err == nil {
 		t.Fatal("expected an error for MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT")
@@ -1122,6 +1128,7 @@ func TestRemoteMutationPolicyDefaultsOff(t *testing.T) {
 // default that only holds in Defaults() but not through the loader would be a
 // default in name only.
 func TestRemoteMutationPolicyOffAfterLoad(t *testing.T) {
+	isolateConfig(t)
 	cfg, err := config.Load(config.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -1136,6 +1143,7 @@ func TestRemoteMutationPolicyOffAfterLoad(t *testing.T) {
 // Each flag must bind from the environment, and enabling one must leave the
 // other false.
 func TestRemoteMutationPolicyEnvIndependence(t *testing.T) {
+	isolateConfig(t)
 	for _, tc := range []struct {
 		name      string
 		share     string
