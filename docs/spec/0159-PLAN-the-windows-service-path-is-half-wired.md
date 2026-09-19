@@ -1020,3 +1020,71 @@ owner's go-ahead:
    * no `conhost` child of the daemon.
 3. Log off and on (P13 step 6), then repeat the `conhost` check.
 4. Record the results in the Execution record.
+
+### P13 and P14: v0.18.1 code complete (2026-09-19)
+
+Release 1 was published as **v0.18.0** (CI run `35461886119`, 10 of 10 jobs
+green, 12 assets). The owner updated both products on this host, which
+produced the amendment above. The amendment is `ad7e08a`.
+
+| Phase | Commit | Result |
+| --- | --- | --- |
+| P13 | `532c3ce` | `serve --detach-console` in both products; the task renders it last, and refresh recovers it. `acceptance-windows-service.ps1` **ALL CHECKS PASSED under PowerShell 7 and 5.1**, including the new S3b and C3. |
+| P14 | `d565260` | The PATH notice runs for every product, and its advice appends to the User `Path`. The unit test passes 41/41 and the e2e test 43/43, each under 5.1 and 7. |
+
+**S3b has teeth.** A throwaway task (C7) ran the same mcrelay build, once
+without the flag and once with it, sampled by the S3b method:
+
+```text
+without flag: daemon processes=1; new console hosts=2 OpenConsole.exe pid 47180 parent 2580; conhost.exe pid 43408 parent 25436
+with flag:    daemon processes=1; new console hosts=0
+```
+
+The task was removed afterwards. Two mutations of `install.ps1` also fail U13:
+restoring the single `mcremote` call fails U13e, and restoring the `$env:Path`
+advice fails U13b and U13c.
+
+The Stability rule held for both phases:
+
+* `make ci-windows`: ALL SELECTED CHECKS PASSED;
+* `make pre-add-check`: 9 Go files clean;
+* WSL: `go vet` clean, `go test ./...` 41 `ok` and no failures, `-race` on
+  `internal/cli` and `internal/cli/service` clean.
+
+**What the amendment predicted incorrectly.**
+
+1. **Where the detach call lives.** The plan put it in `internal/cli`, but
+   `internal/cli` imports `internal/relay`, so mcrelay's serve cannot import
+   it. It is `internal/cli/service/detach_{windows,other}.go`, beside the task
+   renderer; both products already import that package. The exported
+   `DetachConsoleFlag` constant names the flag once for serve, render and
+   recovery.
+2. **P13's scope missed `task_compare_test.go`.** Its fixtures model the
+   current render (`currentShapeExport`) and the v0.17.4 render
+   (`renderV0174Shape`), so adding an argument broke three tests. No assertion
+   was weakened:
+   * the helpers add and strip the flag;
+   * a new `v0180ShapeExport` models the v0.18.0 task;
+   * the field-detection test gains a "detach removed" case;
+   * `TestRefreshSchtasksAddsTheDetachFlagToAV0180Task` proves the v0.18.1
+     update path.
+3. **A latent bug in the P11 script.** `Get-RelayProcess` returns its array as
+   one pipeline object, so `Get-RelayProcess | ForEach-Object { $_.ProcessId }`
+   reads `.ProcessId` from the array itself. When no process is running, that
+   fails under StrictMode. The `finally` cleanup had this form; the teeth probe
+   found it. Both uses are now `foreach`.
+4. **Windows PowerShell 5.1 launched from Git Bash.** It inherits PowerShell
+   7's `PSModulePath` and cannot find `Get-FileHash`, so the e2e test dies
+   before it starts. This is a host effect, not a product one: with
+   `PSModulePath` cleared it passes 43/43. CI launches each shell directly.
+5. **The WSL half caught an incomplete patch.** `git diff HEAD` omits
+   untracked files, so the first WSL run built without `detach_*.go` and
+   failed. The fix is to mark new files intent-to-add before exporting the
+   patch.
+
+**Not yet done.**
+
+* **v0.18.1** is an owner action: cut it, then follow the amendment's Rollout.
+  That covers the update from v0.18.0, the check that no window opens, and the
+  log off and on for P13 step 6. **A11's logon half stays open until then.**
+* P12 follows in a later release, unchanged.
