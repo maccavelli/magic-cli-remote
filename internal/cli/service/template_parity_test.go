@@ -84,8 +84,6 @@ func parseProviders(t *testing.T, b []byte) map[string]map[string]any {
 // must omit these; requiring them would re-document dead levers.
 var omittedConfigKeys = map[string]struct{}{
 	"providers.opencode.transport": {},
-	"providers.goose.args":         {},
-	"providers.goose.fs_roots":     {},
 }
 
 func exampleConfigBytes(t *testing.T) []byte {

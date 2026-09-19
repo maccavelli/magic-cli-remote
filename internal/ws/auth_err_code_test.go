@@ -24,8 +24,6 @@ func TestAuthErrCodeTable(t *testing.T) {
 		{"busy", provider.ErrAuthBusy, protocol.ErrProviderBusy},
 		{"unsupported provider", provider.ErrAuthUnsupported, "unsupported"},
 		{"confirm required", provider.ErrAuthConfirmRequired, protocol.ErrConfirmRequired},
-		{"keyring managed", credstore.ErrGooseKeyringManaged, protocol.ErrKeyringManaged},
-		{"wrapped keyring managed", fmt.Errorf("goose: %w", credstore.ErrGooseKeyringManaged), protocol.ErrKeyringManaged},
 		{"method unsupported", provider.ErrAuthMethodUnsupported, protocol.ErrMethodUnsupported},
 		{"empty secret", credstore.ErrEmptySecret, protocol.ErrInvalidKey},
 		{"oversized secret", credstore.ErrSecretTooLarge, protocol.ErrInvalidKey},

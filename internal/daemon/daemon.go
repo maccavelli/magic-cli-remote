@@ -24,10 +24,8 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/acphttp"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
@@ -171,8 +169,8 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	// Before starting any engine of our own, clear out any left behind by a
-	// previous daemon that died without running its shutdown path — goose,
-	// opencode, and codex all spawn theirs the same marked way. Only
+	// previous daemon that died without running its shutdown path — opencode,
+	// kilo, and codex all spawn theirs the same marked way. Only
 	// processes carrying our ownership marker whose owner is gone are
 	// touched — an engine belonging to a concurrently running mcremote is
 	// left alone (MADR 0019 §5.4). Registry path is the cross-platform contract
@@ -242,22 +240,6 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		if prewarmWants(cfg, provider.IDGrok) {
 			gp.EnsureWarm()
-		}
-	}
-	if cfg.Providers.Goose.Enabled {
-		// Before the provider exists, so the first engine — including a
-		// prewarmed one — already sees the intended secret backend
-		// (MADR 0110 D1/D9, plan P5).
-		reconcileGooseKeyring(cfg.Providers.Goose.KeyringDisabled, log)
-		gp := goose.NewWithLogger(acpHTTPConfig(cfg.Providers.Goose), log)
-		reg.Register(gp)
-		if !gp.Ready() {
-			log.Warn("goose provider enabled but binary not found in PATH",
-				slog.String("bin", cfg.Providers.Goose.Bin),
-			)
-		}
-		if prewarmWants(cfg, provider.IDGoose) {
-			gp.EnsureServer()
 		}
 	}
 	if cfg.Providers.Opencode.Enabled {
@@ -381,7 +363,7 @@ func Run(ctx context.Context, opts Options) error {
 	// Operator signal when every enabled provider is missing its binary (Phase 4.1).
 	// Keep this OR-chain in sync with ProvidersConfig — a provider missing here
 	// silently skips the warning instead of just being ready=false (MADR 0076 M3).
-	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Goose.Enabled || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
+	if anyEnabled := cfg.Providers.Fake.Enabled || cfg.Providers.Grok.Enabled || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {
@@ -718,51 +700,12 @@ func (h *eventHub) BroadcastTerminalOutput(sessionID string, chunk provider.Term
 	}
 }
 
-// acpAgentConfig builds an acpagent.Config from the shared ACP provider config.
-// Every ACP CLI agent (grok today; goose and codex next) is constructed through
-// this one converter so they stay identical in how config maps to the adapter.
-// acpHTTPConfig builds a goose.Config (acphttp.Config) from the goose provider
-// config. Unlike acpAgentConfig it drops Args and FSRoots because the HTTP
-// transport does not start a per-session process.
-func acpHTTPConfig(c config.GooseProviderConfig) goose.Config {
-	mcp := make([]goose.McpServer, 0, len(c.MCPServers))
-	for _, m := range c.MCPServers {
-		mcp = append(mcp, goose.McpServer{
-			Name:      m.Name,
-			Transport: m.Transport,
-			URL:       m.URL,
-			Headers:   m.Headers,
-		})
-	}
-	// Explicit pointer so 0 means "stream one event per token" (the
-	// pre-MADR-0024 path), not "use the transport default".
-	streamCoalesce := time.Duration(c.StreamCoalesceMs) * time.Millisecond
-	return goose.Config{
-		Config: acphttp.Config{
-			Bin:               c.Bin,
-			AlwaysApprove:     c.AlwaysApprove,
-			DefaultCWD:        c.DefaultCWD,
-			Model:             c.Model,
-			PermissionTimeout: time.Duration(c.PermissionTimeoutSeconds) * time.Second,
-			Prewarm:           c.Prewarm,
-			TurnStallNotice:   time.Duration(c.TurnStallNoticeSeconds) * time.Second,
-			AuthMethodID:      c.AuthMethodID,
-			McpServers:        mcp,
-			StreamCoalesce:    &streamCoalesce,
-		},
-		WithBuiltins: append([]string(nil), c.WithBuiltins...),
-	}
-}
-
 // prewarmPlan is the set of enabled providers whose engine should start at
 // serve boot (MADR 0089 D5). Empty when every default is off.
 func prewarmPlan(cfg config.Config) []provider.ID {
 	var out []provider.ID
 	if cfg.Providers.Grok.Enabled && cfg.Providers.Grok.Prewarm {
 		out = append(out, provider.IDGrok)
-	}
-	if cfg.Providers.Goose.Enabled && cfg.Providers.Goose.Prewarm {
-		out = append(out, provider.IDGoose)
 	}
 	if cfg.Providers.Opencode.Enabled && cfg.Providers.Opencode.Prewarm {
 		out = append(out, provider.IDOpencode)
@@ -785,6 +728,9 @@ func prewarmWants(cfg config.Config, id provider.ID) bool {
 	return false
 }
 
+// acpAgentConfig builds an acpagent.Config from the shared ACP provider config.
+// Every ACP CLI agent (grok) is constructed through this one converter so
+// they stay identical in how config maps to the adapter.
 func acpAgentConfig(c config.ACPProviderConfig) acpagent.Config {
 	mcp := make([]acpagent.McpServer, 0, len(c.MCPServers))
 	for _, m := range c.MCPServers {

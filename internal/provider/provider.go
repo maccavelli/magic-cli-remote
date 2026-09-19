@@ -66,8 +66,6 @@ const (
 	IDGrok ID = "grok"
 	// IDOpencode is the OpenCode provider (shared `opencode serve` engine).
 	IDOpencode ID = "opencode"
-	// IDGoose is the Goose ACP-over-HTTP provider.
-	IDGoose ID = "goose"
 	// IDCodex is the Codex app-server JSON-RPC provider.
 	IDCodex ID = "codex"
 	// IDKilo is the Kilo CLI provider (shared `kilo serve` engine, MADR 0075).
@@ -655,7 +653,7 @@ type ModelSession interface {
 // opencode dialects decode.
 //
 // Returning "" is the correct answer for a session that does not know, and is
-// what grok, goose and codex do today. A caller must treat empty as "no
+// what grok and codex do today. A caller must treat empty as "no
 // model reported" and never substitute a guess.
 type ModelReporter interface {
 	Session
@@ -663,7 +661,7 @@ type ModelReporter interface {
 }
 
 // ThinkingSession accepts a thinking/reasoning level. Absence is the honest
-// answer for goose, which exposes no per-session effort control (MADR 0052 D6).
+// answer for an agent that exposes no per-session effort control (MADR 0052 D6).
 // Codex applies the level on the next turn/start; grok 1.0.5 applies it on
 // session/new|load `_meta` and mid-session via session/set_model
 // `_meta.reasoningEffort` (MADR 0106). OpenCode applies it per request as the

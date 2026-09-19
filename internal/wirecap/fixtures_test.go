@@ -47,10 +47,10 @@ func TestCommittedFixturesCarryNoIdentifiers(t *testing.T) {
 	}
 	// A glob that silently stops matching turns this guard into a test that
 	// asserts nothing and still passes — the failure mode MADR 0147 D11 pins.
-	// Five fixtures exist today; the floor is a floor, not a count, so adding a
-	// provider does not break it.
-	if len(paths) < 5 {
-		t.Fatalf("glob matched %d fixtures, want at least 5: the guard is not reading what it claims to", len(paths))
+	// Four fixtures exist today (the Goose one went with MADR 0160); the floor
+	// is a floor, not a count, so adding a provider does not break it.
+	if len(paths) < 4 {
+		t.Fatalf("glob matched %d fixtures, want at least 4: the guard is not reading what it claims to", len(paths))
 	}
 
 	for _, path := range paths {

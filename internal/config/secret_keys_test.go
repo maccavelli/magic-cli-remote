@@ -65,7 +65,6 @@ func TestSecretConfigKeysCoversEveryTag(t *testing.T) {
 	// a reason, so that adding one is a decision rather than a reflex.
 	exempt := map[string]string{
 		"require_device_token": "a bool: whether a token is required, never a token",
-		"keyring_disabled":     "a bool: whether the OS keyring is used",
 	}
 
 	listed := make(map[string]bool, len(secretConfigKeys))

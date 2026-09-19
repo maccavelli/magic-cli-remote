@@ -439,7 +439,7 @@ type AuthConfig struct {
 	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
-// maxStreamCoalesceMs bounds providers.{opencode,goose,codex,grok}.stream_coalesce_ms.
+// maxStreamCoalesceMs bounds providers.{opencode,codex,grok}.stream_coalesce_ms.
 // Past about a second the stream stops reading as live typing, and nothing
 // downstream would flag the mistake (MADR 0024).
 const maxStreamCoalesceMs = 1000
@@ -448,7 +448,6 @@ const maxStreamCoalesceMs = 1000
 type ProvidersConfig struct {
 	Fake     FakeProviderConfig     `mapstructure:"fake"`
 	Grok     GrokProviderConfig     `mapstructure:"grok"`
-	Goose    GooseProviderConfig    `mapstructure:"goose"`
 	Opencode OpencodeProviderConfig `mapstructure:"opencode"`
 	Codex    CodexProviderConfig    `mapstructure:"codex"`
 	Kilo     KiloProviderConfig     `mapstructure:"kilo"`
@@ -470,7 +469,7 @@ type MCPServerConfig struct {
 }
 
 // ACPProviderConfig is the configuration shared by every ACP CLI agent provider
-// (grok today; goose and codex next). Each provider config embeds it squashed,
+// (grok). Each provider config embeds it squashed,
 // so the agents share one config shape and a new ACP option is added here once.
 type ACPProviderConfig struct {
 	Enabled       bool     `mapstructure:"enabled"`
@@ -539,34 +538,6 @@ type GrokProviderConfig struct {
 	// The first chunk of a run and the tail before any control event are never
 	// delayed. 0 disables coalescing. Default 80. Max maxStreamCoalesceMs.
 	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
-}
-
-// GooseProviderConfig configures the Goose ACP-over-HTTP adapter.
-type GooseProviderConfig struct {
-	ACPProviderConfig `mapstructure:",squash"`
-	// WithBuiltins enables the named built-in Goose extensions on its shared
-	// serve engine. This is intentionally a typed list, rather than arbitrary
-	// process arguments, so the daemon's process boundary stays auditable.
-	WithBuiltins []string `mapstructure:"with_builtins"`
-	// StreamCoalesceMs is how long assistant/thought text is held so it can be
-	// emitted as one event instead of one per model token (MADR 0024). The
-	// first chunk of a run and the tail before any control event are never
-	// delayed, so only mid-stream granularity is capped. 0 disables
-	// coalescing (exact pre-0024 behaviour). Default 80.
-	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
-	// KeyringDisabled makes Goose read its secrets from
-	// ~/.config/goose/secrets.yaml instead of the OS keyring, by reconciling
-	// the GOOSE_DISABLE_KEYRING key in Goose's own config.yaml.
-	//
-	// Default true because the daemon is headless. On macOS the keyring
-	// prompts for the login password on every read, and Goose ships an
-	// ad-hoc, linker-signed binary with no stable code identity, so the
-	// keychain cannot hold a durable "Always Allow" grant — a phone-initiated
-	// session blocks on a dialog nobody is there to answer (MADR 0110).
-	//
-	// Setting it false removes the key, returning Goose to its own default.
-	// A GOOSE_DISABLE_KEYRING the operator wrote by hand is never touched.
-	KeyringDisabled bool `mapstructure:"keyring_disabled"`
 }
 
 // OpencodeProviderConfig configures the OpenCode adapter
@@ -818,7 +789,7 @@ func Defaults() Config {
 				// Opt out with `bypassPermissions` (MADR 0050 D3).
 				PermissionMode: "default",
 				// ~12 mid-stream updates/sec instead of one per token
-				// (MADR 0057 H-1). Matches goose/opencode/codex defaults.
+				// (MADR 0057 H-1). Matches opencode/codex defaults.
 				StreamCoalesceMs: 80,
 				ACPProviderConfig: ACPProviderConfig{
 					Enabled:                  true,
@@ -830,23 +801,6 @@ func Defaults() Config {
 					Prewarm:                false,
 					TurnStallNoticeSeconds: 120,
 				},
-			},
-			// Goose is enabled by default, selectable from the phone's
-			// new-session provider menu. Default behaviour: no prewarm (goose
-			// starts a child serve process per daemon, not per session); one
-			// cold start at first use.
-			Goose: GooseProviderConfig{
-				ACPProviderConfig: ACPProviderConfig{
-					Enabled:                  true,
-					Bin:                      "goose",
-					AlwaysApprove:            false,
-					PermissionTimeoutSeconds: 120,
-					Prewarm:                  false,
-					TurnStallNoticeSeconds:   120,
-				},
-				// Headless-first: see KeyringDisabled's doc comment.
-				KeyringDisabled:  true,
-				StreamCoalesceMs: 80,
 			},
 			// OpenCode is enabled by default and selectable from the phone's
 			// new-session provider menu. Registration is harmless when the
@@ -873,7 +827,7 @@ func Defaults() Config {
 				AlwaysApprove:            false,
 				PermissionTimeoutSeconds: 900,
 				Prewarm:                  false,
-				// Match grok/goose/opencode: long tool runs (e.g. full
+				// Match grok/opencode: long tool runs (e.g. full
 				// `flutter test`) must surface a stall notice on the phone
 				// rather than looking like a frozen agent. 0 still disables.
 				TurnStallNoticeSeconds:     120,
@@ -1083,7 +1037,7 @@ func (c Config) ACMECacheDir() string {
 
 // Validate checks configuration for obvious errors.
 // validateACPProvider checks the shared ACP options (MCP servers). name is the
-// provider key ("grok", "goose", …) for error messages.
+// provider key ("grok", …) for error messages.
 func validateACPProvider(name string, c ACPProviderConfig) error {
 	for i, m := range c.MCPServers {
 		switch m.Transport {
@@ -1149,35 +1103,6 @@ func (c Config) Validate() error {
 	}
 	if err := validateACPProvider("grok", c.Providers.Grok.ACPProviderConfig); err != nil {
 		return err
-	}
-	if c.Providers.Goose.PermissionTimeoutSeconds < 0 {
-		return fmt.Errorf("providers.goose.permission_timeout_seconds must be >= 0, got %d",
-			c.Providers.Goose.PermissionTimeoutSeconds)
-	}
-	if c.Providers.Goose.TurnStallNoticeSeconds < 0 {
-		return fmt.Errorf("providers.goose.turn_stall_notice_seconds must be >= 0, got %d",
-			c.Providers.Goose.TurnStallNoticeSeconds)
-	}
-	if v := c.Providers.Goose.StreamCoalesceMs; v < 0 || v > maxStreamCoalesceMs {
-		return fmt.Errorf("providers.goose.stream_coalesce_ms must be between 0 and %d, got %d",
-			maxStreamCoalesceMs, v)
-	}
-	if err := validateACPProvider("goose", c.Providers.Goose.ACPProviderConfig); err != nil {
-		return err
-	}
-	seenBuiltins := make(map[string]struct{}, len(c.Providers.Goose.WithBuiltins))
-	for i, builtin := range c.Providers.Goose.WithBuiltins {
-		trimmed := strings.TrimSpace(builtin)
-		if trimmed == "" {
-			return fmt.Errorf("providers.goose.with_builtins[%d] must not be empty", i)
-		}
-		if trimmed != builtin {
-			return fmt.Errorf("providers.goose.with_builtins[%d] must not contain surrounding whitespace", i)
-		}
-		if _, duplicate := seenBuiltins[trimmed]; duplicate {
-			return fmt.Errorf("providers.goose.with_builtins contains duplicate %q", trimmed)
-		}
-		seenBuiltins[trimmed] = struct{}{}
 	}
 	// providers.opencode.transport was retired in MADR 0019: OpenCode is always
 	// driven through the shared `opencode serve` engine. Fail loudly — viper

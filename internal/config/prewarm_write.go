@@ -12,7 +12,7 @@ import (
 )
 
 // ErrUnknownProvider is returned when SetProviderPrewarmFile is given an
-// id that is not one of the five agent providers.
+// id that is not one of the agent providers in KnownProviderIDs.
 var ErrUnknownProvider = errors.New("unknown provider")
 
 // ErrNoConfigFile means there is no config file to edit: the daemon booted on
@@ -24,7 +24,7 @@ var ErrNoConfigFile = errors.New("no config file to write")
 var prewarmWriteMu sync.Mutex
 
 // KnownProviderIDs is the closed set of agents that expose prewarm (MADR 0089 D5/D7).
-var KnownProviderIDs = []string{"grok", "goose", "opencode", "codex", "kilo"}
+var KnownProviderIDs = []string{"grok", "opencode", "codex", "kilo"}
 
 // KnownProvider reports whether id is a prewarm-controllable agent.
 func KnownProvider(id string) bool {
@@ -44,8 +44,6 @@ func (c *Config) SetProviderPrewarm(id string, prewarm bool) error {
 	switch id {
 	case "grok":
 		c.Providers.Grok.Prewarm = prewarm
-	case "goose":
-		c.Providers.Goose.Prewarm = prewarm
 	case "opencode":
 		c.Providers.Opencode.Prewarm = prewarm
 	case "codex":
@@ -63,8 +61,6 @@ func (c Config) ProviderPrewarm(id string) (prewarm bool, ok bool) {
 	switch id {
 	case "grok":
 		return c.Providers.Grok.Prewarm, true
-	case "goose":
-		return c.Providers.Goose.Prewarm, true
 	case "opencode":
 		return c.Providers.Opencode.Prewarm, true
 	case "codex":

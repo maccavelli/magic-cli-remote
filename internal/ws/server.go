@@ -2271,7 +2271,7 @@ func upstreamAuthPayload(up provider.UpstreamAuth, deviceOK bool) protocol.Upstr
 		}
 		// MADR 0083 D4: say up front what this host cannot drive, instead of
 		// failing after the user typed a secret. Provider-specific knowledge
-		// (goose's keyring) arrives on the method; the transport-generic
+		// (for example, a keyring the host must manage) arrives on the method; the transport-generic
 		// classes are annotated here so every provider gets them for free.
 		reason := ""
 		switch {
@@ -2696,9 +2696,6 @@ func authErrCode(err error) (code, msg string) {
 		return "unsupported", "unsupported for this provider"
 	case errors.Is(err, provider.ErrAuthConfirmRequired):
 		return protocol.ErrConfirmRequired, "this flow needs explicit confirmation"
-	case errors.Is(err, credstore.ErrGooseKeyringManaged):
-		return protocol.ErrKeyringManaged,
-			"this agent keeps its keys in the host's OS keyring; add the key on the host"
 	case errors.Is(err, provider.ErrAuthMethodUnsupported):
 		return protocol.ErrMethodUnsupported,
 			"this sign-in method can't be driven from the phone for this agent"

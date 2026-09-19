@@ -13,7 +13,6 @@ import (
 // (replace→append) an agent's command output.
 //
 //	kilo / opencode → snapshot payload, deduped by noteToolEmit → replace
-//	goose           → summarizeTCContent(tu.Content, …)         → replace
 //	grok            → summarizeToolContent(tu.Content, …)       → replace
 //	codex           → Text: p.Delta                             → append
 //
@@ -36,12 +35,6 @@ func TestEachProviderUsesTheToolLaneModeItsPayloadNeeds(t *testing.T) {
 			file:     "../provider/acpagent/session.go",
 			want:     "chunkbuf.WithToolLane()",
 			reason:   "grok sends the full ACP content each time",
-		},
-		{
-			provider: "goose (acphttp)",
-			file:     "../provider/acphttp/session.go",
-			want:     "chunkbuf.WithToolLane()",
-			reason:   "goose sends the full ACP content each time",
 		},
 		{
 			provider: "kilo/opencode (httpagent)",

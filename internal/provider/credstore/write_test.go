@@ -202,59 +202,6 @@ func TestMergeJSONAuthConcurrentWritersLeaveValidStore(t *testing.T) {
 	}
 }
 
-// The goose switch must touch exactly one line: users hand-edit this file, and
-// a YAML round-trip would reformat it and drop their comments.
-func TestSetGooseActiveProviderIsSurgical(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	body := `# my notes
-active_provider: opencode_go
-GOOSE_MODEL: some-model
-providers:
-  opencode_go:
-    kind: api
-  gemini_oauth:
-    kind: oauth
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := credstore.SetGooseActiveProvider(path, "gemini_oauth"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := strings.Replace(body, "active_provider: opencode_go", "active_provider: gemini_oauth", 1)
-	if string(got) != want {
-		t.Fatalf("switch was not surgical:\n--- got ---\n%s\n--- want ---\n%s", got, want)
-	}
-}
-
-func TestSetGooseActiveProviderAddsKeyWhenAbsent(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte("providers:\n  a: {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := credstore.SetGooseActiveProvider(path, "a"); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := credstore.ReadGooseConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ActiveProvider != "a" {
-		t.Fatalf("active = %q", cfg.ActiveProvider)
-	}
-	// Prepended, never inserted into another block's indented body.
-	b, _ := os.ReadFile(path)
-	if !strings.HasPrefix(string(b), "active_provider: a\n") {
-		t.Fatalf("key not prepended: %s", b)
-	}
-}
-
 func TestSetGrokModelAPIKeyWritesQuotedTable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := credstore.SetGrokModelAPIKey(path, "grok-4.6", "xai-secret-1"); err != nil {

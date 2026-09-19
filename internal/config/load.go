@@ -127,6 +127,7 @@ func Load(opts LoadOptions) (Config, error) {
 	cfg.DisplayName = strings.TrimSpace(cfg.DisplayName)
 	cfg.Diagnostics = diags
 	cfg.ConfigFile = usedConfigFile
+	noteRetiredGoose(v, os.Environ(), &cfg)
 
 	// The config may hold relay.secret, which is the same registration
 	// credential mcrelay stores as hosts[].secret and guards at read time.
@@ -229,9 +230,6 @@ func (cfg *Config) finalizePaths(basePaths appdirs.Paths, opts LoadOptions) erro
 	if cfg.Providers.Grok.DefaultCWD, err = rel(cfg.Providers.Grok.DefaultCWD); err != nil {
 		return fmt.Errorf("providers.grok.default_cwd: %w", err)
 	}
-	if cfg.Providers.Goose.DefaultCWD, err = rel(cfg.Providers.Goose.DefaultCWD); err != nil {
-		return fmt.Errorf("providers.goose.default_cwd: %w", err)
-	}
 	if cfg.Providers.Opencode.DefaultCWD, err = rel(cfg.Providers.Opencode.DefaultCWD); err != nil {
 		return fmt.Errorf("providers.opencode.default_cwd: %w", err)
 	}
@@ -320,18 +318,6 @@ func setDefaults(v *viper.Viper) {
 	// mcp_servers is a list of tables — config-file only, no env/default.
 	v.SetDefault("providers.grok.auth_method_id", d.Providers.Grok.AuthMethodID)
 	v.SetDefault("providers.grok.stream_coalesce_ms", d.Providers.Grok.StreamCoalesceMs)
-	v.SetDefault("providers.goose.enabled", d.Providers.Goose.Enabled)
-	v.SetDefault("providers.goose.bin", d.Providers.Goose.Bin)
-	v.SetDefault("providers.goose.always_approve", d.Providers.Goose.AlwaysApprove)
-	v.SetDefault("providers.goose.default_cwd", d.Providers.Goose.DefaultCWD)
-	v.SetDefault("providers.goose.model", d.Providers.Goose.Model)
-	v.SetDefault("providers.goose.permission_timeout_seconds", d.Providers.Goose.PermissionTimeoutSeconds)
-	v.SetDefault("providers.goose.prewarm", d.Providers.Goose.Prewarm)
-	v.SetDefault("providers.goose.turn_stall_notice_seconds", d.Providers.Goose.TurnStallNoticeSeconds)
-	v.SetDefault("providers.goose.stream_coalesce_ms", d.Providers.Goose.StreamCoalesceMs)
-	v.SetDefault("providers.goose.auth_method_id", d.Providers.Goose.AuthMethodID)
-	v.SetDefault("providers.goose.keyring_disabled", d.Providers.Goose.KeyringDisabled)
-	// with_builtins is a list, so it is config-file only like mcp_servers.
 	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
 	// No default for providers.opencode.transport: it was retired in MADR 0019
 	// and Config.validate rejects it if a config still sets one. Seeding a

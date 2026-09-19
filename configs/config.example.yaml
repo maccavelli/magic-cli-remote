@@ -134,47 +134,6 @@ providers:
     #       headers:
     #         Authorization: "Bearer <token>"
     mcp_servers: []
-  # Goose (block.github.io/goose). Driven through one shared `goose serve`
-  # engine (ACP over WebSocket). Pick it per session from the phone's provider
-  # menu. No per-session process: the engine handles all sessions, so `args`
-  # and `fs_roots` are not applicable (they belong to the old stdio per-session
-  # model).
-  goose:
-    enabled: true
-    bin: "goose"
-    always_approve: false
-    default_cwd: ""          # empty => daemon user's home / session.create cwd
-    model: ""                # empty = goose's own default (its config provider
-                             # default, typically the most recent selection)
-    permission_timeout_seconds: 120
-    # Default false = boot goose serve on first use. true pre-warms at daemon start.
-    prewarm: false
-    turn_stall_notice_seconds: 120
-    # Coalesce streamed assistant/thought text into one event per window
-    # instead of one per model token (MADR 0024). 0 disables.
-    stream_coalesce_ms: 80
-    # ACP auth method to invoke if the agent reports it needs authentication.
-    # goose advertises goose-provider but session/new works without it.
-    auth_method_id: ""
-    # Where goose keeps its secrets (MADR 0110). true makes goose read
-    # ~/.config/goose/secrets.yaml instead of the OS keyring, by managing the
-    # GOOSE_DISABLE_KEYRING key in goose's own config.yaml.
-    #
-    # Default true because this daemon is headless: on macOS the keyring
-    # prompts for the login password on every read, and goose ships an ad-hoc
-    # signed binary that cannot hold a durable "Always Allow" grant — so a
-    # session started from the phone blocks on a dialog nobody can answer.
-    #
-    # The secrets must already be in secrets.yaml. If they are only in the
-    # keyring, mcremote leaves the keyring alone and logs how to migrate:
-    #   GOOSE_DISABLE_KEYRING=1 goose configure
-    # false removes the key so goose falls back to its own default. A
-    # GOOSE_DISABLE_KEYRING you set by hand is never touched.
-    keyring_disabled: true
-    # Optional named Goose built-ins to enable on the shared engine. This is
-    # intentionally not a general-purpose argument escape hatch.
-    with_builtins: []
-    mcp_servers: []
   # OpenCode (opencode.ai). Pick it per session from the phone's provider menu.
   # Every session multiplexes over one shared long-lived `opencode serve`
   # engine (HTTP + SSE), so there is no per-session process to configure —

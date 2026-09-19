@@ -6,13 +6,10 @@
 // formats, so a vendor format change breaks one package with live-pinned tests
 // (D15) rather than leaking across the daemon.
 //
-// Two probes decided the shape of this package (MADR 0074 §5):
-//   - `opencode auth login` reaches its key prompt non-interactively but its
-//     masked TUI widget ignores piped stdin and writes nothing.
-//   - `goose configure` has no non-interactive flags at all.
-//
-// So for those two agents a direct file write is not a shortcut around the CLI;
-// it is the only mechanism that exists.
+// A probe decided the shape of this package (MADR 0074 §5): `opencode auth
+// login` reaches its key prompt non-interactively, but its masked TUI widget
+// ignores piped stdin and writes nothing. So a direct file write is not a
+// shortcut around the CLI; it is the only mechanism that exists.
 //
 // Read helpers in this package return provider ids, labels and presence only —
 // never key material.
@@ -77,92 +74,6 @@ func KiloAuthPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(base, "kilo", "auth.json"), nil
-}
-
-// GooseConfigPath is ~/.config/goose/config.yaml (XDG_CONFIG_HOME aware).
-func GooseConfigPath() (string, error) {
-	base, err := xdg("XDG_CONFIG_HOME", ".config")
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "goose", "config.yaml"), nil
-}
-
-// GooseSecretsPath is ~/.config/goose/secrets.yaml — goose's file secret
-// store, used whenever its keyring is disabled or unreachable.
-func GooseSecretsPath() (string, error) {
-	base, err := xdg("XDG_CONFIG_HOME", ".config")
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "goose", "secrets.yaml"), nil
-}
-
-// GooseKeyringDisabled reports whether goose reads secrets from
-// GooseSecretsPath rather than the OS keyring (MADR 0074 D18).
-//
-// Goose decides this two ways, and both are honoured here: the
-// GOOSE_DISABLE_KEYRING environment variable, and the same key in config.yaml.
-// It also flips to file storage at runtime when a keyring operation fails with
-// an availability error — the headless case — but that decision lives inside a
-// goose process and is not observable from here, so it is not inferred.
-func GooseKeyringDisabled(configPath string) bool {
-	// Presence alone, matching goose's env branch exactly
-	// (crates/goose/src/config/base.rs:206, `env::var(...).is_ok()`).
-	//
-	// Deliberately not isFalsey: goose does not look at the value here, so
-	// GOOSE_DISABLE_KEYRING=0 disables the keyring. Interpreting it as "false"
-	// would have mcremote reporting the opposite of what goose does
-	// (MADR 0110 F12).
-	if _, ok := os.LookupEnv("GOOSE_DISABLE_KEYRING"); ok {
-		return true
-	}
-	b, err := os.ReadFile(configPath) //nolint:gosec // fixed store location
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if line != strings.TrimLeft(line, " \t") {
-			continue // nested: not the top-level flag
-		}
-		k, v, ok := splitYAMLScalar(trimmed)
-		if !ok || k != "GOOSE_DISABLE_KEYRING" {
-			continue
-		}
-		return gooseKeyringDisabledValue(v)
-	}
-	return false
-}
-
-// gooseKeyringDisabledValue mirrors goose's keyring_disabled_value
-// (crates/goose/src/config/base.rs:299-301):
-//
-//	value.as_bool().unwrap_or(false) || value.as_str() == "true" || "1"
-//
-// Only a YAML boolean true, or the exact strings "true" and "1", disable the
-// keyring. Everything else — including "0", "false", "no", "off", "TRUE", and
-// any other string — leaves it enabled. This is narrower than isFalsey, which
-// is why this key does not use it (MADR 0110 F12).
-func gooseKeyringDisabledValue(v string) bool {
-	switch strings.TrimSpace(v) {
-	case "true", "1":
-		return true
-	}
-	return false
-}
-
-// isFalsey treats the YAML/env spellings of "off" as off. Anything else that is
-// set at all means on, matching goose's own env check (presence is enough).
-func isFalsey(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "0", "false", "no", "off":
-		return true
-	}
-	return false
 }
 
 // GrokHome is the effective Grok home: non-empty $GROK_HOME, else ~/.grok.
@@ -317,106 +228,6 @@ func ReadJSONAuthMeta(path, id string) (typ, expires string, ok bool) {
 		expires = fmt.Sprint(e.Expires)
 	}
 	return strings.TrimSpace(e.Type), expires, true
-}
-
-// GooseConfig is the subset of goose's config.yaml that matters for auth.
-type GooseConfig struct {
-	// ActiveProvider is goose's `active_provider` — what a turn actually uses,
-	// and what the MADR 0073 hang needed a phone-side switch for.
-	ActiveProvider string
-	// Providers are the configured provider ids, from the `providers` mapping
-	// when present plus any provider-shaped keys goose writes at the top level.
-	Providers []string
-}
-
-// ReadGooseConfig extracts the active provider and the configured provider set.
-//
-// This is a deliberately small hand-rolled scan rather than a YAML dependency:
-// it reads two shapes (a scalar `active_provider` and the keys of a `providers`
-// mapping) and must never fail the whole listing because goose added a field.
-// Anything it does not understand is ignored.
-func ReadGooseConfig(path string) (GooseConfig, error) {
-	b, err := os.ReadFile(path) //nolint:gosec // fixed store location
-	if errors.Is(err, fs.ErrNotExist) {
-		return GooseConfig{}, nil
-	}
-	if err != nil {
-		return GooseConfig{}, fmt.Errorf("read goose config: %w", err)
-	}
-	var cfg GooseConfig
-	seen := map[string]struct{}{}
-	inProviders := false
-	// providerIndent is the column at which provider ids sit inside the
-	// providers block, learned from the first entry. Anything deeper is that
-	// provider's own settings — without this, `key:` and `kind:` nested under
-	// a provider get mistaken for provider ids.
-	providerIndent := -1
-	for _, line := range strings.Split(string(b), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		indent := len(line) - len(strings.TrimLeft(line, " \t"))
-
-		if indent == 0 {
-			// A new top-level key ends any providers block.
-			inProviders = strings.HasPrefix(trimmed, "providers:")
-			providerIndent = -1
-			if k, v, ok := splitYAMLScalar(trimmed); ok && k == "active_provider" {
-				cfg.ActiveProvider = v
-			}
-			continue
-		}
-		if !inProviders {
-			continue
-		}
-		if providerIndent < 0 {
-			providerIndent = indent
-		}
-		if indent != providerIndent {
-			// Deeper: a setting belonging to the provider above. Shallower is
-			// malformed; either way it is not a provider id.
-			continue
-		}
-		k, _, ok := splitYAMLScalar(trimmed)
-		if !ok || k == "" {
-			continue
-		}
-		if _, dup := seen[k]; dup {
-			continue
-		}
-		seen[k] = struct{}{}
-		cfg.Providers = append(cfg.Providers, k)
-	}
-	if cfg.ActiveProvider != "" {
-		if _, ok := seen[cfg.ActiveProvider]; !ok {
-			// The active provider is always part of the configured set even
-			// when goose keeps its settings elsewhere (keyring, token files).
-			cfg.Providers = append(cfg.Providers, cfg.ActiveProvider)
-		}
-	}
-	sort.Strings(cfg.Providers)
-	return cfg, nil
-}
-
-// splitYAMLScalar splits `key: value`, unquoting a simple scalar value. It
-// returns ok=false for lines that are not `key:`-shaped.
-func splitYAMLScalar(line string) (key, value string, ok bool) {
-	idx := strings.Index(line, ":")
-	if idx <= 0 {
-		return "", "", false
-	}
-	key = strings.TrimSpace(line[:idx])
-	if key == "" || strings.ContainsAny(key, " \t") {
-		return "", "", false
-	}
-	value = strings.TrimSpace(line[idx+1:])
-	value = strings.Trim(value, `"'`)
-	// Strip a trailing comment on a scalar value.
-	if i := strings.Index(value, " #"); i >= 0 {
-		value = strings.TrimSpace(value[:i])
-	}
-	return key, value, true
 }
 
 // FileExists reports whether path exists and is a regular file. Used for

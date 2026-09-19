@@ -19,8 +19,8 @@ func writeConfig(t *testing.T, body string) string {
 	return path
 }
 
-// The shared ACP options (auth method + MCP servers) parse for grok, ready to
-// be reused by goose/codex which embed the same ACPProviderConfig.
+// The shared ACP options (auth method + MCP servers) parse for grok, and are
+// reused by any provider that embeds ACPProviderConfig.
 func TestGrokACPConfigParse(t *testing.T) {
 	path := writeConfig(t, `
 providers:
@@ -94,37 +94,6 @@ func TestGrokAuthMethodEnvOverride(t *testing.T) {
 	}
 	if cfg.Providers.Grok.AuthMethodID != "envauth" {
 		t.Fatalf("auth_method_id env override = %q, want envauth", cfg.Providers.Grok.AuthMethodID)
-	}
-}
-
-func TestGooseWithBuiltinsParseAndValidate(t *testing.T) {
-	path := writeConfig(t, `
-providers:
-  goose:
-    with_builtins: [developer, computercontroller]
-`)
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := cfg.Providers.Goose.WithBuiltins
-	if len(got) != 2 || got[0] != "developer" || got[1] != "computercontroller" {
-		t.Fatalf("with_builtins = %#v", got)
-	}
-}
-
-func TestGooseWithBuiltinsRejectsEmptyAndDuplicate(t *testing.T) {
-	for name, builtins := range map[string]string{
-		"empty":     "[developer, '']",
-		"duplicate": "[developer, developer]",
-	} {
-		t.Run(name, func(t *testing.T) {
-			path := writeConfig(t, "providers:\n  goose:\n    with_builtins: "+builtins+"\n")
-			_, err := config.Load(config.LoadOptions{ConfigFile: path})
-			if err == nil || !strings.Contains(err.Error(), "with_builtins") {
-				t.Fatalf("want with_builtins validation error, got %v", err)
-			}
-		})
 	}
 }
 

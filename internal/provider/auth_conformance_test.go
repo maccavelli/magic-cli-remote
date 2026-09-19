@@ -7,7 +7,6 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
@@ -42,13 +41,6 @@ func TestProviderAuthInterfaceConformance(t *testing.T) {
 			name: "kilo", p: kilo.NewHTTP(kilo.Config{}),
 			wantStatus: true, wantWriter: true, wantCatalog: true,
 			wantSwitcher: true, wantDeviceOAuth: true,
-		},
-		{
-			name: "goose", p: goose.New(goose.Config{}),
-			wantStatus: true, wantWriter: true, wantCatalog: true,
-			// No device flow: the acphttp transport goose rides carries no
-			// StartDeviceAuth at all, and goose's own OAuth is loopback (W3).
-			wantSwitcher: true, wantDeviceOAuth: false,
 		},
 		{
 			name: "codex", p: codex.New(codex.Config{}),

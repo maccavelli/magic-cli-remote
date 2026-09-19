@@ -73,89 +73,6 @@ func TestReadJSONAuthMalformedIsAnError(t *testing.T) {
 	}
 }
 
-// The goose fixture mirrors this host's real config (MADR 0074 Appendix A):
-// active_provider opencode_go plus four other configured providers. That set
-// is precisely what the MADR 0073 hang needed the phone to see.
-func TestReadGooseConfig(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	body := `# goose config
-active_provider: opencode_go
-GOOSE_MODEL: some-model
-providers:
-  opencode_go:
-    key: should-not-be-read
-  gemini_oauth:
-    kind: oauth
-  google: {}
-  chatgpt_codex:
-    kind: oauth
-  xai_oauth:
-    kind: oauth
-extensions:
-  developer:
-    enabled: true
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := credstore.ReadGooseConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ActiveProvider != "opencode_go" {
-		t.Fatalf("active = %q, want opencode_go", cfg.ActiveProvider)
-	}
-	want := []string{"chatgpt_codex", "gemini_oauth", "google", "opencode_go", "xai_oauth"}
-	if len(cfg.Providers) != len(want) {
-		t.Fatalf("providers = %v, want %v", cfg.Providers, want)
-	}
-	for i := range want {
-		if cfg.Providers[i] != want[i] {
-			t.Fatalf("providers = %v, want %v", cfg.Providers, want)
-		}
-	}
-	// Keys nested under a provider must never be mistaken for provider ids,
-	// and must never be read at all.
-	for _, p := range cfg.Providers {
-		if p == "key" || p == "kind" || p == "enabled" || p == "developer" {
-			t.Fatalf("nested key %q leaked into the provider set: %v", p, cfg.Providers)
-		}
-	}
-	blob, _ := json.Marshal(cfg)
-	if strings.Contains(string(blob), "should-not-be-read") {
-		t.Fatalf("goose config value leaked: %s", blob)
-	}
-}
-
-// An active provider goose keeps outside the providers block (keyring-only)
-// still belongs to the configured set, or the phone would refuse to switch
-// back to it.
-func TestReadGooseConfigActiveProviderAlwaysListed(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte("active_provider: keyring_only\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := credstore.ReadGooseConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Providers) != 1 || cfg.Providers[0] != "keyring_only" {
-		t.Fatalf("providers = %v, want [keyring_only]", cfg.Providers)
-	}
-}
-
-func TestReadGooseConfigMissingFileIsNotAnError(t *testing.T) {
-	cfg, err := credstore.ReadGooseConfig(filepath.Join(t.TempDir(), "absent.yaml"))
-	if err != nil {
-		t.Fatalf("missing config should be empty, not an error: %v", err)
-	}
-	if cfg.ActiveProvider != "" || len(cfg.Providers) != 0 {
-		t.Fatalf("got %+v, want zero value", cfg)
-	}
-}
-
 // Paths must follow the agents' own XDG conventions, not mcremote's layout,
 // or a host with XDG_DATA_HOME set would silently read the wrong store.
 func TestStorePathsRespectXDG(t *testing.T) {
@@ -170,13 +87,6 @@ func TestStorePathsRespectXDG(t *testing.T) {
 	}
 	if want := filepath.Join(home, ".local", "share", "opencode", "auth.json"); oc != want {
 		t.Errorf("opencode path = %s, want %s", oc, want)
-	}
-	g, err := credstore.GooseConfigPath()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(home, ".config", "goose", "config.yaml"); g != want {
-		t.Errorf("goose path = %s, want %s", g, want)
 	}
 
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "custom-data"))

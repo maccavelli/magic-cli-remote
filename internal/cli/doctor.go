@@ -76,17 +76,6 @@ func probeCredentialStores() []credentialStore {
 		}
 		add("kilo", p, ids, "engine API is the write path; this file is the fallback")
 	}
-	if p, err := credstore.GooseConfigPath(); err == nil {
-		var ids []string
-		var note string
-		if cfg, err := credstore.ReadGooseConfig(p); err == nil {
-			ids = cfg.Providers
-			if cfg.ActiveProvider != "" {
-				note = "active: " + cfg.ActiveProvider
-			}
-		}
-		add("goose", p, ids, note)
-	}
 	if p, err := credstore.CodexAuthPath(); err == nil {
 		add("codex", p, nil, "device sign-in deletes this file at start (MADR 0074 D8)")
 	}

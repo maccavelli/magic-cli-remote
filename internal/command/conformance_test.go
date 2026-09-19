@@ -11,7 +11,6 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/goose"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
@@ -52,7 +51,6 @@ func TestProvidersDeclareEveryCanonicalCommand(t *testing.T) {
 	providers := []provider.Provider{
 		fake.New(),
 		grok.New(grok.Config{}),
-		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
@@ -108,7 +106,6 @@ func TestTablesAreKeyedByCanonicalName(t *testing.T) {
 	providers := []command.Tabler{
 		fake.New(),
 		grok.New(grok.Config{}),
-		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
@@ -138,7 +135,6 @@ func TestEveryKindDaemonMappingIsDispatched(t *testing.T) {
 	providers := []provider.Provider{
 		fake.New(),
 		grok.New(grok.Config{}),
-		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
@@ -203,7 +199,6 @@ func TestKindOpNamesKnownOp(t *testing.T) {
 	providers := []provider.Provider{
 		fake.New(),
 		grok.New(grok.Config{}),
-		goose.New(goose.Config{}),
 		opencode.NewHTTP(opencode.Config{}),
 		kilo.NewHTTP(kilo.Config{}),
 		codex.New(codex.Config{}),
