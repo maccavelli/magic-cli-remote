@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 
+	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/logging"
@@ -19,6 +20,7 @@ func newServeCmd() *cobra.Command {
 	var dataDir string
 	var enableTLS bool
 	var relayURL, relayHostID, relaySecret string
+	var detachConsole bool
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -33,6 +35,9 @@ For a managed background process on Linux, prefer:
 		// (a mistyped flag or subcommand) fails loudly instead of being ignored.
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if detachConsole {
+				service.DetachConsole()
+			}
 			cfg, err := config.Load(config.LoadOptions{
 				ConfigFile: cfgFile,
 				Flags:      cmd.Flags(),
@@ -137,7 +142,17 @@ For a managed background process on Linux, prefer:
 	cmd.Flags().String("tls-route53-zone-id", "", "Route 53 hosted zone ID for the DNS-01 challenge")
 	cmd.Flags().String("tls-route53-region", "", "AWS region for the Route 53 API")
 	cmd.Flags().String("tls-route53-profile", "", "AWS shared-config profile for the Route 53 API")
+	addDetachConsoleFlag(cmd, &detachConsole)
 	return cmd
+}
+
+// addDetachConsoleFlag registers the flag the Windows task passes so the
+// daemon leaves the console Windows gives it (MADR 0159 D7). It is hidden:
+// only setup-service writes it, and in a terminal it would hide the logs.
+func addDetachConsoleFlag(cmd *cobra.Command, v *bool) {
+	cmd.Flags().BoolVar(v, service.DetachConsoleFlag, false,
+		"detach from the console (set by the Windows scheduled task)")
+	_ = cmd.Flags().MarkHidden(service.DetachConsoleFlag)
 }
 
 // defaultMemoryLimit is the soft heap ceiling the daemon runs under.

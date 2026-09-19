@@ -96,7 +96,7 @@ func TestRefreshSchtasksRefreshesTheV0174Task(t *testing.T) {
 	if len(got.TimeTriggers) != 1 {
 		t.Errorf("refreshed task has %d time triggers, want the watchdog", len(got.TimeTriggers))
 	}
-	if got.Arguments != was.Arguments || got.Command != was.Command || got.WorkingDirectory != was.WorkingDirectory {
+	if got.Arguments != was.Arguments+detachArg || got.Command != was.Command || got.WorkingDirectory != was.WorkingDirectory {
 		t.Errorf("options not preserved:\nwas %q %q %q\ngot %q %q %q",
 			was.Command, was.Arguments, was.WorkingDirectory, got.Command, got.Arguments, got.WorkingDirectory)
 	}
@@ -112,6 +112,29 @@ func TestRefreshSchtasksRefreshesTheV0174Task(t *testing.T) {
 	}
 	if string(saved) != export {
 		t.Error("the backup is not the definition that was replaced")
+	}
+}
+
+// TestRefreshSchtasksAddsTheDetachFlagToAV0180Task is the v0.18.1 update: the
+// task v0.18.0 registered has the watchdog but not the detach flag, so a
+// refresh re-registers it with the flag and every other argument kept.
+func TestRefreshSchtasksAddsTheDetachFlagToAV0180Task(t *testing.T) {
+	export := v0180ShapeExport(t)
+	h := newRefreshHarness(t, export)
+	res, err := refreshSchtasks(Options{Product: "mcremote"}, RefreshOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != VerdictRefreshed || len(h.creates) != 1 {
+		t.Fatalf("res = %+v with %d /create calls, want refreshed once", res, len(h.creates))
+	}
+	got, err := taskFieldsFromXML(h.creates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	was, _ := taskFieldsFromXML(export)
+	if got.Arguments != was.Arguments+detachArg {
+		t.Errorf("arguments = %q, want %q", got.Arguments, was.Arguments+detachArg)
 	}
 }
 
@@ -214,7 +237,8 @@ func TestSplitTaskArgsRoundTripsServeArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"serve", "--config", opts.ConfigPath, "--data-dir", opts.DataDir,
-		"--listen-host", "tailscale", "--listen-port", "7531", "--log-level", "debug", "--log-format", "json"}
+		"--listen-host", "tailscale", "--listen-port", "7531", "--log-level", "debug", "--log-format", "json",
+		"--" + DetachConsoleFlag}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("split = %q\nwant  %q", got, want)
 	}

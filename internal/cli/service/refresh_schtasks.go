@@ -189,6 +189,11 @@ func recoverTaskOptions(product, existing string) (Options, string, bool) {
 	}
 	for k := 1; k < len(args); k++ {
 		flag := args[k]
+		if flag == "--"+DetachConsoleFlag {
+			// A boolean with no value. serveArgs always writes it, so the
+			// recovered options need no field for it.
+			continue
+		}
 		if k+1 >= len(args) {
 			return Options{}, "carries an argument this binary did not write: " + flag, false
 		}

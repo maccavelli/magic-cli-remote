@@ -189,6 +189,7 @@ func newServeCmd(cfgFile, logLevel, logFormat *string) *cobra.Command {
 		allowLegacyTunnelSecret bool
 		trustedProxies          []string
 		allowPlaintext          bool
+		detachConsole           bool
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -214,6 +215,9 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
   mcrelay serve --tls-cert /etc/ssl/relay.crt --tls-key /etc/ssl/relay.key \
     --allow 'devbox-1:your-long-registration-secret'`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if detachConsole {
+				service.DetachConsole()
+			}
 			fc, err := Load(LoadOptions{
 				ConfigFile: *cfgFile,
 				Flags:      cmd.Flags(),
@@ -324,6 +328,9 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 	fs.BoolVar(&allowLegacyTunnelSecret, "allow-legacy-tunnel-secret", false, "allow registration secret on /v1/tunnel (default false; MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET)")
 	fs.StringArrayVar(&trustedProxies, "trusted-proxy", nil, "trusted reverse-proxy CIDR or IP for XFF (repeatable; MCRELAY_TRUSTED_PROXIES)")
 	fs.BoolVar(&allowPlaintext, "allow-plaintext", false, "permit a non-loopback listen with tls.mode=off (0091 D5; tests/lab only)")
+	// Hidden: only the Windows scheduled task passes it (MADR 0159 D7).
+	fs.BoolVar(&detachConsole, service.DetachConsoleFlag, false, "detach from the console (set by the Windows scheduled task)")
+	_ = fs.MarkHidden(service.DetachConsoleFlag)
 	_ = cfgFile
 	return cmd
 }

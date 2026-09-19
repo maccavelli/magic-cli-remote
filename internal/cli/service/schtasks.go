@@ -208,6 +208,9 @@ func encodeTaskXML(body string) []byte {
 //
 // Quoting: each value is wrapped when it contains a space, because the task
 // engine hands Arguments to the process as one string.
+//
+// The one Windows-only argument is DetachConsoleFlag, last: the task is the
+// only launcher that gives the daemon a console (MADR 0159 D7).
 func serveArgs(opts Options) []string {
 	args := []string{"serve"}
 	add := func(flag, value string) {
@@ -224,8 +227,13 @@ func serveArgs(opts Options) []string {
 	}
 	add("--log-level", opts.LogLevel)
 	add("--log-format", opts.LogFormat)
-	return args
+	return append(args, "--"+DetachConsoleFlag)
 }
+
+// DetachConsoleFlag is the serve flag the task passes so the daemon detaches
+// from the console Windows gives it (MADR 0159 D7). Both products' serve
+// commands register it; only serveArgs writes it.
+const DetachConsoleFlag = "detach-console"
 
 // quoteArg wraps a value containing spaces so the task engine passes it as one
 // argument.

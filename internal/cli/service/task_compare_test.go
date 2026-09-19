@@ -70,13 +70,33 @@ func renderV0174Shape(t *testing.T) string {
 	if !timeTriggerRe.MatchString(body) {
 		t.Fatal("the current render has no TimeTrigger to strip")
 	}
+	if !strings.Contains(body, detachArg+"</Arguments>") {
+		t.Fatal("the current render does not end its arguments with the detach flag")
+	}
+	body = strings.Replace(body, detachArg+"</Arguments>", "</Arguments>", 1)
 	return timeTriggerRe.ReplaceAllString(body, "")
 }
 
+// detachArg is the argument v0.18.1 appended (MADR 0159 D7). Tasks registered
+// by v0.18.0 and earlier do not carry it.
+const detachArg = " --" + DetachConsoleFlag
+
 // currentShapeExport is the fixture as Task Scheduler would export a task
-// registered from the CURRENT render: the watchdog trigger added, with its
-// Enabled omitted as an export omits a default.
+// registered from the CURRENT render: the detach flag appended to the
+// arguments, and the watchdog trigger added, with its Enabled omitted as an
+// export omits a default.
 func currentShapeExport(t *testing.T) string {
+	t.Helper()
+	export := v0180ShapeExport(t)
+	if !strings.Contains(export, "</Arguments>") {
+		t.Fatal("fixture has no Arguments")
+	}
+	return strings.Replace(export, "</Arguments>", detachArg+"</Arguments>", 1)
+}
+
+// v0180ShapeExport is the fixture as v0.18.0 registered it: the watchdog
+// trigger, and no detach flag.
+func v0180ShapeExport(t *testing.T) string {
 	t.Helper()
 	export := loadTaskExportFixture(t)
 	if !strings.Contains(export, "</LogonTrigger>") {
@@ -154,6 +174,7 @@ func TestSameTaskDefinitionDetectsEveryControlledField(t *testing.T) {
 		"watchdog interval": {"<Interval>PT1M</Interval>\r\r\n        <StopAtDurationEnd>", "<Interval>PT5M</Interval>\r\r\n        <StopAtDurationEnd>"},
 		"watchdog boundary": {"<StartBoundary>2000-01-01T00:00:00</StartBoundary>", "<StartBoundary>2026-01-01T00:00:00</StartBoundary>"},
 		"watchdog removed":  {watchdogExportBlock, ""},
+		"detach removed":    {detachArg + "</Arguments>", "</Arguments>"},
 		"disabled":          {"<StartWhenAvailable>true</StartWhenAvailable>", "<StartWhenAvailable>true</StartWhenAvailable><Enabled>false</Enabled>"},
 	}
 	for name, c := range cases {

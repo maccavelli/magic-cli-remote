@@ -74,10 +74,15 @@ mcremote setup-service          # no elevation required
 
 This registers a **Task Scheduler at-logon task** running as you, at
 `LeastPrivilege` (MADR 0116 D12). It is not a Windows Service, and that has
-three consequences worth knowing before you rely on it:
+consequences worth knowing before you rely on it:
 
 - **It starts at logon, not at boot.** There is no unattended operation, and
   `mcrelay` in particular cannot serve a headless Windows server this way.
+- **It runs without a window.** The task passes `serve --detach-console`, so
+  the daemon lets go of the console Windows gives it as it starts (MADR 0159
+  D7). Until the daemon writes its own log file (MADR 0157), its log output is
+  not kept anywhere. To watch it, stop the task and run `mcremote serve` in a
+  terminal.
 - **A stopped or crashed daemon is restarted within about a minute.** The task
   carries a trigger that fires every minute and starts the daemon if it is not
   running (it never starts a second copy). Task Scheduler's own restart-on-
@@ -140,6 +145,15 @@ mcremote setup-service --force
 
 Before MADR 0159, `update` on Windows always rolled back, because the task
 definition could not be refreshed (F1).
+
+**Going back to v0.18.0 or earlier by hand.** A task written by v0.18.1 or
+later passes `--detach-console`, which older binaries reject, so the task
+cannot start them. After installing an older binary yourself, re-register the
+task with it:
+
+```powershell
+mcremote setup-service --force
+```
 
 ## Durability caveat
 

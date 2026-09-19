@@ -14,6 +14,7 @@
       S1  build mcrelay; a private temp config the relay's guard accepts
       S2  setup-service registers the task, with a Windows-only summary
       S3  the task reaches Running, from the temp binary
+      S3b no console host appears when the task starts the daemon (D7)
       S4  --refresh --json reports "unchanged"
       S5  setup-service again, without --force, succeeds (D14 idempotency)
       S6  a killed daemon is relaunched by the watchdog trigger (D5)
@@ -62,6 +63,31 @@ function Get-RelayProcess([string]$dir) {
     # .Count on $null.
     return , @(Get-CimInstance Win32_Process -Filter "Name='mcrelay.exe'" |
             Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) })
+}
+
+# Watch-ConsoleHosts runs $Start, then samples every 50 ms for $Seconds (the
+# MADR 0159 probe-7 method). It returns each console host that appeared: a
+# conhost whose parent is the daemon, or any new OpenConsole or
+# WindowsTerminal, which is where Windows 11 hands a new console.
+function Watch-ConsoleHosts([int]$Seconds, [string]$Dir, [scriptblock]$Start) {
+    $hostFilter = "Name='conhost.exe' or Name='OpenConsole.exe' or Name='WindowsTerminal.exe'"
+    $before = @{}
+    Get-CimInstance Win32_Process -Filter $hostFilter | ForEach-Object { $before[[int]$_.ProcessId] = $true }
+    $seen = @{}
+    & $Start
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+        $daemons = @{}
+        foreach ($d in (Get-RelayProcess $Dir)) { $daemons[[int]$d.ProcessId] = $true }
+        foreach ($p in @(Get-CimInstance Win32_Process -Filter $hostFilter)) {
+            $procId = [int]$p.ProcessId
+            if ($before.ContainsKey($procId) -or $seen.ContainsKey($procId)) { continue }
+            if ($p.Name -eq 'conhost.exe' -and -not $daemons.ContainsKey([int]$p.ParentProcessId)) { continue }
+            $seen[$procId] = $p
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    return , @($seen.Values)
 }
 
 function Wait-Until([int]$Seconds, [scriptblock]$Condition) {
@@ -134,6 +160,17 @@ try {
         if (-not $ok) { throw "state=$(Get-TaskState 'mcrelay') processes=$((Get-RelayProcess $T).Count)" }
     }
 
+    Invoke-Check 'S3b no console host appears at schtasks /run (D7)' {
+        schtasks /end /tn mcrelay | Out-Null
+        if (-not (Wait-Until 10 { (Get-RelayProcess $T).Count -eq 0 })) { throw 'the daemon did not end' }
+        $new = Watch-ConsoleHosts -Seconds 3 -Dir $T -Start { schtasks /run /tn mcrelay | Out-Null }
+        if ($new.Count -gt 0) {
+            throw ('console host(s) appeared: ' + (($new | ForEach-Object { "$($_.Name) pid $($_.ProcessId) parent $($_.ParentProcessId)" }) -join '; '))
+        }
+        $ok = Wait-Until 30 { (Get-TaskState 'mcrelay') -eq 'Running' -and (Get-RelayProcess $T).Count -eq 1 }
+        if (-not $ok) { throw "not running again: state=$(Get-TaskState 'mcrelay') processes=$((Get-RelayProcess $T).Count)" }
+    }
+
     Invoke-Check 'S4 --refresh --json reports unchanged' {
         $json = (& $bin setup-service --refresh --json 2>&1 | Out-String)
         if ($LASTEXITCODE -ne 0) { throw "exit $LASTEXITCODE`n$json" }
@@ -180,7 +217,9 @@ try {
         schtasks /end /tn mcrelay 2>&1 | Out-Null
         Unregister-ScheduledTask -TaskName mcrelay -Confirm:$false -ErrorAction SilentlyContinue
     }
-    Get-RelayProcess $T | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    # foreach, not a pipe: Get-RelayProcess returns its array as one pipeline
+    # object, so $_ would be the array, and an empty one fails under StrictMode.
+    foreach ($r in (Get-RelayProcess $T)) { Stop-Process -Id $r.ProcessId -Force -ErrorAction SilentlyContinue }
     Pop-Location
     Start-Sleep -Milliseconds 500
     Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue

@@ -93,6 +93,15 @@ func TestServeArgsQuotesSpaces(t *testing.T) {
 	}
 }
 
+// TestServeArgsEndWithTheDetachFlag: the task, and only the task, tells the
+// daemon to detach from the console Windows gives it (MADR 0159 D7).
+func TestServeArgsEndWithTheDetachFlag(t *testing.T) {
+	args := serveArgs(windowsOpts())
+	if len(args) == 0 || args[len(args)-1] != "--"+DetachConsoleFlag {
+		t.Errorf("args = %q, want the last to be --%s", args, DetachConsoleFlag)
+	}
+}
+
 // TestSetupSchtasksIdempotent pins contract C2 at the service layer: a second
 // Setup against an identical registered task performs no /create.
 func TestSetupSchtasksIdempotent(t *testing.T) {
