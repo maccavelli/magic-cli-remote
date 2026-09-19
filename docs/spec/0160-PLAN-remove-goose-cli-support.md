@@ -834,4 +834,54 @@ was never pushed. At the owner's direction it was undone with
 Lesson: before committing a docs-only amendment mid-phase, check
 `git diff --cached --name-only`, because `git rm` stages immediately.
 
-**P2–P5 have not run.** A4–A6 pass, so P2 may start.
+P1 was pushed on the owner's instruction; CI run `35414328463` on `445a1d0`
+succeeded.
+
+### P2 (2026-09-18)
+
+Ran at the owner's "push it and execute P2". The pair was amended first (the
+D14 allow-list gains `internal/config/load.go`; P2 scope gains
+`internal/wirecap/fixtures_test.go`), owner-approved, and committed as
+`f5d0a67`. P2 itself is `a7914f4`: 41 files, +97 −102, exactly P2's
+file list.
+
+**Results.**
+
+* `git grep -il goose -- '*.go'` prints exactly `internal/config/load.go`,
+  `internal/config/retired_goose.go` and `internal/config/retired_goose_test.go`.
+* No Go file mentions `acphttp`.
+* The passing-test count is 3300, equal to P1's 3300 at `445a1d0` (A14, C2).
+* `make pre-add-check`: 41 files clean.
+* Windows: `go test` and `-race` each give 40 `ok` and only the baseline
+  failure.
+* Linux (WSL, staged tree): build, vet, `go test` and `-race` each give 41
+  `ok` with no failure, and the 4 template-parity tests pass.
+* `TestCloseAllKeepsSessionsListable` passed 200 of 200 runs with
+  `-count=200`.
+
+**What the plan predicted incorrectly.**
+
+1. **D14 contradicted P1 step 5.** The allow-list excluded `load.go`, but
+   P1 step 5 put the `noteRetiredGoose` call there. The owner chose to extend
+   the list rather than rename the function.
+2. **Step 13's own comment named Goose** ("the Goose one went with MADR
+   0160"). It was reworded, and the file was added to P2's scope.
+3. **"Fixture strings unchanged" contradicted D14.** The captured log line in
+   `agenterr_test.go` carries `"target":"goose_providers::http_status"`. The
+   owner chose to change that one field to `engine_providers::http_status`.
+   The classifier never reads `target`. The message, the payload and every
+   assertion are unchanged, so A13 still exercises the real captured shape.
+4. **`sess-goose` → `sess-second` would have made a test flaky.**
+   `TestCloseAllKeepsSessionsListable` breaks timestamp ties on descending ID
+   and hard-codes `"sess-grok"` as the winner. MADR 0095 F12 measured ties in
+   5 of 30 runs. `"sess-second"` sorts above `"sess-grok"`, so it would win
+   every tie and fail the test. `sess-codex` / `codex-chat` were used instead:
+   like `sess-goose`, they sort below `sess-grok`, and the assertion is
+   untouched.
+5. **Line lists were approximate.** `acpagent/session.go:35` and `:1554`
+   mention `acphttp`, not Goose, and were reworded as the plan intended.
+   `manager_durable_test.go:124` and `:180` were two comments the plan did not
+   name. `stderr_tail_test.go` had three `"goose"` labels. All of these were
+   in P2's files.
+
+**P3–P5 have not run.** P4 can run on this host (Flutter 3.47.2).
