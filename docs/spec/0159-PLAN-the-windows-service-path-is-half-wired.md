@@ -827,4 +827,116 @@ updated rely on its restore path.
 
 ## Execution record
 
-Not yet executed.
+### P1–P11: release 1 code complete (2026-09-19)
+
+The pair was accepted and committed in `3734c4e`. One owner-approved scope
+amendment, for P3, is `e871a9a`. The phase commits:
+
+| Phase | Commit | Result |
+| --- | --- | --- |
+| P1 | `cfa0da0` | `acceptance-windows.ps1` parses (0 errors in 5.1 and 7). A run: every check PASS except `paths --json (C1)` `log_dir` (owned by 0157 P1), as planned. |
+| P2 | `4ec5f70` | The ops page no longer names `MC_WINDOWS_SIGN` at all, which is stricter than the plan's check expected. The 0116 amendment is purely additive (0 lines removed). |
+| P3 | `844a667` | `TestSocketIdentityStable` and the new `TestSocketIdentityOfALiveSocket` PASS, not SKIP. The flags in step 1 worked first time. |
+| P4 | `1340f28` | `TestWriteFileAtomicIsOwnerOnlyInPrivateDir` PASS, so the MADR's [unverified] D12 is now verified. Teeth check: the same test against a non-private directory fails ("readable by another principal"). |
+| P5 | `4abb1d5` | Semantic comparison. The scrubbed v0.17.4 export equals the render once the account is resolved, and 10 field changes are each detected. |
+| P6 | `214a8fe` | The principal comes from the token SID. `USERNAME=bogus` gives the SID. **Live: `setup-service` (no `--force`) exits 0 and reports unchanged, and the task is byte-identical (C3). F19 is fixed on the real task store.** |
+| P7 | `fc81ce2` | Windows summary; `--unit-name` and `--env` refused. The Unix goldens were captured before editing and are unchanged (C5). |
+| P8 | `1379ce5` | `Get-ScheduledTask` state probe. Live `doctor`: present, loaded, active. |
+| P9 | `698f159` | Watchdog trigger; stop = disable + end; start = enable + run. **Live, with the real render and its fixed past boundary: relaunches at 09:21:01, 09:22:01, 09:23:01, and 0 runs in 90 s once disabled.** The MADR's [unverified] D5 boundary is now verified. |
+| P10 | `be5a575` | `--refresh` on Windows, and restore of a refreshed task. Live `--print-only` shows the definition a refresh would register, with the arguments identical to v0.17.4's (C4); the task is unchanged (C3). |
+| P11 | `e5c514f` | `acceptance-windows-service.ps1`: **ALL CHECKS PASSED under PowerShell 7 and 5.1** (S1–S8 plus C3), with nothing left behind. |
+
+Every Go phase ended with the full Stability rule on Windows (`make ci-windows`
+ALL SELECTED CHECKS PASSED, `go test` 41 `ok`, race clean) and in WSL, except
+where noted below. C3 was checked with a before-and-after `cmp` at every live
+step, and the live mcremote task was never modified. C4 holds: the rendered
+`<Arguments>` equal v0.17.4's after P9 and after P10.
+
+**What the plan predicted incorrectly.**
+
+1. **P3's scope.** The signature change reaches `owner_unix.go` and its test.
+   The owner approved this; the amendment is `e871a9a`.
+2. **P5's sequencing.** The plan backed the principal comparison with
+   `windows.LookupSID`, which needs a Windows-only file outside P5's scope.
+   Instead, the comparison seam defaults to a case-insensitive match, and P6
+   renders the principal as the SID, the form Task Scheduler stores, so a live
+   task matches with no lookup. Consequences:
+   * P5's live check refused, as expected, and wrote nothing;
+   * "unchanged" went live in P6;
+   * P5 did not need `schtasks.go`.
+3. **A test that only Linux could catch.** `TestSetupDispatchesToWindows`
+   failed in WSL after P6. Off Windows there is no token to read, so the test
+   must inject the principal seam. This is in P6's scope, and no assertion
+   changed. The Windows run could not show it, because the real token lookup
+   succeeds there. This is the case the WSL half of the Stability rule exists
+   for.
+4. **`setup-service --binary` does not clean its path.** Passing
+   `$LOCALAPPDATA/Programs/...` from Git Bash registers a `Command` with mixed
+   slashes, which then never equals the live task. It works, but it is not
+   byte-identical. Not fixed here (see Deferred).
+5. **P7's refusal test was placed wrongly.** `setup_test.go` is
+   `//go:build unix`, so the test moved to the untagged
+   `result_print_test.go`, where it runs on every platform. The summary also
+   says "registered in Task Scheduler", because on the unchanged path no
+   `/create` runs.
+6. **P8 added `-TaskPath '\'`** to the measured probe, so a same-named task in
+   another folder cannot be matched. Probe 11 did not measure this variant; the
+   live `doctor` run and the real "absent" test prove it.
+7. **P9's tests needed restructuring, not just updating.**
+   * `TestStopMapsToEnd` pinned the old behaviour. It is replaced by
+     `TestStopDisablesThenEnds` (full call sequence; running, ready and absent)
+     plus `TestStartEnablesThenRuns`.
+   * The P5 field test would have become vacuous, because the v0.17.4 base
+     already differed from the new render. It now starts from a simulated
+     current-shape export, and **asserts that base equals the render** before
+     testing each change.
+   * The "watchdog removed" case removes the whole block. Renaming the element
+     would only have caused a parse error.
+8. **P10's expected live output was wrong.** `--refresh --print-only --json`
+   prints the definition the refresh would write, not a JSON verdict. That is
+   the existing behaviour on every platform (`setup_service.go`), where
+   `--print-only` wins. The verdict for this v0.17.4 shape is proven by
+   `TestRefreshSchtasksRefreshesTheV0174Task` against the scrubbed export of
+   this very task. A real, writing refresh ran in P11's S4, against the
+   isolated mcrelay task.
+9. **P11's first run found a bug in the script itself, not in the product.** A
+   PowerShell function returning an empty array unrolls it to `$null`, and
+   under StrictMode `.Count` then throws. It was fixed with `return , @(...)`
+   before commit. The failed run still cleaned up completely (no task, no
+   process, no directories), which exercised the `finally` block.
+10. **A fourth load-sensitive test.**
+    * `internal/ws` `TestV2QuietConnectionSurvivesOnPongs` failed in 2 of about
+      10 full WSL runs, with `read_deadline`.
+    * Alone it passed 5/5, and the package passed 3/3.
+    * `go list -test -deps ./internal/ws` contains no `internal/cli/service`,
+      so no 0159 change can affect it.
+    * The pre-0159 baseline `38078c5` passed 2/2, and the P9 tree passed 3/3
+      more.
+
+    It is not one of the three the Stability rule names. It is recorded here,
+    not waived silently.
+11. **The pipe export is 8-bit text** (MADR 0116 F26). A task path containing
+    non-ASCII characters would therefore reach `sameTaskDefinition` and the
+    refresh backup as mis-decoded bytes. The consequence is **[unverified]**:
+    no non-ASCII path exists on this host. It would show as a harmless
+    "refreshed", and a restore could corrupt the path. See Deferred.
+
+**Not yet done.**
+
+* **Release 1** is an owner action: cut it, then run the manual live update in
+  Rollout.
+* **P12 and P13** wait for release 1 (C4, F18). P13 also waits for MADR 0157
+  P4.
+* The setup summary still says to update with `install.ps1` only; `update`
+  works on Windows only once release 1 is installed. Adding `<product> update`
+  to the Windows summary is a one-line follow-up for P12.
+
+Additional deferred items, found during execution:
+
+* Clean `setup-service --binary` (and `--service-config`) paths with
+  `filepath.Clean` (item 4).
+* Read task exports in a lossless encoding, for example PowerShell
+  `Export-ScheduledTask`, before trusting refresh or restore with non-ASCII
+  paths (item 11).
+* Add `TestV2QuietConnectionSurvivesOnPongs` to the flake ledger's process
+  alongside the other three (item 10).
