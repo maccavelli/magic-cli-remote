@@ -750,4 +750,81 @@ while P3's docs say it is gone.
 
 ## Execution record
 
-Not yet executed.
+### P1 (2026-09-18)
+
+Ran on the Windows host at the owner's "execute 0160 P1". The pair was
+accepted in `bfdd1c0` and amended in `fd9485c` (step 13, F24/D15, owner
+approved mid-phase). P1 itself is commit `9a567bf`: 69 files (41 deleted, 26
+modified, 2 added), +192 −10,203.
+
+**Baseline re-measured** at `293f5bd` before any edit, because `HEAD` had moved
+by docs-only commits. It was unchanged: 42 `ok`, 5 without test files, 1 `FAIL`
+(`TestLoadDisplayNameUnset`).
+
+**Results.**
+
+* A1 holds; the import, symbol and `providers.goose` greps print nothing.
+* `go mod tidy`: no diff.
+* `make pre-add-check`: 24 files clean (gofmt, golint, govulncheck).
+* `staticcheck -checks U1000` on the touched packages: no newly unused code.
+* Windows `go test ./...` and `-race`: 40 `ok` (42 minus the two deleted
+  packages), and only the baseline failure.
+* Linux, in the WSL lane on the staged tree: `go build`, `go vet`,
+  `go test ./...` and `-race` all 41 `ok` with no failure. The 4
+  template-parity tests pass.
+* The seven `RetiredGoose` tests pass.
+* A4–A6 were driven through a built binary. A leftover block exits 0 with
+  `retired_provider_goose` citing 0160, and logs `retired goose settings
+  ignored`. `MCREMOTE_PROVIDERS_GOOSE_ENABLED=true` exits 0 and names the
+  variable. A clean config reports no such diagnostic. A copy of this host's
+  live config exits 0 with the diagnostic, once the copy's permissions were
+  fixed (see below).
+
+**What the plan predicted incorrectly.**
+
+1. **The wire-fixture floor (F24).** `internal/wirecap`
+   `TestCommittedFixturesCarryNoIdentifiers` requires at least 5 fixtures, and
+   the Goose one was the fifth. The inventory searched for the word "goose";
+   this test only counts files. It was fixed by step 13 after the pair was
+   amended and re-approved.
+2. **The template-parity check verifies nothing on Windows.**
+   `template_parity_test.go` is `//go:build unix`, so the P1 verification line
+   printed `[no tests to run]` here. It was run in WSL instead. F18's
+   same-commit rule was right; only the place it is checked was wrong.
+3. **MADR Confirmation §4's live-config step fails on Windows as written.** A
+   `cp` into `mktemp -d` inherits `%TEMP%`'s ACL, which lets other principals
+   (here `CodexSandboxUsers` and an AppContainer SID) read the copy. The copy
+   holds a credential, so MADR 0155's guard refuses to load it (exit 1). The
+   Goose warning had already logged before the refusal. After
+   `icacls <copy> /inheritance:r /grant:r *<own SID>:F` it exits 0 with the
+   diagnostic. The copy was then deleted. For those few seconds a
+   credential-bearing copy was readable by those principals. Any future run
+   must restrict the copy before loading it, or copy it into a private
+   directory.
+4. **Goose text in P1 files that the step list did not name.** Each was fixed
+   in P1, because the file was already in P1's scope:
+   * `provider.go` `:656` and `:664`: two doc comments.
+   * `credstore.go`'s package doc: the `goose configure` probe. It is now
+     reworded to the OpenCode probe alone, citing MADR 0074 §5.
+   * `credstore_test.go` `TestStorePathsRespectXDG`: only its
+     `GooseConfigPath` assertion was removed. The OpenCode assertions stay (C2).
+   * `chunkbuf/provider_mode_test.go`: the header comment's Goose row.
+5. **Smaller count and symbol misses.**
+   * `command/conformance_test.go` builds Goose in **four** provider lists, not
+     two.
+   * `write.go` also lost its `sort` import. The step allowed for that ("if the
+     compiler reports another now-unused import").
+   * `write.go`'s unlisted `gooseKeyringKey` const went with
+     `SetGooseKeyringDisabled`.
+6. **The test helper** is `findDiag`, which returns the diagnostic so tests can
+   check its message, rather than the `hasDiag` the plan named.
+
+**An execution error, not a plan error.** The first commit of the step 13
+amendment (`0a2f3c8`) swept in the 41 `git rm` deletions that step 1 had
+already staged. It was docs plus deletions, and did not compile on its own. It
+was never pushed. At the owner's direction it was undone with
+`git reset --soft HEAD~1`, and the docs were recommitted alone as `fd9485c`.
+Lesson: before committing a docs-only amendment mid-phase, check
+`git diff --cached --name-only`, because `git rm` stages immediately.
+
+**P2–P5 have not run.** A4–A6 pass, so P2 may start.

@@ -938,3 +938,16 @@ Also found by running P1: `internal/cli/service/template_parity_test.go` is
 `//go:build unix`. The parity check that F18 depends on therefore runs only on
 Linux or macOS. On the Windows host `-run 'Template'` reports
 `[no tests to run]`, so the P1 verification must run it in WSL.
+
+## Observed — P1 execution (2026-09-18)
+
+D1–D4, D6, D8, D12 and D15 landed in `9a567bf`. D3 behaved as decided: a
+leftover block, a Goose env variable, and a copy of this host's real
+product-seeded config each load with exit 0 and a `retired_provider_goose`
+diagnostic, and a clean config draws none.
+
+Confirmation §4's `cp "$APPDATA/mcremote/config.yaml" "$T/live-copy.yaml"` does
+not work as written on Windows. The copy inherits `%TEMP%`'s ACL, and MADR
+0155's credential guard then refuses it. Restrict the copy to the owner
+(`icacls … /inheritance:r /grant:r *<SID>:F`) before loading it. See PLAN 0160's
+execution record.
