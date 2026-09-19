@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-19
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -239,6 +239,71 @@ the P1 commit, which brings back the host-dependent failure.
   old baseline. They are history, and are updated or annotated after P1 rather
   than rewritten.
 
-## Execution record
+## Execution record (2026-09-19)
 
-Not yet executed.
+P1 ran on the Windows host after the owner approved. The pair was accepted
+and committed alone in `8930c82`; P1 is `9c66309`, 7 files, +214 −10. The
+MADR's Observed section is `b5ffa1e`.
+
+**Results.**
+
+* Windows, this host, with the live `%APPDATA%\mcremote\config.yaml`
+  (`display_name: mac420-laptop`) in place:
+  * `go test ./...` exits 0 with 41 `ok` (40 before) and **no failures**.
+    `TestLoadDisplayNameUnset` passes for the first time on this host.
+  * **`make ci-windows` exits 0, "ALL SELECTED CHECKS PASSED"**: A3, A2, A4,
+    A5 and A6 all pass. This is the first fully green gate here.
+  * `go test -race` for both packages: `ok`.
+  * `make pre-add-check`: 7 files clean.
+* Linux (WSL, staged tree):
+  * With a planted `$HOME` config for both products: `ok`, `ok` (before: 2
+    failures).
+  * With `MCREMOTE_CONFIG` and `MCRELAY_CONFIG` pointing at the planted
+    files: `ok`, `ok` (before: 3 failures).
+  * An extra check with a stray `MCREMOTE_DISPLAY_NAME=stray`: `ok`.
+  * The full suite gives 41 `ok`, and race is `ok`.
+* A5 has teeth. Reverting only the config call site to `appdirs.SystemRoots`
+  made all three config guards fail, and `TestIsolatedLoadWithNoFileUsesDefaults`
+  named the live `C:\Users\macsm\AppData\Roaming\mcremote\config.yaml`.
+  Reverting the relay call site failed
+  `TestIsolatedRelayLoadReadsOnlyTheIsolatedConfig`. Both files were restored,
+  and the diff was checked before staging.
+* C1 held: each of the 11 config tests gained exactly one line, and the only
+  lines removed were the 2 `XDG_CONFIG_HOME` lines. The relay tests gained one
+  line each and lost their `XDG_CONFIG_HOME` line and its comment.
+
+**What the plan predicted incorrectly.**
+
+1. **Goal 4 overstated the cleanup.** Its "no `XDG_CONFIG_HOME` outside the
+   helpers" wording does not hold for `internal/relay`, which still sets it in
+   `TestRecomputePaths`, in `cli_test.go`'s `runCLI` cases and in
+   `setup_service_refresh_test.go`. None of these reach `Load`'s default
+   search:
+   * `TestRecomputePaths` computes paths and reads no config.
+   * The `cli_test.go` cases pass `--config`, or skip on Windows by design; its
+     comment at `:120-131` already explains why.
+   * The setup-service test runs only where a Unix service manager exists.
+
+   They were left alone. The census that counted 13 tests was right about
+   `Load` calls; the Goal's wording went further than the census.
+2. **The relay guard needed a private directory.** A host entry carries a
+   secret, and the relay's credential guard refuses such a file in a
+   non-private directory. The guard therefore creates the isolated config
+   directory with `appdirs.EnsurePrivateDir`, the same way the existing
+   `privateFixtureDir` does.
+3. **`pre-add-check` failed on a golint warning that was already there.**
+   `relay/fileconfig.go` had `validateLimitsConfig`'s doc line stranded above
+   `ValidateServeable`, the "comment on exported method" warning `make lint`
+   has shown for a while. The repo's pre-add rule bars staging that file with
+   golint output, so the line was moved back above `validateLimitsConfig`.
+   This was within scope, since the file was already in P1.
+4. **My own slips:**
+   * The first write of the relay guard produced an unterminated string (a
+     shell-quoting accident); `go vet` caught it before anything was staged.
+   * A first attempt at this execution record failed on a Python escape. Only
+     the MADR's Observed section was committed then (`b5ffa1e`), and this
+     record followed separately.
+
+**The baseline exception is retired.** MADR 0160's stability rule excused
+`TestLoadDisplayNameUnset` on this host. From `9c66309` on, a failure there is
+a real signal.
