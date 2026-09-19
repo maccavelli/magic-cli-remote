@@ -94,11 +94,18 @@ consequences worth knowing before you rely on it:
 
 - **It starts at logon, not at boot.** There is no unattended operation, and
   `mcrelay` in particular cannot serve a headless Windows server this way.
-- **It runs without a window.** The task passes `serve --detach-console`, so
-  the daemon lets go of the console Windows gives it as it starts (MADR 0159
-  D7). Until the daemon writes its own log file (MADR 0157), its log output is
-  not kept anywhere. To watch it, stop the task and run `mcremote serve` in a
-  terminal.
+- **It runs without a window, and so do the agent CLIs it starts.** The task
+  passes `serve --detach-console`, so the daemon lets go of the console Windows
+  gives it as it starts (MADR 0159 D7). Until the daemon writes its own log file
+  (MADR 0157), its log output is not kept anywhere. To watch it, stop the task
+  and run `mcremote serve` in a terminal.
+
+  In **v0.18.1 only**, that fix moved the window rather than removing it: a
+  process with no console is given a *new* one when it starts a child, so every
+  agent session opened a terminal window, and closing that window killed the
+  session. From v0.19.0 children are started with `CREATE_NO_WINDOW` whenever the
+  daemon has no console, so no window appears anywhere in the tree (MADR 0159
+  F22, F23, D17).
 - **A stopped or crashed daemon is restarted within about a minute.** The task
   carries a trigger that fires every minute and starts the daemon if it is not
   running (it never starts a second copy). Task Scheduler's own restart-on-
@@ -109,6 +116,14 @@ consequences worth knowing before you rely on it:
   Provider process trees still die with it — they are held in a Job Object —
   and a stale admin socket is detected and cleared on the next start. What is
   lost is an orderly hub teardown.
+- **Stopping one session asks the agent CLI to finish first.** The daemon sends
+  `CTRL_BREAK` and escalates to a hard kill only if the tree is still there when
+  the timeout expires. That signal needs a console shared with the child, which a
+  windowless daemon does not have, so from v0.19.0 it briefly attaches to the
+  child's own console to deliver it (MADR 0159 D22). In **v0.18.1 and v0.18.0**
+  this phase failed silently and every provider tree was hard-killed — correct,
+  because the Job Object still collected the tree, but with nothing given a chance
+  to flush (MADR 0159 F24).
 - **`sc.exe create` and NSSM will not work.** These binaries do not call
   `StartServiceCtrlDispatcher`, so the Service Control Manager kills them at
   the start-up timeout. Running them under the SCM is unsupported.
@@ -191,19 +206,44 @@ matters for your deployment, Linux and macOS do not have the gap.
 ## Provider CLIs installed by npm
 
 npm installs a global CLI on Windows as three files: an extensionless shell
-script, `foo.ps1`, and `foo.cmd`. Only the `.cmd` is launchable, and Windows
-requires it to go through `cmd.exe /c`.
+script, `foo.ps1`, and `foo.cmd`. `exec.LookPath` resolves the bare name to the
+`.cmd`.
 
-`mcremote` handles this, but it **refuses** to pass an argument containing a
-character `cmd.exe` would reinterpret — `& | < > ^ % " ( ) !` — because quoting
-is not a reliable defence against delayed expansion. If you hit that error, set
-the provider's `bin` to the real executable rather than the shim:
+**`cmd.exe` is involved whether or not anyone asks for it.** `CreateProcess`
+starts a batch file by spawning the command interpreter implicitly, so the shim's
+arguments are parsed by `cmd.exe` rules — which are not the rules Go's `os/exec`
+escapes for, and Go does not reconcile the two ([golang/go#68313][go68313],
+[#69939][go69939]). This is the [BatBadBut][batbadbut] class, CVE-2024-24576.
+Until v0.19.0 `mcremote` had a guard for it that was never reached, so an
+argument of `a&calc` arrived at a shim as two commands (MADR 0159 F29, F30).
+
+From v0.19.0 `mcremote` runs a shim as `cmd.exe /d /s /v:off /c` with a command
+line it builds and quotes itself: `/d` skips the `AutoRun` registry hook, `/s`
+makes quote handling deterministic, and `/v:off` disables delayed expansion. With
+each argument quoted, `&`, `|`, `<`, `>`, `^`, `!`, `(`, `)` and spaces are passed
+through **literally** — including paths like `C:\Program Files (x86)\tool\x`,
+which the previous rule would have refused.
+
+Four things still cannot be represented, and are **refused** with an error
+naming which one it was: a `%`, because `%VAR%` expands even inside quotes; a
+`"`, because it ends the quoted run and `cmd.exe` honours no escape for it; a
+trailing `\`, because it meets the closing quote and the shim's own consumer
+unescapes the pair; and a line break, because a command line cannot contain one.
+If you hit any of these, set the provider's `bin` to the real executable rather
+than the shim:
 
 ```yaml
 providers:
   codex:
     bin: C:\Users\dev\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.exe
 ```
+
+A native executable — `grok.exe`, or a `bin` pointed at one as above — never goes
+near `cmd.exe` and none of these rules apply to it.
+
+[batbadbut]: https://flatt.tech/research/posts/batbadbut-you-cant-securely-execute-commands-on-windows/
+[go68313]: https://github.com/golang/go/issues/68313
+[go69939]: https://github.com/golang/go/issues/69939
 
 ## Public ports (mcrelay)
 
