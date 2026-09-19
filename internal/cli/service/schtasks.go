@@ -11,7 +11,6 @@ import (
 	"encoding/binary"
 	"encoding/xml"
 	"fmt"
-	"os"
 	"strings"
 	"unicode/utf16"
 )
@@ -92,18 +91,27 @@ type taskDefinition struct {
 // of MADR 0116 D12: this must install and run WITHOUT elevation. A change that
 // makes either of them ask for admin is a regression, and the tests assert
 // both.
+//
+// user is either a SID or an account name. A SID (what currentTaskUser returns
+// in production) is written as the principal, the form Task Scheduler stores,
+// and resolved to DOMAIN\name for the logon trigger and author. An account
+// name is used for all three, which is how tests describe a fixed principal.
 func renderTaskXML(opts Options, user string) (string, error) {
+	principal, account, err := taskPrincipal(user)
+	if err != nil {
+		return "", err
+	}
 	var t taskDefinition
 	t.Version = "1.4"
 	t.Namespace = "http://schemas.microsoft.com/windows/2004/02/mit/task"
 	t.RegistrationInfo.Description = fmt.Sprintf("%s background service (magic-cli-remote)", opts.Product)
-	t.RegistrationInfo.Author = user
+	t.RegistrationInfo.Author = account
 
 	t.Triggers.LogonTrigger.Enabled = true
-	t.Triggers.LogonTrigger.UserID = user
+	t.Triggers.LogonTrigger.UserID = account
 
 	t.Principals.Principal.ID = "Author"
-	t.Principals.Principal.UserID = user
+	t.Principals.Principal.UserID = principal
 	t.Principals.Principal.LogonType = "InteractiveToken"
 	t.Principals.Principal.RunLevel = "LeastPrivilege"
 
@@ -199,12 +207,41 @@ func quoteArg(v string) string {
 	return v
 }
 
-// currentTaskUser returns DOMAIN\user for the calling account.
+// taskPrincipalSID and taskAccountForSID resolve the task principal. They are
+// variables so the Windows branch can be tested on any host.
+var (
+	taskPrincipalSID  = currentTaskPrincipalSID
+	taskAccountForSID = lookupTaskAccount
+)
+
+// currentTaskUser returns the calling process token's user SID, or "" when it
+// cannot be read, which renderTaskXML reports as an error before any schtasks
+// call.
+//
+// It used to read USERDOMAIN and USERNAME, which any shell can override:
+// USERNAME=bogus rendered <UserId>bogus</UserId>, and both empty rendered an
+// empty UserId (MADR 0159 F11, probe 10).
 func currentTaskUser() string {
-	domain := os.Getenv("USERDOMAIN")
-	user := os.Getenv("USERNAME")
-	if domain != "" && user != "" {
-		return domain + `\` + user
+	sid, err := taskPrincipalSID()
+	if err != nil {
+		return ""
 	}
-	return user
+	return sid
+}
+
+// taskPrincipal splits user into the principal UserId and the account name for
+// the logon trigger and author (see renderTaskXML).
+func taskPrincipal(user string) (principal, account string, err error) {
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return "", "", fmt.Errorf("cannot determine the task principal from the process token")
+	}
+	if !strings.HasPrefix(strings.ToUpper(user), "S-1-") {
+		return user, user, nil
+	}
+	account, err = taskAccountForSID(user)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve the task principal: %w", err)
+	}
+	return user, account, nil
 }

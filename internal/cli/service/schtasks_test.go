@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/binary"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -223,6 +224,9 @@ func TestStopMapsToEnd(t *testing.T) {
 func TestSetupDispatchesToWindows(t *testing.T) {
 	restore := OverrideInstallOS("windows")
 	defer restore()
+	// The Windows branch resolves the principal from the process token (MADR
+	// 0159 D8); off Windows there is no token to read, so inject it.
+	withTaskPrincipal(t, "S-1-5-21-7-7-7-1001", nil, `CORP\dev`, nil)
 
 	var sawCreate bool
 	withSchtasks(t, func(args ...string) (string, error) {
@@ -330,5 +334,79 @@ func TestSetupSchtasksWritesUTF16(t *testing.T) {
 	}
 	if got := decodeUTF16LEWithBOM(t, staged); got != body {
 		t.Error("the staged task file does not decode to the rendered definition")
+	}
+}
+
+// withTaskPrincipal injects the token SID and its account lookup, so the
+// production principal path runs on any host.
+func withTaskPrincipal(t *testing.T, sid string, sidErr error, account string, lookupErr error) {
+	t.Helper()
+	prevSID, prevAcct := taskPrincipalSID, taskAccountForSID
+	taskPrincipalSID = func() (string, error) { return sid, sidErr }
+	taskAccountForSID = func(string) (string, error) { return account, lookupErr }
+	t.Cleanup(func() { taskPrincipalSID, taskAccountForSID = prevSID, prevAcct })
+}
+
+// TestRenderTaskXMLPrincipalIsTheTokenSID is MADR 0159 F11's regression test:
+// the principal comes from the process token, so an overridden USERNAME or
+// USERDOMAIN no longer changes the task's owner.
+func TestRenderTaskXMLPrincipalIsTheTokenSID(t *testing.T) {
+	const sid = "S-1-5-21-7-7-7-1001"
+	withTaskPrincipal(t, sid, nil, `CORP\dev`, nil)
+	t.Setenv("USERNAME", "bogus")
+	t.Setenv("USERDOMAIN", "")
+	body, err := renderTaskXML(windowsOpts(), currentTaskUser())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := taskFieldsFromXML(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.PrincipalUser != sid {
+		t.Errorf("principal UserId = %q, want the token SID %q", f.PrincipalUser, sid)
+	}
+	if f.LogonUser != `CORP\dev` {
+		t.Errorf("logon trigger UserId = %q, want the looked-up account", f.LogonUser)
+	}
+	if strings.Contains(body, "bogus") {
+		t.Error("the rendered task carries the overridden USERNAME")
+	}
+}
+
+// TestRenderTaskXMLRefusesAnUnknownPrincipal: an unreadable token or an
+// unresolvable SID is an error, never an empty or guessed UserId.
+func TestRenderTaskXMLRefusesAnUnknownPrincipal(t *testing.T) {
+	t.Run("token unreadable", func(t *testing.T) {
+		withTaskPrincipal(t, "", errors.New("no token"), "", nil)
+		if _, err := renderTaskXML(windowsOpts(), currentTaskUser()); err == nil {
+			t.Fatal("rendered a task with no principal")
+		}
+	})
+	t.Run("sid unresolvable", func(t *testing.T) {
+		withTaskPrincipal(t, "S-1-5-21-7-7-7-1001", nil, "", errors.New("no such account"))
+		if _, err := renderTaskXML(windowsOpts(), currentTaskUser()); err == nil {
+			t.Fatal("rendered a task whose principal could not be resolved")
+		}
+	})
+}
+
+// TestSetupFailsBeforeSchtasksWithoutAPrincipal: when the principal cannot be
+// determined, Setup stops before running schtasks at all.
+func TestSetupFailsBeforeSchtasksWithoutAPrincipal(t *testing.T) {
+	defer OverrideInstallOS("windows")()
+	withTaskPrincipal(t, "", errors.New("no token"), "", nil)
+	var calls int
+	withSchtasks(t, func(args ...string) (string, error) {
+		calls++
+		return "", nil
+	})
+	opts := windowsOpts()
+	opts.PrintOnly = true
+	if _, err := Setup(opts); err == nil {
+		t.Fatal("Setup succeeded with no principal")
+	}
+	if calls != 0 {
+		t.Errorf("schtasks ran %d times before the principal error", calls)
 	}
 }
