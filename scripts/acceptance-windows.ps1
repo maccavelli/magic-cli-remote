@@ -62,7 +62,7 @@ function Assert-SamePath([string]$Got, [string]$Want, [string]$Label) {
     $g = Get-FullPathCI $Got
     $w = Get-FullPathCI $Want
     if (-not $g.Equals($w, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "$Label: got '$g' want '$w'"
+        throw "${Label}: got '$g' want '$w'"
     }
 }
 
