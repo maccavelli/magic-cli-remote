@@ -98,7 +98,6 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 	buf := newLimitedBuffer(limit)
 	cmd.Stdout = buf
 	cmd.Stderr = buf
-	procutil.SetProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
 		// The daemon runs agent terminals itself, under its own OS/TCC
@@ -314,19 +313,19 @@ var _ io.Writer = (*limitedBuffer)(nil)
 func buildTerminalCmd(command string, args []string) *exec.Cmd {
 	command = strings.TrimSpace(command)
 	if len(args) > 0 {
-		return exec.Command(command, args...)
+		return procutil.Command(context.Background(), command, args...)
 	}
 	if command == "" {
-		return exec.Command("/bin/bash", "-lc", "true")
+		return procutil.Command(context.Background(), "/bin/bash", "-lc", "true")
 	}
 	// Single token with no shell metacharacters (e.g. /usr/bin/env or ls) —
 	// run directly. Anything shell-ish ("a|b", "x;y", globs, $vars) must go
 	// through the shell even without whitespace.
 	if !strings.ContainsAny(command, " \t;|&<>$`\\\"'*?[](){}~#\n") {
-		return exec.Command(command)
+		return procutil.Command(context.Background(), command)
 	}
 	// Full shell line: prefer bash -lc so quoting and builtins work.
-	return exec.Command(shellPath(), "-lc", command)
+	return procutil.Command(context.Background(), shellPath(), "-lc", command)
 }
 
 // shellPath resolves bash for shell-line terminals, tolerating hosts where it

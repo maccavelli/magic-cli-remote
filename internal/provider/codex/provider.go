@@ -527,8 +527,7 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 		}
 		return nil, err
 	}
-	cmd := exec.Command(p.cfg.Bin, args...)
-	procutil.SetProcessGroup(cmd)
+	cmd := procutil.Command(context.Background(), p.cfg.Bin, args...)
 	procutil.SetDeathSignal(cmd)
 	// Stamp ownership into the environment (Linux reaping) and registry (cross-platform).
 	engineID := uuid.NewString()
@@ -1083,7 +1082,7 @@ func resolveBinaryIdentity(ctx context.Context, bin, versionHint string) (Binary
 		} else {
 			versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
-			out, versionErr := exec.CommandContext(versionCtx, path, "--version").CombinedOutput()
+			out, versionErr := procutil.Command(versionCtx, path, "--version").CombinedOutput()
 			if versionErr == nil {
 				version = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "codex-cli "))
 			}

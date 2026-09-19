@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os/exec"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -421,9 +420,8 @@ func (p *Provider) Ready() bool {
 // absolute directory that will match the eventual ACP session cwd when the
 // process is reused for a real session — MCP stdio children inherit it.
 func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string) (*session, error) {
-	cmd := exec.Command(p.cfg.Bin, args...)
+	cmd := procutil.Command(context.Background(), p.cfg.Bin, args...)
 	cmd.Dir = procDir
-	procutil.SetProcessGroup(cmd)
 	log := p.log
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

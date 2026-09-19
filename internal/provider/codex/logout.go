@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
@@ -139,12 +138,11 @@ func (p *Provider) verifyLogoutOnClone(ctx context.Context, live string) error {
 func (p *Provider) runLogoutIn(ctx context.Context, home string) error {
 	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, p.cfg.Bin, "logout") //nolint:gosec // bin from provider config
+	cmd := procutil.Command(ctx, p.cfg.Bin, "logout") //nolint:gosec // bin from provider config
 	cmd.Env = append(cmd.Environ(), credstore.CodexHomeEnv(home))
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	procutil.SetProcessGroup(cmd)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("codex logout: %w: %s", err, clipOutput(out.String()))
 	}
@@ -212,13 +210,12 @@ func (p *Provider) SetCredentialCoordinated(ctx context.Context, upstreamID, met
 func (p *Provider) runAPIKeyLoginIn(ctx context.Context, home, secret string) error {
 	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, p.cfg.Bin, "login", "--with-api-key") //nolint:gosec // bin from provider config
+	cmd := procutil.Command(ctx, p.cfg.Bin, "login", "--with-api-key") //nolint:gosec // bin from provider config
 	cmd.Env = append(cmd.Environ(), credstore.CodexHomeEnv(home))
 	cmd.Stdin = strings.NewReader(secret)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	procutil.SetProcessGroup(cmd)
 	if err := cmd.Run(); err != nil {
 		// The CLI echoes prompts rather than the key, but clip anyway rather
 		// than forward an unbounded child's output.

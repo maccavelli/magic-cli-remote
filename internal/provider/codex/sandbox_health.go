@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
 // sandboxHealthReason classifies Linux workspace-write sandbox viability
@@ -115,7 +115,7 @@ func probeSandboxHealthGOOS(ctx context.Context, bin, goos string) sandboxHealth
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	// #nosec G204 — bin is operator config; args are fixed.
-	cmd := exec.CommandContext(ctx, bin, "sandbox",
+	cmd := procutil.Command(ctx, bin, "sandbox",
 		"-c", `sandbox_mode="workspace-write"`,
 		"--", "/bin/sh", "-c", `echo ok > "$1"`, "_", probeFile,
 	)

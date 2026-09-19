@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"regexp"
 	"sort"
 	"strings"
@@ -305,7 +305,7 @@ func (w boundedDoctorStream) Write(p []byte) (int, error) {
 }
 
 func runDoctorCommand(ctx context.Context, bin string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := procutil.Command(ctx, bin, args...)
 	output := &boundedDoctorOutput{}
 	cmd.Stdout = boundedDoctorStream{output: output, stdout: true}
 	cmd.Stderr = boundedDoctorStream{output: output}

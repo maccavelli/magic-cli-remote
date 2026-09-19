@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -53,7 +53,7 @@ func (e ExecRefresher) RefreshUnit(product, binary string) (UnitRefresh, error) 
 	defer cancel()
 
 	// #nosec G204 — binary is the path this process just verified and installed.
-	cmd := exec.CommandContext(ctx, binary, "setup-service", "--refresh", "--json")
+	cmd := procutil.Command(ctx, binary, "setup-service", "--refresh", "--json")
 	cmd.Env = withUserRuntimeEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

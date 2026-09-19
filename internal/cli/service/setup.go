@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 )
 
@@ -537,7 +538,7 @@ func setupLaunchdAgent(opts Options, body string, res Result) (Result, error) {
 func launchdLastExitNote(svc string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "launchctl", "print", svc)
+	cmd := procutil.Command(ctx, "launchctl", "print", svc)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return ""
@@ -577,7 +578,7 @@ func lintPlist(path string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "plutil", "-lint", path)
+	cmd := procutil.Command(ctx, "plutil", "-lint", path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("plutil -lint %s failed: %w (%s)", path, err, strings.TrimSpace(string(out)))
@@ -711,7 +712,7 @@ func preflightLinux() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "systemctl", "--user", "is-system-running")
+	cmd := procutil.Command(ctx, "systemctl", "--user", "is-system-running")
 	cmd.Env = withUserRuntimeEnv(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil && strings.Contains(strings.ToLower(string(out)), "connect to bus") {
@@ -1212,7 +1213,7 @@ func runCmd(name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := procutil.Command(ctx, name, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 	cmd.Env = withUserRuntimeEnv(os.Environ())
@@ -1232,7 +1233,7 @@ func runCmdOutput(name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	var buf bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := procutil.Command(ctx, name, args...)
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	cmd.Env = withUserRuntimeEnv(os.Environ())

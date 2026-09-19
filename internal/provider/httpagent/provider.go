@@ -499,9 +499,8 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command(p.cfg.Bin, p.dialect.ServeArgs(port)...)
-	procutil.SetProcessGroup(cmd)
-	// Process supervision: SetProcessGroup places the engine in its own group;
+	cmd := procutil.Command(context.Background(), p.cfg.Bin, p.dialect.ServeArgs(port)...)
+	// Process supervision: procutil.Command places the engine in its own group;
 	// SetDeathSignal (Linux Pdeathsig) SIGKILLs the engine if the daemon dies
 	// un-gracefully; TerminateProcessGroup sends SIGTERM-then-SIGKILL to the group
 	// on normal teardown. Residual gap: if the daemon is killed with SIGKILL,

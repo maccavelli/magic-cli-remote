@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -176,12 +175,11 @@ func (a *CredentialAdapter) Probe(ctx context.Context, home string) error {
 	ctx, cancel := context.WithTimeout(ctx, codexProbeTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, a.bin, "login", "status") //nolint:gosec // bin from provider config
+	cmd := procutil.Command(ctx, a.bin, "login", "status") //nolint:gosec // bin from provider config
 	cmd.Env = append(cmd.Environ(), credstore.CodexHomeEnv(home))
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	procutil.SetProcessGroup(cmd)
 	if err := cmd.Run(); err != nil {
 		// Child output can echo account detail, so it is not quoted here.
 		return fmt.Errorf("codex login status failed in the isolated home: %w", err)

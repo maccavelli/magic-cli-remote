@@ -91,12 +91,12 @@ func StartCLIDeviceFlow(
 	scanTimeout time.Duration,
 	extraEnv []string,
 ) (cls Classification, flow *CLIFlow, err error) {
-	cmd := exec.Command(bin, args...) //nolint:gosec // bin comes from provider config
-	// The npm-shim agents (codex) exec a vendored binary as a grandchild that
-	// survives a plain Kill of the shim — observed 2026-08-10, where a
-	// cancelled probe left the real process running. Grouping is what makes
-	// cancellation actually work.
-	procutil.SetProcessGroup(cmd)
+	// procutil.Command puts the CLI in its own process group. The npm-shim
+	// agents (codex) exec a vendored binary as a grandchild that survives a
+	// plain Kill of the shim — observed 2026-08-10, where a cancelled probe left
+	// the real process running. Grouping is what makes cancellation actually
+	// work.
+	cmd := procutil.Command(context.Background(), bin, args...) //nolint:gosec // bin comes from provider config
 	procutil.SetDeathSignal(cmd)
 	applyExtraEnv(cmd, extraEnv)
 
@@ -123,7 +123,7 @@ func StartCLIDeviceFlow(
 	_ = pw.Close()
 	// Bind the CLI's descendants to a job object so they die with it
 	// (MADR 0150 D2). This is the site the grandchild problem was first
-	// observed at — see the SetProcessGroup comment above — and on Windows the
+	// observed at — see the procutil.Command comment above — and on Windows the
 	// group is not what reaches them. A failure to supervise fails the flow
 	// rather than starting an auth CLI whose tree is unreachable (0150 C4).
 	release, superviseErr := procutil.SuperviseStarted(cmd.Process)

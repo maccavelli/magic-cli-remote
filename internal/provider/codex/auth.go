@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -41,12 +40,11 @@ func (p *Provider) SetCredential(ctx context.Context, upstreamID, methodID, secr
 	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, p.cfg.Bin, "login", "--with-api-key")
+	cmd := procutil.Command(ctx, p.cfg.Bin, "login", "--with-api-key")
 	cmd.Stdin = strings.NewReader(secret)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	procutil.SetProcessGroup(cmd)
 	if err := cmd.Run(); err != nil {
 		// The CLI echoes prompts, not the key, but clip anyway rather than
 		// forward an unbounded child's output into an error string.
@@ -66,11 +64,10 @@ func (p *Provider) ClearCredential(ctx context.Context, upstreamID string) error
 	}
 	ctx, cancel := context.WithTimeout(ctx, codexLoginTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, p.cfg.Bin, "logout")
+	cmd := procutil.Command(ctx, p.cfg.Bin, "logout")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	procutil.SetProcessGroup(cmd)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("codex logout: %w: %s", err, clipOutput(out.String()))
 	}

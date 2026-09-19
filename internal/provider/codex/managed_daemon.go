@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -93,7 +93,7 @@ func validateManagedLease(out daemonLifecycle, identity BinaryIdentity) (*manage
 type daemonLifecycleRunner func(context.Context, string, string) (daemonLifecycle, error)
 
 func runDaemonLifecycle(ctx context.Context, bin, operation string) (daemonLifecycle, error) {
-	cmd := exec.CommandContext(ctx, bin, "app-server", "daemon", operation)
+	cmd := procutil.Command(ctx, bin, "app-server", "daemon", operation)
 	raw, err := cmd.Output()
 	if err != nil {
 		return daemonLifecycle{}, fmt.Errorf("codex app-server daemon %s: %w", operation, err)

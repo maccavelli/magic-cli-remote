@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"sync"
 	"time"
 
@@ -132,11 +131,10 @@ func detectedReality() (StoreReality, error) {
 func probeDoctorAuth(ctx context.Context, bin string) (authCredentials, error) {
 	ctx, cancel := context.WithTimeout(ctx, providerauth.ProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "doctor", "--json") //nolint:gosec // bin from provider config
+	cmd := procutil.Command(ctx, bin, "doctor", "--json") //nolint:gosec // bin from provider config
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = nil
-	procutil.SetProcessGroup(cmd)
 	// A non-zero exit is not fatal: doctor exits non-zero when it finds
 	// problems, which is exactly when this classification matters. The report
 	// is what decides, so only an unparseable one is a failure.

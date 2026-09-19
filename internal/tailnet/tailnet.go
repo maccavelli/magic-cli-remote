@@ -7,6 +7,7 @@ package tailnet
 
 import (
 	"context"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"os/exec"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ const detectTimeout = 5 * time.Second
 // It is a variable so tests can stub the detection without a tailnet.
 var IPv4 = detectIPv4
 var execCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, name, args...)
+	return procutil.Command(ctx, name, args...)
 }
 
 func detectIPv4() string {
