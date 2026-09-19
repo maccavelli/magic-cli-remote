@@ -4,6 +4,7 @@
 package procutil
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,85 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+// GetConsoleProcessList is not in x/sys/windows v0.47.0, unlike
+// GenerateConsoleCtrlEvent and the CREATE_* flags, so it is declared here — the
+// same NewLazySystemDLL idiom internal/cli/service/detach_windows.go uses for
+// FreeConsole (MADR 0159 F36).
+var procGetConsoleProcessList = windows.NewLazySystemDLL("kernel32.dll").
+	NewProc("GetConsoleProcessList")
+
+// hasConsole reports whether this process is attached to a console.
+//
+// The test is GetConsoleProcessList and deliberately NOT GetConsoleWindow: a
+// process hosted by a pseudoconsole — Windows Terminal, VS Code, mintty — has a
+// real console and no console *window*, so GetConsoleWindow returns 0 for it
+// (measured, MADR 0159 D17). Deciding by window would therefore treat every
+// modern terminal as console-less, which is precisely the case that must be
+// left alone.
+//
+// GetConsoleProcessList fails, returning 0, when the caller has no console; it
+// returns the required count when the buffer is too small, so a one-element
+// buffer is enough to ask the question.
+func hasConsole() bool {
+	var one uint32
+	n, _, _ := procGetConsoleProcessList.Call(uintptr(unsafePointer(&one)), 1)
+	return n != 0
+}
+
+// consoleCached holds the answer [hasConsole] gave, because the question is
+// asked far more often than it changes.
+//
+// Caching is not an optimisation, it is correctness. A daemon's console state
+// changes exactly once, when `serve --detach-console` drops it at start-up
+// (MADR 0159 D7). Meanwhile [TerminateProcessGroup] borrows a child's console
+// for the length of one signal (0159 D22), and during that borrow a live
+// GetConsoleProcessList would answer "yes, there is a console" — so a child
+// started by another goroutine in that window would be denied CREATE_NO_WINDOW
+// and inherit a console belonging to an unrelated provider. The cache cannot
+// observe the borrow.
+var (
+	consoleStateMu sync.Mutex
+	consoleCached  *bool
+)
+
+// consoleState returns the cached [hasConsole] answer, taking it once.
+func consoleState() bool {
+	consoleStateMu.Lock()
+	defer consoleStateMu.Unlock()
+	if consoleCached == nil {
+		v := hasConsole()
+		consoleCached = &v
+	}
+	return *consoleCached
+}
+
+// creationFlags returns the CreateProcess flags a child is started with.
+//
+// CREATE_NEW_PROCESS_GROUP always, so CTRL_BREAK can be addressed to the child
+// alone ([SetProcessGroup]). CREATE_NO_WINDOW only when this process has no
+// console, because that is the case in which Windows would otherwise give the
+// child a fresh console *with a visible window* (MADR 0159 F22/F25). When this
+// process does have a console the child inherits it, no window is created, and
+// CTRL_BREAK remains deliverable directly — so adding the flag there would buy
+// nothing and would cost the graceful stop on the interactive path (0159 D17).
+func creationFlags(hasConsole bool) uint32 {
+	flags := uint32(windows.CREATE_NEW_PROCESS_GROUP)
+	if !hasConsole {
+		flags |= windows.CREATE_NO_WINDOW
+	}
+	return flags
+}
+
+// newCommand implements [Command].
+func newCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= creationFlags(consoleState())
+	return cmd
+}
 
 // SetProcessGroup configures cmd so it starts in a new process group.
 //

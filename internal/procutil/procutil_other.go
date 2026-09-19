@@ -3,10 +3,20 @@
 package procutil
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"time"
 )
+
+// newCommand implements [Command]. On this residual set of platforms it is
+// exec.CommandContext and nothing else, for the same reason the rest of this
+// file is: there is no process group to join and no console to hide.
+func newCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	SetProcessGroup(cmd)
+	return cmd
+}
 
 // SetProcessGroup is a no-op on platforms with neither process groups nor
 // job objects (js/wasm, plan9). Unix uses setpgid; Windows uses a Job Object

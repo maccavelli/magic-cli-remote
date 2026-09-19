@@ -4,11 +4,21 @@
 package procutil
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"syscall"
 	"time"
 )
+
+// newCommand implements [Command]. On Unix there is nothing to decide: a child
+// inherits the terminal it was given, and no platform flag hides a window that
+// does not exist.
+func newCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	SetProcessGroup(cmd)
+	return cmd
+}
 
 // SetProcessGroup configures cmd so it starts in a new process group.
 // KillProcessGroup can then signal the whole tree (bash -lc children, etc.).
