@@ -183,3 +183,10 @@ git diff --name-only HEAD~1 -- ':!docs/spec'
 ### Open questions for the plan
 
 None.
+
+## Observed — execution results (2026-09-18)
+
+D1 and D2 landed verbatim in `7c4479b`; D3 held, with `pubspec.yaml` and the
+root README untouched. Confirmation §1–§4 passed as written. The only surprise
+is the one recorded in PLAN 0161's execution record: the existing MD013 finding
+moved from line 50 to line 52.

@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-18
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -135,6 +135,25 @@ Docs only; nothing ships. Rollback is `git revert` of the P1 commit.
   `FLUTTER_VERSION` would end the repetition that MADR Bad-consequence names.
   It is not worth tooling for four lines yet.
 
-## Execution record
+## Execution record (2026-09-18)
 
-Not yet executed.
+P1 ran on the Windows host at the owner's "proceed", in one commit, `7c4479b`,
+touching exactly `apps/mobile/README.md` and `docs/mobile-profiling.md`
+(2 files, +5 −2). This pair was committed before it in `5b0153b`, together with
+the 0159 and 0160 record revisions at the owner's request. That commit held
+only files under `docs/spec`, so the bootstrap exception held.
+
+Results: §1 printed nothing; §2 printed two lines, one per file; §3 counted 1;
+§4 listed the two files. A1–A4 met.
+
+What the plan predicted incorrectly:
+
+* **The lint baseline's line number moved.** The finding cited as
+  `apps/mobile/README.md:50` MD013 reported at line 52 after P1, because D1
+  replaces one line with three. The count check (§3) was unaffected. The
+  location in the Goal, C3 and the MADR's evidence was not. A baseline pinned to
+  a line number in a file the plan edits should be stated as a count, or by
+  the text of the offending line.
+* Nothing else. `markdownlint-cli2` lints the whole tree from its config's
+  `globs` whatever paths are passed, which is why §3 filters by file name. That
+  had been measured before the plan was written.
