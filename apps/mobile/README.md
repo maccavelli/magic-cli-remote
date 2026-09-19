@@ -6,7 +6,7 @@ target**; a Linux desktop target is included for local development.
 ## Features
 
 - Connect via **Enter code** (8-char, 5 min), QR scan, or long-lived token
-- Session list / create with provider picker (**grok**, **opencode**, **goose**, **codex**, **fake** — as the daemon reports ready)
+- Session list / create with provider picker (**grok**, **opencode**, **codex**, **fake** — as the daemon reports ready)
 - Model catalog, model-provider scope, thinking levels, and session modes (including auto-approve / dangerous modes when offered)
 - Live chat stream (thoughts, tools, assistant text, questions)
 - **In-session transcript** survives navigating away from chat, with daemon-history replay and a bounded best-effort phone cache

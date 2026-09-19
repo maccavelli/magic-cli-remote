@@ -178,7 +178,7 @@ not select it for you.
 
 ---
 
-**Current product surface:** Grok Build ACP, OpenCode, Goose,
+**Current product surface:** Grok Build ACP, OpenCode,
 Codex, Kilo, and Fake providers; remote tool permissions; session modes / model
 catalogs / thinking levels; stream coalescing; protocol v2 reconnect/resume;
 native path layout per platform — XDG on Linux/macOS, Known Folders on
@@ -202,7 +202,7 @@ Module: `github.com/maccavelli/magic-cli-remote`
   │  HTTP: GET /healthz, GET /v1/hello, GET /v1/ws  │
   │  auth (device token + optional client TLS key)  │
   │  session manager + event bus + history ring     │
-  │  providers: grok | goose | opencode | codex | kilo | fake │
+  │  providers: grok, opencode, codex, kilo, fake   │
   │  admin.sock (local Unix, pair-revoke kick)      │
   └───────────┬─────────────┬───────────────────────┘
               │             │ optional outbound
@@ -211,7 +211,7 @@ Module: `github.com/maccavelli/magic-cli-remote`
               │        register / join / splice
               ▼
      agent engines (shared processes where applicable)
-       grok agent stdio · goose serve · opencode serve · codex app-server · kilo serve
+       grok agent stdio · opencode serve · codex app-server · kilo serve
 ```
 
 Design spine: [docs/spec/0001-MADR-architecture-mcremote.md](docs/spec/0001-MADR-architecture-mcremote.md),
@@ -232,7 +232,7 @@ and [docs/spec/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/spec/0
 - For `setup-service`: Linux **systemd --user**, macOS **launchd** user
   LaunchAgent, or Windows **Task Scheduler** at-logon task (no sudo, no
   elevation, on any of the three)
-- Provider binaries on `PATH` as needed: `grok`, `opencode`, `goose`, `codex`,
+- Provider binaries on `PATH` as needed: `grok`, `opencode`, `codex`,
   `kilo` (enabled providers missing a binary are listed as not ready; daemon
   still starts)
 - Flutter companion: **Flutter 3.47.x** / **Dart ≥ 3.13.2** (CI pins Flutter **3.47.2**)
@@ -575,7 +575,7 @@ mcremote completion bash|zsh|fish|powershell
 | `pair list` / `pair revoke` | Manage devices |
 | `pair prune` | Remove stale (`--stale`) or keyless (`--keyless`) devices |
 | `setup-service` / `--setup-service` | Install background service + start (Linux systemd --user / macOS launchd agent; `--remove` to uninstall) |
-| `engines` | List agent engine processes (`goose`/`opencode`/`kilo` `serve`, `codex app-server`) and whether their owning daemon is alive (`--reap` to stop orphans) |
+| `engines` | List agent engine processes (`opencode`/`kilo` `serve`, `codex app-server`) and whether their owning daemon is alive (`--reap` to stop orphans) |
 | `paths` | Print the resolved XDG layout — config, data, state, cache, runtime, admin socket, engine registry, log dir (`--json` for machine-readable). Read-only: creates nothing |
 | `receipts list` / `verify` / `show` | Inspect and verify signed permission-decision receipts (opt-in, see [Signed receipts](#signed-receipts)) |
 | `version` / `--version` | Print version |
@@ -749,7 +749,6 @@ Precedence: **CLI flags > environment > config file > defaults**.
 |----------|---------|-----------|-------|
 | `fake` | `enabled: false` | stdio | Dev/smoke only |
 | `grok` | `enabled: true` | stdio (`grok agent --no-leader stdio`) | ACP; remote permissions via WebSocket; optional prewarm |
-| `goose` | `enabled: true` | ACP over WebSocket (HTTP transport) | One shared `goose serve` engine; no prewarm |
 | `opencode` | `enabled: true` | HTTP + SSE | One shared `opencode serve` engine; multi-agent session tree (MADR 0020 KD11) |
 | `codex` | `enabled: true` | app-server JSON-RPC over stdio (`codex app-server --listen stdio://`) | One shared app-server engine; approval policy and sandbox mode are configurable |
 | `kilo` | `enabled: true` | HTTP + SSE | One shared `kilo serve` engine, same architecture as OpenCode but a distinct dialect (MADR 0075) |
@@ -784,7 +783,7 @@ Environment equivalents are
 | File | Use |
 |------|-----|
 | [configs/config.example.yaml](configs/config.example.yaml) | Dev / localhost defaults (every key annotated) |
-| [configs/config.mesh-grok.yaml](configs/config.mesh-grok.yaml) | Mesh + Grok + OpenCode + Goose (+ other agents) |
+| [configs/config.mesh-grok.yaml](configs/config.mesh-grok.yaml) | Mesh + Grok + OpenCode (+ other agents) |
 | [configs/config.prod.example.yaml](configs/config.prod.example.yaml) | Production-oriented |
 | [internal/cli/service/defaults_mcremote.yaml](internal/cli/service/defaults_mcremote.yaml) | Written by `setup-service` when config is missing |
 
@@ -805,7 +804,6 @@ the full defaults table and env map.
 | `pair` | `advertise_host` |
 | `providers.fake` | `enabled` |
 | `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `reasoning_effort`, `permission_mode`, `allowed_tools`, `disallowed_tools`, `allow_rules`, `deny_rules`, `no_subagents`, `disable_web_search`, `sandbox`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `fs_roots`, `auth_method_id`, `mcp_servers` |
-| `providers.goose` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm` (default `false`), `turn_stall_notice_seconds`, `stream_coalesce_ms`, `auth_method_id`, `with_builtins`, `mcp_servers` |
 | `providers.opencode` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree`, `pure` |
 | `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access` |
 | `providers.kilo` | `enabled` (default `true`), `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` (default `false`), `pure` |
@@ -815,7 +813,7 @@ the full defaults table and env map.
 
 ### Stream coalescing
 
-`grok`, `goose`, `opencode`, `codex`, and `kilo` support `stream_coalesce_ms`
+`grok`, `opencode`, `codex`, and `kilo` support `stream_coalesce_ms`
 (default `80`) — hold assistant/thought text this long so it ships as one event instead
 of one per model token, capping mid-stream updates at ~12/s. The first chunk of
 a reply and the tail before any control event are never delayed. `0` disables
@@ -850,7 +848,7 @@ overrides this at runtime.
 
 ### MCP servers
 
-Providers `grok` and `goose` support an `mcp_servers` list that advertises extra
+The `grok` provider supports an `mcp_servers` list that advertises extra
 tools/context to the agent. Each entry is forwarded only if the agent advertises
 the matching transport (`mcpCapabilities.http` or `mcpCapabilities.sse`):
 
@@ -960,35 +958,6 @@ app (MADR 0044 / 0049), distinct from config `always_approve`.
 Some tool allow/deny flags are **measured no-ops for remote sessions** — see
 notes in [docs/config.md](docs/config.md). Prefer `permission_mode`, session
 modes, or `sandbox` for real policy.
-
----
-
-## Provider: Goose
-
-Goose (block.github.io) is driven through one shared `goose serve` engine using
-ACP over WebSocket. Pick it per session from the phone's provider menu. No
-per-session process — the engine handles all sessions.
-
-```json
-{ "v":1, "type":"session.create", "id":"2",
-  "payload": { "provider":"goose", "name":"task", "cwd":"/path/to/repo" } }
-```
-
-| Setting | Description |
-|---------|-------------|
-| `bin` | `goose` executable path (default: `goose` on `PATH`) |
-| `always_approve` | Skip remote permission prompts |
-| `default_cwd` | Default working directory for sessions (empty = daemon user's home) |
-| `model` | Model selection (empty = Goose's own default) |
-| `permission_timeout_seconds` | How long a remote permission request waits (0 = wait forever) |
-| `prewarm` | Default `false` — starts `goose serve` on first use; set `true` to boot at daemon start |
-| `turn_stall_notice_seconds` | Notice when a running turn produces no output (0 = off) |
-| `stream_coalesce_ms` | Hold streamed text (default 80); 0 = one per token; max 1000 |
-| `auth_method_id` | ACP auth method (advertised at initialize; session/new works without it) |
-| `with_builtins` | Named Goose built-ins to enable on the shared engine (typed list, not free-form argv) |
-| `mcp_servers` | Extra MCP tools/context (config-file only) |
-
-Design: [docs/spec/0025-MADR-goose-provider.md](docs/spec/0025-MADR-goose-provider.md).
 
 ---
 
@@ -1142,14 +1111,14 @@ Design: [docs/spec/0075-MADR-kilo-cli-provider.md](docs/spec/0075-MADR-kilo-cli-
   *providers* such as anthropic/openai, distinct from agent CLI providers).
   Options may advertise `thinking_levels`.
 - **Thinking / reasoning** (`thinking_level` on create, `/thinking`): next-turn
-  on Codex; spawn-scoped on Grok; absent for OpenCode/Goose when unsupported
+  on Codex; spawn-scoped on Grok; absent for OpenCode when unsupported
   ([MADR 0052](docs/spec/0052-MADR-thinking-levels-and-settings.md)).
 
 ---
 
 ## `mcremote engines` — engine lifecycle
 
-`goose serve`, `opencode serve`, `kilo serve`, and `codex app-server` engines
+`opencode serve`, `kilo serve`, and `codex app-server` engines
 are shared processes spawned by the daemon. Use `mcremote engines` to inspect
 them:
 
@@ -1382,7 +1351,7 @@ docs: [apps/mobile/README.md](apps/mobile/README.md).
 - Pairing: 8-char code, QR (`mcremote://pair…`), long-lived token
 - TLS modes: pin-only (self-signed), chain-or-pin (Let's Encrypt), cleartext
   rejected on Android
-- Provider picker: grok / opencode / goose / codex / kilo / fake (as advertised ready)
+- Provider picker: grok / opencode / codex / kilo / fake (as advertised ready)
 - Model catalog + model-provider scope + thinking levels
 - Session modes (including dangerous/auto-approve where the daemon offers them)
 - Live chat: thoughts, tools, assistant text, permissions, questions
@@ -1489,7 +1458,6 @@ make live-codex
 # → go test -tags live_codex ./internal/provider/codex/
 # Additional live tags (no make shorthand yet):
 #   go test -tags live_grok  ./internal/provider/grok/  -count=1 -timeout 600s -v
-#   go test -tags live_goose ./internal/provider/goose/ -count=1 -timeout 600s -v
 #   go test -tags live_kilo  ./internal/provider/kilo/  -count=1 -timeout 600s -v
 
 # Android runtime profiling (physical device / emulator + DevTools)
@@ -1509,7 +1477,7 @@ internal/
   daemon/       # serve lifecycle, TLS ensure
   ws/           # protocol-v1 WebSocket server
   session/      # session manager
-  provider/     # grok, goose, opencode, codex, kilo, fake, ACP helpers
+  provider/     # grok, opencode, codex, kilo, fake, ACP helpers
   auth/         # devices, pair codes, tokens
   relay/        # mcrelay server
   relayhost/    # mcremote → mcrelay client
@@ -1561,7 +1529,7 @@ Language/style guides live under `docs/standards/`.
 | [docs/spec/0020-MADR-opencode-session-tree.md](docs/spec/0020-MADR-opencode-session-tree.md) | OpenCode multi-agent session tree |
 | [docs/spec/0023-MADR-canonical-slash-commands.md](docs/spec/0023-MADR-canonical-slash-commands.md) | Canonical slash commands |
 | [docs/spec/0024-MADR-stream-coalescing.md](docs/spec/0024-MADR-stream-coalescing.md) | Stream text coalescing |
-| [docs/spec/0025-MADR-goose-provider.md](docs/spec/0025-MADR-goose-provider.md) | Goose provider |
+| [docs/spec/0160-MADR-remove-goose-cli-support.md](docs/spec/0160-MADR-remove-goose-cli-support.md) | Goose provider removed (supersedes 0025) |
 | [docs/spec/0028-MADR-codex-provider.md](docs/spec/0028-MADR-codex-provider.md) | Codex provider |
 | [docs/spec/0044-MADR-auto-approve-modes.md](docs/spec/0044-MADR-auto-approve-modes.md) | Auto-approve as session modes |
 | [docs/spec/0047-MADR-codex-default-mode.md](docs/spec/0047-MADR-codex-default-mode.md) | Codex default session mode |

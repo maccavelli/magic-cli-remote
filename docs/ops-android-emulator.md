@@ -135,7 +135,7 @@ Restore the stock scene afterwards with
   display); semantic status chips with `Active` as its own pill; and
   confirm-before-remove, cancelled without deleting.
 * MADR 0083 D4, the clearest result — two catalogs, same UI, correctly
-  different: goose reads *"Offline catalog · 73 vendors · list pinned to a
+  different: an offline agent (since removed, MADR 0160) reads *"Offline catalog · 73 vendors · list pinned to a
   known CLI version"* with greyed **"Host only · keyring"** rows, while
   opencode reads *"Live catalog · showing 100 of 184"* with enabled rows and
   "API key" / "Device code" method chips. The 184 count and 100-per-page match

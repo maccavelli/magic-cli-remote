@@ -356,20 +356,20 @@ denies transport access rather than merely a bearer secret.
 }
 ```
 
-- `provider`: `fake`, `grok`, `opencode`, `goose`, or `codex` (see
+- `provider`: `fake`, `grok`, `opencode`, `kilo`, or `codex` (see
   `providers.list` for what the host actually offers — registration does not
   imply the binary is installed)
 - `model`: optional agent model for this session. Grok takes a model name
   (`-m` flag); opencode a `provider/model` id (e.g.
   `anthropic/claude-sonnet-4-5`) applied via its ACP "model" config option;
   codex a model name sent on each `turn/start`, so a mid-session change through
-  `/model` takes effect from the next turn and keeps the thread; goose uses the
-  engine default. Empty uses the provider default. Prefer values from
+  `/model` takes effect from the next turn and keeps the thread. Empty uses the
+  provider default. Prefer values from
   `models.list`.
 - `thinking_level`: optional reasoning/thinking effort for this session (e.g.
   `low`, `high`). Empty means the provider default. Codex sends it as
   `turn/start.effort` and can change it mid-session via `/thinking`; grok
-  applies it only as `--reasoning-effort` at spawn. OpenCode and goose ignore
+  applies it only as `--reasoning-effort` at spawn. OpenCode ignores
   it (no selectable ladder). Prefer values from each model's `thinking_levels`
   on `models.list` (MADR 0052).
 - `agent`: optional OpenCode agent name (e.g. `build`, `plan`) sent on each
@@ -399,7 +399,7 @@ multi-select schema-ready).
 
 | Request field | Meaning |
 |---|---|
-| `provider` | Required. A registered **agent** provider id (grok, opencode, goose, codex, fake) |
+| `provider` | Required. A registered **agent** provider id (grok, opencode, kilo, codex, fake) |
 | `scope` | `models` (default) or `providers`. With `providers` the reply enumerates **model** providers (anthropic, openai, …) instead of models — a different axis from `providers.list`, which lists agent CLIs |
 | `model_provider` | Narrows a `models` request to one model provider id. Empty means the provider's default set |
 | `session_id` | Scopes the catalog to a live session: the models of the provider that session is using, with its current model as `default_ids`. The requesting device must own the session |
@@ -449,7 +449,7 @@ reached through the `providers` scope plus `model_provider`.
 **Option `thinking_levels`** (MADR 0052): when a model advertises a reasoning
 ladder, each entry is `{ "id", "label?", "description?", "default?" }`, ordered
 cheapest-first. Empty/absent means the model has no selectable level (opencode,
-goose, and some codex/grok models). Wire values match `session.create.thinking_level`
+and some codex/grok models). Wire values match `session.create.thinking_level`
 and `/thinking`.
 
 **Option `meta` keys** used by model catalogs: `release_date` (`YYYY-MM-DD` or
@@ -458,7 +458,7 @@ scope rows — `connected`, `model_count`, `default_model`.
 
 **Ordering.** Options are current-model-first, then newest by `release_date`,
 then the engine's own order, with `deprecated` last. Where a provider reports no
-dates (goose, grok, codex) the engine order is preserved unchanged rather than
+dates (grok, codex) the engine order is preserved unchanged rather than
 guessed at.
 
 **`scope: "providers"`** returns one row per model provider, grouped `Connected`
@@ -468,8 +468,8 @@ provider step.
 
 Providers that implement no catalog return an empty list with
 `allow_custom: true` so free-text still works. Listing may boot a shared engine
-(OpenCode HTTP), spawn a short-lived agent process (grok) or open a throwaway
-session (goose) to read a catalog that exists nowhere else, and is handled off
+(OpenCode HTTP), or spawn a short-lived agent process (grok)
+to read a catalog that exists nowhere else, and is handled off
 the WS read loop. Results are cached per provider for 5 minutes and invalidated
 on engine restart.
 
@@ -487,14 +487,14 @@ sending its `id` as `session.create.agent_session_id`.
 **Request:**
 
 ```json
-{ "provider": "goose" }
+{ "provider": "grok" }
 ```
 
 **Reply** `agent_sessions.list_result`:
 
 ```json
 {
-  "provider": "goose",
+  "provider": "grok",
   "sessions": [
     {
       "id": "20260726_30",
@@ -681,7 +681,7 @@ same on every provider; how each command is satisfied is not:
 | `/plan [off]` | switch to the agent's plan mode; `/plan off` returns to its default mode |
 | `/mode [id]` | list the agent's modes, or switch to one |
 | `/model [name]` | show or switch the model — in place where the provider can, otherwise by restarting the agent |
-| `/thinking [level]` | show or switch the reasoning/thinking effort — next-turn on codex; spawn-only on grok (returns a “new sessions” notice); absent for opencode/goose |
+| `/thinking [level]` | show or switch the reasoning/thinking effort — next-turn on codex; spawn-only on grok (returns a “new sessions” notice); absent for opencode |
 | `/context` | context-window usage for this session |
 | `/compact` | summarise the conversation to reclaim context |
 | `/clear` (`/reset`) | clear the conversation and restart the agent |
@@ -1294,7 +1294,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   absent otherwise (including agent-side abandonment and session close). Lets
   a client say "the request timed out" rather than the generic "the agent
   withdrew it". Since MADR 0101 every provider sets it on expiry; before that
-  only codex and the acphttp transport did.
+  only codex did.
 - `attachments`: on `user_message` events, descriptors for the non-text content
   the prompt carried — `[{ "kind": "image", "mime_type": "image/png" }]`. Kind
   and MIME type only; the bytes are never echoed back. Clients render a
@@ -1803,15 +1803,15 @@ is enabled from this list only for providers whose `plan` id is a
   confirmation.
 
   Clients must read this flag rather than inferring danger from the mode id.
-  The same id means different things across providers: goose has advertised an
-  `auto` mode since before this field existed and it is goose's **default**, so
-  id-matching would alarm on a normal state. Only the provider knows what a
+  The same id means different things across providers: a provider may ship an
+  `auto` mode as its **default** (MADR 0069 D3), so id-matching would alarm on a
+  normal state. Only the provider knows what a
   mode costs, so the provider declares it.
 
   The field is additive: daemons predating it omit it, and clients predating it
   ignore it. Neither direction breaks.
 - Mode enforcement is not necessarily engine-side. `auto` is engine-native on
-  goose (ACP `session/set_mode`) and codex (`approvalPolicy: never`), but on
+  codex (`approvalPolicy: never`), but on
   OpenCode the daemon answers the permission requests itself, because
   OpenCode's own `--auto` is a client-side responder that never reaches its
   server. Clients see one contract either way (MADR 0044).

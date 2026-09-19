@@ -133,19 +133,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.fs_roots` | `[]` — confine the agent's `fs/read_text_file` & `fs/write_text_file` callbacks to these roots (plus the session cwd). Empty = unrestricted. Defense-in-depth/audit only: the agent has terminal access as the same user, so this is not a sandbox |
 | `providers.grok.auth_method_id` | *(empty)* — ACP auth method to invoke if the agent reports it needs authentication |
 | `providers.grok.mcp_servers` | `[]` — MCP servers advertised to the agent (config-file only; not env/flags) |
-| `providers.goose.enabled` | `true` — pick Goose per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
-| `providers.goose.bin` | `goose` |
-| `providers.goose.always_approve` | `false` |
-| `providers.goose.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
-| `providers.goose.model` | *(empty — Goose's own default)* |
-| `providers.goose.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable: at expiry the daemon answers cancelled and the phone replaces the Allow/Deny alert with a "timed out" notice (MADR 0101) |
-| `providers.goose.prewarm` | `false` — when `true`, boot the shared `goose serve` engine at daemon start; default lazy-boots on first use |
-| `providers.goose.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
-| `providers.goose.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
-| `providers.goose.auth_method_id` | *(empty)* — ACP auth method if advertised at initialize |
-| `providers.goose.keyring_disabled` | `true` — keep goose's secrets in `~/.config/goose/secrets.yaml` rather than the OS keyring, by managing the `GOOSE_DISABLE_KEYRING` key in goose's own `config.yaml` (MADR 0110). Default `true` because the daemon is headless: on macOS the keyring prompts on every read and goose's ad-hoc signed binary cannot hold a durable "Always Allow", so a phone-started session blocks on a dialog nobody can answer. The secrets must already be in `secrets.yaml`; if they are only in the keyring mcremote leaves it alone and logs `GOOSE_DISABLE_KEYRING=1 goose configure`. `false` removes the key so goose uses its own default. A `GOOSE_DISABLE_KEYRING` set by hand, or one set in the daemon's environment, is never overridden |
-| `providers.goose.with_builtins` | `[]` — named Goose built-ins to enable on the shared engine (typed list, not free-form argv; no duplicates/empty entries) |
-| `providers.goose.mcp_servers` | `[]` — MCP servers (config-file only) |
+| `providers.goose.*` | Retired (MADR 0160), as is every `MCREMOTE_PROVIDERS_GOOSE_*` variable. Ignored: the daemon logs a warning and `mcremote paths` reports `retired_provider_goose`. Delete the setting. |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.opencode.bin` | `opencode` |
 | `providers.opencode.always_approve` | `false` |
@@ -441,16 +429,6 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_PROVIDERS_GROK_STREAM_COALESCE_MS` | `providers.grok.stream_coalesce_ms` | Grok stream coalescing window (ms) |
 | `MCREMOTE_PROVIDERS_GROK_SANDBOX` | `providers.grok.sandbox` | Grok OS-level sandbox profile |
 | `MCREMOTE_PROVIDERS_GROK_AUTH_METHOD_ID` | `providers.grok.auth_method_id` | Grok ACP auth method id |
-| `MCREMOTE_PROVIDERS_GOOSE_ENABLED` | `providers.goose.enabled` | Enable Goose provider |
-| `MCREMOTE_PROVIDERS_GOOSE_BIN` | `providers.goose.bin` | Goose executable path |
-| `MCREMOTE_PROVIDERS_GOOSE_ALWAYS_APPROVE` | `providers.goose.always_approve` | Auto-approve Goose tool requests |
-| `MCREMOTE_PROVIDERS_GOOSE_DEFAULT_CWD` | `providers.goose.default_cwd` | Goose fallback session CWD |
-| `MCREMOTE_PROVIDERS_GOOSE_MODEL` | `providers.goose.model` | Goose model override |
-| `MCREMOTE_PROVIDERS_GOOSE_PERMISSION_TIMEOUT_SECONDS` | `providers.goose.permission_timeout_seconds` | Goose permission timeout seconds |
-| `MCREMOTE_PROVIDERS_GOOSE_PREWARM` | `providers.goose.prewarm` | Goose prewarm (runtime still lazy-boots) |
-| `MCREMOTE_PROVIDERS_GOOSE_TURN_STALL_NOTICE_SECONDS` | `providers.goose.turn_stall_notice_seconds` | Goose turn stall notice threshold |
-| `MCREMOTE_PROVIDERS_GOOSE_STREAM_COALESCE_MS` | `providers.goose.stream_coalesce_ms` | Goose stream coalescing window (ms) |
-| `MCREMOTE_PROVIDERS_GOOSE_AUTH_METHOD_ID` | `providers.goose.auth_method_id` | Goose ACP auth method id |
 | `MCREMOTE_PROVIDERS_OPENCODE_ENABLED` | `providers.opencode.enabled` | Enable OpenCode provider |
 | `MCREMOTE_PROVIDERS_OPENCODE_BIN` | `providers.opencode.bin` | OpenCode executable path |
 | `MCREMOTE_PROVIDERS_OPENCODE_ALWAYS_APPROVE` | `providers.opencode.always_approve` | Auto-approve OpenCode tool requests |

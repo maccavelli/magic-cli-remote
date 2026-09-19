@@ -129,7 +129,7 @@ Mac permission.
 `make test`, and `make race` / `go test -race ./...` before a commit — nothing
 runs the race suite for you, so run it. Live-tagged tests need the real
 CLIs: `go test -tags live_grok ./...`, `-tags live_opencode ./...`,
-`-tags live_kilo ./...`, `-tags live_codex ./...`, `-tags live_goose ./...`.
+`-tags live_kilo ./...`, `-tags live_codex ./...`.
 Each has a `make live-<agent>` target. They spend real tokens; run them at
 acceptance, not in a loop.
 

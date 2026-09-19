@@ -22,7 +22,7 @@ verbatim, so raw strings still appear inside agent transcripts.
 
 1. **Identity, not path.** Grants attach to the *responsible process's code
    identity*. Children inherit the daemon's responsibility, so one grant on
-   `mcremote` covers every spawned agent (claude/goose/opencode/codex) —
+   `mcremote` covers every spawned agent (claude/opencode/codex) —
    and a grant on Terminal.app covers **nothing** for the LaunchAgent.
 2. **Headless means silent.** A LaunchAgent gets no reliable consent
    prompt; denial surfaces as `EPERM` ("operation not permitted"), which
