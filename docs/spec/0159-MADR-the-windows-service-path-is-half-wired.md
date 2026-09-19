@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-18
+status: accepted
+date: 2026-09-19
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -14,8 +14,9 @@ informed: none
 
 MADR 0116 made `windows/amd64` a shipped, CI-tested target and MADR 0145 gave
 it a local gate. Both succeeded at the level they aimed at: the tree compiles,
-`go vet` is clean, the unit suite passes, and the acceptance script runs green
-on a real Windows host. Measured again here — `GOOS=windows GOARCH=amd64
+`go vet` is clean, and the unit suite passes. (The 2026-09-18 draft also said
+the acceptance script "runs green on a real Windows host". It does not: it has
+not parsed since it was added — see F16.) Measured again here — `GOOS=windows GOARCH=amd64
 CGO_ENABLED=0 go vet ./...` exits 0, and `go test` over `internal/cli/service`,
 `internal/admin`, `internal/appdirs`, `internal/procutil` and `internal/fsutil`
 passes on Windows 11 build 26200 with go1.26.6.
@@ -38,6 +39,30 @@ every logon.
 
 This record states what was measured, names the decisions needed to close it,
 and does not implement them.
+
+**Revision 2026-09-19 (still `proposed`).** A second pass re-checked every
+citation against `38078c5` and ran the probes the draft's open questions asked
+for. The details are in "Re-measured 2026-09-19". Most citations held. These
+did not:
+
+* **F7 was wrong.** Task Scheduler's `RestartOnFailure` does not restart a task
+  whose program exits non-zero: measured 0 restarts in 4 min 42 s. On Windows,
+  a crashed daemon is never restarted.
+* **D6 as written is impossible.** `schtasks /create` rejects an environment
+  element ("The task XML contains an unexpected node").
+* **D7 as written breaks the CLI.** A `-H windowsgui` binary loses its exit
+  code and its redirected output in PowerShell, the operator's shell.
+* **F11's Microsoft-account premise is contradicted.** This host's account is a
+  Microsoft account, and the environment-derived name works. The real defect is
+  that the name comes from overridable environment variables.
+* **F3's path is wrong.** The advertised `log_dir` is `…\Logs\mcremote`, not
+  `…\Logs`.
+* **The acceptance script has never parsed** (F16).
+* **`--unit-name` is a second flag silently dropped on Windows** (F17).
+
+D3 now defers to MADR 0157, which already plans the Windows log sink.
+D5–D11 are rewritten on measured ground. D13 is new. The open questions are
+answered.
 
 ### What was measured, not assumed
 
@@ -111,21 +136,151 @@ ok  internal/cli/service  ok  internal/admin  ok  internal/appdirs
 ok  internal/procutil     ok  internal/fsutil
 ```
 
-`TestSystemPaths` and `TestDefaultConfigFile` skip with a legitimate reason
-("Known Folder lookup is covered in roots_windows_test.go"). The other four do
-not, and are findings.
+`TestSystemPaths`, `TestDefaultConfigFile` and `TestSystemRootsDispatches` skip
+with a legitimate reason (the Known Folder lookup is covered by
+`roots_windows_test.go`'s seam). The other three do not, and are findings (F4,
+F15).
 
 **Static measurements.** Repo-wide greps, each reproduced in the Evidence index:
 
 * `windowsgui|ShowWindow|GetConsoleWindow|SW_HIDE|CREATE_NO_WINDOW|DETACHED_PROCESS`
   → **zero hits** in any `.go`, `Makefile`, `.mk`, `.ps1`, `.sh` or `.yml`.
-* `MC_WINDOWS_SIGN|signtool|Authenticode` → hits **only** in `docs/`.
+* `MC_WINDOWS_SIGN|signtool` → hits **only** in `docs/`. (Adding
+  `Authenticode` also matches prose in `README.md:154` and
+  `scripts/install.ps1:286`: "not Authenticode-signed yet".)
 * `ExtraEnviron|Environ` in `schtasks.go` and `setup_schtasks.go` → **zero hits**.
-* `SuperviseStarted` → six production call sites (`acpagent.go:470`,
-  `acpagent/terminal.go:119`, `acphttp/provider.go:361`, `codex/provider.go:591`,
+* `SuperviseStarted` → six production call sites at `b3d3355`, **five** at
+  `38078c5` after MADR 0160 deleted `acphttp` (`acpagent.go:470`,
+  `acpagent/terminal.go:119`, `codex/provider.go:590`,
   `httpagent/provider.go:535`, `providerauth/cli.go:129`), so MADR 0150's
   tree-kill guarantee is genuinely wired. This is not a finding; it is recorded
   because it was checked.
+
+### Re-measured 2026-09-19
+
+All on this host at `38078c5` (Windows 11 Home build 26200, go1.26.6,
+`MAC420\macsm`, unprivileged). The probes ran as throwaway per-user scheduled
+tasks named `mcr-probe-*`. Their XML reused the live `mcremote` task's
+principal (`InteractiveToken`, the user's SID) and settings. All of them, and
+every process they started, were deleted afterwards; the live `mcremote` task
+stayed `Running` throughout.
+
+**Citations.** Every `file:line` in this record was re-checked at `38078c5`.
+All held except these:
+
+* the mcplib rollback call is at `managed.go:89-90`, not `:86-88`;
+* `normalizeTaskXML` is at `setup_schtasks.go:93-120`;
+* `servicePathExtras` spans `setup.go:887-910`;
+* `configs/config.example.yaml:225`, not `:266`, after MADR 0160;
+* `SuperviseStarted` now has **five** production call sites, because MADR 0160
+  deleted `acphttp`.
+
+**Probe 4 — F1 on the real binaries.** `mcremote setup-service --refresh` exits
+**1** with "setup-service --refresh is only supported on Linux and macOS
+(running on windows)". This holds for the installed v0.17.4 (`788ab6b`) and for
+a build of `38078c5`, with and without `--print-only`. mcplib `v1.4.1`
+`managed.go:64-133` confirms the rest of the chain. `Install` runs stop, apply,
+`Reconcile`, `Start`, `WaitHealthy`, then commit. Any error after apply calls
+`recover`, which runs `Restore` (only when the receipt says `Changed`), rolls
+back the binary, and restarts.
+
+**Probe 5 — the live task.** `Get-ScheduledTask mcremote` reports `State`
+`Running` (enum value **4**), `Principal.UserId macsm`, `LogonType
+Interactive`, and `RestartInterval PT1M`, `RestartCount 3`. The registered XML
+(`schtasks /query /tn mcremote /xml ONE`) stores the principal as the SID
+`S-1-5-21-…-1001`, and carries `Description` "mcremote background service
+(magic-cli-remote)".
+
+**Probe 6 — what "a console window at logon" is on this host.** The daemon (pid
+15768, parent `svchost` 4328) has `MainWindowHandle 0`. It owns a zero-size
+`PseudoConsoleWindow` and a `conhost` child with no window of its own. Windows
+Terminal (pid 8636) started at 19:16:41, **one second** after the daemon
+(19:16:40). A console-subsystem probe run as a task reproduced this: a new
+`OpenConsole` host appeared within 111 ms, started by the same `svchost` (pid
+2580) that hosts the daemon's, and the probe's console handle was non-zero. So
+on Windows 11 the console is handed to Windows Terminal. Whether a tab is still
+visible on the operator's screen is **[unverified]**, because it can only be
+seen, not measured, from here.
+
+**Probe 7 — ways to hide the console.**
+
+| Variant | Console host created? | Exit code reaches Task Scheduler? | `schtasks /end` kills the program? | CLI in PowerShell |
+| --- | --- | --- | --- | --- |
+| Console binary, as today | yes, `OpenConsole` at about 110 ms | yes | yes | works |
+| `-H windowsgui` binary | no; `GetConsoleWindow`=0 | yes, 1 gives 0x1 | yes | **broken**: `> file` is empty, a failing command reports exit **0** (the shell does not wait) |
+| `conhost.exe --headless <exe>` | no | **no**: exit 1 gives 0x0 | **no**: conhost dies, the program is **orphaned** | n/a |
+| Console binary calling `FreeConsole()` first | none seen, sampled every 50 ms for 3 s | yes | yes | works; the CLI never calls it |
+
+Git Bash does wait for a GUI-subsystem binary (exit 1 preserved). PowerShell 7
+is the operator's shell on this host, and `install.ps1` runs in PowerShell.
+
+**Probe 8 — restart semantics.** A task with `RestartOnFailure` `PT1M`×3 whose
+program exits **1** ran **once** in 4 min 42 s. One exiting 0 ran once. One
+ended with `/end` (result `0x41306`) ran once. A GUI-subsystem program exiting 1
+ran once in 1 min 43 s.
+
+A repeating trigger does work. A `TimeTrigger` with `Repetition` `PT1M` and
+`MultipleInstancesPolicy IgnoreNew`:
+
+* relaunched a program that exits at once, at 07:52:14, 07:53:15 and 07:54:15;
+* **did not** start a second instance of one still running (1 run and 1 process
+  across 4½ minutes);
+* stopped relaunching while the task was disabled, with 0 new runs in 150 s.
+
+`schtasks /change /disable` and `/enable` both succeed **unelevated** on your
+own task. Task Scheduler accepts a `LogonTrigger` and a repeating `TimeTrigger`
+together on one task.
+
+**Probe 9 — environment.** A task created with an `<Environment>` element
+inside `<Exec>` is rejected: "The task XML contains an unexpected node.
+(5,239):Environment". A task-launched program gets 54 variables, including the
+full registry **Machine+User `Path`** (npm `…\Roaming\npm`, `~\.grok\bin`, the
+Codex bin, `%LOCALAPPDATA%\Programs\…`), `USERPROFILE`, `APPDATA`,
+`LOCALAPPDATA`, `USERDOMAIN` and `USERNAME`. There is no `HOME`. On this host
+every provider CLI's directory is already on that `Path`. No nvm, fnm, volta or
+scoop is installed here, so the draft's profile-script concern is
+**[unverified]**.
+
+**Probe 10 — dropped flags and the principal.**
+
+* `setup-service --print-only` renders byte-identical XML with and without
+  `--unit-name mcr-accept --env MCREMOTE_LOG_LEVEL=debug`.
+* With `USERNAME=bogus USERDOMAIN=` it renders `<UserId>bogus</UserId>`. With
+  both empty it renders `<UserId></UserId>`.
+* The token and the SID resolve to `MAC420\macsm`, identical to the environment
+  form. This account's `PrincipalSource` is **MicrosoftAccount**.
+
+**Probe 11 — a status probe that does not depend on the UI language.**
+`powershell -NoProfile -NonInteractive -Command "(Get-ScheduledTask -TaskName
+mcremote -ErrorAction SilentlyContinue)"`:
+
+* returns the numeric state **4** for the live task, and `$null` (printed
+  `absent`) for a missing one;
+* takes 1261–2375 ms per call (3 samples), against 53 ms for `schtasks /query
+  /v`.
+
+`schtasks` output under a non-English UI **could not be measured**: this host
+has only the English UI. The localisation claim in F12 therefore stays
+**[unverified]**.
+
+**Probe 12 — the acceptance script.**
+
+* `scripts/acceptance-windows.ps1` fails to parse under both PowerShell 5.1 and
+  7, at line 65: `throw "$Label: got …"`, where `$Label:` reads as a
+  scope-qualified variable. The line has been there since `ca436bb`
+  (2026-09-06, MADR 0145, the script's introduction), so the script has never
+  run.
+* With only that line fixed (`${Label}`), in a scratch worktree, it runs to
+  completion with **2 failures**:
+  * `paths --json (C1)`: "log_dir: got '…\Local\mcremote\Logs\mcremote' want
+    '…\Local\mcremote\Logs'";
+  * its `go test ./...`: `TestProviderInitializesBeforeTimingOut`,
+    `TestHandleTunnelRejections` and `TestBridgeFrameLimitFollowsConfig`, all
+    context deadline exceeded. Each of those passed 3/3 run alone, and the full
+    suite passed twice in the main tree that day. They are load-sensitive
+    timing, observed once and unexplained, and not a finding here.
+* `mcrelay setup-service --print-only` renders a valid task, and no `mcrelay`
+  task is registered on this host.
 
 ### Findings
 
@@ -142,8 +297,10 @@ the service is installed.** The chain is complete and unconditional:
 4. `internal/updateclient/lifecycle.go:146-156` — `Reconciler.Reconcile` returns
    it, and its own comment states "a reconcile failure is fatal and enters the
    shared rollback path".
-5. `mcplib@v1.4.1/selfupdate/managed.go:86-88` — `if recErr != nil { return
+5. `mcplib@v1.4.1/selfupdate/managed.go:89-90` — `if recErr != nil { return
    InstallResult{}, s.recover(ctx, product, applied, receipt, true, recErr) }`.
+   Measured: the refresh child exits 1 on the installed v0.17.4 and on HEAD
+   (probe 4).
 
 The managed path is taken because `service.IsInstalled` →
 `isInstalledWindows` (`control_schtasks.go:35-40`) reports `true` for a
@@ -186,10 +343,14 @@ printer first at `:480`, so mcrelay on Windows emits the wrong systemd block
 **F3 — The Windows daemon has no log destination, while `mcremote paths`
 advertises one.** `internal/appdirs/roots_windows.go:64` sets
 `Logs: filepath.Join(base, "Logs")`; `internal/appdirs/paths.go:63-71` turns any
-non-empty `roots.Logs` into `p.LogDir`; `internal/cli/paths.go:91-92` prints
-`log_dir:`. So `mcremote paths` on Windows reports
-`%LocalAppData%\mcremote\Logs`, and `docs/ops-windows-install.md` lists it in
-the "Where things live" table as though it were populated.
+non-empty `roots.Logs` into `p.LogDir`, **appending the product name**
+(`paths.go:70`); `internal/cli/paths.go:91-92` prints `log_dir:`. So
+`mcremote paths` on Windows reports `%LocalAppData%\mcremote\Logs\mcremote`.
+`docs/ops-windows-install.md:58` lists `%LocalAppData%\mcremote\Logs` in the
+"Where things live" table, as though it were populated, and
+`scripts/acceptance-windows.ps1:142-143` asserts that same path. The code, the
+document and the gate all disagree (probe 12; MADR 0157 F4 records the same
+mismatch).
 
 Nothing writes there. `internal/logging/slog.go:20-24` defaults `Out` to
 `os.Stderr` and `internal/cli/serve.go:80-83` passes no `Out`. A Task Scheduler
@@ -254,18 +415,25 @@ reports `Srw-rw-rw-` with `ModeSocket` set and `ModeIrregular` clear, because it
 special-cases `IO_REPARSE_TAG_AF_UNIX`. Neither guard fires. **This hypothesis
 is closed**; it is recorded so the next reader does not spend a probe on it.
 
-**F7 — Restart parity: Windows restarts only on failure, at most three times.**
-`schtasks.go:121-124` sets `RestartOnFailure` `Interval=PT1M`, `Count=3`. The
-Unix paths are unconditional: `mcremote.user.service.tmpl:28-31` sets
-`Restart=always` with `RestartSec=5` and a generous `StartLimitIntervalSec=300`
-/ `StartLimitBurst=30`, and `plist_render.go:169-171` sets `RunAtLoad` plus
-`KeepAlive` true with `ThrottleInterval` 2. Task Scheduler's `RestartOnFailure`
-fires only when the action returns non-zero, so a Windows daemon that exits 0 —
-a clean shutdown, a config-validation exit, an `os.Exit(0)` — is **never**
-restarted, while systemd and launchd both bring it back. After three failures
-Windows gives up for good; the Unix paths keep retrying. The code comment calls
-this "the closest analogue to the systemd unit's Restart=", which is true of the
-element and false of the behaviour.
+**F7 — A crashed Windows daemon is never restarted.** `schtasks.go:121-124`
+sets `RestartOnFailure` `Interval=PT1M`, `Count=3`, under the comment "the
+closest analogue to the systemd unit's Restart=". The Unix paths are
+unconditional: `mcremote.user.service.tmpl:28-31` sets `Restart=always` with
+`RestartSec=5` and a generous `StartLimitIntervalSec=300` /
+`StartLimitBurst=30`, and `plist_render.go:169-171` sets `RunAtLoad` plus
+`KeepAlive` true with `ThrottleInterval` 2.
+
+The 2026-09-18 draft said `RestartOnFailure` fires when the action returns
+non-zero. **Measured, it does not** (probe 8). A program exiting 1 under exactly
+this setting ran once in 4 min 42 s, and one exiting 0 or killed by `/end` also
+ran once. (That fits `RestartOnFailure` covering a task that fails to launch
+**[inferred; launch failure was not probed]**.) So a Windows daemon that
+crashes, exits on a config error, or exits cleanly stays down until the next
+logon.
+
+What does work, measured: a repeating `TimeTrigger` with `IgnoreNew`
+relaunches within one interval (1 minute minimum), never duplicates a running
+instance, and is silenced by an unelevated `/change /disable`.
 
 **F8 — There is no graceful stop on Windows, and no telemetry that would show
 it.** `control_schtasks.go:52-57` documents `schtasks /end` as a
@@ -278,29 +446,35 @@ drain, while Windows gets neither a drain nor — per F3 — any record that the
 daemon existed. A hub torn down mid-flight on Windows leaves no trace to debug
 from.
 
-**F9 — The task XML carries no environment block, the PATH helper is
-POSIX-only, and `--env` is silently dropped.** `taskDefinition`
-(`schtasks.go:37-87`) has no environment element and `renderTaskXML:95-143`
-sets none, against `mcremote.user.service.tmpl:41-52` (HOME, USER, LOGNAME,
-PATH, five XDG vars) and `plist_render.go:89-125` (the same dict).
-`servicePathEnv` / `servicePathExtras` (`setup.go:869-887`) return
-`~/.local/bin`, `~/.grok/bin`, `~/.opencode/bin`, `~/.cache/kilo/bin`,
-`~/go/bin`, `~/.local/go/bin`, `~/.local/flutter/bin`, `/opt/homebrew/bin`,
-`/usr/local/bin`, `/usr/bin`, `/bin` and join with `":"` — no Windows branch and
-no `;` separator — and are never called from the schtasks path at all.
+**F9 — `--env` is silently dropped on Windows, and the task format cannot
+carry environment at all.** `taskDefinition` (`schtasks.go:37-87`) has no
+environment element and `renderTaskXML:95-143` sets none, against
+`mcremote.user.service.tmpl:41-52` (HOME, USER, LOGNAME, PATH, the XDG vars)
+and `plist_render.go:89-125` (the same dict). This is not an omission that one
+element would fix: Task Scheduler **rejects** an `<Environment>` node in an
+`Exec` action (probe 9).
+
+`servicePathEnv` / `servicePathExtras` (`setup.go:869-881`, `887-910`) are
+POSIX-only, `:`-joined, and never called from the schtasks path. For mcremote
+they return `~/.local/bin`, `~/.grok/bin`, `~/.opencode/bin`,
+`~/.cache/kilo/bin`, `~/go/bin`, `~/.local/go/bin`, `~/.local/flutter/bin`,
+`/opt/homebrew/bin` and `/usr/local/bin`; `/usr/bin` and `/bin` belong to the
+mcrelay branch. **No Windows equivalent is needed on this evidence.** A task
+inherits the registry Machine+User `Path`, which here already contains every
+provider CLI's directory (probe 9).
 
 `Options.ExtraEnviron` is a documented, bound, repeatable flag
 (`setup_service.go:92` `--env`, plumbed at `:48`; `relay/cli.go:430`), consumed
 by the plist renderer (`plist_render.go:119`) and the systemd template
 (`setup.go:808`, `:978-979`). A grep for `ExtraEnviron|Environ` across
 `schtasks.go` and `setup_schtasks.go` returns **nothing**: on Windows `--env` is
-accepted, validated, and discarded without a warning. Separately, a Windows task
-inherits the environment Task Scheduler builds from the registry rather than the
-interactive shell's, so a provider CLI made available by a profile script (nvm,
-fnm, volta, scoop shims) is not on the daemon's PATH and there is no way to add
-it.
+accepted, validated, and discarded without a warning (measured, probe 10).
+Separately, a task inherits the environment Task Scheduler builds from the
+registry, not the interactive shell's (measured, probe 9). A provider CLI that
+only a profile script puts on `PATH` would therefore be invisible to the
+daemon. None exists on this host, so that case is **[unverified]**.
 
-**F10 — A console window appears at every logon.** No build path passes
+**F10 — A console appears at every logon.** No build path passes
 `-H windowsgui`: `Makefile:43` is `GO_LDFLAGS := -s -w`,
 `scripts/ci-windows-local.ps1:132` is `-s -w -X main.version=…`, and the
 repo-wide grep for `windowsgui|ShowWindow|GetConsoleWindow|SW_HIDE` returns zero
@@ -308,11 +482,16 @@ hits. The task runs `LogonType=InteractiveToken` (`schtasks.go:107`) in the
 user's interactive session, so a console-subsystem binary is given a visible
 console window that persists for the daemon's lifetime. `Settings.Hidden`
 (`schtasks.go:71`, set false at `:117`) does not help: it hides the *task* in the
-Task Scheduler UI, not the window. The documented install therefore leaves a
-stray console on every operator's desktop at every logon.
+Task Scheduler UI, not the window. **Measured mechanism on Windows 11 (probe
+6):** the console is handed to Windows Terminal. Windows Terminal started one
+second after the daemon at logon, and a console-subsystem task probe created a
+new `OpenConsole` host within about 110 ms. So the documented install opens a
+terminal window or tab hosting `mcremote.exe` at every logon; whether it is
+still visible at a given moment is **[unverified]**. The fix cannot be
+`-H windowsgui` on the CLI binary (probe 7, D7).
 
-**F11 — The task principal is derived from two environment variables with no
-fallback.** `currentTaskUser` (`schtasks.go:203-210`) returns
+**F11 — The task principal is derived from two environment variables that any
+shell can override.** `currentTaskUser` (`schtasks.go:203-210`) returns
 `USERDOMAIN\USERNAME`, or bare `USERNAME` if `USERDOMAIN` is empty, or `""` if
 both are. That value is written into `Triggers.LogonTrigger.UserID` (`:103`) and
 `Principals.Principal.UserID` (`:106`). An empty or unresolvable UserId makes
@@ -320,8 +499,14 @@ both are. That value is written into `Triggers.LogonTrigger.UserID` (`:103`) and
 (`setup_schtasks.go:46-48`). There is no `LookupAccountName`, no token-derived
 SID, and no `whoami` fallback — even though `appdirs.currentUserSID()`
 (`security_windows.go:36-47`) already does the correct thing in the same module
-and is exported for exactly this kind of caller. For a Microsoft-account or
-Azure AD principal, `USERNAME` is frequently not the form Task Scheduler wants.
+(exported, per its own comment, for `internal/admin`'s owner check; it serves
+this caller equally well). Measured (probe 10): `USERNAME=bogus USERDOMAIN=`
+renders `<UserId>bogus</UserId>`, and both empty render `<UserId></UserId>`.
+The draft's claim that a Microsoft-account principal is "frequently not the form
+Task Scheduler wants" is **contradicted on this host**: its account is a
+Microsoft account, the environment-derived `MAC420\macsm` equals the
+token-derived name, and registration succeeds. Task Scheduler stores the
+resolved SID (probe 5).
 
 **F12 — `isActiveWindows` swallows every error, and status parsing is
 English-only.** `control_schtasks.go:9-15` returns `(false, nil)` for *any*
@@ -329,8 +514,10 @@ English-only.** `control_schtasks.go:9-15` returns `(false, nil)` for *any*
 task store is broken" are indistinguishable. `taskStatusRunning` (`:23-32`)
 matches the literal key `Status` and value `Running`; on a non-English Windows
 both are localised and it returns false. The comment accepts that as
-conservative and `TestTaskStatusRunning/localised` pins it — but the consequence
-is downstream: `Lifecycle.WaitHealthy` (`updateclient/lifecycle.go:93-128`)
+conservative and `TestTaskStatusRunning/localised` pins it. That a
+non-English Windows localises these fields is **[unverified]** here (English-only
+host, probe 11), but it is the premise the code's own comment states. The
+consequence is downstream: `Lifecycle.WaitHealthy` (`updateclient/lifecycle.go:93-128`)
 polls `Running` for 30s, never sees healthy, and reports
 `"%s did not become healthy within %s"`. On a localised Windows an update
 therefore fails at the health gate as well as at reconciliation (F1), and a
@@ -354,7 +541,7 @@ binaries, `version`, `paths --json`, `pair create`, `pair list` and `doctor`
 exit 0. `setup-service` and `serve` appear only as two "Manual steps this script
 cannot assert" (`:181-186`), one of which merely asks whether an elevation
 prompt appeared. F1, F2, F3, F7, F9, F10, F11 and F12 all live in that
-untested gap. This is why a port that passes every automated gate on Windows can
+untested gap. And the script has never run at all (F16). This is why a port that passes every automated gate on Windows can
 still be unable to update itself.
 
 **F15 — The core atomic-write tests do not run on Windows.**
@@ -369,13 +556,62 @@ Windows only by `TestWriteFileAtomicSurvivesARealHeldHandle` and the
 rename-retry tests. The property that matters on Windows (the *ACL*, per
 `appdirs.FileIsOwnerOnly`) is never asserted of an atomically-written file.
 
+**F16 — The Windows acceptance script has never run.**
+`scripts/acceptance-windows.ps1:65` is `throw "$Label: got '$g' want '$w'"`.
+`$Label:` parses as a scope-qualified variable, so the whole file fails to parse
+under both PowerShell 5.1 and 7 (probe 12), and no check in it has ever
+executed. The line dates from `ca436bb` (2026-09-06), the commit that created
+the script for MADR 0145. With that one line fixed, the script runs, and its
+`paths --json` check fails on the `log_dir` mismatch described in F3. So the
+gate this record's context took as green has been silently absent, and it
+would be red on its first real run.
+
+**F17 — `--unit-name` is silently dropped on Windows.** `setup-service
+--print-only --unit-name mcr-accept` renders the same task as without it (probe
+10). `taskNameFor` (`taskname.go:5`) returns the bare product, and every
+lifecycle probe (`control_schtasks.go`) keys on the product too. This is the
+same class of defect as `--env` in F9: an accepted, documented flag with no
+effect. It cannot simply be honoured on Windows, because `update`'s lifecycle
+would then look for a task under the product name and not find it.
+
+**F18 — Rolling back a refreshed definition runs the OLD binary's restore
+code.** `Reconciler.Restore` (`internal/updateclient/lifecycle.go:169-184`)
+calls `service.ExecRefresher.RestoreUnit`, which is `RestoreUnitBackup`
+(`internal/cli/service/refresh.go:129-146`) in the process performing the
+update, and that process is the old binary. The code is `os.Rename(backup,
+path)` plus a `systemctl` reload on Linux; it knows nothing of Task Scheduler.
+
+So once D1 lets a new binary refresh a Windows task, the first update from any
+pre-D1 binary has this failure mode. If `Start` or `WaitHealthy` fails after a
+successful refresh, `Restore` fails, the binary is rolled back, and the
+refreshed task definition stays behind. A refreshed definition that carries a
+`serve` flag the old binary does not know (D6, D7) would then leave the
+rolled-back daemon unable to start. **[Inferred from the code; not
+exercised.]**
+
+**F19 — Setup's idempotency check can never match a real registered task.**
+`sameTaskDefinition` (`setup_schtasks.go:87-89`) compares normalised text.
+Task Scheduler rewrites a definition on registration. It drops default-valued
+elements (`RunLevel`, `AllowHardTerminate`, `Enabled`, `Hidden`,
+`RunOnlyIfNetworkAvailable`, the trigger's `Enabled`), stores the principal as
+a SID, and adds `URI`, `IdleSettings` and `UseUnifiedSchedulingEngine`
+(measured: an element-level diff of `setup-service --print-only` against
+`schtasks /query /xml ONE` for the live task). So the two texts are never
+equal. Measured with the installed v0.17.4, the very binary that registered the
+task: `mcremote setup-service` exits 1 with 'scheduled task "mcremote" exists
+with different content (pass --force to overwrite)', and the live definition
+is byte-identical before and after. The unit tests pass because their fake
+`schtasks` returns the rendered text. MADR 0116 C2 therefore does not hold on
+Windows, and a refresh built on the same comparison would report `refreshed`
+on every update.
+
 **Not findings, recorded because they were checked and are sound.**
 `fsutil`'s Windows work is evidence-based and correct: `rename_windows.go:32-38`
 matches `ERROR_ACCESS_DENIED` *and* `ERROR_SHARING_VIOLATION` on measured
 behaviour (MADR 0153 F2), `rename_other.go:5-19` makes the POSIX retry a
 compile-time no-op, and `syncdir_windows.go` documents its durability gap with
 an upstream issue (golang/go#75541) that `docs/ops-windows-install.md` repeats.
-`procutil.SuperviseStarted` has six real call sites and
+`procutil.SuperviseStarted` has five real call sites (six before MADR 0160) and
 `TestSuperviseStartedKillsTree` passes on this host. `launch_windows.go` routes
 `.cmd` shims through `cmd.exe /c`, rejects cmd.exe metacharacters rather than
 quoting them, and fixes the `Mode()&0o111` trap that broke `setup-service`
@@ -437,137 +673,214 @@ leaves Windows operators with no background operation at all.
 
 ### The decisions
 
-* **D1 — Implement `setup-service --refresh` for the schtasks path.** Add
-  `refreshSchtasks` beside `refreshSystemd` and `refreshLaunchd`, dispatch it
-  from `RefreshUnit` (`refresh.go:117-124`), and make it recover options from
-  the registered XML the way `recoverOptions` does from a unit. Until it exists,
-  `update` on Windows must not silently roll back. Closes **F1**.
-* **D2 — Teach `PrintSetupResult` the `windows-task` scope.** Add the arm to
-  `result_print.go` with `schtasks /query|/run|/end`, `setup-service --remove`,
-  the real log destination from D3, and `install.ps1` instead of `make install`.
-  Never print `systemctl`, `journalctl`, `loginctl` or `.service` on Windows.
-  Closes **F2**.
-* **D3 — Give the Windows daemon a real log destination, and stop advertising
-  one it does not write.** Implement MADR 0157's daemon-owned rolling log for
-  the Windows service path, writing under the `LogDir` that `paths` already
-  reports. If 0157 is not executed first, then `roots_windows.go:64` must stop
-  setting `Logs` until something writes to it, and the
-  `docs/ops-windows-install.md` table row must go with it. Closes **F3**, and
-  makes **F8** observable.
-* **D4 — Fix `socketIdentity` on Windows and make its test assert.** Derive the
-  identity from `CreateFile` + `GetFileInformationByHandle` (probe 2 measured
-  this works and yields a stable non-zero index) rather than from `fi.Sys()`,
-  and change `owner_windows_test.go:57-59` so a not-ok result **fails** instead
-  of skipping. Closes **F4**; restores the guard **F5** currently lacks.
-* **D5 — Close the restart gap as far as Task Scheduler allows, and name the
-  residual.** Raise `RestartOnFailure` `Count` to match the Unix retry posture,
-  and record in `docs/ops-windows-install.md` that a clean exit (code 0) is not
-  restarted on Windows because the task engine offers no `Restart=always`. If
-  that residual is unacceptable, the alternative is a watchdog action in the
-  task itself — decide it explicitly rather than leaving the comment at
-  `schtasks.go:121` to imply parity. Closes **F7**.
-* **D6 — Put an environment block in the task XML, with a Windows
-  `servicePathExtras`.** Add the element to `taskDefinition`, emit
-  `ExtraEnviron` so `--env` stops being silently dropped, and give
-  `servicePathExtras` a Windows branch returning the real per-user install roots
-  (`%LOCALAPPDATA%\Programs\…`, npm global, scoop shims) joined with `;`.
-  Closes **F9**.
-* **D7 — Build the Windows binaries with `-H windowsgui`.** Add it to
-  `GO_LDFLAGS` for `GOOS=windows` in `Makefile` and to the release and
-  `ci-windows-local.ps1` link flags, so the at-logon task produces no console
-  window. Verify the CLI still behaves when run interactively — a GUI-subsystem
-  binary attached to a console needs its stdio handles checked. Closes **F10**.
-* **D8 — Derive the task principal from the process token.** Replace
-  `currentTaskUser`'s `USERDOMAIN\USERNAME` read with a token-derived account
-  name, reusing `appdirs.CurrentUserSID()` and `SID.LookupAccount`, keeping the
-  env read only as a fallback. Closes **F11**.
-* **D9 — Make Windows status probing fail loudly and parse locale-independently.**
-  `isActiveWindows` must distinguish "not registered" from "the probe failed",
-  and `taskStatusRunning` must stop depending on English text — query a
-  machine-readable form (`schtasks /query /xml`, or the task's state field)
-  rather than `/fo LIST /v`. Closes **F12**.
-* **D10 — Either wire `MC_WINDOWS_SIGN_*` or correct the documents that claim
-  it.** MADR 0116 D14 promised the hook; if it is still wanted, add it beside
-  `codesign-maybe`. If it is not, amend `docs/ops-windows-install.md:42` and
-  record the reversal against 0116 rather than leaving a present-tense claim
-  about absent code. Closes **F13**.
-* **D11 — Extend `scripts/acceptance-windows.ps1` over the service lifecycle.**
-  Assert `setup-service --force` from a non-administrator shell, `--refresh`,
-  `--print-only` scope text, a daemon start that produces a non-empty log file,
-  an admin-socket round trip, a stop that leaves no socket file, and a second
-  start that recovers from one deliberately left behind. Closes **F14**, and is
-  what keeps D1–D9 from regressing.
-* **D12 — Replace the POSIX-mode assertions in the atomic-write tests with
-  platform-correct ones.** Where `SkipIfNoPOSIXModes` currently skips the whole
-  test, assert the Windows equivalent (`appdirs.FileIsOwnerOnly`) so
-  `WriteFileAtomic`'s contract is verified here too. Closes **F15**.
+Each decision names the measurement it rests on. Where a behaviour could not be
+measured on this host, the decision says so and the PLAN verifies it in the
+phase that depends on it.
+
+* **D1 — Implement `setup-service --refresh` for the schtasks path, and let
+  Windows restore a refreshed task.**
+  * `RefreshUnit` (`refresh.go:117-124`) gains a `windows` arm calling
+    `refreshSchtasks`.
+  * `refreshSchtasks` reads the registered definition with the existing
+    `/query /xml ONE` path (`setup_schtasks.go:23`). It treats the definition
+    as managed only if the `Description` is setup's own (probe 5) and there is
+    exactly one `Exec` action running `serve`.
+  * It recovers `Options` from the `Exec` element. It compares
+    **semantically** (D14), and re-registers only when the definitions differ.
+    Before re-registering, it writes the exported XML to a backup file.
+  * `RestoreUnitBackup` gains a Task Scheduler branch: re-register from the
+    backup through `encodeTaskXML`.
+  * Because of F18, this capability ships in a release **before** any change
+    to the task's `serve` arguments (D6, D7). Closes **F1**; bounds **F18**.
+* **D2 — Teach `PrintSetupResult` the `windows-task` scope.**
+  * Print `schtasks /query /tn <name>`, `schtasks /run /tn <name>`, stop as
+    `schtasks /change /tn <name> /disable` then `/end` (D5), and removal as
+    `setup-service --remove`.
+  * Name the binary installer as `install.ps1`.
+  * The log line comes from MADR 0157 D10 once it lands. Until then, state
+    that the Windows daemon writes no log file.
+  * Never print `systemctl`, `journalctl`, `loginctl`, `.service` or
+    `make install` for this scope. mcrelay's Windows note
+    (`relay/cli.go:492-501`) stays and follows the corrected block.
+  * Closes **F2**.
+* **D3 — The Windows log destination is MADR 0157's.** 0157 already decides
+  and plans it:
+  * P1 unifies the resolved directory and fixes the documentation and
+    acceptance disagreement in F3;
+  * P4 wires the file sink;
+  * P7 is the Windows acceptance.
+
+  This record does not re-plan it. D7 depends on 0157 P4 being complete.
+  Closes **F3** by reference and makes **F8** observable.
+* **D4 — Fix `socketIdentity` on Windows and make its test assert.**
+  * Derive the identity by opening the path with `windows.CreateFile`, with no
+    access rights, share read, write and delete, `OPEN_EXISTING`, and
+    `FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_BACKUP_SEMANTICS`, then calling
+    `GetFileInformationByHandle`. Probe 2 measured a stable non-zero index this
+    way; the exact flags were not recorded, and the now-asserting test decides
+    them.
+  * `owner_windows_test.go:57-59` fails instead of skipping.
+  * Closes **F4**; restores the guard **F5** lacks.
+* **D5 — Restart through a repeating trigger, and make stop mean
+  disable.**
+  * The task gains a `TimeTrigger` repeating every `PT1M` with no end,
+    alongside the `LogonTrigger`. `MultipleInstancesPolicy` stays `IgnoreNew`
+    (probe 8: relaunch within one interval, no duplicate instance, both
+    triggers accepted together).
+  * `stopWindows` becomes `schtasks /change /disable` then `/end`, and
+    `startWindows` becomes `/change /enable` then `/run` (probe 8: both are
+    unelevated, and a disabled task is not relaunched). Otherwise the trigger
+    would restart a daemon that `update` stopped to replace its binary.
+  * `RestartOnFailure` stays, for launch failures, and its comment stops
+    claiming parity.
+  * Documented residuals:
+    * a restart takes up to about a minute on Windows, against 5 s with
+      systemd;
+    * a bare `schtasks /end` is undone within a minute, so the operator stops
+      the daemon with the D2 commands.
+  * Closes **F7**.
+* **D6 — Deliver `--env` through a private file, not the task XML.** The task
+  XML cannot carry environment (probe 9).
+  * On Windows, `setup-service --env K=V` writes the validated entries to an
+    owner-only `service.env` beside the service config.
+  * The task's arguments gain `--env-file "<path>"`. `serve --env-file` applies
+    the entries before `config.Load`, refusing a file that is not owner-only,
+    the same posture as MADR 0155.
+  * `--refresh` recovers them from the file, and `--remove` deletes it.
+  * No Windows `servicePathExtras` is added: a task already inherits the
+    registry `Path` (probe 9).
+  * Ships after D1's release (F18). Closes **F9**.
+* **D7 — Hide the console by detaching it in the daemon, not by changing the
+  binary's subsystem.**
+  * `serve` gains `--detach-console`. On Windows it calls `FreeConsole()` as
+    the first action of `RunE`; elsewhere it does nothing. Only the task's
+    arguments pass it.
+  * Probe 7 measured no console host at 50 ms resolution with this, while the
+    exit code and `/end` semantics stayed correct and the CLI was unaffected.
+  * Rejected, on measurement: `-H windowsgui` (the CLI loses exit codes and
+    output in PowerShell) and `conhost --headless` (`/end` orphans the daemon,
+    and the exit code is lost).
+  * After `FreeConsole` stderr goes nowhere, so this ships only after MADR 0157
+    P4's file sink, and after D1's release (F18).
+  * Closes **F10**.
+* **D8 — Derive the task principal from the process token.**
+  * The principal's `UserId` becomes the SID from `appdirs.CurrentUserSID()`,
+    which is the form Task Scheduler stores (probe 5). The `LogonTrigger`
+    `UserId` and `Author` become the account name from `SID.LookupAccount`.
+  * `USERNAME` and `USERDOMAIN` are no longer read. A lookup failure is an
+    error before `/create`, never an empty `UserId` (probe 10).
+  * Closes **F11**.
+* **D9 — Probe task state without parsing localised text, and let errors
+  surface.**
+  * `isActiveWindows` and `isInstalledWindows` query
+    `(Get-ScheduledTask -TaskName <name> -ErrorAction SilentlyContinue)`
+    through `powershell -NoProfile -NonInteractive`, reading the numeric
+    `State` (4 = Running) and `$null` for a missing task (probe 11). A failure
+    to run the probe itself is returned as an error, not as "not running".
+  * The per-call cost of about 1.3 s fits `WaitHealthy`'s 30 s window.
+  * Closes **F12**, without depending on the unmeasured localisation claim.
+* **D10 — Correct the documents; defer the signing hook until a certificate
+  exists.**
+  * `docs/ops-windows-install.md:40-43` stops claiming the hook is wired.
+  * MADR 0116 gets an additive amendment: D14's hook waits for a certificate,
+    because a hook nothing can call cannot be verified.
+  * Closes **F13**.
+* **D11 — Make the acceptance script run, then give the service lifecycle a
+  gate.**
+  * Fix `acceptance-windows.ps1:65` so it parses. Its `log_dir` check stays
+    red until MADR 0157 P1, which owns that path.
+  * Add `scripts/acceptance-windows-service.ps1`. It exercises the full
+    lifecycle through **mcrelay**, whose task is not installed on this host
+    (probe 12), so the operator's live `mcremote` task is never touched. It
+    covers:
+    * unelevated `setup-service --force`;
+    * the summary text;
+    * `Running` via D9's probe;
+    * `--refresh --json` reporting `unchanged`;
+    * a killed daemon relaunched within 120 s (D5);
+    * `--remove` leaving no task and no process.
+
+    It cleans up in a `finally` block.
+  * A real `update` of the live mcremote task is a manual, owner-approved step
+    in the PLAN's rollout, never automated.
+  * Closes **F14** and **F16**.
+* **D12 — Assert the Windows ACL contract of atomic writes.** Where
+  `SkipIfNoPOSIXModes` skips, assert `appdirs.FileIsOwnerOnly` of a file
+  written by `WriteFileAtomic` into an `EnsurePrivateDir` directory. That this
+  holds is **[unverified]**. If the new assertion fails, that is a new finding
+  for its own record, and the test is not weakened. Closes **F15**.
+* **D13 — Refuse `--unit-name` on Windows unless it equals the product.** The
+  lifecycle cannot follow a renamed task (F17), so accepting the flag and
+  ignoring it is replaced by a clear error. Closes **F17**.
+* **D14 — Compare task definitions semantically.** Replace
+  `sameTaskDefinition`'s text comparison with a comparison of the fields setup
+  controls:
+  * triggers, principal SID, logon type, settings, and the `Exec` command,
+    arguments and working directory;
+  * default values applied to both sides;
+  * the principal compared by SID.
+
+  Setup's `Unchanged` and D1's `unchanged` verdict then mean what they say on a
+  real task store. The unit fixtures gain a real `schtasks` export (probe 5),
+  with the SID replaced. Closes **F19**.
 
 ### Consequences
 
-* Windows operators gain a working `update`, readable logs, correct post-install
-  guidance, no stray console window, and a `--env` flag that does something.
-* `refreshSchtasks` (D1) is the largest single item: it needs an XML recovery
-  path analogous to `recoverOptions`/`recoverPlistOptions`, and `normalizeTaskXML`
-  (`setup_schtasks.go:87-119`) already exists to compare definitions.
-* D7 is the only decision with a plausible regression surface. A
-  GUI-subsystem binary gets no console by default; if any interactive Windows
-  path depends on console attachment (a TTY prompt, the `picker`, the
-  `providerauth` flow) it must be checked, not assumed. This is the decision
-  most likely to be reverted under pressure, because the fix is one ldflag and
-  the breakage would be subtle.
-* D3 depends on MADR 0157, which is `proposed` and unexecuted. If 0157 slips,
-  D3's second arm (stop advertising `LogDir`) must still ship — an advertised
-  log directory that is never written is worse than none, because it sends the
-  operator looking in the right place for nothing.
-* D5 cannot reach full parity. Task Scheduler has no `Restart=always`; the
-  residual must be documented rather than papered over, or it will be
-  rediscovered as a bug report.
-* D11 lengthens the Windows acceptance run and makes it stateful — it registers
-  and removes a real task. It must clean up after itself and must not run
-  elevated, or it stops testing the documented path.
-* None of these decisions promote Windows to Tier 1, add `windows/arm64`, or
-  introduce SCM support. Those remain 0116's decisions.
+* Windows operators gain:
+  * a working `update`;
+  * a daemon that comes back after a crash;
+  * correct post-install guidance;
+  * no terminal at logon;
+  * a `--env` that does something;
+  * a setup that reports `unchanged` when nothing changed.
+* The work ships in **two releases** (F18):
+  1. The first carries D1, D2, D4, D5, D8, D9, D11–D14, all of which leave the
+     task's `serve` arguments as older binaries expect.
+  2. The second carries D6 and D7, which add `serve` arguments. D7 also waits
+     for MADR 0157 P4.
+* A host that jumps from a pre-D1 binary straight to the second release is
+  exposed to F18 if its update fails after the refresh. The recovery is
+  `setup-service --force` with the binary left in place. The PLAN's rollout
+  names it.
+* D5 does not reach systemd parity:
+  * restart latency is about a minute, not 5 s;
+  * stopping requires disabling.
+  Both are documented, not hidden.
+* D9 costs about 1.3 s per status probe instead of about 50 ms.
+* D11's new script registers and removes a real task. It must never run
+  elevated, and must clean up on failure.
+* None of this promotes Windows to Tier 1, adds `windows/arm64`, or introduces
+  SCM support.
 
 ### Confirmation
 
 ```powershell
-# 1. The tree still compiles and vets for Windows.
-$env:GOOS='windows'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
-go vet ./...                                    # expect: exit 0, no output
+# 1. Still compiles and vets for Windows.
+$env:GOOS='windows'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'; go vet ./...   # exit 0
 
-# 2. D4 — socketIdentity no longer skips, and now asserts.
-go test ./internal/admin/ -run TestSocketIdentityStable -v
-#   expect: --- PASS (not --- SKIP)
+# 2. D4 / D12 - no longer skipped.
+go test ./internal/admin/ -run TestSocketIdentityStable -v     # --- PASS
+go test ./internal/fsutil/ -run 'TestWriteFileAtomic$' -v      # --- PASS
 
-# 3. D12 — the atomic-write contract is verified on Windows.
-go test ./internal/fsutil/ -run 'TestWriteFileAtomic' -v
-#   expect: --- PASS for TestWriteFileAtomic (not --- SKIP)
+# 3. D14 - setup is idempotent against the real task store.
+mcremote setup-service; mcremote setup-service                 # second: exit 0, reports unchanged
 
-# 4. D1 — refresh is supported on Windows.
-go run ./cmd/mcremote setup-service --refresh --print-only
-#   expect: a verdict line, NOT "only supported on Linux and macOS"
+# 4. D1 - refresh supported, and unchanged on a current task.
+mcremote setup-service --refresh --json                        # {"verdict":"unchanged",...}
 
-# 5. D2 — the post-install summary names no Unix command.
-#   from a non-administrator shell, after `setup-service --force`:
-#   expect: no occurrence of systemctl, journalctl, loginctl, make install,
-#           or a ".service" unit name; schtasks commands present.
+# 5. D2 - no Unix commands in the Windows summary (from the D11 script).
 
-# 6. D3 — the daemon writes where `paths` says it does.
-mcremote paths --json | Select-String log_dir
-#   then start the task and expect that directory to exist and grow.
+# 6. D5 / D9 / D11 - the service lifecycle gate.
+pwsh -File scripts\acceptance-windows-service.ps1              # 0 checks failed
 
-# 7. D7 — no console window at logon.
-#   register the task, log off and on: expect no mcremote console window.
-go version -m .\dist\mcremote-windows-amd64.exe | Select-String 'windowsgui'
-#   expect: -H windowsgui present in the ldflags
+# 7. D7 - no console host at logon (release 2): the probe-7 method run against the real task.
 
-# 8. D11 — the extended acceptance gate.
-.\scripts\acceptance-windows.ps1
-#   expect: 0 CHECK(S) FAILED, with service-lifecycle checks now listed
+# 8. D8 / D13 - principal and flags.
+$env:USERNAME='bogus'; mcremote setup-service --print-only     # UserId is the SID, not "bogus"
+mcremote setup-service --print-only --unit-name other          # error, not silence
 
-# 9. D10 — no document claims an unwired hook.
-Select-String -Path docs\*.md,docs\spec\*.md -Pattern 'MC_WINDOWS_SIGN'
-#   expect: hits only where the hook exists, or an explicit amendment
+# 9. D10 - no document claims an unwired hook.
+git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "not yet" wording
 ```
 
 ## Pros and Cons of the Options
@@ -589,10 +902,12 @@ Select-String -Path docs\*.md,docs\spec\*.md -Pattern 'MC_WINDOWS_SIGN'
 * Good, because `schtasks.go` is deliberately not build-tagged (`:3-8`), so the
   whole Windows branch stays testable from a Unix host via `OverrideInstallOS`.
   D1 inherits that property.
-* Bad, because Task Scheduler cannot express `Restart=always` (F7/D5), cannot
-  redirect stdio (F3, so D3 must move logging into the daemon), and cannot stop
-  a task gracefully (F8). Option A closes these by working around the engine or
-  by documenting the residual — it never fully reaches Unix parity.
+* Bad, because Task Scheduler cannot express `Restart=always` or restart a
+  program that exits (F7, measured). D5 works around that with a repeating
+  trigger and about a minute of latency. It also cannot redirect stdio (F3, so
+  logging moves into the daemon through MADR 0157), and cannot stop a task
+  gracefully (F8). Option A closes these by working around the engine or by
+  documenting the residual; it never fully reaches Unix parity.
 * Bad, because the task starts at logon, not at boot, so a headless Windows
   host still cannot run `mcrelay` unattended. That is documented in
   `ops-windows-install.md` and is out of scope here.
@@ -649,13 +964,13 @@ Select-String -Path docs\*.md,docs\spec\*.md -Pattern 'MC_WINDOWS_SIGN'
 | `--refresh` returns the error to the child's exit code | `internal/cli/setup_service.go:103-108`; `cmd/mcremote/main.go:29-34` |
 | Non-zero refresh child becomes an error | `internal/cli/service/exec_refresher.go:61-69` |
 | Reconcile error is fatal | `internal/updateclient/lifecycle.go:143-156` (comment + code) |
-| Reconcile error triggers rollback | `mcplib@v1.4.1/selfupdate/managed.go:86-88` |
+| Reconcile error triggers rollback | `mcplib@v1.4.1/selfupdate/managed.go:89-90`; the full sequence at `:64-133` |
 | Windows task counts as installed | `internal/cli/service/control_schtasks.go:34-40` |
 | `PrintSetupResult` has no windows arm | `internal/cli/service/result_print.go:48-57`, `:75-135` |
 | Windows scope value | `internal/cli/service/setup_schtasks.go:20`; `internal/cli/service/setup.go:314` |
 | mcrelay knows the scope but calls the shared printer first | `internal/relay/cli.go:480`, `:492-501` |
 | Windows `Logs` root is set | `internal/appdirs/roots_windows.go:64` |
-| `LogDir` derived from it and printed | `internal/appdirs/paths.go:63-71`; `internal/cli/paths.go:47`, `:68`, `:91-92` |
+| `LogDir` derived from it (product appended) and printed | `internal/appdirs/paths.go:63-71` (`:70`); `internal/cli/paths.go:47`, `:68`, `:91-92`; measured `log_dir` `…\Local\mcremote\Logs\mcremote` |
 | Logger defaults to stderr; serve passes no `Out` | `internal/logging/slog.go:20-24`; `internal/cli/serve.go:80-83` |
 | Task XML has no log or env element | `internal/cli/service/schtasks.go:37-87` |
 | Only launchd creates a log dir / names log files | `internal/cli/service/setup.go:431-435`; `internal/cli/service/plist_render.go:177-178` |
@@ -676,30 +991,48 @@ Select-String -Path docs\*.md,docs\spec\*.md -Pattern 'MC_WINDOWS_SIGN'
 | `schtasks /end` is a TerminateProcess | `internal/cli/service/control_schtasks.go:51-57` |
 | Windows shutdown signals are `os.Interrupt` only | `internal/cli/signals_windows.go:15-17`; `internal/relay/signals_windows.go:15-17` |
 | Windows restart policy | `internal/cli/service/schtasks.go:118-124` |
+| `RestartOnFailure` does not restart a program that exits (0, 1 or `/end`) | measured, probe 8: 1 run each in 4 min 42 s; GUI exit-1 variant 1 run in 1 min 43 s |
+| Repeating trigger relaunches, never duplicates, is silenced by disable | measured, probe 8: runs at 07:52:14, 07:53:15, 07:54:15; long-running 1 run and 1 process over 4½ min; 0 runs in 150 s disabled; `/change /disable` and `/enable` unelevated |
+| Logon and repeating triggers coexist | measured, probe 8: `mcr-probe-both` registered with both |
 | systemd restart policy | `internal/cli/service/mcremote.user.service.tmpl:17-18`, `:28-32` |
 | launchd restart policy | `internal/cli/service/plist_render.go:169-172` |
 | systemd/launchd environment blocks | `mcremote.user.service.tmpl:41-52`; `plist_render.go:89-125` |
-| `servicePathExtras` is POSIX-only and `:`-joined | `internal/cli/service/setup.go:869-887` |
+| `servicePathExtras` is POSIX-only and `:`-joined | `internal/cli/service/setup.go:869-881`, `:887-910` |
+| Task XML rejects an environment element | measured, probe 9: "The task XML contains an unexpected node. (5,239):Environment" |
+| A task inherits the registry Machine+User `Path` and no `HOME` | measured, probe 9 (54 variables) |
 | `--env` is bound and plumbed | `internal/cli/setup_service.go:29`, `:48`, `:92`; `internal/relay/cli.go:430` |
 | `--env` is consumed by plist and systemd | `plist_render.go:119`; `setup.go:808`, `:978-979` |
 | `--env` is dropped by schtasks | measured: grep `ExtraEnviron\|Environ` in `schtasks.go` + `setup_schtasks.go` → zero hits |
 | No `-H windowsgui` anywhere | measured: repo-wide grep `windowsgui\|ShowWindow\|GetConsoleWindow\|SW_HIDE\|CREATE_NO_WINDOW\|DETACHED_PROCESS` → zero hits |
 | Release/local link flags | `Makefile:43`; `scripts/ci-windows-local.ps1:132` |
 | Task runs in the interactive session | `internal/cli/service/schtasks.go:105-108` |
+| The at-logon console is handed to Windows Terminal | measured, probe 6: Windows Terminal started 1 s after the daemon; the probe task created `OpenConsole` within about 110 ms |
+| `-H windowsgui` breaks the CLI in PowerShell | measured, probe 7: `> file` empty; exit 1 reported as 0 |
+| `conhost --headless` orphans on `/end` and loses the exit code | measured, probe 7 |
+| `FreeConsole()` at start creates no console host | measured, probe 7 (50 ms sampling for 3 s) |
 | `Hidden` is false, and hides the task not the window | `internal/cli/service/schtasks.go:71`, `:117` |
 | Principal comes from two env vars | `internal/cli/service/schtasks.go:202-210`, used at `:103`, `:106` |
+| Overridden env gives a wrong or empty principal | measured, probe 10: `<UserId>bogus</UserId>`; `<UserId></UserId>` |
+| A Microsoft account works with the env form; Task Scheduler stores the SID | measured, probes 5 and 10: `PrincipalSource MicrosoftAccount`; token = env = `MAC420\macsm`; export `UserId` is the SID |
 | A correct token-based SID helper already exists | `internal/appdirs/security_windows.go:36-47`, exported at `:328` |
 | `isActiveWindows` swallows errors | `internal/cli/service/control_schtasks.go:9-15` |
 | Status parsing matches English literals | `internal/cli/service/control_schtasks.go:23-32` |
+| A locale-free state probe exists | measured, probe 11: `Get-ScheduledTask` State 4 or absent, 1261–2375 ms |
 | `WaitHealthy` polls `Running` for 30s | `internal/updateclient/lifecycle.go:93-128`, `:15-20` |
 | D14 promised `MC_WINDOWS_SIGN_*` | `docs/spec/0116-MADR-windows-and-linux-arm64-build-targets.md:917-918` |
 | The hook does not exist | measured: repo-wide grep `MC_WINDOWS_SIGN\|signtool` → hits only in `docs/` |
 | `codesign-maybe` is darwin-gated | `Makefile:204-210` |
 | Ops doc claims signing is wired | `docs/ops-windows-install.md:40-43` |
 | Acceptance script coverage | `scripts/acceptance-windows.ps1:74-176`, manual steps `:181-186` |
+| Acceptance script never parsed | measured, probe 12: PowerShell 5.1 and 7 `ParseFile` 1 error at line 65; `git log -L65,65` gives `ca436bb` |
+| Once parsed, 2 checks fail | measured, probe 12: `log_dir` mismatch; `go test ./...` timing failures (3 tests, each 3/3 alone) |
+| `--unit-name` and `--env` are dropped on Windows | measured, probe 10: byte-identical `--print-only` |
+| Rollback restore runs in the old binary | `internal/updateclient/lifecycle.go:169-184`; `internal/cli/service/exec_refresher.go:86-87`; `internal/cli/service/refresh.go:129-146` |
+| Setup idempotency never matches a real task | measured: element diff of render against export; installed v0.17.4 `setup-service` exits 1 "exists with different content" |
+| mcrelay is a safe acceptance subject here | measured, probe 12: `mcrelay setup-service --print-only` renders; `schtasks /query /tn mcrelay` finds nothing |
 | Atomic-write tests skip on Windows | `internal/fsutil/atomic_test.go:13`, `:129`; `internal/testexec/testexec.go:67-74`, `:118-124`; measured `--- SKIP` ×2 |
-| `SuperviseStarted` is genuinely wired (not a finding) | measured: six call sites; `--- PASS: TestSuperviseStartedKillsTree` |
-| Codex default transport is stdio (not a finding) | `internal/provider/codex/config.go:80`; `configs/config.example.yaml:266` |
+| `SuperviseStarted` is genuinely wired (not a finding) | measured: six call sites at `b3d3355`, five at `38078c5`; `--- PASS: TestSuperviseStartedKillsTree` |
+| Codex default transport is stdio (not a finding) | `internal/provider/codex/config.go:80`; `configs/config.example.yaml:225` |
 
 ### Related records
 
@@ -718,8 +1051,12 @@ Select-String -Path docs\*.md,docs\spec\*.md -Pattern 'MC_WINDOWS_SIGN'
   `ERROR_ACCESS_DENIED` predicate. Sound; cited as the model F4 should follow.
 * **MADR 0155** — owner-only config guards, `foreignTrustees`, the `LA` alias
   fix. Sound.
-* **MADR 0157** — `daemon-owned-rolling-logs`, `status: proposed`. **D3 depends
-  on it.** Its own text already contains a "Rotation under a Windows tail
+* **MADR 0157** — `daemon-owned-rolling-logs`, `status: proposed`. **D3 is
+  delivered by it, and D7 waits for its P4.** Its context states that the
+  Windows task "has no console and discards" the stream. Probe 6 contradicts
+  the first half: the task gets a console, handed to Windows Terminal, and the
+  output goes nowhere readable. 0157 should be corrected when it is next
+  revised. Its own text already contains a "Rotation under a Windows tail
   (measured 3/3 on this host)" section, so the Windows behaviour was probed
   while designing it.
 * **MADR 0160** — `remove-goose-cli-support`, `proposed` (cross-reference added
@@ -730,6 +1067,9 @@ Select-String -Path docs\*.md,docs\spec\*.md -Pattern 'MC_WINDOWS_SIGN'
   `defaults_mcremote.yaml` and treats a leftover block as a warning, not a load
   failure: a refusal would have made the managed `update` path this record's F1
   describes fail on every platform, not only Windows (0160 F16).
+* **MADR 0162** — isolated config-test roots. It made `make ci-windows` fully
+  green on this host on 2026-09-19, which is the gate this record's PLAN
+  relies on.
 * **MADR 0118** — symlink privilege as a machine property, and D2's rule that a
   blanket skip converts a broken environment into silent non-coverage. That rule
   is what makes **F4**'s `t.Skip` and **F15** defects rather than pragmatism.
@@ -740,33 +1080,29 @@ Select-String -Path docs\*.md,docs\spec\*.md -Pattern 'MC_WINDOWS_SIGN'
 
 ### Open questions for the plan
 
-1. **Does D3 wait for MADR 0157, or ship the smaller half first?** Stopping
-   `roots_windows.go:64` from advertising a `Logs` root is a two-line change
-   that removes a false claim today; implementing the rolling log is 0157's
-   whole scope. The plan should probably sequence the correction first and the
-   implementation second, but that is a phasing decision.
-2. **What exactly does `-H windowsgui` break?** D7's risk is that a
-   GUI-subsystem binary gets no console, and some interactive Windows flows (the
-   `picker`, `providerauth` device-code prompts, `pair`) may depend on console
-   attachment or on a TTY check. This needs a probe on a real host before the
-   flag is added, not after.
-3. **Is there a machine-readable task state that survives localisation?** D9
-   assumes `schtasks /query /xml` or an equivalent exposes state without English
-   text. That must be measured on a non-English Windows, or on this host with a
-   forced UI culture, before the parser is rewritten.
-4. **Which per-user install roots belong in a Windows `servicePathExtras`?**
-   D6 names `%LOCALAPPDATA%\Programs`, npm global and scoop shims, but the real
-   list should come from where the provider CLIs actually land on a Windows
-   install — including `fnm`/`volta`/`nvm-windows`, which relocate `node` per
-   shell.
-5. **Should `RestartOnFailure` `Count` be raised, or is a watchdog action the
-   honest answer?** D5 leaves this open. A higher count still never restarts a
-   clean exit; a second task action that relaunches on exit would, at the cost of
-   complexity in the XML.
-6. **Does D11's stateful acceptance run belong in `acceptance-windows.ps1` or in
-   a separate script?** Registering and removing a real scheduled task is
-   side-effecting in a way the current script is not, and it must clean up after
-   a failure.
-7. **Is F13 a code fix or a documentation fix?** D10 allows either. If the
-   certificate is still not procured, wiring a hook that nothing can call has
-   its own cost; amending 0116 and the ops page may be the better half.
+The draft's seven questions, answered on 2026-09-19:
+
+1. **Does D3 wait for MADR 0157?** D3 *is* 0157. This record no longer plans
+   logging. D7 waits for 0157 P4, and D11's `log_dir` check waits for 0157 P1.
+2. **What does `-H windowsgui` break?** The CLI in PowerShell: redirected
+   output is empty and exit codes are lost (probe 7). D7 uses `FreeConsole()`
+   in the task-launched daemon instead.
+3. **Is there a machine-readable task state?** Yes: `Get-ScheduledTask`'s
+   numeric `State` (probe 11). A non-English host was not available, so D9
+   avoids depending on the answer rather than asserting it.
+4. **Which install roots belong in a Windows `servicePathExtras`?** None, on
+   this evidence: the task inherits the registry `Path` (probe 9). Profile-only
+   CLIs remain **[unverified]**; none is installed here.
+5. **Raise `Count`, or a watchdog?** Raising `Count` does nothing: exits are
+   never restarted (probe 8). A repeating trigger is the watchdog, and stop
+   becomes disable (D5).
+6. **Where does the stateful acceptance run live?** In a separate
+   `scripts/acceptance-windows-service.ps1`, driven through mcrelay so the live
+   mcremote task is untouched (D11).
+7. **Is F13 a code fix or a documentation fix?** Documentation now; the hook
+   waits for a certificate (D10).
+
+None remain open. The PLAN verifies the three **[unverified]** items in the
+phases that depend on them: the `FreeConsole` behaviour at a real logon (D7),
+the ACL of an atomic write (D12), and a repeating trigger with a fixed past
+`StartBoundary` (D5).
