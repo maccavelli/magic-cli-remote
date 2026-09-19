@@ -60,7 +60,9 @@ phase.
   * `docs/spec/0116-MADR-windows-and-linux-arm64-build-targets.md` (an
     appended amendment section only).
 * **P3:** `internal/admin/owner_windows.go`, `internal/admin/owner_windows_test.go`,
-  `internal/admin/admin.go` (the two `socketIdentity` call sites only).
+  `internal/admin/admin.go` (the two `socketIdentity` call sites only), and, by
+  the 2026-09-19 execution amendment, `internal/admin/owner_unix.go` and
+  `internal/admin/owner_unix_test.go` (the signature change only).
 * **P4:** `internal/fsutil/atomic_acl_windows_test.go` (new).
 * **P5:**
   * `internal/cli/service/setup_schtasks.go`, `internal/cli/service/schtasks.go`;
@@ -294,10 +296,12 @@ git diff -U0 -- docs/spec/0116-MADR-*.md | grep -c '^-[^-]'      # → 0 (no rem
 
 ### P3 — `socketIdentity` reads a real file index (D4; closes F4, F5)
 
-1. In `internal/admin/owner_windows.go`, reimplement `socketIdentity(fi)`. It
-   takes the path the caller already has; where only `fi` is available, add a
-   `socketIdentityPath(path string) (uint64, bool)` and change the two callers
-   in `admin.go` (`:129-134`, `:146-150`) to pass the socket path. Steps:
+1. Change the signature on both platforms to `socketIdentity(path string, fi
+   fs.FileInfo) (uint64, bool)`, and pass the socket path from the two callers
+   in `admin.go` (`:129-134`, `:146-150`). Unix ignores `path` and keeps its
+   inode logic unchanged; its test call sites pass the path. This was an
+   owner-approved scope amendment, 2026-09-19: Windows can only reach a file
+   index by opening the path. The Windows implementation:
    `windows.CreateFile(path, 0, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
    nil, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_BACKUP_SEMANTICS, 0)`,
    then `windows.GetFileInformationByHandle`, then the identity
