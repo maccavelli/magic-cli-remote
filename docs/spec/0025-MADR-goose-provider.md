@@ -1,5 +1,7 @@
 # MADR 0025: Goose ACP-over-HTTP provider
 
+> **Superseded by [MADR 0160](0160-MADR-remove-goose-cli-support.md) (2026-09-18):** the Goose provider was removed from the product. This record is kept as history.
+
 - **Status**: **Implemented** (WebSocket transport; spike complete 2026-07-26).
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner (scope, enablement, phasing); Implementer

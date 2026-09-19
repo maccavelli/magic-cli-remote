@@ -1,5 +1,7 @@
 # Goose remote parity: implementation plan
 
+> **Superseded by [MADR 0160](0160-MADR-remove-goose-cli-support.md) (2026-09-18):** the Goose provider was removed from the product. This record is kept as history.
+
 **Status:** Accepted — Phases 1, 2, and 4 implemented; Phase 3 evidence pending
 **Date:** 2026-07-26
 **Decision:** [MADR 0030](./0030-MADR-goose-remote-parity.md)

@@ -1,5 +1,7 @@
 # Implement a Goose keyring-backend setting in mcremote configuration
 
+> **Superseded by [MADR 0160](0160-MADR-remove-goose-cli-support.md) (2026-09-18):** the Goose provider was removed from the product. This record is kept as history.
+
 <!-- markdownlint-disable MD004 MD013 MD024 MD029 MD033 MD036 MD060 -->
 
 Associated MADR: [0110-MADR-goose-keyring-prompts-block-headless-launch.md](0110-MADR-goose-keyring-prompts-block-headless-launch.md)

@@ -1,6 +1,6 @@
 ---
-status: accepted
-date: 2026-08-28
+status: superseded by 0160-MADR-remove-goose-cli-support.md
+date: 2026-09-18
 decision-makers: Project Owner
 consulted: none
 informed: none

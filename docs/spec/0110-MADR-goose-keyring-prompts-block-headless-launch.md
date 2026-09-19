@@ -1,6 +1,6 @@
 ---
-status: accepted
-date: 2026-08-21
+status: superseded by 0160-MADR-remove-goose-cli-support.md
+date: 2026-09-18
 decision-makers: Project Owner (scope and acceptance)
 consulted: block/goose documentation; macOS keychain ACL research; local host probes
 informed: Implementers of the daemon, Goose provider, and host setup tooling

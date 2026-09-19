@@ -7,6 +7,8 @@ associated-madr: "0122-MADR-deterministic-goose-file-log-tail-attach.md"
 
 # PLAN 0122 — Deterministic goose file-log tail attach
 
+> **Superseded by [MADR 0160](0160-MADR-remove-goose-cli-support.md) (2026-09-18):** the Goose provider was removed from the product. This record is kept as history.
+
 Implements [0122-MADR-deterministic-goose-file-log-tail-attach.md](0122-MADR-deterministic-goose-file-log-tail-attach.md)
 decisions D1–D6, closing findings F1–F5.
 

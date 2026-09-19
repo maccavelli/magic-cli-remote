@@ -1,5 +1,7 @@
 # Goose ACP-over-HTTP Provider — Implementation Plan
 
+> **Superseded by [MADR 0160](0160-MADR-remove-goose-cli-support.md) (2026-09-18):** the Goose provider was removed from the product. This record is kept as history.
+
 **Status**: Implementation-ready (spike complete)
 **Date**: 2026-07-26
 **Target files**: 13 new, 7 modified

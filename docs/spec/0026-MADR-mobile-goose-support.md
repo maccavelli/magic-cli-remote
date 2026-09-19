@@ -1,5 +1,7 @@
 # Mobile App Goose Support — Assessment
 
+> **Superseded by [MADR 0160](0160-MADR-remove-goose-cli-support.md) (2026-09-18):** the Goose provider was removed from the product. This record is kept as history.
+
 - **Status**: Superseded by [MADR 0030](./0030-MADR-goose-remote-parity.md)
 - **Date**: 2026-07-26
 - **Scope**: Add goose provider support to the Flutter Android app
