@@ -1141,6 +1141,29 @@ The Stability rule held for both phases:
    failed. The fix is to mark new files intent-to-add before exporting the
    patch.
 
+**P15 (`82ff8e7`), added by the second amendment (`38e7b15`).** The installer
+adds both folders to the User `Path` (D16).
+
+* **Unit test:** 61/61 under 5.1 and 7, with 20 new U14 checks against a
+  scratch key, which is removed afterwards.
+* **Mutations:** three, each caught.
+  * Reading `Path` expanded fails U14 and U14b: the `%VAR%` entry comes back
+    literal.
+  * Writing `String` fails U14 and U14e.
+  * Dropping the opt-out branch fails U14f.
+* **e2e:** 44/44 under both shells. The new check "the real User Path is
+  unchanged by the whole run" passes, and an independent before-and-after read
+  of this host's `HKCU\Environment` `Path` (kind and raw value) was identical.
+* **Broadcast:** `Send-EnvironmentChange` was run for real under 7.6.6 and
+  5.1.26100. The type loaded, there were no warnings, and it took 390 ms and
+  411 ms.
+* `make ci-windows` passed.
+
+Not covered by an automated test: the real write to `HKCU\Environment`, since
+any test would change the tester's own `Path`. What is tested is the same
+function against a scratch key, plus the e2e proof that the real key is left
+alone under the opt-out.
+
 **Not yet done.**
 
 * **v0.18.1** is an owner action: cut it, then follow the amendment's Rollout.
