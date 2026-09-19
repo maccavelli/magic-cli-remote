@@ -1539,3 +1539,111 @@ binary rollback is the whole rollback. A downgrade to v0.18.x needs no
   would be tidier than P18's `NoteConsoleDetached` seam, but it moves a file
   0159 P13 just placed and re-opens the import-direction question for no
   behavioural gain.
+
+### P16–P20: v0.19.0 code complete (2026-09-19)
+
+All five phases ran, in order, one commit each. `make ci-windows` passed after
+every phase; `make pre-add-check` passed on every Go file staged.
+
+| Phase | Commit | What landed |
+| --- | --- | --- |
+| P16 | `c222966` | `procutil.Command`, `hasConsole`/`consoleState`/`creationFlags`, the three-deep window test |
+| P17 | `99c69eb` | 25 spawn calls across 15 files moved to the constructor; the static ban |
+| P18 | `246ac79` | `signalBreak` — attach, signal, detach — and `NoteConsoleDetached` |
+| P19 | `5500d62` | The batch quoting guard, `launch.Command` wired into all three providers, split ceilings |
+| P20 | `db92d59` | `docs/ops-windows-install.md` corrected |
+
+**Mutation results.** Every guard was checked against a broken implementation,
+because a test that passes against the bug is worth nothing.
+
+| Mutation | Caught by | Evidence |
+| --- | --- | --- |
+| Drop `CREATE_NO_WINDOW` (pre-fix) | A15, A16 | `child console_hwnd = 0x4a091a` — the owner's symptom, reproduced |
+| `hasConsole` → `GetConsoleWindow() == 0` | the new pseudoconsole test | `hasConsole() = false, but CONOUT$ open = true` |
+| `CREATE_NO_WINDOW` unconditional | A16 | `creationFlags(true) = 0x8000200` |
+| Reintroduce a bare `exec.Command` | A17 | named the file and line |
+| A stale allowlist entry | A17's anti-rot check | named the entry |
+| Pre-fix `signalBreak` (signal directly) | A18, A19 | `POLITE=false`, child killed instead of draining |
+| Forget `defer FreeConsole` | A18 | `hasConsole=true` afterwards |
+| Remove `consoleMu` | A19 | **failed 5 of 6 runs**, and 2 of 2 under `-race` |
+| Drop per-argument quoting | A20 | `the shim received ARGS=[a], want ARGS=["a&calc"]` |
+| Drop `/d` | A22 only | behaviour tests still passed |
+| Drop `/v:off` | A22 only | behaviour tests still passed |
+
+**Live evidence from the helper roles**, run directly rather than inferred from a
+green suite: `PROCUTIL_POLITE=true exit=7` (the child drained on the signal
+rather than being killed), `PROCUTIL_PARENT_ALIVE hasConsole=false` (the borrowed
+console was given back and the borrower survived), and both children draining in
+the concurrent case.
+
+**Other gates.** `go test -race` clean on every touched package, `-count 2` on
+`procutil`. The WSL Linux lane built everything and passed
+`./internal/provider/...` plus `./internal/procutil/` (13 packages). `linux` and
+`darwin` cross-builds clean.
+
+### What the plan predicted incorrectly
+
+1. **The mutation P16 relied on would not have been caught.** The plan said
+   replacing `hasConsole()` with `GetConsoleWindow() == 0` "fails the
+   with-console row". It does not: `creationFlags` takes a `bool`, so the table
+   test never exercises the detection at all. The gap was found by trying the
+   mutation rather than by reasoning about it. Closed by a new test that uses
+   `CONOUT$` as an independent oracle — on this host it reports
+   `attached=true console_hwnd=0x0`, so the discriminating case is live and the
+   mutation now fails. **A plan that names a mutation should say which assertion
+   catches it, and that claim needs checking like any other.**
+2. **F28's count was low.** It said 16 non-test `exec.Command*` sites; the
+   migration touched **25 calls in 15 files**, and removed **11** now-redundant
+   `SetProcessGroup` calls. The original grep counted matching *lines*, including
+   comments and packages outside the daemon.
+3. **The console cache is a mutex and a `*bool`, not a `sync.Once`.** P18 needs
+   to overwrite the cached answer from `NoteConsoleDetached`, which `sync.Once`
+   cannot express. Deliberate deviation from P16 step 3.
+4. **The mutex is better tested than predicted.** The plan expected the
+   concurrency test to "fail or flake visibly" without it; it fails 5 of 6 runs,
+   so `consoleMu` is genuinely test-enforced rather than defensive.
+5. **`/v:off` is no more behaviour-testable than `/d`.** The plan singled out
+   `/d` as invisible to behaviour tests. Delayed expansion is off by default, so
+   `a!PATH!` is inert with or without `/v:off` too — both flags are guarded only
+   by A22's static assertion, which now covers all four.
+6. **The trailing backslash is refused.** P19 left this to measurement. `cmd.exe`
+   does not treat `\` as an escape while `CommandLineToArgvW` does, so no single
+   spelling satisfies both the shim and whatever the shim execs; refusing is the
+   only answer that is correct for both.
+7. **`os.StartProcess` was added to the ban**, which the plan did not mention.
+   Banning only `exec.Command*` would leave an equivalent bypass one layer down.
+8. **P19 had to delete two allowlist entries**, which the plan anticipated as a
+   possibility and which the anti-rot check turned into a failing test rather
+   than a silent staleness. The allowlist is down to one entry,
+   `codesign_darwin.go`.
+9. **`detach_other.go` needed no change.** P18 step 2 called for a matching
+   no-op; only the Windows `DetachConsole` calls `NoteConsoleDetached`, so there
+   is no cross-platform signature to keep parity with.
+10. **One test contract was deliberately replaced, not extended.**
+    `TestCommandRejectsCmdMetacharacters` asserted that every cmd.exe
+    metacharacter is refused; D23 makes most of them legal-and-quoted, so it is
+    now `TestCommandRefusesOnlyWhatQuotingCannotFix`. The reason is recorded in
+    the test itself, and the characters it stopped refusing are proven inert
+    against a real shim by `TestBatchArgumentsReachTheShimLiterally`. This is the
+    one place in the plan where an assertion got weaker, and it is compensated
+    rather than dropped.
+11. **`procutil_other.go`'s `newCommand` cannot be compile-checked here.**
+    `GOOS=js` fails in `internal/fsutil` and `internal/appdirs`, which have no
+    implementation for that platform. Confirmed pre-existing by building the same
+    target at `HEAD`. The residual-platform constructor mirrors the Unix one and
+    is unverified by any build.
+12. **A process mistake worth recording.** Mid-mutation-test, the working copy of
+    `procutil_windows.go` was restored with `git checkout --` while P16 was still
+    uncommitted, which reverted the implementation to `HEAD` and turned the next
+    two mutations into build failures instead of test failures. It was recovered
+    from a copy taken beforehand. **While a phase is uncommitted, a mutation test
+    must restore from a file copy, never from git.**
+
+### Not yet done
+
+* **v0.19.0 is an owner action**: push, then tag after a green CI run, then the
+  Rollout's step 3 — update, start an agent session and confirm **no window and
+  no kill**, stop a session, then log off and on and start another. That closes
+  **A11's logon half** and **A25**.
+* `make ci-windows-smoke` has not been run; it belongs before the tag.
+* P12 (`--env` through a private file) follows in a later release, unchanged.
