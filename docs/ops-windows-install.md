@@ -35,6 +35,22 @@ Binaries land in `%LOCALAPPDATA%\Programs\mcremote\` and
 `%LOCALAPPDATA%\Programs\mcrelay\` — **per-user, no elevation**, the analogue
 of `~/.local/bin` on Unix.
 
+Windows has no per-user program folder that is on `PATH` by default, so the
+installer adds both folders to your **User** `Path`, as winget and Scoop do
+with theirs (MADR 0159 D16). It adds only what is missing and keeps every
+existing entry as written, including `%VAR%` references. It tells running
+programs about the change. The shell you installed from can use `mcremote`
+straight away; terminals that were already open need to be reopened.
+
+To leave `Path` alone and get the command to run yourself instead, pass
+`-NoPathUpdate`. For the `irm | iex` one-liner, which cannot take parameters,
+set the environment variable first:
+
+```powershell
+$env:MCREMOTE_INSTALL_NO_PATH_UPDATE = '1'
+irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1 | iex
+```
+
 ### SmartScreen
 
 The published binaries are **not Authenticode-signed yet**. Windows SmartScreen

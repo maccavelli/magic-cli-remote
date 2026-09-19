@@ -32,6 +32,11 @@
 .PARAMETER InstallDir
     Override the install directory.
 
+.PARAMETER NoPathUpdate
+    Do not add the install folders to the User Path; print how to instead.
+    Setting MCREMOTE_INSTALL_NO_PATH_UPDATE=1 does the same, and also reaches
+    an `irm | iex` run, which cannot pass parameters.
+
 .PARAMETER WhatIf
     Show what would happen without downloading or installing anything.
 #>
@@ -39,7 +44,8 @@
 param(
     [string]$Version,
     [string]$InstallDir,
-    [string]$BaseUrl = 'https://github.com/maccavelli/magic-cli-remote/releases'
+    [string]$BaseUrl = 'https://github.com/maccavelli/magic-cli-remote/releases',
+    [switch]$NoPathUpdate
 )
 
 Set-StrictMode -Version Latest
@@ -188,6 +194,61 @@ Nothing was installed.
     return $entry.Version
 }
 
+# Test-PathEntry reports whether $List (a ;-separated Path value) holds $Dir.
+# Entries are expanded and compared without a trailing \, ignoring case.
+function Test-PathEntry {
+    param([string]$List, [string]$Dir)
+    if (-not $List) { return $false }
+    $want = $Dir.TrimEnd('\')
+    foreach ($e in ($List -split ';')) {
+        if (-not $e) { continue }
+        if ([Environment]::ExpandEnvironmentVariables($e).TrimEnd('\') -ieq $want) { return $true }
+    }
+    return $false
+}
+
+# Add-ToUserPath appends $Dir to the User Path unless the User or Machine Path
+# already holds it, and returns whether it changed anything (MADR 0159 D16).
+#
+# The value is read unexpanded and written back with the kind it had: a default
+# read expands %VAR% entries, so writing that back would turn a profile's
+# %USERPROFILE%\... entries into literals and REG_EXPAND_SZ into REG_SZ. -Key
+# exists for the unit test's scratch key.
+function Add-ToUserPath {
+    param([string]$Dir, [string]$Key = 'HKCU:\Environment')
+    $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $k = Get-Item -LiteralPath $Key
+    $raw = $k.GetValue('Path', $null, 'DoNotExpandEnvironmentNames')
+    $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+    if ($null -ne $raw) { $kind = $k.GetValueKind('Path') }
+    if ((Test-PathEntry -List $raw -Dir $Dir) -or (Test-PathEntry -List $machine -Dir $Dir)) {
+        return $false
+    }
+    $new = $Dir
+    if ($raw) { $new = $raw.TrimEnd(';') + ';' + $Dir }
+    Set-ItemProperty -LiteralPath $Key -Name 'Path' -Value $new -Type $kind
+    if (-not (Test-PathEntry -List $env:Path -Dir $Dir)) { $env:Path = $env:Path.TrimEnd(';') + ';' + $Dir }
+    return $true
+}
+
+# Send-EnvironmentChange tells running programs the environment changed, so a
+# new terminal sees the new Path without a sign-out. Best effort.
+function Send-EnvironmentChange {
+    try {
+        if (-not ('McremoteInstall.EnvBroadcast' -as [type])) {
+            Add-Type -Namespace McremoteInstall -Name EnvBroadcast -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out System.UIntPtr lpdwResult);
+'@
+        }
+        $result = [UIntPtr]::Zero
+        # HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG, 5 s.
+        [void][McremoteInstall.EnvBroadcast]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+    } catch {
+        Write-Warn "could not announce the Path change; open a new terminal after signing out and in if it is not seen: $_"
+    }
+}
+
 function Add-ToPathNotice {
     param([string]$Dir)
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -215,6 +276,9 @@ if ($WhatIfPreference) {
     foreach ($p in $Products) {
         Write-Log "would download $urlDir/$p-windows-$arch.exe"
         Write-Log "would install  $(Join-Path (Join-Path $InstallDir $p) "$p.exe")"
+        if (-not ($NoPathUpdate -or ($env:MCREMOTE_INSTALL_NO_PATH_UPDATE -eq '1'))) {
+            Write-Log "would add      $(Join-Path $InstallDir $p) to the User Path, if it is not on it"
+        }
     }
     Write-Log 'nothing was downloaded (-WhatIf)'
     return
@@ -280,10 +344,20 @@ unversioned alias assets (releases before MADR 0116 do not, for Windows).
         }
     }
 
-    # Every product has its own folder; name each one (MADR 0159 D15).
+    # Every product has its own folder; put each one on the User Path (MADR
+    # 0159 D16), or with the opt-out name each one (D15).
+    $pathOptOut = $NoPathUpdate -or ($env:MCREMOTE_INSTALL_NO_PATH_UPDATE -eq '1')
+    $pathChanged = $false
     foreach ($p in $Products) {
-        Add-ToPathNotice -Dir (Join-Path $InstallDir $p)
+        $dir = Join-Path $InstallDir $p
+        if ($pathOptOut) {
+            Add-ToPathNotice -Dir $dir
+        } elseif (Add-ToUserPath -Dir $dir) {
+            Write-Log "added $dir to your User Path"
+            $pathChanged = $true
+        }
     }
+    if ($pathChanged) { Send-EnvironmentChange }
 
     Write-Host ''
     Write-Log 'Next: mcremote setup-service   (no elevation required)'

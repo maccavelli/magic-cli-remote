@@ -251,6 +251,84 @@ if ($calls.Count -eq 1) {
     check 'U13e the call iterates $Products' $over '$Products'
 }
 
+Write-Host ''
+Write-Host 'U14. the installer puts its folders on the User Path (MADR 0159 D16)'
+foreach ($want in @('Test-PathEntry', 'Add-ToUserPath')) {
+    $fn = @($defined | Where-Object { $_.Name -ceq $want })
+    if ($fn.Count -ne 1) {
+        bad "U14 load $want" "expected exactly one function '$want', found $($fn.Count)"
+        continue
+    }
+    . ([scriptblock]::Create($fn[0].Extent.Text))
+}
+# A scratch key stands in for HKCU:\Environment, so the tester's real Path is
+# never written. The running process's $env:Path is restored at the end.
+$scratch = 'HKCU:\Software\mcremote-install-unit-' + [Guid]::NewGuid().ToString('N')
+$savedEnvPath = $env:Path
+$dir = 'C:\mcremote-unit-path-' + [Guid]::NewGuid().ToString('N')
+function Get-ScratchPath {
+    $k = Get-Item -LiteralPath $scratch
+    $v = $k.GetValue('Path', $null, 'DoNotExpandEnvironmentNames')
+    $kind = ''
+    if ($null -ne $v) { $kind = [string]$k.GetValueKind('Path') }
+    return @{ Value = $v; Kind = $kind }
+}
+try {
+    New-Item -Path $scratch -Force | Out-Null
+
+    # A profile's default shape: REG_EXPAND_SZ with a %VAR% entry.
+    New-ItemProperty -LiteralPath $scratch -Name Path -PropertyType ExpandString -Value '%USERPROFILE%\x;C:\y' | Out-Null
+    check 'U14 absent: changed' (Add-ToUserPath -Dir $dir -Key $scratch) $true
+    $after = Get-ScratchPath
+    check 'U14 absent: appended, %VAR% entry kept literally' $after.Value "%USERPROFILE%\x;C:\y;$dir"
+    check 'U14 absent: the value kind is kept' $after.Kind 'ExpandString'
+    contains 'U14 absent: the running session sees it' $env:Path $dir
+
+    check 'U14b a second run changes nothing' (Add-ToUserPath -Dir $dir -Key $scratch) $false
+    check 'U14b the value is unchanged' (Get-ScratchPath).Value "%USERPROFILE%\x;C:\y;$dir"
+
+    check 'U14c a trailing \ counts as present' (Add-ToUserPath -Dir ($dir + '\') -Key $scratch) $false
+    check 'U14c different case counts as present' (Add-ToUserPath -Dir $dir.ToUpperInvariant() -Key $scratch) $false
+    check 'U14c an expanded %VAR% entry counts as present' (Add-ToUserPath -Dir ([Environment]::ExpandEnvironmentVariables('%USERPROFILE%\x')) -Key $scratch) $false
+
+    # A REG_SZ value stays REG_SZ.
+    Set-ItemProperty -LiteralPath $scratch -Name Path -Value 'C:\y;' -Type String
+    check 'U14d REG_SZ: changed' (Add-ToUserPath -Dir $dir -Key $scratch) $true
+    $after = Get-ScratchPath
+    check 'U14d REG_SZ: appended once, no empty entry' $after.Value "C:\y;$dir"
+    check 'U14d REG_SZ: the kind is kept' $after.Kind 'String'
+
+    # No Path value at all: created as REG_EXPAND_SZ, the Windows default.
+    Remove-ItemProperty -LiteralPath $scratch -Name Path
+    check 'U14e missing: changed' (Add-ToUserPath -Dir $dir -Key $scratch) $true
+    $after = Get-ScratchPath
+    check 'U14e missing: created with the folder' $after.Value $dir
+    check 'U14e missing: created as ExpandString' $after.Kind 'ExpandString'
+} finally {
+    Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    $env:Path = $savedEnvPath
+}
+check 'U14 the scratch key is gone' (Test-Path -LiteralPath $scratch) $false
+
+# The main block calls Add-ToUserPath once, inside the foreach over $Products,
+# and only on the branch where the opt-out is off.
+$calls = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Add-ToUserPath' }, $true))
+check 'U14f exactly one Add-ToUserPath call' $calls.Count 1
+if ($calls.Count -eq 1) {
+    $p = $calls[0].Parent
+    $guard = ''
+    while ($p -and -not ($p -is [System.Management.Automation.Language.ForEachStatementAst])) {
+        if ($p -is [System.Management.Automation.Language.IfStatementAst]) { $guard = $p.Clauses[0].Item1.Extent.Text }
+        $p = $p.Parent
+    }
+    $over = ''
+    if ($p) { $over = $p.Condition.Extent.Text }
+    check 'U14f the call iterates $Products' $over '$Products'
+    check 'U14f the first branch is the opt-out' $guard '$pathOptOut'
+}
+$optOut = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$pathOptOut' }, $true))
+check 'U14g the opt-out reads the switch and the variable' ($optOut.Count -eq 1 -and $optOut[0].Right.Extent.Text.Contains('$NoPathUpdate') -and $optOut[0].Right.Extent.Text.Contains("`$env:MCREMOTE_INSTALL_NO_PATH_UPDATE -eq '1'")) $true
+
 # ------------------------------------------------------------------ summary
 
 Write-Host ''

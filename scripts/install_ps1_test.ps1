@@ -215,12 +215,19 @@ function Invoke-Installer {
     }
     $savedLocalAppData = $env:LOCALAPPDATA
     if ($LocalAppData) { $env:LOCALAPPDATA = $LocalAppData }
+    # Every mode opts out of the User Path change (MADR 0159 D16): the child
+    # runs the real installer, and an iex run cannot take -NoPathUpdate, so
+    # without this each case would write its temp folders into the tester's
+    # own Path. Add-ToUserPath is covered against a scratch key by the unit test.
+    $savedNoPath = $env:MCREMOTE_INSTALL_NO_PATH_UPDATE
+    $env:MCREMOTE_INSTALL_NO_PATH_UPDATE = '1'
     try {
         $proc = Start-Process -FilePath $shellExe -ArgumentList $argList -NoNewWindow -PassThru `
             -RedirectStandardOutput $outFile -RedirectStandardError $errFile
     } finally {
         if ($clearModulePath) { $env:PSModulePath = $savedModulePath }
         $env:LOCALAPPDATA = $savedLocalAppData
+        $env:MCREMOTE_INSTALL_NO_PATH_UPDATE = $savedNoPath
     }
     # On .NET Framework (5.1) ExitCode reads back empty unless the process
     # handle was opened while the process was still running. Measured: all
@@ -291,6 +298,16 @@ function Assert-Refused {
         bad "$Case install directory untouched" ('found: ' + (($left | ForEach-Object { $_.FullName.Substring($InstallDir.Length) }) -join ', '))
     }
 }
+
+# The tester's real User Path, raw and with its kind, so the run can prove it
+# wrote nothing there.
+function Get-RealUserPath {
+    $k = Get-Item -LiteralPath 'HKCU:\Environment'
+    $v = $k.GetValue('Path', $null, 'DoNotExpandEnvironmentNames')
+    if ($null -eq $v) { return 'absent' }
+    return [string]$k.GetValueKind('Path') + '|' + $v
+}
+$realUserPathBefore = Get-RealUserPath
 
 $HM = $stubs['mcremote'].Hash
 $HR = $stubs['mcrelay'].Hash
@@ -417,6 +434,8 @@ try {
     Stop-FixtureServer
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+check 'the real User Path is unchanged by the whole run' (Get-RealUserPath) $realUserPathBefore
 
 # ------------------------------------------------------------------ summary
 
