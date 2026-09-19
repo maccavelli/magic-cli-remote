@@ -261,3 +261,14 @@ make pre-add-check FILES="…"                              # → clean
 ### Open questions for the plan
 
 None.
+
+## Observed — execution results (2026-09-19)
+
+D1–D4 landed in `9c66309`. Confirmation §1, §2, §3 and §5 all passed. On this
+host that includes `make ci-windows` exiting 0 for the first time, and both WSL
+planted-config experiments going from 2 and 3 failures to `ok`.
+
+§4 held for the 13 tests but was worded too strongly for `internal/relay`.
+Three other relay tests still set `XDG_CONFIG_HOME`, and none of them reaches
+`Load`'s default search (PLAN 0162 execution record, item 1). The guards were
+shown to fail when the seam is bypassed.
