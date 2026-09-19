@@ -221,6 +221,36 @@ check 'U12c the check catches an unguarded $PSCmdlet' $probe.Count 1
 $probe = Find-IexHostile 'if (-not (Test-Path variable:PSCmdlet) -or $PSCmdlet.ShouldProcess("t", "install")) { 1 }'
 check 'U12d a guarded $PSCmdlet is allowed' $probe.Count 0
 
+Write-Host ''
+Write-Host 'U13. the PATH notice names every product folder (MADR 0159 D15, F20)'
+# Loaded separately from Select-ManifestEntry, so the C7 check above still
+# loads that function alone. Write-Warn is Add-ToPathNotice's only helper.
+foreach ($want in @('Write-Warn', 'Add-ToPathNotice')) {
+    $fn = @($defined | Where-Object { $_.Name -ceq $want })
+    if ($fn.Count -ne 1) {
+        bad "U13 load $want" "expected exactly one function '$want', found $($fn.Count)"
+        continue
+    }
+    . ([scriptblock]::Create($fn[0].Extent.Text))
+}
+$absent = 'C:\mcremote-unit-test-' + [Guid]::NewGuid().ToString('N')
+$notice = (Add-ToPathNotice -Dir $absent 3>&1 6>&1 | Out-String -Width 4096)
+contains 'U13 the notice names the folder' $notice $absent
+contains 'U13b the advice appends to the User Path' $notice "[Environment]::GetEnvironmentVariable('Path', 'User') + ';$absent'"
+if ($notice.Contains('$env:Path')) { bad 'U13c the advice does not use $env:Path' $notice } else { ok 'U13c the advice does not use $env:Path' }
+
+# The only call must be inside a foreach over $Products, so a product added to
+# the list is named too.
+$calls = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Add-ToPathNotice' }, $true))
+check 'U13d exactly one Add-ToPathNotice call' $calls.Count 1
+if ($calls.Count -eq 1) {
+    $p = $calls[0].Parent
+    while ($p -and -not ($p -is [System.Management.Automation.Language.ForEachStatementAst])) { $p = $p.Parent }
+    $over = ''
+    if ($p) { $over = $p.Condition.Extent.Text }
+    check 'U13e the call iterates $Products' $over '$Products'
+}
+
 # ------------------------------------------------------------------ summary
 
 Write-Host ''

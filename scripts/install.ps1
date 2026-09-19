@@ -194,8 +194,11 @@ function Add-ToPathNotice {
     if ($userPath -and ($userPath -split ';' | Where-Object { $_.TrimEnd('\') -ieq $Dir.TrimEnd('\') })) {
         return
     }
+    # The advice appends to the User value. $env:Path is the merged machine and
+    # user value, so appending to it would copy every machine entry into the
+    # User Path (MADR 0159 F20).
     Write-Warn "$Dir is not on your PATH. To add it for this user:"
-    Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"`$env:Path;$Dir`", 'User')"
+    Write-Host "  [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';$Dir', 'User')"
 }
 
 # ------------------------------------------------------------------- main
@@ -277,7 +280,10 @@ unversioned alias assets (releases before MADR 0116 do not, for Windows).
         }
     }
 
-    Add-ToPathNotice -Dir (Join-Path $InstallDir 'mcremote')
+    # Every product has its own folder; name each one (MADR 0159 D15).
+    foreach ($p in $Products) {
+        Add-ToPathNotice -Dir (Join-Path $InstallDir $p)
+    }
 
     Write-Host ''
     Write-Log 'Next: mcremote setup-service   (no elevation required)'
