@@ -60,7 +60,7 @@ Not in this repository. They are installed once per machine and apply to every
 checkout, so a repo does not have to carry six agents' worth of hook config to
 be protected:
 
-```
+```text
 ~/.global-agent-hooks/          # the scripts; see its README.md
 ```
 
@@ -125,6 +125,13 @@ targets skip with a clear message and exit 0 — keep using `make preflight`.
 See `docs/ops-windows-install.md` and MADR/PLAN 0145. No workflow edits without
 Mac permission.
 
+**Run `make` on Windows from Git Bash, or from PowerShell with
+`C:\Program Files\Git\usr\bin` on `PATH`.** GNU make needs `sh.exe`. Without
+it, make runs recipes through `cmd.exe`, `uname` fails, the host is detected as
+`linux`, and `make ci-windows` prints "skipping" and exits 0 — green, with
+nothing run. Check first: `make -n ci-windows` must show
+`[ "windows" != "windows" ]`. In PowerShell, `bash` is
+`C:\Windows\System32\bash.exe` (WSL), not Git Bash.
 
 `make test`, and `make race` / `go test -race ./...` before a commit — nothing
 runs the race suite for you, so run it. Live-tagged tests need the real
