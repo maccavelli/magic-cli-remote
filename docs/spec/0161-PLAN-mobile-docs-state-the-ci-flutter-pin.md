@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-18
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -183,3 +183,17 @@ What the plan predicted incorrectly:
 * Nothing else. `markdownlint-cli2` lints the whole tree from its config's
   `globs` whatever paths are passed, which is why §3 filters by file name. That
   had been measured before the plan was written.
+
+### P2 (2026-09-18)
+
+P2 ran at the owner's instruction "Fix the lint and the line number", after the
+pair was amended in `fc95955`. The fix is commit `fc288f0`: one file,
+`apps/mobile/README.md`, +4 −1. The "**Linux keyring:**" paragraph was
+re-wrapped to four lines of at most 80 characters.
+
+Results: lint count in the two files 0; `git diff --word-diff=porcelain`
+showed no changed words; §4 listed only `apps/mobile/README.md`. A5 met.
+
+What the plan predicted incorrectly: nothing. The plan's line-number references
+were replaced by the text of the offending line in the same amendment, so P2
+had nothing left that could drift.
