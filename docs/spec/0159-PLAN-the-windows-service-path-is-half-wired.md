@@ -940,3 +940,83 @@ Additional deferred items, found during execution:
   paths (item 11).
 * Add `TestV2QuietConnectionSurvivesOnPongs` to the flake ledger's process
   alongside the other three (item 10).
+
+## Amendment — 2026-09-19: P13 ships next, in v0.18.1, and P14 is added
+
+Owner decision, after release 1 was published as **v0.18.0** and installed on
+this host (MADR amendment of the same date: F20, F21, D15, and D7's changed
+ordering). Where this section and the sections above disagree, this section
+wins.
+
+**Order.** P13 no longer waits for MADR/PLAN 0157 P4 or for P12. P13 and the
+new P14 ship together in **v0.18.1**. P12 follows in a later release, unchanged.
+
+```text
+[release 1 = v0.18.0] ──► P13 ──► P14 ──► [v0.18.1] ──► P12 ──► [release 2]
+```
+
+C4 is satisfied: release 1 is published, and v0.18.0's rollback can restore a
+Task Scheduler definition (P10), so an update from v0.18.0 that fails after its
+refresh restores the old task.
+
+**P13 scope, corrected.** Step 3 edits refresh recovery, which the original
+scope list omitted. P13 may also touch `internal/cli/service/refresh_schtasks.go`
+and `internal/cli/service/refresh_schtasks_test.go`.
+
+**P13 step 7, changed.** `docs/ops-windows-install.md` says the task-launched
+daemon has no console, and that until MADR 0157 lands its log output is not
+kept anywhere: run `mcremote serve` in a terminal to see it. It also says a
+task written by v0.18.1 names `--detach-console`, which v0.18.0 and earlier
+reject. After a manual downgrade, `mcremote setup-service --force` with the
+older binary re-registers a task it can run.
+
+**P13 step 6 happens in the v0.18.1 rollout**, not release 2's.
+
+### P14 — The installer names every folder it installs (D15; closes F20)
+
+1. `scripts/install.ps1`: call `Add-ToPathNotice` for each of `$Products`, in
+   a `foreach` over `$Products`, replacing the single `mcremote` call. The
+   printed advice appends to
+   `[Environment]::GetEnvironmentVariable('Path', 'User')`, not `$env:Path`.
+2. `scripts/install_ps1_unit_test.ps1`:
+   * load `Add-ToPathNotice` from the real script's AST, as the file already
+     does for `Select-ManifestEntry`;
+   * call it for a folder that is not on the User `Path`, capture its
+     output, and check that the output names the folder and that the advice
+     reads the User `Path`;
+   * add a static check that the script's only `Add-ToPathNotice` call is
+     inside a `foreach` over `$Products`.
+
+**Scope (P14):** `scripts/install.ps1` (`Add-ToPathNotice` and its call only),
+`scripts/install_ps1_unit_test.ps1`.
+
+**Verification (P14):** both installer tests pass under PowerShell 5.1 and 7:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_unit_test.ps1
+pwsh       -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_unit_test.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_test.ps1 -Shell powershell
+pwsh       -NoProfile -ExecutionPolicy Bypass -File scripts/install_ps1_test.ps1 -Shell pwsh
+```
+
+Plus the Stability rule.
+
+**Acceptance (additions).**
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A11 | (moved to v0.18.1) No console host for the task-launched daemon, at `schtasks /run` (S3b) and at a real logon (owner) | D7 |
+| A13 | The installer prints a PATH notice for every product folder that is not on the User `Path`, with advice that reads the User `Path` | D15 |
+
+**Rollout (v0.18.1).** The owner cuts v0.18.1. Then, on this host, with the
+owner's go-ahead:
+
+1. Run `mcremote update -y` from v0.18.0. The new binary's refresh adds
+   `--detach-console` to the task (`refreshed`). The restart opens no window.
+2. Confirm:
+   * `State` 4;
+   * the task's arguments end with `--detach-console`;
+   * `setup-service --refresh --json` gives `unchanged`;
+   * no `conhost` child of the daemon.
+3. Log off and on (P13 step 6), then repeat the `conhost` check.
+4. Record the results in the Execution record.

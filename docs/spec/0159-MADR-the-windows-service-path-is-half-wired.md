@@ -1106,3 +1106,63 @@ None remain open. The PLAN verifies the three **[unverified]** items in the
 phases that depend on them: the `FreeConsole` behaviour at a real logon (D7),
 the ACL of an atomic write (D12), and a repeating trigger with a fixed past
 `StartBoundary` (D5).
+
+## Amendment — 2026-09-19: D7 ships before MADR 0157, and the installer names every folder it installs
+
+Owner decision, 2026-09-19, after the release 1 (v0.18.0) update on this host.
+Everything above is unchanged; this section adds two findings and one decision,
+and moves one ordering constraint.
+
+### What was observed
+
+* The owner ran `mcremote update -y` from v0.17.4 on this host. It installed
+  v0.18.0 (`mcremote version`: `0.18.0 (c0c5a8f)`), and the task came back to
+  `Running`. The owner reported that the restart opened a foreground terminal
+  window, and judged that unacceptable. The process tree afterwards: the task's
+  `mcremote.exe` (PID 43200) has a `conhost.exe` child (PID 47472). This is
+  F10, already recorded. The update's `schtasks /run` shows it the same way a
+  logon does.
+* The owner then ran `mcrelay update -y`, and the shell could not find
+  `mcrelay`. `%LOCALAPPDATA%\Programs\mcrelay\mcrelay.exe` existed (v0.17.4,
+  installed 2026-09-13), but the User `Path` holds only the `mcremote`
+  folder. Updated by full path, it reported `v0.17.4` → `v0.18.0`, verified.
+
+### Findings
+
+**F20 — The installer warns about PATH for mcremote only.** `install.ps1`
+installs both products (`$Products = @('mcremote', 'mcrelay')`, `:48`), each in
+its own folder, but calls `Add-ToPathNotice` once, for `mcremote`
+(`:280`). A user who follows the printed advice has `mcremote` and not
+`mcrelay`. The advice it prints also appends to `$env:Path`, the merged machine
+and user value, so following it copies every machine entry into the User
+`Path`.
+
+**F21 — Since release 1, closing the console window does not stop the daemon
+for long. [inferred, not measured]** Closing a console window ends its
+program. D5's watchdog trigger then starts the daemon again within a minute,
+with a new console. Before release 1 a closed window stayed closed. This
+raises F10 from cosmetic to repeated.
+
+### Decision changes
+
+* **D7 no longer waits for MADR 0157 P4.** The owner accepts the cost: from
+  the release that carries D7 until 0157 P4 lands, the task-launched daemon's
+  log output goes nowhere. Before D7 it went to a console window that closing
+  would kill (F21), and the Windows summary already says logs are not written
+  to a file (P7). `mcremote serve` in a terminal still shows logs. D7's
+  mechanism, its rejected alternatives, and the fallback (a GUI-subsystem
+  service binary, as a new decision) are unchanged.
+* **D7 does not wait for D6.** Nothing in D7 depends on the environment file.
+* **D15 — The installer names every folder it installs.** `install.ps1`
+  prints the PATH notice for each product's folder. The advice appends to the
+  User `Path` value, not `$env:Path`. It still does not change `Path` itself:
+  editing a user's environment without asking is a separate decision. Closes
+  **F20**.
+
+### Confirmation (additions)
+
+```text
+install_ps1_unit_test.ps1 (5.1 and 7)  the notice is issued once per product; the advice reads the User Path
+acceptance-windows-service.ps1          S3b: no console host appears for the task-launched daemon at schtasks /run
+owner, after installing the D7 release  no window at `mcremote update`'s restart, and none after logging off and on
+```
