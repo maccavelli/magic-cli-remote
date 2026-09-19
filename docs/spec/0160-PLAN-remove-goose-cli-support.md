@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-18
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -313,7 +313,9 @@ verification waits for it.
 results depend on the exact version. As of 2026-09-18 that is this Windows
 host (natively and in WSL `Ubuntu-24.04`), wonder, or the Mac. Confirm with
 `flutter --version` before P4; a host on another version is not a Flutter host
-for this plan. On this host P4 needs no pull. On another host, pull P1 first. Do not start P2 until P1's A4–A6 pass.
+for this plan. On this host P4 needs no pull. On another host, pull P1 first.
+
+Do not start P2 until P1's A4–A6 pass.
 
 ## Implementation Steps
 
