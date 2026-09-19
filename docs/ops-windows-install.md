@@ -86,14 +86,25 @@ three consequences worth knowing before you rely on it:
   `StartServiceCtrlDispatcher`, so the Service Control Manager kills them at
   the start-up timeout. Running them under the SCM is unsupported.
 
-Useful commands:
+Useful commands (the same ones `setup-service` prints):
 
 ```powershell
-schtasks /query /tn mcremote /fo LIST /v    # status, and who it runs as
-schtasks /run   /tn mcremote                # start now
-schtasks /end   /tn mcremote                # stop
-mcremote setup-service --remove             # deregister
+schtasks /query  /tn mcremote /fo LIST /v                          # status, and who it runs as
+schtasks /change /tn mcremote /enable;  schtasks /run /tn mcremote # start now
+schtasks /change /tn mcremote /disable; schtasks /end /tn mcremote # stop, and keep it stopped
+mcremote setup-service --remove                                    # deregister
 ```
+
+Stop by disabling first: a disabled task is not started again until you enable
+it. `setup-service` itself is safe to re-run: it compares what it would register
+with what Task Scheduler holds and reports the task unchanged when they match
+(MADR 0159 D14).
+
+Two `setup-service` flags are refused on Windows rather than silently ignored
+(MADR 0159 F9, F17). `--unit-name` is refused because the task is always named
+after the product, and `update` looks it up by that name. `--env` is refused
+because Task Scheduler cannot carry environment variables in the task
+definition; a Windows delivery path for it is planned (MADR 0159 D6).
 
 ## Durability caveat
 

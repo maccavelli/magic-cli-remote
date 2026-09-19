@@ -1,0 +1,20 @@
+ExecStart binary:  /Users/dev/.local/bin/mcremote
+Plist:             /Users/dev/Library/LaunchAgents/com.maccavelli.mcremote.plist
+Label:             com.maccavelli.mcremote
+Scope:             launchd-agent (session — stops on logout)
+Config:            /Users/dev/.config/mcremote/config.yaml (default written)
+                   Edit this file, then: launchctl kickstart -k gui/501/com.maccavelli.mcremote
+Enabled:           yes (launchctl enable)
+Started:           yes (bootstrap + kickstart)
+Linger:            n/a on macOS (LaunchAgent is session-bound; no sudo system daemon)
+Logs dir:          /Users/dev/Library/Logs/mcremote
+
+Note: setup-service does not install the binary.
+      Install/update it with: make install
+Note: macOS 13+ may show a Background Items notification;
+      System Settings → General → Login Items can disable the agent.
+
+Status:  launchctl print gui/501/com.maccavelli.mcremote
+Logs:    tail -f /Users/dev/Library/Logs/mcremote/mcremote.err.log
+Stop:    launchctl bootout gui/501/com.maccavelli.mcremote
+Remove:  mcremote setup-service --remove

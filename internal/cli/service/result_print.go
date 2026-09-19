@@ -50,6 +50,9 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		fmt.Fprintf(out, "Plist:             %s\n", res.UnitPath)
 		fmt.Fprintf(out, "Label:             %s\n", res.Label)
 		fmt.Fprintln(out, "Scope:             launchd-agent (session — stops on logout)")
+	case "windows-task":
+		fmt.Fprintf(out, "Task:              %s\n", res.UnitPath)
+		fmt.Fprintln(out, "Scope:             per-user Task Scheduler task (at logon, no elevation)")
 	default:
 		fmt.Fprintf(out, "Unit file:         %s\n", res.UnitPath)
 		fmt.Fprintf(out, "Unit name:         %s.service\n", res.UnitName)
@@ -65,6 +68,8 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 					svc = "gui/$(id -u)/" + res.Label
 				}
 				fmt.Fprintf(out, "                   Edit this file, then: launchctl kickstart -k %s\n", svc)
+			case "windows-task":
+				fmt.Fprintf(out, "                   Edit this file, then: schtasks /end /tn %s and schtasks /run /tn %s\n", res.Label, res.Label)
 			default:
 				fmt.Fprintln(out, "                   Edit this file, then: systemctl --user restart "+res.UnitName)
 			}
@@ -76,6 +81,8 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		switch res.Scope {
 		case "launchd-agent":
 			fmt.Fprintln(out, "Enabled:           yes (launchctl enable)")
+		case "windows-task":
+			fmt.Fprintln(out, "Enabled:           yes (registered in Task Scheduler)")
 		default:
 			fmt.Fprintln(out, "Enabled:           yes (systemctl --user enable)")
 		}
@@ -86,6 +93,8 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		switch res.Scope {
 		case "launchd-agent":
 			fmt.Fprintln(out, "Started:           yes (bootstrap + kickstart)")
+		case "windows-task":
+			fmt.Fprintln(out, "Started:           yes (schtasks /run)")
 		default:
 			fmt.Fprintln(out, "Started:           yes (systemctl --user restart/start)")
 		}
@@ -98,6 +107,8 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		if res.LogDir != "" {
 			fmt.Fprintf(out, "Logs dir:          %s\n", res.LogDir)
 		}
+	case "windows-task":
+		// No linger concept: the task starts at logon and stops at logoff.
 	default:
 		if res.LingerEnabled {
 			fmt.Fprintln(out, "Linger:            yes (survives logout)")
@@ -109,7 +120,11 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Note: setup-service does not install the binary.")
-	fmt.Fprintln(out, "      Install/update it with: make install")
+	if res.Scope == "windows-task" {
+		fmt.Fprintln(out, "      Install/update it with: install.ps1")
+	} else {
+		fmt.Fprintln(out, "      Install/update it with: make install")
+	}
 	if res.Scope == "launchd-agent" {
 		fmt.Fprintln(out, "Note: macOS 13+ may show a Background Items notification;")
 		fmt.Fprintln(out, "      System Settings → General → Login Items can disable the agent.")
@@ -126,6 +141,15 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 			fmt.Fprintf(out, "Logs:    tail -f %s/%s.err.log\n", res.LogDir, product)
 		}
 		fmt.Fprintf(out, "Stop:    launchctl bootout %s\n", svc)
+		fmt.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
+	case "windows-task":
+		// MADR 0159 D2. Stop is written for D5's semantics: once the task
+		// carries a repeating trigger, /end alone is undone within a minute, so
+		// stopping means disabling first. Until then /disable is harmless.
+		fmt.Fprintf(out, "Status:  schtasks /query /tn %s\n", res.Label)
+		fmt.Fprintf(out, "Start:   schtasks /run /tn %s\n", res.Label)
+		fmt.Fprintf(out, "Stop:    schtasks /change /tn %s /disable  then  schtasks /end /tn %s\n", res.Label, res.Label)
+		fmt.Fprintln(out, "Logs:    not yet written to a file on Windows (MADR 0157)")
 		fmt.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
 	default:
 		fmt.Fprintf(out, "Status:  systemctl --user status %s\n", res.UnitName)

@@ -748,6 +748,20 @@ func normalize(opts Options) (Options, error) {
 	if opts.UnitName == "" {
 		opts.UnitName = opts.Product
 	}
+	if installOS == "windows" {
+		// The task is always named after the product, and every lifecycle
+		// probe looks it up by product, so a different name cannot be honoured
+		// (MADR 0159 F17, D13). Refuse rather than accept and ignore it.
+		if opts.UnitName != opts.Product {
+			return opts, fmt.Errorf("--unit-name is not supported on Windows: the task is always named %s (MADR 0159 D13)", opts.Product)
+		}
+		// Task Scheduler cannot carry environment in the task XML (MADR 0159
+		// probe 9); until --env has a Windows delivery path (D6), refuse it
+		// instead of dropping it silently (F9).
+		if len(opts.ExtraEnviron) > 0 {
+			return opts, fmt.Errorf("--env is not yet supported on Windows (MADR 0159 D6)")
+		}
+	}
 	if opts.Description == "" {
 		switch opts.Product {
 		case "mcrelay":

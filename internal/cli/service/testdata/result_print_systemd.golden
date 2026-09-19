@@ -1,0 +1,17 @@
+ExecStart binary:  /home/dev/.local/bin/mcremote
+Unit file:         /home/dev/.config/systemd/user/mcremote.service
+Unit name:         mcremote.service
+Scope:             systemd-user
+Config:            /home/dev/.config/mcremote/config.yaml (default written)
+                   Edit this file, then: systemctl --user restart mcremote
+Enabled:           yes (systemctl --user enable)
+Started:           yes (systemctl --user restart/start)
+Linger:            not enabled (run: loginctl enable-linger $USER)
+
+Note: setup-service does not install the binary.
+      Install/update it with: make install
+
+Status:  systemctl --user status mcremote
+Logs:    journalctl --user -u mcremote -f
+Stop:    systemctl --user stop mcremote
+Disable: systemctl --user disable --now mcremote
