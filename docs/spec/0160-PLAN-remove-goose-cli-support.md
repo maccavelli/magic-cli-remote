@@ -1,104 +1,153 @@
 ---
 status: proposed
-date: 2026-09-17
+date: 2026-09-18
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
 # PLAN 0160 — Remove Goose CLI support from the product, including its ACP-over-HTTP transport
 
 Implements [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md)
-decisions D1–D12, closing findings F1–F15.
+decisions D1–D14, closing findings F1–F23.
+
+**Revision 2026-09-18.** Rewritten against the revised MADR. The 09-17 draft
+could not execute as written: P1 edited the service template without
+`configs/config.example.yaml`, which fails the parity test (MADR F18); its
+leftover-config capture missed two shapes and would itself have become a
+required template key (F17, F18); its fail-closed rule would have stopped every
+provisioned host (F16); its scope missed 22 files (F22); its P5 wrote a status
+PLANs cannot carry and marked the mixed MADR 0073 as superseded (F20); and its
+verification used `rg` and `flutter`, neither of which existed on the execution
+host at the time (F21; both were installed later on 2026-09-18).
 
 ## Goal
 
-Finish line:
+The finish line, as observable states:
 
-* `internal/provider/goose/` and `internal/provider/acphttp/` do not exist;
-* `go test ./...` and `go test -race ./...` pass with no Goose provider row
-  in command or auth conformance;
-* a config that still contains `providers.goose` or
-  `MCREMOTE_PROVIDERS_GOOSE_*` refuses to load, naming MADR 0160;
-* living product docs, example YAML, `make live-goose`, and the product
-  `live_goose` mention in `AGENTS.md` are gone;
-* the phone no longer ships a Goose agent icon or `goose configure` copy;
-* Goose-topic MADRs listed in P6 are stamped superseded; mixed historical
-  records are untouched;
-* developer-Goose lines in `AGENTS.md` (hooks, commit-message agents) still
-  exist.
+1. `internal/provider/goose/` and `internal/provider/acphttp/` do not exist, and
+   no `.go` file imports either path.
+2. `git grep -il goose -- . ':!docs/spec'` prints **exactly** the seven paths in
+   A2, in that order.
+3. `go build ./...`, `go vet ./...` pass; `go test ./...` and
+   `go test -race ./...` report no failure except, on a Windows host whose live
+   `%APPDATA%\mcremote\config.yaml` sets `display_name`, the pre-existing
+   `TestLoadDisplayNameUnset` (MADR F21). `go mod tidy` changes nothing.
+4. `mcremote paths --json --config <file>` exits 0 on a config containing
+   `providers.goose` (including a copy of this host's real product-seeded
+   config) and on an env with `MCREMOTE_PROVIDERS_GOOSE_*`, and its
+   `diagnostics` array contains code `retired_provider_goose`; with neither it
+   contains no such code.
+5. `make -n live-goose` has no rule.
+6. On a Flutter host: `dart format --set-exit-if-changed`, `flutter analyze`,
+   and `flutter test` pass in `apps/mobile`; `goose.svg` is gone; the phone has
+   `unknown_provider` copy.
+7. MADRs 0110 and 0122 carry `status: superseded by 0160-MADR-remove-goose-cli-support.md`;
+   MADRs 0025, 0026, 0030 and PLANs 0025, 0030, 0110, 0122 carry the D9 banner
+   and no other change; 0073 is byte-identical.
+8. `make ci-windows` passes on this host under the same baseline rule as 3.
 
 ## Scope
 
 ### In scope (the only files any phase may touch)
 
-P1 (delete + compile-breaking call sites + fail-loud config):
+**P1 — Go removal, leftover-config warning, templates and examples (one commit):**
 
-* `internal/provider/goose/` — entire tree, deleted
-* `internal/provider/acphttp/` — entire tree, deleted
+Delete (whole trees / files):
+
+* `internal/provider/goose/` — 17 files
+* `internal/provider/acphttp/` — 20 files
+* `internal/daemon/goose_keyring.go`
+* `internal/daemon/goose_keyring_test.go`
+* `internal/provider/credstore/goose_keyring_test.go`
+* `internal/provider/credstore/goose_keyring_parity_test.go`
+
+Create:
+
+* `internal/config/retired_goose.go`
+* `internal/config/retired_goose_test.go`
+
+Modify:
+
 * `internal/daemon/daemon.go`
-* `internal/daemon/goose_keyring.go` — deleted
-* `internal/daemon/goose_keyring_test.go` — deleted
-* `internal/daemon/main_test.go` — comment only
 * `internal/provider/provider.go`
 * `internal/provider/provider_test.go`
-* `internal/provider/auth.go` — comment
 * `internal/provider/auth_conformance_test.go`
-* `internal/provider/stderr_tail_test.go` — fixture string
 * `internal/config/config.go`
 * `internal/config/load.go`
+* `internal/config/prewarm_write.go`
 * `internal/config/config_test.go`
 * `internal/config/acp_config_test.go`
-* `internal/config/prewarm_write.go`
 * `internal/config/secret_keys_test.go`
 * `internal/provider/credstore/credstore.go`
 * `internal/provider/credstore/credstore_test.go`
 * `internal/provider/credstore/write.go`
 * `internal/provider/credstore/write_test.go`
-* `internal/provider/credstore/goose_keyring_test.go` — deleted
-* `internal/provider/credstore/goose_keyring_parity_test.go` — deleted
 * `internal/command/conformance_test.go`
-* `internal/command/command_test.go`
-* `internal/command/specs.go` — comment
 * `internal/chunkbuf/provider_mode_test.go`
 * `internal/ws/server.go`
 * `internal/ws/auth_err_code_test.go`
-* `internal/ws/credential_write_test.go`
 * `internal/cli/doctor.go`
 * `internal/cli/engines.go`
 * `internal/cli/service/defaults_mcremote.yaml`
 * `internal/cli/service/template_parity_test.go`
+* `configs/config.example.yaml`
+* `configs/config.mesh-grok.yaml`
+* `configs/config.prod.example.yaml`
 
-P2 (living Go comments / remaining fixtures that still compile after P1):
+**P2 — every remaining Go comment and fixture (no behaviour change):**
 
-* `internal/picker/order.go`
-* `internal/picker/picker.go`
-* `internal/picker/order_test.go`
+* `internal/agenterr/agenterr.go`
+* `internal/agenterr/agenterr_test.go`
+* `internal/chunkbuf/chunkbuf.go`
+* `internal/chunkbuf/toollane_mode_test.go`
+* `internal/command/command_test.go`
+* `internal/command/specs.go`
+* `internal/daemon/main_test.go`
 * `internal/event/event.go`
+* `internal/picker/order.go`
+* `internal/picker/order_test.go`
+* `internal/picker/picker.go`
+* `internal/procutil/reap.go`
+* `internal/protocol/sessionmode_compat_test.go`
+* `internal/provider/auth.go`
+* `internal/provider/cwd.go`
+* `internal/provider/stderr_tail_test.go`
+* `internal/provider/acpagent/acpagent.go`
+* `internal/provider/acpagent/automode_test.go`
+* `internal/provider/acpagent/session.go`
+* `internal/provider/acpagent/sessioncaps.go`
+* `internal/provider/acpagent/subagents.go`
+* `internal/provider/acpagent/subagents_test.go`
+* `internal/provider/acpagent/version.go`
+* `internal/provider/acpagent/version_test.go`
+* `internal/provider/codex/provider.go`
+* `internal/provider/codex/session.go`
+* `internal/provider/codex/tool_lane_baseline_test.go`
+* `internal/provider/httpagent/currentmodel_test.go`
+* `internal/provider/httpagent/supervise_wiring_test.go`
+* `internal/provider/kilo/lifecycle.go`
+* `internal/provider/kilo/lifecycle_test.go`
+* `internal/provider/opencode/lifecycle.go`
+* `internal/provider/opencode/upstream.go`
 * `internal/session/defaultmode_test.go`
 * `internal/session/manager_durable_test.go`
 * `internal/session/turnlatency.go`
 * `internal/session/turnlatency_test.go`
-* `internal/protocol/sessionmode_compat_test.go`
-* `internal/agenterr/agenterr.go`
-* `internal/agenterr/agenterr_test.go`
 * `internal/wirecap/wirecap.go`
-* `internal/provider/acpagent/version_test.go`
+* `internal/ws/credential_write_test.go`
 * `internal/ws/server_test.go`
 
-P3 (build, examples, living docs):
+**P3 — build, living docs, governance:**
 
 * `Makefile`
-* `AGENTS.md` — the `live_goose` sentence only
+* `AGENTS.md` — line 132 only
 * `README.md`
 * `docs/config.md`
 * `docs/protocol-v1.md`
 * `docs/ops-macos-tcc.md`
 * `docs/ops-android-emulator.md`
 * `apps/mobile/README.md`
-* `configs/config.example.yaml`
-* `configs/config.mesh-grok.yaml`
-* `configs/config.prod.example.yaml`
 
-P4 (mobile):
+**P4 — mobile (on a Flutter host):**
 
 * `apps/mobile/assets/vendor_icons/goose.svg` — deleted
 * `apps/mobile/lib/features/widgets/vendor_icon_manifest.g.dart`
@@ -109,366 +158,573 @@ P4 (mobile):
 * `apps/mobile/lib/data/protocol/picker.dart`
 * `apps/mobile/lib/features/chat/chat_screen.dart`
 * `apps/mobile/lib/features/settings/upstream_catalog_sheet.dart`
-* `apps/mobile/test/model_picker_test.dart`
-* `apps/mobile/test/model_picker_sheet_test.dart`
+* `apps/mobile/lib/state/transcripts_notifier.dart`
+* `apps/mobile/test/friendly_op_error_test.dart`
 * `apps/mobile/test/mode_selector_dangerous_test.dart`
+* `apps/mobile/test/model_picker_sheet_test.dart`
+* `apps/mobile/test/model_picker_test.dart`
 * `apps/mobile/test/provider_detail_screen_test.dart`
 * `apps/mobile/test/resolve_displayed_mode_test.dart`
-* `apps/mobile/test/sessions_screen_test.dart`
-* `apps/mobile/test/session_mode_dangerous_test.dart`
 * `apps/mobile/test/session_meta_test.dart`
+* `apps/mobile/test/session_mode_dangerous_test.dart`
+* `apps/mobile/test/sessions_screen_test.dart`
 * `apps/mobile/test/upstream_catalog_sheet_test.dart`
-* `apps/mobile/test/auth_method_availability_test.dart`
-* `apps/mobile/test/friendly_op_error_test.dart`
 * `tools/vendor-icons/ids.txt`
-* `tools/vendor-icons/sync.sh`
+* `tools/vendor-icons/sync.sh` — comment lines 5-8 only
 
-P5 (historical stamps only):
+**P5 — historical records (additive marks only):**
 
-* `docs/spec/0025-MADR-goose-provider.md`
-* `docs/spec/0025-PLAN-goose-provider.md`
-* `docs/spec/0026-MADR-mobile-goose-support.md`
-* `docs/spec/0030-MADR-goose-remote-parity.md`
-* `docs/spec/0030-PLAN-goose-remote-parity.md`
-* `docs/spec/0073-MADR-goose-prompt-hang-and-debug-pass.md`
-* `docs/spec/0110-MADR-goose-keyring-prompts-block-headless-launch.md`
-* `docs/spec/0110-PLAN-goose-keyring-prompts-block-headless-launch.md`
-* `docs/spec/0122-MADR-deterministic-goose-file-log-tail-attach.md`
-* `docs/spec/0122-PLAN-deterministic-goose-file-log-tail-attach.md`
+* `docs/spec/0110-MADR-goose-keyring-prompts-block-headless-launch.md` — frontmatter `status`, `date`
+* `docs/spec/0122-MADR-deterministic-goose-file-log-tail-attach.md` — frontmatter `status`, `date`
+* `docs/spec/0025-MADR-goose-provider.md` — banner
+* `docs/spec/0026-MADR-mobile-goose-support.md` — banner
+* `docs/spec/0030-MADR-goose-remote-parity.md` — banner
+* `docs/spec/0025-PLAN-goose-provider.md` — banner
+* `docs/spec/0030-PLAN-goose-remote-parity.md` — banner
+* `docs/spec/0110-PLAN-goose-keyring-prompts-block-headless-launch.md` — banner
+* `docs/spec/0122-PLAN-deterministic-goose-file-log-tail-attach.md` — banner
 
-If P5 finds a `0073-PLAN-*` that the MADR measurement missed, stamp it too
-and record that in the execution record; do not invent a PLAN file.
+**Every phase may also append to this file's `## Execution record`.**
 
 ### Out of scope
 
-* **Deleting or rewriting mixed historical MADRs** (0023, 0028, 0029, 0043,
-  0044, 0069, 0074, 0083, 0086, 0089, 0095, …). D9. Their Goose sentences are
-  evidence of what was true when they were written.
-* **`docs/agent_cli_slash_commands_matrix.md`.** Dated 2026-07-25 survey.
-* **Developer-Goose lines in `AGENTS.md`** (hooks list, commit-message
-  agents). D11.
+* **MADR 0073** and every other mixed record (0023, 0028, 0029, 0043, 0044,
+  0069, 0074, 0083, 0086, 0089, 0095, …). D9/F20.
+* **`docs/agent_cli_slash_commands_matrix.md`.** Dated survey.
+* **`AGENTS.md:67` and `:148`.** Developer Goose (D11).
+* **`internal/provider/codex/testdata/wire/0.152.1/frames.jsonl`.** A wire
+  capture; its "goose" is a directory path.
+* **Rewriting operator config files or unsetting env vars.** D3 (L3 rejected).
 * **Purging durable sessions or `~/.config/goose/`.** D4, D5.
-* **Removing `keyring_managed` from `protocol.ErrorCodes()`.** D6.
-* **Deleting `agenterr` classifiers or their wire-sample strings.** D7.
-* **Deleting vendor SVGs other than `goose.svg`.** D10.
-* **`ACPProviderConfig`, `acpagent`, Grok `mcp_servers`, Fake.** D12.
-* **CI workflow edits.** F13: there is no Goose job. No workflow edits
-  without Mac permission (AGENTS.md / 0145).
-* **`git push` and tags.** Explicit ask required in the same turn.
+* **Removing `keyring_managed` from the protocol.** D6.
+* **Running `tools/vendor-icons/sync.sh`.** D10: network-dependent, rewrites
+  unrelated icons.
+* **Fixing `TestLoadDisplayNameUnset` / the ten live-config config tests.**
+  Pre-existing Windows isolation defect (F21), independent of Goose. It
+  deserves its own record; this plan only refuses to add an eleventh.
+* **CI workflow edits.** None reference Goose (F13).
+* **`git push` and tags.** Not authorised by this plan.
 
 ## Stability rule
 
-Every Go phase ends with:
+Baseline, measured 2026-09-18 at `b3d3355` on the Windows host: `go test ./...`
+→ 42 packages `ok` (of 48; 5 have no test files), one `FAIL`: `internal/config` `TestLoadDisplayNameUnset`
+(F21). "Green" below means **no failure other than that one test, and that one
+only on a host where it failed at baseline.** Record the baseline again before
+P1 if `HEAD` has moved:
 
 ```bash
-go test ./...
-go test -race ./...
-make pre-add-check FILES="<the Go files that phase staged>"
+go test ./... 2>&1 | grep -E '^(--- FAIL|FAIL|ok)' | sort | uniq -c | sort -rn | head
 ```
 
-The mobile phase additionally ends with:
+Every Go phase (P1, P2) ends with, from the repository root in Git Bash:
 
 ```bash
-cd apps/mobile && dart format --output=none --set-exit-if-changed <touched dart files>
-cd apps/mobile && flutter analyze
-cd apps/mobile && flutter test
+git diff --cached --name-only --diff-filter=AM -z -- '*.go' | xargs -0 -r gofmt -l   # → no output
+#   (xargs -r: a bare `gofmt -l` with no files reads stdin and hangs)
+go build ./... && go vet ./...                                         # → exit 0
+go test ./... 2>&1 | grep -E '^(--- FAIL|FAIL)'                         # → baseline rule
+go test -race ./... 2>&1 | grep -E '^(--- FAIL|FAIL)'                   # → baseline rule
+make pre-add-check FILES="$(git diff --cached --name-only --diff-filter=AM -- '*.go' | tr '\n' ' ')"
 ```
 
-If `flutter` / `dart` is not on this host, say so in the execution record
-and do not claim A8.
+P3 and P5 (docs-only) end with `go test ./internal/protocol/ ./internal/cli/service/`
+(the doc-coverage and template tests) green, plus their own phase checks.
 
-One commit per phase (`git commit --no-edit`; never `-m`). **`git push` and
-tags are not authorised by this plan.**
+P4 ends with, on the Flutter host:
 
-The contract most at risk under time pressure is C3 (fail-loud leftover
-config): it is tempting to delete `GooseProviderConfig` and ship, because
-the tree compiles either way. That is the 0019 foot-gun. P1 is not done
-until the leftover-YAML test exists and fails closed.
+```bash
+cd apps/mobile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test
+```
+
+If P4 is attempted on a host where `flutter --version` fails, stop; do not
+commit P4 there and do not claim A7.
+
+**Commits:** stage with `git add` of exactly the phase's in-scope paths
+(`git rm -r` for deletions), then `git commit --no-edit` — the global
+`prepare-commit-msg` hook writes the message; never `-m`, `--amend`, or an
+edited message. Before the first commit, confirm
+`git rev-parse --path-format=absolute --git-path hooks` resolves to
+`~/.global-git-hooks` or a wrapper that chains to it. One commit per phase.
+**`git push` and tags are not authorised by this plan.**
 
 ## Cross-cutting contracts
 
-**C1 — the tree compiles after every phase.** No "delete the package now,
-fix imports later" commit. P1 includes every compile-breaking call site.
+**C1 — Every commit compiles and is green under the baseline rule.** P1 carries
+every compile-breaking edit, and the template together with all three example
+configs (F18).
 
-**C2 — no remaining-provider test is deleted because it said "goose".**
-Retarget the fixture (D8). A deleted mode-danger test is a regression.
+**C2 — No remaining-provider test is deleted because it said "goose".**
+Retarget the id; keep every assertion. The only deletions allowed are the
+tests named in P1 that test Goose-only code (keyring reconcile, Goose config
+parse, `with_builtins`, Goose credstore functions, the Goose conformance rows).
 
-**C3 — leftover Goose config refuses to load.** Empty `goose:`, populated
-`goose:`, and `MCREMOTE_PROVIDERS_GOOSE_*` are all refused. A config with
-no Goose mention still loads. No Viper default on the capture field.
+**C3 — A leftover Goose config never stops the daemon.** No code path added by
+this plan returns an error because `providers.goose` or
+`MCREMOTE_PROVIDERS_GOOSE_*` is present. No struct field, `SetDefault`, or
+`BindEnv` names `providers.goose`.
 
-**C4 — do not write `~/.config/goose/`.** Tests that previously isolated
-Goose's config dir by setting `HOME`/`XDG_CONFIG_HOME` go away with the
-code. Nothing new creates that path.
+**C4 — Nothing reads or writes `~/.config/goose/` after P1**, and nothing
+rewrites an operator's mcremote config file.
 
-**C5 — do not rewrite historical rationale.** P5 is a `status:` frontmatter
-stamp and nothing else.
+**C5 — Historical rationale is not edited.** P5 changes exactly the lines
+D9 names. `0073` is untouched.
 
-**C6 — developer-Goose stays.** A grep that is used as a completion check
-must exclude `AGENTS.md` hook/commit sentences, or it will false-fail C6.
+**C6 — Developer Goose stays.** `AGENTS.md:67` and `:148` are not edited.
 
-**C7 — `keyring_managed` remains registered** in `protocol.ErrorCodes()` and
-`docs/protocol-v1.md`. Phone copy may drop the `goose configure` example
-(D6) but must still handle the code.
+**C7 — `keyring_managed` stays registered and documented:**
+`protocol.ErrKeyringManaged`, `protocol.AuthReasonKeyringManaged`, its
+`ErrorCodes()` entry, and its `docs/protocol-v1.md` entry
+(`TestErrorCodesAreDocumented` enforces the last).
 
-C3 is the contract most likely to be quietly dropped under pressure: see
-Stability rule.
+**C8 — No new test reads the host's live config.** Every test added or edited
+by this plan that calls `config.Load` passes an explicit
+`LoadOptions{ConfigFile: …}` under `t.TempDir()` and sets any
+`MCREMOTE_PROVIDERS_GOOSE_*` it depends on with `t.Setenv` (F21). Tests that
+inspect diagnostics find `retired_provider_goose` **by code**, never by
+`len(cfg.Diagnostics)` — on Windows, temp-dir configs also draw
+`config_not_owner_only` (measured: `mcremote paths --json` on a scratchpad
+config).
+
+**C3 is the contract most likely to be broken under pressure** — not by
+omission this time but by reflex: the house precedent (MADR 0019) is to refuse,
+and a reviewer who remembers 0019 but not F16 will ask for it. The answer is
+F16: this host's own config would stop the daemon. **C8 is second**: the
+quickest way to write the new tests is to copy an existing
+`Load(LoadOptions{})` test, which is exactly the defective pattern.
 
 ## Dependency and delivery order
 
-P1 is the load-bearing phase; P2–P5 are independent of each other once P1
-has landed, but P3's protocol-v1 edit should follow P1 so the living spec
-matches the code, and P4's phone copy should follow D6 (P1 already removed
-the producer). Run in order P1 → P2 → P3 → P4 → P5 so each commit is a
-reviewable slice rather than one giant diff.
+```text
+P1 ──► P2 ──► P3 ──► P5          (Windows host, this repository)
+  └──────────► P4                (Flutter host; any time after P1)
+```
 
-Do not start P2 while P1's leftover-config test is missing.
+P2 needs P1 (it rewrites comments that name deleted packages). P3 needs P1 so
+the docs describe the code. P5 is last so the superseding record describes
+executed work. P4 depends only on P1 and runs on a Flutter host; the whole-plan
+verification waits for it.
+
+**Flutter host** means any host on Flutter 3.47.2, the CI `FLUTTER_VERSION`
+(`.github/workflows/ci.yml:27`), because the `pubspec.lock` gate and analyzer
+results depend on the exact version. As of 2026-09-18 that is this Windows
+host (natively and in WSL `Ubuntu-24.04`), wonder, or the Mac. Confirm with
+`flutter --version` before P4; a host on another version is not a Flutter host
+for this plan. On this host P4 needs no pull. On another host, pull P1 first. Do not start P2 until P1's A4–A6 pass.
 
 ## Implementation Steps
 
-### P1 — Delete Goose and `acphttp`; make the Go tree compile; fail-loud leftover config (D1, D2, D3, D4, D12; closes F1, F2, F3, F4, F13, F14, F15)
+### P1 — Delete Goose and `acphttp`; warn on leftovers; templates and examples (D1, D2, D3, D4, D6, D8, D12; closes F1, F2, F3, F4, F5, F13, F14, F15, F16, F17, F18, F19)
 
-Delete the two package trees and `internal/daemon/goose_keyring*.go`.
+1. **Delete** the six paths listed under P1 "Delete" (`git rm -r`).
 
-Then, in the same commit, every compile-breaking site:
+2. **`internal/daemon/daemon.go`.** Remove the `acphttp` and `goose` imports
+   (`:27`, `:30`); the whole `if cfg.Providers.Goose.Enabled { … }` block
+   (`:247-262`, including the `reconcileGooseKeyring` call); the
+   `cfg.Providers.Goose.Enabled ||` term in `anyEnabled` (`:384`); the Goose
+   arm of `prewarmPlan` (`:764-766`). Delete `:721-755`: that range is
+   `acpAgentConfig`'s doc comment (`:721-723`, stranded above the wrong
+   function) followed by `acpHTTPConfig`'s comment and body. Re-add the
+   `acpAgentConfig` comment directly above `func acpAgentConfig` (today
+   `:788`, which has none), reworded "Every ACP CLI agent (grok) is
+   constructed through this one converter …". Deleting only `:724-755` would
+   leave that comment as `prewarmPlan`'s godoc. Reword the reaper comment at
+   `:173-175` to "opencode, kilo, and codex".
 
-1. **Daemon.** Drop the `goose` and `acphttp` imports, the
-   `Providers.Goose.Enabled` block, `acpHTTPConfig`, `IDGoose` in
-   `prewarmPlan`, Goose from the `anyEnabled` check, and the "goose,
-   opencode, and codex" comment (F14: reaping stays; the help-text name
-   does not).
-2. **Provider ID.** Remove `IDGoose` and its `provider_test.go` row.
-3. **Config.** Remove `GooseProviderConfig` as a live type. Replace the
-   `ProvidersConfig.Goose` field with a capture that mapstructure still
-   binds to `"goose"` (MADR open question 1: prefer
-   `RetiredGoose map[string]any \`mapstructure:"goose"\`` so presence of
-   the key is visible even when empty). `Validate` returns a fixed error
-   if the map is non-nil **or** any process env name has prefix
-   `MCREMOTE_PROVIDERS_GOOSE_`. Do not `v.SetDefault("providers.goose…")`.
-   Drop Goose from `KnownProviderIDs` / `SetProviderPrewarm` /
-   `ProviderPrewarm`. Drop Goose cwd resolve in `load.go`. Drop Goose
-   validation of timeouts / `with_builtins`. Drop Goose default block.
-   Drop `keyring_disabled` from `secret_keys_test.go`'s exemption map
-   (the field will be gone). Drop `TestGooseWithBuiltins*` and
-   `TestDefaultsGooseKeyringDisabled*`. Add tests: leftover YAML fails;
-   leftover env fails; a config with no Goose key loads.
-4. **credstore.** Remove every Goose-named symbol listed in the MADR F4
-   measurement. Delete the two Goose keyring test files. Remove Goose
-   cases from `credstore_test.go` / `write_test.go`.
-5. **WS.** Remove the `ErrGooseKeyringManaged` branch. Retarget
-   `auth_err_code_test.go` so it still proves `keyring_managed` *would*
-   map if that error existed, **or** drop those two table rows and keep
-   C7 via `TestWSErrorCodesAreRegistered` / protocol docs. Prefer keeping
-   the protocol test that the code is registered, and dropping the
-   credstore-error rows (the error type is gone). Retarget
-   `credential_write_test.go` fixtures from `id: "goose"` to `opencode`
-   or `kilo` (D8).
-6. **Doctor / engines / service template.** Remove the Goose credential
-   probe. Engines `Long` text lists `opencode`/`kilo` `serve` and `codex
-   app-server`, not `goose`. Delete the `goose:` block from
-   `defaults_mcremote.yaml`. Remove `providers.goose.args` /
-   `providers.goose.fs_roots` from `omittedConfigKeys` (the squash type
-   is gone; the whole key is now retired and must not appear in
-   templates — the leftover-config test covers it).
-7. **Conformance.** Drop Goose from both provider lists in
-   `command/conformance_test.go` and from `auth_conformance_test.go`.
-   In `command_test.go`, rename the `gooseTbl` locals to a generic
-   `noneTbl` — they test KindNone precedence, not Goose.
-8. **chunkbuf.** Delete the `goose (acphttp)` case. The file it reads
-   will not exist.
-9. **ACP comments.** `ACPProviderConfig` / `acpAgentConfig` comments
-   that say "goose and codex next" become "Grok today" (D12).
+3. **`internal/provider/provider.go`.** Delete `IDGoose` and its comment
+   (`:69-70`). **`provider_test.go`:** delete its row.
+   **`auth_conformance_test.go`:** delete the Goose case (`:47-52`) and the
+   `goose` import.
 
-**Verification:**
+4. **`internal/config/config.go`.** Delete the `Goose` field of
+   `ProvidersConfig` (`:451`), `GooseProviderConfig` (`:544-570`), the Goose
+   default block (`:834-850` including its comment), and every Goose check in
+   validation (`:1153-1180`). Edit comments: `:442`
+   `providers.{opencode,goose,codex,grok}` → `providers.{opencode,codex,grok}`;
+   `:473` → "grok"; `:821` and `:876` drop "goose"; `:1086` example list drops
+   "goose".
+   **`load.go`:** delete the Goose cwd resolve (`:232-233`) and the eleven
+   `providers.goose.*` `SetDefault` lines (`:323-333`). Add **no** default,
+   bind, or field for `providers.goose`.
+   **`prewarm_write.go`:** `KnownProviderIDs` → `{"grok", "opencode", "codex", "kilo"}`;
+   delete both `case "goose":` arms (`:47-48`, `:66-67`); `ErrUnknownProvider`'s
+   comment "one of the five agent providers" → "one of the agent providers in
+   KnownProviderIDs".
 
-```bash
-go test ./...                         # pass
-go test -race ./...                   # pass
-test -d internal/provider/goose && exit 1
-test -d internal/provider/acphttp && exit 1
-# leftover YAML (use the project's config.Load, not a hand-rolled decoder)
-# → error containing "providers.goose" and "0160"
-```
+5. **`internal/config/retired_goose.go` (new).** One unexported function,
+   called from `Load` immediately after `cfg.ConfigFile = usedConfigFile`
+   (`load.go:129`), as `noteRetiredGoose(v, os.Environ(), &cfg)`; it reads the
+   file path from `cfg.ConfigFile`:
 
-### P2 — De-goose remaining Go comments and fixture names (D7, D8; closes F6, F7)
+   ```go
+   // retiredGooseCode is the Diagnostic code for a providers.goose setting left
+   // over from before MADR 0160 removed the Goose provider.
+   const retiredGooseCode = "retired_provider_goose"
 
-No package deletion. Comments and test names that still talk about Goose
-as a *current* agent:
+   // noteRetiredGoose reports, without failing the load, a providers.goose
+   // block or MCREMOTE_PROVIDERS_GOOSE_* variable (MADR 0160 D3). Refusing
+   // would stop every host setup-service provisioned before 0160, because the
+   // seed config carried the block (F16).
+   func noteRetiredGoose(v *viper.Viper, environ []string, cfg *Config)
+   ```
 
-* picker / event / session / protocol / turn-latency comments: speak of
-  remaining agents, or of "a provider that reports no dates", not Goose.
-* `manager_durable_test.go`: rename `sess-goose` / `goose-chat` to a
-  second Fake session id. The test is about CloseAll, not Goose.
-* `agenterr`: comments say "structured engine logs" / "Rust Debug", not
-  "goose file logs". Test names `TestExtractTextGooseJSON` →
-  `TestExtractTextStructuredJSON` (keep the fixture *string*).
-* `acpagent/version_test.go`: the `"goose"` `agentInfo.Name` is a generic
-  ACP parse fixture — retarget to `"agent"` so a later grep does not
-  false-flag it.
-* `wirecap.go`: "four transports" / list grok stdio, opencode/kilo SSE,
-  codex JSON-RPC. No websocket-ACP sentence.
-* `stderr_tail_test.go` / `server_test.go`: `"goose"` as a log label or
-  native-session id can become `"agent"` / `"native-1"`.
+   Behaviour, exactly:
+   * `sources` = `"providers.goose in "+cfg.ConfigFile` if
+     `v.InConfig("providers.goose")`, plus every `environ` entry name (the text
+     before the first `=`) that has prefix `MCREMOTE_PROVIDERS_GOOSE_`, sorted.
+   * If `sources` is empty, return.
+   * Otherwise build one message: `"<sources joined by ", "> ignored: the Goose
+     provider was removed (MADR 0160); delete the setting"`; call
+     `slog.Default().Warn("retired goose settings ignored", slog.String("sources", …))`;
+     append `appdirs.Diagnostic{Code: retiredGooseCode, Message: msg}`.
+   * Never return an error. `Load` passes `os.Environ()`.
 
-Do not weaken assertions. Do not delete `LooksLikeLongBackoff` tests.
+6. **`internal/config/retired_goose_test.go` (new).** Every case writes its
+   config under `t.TempDir()` and calls
+   `config.Load(config.LoadOptions{ConfigFile: path})` (C8), and asserts by
+   code via a helper `hasDiag(cfg, "retired_provider_goose")`:
 
-**Verification:**
+   | Test | Input | Expect |
+   | --- | --- | --- |
+   | `TestRetiredGoosePopulatedBlockWarns` | `providers:\n  goose:\n    enabled: true\n    bin: goose\n` | load ok; diag present; message contains `0160` |
+   | `TestRetiredGooseDisabledBlockWarns` | `providers:\n  goose:\n    enabled: false\n` | load ok; diag present |
+   | `TestRetiredGooseEmptyMapWarns` | `providers:\n  goose: {}\n` | load ok; diag present |
+   | `TestRetiredGooseNullKeyIsSilent` | `providers:\n  goose:\n` | load ok; diag absent (F17: inert, undetectable) |
+   | `TestRetiredGooseEnvWarns` | no Goose in file; `t.Setenv("MCREMOTE_PROVIDERS_GOOSE_ENABLED","true")` | load ok; diag present; message names the variable |
+   | `TestRetiredGooseAbsentIsSilent` | `providers:\n  grok:\n    enabled: true\n` | load ok; diag absent |
+   | `TestRetiredGooseSeededTemplateLoads` | the **pre-P1** `defaults_mcremote.yaml` `providers.goose` block, pasted as a literal | load ok; diag present; `cfg.Providers.Grok.Enabled` still true |
 
-```bash
-go test ./internal/agenterr/... ./internal/picker/... ./internal/session/... ./internal/chunkbuf/... ./internal/protocol/...
-go test ./...
-```
+   The last case is the regression test for F16; paste the block rather than
+   read a file, because P1 deletes it from the template.
 
-### P3 — Living product docs, examples, Makefile, AGENTS live tag (D1, D9, D11; closes F1, F10)
+7. **Config tests.** `acp_config_test.go`: delete
+   `TestGooseWithBuiltinsParseAndValidate` and
+   `TestGooseWithBuiltinsRejectsEmptyAndDuplicate` (`:100-129`); change the
+   comment at `:23` to "reused by any provider that embeds
+   ACPProviderConfig". `config_test.go`: delete the `{"goose", …}` prewarm row
+   (`:625`) and the four keyring tests (`:1106-1170`,
+   `TestDefaultsGooseKeyringDisabled`, `TestGooseKeyringDisabledExplicitFalse`,
+   `TestGooseKeyringDisabledAbsentKeepsDefault`,
+   `TestGooseKeyringDisabledEnvOverride`). `secret_keys_test.go:68`: delete
+   the `keyring_disabled` exemption (no field carries that tag after P1).
 
-* `Makefile`: drop `live-goose` from `.PHONY` and the target.
-* `AGENTS.md`: delete `-tags live_goose ./...` from the live-tag sentence.
-  Leave the hooks list and the commit-message agent list (D11).
-* `README.md`: product surface, architecture diagram, PATH binaries,
-  engines blurb, provider table, config key table, `## Provider: Goose`,
-  live-test command, tree comment, MADR 0025 row in the design table.
-* `docs/config.md`: both the `providers.goose.*` key table and the
-  `MCREMOTE_PROVIDERS_GOOSE_*` env table.
-* `docs/protocol-v1.md`: provider enum and Goose-specific examples (MADR
-  open question 4: rewrite examples onto Grok or another remaining agent;
-  do not leave `provider: "goose"` as a current example). Keep
-  `keyring_managed` in the error-code list (C7).
-* `docs/ops-macos-tcc.md`, `docs/ops-android-emulator.md`,
-  `apps/mobile/README.md`.
-* The three `configs/*.yaml` example files: delete the `goose:` blocks
-  and any comment that presents Goose as a current agent. Grok
-  `mcp_servers` stays.
+8. **`credstore`.** In `credstore.go` delete `GooseConfigPath`,
+   `GooseSecretsPath`, `GooseKeyringDisabled`, `gooseKeyringDisabledValue`,
+   `isFalsey`, `GooseConfig`, `ReadGooseConfig`, `splitYAMLScalar` and their
+   comments. In `write.go` delete `SetGooseActiveProvider`,
+   `ErrGooseKeyringManaged`, `ReadGooseSecretNames`, `readGooseSecrets`,
+   `writeGooseSecrets`, `SetGooseSecret`, `DeleteGooseSecret`,
+   `GooseKeyringMarker`, `ErrGooseKeyringOperatorOwned`, `gooseKeyringLine`,
+   `SetGooseKeyringDisabled`, and the `yaml "go.yaml.in/yaml/v3"` import. Then
+   `go build ./internal/provider/credstore/` and `go vet` it; if the compiler
+   reports another now-unused import, remove it; if `go vet` or `gopls` reports
+   another now-unused unexported function, stop and record it rather than
+   widening the deletion silently. In `credstore_test.go` delete
+   `TestReadGooseConfig`, `TestReadGooseConfigActiveProviderAlwaysListed`,
+   `TestReadGooseConfigMissingFileIsNotAnError` (`:79-157`); in `write_test.go`
+   delete `TestSetGooseActiveProviderIsSurgical` and
+   `TestSetGooseActiveProviderAddsKeyWhenAbsent` (`:207-256`).
 
-**Verification:**
+9. **WS.** `server.go`: delete the `case errors.Is(err, credstore.ErrGooseKeyringManaged):`
+   arm and its return (`:2699-2700`); reword the comment at `:2274` "(goose's
+   keyring)" → "(for example, a keyring the host must manage)".
+   `auth_err_code_test.go`: delete the two keyring rows (`:27-28`). C7 stays
+   enforced by `protocol` `TestErrorCodesAreDocumented` and the constants.
 
-```bash
-rg -n 'live-goose|live_goose|providers\.goose|## Provider: Goose' README.md docs/config.md docs/protocol-v1.md Makefile AGENTS.md configs
-# → no product hits. AGENTS.md still contains developer-Goose sentences.
-make -n live-goose                    # → no rule
-```
+10. **CLI.** `doctor.go`: delete the Goose probe (`:79-88`). `engines.go:18`:
+    the `Long` text lists "opencode and kilo `serve` engines, codex's
+    `app-server`".
 
-### P4 — Mobile icon, copy, and fixture retarget (D6, D8, D10, D12; closes F5, F9, F12)
+11. **Templates and examples (F18 — same commit).** Delete the whole
+    `goose:` block from `internal/cli/service/defaults_mcremote.yaml`
+    (`:75-88`), `configs/config.example.yaml`, `configs/config.mesh-grok.yaml`,
+    `configs/config.prod.example.yaml`, plus any comment in those four files
+    that names Goose as a current agent. Grok `mcp_servers` stays. In
+    `template_parity_test.go` replace `omittedConfigKeys` with just
+    `"providers.opencode.transport": {}`. Verify:
+    `git grep -il goose -- configs internal/cli/service` → no output.
 
-* Delete `goose.svg`. Remove `goose` from `ids.txt`. Drop the `'goose'`
-  manifest entry. Update `sync.sh` comment (OpenCode/Kilo dumps + remaining
-  agent ids, not Goose's pinned table).
-* `mc_exception.dart`: keep the `keyring_managed` case; drop
-  `goose configure` (D6).
-* Comments in `vendor_icon.dart`, `mcremote_client.dart`, `models.dart`,
-  `picker.dart`, `chat_screen.dart`, `upstream_catalog_sheet.dart`: stop
-  citing Goose as a current catalog/mode source.
-* Tests: retarget provider ids to `grok` / `opencode` / `kilo` / a
-  synthetic id. Keep the *behaviour* of:
-  * unflagged default `auto` is not alarmed
-  * flagged dangerous `auto` is alarmed and gated
-  * large catalogs
-  * `keyring_managed` wall copy
-  * session create with a named provider
-* `mode_selector_dangerous_test.dart` / `session_mode_dangerous_test.dart`
-  / `resolve_displayed_mode_test.dart` may keep an `auto`/`approve`/
-  `smart_approve`/`chat` list — that is a mode vocabulary, not a provider
-  import — but names and comments must not claim a current Goose daemon.
+12. **Conformance and chunkbuf.** `command/conformance_test.go`: remove the
+    `goose` import (`:14`) and the Goose `Tabler` (`:55`) from both provider
+    lists. `chunkbuf/provider_mode_test.go`: delete the
+    `goose (acphttp)` case (`:41-44`).
 
-**Verification:**
+**Verification (P1):**
 
 ```bash
-cd apps/mobile && dart format --output=none --set-exit-if-changed lib test
-cd apps/mobile && flutter analyze
-cd apps/mobile && flutter test
-test -f apps/mobile/assets/vendor_icons/goose.svg && exit 1
+test ! -e internal/provider/goose && test ! -e internal/provider/acphttp && echo A1-OK
+git grep -n -e 'internal/provider/goose"' -e 'internal/provider/acphttp"' -- '*.go'   # → none
+git grep -n -E 'IDGoose|GooseProviderConfig|Providers\.Goose|credstore\.(Goose|ReadGoose|SetGoose|DeleteGoose|ErrGoose)|reconcileGooseKeyring' -- '*.go'   # → none
+git grep -n 'providers.goose' -- '*.go' ':!internal/config/retired_goose*.go'          # → none
+go test ./internal/config/ -run 'RetiredGoose' -v 2>&1 | grep -E '^(--- |ok|FAIL)'   # → 7 PASS
+go test ./internal/cli/service/ -run 'Template' -v 2>&1 | grep -E '^(--- FAIL|ok|FAIL)'  # → ok
+go mod tidy && git diff --exit-code go.mod go.sum                                    # → exit 0
+# plus the Stability rule, plus the binary drive in A4 (MADR Confirmation §4)
 ```
 
-### P5 — Stamp Goose-topic historical records superseded (D9; closes F11)
+### P2 — De-goose every remaining Go comment and fixture (D7, D8, D12, D14; closes F6, F7, F22)
 
-Frontmatter only. Set
+Rule for this phase (D14): after it, `git grep -il goose -- '*.go'` prints
+exactly `internal/config/retired_goose.go` and
+`internal/config/retired_goose_test.go`. Provenance is cited by MADR number.
+No assertion changes; no test is deleted. Edits, by file:
 
-```yaml
-status: superseded by 0160-MADR-remove-goose-cli-support.md
-```
+* **`agenterr.go`** `:8,120,121,315,323,328,348,352,371,381,413,774`: say
+  "structured engine logs", "Rust Debug payloads", "provider retry sleep",
+  and cite "MADR 0073" where the shape's origin matters.
+  **`agenterr_test.go`:** rename `TestExtractTextGooseJSON` →
+  `TestExtractTextStructuredJSON`; `:234`, `:266`, `:308` comments/messages
+  say "structured log line" / "Rust Debug shape (MADR 0073)". Fixture strings
+  unchanged.
+* **`chunkbuf.go:111`**, **`toollane_mode_test.go:32`**: "OpenCode and Kilo".
+* **`command_test.go:87-126`**: rename `rGoose` → `rNone` and `gooseTbl` →
+  `noneTbl` (they test `KindNone` precedence); failure messages say "KindNone
+  loop/review/fork must stay unavailable". **`specs.go:57`**: "opencode never
+  claims it".
+* **`daemon/main_test.go:17`**: drop `~/.config/goose/config.yaml` from the
+  list of paths the isolation protects.
+* **`event.go:463-464`**: "a provider may ship a dangerous mode as its default
+  (MADR 0069 D3)".
+* **`picker/order.go:50`**, **`picker.go:54`**, **`order_test.go`**:
+  "a provider that reports no dates (grok, codex)".
+* **`procutil/reap.go:11`**: "(opencode, kilo, codex — …".
+* **`sessionmode_compat_test.go:55`**, **`session/defaultmode_test.go:48-50`**:
+  a pre-0069 daemon's unflagged `auto` list keeps its values; subtest
+  `goose_unflagged_auto_is_still_eligible` → `unflagged_default_auto_is_still_eligible`;
+  comments say "a provider whose default is an unflagged auto".
+* **`picker/order_test.go:49`**, **`session/turnlatency_test.go:41,344,375`**:
+  drop Goose from the provider lists; `:375` "a context-total-only shape".
+* **`provider/auth.go:88`**: "e.g. a method whose keys live in a host keyring".
+* **`provider/cwd.go:46`**: "(codex previously fell …" — drop `acphttp`.
+* **`stderr_tail_test.go`**: log label `"goose"` → `"agent"`.
+* **`acpagent/acpagent.go:124`**, **`automode_test.go:142`**,
+  **`session.go:35,153,1554,2023`**, **`sessioncaps.go:18,24-25`**,
+  **`subagents.go:83`**, **`subagents_test.go:232`**, **`version.go:14`**:
+  drop Goose/acphttp; keep MADR citations (e.g. "shared quota path — MADR 0073
+  F1"); `sessioncaps.go:24-25` becomes "This package is grok only."
+* **`acpagent/version_test.go:13,26,28`**: case name `"agent: standard
+  agentInfo"`, `Name: "agent"`; comment drops Goose. `Version` unchanged.
+* **`codex/provider.go:571`**, **`codex/session.go:2317`**: "(MADR 0073 F1)"
+  without "goose/acphttp". **`tool_lane_baseline_test.go:17`**: quote reduced
+  to the Codex half, or cite "MADR 0073 M-2" without the agent name.
+* **`httpagent/currentmodel_test.go:58`**: "covers grok and codex".
+  **`supervise_wiring_test.go:64`**: "Bounded long enough that …" (drop the
+  `acphttp` reference).
+* **`kilo/lifecycle.go:122`**, **`kilo/lifecycle_test.go:61`**,
+  **`opencode/lifecycle.go:122`**: "(parity with codex/grok — MADR 0073)".
+  **`opencode/upstream.go:22-23`**: "the same weekly-quota product MADR 0073
+  records wedging an agent".
+* **`session/manager_durable_test.go`**: `sess-goose` → `sess-second`,
+  `goose-chat` → `second-chat`; still Fake.
+* **`session/turnlatency.go:109`**, **`turnlatency_test.go`**: "a provider
+  that reports no cache counters".
+* **`wirecap.go:8`**: list grok stdio, opencode/kilo SSE, codex JSON-RPC; no
+  websocket-ACP sentence.
+* **`ws/credential_write_test.go:115,122,306,309,314`**: provider id
+  `"goose"` → `"opencode"` (no WS handler branches on it; MADR measurement);
+  comment `:306` "the phone moves an agent off a quota-blocked upstream".
+* **`ws/server_test.go:970,1003`**: `"goose-1"` → `"native-1"`.
 
-on each in-scope file listed under P5. Do not edit headings, findings, or
-plans' historical phases. `0026` is already superseded by 0030; this stamp
-replaces that with 0160 (Goose support itself is what ended).
-
-**Verification:**
+**Verification (P2):**
 
 ```bash
-rg -n '^status:' docs/spec/0025-MADR-goose-provider.md docs/spec/0030-MADR-goose-remote-parity.md docs/spec/0110-MADR-goose-keyring-prompts-block-headless-launch.md docs/spec/0122-MADR-deterministic-goose-file-log-tail-attach.md
-# → each is superseded by 0160-MADR-remove-goose-cli-support.md
-# git diff of those files is frontmatter-only
+git grep -il goose -- '*.go'
+#   → exactly: internal/config/retired_goose.go
+#              internal/config/retired_goose_test.go
+git diff --stat HEAD~1 -- '*.go' | tail -1        # only the P2 files changed
+# plus the Stability rule; test count per package must equal P1's
+go test ./... -json 2>/dev/null | grep -c '"Action":"pass","Package":[^,]*,"Test"'
+#   → equal to the same count taken after P1 (C2: nothing deleted, only renamed)
+```
+
+### P3 — Makefile, AGENTS live tag, living docs (D1, D3, D9, D11, D14; closes F1, F10)
+
+* **`Makefile`:** drop `live-goose` from `.PHONY` (`:159`) and delete
+  `:351-355` (comment + target).
+* **`AGENTS.md:132`:** delete `` `-tags live_goose ./...` `` and fix the list
+  punctuation. Lines 67 and 148 untouched (C6).
+* **`README.md`:** remove Goose from the product-surface line (`:181`), the
+  diagram (`:205`, `:214`), PATH binaries (`:235`), engines row (`:578`),
+  provider table (`:752`), mesh-config row (`:787`), config table (`:808`),
+  `stream_coalesce_ms` (`:818`) and `mcp_servers` (`:853`) sentences, the whole
+  `## Provider: Goose` section (`:966-991`), `:1145`, `:1152`, `:1385`, the
+  live-test line (`:1492`), the tree comment (`:1512`). Replace the design-table
+  row at `:1564` with one row: `| [docs/spec/0160-MADR-remove-goose-cli-support.md](docs/spec/0160-MADR-remove-goose-cli-support.md) | Goose provider removed (supersedes 0025) |`.
+  That row is README's only remaining Goose hit.
+* **`docs/config.md`:** delete the `providers.goose.*` key table and the
+  `MCREMOTE_PROVIDERS_GOOSE_*` env rows; add one row or sentence, the file's
+  only remaining Goose hit: "`providers.goose` / `MCREMOTE_PROVIDERS_GOOSE_*` —
+  retired (MADR 0160). Ignored; the daemon logs a warning and `mcremote paths`
+  reports `retired_provider_goose`. Delete the setting."
+* **`docs/protocol-v1.md`:** provider enum without `goose`; Goose examples
+  rewritten with `"provider":"grok"`; `:1297` "only codex did"; the
+  `keyring_managed` entry stays (C7) with text that names no agent.
+* **`docs/ops-macos-tcc.md`**, **`docs/ops-android-emulator.md`**,
+  **`apps/mobile/README.md`:** remove the one Goose mention each.
+
+**Verification (P3):**
+
+```bash
+git grep -il goose -- README.md docs/config.md docs/protocol-v1.md docs/ops-*.md apps/mobile/README.md Makefile AGENTS.md
+#   → exactly: AGENTS.md  README.md  docs/config.md
+git grep -n -i goose -- AGENTS.md | cut -d: -f2          # → 67 and 148
+git grep -c -i goose -- README.md docs/config.md          # → README.md:1  docs/config.md:1 (each a single line)
+make -n live-goose 2>&1 | grep -c 'No rule'              # → 1
+go test ./internal/protocol/                             # → ok (keyring_managed still documented)
+```
+
+### P4 — Mobile icon, copy, comments, fixtures (D5, D6, D8, D10, D13; closes F5, F8, F9, F12, F23)
+
+Runs on a Flutter host (defined under "Dependency and delivery order") after P1.
+
+* **Icon (D10, by hand):** `git rm apps/mobile/assets/vendor_icons/goose.svg`;
+  delete `vendor_icon_manifest.g.dart:46`; delete `tools/vendor-icons/ids.txt:83`;
+  rewrite `sync.sh:5-8` to "the union of a live opencode/kilo catalog dump and
+  the agent ids". Do not run `sync.sh`.
+* **Copy (D6, D13) in `mc_exception.dart`:** `keyring_managed` →
+  `'This agent keeps its keys in the host\'s OS keyring — add the key on the host.'`
+  (still contains `keyring` and `host`). Add
+  `case 'unknown_provider': return 'The agent for this session is no longer available on the host.';`
+  **`friendly_op_error_test.dart`:** add a test that `unknown_provider` maps to
+  a string containing `no longer available`.
+* **Comments:** `vendor_icon.dart:6`, `mcremote_client.dart:3761`,
+  `models.dart:2308-2309`, `picker.dart:134`, `chat_screen.dart:1199`,
+  `upstream_catalog_sheet.dart:150`, `transcripts_notifier.dart:107` (cite the
+  daemon behaviour or a MADR number; no Goose, no `acphttp`).
+* **Tests (D8; C2):** retarget ids to `grok`, `opencode`, `kilo`, or a
+  synthetic id, keeping every `expect`:
+  `mode_selector_dangerous_test.dart` (17 hits: `_gooseModes` →
+  `_legacyUnflaggedModes`, `_gooseModes0069` → `_flaggedModes`; test names say
+  "a legacy unflagged auto" / "a flagged dangerous auto"),
+  `session_mode_dangerous_test.dart`, `resolve_displayed_mode_test.dart`,
+  `model_picker_test.dart`, `model_picker_sheet_test.dart`,
+  `provider_detail_screen_test.dart`, `session_meta_test.dart`,
+  `sessions_screen_test.dart`, `upstream_catalog_sheet_test.dart`.
+
+**Verification (P4):**
+
+```bash
+test ! -e apps/mobile/assets/vendor_icons/goose.svg && echo OK
+git grep -il goose -- apps/mobile tools/vendor-icons       # → no output
+cd apps/mobile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test                                             # test count ≥ pre-P4 count + 1
+```
+
+### P5 — Mark Goose-only historical records (D9; closes F11, F20)
+
+* **YAML MADRs (0110, 0122):** in the frontmatter only, set
+  `status: superseded by 0160-MADR-remove-goose-cli-support.md` and
+  `date:` to the execution date.
+* **Banner files (MADRs 0025, 0026, 0030; PLANs 0025, 0030, 0110, 0122):**
+  insert, as the first line after the H1 and one blank line, exactly:
+
+  ```markdown
+  > **Superseded by [MADR 0160](0160-MADR-remove-goose-cli-support.md) (YYYY-MM-DD):** the Goose provider was removed from the product. This record is kept as history.
+  ```
+
+  with the execution date. Change nothing else — not the existing status line,
+  not headings, not body text.
+* **0073:** no change (F20).
+
+**Verification (P5):**
+
+```bash
+git grep -n '^status:' -- docs/spec/0110-MADR-*.md docs/spec/0122-MADR-*.md
+#   → both: status: superseded by 0160-MADR-remove-goose-cli-support.md
+git grep -l 'Superseded by \[MADR 0160\]' -- docs/spec ':!docs/spec/0160-*' | wc -l   # → 7
+#   (the exclusion matters: this PLAN quotes the banner text itself)
+git diff --numstat HEAD~1 -- docs/spec ':!docs/spec/0160-*' | awk '{print $1, $2, $3}'
+#   → 9 files; banner files "2 0" (banner + blank); YAML files "2 2"
+git diff --quiet HEAD~1 -- docs/spec/0073-MADR-goose-prompt-hang-and-debug-pass.md && echo 0073-untouched
 ```
 
 ## Verification (whole plan)
 
-```bash
-go test ./...
-go test -race ./...
-rg -n 'internal/provider/goose|internal/provider/acphttp' --glob '*.go'   # none
-make -n live-goose                                                      # no rule
-# leftover config refuses (P1 test)
-# AGENTS.md still lists goose among coding agents
-```
-
-On this Windows host, before calling the work done:
+Run after all five phases, from the repository root on the Windows host (the
+P4 lines on the Flutter host):
 
 ```bash
+# A1
+test ! -e internal/provider/goose && test ! -e internal/provider/acphttp && echo OK
+# A2
+git grep -il goose -- . ':!docs/spec'
+# A3
+go build ./... && go vet ./...
+go test ./... 2>&1 | grep -E '^(--- FAIL|FAIL)'
+go test -race ./... 2>&1 | grep -E '^(--- FAIL|FAIL)'
+go mod tidy && git diff --exit-code go.mod go.sum
+# A4–A6: MADR Confirmation §4 (binary drive)
+# A7: P4 verification block
+# A8–A9: P5 verification block
+# A10
 make ci-windows
 ```
-
-**Not verifiable on this host unless the tools exist:** `flutter analyze` /
-`flutter test` / `dart format` (P4). `make live-grok` etc. are not required
-— this plan does not change remaining live suites.
 
 ### Acceptance criteria (mapped to MADR Confirmation)
 
 | # | Criterion | MADR |
 | --- | --- | --- |
-| A1 | `internal/provider/goose/` and `internal/provider/acphttp/` are gone | D1, D2 |
-| A2 | `go test ./...` and `go test -race ./...` pass | D1, D8 |
-| A3 | Leftover `providers.goose` YAML fails load, naming 0160 | D3 |
-| A4 | Leftover `MCREMOTE_PROVIDERS_GOOSE_*` fails load | D3 |
-| A5 | A config with no Goose key still loads | D3 |
-| A6 | `credstore` has no Goose-named API; Grok/Codex/OpenCode/Kilo auth tests still pass | D4 |
-| A7 | `make live-goose` is not a target; `AGENTS.md` live-tag sentence has no `live_goose` | D1, D11 |
-| A8 | Phone has no Goose icon; `keyring_managed` copy has no `goose configure`; widget tests that encoded generic behaviour still exist | D6, D8, D10 |
-| A9 | Living README/config/protocol/ops/examples do not present Goose as a current agent | D9 |
-| A10 | Goose-topic MADRs in P5 are stamped superseded; mixed MADRs are untouched | D9 |
-| A11 | `protocol.ErrorCodes()` still contains `keyring_managed` | D6 |
-| A12 | `AGENTS.md` still names Goose as a coding agent / hook registrant | D11 |
-| A13 | `agenterr` still classifies the former Goose JSON/Debug fixture strings | D7 |
-| A14 | Durable-session tests still prove CloseAll keeps rows; they do not purge by provider id | D5 |
+| A1 | `internal/provider/goose/` and `internal/provider/acphttp/` do not exist; no `.go` imports them | D1, D2 (Confirmation §1) |
+| A2 | `git grep -il goose -- . ':!docs/spec'` prints exactly: `AGENTS.md`, `README.md`, `docs/agent_cli_slash_commands_matrix.md`, `docs/config.md`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
+| A3 | build, vet, `go test`, `go test -race` green under the baseline rule; `go mod tidy` no diff | D1, D8 (§3) |
+| A4 | `mcremote paths --json` on a leftover-block config and on a copy of this host's live config exits 0 with `retired_provider_goose` | D3 (§4) |
+| A5 | `MCREMOTE_PROVIDERS_GOOSE_ENABLED=true` → exit 0, diagnostic names the variable | D3 (§4) |
+| A6 | A config with no Goose key and no Goose env → no `retired_provider_goose` | D3 (§4) |
+| A7 | On a Flutter host: format/analyze/test pass; no `goose.svg`; `keyring_managed` copy has no agent name; `unknown_provider` has copy and a test | D6, D10, D13 (§7) |
+| A8 | 0110/0122 MADRs superseded by 0160; seven banner files carry the banner and nothing else changed | D9 (§8) |
+| A9 | 0073 unchanged | D9 (§8) |
+| A10 | `make ci-windows` passes under the baseline rule | (§9) |
+| A11 | `protocol.ErrorCodes()` and `docs/protocol-v1.md` still contain `keyring_managed` | D6 (§6) |
+| A12 | `AGENTS.md:67` and `:148` still name Goose as a coding agent | D11 (§2) |
+| A13 | `agenterr` still classifies the former Goose fixture strings (tests renamed, not removed) | D7 |
+| A14 | P2 leaves the Go test count unchanged from P1 | D8 (C2) |
 
-A3 is the criterion most likely to be quietly dropped under pressure. It
-is C3. A phase that deletes `GooseProviderConfig` without the capture
-field and the two leftover tests is not P1, even if `go test ./...` is
-green.
+**A4 is the criterion most likely to be quietly dropped**: it needs a built
+binary and a copy of a real config rather than a unit test, and the unit tests
+in P1 step 6 look like they cover it. They cover the loader; A4 covers the
+product-seeded file that motivated D3 (F16), driven through the real command.
 
 ## Rollout and Rollback
 
-**What a user observes.** After a daemon that includes this plan: Goose
-disappears from the provider picker. Existing Goose sessions remain in the
-list and fail to resume with `unknown_provider`. A host whose YAML still
-has a `goose:` block will not start, with an error that says to remove it.
-`~/.config/goose/` is untouched; Goose's own CLI still works if installed.
+**What a user observes after upgrading the daemon.** Goose disappears from the
+provider picker. Existing Goose sessions stay in the list; opening one shows
+"The agent for this session is no longer available on the host" (after P4
+reaches the phone; before that, the raw "unknown provider"). A host whose
+config still has a `goose:` block — every `setup-service`-provisioned host —
+starts normally and logs `retired goose settings ignored` once per start;
+`mcremote paths --json` lists `retired_provider_goose`. `mcremote update` is
+unaffected by the block. `~/.config/goose/` is untouched.
 
-**Per-phase revert.** Each phase is one commit. `git revert` of that
-commit restores that slice. Reverting P1 without reverting P3/P4 leaves
-docs claiming Goose is gone while the code has it again — revert in
-reverse order (P5 → P1) if rolling back the whole change.
+**Operator action.** Delete the `providers.goose` block (and any
+`MCREMOTE_PROVIDERS_GOOSE_*` variable). Nothing else; there is nothing to
+migrate.
 
-**No migration tool.** Operators delete the YAML block. There is nothing
-to convert: Goose settings have no remaining destination.
+**Per-phase revert.** Each phase is one commit; `git revert` restores that
+slice. Revert in reverse order (P5 → P1). Reverting P1 alone restores Goose
+while P3's docs say it is gone.
 
 ## Deferred (named, so they are not mistaken for oversights)
 
-* **Removing `keyring_managed` from the protocol.** D6 keeps it. A later
-  record can drop a producer-less code once mixed-upgrade is irrelevant.
-* **Auto-hiding or purging durable Goose sessions.** D5. If the list looks
-  noisy, that is a product question for another pair.
-* **Rewriting mixed historical MADRs** so they no longer mention Goose.
-  History. D9.
+* **Removing `keyring_managed` from the protocol.** D6 keeps it; a later record
+  can drop the producer-less string once mixed-version phones are irrelevant.
+* **Stripping `providers.goose` from operator configs automatically (L3).**
+  Rejected for now; if the warning proves too noisy, a later record can add an
+  explicit `mcremote config prune`-style command rather than a silent rewrite.
+* **Hiding or purging durable Goose sessions.** D5; a product question.
+* **Fixing the Windows config-test isolation defect** (`TestLoadDisplayNameUnset`
+  and the ten `Load(LoadOptions{})` tests, F21). Independent of Goose; needs
+  its own record, likely an `appdirs` roots override for tests.
+* **Rewriting mixed historical MADRs**, including 0073. History (D9).
 * **Rebuilding `acphttp` as a generic transport.** Only if a future agent
-  actually speaks ACP over HTTP. Start from MADR 0025 in git, not from a
-  kept corpse.
-* **Touching `~/.global-agent-hooks` Goose registration.** Different
-  Goose. D11.
+  speaks ACP over HTTP; start from MADR 0025 in git.
+* **Touching developer-Goose hook registration** (`~/.global-agent-hooks`,
+  `AGENTS.md:67`). Different Goose (D11).
+
+## Execution record
+
+Not yet executed.

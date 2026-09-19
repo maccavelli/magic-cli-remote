@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-09-14
+date: 2026-09-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -722,6 +722,14 @@ Select-String -Path docs\*.md,docs\spec\*.md -Pattern 'MC_WINDOWS_SIGN'
   on it.** Its own text already contains a "Rotation under a Windows tail
   (measured 3/3 on this host)" section, so the Windows behaviour was probed
   while designing it.
+* **MADR 0160** — `remove-goose-cli-support`, `proposed` (cross-reference added
+  2026-09-18; no finding or decision here changes). It deletes
+  `internal/provider/acphttp`, so of the six `SuperviseStarted` call sites
+  recorded above, `acphttp/provider.go:361` goes and five remain; nothing in
+  this record depends on that site. 0160 also removes the `goose:` block from
+  `defaults_mcremote.yaml` and treats a leftover block as a warning, not a load
+  failure: a refusal would have made the managed `update` path this record's F1
+  describes fail on every platform, not only Windows (0160 F16).
 * **MADR 0118** — symlink privilege as a machine property, and D2's rule that a
   blanket skip converts a broken environment into silent non-coverage. That rule
   is what makes **F4**'s `t.Skip` and **F15** defects rather than pragmatism.
