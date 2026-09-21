@@ -20,7 +20,13 @@ const deviceCodeScanTimeout = 30 * time.Second
 
 // StartDeviceAuth implements [provider.DeviceAuth] for Codex (MADR 0074 D8).
 //
-// This flow is destructive before it is useful. Observed on codex-cli 0.146.0:
+// This flow is destructive before it is useful. Re-verified at codex 0.155.1 and
+// unchanged: run_login_with_device_code (cli/src/login.rs:319) calls
+// clear_existing_auth_before_login at :335 -- which is logout_with_revoke
+// (:122-128) -- BEFORE the device flow starts. So a failed or abandoned login
+// has already destroyed the working credentials it replaced. The sibling
+// run_login_with_device_code_fallback_to_browser does the same at :386.
+// Originally observed on codex-cli 0.146.0:
 // `codex login --device-auth` DELETES ~/.codex/auth.json the moment it starts,
 // before the user has entered anything. Abandon the flow and the host is
 // simply signed out. That is why:

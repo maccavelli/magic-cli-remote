@@ -46,6 +46,15 @@ type engine struct {
 	ready           bool
 	// release closes the job object holding this engine's descendant tree
 	// (MADR 0150 D2/D3); see engineAttempt.release.
+	//
+	// Still required at codex 0.155.1, and not for want of looking: a sweep of the
+	// Codex tree for SetConsoleCtrlHandler, GenerateConsoleCtrlEvent,
+	// CTRL_BREAK_EVENT, CTRL_C_EVENT and CREATE_NEW_PROCESS_GROUP returns exactly
+	// ONE hit in the whole repository, and it is test-only: a Python snippet inside
+	// a string literal in codex-rs/utils/pty/src/windows_tests.rs:142. Codex's own
+	// graceful-shutdown path (its signal handler and watchdog) is cfg(unix). So
+	// nothing upstream will ever signal a grandchild on Windows, and the job object
+	// remains the only thing that reaches one (MADR 0163 F31).
 	release func()
 }
 
@@ -234,6 +243,11 @@ func (p *Provider) CommandTable() command.Table { return commandTable }
 const maxModelListPages = 10
 
 // modelListEntry is one row of a codex model/list page.
+//
+// Re-verified at codex 0.155.1: model/list's params requiredness is unchanged, so
+// the empty-object send below stays as it is. Upstream did reduce the blast radius
+// of a wrong catalog in this release -- see MADR 0163 D15 for the measured
+// details -- but nothing there changes what we must send.
 //
 // The field names are load-bearing and were both wrong before MADR 0043 D5:
 // the response array is `data`, not `models`, and the request needs a `params`

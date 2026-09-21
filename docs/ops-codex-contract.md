@@ -157,3 +157,27 @@ Why each breaking class is breaking, and a relaxation is not:
 Expect the default mode to report additive drift whenever the installed Codex is
 ahead of the pin. Against a 0.149.1 pin on a 0.155.1 host it reports **35**
 additions and passes.
+
+## Four managed-policy fields are sent but described by no generated type
+
+`configRequirements/read` returns `allowedApprovalsReviewers`, `hooks`, `network`
+and `application`, but each carries
+`#[experimental("configRequirements/read.<field>")]`
+(`codex-rs/app-server-protocol/src/protocol/v2/config.rs:416,431,434,436`), so
+**the JSON Schema and the TypeScript exports both omit them**. The request method
+itself carries no `#[experimental]` attribute — only those four fields do — so the
+server sends them regardless of what a client declared.
+
+Anything generated from those exports therefore drops admin-managed hooks and
+network policy silently, including the injected HTTP headers under `network`. We
+hand-write these structs, so we are unaffected today; the consequences are that
+the captured inventory *understates* this response, and that a future move to
+codegen would regress it without any schema check noticing.
+
+Verify the gate list has not changed:
+
+```bash
+grep -rn 'experimental("configRequirements/read' ~/gitrepos/codex/codex-rs
+```
+
+Background: MADR 0163 F35.

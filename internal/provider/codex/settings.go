@@ -56,6 +56,30 @@ func projectConfigState(raw []byte) (ConfigPolicyState, error) {
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return ConfigPolicyState{}, err
 	}
+	// Not every managed requirement Codex reports becomes a runtime constraint, so
+	// surfacing one as if it were enforced would be a lie an operator acts on
+	// (MADR 0163 D17/F34). Measured at codex 0.155.1:
+	// TryFrom<ConfigRequirementsWithSources> for ConfigRequirements
+	// (config/src/config_requirements.rs:1652) destructures the managed policy and
+	// DISCARDS seven fields -- allowed_permission_profiles (:1674),
+	// default_permissions (:1675), allow_browser_and_computer_use (:1678),
+	// browser_use (:1682), in_app_browser (:1683), apps (:1690) and models (:1697).
+	// Everything else is carried into the constraint object.
+	//
+	// The function's own comment (:1656-1659) explains two of those: profile
+	// selection and managed new-thread defaults stay on ConfigRequirementsToml
+	// because they are config-load and initialization values rather than runtime
+	// constraints -- so they are still honoured, just not here. The remaining five
+	// have no such note, which is why anything of ours that surfaces browser,
+	// computer-use or app capabilities must enforce an administrator's denial
+	// itself rather than assume the engine will.
+	//
+	// additional_developer_instructions IS enforced, and is unsuppressable by a
+	// client: it is injected as its own developer-role message. Oversized policy is
+	// REJECTED rather than truncated -- validate_managed_developer_instructions
+	// returns an io error above MAX_MANAGED_DEVELOPER_INSTRUCTIONS_TOKENS (10_000),
+	// explicitly to avoid "silently dropping part of its instructions"
+	// (core/src/context/world_state/managed_developer_instructions.rs:13,53-77).
 	state := ConfigPolicyState{}
 	_ = json.Unmarshal(input.Config["default_permissions"], &state.EffectiveProfileID)
 	_ = json.Unmarshal(input.Config["approvals_reviewer"], &state.EffectiveReviewer)
