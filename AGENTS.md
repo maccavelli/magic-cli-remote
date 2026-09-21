@@ -257,6 +257,22 @@ F2, two agents later.)
 
 `git push` and tags still need an explicit ask in the same turn.
 
+### Host identifiers never appear in records
+
+This repository is public, so nothing committed carries an identifier that only
+makes sense on one machine: no hostname, no account name, and no absolute path
+with a real user in it. Use the placeholder that keeps the meaning —
+`C:\Users\<user>\...`, `<HOST>\<group>`, `<owner-account>` — because a finding
+never needs the real name to be true.
+
+This matters most when quoting live evidence. `Get-Acl` output, `ps` listings, CLI
+transcripts and API responses are exactly where a real hostname arrives verbatim,
+and pasting one into a decision record is how it gets committed. Redact as you
+write, not afterwards.
+
+A sweep on 2026-09-21 replaced 50 such identifiers across 15 records, including an
+account email. They had been public since each record was pushed.
+
 ## File naming: MADR and plan files
 
 All files in `docs/` must use a zero-padded 4-digit number as a prefix. This

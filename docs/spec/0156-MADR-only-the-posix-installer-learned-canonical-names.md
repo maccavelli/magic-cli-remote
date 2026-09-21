@@ -16,7 +16,7 @@ release. It downloads the binary successfully and then refuses to verify it:
 
 ```text
 install: source https://github.com/maccavelli/magic-cli-remote/releases/latest/download
-install: target windows/amd64 -> C:\Users\macsm\AppData\Local\Programs
+install: target windows/amd64 -> C:\Users\<user>\AppData\Local\Programs
 no checksum entry for mcremote-windows-amd64-* in SHA256SUMS
 ```
 
@@ -558,9 +558,9 @@ and a gap in this record's own test design that let it ship.
 ### What was observed
 
 ```text
-PS C:\Users\macsm> irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1 | iex
+PS C:\Users\<user>> irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1 | iex
 install: source https://github.com/maccavelli/magic-cli-remote/releases/latest/download
-install: target windows/amd64 -> C:\Users\macsm\AppData\Local\Programs
+install: target windows/amd64 -> C:\Users\<user>\AppData\Local\Programs
 install: mcremote verified
 install: mcrelay verified
 iex : The variable '$PSCmdlet' cannot be retrieved because it has not been set.

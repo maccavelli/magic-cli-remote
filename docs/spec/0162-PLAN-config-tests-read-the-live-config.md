@@ -248,7 +248,7 @@ MADR's Observed section is `b5ffa1e`.
 **Results.**
 
 * Windows, this host, with the live `%APPDATA%\mcremote\config.yaml`
-  (`display_name: mac420-laptop`) in place:
+  (`display_name: <host>-laptop`) in place:
   * `go test ./...` exits 0 with 41 `ok` (40 before) and **no failures**.
     `TestLoadDisplayNameUnset` passes for the first time on this host.
   * **`make ci-windows` exits 0, "ALL SELECTED CHECKS PASSED"**: A3, A2, A4,
@@ -264,7 +264,7 @@ MADR's Observed section is `b5ffa1e`.
   * The full suite gives 41 `ok`, and race is `ok`.
 * A5 has teeth. Reverting only the config call site to `appdirs.SystemRoots`
   made all three config guards fail, and `TestIsolatedLoadWithNoFileUsesDefaults`
-  named the live `C:\Users\macsm\AppData\Roaming\mcremote\config.yaml`.
+  named the live `C:\Users\<user>\AppData\Roaming\mcremote\config.yaml`.
   Reverting the relay call site failed
   `TestIsolatedRelayLoadReadsOnlyTheIsolatedConfig`. Both files were restored,
   and the diff was checked before staging.

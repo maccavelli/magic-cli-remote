@@ -107,7 +107,7 @@ config path when no file exists, and "never overwrites" one that does. The
 host provisioned by `setup-service` since then holds a product-written
 `providers.goose` block with `enabled: true`, and upgrading the binary does not
 remove it. **Measured on this host:** `mcremote paths` reports
-`config_file: C:\Users\macsm\AppData\Roaming\mcremote\config.yaml`, and that
+`config_file: C:\Users\<user>\AppData\Roaming\mcremote\config.yaml`, and that
 file has `goose:` at line 75 with `enabled: true` beneath it; `mcremote doctor`
 reports the Task Scheduler service `present: yes, active: yes`.
 
@@ -367,11 +367,11 @@ keeps MCP. Codex never took the "next" slot.
   ./internal/picker/` → `ok`).
 * **Baseline `go test ./...` is not green on this host:** 42 packages `ok` (of 48; 5 have no test files), one
   `FAIL` — `internal/config` `TestLoadDisplayNameUnset`
-  (`DisplayName="mac420-laptop", want empty`). Cause: the test isolates
+  (`DisplayName="<host>-laptop", want empty`). Cause: the test isolates
   `XDG_CONFIG_HOME` (`config_test.go:220`), but on Windows the default config
   path is the Known Folder `%APPDATA%\mcremote\config.yaml`, which ignores XDG,
   so `config.Load(config.LoadOptions{})` reads this host's live config (which
-  sets `display_name: "mac420-laptop"` at line 36). Ten tests call
+  sets `display_name: "<host>-laptop"` at line 36). Ten tests call
   `Load(LoadOptions{})` with no file (`acp_config_test.go:91`;
   `config_test.go:54,68,85,107,181,223,673,1069,1163`). Every one of them reads
   the live config on a Windows host — **the same config that holds the

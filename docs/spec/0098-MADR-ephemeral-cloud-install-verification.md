@@ -450,7 +450,7 @@ session end and its name is randomised so it cannot be pre-squatted.
 * `aws-cli/2.36.24` accepts `CpuOptions.NestedVirtualization`, verified against
   `run-instances --generate-cli-skeleton`.
 
-**DigitalOcean.** Account `macsmith71@gmail.com`, **droplet limit 3**, one
+**DigitalOcean.** Account `<owner-account>`, **droplet limit 3**, one
 droplet already running (`wonder-lallygag-net`), so **two slots are free**.
 SSH key `vms-hosted-key` (`58480117`) is already registered and its MD5
 fingerprint matches this workstation's `~/.ssh/id_ecdsa.pub` — droplets are

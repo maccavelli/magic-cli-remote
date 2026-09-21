@@ -19,7 +19,7 @@ that depends on them. No step assumes one.
 ## Goal
 
 The finish line, as observable states on this Windows host (Windows 11 Home
-26200, `MAC420\macsm`, unprivileged). "Release 1" is the build after P11;
+26200, `<HOST>\<user>`, unprivileged). "Release 1" is the build after P11;
 "release 2" is the build after P13.
 
 1. `mcremote setup-service --refresh --json` exits 0 with a verdict, not "only
@@ -417,7 +417,7 @@ holds either way.
 
 ```bash
 USERNAME=bogus USERDOMAIN= $B/mcremote.exe setup-service --print-only | grep -E '<UserId>'
-#   → Principal UserId = this host's SID (S-1-5-21-1365755026-…-1001); LogonTrigger UserId = MAC420\macsm
+#   → Principal UserId = this host's SID (S-1-5-21-1365755026-…-1001); LogonTrigger UserId = <HOST>\<user>
 ```
 
 Then P5's live idempotency check again, which must stay UNCHANGED.
@@ -1179,7 +1179,7 @@ this section wins.
 
 **What the v0.18.1 rollout showed.** `mcremote update -y` opened **no window** —
 the `schtasks /run` half of A11 now passes on the real host, not only in S3b.
-Verified alongside it: the task is `Running`/`Enabled` as `macsm`, its arguments
+Verified alongside it: the task is `Running`/`Enabled` as `<user>`, its arguments
 end with `--detach-console`, `setup-service --refresh --json` reports
 `unchanged`, and the daemon (PID 18572, parent `svchost.exe`) has **no child
 processes at all**.
@@ -1664,9 +1664,9 @@ daemon (pid 48140, parent `svchost.exe`) has no console host of its own.
 than any test:
 
 ```text
-cmd.exe /d /s /v:off /c ""C:\Users\macsm\AppData\Roaming\npm\kilo.cmd" "serve" "--hostname" "127.0.0…
-cmd.exe /d /s /v:off /c ""C:\Users\macsm\AppData\Roaming\npm\opencode.cmd" "serve" "--hostname" "127…
-cmd.exe /d /s /v:off /c ""C:\Users\macsm\AppData\Roaming\npm\codex.cmd" "app-server" "--listen" "std…
+cmd.exe /d /s /v:off /c ""C:\Users\<user>\AppData\Roaming\npm\kilo.cmd" "serve" "--hostname" "127.0.0…
+cmd.exe /d /s /v:off /c ""C:\Users\<user>\AppData\Roaming\npm\opencode.cmd" "serve" "--hostname" "127…
+cmd.exe /d /s /v:off /c ""C:\Users\<user>\AppData\Roaming\npm\codex.cmd" "app-server" "--listen" "std…
 grok.exe --permission-mode default --no-auto-update agent --no-leader stdio
 ```
 
@@ -1687,7 +1687,7 @@ records, at 10:02:18 on 2026-09-19:
 
 ```text
 setup refresh: spawning …\codex-resources\codex-windows-sandbox-setup.exe
-granting write ACE to C:\Users\macsm\gitrepos for sandbox group and capability SID
+granting write ACE to C:\Users\<user>\gitrepos for sandbox group and capability SID
 read-acl-only mode: applying read ACLs
 ```
 
@@ -1699,7 +1699,7 @@ read-acl-only mode: applying read ACLs
   `sandbox.2026-09-19.log`. `auth.json` and roughly forty siblings read fine.
 * The owner's **interactive shell** cannot read the file, and cannot read its
   security descriptor either, so the account does not own it. The daemon runs as
-  that same account (`MAC420\macsm`), so no spawn-path change can be involved —
+  that same account (`<HOST>\<user>`), so no spawn-path change can be involved —
   this reproduces with `mcremote` out of the picture entirely.
 * Codex's own undo bookkeeping, `.sandbox/deny_read_acl_state.json`, is
   `{"principals": {}}` — empty, so the mechanism that applied those ACLs has lost
@@ -1711,13 +1711,13 @@ read-acl-only mode: applying read ACLs
 
 **Resolved 2026-09-20 by the owner**, with `takeown /f` followed by
 `icacls … /grant <user>:(F)` from an elevated prompt. Verified afterwards: the
-file reads, its 3070 bytes are intact, and the owner is `MAC420\macsm` with
+file reads, its 3070 bytes are intact, and the owner is `<HOST>\<user>` with
 `FullControl`. Codex sessions work again. `sandbox.2026-09-19.log` in the same
 directory is still unreadable and has been left that way — it is codex's own log
 and nothing reads it, so it is evidence rather than a problem.
 
 **The write ACEs on the repository tree, and what was done about them.** The same
-codex run granted write access on `C:\Users\macsm\gitrepos` — the parent of every
+codex run granted write access on `C:\Users\<user>\gitrepos` — the parent of every
 repository on this host, including this one. Codex was updated to `0.155.1` on
 2026-09-20, which did **not** revoke them, and would not: an installer does not
 retroactively undo an ACL grant. Measured afterwards, both ACEs were set directly
@@ -1726,7 +1726,7 @@ and folder beneath it:
 
 | Principal | Rights | What it is |
 | --- | --- | --- |
-| `MAC420\CodexSandboxUsers` | Modify | A real local group codex created; its members are the local accounts `CodexSandboxOffline` and `CodexSandboxOnline` |
+| `<HOST>\CodexSandboxUsers` | Modify | A real local group codex created; its members are the local accounts `CodexSandboxOffline` and `CodexSandboxOnline` |
 | `S-1-5-21-2074326361-1466621649-1491247464-1799912131` | Modify | Resolves to no account. Its machine-SID prefix differs from this host's (`S-1-5-21-1365755026-4159476514-1820593190-…`), so it is not a local principal at all |
 
 The group grant is the sandbox working as intended — it needs write access to the

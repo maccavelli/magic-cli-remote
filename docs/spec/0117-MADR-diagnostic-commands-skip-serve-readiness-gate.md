@@ -52,11 +52,11 @@ error: unknown flag: --allow
 
 $ MCRELAY_HOSTS='devbox-1:smoke-test-registration-secret-0123456789' ./bin/mcrelay.exe paths
 product:            mcrelay
-config_dir:         C:\Users\macsm\AppData\Roaming\mcrelay
-data_dir:           C:\Users\macsm\AppData\Local\mcrelay
-state_dir:          C:\Users\macsm\AppData\Local\mcrelay\State
-cache_dir:          C:\Users\macsm\AppData\Local\mcrelay\Cache
-runtime_dir:        C:\Users\macsm\AppData\Local\mcrelay\Runtime\e168fe9c142a742c
+config_dir:         C:\Users\<user>\AppData\Roaming\mcrelay
+data_dir:           C:\Users\<user>\AppData\Local\mcrelay
+state_dir:          C:\Users\<user>\AppData\Local\mcrelay\State
+cache_dir:          C:\Users\<user>\AppData\Local\mcrelay\Cache
+runtime_dir:        C:\Users\<user>\AppData\Local\mcrelay\Runtime\e168fe9c142a742c
 instance_key:       e168fe9c142a742c
 
 $ ./bin/mcremote.exe paths        → exit 0, full layout printed

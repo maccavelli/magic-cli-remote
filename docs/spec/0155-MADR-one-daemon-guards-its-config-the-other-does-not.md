@@ -100,7 +100,7 @@ Four locations, config written identically to each:
 | repository checkout | refused | (same shape) |
 | user home subdirectory | **accepted** | SYSTEM, Administrators, owner |
 
-Every refusal was caused by `MAC420\CodexSandboxUsers`, a group that exists on
+Every refusal was caused by `<HOST>\CodexSandboxUsers`, a group that exists on
 this machine and is inherited into those paths. The home directory, lacking it,
 is accepted. **The check is correct and was doing its job**; on a Windows
 install without such a group the standard locations would pass.
@@ -387,7 +387,7 @@ go test ./internal/relay/ -count=1
 | Three of four Windows locations refused, all via one group | measured; trustee table above |
 | The refusal prescribes `chmod 0600` | observed CLI output |
 | Convergence fixes a pre-existing file on Windows | measured; before/after exit codes and `Get-Acl` |
-| `%AppData%\Roaming` carries the foreign group on this host | `Get-Acl 'C:\Users\macsm\AppData\Roaming'` |
+| `%AppData%\Roaming` carries the foreign group on this host | `Get-Acl 'C:\Users\<user>\AppData\Roaming'` |
 
 ### Related records
 
@@ -518,7 +518,7 @@ carry the detail. The decisions above are left as written.
 * **D4/F6: the message is now actionable on Windows.** Both daemons explain a
   failure through `appdirs.NotOwnerOnlyDetail`. On Windows that names the
   principals that can read the file, which on this host were
-  `BUILTIN\Users, MAC420\CodexSandboxUsers` and an unresolved SID in one
+  `BUILTIN\Users, <HOST>\CodexSandboxUsers` and an unresolved SID in one
   real failure report. It gives an `icacls` command that was **executed**
   under cmd and PowerShell, against explicit and inherited grants, and leaves
   the file owner-only. On Unix it is unchanged: `chmod 0600`.

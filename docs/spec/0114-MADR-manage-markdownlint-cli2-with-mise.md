@@ -139,7 +139,7 @@ manager on its weakest platform to obtain one documentation linter fails the
 
 **What was done instead.** `npm install --global markdownlint-cli2`, resolving
 `markdownlint-cli2@0.23.2` (markdownlint v0.41.1) into
-`C:\Users\macsm\AppData\Roaming\npm`, which is inside the user's home directory
+`C:\Users\<user>\AppData\Roaming\npm`, which is inside the user's home directory
 and already on `PATH`. Verified: `markdownlint-cli2 --version` succeeds, and a
 repository run reports `Linting: 48 files` with the MADR and PLAN globs
 excluded as before. The repository diff contains no manifest, lockfile,

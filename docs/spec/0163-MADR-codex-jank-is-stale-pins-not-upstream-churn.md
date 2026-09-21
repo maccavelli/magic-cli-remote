@@ -38,7 +38,7 @@ newly available and what should be decided. A PLAN follows on approval.
 
 ### What was measured, not assumed
 
-Everything below was run on the owner's Windows host (MAC420, Windows 11
+Everything below was run on the owner's Windows host (<HOST>, Windows 11
 10.0.26200) on 2026-09-20 and 2026-09-21, against the binary our daemon actually
 drives.
 
@@ -747,7 +747,7 @@ argv guard our engine spawn depends on).
 4. **Did our own engine spawn trigger the 2026-09-19 ACL damage?** F28 gives the
    mechanism and our topology matches it, but the causal link is
    **[unverified]** — the sandbox log shows a setup at 10:02:18 with
-   `cwd=C:\Users\macsm\gitrepos` and we do not call `setupStart`. Worth settling,
+   `cwd=C:\Users\<user>\gitrepos` and we do not call `setupStart`. Worth settling,
    because if a session start can trigger provisioning, D11 needs to be stronger.
 5. **On-disk formats are undetermined.** `codex-rs/thread-store` moved ~9100
    lines including a rollout-migration rewrite. No `CODEX_HOME` entry was removed,

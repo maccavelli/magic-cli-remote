@@ -36,7 +36,7 @@ All on `4f37b9f`, Windows 11.
 
 ```console
 $ ls -d ~/.claude/skills/*
-/c/Users/macsm/.claude/skills/writing-madr-and-plans
+/c/Users/<user>/.claude/skills/writing-madr-and-plans
 $ grep '^name:' ~/.claude/skills/writing-madr-and-plans/SKILL.md
 name: writing-madr-and-plans
 ```
@@ -58,7 +58,7 @@ touched since it was created:
 
 ```console
 $ stat -c '%n mtime=%y btime=%w' ~/.claude/skills
-/c/Users/macsm/.claude/skills mtime=2026-08-28 17:10:18 btime=2026-08-28 17:10:18
+/c/Users/<user>/.claude/skills mtime=2026-08-28 17:10:18 btime=2026-08-28 17:10:18
 ```
 
 mtime equals btime, both 2026-08-28 — nine days before the claimed
@@ -71,9 +71,9 @@ removed there since. So `madr-and-plan-writing` was never present under
 
 ```console
 $ ls -ld ~/.claude/skills/writing-madr-and-plans
-drwxr-xr-x ... /c/Users/macsm/.claude/skills/writing-madr-and-plans
+drwxr-xr-x ... /c/Users/<user>/.claude/skills/writing-madr-and-plans
 $ ls -d ~/.agents
-ls: cannot access '/c/Users/macsm/.agents': No such file or directory
+ls: cannot access '/c/Users/<user>/.agents': No such file or directory
 ```
 
 A real directory, not a link, and the target root does not exist.

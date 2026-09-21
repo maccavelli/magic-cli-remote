@@ -67,7 +67,7 @@ acceptance script.** On this Windows host:
 {
   "product": "mcremote",
   ...
-  "log_dir": "C:\\Users\\macsm\\AppData\\Local\\mcremote\\Logs\\mcremote",
+  "log_dir": "C:\\Users\\<user>\\AppData\\Local\\mcremote\\Logs\\mcremote",
   ...
 }
 ```

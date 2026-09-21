@@ -285,7 +285,7 @@ hold.
    locations on the same host. It was refused under a `%TEMP%` subdirectory,
    under `Documents`, and under the repository checkout, and **accepted** in a
    user-home subdirectory. Every refusal traced to one group,
-   `MAC420\CodexSandboxUsers`, which exists on this machine and is inherited
+   `<HOST>\CodexSandboxUsers`, which exists on this machine and is inherited
    into those three paths. On a Windows install without such a group, the
    standard locations pass. The conclusion generalised from one host, which is
    the same error this codebase keeps finding in its own tests.

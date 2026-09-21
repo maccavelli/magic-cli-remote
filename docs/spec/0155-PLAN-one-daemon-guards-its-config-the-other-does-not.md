@@ -511,7 +511,7 @@ there would rewrite the Windows checkout.
 
 ```bash
 # clone HEAD (pre-P6) into WSL
-wsl -d Ubuntu-24.04 -- bash -lc 'rm -rf ~/mcr-0155 && git clone -q /mnt/c/Users/macsm/gitrepos/magic-cli-remote ~/mcr-0155'
+wsl -d Ubuntu-24.04 -- bash -lc 'rm -rf ~/mcr-0155 && git clone -q /mnt/c/Users/<user>/gitrepos/magic-cli-remote ~/mcr-0155'
 # 1. baseline: the unmodified tree reproduces CI's failure on Linux
 wsl -d Ubuntu-24.04 -- bash -lc 'cd ~/mcr-0155 && go test ./internal/config/ -run TestGuardConfigFile -count=1'
 # 2. negative control: P6's TESTS over pre-P6 load.go must still fail
@@ -585,7 +585,7 @@ and `CGO_ENABLED=1 go test -race ./internal/config/` all pass. On Windows:
 3. **A fresh clone's `go test ./...` needs the whole module graph.** The plan
    did not anticipate that, and fetching it would have gone beyond the approved
    toolchain download. It was served from the Windows host's existing cache
-   through `GOPROXY=file:///mnt/c/Users/macsm/go/pkg/mod/cache/download`, with
+   through `GOPROXY=file:///mnt/c/Users/<user>/go/pkg/mod/cache/download`, with
    no network fallback, `go.sum` still verifying every hash, and Linux-side
    `GOMODCACHE`/`GOCACHE`. The `go: downloading` lines in that run are unpacks
    from that cache.

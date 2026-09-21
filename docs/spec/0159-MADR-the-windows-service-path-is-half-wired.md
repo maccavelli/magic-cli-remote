@@ -67,7 +67,7 @@ answered.
 ### What was measured, not assumed
 
 All measurements were taken on this host: **Windows 11 Home, build 26200
-(10.0.26200), go1.26.6 windows/amd64**, as `MAC420\macsm`, in an
+(10.0.26200), go1.26.6 windows/amd64**, as `<HOST>\<user>`, in an
 unprivileged shell.
 
 Three throwaway probe programs were run from `%TEMP%\kilo` (outside the
@@ -159,7 +159,7 @@ F15).
 ### Re-measured 2026-09-19
 
 All on this host at `38078c5` (Windows 11 Home build 26200, go1.26.6,
-`MAC420\macsm`, unprivileged). The probes ran as throwaway per-user scheduled
+`<HOST>\<user>`, unprivileged). The probes ran as throwaway per-user scheduled
 tasks named `mcr-probe-*`. Their XML reused the live `mcremote` task's
 principal (`InteractiveToken`, the user's SID) and settings. All of them, and
 every process they started, were deleted afterwards; the live `mcremote` task
@@ -185,7 +185,7 @@ a build of `38078c5`, with and without `--print-only`. mcplib `v1.4.1`
 back the binary, and restarts.
 
 **Probe 5 — the live task.** `Get-ScheduledTask mcremote` reports `State`
-`Running` (enum value **4**), `Principal.UserId macsm`, `LogonType
+`Running` (enum value **4**), `Principal.UserId <user>`, `LogonType
 Interactive`, and `RestartInterval PT1M`, `RestartCount 3`. The registered XML
 (`schtasks /query /tn mcremote /xml ONE`) stores the principal as the SID
 `S-1-5-21-…-1001`, and carries `Description` "mcremote background service
@@ -247,7 +247,7 @@ scoop is installed here, so the draft's profile-script concern is
   `--unit-name mcr-accept --env MCREMOTE_LOG_LEVEL=debug`.
 * With `USERNAME=bogus USERDOMAIN=` it renders `<UserId>bogus</UserId>`. With
   both empty it renders `<UserId></UserId>`.
-* The token and the SID resolve to `MAC420\macsm`, identical to the environment
+* The token and the SID resolve to `<HOST>\<user>`, identical to the environment
   form. This account's `PrincipalSource` is **MicrosoftAccount**.
 
 **Probe 11 — a status probe that does not depend on the UI language.**
@@ -504,7 +504,7 @@ this caller equally well). Measured (probe 10): `USERNAME=bogus USERDOMAIN=`
 renders `<UserId>bogus</UserId>`, and both empty render `<UserId></UserId>`.
 The draft's claim that a Microsoft-account principal is "frequently not the form
 Task Scheduler wants" is **contradicted on this host**: its account is a
-Microsoft account, the environment-derived `MAC420\macsm` equals the
+Microsoft account, the environment-derived `<HOST>\<user>` equals the
 token-derived name, and registration succeeds. Task Scheduler stores the
 resolved SID (probe 5).
 
@@ -959,7 +959,7 @@ git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "no
 | Claim | Source |
 | --- | --- |
 | Tree compiles and vets for windows/amd64 | measured: `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...` → `VET_EXIT=0` |
-| Host identity | measured: Windows 11 Home, build 26200 (10.0.26200), go1.26.6 windows/amd64, `MAC420\macsm`, unprivileged shell |
+| Host identity | measured: Windows 11 Home, build 26200 (10.0.26200), go1.26.6 windows/amd64, `<HOST>\<user>`, unprivileged shell |
 | `RefreshUnit` supports only linux/darwin | `internal/cli/service/refresh.go:117-124` |
 | `--refresh` returns the error to the child's exit code | `internal/cli/setup_service.go:103-108`; `cmd/mcremote/main.go:29-34` |
 | Non-zero refresh child becomes an error | `internal/cli/service/exec_refresher.go:61-69` |
@@ -1013,7 +1013,7 @@ git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "no
 | `Hidden` is false, and hides the task not the window | `internal/cli/service/schtasks.go:71`, `:117` |
 | Principal comes from two env vars | `internal/cli/service/schtasks.go:202-210`, used at `:103`, `:106` |
 | Overridden env gives a wrong or empty principal | measured, probe 10: `<UserId>bogus</UserId>`; `<UserId></UserId>` |
-| A Microsoft account works with the env form; Task Scheduler stores the SID | measured, probes 5 and 10: `PrincipalSource MicrosoftAccount`; token = env = `MAC420\macsm`; export `UserId` is the SID |
+| A Microsoft account works with the env form; Task Scheduler stores the SID | measured, probes 5 and 10: `PrincipalSource MicrosoftAccount`; token = env = `<HOST>\<user>`; export `UserId` is the SID |
 | A correct token-based SID helper already exists | `internal/appdirs/security_windows.go:36-47`, exported at `:328` |
 | `isActiveWindows` swallows errors | `internal/cli/service/control_schtasks.go:9-15` |
 | Status parsing matches English literals | `internal/cli/service/control_schtasks.go:23-32` |
@@ -1191,7 +1191,7 @@ rest of D15 stands.
   add it, not because the installer does.
 * **A default registry read expands `%VAR%` references.** In a scratch key
   holding `REG_EXPAND_SZ` `%USERPROFILE%\bin;C:\x`, `GetValue('Path')`
-  returned `C:\Users\macsm\bin;C:\x`. Only `GetValue(…,
+  returned `C:\Users\<user>\bin;C:\x`. Only `GetValue(…,
   'DoNotExpandEnvironmentNames')` returned the stored text.
   `[Environment]::GetEnvironmentVariable('Path', 'User')` equals the expanded
   form. So writing that value back turns every `%VAR%` entry into a literal.
@@ -1293,7 +1293,7 @@ within **0 s**, `FreeConsole()` restored `hasConsole=false`, and the parent
 **survived** with `hwnd=0`.
 
 **Probe 12 — what an npm shim does with hostile arguments, as spawned today.**
-`exec.LookPath("codex")` → `C:\Users\macsm\AppData\Roaming\npm\codex.cmd`.
+`exec.LookPath("codex")` → `C:\Users\<user>\AppData\Roaming\npm\codex.cmd`.
 `exec.Command(that, "--version")` **succeeds** (`codex-cli 0.154.0`), so no
 `cmd.exe` routing is needed to launch it. Then, with a `.cmd` that echoes `%*`:
 
@@ -1327,7 +1327,7 @@ parent, under this harness's ConPTY, reported `console_hwnd=0x0` while `CONOUT$`
 opened with a `120x9001` buffer and `sharers` held three pids.
 
 **The toolchain and the host.** Go 1.26.6, `golang.org/x/sys v0.47.0`. `grok`
-resolves to `C:\Users\macsm\.grok\bin\grok.exe`, a native executable; `codex`,
+resolves to `C:\Users\<user>\.grok\bin\grok.exe`, a native executable; `codex`,
 `opencode` and `kilo` are npm shims under `%AppData%\npm`, each present as the
 extensionless script, `.cmd` and `.ps1`. `HKCU` and `HKLM`
 `Software\Microsoft\Command Processor\AutoRun` are both **unset** on this host.

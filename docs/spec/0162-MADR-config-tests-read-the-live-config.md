@@ -58,7 +58,7 @@ clears `MCREMOTE_CONFIG`, `MCRELAY_CONFIG` or any other `MCREMOTE_*` variable.
 so all 13 read the live directory. `%APPDATA%\mcremote\config.yaml` exists
 here, written by `setup-service`, and sets `display_name`. `go test
 ./internal/config/` fails `TestLoadDisplayNameUnset` with
-`DisplayName="mac420-laptop"`. It did so on every run at `b3d3355`, `293f5bd`,
+`DisplayName="<host>-laptop"`. It did so on every run at `b3d3355`, `293f5bd`,
 `445a1d0` and `7494c4a`. `make ci-windows` therefore always fails its A6 step
 on this host.
 
