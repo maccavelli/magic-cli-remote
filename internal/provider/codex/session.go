@@ -1800,6 +1800,14 @@ func (s *session) handleApprovalRequest(method string, id json.RawMessage, param
 		s.rejectServerRequest(id, "invalid approval params")
 		return
 	}
+	if cb.unknownApprovalKind != "" {
+		// A kind newer than this build. The approval is still answerable — the
+		// decision vocabulary does not vary by kind — but the operator is being
+		// shown the command framing for something else, so say so (0163 D1).
+		s.log.Warn("codex: unrecognised approval kind, describing it as a command",
+			slog.String("method", method),
+			slog.String("kind", cb.unknownApprovalKind))
+	}
 	s.mu.Lock()
 	auto := s.autoApprove
 	s.mu.Unlock()

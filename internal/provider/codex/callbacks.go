@@ -16,12 +16,19 @@ import (
 type callbackKind string
 
 const (
-	callbackCommand    callbackKind = "command"
-	callbackFile       callbackKind = "file"
-	callbackGranular   callbackKind = "granular_permission"
-	callbackMCP        callbackKind = "mcp_elicitation"
-	callbackLegacyFile callbackKind = "legacy_apply_patch"
-	callbackLegacyExec callbackKind = "legacy_exec_command"
+	callbackCommand callbackKind = "command"
+	// callbackTerminalInput is a commandExecution approval whose kind is
+	// writeStdin: input typed into a terminal that is ALREADY running under an
+	// earlier approval, not a new command to run. It shares the command
+	// response dialect — the decision vocabulary is the same
+	// CommandExecutionApprovalDecision — and differs only in what the operator
+	// is told they are approving (MADR 0163 D1).
+	callbackTerminalInput callbackKind = "terminal_input"
+	callbackFile          callbackKind = "file"
+	callbackGranular      callbackKind = "granular_permission"
+	callbackMCP           callbackKind = "mcp_elicitation"
+	callbackLegacyFile    callbackKind = "legacy_apply_patch"
+	callbackLegacyExec    callbackKind = "legacy_exec_command"
 )
 
 // pendingCallback retains the exact response dialect and engine generation
@@ -35,6 +42,10 @@ type pendingCallback struct {
 	tool             string
 	detail           string
 	generation       int
+	// unknownApprovalKind carries an approval `kind` this build does not
+	// recognise, so the caller can log the literal. parseCallback stays free of
+	// a logger; a third kind must be visible without breaking the approval.
+	unknownApprovalKind string
 }
 
 type pendingQuestion struct {
@@ -89,14 +100,45 @@ func parseCallback(method string, id, params json.RawMessage, generation int) (p
 		ServerName         string            `json:"serverName"`
 		AvailableDecisions []json.RawMessage `json:"availableDecisions"`
 		Permissions        map[string]any    `json:"permissions"`
+		Kind               string            `json:"kind"`
 	}
 	if err := json.Unmarshal(params, &common); err != nil {
 		return pendingCallback{}, fmt.Errorf("decode %s: %w", method, err)
 	}
 	switch method {
 	case "item/commandExecution/requestApproval":
-		cb.kind, cb.tool = callbackCommand, "command"
-		cb.detail = firstNonEmpty(displayCommand(common.Command), common.Reason)
+		// `kind` (CommandExecutionApprovalKind: command | writeStdin) says which
+		// question this is. writeStdin means input for a terminal that is already
+		// running under an earlier approval, which is a different consent
+		// question from "may I run this command" — and the params carry no
+		// separate stdin field, so without reading `kind` the payload in
+		// `command` reads exactly like a command to run (MADR 0163 F22/D1,
+		// measured against codex 0.155.1's stable schema).
+		//
+		// The schema declares `"default": "command"` and "Defaults to `command`
+		// for older servers", so an ABSENT kind is a command, not an unknown.
+		payload := displayCommand(common.Command)
+		switch common.Kind {
+		case "writeStdin":
+			cb.kind, cb.tool = callbackTerminalInput, "terminal-input"
+			if payload != "" {
+				cb.detail = "input to a running terminal: " + payload
+			} else {
+				cb.detail = firstNonEmpty(common.Reason,
+					"Codex requests to send input to a running terminal")
+			}
+		case "", "command":
+			cb.kind, cb.tool = callbackCommand, "command"
+			cb.detail = firstNonEmpty(payload, common.Reason)
+		default:
+			// A kind this build does not know is answered as a command rather
+			// than refused: the decision vocabulary is identical, so the
+			// operator keeps control of an approval we cannot fully describe.
+			// The literal travels out for the caller to log.
+			cb.kind, cb.tool = callbackCommand, "command"
+			cb.detail = firstNonEmpty(payload, common.Reason)
+			cb.unknownApprovalKind = common.Kind
+		}
 		cb.allowedDecisions = simpleDecisionIDs(common.AvailableDecisions)
 		if len(cb.allowedDecisions) == 0 {
 			cb.allowedDecisions = []string{"accept", "acceptForSession", "decline", "cancel"}

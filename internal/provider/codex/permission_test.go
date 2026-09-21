@@ -324,3 +324,105 @@ func TestRespondPermissionUnknownIDStillReported(t *testing.T) {
 		t.Errorf("error %q should name the id", err)
 	}
 }
+
+// TestCommandApprovalKindDistinguishesTerminalInput is acceptance criteria A1
+// and A2 of PLAN 0163, and the regression test for MADR 0163 F22.
+//
+// codex 0.155.1 added `kind` (CommandExecutionApprovalKind: command |
+// writeStdin) to item/commandExecution/requestApproval, described as
+// "Distinguishes a command approval from input sent to an existing terminal."
+// The params carry no separate stdin field — the payload arrives in `command`
+// either way — so a client that ignores `kind` asks the operator to approve "a
+// command" when the real question is whether to inject input into a terminal
+// that is already running under an earlier approval. The two must not render
+// alike.
+//
+// `kind` is stable (no experimentalApi dependency), optional, and documented
+// `"default": "command"` "for older servers", so an ABSENT kind is a command.
+func TestCommandApprovalKindDistinguishesTerminalInput(t *testing.T) {
+	const method = "item/commandExecution/requestApproval"
+	rendered := func(t *testing.T, params string) *event.Event {
+		t.Helper()
+		s, f := permSession(t)
+		s.handleApprovalRequest(method, json.RawMessage(`71`), json.RawMessage(params))
+		var req *event.Event
+		evs := drainEvents(s)
+		for i := range evs {
+			if evs[i].Type == event.TypePermission {
+				req = &evs[i]
+			}
+		}
+		if req == nil {
+			t.Fatalf("params %s: no permission_request", params)
+		}
+		// Whatever the kind, the approval must stay answerable in the command
+		// dialect: CommandExecutionApprovalDecision does not vary by kind.
+		if err := s.RespondPermission(context.Background(), req.PermissionID, "accept", false, "dev"); err != nil {
+			t.Fatalf("params %s: responding failed: %v", params, err)
+		}
+		if len(f.responses) == 0 || !jsonValueEqual(f.responses[0]["result"], map[string]any{"decision": "accept"}) {
+			t.Fatalf("params %s: result = %#v, want {\"decision\":\"accept\"}", params, f.responses)
+		}
+		return req
+	}
+
+	stdin := rendered(t, `{"threadId":"t","turnId":"u","itemId":"i","startedAtMs":1,"command":"secret-token","kind":"writeStdin"}`)
+	if stdin.ToolName != "terminal-input" {
+		t.Errorf("writeStdin tool = %q, want %q", stdin.ToolName, "terminal-input")
+	}
+	if !strings.Contains(stdin.Text, "running terminal") {
+		t.Errorf("writeStdin sheet = %q, must say the input goes to a running terminal", stdin.Text)
+	}
+	if !strings.Contains(stdin.Text, "secret-token") {
+		t.Errorf("writeStdin sheet = %q, must show what would be typed", stdin.Text)
+	}
+
+	// An absent kind and an explicit "command" are the same question, and it is
+	// not the one above.
+	for _, params := range []string{
+		`{"threadId":"t","turnId":"u","itemId":"i","startedAtMs":1,"command":"ls -la"}`,
+		`{"threadId":"t","turnId":"u","itemId":"i","startedAtMs":1,"command":"ls -la","kind":"command"}`,
+	} {
+		cmd := rendered(t, params)
+		if cmd.ToolName != "command" {
+			t.Errorf("params %s: tool = %q, want %q", params, cmd.ToolName, "command")
+		}
+		if cmd.ToolName == stdin.ToolName {
+			t.Errorf("params %s: renders identically to a writeStdin approval (%q)", params, cmd.ToolName)
+		}
+		if strings.Contains(cmd.Text, "running terminal") {
+			t.Errorf("params %s: sheet = %q, must not claim terminal input", params, cmd.Text)
+		}
+	}
+
+	// A kind newer than this build must stay answerable rather than being
+	// refused; it is described as a command and logged by the caller.
+	future := rendered(t, `{"threadId":"t","turnId":"u","itemId":"i","startedAtMs":1,"command":"ls -la","kind":"somethingNewer"}`)
+	if future.ToolName != "command" {
+		t.Errorf("unknown kind tool = %q, want the command framing", future.ToolName)
+	}
+}
+
+// TestUnknownApprovalKindIsCarriedForLogging pins the seam that lets
+// parseCallback stay logger-free while an unrecognised kind still surfaces.
+func TestUnknownApprovalKindIsCarriedForLogging(t *testing.T) {
+	base := `{"threadId":"t","turnId":"u","itemId":"i","startedAtMs":1,"command":"ls"`
+	for _, tc := range []struct {
+		params string
+		want   string
+	}{
+		{base + `}`, ""},
+		{base + `,"kind":"command"}`, ""},
+		{base + `,"kind":"writeStdin"}`, ""},
+		{base + `,"kind":"somethingNewer"}`, "somethingNewer"},
+	} {
+		cb, err := parseCallback("item/commandExecution/requestApproval",
+			json.RawMessage(`1`), json.RawMessage(tc.params), 1)
+		if err != nil {
+			t.Fatalf("params %s: %v", tc.params, err)
+		}
+		if cb.unknownApprovalKind != tc.want {
+			t.Errorf("params %s: unknownApprovalKind = %q, want %q", tc.params, cb.unknownApprovalKind, tc.want)
+		}
+	}
+}
