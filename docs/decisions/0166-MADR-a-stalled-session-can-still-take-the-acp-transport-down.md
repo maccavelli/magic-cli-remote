@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-21
 decision-makers: Project Owner
 consulted: none
@@ -113,10 +113,15 @@ has not measured. That is what the open questions are for.
 
 ## Decision Outcome
 
-**None yet — this record exists to stop the finding being lost.** MADR 0165 traced
+**Decided 2026-09-21 — see the amendment "decision taken: contain it, and stop
+promising what cannot be delivered" at the end of this record.** The paragraph
+below is what was true before the SDK was measured, and is kept so the record shows
+why the decision waited.
+
+~~**None yet — this record exists to stop the finding being lost.** MADR 0165 traced
 it while fixing a different flake, and withdrew its own P4 rather than paper over
 it. A decision needs the SDK questions below answered first, and a plan follows the
-decision.
+decision.~~
 
 ### Consequences
 
@@ -288,3 +293,53 @@ to promise, and it belongs to the owner:
 
 These are not mutually exclusive: 1 is the only one that can land this week, and 3
 is the only one that fixes it for good.
+
+## Amendment — 2026-09-21: decision taken — contain it, and stop promising what cannot be delivered
+
+Owner decision, option 1 of the three the previous amendment left. Options 2 (fork
+`acp-go-sdk`) and 3 (upstream a patch) are **deferred, not rejected** — 3 remains
+the only permanent fix and is named in the plan's Deferred section.
+
+### The decisions
+
+* **D1 — Stop asserting a property no code can satisfy.** Retire
+  "the ACP connection survives a stalled pump" as an assertion.
+  **F6**, **F9** and **F10** together show it is unachievable at `acp-go-sdk`
+  v0.13.5: a handler doing nothing at all still loses the transport 3 times in 5.
+  A red test that no change can turn green teaches readers to ignore red tests.
+* **D2 — Assert containment instead, because containment is real and is ours.**
+  Under the same storm, prove what **F11** already provides: the session is torn
+  down in an orderly way — the stall detector faults it, or a dead transport is
+  turned into a terminal error and a `disconnected` status — rather than hanging,
+  zombieing, or panicking.
+* **D3 — Keep asserting the part that is genuinely our guarantee.** `deliver` must
+  absorb `cap(events) + controlOverflowCap` events without blocking. That is the
+  parked overflow doing its job, it is unaffected by the SDK's queue, and it is
+  measurable. Closes the useful half of MADR 0165's F7.
+* **D4 — Change no production behaviour.** The parked overflow stays exactly as it
+  is: it bounds memory and ends a stalled session deliberately. What was wrong was
+  never the mechanism, only the claim made for it.
+* **D5 — Correct the claims in the code.** Three comments state or imply that the
+  parked overflow keeps the transport alive
+  (`session.go:110-125`, `:1407-1413`, `stalledpump_test.go:16-24`). They are the
+  reason the wrong assertion looked correct for so long, and they must say what is
+  actually true.
+* **D6 — Amend MADR 0138 F5 rather than silently drop it.** Its hazard analysis was
+  right; its mitigation is weaker than it claimed. An additive amendment pointing at
+  this record keeps that history legible.
+* **D7 — Verify under `GOMAXPROCS=1`.** Default parallelism hides the failure — that
+  is why this survived from 2026-09-19. Any test claiming to cover it runs in the
+  configuration that reproduces it.
+
+### Consequences of deciding this way
+
+* Good: CI stops carrying a permanently-red test, and starts carrying one that fails
+  only if containment actually regresses.
+* Good: no production change, so nothing to roll back and no risk to the transport
+  path.
+* Bad: the product accepts that one stalled consumer ends every session on that
+  engine (**F3**). That is a real reduction in what we promise, written down rather
+  than discovered later.
+* Bad: if `acp-go-sdk` later makes the reader block or the depth configurable, this
+  test will under-assert — it will pass where the stronger property has become
+  available. The plan's Deferred section names that as the trigger to revisit.
