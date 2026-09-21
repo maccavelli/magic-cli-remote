@@ -1288,6 +1288,13 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
 - `retry_at`: on classified `error` events, an RFC 3339 instant for when the
   limit is expected to lift, when the provider's message carried one. Absent
   when unknown.
+- `steer_message`: on `error` events where the agent refused a turn and supplied
+  both an explanation and a way forward, the instruction a client may submit as
+  the **next turn's user input** if the operator confirms continuation. Present
+  only when the provider also explained the refusal, so a client can always show
+  the reason alongside the offer; absent otherwise, and a client that does not
+  understand the field simply shows the error. Codex sources it from
+  `TurnError.misalignment.steer.message` (MADR 0163 D8).
 - `timed_out`: on `permission_resolved` and `question_resolved` events, `true`
   when the request was auto-cancelled because the client did not answer within
   `permission_timeout_seconds`. Always accompanies `status: "cancelled"`;

@@ -1446,6 +1446,20 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 				Status string `json:"status"`
 				Error  *struct {
 					Message string `json:"message"`
+					// codexErrorInfo is the engine's own classification of the
+					// failure. Raw because it is a union: thirteen bare strings, or
+					// one of five objects for connection failures
+					// (protocol/v2/shared.rs:77-121). Only the string form carries a
+					// class we can map.
+					CodexErrorInfo    json.RawMessage `json:"codexErrorInfo"`
+					AdditionalDetails string          `json:"additionalDetails"`
+					Misalignment      *struct {
+						ErrorType           string `json:"errorType"`
+						DetailedExplanation string `json:"detailedExplanation"`
+						Steer               *struct {
+							Message string `json:"message"`
+						} `json:"steer"`
+					} `json:"misalignment"`
 				} `json:"error"`
 			} `json:"turn"`
 		}
@@ -1454,11 +1468,20 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		}
 		wire := p.Turn.Status
 		stop := codexStopReason(wire)
-		var turnErrMsg string
+		var failure codexTurnFailure
 		if wire == "failed" && p.Turn.Error != nil {
-			turnErrMsg = p.Turn.Error.Message
+			failure.Message = p.Turn.Error.Message
+			failure.AdditionalDetails = p.Turn.Error.AdditionalDetails
+			_ = json.Unmarshal(p.Turn.Error.CodexErrorInfo, &failure.Info)
+			if m := p.Turn.Error.Misalignment; m != nil {
+				failure.MisalignmentType = m.ErrorType
+				failure.Explanation = m.DetailedExplanation
+				if m.Steer != nil {
+					failure.Steer = m.Steer.Message
+				}
+			}
 		}
-		s.emitTurnComplete(stop, turnErrMsg)
+		s.emitTurnFailure(stop, failure)
 		s.finishReview()
 		s.mu.Lock()
 		s.turnBusy = false
@@ -2240,7 +2263,64 @@ const genericTurnError = "The agent's turn failed."
 // MADR 0035 D7: the explicit drainChunks() that used to live here was
 // redundant — emit(TypeTurnComplete) already drains the pending run
 // through the chunkbuf boundary path, in order, on the blocking path.
+// codexTurnFailure is everything a failed turn told us about itself. Codex
+// classifies its own failures and we used to discard that entirely, deriving the
+// class by parsing the message prose instead (MADR 0163 F23/D8).
+type codexTurnFailure struct {
+	// Message is TurnError.message, the human-facing summary.
+	Message string
+	// Info is TurnError.codexErrorInfo when it is the string form: one of
+	// contextWindowExceeded, sessionBudgetExceeded, usageLimitExceeded,
+	// rateLimitExceeded, serverOverloaded, cyberPolicy,
+	// misalignmentPolicyViolation, internalServerError, unauthorized, badRequest,
+	// threadRollbackFailed, sandboxError, other. Empty for the object variants.
+	Info string
+	// AdditionalDetails is optional provider detail, appended to the message.
+	AdditionalDetails string
+	// MisalignmentType is an open-ended category; the schema warns that clients
+	// must accept values added later, so it is logged, never switched on.
+	MisalignmentType string
+	// Explanation is misalignment.detailedExplanation, and gating the continuation
+	// on it is the schema's own requirement rather than our caution.
+	Explanation string
+	// Steer is misalignment.steer.message, offered only alongside an Explanation.
+	Steer string
+}
+
+// codexErrorKind maps the engine's classification onto the daemon's error
+// vocabulary, reporting whether the mapping is authoritative.
+//
+// Only unambiguous cases are mapped. The point of the phase is that "you are out
+// of credit" and "back off and retry" carry OPPOSITE advice, so conflating them is
+// the specific harm — but a value whose right advice is unclear is left to the
+// prose classifier rather than forced into a class that would mislead. In
+// particular sessionBudgetExceeded and contextWindowExceeded are NOT quota: the
+// remedy is a new or compacted session, not waiting for a reset.
+func codexErrorKind(info string) (agenterr.Kind, bool) {
+	switch info {
+	case "usageLimitExceeded":
+		return agenterr.KindQuota, true
+	case "rateLimitExceeded":
+		return agenterr.KindRateLimit, true
+	case "serverOverloaded", "internalServerError":
+		return agenterr.KindServer, true
+	case "unauthorized":
+		return agenterr.KindAuth, true
+	case "sandboxError":
+		return agenterr.KindPermission, true
+	default:
+		return agenterr.KindNone, false
+	}
+}
+
 func (s *session) emitTurnComplete(stop, turnErrMsg string) {
+	s.emitTurnFailure(stop, codexTurnFailure{Message: turnErrMsg})
+}
+
+// emitTurnFailure is the single implementation behind emitTurnComplete
+// (MADR 0035 D5); the two-argument form is the common case with no engine
+// classification to carry.
+func (s *session) emitTurnFailure(stop string, failure codexTurnFailure) {
 	now := time.Now().UTC()
 	// Close the approval card before the turn boundary, so it is marked done
 	// ahead of turn_complete rather than left running into the next turn.
@@ -2257,6 +2337,10 @@ func (s *session) emitTurnComplete(stop, turnErrMsg string) {
 		Status:         stop,
 		AgentSessionID: s.agentID,
 	})
+	turnErrMsg := failure.Message
+	if failure.AdditionalDetails != "" {
+		turnErrMsg = strings.TrimSpace(turnErrMsg + ": " + failure.AdditionalDetails)
+	}
 	if stop == "error" && turnErrMsg == "" {
 		turnErrMsg = genericTurnError
 	}
@@ -2271,18 +2355,40 @@ func (s *session) emitTurnComplete(stop, turnErrMsg string) {
 		if msg == "" {
 			msg = clip(turnErrMsg, 400)
 		}
-		if cls.Kind == agenterr.KindPermission && s.sandboxConfining() {
+		// The engine's own classification wins over the prose parse when it gave
+		// one. Parsing text was only ever a fallback for providers that classify
+		// nothing, and it cannot tell usageLimitExceeded from rateLimitExceeded
+		// because both say "limit" in English.
+		kind := cls.Kind
+		if mapped, authoritative := codexErrorKind(failure.Info); authoritative {
+			kind = mapped
+		}
+		if kind == agenterr.KindPermission && s.sandboxConfining() {
 			msg += " — this session's mode sandboxes the agent to the " +
 				"workspace. Switch session modes, or enable " +
 				"allow_full_access on the host to offer Full access."
+		}
+		// A misalignment block explains itself, and that explanation is better copy
+		// than the generic message. The continuation is offered only with it.
+		steer := ""
+		if failure.Explanation != "" {
+			msg = clip(failure.Explanation, 1000)
+			steer = clip(failure.Steer, 1000)
+		}
+		if failure.MisalignmentType != "" {
+			s.log.Info("codex refused a turn as misaligned",
+				slog.String("error_type", failure.MisalignmentType),
+				slog.Bool("explained", failure.Explanation != ""),
+				slog.Bool("continuation_offered", steer != ""))
 		}
 		s.emit(event.Event{
 			Type:           event.TypeError,
 			SessionID:      s.localID,
 			Timestamp:      now,
 			Error:          msg,
-			ErrorKind:      string(cls.Kind),
+			ErrorKind:      string(kind),
 			RetryAt:        cls.ResetAt,
+			SteerMessage:   steer,
 			AgentSessionID: s.agentID,
 		})
 	}

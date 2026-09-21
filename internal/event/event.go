@@ -590,6 +590,18 @@ type Event struct {
 	// provider's error message said so. Zero (omitted) when unknown.
 	RetryAt time.Time `json:"retry_at,omitzero"`
 
+	// SteerMessage is a provider-supplied instruction to submit as the NEXT
+	// turn's user input if the operator confirms continuation. It is set only
+	// when the provider also supplied a substantive explanation of why the turn
+	// was blocked, because offering a one-tap "continue" with no stated reason
+	// is exactly the prompt a person should not be asked to accept blindly.
+	//
+	// Codex sets it from TurnError.misalignment.steer.message, whose own schema
+	// says "a substantive localized explanation is required before offering
+	// continuation" (MADR 0163 D8). Additive and server-first: a client that
+	// does not know the field ignores it and simply shows the error.
+	SteerMessage string `json:"steer_message,omitempty"`
+
 	// Permission fields (type=permission_request, type=permission_resolved).
 	PermissionID string             `json:"permission_id,omitempty"`
 	Options      []PermissionOption `json:"options,omitempty"`
