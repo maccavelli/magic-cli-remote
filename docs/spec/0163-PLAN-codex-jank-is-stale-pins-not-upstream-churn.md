@@ -1337,3 +1337,74 @@ The plan stays `in-progress` for one reason only: release 3's billed acceptance 
 described in Rollout — has not been run. Those spend real tokens and need an
 explicit instruction. Marking the plan `completed` before them would claim a
 release acceptance that has not happened.
+
+## Execution record — release 3 acceptance (2026-09-21)
+
+Run at the owner's explicit instruction, including the two token-bearing targets.
+
+| target | result |
+| --- | --- |
+| `make live-codex` (unbilled) | exit 0 — 337 pass, 41 skip, 0 fail |
+| `make live-codex-turn` (**billed**) | exit 0 — 3 pass, 1 skip of the four tagged tests |
+| `make live-codex-review` (**billed**) | exit 0 — `TestLiveInlineReview` pass (7.78s) |
+| `make live-codex-contract`, both modes | exit 0 (run earlier, against the same binary) |
+| A13 live assertion | pass, with 2/2 mutations caught |
+
+The unbilled suite was run first, deliberately, so that anything broken surfaced
+before spending tokens on it.
+
+### The one skip, and why it is not a failure
+
+`TestLiveTurnPlanUpdatedNotSkipped` skipped after 3.68s of real work:
+
+```text
+live_turn_test.go:110: model did not emit a plan; wire shape and translation are
+pinned by unit tests
+```
+
+That is the test's own designed behaviour, not a gate being dodged: whether a model
+emits a plan for a given prompt is not deterministic, and the shape it would emit is
+pinned by unit tests that do not need a live model. Recorded because "1 of 4 skipped"
+in a billed acceptance is exactly the line a later reader would otherwise have to
+re-establish from scratch.
+
+## Observed — P14's cleanup conclusion is too strong (2026-09-21)
+
+The P14 record and the comment in `live_helpers_test.go` state that the probe
+showed a thread cwd can be removed once the engine has shut down. Measured during
+this acceptance run, that is true of the unbilled suite and **not** reliably true
+of the turn suite:
+
+```text
+live_helpers_test.go:76: could not remove thread cwd C:\...\codex-live-cwd-4190111268
+after 3s: The process cannot access the file because it is being used by another
+process.
+```
+
+Counted across the three runs: the warning fired **2 times in `live-codex-turn`
+and 0 times in `live-codex` and `live-codex-review`**, leaving exactly two
+directories behind, **both empty**. So the failure mode is narrower and more benign
+than "cleanup is broken", and it is specific to the suite where a real turn is in
+flight — which is the plausible mechanism: a turn's child processes can hold the
+cwd open past the engine's own shutdown, which the P14 probe (no turn running) had
+no way to observe.
+
+Nothing fails and nothing is lost: the retry already treats this as non-fatal and
+leaves the directory to the OS, which is the right call — a test must not block on
+Windows releasing a handle. What is wrong is the strength of the claim in the
+record and in the comment, which tell the next reader that seeing this warning means
+something is broken. It does not; it means a turn was running.
+
+Deliberately **not** fixed here. Lengthening the retry would trade test wall-clock
+for tidiness in a case that costs two empty directories, and the honest repair is to
+soften the claim rather than chase the handle. Left as a named follow-up: amend the
+comment at `live_helpers_test.go:76` and P14's record to say "expected while a turn
+is in flight", not "should not happen".
+
+### Status
+
+All phases P1-P13 run, all criteria A1-A27 met, and release 3's billed acceptance
+green. The only outstanding item is the **manual phone pass** described in Rollout
+(resume a long thread, confirm a `writeStdin` approval and an error class read
+correctly), which needs a person and a device. The plan stays `in-progress` until
+that is done.
