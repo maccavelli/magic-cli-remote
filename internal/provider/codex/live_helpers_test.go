@@ -60,9 +60,17 @@ func liveThreadCwd(t *testing.T) string {
 		t.Fatalf("create thread cwd: %v", err)
 	}
 	t.Cleanup(func() {
-		// Short retry only: by the time this runs the engine is down, and the
-		// measured release is immediate. The window absorbs Windows handle lag,
-		// not a live engine — if it expires, something really is holding on.
+		// Short retry only. With no turn in flight the engine is down by the time
+		// this runs and the release is immediate, so the window is absorbing
+		// Windows handle lag rather than waiting for anything.
+		//
+		// It is NOT unusual for the window to expire in the live_codex_turn suite.
+		// Measured on 2026-09-21 across the release 3 acceptance run: 2 expiries in
+		// live-codex-turn, 0 in live-codex and live-codex-review, leaving two empty
+		// directories. A turn's child processes can hold the cwd open past the
+		// engine's own shutdown, which the 0163 P14 probe — taken with no turn
+		// running — had no way to observe. So an expiry here means a turn was in
+		// flight, not that something is broken.
 		deadline := time.Now().Add(3 * time.Second)
 		for {
 			err := os.RemoveAll(dir)
@@ -74,9 +82,9 @@ func liveThreadCwd(t *testing.T) string {
 				// defect, so this logs rather than failing. The path and error are
 				// named so a genuine process leak is still visible.
 				t.Logf("could not remove thread cwd %s after 3s: %v "+
-					"(left for the OS; if this persists, something is holding the "+
-					"directory open AFTER engine shutdown, which the 0163 P14 probe "+
-					"showed should not happen)", dir, err)
+					"(left for the OS; expected while a turn is in flight, since a "+
+					"turn's children can outlive engine shutdown — investigate only "+
+					"if it happens with no turn running, per 0163 P14)", dir, err)
 				return
 			}
 			time.Sleep(100 * time.Millisecond)

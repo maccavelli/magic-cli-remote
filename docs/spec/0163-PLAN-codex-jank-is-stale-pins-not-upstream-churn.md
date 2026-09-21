@@ -1395,11 +1395,17 @@ Windows releasing a handle. What is wrong is the strength of the claim in the
 record and in the comment, which tell the next reader that seeing this warning means
 something is broken. It does not; it means a turn was running.
 
-Deliberately **not** fixed here. Lengthening the retry would trade test wall-clock
-for tidiness in a case that costs two empty directories, and the honest repair is to
-soften the claim rather than chase the handle. Left as a named follow-up: amend the
-comment at `live_helpers_test.go:76` and P14's record to say "expected while a turn
-is in flight", not "should not happen".
+The retry itself is deliberately **not** lengthened: that would trade test
+wall-clock for tidiness in a case costing two empty directories, and the honest
+repair is to correct the claim rather than chase the handle.
+
+**Done, 2026-09-21 (owner instruction).** `liveThreadCwd`'s comment and its log
+line now say an expiry is *expected while a turn is in flight* and is worth
+investigating only when it happens with no turn running, and they carry the
+measurement — 2 expiries in `live-codex-turn`, 0 in `live-codex` and
+`live-codex-review` — so the next reader inherits the evidence rather than the
+conclusion. The P14 phase text above needed no change: it never claimed removal
+always succeeds; only the comment and this record did.
 
 ### Status
 
