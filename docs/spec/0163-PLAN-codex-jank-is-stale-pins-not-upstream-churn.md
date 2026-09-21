@@ -820,3 +820,78 @@ that already spends a turn.
 | # | Criterion | MADR |
 | --- | --- | --- |
 | A24 | `make live-codex` passes on Windows; a thread cwd is removed after the engine stops, and an unremovable one logs rather than failing | — (harness) |
+
+## Amendment — 2026-09-21: P9 and P11 corrected after re-verification
+
+Checked before execution rather than during it: 27 plan premises against the
+repo, the installed binary's schema and the Rust tree at `rust-v0.155.1`. 25
+held. Three needed attention, and only one was a real plan error.
+
+### P9, rewritten — the engine's error class is a string we currently ignore
+
+The step as written assumed two new tagged variants. Measured, `codexErrorInfo`
+is a **plain string** from a thirteen-value enum (MADR 0163's correction of the
+same date), and nothing in our non-test Go reads it at all. So the work is not
+"tell two variants apart" but "start decoding a field we have always dropped".
+
+1. `session.go`: decode `TurnError.codexErrorInfo` as a string and map it. Treat
+   the enum as **open** — the schema's own last value is `other`, and a value this
+   build does not know must fall back to today's generic handling with a Debug
+   line, never a dropped turn end.
+2. Map at least these four to distinct user-visible advice, because each needs a
+   different action and all four are free once the field is decoded:
+
+   | value | what the phone should say |
+   | --- | --- |
+   | `usageLimitExceeded` | out of quota or credit — retrying will not help |
+   | `rateLimitExceeded` | throttled — back off and retry |
+   | `contextWindowExceeded` | the thread is too long — compact or start a new one |
+   | `sandboxError` | the workspace sandbox failed, which on Windows is the ACL path in D11 |
+
+   `sessionBudgetExceeded` and `unauthorized` are the next two worth a distinct
+   message; the remaining values may share the generic error path until someone
+   has a reason to split them.
+3. `misalignment` is unchanged from the original step: decode
+   `detailedExplanation` and offer `steer.message` as a one-tap continuation, only
+   when the explanation is non-empty.
+4. The existing limit plumbing (`noteProviderLimit`, `session.go:2316-2320`) is a
+   **stderr scrape** for a silent 429 (MADR 0073 F1). It stays: it fires when no
+   structured error arrives at all. But a `codexErrorInfo` that says
+   `usageLimitExceeded` must not be routed through it, because its advice is the
+   opposite of backing off.
+
+**Verification (P9), revised.** Fixtures for each of the four mapped values plus
+an unknown one, asserting the unknown falls back rather than disappearing; and one
+`misalignment` case with and without an explanation. The mutation that must fail:
+collapse `usageLimitExceeded` and `rateLimitExceeded` onto one class and the test
+must name the advice difference.
+
+### P11, precision — one call site, not the package
+
+The premise "execution.go does not yet send `timeoutMs`" is false as stated:
+`ExecSandboxed` (`execution.go:286`, `command/exec`) and `SpawnProcess` (`:656`,
+`process/spawn`) already send it. The one that does not is `RunThreadShell`
+(`:376`, `thread/shellCommand`), which is the call the step meant. Scope is
+unchanged; the step now names the function so it cannot be read as package-wide.
+
+`ThreadShellCommandParams.timeoutMs` is confirmed present, and its own
+description carries the semantics the comment must state: *"Defaults to one hour
+when omitted or null. Must be non-negative; zero requests an immediate timeout,
+not unlimited execution."*
+
+### P12, evidence — the sweep is now exhaustive
+
+The console-signal claim is measured across 4,025 `.rs` files: zero production
+occurrences, one test-only (`CREATE_NEW_PROCESS_GROUP` in
+`codex-rs/utils/pty/src/windows_tests.rs`). The annotation P12 writes into
+`provider.go` must say "none in production code; one in a pty test" rather than
+"none anywhere", so the next reader who greps and finds it does not conclude the
+note is stale.
+
+### Unchanged, and confirmed by the same pass
+
+P8's six premises all hold: `threads.go` still sends `includeTurns`, the three
+promoted methods are stable, `excludeTurns` exists on both resume and fork, both
+backwards cursors exist on the resume response, `Thread.historyMode` exists, and
+`deprecationNotice` is routed so the migration's own assertion is observable.
+P10's five and P13's three hold as written.

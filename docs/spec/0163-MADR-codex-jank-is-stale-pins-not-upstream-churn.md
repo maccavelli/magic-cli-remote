@@ -758,3 +758,48 @@ argv guard our engine spawn depends on).
    covering the whole `windows-sandbox-service` crate, the Windows daemon backend
    files, the `mcp-server` deletion and several config keys. An unshallowed clone
    would close it if we ever need the PR history.
+
+## Correction — 2026-09-21: two findings restated after a fresh check
+
+Re-verified before executing the phases that depend on them, against the repo's
+own source, the schema exported from the installed binary, and the Rust tree at
+`rust-v0.155.1`. 27 premises were checked; 25 held. These two did not, and both
+came from a delegated reading rather than a direct measurement.
+
+**F23 is right about the substance and wrong about the shape.** It says
+`CodexErrorInfo` "gained `rateLimitExceeded` distinct from `usageLimitExceeded`",
+which reads as two new tagged variants. Measured: `CodexErrorInfo` is six
+`oneOf` members, of which the first is a **plain string enum of thirteen values** —
+
+```text
+contextWindowExceeded, sessionBudgetExceeded, usageLimitExceeded,
+rateLimitExceeded, serverOverloaded, cyberPolicy, misalignmentPolicyViolation,
+internalServerError, unauthorized, badRequest, threadRollbackFailed,
+sandboxError, other
+```
+
+— and the other five are object variants for connection failures
+(`httpConnectionFailed`, `responseStreamConnectionFailed`,
+`responseStreamDisconnected`, `responseTooManyFailedAttempts`,
+`activeTurnNotSteerable`). Confirmed in Rust at
+`codex-rs/protocol/src/protocol.rs:1862-1863`, with the details-to-info mapping at
+`protocol/src/error.rs:436-439`. The carrier is `TurnError.codexErrorInfo`,
+alongside `message`, `additionalDetails` and `misalignment`.
+
+Two consequences, both enlarging the opportunity rather than shrinking it:
+
+* Decoding is a **string compare, not a union walk** — simpler than D8 implies.
+* **We decode none of it today.** A repo-wide search for `codexErrorInfo`,
+  `usageLimitExceeded`, `contextWindowExceeded` and `serverOverloaded` in
+  non-test Go returns nothing, so the engine's own classification of why a turn
+  failed is currently discarded in full. That is a larger gap than "two classes
+  read alike": `contextWindowExceeded`, `sessionBudgetExceeded`, `sandboxError`
+  and `unauthorized` each want different advice on the phone, and all four are
+  available for free.
+
+**F31's sweep is now exhaustive, and needs one qualifier.** It claimed a
+tree-wide grep finds *no* console-signal symbol in Codex. Measured across **4,025
+`.rs` files**: zero occurrences in production code, and exactly one in a test —
+`CREATE_NEW_PROCESS_GROUP` in `codex-rs/utils/pty/src/windows_tests.rs`. The
+conclusion is unchanged and better evidenced: Codex has no console-signal
+mechanism to lean on, so the job-object supervision stays (D15).
