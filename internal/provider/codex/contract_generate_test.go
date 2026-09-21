@@ -18,17 +18,30 @@ func TestGenerateContractManifest(t *testing.T) {
 	if os.Getenv("CODEX_CONTRACT_GENERATE") != "1" {
 		t.Skip("set CODEX_CONTRACT_GENERATE=1 to refresh exact-version fixtures")
 	}
-	installedStable := requiredEnv(t, "CODEX_CONTRACT_STABLE_SCHEMA")
-	installedExperimental := requiredEnv(t, "CODEX_CONTRACT_EXPERIMENTAL_SCHEMA")
-	sourceStable := requiredEnv(t, "CODEX_SOURCE_STABLE_SCHEMA")
-	sourceExperimental := requiredEnv(t, "CODEX_SOURCE_EXPERIMENTAL_SCHEMA")
+	in := readGeneratorInputs(t)
 
-	stable, stableDocs := readGeneratedSurface(t, installedStable)
-	experimental, experimentalDocs := readGeneratedSurface(t, installedExperimental)
+	stable, stableDocs := readGeneratedSurface(t, in.installedStable)
+	experimental, experimentalDocs := readGeneratedSurface(t, in.installedExpUnfl)
+
+	// The stable bundle over-reports notifications: Codex's exporter never prunes
+	// experimental ones, so filter with the source's #[experimental] markers
+	// (MADR 0163 D4/F4). The experimental surface keeps every notification,
+	// because that is what a client opting in actually receives.
+	experimentalOnly := experimentalNotifications(t, in.sourceTree)
+	kept := stable.ServerNotifications[:0]
+	for _, entry := range stable.ServerNotifications {
+		if _, isExperimental := experimentalOnly[entry.Method]; !isExperimental {
+			kept = append(kept, entry)
+		}
+	}
+	t.Logf("notifications: %d stable, %d experimental-only, %d total",
+		len(kept), len(experimental.ServerNotifications)-len(kept), len(experimental.ServerNotifications))
+	stable.ServerNotifications = kept
+
 	manifest := ContractManifest{
 		SchemaVersion: 1,
-		CodexVersion:  "0.149.1",
-		BinarySHA256:  "73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba",
+		CodexVersion:  in.version,
+		BinarySHA256:  in.binarySHA256,
 		Stable:        stable,
 		Experimental:  experimental,
 	}
@@ -38,11 +51,11 @@ func TestGenerateContractManifest(t *testing.T) {
 		t.Fatalf("generated manifest: %v", err)
 	}
 
-	sourceStableSurface, _ := readGeneratedSurface(t, sourceStable)
-	sourceExperimentalSurface, _ := readGeneratedSurface(t, sourceExperimental)
+	sourceStableSurface, _ := readGeneratedSurface(t, in.sourceStable)
+	sourceExperimentalSurface, _ := readGeneratedSurface(t, in.sourceExp)
 	watch := SourceWatchManifest{
 		SchemaVersion:  1,
-		Commit:         "6143217c6730e147f4a1a5a3405d10f580fe9244",
+		Commit:         in.sourceCommit,
 		Stable:         sourceStableSurface,
 		Experimental:   sourceExperimentalSurface,
 		InstalledDelta: sourceOnlyDelta(stable, experimental, sourceStableSurface, sourceExperimentalSurface),
@@ -50,9 +63,12 @@ func TestGenerateContractManifest(t *testing.T) {
 
 	fixtures := manifest.Fixtures
 	manifest.Fixtures = nil
-	writeGeneratedJSON(t, filepath.Join("testdata", "0.149.1", "manifest.json"), manifest)
-	writeGeneratedJSON(t, filepath.Join("testdata", "0.149.1", "fixtures.json"), fixtures)
-	writeGeneratedJSON(t, filepath.Join("testdata", "0.149.1", "source-watch-manifest.json"), watch)
+	if err := os.MkdirAll(in.outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGeneratedJSON(t, filepath.Join(in.outDir, "manifest.json"), manifest)
+	writeGeneratedJSON(t, filepath.Join(in.outDir, "fixtures.json"), fixtures)
+	writeGeneratedJSON(t, filepath.Join(in.outDir, "source-watch-manifest.json"), watch)
 }
 
 type generatedSchemaDocs struct {
@@ -99,36 +115,48 @@ func readGeneratedSurface(t *testing.T, schemaPath string) (ContractSurface, gen
 			parsed.Definitions[name] = definition
 		}
 	}
-	classifyGenerated(requests, WireClientRequest)
-	classifyGenerated(notifications, WireNotification)
-	classifyGenerated(callbacks, WireServerRequest)
+	classifyGenerated(t, requests, WireClientRequest)
+	classifyGenerated(t, notifications, WireNotification)
+	classifyGenerated(t, callbacks, WireServerRequest)
 	return ContractSurface{
 		ClientRequests: requests, ServerNotifications: notifications, ServerRequests: callbacks,
 	}, generatedSchemaDocs{definitions: parsed.Definitions}
 }
 
-func classifyGenerated(entries []WireContract, kind WireKind) {
+// classifyGenerated marks each captured method with what this package does about
+// it, derived from the package's own code (MADR 0163 D2) rather than from the
+// hand-maintained switch this replaces. That switch named 32 client requests and
+// zero server requests, so every one of the 21 server requests was recorded as
+// typed_deferred while session.go answered nine of them on purpose (0163 F5), and
+// the list drifted from the code silently because nothing compared the two.
+func classifyGenerated(t *testing.T, entries []WireContract, kind WireKind) {
+	t.Helper()
+	callArgs, caseLabels := implementedMethods(t)
 	for i := range entries {
+		method := entries[i].Method
 		entries[i].Classification = ClassificationTypedDeferred
 		if kind == WireNotification {
 			entries[i].Response = "none"
 		} else {
 			entries[i].Response = "typed"
 		}
-		switch entries[i].Method {
-		case "initialize", "initialized":
+		switch {
+		case method == "initialize" || method == "initialized":
 			entries[i].Classification = ClassificationInternal
-		case "model/list", "thread/start", "thread/resume", "thread/fork",
-			"thread/unsubscribe", "thread/delete", "thread/name/set", "thread/compact/start",
-			"thread/goal/set", "thread/goal/get", "thread/goal/clear", "thread/settings/update",
-			"turn/start", "turn/interrupt", "review/start", "collaborationMode/list",
-			"thread/started", "thread/status/changed", "thread/tokenUsage/updated",
-			"turn/started", "turn/completed", "turn/diff/updated", "turn/plan/updated",
-			"item/started", "item/completed", "item/agentMessage/delta", "item/plan/delta",
-			"item/commandExecution/outputDelta", "item/fileChange/outputDelta",
-			"item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded",
-			"item/reasoning/textDelta", "thread/compacted", "account/rateLimits/updated":
-			entries[i].Classification = ClassificationImplemented
+		case kind == WireNotification:
+			// The routing decision itself, so it cannot disagree with runtime
+			// behaviour the way a parallel list can.
+			if notificationRouteFor(method) != notificationRouteUnknown {
+				entries[i].Classification = ClassificationImplemented
+			}
+		case kind == WireServerRequest:
+			if _, ok := caseLabels[method]; ok {
+				entries[i].Classification = ClassificationImplemented
+			}
+		default:
+			if _, ok := callArgs[method]; ok {
+				entries[i].Classification = ClassificationImplemented
+			}
 		}
 	}
 }
