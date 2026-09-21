@@ -201,13 +201,41 @@ func buildCapabilitySnapshot(m *ContractManifest, identity BinaryIdentity, gener
 	return snapshot, nil
 }
 
+// capabilityRetryAfter is how long a runtime denial stands before the capability
+// is offered one more attempt.
+//
+// Before MADR 0163 D10 a denial was permanent for the engine's lifetime: one
+// -32601 or -32602 — a transient overload, a racing config reload, a
+// method momentarily unavailable — disabled diffs, thread settings or
+// collaboration modes until the process was replaced, and nothing re-probed
+// (0163 F15). Expiry is deliberately coarse: long enough that a genuinely absent
+// method is not retried per call, short enough that a session started later in
+// the same engine is not punished for an error it never saw.
+const capabilityRetryAfter = 5 * time.Minute
+
 type capabilityState struct {
 	mu       sync.RWMutex
 	snapshot CapabilitySnapshot
+	// deniedAt records when a capability that WAS supported got latched off, so
+	// the denial can expire. A capability that was never supported is absent
+	// here and never comes back by expiry.
+	deniedAt map[CapabilityID]time.Time
+	// now is a test seam; nil means time.Now.
+	now func() time.Time
 }
 
 func newCapabilityState(snapshot CapabilitySnapshot) *capabilityState {
-	return &capabilityState{snapshot: cloneCapabilitySnapshot(snapshot)}
+	return &capabilityState{
+		snapshot: cloneCapabilitySnapshot(snapshot),
+		deniedAt: map[CapabilityID]time.Time{},
+	}
+}
+
+func (s *capabilityState) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func (s *capabilityState) Snapshot() CapabilitySnapshot {
@@ -219,13 +247,44 @@ func (s *capabilityState) Snapshot() CapabilitySnapshot {
 	return cloneCapabilitySnapshot(s.snapshot)
 }
 
+// Supports reports whether the capability may be used, allowing a stale runtime
+// denial to expire (MADR 0163 D10).
+//
+// Expiry restores the capability so the next call re-probes the engine; if the
+// method really is gone, that call latches it off again. The alternative — a
+// denial that never clears — means a single transient error degrades the provider
+// until the process is replaced, which is what F15 recorded.
 func (s *capabilityState) Supports(id CapabilityID) bool {
 	if s == nil {
 		return false
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.snapshot.Supports(id)
+	supported := s.snapshot.Supports(id)
+	at, expirable := s.deniedAt[id]
+	s.mu.RUnlock()
+	if supported {
+		return true
+	}
+	if !expirable || s.clock().Sub(at) < capabilityRetryAfter {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Re-check under the write lock: another goroutine may have expired it, or
+	// re-denied it, between the two sections.
+	if at, still := s.deniedAt[id]; !still || s.clock().Sub(at) < capabilityRetryAfter {
+		return s.snapshot.Supports(id)
+	}
+	next := cloneCapabilitySnapshot(s.snapshot)
+	if next.Supported == nil {
+		next.Supported = map[CapabilityID]bool{}
+	}
+	next.Supported[id] = true
+	delete(next.Denied, id)
+	s.snapshot = next
+	delete(s.deniedAt, id)
+	return true
 }
 
 func (s *capabilityState) Disable(id CapabilityID, reason CapabilityDenial) {
@@ -233,10 +292,20 @@ func (s *capabilityState) Disable(id CapabilityID, reason CapabilityDenial) {
 		return
 	}
 	s.mu.Lock()
+	wasSupported := s.snapshot.Supports(id)
 	next := cloneCapabilitySnapshot(s.snapshot)
 	delete(next.Supported, id)
 	next.Denied[id] = reason
 	s.snapshot = next
+	// Only a capability the manifest said we HAD can come back by expiry: one
+	// denied because the engine never offered it must stay denied, or expiry
+	// would invent support the binary does not have.
+	if wasSupported {
+		if s.deniedAt == nil {
+			s.deniedAt = map[CapabilityID]time.Time{}
+		}
+		s.deniedAt[id] = s.clock()
+	}
 	s.mu.Unlock()
 }
 

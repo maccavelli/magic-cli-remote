@@ -54,6 +54,16 @@ func (s *session) Diff(ctx context.Context, _ string) (provider.DiffResult, erro
 	if fr == nil {
 		return provider.DiffResult{}, fmt.Errorf("engine not running")
 	}
+	// gitDiffToRemote is a v1 method that exists on the wire and in NO schema
+	// bundle: app-server-protocol/src/export.rs:75-76 lists it in
+	// V1_CLIENT_REQUEST_METHODS and strips it from every export (:1429-1430), while
+	// app-server/src/message_processor.rs:1773 still dispatches it. Verified at
+	// codex 0.155.1.
+	//
+	// So its absence from the contract manifest's inventory is expected, not a gap
+	// to close, and this call is not dead code to delete — it is the only way to
+	// ask for a diff against the remote (MADR 0163 F14). The other two v1 survivors
+	// are getConversationSummary and getAuthStatus.
 	raw, err := fr.sendRequest(ctx, "gitDiffToRemote", map[string]any{"cwd": cwd})
 	if err != nil {
 		var rpc *rpcErrorBody

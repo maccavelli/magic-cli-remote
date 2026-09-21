@@ -825,12 +825,23 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 		return nil, err
 	}
 	raw, err := p.initializeConn(ctx, att.conn, true)
-	if isExperimentalInitRejection(err) {
+	if rejection := classifyExperimentalInitRejection(err); rejection.matched {
 		p.log.Info("codex initialize rejected experimental API; retrying once",
 			slog.String("method", "initialize"),
 			slog.String("codex_version", p.versionLabel()),
+			slog.String("matched_via", rejection.via),
+			slog.Bool("exact", rejection.exact),
 			slog.String("reason", reasonExperimentalUnavailable(p.versionLabel())),
 		)
+		if !rejection.exact {
+			// Recognised from prose, not from data.capability. That steers the
+			// whole experimental surface off a string match, so make it visible:
+			// if this appears without a real refusal, the regex is over-matching
+			// (MADR 0163 D9/F11).
+			p.log.Warn("codex experimental rejection recognised from prose, not the "+
+				"structured capability field; verify the engine really refused the opt-in",
+				slog.String("matched_via", rejection.via))
+		}
 		p.reapAttempt(att)
 		experimental = false
 		att, err = p.launchEngineProcess(ctx, identity)

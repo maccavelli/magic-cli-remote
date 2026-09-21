@@ -95,22 +95,35 @@ func TestExperimentalInitRejectionClassifier(t *testing.T) {
 	if err := json.Unmarshal(testdata147(t, "initialize-rejection-experimental.json"), &experimental); err != nil {
 		t.Fatal(err)
 	}
-	if !isExperimentalInitRejection(&experimental) {
+	// The measured rejection carries data.capability, so it must be recognised
+	// EXACTLY — not by the prose fallback. That distinction is the point of
+	// MADR 0163 D9: a match on free text silently steers the provider between two
+	// whole surfaces, so it must be reported as a guess when it happens.
+	got := classifyExperimentalInitRejection(&experimental)
+	if !got.matched {
 		t.Fatal("measured experimental rejection must match")
 	}
+	if !got.exact || got.via != "data.capability" {
+		t.Errorf("rejection = %+v, want an exact match via data.capability", got)
+	}
 
-	unrelated := &rpcErrorBody{Code: -32600, Message: "invalid clientInfo"}
-	if isExperimentalInitRejection(unrelated) {
-		t.Fatal("unrelated JSON-RPC must not retry")
+	// Prose only: still recognised, because a server that stopped sending the
+	// field would otherwise strand every experimental capability — but flagged
+	// inexact so the log says the provider was steered by a string match.
+	prose := &rpcErrorBody{Code: -32600, Message: "thread/search requires experimentalApi capability"}
+	if got := classifyExperimentalInitRejection(prose); !got.matched || got.exact {
+		t.Errorf("prose rejection = %+v, want matched and NOT exact", got)
 	}
-	if isExperimentalInitRejection(io.EOF) {
-		t.Fatal("EOF must not retry")
-	}
-	if isExperimentalInitRejection(context.Canceled) {
-		t.Fatal("cancel must not retry")
-	}
-	if isExperimentalInitRejection(context.DeadlineExceeded) {
-		t.Fatal("timeout must not retry")
+
+	for name, err := range map[string]error{
+		"unrelated rpc": &rpcErrorBody{Code: -32600, Message: "invalid clientInfo"},
+		"eof":           io.EOF,
+		"cancel":        context.Canceled,
+		"timeout":       context.DeadlineExceeded,
+	} {
+		if got := classifyExperimentalInitRejection(err); got.matched {
+			t.Errorf("%s must not trigger the experimental retry, got %+v", name, got)
+		}
 	}
 }
 

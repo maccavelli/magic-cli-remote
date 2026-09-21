@@ -62,18 +62,45 @@ type collaborationProbe struct {
 	catalog   collaborationCatalog
 }
 
-func isExperimentalInitRejection(err error) bool {
+// experimentalRejection says whether an initialize error was Codex refusing the
+// experimentalApi opt-in, and — the part that matters — HOW that was recognised.
+//
+// The structured field is authoritative. The prose fallbacks are kept because a
+// server that stops sending data.capability would otherwise strand every
+// experimental capability with no fallback, but a match on prose is a guess, and a
+// guess that silently steers the whole provider between two surfaces is worse than
+// a loud one. `via` carries what matched so the caller can log it (MADR 0163 D9).
+type experimentalRejection struct {
+	matched bool
+	// exact is true when data.capability named the capability, which is the only
+	// signal with a contract behind it.
+	exact bool
+	via   string
+}
+
+// classifyExperimentalInitRejection recognises Codex refusing the experimentalApi
+// opt-in.
+//
+// Measured against codex 0.155.1: the refusal is JSON-RPC -32600 with the message
+// "<method> requires experimentalApi capability", produced at
+// app-server/src/message_processor.rs:970-974. The `(?i)experimental` fallbacks
+// below would also match an unrelated error that merely contains the word, which
+// is why they are reported rather than trusted.
+func classifyExperimentalInitRejection(err error) experimentalRejection {
 	var rpc *rpcErrorBody
 	if !errors.As(err, &rpc) || rpc == nil {
-		return false
+		return experimentalRejection{}
 	}
 	if strings.EqualFold(rpc.CapabilityName(), "experimentalApi") {
-		return true
+		return experimentalRejection{matched: true, exact: true, via: "data.capability"}
 	}
 	if experimentalCapabilityRe.MatchString(rpc.Message) {
-		return true
+		return experimentalRejection{matched: true, via: "error message"}
 	}
-	return len(rpc.Data) > 0 && experimentalCapabilityRe.MatchString(string(rpc.Data))
+	if len(rpc.Data) > 0 && experimentalCapabilityRe.MatchString(string(rpc.Data)) {
+		return experimentalRejection{matched: true, via: "error data"}
+	}
+	return experimentalRejection{}
 }
 
 func decodeCollaborationCatalog(raw []byte) (collaborationCatalog, error) {
