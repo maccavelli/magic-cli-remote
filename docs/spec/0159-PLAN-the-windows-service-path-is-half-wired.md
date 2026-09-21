@@ -1716,11 +1716,39 @@ file reads, its 3070 bytes are intact, and the owner is `MAC420\macsm` with
 directory is still unreadable and has been left that way — it is codex's own log
 and nothing reads it, so it is evidence rather than a problem.
 
-Worth noting separately that the same codex run granted a write ACE on
-`C:\Users\macsm\gitrepos` to a sandbox group and capability SID, so codex has been
-editing ACLs inside the owner's repository tree. That is a codex bug worth
-reporting upstream, together with the empty `deny_read_acl_state.json` that left
-the deny-read ACL with nothing able to reverse it.
+**The write ACEs on the repository tree, and what was done about them.** The same
+codex run granted write access on `C:\Users\macsm\gitrepos` — the parent of every
+repository on this host, including this one. Codex was updated to `0.155.1` on
+2026-09-20, which did **not** revoke them, and would not: an installer does not
+retroactively undo an ACL grant. Measured afterwards, both ACEs were set directly
+on that folder with `ContainerInherit, ObjectInherit`, so they reached every file
+and folder beneath it:
+
+| Principal | Rights | What it is |
+| --- | --- | --- |
+| `MAC420\CodexSandboxUsers` | Modify | A real local group codex created; its members are the local accounts `CodexSandboxOffline` and `CodexSandboxOnline` |
+| `S-1-5-21-2074326361-1466621649-1491247464-1799912131` | Modify | Resolves to no account. Its machine-SID prefix differs from this host's (`S-1-5-21-1365755026-4159476514-1820593190-…`), so it is not a local principal at all |
+
+The group grant is the sandbox working as intended — it needs write access to the
+workspace — though the scope is every repository rather than the project in use.
+The second ACE is a grant to a principal that cannot resolve here.
+
+**Owner decision, 2026-09-20: remove the unresolvable ACE, keep the group.**
+Done, and worth recording how, because the obvious tool does not work:
+`icacls /remove:g *<sid>` reports `Successfully processed 0 files` and exits 52
+for a SID it cannot resolve, from both PowerShell and `cmd.exe`. The removal was
+made with the .NET ACL API (`Get-Acl` / `RemoveAccessRule` / `Set-Acl`), which
+operates on the raw SID; no elevation was needed because the owner owns the
+folder. The prior ACL was saved with `icacls /save` first. Verified after: gone
+from the top level, gone from child repositories through inheritance, absent from
+all of a 400-file sample beneath it, and `git status` clean.
+
+**Still unknown:** whether `0.155.1` fixes the deny-read defect.
+`deny_read_acl_state.json` is still `{"principals": {}}` and no sandbox log has
+been written since 2026-09-19, so codex's sandbox setup has not run again since
+the update. The next time it does is the test. Both halves — the deny-read ACL
+with no usable undo state, and the breadth of the write grant — are worth
+reporting upstream.
 
 ### Not yet done
 
