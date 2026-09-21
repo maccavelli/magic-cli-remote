@@ -4,3 +4,4 @@ run_id	job_name	commit_sha	first_attempt_result	retry_result	failing_test	timest
 34725111324	Go (windows/amd64)	189286d7bf0529dee0f55e4a1108df3a198045fe	fail	fail	TestNotOwnerOnlyDetailRemedyWorks	2026-09-12T23:22:52Z
 35461886119	Go (windows/amd64)	c0c5a8f5c322b16dd02d45478cf6bbcf27747729	fail	pass	TestACPConnectionSurvivesAStalledPump	2026-09-19T18:42:12Z
 35604693366	Go (windows/amd64)	89bf2faefdd65ab982b3dd6fe281a5dad516dc6e	fail	pass	TestStoreConcurrentCreateTwoHandles	2026-09-21T13:21:04Z
+35606940444	Go (linux/arm64)	5225a3a5ab4903ceff7d468a026f15bc722d1bd9	fail	pass	TestResolveBinaryIdentityHelperDoesNotCountAsLaunch	2026-09-21T13:40:00Z
