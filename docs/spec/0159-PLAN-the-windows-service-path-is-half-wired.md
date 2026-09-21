@@ -1709,11 +1709,18 @@ read-acl-only mode: applying read ACLs
   the error unchanged. This project's DACL code has **no callers outside
   `internal/appdirs` and `internal/admin`** and never touches `~/.codex`.
 
-The remedy is the owner's: take ownership of the file and grant themselves full
-control, from an elevated prompt, which preserves its 3070 bytes. Worth noting
-separately that the same codex run granted a write ACE on
+**Resolved 2026-09-20 by the owner**, with `takeown /f` followed by
+`icacls … /grant <user>:(F)` from an elevated prompt. Verified afterwards: the
+file reads, its 3070 bytes are intact, and the owner is `MAC420\macsm` with
+`FullControl`. Codex sessions work again. `sandbox.2026-09-19.log` in the same
+directory is still unreadable and has been left that way — it is codex's own log
+and nothing reads it, so it is evidence rather than a problem.
+
+Worth noting separately that the same codex run granted a write ACE on
 `C:\Users\macsm\gitrepos` to a sandbox group and capability SID, so codex has been
-editing ACLs inside the owner's repository tree.
+editing ACLs inside the owner's repository tree. That is a codex bug worth
+reporting upstream, together with the empty `deny_read_acl_state.json` that left
+the deny-read ACL with nothing able to reverse it.
 
 ### Not yet done
 
