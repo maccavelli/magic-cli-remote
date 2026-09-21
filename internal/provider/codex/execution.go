@@ -365,6 +365,28 @@ func (a *executionAPI) TerminateExec(ctx context.Context, processID string) erro
 	return err
 }
 
+// threadShellTimeout bounds a thread shell command inside the engine.
+//
+// Codex's own semantics, quoted from ThreadShellCommandParams in
+// app-server-protocol/src/protocol/v2/thread.rs:1138-1140: "Defaults to one hour
+// when omitted or null. Must be non-negative; zero requests an immediate
+// timeout, not unlimited execution." Sending nothing is therefore not the safe
+// default it looks like — it buys an hour of a command we have stopped watching
+// (MADR 0163 D14/F25).
+//
+// Deliberately a constant rather than ctx.Deadline(). The same doc comment adds
+// that the timeout "does not affect the immediate RPC acknowledgement": the RPC
+// returns as soon as the command starts, and RunThreadShell reports
+// Started: true without waiting for it. So the caller's context bounds the
+// acknowledgement, not the command, and deriving the execution budget from it
+// would kill a legitimately long command at the ack timeout.
+//
+// Ten minutes because this is a fire-and-forget unsandboxed command with no
+// output plumbed back to the caller; anything longer is indistinguishable from
+// hung, and Codex runs it "unsandboxed with full access rather than inheriting
+// the thread sandbox policy" (ibid. :1135-1136).
+const threadShellTimeout = 10 * time.Minute
+
 func (a *executionAPI) RunThreadShell(ctx context.Context, threadID, command string) (provider.ExecutionResult, error) {
 	if err := a.require(CapabilityThreadShellCommand); err != nil {
 		return provider.ExecutionResult{}, err
@@ -373,7 +395,11 @@ func (a *executionAPI) RunThreadShell(ctx context.Context, threadID, command str
 	if threadID == "" || command == "" || len(command) > 64<<10 || hasControl(command) {
 		return provider.ExecutionResult{}, errors.New("bounded thread id and shell command required")
 	}
-	_, err := a.send(ctx, "thread/shellCommand", map[string]any{"threadId": threadID, "command": command})
+	_, err := a.send(ctx, "thread/shellCommand", map[string]any{
+		"threadId":  threadID,
+		"command":   command,
+		"timeoutMs": threadShellTimeout.Milliseconds(),
+	})
 	if err != nil {
 		return provider.ExecutionResult{}, fmt.Errorf("%w: %v", provider.ErrExecutionOutcomeUnknown, err)
 	}

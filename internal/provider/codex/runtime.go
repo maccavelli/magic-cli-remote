@@ -90,9 +90,23 @@ type RuntimeFeature struct {
 
 // RuntimeMCPServer is a sanitized MCP server status entry.
 type RuntimeMCPServer struct {
-	Name   string `json:"name"`
+	Name string `json:"name"`
+	// Status is an authentication state from the catalog refresh
+	// (mcpServerStatus/list authStatus) and a startup state from the
+	// mcpServer/startupStatus/updated notification — whichever wrote last.
+	// RuntimeStatus is the unambiguous one; prefer it when present.
 	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	// RuntimeStatus is whether the server is actually running, as distinct from
+	// whether it is authenticated. Codex 0.155.1 adds it as
+	// McpServerConnectionStatus, a camelCase unit enum that is one of notStarted,
+	// starting, connected, authenticationRequired, failed, cancelled or disabled,
+	// or null when unavailable (protocol/src/mcp.rs:16-24). omitempty so an older
+	// phone simply does not see it.
+	RuntimeStatus string `json:"runtime_status,omitempty"`
+	// Error is why the server is unhealthy: the notification's error, or codex
+	// 0.155.1's toolsError, which is set only when "tool discovery failed and no
+	// catalog was returned" (app-server-protocol v2/mcp.rs:82-84).
+	Error string `json:"error,omitempty"`
 }
 
 type runtimeState struct {
@@ -357,10 +371,25 @@ func (p *Provider) applyFeatureList(raw json.RawMessage) {
 }
 
 func (p *Provider) applyMCPStatusList(raw json.RawMessage) {
+	// runtimeStatus and toolsError are new at codex 0.155.1 and answer the
+	// question authStatus cannot: whether the server is running, and why its tool
+	// list failed (MADR 0163 D14). Reading them also narrows a real loss of
+	// information: this function REPLACES p.runtime.mcp below, so before it
+	// populated Error, every refresh discarded the error that
+	// mcpServer/startupStatus/updated had recorded and left a failed server
+	// looking merely unauthenticated. The list is still authoritative, so an
+	// error the list does not report is still forgotten — what changes is that a
+	// failure the list DOES know about now survives the refresh.
+	//
+	// Both are nullable upstream; json decodes null into the zero string, and
+	// clipRuntime trims, so an absent field is indistinguishable from an empty one
+	// and both are omitted from the wire.
 	var body struct {
 		Data []struct {
-			Name       string `json:"name"`
-			AuthStatus string `json:"authStatus"`
+			Name          string `json:"name"`
+			AuthStatus    string `json:"authStatus"`
+			RuntimeStatus string `json:"runtimeStatus"`
+			ToolsError    string `json:"toolsError"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(raw, &body) != nil {
@@ -373,7 +402,12 @@ func (p *Provider) applyMCPStatusList(raw json.RawMessage) {
 		}
 		name := clipRuntime(server.Name)
 		if name != "" {
-			servers[name] = RuntimeMCPServer{Name: name, Status: clipRuntime(server.AuthStatus)}
+			servers[name] = RuntimeMCPServer{
+				Name:          name,
+				Status:        clipRuntime(server.AuthStatus),
+				RuntimeStatus: clipRuntime(server.RuntimeStatus),
+				Error:         clipRuntime(server.ToolsError),
+			}
 		}
 	}
 	p.runtimeMu.Lock()

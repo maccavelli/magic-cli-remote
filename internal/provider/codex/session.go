@@ -2304,6 +2304,20 @@ func (s *session) tryDrainQueue() {
 // emitClassifiedError surfaces a TypeError with agenterr Present so 429/529
 // and quota dumps land as natural-language limit cards (shared with the
 // turn-complete error path).
+//
+// RetryAt is parsed out of prose deliberately, not for want of looking for a
+// structured field: codex 0.155.1 has none to read. `retry_after` and
+// `retryAfter` do not appear anywhere in app-server-protocol, and the relevant
+// codexErrorInfo variants — rateLimitExceeded, usageLimitExceeded,
+// serverOverloaded — are UNIT variants carrying no payload at all
+// (protocol/v2/shared.rs:77-121). Only httpStatusCode is forwarded, and only on
+// the variants that have a body. So the retry hint exists solely in the message
+// text, which is what agenterr.Present reads (MADR 0163 D14).
+//
+// The counter-example is worth knowing, because it shows the omission is a
+// choice rather than an oversight: ImageGenerationFailure::UsageLimitExceeded
+// does carry limit_id and resets_at. If the general error path ever grows the
+// same fields, prefer them over the prose parse.
 func (s *session) emitClassifiedError(raw string) {
 	cls := agenterr.Present(raw, time.Now())
 	msg := cls.Message
