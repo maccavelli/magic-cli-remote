@@ -686,6 +686,8 @@ go build ./... && go test ./internal/provider/... ./internal/procutil/
 | A22 | Every retained workaround carries a "still true at 0.155.1" citation; none lost its original version citation | D15 |
 | A23 | The advertised capability list reflects the negotiated surface, and shrinks when `experimental` is false | D16 |
 | A24 | `mcpServerStatus/list` surfaces `runtimeStatus` and `toolsError`; a healthy server acquires no error, and an engine predating both fields still decodes | D14 |
+| A25 | Replay unwraps `ThreadItemEntry` so a paged transcript is not silently empty, and a page over the bound is refused | D7 |
+| A26 | Replay requests `sortDirection: asc` explicitly, and sends no `cursor` on the first page | D7 |
 
 **A13 is the criterion most likely to be quietly dropped.** It asserts the
 *absence* of a notification over a live session, which is the shape reviewers call
@@ -1032,3 +1034,100 @@ Deferred, named so it is not mistaken for an oversight: `thread/revert` stays
 without a capability entry. It is stable and promoted in the same upstream change,
 but no step in this plan calls it, and adding a capability for an uncalled method
 is surface without a caller.
+
+## Execution record — P8 (2026-09-21)
+
+**Ran: the P8 deviation fix and P8 itself** — commits `68a3d75` (capability
+stability derived from the bundles, with its regenerated manifest) and `069400a`
+(paginated replay, `excludeTurns` on resume, backwards cursors captured).
+
+Gates: `pre-add-check` clean, `gofmt -l` empty, `go build ./...`, `go vet`,
+`go test` and `go test -race` on the package green, `make live-codex-contract`
+green in both default and `CODEX_CONTRACT_EXACT=1` modes against the installed
+0.155.1 binary.
+
+### Three premises corrected, two of which reduced the work
+
+The 2026-09-21 deviation above covers step 4. Two more did not survive contact
+with the source, and both were found before writing code rather than after:
+
+1. **Step 2 is wrong about `thread/fork`.** It asks for `excludeTurns` and the two
+   backwards cursors on fork as well as resume. Measured at 0.155.1: `excludeTurns`
+   is a field of `ThreadResumeParams` only (`v2/thread.rs:404`, and not
+   experimental), and `turnsBackwardsCursor` / `itemsBackwardsCursor` are fields of
+   `ThreadResumeResponse` (`:455`, `:461`, neither experimental) and of
+   `ThreadRevertResponse` (`thread_processor.rs:2304-2308`). `ThreadForkParams` and
+   `ThreadForkResponse` (`:518-`, `:606-637`) carry none of them. So the fork half
+   of step 2 asks for fields that do not exist and was not implemented. The plan's
+   "all five of those fields" counted fork's non-existent pair.
+
+2. **Step 3 has nothing to retire.** It asks that the local-search fallback stop
+   depending on full hydration. It never did: the fallback (`threads.go:284-308`)
+   pages `thread/list` and matches on `Title` + `Preview` metadata only. It calls
+   neither `thread/read` nor any history RPC, and its `Truncated: true` honesty was
+   already in place. Step 3 is a no-op, not a deletion.
+
+The upstream deprecation text is worth quoting, because it is the specification for
+what step 1 and step 2 had to do and it names both halves: *"Full-history hydration
+is deprecated for paginated threads; use `excludeTurns: true`, then page with
+`thread/turns/list` and `thread/items/list`."* (`thread_processor.rs:33`).
+
+### Two traps that would have shipped a silently empty transcript
+
+Both are recorded because neither produces an error:
+
+* `thread/items/list` returns `ThreadItemEntry` — `{turnId, item}` — not bare items
+  (`v2/thread.rs:1754-1758`). Decoding an entry as an item succeeds, leaves every
+  field zero, matches no case in the render switch, and yields an empty transcript.
+* The two paging RPCs have **opposite** default sort directions: `thread/items/list`
+  defaults to ascending, `thread/turns/list` to descending (`:1746`, `:1709`).
+  Replay must emit oldest-first, so the direction is now sent explicitly and
+  asserted, rather than inherited from a default that differs between neighbours.
+
+### The instrument had to be fixed before it could be trusted
+
+The first mutation run did not fail — it **hung**, for the full 600s harness
+timeout. The new test read `<-s.events` unguarded, so a regression that stops
+emitting blocks forever instead of failing. Replaced with the package's existing
+non-blocking `select`/`default` idiom, which fails immediately and names what was
+missing. Recorded because a guard that deadlocks rather than fails is worse than
+one that is merely slow: in CI it reports a timeout panic, not the assertion.
+
+After that fix, **5 of 5 mutations were caught**: dropping the entry unwrap,
+treating a null `nextCursor` as a value, dropping the page bound, asking for
+descending order, and sending an empty cursor on the first page. The ordering and
+first-page-cursor cases were caught only after `replayPageParams` was extracted as
+a seam — before that, two mutations passed unnoticed because no test could see the
+request.
+
+### A13 could not be verified on this host — blocked, not dropped
+
+**A13 is unproven, and the reason is a host defect rather than the migration.**
+`live_p8_test.go` is written and vetted, and it fails at the first step:
+
+```text
+thread/list -> JSON-RPC error -32603: failed to list threads:
+thread-store internal error: failed to list threads: Access is denied. (os error 5)
+```
+
+Measured cause: `~/.codex/sessions/2026/09/19` is the only path in the sessions
+tree whose security descriptor cannot be read **by its owner**, while every sibling
+day directory carries the normal `OWNER RIGHTS` + `SYSTEM` pattern and reads fine.
+It is residue of the 2026-09-19 ACL incident (MADR 0163 F28-F30), and
+`.sandbox/deny_read_acl_state.json` is `{"principals": {}}` — empty — so Codex's
+own cleanup has no record to undo and there is no repair subcommand.
+
+One unreadable day directory aborts the whole thread-store walk, so on this host
+`thread/list` and every resume fail, including for threads created today. That is a
+user-facing Codex defect independent of this plan, and it is out of scope here by
+the plan's own Scope section: this plan documents host sandbox repairs and does not
+perform them. Owner elected to run the elevated repair (2026-09-21).
+
+A13 is therefore **deferred to the repaired host**, not weakened. The test was
+deliberately left failing rather than converted to a skip: a skip on a thread-store
+error would hide exactly the defect that matters.
+
+Also corrected in the test itself: the first version created a thread and resumed
+it, which can never work — a thread that has taken no turns has no rollout, so
+there is nothing to locate. It now resumes an existing thread, which uses real
+history and spends no tokens.
