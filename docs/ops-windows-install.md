@@ -315,3 +315,51 @@ Script: `scripts/ci-windows-local.ps1`. Decisions:
 | `-race` / flutter `preflight` | omitted |
 | smoke-native GH artifact download | omitted; light local smoke builds `dist/*-windows-amd64.exe` |
 | Run on macOS/Linux | skip + exit 0 |
+
+## Codex's Windows sandbox, and the ACLs it leaves behind
+
+`mcremote` does not provision Codex's Windows sandbox and never asks it to — a
+test forbids referencing `windowsSandbox/setupStart` outside test files. Codex
+provisions it on its own, and the consequences land on the host, so they are
+recorded here.
+
+**What provisioning does.** It creates the local accounts `CodexSandboxOffline`
+and `CodexSandboxOnline` in a `CodexSandboxUsers` group, hides them from the sign-in
+screen, adds Windows Firewall rules, and applies **deny-read ACLs** to paths the
+active permission profile marks unreadable.
+
+**There is no repair or uninstall command.** The only caller of Codex's own
+cleanup is an MSIX uninstall event. The only record of which denies were applied
+is `%USERPROFILE%\.codex\.sandbox\deny_read_acl_state.json`, and **if that file
+is deleted or empty, every ACE it recorded is orphaned permanently** — nothing
+scans for stale denies. Recovery is manual:
+
+```powershell
+takeown /f "%USERPROFILE%\.codex\config.toml"
+icacls "%USERPROFILE%\.codex\config.toml" /grant "%USERNAME%":(F)
+```
+
+`icacls` cannot remove an ACE whose SID no longer resolves — it reports
+`Successfully processed 0 files` and exits 52. Use the .NET ACL API for those
+(`Get-Acl` / `RemoveAccessRule` / `Set-Acl`), which works on the raw SID.
+
+**Two places a deny can come from**, and nothing else: the active permission
+profile's `[permissions.<name>.filesystem]` Deny globs, and `[filesystem]
+deny_read` in `%ProgramData%\OpenAI\Codex\requirements.toml`. No built-in rule
+ever names `config.toml`, `auth.json` or `CODEX_HOME`, so a deny on one of those
+came from a glob or from that managed file.
+
+Worth checking on a shared machine: `C:\ProgramData` is writable by standard
+users by default, so a non-administrator can pre-create
+`C:\ProgramData\OpenAI\Codex` and plant a `requirements.toml`. Codex measures
+that shape and reports it as telemetry; it does not prevent it.
+
+**A downgrade hazard.** Codex 0.149.1 and earlier derived the principal to grant
+from `%USERNAME%`, falling back to the literal string `"Administrators"` when the
+variable was absent — which is what a service or relay-spawned app-server looks
+like. Those releases therefore ACL'd `.sandbox`, `.sandbox-secrets` and
+`.sandbox-bin` for an account the real user is not, and a non-administrator could
+then neither read nor re-ACL them. 0.155.1 reads the OS token instead. `mcremote`
+passes an explicit `USERNAME` to the engine regardless, as defence in depth.
+
+Background: MADR 0163 F28–F30.

@@ -44,7 +44,11 @@ func launchArguments(cfg Config, endpoint, secretFile string) ([]string, error) 
 		return args, nil
 	case TransportManagedDaemonProxy:
 		if runtime.GOOS == "windows" {
-			return nil, fmt.Errorf("managed_daemon_proxy is Unix-only")
+			// See config.go: Codex supports the managed daemon on Windows from
+			// 0.155.1; we refuse it for want of live coverage, not for want of
+			// platform support (MADR 0163 F20/D12).
+			return nil, fmt.Errorf(
+				"managed_daemon_proxy is not enabled on Windows (MADR 0163 D12)")
 		}
 		args := []string{"app-server", "proxy"}
 		if endpoint != "" {

@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -551,6 +553,7 @@ func (p *Provider) launchEngineProcess(ctx context.Context, identity BinaryIdent
 		procutil.EnvEngineID+"="+engineID,
 		procutil.EnvEngineOwner+"="+procutil.OwnerToken(),
 	)
+	cmd.Env = withResolvedUserName(cmd.Env)
 
 	var stdin io.WriteCloser
 	var stdout io.ReadCloser
@@ -877,6 +880,18 @@ func (p *Provider) startEngine(ctx context.Context) (*conn, error) {
 	if initResp.CodexHome != "" {
 		p.log.Debug("codex: engine ready", slog.String("codex_home", initResp.CodexHome))
 	}
+	// Which install answered. A host can carry two Codex installs at different
+	// versions — on the reference host the npm tree under %APPDATA% held 0.155.1
+	// while the managed tree under %LOCALAPPDATA% held 0.154.0-alpha.6.2 — and
+	// PATH order alone decides which one this daemon drives.
+	// The sanitized snapshot carries only the binary NAME by design
+	// (MADR 0151), and both are "codex.cmd", so the resolved path is logged here
+	// instead (MADR 0163 D18).
+	p.log.Info("codex engine identity",
+		slog.String("path", identity.Path),
+		slog.String("version", identity.Version),
+		slog.String("sha256", identity.SHA256),
+	)
 	p.reportEngineVersion(initResp.UserAgent)
 
 	manifest, err := loadEmbeddedContractManifest()
@@ -1372,4 +1387,64 @@ func (w *lineRing) tail() string {
 		out += line
 	}
 	return out
+}
+
+// withResolvedUserName guarantees the engine sees a USERNAME.
+//
+// Codex 0.149.1's Windows sandbox setup derived the principal it granted ACLs to
+// from the environment:
+//
+//	real_user: std::env::var("USERNAME").unwrap_or_else(|_| "Administrators")
+//
+// A launcher that filters the environment — a service, or a relay-spawned
+// app-server, which is exactly this daemon's topology — therefore had .sandbox,
+// .sandbox-secrets and .sandbox-bin ACL'd for the literal string
+// "Administrators" and not for the real user, after which a non-admin could
+// neither read nor re-ACL that tree. The owner hit precisely that on 2026-09-19
+// and needed takeown to recover a config.toml.
+//
+// 0.155.1 reads the OS token instead (windows-sandbox-rs/src/setup.rs:351, with
+// the comment "Sandbox launchers can filter USERNAME"), so this is defence in
+// depth for a downgrade or an older engine rather than a live fix. It is cheap,
+// and the failure it prevents is unrepairable by Codex itself: there is no repair
+// subcommand, and the only record of applied denies is
+// $CODEX_HOME\.sandbox\deny_read_acl_state.json (MADR 0163 D11/F28/F30).
+func withResolvedUserName(env []string) []string {
+	if runtime.GOOS != "windows" {
+		return env
+	}
+	// Find an existing entry rather than assuming there is none. An empty
+	// USERNAME= must be REPLACED, not shadowed by a second entry: Windows builds
+	// the child's environment block from this slice, and which of two entries with
+	// the same name wins is not something to rely on. Appending produced exactly
+	// that ambiguity, and the test caught it.
+	existing := -1
+	for i, entry := range env {
+		if name, value, ok := strings.Cut(entry, "="); ok && strings.EqualFold(name, "USERNAME") {
+			if strings.TrimSpace(value) != "" {
+				return env // the caller set one; it is theirs
+			}
+			existing = i
+			break
+		}
+	}
+
+	current, err := user.Current()
+	if err != nil || strings.TrimSpace(current.Username) == "" {
+		return env
+	}
+	// user.Current returns DOMAIN\name on Windows; the sandbox wants the bare
+	// account name, which is what %USERNAME% normally holds.
+	name := current.Username
+	if _, bare, ok := strings.Cut(name, `\`); ok && bare != "" {
+		name = bare
+	}
+
+	if existing >= 0 {
+		out := make([]string, len(env))
+		copy(out, env)
+		out[existing] = "USERNAME=" + name
+		return out
+	}
+	return append(env, "USERNAME="+name)
 }

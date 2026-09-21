@@ -114,7 +114,20 @@ func (c Config) validated() (Config, error) {
 		}
 	case TransportManagedDaemonProxy:
 		if runtime.GOOS == "windows" {
-			return Config{}, fmt.Errorf("managed_daemon_proxy is Unix-only")
+			// Not a platform limit any more. Codex's app-server daemon supported
+			// only Unix at 0.149.1 — its own README said so — and supports
+			// Windows from 0.155.1 (MADR 0163 F20/D12). What we lack is live
+			// coverage, so it stays refused here rather than silently enabled.
+			//
+			// Enabling it needs three constraints designed for, not discovered:
+			// a non-elevated launch whose host permits detached children; a
+			// control socket path within the 108-byte AF_UNIX limit INCLUDING the
+			// terminator, which argues for a short CODEX_HOME; and no per-client
+			// environment isolation, so the daemon keeps whatever environment it
+			// started with.
+			return Config{}, fmt.Errorf(
+				"managed_daemon_proxy is not enabled on Windows: Codex supports it from " +
+					"0.155.1 but this transport has no live coverage here (MADR 0163 D12)")
 		}
 		if c.ListenAddress != "" || c.WSAuthMode != "" {
 			return Config{}, fmt.Errorf("managed daemon proxy owns its endpoint and auth")

@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -124,5 +125,61 @@ func TestNoBareSpawnOutsideProcutil(t *testing.T) {
 			t.Errorf("spawnAllowlist[%q] no longer contains a banned spawn call: "+
 				"delete the entry rather than leaving an exemption nothing needs", path)
 		}
+	}
+}
+
+// windowsSandboxSetupStart is the RPC that provisions Codex's Windows sandbox:
+// it creates local accounts and a group, writes firewall rules, and applies
+// deny-read ACLs whose only undo record is
+// $CODEX_HOME\.sandbox\deny_read_acl_state.json. On 2026-09-19 that mechanism
+// left the owner's ~/.codex/config.toml unreadable by its own owner, and Codex
+// ships no repair or uninstall subcommand — the sole caller of its cleanup is an
+// MSIX uninstall event. So the damage is not something we can undo, which is why
+// this is a ban rather than a guideline (MADR 0163 D11/F30, PLAN 0163 C5).
+//
+// windowsSandbox/readiness is the read-only probe and is deliberately NOT banned.
+const windowsSandboxSetupStart = "windowsSandbox/setupStart"
+
+// TestNeverCallsWindowsSandboxSetup is acceptance criterion A17 of PLAN 0163.
+func TestNeverCallsWindowsSandboxSetup(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var offenders []string
+	for _, dir := range []string{"cmd", "internal"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				// testdata holds the captured protocol inventory, which names
+				// every method by design; a name in an inventory is not a call.
+				if name := d.Name(); name == "testdata" || strings.HasPrefix(name, ".") {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			body, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			if strings.Contains(string(body), windowsSandboxSetupStart) {
+				rel, _ := filepath.Rel(root, path)
+				offenders = append(offenders, filepath.ToSlash(rel))
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", dir, err)
+		}
+	}
+	if len(offenders) > 0 {
+		t.Errorf("%s is referenced by non-test file(s) %v.\n\n"+
+			"Provisioning the Windows sandbox applies deny-read ACLs that Codex cannot "+
+			"undo: there is no repair subcommand, and a missing or empty "+
+			"deny_read_acl_state.json orphans every ACE it recorded. Use "+
+			"windowsSandbox/readiness to ask whether the sandbox is ready; never start "+
+			"provisioning from here (MADR 0163 D11/F30).", windowsSandboxSetupStart, offenders)
 	}
 }
