@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -889,49 +890,154 @@ func (s *session) emitThreadReplay(raw json.RawMessage) error {
 	}
 	for _, turn := range response.Thread.Turns {
 		for _, rawItem := range turn.Items {
-			var item struct {
-				Type    string `json:"type"`
-				ID      string `json:"id"`
-				Text    string `json:"text"`
-				Content []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content"`
-			}
-			if json.Unmarshal(rawItem, &item) != nil {
-				continue
-			}
-			now := time.Now().UTC()
-			switch item.Type {
-			case "userMessage":
-				var text strings.Builder
-				for _, content := range item.Content {
-					if content.Type == "text" && content.Text != "" {
-						if text.Len() > 0 {
-							text.WriteByte('\n')
-						}
-						text.WriteString(content.Text)
-					}
-				}
-				if text.Len() > 0 {
-					s.emit(event.Event{Type: event.TypeUserMessage, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: text.String(), ToolID: item.ID, Replay: true})
-				}
-			case "agentMessage":
-				if strings.TrimSpace(item.Text) != "" {
-					s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: item.Text, ToolID: item.ID, Replay: true})
-				}
-			}
+			s.emitReplayItem(rawItem)
 		}
 	}
 	return nil
 }
 
-func (s *session) replayThreadHistory(ctx context.Context, fr *conn) error {
-	raw, err := fr.sendReadOnlyOrWriteRequest(ctx, "thread/read", map[string]any{"threadId": s.AgentSessionID(), "includeTurns": true})
-	if err != nil {
-		return fmt.Errorf("thread/read replay: %w", err)
+// emitReplayItem renders one history item, from either the paged or the legacy
+// shape. Both carry the same item object; only the envelope around it differs.
+func (s *session) emitReplayItem(rawItem json.RawMessage) {
+	var item struct {
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		Text    string `json:"text"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
 	}
-	return s.emitThreadReplay(raw)
+	if json.Unmarshal(rawItem, &item) != nil {
+		return
+	}
+	now := time.Now().UTC()
+	switch item.Type {
+	case "userMessage":
+		var text strings.Builder
+		for _, content := range item.Content {
+			if content.Type == "text" && content.Text != "" {
+				if text.Len() > 0 {
+					text.WriteByte('\n')
+				}
+				text.WriteString(content.Text)
+			}
+		}
+		if text.Len() > 0 {
+			s.emit(event.Event{Type: event.TypeUserMessage, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: text.String(), ToolID: item.ID, Replay: true})
+		}
+	case "agentMessage":
+		if strings.TrimSpace(item.Text) != "" {
+			s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: s.localID, AgentSessionID: s.agentID, Timestamp: now, Text: item.Text, ToolID: item.ID, Replay: true})
+		}
+	}
+}
+
+// emitThreadReplayPage renders one thread/items/list page and returns the cursor
+// for the next one, empty when the history is exhausted.
+//
+// The entries are NOT bare items: ThreadItemsListResponse.data is a list of
+// ThreadItemEntry, which wraps the item as {turnId, item}
+// (app-server-protocol v2/thread.rs:1754-1758). Decoding an entry as if it were
+// an item succeeds and yields an empty type, so getting this wrong produces a
+// silently empty transcript rather than an error.
+func (s *session) emitThreadReplayPage(raw json.RawMessage) (string, error) {
+	var page struct {
+		Data []struct {
+			Item json.RawMessage `json:"item"`
+		} `json:"data"`
+		NextCursor *string `json:"nextCursor"`
+	}
+	if err := json.Unmarshal(raw, &page); err != nil {
+		return "", err
+	}
+	if len(page.Data) > maxNativeThreadHistoryPage {
+		return "", errors.New("thread/items/list replay page exceeds bound")
+	}
+	for _, entry := range page.Data {
+		if len(entry.Item) == 0 {
+			continue
+		}
+		s.emitReplayItem(entry.Item)
+	}
+	if page.NextCursor == nil {
+		return "", nil
+	}
+	return boundedPermissionText(*page.NextCursor, 1024), nil
+}
+
+// Replay paging bounds. A page of 100 keeps a long thread to a handful of round
+// trips, and the page ceiling stops a pathological or adversarial cursor chain
+// from replaying forever: 200 pages is far more history than any real transcript
+// and still terminates.
+const (
+	replayPageSize  = 100
+	replayPageLimit = 200
+)
+
+// replayPageParams builds one thread/items/list replay request.
+//
+// A separate function so the ordering can be asserted without an engine: the
+// sortDirection is the one parameter here whose loss is invisible in a unit test
+// of the response decoder, and a transcript replayed newest-first is wrong in a
+// way that reads as data corruption rather than a bug.
+func replayPageParams(threadID, cursor string) map[string]any {
+	params := map[string]any{
+		"threadId": threadID,
+		"limit":    uint32(replayPageSize),
+		// Explicit, never defaulted: thread/items/list defaults to ascending but the
+		// neighbouring thread/turns/list defaults to DESCENDING (v2/thread.rs:1746,
+		// :1709), so the default is not a property of the contract worth relying on.
+		"sortDirection": "asc",
+	}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+	return params
+}
+
+// replayThreadHistory rebuilds cold transcript history through the paginated
+// contract (MADR 0163 D7, closing F19; finishes the migration MADR 0141 began).
+//
+// thread/read with includeTurns:true is no longer used for this. At 0.155.1 it
+// earns a deprecationNotice on every call, and durable threads now default to
+// historyMode "paginated", so the full read is the legacy shape rather than the
+// cheap one. thread/read is still the right call for metadata.
+//
+// sortDirection is sent explicitly and is not a formality: thread/items/list
+// defaults to ASCENDING while thread/turns/list defaults to DESCENDING
+// (v2/thread.rs:1746, :1709). Replay must emit oldest first, so relying on a
+// default that differs between two neighbouring RPCs would be a transcript
+// printed backwards the first time someone swapped one for the other.
+func (s *session) replayThreadHistory(ctx context.Context, fr *conn) error {
+	if s.p == nil || !s.p.supportsCapability(CapabilityThreadItemsList) {
+		// An engine that genuinely cannot page. Not a preference: the legacy read
+		// is the only way to get history at all there.
+		raw, err := fr.sendReadOnlyOrWriteRequest(ctx, "thread/read", map[string]any{"threadId": s.AgentSessionID(), "includeTurns": true})
+		if err != nil {
+			return fmt.Errorf("thread/read replay: %w", err)
+		}
+		return s.emitThreadReplay(raw)
+	}
+
+	cursor := ""
+	for page := 0; page < replayPageLimit; page++ {
+		raw, err := fr.sendReadOnlyOrWriteRequest(ctx, "thread/items/list", replayPageParams(s.AgentSessionID(), cursor))
+		if err != nil {
+			return fmt.Errorf("thread/items/list replay: %w", err)
+		}
+		next, err := s.emitThreadReplayPage(raw)
+		if err != nil {
+			return fmt.Errorf("thread/items/list replay: %w", err)
+		}
+		if next == "" {
+			return nil
+		}
+		cursor = next
+	}
+	s.log.Warn("codex thread replay hit the page ceiling; transcript may be truncated",
+		slog.Int("pages", replayPageLimit), slog.Int("page_size", replayPageSize))
+	return nil
 }
 
 var _ provider.AgentSessionLister = (*Provider)(nil)

@@ -50,6 +50,12 @@ type session struct {
 	events      chan event.Event
 	done        chan struct{}
 
+	// Backwards hydration cursors from the last thread/resume, guarded by mu.
+	// See noteBackwardsCursors; both are empty for a thread with no paginated
+	// history, and for an engine that predates the fields.
+	turnsBackwardsCursor string
+	itemsBackwardsCursor string
+
 	// lastActivity is the unix-nanosecond timestamp of the most recent
 	// notification on this session. The stall ticker reads this on each
 	// tick (MADR 0035 D8) — one atomic store per notification replaces
@@ -441,6 +447,30 @@ func (s *session) startNew(ctx context.Context, fr *conn) error {
 	return nil
 }
 
+// noteBackwardsCursors records the resume response's backwards hydration cursors.
+//
+// Bounded like every other opaque cursor we accept, because these are engine
+// strings that end up in our own request params.
+func (s *session) noteBackwardsCursors(turns, items string) {
+	turns = boundedPermissionText(turns, 1024)
+	items = boundedPermissionText(items, 1024)
+	s.mu.Lock()
+	s.turnsBackwardsCursor = turns
+	s.itemsBackwardsCursor = items
+	s.mu.Unlock()
+	if turns != "" || items != "" {
+		s.log.Debug("codex resume offered backwards history cursors",
+			slog.Bool("turns", turns != ""), slog.Bool("items", items != ""))
+	}
+}
+
+// backwardsCursors reports the cursors captured by the last resume.
+func (s *session) backwardsCursors() (turns, items string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.turnsBackwardsCursor, s.itemsBackwardsCursor
+}
+
 func (s *session) resume(ctx context.Context, fr *conn) error {
 	s.mu.Lock()
 	s.agentID = s.opts.AgentSessionID
@@ -459,6 +489,14 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	approval, sandbox := s.policy()
 	applyPolicyParams(params, approval, sandbox)
 	s.applyInitialPermissionParams(params)
+	// Do not hydrate thread.turns on resume. We page history ourselves through
+	// thread/items/list immediately afterwards, so a full hydration is work whose
+	// result is discarded — and at 0.155.1 it earns a deprecationNotice saying
+	// precisely this: "Full-history hydration is deprecated for paginated threads;
+	// use `excludeTurns: true`, then page with `thread/turns/list` and
+	// `thread/items/list`." (thread_processor.rs:33). The field is not
+	// experimental, so it needs no opt-in (ThreadResumeParams:404).
+	params["excludeTurns"] = true
 
 	raw, err := fr.sendRequest(ctx, "thread/resume", params)
 	if err != nil {
@@ -466,9 +504,20 @@ func (s *session) resume(ctx context.Context, fr *conn) error {
 	}
 	var response struct {
 		ApprovalsReviewer string `json:"approvalsReviewer"`
+		// Cursors for hydrating history backwards — newest first — by passing either
+		// as `cursor` with sortDirection "desc" (ThreadResumeResponse:450-461).
+		// Neither is experimental. Captured here because resume is the only place
+		// they are offered; the backwards-first hydration strategy that would use
+		// them is deferred (PLAN 0163), so today they are recorded and logged rather
+		// than driving replay, which pages forward.
+		TurnsBackwardsCursor string `json:"turnsBackwardsCursor"`
+		ItemsBackwardsCursor string `json:"itemsBackwardsCursor"`
 	}
-	if json.Unmarshal(raw, &response) == nil && response.ApprovalsReviewer != "" {
-		_ = s.applyReviewerState(response.ApprovalsReviewer)
+	if json.Unmarshal(raw, &response) == nil {
+		if response.ApprovalsReviewer != "" {
+			_ = s.applyReviewerState(response.ApprovalsReviewer)
+		}
+		s.noteBackwardsCursors(response.TurnsBackwardsCursor, response.ItemsBackwardsCursor)
 	}
 	// Rebuild cold transcript history through the ordinary manager pump. Every
 	// replay event is marked, so it is persisted for cold clients but never
@@ -2119,6 +2168,9 @@ func (s *session) resumeAfterReplacement(ctx context.Context, fr *conn, generati
 	}
 	approval, sandbox := s.policy()
 	applyPolicyParams(params, approval, sandbox)
+	// This resume replaces a dead engine mid-session and never replays history,
+	// so hydrating turns is doubly wasted here (see resume above).
+	params["excludeTurns"] = true
 	if _, err := fr.sendRequest(ctx, "thread/resume", params); err != nil {
 		return fmt.Errorf("thread/resume after replacement: %w", err)
 	}
