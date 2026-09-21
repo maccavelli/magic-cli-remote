@@ -119,3 +119,36 @@ reference host `%APPDATA%\npm` held 0.155.1 while
 the Codex desktop app. Only `PATH` order decides which one the daemon drives, so
 the script prints the resolved path, warns when it finds a second install at a
 different version, and refuses a version mismatch outright.
+
+## The drift gate
+
+`make live-codex-contract` runs in two modes:
+
+| Mode | Fails on | Use |
+| --- | --- | --- |
+| default | **breaking** drift only — a removed or renamed method, a newly required param or result field, or a stable→experimental demotion. Additions are listed and pass. | CI, and any host |
+| `CODEX_CONTRACT_EXACT=1` | any difference at all, plus a binary identity mismatch | release pinning, on the capture host |
+
+The distinction is the point. The previous gate compared the whole surface with
+`reflect.DeepEqual`, so it failed on any addition and could not pass on a host
+running a Codex newer than the pin — and a gate that cannot go green is a gate
+nobody runs. Seven declared notifications went unrouted for six releases behind
+it.
+
+Why each breaking class is breaking, and a relaxation is not:
+
+- **Removed**: if we send or handle it, the call now fails at runtime; if we do
+  not, our inventory describes a protocol that no longer exists. The
+  classification travels with the message, because "removed something we
+  implement" and "removed something we never used" need different responses.
+- **Demoted to experimental-only**: the method still exists, so removal and
+  addition checks both see nothing wrong — it simply needs an opt-in now, and
+  fails with `-32600` at the call site rather than at start-up.
+- **Newly required field**: we start sending a request the engine rejects, or
+  reading a result field that may be absent.
+- **A field that stops being required is additive.** We keep sending it. Codex
+  0.155.1 did exactly this to `FunctionCallOutputResponseItem.call_id`.
+
+Expect the default mode to report additive drift whenever the installed Codex is
+ahead of the pin. Against a 0.149.1 pin on a 0.155.1 host it reports **35**
+additions and passes.

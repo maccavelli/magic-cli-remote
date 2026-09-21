@@ -38,13 +38,41 @@ func TestLiveContractNoModelTurn(t *testing.T) {
 			t.Fatalf("codex %v: %v\n%s", args, err, out)
 		}
 	}
-	stable, _ := readGeneratedSurface(t, filepath.Join(stableDir, "codex_app_server_protocol.v2.schemas.json"))
-	experimental, _ := readGeneratedSurface(t, filepath.Join(experimentalDir, "codex_app_server_protocol.v2.schemas.json"))
-	if !reflect.DeepEqual(stable, manifest.Stable) {
-		t.Fatal("installed stable schema differs from the 0.149.1 manifest")
+	stable, stableDocs := readGeneratedSurface(t, filepath.Join(stableDir, "codex_app_server_protocol.v2.schemas.json"))
+	experimental, experimentalDocs := readGeneratedSurface(t, filepath.Join(experimentalDir, "codex_app_server_protocol.v2.schemas.json"))
+
+	// Two modes (MADR 0163 D3). The default fails only on drift a client can be
+	// wrong about; an additive release is reported and passes, because the
+	// previous whole-surface reflect.DeepEqual could not go green on any host
+	// running a Codex newer than the pin — so it was never run, and seven
+	// notifications went unrouted behind it for six releases (0163 F1).
+	exact := os.Getenv("CODEX_CONTRACT_EXACT") == "1"
+	drift := CompareSurfaces(manifest.Stable, manifest.Experimental, stable, experimental)
+	fresh := generatedFixtures(stable, experimental, stableDocs, experimentalDocs)
+	drift.Breaking = append(drift.Breaking, CompareRequiredFields(manifest.Fixtures, fresh)...)
+
+	for _, item := range drift.Additive {
+		t.Logf("additive drift: %s", item)
 	}
-	if !reflect.DeepEqual(experimental, manifest.Experimental) {
-		t.Fatal("installed experimental schema differs from the 0.149.1 manifest")
+	if len(drift.Additive) > 0 {
+		t.Logf("%d additive difference(s) against the %s pin: Codex grew, nothing is broken. "+
+			"Re-pin with ./scripts/codex-contract.ps1 when you want them in the inventory.",
+			len(drift.Additive), manifest.CodexVersion)
+	}
+	if drift.HasBreaking() {
+		for _, item := range drift.Breaking {
+			t.Errorf("BREAKING drift: %s", item)
+		}
+		t.Fatalf("%d breaking difference(s) against the %s pin: a method we may send or handle "+
+			"changed meaning or went away", len(drift.Breaking), manifest.CodexVersion)
+	}
+	if exact {
+		if !reflect.DeepEqual(stable, manifest.Stable) {
+			t.Errorf("exact mode: installed stable surface differs from the %s manifest", manifest.CodexVersion)
+		}
+		if !reflect.DeepEqual(experimental, manifest.Experimental) {
+			t.Errorf("exact mode: installed experimental surface differs from the %s manifest", manifest.CodexVersion)
+		}
 	}
 
 	p := NewWithLogger(Config{Bin: "codex"}, testLogger(t))
@@ -59,8 +87,15 @@ func TestLiveContractNoModelTurn(t *testing.T) {
 	metadata := p.eng.initialize
 	fr := p.eng.conn
 	p.mu.Unlock()
-	if !snapshot.EvidenceMatched {
-		t.Fatalf("binary identity differs from fixture: %+v", snapshot.Sanitized())
+	if exact && !snapshot.EvidenceMatched {
+		t.Fatalf("exact mode: binary identity differs from the fixture: %+v", snapshot.Sanitized())
+	}
+	if !exact && !snapshot.EvidenceMatched {
+		// Expected off the capture host, and on a Windows npm install the hash is
+		// of the ~341-byte .cmd shim rather than the engine, so it carries little
+		// evidence anyway (MADR 0163 D18).
+		t.Logf("binary identity differs from the fixture (expected off the pinning host): %+v",
+			snapshot.Sanitized())
 	}
 	if metadata.UserAgent == "" || metadata.PlatformFamily == "" || metadata.PlatformOS == "" {
 		t.Fatalf("incomplete initialize response: %+v", metadata)

@@ -321,3 +321,166 @@ func parseSchemaMethods(raw []byte, definition string) ([]WireContract, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].Method < out[j].Method })
 	return out, nil
 }
+
+// --- PLAN 0163 P5: breaking drift versus additive drift -------------------
+
+// SurfaceDrift separates the differences that break a client from the ones that
+// merely mean Codex grew.
+//
+// The gate this serves used to compare the whole captured surface with
+// reflect.DeepEqual, which fails on any addition and therefore could not pass on
+// a host whose Codex was newer than the pin. A gate that cannot go green is a
+// gate nobody runs: seven declared notifications went unrouted for six releases
+// behind it, and the pin drifted six releases while the check "existed"
+// (MADR 0163 F1/D3).
+type SurfaceDrift struct {
+	// Breaking is drift a client can be wrong about: something it may already
+	// send or handle has changed meaning or gone away.
+	Breaking []string
+	// Additive is drift that cannot break a correct client: Codex declares more
+	// than the pin knows about.
+	Additive []string
+}
+
+// HasBreaking reports whether any difference requires a code change.
+func (d SurfaceDrift) HasBreaking() bool { return len(d.Breaking) > 0 }
+
+// CompareSurfaces classifies the difference between a pinned surface and a
+// freshly captured one.
+//
+// Breaking, with the reason each one is not merely cosmetic:
+//   - a method the pin declares and the capture does not: if we send or handle
+//     it, it now fails at runtime; if we do not, our inventory is describing a
+//     protocol that no longer exists.
+//   - a stability demotion (pinned stable, now experimental-only): the method
+//     still exists but silently requires an opt-in we may not have negotiated,
+//     which surfaces as -32600 at the call site rather than at start-up.
+//
+// Additive: a method the capture declares and the pin does not. A correct client
+// ignores what it does not know, so this is reported and does not fail.
+//
+// Newly required fields are compared separately by CompareRequiredFields, which
+// needs the fixtures rather than the surfaces.
+func CompareSurfaces(pinnedStable, pinnedExperimental, freshStable, freshExperimental ContractSurface) SurfaceDrift {
+	var drift SurfaceDrift
+	for _, pair := range []struct {
+		label  string
+		pinned ContractSurface
+		fresh  ContractSurface
+	}{
+		{"stable", pinnedStable, freshStable},
+		{"experimental", pinnedExperimental, freshExperimental},
+	} {
+		for kind, entries := range map[WireKind][]WireContract{
+			WireClientRequest: pair.pinned.ClientRequests,
+			WireNotification:  pair.pinned.ServerNotifications,
+			WireServerRequest: pair.pinned.ServerRequests,
+		} {
+			fresh := surfaceMethods(pair.fresh, kind)
+			for _, entry := range entries {
+				if _, ok := fresh[entry.Method]; !ok {
+					drift.Breaking = append(drift.Breaking,
+						"removed "+pair.label+" "+string(kind)+" "+entry.Method+
+							" (classification "+string(entry.Classification)+")")
+				}
+			}
+		}
+		for kind, entries := range map[WireKind][]WireContract{
+			WireClientRequest: pair.fresh.ClientRequests,
+			WireNotification:  pair.fresh.ServerNotifications,
+			WireServerRequest: pair.fresh.ServerRequests,
+		} {
+			pinned := surfaceMethods(pair.pinned, kind)
+			for _, entry := range entries {
+				if _, ok := pinned[entry.Method]; !ok {
+					drift.Additive = append(drift.Additive,
+						"added "+pair.label+" "+string(kind)+" "+entry.Method)
+				}
+			}
+		}
+	}
+
+	// A demotion hides inside the two lists above as "removed from stable" plus
+	// "still present in experimental", which reads as an addition nobody needs to
+	// act on. Name it for what it is.
+	freshExperimentalRequests := surfaceMethods(freshExperimental, WireClientRequest)
+	freshStableRequests := surfaceMethods(freshStable, WireClientRequest)
+	for _, entry := range pinnedStable.ClientRequests {
+		_, stillStable := freshStableRequests[entry.Method]
+		_, inExperimental := freshExperimentalRequests[entry.Method]
+		if !stillStable && inExperimental {
+			drift.Breaking = append(drift.Breaking,
+				"demoted to experimental-only: client_request "+entry.Method+
+					" (now needs the experimentalApi opt-in)")
+		}
+	}
+
+	sort.Strings(drift.Breaking)
+	sort.Strings(drift.Additive)
+	return drift
+}
+
+func surfaceMethods(surface ContractSurface, kind WireKind) map[string]struct{} {
+	var entries []WireContract
+	switch kind {
+	case WireClientRequest:
+		entries = surface.ClientRequests
+	case WireNotification:
+		entries = surface.ServerNotifications
+	case WireServerRequest:
+		entries = surface.ServerRequests
+	}
+	out := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		out[entry.Method] = struct{}{}
+	}
+	return out
+}
+
+// CompareRequiredFields reports fields that became required, which is the one
+// shape change a strict client cannot survive: it starts sending a request the
+// engine now rejects, or reading a result field that may be absent.
+//
+// A field that stops being required is additive — the client keeps sending it —
+// so it is not reported here.
+func CompareRequiredFields(pinned, fresh []ContractFixture) []string {
+	type key struct {
+		kind   WireKind
+		method string
+	}
+	freshByMethod := make(map[key]ContractFixture, len(fresh))
+	for _, fixture := range fresh {
+		freshByMethod[key{fixture.Kind, fixture.Method}] = fixture
+	}
+	var breaking []string
+	for _, before := range pinned {
+		after, ok := freshByMethod[key{before.Kind, before.Method}]
+		if !ok {
+			continue // removal is reported by CompareSurfaces
+		}
+		for _, field := range newlyRequired(before.RequiredParams, after.RequiredParams) {
+			breaking = append(breaking,
+				"newly required param "+string(before.Kind)+" "+before.Method+"."+field)
+		}
+		for _, field := range newlyRequired(before.RequiredResult, after.RequiredResult) {
+			breaking = append(breaking,
+				"newly required result field "+string(before.Kind)+" "+before.Method+"."+field)
+		}
+	}
+	sort.Strings(breaking)
+	return breaking
+}
+
+func newlyRequired(before, after []string) []string {
+	had := make(map[string]struct{}, len(before))
+	for _, field := range before {
+		had[field] = struct{}{}
+	}
+	var added []string
+	for _, field := range after {
+		if _, ok := had[field]; !ok {
+			added = append(added, field)
+		}
+	}
+	return added
+}
