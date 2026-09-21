@@ -759,3 +759,64 @@ macro change.
   defects that mattered, and the rest is named here so the gap is a decision.
 * **An unshallowed Codex clone** — would close the 2026-09-04 → 09-06 attribution
   gap. Only worth it if we need PR history for that window.
+
+## Amendment — 2026-09-21: P14, the live suite cannot go green on Windows
+
+Discovered while verifying P6, which runs `make live-codex`. Out of scope for
+P4–P6, so it is named here rather than smuggled into them; the owner approved
+fixing it directly ("Fix the cleanup").
+
+**What happens.** `make live-codex` fails on this host with
+
+```text
+TempDir RemoveAll cleanup: unlinkat …\TestLiveThreadStartSandboxShapestring_accepted…\001:
+  The process cannot access the file because it is being used by another process.
+```
+
+No assertion fails: `object_rejected` and `unknown_variant_rejected` both pass, so
+the sandbox param-shape contract (MADR 0044 Finding 5, 0163 F17) is intact. It is
+the harness, and it predates this plan — it reproduces with every commit of
+releases 1 and 2 stashed.
+
+**Why.** A lifetime inversion. `liveEngine(t)` starts the engine for the *parent*
+test and hands back `p.Shutdown`, which the parent runs from `defer`. The cwd for
+each `thread/start` comes from `t.TempDir()` called on the *subtest*, so the
+directory is removed when the subtest ends — while the engine is still running and
+codex still has that directory as a live thread's working directory. On Windows an
+open handle blocks removal; on Unix it does not, which is why CI never saw it.
+
+Four sites share the pattern: `live_sandbox_test.go` (3) and
+`live_turn_test.go:183` (1).
+
+### P14 — a thread cwd outlives the engine that is using it
+
+1. `live_helpers_test.go`: add `liveThreadCwd(t)`, which creates the directory
+   with `os.MkdirTemp` and registers its own cleanup, plus a bounded retry around
+   `os.RemoveAll`. Owning the cleanup rather than borrowing `t.TempDir()`'s makes
+   the fix independent of whether the caller is a parent or a subtest, which is
+   the actual defect — the ordering is easy to reintroduce.
+2. A cleanup that still fails after the retry window **logs and does not fail the
+   test**: a leftover temp directory is harness residue, not a product defect, and
+   failing on it is what makes a live suite unrunnable. The log names the path and
+   the error so a genuine process leak is still visible.
+3. Replace the four `t.TempDir()` thread-cwd call sites with it. Other
+   `t.TempDir()` uses — isolated `CODEX_HOME`s, schema output directories — are
+   left alone: nothing holds them open.
+
+**Verification (P14).**
+
+```bash
+make live-codex          # green, including string_accepted
+go vet -tags live_codex ./internal/provider/codex/
+go vet -tags live_codex_turn ./internal/provider/codex/
+```
+
+`live_turn_test.go` is under the billed `live_codex_turn` tag; its call site is
+corrected and vetted, and exercising it waits for the release-3 acceptance pass
+that already spends a turn.
+
+**Acceptance (addition).**
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A24 | `make live-codex` passes on Windows; a thread cwd is removed after the engine stops, and an unremovable one logs rather than failing | — (harness) |
