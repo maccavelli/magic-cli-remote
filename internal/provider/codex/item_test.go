@@ -8,10 +8,15 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
-// threadItemTypes is the full set of v2 ThreadItem discriminator values,
-// captured from the live codex 0.145.0 probe (docs/codex-spike-0.145.0/
-// item-stream.json). MADR 0035 D1: the allowlist is a subset, the rest
-// either become a notice or are silent.
+// threadItemTypes is the full set of v2 ThreadItem discriminator values.
+// MADR 0035 D1: the allowlist is a subset, the rest either become a notice or
+// are silent.
+//
+// Refreshed for codex 0.155.1, whose ThreadItem union has 19 variants — measured
+// from the binary's own schema export, not from a probe transcript. The previous
+// list was the live 0.145.0 probe (docs/codex-spike-0.145.0/item-stream.json) and
+// was therefore frozen at 18: functionCallOutput was missing, so nothing in this
+// suite noticed that the item was being dropped (MADR 0163 F13).
 var threadItemTypes = []string{
 	"userMessage",
 	"agentMessage",
@@ -31,6 +36,7 @@ var threadItemTypes = []string{
 	"hookPrompt",
 	"plan",
 	"sleep",
+	"functionCallOutput",
 }
 
 // expectedClassification is what the v2 item type is allowed to produce
@@ -59,6 +65,12 @@ var expectedClassification = map[string]string{
 	"reasoning":           "silent",
 	"plan":                "silent",
 	"sleep":               "silent",
+	// The hook runtime's function-call result. Silent because the hook's own
+	// prompt already renders as a tool card, so a second card would double-count
+	// one action (MADR 0163 D6; see the evidence in items.go). "silent" here
+	// means acknowledged-and-not-rendered, which is materially different from the
+	// pre-0163 behaviour of counting as an unknown item.
+	"functionCallOutput": "silent",
 }
 
 // TestItemAllowlistClassification covers every v2 item type. Anything not
@@ -256,3 +268,33 @@ func TestEmitToolStartedCoversEveryAllowlistedType(t *testing.T) {
 
 // touch event to keep the import alive if no other test uses it.
 var _ = event.TypeNotice
+
+// TestFunctionCallOutputIsAcknowledgedNotUnknown is acceptance criterion A5 of
+// PLAN 0163 and the regression test for MADR 0163 F13.
+//
+// codex 0.155.1 added functionCallOutput to the ThreadItem union. Every item type
+// absent from BOTH registries in items.go increments session.unknownItems and is
+// dropped from the transcript with a debug line (session.go:1498-1504), which is
+// quiet enough that the item went unnoticed for six releases — the enumeration
+// this suite checked was frozen at the 0.145.0 probe.
+//
+// The assertion is deliberately about the counter, not about rendering: dropping
+// the item silently and acknowledging it deliberately look identical in the
+// transcript, and only the counter tells them apart.
+func TestFunctionCallOutputIsAcknowledgedNotUnknown(t *testing.T) {
+	s := newNotificationTestSession()
+	s.handleNotification("item/started", encodeItemStarted(t, "functionCallOutput"))
+
+	if got := s.unknownItems.Load(); got != 0 {
+		t.Errorf("unknownItems = %d after a functionCallOutput item, want 0: the item is "+
+			"declared by codex 0.155.1 and must be acknowledged by one of the registries "+
+			"in items.go, not counted as unknown", got)
+	}
+	// And it must not grow a tool card: the hook's own prompt already rendered.
+	for _, ev := range drainEvents(s) {
+		if ev.Type == event.TypeToolCall {
+			t.Errorf("functionCallOutput produced a transcript tool card (%+v); the hookPrompt "+
+				"side already renders one, so this would double-count one action", ev)
+		}
+	}
+}

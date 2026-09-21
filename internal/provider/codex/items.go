@@ -31,6 +31,21 @@ var knownNonToolItems = map[string]struct{}{
 	"userMessage": {}, "agentMessage": {}, "plan": {}, "reasoning": {},
 	"collabAgentToolCall": {}, "subAgentActivity": {}, "contextCompaction": {},
 	"enteredReviewMode": {}, "exitedReviewMode": {}, "sleep": {},
+	// functionCallOutput, added by codex 0.155.1, is acknowledged rather than
+	// rendered (MADR 0163 F13/D6). Three pieces of evidence put it here and not
+	// in itemsRenderedAsTools:
+	//   1. There is no functionCall ThreadItem variant at all, so this is not
+	//      the output half of a call/response pair the transcript can show.
+	//   2. It is emitted only by the hook runtime — codex-rs/core/src/
+	//      hook_runtime.rs:729-747 feeds a function-call output back into the
+	//      turn and emits started+completed for it — and the prompt side of a
+	//      hook already renders through hookPrompt above.
+	//   3. Codex's own legacy event mapping produces nothing for either
+	//      FunctionCallOutput or HookPrompt (protocol/src/legacy_events.rs:524),
+	//      i.e. upstream treats them as one action, not two.
+	// Before this entry the item fell through to s.unknownItems and was dropped
+	// from the transcript with only a debug line.
+	"functionCallOutput": {},
 }
 
 func (s *session) markItemStarted(id string) bool {
