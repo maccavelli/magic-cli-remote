@@ -1414,3 +1414,81 @@ green. The only outstanding item is the **manual phone pass** described in Rollo
 (resume a long thread, confirm a `writeStdin` approval and an error class read
 correctly), which needs a person and a device. The plan stays `in-progress` until
 that is done.
+
+## Deviation — 2026-09-21 (post-acceptance): the CI flake was not a timeout
+
+**Found** by the flake ledger after release 3 was pushed, **fixed** at the owner's
+instruction in commit `2bd43d3`. Amended here rather than opened as a new number
+because the test guards `resolveBinaryIdentity`, which P10 changed (**A20**), and it
+was this plan's own pushes that surfaced it.
+
+### The first diagnosis was wrong, and the record should say so
+
+`TestResolveBinaryIdentityHelperDoesNotCountAsLaunch` failed the whole build once
+(run `35552774193`) and was recorded fail-then-pass hours later on a different job
+(run `35606940444`). It was reported — by me, in this plan's own status summary — as
+a timing flake: the test spawns the test binary as a helper under a 5-second
+deadline, which is the classic shape that expires on a loaded runner. A fix
+lengthening that deadline was written and then **reverted unused**.
+
+The full CI log says otherwise, and the truncated read is what hid it:
+
+```text
+--- FAIL: TestResolveBinaryIdentityHelperDoesNotCountAsLaunch (0.01s)
+    collaboration_test.go:199: identity probe wrote launch log (1 lines);
+    --version inherited helper env
+```
+
+**0.01 seconds.** Not a deadline — the third assertion, that the launch log does not
+exist. Widening the timeout would have changed nothing, and its explanatory comment
+would have left a confidently wrong cause in the tree. The first read had grepped
+only the `--- FAIL` line and inferred the rest, which is precisely the failure the
+house rule about never truncating evidence exists to prevent.
+
+### The real cause
+
+`runAppServerHelper` (`provider_test.go:29`) reads `CODEX_HELPER_LAUNCH_LOG` from
+its **inherited** environment, and `t.Setenv` makes that variable process-wide. So
+every helper child alive during the test appends a row to *that test's* file —
+including a straggler spawned by an earlier test whose teardown has not finished
+killing it, which the surrounding CI log shows happening ("engine exited … signal:
+killed"). The test asserted the file did not exist, and any stranger falsified it.
+
+It bites on CI and not locally because slower process teardown widens the window.
+Nothing about the code under test was ever wrong.
+
+### The fix, and why it is stronger rather than looser
+
+Relaxing a flaky assertion usually weakens it. This one is now **stricter**, because
+it states the guarantee instead of a proxy for it. The helper records what it was
+launched with, and the test fails on a row naming `--version` — an exec of the
+binary by the identity probe, which is the actual defect (MADR 0119 P6) — while
+rows belonging to anyone else are no longer this test's business.
+
+Verified both directions, since a flake fix that cannot fail is just a deleted test:
+
+| mutation | required | observed |
+| --- | --- | --- |
+| the probe execs the binary, version still correct | fail | fail — `identity probe exec'd the binary: "launch --version"` |
+| a stranger's row seeded in the log | pass | pass |
+
+The first mutation keeps the reported version correct on purpose, so only the new
+assertion can catch it; the old file-existence check would have been satisfied by
+either.
+
+Gates: `pre-add-check` clean, `-race` green, `make ci-windows` exit 0, and on the
+Linux cgo-free lane that produced the original failure the package is green and the
+formerly flaky test passes 5 consecutive runs.
+
+### Scope deliberately not widened
+
+`collaboration_test.go` holds nine helper-spawn deadlines and
+`reconnect_p3_test.go` two more, all the same 5-second shape. **None was changed**:
+they are generous budgets that no test asserts on, they were never the cause here,
+and changing them would have been the wrong fix applied broadly. Named so a later
+reader does not mistake the restraint for an oversight — if a genuine timing flake
+ever appears in this file, that is the moment to revisit them, with evidence.
+
+`ci-flakes.tsv` keeps both historical rows. They are the evidence that the flake was
+real and recurring, and deleting them to make the ledger look clean would destroy
+the only record that this was ever a problem.
