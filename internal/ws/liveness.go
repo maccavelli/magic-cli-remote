@@ -175,7 +175,17 @@ func (s *Server) capsFor(c *client) *protocol.Caps {
 	// (MADR 0074 P20 step 12).
 	caps.ProviderAuthTransactions = s.providerAuthTransactions
 	if c.negotiated >= protocol.V2 && c.codexSurfaceVersion >= 1 {
+		// The manifest is the fallback, not the answer. Once an engine has
+		// negotiated, advertise what THAT engine offers: an engine that refused
+		// `experimental` supports none of the experimental capabilities, and
+		// advertising them anyway promises the phone operations the daemon will
+		// refuse (MADR 0163 D16).
 		operations, experimental := codex.SurfaceCapabilityIDs()
+		if p, err := s.codexProvider(); err == nil {
+			if negotiatedOps, negotiatedExp, ok := p.NegotiatedSurfaceCapabilityIDs(); ok {
+				operations, experimental = negotiatedOps, negotiatedExp
+			}
+		}
 		caps.CodexSurface = &protocol.CodexSurfaceCaps{
 			Version: 1, Operations: operations, Experimental: experimental,
 			MaxPageSize: 100, MaxTextBytes: 262144, MaxBinaryChunkBytes: 262144,

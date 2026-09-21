@@ -316,9 +316,61 @@ func cloneCapabilitySnapshot(in CapabilitySnapshot) CapabilitySnapshot {
 	return out
 }
 
+// NegotiatedSurfaceCapabilityIDs returns the capabilities THIS engine actually
+// offers, in bytewise order, reporting false when no engine has negotiated yet.
+//
+// The manifest describes what the pinned binary can do; it is not a promise
+// about the process we are talking to. Two things narrow it at runtime: the
+// engine may have refused `experimental` at initialize, in which case every
+// experimental capability is denied, and a capability may have been disabled by
+// a runtime rejection. Advertising the manifest regardless tells the phone the
+// daemon can do things it will then refuse, and the phone's only way to discover
+// that is to try and fail (MADR 0163 D16).
+//
+// Reads the snapshot rather than calling Supports, deliberately: Supports has a
+// side effect — it lets an expired denial through so the next call re-probes —
+// and an advertisement should observe state, not mutate it. The cost is that a
+// capability whose denial has just expired stays unadvertised until real use
+// re-probes it, which under-advertises rather than over-promises.
+func (p *Provider) NegotiatedSurfaceCapabilityIDs() (stable, experimental []string, negotiated bool) {
+	if p == nil {
+		return nil, nil, false
+	}
+	p.mu.Lock()
+	var state *capabilityState
+	if p.eng != nil {
+		state = p.eng.capabilities
+	}
+	p.mu.Unlock()
+	if state == nil {
+		return nil, nil, false
+	}
+	m, err := loadEmbeddedContractManifest()
+	if err != nil {
+		return nil, nil, false
+	}
+	snapshot := state.Snapshot()
+	for _, capability := range m.Capabilities {
+		if !snapshot.Supports(capability.ID) {
+			continue
+		}
+		if capability.Stability == StabilityExperimental {
+			experimental = append(experimental, string(capability.ID))
+		} else {
+			stable = append(stable, string(capability.ID))
+		}
+	}
+	sort.Strings(stable)
+	sort.Strings(experimental)
+	return stable, experimental, true
+}
+
 // SurfaceCapabilityIDs returns the installed manifest's stable and
-// experimental product capability IDs in bytewise order. It is the source for
-// the v2 phone advertisement; errors fail closed to empty lists.
+// experimental product capability IDs in bytewise order. It is what the
+// advertisement falls back to before any engine has negotiated, when the
+// manifest is the only evidence available; prefer
+// NegotiatedSurfaceCapabilityIDs once an engine is running. Errors fail closed
+// to empty lists.
 func SurfaceCapabilityIDs() (stable, experimental []string) {
 	m, err := loadEmbeddedContractManifest()
 	if err != nil {
