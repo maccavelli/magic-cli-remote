@@ -17,9 +17,13 @@ const (
 	notificationRouteProvider
 )
 
-// codex01491NotificationRoutes is exhaustive for the installed stable schema.
-// Unknown methods are never forwarded and their params are never logged.
-var codex01491NotificationRoutes = map[string]notificationRoute{
+// notificationRoutes must cover every notification the embedded contract
+// manifest declares; routing_test.go enforces that. An absent method routes to
+// notificationRouteUnknown (the zero value) and is dropped with a Debug log,
+// which is silent enough that seven notifications went unrouted for six Codex
+// releases — see MADR 0163 F12. The name is deliberately version-neutral: its
+// predecessor was called after 0.149.1 and outlived that pin (0163 F3).
+var notificationRoutes = map[string]notificationRoute{
 	"account/login/completed":                   notificationRouteProvider,
 	"account/rateLimits/updated":                notificationRouteProvider,
 	"account/updated":                           notificationRouteProvider,
@@ -83,6 +87,10 @@ var codex01491NotificationRoutes = map[string]notificationRoute{
 	"thread/realtime/transcript/done":           notificationRouteSession,
 	"thread/reverted":                           notificationRouteSession,
 	"thread/settings/updated":                   notificationRouteSession,
+	"thread/attachment/updated":                 notificationRouteProvider,
+	"thread/realtime/item/completed":            notificationRouteProvider,
+	"thread/realtime/item/started":              notificationRouteProvider,
+	"thread/realtime/item/transcript/delta":     notificationRouteProvider,
 	"thread/started":                            notificationRouteSession,
 	"thread/status/changed":                     notificationRouteSession,
 	"thread/tokenUsage/updated":                 notificationRouteSession,
@@ -93,12 +101,15 @@ var codex01491NotificationRoutes = map[string]notificationRoute{
 	"turn/plan/updated":                         notificationRouteSession,
 	"turn/started":                              notificationRouteSession,
 	"warning":                                   notificationRouteProvider,
+	"mcpServer/event/stream/notification":       notificationRouteProvider,
+	"modelProvider/authRecoveryCompleted":       notificationRouteSession,
+	"modelProvider/authRecoveryStarted":         notificationRouteSession,
 	"windows/worldWritableWarning":              notificationRouteProvider,
 	"windowsSandbox/setupCompleted":             notificationRouteProvider,
 }
 
 func notificationRouteFor(method string) notificationRoute {
-	return codex01491NotificationRoutes[method]
+	return notificationRoutes[method]
 }
 
 func (p *Provider) sessionsSnapshot() []*session {
@@ -153,6 +164,16 @@ func (p *Provider) handleProviderNotification(method string, params json.RawMess
 			s.emit(event.Event{Type: event.TypeCodexWarning, SessionID: s.localID, Timestamp: time.Now().UTC(), AgentSessionID: s.agentID,
 				Codex: &event.CodexPayload{Key: "warning:" + method + ":" + body.ThreadID, Kind: kind, Status: "completed", Title: "Codex warning", Text: message}})
 		}
+	case "thread/attachment/updated",
+		"mcpServer/event/stream/notification",
+		"thread/realtime/item/started",
+		"thread/realtime/item/transcript/delta",
+		"thread/realtime/item/completed":
+		// Declared and deliberately not consumed yet: thread attachments, MCP
+		// event streams and realtime voice items are Deferred in PLAN 0163. A
+		// declared drop is not the same as an unrouted one — it is greppable,
+		// tested, and cannot be mistaken for a notification nobody knew about.
+		p.log.Debug("codex: declared notification not consumed", slog.String("method", method))
 	default:
 		p.log.Debug("codex: provider notification observed", slog.String("method", method))
 	}

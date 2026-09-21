@@ -4,37 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"log/slog"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
-
-func TestRoutingClassifiesAllCodex01491Notifications(t *testing.T) {
-	b, err := os.ReadFile("testdata/0.149.1/manifest.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest struct {
-		Stable struct {
-			Notifications []struct {
-				Method string `json:"method"`
-			} `json:"server_notifications"`
-		} `json:"stable"`
-	}
-	if err := json.Unmarshal(b, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if got := len(manifest.Stable.Notifications); got != 75 {
-		t.Fatalf("fixture notifications = %d, want 75", got)
-	}
-	for _, n := range manifest.Stable.Notifications {
-		if route := notificationRouteFor(n.Method); route == notificationRouteUnknown {
-			t.Errorf("unclassified notification %q", n.Method)
-		}
-	}
-}
 
 func TestProviderGlobalRoutingWorksWithoutThreadID(t *testing.T) {
 	s, _ := permSession(t)

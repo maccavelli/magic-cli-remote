@@ -17,6 +17,19 @@ func newNotificationTestSession() *session {
 	}
 }
 
+// newRoutedNotificationProvider registers one session under its agent id so a
+// test can drive Provider.routeNotification — the path production takes — rather
+// than calling session.handleNotification directly. Calling the handler directly
+// is how TestAuthRecoveryNotificationsAreRouted passed for a release while the
+// route table had no entry for either method and nothing reached the session
+// (MADR 0163 F12).
+func newRoutedNotificationProvider() (*Provider, *session) {
+	s := newNotificationTestSession()
+	p := &Provider{sessions: map[string]*session{s.agentID: s}, log: slog.Default()}
+	s.p = p
+	return p, s
+}
+
 // TestAuthRecoveryNotificationsAreRouted is MADR 0137 F9.
 //
 // Codex reports credential recovery as it happens. That is worth surfacing
@@ -31,10 +44,12 @@ func TestAuthRecoveryNotificationsAreRouted(t *testing.T) {
 		"modelProvider/authRecoveryCompleted",
 	} {
 		t.Run(method, func(t *testing.T) {
-			s := newNotificationTestSession()
-			params := json.RawMessage(`{"threadId":"t1","turnId":"u1",` +
+			p, s := newRoutedNotificationProvider()
+			params := json.RawMessage(`{"threadId":"` + s.agentID + `","turnId":"u1",` +
 				`"provider":"openai","message":"Refreshing ChatGPT credentials"}`)
-			s.handleNotification(method, params)
+			// Through the router, not the handler: the name of this test claims
+			// routing, so it must fail if the route table loses the entry.
+			p.routeNotification(method, params)
 
 			ev := firstEvent(t, s, event.TypeNotice)
 			if ev.Text != "Refreshing ChatGPT credentials" {
