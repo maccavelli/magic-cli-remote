@@ -157,12 +157,28 @@ func (p *Provider) handleProviderNotification(method string, params json.RawMess
 		if kind == "" {
 			kind = "warning"
 		}
+		warning := codexWarning{method: method, threadID: body.ThreadID, kind: kind, message: message}
+		delivered := 0
 		for _, s := range sessions {
 			if body.ThreadID != "" && body.ThreadID != s.agentID {
 				continue
 			}
-			s.emit(event.Event{Type: event.TypeCodexWarning, SessionID: s.localID, Timestamp: time.Now().UTC(), AgentSessionID: s.agentID,
-				Codex: &event.CodexPayload{Key: "warning:" + method + ":" + body.ThreadID, Kind: kind, Status: "completed", Title: "Codex warning", Text: message}})
+			s.emitCodexWarning(warning)
+			delivered++
+		}
+		// A warning nobody was listening for is not a warning that did not happen.
+		// Engine start, initialize and the first resume all run before Start
+		// registers the session (provider.go), so a warning raised in that window
+		// found an empty session list and was dropped with no log and no trace —
+		// which is how a live deprecationNotice went unobserved and left A13
+		// passing either way (MADR 0163 amendment 2026-09-21).
+		//
+		// Only provider-global warnings are held. A thread-scoped warning whose
+		// thread we do not know is deliberately let go: replaying it to whichever
+		// session registers next would attribute one thread's warning to another,
+		// which is worse than losing it.
+		if delivered == 0 && body.ThreadID == "" {
+			p.noteEarlyWarning(warning)
 		}
 	case "thread/attachment/updated",
 		"mcpServer/event/stream/notification",

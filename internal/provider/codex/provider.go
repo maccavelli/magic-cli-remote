@@ -83,8 +83,11 @@ type Provider struct {
 
 	sessions   map[string]*session
 	generation int
-	terminals  *terminalRegistry
-	execution  *executionAPI
+	// earlyWarnings holds provider-level warnings raised before any session was
+	// registered, guarded by mu. See noteEarlyWarning.
+	earlyWarnings []codexWarning
+	terminals     *terminalRegistry
+	execution     *executionAPI
 	// terminalSink is the daemon's live terminal push. Terminal bytes are
 	// never session history, so they use this channel instead of event.Event.
 	terminalSink TerminalOutputSink
@@ -1248,6 +1251,13 @@ func (p *Provider) startSession(ctx context.Context, opts provider.StartOptions)
 	}
 	p.sessions[s.agentID] = s
 	p.mu.Unlock()
+	// Hand over anything the engine warned about before this session existed.
+	// Deliberately after registration: a warning raised between the unlock and
+	// here reaches the session through the ordinary fan-out, so the two paths
+	// cannot both miss it.
+	for _, warning := range p.drainEarlyWarnings() {
+		s.emitCodexWarning(warning)
+	}
 	go s.hydrateGoalAsync()
 
 	return s, nil
