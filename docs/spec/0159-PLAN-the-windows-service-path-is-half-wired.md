@@ -1639,6 +1639,82 @@ the concurrent case.
     from a copy taken beforehand. **While a phase is uncommitted, a mutation test
     must restore from a file copy, never from git.**
 
+### v0.19.0 rollout (2026-09-20)
+
+**Released.** `make ci-windows-smoke` passed before the tag (B12 dist build, B13
+`CGO_ENABLED=0` asserted on the artifact, B14 version identity). CI on master
+(run `35541300852`) succeeded on `471a661`; the tag run `35541692853` succeeded on
+all **10** jobs, including the four that master skips because they are tag-gated
+(Smoke ×2, Android APK, and the two publish jobs). The release is published, not
+draft, not pre-release, with 12 assets.
+
+**Owner rollout.** `update` succeeded for both products — `mcremote 0.19.0
+(471a661)` and `mcrelay 0.19.0 (471a661)`. The phone was updated, a fresh code
+pair completed, and login was clean.
+
+**A25 confirmed, and A11's logon half is closed.** The owner reports **no window
+for any agent session, and no session killed**, after a fresh logon — which is
+the logon path P13 step 6 had left unverified since v0.18.1.
+
+**Verified on the host.** Task `Running`/`Enabled`, arguments still end with
+`--detach-console`, `setup-service --refresh --json` → `unchanged`, and the
+daemon (pid 48140, parent `svchost.exe`) has no console host of its own.
+
+**D23 and D24 are visible in the live process tree**, which is better evidence
+than any test:
+
+```text
+cmd.exe /d /s /v:off /c ""C:\Users\macsm\AppData\Roaming\npm\kilo.cmd" "serve" "--hostname" "127.0.0…
+cmd.exe /d /s /v:off /c ""C:\Users\macsm\AppData\Roaming\npm\opencode.cmd" "serve" "--hostname" "127…
+cmd.exe /d /s /v:off /c ""C:\Users\macsm\AppData\Roaming\npm\codex.cmd" "app-server" "--listen" "std…
+grok.exe --permission-mode default --no-auto-update agent --no-leader stdio
+```
+
+Every element quoted, `/d /s /v:off /c` present, and `grok` — a native `.exe` —
+started directly with no interpreter, exactly as D23 specifies. Each child owns a
+`conhost.exe` with `MainWindowHandle=0`, the windowless console probe 8 measured
+for `CREATE_NO_WINDOW`, and **no `conhost` or `OpenConsole` process on the host
+has a window at all**.
+
+### One failure, and it is not this plan's (2026-09-20)
+
+Codex sessions fail with `config.toml` **permission denied**. Investigated
+read-only; **no code change**, recorded here so it is not re-investigated later as
+a D23/D24 regression.
+
+It is codex's own Windows sandbox. `~/.codex/.sandbox/sandbox.2026-09-19.log`
+records, at 10:02:18 on 2026-09-19:
+
+```text
+setup refresh: spawning …\codex-resources\codex-windows-sandbox-setup.exe
+granting write ACE to C:\Users\macsm\gitrepos for sandbox group and capability SID
+read-acl-only mode: applying read ACLs
+```
+
+* `~/.codex/config.toml` was **recreated** at 10:01:55 that morning
+  (`CreationTime == LastWriteTime`), immediately before that sandbox setup ran —
+  hours before any v0.19.0 work touched this host, and the only codex invocation
+  from this session was `codex.cmd --version` in probe 12.
+* Exactly two files are unreadable: `config.toml` and that day's
+  `sandbox.2026-09-19.log`. `auth.json` and roughly forty siblings read fine.
+* The owner's **interactive shell** cannot read the file, and cannot read its
+  security descriptor either, so the account does not own it. The daemon runs as
+  that same account (`MAC420\macsm`), so no spawn-path change can be involved —
+  this reproduces with `mcremote` out of the picture entirely.
+* Codex's own undo bookkeeping, `.sandbox/deny_read_acl_state.json`, is
+  `{"principals": {}}` — empty, so the mechanism that applied those ACLs has lost
+  what it needs to reverse them.
+* `mcremote` only reads that path, in
+  `internal/provider/codex/authstore.go:58` (`DetectCredentialStore`), and returns
+  the error unchanged. This project's DACL code has **no callers outside
+  `internal/appdirs` and `internal/admin`** and never touches `~/.codex`.
+
+The remedy is the owner's: take ownership of the file and grant themselves full
+control, from an elevated prompt, which preserves its 3070 bytes. Worth noting
+separately that the same codex run granted a write ACE on
+`C:\Users\macsm\gitrepos` to a sandbox group and capability SID, so codex has been
+editing ACLs inside the owner's repository tree.
+
 ### Not yet done
 
 * ~~v0.19.0 is an owner action~~ — **done 2026-09-20**, see the rollout record
