@@ -850,3 +850,56 @@ generator derives from its inputs) to the one field that had escaped it.
 `thread/revert` gains no capability entry here. It is stable and unused by any
 planned step, so adding one is surface we do not call; it is named in Deferred
 instead of being taken silently.
+
+## Amendment — 2026-09-21: provider warnings raised before a session exists are discarded
+
+Found while trying to *verify* A13 rather than while implementing it, which is the
+only reason it was found at all.
+
+**What was assumed.** F19 and A13 both assume that a `deprecationNotice` is
+observable: the notice is routed to the provider, so a live test can watch a
+session's events and assert it does not arrive. The plan says so explicitly — "the
+notice is routed to the provider (`routing.go`), so the test can observe it rather
+than infer it".
+
+**What is true.** The notice is routed, and then thrown away. Measured with the
+engine's own frames, captured via `MCREMOTE_WIRE_CAPTURE_DIR` while resume
+deliberately omitted `excludeTurns`:
+
+```json
+{"method":"deprecationNotice","params":{"summary":"Full-history hydration is
+deprecated for paginated threads; use `excludeTurns: true`, then page with
+`thread/turns/list` and `thread/items/list`.","details":null}}
+```
+
+The engine sent it. No event reached the session. `handleProviderNotification`
+fans warnings out over `p.sessionsSnapshot()` (`routing.go:115-127`), and the
+notice carries **no** `threadId`, so no filtering applies — the loop simply has
+nothing to iterate, because `p.sessions` is not populated until `Start` returns
+(`provider.go:1249`) and the notice arrives *during* the resume inside it.
+
+**The defect is wider than the notice.** Six methods share that fan-out —
+`warning`, `guardianWarning`, `configWarning`, `deprecationNotice`, `error` and
+`windows/worldWritableWarning`. All of them are discarded, with no log and no
+trace, for any warning raised during engine start, `initialize`, or the first
+resume. That window is precisely when a config warning or a world-writable warning
+would fire, so the classes most likely to be lost are the ones about host
+misconfiguration.
+
+**How it evaded notice.** A13 passed. It passed before the migration and after it:
+reverting `excludeTurns`, and separately forcing replay back onto
+`thread/read` + `includeTurns`, each left the test green — **0 of 2 mutations
+caught**. An absence assertion whose observation channel is broken is
+indistinguishable from a migration that worked, and this one would have been
+reported as proof.
+
+**Decision (owner, 2026-09-21).** Record provider-level warnings that find no
+session in a small bounded buffer, and deliver them to the next session that
+registers. This closes the loss for all six classes rather than for the one that
+exposed it, and gives A13 something real to assert on. A thread-scoped warning
+whose thread is unknown is **not** replayed: delivering it to an unrelated session
+would attribute one thread's warning to another.
+
+This does not change **D7**; the migration itself was correct, as the captured
+frame confirms — with `excludeTurns` sent, the engine emits nothing. What changes
+is that A13's evidence was worthless until now.

@@ -1230,3 +1230,45 @@ finished.
 Also still outstanding, and deliberately not run: `make live-codex-turn` and
 `make live-codex-review`, the billed acceptance for release 3. They spend real
 tokens and need an explicit instruction.
+
+## Deviation — 2026-09-21 (A13): the notice was routed, then discarded
+
+**Found while verifying A13, after P8 was already committed**, and resolved by
+owner decision the same turn. Recorded in the MADR too, because it contradicts an
+assumption A13 rests on.
+
+**Evidence.** `live_p8_test.go` passed. It also passed with `excludeTurns`
+removed, and with replay forced back onto `thread/read` + `includeTurns:true` —
+**0 of 2 mutations caught**, so the test could not distinguish the migration from
+its absence. Wire capture shows the engine did send the notice; our fan-out
+dropped it, because `handleProviderNotification` iterates `p.sessionsSnapshot()`
+and the session is not registered until `Start` returns.
+
+**Consequence had it shipped.** Two harms, and the smaller one is the test. A13
+would have been reported as proof of a migration it never checked. The larger one
+is that every provider-level warning raised before a session registers is silently
+lost, including `configWarning` and `windows/worldWritableWarning` — warnings about
+host misconfiguration, during the window where host misconfiguration surfaces.
+
+**Decision: buffer and replay to the next session** (option A of three; recording
+on the Provider alone was rejected for leaving the user-facing half open, and
+making the test resume inside an already-registered session was rejected outright
+as a workaround — it would hide the dropped warning rather than fix it).
+
+**Files added to scope** by this deviation:
+
+```text
+internal/provider/codex/routing.go        record when no session took the warning
+internal/provider/codex/provider.go       bounded buffer + drain at registration
+internal/provider/codex/live_p8_test.go   A13 asserts on something observable
+internal/provider/codex/pending_warning_test.go   (new) unit + mutation target
+```
+
+**Added acceptance criterion:**
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A27 | A provider warning raised with no session registered reaches the next session; a thread-scoped warning for an unknown thread does not; the buffer is bounded | D8 |
+
+**A13 is re-armed, not re-asserted.** It is only met once the two mutations above
+are caught. Until then it stays unverified, and this plan does not claim otherwise.
