@@ -60,12 +60,17 @@ and fields — never notifications — so *both* bundles list all of them, while
 runtime does suppress the experimental ones. Notification stability therefore
 comes from a scan of `#[experimental]` in
 `codex-rs/app-server-protocol/src/protocol/common.rs`, which is why
-`-SourceTree` is required and not optional. At 0.155.1 the generator reports
+`-SourceTree` is required and not optional. At 0.155.1 the capture reports
 **60 stable / 22 experimental of the 82 in the bundle** — 62/22 of 84 on the wire,
 because `export.rs` also excludes `rawResponseItem/completed` and
-`rawResponse/completed` from the JSON entirely. Before this was fixed, the manifest
-advertised notifications such as `thread/queue/changed` and
-`thread/realtime/sdp` as stable when they never arrive without the opt-in.
+`rawResponse/completed` from the JSON entirely.
+
+The captured files still record all 82 on both surfaces, because they mirror the
+exporter: a manifest that disagrees with its own source cannot pass the gate's
+exact mode. So the split is reported at capture time and written up in the
+version's README, and persisting it as a manifest field waits for
+`schema_version` 2. Until then, treat "stable notification" in the manifest as
+"declared", not as "arrives without the opt-in".
 
 **Three methods exist on the wire and in no schema.**
 `export.rs` strips `getConversationSummary`, `gitDiffToRemote` and

@@ -602,6 +602,30 @@
   },
   {
     "kind": "client_request",
+    "stability": "experimental",
+    "method": "mcpServer/event/stream/start",
+    "params_schema": "McpServerEventStreamStartParams",
+    "response_schema": "McpServerEventStreamStartResponse",
+    "required_params": [
+      "arguments",
+      "name",
+      "server",
+      "subscriptionId",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "mcpServer/event/stream/stop",
+    "params_schema": "McpServerEventStreamStopParams",
+    "response_schema": "McpServerEventStreamStopResponse",
+    "required_params": [
+      "subscriptionId"
+    ]
+  },
+  {
+    "kind": "client_request",
     "stability": "stable",
     "method": "mcpServer/oauth/login",
     "params_schema": "McpServerOauthLoginParams",
@@ -658,6 +682,17 @@
     "method": "memory/reset",
     "params_schema": "none",
     "response_schema": "MemoryResetResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "memory/status",
+    "params_schema": "MemoryStatusParams",
+    "response_schema": "MemoryStatusResponse",
+    "required_result": [
+      "v2ConsolidatedThreads",
+      "v2Ready"
+    ]
   },
   {
     "kind": "client_request",
@@ -743,6 +778,18 @@
     ],
     "required_result": [
       "plugin"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "plugin/reconcile",
+    "params_schema": "PluginReconcileParams",
+    "response_schema": "PluginReconcileResponse",
+    "required_result": [
+      "changedPlugins",
+      "failedMaterializationRemotePluginIds",
+      "failedRemotePluginIds"
     ]
   },
   {
@@ -1141,6 +1188,48 @@
   },
   {
     "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/attachment/add",
+    "params_schema": "ThreadAttachmentAddParams",
+    "response_schema": "ThreadAttachmentAddResponse",
+    "required_params": [
+      "attachmentType",
+      "identityKey",
+      "payload",
+      "threadId"
+    ],
+    "required_result": [
+      "attachment",
+      "outcome"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/attachment/list",
+    "params_schema": "ThreadAttachmentListParams",
+    "response_schema": "ThreadAttachmentListResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/attachment/remove",
+    "params_schema": "ThreadAttachmentRemoveParams",
+    "response_schema": "ThreadAttachmentRemoveResponse",
+    "required_params": [
+      "attachmentType",
+      "identityKey",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
     "stability": "experimental",
     "method": "thread/backgroundTerminals/clean",
     "params_schema": "ThreadBackgroundTerminalsCleanParams",
@@ -1292,7 +1381,7 @@
   },
   {
     "kind": "client_request",
-    "stability": "experimental",
+    "stability": "stable",
     "method": "thread/items/list",
     "params_schema": "ThreadItemsListParams",
     "response_schema": "ThreadItemsListResponse",
@@ -1537,7 +1626,7 @@
   },
   {
     "kind": "client_request",
-    "stability": "experimental",
+    "stability": "stable",
     "method": "thread/revert",
     "params_schema": "ThreadRevertParams",
     "response_schema": "ThreadRevertResponse",
@@ -1641,6 +1730,19 @@
   {
     "kind": "client_request",
     "stability": "experimental",
+    "method": "thread/timeline/list",
+    "params_schema": "ThreadTimelineListParams",
+    "response_schema": "ThreadTimelineListResponse",
+    "required_params": [
+      "threadId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
     "method": "thread/turns/list",
     "params_schema": "ThreadTurnsListParams",
     "response_schema": "ThreadTurnsListResponse",
@@ -1737,6 +1839,20 @@
   },
   {
     "kind": "client_request",
+    "stability": "experimental",
+    "method": "turn/settings/update",
+    "params_schema": "TurnSettingsUpdateParams",
+    "response_schema": "TurnSettingsUpdateResponse",
+    "required_params": [
+      "threadId",
+      "turnId"
+    ],
+    "required_result": [
+      "status"
+    ]
+  },
+  {
+    "kind": "client_request",
     "stability": "stable",
     "method": "turn/start",
     "params_schema": "TurnStartParams",
@@ -1762,6 +1878,55 @@
     ],
     "required_result": [
       "turnId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "userVerification/cancel",
+    "params_schema": "UserVerificationCancelParams",
+    "response_schema": "UserVerificationCancelResponse",
+    "required_params": [
+      "requestId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "userVerification/delete",
+    "params_schema": "UserVerificationDeleteParams",
+    "response_schema": "UserVerificationDeleteResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "userVerification/enroll",
+    "params_schema": "UserVerificationEnrollParams",
+    "response_schema": "UserVerificationEnrollResponse",
+    "required_result": [
+      "credentialId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "userVerification/status",
+    "params_schema": "UserVerificationStatusParams",
+    "response_schema": "UserVerificationStatusResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "userVerification/verify",
+    "params_schema": "UserVerificationVerifyParams",
+    "response_schema": "UserVerificationVerifyResponse",
+    "required_params": [
+      "challenge",
+      "description",
+      "title"
+    ],
+    "required_result": [
+      "proof"
     ]
   },
   {
@@ -2164,6 +2329,17 @@
   {
     "kind": "server_notification",
     "stability": "stable",
+    "method": "mcpServer/event/stream/notification",
+    "params_schema": "McpServerEventStreamNotification",
+    "response_schema": "none",
+    "required_params": [
+      "notification",
+      "subscriptionId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
     "method": "mcpServer/oauthLogin/completed",
     "params_schema": "McpServerOauthLoginCompletedNotification",
     "response_schema": "none",
@@ -2222,6 +2398,32 @@
       "threadId",
       "turnId",
       "verifications"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "modelProvider/authRecoveryCompleted",
+    "params_schema": "AuthRecoveryNotification",
+    "response_schema": "none",
+    "required_params": [
+      "message",
+      "provider",
+      "threadId",
+      "turnId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "modelProvider/authRecoveryStarted",
+    "params_schema": "AuthRecoveryNotification",
+    "response_schema": "none",
+    "required_params": [
+      "message",
+      "provider",
+      "threadId",
+      "turnId"
     ]
   },
   {
@@ -2300,6 +2502,20 @@
     "params_schema": "ThreadArchivedNotification",
     "response_schema": "none",
     "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/attachment/updated",
+    "params_schema": "ThreadAttachmentUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "attachmentId",
+      "attachmentType",
+      "identityKey",
+      "operation",
       "threadId"
     ]
   },
@@ -2426,6 +2642,40 @@
     "response_schema": "none",
     "required_params": [
       "message",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/item/completed",
+    "params_schema": "ThreadRealtimeItemCompletedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "item",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/item/started",
+    "params_schema": "ThreadRealtimeItemStartedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "item",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/realtime/item/transcript/delta",
+    "params_schema": "ThreadRealtimeItemTranscriptDeltaNotification",
+    "response_schema": "none",
+    "required_params": [
+      "delta",
+      "itemId",
       "threadId"
     ]
   },

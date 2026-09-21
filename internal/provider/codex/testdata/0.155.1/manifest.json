@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "commit": "6143217c6730e147f4a1a5a3405d10f580fe9244",
+  "codex_version": "0.155.1",
+  "binary_sha256": "c54db6755e710c39703f7c37512f9e35ed41042d8080558d2b84b8d2694323c3",
   "stable": {
     "client_requests": [
       {
@@ -31,13 +32,13 @@
         "method": "account/rateLimits/read",
         "params": "none",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "account/read",
         "params": "GetAccountParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "account/sendAddCreditsNudgeEmail",
@@ -49,13 +50,13 @@
         "method": "account/usage/read",
         "params": "none",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "account/workspaceMessages/read",
         "params": "none",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "app/installed",
@@ -79,31 +80,31 @@
         "method": "command/exec",
         "params": "CommandExecParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "command/exec/resize",
         "params": "CommandExecResizeParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "command/exec/terminate",
         "params": "CommandExecTerminateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "command/exec/write",
         "params": "CommandExecWriteParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "config/batchWrite",
         "params": "ConfigBatchWriteParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "config/mcpServer/reload",
@@ -115,7 +116,7 @@
         "method": "config/read",
         "params": "ConfigReadParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "config/value/write",
@@ -127,7 +128,7 @@
         "method": "configRequirements/read",
         "params": "none",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "experimentalFeature/enablement/set",
@@ -139,7 +140,7 @@
         "method": "experimentalFeature/list",
         "params": "ExperimentalFeatureListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "externalAgentConfig/detect",
@@ -283,7 +284,7 @@
         "method": "mcpServerStatus/list",
         "params": "ListMcpServerStatusParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "model/list",
@@ -301,7 +302,7 @@
         "method": "permissionProfile/list",
         "params": "PermissionProfileListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "plugin/install",
@@ -324,6 +325,12 @@
       {
         "method": "plugin/read",
         "params": "PluginReadParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "plugin/reconcile",
+        "params": "PluginReconcileParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -397,11 +404,29 @@
         "method": "thread/approveGuardianDeniedAction",
         "params": "ThreadApproveGuardianDeniedActionParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/archive",
         "params": "ThreadArchiveParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "thread/attachment/add",
+        "params": "ThreadAttachmentAddParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "thread/attachment/list",
+        "params": "ThreadAttachmentListParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "thread/attachment/remove",
+        "params": "ThreadAttachmentRemoveParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -448,22 +473,28 @@
         "classification": "typed_deferred"
       },
       {
+        "method": "thread/items/list",
+        "params": "ThreadItemsListParams",
+        "response": "typed",
+        "classification": "implemented"
+      },
+      {
         "method": "thread/list",
         "params": "ThreadListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/loaded/list",
         "params": "ThreadLoadedListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/metadata/update",
         "params": "ThreadMetadataUpdateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/name/set",
@@ -475,13 +506,19 @@
         "method": "thread/read",
         "params": "ThreadReadParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/resume",
         "params": "ThreadResumeParams",
         "response": "typed",
         "classification": "implemented"
+      },
+      {
+        "method": "thread/revert",
+        "params": "ThreadRevertParams",
+        "response": "typed",
+        "classification": "typed_deferred"
       },
       {
         "method": "thread/rollback",
@@ -493,17 +530,23 @@
         "method": "thread/section/move",
         "params": "ThreadSectionMoveParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/shellCommand",
         "params": "ThreadShellCommandParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/start",
         "params": "ThreadStartParams",
+        "response": "typed",
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/turns/list",
+        "params": "ThreadTurnsListParams",
         "response": "typed",
         "classification": "implemented"
       },
@@ -523,25 +566,25 @@
         "method": "threadSection/create",
         "params": "ThreadSectionCreateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "threadSection/delete",
         "params": "ThreadSectionDeleteParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "threadSection/list",
         "params": "ThreadSectionListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "threadSection/update",
         "params": "ThreadSectionUpdateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "turn/interrupt",
@@ -559,7 +602,7 @@
         "method": "turn/steer",
         "params": "TurnSteerParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "windowsSandbox/readiness",
@@ -579,7 +622,7 @@
         "method": "account/login/completed",
         "params": "AccountLoginCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "account/rateLimits/updated",
@@ -591,91 +634,91 @@
         "method": "account/updated",
         "params": "AccountUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "app/list/updated",
         "params": "AppListUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "autoApprovalReview/strictReviewRequired",
         "params": "StrictReviewRequiredNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "command/exec/outputDelta",
         "params": "CommandExecOutputDeltaNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "configWarning",
         "params": "ConfigWarningNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "deprecationNotice",
         "params": "DeprecationNoticeNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "error",
         "params": "ErrorNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "externalAgentConfig/import/completed",
         "params": "ExternalAgentConfigImportCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "externalAgentConfig/import/progress",
         "params": "ExternalAgentConfigImportProgressNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "fs/changed",
         "params": "FsChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "fuzzyFileSearch/sessionCompleted",
         "params": "FuzzyFileSearchSessionCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "fuzzyFileSearch/sessionUpdated",
         "params": "FuzzyFileSearchSessionUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "guardianWarning",
         "params": "GuardianWarningNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "hook/completed",
         "params": "HookCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "hook/started",
         "params": "HookStartedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/agentMessage/delta",
@@ -687,13 +730,13 @@
         "method": "item/autoApprovalReview/completed",
         "params": "ItemGuardianApprovalReviewCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/autoApprovalReview/started",
         "params": "ItemGuardianApprovalReviewStartedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/commandExecution/outputDelta",
@@ -705,7 +748,7 @@
         "method": "item/commandExecution/terminalInteraction",
         "params": "TerminalInteractionNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/completed",
@@ -723,13 +766,13 @@
         "method": "item/fileChange/patchUpdated",
         "params": "FileChangePatchUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/mcpToolCall/progress",
         "params": "McpToolCallProgressNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/plan/delta",
@@ -765,85 +808,103 @@
         "method": "mcpServer/event/stream/notification",
         "params": "McpServerEventStreamNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "mcpServer/oauthLogin/completed",
         "params": "McpServerOauthLoginCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "mcpServer/startupStatus/updated",
         "params": "McpServerStatusUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "model/rerouted",
         "params": "ModelReroutedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "model/safetyBuffering/updated",
         "params": "ModelSafetyBufferingUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "model/verification",
         "params": "ModelVerificationNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
+      },
+      {
+        "method": "modelProvider/authRecoveryCompleted",
+        "params": "AuthRecoveryNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
+        "method": "modelProvider/authRecoveryStarted",
+        "params": "AuthRecoveryNotification",
+        "response": "none",
+        "classification": "implemented"
       },
       {
         "method": "process/exited",
         "params": "ProcessExitedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "process/outputDelta",
         "params": "ProcessOutputDeltaNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/changed",
         "params": "ProjectChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "remoteControl/status/changed",
         "params": "RemoteControlStatusChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "serverRequest/resolved",
         "params": "ServerRequestResolvedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "skills/changed",
         "params": "SkillsChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/archived",
         "params": "ThreadArchivedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/attachment/updated",
+        "params": "ThreadAttachmentUpdatedNotification",
+        "response": "none",
+        "classification": "implemented"
       },
       {
         "method": "thread/closed",
         "params": "ThreadClosedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/compacted",
@@ -855,109 +916,127 @@
         "method": "thread/deleted",
         "params": "ThreadDeletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/environment/connected",
         "params": "EnvironmentConnectionNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/environment/disconnected",
         "params": "EnvironmentConnectionNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/goal/cleared",
         "params": "ThreadGoalClearedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/goal/updated",
         "params": "ThreadGoalUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/name/updated",
         "params": "ThreadNameUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/project/updated",
         "params": "ThreadProjectUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/queue/changed",
         "params": "ThreadQueueChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/closed",
         "params": "ThreadRealtimeClosedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/error",
         "params": "ThreadRealtimeErrorNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/realtime/item/completed",
+        "params": "ThreadRealtimeItemCompletedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/realtime/item/started",
+        "params": "ThreadRealtimeItemStartedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/realtime/item/transcript/delta",
+        "params": "ThreadRealtimeItemTranscriptDeltaNotification",
+        "response": "none",
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/itemAdded",
         "params": "ThreadRealtimeItemAddedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/outputAudio/delta",
         "params": "ThreadRealtimeOutputAudioDeltaNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/sdp",
         "params": "ThreadRealtimeSdpNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/started",
         "params": "ThreadRealtimeStartedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/transcript/delta",
         "params": "ThreadRealtimeTranscriptDeltaNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/transcript/done",
         "params": "ThreadRealtimeTranscriptDoneNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/reverted",
         "params": "ThreadRevertedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/settings/updated",
         "params": "ThreadSettingsUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/started",
@@ -981,7 +1060,7 @@
         "method": "thread/unarchived",
         "params": "ThreadUnarchivedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "turn/completed",
@@ -999,7 +1078,7 @@
         "method": "turn/moderationMetadata",
         "params": "TurnModerationMetadataNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "turn/plan/updated",
@@ -1017,19 +1096,19 @@
         "method": "warning",
         "params": "WarningNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "windows/worldWritableWarning",
         "params": "WindowsWorldWritableWarningNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "windowsSandbox/setupCompleted",
         "params": "WindowsSandboxSetupCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       }
     ],
     "server_requests": [
@@ -1037,61 +1116,61 @@
         "method": "account/chatgptAuthTokens/refresh",
         "params": "ChatgptAuthTokensRefreshParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "applyPatchApproval",
         "params": "ApplyPatchApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "attestation/generate",
         "params": "AttestationGenerateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "execCommandApproval",
         "params": "ExecCommandApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/commandExecution/requestApproval",
         "params": "CommandExecutionRequestApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/fileChange/requestApproval",
         "params": "FileChangeRequestApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/permissions/requestApproval",
         "params": "PermissionsRequestApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/tool/call",
         "params": "DynamicToolCallParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/tool/requestUserInput",
         "params": "ToolRequestUserInputParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "mcpServer/elicitation/request",
         "params": "McpServerElicitationRequestParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       }
     ]
   },
@@ -1137,13 +1216,13 @@
         "method": "account/rateLimits/read",
         "params": "none",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "account/read",
         "params": "GetAccountParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "account/sendAddCreditsNudgeEmail",
@@ -1155,13 +1234,13 @@
         "method": "account/usage/read",
         "params": "none",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "account/workspaceMessages/read",
         "params": "none",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "app/installed",
@@ -1191,31 +1270,31 @@
         "method": "command/exec",
         "params": "CommandExecParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "command/exec/resize",
         "params": "CommandExecResizeParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "command/exec/terminate",
         "params": "CommandExecTerminateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "command/exec/write",
         "params": "CommandExecWriteParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "config/batchWrite",
         "params": "ConfigBatchWriteParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "config/mcpServer/reload",
@@ -1227,7 +1306,7 @@
         "method": "config/read",
         "params": "ConfigReadParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "config/value/write",
@@ -1239,25 +1318,25 @@
         "method": "configRequirements/read",
         "params": "none",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "environment/add",
         "params": "EnvironmentAddParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "environment/info",
         "params": "EnvironmentInfoParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "environment/status",
         "params": "EnvironmentStatusParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "experimentalFeature/enablement/set",
@@ -1269,7 +1348,7 @@
         "method": "experimentalFeature/list",
         "params": "ExperimentalFeatureListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "externalAgentConfig/detect",
@@ -1443,11 +1522,17 @@
         "method": "mcpServerStatus/list",
         "params": "ListMcpServerStatusParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "memory/reset",
         "params": "none",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "memory/status",
+        "params": "MemoryStatusParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -1473,7 +1558,7 @@
         "method": "permissionProfile/list",
         "params": "PermissionProfileListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "plugin/install",
@@ -1496,6 +1581,12 @@
       {
         "method": "plugin/read",
         "params": "PluginReadParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "plugin/reconcile",
+        "params": "PluginReconcileParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -1551,67 +1642,67 @@
         "method": "process/kill",
         "params": "ProcessKillParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "process/resizePty",
         "params": "ProcessResizePtyParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "process/spawn",
         "params": "ProcessSpawnParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "process/writeStdin",
         "params": "ProcessWriteStdinParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/create",
         "params": "ProjectCreateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/delete",
         "params": "ProjectDeleteParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/import",
         "params": "ProjectImportParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/list",
         "params": "ProjectListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/move",
         "params": "ProjectMoveParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/read",
         "params": "ProjectReadParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/update",
         "params": "ProjectUpdateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "remoteControl/client/list",
@@ -1689,7 +1780,7 @@
         "method": "thread/approveGuardianDeniedAction",
         "params": "ThreadApproveGuardianDeniedActionParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/archive",
@@ -1698,22 +1789,40 @@
         "classification": "typed_deferred"
       },
       {
+        "method": "thread/attachment/add",
+        "params": "ThreadAttachmentAddParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "thread/attachment/list",
+        "params": "ThreadAttachmentListParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "thread/attachment/remove",
+        "params": "ThreadAttachmentRemoveParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
         "method": "thread/backgroundTerminals/clean",
         "params": "ThreadBackgroundTerminalsCleanParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/backgroundTerminals/list",
         "params": "ThreadBackgroundTerminalsListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/backgroundTerminals/terminate",
         "params": "ThreadBackgroundTerminalsTerminateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/compact/start",
@@ -1773,19 +1882,19 @@
         "method": "thread/items/list",
         "params": "ThreadItemsListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/list",
         "params": "ThreadListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/loaded/list",
         "params": "ThreadLoadedListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/memoryMode/set",
@@ -1797,7 +1906,7 @@
         "method": "thread/metadata/update",
         "params": "ThreadMetadataUpdateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/name/set",
@@ -1845,7 +1954,7 @@
         "method": "thread/read",
         "params": "ThreadReadParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/appendAudio",
@@ -1905,7 +2014,7 @@
         "method": "thread/search",
         "params": "ThreadSearchParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/searchOccurrences",
@@ -1917,7 +2026,7 @@
         "method": "thread/section/move",
         "params": "ThreadSectionMoveParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/settings/update",
@@ -1929,7 +2038,7 @@
         "method": "thread/shellCommand",
         "params": "ThreadShellCommandParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/start",
@@ -1938,10 +2047,16 @@
         "classification": "implemented"
       },
       {
+        "method": "thread/timeline/list",
+        "params": "ThreadTimelineListParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
         "method": "thread/turns/list",
         "params": "ThreadTurnsListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/unarchive",
@@ -1959,31 +2074,37 @@
         "method": "threadSection/create",
         "params": "ThreadSectionCreateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "threadSection/delete",
         "params": "ThreadSectionDeleteParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "threadSection/list",
         "params": "ThreadSectionListParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "threadSection/update",
         "params": "ThreadSectionUpdateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "turn/interrupt",
         "params": "TurnInterruptParams",
         "response": "typed",
         "classification": "implemented"
+      },
+      {
+        "method": "turn/settings/update",
+        "params": "TurnSettingsUpdateParams",
+        "response": "typed",
+        "classification": "typed_deferred"
       },
       {
         "method": "turn/start",
@@ -1994,6 +2115,36 @@
       {
         "method": "turn/steer",
         "params": "TurnSteerParams",
+        "response": "typed",
+        "classification": "implemented"
+      },
+      {
+        "method": "userVerification/cancel",
+        "params": "UserVerificationCancelParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "userVerification/delete",
+        "params": "UserVerificationDeleteParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "userVerification/enroll",
+        "params": "UserVerificationEnrollParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "userVerification/status",
+        "params": "UserVerificationStatusParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "userVerification/verify",
+        "params": "UserVerificationVerifyParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -2015,7 +2166,7 @@
         "method": "account/login/completed",
         "params": "AccountLoginCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "account/rateLimits/updated",
@@ -2027,91 +2178,91 @@
         "method": "account/updated",
         "params": "AccountUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "app/list/updated",
         "params": "AppListUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "autoApprovalReview/strictReviewRequired",
         "params": "StrictReviewRequiredNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "command/exec/outputDelta",
         "params": "CommandExecOutputDeltaNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "configWarning",
         "params": "ConfigWarningNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "deprecationNotice",
         "params": "DeprecationNoticeNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "error",
         "params": "ErrorNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "externalAgentConfig/import/completed",
         "params": "ExternalAgentConfigImportCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "externalAgentConfig/import/progress",
         "params": "ExternalAgentConfigImportProgressNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "fs/changed",
         "params": "FsChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "fuzzyFileSearch/sessionCompleted",
         "params": "FuzzyFileSearchSessionCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "fuzzyFileSearch/sessionUpdated",
         "params": "FuzzyFileSearchSessionUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "guardianWarning",
         "params": "GuardianWarningNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "hook/completed",
         "params": "HookCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "hook/started",
         "params": "HookStartedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/agentMessage/delta",
@@ -2123,13 +2274,13 @@
         "method": "item/autoApprovalReview/completed",
         "params": "ItemGuardianApprovalReviewCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/autoApprovalReview/started",
         "params": "ItemGuardianApprovalReviewStartedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/commandExecution/outputDelta",
@@ -2141,7 +2292,7 @@
         "method": "item/commandExecution/terminalInteraction",
         "params": "TerminalInteractionNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/completed",
@@ -2159,13 +2310,13 @@
         "method": "item/fileChange/patchUpdated",
         "params": "FileChangePatchUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/mcpToolCall/progress",
         "params": "McpToolCallProgressNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/plan/delta",
@@ -2201,85 +2352,103 @@
         "method": "mcpServer/event/stream/notification",
         "params": "McpServerEventStreamNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "mcpServer/oauthLogin/completed",
         "params": "McpServerOauthLoginCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "mcpServer/startupStatus/updated",
         "params": "McpServerStatusUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "model/rerouted",
         "params": "ModelReroutedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "model/safetyBuffering/updated",
         "params": "ModelSafetyBufferingUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "model/verification",
         "params": "ModelVerificationNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
+      },
+      {
+        "method": "modelProvider/authRecoveryCompleted",
+        "params": "AuthRecoveryNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
+        "method": "modelProvider/authRecoveryStarted",
+        "params": "AuthRecoveryNotification",
+        "response": "none",
+        "classification": "implemented"
       },
       {
         "method": "process/exited",
         "params": "ProcessExitedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "process/outputDelta",
         "params": "ProcessOutputDeltaNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "project/changed",
         "params": "ProjectChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "remoteControl/status/changed",
         "params": "RemoteControlStatusChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "serverRequest/resolved",
         "params": "ServerRequestResolvedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "skills/changed",
         "params": "SkillsChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/archived",
         "params": "ThreadArchivedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/attachment/updated",
+        "params": "ThreadAttachmentUpdatedNotification",
+        "response": "none",
+        "classification": "implemented"
       },
       {
         "method": "thread/closed",
         "params": "ThreadClosedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/compacted",
@@ -2291,109 +2460,127 @@
         "method": "thread/deleted",
         "params": "ThreadDeletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/environment/connected",
         "params": "EnvironmentConnectionNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/environment/disconnected",
         "params": "EnvironmentConnectionNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/goal/cleared",
         "params": "ThreadGoalClearedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/goal/updated",
         "params": "ThreadGoalUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/name/updated",
         "params": "ThreadNameUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/project/updated",
         "params": "ThreadProjectUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/queue/changed",
         "params": "ThreadQueueChangedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/closed",
         "params": "ThreadRealtimeClosedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/error",
         "params": "ThreadRealtimeErrorNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/realtime/item/completed",
+        "params": "ThreadRealtimeItemCompletedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/realtime/item/started",
+        "params": "ThreadRealtimeItemStartedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/realtime/item/transcript/delta",
+        "params": "ThreadRealtimeItemTranscriptDeltaNotification",
+        "response": "none",
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/itemAdded",
         "params": "ThreadRealtimeItemAddedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/outputAudio/delta",
         "params": "ThreadRealtimeOutputAudioDeltaNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/sdp",
         "params": "ThreadRealtimeSdpNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/started",
         "params": "ThreadRealtimeStartedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/transcript/delta",
         "params": "ThreadRealtimeTranscriptDeltaNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/realtime/transcript/done",
         "params": "ThreadRealtimeTranscriptDoneNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/reverted",
         "params": "ThreadRevertedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/settings/updated",
         "params": "ThreadSettingsUpdatedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "thread/started",
@@ -2417,7 +2604,7 @@
         "method": "thread/unarchived",
         "params": "ThreadUnarchivedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "turn/completed",
@@ -2435,7 +2622,7 @@
         "method": "turn/moderationMetadata",
         "params": "TurnModerationMetadataNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "turn/plan/updated",
@@ -2453,19 +2640,19 @@
         "method": "warning",
         "params": "WarningNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "windows/worldWritableWarning",
         "params": "WindowsWorldWritableWarningNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "windowsSandbox/setupCompleted",
         "params": "WindowsSandboxSetupCompletedNotification",
         "response": "none",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       }
     ],
     "server_requests": [
@@ -2473,19 +2660,19 @@
         "method": "account/chatgptAuthTokens/refresh",
         "params": "ChatgptAuthTokensRefreshParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "applyPatchApproval",
         "params": "ApplyPatchApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "attestation/generate",
         "params": "AttestationGenerateParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "currentTime/read",
@@ -2497,49 +2684,1529 @@
         "method": "execCommandApproval",
         "params": "ExecCommandApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/commandExecution/requestApproval",
         "params": "CommandExecutionRequestApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/fileChange/requestApproval",
         "params": "FileChangeRequestApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/permissions/requestApproval",
         "params": "PermissionsRequestApprovalParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/tool/call",
         "params": "DynamicToolCallParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "item/tool/requestUserInput",
         "params": "ToolRequestUserInputParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       },
       {
         "method": "mcpServer/elicitation/request",
         "params": "McpServerElicitationRequestParams",
         "response": "typed",
-        "classification": "typed_deferred"
+        "classification": "implemented"
       }
     ]
   },
-  "installed_delta": [
-    "client_request:mcpServer/event/stream/start",
-    "client_request:mcpServer/event/stream/stop",
-    "server_notification:mcpServer/event/stream/notification"
+  "capabilities": [
+    {
+      "id": "field:thread/fork.deferGoalContinuation",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/fork"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "field:threadSource",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/start"
+        },
+        {
+          "kind": "client_request",
+          "method": "thread/fork"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:account/login/cancel",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/login/cancel"
+        }
+      ],
+      "security": "secret"
+    },
+    {
+      "id": "rpc:account/login/start",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/login/start"
+        }
+      ],
+      "security": "secret"
+    },
+    {
+      "id": "rpc:account/logout",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/logout"
+        }
+      ],
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:account/rateLimitResetCredit/consume",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/rateLimitResetCredit/consume"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:account/rateLimits/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/rateLimits/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:account/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:account/sendAddCreditsNudgeEmail",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/sendAddCreditsNudgeEmail"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:account/usage/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/usage/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:account/workspaceMessages/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "account/workspaceMessages/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:app/installed",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "app/installed"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:app/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "app/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:app/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "app/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:collaborationMode/list",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "collaborationMode/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:command/exec",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "command/exec"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:command/exec/resize",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "command/exec/resize"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:command/exec/terminate",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "command/exec/terminate"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:command/exec/write",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "command/exec/write"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:config/batchWrite",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "config/batchWrite"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:config/mcpServer/reload",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "config/mcpServer/reload"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:config/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "config/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:config/value/write",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "config/value/write"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:configRequirements/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "configRequirements/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:environment/add",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "environment/add"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:environment/info",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "environment/info"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:environment/status",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "environment/status"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:experimentalFeature/enablement/set",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "experimentalFeature/enablement/set"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:experimentalFeature/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "experimentalFeature/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:externalAgentConfig/detect",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "externalAgentConfig/detect"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:externalAgentConfig/import",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "externalAgentConfig/import"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:externalAgentConfig/import/readHistories",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "externalAgentConfig/import/readHistories"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:externalAgentConfig/import/recordHistory",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "externalAgentConfig/import/recordHistory"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:feedback/upload",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "feedback/upload"
+        }
+      ],
+      "security": "secret"
+    },
+    {
+      "id": "rpc:fs/copy",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/copy"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:fs/createDirectory",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/createDirectory"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:fs/getMetadata",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/getMetadata"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:fs/readDirectory",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/readDirectory"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:fs/readFile",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/readFile"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:fs/remove",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/remove"
+        }
+      ],
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:fs/unwatch",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/unwatch"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:fs/watch",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/watch"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:fs/writeFile",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fs/writeFile"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:fuzzyFileSearch",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fuzzyFileSearch"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:fuzzyFileSearch/sessionStart",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fuzzyFileSearch/sessionStart"
+        }
+      ],
+      "fallback": "rpc:fuzzyFileSearch",
+      "security": "read"
+    },
+    {
+      "id": "rpc:fuzzyFileSearch/sessionStop",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fuzzyFileSearch/sessionStop"
+        }
+      ],
+      "fallback": "rpc:fuzzyFileSearch",
+      "security": "read"
+    },
+    {
+      "id": "rpc:fuzzyFileSearch/sessionUpdate",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "fuzzyFileSearch/sessionUpdate"
+        }
+      ],
+      "fallback": "rpc:fuzzyFileSearch",
+      "security": "read"
+    },
+    {
+      "id": "rpc:hooks/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "hooks/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:initialize",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "initialize"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:marketplace/add",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "marketplace/add"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:marketplace/remove",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "marketplace/remove"
+        }
+      ],
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:marketplace/upgrade",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "marketplace/upgrade"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:mcpServer/oauth/login",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "mcpServer/oauth/login"
+        }
+      ],
+      "security": "secret"
+    },
+    {
+      "id": "rpc:mcpServer/resource/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "mcpServer/resource/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:mcpServer/tool/call",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "mcpServer/tool/call"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:mcpServerStatus/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "mcpServerStatus/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:model/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "model/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:modelProvider/capabilities/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "modelProvider/capabilities/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:permissionProfile/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "permissionProfile/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:plugin/install",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/install"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:plugin/installed",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/installed"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:plugin/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:plugin/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:plugin/search",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/search"
+        }
+      ],
+      "fallback": "rpc:plugin/list",
+      "security": "read"
+    },
+    {
+      "id": "rpc:plugin/share/checkout",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/share/checkout"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:plugin/share/delete",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/share/delete"
+        }
+      ],
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:plugin/share/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/share/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:plugin/share/save",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/share/save"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:plugin/share/updateTargets",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/share/updateTargets"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:plugin/skill/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/skill/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:plugin/uninstall",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "plugin/uninstall"
+        }
+      ],
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:process/kill",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "process/kill"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:process/resizePty",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "process/resizePty"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:process/spawn",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "process/spawn"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:process/writeStdin",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "process/writeStdin"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:project/create",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "project/create"
+        }
+      ],
+      "fallback": "rpc:thread/list",
+      "security": "write"
+    },
+    {
+      "id": "rpc:project/delete",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "project/delete"
+        }
+      ],
+      "fallback": "rpc:thread/list",
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:project/import",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "project/import"
+        }
+      ],
+      "fallback": "rpc:thread/list",
+      "security": "write"
+    },
+    {
+      "id": "rpc:project/list",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "project/list"
+        }
+      ],
+      "fallback": "rpc:thread/list",
+      "security": "read"
+    },
+    {
+      "id": "rpc:project/move",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "project/move"
+        }
+      ],
+      "fallback": "rpc:thread/list",
+      "security": "read"
+    },
+    {
+      "id": "rpc:project/read",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "project/read"
+        }
+      ],
+      "fallback": "rpc:thread/list",
+      "security": "read"
+    },
+    {
+      "id": "rpc:project/update",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "project/update"
+        }
+      ],
+      "fallback": "rpc:thread/list",
+      "security": "write"
+    },
+    {
+      "id": "rpc:review/start",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "review/start"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:server/diagnostics",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "server/diagnostics"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:skills/config/write",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "skills/config/write"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:skills/extraRoots/set",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "skills/extraRoots/set"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:skills/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "skills/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/approveGuardianDeniedAction",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/approveGuardianDeniedAction"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/archive",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/archive"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/backgroundTerminals/clean",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/backgroundTerminals/clean"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:thread/backgroundTerminals/list",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/backgroundTerminals/list"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:thread/backgroundTerminals/terminate",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/backgroundTerminals/terminate"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:thread/compact/start",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/compact/start"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/delete",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/delete"
+        }
+      ],
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:thread/fork",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/fork"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/goal/clear",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/goal/clear"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/goal/get",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/goal/get"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/goal/set",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/goal/set"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:thread/items/list",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/items/list"
+        }
+      ],
+      "fallback": "rpc:thread/read",
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/loaded/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/loaded/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/metadata/update",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/metadata/update"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:thread/name/set",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/name/set"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:thread/queue/add",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/queue/add"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:thread/queue/delete",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/queue/delete"
+        }
+      ],
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:thread/queue/list",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/queue/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/queue/reorder",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/queue/reorder"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/queue/start",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/queue/start"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/queue/update",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/queue/update"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:thread/read",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/read"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/realtime/appendAudio",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/realtime/appendAudio"
+        }
+      ],
+      "security": "realtime"
+    },
+    {
+      "id": "rpc:thread/realtime/appendSpeech",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/realtime/appendSpeech"
+        }
+      ],
+      "security": "realtime"
+    },
+    {
+      "id": "rpc:thread/realtime/appendText",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/realtime/appendText"
+        }
+      ],
+      "security": "realtime"
+    },
+    {
+      "id": "rpc:thread/realtime/listVoices",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/realtime/listVoices"
+        }
+      ],
+      "security": "realtime"
+    },
+    {
+      "id": "rpc:thread/realtime/start",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/realtime/start"
+        }
+      ],
+      "security": "realtime"
+    },
+    {
+      "id": "rpc:thread/realtime/stop",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/realtime/stop"
+        }
+      ],
+      "security": "realtime"
+    },
+    {
+      "id": "rpc:thread/resume",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/resume"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/search",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/search"
+        }
+      ],
+      "fallback": "rpc:thread/list",
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/searchOccurrences",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/searchOccurrences"
+        }
+      ],
+      "fallback": "rpc:thread/read",
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/section/move",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/section/move"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/settings/update",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/settings/update"
+        }
+      ],
+      "fallback": "rpc:turn/start",
+      "security": "write"
+    },
+    {
+      "id": "rpc:thread/shellCommand",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/shellCommand"
+        }
+      ],
+      "security": "execution"
+    },
+    {
+      "id": "rpc:thread/start",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/start"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/turns/list",
+      "stability": "experimental",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/turns/list"
+        }
+      ],
+      "fallback": "rpc:thread/read",
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/unarchive",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/unarchive"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:thread/unsubscribe",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "thread/unsubscribe"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:threadSection/create",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "threadSection/create"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:threadSection/delete",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "threadSection/delete"
+        }
+      ],
+      "security": "destructive"
+    },
+    {
+      "id": "rpc:threadSection/list",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "threadSection/list"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:threadSection/update",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "threadSection/update"
+        }
+      ],
+      "security": "write"
+    },
+    {
+      "id": "rpc:turn/interrupt",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "turn/interrupt"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:turn/start",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "turn/start"
+        }
+      ],
+      "security": "read"
+    },
+    {
+      "id": "rpc:turn/steer",
+      "stability": "stable",
+      "requires": [
+        {
+          "kind": "client_request",
+          "method": "turn/steer"
+        }
+      ],
+      "security": "read"
+    }
   ]
 }

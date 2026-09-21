@@ -12,15 +12,24 @@ func TestContractManifestExactVersion(t *testing.T) {
 	if m.SchemaVersion != 1 {
 		t.Fatalf("schema version = %d, want 1", m.SchemaVersion)
 	}
-	if m.CodexVersion != "0.149.1" {
-		t.Fatalf("codex version = %q, want 0.149.1", m.CodexVersion)
+	if m.CodexVersion != "0.155.1" {
+		t.Fatalf("codex version = %q, want 0.155.1", m.CodexVersion)
 	}
-	if m.BinarySHA256 != "73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba" {
+	// The npm shim's digest, not the engine's: PATH resolves codex to a ~341-byte
+	// .cmd on this platform, so version equality is the real evidence and this is
+	// a tripwire against an accidental re-capture (MADR 0163 D18).
+	if m.BinarySHA256 != "c54db6755e710c39703f7c37512f9e35ed41042d8080558d2b84b8d2694323c3" {
 		t.Fatalf("binary digest = %q", m.BinarySHA256)
 	}
 
-	assertSurfaceCounts(t, "stable", m.Stable, 95, 75, 10)
-	assertSurfaceCounts(t, "experimental", m.Experimental, 150, 75, 11)
+	// 82 notifications on BOTH surfaces, which is what Codex's exporter emits: it
+	// never prunes experimental notifications, so the bundles are identical there
+	// even though the runtime suppresses 22 of them. The capture mirrors the
+	// exporter rather than correcting it, because a manifest that disagrees with
+	// its source breaks the drift gate's exact mode; recording the real split needs
+	// schema_version 2 (0163 D4/F4, deferred).
+	assertSurfaceCounts(t, "stable", m.Stable, 102, 82, 10)
+	assertSurfaceCounts(t, "experimental", m.Experimental, 164, 82, 11)
 	if err := m.Validate(); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -81,18 +90,26 @@ func TestContractManifestPlanFixturesAreClassified(t *testing.T) {
 
 func TestContractSourceWatchDelta(t *testing.T) {
 	watch := mustLoadSourceWatchManifest(t)
-	if watch.Commit != "6143217c6730e147f4a1a5a3405d10f580fe9244" {
+	if watch.Commit != "be2951ea3" {
 		t.Fatalf("source commit = %q", watch.Commit)
 	}
-	assertSurfaceCounts(t, "source stable", watch.Stable, 95, 76, 10)
-	assertSurfaceCounts(t, "source experimental", watch.Experimental, 152, 76, 11)
-	want := []string{
-		"client_request:mcpServer/event/stream/start",
-		"client_request:mcpServer/event/stream/stop",
-		"server_notification:mcpServer/event/stream/notification",
-	}
-	if !slices.Equal(watch.InstalledDelta, want) {
-		t.Fatalf("source-only delta = %q, want %q", watch.InstalledDelta, want)
+	// The source surface is now decompressed from the committed .zst blobs at the
+	// same tag as the installed binary, so the two agree exactly and the delta
+	// below is empty by OBSERVATION rather than by construction (0163 P4).
+	assertSurfaceCounts(t, "source stable", watch.Stable, 102, 82, 10)
+	assertSurfaceCounts(t, "source experimental", watch.Experimental, 164, 82, 11)
+	// Empty, and that is the correct answer at this pin: the source tree and the
+	// installed binary are both rust-v0.155.1, so nothing is source-only.
+	//
+	// It previously held three mcpServer/event/stream/* entries because the pin's
+	// source-watch commit (rust-v0.150.0) was AHEAD of its manifest (0.149.1) —
+	// the two baseline files did not describe the same upstream state (0163 F3).
+	// A non-empty delta here means the source is ahead of the installed binary and
+	// names what is coming; an empty one must be an observation, which is why both
+	// sides are now filtered identically and decompressed from the same committed
+	// blobs (0163 P4).
+	if len(watch.InstalledDelta) != 0 {
+		t.Fatalf("source-only delta = %q, want none at a matching source/binary pin", watch.InstalledDelta)
 	}
 }
 

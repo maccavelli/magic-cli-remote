@@ -25,6 +25,11 @@ import (
 // version; it hard-asserted exactly 75 notifications, so re-pinning would have
 // broken it rather than tightening it; and it checked the stable surface only.
 // This version is a strict superset on all three counts (PLAN 0163 C1).
+//
+// P6 re-pinned the manifest to 0.155.1, so this test now requires the seven
+// notifications that release added. The explicit list that stood in for them
+// between P2 and P6 has been deleted rather than maintained: one inventory, not
+// two (C2).
 func TestEveryDeclaredNotificationIsRouted(t *testing.T) {
 	m, err := loadEmbeddedContractManifest()
 	if err != nil {
@@ -61,29 +66,5 @@ func TestEveryDeclaredNotificationIsRouted(t *testing.T) {
 			"explicit case is a valid answer for something we do not consume yet — a declared "+
 			"drop is greppable, an unrouted one is not (MADR 0163 F12).",
 			len(missing), len(declared), missing)
-	}
-}
-
-// TestNotificationRoutesCover0155Additions pins the seven notifications codex
-// 0.155.1 added, measured from the installed binary's schema export.
-//
-// This list is deliberately explicit and deliberately temporary. The embedded
-// manifest is still pinned to 0.149.1, so the manifest-driven test above cannot
-// yet require these; PLAN 0163 P6 re-pins it, at which point this test becomes
-// redundant and should be deleted rather than maintained (C2: one inventory, not
-// two).
-func TestNotificationRoutesCover0155Additions(t *testing.T) {
-	for method, want := range map[string]notificationRoute{
-		"modelProvider/authRecoveryStarted":     notificationRouteSession,
-		"modelProvider/authRecoveryCompleted":   notificationRouteSession,
-		"thread/attachment/updated":             notificationRouteProvider,
-		"mcpServer/event/stream/notification":   notificationRouteProvider,
-		"thread/realtime/item/started":          notificationRouteProvider,
-		"thread/realtime/item/transcript/delta": notificationRouteProvider,
-		"thread/realtime/item/completed":        notificationRouteProvider,
-	} {
-		if got := notificationRouteFor(method); got != want {
-			t.Errorf("route for %s = %v, want %v", method, got, want)
-		}
 	}
 }

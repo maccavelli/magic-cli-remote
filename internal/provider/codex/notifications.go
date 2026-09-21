@@ -23,7 +23,7 @@ func (s *session) handleNotification(method string, params json.RawMessage) {
 }
 
 // handleProjectedNotification decodes notification families added by the
-// 0.149.1 fidelity surface. Returning true means the method was consumed.
+// 0.155.1 fidelity surface. Returning true means the method was consumed.
 func (s *session) handleProjectedNotification(method string, params json.RawMessage, now time.Time) bool {
 	emit := func(typ event.Type, payload event.CodexPayload) {
 		s.emit(event.Event{Type: typ, SessionID: s.localID, Timestamp: now, AgentSessionID: s.agentID, Codex: &payload})

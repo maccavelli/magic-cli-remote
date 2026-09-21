@@ -23,15 +23,25 @@ func TestGenerateContractManifest(t *testing.T) {
 	stable, stableDocs := readGeneratedSurface(t, in.installedStable)
 	experimental, experimentalDocs := readGeneratedSurface(t, in.installedExpUnfl)
 
-	// The stable bundle over-reports notifications: Codex's exporter never prunes
-	// experimental ones, so filter with the source's #[experimental] markers
-	// (MADR 0163 D4/F4). The experimental surface keeps every notification,
-	// because that is what a client opting in actually receives.
+	// Report the real notification stability split, but do NOT rewrite the
+	// captured surface with it (MADR 0163 D4, partially deferred).
+	//
+	// Codex's exporter never prunes experimental notifications, so both bundles
+	// list all 82 while the runtime suppresses 22 of them. The honest fix is to
+	// record the split as its own field, and that is a manifest SCHEMA change:
+	// Validate pins schema_version to 1, and MADR 0135 requires a schema change to
+	// bump the manifest version. Filtering the stable surface in place instead
+	// makes the manifest disagree with the exporter it claims to mirror, which
+	// breaks the drift gate's exact mode — measured, not theorised.
+	//
+	// So the capture stays faithful to the exporter, the split is reported here and
+	// documented in the README, and persisting it waits for schema_version 2.
 	experimentalOnly := experimentalNotifications(t, in.sourceTree)
 	total := len(experimental.ServerNotifications)
-	stable.ServerNotifications = stableNotificationsOnly(stable.ServerNotifications, experimentalOnly)
-	t.Logf("notifications: %d stable, %d experimental-only, %d total",
-		len(stable.ServerNotifications), total-len(stable.ServerNotifications), total)
+	stableOnly := len(stableNotificationsOnly(stable.ServerNotifications, experimentalOnly))
+	t.Logf("notifications: %d declared; %d stable, %d experimental-only by the source markers "+
+		"(the captured surface records all %d, as the exporter emits them)",
+		total, stableOnly, total-stableOnly, total)
 
 	manifest := ContractManifest{
 		SchemaVersion: 1,
@@ -48,13 +58,6 @@ func TestGenerateContractManifest(t *testing.T) {
 
 	sourceStableSurface, _ := readGeneratedSurface(t, in.sourceStable)
 	sourceExperimentalSurface, _ := readGeneratedSurface(t, in.sourceExp)
-	// The SAME filter, or the delta lies. The source bundle over-reports
-	// notifications exactly as the installed one does, so comparing a filtered
-	// installed surface against an unfiltered source surface reports every
-	// experimental notification as "present in source, missing from installed" —
-	// a phantom delta of precisely 22 entries that never clears.
-	sourceStableSurface.ServerNotifications =
-		stableNotificationsOnly(sourceStableSurface.ServerNotifications, experimentalOnly)
 	watch := SourceWatchManifest{
 		SchemaVersion:  1,
 		Commit:         in.sourceCommit,
