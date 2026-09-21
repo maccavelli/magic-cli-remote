@@ -3820,14 +3820,13 @@
     },
     {
       "id": "rpc:thread/items/list",
-      "stability": "experimental",
+      "stability": "stable",
       "requires": [
         {
           "kind": "client_request",
           "method": "thread/items/list"
         }
       ],
-      "fallback": "rpc:thread/read",
       "security": "read"
     },
     {
@@ -4099,14 +4098,13 @@
     },
     {
       "id": "rpc:thread/turns/list",
-      "stability": "experimental",
+      "stability": "stable",
       "requires": [
         {
           "kind": "client_request",
           "method": "thread/turns/list"
         }
       ],
-      "fallback": "rpc:thread/read",
       "security": "read"
     },
     {

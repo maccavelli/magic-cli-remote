@@ -167,7 +167,17 @@ func classifyGenerated(t *testing.T, entries []WireContract, kind WireKind) {
 }
 
 func generatedCapabilities(stable, experimental ContractSurface) []CapabilityContract {
-	stableAllowed := map[string]SecurityClass{}
+	// exposed lists the methods we choose to offer as capabilities. It carries no
+	// stability claim of its own: stability is derived from the schema bundles
+	// below. A hand-maintained stability list goes on calling a method
+	// experimental long after upstream promotes it, which is exactly what happened
+	// to thread/items/list and thread/turns/list — stable since #40673, still
+	// emitted here as experimental with a fallback to the deprecated thread/read
+	// (MADR 0163, amendment 2026-09-21).
+	//
+	// The split below is kept only because the two groups read differently to a
+	// human; both halves land in the same map.
+	exposed := map[string]SecurityClass{}
 	for _, method := range []string{
 		"initialize", "thread/list", "thread/read", "thread/loaded/list", "thread/start", "thread/resume", "thread/fork",
 		"thread/name/set", "thread/metadata/update", "thread/section/move", "thread/archive", "thread/unarchive",
@@ -187,9 +197,8 @@ func generatedCapabilities(stable, experimental ContractSurface) []CapabilityCon
 		"externalAgentConfig/detect", "externalAgentConfig/import", "externalAgentConfig/import/recordHistory",
 		"externalAgentConfig/import/readHistories", "feedback/upload",
 	} {
-		stableAllowed[method] = securityForMethod(method)
+		exposed[method] = securityForMethod(method)
 	}
-	experimentalAllowed := map[string]SecurityClass{}
 	for _, method := range []string{
 		"server/diagnostics", "thread/search", "thread/searchOccurrences", "thread/turns/list", "thread/items/list",
 		"thread/settings/update", "thread/queue/add", "thread/queue/list", "thread/queue/update", "thread/queue/delete",
@@ -200,30 +209,46 @@ func generatedCapabilities(stable, experimental ContractSurface) []CapabilityCon
 		"project/list", "project/read", "project/create", "project/import", "project/update", "project/move", "project/delete",
 		"environment/add", "environment/status", "environment/info", "process/spawn", "process/writeStdin", "process/resizePty", "process/kill",
 	} {
-		experimentalAllowed[method] = securityForMethod(method)
+		exposed[method] = securityForMethod(method)
 	}
 
-	capabilities := make([]CapabilityContract, 0, len(stableAllowed)+len(experimentalAllowed)+2)
+	// Stability is a property of the engine's schema, not of our opinion: a method
+	// the stable bundle declares is stable, and a stable method needs no fallback
+	// because there is no negotiation that can take it away. Only a method that
+	// exists solely in the experimental bundle is experimental, and only those
+	// carry a fallback.
+	stableMethods := make(map[string]struct{}, len(stable.ClientRequests))
 	for _, method := range stable.ClientRequests {
-		security, ok := stableAllowed[method.Method]
-		if !ok {
-			continue
-		}
-		capabilities = append(capabilities, CapabilityContract{
-			ID: CapabilityID("rpc:" + method.Method), Stability: StabilityStable,
-			Requires: []WireRequirement{{Kind: WireClientRequest, Method: method.Method}}, Security: security,
-		})
+		stableMethods[method.Method] = struct{}{}
 	}
-	for _, method := range experimental.ClientRequests {
-		security, ok := experimentalAllowed[method.Method]
-		if !ok {
-			continue
+
+	capabilities := make([]CapabilityContract, 0, len(exposed)+2)
+	seen := make(map[string]struct{}, len(exposed))
+	// The experimental bundle is a superset, but both are walked so that a method
+	// present only in the stable bundle cannot be missed if that ever stops holding.
+	for _, surface := range []ContractSurface{stable, experimental} {
+		for _, method := range surface.ClientRequests {
+			security, ok := exposed[method.Method]
+			if !ok {
+				continue
+			}
+			if _, duplicate := seen[method.Method]; duplicate {
+				continue
+			}
+			seen[method.Method] = struct{}{}
+			capability := CapabilityContract{
+				ID:       CapabilityID("rpc:" + method.Method),
+				Requires: []WireRequirement{{Kind: WireClientRequest, Method: method.Method}},
+				Security: security,
+			}
+			if _, isStable := stableMethods[method.Method]; isStable {
+				capability.Stability = StabilityStable
+			} else {
+				capability.Stability = StabilityExperimental
+				capability.Fallback = fallbackForMethod(method.Method)
+			}
+			capabilities = append(capabilities, capability)
 		}
-		capabilities = append(capabilities, CapabilityContract{
-			ID: CapabilityID("rpc:" + method.Method), Stability: StabilityExperimental,
-			Requires: []WireRequirement{{Kind: WireClientRequest, Method: method.Method}},
-			Fallback: fallbackForMethod(method.Method), Security: security,
-		})
 	}
 	capabilities = append(capabilities,
 		CapabilityContract{ID: CapabilityThreadSource, Stability: StabilityStable, Requires: []WireRequirement{{Kind: WireClientRequest, Method: "thread/start"}, {Kind: WireClientRequest, Method: "thread/fork"}}, Security: SecurityWrite},
