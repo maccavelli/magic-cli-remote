@@ -22,12 +22,16 @@ import (
 func TestLiveThreadStartSandboxShape(t *testing.T) {
 	fr, done := liveEngine(t)
 	defer done()
+	// The thread cwds are registered on THIS test, not on the subtests: codex
+	// holds a thread's cwd until the engine stops, and `defer done()` above runs
+	// before this test's cleanups (0163 P14).
+	parent := t
 
 	t.Run("string_accepted", func(t *testing.T) {
 		for _, mode := range []string{"read-only", "workspace-write", "danger-full-access"} {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			_, err := fr.sendRequest(ctx, "thread/start", map[string]any{
-				"cwd":            t.TempDir(),
+				"cwd":            liveThreadCwd(parent),
 				"sandbox":        mode,
 				"approvalPolicy": "never",
 			})
@@ -42,7 +46,7 @@ func TestLiveThreadStartSandboxShape(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		_, err := fr.sendRequest(ctx, "thread/start", map[string]any{
-			"cwd":     t.TempDir(),
+			"cwd":     liveThreadCwd(parent),
 			"sandbox": map[string]any{"type": "read-only", "networkAccess": false},
 		})
 		if err == nil {
@@ -55,7 +59,7 @@ func TestLiveThreadStartSandboxShape(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		_, err := fr.sendRequest(ctx, "thread/start", map[string]any{
-			"cwd":     t.TempDir(),
+			"cwd":     liveThreadCwd(parent),
 			"sandbox": "totally-bogus",
 		})
 		if err == nil {

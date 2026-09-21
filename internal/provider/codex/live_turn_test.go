@@ -121,7 +121,7 @@ func TestLiveTurnStartSandboxPolicyShape(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		raw, err := fr.sendRequest(ctx, "thread/start", map[string]any{
-			"cwd":            t.TempDir(),
+			"cwd":            liveThreadCwd(t),
 			"sandbox":        "read-only",
 			"approvalPolicy": "never",
 		})
@@ -177,10 +177,14 @@ func TestLiveTurnStartSandboxPolicyShape(t *testing.T) {
 func TestLiveModePoliciesAreAccepted(t *testing.T) {
 	fr, done := liveEngine(t)
 	defer done()
+	// Registered on this test, not the subtests: codex holds a thread cwd until
+	// the engine stops, and `defer done()` above runs before this test's cleanups
+	// (0163 P14).
+	parent := t
 
 	for _, m := range availableCodexModes(Config{AllowFullAccess: true}) {
 		t.Run(m.mode.ID, func(t *testing.T) {
-			params := map[string]any{"cwd": t.TempDir()}
+			params := map[string]any{"cwd": liveThreadCwd(parent)}
 			applyPolicyParams(params, m.approvalPolicy, m.sandbox)
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			raw, err := fr.sendRequest(ctx, "thread/start", params)
