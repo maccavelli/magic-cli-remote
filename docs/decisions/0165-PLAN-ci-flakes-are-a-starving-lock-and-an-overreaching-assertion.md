@@ -205,7 +205,16 @@ go test -race ./internal/certs/ -count=1
 
 Record the lock filename before and after in the execution record.
 
-### P4 — The stalled-pump test stops racing its own fault (D5, D6; closes F6, F7)
+### P4 — ~~The stalled-pump test stops racing its own fault~~ **WITHDRAWN 2026-09-21**
+
+**Do not execute this phase.** Reproduction showed flake 2 is an intermittent
+failure of MADR 0138 F5 — the ACP transport is genuinely torn down — not the
+over-assertion F7/F8 described. Every step below would have produced a test that
+tolerates that teardown. See the MADR's 2026-09-21 amendment and **MADR 0166**,
+which owns the real problem. The steps are kept unedited so the record shows what
+was planned.
+
+~~Original steps:~~
 
 1. Bound the writer by the session: `select` on `s.done` inside the write loop so
    it stops when the session faults, and report how many frames were accepted.
@@ -258,8 +267,8 @@ git show origin/master:ci-flakes.tsv | grep -E 'StoreConcurrentCreateTwoHandles|
 | A5 | No `LOCK_NB` or `LOCKFILE_FAIL_IMMEDIATELY` remains outside `fsutil` | D3, F4 |
 | A6 | `internal/certs` locks the same filename as before | C2 |
 | A7 | `TestStoreConcurrentCreateTwoHandles` passes 20 consecutive runs | F1, F2 |
-| A8 | The stalled-pump test derives its expected frame count from the constants and passes 20 runs | D6, F7 |
-| A9 | The stalled-pump test still asserts the session faults | C1 |
+| ~~A8~~ | ~~The stalled-pump test derives its expected frame count from the constants~~ — **withdrawn with P4** | D6, F7 |
+| ~~A9~~ | ~~The stalled-pump test still asserts the session faults~~ — **withdrawn with P4**; the test is unchanged and still asserts it | C1 |
 | A10 | `lockTimeout` and `certLockTimeout` are untouched | D7, C4 |
 | A11 | No new ledger row names either test | — |
 
@@ -348,3 +357,57 @@ measurement that justifies it.
 **A1 is narrowed, not dropped.** It now reads: the fairness test discriminates
 against the polling implementation **on Windows**, and asserts eventual service on
 Unix. The flake it exists for was on `windows/amd64`.
+
+## Execution record — P1, P2, P3 (2026-09-21)
+
+**Ran: P1, P2, P3.** Commits `e7a4997`, `2e7dbda`, `e184118`, with the amendment
+`27a97b7`. **P4 withdrawn** — see above and MADR 0166. P5 is this record.
+
+Gates, every phase: `pre-add-check` clean, `gofmt -l` empty, `go vet`, the touched
+packages plus every lock user (`fsutil`, `auth`, `certs`, `providerauth`,
+`credstore`) green, `-race` green, `make ci-windows` exit 0, and the WSL Linux lane
+green. `TestStoreConcurrentCreateTwoHandles` passes **20 consecutive runs on both
+platforms** (A7).
+
+### What the plan predicted incorrectly
+
+1. **The fairness test, twice.** Covered in the 2026-09-21 deviation: the first
+   version passed against the polling implementation, and Linux then needed its own
+   budget because `flock` is not FIFO.
+2. **Unifying `certs` would have broken a build.** The plan's per-platform file list
+   looked like duplication worth collapsing into one cross-platform file. It is not:
+   `internal/certs/filelock_other.go` (`!unix && !windows`) is a deliberate no-op
+   for js/wasm and plan9, and `fsutil` has no implementation there. The instinct to
+   tidy would have broken those builds. What the files *could* collapse into is one
+   `unix || windows` file mirroring `fsutil`'s own coverage exactly, which is what
+   landed.
+3. **P2 had a file it did not list.** `internal/auth/filelock_unix_test.go` tested
+   the acquire loop P2 deletes, so the package stopped compiling on Linux. Rather
+   than delete the coverage, it was retargeted at `withPathLock` and made
+   cross-platform as `filelock_test.go` — Windows previously had no auth-level lock
+   coverage at all. The bounded-timeout assertion it used to make now lives where
+   the code lives, in `fsutil.TestWithLockTimesOut`.
+
+### The most valuable result: A6's fail-first
+
+Passing `certLockName` to `fsutil.Acquire` instead of the base — the double-`.lock`
+bug this repository has shipped twice — is caught by **only one** of the three certs
+lock tests:
+
+```text
+mutated: TestLockCertDirLocksTheSameFileAsBefore  FAIL
+         TestLockCertDirExcludes                  PASS
+         TestLockCertDirReleases                  PASS
+```
+
+The exclusion test passes because within a single process, locking the *wrong* file
+still excludes perfectly. That is exactly why the bug shipped twice before: the
+obvious test cannot see it. A6 is not a formality.
+
+### Status
+
+Goals 1-4 are met. Goal 5 (the stalled-pump test) is withdrawn and moves to
+MADR 0166; goal 6 (no new ledger row) applies to
+`TestStoreConcurrentCreateTwoHandles` only, since the stalled-pump test is expected
+to keep failing under load until 0166 is resolved. The plan stays `in-progress`
+until that expectation is either confirmed or 0166 lands.

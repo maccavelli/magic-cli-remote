@@ -390,3 +390,71 @@ concurrent code on the path `Validate` takes, and a bug there wedges logins rath
 than a test.
 
 This supersedes D1's "queues" wording for Unix. It does not change D2–D7.
+
+## Amendment — 2026-09-21: F7 and F8 were wrong; flake 2 is a real transport failure
+
+Found by reproducing the flake instead of reasoning about it, which is what P4
+should have started with.
+
+**What F7 and F8 claimed.** That flake 2 was a test asserting past its own design —
+`deliver` faults the session at the overflow cap, nothing keeps the SDK draining
+afterwards, and an `io.Pipe` write then blocks — and that **no production defect
+was implicated** because `deliver` is O(1) on every path.
+
+**What reproduction showed.** Under `GOMAXPROCS=1` the unmodified test fails with
+the exact CI message. Instrumented, three runs:
+
+| run | session faulted | `conn.Done()` closed | writer |
+| --- | --- | --- | --- |
+| 1 | yes | no | finished — passes |
+| 2 | yes | no | finished — passes |
+| 3 | yes | **yes** | blocked past 15s — the CI failure |
+
+Run 3 is decisive: the **ACP connection was torn down**. That is the failure
+MADR 0138 F5 exists to prevent — one stalled session taking the engine's transport
+with it — so flake 2 is an intermittent *product* failure, not only an
+over-assertion. The test was right to fail.
+
+**F8 was right about `deliver` and wrong about the conclusion.** `deliver` is
+O(1), and `drainOverflow` does release `overflowMu` before blocking
+(`session.go:1488` then `:1490-1501`), so neither blocks the SDK's consumer. The
+gap is elsewhere: `controlOverflowCap` only acts once `deliver` is *called*, and it
+cannot stop the SDK's **reader** outpacing the SDK's single **consumer**
+goroutine. With no parallelism the reader fills the SDK's 1024-deep notification
+queue, `errNotificationQueueOverflow` fires, and the SDK closes the connection
+before our guard ever sees those events.
+
+**Consequences for this record.**
+
+* **F7 is narrowed**: the test's "every frame must be accepted" is indeed stronger
+  than the design promises, and that is why the failure surfaces as a hang. But
+  fixing the assertion would have hidden a real defect, so it is no longer a
+  finding this plan acts on.
+* **F8 is withdrawn.** A production defect *is* implicated.
+* **D5 and D6 are withdrawn**, and with them **P4** and criteria **A8**/**A9**.
+  Bounding the writer and asserting the absorb arithmetic would have made a test
+  that tolerates the teardown — going quiet on exactly the regression it was
+  written for.
+* The transport failure gets its own record, **MADR 0166**, because the fix is a
+  design question about the ACP receive path rather than a tidy-up of a lock.
+
+**Decision (owner, 2026-09-21).** Withdraw P4, leave the test failing under load
+because it is detecting something real, and open 0166. 0165 keeps what it
+achieved: the lock is fair, one implementation serves all five sites, and flake 1
+is fixed.
+
+Also recorded, because it cost a wrong commit before it was noticed: the obvious
+way to unblock the writer — closing the pipe when the session faults — makes the
+SDK see EOF and *causes* the teardown the test forbids. The pipe is the transport
+here; closing it is not a test-harness detail.
+
+### Note on the citations above
+
+Three files this record cites no longer exist, because executing it removed them:
+`internal/certs/filelock_unix.go` and `internal/certs/filelock_windows.go` were
+replaced by `internal/certs/filelock_locked.go` (P3, commit `e184118`), and
+`internal/auth/filelock_unix.go`'s acquire loop was deleted (P2, commit `2e7dbda`).
+Every citation to them describes the tree as it was when the decision was taken,
+which is the point of a decision record — they are not stale references to fix. The
+`certs` comment quoted in **F4**, the one promising its retry loop "matches
+fsutil's", is gone along with the loop it described.
