@@ -198,3 +198,93 @@ GOMAXPROCS=1 go test ./internal/provider/acpagent/ -count=20
    its threshold.
 4. Does the production configuration (256-deep buffer, not the fixture's 1) change
    the reproduction rate? Every measurement here used the test fixture.
+
+## Amendment — 2026-09-21: all four questions answered; three of four options are dead
+
+Measured, read-only, before proposing anything. The result narrows this record from
+four options to one decision, and it is not the comfortable one.
+
+### The decisive experiment
+
+Under `GOMAXPROCS=1`, 1224 frames at a consumer that never drains, 5 trials per
+variant. The variable is our own handler: `real` is `session.SessionUpdate`, `null`
+is a type embedding the session that discards every `session/update` without
+touching `deliver` — the floor of what the SDK costs with nothing of ours added.
+
+| variant | transport torn down | session faulted | min frames written |
+| --- | --- | --- | --- |
+| real handler, 1-deep buffer (fixture) | **3/5** | 4/5 | 1025 |
+| **null handler**, 1-deep buffer | **3/5** | 0/5 | 1025 |
+| real handler, 256-deep buffer (production) | **3/5** | 4/5 | 1025 |
+| **null handler**, 256-deep buffer | **3/5** | 0/5 | 1025 |
+
+### Findings
+
+**F6 — Our handler's cost is irrelevant (closes question 3).** A handler that does
+*nothing* tears the transport down at exactly the same rate, 3 in 5. The reader
+outpaces the SDK's single `processNotifications` goroutine regardless of what we do
+on it, because we are downstream of the queue that overflows. **Option A is dead:
+there is nothing left for us to make faster.**
+
+The null-handler row is the sharpest evidence in this record: `session_faulted=0/5`
+— our stall detector never fires at all, since nothing calls `deliver` — and yet the
+transport still dies 3/5. The teardown is entirely independent of our code.
+
+**F7 — The production buffer depth changes nothing (closes question 4).** 256-deep
+behaves exactly as 1-deep, 3/5 either way. Of course it does: the overflow happens
+in the SDK's queue, upstream of our buffer, so the size of ours cannot matter.
+
+**F8 — `min frames written = 1025` in every variant confirms the mechanism
+exactly.** 1024 queued plus one in flight, then the writer blocks. That is
+`defaultMaxQueuedNotifications` to the frame, so the failure is the SDK queue
+filling and nothing else.
+
+**F9 — The queue depth is not configurable (closes question 1).**
+`defaultMaxQueuedNotifications = 1024` is an unexported constant used directly in
+`make(chan queuedNotification, defaultMaxQueuedNotifications)`
+(`acp-go-sdk@v0.13.5 connection.go:19`, `:108`). No option field, no setter.
+**Option B is dead** without forking.
+
+**F10 — The reader cannot be paused (closes question 2).** `receive()` does a
+*non-blocking* send into the queue (`connection.go:432`); the `default` branch goes
+straight to `shutdownReceive(errNotificationQueueOverflow)` (`:446-447`). The SDK
+has decided that a full queue means closing the connection, and it never applies
+backpressure to its reader. **Option C is dead.**
+
+**F11 — Containment already exists, and it is clean.** A dead ACP connection is
+already turned into an orderly per-session teardown: `watchConnClose`
+(`internal/provider/acpagent/session.go:1079`) funnels into `signalDisconnected`
+(`:1057`), which emits the terminal error and disconnected status so the session
+manager reaps the session. It is wired per session at `acpagent.go:655`. So nothing
+zombies — but every session on that engine is torn down, which is **F3**'s blast
+radius, unchanged.
+
+**F12 — The property MADR 0138 F5 promised is unachievable at SDK v0.13.5.** Taken
+together, F6, F9 and F10 mean no client-side change can keep the transport alive
+when the reader outpaces the consumer. A test asserting "the connection survives"
+is therefore asserting something no version of our code can satisfy.
+
+That reframes MADR 0165's F4, which said the test should stay failing because it was
+detecting something real. It *is* detecting something real. But it is not detecting
+a regression we introduced or can fix — so leaving it red indefinitely trains
+readers to ignore a red test, which is its own harm.
+
+### What still needs deciding
+
+The options in the body are superseded. What remains is a genuine choice about what
+to promise, and it belongs to the owner:
+
+1. **Accept the blast radius and re-aim the test at containment.** Assert what is
+   achievable and already true — the connection dying produces a clean teardown via
+   F11, not a zombie or a hang — and amend 0138 F5 to say the transport cannot be
+   guaranteed under CPU starvation at this SDK version. Honest and cheap. It gives
+   up a guarantee that was never deliverable.
+2. **Fork or vendor `acp-go-sdk`** so the reader blocks instead of closing, or so
+   the depth is configurable. Actually removes the failure. Costs a fork of a
+   dependency on the engine transport path, forever or until upstream lands.
+3. **Upstream a patch to `acp-go-sdk`** and pin to it when released. Correct
+   long-term and benefits every client, but leaves the flake in place meanwhile and
+   depends on a third party's schedule.
+
+These are not mutually exclusive: 1 is the only one that can land this week, and 3
+is the only one that fixes it for good.
