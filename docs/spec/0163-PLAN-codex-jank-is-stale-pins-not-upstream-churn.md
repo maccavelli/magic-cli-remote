@@ -1272,3 +1272,68 @@ internal/provider/codex/pending_warning_test.go   (new) unit + mutation target
 
 **A13 is re-armed, not re-asserted.** It is only met once the two mutations above
 are caught. Until then it stays unverified, and this plan does not claim otherwise.
+
+## Execution record — A13 verified (2026-09-21)
+
+**A13 is met.** Commit `c9e0ef8` closes the 2026-09-21 deviation; the host ACL was
+repaired by the owner beforehand, which is what made a live resume possible at all.
+
+### The host repair
+
+`~/.codex/sessions/2026/09/19` now carries only **inherited** ACEs —
+`OWNER RIGHTS` + `SYSTEM`, matching every sibling day directory — the tree
+enumerates 29 files where it previously threw, and no path in it denies. Codex's
+`thread/list` and resume work again on this host. Recorded because the cause
+(F28-F30's orphaned deny, with an empty `deny_read_acl_state.json`) will recur if
+Codex provisions its sandbox again, and the symptom was indistinguishable from our
+own bug: `thread-store internal error: Access is denied. (os error 5)`.
+
+### What made A13 real
+
+Before the fix, the assertion passed in all three worlds — migrated, resume
+reverted, and replay reverted — **0 of 2 mutations caught**. After it, **2 of 2**,
+and the two failures carry *different* upstream messages, which is stronger
+evidence than the criterion asked for:
+
+```text
+resume reverted  -> "...use `excludeTurns: true`, then page with
+                     `thread/turns/list` and `thread/items/list`."   (thread_processor.rs:33)
+replay reverted  -> "...omit `includeTurns` or set it to `false`, then page with
+                     `thread/turns/list` and `thread/items/list`."   (thread_processor.rs:34)
+```
+
+Each half of the migration is therefore proven independently, by the engine's own
+wording, rather than by one assertion that both halves happen to satisfy. The
+baseline run sees no notice at all.
+
+The diagnosis itself is worth keeping: the engine's frame was recovered with
+`MCREMOTE_WIRE_CAPTURE_DIR`, which showed the notice on the wire while no event
+reached the session. That is the instrument to reach for when a live assertion
+about an absence passes suspiciously easily — it separates "the engine did not send
+it" from "we threw it away", and those have opposite fixes.
+
+### Deviations from the deviation
+
+* The new test file is `early_warning_test.go`, not `pending_warning_test.go` as
+  the deviation entry named it, matching its source file `early_warning.go`.
+* `emitCodexWarning` was extracted so a replayed warning is byte-identical on the
+  wire to a live one. That was not in the deviation's file list but is in
+  `routing.go`, which was; it replaces the inline emit rather than adding a second
+  one, keeping the single-emitter property the warning path already had.
+
+### Gates
+
+`pre-add-check` clean over all four files, `go test -race` green,
+`make ci-windows` exit 0 with no "skipping", the WSL Linux lane green over
+`./internal/provider/codex/ ./internal/ws/ ./internal/event/`, and the live
+`make live-codex`-class assertion green against the installed 0.155.1 binary.
+
+### Status
+
+Every phase P1-P13 has run and **every acceptance criterion A1-A27 is met**.
+
+The plan stays `in-progress` for one reason only: release 3's billed acceptance —
+`make live-codex-turn` and `make live-codex-review`, plus the manual phone pass
+described in Rollout — has not been run. Those spend real tokens and need an
+explicit instruction. Marking the plan `completed` before them would claim a
+release acceptance that has not happened.
