@@ -803,3 +803,50 @@ tree-wide grep finds *no* console-signal symbol in Codex. Measured across **4,02
 `CREATE_NEW_PROCESS_GROUP` in `codex-rs/utils/pty/src/windows_tests.rs`. The
 conclusion is unchanged and better evidenced: Codex has no console-signal
 mechanism to lean on, so the job-object supervision stays (D15).
+
+## Amendment — 2026-09-21: capability stability is hand-listed, not derived
+
+Found while grounding P8, before its first write. It contradicts an assumption
+**D7** rests on, so it is recorded here rather than only in the plan.
+
+**What was assumed.** That once `thread/items/list`, `thread/turns/list` and
+`thread/revert` were promoted upstream (**F9**), regenerating the contract in P6
+would carry that promotion into our own manifest — so P8 would only have to make
+the *code* match data that was already correct.
+
+**What is true.** The regenerated 0.155.1 manifest still records:
+
+| method | in the stable schema bundle | our capability entry |
+| --- | --- | --- |
+| `thread/items/list` | yes (1 of 102) | `experimental`, `fallback: rpc:thread/read` |
+| `thread/turns/list` | yes | `experimental`, `fallback: rpc:thread/read` |
+| `thread/revert` | yes | none at all |
+
+The cause is mechanical and is the same shape as **F12** and **F13**:
+`generatedCapabilities` (`contract_generate_test.go:169-204`) does not read
+stability from the schema bundles at all. It classifies by which of two
+**hand-maintained allowlists** a method appears in, and both paging methods sit in
+`experimentalAllowed` (`:194`). Upstream carries no `#[experimental]` on either —
+`ThreadTurnsList` and `ThreadItemsList` are plain entries in `common.rs:801-811`.
+So the source markers are authoritative for *notification* stability (**D4**) and
+silently ignored for *capability* stability.
+
+**Why it is not cosmetic.** A capability marked experimental is gated on the
+`experimental` negotiation and carries `fallback: rpc:thread/read`. Migrating
+history onto these capabilities as they stand would leave the new path falling
+back, whenever `experimental` is false or a runtime denial fires, to the exact
+deprecated call D7 exists to remove — and **F19**'s `deprecationNotice`
+assertion would still pass, because the fallback is a different configuration
+from the one the live test exercises. It also directly undercuts **D16**: P13
+would decline to advertise a capability that is in fact stable.
+
+**Decision (owner, 2026-09-21).** Derive capability stability from the bundles:
+a method the stable bundle declares is stable and carries no fallback; a method
+only the experimental bundle declares is experimental and keeps its fallback. The
+allowlists stay, with their meaning narrowed to *which methods we choose to
+expose* — never *how stable they are*. This extends **D2**'s principle (the
+generator derives from its inputs) to the one field that had escaped it.
+
+`thread/revert` gains no capability entry here. It is stable and unused by any
+planned step, so adding one is surface we do not call; it is named in Deferred
+instead of being taken silently.

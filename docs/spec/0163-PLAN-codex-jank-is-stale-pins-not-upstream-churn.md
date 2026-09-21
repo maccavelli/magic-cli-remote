@@ -454,9 +454,14 @@ a migration, not a repair.
 3. Retire the local-search fallback's dependence on full hydration where paging
    now serves it (`threads.go:290-306`), leaving the fallback for genuinely
    unsupported stores. Its `Truncated: true` honesty is kept.
-4. Capability gating: the three methods' manifest entries lose their
+4. ~~Capability gating: the three methods' manifest entries lose their
    `experimental` classification and their `fallback: rpc:thread/read` in P6's
-   regenerated data; this phase makes the code match.
+   regenerated data; this phase makes the code match.~~ **Wrong as written — see
+   the 2026-09-21 deviation below.** P6 regenerated the data but not the
+   hand-maintained allowlist that assigns stability, so the entries are still
+   `experimental` with a fallback. This phase must first make
+   `generatedCapabilities` derive stability from the schema bundles, then
+   regenerate, and only then make the code match.
 5. Assert no `deprecationNotice` is received during a normal session in the live
    test — the notice is routed to the provider (`routing.go`), so the test can
    observe it rather than infer it. That assertion is the proof the migration is
@@ -978,3 +983,52 @@ the same way earlier, by planting a non-test file that references
 `TestExecAndShellUseDistinctLabelsPoliciesAndAudit` skips on Windows (POSIX
 fixture paths, MADR 0116 P11), so its `thread/shellCommand` assertion was covered
 in the WSL Linux lane rather than here.
+
+## Deviation — 2026-09-21 (P8): the paging capabilities are still marked experimental
+
+**Found** while grounding P8, before its first write, and **resolved by owner
+decision the same turn.** Recorded in the MADR as well, because it contradicts an
+assumption D7 rests on rather than merely changing a step.
+
+**Evidence.** `thread/items/list` and `thread/turns/list` are both declared by the
+**stable** schema bundle (102 stable client requests) and carry no
+`#[experimental]` upstream (`common.rs:801-811`), yet
+`testdata/0.155.1/manifest.json` records each as
+`"stability": "experimental"` with `"fallback": "rpc:thread/read"`.
+`thread/revert` has no capability entry at all. The cause is
+`contract_generate_test.go:169-204`: capability stability is read from two
+hand-maintained allowlists, not from the bundles, and both methods sit in
+`experimentalAllowed` (`:194`).
+
+**Consequence had it shipped.** P8 would have migrated the replay path onto
+capabilities gated on the `experimental` negotiation, whose declared fallback is
+the deprecated `thread/read` call P8 exists to remove — so an `experimental:
+false` engine, or any runtime denial, would silently resume earning the
+`deprecationNotice` that A13 asserts against, in a configuration A13 does not
+exercise. P13/D16 would also have refused to advertise a stable capability.
+
+**Decision: derive stability from the bundles** (option A of three offered; the
+hand-move was rejected for leaving the mechanism that mislabels the *next*
+promotion, which is the stale-enumeration pattern this plan already found twice
+in F12 and F13).
+
+**Files added to P8's scope** by this deviation:
+
+```text
+internal/provider/codex/contract_generate_test.go   stability derived from the bundles, not the allowlist
+internal/provider/codex/testdata/0.155.1/manifest.json   regenerated consequence
+```
+
+**Added verification for P8**, beyond the phase's own:
+
+```bash
+# the two paging capabilities are stable and carry no fallback
+go test ./internal/provider/codex/ -run 'Contract|Capabilit' -count=1
+make live-codex-contract
+CODEX_CONTRACT_EXACT=1 make live-codex-contract
+```
+
+Deferred, named so it is not mistaken for an oversight: `thread/revert` stays
+without a capability entry. It is stable and promoted in the same upstream change,
+but no step in this plan calls it, and adding a capability for an uncalled method
+is surface without a caller.
