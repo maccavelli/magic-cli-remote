@@ -130,22 +130,53 @@ if ($LASTEXITCODE -ne 0) { Fail 'generate-json-schema (experimental) failed' }
 $env:CODEX_CONTRACT_STABLE_SCHEMA       = Composite $installedStableDir
 $env:CODEX_CONTRACT_EXPERIMENTAL_SCHEMA = Composite $installedExpDir
 
-# --- 4. Source-side surfaces ----------------------------------------------
-# The stable bundle is unpacked in the tree and is byte-identical to the
-# binary's stable export. The experimental one ships only as a .zst blob, so when
-# it cannot be decompressed the installed export stands in — which makes the
-# source-watch delta empty BY CONSTRUCTION rather than by observation. Say so
-# rather than letting a reader trust an empty delta.
-$sourceStable = Join-Path $SourceTree 'codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json'
-if (Test-Path $sourceStable) {
-  $env:CODEX_SOURCE_STABLE_SCHEMA = $sourceStable
-} else {
-  Note 'NOTE source tree has no unpacked schema/json/; using the installed stable export'
-  $env:CODEX_SOURCE_STABLE_SCHEMA = $env:CODEX_CONTRACT_STABLE_SCHEMA
+# --- 4. Source-side surfaces, from the committed blobs --------------------
+# Both source surfaces come from
+# codex-rs/app-server-protocol/schema/precomputed/app-server-exports-{stable,
+# experimental}.json.zst, which are the blobs `generate-json-schema` itself
+# decompresses. Taking BOTH from there — rather than the unpacked schema/json/
+# for stable and nothing for experimental — is what makes the source-watch
+# installed_delta a real observation instead of empty by construction.
+#
+# zstd is the only awkward part: there is no zstd binary and no Python zstandard
+# on this host, so decompression uses Node's zlib.zstdDecompressSync, which needs
+# Node >= 23.8 (measured working on v24.14.0). The delta compares METHOD SETS, not
+# bytes, which matters because the blob and the binary's own export differ by four
+# trailing bytes while declaring an identical 164 methods.
+function Expand-SourceExports([string]$tree, [string]$which, [string]$dest) {
+  $blob = Join-Path $tree "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-$which.json.zst"
+  if (-not (Test-Path $blob)) { Fail "missing $blob; -SourceTree must be a codex checkout" }
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  if (-not $node) { Fail 'node is required to decompress the source schema blobs (Node >= 23.8 for zlib.zstdDecompressSync)' }
+
+  New-Item -ItemType Directory -Force -Path $dest | Out-Null
+  $js = Join-Path $dest '_expand.js'
+  @'
+const z = require('zlib'), fs = require('fs'), path = require('path');
+if (typeof z.zstdDecompressSync !== 'function') {
+  console.error('this node lacks zlib.zstdDecompressSync; Node >= 23.8 is required');
+  process.exit(2);
 }
-Note 'NOTE source experimental schema ships only as .zst; using the installed experimental export.'
-Note '     The source-watch installed_delta is therefore empty by construction, not by observation.'
-$env:CODEX_SOURCE_EXPERIMENTAL_SCHEMA = $env:CODEX_CONTRACT_EXPERIMENTAL_SCHEMA
+const [blob, dest] = process.argv.slice(2);
+const exports_ = JSON.parse(z.zstdDecompressSync(fs.readFileSync(blob)));
+const schemas = exports_.json_schema || {};
+const wanted = ['codex_app_server_protocol.v2.schemas.json', 'ServerRequest.json'];
+for (const name of wanted) {
+  if (!schemas[name]) { console.error('blob has no ' + name); process.exit(3); }
+  fs.writeFileSync(path.join(dest, name), schemas[name]);
+}
+console.log(Object.keys(schemas).length);
+'@ | Set-Content -Path $js -Encoding UTF8
+
+  $count = & $node.Source $js $blob $dest
+  if ($LASTEXITCODE -ne 0) { Fail "decompressing $blob failed" }
+  Remove-Item $js -Force -ErrorAction SilentlyContinue
+  Note "source $which : expanded $count schema files from the committed blob"
+  return (Join-Path $dest 'codex_app_server_protocol.v2.schemas.json')
+}
+
+$env:CODEX_SOURCE_STABLE_SCHEMA       = Expand-SourceExports $SourceTree 'stable'       (Join-Path $work 'source-stable')
+$env:CODEX_SOURCE_EXPERIMENTAL_SCHEMA = Expand-SourceExports $SourceTree 'experimental' (Join-Path $work 'source-experimental')
 
 # --- 5. Generate -----------------------------------------------------------
 $env:CODEX_CONTRACT_GENERATE = '1'

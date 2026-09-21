@@ -89,6 +89,28 @@ expected and **not** a bug to fix by deleting the call.
   21 server requests were recorded as deferred while nine were answered
   deliberately.
 
+## Where the source-side surfaces come from
+
+Both source surfaces are decompressed from the committed blobs
+`codex-rs/app-server-protocol/schema/precomputed/app-server-exports-{stable,experimental}.json.zst`
+— the same blobs `generate-json-schema` reads. Taking both from there is what
+makes the source-watch `installed_delta` an observation rather than a formality.
+
+That needs zstd, and this host has no `zstd` binary and no Python `zstandard`, so
+the script uses Node's `zlib.zstdDecompressSync` (**Node >= 23.8**; measured on
+v24.14.0). Without Node the capture fails rather than quietly substituting the
+installed export.
+
+The delta compares **method sets, not bytes**: the blob and the binary's own
+export differ by four trailing bytes while declaring an identical 164 methods, so
+a byte comparison would report drift on every capture.
+
+**Filter both sides or the delta lies.** The exporter over-reports experimental
+notifications identically on the installed and the source side, so filtering only
+the installed surface reports all 22 experimental notifications as "in source,
+missing from installed" — a phantom delta that never clears. A correct capture at
+0.155.1 reports `installed_delta: 0`.
+
 ## Two installs, one PATH
 
 A Windows host can carry two Codex installs at different versions — on the

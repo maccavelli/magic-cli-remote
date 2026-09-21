@@ -28,15 +28,10 @@ func TestGenerateContractManifest(t *testing.T) {
 	// (MADR 0163 D4/F4). The experimental surface keeps every notification,
 	// because that is what a client opting in actually receives.
 	experimentalOnly := experimentalNotifications(t, in.sourceTree)
-	kept := stable.ServerNotifications[:0]
-	for _, entry := range stable.ServerNotifications {
-		if _, isExperimental := experimentalOnly[entry.Method]; !isExperimental {
-			kept = append(kept, entry)
-		}
-	}
+	total := len(experimental.ServerNotifications)
+	stable.ServerNotifications = stableNotificationsOnly(stable.ServerNotifications, experimentalOnly)
 	t.Logf("notifications: %d stable, %d experimental-only, %d total",
-		len(kept), len(experimental.ServerNotifications)-len(kept), len(experimental.ServerNotifications))
-	stable.ServerNotifications = kept
+		len(stable.ServerNotifications), total-len(stable.ServerNotifications), total)
 
 	manifest := ContractManifest{
 		SchemaVersion: 1,
@@ -53,6 +48,13 @@ func TestGenerateContractManifest(t *testing.T) {
 
 	sourceStableSurface, _ := readGeneratedSurface(t, in.sourceStable)
 	sourceExperimentalSurface, _ := readGeneratedSurface(t, in.sourceExp)
+	// The SAME filter, or the delta lies. The source bundle over-reports
+	// notifications exactly as the installed one does, so comparing a filtered
+	// installed surface against an unfiltered source surface reports every
+	// experimental notification as "present in source, missing from installed" —
+	// a phantom delta of precisely 22 entries that never clears.
+	sourceStableSurface.ServerNotifications =
+		stableNotificationsOnly(sourceStableSurface.ServerNotifications, experimentalOnly)
 	watch := SourceWatchManifest{
 		SchemaVersion:  1,
 		Commit:         in.sourceCommit,

@@ -246,3 +246,18 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 	}
 	return v, true
 }
+
+// stableNotificationsOnly drops the experimental notifications from a captured
+// surface. It must be applied to BOTH the installed and the source surface: the
+// exporter over-reports identically on each side, so filtering one and not the
+// other reports every experimental notification as a source-only delta that
+// never clears (MADR 0163 D4).
+func stableNotificationsOnly(entries []WireContract, experimentalOnly map[string]struct{}) []WireContract {
+	kept := make([]WireContract, 0, len(entries))
+	for _, entry := range entries {
+		if _, isExperimental := experimentalOnly[entry.Method]; !isExperimental {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
