@@ -207,9 +207,19 @@ func TestResolveBinaryIdentityHelperDoesNotCountAsLaunch(t *testing.T) {
 	if id.Version != "test-helper" {
 		t.Fatalf("version = %q, want test-helper", id.Version)
 	}
-	if _, err := os.Stat(countPath); !errors.Is(err, os.ErrNotExist) {
-		n, _ := readLaunchLog(countPath)
-		t.Fatalf("identity probe wrote launch log (%d lines); --version inherited helper env", n)
+	// Assert on what the probe DID, not on whether the file exists. The file is
+	// addressed by a process-wide environment variable, so its mere existence only
+	// proves some helper ran somewhere in this package — which was enough to fail
+	// this test on CI twice on 2026-09-21 while the probe itself was correct.
+	//
+	// The defect this guards is specific: resolveBinaryIdentity must not exec the
+	// binary to read its version, because with the helper env inherited that exec
+	// is itself a launch (MADR 0119 P6). So a row naming --version is the failure,
+	// and rows from anyone else are not this test's business.
+	for _, row := range launchRows(t, countPath) {
+		if strings.Contains(row, "--version") {
+			t.Fatalf("identity probe exec'd the binary: %q", row)
+		}
 	}
 }
 
@@ -396,6 +406,26 @@ func waitLaunchCount(t *testing.T, path string, want int) {
 		t.Fatalf("launch log never appeared at %s (want %d launches)", path, want)
 	}
 	t.Fatalf("launch count = %d, want %d", last, want)
+}
+
+// launchRows returns the launch log's rows, or nothing when no helper ran at all.
+// A missing file is the ordinary case here, not an error.
+func launchRows(t *testing.T, path string) []string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("read launch log %s: %v", path, err)
+	}
+	var rows []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(line) != "" {
+			rows = append(rows, strings.TrimSpace(line))
+		}
+	}
+	return rows
 }
 
 func readLaunchLog(path string) (int, error) {

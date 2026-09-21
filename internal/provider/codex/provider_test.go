@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,7 +30,16 @@ func runAppServerHelper() {
 	if path := os.Getenv("CODEX_HELPER_LAUNCH_LOG"); path != "" {
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {
-			_, _ = f.WriteString("launch\n")
+			// Record WHAT was launched, not merely that something was.
+			//
+			// This log is addressed by an environment variable, and t.Setenv makes
+			// that variable process-wide, so every helper child alive during a test
+			// appends here — including one spawned by an earlier test whose teardown
+			// has not finished killing it. A bare "launch" row is therefore not
+			// attributable to the test that is reading the file, which is what let a
+			// straggler fail TestResolveBinaryIdentityHelperDoesNotCountAsLaunch on
+			// CI while the code under test was correct (MADR 0163, 2026-09-21).
+			_, _ = f.WriteString("launch " + strings.Join(os.Args[1:], " ") + "\n")
 			_ = f.Close()
 		}
 	}
