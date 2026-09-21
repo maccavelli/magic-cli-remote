@@ -1131,3 +1131,102 @@ Also corrected in the test itself: the first version created a thread and resume
 it, which can never work — a thread that has taken no turns has no rollout, so
 there is nothing to locate. It now resumes an existing thread, which uses real
 history and spends no tokens.
+
+## Execution record — P9 and P13 (2026-09-21)
+
+**Ran: P9 and P13** — commits `1d94f8d` and `e27ce65`. With P8 earlier the same
+day, release 3 is implemented and every phase P1-P13 has now run.
+
+Gates per phase: `pre-add-check` clean, `gofmt -l` empty, `go build ./...`,
+`go vet`, the affected packages' tests and `-race` green, `make ci-windows`
+exit 0 with no "skipping", and the WSL Linux lane green over
+`./internal/provider/... ./internal/procutil/ ./internal/event/ ./internal/ws/`.
+
+### P9 — the gap was larger than "two classes read alike"
+
+The MADR's 2026-09-21 correction said we decoded none of `codexErrorInfo`, and the
+mutation testing showed what that cost: with the engine's classification ignored,
+the prose classifier labels `rateLimitExceeded`, `serverOverloaded` **and**
+`unauthorized` all as `quota`. Three wrong answers, not one, each with advice that
+does not apply — "wait for your limit to reset" for a rejected credential.
+
+Mapped conservatively, and the restraint is deliberate: `usageLimitExceeded` ->
+quota, `rateLimitExceeded` -> rate_limit, `serverOverloaded` /
+`internalServerError` -> server, `unauthorized` -> auth, `sandboxError` ->
+permission. `contextWindowExceeded` and `sessionBudgetExceeded` are **left
+unmapped on purpose** and a test asserts they stay that way: their remedy is a new
+or compacted session, so filing them as quota would tell the operator to wait for
+a reset that will never come. `agenterr` has no class for "start a new session",
+and inventing one is deferred rather than faked.
+
+Two things were picked up that the phase did not ask for and that cost nothing:
+`additionalDetails` (previously dropped, though it exists precisely because
+`message` is often too terse to act on) and a log line naming the misalignment
+category, which the schema warns is open-ended and must never be switched on.
+
+`steer_message` is additive and server-first, documented in `internal/event` and
+in `docs/protocol-v1.md`, and counted in `retention.go`'s size accounting — the
+last of which is easy to forget and silently under-counts retention.
+
+**Mutations: 4/4 caught**, including the one this plan named. Collapsing the two
+classes fails with exactly the advice difference: `codexErrorInfo
+"rateLimitExceeded" produced ErrorKind "quota", want "rate_limit"`.
+
+### P13 — the compatibility question had a better answer than expected
+
+Step 3 asked whether the phone tolerates a capability list that can now shrink,
+and said the mobile change ships first if it does not. Measured: `apps/mobile`
+parses `operations` and `experimental` into `CodexSurfaceCaps` and **never reads
+either field** — a repository-wide search for `.operations` / `.experimental`
+finds only the constructor parameters. Only `codexSurface != null` is consulted,
+and the parser already falls back to `const []` for a missing or non-list value.
+So a shrinking list cannot break an older phone and no mobile change is needed.
+`flutter analyze` / `flutter test` were **not** run, because no Dart file changed;
+the compatibility claim rests on that read of the code, not on the mobile suite.
+
+One design decision worth recording: `NegotiatedSurfaceCapabilityIDs` reads the
+capability *snapshot* rather than calling `Supports`. `Supports` has a side effect
+— it lets an expired denial through so the next call re-probes (D10) — and an
+advertisement should observe state, not mutate it. The cost is that a capability
+whose denial has just expired stays unadvertised until real use re-probes it,
+which under-advertises rather than over-promises. The test covers both ends of
+that: the capability disappears when disabled and reappears after the window.
+
+**Mutations: 2/2 caught** — advertising the manifest regardless of negotiation,
+and claiming a negotiated surface with no engine running.
+
+### A pre-existing flakiness finding, confirmed against an unmodified tree
+
+`go test ./internal/...` with default parallelism fails intermittently on this
+host, and **not** because of this plan. Three consecutive full-suite runs failed
+with three *different* sets of tests, every failure a localhost dial or readiness
+deadline rather than an assertion:
+
+```text
+run 1  TestProxyHealthReadinessAndOriginRejection    Get ".../readyz": context deadline exceeded
+run 2  TestProxyPreInitializeAuthenticationFailure   WebSocket dial: context deadline exceeded
+       TestProviderInitializesBeforeTimingOut
+run 3  TestStartServerBailsWhenEngineExitsImmediately   (run on a worktree at HEAD,
+       TestFirstEnvelopeDeadlineReapsSilentUpgrade      WITHOUT the P13 changes)
+       TestEnvelopeVersionRejected
+```
+
+Run 3 is the decisive one: a detached worktree at the pre-P13 commit fails the same
+way, so the cause is load, not the change. `TestProxyHealthReadinessAndOriginRejection`
+passes 5/5 in isolation, and `make ci-windows` — the repo's actual gate, which is
+what CI runs — passes. Recorded rather than fixed because tightening those deadlines
+is not in this plan's scope; it belongs to whichever record owns the proxy
+readiness tests.
+
+### Status: implemented, one criterion unverified
+
+Every phase has run. **A13 remains unverified** and is the only outstanding item:
+it needs the host's `~/.codex/sessions/2026/09/19` ACL repaired before a live
+resume can be observed (see the P8 record). The plan therefore stays
+`in-progress` rather than `completed`, because marking it complete with an
+unverified acceptance criterion is exactly how an unproven migration comes to look
+finished.
+
+Also still outstanding, and deliberately not run: `make live-codex-turn` and
+`make live-codex-review`, the billed acceptance for release 3. They spend real
+tokens and need an explicit instruction.
