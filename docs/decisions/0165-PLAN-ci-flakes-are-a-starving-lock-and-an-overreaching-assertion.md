@@ -34,9 +34,11 @@ Observable states, not activities:
 ### In scope (the only files any phase may touch)
 
 ```text
-P1  internal/fsutil/lock_windows.go        blocking overlapped acquire + Acquire()
-    internal/fsutil/lock_unix.go           blocking flock acquire + Acquire()
-    internal/fsutil/lock_fair_test.go      (new) the starvation test, both platforms
+P1  internal/fsutil/lock_windows.go            blocking overlapped acquire + Acquire()
+    internal/fsutil/lock_unix.go               blocking flock acquire + Acquire()
+    internal/fsutil/lock_fair_test.go          (new) the starvation test, both platforms
+    internal/fsutil/lock_fair_windows_test.go  (new) the 600ms budget, per the amendment
+    internal/fsutil/lock_fair_unix_test.go     (new) the 3s budget, per the amendment
     internal/fsutil/lock_windows_test.go   extend; TestWithLockTimesOut unchanged
     internal/fsutil/lock_unix_test.go      extend; TestWithLockTimesOut unchanged
 P2  internal/auth/filelock_unix.go         delete the duplicated loop; delegate
@@ -297,3 +299,52 @@ proves nothing.
 * **The remaining ledger entries.** Only these two were traced. The ledger is the
   place to look for the next one, and the method that worked is in MADR 0163: read
   the full CI log, never the `--- FAIL` line alone.
+
+## Deviation — 2026-09-21 (P1): the fairness test had to be earned twice
+
+Both halves resolved by owner decision the same turn; the MADR carries the
+amendment because the first one contradicts D1.
+
+### The first fairness test proved nothing
+
+Written as the plan described — a holder taking and releasing in a tight loop, a
+waiter with a 1 s budget — it **passed against the polling implementation too**.
+The gap between one `Acquire` returning and the next being requested is wide
+enough (each reopens a handle) that a 20 ms poller lands in it within a second.
+This is precisely what the plan warned about when it named A1 the second most
+likely criterion to be quietly dropped: *"it is easy to write a 'fairness' test
+that passes against both implementations and therefore proves nothing"*.
+
+Fixed by measuring instead of guessing. A temporary matrix ran five holder shapes
+against both implementations, 10 trials each:
+
+| shape | queued | polling |
+| --- | --- | --- |
+| 1 × 3 ms, 1 s budget | 10/10 | **10/10** — proves nothing |
+| 1 × 25 ms, 200 ms | 10/10 | 3/10 |
+| 2 × 25 ms, 200 ms | 10/10 | 2/10 |
+| 4 × 100 ms, 400 ms | 10/10 (worst 353 ms) | 0/10 |
+| **2 × 100 ms, 600 ms** | **10/10 (worst 151 ms)** | **0/10** |
+| 2 × 150 ms, 900 ms | 10/10 | 1/10 — a longer budget helps polling |
+| 3 × 100 ms, 900 ms | 10/10 | 3/10 |
+
+`2 × 100 ms / 600 ms` was chosen over `4 × 100 ms / 400 ms` because both separate
+perfectly but the former leaves four times the headroom (151 ms against 600 ms)
+rather than 47 ms, and a fairness test that is itself flaky is worse than none.
+The matrix is recorded in the test file so the numbers cannot be "tidied" without
+re-deriving them. Verified after the change: polling **FAIL**, queued **PASS**,
+`TestWithLockTimesOut` **PASS** in both.
+
+### Linux needed its own budget
+
+See the MADR amendment. `flock(2)` is not FIFO, so the 600 ms budget that makes
+the test discriminating on Windows starves the Linux waiter 1 in 10 runs. The
+budget moves into per-platform files; everything else about the test is shared.
+
+**Files added to P1's scope** by this deviation: `lock_fair_windows_test.go` and
+`lock_fair_unix_test.go`, each holding only the budget constant and the
+measurement that justifies it.
+
+**A1 is narrowed, not dropped.** It now reads: the fairness test discriminates
+against the polling implementation **on Windows**, and asserts eventual service on
+Unix. The flake it exists for was on `windows/amd64`.

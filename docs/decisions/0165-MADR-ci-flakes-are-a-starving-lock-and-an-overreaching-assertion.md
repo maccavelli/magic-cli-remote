@@ -191,7 +191,9 @@ Chosen: **A**, at the owner's direction.
 ### The decisions
 
 * **D1 — Wait in the OS, not in a sleep loop.** Replace polling with a blocking
-  acquire that the kernel queues, bounded by the caller's existing timeout. On
+  acquire that the kernel queues, bounded by the caller's existing timeout.
+  *(Amended 2026-09-21: "queues" holds on Windows only — see the amendment at the
+  end of this record. Unix is woken on release without ordering.)* On
   Windows: `LockFileEx` **without** `LOCKFILE_FAIL_IMMEDIATELY` on an overlapped
   handle, waited with `WaitForSingleObject` and cancelled with `CancelIoEx` on
   expiry. On Unix: blocking `Flock(LOCK_EX)` on a goroutine-owned fd, with the
@@ -342,3 +344,49 @@ runs that follow this change.
    running it, not by reading documentation.
 3. Is there any caller that depends on `WithLock` failing *fast* when the lock is
    held — where queueing would change behaviour rather than improve it?
+
+## Amendment — 2026-09-21: Linux `flock` is eventually-served, not FIFO
+
+Found while executing P1, by running the fairness test on both platforms rather
+than on the one where the flake happened.
+
+**What D1 assumed.** That a blocking acquire is queued by the kernel on both
+platforms, so a waiter "is granted the lock in turn rather than by luck". That
+sentence is true of Windows `LockFileEx` and **not** of Linux `flock(2)`, which
+makes no ordering guarantee: a waiter woken on release can be barged by a holder
+that immediately re-requests.
+
+**Measured**, same holder shape (2 holders, 100 ms holds, immediate reacquire),
+10 trials per row:
+
+| platform | budget | waiter acquired | worst wait |
+| --- | --- | --- | --- |
+| Windows, queued | 600 ms | 10/10 | **151 ms** |
+| Windows, polling | 600 ms | 0/10 | — |
+| Linux, queued | 600 ms | 9/10 | 600 ms (one starved) |
+| Linux, queued | 3 s | 10/10 | **1.054 s** |
+| Linux, queued, 1 holder | 3 s | 10/10 | 552 ms |
+
+**What this does and does not change.**
+
+* It does **not** undermine the fix. Linux still stops polling blind every 20 ms
+  and is woken when the lock is released, and with a realistic budget the waiter is
+  always served — 10/10 at 3 s. **F1**'s defect (a waiter that can burn its entire
+  budget while the lock is free hundreds of times) is addressed on both platforms.
+* It does change what may be *claimed*. On Unix the property is "the waiter is
+  woken on release and eventually served", not "served in turn". Latency is ~7×
+  Windows' for the same contention and far more variable.
+* It makes the discrimination proof platform-specific. The fairness test separates
+  the queued acquire from the polling one **on Windows** (10/10 vs 0/10). On Linux
+  the budget needed for reliability is long enough that the polling implementation
+  would sometimes succeed too, so there the test asserts the weaker property.
+  That is acceptable because the flake being fixed was on `windows/amd64`.
+
+**Decision (owner, 2026-09-21).** Keep one fairness test with a per-platform
+budget — 600 ms on Windows, 3 s on Unix — each documented with the measurement
+that produced it, and state the Unix caveat where the code lives. Implementing
+our own ordering on top of `flock` was rejected: it is a significant piece of
+concurrent code on the path `Validate` takes, and a bug there wedges logins rather
+than a test.
+
+This supersedes D1's "queues" wording for Unix. It does not change D2–D7.
