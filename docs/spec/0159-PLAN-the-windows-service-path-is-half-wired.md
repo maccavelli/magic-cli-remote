@@ -1641,9 +1641,9 @@ the concurrent case.
 
 ### Not yet done
 
-* **v0.19.0 is an owner action**: push, then tag after a green CI run, then the
-  Rollout's step 3 — update, start an agent session and confirm **no window and
-  no kill**, stop a session, then log off and on and start another. That closes
-  **A11's logon half** and **A25**.
-* `make ci-windows-smoke` has not been run; it belongs before the tag.
+* ~~v0.19.0 is an owner action~~ — **done 2026-09-20**, see the rollout record
+  above. A11's logon half and A25 are both closed.
+* ~~`make ci-windows-smoke`~~ — **run before the tag**, passed.
 * P12 (`--env` through a private file) follows in a later release, unchanged.
+* Codex sessions on this host stay broken until the owner restores the ACL on
+  `~/.codex/config.toml`. Nothing in this plan is waiting on it.
