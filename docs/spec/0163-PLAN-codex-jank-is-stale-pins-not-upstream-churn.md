@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-21
 ---
 
@@ -680,6 +680,7 @@ go build ./... && go test ./internal/provider/... ./internal/procutil/
 | A21 | `thread/shellCommand` carries `timeoutMs`, with the zero-means-immediate semantics in the comment | D14 |
 | A22 | Every retained workaround carries a "still true at 0.155.1" citation; none lost its original version citation | D15 |
 | A23 | The advertised capability list reflects the negotiated surface, and shrinks when `experimental` is false | D16 |
+| A24 | `mcpServerStatus/list` surfaces `runtimeStatus` and `toolsError`; a healthy server acquires no error, and an engine predating both fields still decodes | D14 |
 
 **A13 is the criterion most likely to be quietly dropped.** It asserts the
 *absence* of a notification over a live session, which is the shape reviewers call
@@ -895,3 +896,85 @@ promoted methods are stable, `excludeTurns` exists on both resume and fork, both
 backwards cursors exist on the resume response, `Thread.historyMode` exists, and
 `deprecationNotice` is routed so the migration's own assertion is observable.
 P10's five and P13's three hold as written.
+
+## Execution record (2026-09-20)
+
+**Ran: P10, P11, P12** — commits `595831e`, `2ddbaa9`, `3b252f2`. Release 2 is now
+complete (P4–P7 earlier, P10–P12 here). Release 3 (P8, P9, P13) is not started.
+
+Gates per phase: `make pre-add-check FILES=...` (clean), `gofmt -l` (empty),
+`go build ./...`, `go vet`, the affected package tests, and for P12
+`markdownlint-cli2` compared against its own baseline.
+
+### What the plan predicted incorrectly
+
+Four premises written into the phase text were wrong or imprecise. All four were
+caught by re-reading the source at execution time rather than by a test, which is
+the argument for grounding each phase again at the moment it runs.
+
+1. **P11 — `RuntimeMCPServer.Error` "had no writer".** It has one:
+   `runtime.go:229`, from `mcpServer/startupStatus/updated`. The real defect was
+   different and worse, so the comment now states it: `applyMCPStatusList`
+   *replaces* `p.runtime.mcp` wholesale, so every catalog refresh discarded the
+   error a notification had recorded and left a failed server looking merely
+   unauthenticated. Reading `toolsError` narrows that loss; it does not close it,
+   because the list stays authoritative.
+
+2. **P11 — `timeoutMs` was to track the caller's `ctx` deadline.** Upstream's own
+   doc comment forbids it: the timeout *"does not affect the immediate RPC
+   acknowledgement"*, and `RunThreadShell` returns `Started: true` without waiting.
+   The caller's context therefore bounds the acknowledgement, not the command, and
+   binding them would have killed a legitimately long command at the ack timeout.
+   Shipped as a named constant (`threadShellTimeout`, 10 minutes) instead.
+
+3. **P12 — the managed-policy ENFORCED/ADVISORY table.** It listed
+   `allowed_permission_profiles` as enforced, but
+   `TryFrom<ConfigRequirementsWithSources>` discards it
+   (`config_requirements.rs:1674`). Measured: **seven** fields are discarded, not
+   three, and the function's own comment explains two of them as config-load
+   values that are still honoured elsewhere. Calling `browser_use` /
+   `in_app_browser` simply "advisory" was also unproven — there is a separate
+   `InAppBrowserRequirementsToml`, and `mcp_tool_call.rs:1317` consults
+   `confirmation_policies.browser_use`. The comment now states only the verified
+   discard list and its consequence.
+
+4. **P12 — `additional_developer_instructions` "capped at 10,000 tokens".** The
+   limit is 10,000 (`MAX_MANAGED_DEVELOPER_INSTRUCTIONS_TOKENS`), but oversized
+   policy is **rejected** with an `io` error, not capped — deliberately, per
+   `managed_developer_instructions.rs:53`: *"Reject oversized policy rather than
+   silently dropping part of its instructions."* A comment describing a cap would
+   have had an operator looking for truncated instructions instead of a hard error.
+
+### What the plan got right, and cheaply
+
+P10's five premises and P12's console-signal sweep held exactly as written. The
+sweep is worth restating because it came out stronger than the plan claimed: across
+the Codex tree, the five console-signal APIs return **one** hit in total, inside a
+Python string literal in `utils/pty/src/windows_tests.rs:142`. `login.rs:335` was
+confirmed to sit in `run_login_with_device_code`, and the four
+`configRequirements/read` experimental gates matched the documented list exactly.
+
+### Acceptance criteria
+
+A16, A17, A18, A19 (P10), A21 and the new **A24** (P11), A22 (P12) are met. A24 was
+added during execution: P11's MCP half changed observable wire output and had no
+criterion, which is the gap that lets a change ship unasserted.
+
+Two citation errors were corrected while closing out: `p11_test.go` initially cited
+A18/A19, which were already assigned to P10's Windows-page and daemon-refusal
+criteria. Renumbering to A21/A24 is trivial; the reason it is recorded is that a
+wrong criterion reference in a test is invisible — nothing checks that the number
+a test names is the number the plan means.
+
+### Verification of the new guards
+
+The three P11 behaviours were mutation-tested rather than assumed: dropping
+`timeoutMs`, sending it as `0` (the plausible wrong answer, since zero means an
+*immediate* timeout upstream), and ceasing to read `runtimeStatus`/`toolsError`
+each fail the new tests — 3/3 caught, tree restored. P10's static ban was proven
+the same way earlier, by planting a non-test file that references
+`windowsSandbox/setupStart` and observing the ban name it.
+
+`TestExecAndShellUseDistinctLabelsPoliciesAndAudit` skips on Windows (POSIX
+fixture paths, MADR 0116 P11), so its `thread/shellCommand` assertion was covered
+in the WSL Linux lane rather than here.
