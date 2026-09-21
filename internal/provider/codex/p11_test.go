@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestThreadShellBoundsTheCommandInsideTheEngine is acceptance criterion A18 of
+// TestThreadShellBoundsTheCommandInsideTheEngine is acceptance criterion A21 of
 // PLAN 0163. Omitting timeoutMs is not neutral: Codex then applies a one-hour
 // default (app-server-protocol v2/thread.rs:1138-1140), so a command we have
 // stopped watching outlives the session that asked for it.
@@ -39,7 +39,7 @@ func TestThreadShellBoundsTheCommandInsideTheEngine(t *testing.T) {
 	}
 }
 
-// TestMCPStatusListSurfacesRuntimeStatusAndToolsError is acceptance criterion A19
+// TestMCPStatusListSurfacesRuntimeStatusAndToolsError is acceptance criterion A24
 // of PLAN 0163. authStatus alone cannot distinguish an authenticated server that
 // is not running from one that is, and before this the refresh replaced the map
 // with entries that had no error at all.
