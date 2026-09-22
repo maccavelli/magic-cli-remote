@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-21
 ---
 
