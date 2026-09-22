@@ -240,3 +240,87 @@ comment-only, and it is tempting to eyeball instead of run.
 * **The other ledger entries.** `ci-flakes.tsv` is the place to look for the next
   one; the method that worked twice is in MADR 0163 and 0165 — read the full CI log,
   never the `--- FAIL` line alone, and reproduce before diagnosing.
+
+## Execution record (2026-09-22)
+
+**Ran: P1, P2, P3.** Commits `ae6bfc9` (P1), `39ea0d0` (P2), with `b3fac42` moving
+this plan to `in-progress`. No production behaviour changed: P1 is test-only and
+P2 is comments plus a document.
+
+Gates: `pre-add-check` clean, `gofmt -l` empty, `go vet`, package green, `-race`
+green, `make ci-windows` exit 0, and both repeat suites green — **20 runs under
+`GOMAXPROCS=1`** (A2) and 20 at default parallelism (A3).
+
+### What the plan predicted incorrectly
+
+**1. A5's premise was wrong, and it was the plan's own "most at risk" call.** The
+plan said proving the containment assertion bites needs *two* simultaneous breaks,
+because "unwiring only the stall detector still leaves `watchConnClose` producing a
+clean disconnect, so the test would pass". Measured:
+
+```text
+stall detector only                   -> FAIL
+stall detector AND watchConnClose      -> FAIL
+```
+
+One break is enough. With the cap check disabled `deliver` parks without bound and
+never faults the session, the consumer keeps up, the transport survives — and so
+nothing contains the session at all, which is exactly what the assertion catches.
+The criterion is easier to satisfy than feared, and the warning was unnecessary.
+
+**2. A4's assertion was measuring the wrong thing, and the fail-first caught it.**
+As first written, the absorb assertion counted frames *written to the pipe* and
+required at least `cap(events) + controlOverflowCap` (513). With `deliver`
+deliberately made to block, the test still **passed**:
+
+```text
+A4 deliver blocks instead of parking -> PASS   (first attempt)
+```
+
+The reason is that the SDK's own 1024-deep queue accepts frames whether or not our
+handler is making progress, so ~1025 frames reach the pipe regardless. The
+assertion was measuring the SDK's buffer, not our code — a test that would have
+shipped looking like coverage of D3 while asserting nothing about `deliver`.
+
+Rewritten to measure the overflow slice directly: `deliver` must have parked
+something, and if the stall detector fired then at least `controlOverflowCap`
+events must still be parked, since the detector only fires at the cap. Re-run:
+
+```text
+A4 deliver blocks instead of parking -> FAIL   (after the fix)
+```
+
+This is the second time in two plans that the fail-first step caught an assertion
+that proved nothing (MADR 0165's fairness test was the first). Both would have
+passed review.
+
+**3. The writer's ceiling was three times larger than it needed to be.** At 15s,
+20 runs under `GOMAXPROCS=1` took **286s**, essentially all of it sleeping: once
+the transport dies the writer is blocked for good, and the only thing the wait must
+outlast is the absorb threshold, reached long before the writer can block at all.
+Lowered to 5s, the same 20 runs take **96s** with identical outcomes.
+
+### Verification of the contracts
+
+| contract | how it was checked | result |
+| --- | --- | --- |
+| **C1 / A7** — comments only in production Go | `git diff --unified=0` on `session.go` filtered to non-comment lines | empty |
+| **C4 / A9** — 0138 amended additively | `git diff --numstat` on the MADR | **45 added, 0 deleted** |
+| **C2** — the new test can fail | two independent breaks, above | both FAIL |
+| **C5** — no new flakiness | 20 runs starved, 20 runs default | both green |
+| **A1** — no `conn.Done()` assertion remains | grep of the package's test files | only the comment forbidding its return |
+| **A10** — the fixture wires production's containment | `stalledSession` now starts `watchConnClose` | present |
+
+### Status
+
+All phases ran and A1–A10 are met. **A11 — "no new ledger row names this test" —
+cannot be met by running anything**: it is an observation over future CI runs, so
+this plan stays `in-progress` until a push has gone green without a
+`StalledPump` row appearing in `ci-flakes.tsv`. If one appears, the containment
+assertion is flaking and this reopens rather than closes.
+
+Worth stating plainly for whoever reads this next: the underlying defect is **not
+fixed**. The ACP transport can still die under CPU starvation, and MADR 0166 D1
+says so. What changed is that CI now fails only when containment regresses, rather
+than failing for a property no version of our code can deliver. The permanent fix
+is upstream, and it is named in Deferred.
