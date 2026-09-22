@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -74,65 +75,147 @@ func stalledSession(t *testing.T) (*session, *acp.ClientSideConnection, *io.Pipe
 	agentOut, agentIn := io.Pipe()
 	conn := acp.NewClientSideConnection(s, io.Discard, agentOut)
 	s.conn = conn
+	// Wire the containment path production wires (acpagent.go:655). Without it a
+	// dead transport produced no teardown here at all, so a test asserting
+	// containment would have been asserting something this fixture could not do
+	// (MADR 0166 F11, PLAN 0166 A10).
+	go s.watchConnClose(conn)
 	t.Cleanup(func() { _ = agentIn.Close() })
 	return s, conn, agentIn
 }
 
-// TestACPConnectionSurvivesAStalledPump is MADR 0138 Phase 7's G2 — the
-// fail-first check that phase recorded as *not run*, and this file is it.
+// TestAStalledPumpIsContainedNotHung is MADR 0166 D2. It replaces
+// TestACPConnectionSurvivesAStalledPump, whose name was its claim.
 //
-// 7.2 bounded the control send with a 30-second timer so a stalled consumer
-// could not pin the SDK's single notification-consumer goroutine. Driven for
-// the first time here, that guard turned out to protect nothing: with the
-// consumer blocked the SDK tears the connection down in 7.16 ms, so the timer
-// lost the race by three orders of magnitude. It is replaced by the parked
-// overflow, which never blocks the consumer at all.
+// History worth keeping: this file began as MADR 0138 Phase 7's G2. 7.2 bounded
+// the control send with a 30-second timer so a stalled consumer could not pin the
+// SDK's single notification-consumer goroutine; driven for the first time here,
+// that guard turned out to protect nothing, because with the consumer blocked the
+// SDK tore the connection down in 7.16 ms. It was replaced by the parked overflow,
+// which never blocks the consumer at all — and that mechanism is correct and
+// unchanged.
 //
-// The assertion is the same either way — the connection must survive — which is
-// why this test is the one that told the difference.
-func TestACPConnectionSurvivesAStalledPump(t *testing.T) {
-	s, conn, agentIn := stalledSession(t)
+// What changed is the claim made for it. **This test no longer asserts that the
+// ACP connection survives**, because no client-side code can deliver that at
+// acp-go-sdk v0.13.5. Measured under GOMAXPROCS=1, 5 trials: a handler that does
+// NOTHING — discarding every session/update without touching deliver — still loses
+// the transport 3 times in 5, with our stall detector never firing. The SDK's
+// reader outpaces its single consumer, fills a 1024-deep queue that is an
+// unexported constant, and closes the connection; its reader never blocks
+// (connection.go:19, :108, :432, :446-447). We sit downstream of that queue, so
+// there is nothing of ours left to make faster (MADR 0166 F6/F9/F10/F12).
+//
+// Asserting an unachievable property leaves a permanently red test, which teaches
+// readers to ignore red tests. So this asserts the two things that ARE true and
+// ARE ours: deliver absorbs up to the overflow cap without blocking, and the
+// session ends up contained rather than hung or zombied.
+//
+// Do not reinstate the conn.Done() assertion without first re-measuring the
+// null-handler case above. If upstream ever makes the reader block or the depth
+// configurable, this test becomes an under-assertion — that is the moment to
+// revisit it (PLAN 0166, Deferred).
+func TestAStalledPumpIsContainedNotHung(t *testing.T) {
+	s, _, agentIn := stalledSession(t)
 
-	// Comfortably past the queue depth: if the guard does not fire, the SDK
-	// closes the connection somewhere around frame 1024.
+	// Comfortably past the SDK's queue depth.
 	const frames = sdkNotificationQueueDepth + 200
 
-	writeErr := make(chan error, 1)
+	var written atomic.Int64
+	writerDone := make(chan struct{})
 	go func() {
+		defer close(writerDone)
 		for i := range frames {
 			if _, err := agentIn.Write(toolCallFrame(s.agentID, i)); err != nil {
-				writeErr <- err
 				return
 			}
+			written.Add(1)
 		}
-		writeErr <- nil
 	}()
 
-	// Every frame must be accepted. deliver parks what it cannot hand over and
-	// returns immediately, so the SDK's reader is never starved and its queue
-	// never fills.
+	// The writer is ALLOWED to end up blocked, and that is the key difference from
+	// the assertion this replaces. agentIn is an unbuffered io.Pipe: once the SDK
+	// stops reading, a Write blocks rather than erroring. If the transport dies,
+	// a stuck writer is the consequence, not the defect. stalledSession's cleanup
+	// closes the pipe, so the goroutine cannot outlive the test.
+	//
+	// Note what is NOT done here: the pipe is not closed when the session faults.
+	// Closing it hands the SDK EOF and CAUSES a teardown, which is how an earlier
+	// attempt at this test turned green for the wrong reason (MADR 0166 F5).
+	//
+	// 5s rather than something larger because waiting longer buys nothing. Once the
+	// transport dies the writer is blocked for good, and the only thing the wait has
+	// to outlast is the absorb threshold below — reached at 513 frames, while the
+	// writer gets ~1025 in before it can block at all. An earlier 15s ceiling made
+	// 20 starved runs take 285s instead of 100s, all of it sleeping.
 	select {
-	case err := <-writeErr:
-		if err != nil {
-			t.Fatalf("the SDK stopped reading after %d frames: %v", frames, err)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("the writer never finished; the SDK stopped reading, which means the connection went away")
+	case <-writerDone:
+	case <-time.After(5 * time.Second):
 	}
 
-	// Past the overflow cap the session is faulted rather than growing without
-	// bound — that is the stall detector, and it is the correct outcome here.
+	// (1) The guarantee that is genuinely ours: deliver PARKS what it cannot hand
+	// over, rather than blocking on a consumer that will never drain (MADR 0166 D3).
+	//
+	// Measured on the overflow slice, not on frames written. Counting writes proves
+	// nothing about deliver: the SDK's own 1024-deep queue accepts frames whether or
+	// not our handler is making progress, so a blocking deliver still lets ~1025
+	// frames reach the pipe. That version of this assertion passed with deliver
+	// deliberately blocked — it was measuring the SDK's buffer, not our code.
+	s.overflowMu.Lock()
+	parked := len(s.overflow)
+	s.overflowMu.Unlock()
+
+	faulted := false
 	select {
 	case <-s.done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("a permanently stalled consumer never faulted the session")
+		faulted = true
+	default:
 	}
 
-	select {
-	case <-conn.Done():
-		t.Fatal("the ACP connection was torn down: a stalled pump took the engine's transport with it " +
-			"(acp-go-sdk errNotificationQueueOverflow — MADR 0138 F5)")
-	default:
+	switch {
+	case parked == 0:
+		t.Errorf("deliver parked nothing (overflow is empty) after %d frames reached the pipe; "+
+			"it blocked on the stalled consumer instead of parking", written.Load())
+	case faulted && parked < controlOverflowCap:
+		// The stall detector only fires at the cap, so if it fired, the cap was
+		// reached — and the parked events must still be there to show it.
+		t.Errorf("the session faulted but only %d events are parked, want at least %d (controlOverflowCap); "+
+			"the absorb path and the stall detector disagree about what happened", parked, controlOverflowCap)
+	}
+
+	// (2) Containment: the session must end up on a teardown path, by either
+	// route. The stall detector faulting it and a dead transport being turned into
+	// a disconnect are both correct outcomes; what is forbidden is a session that
+	// is still nominally alive after this storm.
+	if !waitForContainment(s, 15*time.Second) {
+		t.Error("the session was neither faulted nor disconnected after a stalled-pump storm: " +
+			"it is still live with a consumer that will never drain, which is the zombie " +
+			"this containment is supposed to prevent")
+	}
+}
+
+// waitForContainment reports whether the session reached a teardown path.
+//
+// Two routes, both correct: markClosedAndKill closes done when the overflow cap is
+// hit, and watchConnClose sets disconnected when the transport dies first. Which
+// one fires depends on a race this test deliberately no longer cares about.
+func waitForContainment(s *session, budget time.Duration) bool {
+	deadline := time.Now().Add(budget)
+	for {
+		select {
+		case <-s.done:
+			return true
+		default:
+		}
+		s.mu.Lock()
+		contained := s.disconnected || s.closed
+		s.mu.Unlock()
+		if contained {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
