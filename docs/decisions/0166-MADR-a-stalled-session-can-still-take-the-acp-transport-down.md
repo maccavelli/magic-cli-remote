@@ -67,9 +67,11 @@ consumer — which is what CPU starvation produces — the 1024-deep queue betwe
 fills and the SDK closes the connection before our cap is ever consulted.
 
 **F2 — The failure is intermittent by nature, so CI's retry hides it.** 1 run in 3
-under `GOMAXPROCS=1`; once in the ledger over the observed period on real CI. A
-retry that passes records it as a flake, which is why it survived from 2026-09-19
-until it was traced.
+under `GOMAXPROCS=1`; ~~once~~ **twice** in the ledger over the observed period on
+real CI — runs `34139293426` (2026-09-07) and `35461886119` (2026-09-19), both
+`windows/amd64`, twelve days apart. *(Corrected 2026-09-22; the second occurrence
+was found when checking A11. See PLAN 0166's addendum.)* A retry that passes records
+it as a flake, which is why it survived until it was traced.
 
 **F3 — The blast radius is larger than one session.** The connection is per engine,
 not per session. A single stalled consumer therefore ends every session on that

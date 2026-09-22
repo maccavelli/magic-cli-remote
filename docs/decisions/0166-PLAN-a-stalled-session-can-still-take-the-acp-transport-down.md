@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-22
 ---
 
@@ -324,3 +324,31 @@ fixed**. The ACP transport can still die under CPU starvation, and MADR 0166 D1
 says so. What changed is that CI now fails only when containment regresses, rather
 than failing for a property no version of our code can deliver. The permanent fix
 is upstream, and it is named in Deferred.
+
+### Addendum — A11 observed, 2026-09-22
+
+Push `d501225..9e7cca3`, CI run `35731706046`: **green on all five jobs**, and the
+flake-ledger workflow (`35732378464`, success) ran afterwards and appended
+**nothing**. The absence is meaningful rather than merely unobserved — the ledger
+commit is still the previous day's, so the workflow ran and found no fail-then-pass
+to record.
+
+**A11 is met, and this plan is `completed`.**
+
+One fact corrected while checking. MADR 0166 **F2** says this test appears in the
+ledger "once in the observed period". It is **twice**:
+
+```text
+34139293426  Go (windows/amd64)  631cbc3  fail  pass  TestACPConnectionSurvivesAStalledPump  2026-09-07T15:40:24Z
+35461886119  Go (windows/amd64)  c0c5a8f  fail  pass  TestACPConnectionSurvivesAStalledPump  2026-09-19T18:42:12Z
+```
+
+Twelve days apart, both on `windows/amd64`. That strengthens rather than weakens
+the record: the transport teardown is a recurring defect of at least two weeks'
+standing, not a single unlucky run, and CI's retry hid it both times. It also makes
+the deferred upstream fix more clearly worth doing than a single occurrence would
+have.
+
+What this addendum does **not** claim: that the defect is gone. It is not — see
+D1 and the MADR's F12. A green run proves only that the containment assertion holds
+on an unstarved runner, which is the property this plan set out to assert.
