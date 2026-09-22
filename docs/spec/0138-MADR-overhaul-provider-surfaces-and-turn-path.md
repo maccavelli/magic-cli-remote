@@ -1073,3 +1073,48 @@ grok 1.0.13, goose 1.48.0 and codex 0.152.1.
   records; `event.Event`'s 44 fields counted from the source; and the phone's
   caps read from `apps/mobile/lib/data/chat/chat_models.dart:61`, `:69`, `:71`,
   `transcript_reducer.dart:873` and `mcremote_client.dart:3466-3524`.
+
+## Amendment — 2026-09-22: F5's hazard was right; its mitigation is weaker than claimed
+
+Added by PLAN 0166 P2. **F5's original text is unchanged** — its analysis of the
+hazard holds exactly as written, and this section only records what was learned
+about the remedy.
+
+**What F5 established, and still establishes.** The ACP SDK queues inbound
+notifications in a channel of 1024 whose overflow does not drop the event — it
+closes the whole connection (`acp-go-sdk@v0.13.5 connection.go:19`, `:108`,
+`:432`, `:446-447`). A client handler that blocks therefore takes the engine's
+transport down, and with it every session on that transport. All true.
+
+**What the parked overflow actually buys.** It stops *us* being the cause: deliver
+returns in O(1) on every path, so our handler never holds up the SDK's consumer. It
+bounds memory, and it ends a stalled session deliberately. Those are real and the
+mechanism is unchanged.
+
+**What it cannot buy.** It cannot keep the connection alive. The queue that
+overflows sits between the SDK's reader and the SDK's single consumer goroutine —
+upstream of anything we run. When the reader outpaces the consumer, which CPU
+starvation alone is enough to cause, that queue fills and the transport closes
+before `deliver` is ever called.
+
+Measured under `GOMAXPROCS=1`, 5 trials per variant, 1224 frames at a consumer that
+never drains:
+
+| variant | transport torn down | our stall detector fired |
+| --- | --- | --- |
+| our real handler | 3/5 | 4/5 |
+| a handler that does **nothing** | **3/5** | **0/5** |
+
+The null-handler row is the point: with nothing of ours running at all, the
+transport still dies at the same rate. The depth is an unexported constant and the
+SDK's reader never blocks, so no client-side change prevents this at v0.13.5.
+
+**Consequence for this record.** The guarantee F5's mitigation was read as
+providing — "a stalled consumer cannot take the connection down" — is not
+achievable by a client. `internal/provider/acpagent`'s test no longer asserts it,
+and asserts containment instead: the session is faulted or cleanly disconnected,
+never hung or zombied.
+
+Full analysis, measurements and the decision: **MADR 0166** and **PLAN 0166**. If
+`acp-go-sdk` later makes the queue depth configurable or gives its reader
+backpressure, the stronger property becomes available again and both records say so.

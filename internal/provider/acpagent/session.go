@@ -107,7 +107,7 @@ type session struct {
 	// sender is parked in `events <- ev` is a guaranteed panic window.
 	done chan struct{}
 
-	// Control-event overflow (MADR 0138 F5, amended).
+	// Control-event overflow (MADR 0138 F5, amended; MADR 0166).
 	//
 	// deliver runs on the ACP SDK's single notification-consumer goroutine, and
 	// that goroutine must never block: the SDK queues notifications in a
@@ -116,6 +116,16 @@ type session struct {
 	// connection down in 7.16 ms — so no time-based bound can win that race.
 	// A control event that cannot be handed over immediately is parked here,
 	// and a per-session drainer does the blocking instead.
+	//
+	// What this does NOT do is keep the connection alive. It bounds memory and
+	// ends a stalled session deliberately, and that is all. The SDK's queue sits
+	// UPSTREAM of us, between its reader and its consumer, so when the reader
+	// outpaces the consumer — CPU starvation is enough — that queue overflows and
+	// the transport dies before deliver is ever called. Measured under
+	// GOMAXPROCS=1: a handler doing nothing at all loses the transport 3 times in
+	// 5, with this overflow never touched. The depth is an unexported constant and
+	// the reader never blocks, so no client-side change can prevent it at
+	// acp-go-sdk v0.13.5 (MADR 0166 F6/F9/F10/F12).
 	//
 	// overflowWake is nil until the first overflow; creating it under
 	// overflowMu is what starts the drainer, so a healthy session never spawns
@@ -1410,6 +1420,11 @@ func (s *session) deliver(ev event.Event, control bool) {
 	// with the consumer blocked, the SDK tears the connection down in 7.16 ms —
 	// so the 30-second bound this replaced lost that race by three orders of
 	// magnitude and protected nothing (MADR 0138 F5, amended).
+	//
+	// Not blocking here is necessary but not sufficient: it keeps US from filling
+	// that queue, and cannot stop the SDK's reader filling it on its own under CPU
+	// starvation. See the overflow fields' comment and MADR 0166 — the transport
+	// can still die, and the session is contained rather than saved when it does.
 	//
 	// Every path below returns in O(1): the channel takes it, the overflow
 	// takes it, or the session is faulted. The waiting is done by the

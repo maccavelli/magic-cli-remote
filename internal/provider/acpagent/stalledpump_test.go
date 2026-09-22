@@ -22,6 +22,13 @@ import (
 // (connection.go:432-447, errNotificationQueueOverflow → shutdownReceive). A
 // client handler that blocks forever therefore does not merely stall its own
 // session — it takes the engine's transport down with it (MADR 0138 F5).
+//
+// And a client handler that blocks for no time at all can lose it too. The queue
+// is between the SDK's reader and its single consumer, both of which are the
+// SDK's; when the reader wins that race the connection closes whatever we do.
+// Not blocking is still worth doing — it keeps us from being the cause — but it
+// is not a guarantee, which is why this file no longer asserts one
+// (MADR 0166 F6/F12).
 const sdkNotificationQueueDepth = 1024
 
 // toolCallFrame is one ACP `session/update` carrying a tool_call.
