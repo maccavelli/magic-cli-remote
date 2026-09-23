@@ -492,7 +492,13 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	// wirecap.For returns nil unless MCREMOTE_WIRE_CAPTURE_DIR is set, and a
 	// nil capture's TeeReader returns the reader unchanged.
 	s.wire = wirecap.For(string(p.spec.ID))
-	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout))
+	// OverflowDropNewest keeps the engine's transport alive when the SDK's bounded
+	// notification queue fills, dropping the arriving notification instead of
+	// closing the connection — which would end every session on this engine
+	// (MADR 0166 F3, MADR 0167 D17). No drop handler: it would run on the SDK's
+	// reader goroutine. Loss is surfaced per turn from DroppedNotifications (D18).
+	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout),
+		acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest))
 	// conn.SetLogger is NOT called, and cannot be: the SDK's constructor starts
 	// `go c.receive()`, `go c.sendCancelRequests()` and a context watcher
 	// before it returns (acp-go-sdk@v0.13.5 connection.go:110-120), while

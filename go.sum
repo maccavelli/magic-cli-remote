@@ -32,8 +32,6 @@ github.com/caddyserver/certmagic v0.25.4 h1:8eIXh0HC3MsGnNo8One+BCxMGTbe5zb/oz+2
 github.com/caddyserver/certmagic v0.25.4/go.mod h1:YVs43D5+H/Dckt4bTga1KSO/xYfFBfVZainGDywYPAA=
 github.com/caddyserver/zerossl v0.1.5 h1:dkvOjBAEEtY6LIGAHei7sw2UgqSD6TrWweXpV7lvEvE=
 github.com/caddyserver/zerossl v0.1.5/go.mod h1:CxA0acn7oEGO6//4rtrRjYgEoa4MFw/XofZnrYwGqG4=
-github.com/coder/acp-go-sdk v0.13.5 h1:LI9jq5xon7xslaYlnoktvTVyDlE37yIk2daT7N9ASYk=
-github.com/coder/acp-go-sdk v0.13.5/go.mod h1:yKzM/3R9uELp4+nBAwwtkS0aN1FOFjo11CNPy37yFko=
 github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=
 github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
@@ -67,6 +65,8 @@ github.com/libdns/libdns v1.1.1 h1:wPrHrXILoSHKWJKGd0EiAVmiJbFShguILTg9leS/P/U=
 github.com/libdns/libdns v1.1.1/go.mod h1:4Bj9+5CQiNMVGf87wjX4CY3HQJypUHRuLvlsfsZqLWQ=
 github.com/libdns/route53 v1.6.2 h1:unPlpgC2InQ/xrql5NOwCmFS9vZrRx8lH1WUo8/rjk8=
 github.com/libdns/route53 v1.6.2/go.mod h1:7QGcw/2J0VxcVwHsPYpuo1I6IJLHy77bbOvi1BVK3eE=
+github.com/maccavelli/acp-go-sdk v0.13.6-mcr.1 h1:DcDs2eAHHSBj8498PSNGscpvJNu9KybVZND0JMr4U3M=
+github.com/maccavelli/acp-go-sdk v0.13.6-mcr.1/go.mod h1:yKzM/3R9uELp4+nBAwwtkS0aN1FOFjo11CNPy37yFko=
 github.com/maccavelli/mcplib v1.4.1 h1:fiqxs+mLClmezJNNFGIOTccL+C9QBUNvCMAnLBhe2eg=
 github.com/maccavelli/mcplib v1.4.1/go.mod h1:U6icBaOr5QCIqdB2o74AFFoKKySrMuGbSsETbrSVjts=
 github.com/mdp/qrterminal/v3 v3.2.1 h1:6+yQjiiOsSuXT5n9/m60E54vdgFsw0zhADHhHLrFet4=

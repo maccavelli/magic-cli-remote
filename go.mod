@@ -60,3 +60,9 @@ require (
 	golang.org/x/tools v0.49.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
+
+// acp-go-sdk is built from a fork carrying a notification overflow policy, until
+// upstream merges an equivalent (MADR 0167 D16-D20; upstream coder/acp-go-sdk PR).
+// v0.13.6-mcr.1 = v0.13.5 + PR #40's ConnectionOption commits + the policy. The tag
+// is immutable. Exit: delete this block and bump the require above, in one commit.
+replace github.com/coder/acp-go-sdk => github.com/maccavelli/acp-go-sdk v0.13.6-mcr.1
