@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-23
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -231,3 +231,24 @@ says the dispatch trigger exists so the job can be exercised before a release de
 **Decision (owner, 2026-09-23): dispatch CI on `master`.** `release` and `publish` are gated
 `github.ref_type == 'tag'`, so a dispatch on a branch publishes nothing. `android-apk` uploads a
 workflow artifact only. P2 step 4 is annotated above. No files are added to scope.
+
+## Closing record (2026-09-23)
+
+The two criteria the execution record left open are now met, and the plan is `completed`.
+
+- **A4 — met.** The owner pushed `2b9f516`; its push run skipped `android-apk` (see the second
+  Deviation). A `workflow_dispatch` on `master`, run `35911349275`, concluded `success` on every
+  job, `Android APK (release arm64)` included. Its setup-java step printed `java-version: 21` and
+  `Resolved Java 21.0.12+1 from tool-cache` (`JAVA_HOME_21_X64`). `release` and `publish` were
+  skipped, as their tag gates require.
+- **A7 — met.** JDK 17 was removed only after each host had built the APK on 21 (A6), and on the
+  owner's instruction:
+  - Windows: `~/sdk/jdk-17`. An idle Gradle 9.1.0 daemon from the first P1 attempt still ran on
+    it; it was identified by command line and stopped first. The JDK's read-only files
+    (`classes.jsa`) needed their attribute cleared.
+  - WSL: `~/sdk/jdk-17`.
+  - Linux server: `mise uninstall java@temurin-17.0.20+8`, with no dangling alias left.
+  - macOS laptop: none installed.
+
+  A sweep of all four hosts afterwards found no JDK 17 install, no process running from one, and
+  no live configuration referencing one. Only the dated backups do.
