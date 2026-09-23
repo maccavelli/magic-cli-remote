@@ -448,6 +448,12 @@ reuses that slice.
    that is a new finding: open a follow-up on the SDK hook, do not
    paper over it in this phase.
 
+   > **Answered (2026-09-22, MADR 0167 F16), from source.** The SDK does route extension
+   > notifications into `HandleExtensionMethod` at v0.13.5: `client.go:19` installs
+   > `handleWithExtensions`, `connection.go:582-584` invokes it before testing whether the
+   > message is a notification, and `extensions.go:53-67` dispatches `_`-prefixed methods.
+   > No follow-up on the SDK hook is required.
+
 5. Write **T-C1** in new file `internal/provider/grok/extnotif_test.go`
    (package `grok`, no build tag):
 

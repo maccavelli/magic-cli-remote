@@ -1651,6 +1651,12 @@ race does not reproduce on macOS — `go test -race ./internal/provider/acpagent
 CI trace plus the source, **not** by a local failing repro, and that limitation
 is recorded here rather than glossed.
 
+> **Upstream confirmation (2026-09-22, MADR 0167 F19).** This diagnosis has since been reported
+> upstream independently twice — `coder/acp-go-sdk` issues #57 (2026-08-30) and #58 (2026-09-01,
+> with the same detector trace) — and PR #59 (2026-09-01, open) fixes it by making the field an
+> `atomic.Pointer[slog.Logger]` with no API change. Nothing above needs correcting. If #59 merges,
+> the accommodation at `acpagent.go:496-511` can be reverted and `SetLogger` called.
+
 ```text
 go test -race ./internal/... ./cmd/... -count=1  -> ok (local, full tree)
 make pre-add-check                               -> 755 file(s) clean

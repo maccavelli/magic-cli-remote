@@ -249,8 +249,11 @@ break.
 **F19 — The logger defect is a data race, not a construction race, and the fix is already
 written.** `SetLogger` is a bare field assignment (`connection.go:125`) read by
 `loggerOrDefault` (`:127`) from goroutines started inside the constructor (`:111-119`), with
-no mutex on `logger` (`:80`) (obs. 18). Our own comment at `acpagent.go:496-501` describes it
-as a construction-time race; it is an unsynchronized concurrent access by the memory model.
+no mutex on `logger` (`:80`) (obs. 18). ~~Our own comment at `acpagent.go:496-501` describes it
+as a construction-time race; it is an unsynchronized concurrent access by the memory model.~~
+*(Withdrawn 2026-09-22: our account was already accurate — `0137-PLAN:1619` calls it a data race and
+quotes the detector trace, and `acpagent.go:496-502` describes the unsynchronised write. See the
+amendment below.)*
 Two independent upstream issues report it (#57, #58) and PR #59 fixes it with
 `atomic.Pointer[slog.Logger]` and no API change (obs. 4, 5). Consequence: the cost we
 currently pay — SDK protocol diagnostics going to `slog.Default()` without session fields
@@ -993,3 +996,19 @@ it).
 7. **Is the 10 MiB frame cap (F14) reachable in our traffic?** Unmeasured. If a large
    `session/update` can exceed it, it is a second availability defect hiding behind the first,
    and a second candidate PR.
+
+## Amendment — 2026-09-22: F19 withdrawn in part; F15 extended
+
+**F19.** The finding stated that our own account of the logger defect described it as a
+"construction-time race" rather than a data race. That was false. `0137-PLAN:1619-1646` names it
+a data race, quotes the `-race` trace, and records the unsynchronised write at `connection.go:125`;
+the code comment at `acpagent.go:496-502` agrees. The claim entered this record from an inventory
+that paraphrased the comment, and was not checked against 0137. The rest of F19 stands: the race
+is real (upstream #57, #58) and PR #59 fixes it. PLAN 0167 P1 step 4 was replaced accordingly
+(its deviation entry, same date).
+
+The lesson is the one this record exists to teach, applied to itself: a claim that a record is
+wrong must be checked against the record, not against a summary of it.
+
+**F15, extended.** The same `0038-MADR` passage also claims `NewSessionRequest` does not model
+`_meta`; at v0.13.5 it has `Meta map[string]any` (`types_gen.go:3236`, obs. 23). Annotated there.

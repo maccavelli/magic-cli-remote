@@ -345,3 +345,21 @@ the only permanent fix and is named in the plan's Deferred section.
 * Bad: if `acp-go-sdk` later makes the reader block or the depth configurable, this
   test will under-assert — it will pass where the stronger property has become
   available. The plan's Deferred section names that as the trigger to revisit.
+
+## Amendment — 2026-09-22: the deferred items are decided by MADR 0167
+
+This record deferred three items by name. MADR 0167 (accepted 2026-09-22) decides two of them:
+
+* **Upstreaming a patch — decided.** The contribution is an overflow-*policy* option layered on
+  the open PR #40's `ConnectionOption` surface, defaulting to today's fail-fast behaviour, with
+  `OverflowDropNewest` available to consumers that prefer losing a notification to losing the
+  connection. Capacity alone does not fix this record's defect: F6's null-handler measurement
+  loses the transport 3/5 at any depth.
+* **Forking/vendoring the SDK — rejected as a goal**, retained as a contingency. The fork exists
+  only as the development vehicle for the PR; this project's `go.mod` does not change.
+* **Per-engine blast radius (F3)** — still deferred, unaffected.
+
+**What does not change here.** D1–D7 stand: this project remains on upstream `v0.13.5`, the
+retired "transport survives" assertion stays retired, and containment is the guarantee. That only
+changes if the PR merges **and** this project later adopts the drop policy, which is its own
+decision (MADR 0167 D13).

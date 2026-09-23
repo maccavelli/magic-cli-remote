@@ -173,8 +173,11 @@ Docs only; no source file in this commit.
 2. `docs/spec/0039-MADR-*` `:254-256` and `:460-463` — the same two claims.
 3. `docs/spec/0081-PLAN-*` `:444-448` — the open question is **answered** from source; no
    follow-up on "the SDK hook" is required.
-4. `docs/spec/0137-PLAN-*` — the `SetLogger` problem is a **data race**, not a construction race;
-   upstream #57/#58 report it and #59 fixes it (D8).
+4. ~~`docs/spec/0137-PLAN-*` — the `SetLogger` problem is a **data race**, not a construction race;
+   upstream #57/#58 report it and #59 fixes it (D8).~~ **Replaced 2026-09-22 (deviation below):**
+   `docs/spec/0137-PLAN-*` — add a note that upstream #57/#58 now report the race 0137 already
+   diagnosed, and #59 fixes it with `atomic.Pointer`. 0137 was accurate; this is confirmation, not
+   correction.
 5. `docs/decisions/0166-MADR-*` — amendment: its deferred "upstream a patch" item is now decided by
    0167, and its fork/vendor item is **rejected as a goal** while retained as a contingency.
 
@@ -456,3 +459,21 @@ happened, which is more than #40 and #50 achieved in 131 and 105 days.
   branch is the vehicle for that conversation.
 * **Schema currency (F22)** and **per-engine blast radius (0166 F3).** Unchanged by this plan,
   each needing its own pair.
+
+## Deviation — 2026-09-22: P1 step 4 corrected a record that was already correct
+
+**Found.** P1 step 4 instructed correcting `0137-PLAN` to call the `SetLogger` problem a data race
+"not a construction race". On reading the passage before editing it, `0137-PLAN:1619` already
+reads *"A data race on the ACP SDK's connection logger"*, quotes the `-race` detector trace
+(`:1623-1624`, `loggerOrDefault` read vs `SetLogger` write), and explains the unsynchronised field
+write (`:1634`). The code comment at `acpagent.go:496-502` says the same. Pre-existing and
+accurate; confirmed by reading the committed text, which no phase of this plan had touched. The
+error originated in MADR 0167 F19, which asserted our account was a mischaracterisation without
+re-reading 0137.
+
+**Decision (owner, 2026-09-22).** Replace step 4 with an additive note recording upstream #57/#58/#59
+as confirmation; amend MADR F19 additively to withdraw the claim. No files added to scope.
+
+**Also found in scope.** `0038-MADR:113` additionally claims *"`NewSessionRequest` does not model
+`_meta` either"*; at v0.13.5 `NewSessionRequest` has `Meta` (`types_gen.go:3236`). Annotated
+together with step 1's `InitializeResponse` correction — same passage, same phase.

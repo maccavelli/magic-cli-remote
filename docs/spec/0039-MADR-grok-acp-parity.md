@@ -256,6 +256,10 @@ this needs a raw-JSON path alongside the typed `initResp` (same measurement
 technique the entire `_meta` block is fetched with in
 `extensions.go:91-95` for `exit_plan_mode`).
 
+> **Correction (2026-09-22, MADR 0167 F15).** `InitializeResponse` does surface top-level `_meta`
+> at v0.13.5 (`Meta`, `types_gen.go:2322`). The raw-JSON path is not required for
+> `initialize`; PLAN 0167 P2 moves it onto the typed `Initialize` call.
+
 **Add a `Spec.ListModels` hook for grok.** The merge logic in
 `acpagent.go:144-151` already prefers live + static via
 `picker.MergeLiveStatic`:
@@ -290,6 +294,11 @@ requires plumbing a handler hook in `acpagent` for extension notifications
 the way `HandleExtensionMethod` exists for extension requests. The hook is
 generic (keyed by method name, defaulted to no-op); grok registers
 `_x.ai/models/update` only.
+
+> **Correction (2026-09-22, MADR 0167 F16).** The SDK does not drop extension notifications at
+> v0.13.5 — they reach `HandleExtensionMethod` (`client.go:19`, `connection.go:582-587`,
+> `extensions.go:53-67`). The hook this paragraph proposes is therefore a dispatch table inside
+> our `HandleExtensionMethod`, not a workaround for SDK loss.
 
 ### 2.3 D3 — Promote `deep-research` and `workflow` to canonical commands (P2)
 
@@ -440,6 +449,8 @@ muddled with `FSRoots`.
   currently drops these silently (`extensions.go:75-76`); the new hook is
   generic and defaults to no-op for handlers we do not register. Negligible
   risk of breaking other providers (no other ACP agent emits these names).
+  *(Correction 2026-09-22, MADR 0167 F16: the SDK does not drop these at v0.13.5; see the note
+  under "Subscribe to `_x.ai/models/update`".)*
 - **D4 adds seven config fields.** Ceremony is real: docs, validation,
   `cmdModel`-related tests. The alternative — letting operators reach them
   through raw `args` — is the trap MADR 0037 §1.2 documented. Typed fields

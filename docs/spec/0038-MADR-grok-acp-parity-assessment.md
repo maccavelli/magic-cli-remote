@@ -115,6 +115,12 @@ What the daemon reads today (`internal/provider/acpagent/acpagent.go:218-258`):
   has `agentCapabilities._meta` only through `map[string]any` if anyone
   reaches in; nobody does).
 
+> **Correction (2026-09-22, MADR 0167 F15).** At `acp-go-sdk@v0.13.5` both claims above are false:
+> `InitializeResponse` has `Meta map[string]any` tagged `json:"_meta,omitempty"`
+> (`types_gen.go:2322`), and `NewSessionRequest` has `Meta` too (`types_gen.go:3236`). The typed
+> SDK does **not** discard the top-level `_meta` block. It does discard top-level fields it does
+> not model — e.g. grok's `models` object on `session/resume` (`types_gen.go:4357`).
+
 What the daemon therefore **fails to read**, and what that costs, is enumerated
 below in §4.
 
@@ -159,6 +165,13 @@ SDK behaviour note: extension **requests** are dispatched to
 are dropped silently by the SDK (called out in `extensions.go:75-76`). Every
 `_x.ai/*` row marked "no" above is a dropped notification; the probe proves
 grok actively emits them.
+
+> **Correction (2026-09-22, MADR 0167 F16).** At `acp-go-sdk@v0.13.5` extension notifications are
+> **not** dropped: `NewClientSideConnection` installs `handleWithExtensions` as the handler
+> (`client.go:19`), `handleInbound` invokes it for notifications as well as requests
+> (`connection.go:582-584`), and `_`-prefixed notifications reach `HandleExtensionMethod`
+> (`extensions.go:53-67`), with `-32601` for unknown ones deliberately ignored (`:585-587`).
+> A "no" row above means *we* registered no handler, not that the SDK dropped it.
 
 ### 2.5 `session/update` kinds the codebase decodes
 
