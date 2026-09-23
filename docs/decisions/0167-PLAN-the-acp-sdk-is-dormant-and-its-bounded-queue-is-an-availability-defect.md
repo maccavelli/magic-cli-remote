@@ -794,3 +794,90 @@ scratch copy. It is the same trap as A2, one release later.
 Release 5 needs P9's push, and P6 needs the same branch pushed. The branch should be pushed once,
 serving both, which is why P9 and P6 share their first step. Release 5 does not depend on the PR
 being opened, merged or answered — that independence is the point of the owner's decision.
+
+## Exit procedure — leaving the fork (D20)
+
+When upstream merges an equivalent of the overflow policy and tags a release containing it, this is one
+commit:
+
+1. Delete the `replace` block from `go.mod`, comment included, and bump
+   `require github.com/coder/acp-go-sdk` to the upstream tag; `go mod tidy`.
+2. Adapt `clientConnOptions()` in `acpagent.go` if upstream's option spelling differs. It is the
+   only call site: production and `TestACPConnectionSurvivesAStalledPump` both take their options
+   from it, so the survival test follows whatever the adapted function returns.
+3. Adapt `droppedNotifications()` in `session.go` if upstream's counter accessor differs, or drop
+   the per-turn notice (D18) if upstream exposes no counter. That would be a MADR amendment first,
+   because it removes a user-visible signal.
+4. `internal/modguard_test.go` stays: with no `replace` it passes vacuously, and it keeps a
+   filesystem `replace` out if one is ever added again.
+5. Gates as in the stability rule, and A23's red/green re-run against the upstream version, since the
+   survival property then rests on upstream code this project did not write.
+
+If upstream declines instead, the fork stays, and every upstream release is rebased onto it with a
+new `-mcr.N` tag. The guard admits only that tag form.
+
+## Execution record — release 5 (2026-09-22)
+
+P9–P13 ran. Commits: `dde693d` (P10), `f026ecd` (P11), `8a7bf53` (P12), `b5f2993` (P13 guard),
+plus this record. P9 is a fork tag, not a commit here.
+
+### Results against the acceptance criteria
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| A18 | met | From an empty module cache and a clean scratch module, a program calling a fork-only symbol (`acp.OverflowDropNewest`) built and ran (`go run`) with `GOPROXY=https://proxy.golang.org`, the checksum database on, and `GOFLAGS=-mod=mod`. The committed `go.sum` hash `h1:DcDs2eAHHSBj8498PSNGscpvJNu9KybVZND0JMr4U3M=` matches that clean fetch. |
+| A19 | met | `go list -m github.com/coder/acp-go-sdk` → `github.com/coder/acp-go-sdk v0.13.5 => github.com/<owner>/acp-go-sdk v0.13.6-mcr.1` |
+| A20 | met | No `.go` file names the fork's module path: `git grep` over `*.go` found nothing (exit 1). Every import is still `github.com/coder/acp-go-sdk`. |
+| A21 | met | `clientConnOptions()` returns exactly `acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest)`, with no drop handler. |
+| A22 | met | `TestDroppedUpdatesNoticeIsPerTurnAndPrecedesTurnComplete` covers the done, cancelled and errored paths × 0, 1 and 7 drops, from a counter already at 40. Fail-first: 4/4 mutations failed for the stated reason (never emits; emits on no-drop turns; emits after `turn_complete`; ignores the turn-start snapshot). |
+| A23 | met | 20 runs each, `GOMAXPROCS=1`. **Red**, option removed on a scratch worktree: 18/20 failed, e.g. `only 1044 of 1224 frames were read: the connection stopped reading (closed=true)`. **Green**, real tree: 20/20 passed. |
+| A24 | met | See *P13 fail-first* below. |
+| A25 | met | `pre-add-check` (govulncheck over the replaced module included), `gofmt`, `vet`, the acpagent tests, `make race`, `make ci-windows` (after its dry run showed the Windows branch taken, not the skip) and `replace-pinned` all passed after P10, P11, P12 and P13. |
+| A26 | met | 0166 and 0138 carry additive amendments. Their original bytes, trailing newline included, are unchanged. |
+
+### P13 fail-first
+
+Each probe ran as a throwaway module, outside every checkout, holding a copy of `modguard_test.go`
+and a `go.mod` whose acp-go-sdk `replace` nothing imports. So Go never resolves the target, and a
+failure can only come from the guard, never from a build error that would prove nothing.
+
+| Probe | Expected | Observed |
+| --- | --- | --- |
+| Real-file test, `=> ../acp-go-sdk` | fail | fail: `go.mod:5: replace targets a filesystem path, which only exists on one machine` |
+| Real-file test, pseudo-version `v0.13.6-0.20260922101500-eb6e808d9f7f` | fail | fail: `acp-go-sdk replace is not pinned to an immutable vX.Y.Z-mcr.N fork tag` |
+| Real-file test, `v0.13.6-mcr.1` (control) | pass | pass |
+| Fixture test, `isFilesystemPath` forced false | fail | fail: `filesystem path inside a block: accepted, but the guard must reject it` |
+| Fixture test, version pattern loosened to `v.+` | fail | fail: `pseudo-version: accepted, but the guard must reject it` |
+
+Each mutation's anchor was asserted to match exactly once before it was applied.
+
+### What the plan predicted incorrectly, or did not say
+
+* **P10.2 named a line, `acpagent.go:494`, and an inline option.** What was built is a
+  `clientConnOptions()` function. Production calls it, and so does P12's survival test. Inline, the
+  test would have had to restate the option, and would stay green if production ever dropped it.
+  With the shared function, P12's red run removes the option from the one place production reads it.
+* **P11.1 named a `droppedCount` seam defaulting to `s.conn.DroppedNotifications`.** What was built
+  is a `testDropped` override, nil in production, read by `droppedNotifications()`. That method goes
+  through `s.conn` at call time. A default captured once would bind to the connection that existed
+  when the session was built, and D18 counts drops on the current connection. A nil connection
+  reads as zero drops (`TestDroppedNotificationsWithoutAConnectionIsZero`).
+* **P11.2 placed the notice "after `submitPrompt` returns".** It is emitted after the turn's subagent
+  cleanup, which runs later but still ahead of every exit path's `TypeTurnComplete`. A22's ordering
+  assertion is what establishes that; it failed on the mutation that moves the notice after.
+* **P11's fail-first listed three mutations; four ran.** The fourth (ignore the turn-start snapshot)
+  exists because the test's counter starts at 40, not 0. Without that, a notice reporting the
+  lifetime total instead of the turn's would pass.
+* **P13.1 did not say how `go.mod` is parsed.** It is parsed by hand. `golang.org/x/mod/modfile` is
+  only an indirect dependency here, and importing it for a test would change `go.mod`, the file the
+  guard protects. The hand parser handles the single-line and block forms and strips `//` comments.
+  Fixtures cover each.
+* **P13.1's fail-first was planned on "a fixture".** The fixture test alone would only prove the
+  parser, so the real-file test was also run against bad `go.mod` files. It reads `../go.mod`, which
+  is what CI exercises.
+
+### Not done in this release
+
+P6 (open the upstream PR and post the three comments) waits for the owner's review of the PR text
+and an explicit go-ahead to post. P7 and P8 follow it. Release 5 does not depend on any of them
+(*Sequencing against release 3*).
