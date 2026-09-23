@@ -700,3 +700,97 @@ The cost is stated with it: up to 199 notifications dropped in a run, the maximu
 explicitly, credit Alvaro Saurin (@inercia) for the options surface, carry the transcripts above
 because no fork PR can get a CI signal (F35), and say plainly that `make check` was not run
 locally (`treefmt`/`mise` are not installed on this host).
+
+## Amendment — 2026-09-22: release 5, adopt the fork (MADR D16–D20)
+
+The owner decided to build against the fork (MADR amendment of 2026-09-22). This section adds the
+work; everything above is unchanged.
+
+### Contracts changed by this amendment
+
+* **C3** (`go.mod`/`go.sum` never committed changed) is superseded **for P10 only**. The single
+  permitted change is the `replace` line and its `go.sum` entries, targeting a remote module at an
+  immutable tag. A filesystem `replace` stays forbidden, now enforced by P13's guard.
+* **C6** (our runtime behaviour does not change) is superseded by P10–P11, deliberately. 0166's
+  containment stays in place underneath as the fallback.
+
+### Scope added (the only files release 5 may touch)
+
+**Fork:** the annotated tag `v0.13.6-mcr.1` on the verified branch head; the branch and tag
+published to `<owner>/acp-go-sdk`.
+
+**This repository:** `go.mod`, `go.sum`; `internal/provider/acpagent/acpagent.go`;
+`internal/provider/acpagent/session.go`; `internal/provider/acpagent/stalledpump_test.go`;
+`internal/provider/acpagent/droppednotice_test.go` *(new)*; `internal/modguard_test.go`
+*(new, P13)*; `docs/decisions/0166-MADR-*.md`; `docs/spec/0138-MADR-*.md`; this pair.
+
+### P9 — Tag and publish the fork (D16; **explicit ask required**)
+
+1. Annotate `v0.13.6-mcr.1` on `eb6e808`, after re-running `verify_picks.py` and the fork gates
+   against that exact commit.
+2. Push the branch and the tag to `<owner>/acp-go-sdk`. **Explicit ask in the turn it happens.**
+3. From a clean scratch module, `go list -m github.com/<owner>/acp-go-sdk@v0.13.6-mcr.1` must
+   resolve **through the module proxy**, which proves CI and other machines can fetch it.
+
+### P10 — Replace and opt in (D16, D17)
+
+1. `go.mod`: add the `replace`, with a comment naming this record and the upstream PR it stands in
+   for; `go mod tidy`; commit `go.sum`.
+2. `acpagent.go:494`: pass `acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest)`. No drop
+   handler.
+3. Gates: `make pre-add-check` (govulncheck runs over the replaced module), `make race`,
+   `make ci-windows`.
+
+### P11 — Per-turn loss notice (D18)
+
+1. A `droppedCount func() uint64` seam on the session, defaulting to `s.conn.DroppedNotifications`,
+   so the logic is testable without a live transport.
+2. Snapshot it when the turn starts. After `submitPrompt` returns (`session.go:443`), if it rose,
+   emit one `TypeNotice` naming the count, ahead of every exit path's `TypeTurnComplete`.
+3. `droppednotice_test.go`: a turn during which the counter rises gets exactly one notice, emitted
+   before `TypeTurnComplete`, on the done, cancelled and errored paths; a turn without drops gets
+   none.
+   **Fail-first (C2):** emit after `TypeTurnComplete`, never emit, and emit on no-drop turns — each
+   must fail.
+
+### P12 — Reinstate transport survival (D19)
+
+1. `stalledpump_test.go`: `TestACPConnectionSurvivesAStalledPump` with the option set, beside the
+   containment test (which stays).
+2. **Red first:** the same test with the option removed, 20 runs under `GOMAXPROCS=1`, must fail
+   at least once; then **green:** 20/20 with it.
+3. Additive amendments to 0166 (its D1 retirement is lifted, with evidence) and 0138 (F5's promise
+   is met again).
+
+### P13 — Guard, exit path, record (D20)
+
+1. `internal/modguard_test.go` parses `go.mod`. It fails if any `replace` targets a filesystem
+   path, or if the acp-go-sdk replace's version is not a tag of the form `vX.Y.Z-mcr.N`. It must
+   be seen failing on a `=> ../acp-go-sdk` fixture and on a pseudo-version fixture.
+2. Record the exit procedure here: when upstream merges, delete the `replace`, bump the version,
+   adapt the call site — one commit.
+3. Execution record.
+
+### Acceptance criteria added
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A18 | The tag resolves through the module proxy from a clean module | D16 |
+| A19 | `go list -m github.com/coder/acp-go-sdk` shows `=> github.com/<owner>/acp-go-sdk v0.13.6-mcr.1` | D16 |
+| A20 | Import paths unchanged in every Go file | D16, C4 |
+| A21 | The client connection is constructed with `OverflowDropNewest` and no drop handler | D17, F29 |
+| A22 | A turn with drops gets exactly one notice before `TypeTurnComplete`, on all three exit paths; a turn without drops gets none — each seen failing first | D18 |
+| A23 | Transport survival: red with the option removed (≥1/20), green with it (20/20), `GOMAXPROCS=1` | D19 |
+| A24 | The guard fails on a filesystem `replace` and on a pseudo-version | D20 |
+| A25 | `make pre-add-check`, `make race`, `make ci-windows` pass with the `replace` in place | stability rule |
+| A26 | 0166 and 0138 amended additively | D19, C5 |
+
+**The criterion most likely to be skipped is A23's red half.** Once the option is in the code, the
+survival test is green, and the only way to prove it can go red is to remove the option on a
+scratch copy. It is the same trap as A2, one release later.
+
+### Sequencing against release 3
+
+Release 5 needs P9's push, and P6 needs the same branch pushed. The branch should be pushed once,
+serving both, which is why P9 and P6 share their first step. Release 5 does not depend on the PR
+being opened, merged or answered — that independence is the point of the owner's decision.

@@ -565,7 +565,7 @@ losing every session on the connection (F5, 0166 F3).
 **D1 — The deliverable is an upstream pull request. Our build does not change.** `go.mod` keeps
 `github.com/coder/acp-go-sdk v0.13.5` with **no `replace` directive** committed at any point.
 0166's containment stays exactly as it is, so if the PR is never merged nothing has regressed and
-nothing has been abandoned half-done.
+nothing has been abandoned half-done. *(Superseded in part 2026-09-22 by owner decision — see "Amendment — 2026-09-22: the owner adopts the fork in this project's builds". The PR remains the primary deliverable; the build now also carries the patch until it lands.)*
 
 **D2 — The enhancement is a notification overflow *policy*, not a capacity knob — and its shape is
 an enumerated option, not a decision callback (F28, F29).** Layered on the `ConnectionOption` type
@@ -1032,3 +1032,75 @@ It is based on `192e108`, four commits behind `main`. The measurement error was 
 **Effect on D7.** "Stack on #40" now means: cherry-pick `a7af6cb` and `56c2c30` onto `main` with
 `-x`, crediting their author, and exclude `107b384`. D7's intent — compose with #40, credit it, do
 not duplicate it — is unchanged; its mechanism is corrected. PLAN 0167 records the deviation.
+
+## Amendment — 2026-09-22: the owner adopts the fork in this project's builds
+
+**Decision (owner, 2026-09-22).** *"I want to use this patched fork in my builds. Hopefully it will
+get merged."* The upstream PR remains the goal, and this project stops waiting for it. Option E
+is adopted **in addition to** Option A, not instead of it. That supersedes D1's "our build does
+not change" and brings into scope the adoption D13 had deferred.
+
+**What adoption actually requires.** A `replace` directive alone changes nothing at runtime: the
+fork's default is `OverflowCloseConnection`, byte-identical to upstream. The benefit exists only
+when the connection opts in to `OverflowDropNewest`. That makes it a product decision, not a
+build detail: it trades a dead transport — every session on the engine lost, 13/20 and 18/20 in
+PLAN P4's null and real-handler runs — for occasional dropped updates, 0–199 per run in the same
+measurement.
+
+**Surfacing loss without touching the reader goroutine (resolves F29's open half).** The turn
+goroutine already has the right seam: `submitPrompt` returns at `session.go:443`, on our
+goroutine, before `TypeTurnComplete` is emitted, and `TypeNotice` is the existing per-session
+notice channel (`session.go:311`). Reading `DroppedNotifications()` at turn start and again at
+turn end needs **no drop handler at all**, so nothing of ours ever runs on the SDK's reader. It
+is also complete for the turn. Drops are counted on the reader before it handles the prompt's
+response, so every drop that preceded the response has been counted by the time `Prompt` returns.
+
+**The attribution limit, stated.** The connection is per engine, not per session (0166 F3). A
+drop during a window when two sessions were mid-turn cannot be attributed to one of them without
+parsing `params` on the reader, which F29 rules out. Both sessions are therefore told their output
+*may* be incomplete. That over-reports rather than under-reports, which is the right direction for
+a truncation warning.
+
+### New decisions
+
+**D16 — Build against the fork, pinned to an immutable tag.**
+`replace github.com/coder/acp-go-sdk => github.com/<owner>/acp-go-sdk v0.13.6-mcr.1`. The tag is
+annotated on the verified branch head and is never moved: the Go module proxy caches a published
+version permanently, so a moved tag would give different machines different code under one name.
+Import paths stay `github.com/coder/acp-go-sdk` (C4, MADR 0029). `go.mod` necessarily names the
+fork's account; that account already owns this project's module path, so the line exposes nothing
+new.
+
+**D17 — Opt the ACP client connection in to `OverflowDropNewest`, with no drop handler.** The
+option is passed at the single construction site (`acpagent.go:494`). Observability comes from
+D18 reading the counter, not from a callback on the reader goroutine.
+
+**D18 — Tell the user, per turn, when their output may be incomplete.** Snapshot
+`DroppedNotifications()` when a turn starts and compare it after `submitPrompt` returns. If it
+rose, emit one `TypeNotice` on that session before `TypeTurnComplete`, on every exit path: done,
+cancelled and errored. The text names the count and says the output *may* be incomplete. It never
+claims more than the counter supports.
+
+**D19 — Reinstate the transport-survival assertion 0166 retired.** 0166 D1 retired it because no
+code could satisfy it at upstream v0.13.5. With D17 it is satisfiable, and PLAN P4 measured 20/20
+survival. It must be seen failing first, with the option removed. 0166 and 0138 get additive
+amendments recording that the retired property is back and why.
+
+**D20 — The exit is part of the decision.** When upstream merges an equivalent: delete the
+`replace`, bump to the upstream version, and adapt the call site if the merged API differs from
+the fork's — all in one commit. A guard fails the build if the `replace` ever points at a
+filesystem path, or at anything other than an immutable tag. Retiring the fork is a planned step,
+not a someday.
+
+### Consequences of this amendment
+
+* Good, because the availability defect is fixed in this project now, not whenever review happens.
+* Good, because the fork is exercised in production-shaped use, which strengthens the PR: the
+  author can say the patch is carried and working, not merely tested.
+* Bad, because the build now depends on a repository under the owner's account. That is
+  mitigated, not removed: the module proxy keeps serving a published tag even if the repository
+  changes, and D20 bounds the dependency's lifetime.
+* Bad, because a user can now see a "may be incomplete" notice. That is the honest face of the
+  trade, and it replaces a far worse failure the user could not see explain itself at all.
+* Bad, because the fork must be rebased if upstream moves before merging — the same cost Option E
+  always carried.
