@@ -27,7 +27,7 @@ host's Flutter uses for Android builds:
 
 | Host | Flutter `jdk-dir` / JDK used | `JAVA_HOME` |
 | --- | --- | --- |
-| Windows | Temurin **21.0.12** (`~/.flutter_settings`) | Temurin 21.0.12 |
+| Windows | ~~Temurin **21.0.12** (`~/.flutter_settings`)~~ **Temurin 17.0.20.1** (`%APPDATA%\.flutter_settings`), corrected by the Amendment below | Temurin 21.0.12 |
 | WSL | Temurin **17.0.20.1** (`~/sdk/jdk-17`); a system OpenJDK 21.0.12 is also installed | `~/sdk/jdk-17` |
 | Linux server | Temurin **17.0.20** via mise (`java = "temurin-17"`) | mise Temurin 17 |
 | macOS laptop | Homebrew OpenJDK **21.0.12** (`openjdk@21`) | Homebrew OpenJDK **26.0.2** |
@@ -50,8 +50,9 @@ been observed.** That is the claim this record's plan must establish first.
 
 ### Findings
 
-- **F1 — the build JDK differs between CI and the dev hosts.** CI uses 17. Two hosts build with 21
-  and two with 17.
+- **F1 — the build JDK differs between CI and the dev hosts.** CI uses 17. ~~Two hosts build with 21
+  and two with 17.~~ One host (the macOS laptop) builds with 21 and three with 17, corrected by
+  the Amendment below.
 - **F2 — the build JDK and the bytecode target are separate settings.** CI's `java-version`
   chooses the JDK that runs Gradle and `javac`/`kotlinc`. `build.gradle.kts` pins the bytecode
   level those compilers emit (17). The owner's decision concerns the first.
@@ -99,7 +100,8 @@ it is.
   separate decision that needs its own reason (F3).
 - **D3 — Every dev host's Flutter builds Android with a JDK 21.** Temurin is preferred where the
   host's installer offers it. The WSL host moves `jdk-dir` off `~/sdk/jdk-17`; the Linux server
-  moves mise's `java` from `temurin-17` to `temurin-21`. Windows is already on 21. The macOS
+  moves mise's `java` from `temurin-17` to `temurin-21`. ~~Windows is already on 21.~~ Windows
+  moves its `jdk-dir` to its installed Temurin 21 (Amendment below). The macOS
   laptop's Flutter is already on OpenJDK 21. Its `JAVA_HOME`, which points at Homebrew's
   OpenJDK 26, is recorded but not changed by this decision: Flutter's Android build uses
   `jdk-dir`, not `JAVA_HOME`.
@@ -191,3 +193,19 @@ None. No earlier record decided the JDK. CI's Temurin 17 predates the decision r
 - Which JDK 21 does the WSL host use: a Temurin 21 tarball in `~/sdk/jdk-21`, mirroring its
   Temurin 17 layout, or the already-installed system OpenJDK 21? The plan proposes Temurin, for
   parity with CI.
+
+## Amendment — 2026-09-23: Windows was on JDK 17, not 21
+
+**Found** executing PLAN P1. On Windows, `flutter config --list` reports
+`jdk-dir: C:\Users\<user>\sdk\jdk-17`, and `flutter doctor -v` reports
+`Temurin-17.0.20.1+1`. The measured table's Windows row came from the environment probe,
+which read `~/.flutter_settings`. That file names Temurin 21, but it is a stale mid-August file
+that Flutter does not read. Flutter on Windows reads `%APPDATA%\.flutter_settings`, which names
+`~/sdk/jdk-17` and was written on 2026-09-18. The other three rows were re-checked the same way
+and are correct.
+
+**Consequences for this record.** F1's count becomes one host on 21 (the macOS laptop) and
+three on 17. D3's "Windows is already on 21" is struck: Windows moves its `jdk-dir` like the
+others. The decision itself (option A, D1–D5) is unchanged. The probe was fixed to read the
+file Flutter reads and to report any other settings file as stale. The stale file is backed up
+and removed as part of PLAN P1, so it cannot mislead again.

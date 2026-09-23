@@ -33,7 +33,10 @@ first):**
 - WSL: a Temurin 21 JDK under `~/sdk/`, the Flutter `jdk-dir`, and `~/.config/devenv.sh`'s
   `JAVA_HOME` line.
 - Linux server: `java` in its dotfiles repository's mise config, and the Flutter `jdk-dir` if set.
-- Windows and macOS laptop: none. Both already build on 21, and P3 only verifies them.
+- ~~Windows and macOS laptop: none. Both already build on 21, and P3 only verifies them.~~
+  Windows: the Flutter `jdk-dir` (to the installed Temurin 21), and removal of the stale
+  `~/.flutter_settings` after a dated backup (deviation 2026-09-23). macOS laptop: none, already
+  on 21, verify only.
 
 ### Out of scope
 
@@ -79,7 +82,11 @@ does not block P2.
 
 ### P1 — A release APK on JDK 21, locally (D5; closes F4)
 
-On the Windows host, whose Flutter `jdk-dir` is already Temurin 21.0.12:
+~~On the Windows host, whose Flutter `jdk-dir` is already Temurin 21.0.12:~~ On the Windows host,
+after step 0 (deviation 2026-09-23):
+
+0. Back up and remove the stale `~/.flutter_settings`. Run `flutter config --jdk-dir` pointed at
+   `C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot`. `~/sdk/jdk-17` stays until D4.
 
 1. `flutter config --list`: record the `jdk-dir` (expect the Temurin 21 path).
 2. `make apk`: record the Gradle JDK line from the build log.
@@ -113,8 +120,9 @@ Per host, only after the owner approves that host:
 - **Linux server:** in its dotfiles repository, change mise's `java = "temurin-17"` to
   `"temurin-21"`. `mise install`. Verify `jdk-dir`/`JAVA_HOME` resolve to 21. Build the APK in a
   scratch clone. Then `mise uninstall java@temurin-17`, with approval.
-- **Windows, macOS laptop:** verify only. `flutter config --list` shows a JDK 21 `jdk-dir`, and
-  the APK builds.
+- ~~**Windows, macOS laptop:** verify only.~~ **Windows:** switched in P1 step 0. Its JDK 17 is
+  removed under D4 like the others. **macOS laptop:** verify only. `flutter config --list` shows a
+  JDK 21 `jdk-dir`, and the APK builds.
 
 **Verification:** `flutter config --list` and an APK build per host. The read-only
 `devenv_probe.py` (magic-git `scripts/tools/devenv/`) is re-run afterwards, and its section 6
@@ -149,3 +157,22 @@ a host, restore the dated `devenv.sh` backup or revert the dotfiles commit, then
 - **A Java 21 bytecode target** (MADR option B): it needs its own reason (F3) and its own record.
 - **The macOS laptop's `JAVA_HOME` → OpenJDK 26**: harmless to Flutter builds, and part of the
   wider host standardization the owner is running separately.
+
+## Deviation — 2026-09-23: P1 found Windows on JDK 17
+
+**Found.** P1's first `make apk` succeeded, and the assert script passed. But steps 1–2 showed
+Flutter building with `jdk-dir: ~/sdk/jdk-17` (`flutter doctor -v`: Temurin-17.0.20.1). That
+contradicts the MADR's measured table, which listed Windows as already on 21. So that build
+proved nothing about JDK 21. The cause was the environment probe: it read a stale
+`~/.flutter_settings` (Temurin 21, mid-August) instead of `%APPDATA%\.flutter_settings`, the
+file Flutter reads on Windows. It was confirmed by locating both files and comparing each with
+`flutter config --list` on all four hosts. Only the Windows row was wrong.
+
+**Decision (owner, 2026-09-23): switch Windows, then P1.** P1 gains step 0: back up and remove
+the stale file, then point `jdk-dir` at the installed Temurin 21.0.12. Windows joins the host
+scope (Scope and P3 annotated above). `~/sdk/jdk-17` stays until D4. The MADR is amended (F1, D3,
+the Windows row). The probe (magic-git `scripts/tools/devenv/devenv_probe.py`) now reads the
+file Flutter reads and reports any other settings file as stale.
+
+**Files added to scope:** none in the repository. Host-side: Windows `%APPDATA%\.flutter_settings`
+(through `flutter config`) and the removed `~/.flutter_settings` (backed up first).
