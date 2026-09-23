@@ -104,8 +104,10 @@ one-line scratch file (major 65), to show the check can tell the two apart.
    else in the file changes.
 2. `git diff` shows exactly that one line. `build.gradle.kts` shows no diff (C2).
 3. Commit (`git commit --no-edit`).
-4. **After the owner pushes:** the `android-apk` job's setup-java step reports Temurin 21.x, and
-   the job is green.
+4. ~~**After the owner pushes:** the `android-apk` job's setup-java step reports Temurin 21.x, and
+   the job is green.~~ A push does not run `android-apk` (tag or `workflow_dispatch` only). After
+   the owner pushes, dispatch `ci.yml` on `master`; its setup-java step reports Temurin 21.x, and
+   the job is green (deviation 2026-09-23, A4).
 
 **Verification:** steps 2 and 4. Step 4 is the owner's push, then a read of the run log.
 
@@ -216,3 +218,16 @@ per-host approval.
   CI's `java-version: "21"` will take whatever the current 21.x is.
 - **Apple make 3.81 was expected to be a risk and wasn't.** `make apk` ran cleanly on the macOS
   laptop.
+
+## Deviation — 2026-09-23: a push does not run `android-apk`
+
+**Found.** The owner pushed `2b9f516`, and its CI run (`35910477320`) concluded `success`. But
+`Android APK (release arm64)` was **skipped**: `ci.yml:589` gates it on
+`github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'`. P2 step 4 assumed a
+branch push would exercise it, so A4 was not observed. The gate predates this plan and was not
+changed by it: the job was skipped on every push before `0eb8ed1` too. The workflow's own comment
+says the dispatch trigger exists so the job can be exercised before a release depends on it.
+
+**Decision (owner, 2026-09-23): dispatch CI on `master`.** `release` and `publish` are gated
+`github.ref_type == 'tag'`, so a dispatch on a branch publishes nothing. `android-apk` uploads a
+workflow artifact only. P2 step 4 is annotated above. No files are added to scope.
