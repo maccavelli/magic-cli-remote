@@ -176,3 +176,43 @@ file Flutter reads and reports any other settings file as stale.
 
 **Files added to scope:** none in the repository. Host-side: Windows `%APPDATA%\.flutter_settings`
 (through `flutter config`) and the removed `~/.flutter_settings` (backed up first).
+
+## Execution record (2026-09-23)
+
+P1 and P2 ran in full, and P3 through its switch and verification steps. The plan stays
+`in-progress`: A4 waits for the owner's push, and A7 (the JDK 17 removals) waits for the owner's
+per-host approval.
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| A1 | met | Windows, after step 0: `flutter doctor -v` reports `Temurin-21.0.12+8`, `make apk` exits 0, and the assert script prints `OK release-mode APK` (40M). The first P1 attempt built on 17 (see Deviation) and is not counted. |
+| A2 | met | All 3 app classes (`MainActivity`, `UpdateInstaller`, `UpdateInstallReceiver`) are class-file major **61**, compiled 12:45 during the JDK 21 build. `javap -v` agrees. Seen to fail first: a JDK 21 `javac` default-release class is major 65, and the check rejected it. |
+| A3 | met | `git diff -U0` on `ci.yml` is exactly `-java-version: "17"` / `+java-version: "21"` (`0eb8ed1`). |
+| A4 | pending | Needs the owner's push, then a read of the `android-apk` run log. |
+| A5 | met | `git diff --quiet -- apps/mobile/android` exits 0. |
+| A6 | met | WSL: Temurin 21.0.12.1 at `~/sdk/jdk-21` (Adoptium API, SHA-256 verified). Linux server: mise `temurin-21.0.12+101.0.LTS`. macOS laptop: Homebrew OpenJDK 21.0.12.1 (unchanged). Each host's `flutter doctor -v` reports 21, and `make apk` plus the assert script pass in a scratch clone, which is removed afterwards. A re-run of the environment probe shows JDK 21 in every host's Flutter settings or `JAVA_HOME`, with every shell-init snapshot unchanged. |
+| A7 | holding | No JDK 17 removed: `~/sdk/jdk-17` on Windows and WSL, and mise `temurin-17` on the Linux server, all remain. Removal awaits the owner. |
+
+### Host changes made (each with a dated backup)
+
+- **Windows:** `%APPDATA%\.flutter_settings` `jdk-dir` now points at Temurin 21.0.12. The stale
+  `~/.flutter_settings` was removed. Both originals are kept as `*.bak-2026-09-23` beside where they lived.
+- **WSL:** `~/.config/flutter/settings` `jdk-dir` and `~/.config/devenv.sh`'s `JAVA_HOME` line now
+  point at `~/sdk/jdk-21`. Both have `*.bak-2026-09-23-jdk21` copies.
+- **Linux server:** in its dotfiles repository's mise config, `java = "temurin-17"` became
+  `"temurin-21"`, a one-line string edit that leaves the rest of the TOML byte-identical. The
+  file already carried an uncommitted change from 2026-09-18 (the Flutter 3.47.2 migration),
+  which is left as it was. Neither change is committed; that repository is the owner's to commit.
+  The backup is kept outside the repository.
+
+### What the plan predicted incorrectly
+
+- **The Windows starting state.** The MADR said Windows already built on 21. It was on 17: the
+  environment probe had read a stale settings file that Flutter does not use (Deviation above).
+  P1 as first written would have "proved" JDK 21 with a JDK 17 build. It was caught only because
+  step 1 recorded `flutter config --list` rather than assuming the table.
+- **Temurin patch levels differ.** Adoptium's current 21 GA for Linux is 21.0.12.1+1, while the
+  Windows install is 21.0.12+8. Same major version and same LTS line, which is what D3 requires.
+  CI's `java-version: "21"` will take whatever the current 21.x is.
+- **Apple make 3.81 was expected to be a risk and wasn't.** `make apk` ran cleanly on the macOS
+  laptop.
