@@ -599,3 +599,104 @@ reading the actual record or breaking the actual call site — both were found o
 **Gates at commit:** `pre-add-check`, `gofmt -l`, `go vet ./...`, `acpagent` tests, `make race`
 (0 FAIL lines; `relayhost` 2.03 s), `make -n ci-windows` showing the live guard, `make ci-windows`,
 `git diff --exit-code go.mod go.sum` — all exit 0.
+
+## Execution record — release 2 (2026-09-22)
+
+**Ran:** P3 and P4. Fork branch `feat/notification-overflow-policy`, three commits on `main`
+(`0845a3b`, `v0.13.5`):
+
+| commit | author | subject |
+| --- | --- | --- |
+| `10bc9f5` | Alvaro Saurin (@inercia) | Add configurable notification queue size via ConnectionOption — cherry-picked from `a7af6cb` |
+| `52b5723` | Alvaro Saurin (@inercia) | Remove unused fmt import and dummy reference in test — cherry-picked from `56c2c30` |
+| `eb6e808` | this project | feat(connection): support dropping notifications on queue overflow |
+
+Nothing is pushed. This repository's only change in release 2 is this record and the deviation
+committed before it (`03fe631`).
+
+**Provenance, verified rather than assumed.** A script compared each picked commit with its
+original: author name, email and date identical; message identical plus exactly one
+`(cherry picked from commit <sha>)` line; `git patch-id --stable` identical; `107b384` neither an
+ancestor of the branch nor referenced by it. The verifier was then run against deliberately
+swapped pairs and failed on author date, message and patch-id — so it can fail. The global
+`prepare-commit-msg` hook was shown on a scratch worktree not to rewrite cherry-picked messages.
+
+**Baseline before any change** (`main` + #40's two commits): `gofmt -l`/`gofumpt -l` empty;
+`go vet` 12, `staticcheck` 2, `golangci-lint` 2 findings — exactly MADR F31's counts on plain
+`main`, so #40 added none; `make test` and `go test -race ./...` pass; coverage 29.1%.
+My first gate script compared findings as a *set*, which collapsed the 12 identical vet findings
+into one and would have hidden a new duplicate. It now compares counts; a negative test adding one
+duplicate finding reports `NEW=1` where the set version reports `NEW=0`.
+
+**P3, as built.** `connection.go` +92, `client.go` +6, `agent.go` +6, all additions — the existing
+overflow branch, upstream's rollback and its fail-fast tail are byte-identical; the policy check
+sits in front of the tail. `NotificationOverflowPolicy` (`OverflowCloseConnection` zero value,
+`OverflowDropNewest`), `WithNotificationOverflowPolicy`, `WithNotificationDropHandler`,
+`DroppedNotifications`. Drops log at `Debug` (F34). Receiver names follow the file (`c`, 17 of 19
+uses). The sentinel is not exported (F38).
+
+**One addition the plan did not list, recorded here:** `DroppedNotifications` forwarders on
+`ClientSideConnection` and `AgentSideConnection`. Without them D5's counter would be unreachable
+for nearly every consumer, since both types keep their `*Connection` private — the gap F18
+describes. Both files were already in P3's scope.
+
+**Tests** (`connection_overflow_policy_test.go`, 6 tests, `TestType_Action` names, `tc := tc`
+per F32): the default closes, with no option, with `OverflowCloseConnection` explicitly, and with
+an undefined value; `OverflowDropNewest` keeps the connection open, reports each drop with its
+running total, delivers queued notifications in order, never delivers dropped ones, and still
+delivers a notification sent after the backlog clears (showing released sequence numbers are
+reused cleanly); the handler is optional; both forwarders work. `-race`, 5 runs: all pass.
+
+**Fail-first (C2), scratch worktree, seven mutations, all fail:**
+
+| mutation | failed with |
+| --- | --- |
+| option read but never applied | `write of notification 6 blocked: the connection stopped reading` |
+| policy always on | `connection stayed open after overflow; the default must close it` — **and upstream's own** `TestConnectionFailsFastOnNotificationQueueOverflow` |
+| handler never called | `drop 1 was never reported` |
+| counter not incremented | `drop 2 reported ("test/notify", 1), want ("test/notify", 2)` |
+| reader stops after a drop | `write of notification 6 blocked: the connection stopped reading` |
+| drop skips upstream's rollback (F39) | `notification barrier did not drain: completed=5 enqueued=8` |
+| client forwarder broken | `ClientSideConnection.DroppedNotifications() = 0, want 7` |
+
+The first run of this set **hung** on "reader stops": the test's pipe writes had no bound, so a
+stopped reader blocked the next write until go test's 10-minute timeout. A test that hangs on the
+regression it guards is not doing its job; writes are now bounded and fail within 5 s. The harness
+also gained `-timeout=90s` so a hang cannot hide as a long run.
+
+**Gates after:** `gofumpt`/`gofmt` clean; vet 12 / staticcheck 2 / golangci 2 — **NEW=0** in each;
+`make test` and `-race` pass; coverage **29.1% → 29.4%**.
+
+**P4, method strengthened.** Instead of a temporary `replace` in this repository's `go.mod` that
+must be reverted before commit, P4 ran in a scratch worktree whose `go.mod` replaced the SDK with
+the fork (`go list -m` confirmed `=> …/acp-go-sdk`). The real tree was never touched, and was
+re-verified afterwards: `go.mod`/`go.sum` unchanged, status clean. 20 runs per cell, `GOMAXPROCS=1`,
+1,224 `tool_call` frames at a stalled consumer:
+
+| handler | policy | transport survived | frames written | dropped |
+| --- | --- | --- | --- | --- |
+| null | off | 7/20 | 1025–1224 | 0 |
+| null | **on** | **20/20** | 1224 | 0–199 |
+| real | off | 2/20 | 1025–1224 | 0 |
+| real | **on** | **20/20** | 1224 | 0–199 |
+
+The defect reproduces as MADR 0166 measured it (null handler: 13/20 lost, against 0166's 3/5; the
+1025 minimum is 0166 F8's 1,024 queued + 1 in flight), and the policy removes it in both variants.
+The cost is stated with it: up to 199 notifications dropped in a run, the maximum being exactly
+1,224 − 1,025.
+
+**What the plan got wrong.**
+* **P3 step 1** stacked on #40's head, which carries an unrelated 456-line commit; F26 had quoted
+  one commit's stat as the PR's (deviation above).
+* **D14's confirmation `grep … time.Sleep → none` was over-broad.** It conflated a fixed sleep
+  followed by an assertion (the pattern F33 warns against, `acp_test.go:724`) with polling a
+  condition until a deadline — which upstream's own `waitForNotificationBarrierDrain` does with
+  `time.Sleep(time.Millisecond)`. The handler-less test polls the counter the same way, because
+  with no handler installed there is no event to wait on. No fixed sleep is used as a wait.
+* **C3's mechanism** (a temporary `replace` in the real `go.mod`) was weaker than necessary; the
+  worktree method above makes a stray `replace` impossible rather than merely checked-for.
+
+**Carried to release 3:** the PR body must state the cherry-picks and the exclusion of `107b384`
+explicitly, credit Alvaro Saurin (@inercia) for the options surface, carry the transcripts above
+because no fork PR can get a CI signal (F35), and say plainly that `make check` was not run
+locally (`treefmt`/`mise` are not installed on this host).
