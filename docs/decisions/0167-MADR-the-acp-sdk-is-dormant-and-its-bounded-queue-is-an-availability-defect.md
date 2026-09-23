@@ -319,8 +319,9 @@ record must not present unbounded as uncomplicatedly correct. It is correct *her
 on our handler keeping its contract, and D3's consequences say so.
 
 **F26 — The options surface we would need already exists in an open PR. [measured]** PR #40's
-diff adds `ConnectionOption func(*connectionConfig)`, threads `opts ...ConnectionOption` through
-all three constructors, and ships a 153-line test — `4 files changed, 190 insertions(+)`. PR #50
+~~diff~~ **first commit** (`a7af6cb`, see the 2026-09-22 amendment) adds
+`ConnectionOption func(*connectionConfig)`, threads `opts ...ConnectionOption` through all three
+constructors, and ships a 153-line test — `4 files changed, 190 insertions(+)`. PR #50
 independently exports **both** `ErrNotificationQueueOverflow` and `ErrPeerDisconnected`
 (`errors.go`, +17) alongside its own `WithMaxQueuedNotifications`. Consequence: proposing a
 capacity option or exported sentinels would duplicate two open PRs, which is poor contribution
@@ -1012,3 +1013,22 @@ wrong must be checked against the record, not against a summary of it.
 
 **F15, extended.** The same `0038-MADR` passage also claims `NewSessionRequest` does not model
 `_meta`; at v0.13.5 it has `Meta map[string]any` (`types_gen.go:3236`, obs. 23). Annotated there.
+
+## Amendment — 2026-09-22: F26 described one commit of #40 as the whole PR
+
+F26 quoted `4 files changed, 190 insertions(+)` as PR #40's diff. That stat belongs to #40's
+**first** commit only. The PR — <https://github.com/coder/acp-go-sdk/pull/40>, by Alvaro Saurin
+(GitHub **@inercia**), opened 2026-05-14 — is three commits, all his:
+
+* `a7af6cb` (2026-05-14) *Add configurable notification queue size via ConnectionOption* — the
+  options surface F26 describes;
+* `56c2c30` (2026-05-15) *Remove unused fmt import and dummy reference in test* — review follow-up;
+* `107b384` (2026-08-17) *Improve union decode error context* — generator, `errors.go` and
+  `types_gen.go` changes (+315/−232) unrelated to the notification queue.
+
+It is based on `192e108`, four commits behind `main`. The measurement error was reading
+`gh pr diff --patch` from its first patch and stopping.
+
+**Effect on D7.** "Stack on #40" now means: cherry-pick `a7af6cb` and `56c2c30` onto `main` with
+`-x`, crediting their author, and exclude `107b384`. D7's intent — compose with #40, credit it, do
+not duplicate it — is unchanged; its mechanism is corrected. PLAN 0167 records the deviation.

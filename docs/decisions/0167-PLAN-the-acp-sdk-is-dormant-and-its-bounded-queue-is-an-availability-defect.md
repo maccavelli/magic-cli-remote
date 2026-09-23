@@ -210,11 +210,16 @@ go.sum`.
 
 Fork only. **Nothing in this repository changes in this phase.**
 
-1. Fetch #40 and branch from its head:
+1. ~~Fetch #40 and branch from its head:
    `git fetch upstream pull/40/head:pr40 && git switch -c feat/notification-overflow-policy pr40`.
    If #40's base has drifted such that it no longer applies, fall back to a self-contained option
    type and say so in the PR — that is MADR open question 1, and the fallback is recorded, not
-   improvised.
+   improvised.~~ **Replaced 2026-09-22 (deviation below):** branch
+   `feat/notification-overflow-policy` from `main` (`0845a3b`, `v0.13.5`), then
+   `git cherry-pick -x a7af6cb 56c2c30` — #40's two queue commits only, authorship and messages
+   preserved, each carrying `(cherry picked from commit …)`. #40's third commit, `107b384`
+   (union-decode error context), is **excluded**. Verify the picked commits byte-for-byte against
+   the originals before building on them.
 2. Add the policy to #40's `connectionConfig`:
 
    ```go
@@ -510,6 +515,35 @@ handshake waits out the library timeout.
 defer it to 0115. **File added to scope:** `internal/relayhost/deadline_test.go` (and any sibling
 test file in `internal/relayhost` shown to share the defect, each named in the execution record).
 The fix must be shown to change the failure rate under reproduced load, not merely to pass.
+
+## Deviation — 2026-09-22: #40 is three commits, and one of them is not about queues
+
+**Found.** Before branching, `git log main..pr40` showed PR #40
+(<https://github.com/coder/acp-go-sdk/pull/40>, opened 2026-05-14 by Alvaro Saurin, GitHub
+**@inercia**, head `inercia:configurable-notification-queue` at `107b384`) is **three** commits,
+all authored by Alvaro Saurin:
+
+| commit | authored | subject | files |
+| --- | --- | --- | --- |
+| `a7af6cb8babe78b74d71240e6a79a7b4a8547d29` | 2026-05-14T16:31:43+02:00 | Add configurable notification queue size via ConnectionOption | `agent.go`, `client.go`, `connection.go`, `connection_queue_size_test.go` (+190/−8) |
+| `56c2c30ca894d2fecaeb1db086b613677b4be3d6` | 2026-05-15T09:41:17+02:00 | Remove unused fmt import and dummy reference in test | `connection_queue_size_test.go` (−2) |
+| `107b384c8140ca27a5dfe37d6234bc12e848b9ec` | 2026-08-17T22:10:31+02:00 | Improve union decode error context | `cmd/generate/internal/emit/types.go`, `errors.go`, `errors_test.go`, `types_gen.go` (+315/−232) |
+
+The third is a generator and error-context change unrelated to the notification queue. #40's base
+is `192e108`, **4 commits behind `main`**, predating the Nix→mise migration (`3091984`) against
+whose `mise.toml`/`treefmt.toml`/`Makefile` MADR F31 was measured. P3 step 1 as written would have
+put a 456-line generated-code change into our PR, on a pre-mise tree. The error originated in MADR
+F26, which quoted the first commit's stat as the PR's.
+
+**Verified before deciding.** On a scratch worktree, `a7af6cb` + `56c2c30` cherry-pick cleanly onto
+`main` (4 files, +188/−8), `go build ./...` succeeds and `go test ./...` passes. The global
+`prepare-commit-msg` hook does **not** rewrite a cherry-picked message: author and author date are
+preserved, and `-x` appends the provenance line.
+
+**Decision (owner, 2026-09-22).** Branch from `main`, cherry-pick #40's two queue commits with `-x`,
+exclude `107b384`, and cite authorship in full in the PR, in its commits and in these records. No
+files added to scope. The PR must state which of #40's commits it includes and which it excludes,
+and why — so it cannot be read as appropriating #40 or as silently dropping part of it.
 
 ## Execution record — release 1 (2026-09-22)
 
