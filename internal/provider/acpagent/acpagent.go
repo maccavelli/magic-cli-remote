@@ -492,13 +492,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	// wirecap.For returns nil unless MCREMOTE_WIRE_CAPTURE_DIR is set, and a
 	// nil capture's TeeReader returns the reader unchanged.
 	s.wire = wirecap.For(string(p.spec.ID))
-	// OverflowDropNewest keeps the engine's transport alive when the SDK's bounded
-	// notification queue fills, dropping the arriving notification instead of
-	// closing the connection — which would end every session on this engine
-	// (MADR 0166 F3, MADR 0167 D17). No drop handler: it would run on the SDK's
-	// reader goroutine. Loss is surfaced per turn from DroppedNotifications (D18).
-	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout),
-		acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest))
+	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout), clientConnOptions()...)
 	// conn.SetLogger is NOT called, and cannot be: the SDK's constructor starts
 	// `go c.receive()`, `go c.sendCancelRequests()` and a context watcher
 	// before it returns (acp-go-sdk@v0.13.5 connection.go:110-120), while
@@ -1014,6 +1008,21 @@ type grokInitializeMeta struct {
 			AvailableModels []GrokAvailableModel `json:"availableModels"`
 		} `json:"modelState"`
 	} `json:"_meta"`
+}
+
+// clientConnOptions are the options every engine connection is built with.
+//
+// OverflowDropNewest keeps the engine's transport alive when the SDK's bounded
+// notification queue fills, dropping the arriving notification instead of
+// closing the connection — which would end every session on this engine
+// (MADR 0166 F3, MADR 0167 D17). There is deliberately no drop handler: it would
+// run on the SDK's reader goroutine. Loss is surfaced per turn from
+// DroppedNotifications instead (D18).
+//
+// One definition, shared with the stalled-pump tests, so they exercise what
+// production runs: removing the option here turns the survival test red (D19).
+func clientConnOptions() []acp.ConnectionOption {
+	return []acp.ConnectionOption{acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest)}
 }
 
 // decodeGrokInitializeMeta reads grok's vendor block out of the _meta map the

@@ -63,8 +63,9 @@ func toolCallFrame(sessionID string, i int) []byte {
 }
 
 // stalledSession builds a session wired to a real ClientSideConnection, with a
-// full event channel and no consumer — the stalled pump.
-func stalledSession(t *testing.T) (*session, *acp.ClientSideConnection, *io.PipeWriter) {
+// full event channel and no consumer — the stalled pump. opts are the
+// connection options; pass clientConnOptions() to get what production builds.
+func stalledSession(t *testing.T, opts ...acp.ConnectionOption) (*session, *acp.ClientSideConnection, *io.PipeWriter) {
 	t.Helper()
 
 	s := &session{
@@ -80,7 +81,7 @@ func stalledSession(t *testing.T) (*session, *acp.ClientSideConnection, *io.Pipe
 	s.events <- event.Event{Type: event.TypeSessionStatus}
 
 	agentOut, agentIn := io.Pipe()
-	conn := acp.NewClientSideConnection(s, io.Discard, agentOut)
+	conn := acp.NewClientSideConnection(s, io.Discard, agentOut, opts...)
 	s.conn = conn
 	// Wire the containment path production wires (acpagent.go:655). Without it a
 	// dead transport produced no teardown here at all, so a test asserting
@@ -121,6 +122,13 @@ func stalledSession(t *testing.T) (*session, *acp.ClientSideConnection, *io.Pipe
 // null-handler case above. If upstream ever makes the reader block or the depth
 // configurable, this test becomes an under-assertion — that is the moment to
 // revisit it (PLAN 0166, Deferred).
+//
+// Revisited in MADR 0167: PLAN P4 re-measured the null-handler case against the
+// overflow policy (20/20 survival), and the connection-survival property is now
+// asserted by TestACPConnectionSurvivesAStalledPump below, with the options
+// production builds. This test keeps asserting containment, which still matters:
+// the policy is what keeps the transport up, containment is what ends a session
+// whose consumer will never drain.
 func TestAStalledPumpIsContainedNotHung(t *testing.T) {
 	s, _, agentIn := stalledSession(t)
 
@@ -223,6 +231,65 @@ func waitForContainment(s *session, budget time.Duration) bool {
 			return false
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestACPConnectionSurvivesAStalledPump is MADR 0167 D19: the assertion MADR 0166
+// D1 retired, reinstated because it is now achievable.
+//
+// With the SDK's default policy a full notification queue closes the whole
+// connection, taking every session on the engine with it; 0166 measured that
+// even a handler doing nothing loses it 3 times in 5 under GOMAXPROCS=1. With
+// OverflowDropNewest the reader drops the arriving notification and keeps
+// reading, so the transport survives however far the consumer falls behind.
+//
+// Built from clientConnOptions(), the same options spawnAgent uses: removing the
+// policy from production turns this test red, which is the point of sharing them.
+// Seen red before it was relied on: with the option removed it failed under
+// GOMAXPROCS=1 (PLAN 0167 P12, execution record).
+func TestACPConnectionSurvivesAStalledPump(t *testing.T) {
+	_, conn, agentIn := stalledSession(t, clientConnOptions()...)
+	const frames = sdkNotificationQueueDepth + 200
+
+	var written atomic.Int64
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for i := range frames {
+			if _, err := agentIn.Write(toolCallFrame("agent-1", i)); err != nil {
+				return
+			}
+			written.Add(1)
+		}
+	}()
+
+	// With the policy the reader never stops, so every frame is read. A writer
+	// still blocked here means the connection stopped reading: it closed.
+	select {
+	case <-writerDone:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("only %d of %d frames were read: the connection stopped reading (closed=%v)",
+			written.Load(), frames, isClosed(conn))
+	}
+	if n := written.Load(); n != frames {
+		t.Fatalf("the writer stopped after %d of %d frames: the connection closed", n, frames)
+	}
+
+	// And it is still open once the storm is over, not merely slow to close.
+	select {
+	case <-conn.Done():
+		t.Fatalf("the ACP connection closed under a stalled pump (%d notifications dropped); "+
+			"the overflow policy is not in effect", conn.DroppedNotifications())
+	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+func isClosed(conn *acp.ClientSideConnection) bool {
+	select {
+	case <-conn.Done():
+		return true
+	default:
+		return false
 	}
 }
 

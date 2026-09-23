@@ -363,3 +363,22 @@ This record deferred three items by name. MADR 0167 (accepted 2026-09-22) decide
 retired "transport survives" assertion stays retired, and containment is the guarantee. That only
 changes if the PR merges **and** this project later adopts the drop policy, which is its own
 decision (MADR 0167 D13).
+
+## Amendment — 2026-09-22: the retired survival assertion is back, with evidence
+
+D1 retired "the ACP connection survives a stalled pump" because no client-side code could
+satisfy it at `acp-go-sdk` v0.13.5. MADR 0167 changes the premise, not the reasoning: this
+project now builds against a fork carrying an opt-in overflow policy (0167 D16), and every engine
+connection is built with `OverflowDropNewest` (D17), which drops the arriving notification
+instead of closing the connection.
+
+The property is therefore asserted again, as `TestACPConnectionSurvivesAStalledPump`, built from
+the same `clientConnOptions()` production uses. Seen red before relied on, 20 runs each under
+`GOMAXPROCS=1`: with the policy removed, **18/20 failed** (`only 1044 of 1224 frames were read:
+the connection stopped reading (closed=true)`); with it, **20/20 passed** (PLAN 0167 P12).
+
+D2's containment test stays: the policy keeps the transport up, and containment still ends a
+session whose consumer will never drain. The per-engine blast radius (F3) is now reached only
+through that deliberate containment, not through the SDK closing the shared connection. If the
+fork is ever retired without an upstream equivalent, this amendment's premise lapses and D1
+applies again.

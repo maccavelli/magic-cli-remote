@@ -1118,3 +1118,12 @@ never hung or zombied.
 Full analysis, measurements and the decision: **MADR 0166** and **PLAN 0166**. If
 `acp-go-sdk` later makes the queue depth configurable or gives its reader
 backpressure, the stronger property becomes available again and both records say so.
+
+## Amendment — 2026-09-22: F5's promise is met again
+
+F5 promised that a stalled consumer would not take down the ACP connection. MADR 0166 amended it
+as unachievable at `acp-go-sdk` v0.13.5. MADR 0167 makes it achievable: engine connections are
+built with the fork's `OverflowDropNewest` policy (0167 D16–D17), and
+`TestACPConnectionSurvivesAStalledPump` asserts survival — 20/20 with the policy, 18/20
+failures without it, under `GOMAXPROCS=1` (PLAN 0167 P12). The promise now rests on that fork
+until upstream merges an equivalent (0167 D20).
