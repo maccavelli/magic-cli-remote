@@ -525,8 +525,12 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			Terminal: true,
 		},
 	}
-	var rawInit json.RawMessage
-	if err := s.rawRequest(initCtx, "initialize", initReq, &rawInit); err != nil {
+	// The typed call sends the identical frame the raw path did — the SDK's
+	// Initialize is SendRequest over the same connection — and its response
+	// keeps the top-level _meta block in initResp.Meta, which is where grok's
+	// vendor fields live (MADR 0167 F15).
+	initResp, err := conn.Initialize(initCtx, initReq)
+	if err != nil {
 		// cmd.Wait (not Process.Wait) so exec closes the parent ends of the
 		// stdio pipes — Process.Wait leaks two fds per failed spawn. Safe
 		// here: the exit watcher starts only after initialize succeeds.
@@ -535,54 +539,8 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		return nil, fmt.Errorf("acp initialize: %w", err)
 	}
 
-	var initResp acp.InitializeResponse
-	if err := json.Unmarshal(rawInit, &initResp); err != nil {
-		killTree()
-		_ = cmd.Wait()
-		return nil, fmt.Errorf("acp initialize decode: %w", err)
-	}
-
-	var initMeta grokInitializeMeta
-	_ = json.Unmarshal(rawInit, &initMeta)
-	if initMeta.Meta.DefaultAuthMethodID != "" {
-		s.log.Debug("acp defaultAuthMethodId",
-			slog.String("default_auth_method_id", initMeta.Meta.DefaultAuthMethodID))
-	}
-	// The model the agent says it is running, before any session exists. It is
-	// what ModelReporter falls back to: the per-session harvest only fires when
-	// grok sends `x.ai/sessionDetail`, and on the default-model path the
-	// requested model is empty — which is why all seven grok turn records in
-	// MADR 0138's table carried no model at all.
-	if id := strings.TrimSpace(initMeta.Meta.ModelState.CurrentModelID); id != "" {
-		s.mu.Lock()
-		s.engineModelID = id
-		s.mu.Unlock()
-	}
-	if len(initMeta.Meta.ModelState.AvailableModels) > 0 {
-		cat := modelsToCatalog(initMeta.Meta.ModelState.CurrentModelID, initMeta.Meta.ModelState.AvailableModels)
-		p.catalogMu.Lock()
-		p.catalogCache = cat
-		p.catalogHas = true
-		p.catalogMu.Unlock()
-	}
-
-	p.reportEngineVersion(&initResp, initMeta.Meta.AgentVersion)
-
-	s.agentCaps = initResp.AgentCapabilities
-	s.log.Info("acp initialized",
-		slog.Any("protocol_version", initResp.ProtocolVersion),
-		slog.Bool("load_session", initResp.AgentCapabilities.LoadSession),
-		slog.Bool("prompt_image", initResp.AgentCapabilities.PromptCapabilities.Image),
-		slog.Int("auth_methods", len(initResp.AuthMethods)),
-	)
-
-	advertised := make([]string, 0, len(initResp.AuthMethods))
-	for _, m := range initResp.AuthMethods {
-		if m.Agent != nil && m.Agent.Id != "" {
-			advertised = append(advertised, m.Agent.Id)
-		}
-	}
-	s.advertisedAuth = advertised
+	p.applyInitializeResponse(s, initResp)
+	advertised := s.advertisedAuth
 
 	if len(p.spec.SafeAuthMethodIDs) > 0 {
 		hasKey := false
@@ -1052,6 +1010,26 @@ type grokInitializeMeta struct {
 	} `json:"_meta"`
 }
 
+// decodeGrokInitializeMeta reads grok's vendor block out of the _meta map the
+// SDK keeps on its typed InitializeResponse.
+//
+// The SDK decodes _meta as map[string]any, so the typed view is recovered by a
+// JSON round trip. Like the raw decode it replaces, it is best-effort: grok's
+// fields are optional extensions, and an agent that sends none of them — or
+// sends them in an unexpected shape — must not fail initialize.
+func decodeGrokInitializeMeta(meta map[string]any) grokInitializeMeta {
+	var out grokInitializeMeta
+	if len(meta) == 0 {
+		return out
+	}
+	b, err := json.Marshal(meta)
+	if err != nil {
+		return out
+	}
+	_ = json.Unmarshal(b, &out.Meta)
+	return out
+}
+
 func modelsToCatalog(currentID string, models []GrokAvailableModel) picker.Catalog {
 	opts := make([]picker.Option, 0, len(models))
 	for _, m := range models {
@@ -1173,4 +1151,55 @@ func HandleMCPInit(ctx context.Context, s *session, params json.RawMessage) {
 			})
 		}
 	}
+}
+
+// applyInitializeResponse records what the agent reported at initialize: the
+// vendor model state and engine version from _meta, the capabilities, and the
+// advertised auth methods.
+//
+// It is split out of spawnAgent so it can be tested without launching a
+// process. Before it was, nothing in the package failed when the vendor block
+// was discarded — at HEAD or after the typed-Initialize change (PLAN 0167 P2,
+// deviation of 2026-09-22).
+func (p *Provider) applyInitializeResponse(s *session, initResp acp.InitializeResponse) {
+	initMeta := decodeGrokInitializeMeta(initResp.Meta)
+	if initMeta.Meta.DefaultAuthMethodID != "" {
+		s.log.Debug("acp defaultAuthMethodId",
+			slog.String("default_auth_method_id", initMeta.Meta.DefaultAuthMethodID))
+	}
+	// The model the agent says it is running, before any session exists. It is
+	// what ModelReporter falls back to: the per-session harvest only fires when
+	// grok sends `x.ai/sessionDetail`, and on the default-model path the
+	// requested model is empty — which is why all seven grok turn records in
+	// MADR 0138's table carried no model at all.
+	if id := strings.TrimSpace(initMeta.Meta.ModelState.CurrentModelID); id != "" {
+		s.mu.Lock()
+		s.engineModelID = id
+		s.mu.Unlock()
+	}
+	if len(initMeta.Meta.ModelState.AvailableModels) > 0 {
+		cat := modelsToCatalog(initMeta.Meta.ModelState.CurrentModelID, initMeta.Meta.ModelState.AvailableModels)
+		p.catalogMu.Lock()
+		p.catalogCache = cat
+		p.catalogHas = true
+		p.catalogMu.Unlock()
+	}
+
+	p.reportEngineVersion(&initResp, initMeta.Meta.AgentVersion)
+
+	s.agentCaps = initResp.AgentCapabilities
+	s.log.Info("acp initialized",
+		slog.Any("protocol_version", initResp.ProtocolVersion),
+		slog.Bool("load_session", initResp.AgentCapabilities.LoadSession),
+		slog.Bool("prompt_image", initResp.AgentCapabilities.PromptCapabilities.Image),
+		slog.Int("auth_methods", len(initResp.AuthMethods)),
+	)
+
+	advertised := make([]string, 0, len(initResp.AuthMethods))
+	for _, m := range initResp.AuthMethods {
+		if m.Agent != nil && m.Agent.Id != "" {
+			advertised = append(advertised, m.Agent.Id)
+		}
+	}
+	s.advertisedAuth = advertised
 }

@@ -70,7 +70,7 @@ func TestBridgeFrameLimitFollowsConfig(t *testing.T) {
 			if err := c.Write(r.Context(), websocket.MessageBinary, payload); err != nil {
 				return
 			}
-			<-r.Context().Done()
+			answerClose(r.Context(), c)
 		}))
 	}
 
@@ -81,7 +81,7 @@ func TestBridgeFrameLimitFollowsConfig(t *testing.T) {
 	run := func(limit int64) int {
 		ts := mkServer()
 		defer ts.Close()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 		defer cancel()
 		conn, _, err := websocket.Dial(ctx, "ws"+ts.URL[len("http"):], nil)
 		if err != nil {
@@ -120,10 +120,10 @@ func TestEnvelopeVersionRejected(t *testing.T) {
 			return
 		}
 		_ = c.Write(r.Context(), websocket.MessageText, []byte(`{"v":99,"type":"register_ok"}`))
-		<-r.Context().Done()
+		answerClose(r.Context(), c)
 	}))
 	defer ts.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 	conn, _, err := websocket.Dial(ctx, "ws"+ts.URL[len("http"):], nil)
 	if err != nil {
@@ -132,6 +132,30 @@ func TestEnvelopeVersionRejected(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 	if _, err := relay.ReadEnvelope(ctx, conn); err == nil {
 		t.Fatal("v:99 envelope must be rejected by the shared reader")
+	}
+}
+
+// hangGuard bounds a test that would otherwise hang forever. It is not a
+// latency budget — nothing in these tests asserts how quickly a loopback dial
+// completes — so it is sized for the slowest environment the suite runs in
+// rather than the typical one: under the full `make race` suite on Windows a
+// loopback dial that normally takes 1-3 ms has exceeded 5 s (PLAN 0167,
+// deviation of 2026-09-22), which failed a test for a reason that said nothing
+// about the code.
+const hangGuard = 30 * time.Second
+
+// answerClose keeps a test server reading until the peer closes, which is what
+// answers the client's close handshake. A handler that parks on
+// r.Context().Done() instead never reads the close frame, so every deferred
+// client Close waits out the library's full close timeout — measured at 5.00 s
+// per call, 15 of this package's 17 s. TestOpenTunnelRejected avoids the same
+// stall by closing after it answers; this is the equivalent for handlers that
+// must stay open until the client is done.
+func answerClose(ctx context.Context, c *websocket.Conn) {
+	for {
+		if _, _, err := c.Read(ctx); err != nil {
+			return
+		}
 	}
 }
 

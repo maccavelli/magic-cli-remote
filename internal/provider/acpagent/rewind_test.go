@@ -466,11 +466,16 @@ func TestUndoLastWithoutAnAgentSession(t *testing.T) {
 // rawRequest would classify it as a standard method and put it on the unsafe
 // cast, which is precisely the path Phase 9 took extension methods off.
 func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
-	// The standard methods acp-go-sdk@v0.13.5 does not model. These have no
-	// public raw path, so the unsafe cast is the only way to reach them, and
+	// The standard methods whose payload acp-go-sdk@v0.13.5's typed API cannot
+	// carry: session/set_model is not modelled at all, and grok's session/resume
+	// reply puts its model list in a top-level `models` object that
+	// ResumeSessionResponse has no field for. The SDK has no public raw path for
+	// standard methods, so the unsafe cast is the only way to reach them, and
 	// this set is the complete list of what may use it.
+	//
+	// initialize is deliberately absent: it goes through the typed Initialize,
+	// whose response keeps _meta (MADR 0167 F15, F17).
 	standard := map[string]bool{
-		"initialize":        true,
 		"session/set_model": true,
 		"session/resume":    true,
 	}
@@ -532,7 +537,7 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 					sites++
 					if !isExtensionMethod(method) && !standard[method] {
 						t.Errorf("%s: rawRequest(%q) takes the unsafe raw-connection cast, but %q is "+
-							"not one of the three standard methods that need it. If it is a vendor "+
+							"not one of the two standard methods that need it. If it is a vendor "+
 							"extension it must be written with its leading underscore", where, method, method)
 					}
 				case *ast.Ident:

@@ -477,3 +477,91 @@ as confirmation; amend MADR F19 additively to withdraw the claim. No files added
 **Also found in scope.** `0038-MADR:113` additionally claims *"`NewSessionRequest` does not model
 `_meta` either"*; at v0.13.5 `NewSessionRequest` has `Meta` (`types_gen.go:3236`). Annotated
 together with step 1's `InitializeResponse` correction — same passage, same phase.
+
+## Deviation — 2026-09-22: P2's wiring was untested, before and after
+
+**Found.** P2's fail-first run (C2) mutated the production call site to
+`decodeGrokInitializeMeta(nil)`, discarding grok's vendor block, and the whole
+`internal/provider/acpagent` package still passed. The same mutation against unmodified HEAD (the
+old `json.Unmarshal(rawInit, &initMeta)` blanked, in a separate worktree) also passed: the gap is
+**pre-existing** — no unit test has ever checked that `initialize` populates `engineModelID`, the
+model catalog or the reported engine version. The only end-to-end coverage is
+`grok/live_initializemeta_test.go` (`-tags live_grok`), not verified to bite. A16's "its vendor
+fields still arrive" was therefore unproven, on the very line P2 rewrote.
+
+**Decision (owner, 2026-09-22).** Extract the post-`initialize` handling into
+`applyInitializeResponse`, called from `spawnAgent`, and unit-test it from the grok fixture. No
+files added to scope (`acpagent.go` and `initialize_test.go` are already P2's). Residual, stated:
+deleting the single call line would still pass; everything behind it is guarded.
+
+## Deviation — 2026-09-22: P2's race gate failed on an unrelated, load-sensitive relay test
+
+**Found.** P2's stability rule failed at `make race`: `internal/relayhost`
+`TestEnvelopeVersionRejected` (`deadline_test.go:130`) timed out in `websocket.Dial` against its
+5 s context; in the same run `internal/provider/acpagent` passed. Pre-existing and independent of
+P2: `acpagent` is absent from `relayhost`'s dependency graph including test deps
+(`go list -deps -test`), and the file was last changed in `d11e938` (plan 0115). 25/25 reruns under
+`-race` pass; a loopback dial normally takes 1–3 ms. Instrumenting a scratch copy showed the
+test's assertion is genuine (`ReadEnvelope` rejects `v:99` immediately, context unexpired) but
+every run spends 5.00 s in the deferred `conn.Close`: the server handler never reads, so the close
+handshake waits out the library timeout.
+
+**Decision (owner, 2026-09-22).** Fix it for real inside this plan, before P2 commits, rather than
+defer it to 0115. **File added to scope:** `internal/relayhost/deadline_test.go` (and any sibling
+test file in `internal/relayhost` shown to share the defect, each named in the execution record).
+The fix must be shown to change the failure rate under reproduced load, not merely to pass.
+
+## Execution record — release 1 (2026-09-22)
+
+**Ran:** status flip + pair (`89ef291`), P1 (`0072ec1`), P2 (this commit). Three deviations, each
+recorded above with the owner's decision.
+
+**P1.** Seven records annotated; `git diff --numstat` showed **zero** deletions in every older
+record. The only removed lines were in 0167's own PLAN and MADR — the two struck-through
+passages — and each was verified present inside its `~~ ~~` markers. A first run changed two
+files' final newline (my script normalised EOF); caught by the numstat check and restored
+byte-for-byte before commit.
+
+**P2, as planned.** `initialize` uses the typed `conn.Initialize`, which is
+`SendRequest[InitializeResponse]` over the same connection — the wire frame is unchanged, and
+`InitializeRequest.Validate()` returns nil. `initialize` is out of the guard's allowed-unsafe set,
+whose comment now states the real reason the other two remain (MADR F17). The guard's floor of 6
+call sites was **left alone**: the step said the minimum "drops by one", but it is a sanity floor,
+not an exact count (13 sites → 12).
+
+**P2, from its deviation.** The post-initialize handling moved verbatim into
+`Provider.applyInitializeResponse`, with the one local `spawnAgent` still reads (`advertised`)
+rebound from `s.advertisedAuth`, the identical slice.
+
+**Fail-first (C2), all on scratch worktrees, the real tree never modified:**
+
+| mutation | result |
+| --- | --- |
+| decoder drops `defaultAuthMethodId` | FAIL — `typed: {DefaultAuthMethodID: …}` vs `raw: {DefaultAuthMethodID:cached_token …}` |
+| decoder returns nothing | FAIL — equivalence assertion |
+| `initialize` put back on the raw path | FAIL — `rawRequest("initialize") takes the unsafe raw-connection cast…` |
+| call site passes `nil` meta (the gap) | before the fix: **whole package green**, and green at HEAD too; after: FAIL — `engineModelID = "", want "grok-4.6"`, `no model catalog recorded` |
+| `spawnAgent` never calls the handler | **passes** — the residual stated in the deviation, now measured |
+
+**The relay test (third deviation).** `internal/relayhost` package time **16.95 s → 2.15 s**
+(`-race`), from two defects fixed in the places shown to have them: two handlers now answer the
+close handshake (`answerClose`); the two tests' 5 s contexts became a named `hangGuard`. The third
+parking handler (`TestRegisterExchangeDeadline`) is unchanged by design. Proven three ways:
+both assertions still fail when the product code is broken (`v:99 envelope must be rejected…`;
+`limit=4096: 5120 bytes crossed…`); a 6 s injected handshake reproduces the `make race` failure
+message verbatim on the original file (`failed to WebSocket dial: … context deadline exceeded`)
+and passes on the fixed one; reverting `answerClose` alone restores the 5.00 s waits.
+
+**What the plan got wrong.** P1 step 4 targeted a record that was already correct, a claim that
+entered MADR 0167 from an inventory's paraphrase. P2's verification list checked the decoder and the
+guard but not the wiring, which was untested before this plan existed. Neither was visible without
+reading the actual record or breaking the actual call site — both were found only by doing so.
+
+**Same-class candidates, not touched (outside the deviation's scope):** handlers parking on
+`r.Context().Done()` in `internal/provider/codex/auth_p3_test.go:31`,
+`internal/provider/httpagent/supervise_wiring_test.go:127` and
+`internal/relay/server_lifecycle_test.go:114` — not measured, so not claimed to share the defect.
+
+**Gates at commit:** `pre-add-check`, `gofmt -l`, `go vet ./...`, `acpagent` tests, `make race`
+(0 FAIL lines; `relayhost` 2.03 s), `make -n ci-windows` showing the live guard, `make ci-windows`,
+`git diff --exit-code go.mod go.sum` — all exit 0.
