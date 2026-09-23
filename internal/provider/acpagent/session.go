@@ -216,6 +216,9 @@ type session struct {
 	testSubmit func(ctx context.Context, blocks []acp.ContentBlock) (acp.PromptResponse, error)
 	// testCancel, when non-nil, replaces s.conn.Cancel (unit tests only).
 	testCancel func(ctx context.Context) error
+	// testDropped, when non-nil, replaces s.conn.DroppedNotifications (unit
+	// tests only), so the per-turn loss notice can be driven without a transport.
+	testDropped func() uint64
 
 	// chunks coalesces assistant/thought text (MADR 0057 H-1 / chunkbuf).
 	// emitMu serializes Add/Drain/Unflush and delivery of the events they
@@ -394,6 +397,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	if s.cfg.TurnStallNotice > 0 {
 		go s.watchStall(turnDone)
 	}
+	droppedAtStart := s.droppedNotifications()
 
 	go func() {
 		defer func() {
@@ -448,6 +452,9 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		s.finishApprovals()
 		// Same for the sub-agent panel: the turn is over, so nothing is running.
 		s.clearSubagents()
+		// Before any exit path emits turn_complete, so the notice belongs to
+		// this turn on the done, cancelled, errored and limit paths alike.
+		s.noticeDroppedUpdates(droppedAtStart)
 		if err != nil {
 			// Stderr scrape aborted the wait for a provider limit.
 			s.mu.Lock()
@@ -549,6 +556,49 @@ func (s *session) submitPrompt(ctx context.Context, blocks []acp.ContentBlock) (
 	return s.conn.Prompt(ctx, acp.PromptRequest{
 		SessionId: acp.SessionId(s.agentID),
 		Prompt:    blocks,
+	})
+}
+
+// droppedNotifications is how many inbound ACP notifications the engine
+// connection has dropped under OverflowDropNewest (MADR 0167 D17).
+func (s *session) droppedNotifications() uint64 {
+	if s.testDropped != nil {
+		return s.testDropped()
+	}
+	if s.conn == nil {
+		return 0
+	}
+	return s.conn.DroppedNotifications()
+}
+
+// noticeDroppedUpdates tells the user when notifications were dropped while
+// this turn ran (MADR 0167 D18). It runs on the turn goroutine, never on the
+// SDK's reader, and the caller runs it before the turn's turn_complete.
+//
+// It is complete for the turn: the SDK counts a drop on its reader before that
+// reader handles the prompt's response, so every drop that preceded the
+// response is counted by the time Prompt returns.
+//
+// The connection is per engine (MADR 0166 F3), so a drop cannot be pinned to
+// one session without parsing params on the reader, which D17 rules out. Every
+// session whose turn overlapped the drop is told its output may be incomplete:
+// that over-reports, and never under-reports.
+func (s *session) noticeDroppedUpdates(atStart uint64) {
+	now := s.droppedNotifications()
+	if now <= atStart { // no drops, or the connection was replaced mid-turn
+		return
+	}
+	n := now - atStart
+	verb := "were"
+	if n == 1 {
+		verb = "was"
+	}
+	s.emit(event.Event{
+		Type:      event.TypeNotice,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Text: fmt.Sprintf("The agent sent updates faster than they could be processed and %d %s dropped, "+
+			"so this turn's output may be incomplete.", n, verb),
 	})
 }
 
