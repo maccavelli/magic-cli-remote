@@ -1,5 +1,5 @@
 ---
-status: completed
+status: in-progress
 date: 2026-09-24
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -193,3 +193,27 @@ can be restored alone, but that brings F3 back.
   container. No host or CI runner is a container, so nothing fails today. It belongs in an
   installer record, when a container lane exists.
 - **The GitHub push**, pending MADR/PLAN 0171.
+
+## Amendment — 2026-09-24: P6, `BASE_VERSION` from PowerShell (MADR D7; closes F13)
+
+Found after the plan completed. It is in this plan because it concerns making local gates tell
+the truth on Windows. The owner asked for a small amendment and the fix.
+
+### P6 — Version-sort tags with git, not `sort` (D7; closes F13)
+
+**Scope:** `Makefile` (line 9 only).
+
+1. Change `git tag -l 'v*.*.*'` to `git tag -l --sort=v:refname 'v*.*.*'` and remove `| sort -V`
+   from the pipeline. Nothing else on the line changes.
+
+**Verification.**
+
+* `make --eval 'pv: ; @echo $(BASE_VERSION)' pv` prints the same tag from a fresh PowerShell
+  (machine plus user `Path`) and from Git Bash, with no `sort` error.
+* That value equals the highest `vX.Y.Z` tag computed independently in Python.
+* Fail-first: the unmodified line, from the same PowerShell, prints an empty value and the error.
+* `make -n ci-windows` from PowerShell still takes the Windows branch.
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A5 | `BASE_VERSION` from PowerShell equals Git Bash's and the independently computed highest `vX.Y.Z` tag, and no `sort` error is printed | D7 |

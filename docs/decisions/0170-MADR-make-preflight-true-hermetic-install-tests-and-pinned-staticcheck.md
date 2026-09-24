@@ -294,3 +294,22 @@ Each new check must first be seen failing:
   truth" amendment that D6 implements.
 - [0099-MADR](../spec/0099-MADR-installer-service-state-verification.md): the installer's WSL
   advisory routing that F5's cases exercise.
+
+## Amendment — 2026-09-24: `BASE_VERSION` is empty when make runs from PowerShell
+
+**F13 — `Makefile:9` sorts tags with `sort -V`, and from PowerShell that is Windows' `sort`.**
+Once Git's `usr\bin` was back on the Windows user `Path`, so that make gets `sh.exe` and
+`make ci-windows` stops taking the skip branch, `make -n ci-windows` from a fresh PowerShell
+printed `-VThe system cannot find the file specified.`. Windows always puts the machine `Path`,
+which holds `C:\Windows\System32`, ahead of the user `Path`, so `sort` resolves to
+`System32\sort.exe`, which reads `-V` as a file name. Measured with
+`make --eval 'pv: ; @echo $(BASE_VERSION)' pv`: PowerShell prints an empty value and the error
+twice; Git Bash prints `0.20.0`. `LOCAL_VERSION` (`Makefile:49`) is built from it, so a local
+build from PowerShell is stamped `.g<commit>` instead of `0.20.0.g<commit>`. The defect predates
+the `Path` change: without `sh`, make ran `$(shell)` through `cmd.exe`, which found the same
+`sort`. No other command in that pipeline has a System32 namesake.
+
+**D7 — Let git order the tags.** Replace `sort -V` with `git tag --sort=v:refname`, git's own
+version sort, so the pipeline no longer depends on which `sort` is first on `PATH`. The
+`grep -E` filter, `tail -1`, `sed` and the `|| echo 0.0.0` fallback are unchanged, so the
+selected tag is the same on every host where it was already right.
