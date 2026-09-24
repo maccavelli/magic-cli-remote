@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-24
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -147,8 +147,12 @@ The `go` job gains `make staticcheck`, `bash scripts/install-binary_test.sh` and
 
 **Verification:** a dispatched `ci.yml` run shows all three steps green.
 
-**Executed 2026-09-24, commit `93e1d0f`.** The dispatched run is **pending**: the push is
-blocked by the disclosure guard until PLAN 0171 has run.
+**Executed 2026-09-24, commit `93e1d0f`.** ~~The dispatched run is **pending**: the push is
+blocked by the disclosure guard until PLAN 0171 has run.~~ The push landed after PLAN 0171 on
+2026-09-24.
+- Dispatched run 36022338143 on `ae7dda45` succeeded.
+- In the `go` job, the pinned staticcheck step, the `install-binary.sh` tests and the
+  `install.sh` tests each succeeded. A4 is met.
 
 ### P5 — Verification on the Linux server (all decisions)
 

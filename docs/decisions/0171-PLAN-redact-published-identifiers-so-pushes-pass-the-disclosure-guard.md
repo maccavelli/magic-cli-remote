@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-09-24
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -149,6 +149,35 @@ P1 → P2 → P3 → P4 → P5, strictly. P1 starts from a clean working tree.
   - It was seen failing: against `rebuild-0171~1` it reported the two 0171 files as extra.
   - Twenty commit-hash citations in the 0169, 0170 and 0171 records were repointed to the new
     hashes.
+- **P4.**
+  - The guard, run read-only with the ref line for `rebuild-0171` → `origin/master`, reports
+    0 hits across all 14 outgoing commits, messages included. The same run on
+    `backup/pre-0171` still reports 556, so the check can fail.
+  - No message needed regenerating.
+  - `master` was moved to `rebuild-0171` with `git branch -f`, since `master` was not checked
+    out.
+  - `git push origin master` then succeeded: `fac3db61..ae7dda45`, with the guard running as
+    the real pre-push hook.
+- **P5.**
+  - Dispatched `ci.yml` run 36022338143 on `ae7dda45`: **success**. Every Go, Flutter and
+    Android APK job passed, and the smoke and publish jobs are skipped because they run on tags
+    only.
+  - In the `go` job, "Staticcheck (pinned; GOOS linux, darwin, windows)", "install-binary.sh
+    tests (hermetic, stub service managers)" and "install.sh tests (hermetic)" each succeeded.
+    That closes 0170's A4.
+  - `rebuild-0171` was deleted (`git branch -d`; it equals `master`).
+- **Not done, pending the owner:**
+  - `backup/pre-0171` is kept. Deleting an unmerged branch needs `git branch -D`, which the
+    owner's rules require be approved in the turn it runs.
+  - The Linux server's `magic-cli-remote` checkout still sits on the pre-rebuild `ff3b604`,
+    now absent from `origin`. Syncing it takes a `git reset --hard origin/master` there, which
+    needs the same approval. Its tree is clean, and the old commits survive in
+    `backup/pre-0171`.
+- **What the plan predicted incorrectly.**
+  - It budgeted for regenerating messages the guard might flag (F5), and none were flagged.
+  - It said "8 test and fixture files" get neutral values. In practice 6 did; the two
+    `meta.json` notes kept the tool's placeholder, as D1 itself said.
+  - The tool's defects (MADR D5) are reported to the owner in the session handoff.
 
 ## Verification (whole plan)
 
