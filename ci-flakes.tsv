@@ -5,3 +5,4 @@ run_id	job_name	commit_sha	first_attempt_result	retry_result	failing_test	timest
 35461886119	Go (windows/amd64)	c0c5a8f5c322b16dd02d45478cf6bbcf27747729	fail	pass	TestACPConnectionSurvivesAStalledPump	2026-09-19T18:42:12Z
 35604693366	Go (windows/amd64)	89bf2faefdd65ab982b3dd6fe281a5dad516dc6e	fail	pass	TestStoreConcurrentCreateTwoHandles	2026-09-21T13:21:04Z
 35606940444	Go (linux/arm64)	5225a3a5ab4903ceff7d468a026f15bc722d1bd9	fail	pass	TestResolveBinaryIdentityHelperDoesNotCountAsLaunch	2026-09-21T13:40:00Z
+36024135246	Go (linux/arm64)	eb001ac792d8ab40a47bb59af340051204152558	fail	pass	TestRegisterReplacement	2026-09-24T16:00:20Z
