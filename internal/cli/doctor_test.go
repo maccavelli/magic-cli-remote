@@ -128,7 +128,7 @@ func stubCodexReality(t *testing.T, r codex.StoreReality) {
 	t.Cleanup(func() { observeCodexReality = prev })
 }
 
-// MADR 0169 D21 (F18): MADR 0074's amendment says a codex store mcremote
+// MADR 0170 D6 (F8): MADR 0074's amendment says a codex store mcremote
 // cannot protect "is a reason to tell the operator the truth". doctor must name
 // the observed store, and say why when it is not protectable — and say nothing
 // alarming when it is fine or unknown.

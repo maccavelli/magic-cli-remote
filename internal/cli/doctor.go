@@ -100,7 +100,7 @@ func probeCredentialStores() []credentialStore {
 	if p, err := credstore.CodexAuthPath(); err == nil {
 		add("codex", p, nil, "device sign-in deletes this file at start (MADR 0074 D8)")
 		// MADR 0074's amendment: a store mcremote cannot protect is a reason
-		// to tell the operator the truth (MADR 0169 D21).
+		// to tell the operator the truth (MADR 0170 D6).
 		reality := observeCodexReality()
 		out[len(out)-1].Store = string(reality)
 		out[len(out)-1].Warning = codex.DescribeReality(reality)

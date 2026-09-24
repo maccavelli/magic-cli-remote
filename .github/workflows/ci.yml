@@ -135,7 +135,7 @@ jobs:
       - name: Verify build-tag policy (Linux netgo; Darwin none)
         run: make verify-build-metadata
 
-      # MADR 0169 D18/D19. `make preflight` has run these three since July, and
+      # MADR 0170 D3/D4. `make preflight` has run these three since July, and
       # CI ran none of them, so the Makefile's "a green preflight means a green
       # CI" was false — and 43 staticcheck findings, a `make install` that never
       # restarted the service on a degraded systemd manager, and a test that

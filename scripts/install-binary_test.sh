@@ -22,7 +22,7 @@
 # worse than none. The stub replays the exact sequence the incident's launchd
 # log recorded.
 #
-# HERMETIC, and it must stay so (MADR 0169 F11/F12, D17). The first version of
+# HERMETIC, and it must stay so (MADR 0170 F1/F2, D2). The first version of
 # this test stubbed launchctl and HOME but left the real systemctl on PATH.
 # `systemctl --user` ignores HOME — it reaches the real user manager through
 # XDG_RUNTIME_DIR — so on a Linux host with a healthy manager the script under
@@ -229,7 +229,7 @@ swapped L1
 # L2. A DEGRADED manager (one failed unrelated user unit) is still a working
 #     manager. The old detection required is-system-running to exit 0, so the
 #     install swapped the binary, left the old process running, and exited 0
-#     (MADR 0169 F13, driven on a real degraded manager).
+#     (MADR 0170 F3, driven on a real degraded manager).
 run_linux degraded active enabled || fail "L2 install-binary.sh exited non-zero"
 called stop || fail "L2 degraded manager: the running unit was not stopped (F13)"
 called start || fail "L2 degraded manager: the unit was not restarted (F13)"

@@ -22,7 +22,7 @@ import (
 
 // Errors shared by the session, execution, thread and project paths. One value
 // each instead of the same literal repeated (14 and 3 times), and lower case
-// because callers wrap errors mid-sentence (staticcheck ST1005, MADR 0169 D20).
+// because callers wrap errors mid-sentence (staticcheck ST1005, MADR 0170 D5).
 var (
 	errCodexUnavailable      = errors.New("codex provider unavailable")
 	errCodexEngineNotRunning = errors.New("codex engine is not running")

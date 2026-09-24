@@ -16,7 +16,7 @@ import (
 
 // maxCommandLineBatch is cmd.exe's own line limit, four times smaller than
 // [maxCommandLineNative]. Declared here, not in launch.go, because only
-// Windows uses it (staticcheck U1000 on linux and darwin, MADR 0169 D20).
+// Windows uses it (staticcheck U1000 on linux and darwin, MADR 0170 D5).
 // It is the one that applies to a shim, because cmd.exe parses that line before
 // anything else sees it — so checking a batch invocation against the
 // CreateProcessW number, as this package did until MADR 0159 D25, checks it

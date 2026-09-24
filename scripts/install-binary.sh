@@ -63,7 +63,7 @@ systemctl_user() {
 # succeeding. is-system-running alone is wrong — it exits 1 for `degraded`,
 # which a single failed, unrelated user unit causes, and that made this script
 # swap the binary without stopping or restarting the service, leave the old
-# process running, and exit 0 (MADR 0169 F13).
+# process running, and exit 0 (MADR 0170 F3).
 user_manager_reachable() {
 	command -v systemctl >/dev/null 2>&1 || return 1
 	[ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] || return 1

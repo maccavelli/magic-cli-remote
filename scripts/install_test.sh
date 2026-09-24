@@ -18,7 +18,7 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 # A non-WSL kernel release for every case that does not name its own. Without
 # it, detect_environment reads the real /proc/sys/kernel/osrelease, and on a WSL
 # host the "native" cases (22c, 24, 25) got the WSL advisory routing and failed
-# (MADR 0169 F15).
+# (MADR 0170 F5).
 printf '6.8.0-generic\n' > "$WORK/osrelease-native"
 
 PASS=0; FAIL=0

@@ -529,8 +529,8 @@ fmt:
 lint:
 	golint ./cmd/... ./internal/...
 
-# staticcheck is pinned by the repository, not taken from the host (MADR 0169
-# D19): the version decides what preflight and CI report, and "whatever is on
+# staticcheck is pinned by the repository, not taken from the host (MADR 0170
+# D4): the version decides what preflight and CI report, and "whatever is on
 # PATH" let every host disagree. It is built once for THIS machine into bin/
 # (gitignored), then run for each GOOS, because some files build for one
 # platform only — a constant used solely by launch_windows.go was reported
