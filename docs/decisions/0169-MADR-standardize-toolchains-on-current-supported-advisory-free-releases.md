@@ -393,6 +393,8 @@ Raw responses are saved with the session's research scripts (`fetch_sources.py`,
 
 - [0168-MADR](0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md): JDK 21 for
   CI and the hosts, bytecode 17. D5 here amends its D1/D3 choice of 21 and keeps its D2.
+- [0114-MADR-manage-markdownlint-cli2-with-mise.md](../spec/0114-MADR-manage-markdownlint-cli2-with-mise.md):
+  markdownlint-cli2 through mise. Superseded by D15 (added by the mise-retirement amendment).
 
 ### Open questions for the plan
 
@@ -417,3 +419,162 @@ machine PATH, where 21 had been first. The owner chose to keep that order, so a 
 `javac` there is 25.0.4.1 from D10 onwards. The build JDK is unchanged: `JAVA_HOME` and
 Flutter's `jdk-dir` name 21.0.12.1 until D5 moves them, so MADR 0168 D1/D3 still describe how
 this host builds. PLAN 0169, P0 Deviation 1, records the evidence.
+
+## Amendment — 2026-09-23: Python 3.14.7 is not advisory-free, and the server's Python is Ubuntu's
+
+Two statements above were wrong when written.
+
+- **D6 and F7 assumed 3.14.7 is advisory-free. It is not.** No 3.14.8 exists. Checking the PSF
+  advisory database's fix commits against the cpython release tags shows 7 published advisories
+  affecting 3.14.7:
+  - CVE-2026-15806, CVE-2026-17084 and CVE-2026-15310 are fixed on the 3.14 branch but not
+    yet released.
+  - CVE-2026-87910 and CVE-2025-15367 have no 3.14 fix commit.
+  - CVE-2026-19672 and CVE-2024-3220 have no fix commit.
+
+  Under D1 no Python release qualifies. The owner's decision is to keep **3.14.7**, the least
+  exposed release, and adopt 3.14.8 when it ships. D12's audit reports "known advisory, no fixing
+  release" as a distinct finding, never as a pass.
+- **F1 and D10 said the Linux server's Python 3.14.4 is "patched within the current line" to
+  3.14.7.** That interpreter is Ubuntu 26.04's system `python3.14` (`3.14.4-1ubuntu0.2`, the
+  newest in the security pocket). It carries 11 backported CVE fixes and lacks 10 that 3.14.7
+  has. Under D6 the system Python stays Ubuntu's. The server's **developer** Python becomes a
+  ~~mise-managed 3.14.7, which is owner-decided. mise activates `~/default-venv` on it, so the
+  venv stays first on PATH.~~ 3.14.7 from a python-build-standalone archive; see the next
+  amendment, which retired mise before this could be applied.
+
+PLAN 0169 P0 Deviations 2 and 3 record the evidence. Deviation 2 lists the 10 CVEs Ubuntu has
+not backported, and Deviation 3 lists the 7 affecting 3.14.7.
+
+## Amendment — 2026-09-23: retire mise on every host (D13–D15)
+
+The owner decided to retire mise after the trial in PLAN 0169 P0 Deviation 4. mise's
+`_.python.venv` activates the venv on PATH, but its shims run the bare interpreter, and this
+setup puts the shims first wherever `mise activate` does not run. The decision is folded into
+this record because it changes how every host gets the toolchains D2–D9 name.
+
+### What was measured, not assumed (2026-09-23, read-only survey on all four hosts)
+
+- **Linux server.**
+  - mise 2026.8.6 provides 11 tools from the dotfiles global config: go 1.26.6, rust 1.96.1,
+    flutter 3.47.2, java `temurin-21` (21.0.12.1), node `22` (22.23.2), just 1.58.0, protoc
+    35.1, cmake 4.4.2, ninja 1.13.2, glab 1.113.0 and markdownlint-cli2 0.23.2. Five of them
+    are pinned as `latest`. The data directory is 7.2 GB.
+  - mise is wired in at four places: activation (`.bashrc.d/50-tools.sh`), completion
+    (`40-completions.sh`), shims first on PATH (`00-paths.sh`), and the `mcremote` user unit's
+    drop-in `path.conf`. The drop-in restates the whole PATH with the shims first, so the
+    agents reach glab, node, dart, flutter, cargo, just, protoc, cmake, ninja and java through
+    mise.
+  - The drop-in also carries two entries that do not exist on this host: `/opt/homebrew/bin`
+    and `~/.local/flutter/bin`.
+- **WSL.** mise 2026.9.12, 453 MB. `~/.config/devenv.sh` puts the shims first, so `go`, `gofmt`,
+  `rustc`, `cargo` and `uv` all resolve through mise.
+- **macOS.** The binary only, never activated. 423 MB, all of it the acp-go-sdk fork's tools.
+- **Windows.** No mise.
+- **The acp-go-sdk fork** (checked out on all four hosts) is tooled by upstream's `mise.toml`:
+  - Pins: go 1.26.3 (overridden to 1.26.6 by an untracked `mise.local.toml` of ours), gopls
+    0.22.0, golangci-lint 2.12.2, gofumpt 0.10.0, treefmt 2.5.0, actionlint 1.7.12, zizmor
+    1.25.2, uv 0.11.17, mdformat 1.0.0 (pipx backend), rust 1.96.0 and mdsh 0.7.0 (cargo
+    backend).
+  - Its `make check` is `treefmt --fail-on-change`, which drives gofumpt, mdsh, mdformat,
+    actionlint and zizmor. So those exact versions decide whether local formatting matches
+    upstream's CI.
+  - They differ from the host Go-tool standard: gofumpt 0.12.0, golangci-lint 2.13.2 and gopls
+    0.23.0.
+- **What mise has cost in this project's sessions:**
+  - the server resolved Go 1.26.3 against the 1.26.6 standard;
+  - five `latest` pins;
+  - a hand-written checksum expression was needed for Flutter;
+  - the venv shim failure above;
+  - the trial's isolated `mise install` still installed Java and Flutter from the real config.
+- **This repository.** MADR 0114 put markdownlint-cli2 under mise, amended to the mise-managed
+  Linux environment.
+- **Every replacement archive publishes a checksum:**
+  - go.dev `sha256`, the Flutter releases JSON, the Adoptium API and nodejs.org `SHASUMS256.txt`;
+  - Kitware's `SHA-256.txt` (cmake 4.4.2) and just's `SHA256SUMS` (1.58.0);
+  - GitHub release-asset digests for protoc 35.1, ninja 1.13.2, treefmt 2.5.0 and
+    python-build-standalone 20260901 (`cpython-3.14.7+20260901-x86_64-unknown-linux-gnu-install_only`);
+  - glab's `checksums.txt`, and `rustup-init.sha256`.
+- **Also found.** The server's `~/.local/bin/git` is a symlink to Ubuntu's `/usr/bin/git`
+  2.53.0 (package `git`), not a local build as PLAN P7 assumed.
+
+### The decisions
+
+- **D13 — Retire mise on every host.**
+  - Toolchains are publisher archives verified against the publisher's checksum (PLAN C3). On
+    Linux they unpack to `~/sdk/<tool><version>` (the WSL layout, already in use there), and
+    single-binary tools go in `~/.local/bin`. macOS keeps Homebrew and `~/.local/go<version>`.
+  - PATH is set in one place per host: WSL's `devenv.sh`, and the server's dotfiles
+    `.bashrc.d/00-paths.sh`, mirrored literally in the `mcremote` drop-in.
+  - The declared toolchain moves from mise's config to `standard.json` (D11), enforced by the
+    audit (D12). The audit also reports as drift any mise binary, mise data directory, or shims
+    directory on PATH.
+  - Retirement is **like-for-like**: it changes where each tool lives, not its version. Version
+    moves stay in their own phases (P2–P7).
+- **D14 — Checkout-pinned tools live in the checkout.**
+  - The acp-go-sdk fork's tools install into a git-excluded `.tools/` inside that checkout.
+    magic-git `scripts/tools/devenv/fork_tools.py` reads their versions from upstream's
+    `mise.toml` and installs each with its native installer, checksum-verified:
+    - `go install` for the Go tools;
+    - the release asset and its digest for treefmt and uv;
+    - `uv tool install` for mdformat and zizmor;
+    - `cargo install --locked` for mdsh, with rustup's homes inside `.tools`.
+  - `make` runs with `.tools/bin` first.
+  - Upstream's `mise.toml` and `mise.lock` are untouched, and our untracked `mise.local.toml`
+    is deleted.
+  - Host PATH never sees these pins, so the 11-tool Go standard is unchanged.
+- **D15 — MADR 0114 is superseded.** markdownlint-cli2 0.23.2 is installed with
+  `npm install --global --prefix ~/.local` (the macOS layout). npm checks the registry's
+  integrity hashes.
+- **Python on the Linux server** (the previous amendment): a python-build-standalone 3.14.7
+  archive in `~/sdk/python-3.14.7`, with `~/default-venv` rebuilt on it. The interpreter itself is
+  not put on PATH, so the venv stays the only developer Python on PATH.
+
+### Considered options
+
+- **A — Retire mise everywhere (chosen).**
+- **B — Keep mise on the server only**, and remove it from WSL and macOS.
+- **C — Keep mise, and move `~/default-venv/bin` above the shims** (Deviation 4, resolution 2).
+- **D — Replace mise with another version manager** (asdf, aqua, Nix).
+
+### Pros and cons
+
+- **A.**
+  - Good, because the Linux hosts share one mechanism, WSL's, which already works.
+  - Good, because tool resolution becomes plain PATH, with nothing intercepting it.
+  - Good, because the audit already checks versions on every host, so it replaces mise's
+    declared config.
+  - Bad, because there is no one-command rebuild of a host. Each version move is a
+    checksum-verified archive install, scripted per phase.
+  - Bad, because the fork's `.tools` carries its own rustup beside the server's.
+  - Bad, because matching upstream's formatting now depends on `fork_tools.py`.
+- **B.**
+  - Good, because it changes the least on the server.
+  - Bad, because the drop-in and shim-ordering fragility, the cause of Deviation 4, stays.
+  - Bad, because the hosts keep two mechanisms.
+- **C.**
+  - Good, because it is a one-line fix for Python.
+  - Bad, because it edits shell init and the drop-in, and every other problem measured above
+    remains.
+- **D.**
+  - Neutral, because it is the same class of indirection with a different tool.
+  - Bad, because it adds a migration and no evidence says the new tool avoids these failures.
+
+### Consequences
+
+- Good, because a tool's location is visible in PATH, and nothing resolves a version at run time.
+- Good, because 8.1 GB of mise data leaves the three hosts once each passes (PLAN C4).
+- Bad, because the server's `mcremote` drop-in is still a literal PATH snapshot. It must be
+  re-derived whenever `00-paths.sh` changes, as it had to be under mise.
+- Neutral, because the dotfiles repository's own records that describe mise are the owner's to
+  amend (PLAN Deferred).
+
+### Confirmation
+
+```sh
+python3 scripts/tools/devenv/version_audit.py            # reports no mise on any host
+command -v mise                                          # nothing, on every host
+bash -lic 'echo $PATH'; bash -c 'echo $PATH'             # no "mise" in either (Linux server, WSL)
+systemctl --user show mcremote -p Environment            # PATH has no "mise"; ~/sdk entries present
+PATH="$PWD/.tools/bin:$PATH" make check test             # acp-go-sdk fork, each mise host
+```

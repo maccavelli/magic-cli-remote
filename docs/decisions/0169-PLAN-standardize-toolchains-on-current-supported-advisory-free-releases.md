@@ -7,7 +7,7 @@ date: 2026-09-23
 # PLAN 0169 — Standardize every toolchain on its newest supported, advisory-free stable release
 
 Implements [0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md](0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md)
-decisions D1–D12, closing findings F1–F10.
+decisions D1–D12, closing findings F1–F10, and the mise-retirement amendment's D13–D15 (P9).
 
 ## Goal
 
@@ -34,10 +34,12 @@ Observable end states, each checked by the version audit (D12) against the probe
 **This repository:** `go.mod`, `go.sum` (P3, the `go` directive only, plus whatever the 1.27
 toolchain's `go mod tidy` rewrites); `.github/workflows/ci.yml` (`FLUTTER_VERSION`, `NODE_VERSION`,
 `java-version` lines only); this pair; the additive amendment to
-`0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md` (P5).
+`0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md` (P5); the status line and
+an additive amendment of `docs/spec/0114-MADR-manage-markdownlint-cli2-with-mise.md` (P9, D15).
 
 **magic-git** (the owner commits there): `scripts/tools/devenv/standard.json` (new),
-`scripts/tools/devenv/version_audit.py` (new), `scripts/tools/devenv/README.md`,
+`scripts/tools/devenv/version_audit.py` (new), `scripts/tools/devenv/fork_tools.py` (new, P9),
+`scripts/tools/devenv/README.md`,
 `build_macos.sh` (`FLUTTER_VERSION` only), and golden files **only** if P4's re-run shows
 Flutter 3.47.5 moved them. That last case is a deviation to raise, not to absorb.
 
@@ -47,9 +49,9 @@ made through that host's own source:
 | Host | Files and installs |
 | --- | --- |
 | Windows | machine installs: Node, Temurin 21/25, Git for Windows (elevated); `HKCU\Environment` `JAVA_HOME`; `%APPDATA%\.flutter_settings`; `~\sdk\go1.27.1`, `~\sdk\flutter` (git checkout of a tag); `~\toolchains\gh`, `~\toolchains\glab`; `~\go\bin`; `%APPDATA%\go\env` (`GOTOOLCHAIN`) |
-| WSL | `~/sdk/go1.27.1`, `~/sdk/jdk-25`, `~/sdk/flutter`; `~/.config/devenv.sh` (the Go path and `JAVA_HOME` lines); `~/.config/flutter/settings`; `~/.config/go/env`; `~/.local/bin/{gh,glab}`; mise global config for node and python; apt: the git-core PPA (owner runs `sudo`) |
-| Linux server | dotfiles `mise/.config/mise/config.toml` (go, java, node, python, flutter, glab lines); `~/.config/go/env`; `~/.local/bin/gh`; its `~/.local/bin/git` build; `~/go/bin` |
-| macOS laptop | Homebrew formulae and casks (gh, glab, node@24, python@3.14, flutter, a Temurin 25 cask); `~/.local/go1.27.1` and the `~/.local/bin/go` link; `~/.config/flutter/settings`; `~/Library/Application Support/go/env`; `~/go/bin` |
+| WSL | `~/sdk/go1.27.1`, `~/sdk/jdk-25`, `~/sdk/flutter`, `~/sdk/node-v24.21.0`, `~/sdk/python-3.14.7`; `~/.config/devenv.sh` (the Go path and `JAVA_HOME` lines; P9: the mise shims line and its comment); `~/.config/flutter/settings`; `~/.config/go/env`; `~/.local/bin/{gh,glab}`; ~~mise global config for node and python~~ (P9); apt: the git-core PPA (owner runs `sudo`); P9: mise's binary and directories (removed), the fork checkout's `.tools/`, `mise.local.toml` (deleted) and `.git/info/exclude` |
+| Linux server | ~~dotfiles `mise/.config/mise/config.toml` (go, java, node, python, flutter, glab lines; the `[env]` `_.python.venv` line, Deviation 2)~~ (Deviation 4); `~/sdk/*` (P9 and later phases); `~/sdk/python-3.14.7` and `~/default-venv` (recreated, Deviations 2 and 4); `~/.config/go/env`; `~/.local/bin/{gh,glab,just,ninja}`; ~~its `~/.local/bin/git` build~~ (a symlink to Ubuntu's git, see P7); `~/go/bin`; `~/.local/lib/node_modules` (markdownlint-cli2); the Flutter settings file; P9's dotfiles files (listed in P9d step 4); mise's binary and directories and the old `~/.local/go` (removed, P9d step 7); the fork checkout's `.tools/`, `mise.local.toml` (deleted) and `.git/info/exclude` |
+| macOS laptop | Homebrew formulae and casks (gh, glab, node@24, python@3.14, flutter, a Temurin 25 cask); `~/.local/go1.27.1` and the `~/.local/bin/go` link; `~/.config/flutter/settings`; `~/Library/Application Support/go/env`; `~/go/bin`; P9: mise's binary and directories (removed), the fork checkout's `.tools/`, `mise.local.toml` (deleted) and `.git/info/exclude` |
 
 ### Out of scope
 
@@ -58,7 +60,10 @@ made through that host's own source:
   directive through its own gates, not this plan.
 - **The Android bytecode target**, which stays Java 17 (MADR 0168 D2).
 - **Shell-init restructuring** on any host. Only the listed lines change, and only with approval.
-- **Rust** in the acp-go-sdk checkout's `mise.toml` (MADR Open questions).
+- ~~**Rust** in the acp-go-sdk checkout's `mise.toml` (MADR Open questions).~~ Now in scope as a
+  fork-local tool (P9, D14). Rust as a host toolchain remains out of scope.
+- **Upstream's `mise.toml` and `mise.lock` in the acp-go-sdk fork.** They are upstream's files.
+  D14 reads them and never edits them.
 
 ## Stability rule
 
@@ -97,7 +102,8 @@ diff exists to catch exactly that.
 
 ## Dependency and delivery order
 
-P0 → P1 → then P2, P3, P4, P5, P6, P7 in any order, each gated by the audit → P8. P2 (Go on
+P0 → P1 → **P9 (retire mise; numbered last because it was added last, but it runs before P2–P7,
+whose Linux-server steps assume `~/sdk`)** → then P2, P3, P4, P5, P6, P7 in any order, each gated by the audit → P8. P2 (Go on
 the hosts) precedes P3 (this repository's `go.mod`). P4 (Flutter) is coupled to magic-git and
 lands in both repositories in one working session. The Node line change (P6b) is dated: it
 waits for 2026-10-28.
@@ -145,8 +151,47 @@ now").
      the registry) gives node v24.21.0, git 2.55.0.windows.5, Python 3.14.7, `JAVA_HOME` java
      21.0.12.1, and `java`/`javac` on PATH 25.0.4.1. `flutter doctor -v` is not yet run.
 4. **Linux server Python** 3.14.4 → 3.14.7. First identify the interpreter behind
-   `~/default-venv` (its `pyvenv.cfg` `home`), then update that interpreter by its own
-   installer. The venv is recreated only if its base changed path.
+   `~/default-venv` (its `pyvenv.cfg` `home`), ~~then update that interpreter by its own
+   installer. The venv is recreated only if its base changed path.~~ The interpreter is
+   Ubuntu's system `python3.14` and cannot be moved to 3.14.7 (Deviation 2). ~~Instead:~~
+   - ~~Back up the dotfiles `mise/.config/mise/config.toml` (dated, outside the repository).~~
+     Backup and freeze **done 2026-09-23**, in `~/backups/0169-p0-2026-09-23/`: the mise config,
+     `default-venv.freeze.txt` (85 packages) and `pyvenv.cfg`.
+   - ~~Prove the change first with a throwaway mise config: `python3` and `pip` must resolve into
+     `~/default-venv` in an interactive shell, in a non-interactive `bash -c`, and through the
+     mise shims. Any other result stops the step.~~ Run 2026-09-23: interactive shell passed,
+     shims and non-interactive failed. The step stopped (Deviation 4).
+   - ~~Save `pip freeze` of the current venv, rename it `~/default-venv.bak-2026-09-23`.~~
+   - ~~Add `python = "3.14.7"` and `[env] _.python.venv = { path = "~/default-venv" }` to the
+     config; `mise install`; create `~/default-venv` on mise's 3.14.7; reinstall the frozen
+     list.~~
+   - ~~Verify: `~/default-venv/bin/python --version` = 3.14.7, `pyvenv.cfg` `home` under mise's
+     installs, the same package set as the freeze, and the three resolution checks above. The
+     `.bak` venv is deleted only after that (C4). `/usr/bin/python3.14` stays Ubuntu's (D6).~~
+
+   **As amended by Deviation 4 (no mise, no PATH change):**
+   - Download `cpython-3.14.7+20260901-x86_64-unknown-linux-gnu-install_only.tar.gz` from
+     python-build-standalone and check it against its GitHub asset digest (C3). Unpack it to
+     `~/sdk/python-3.14.7`.
+   - Rename `~/default-venv` to `~/default-venv.bak-2026-09-23`. Create `~/default-venv` with
+     `~/sdk/python-3.14.7/bin/python3 -m venv`, then `pip install -r` the saved freeze.
+   - Verify:
+     - `~/default-venv/bin/python --version` gives 3.14.7, and `pyvenv.cfg` `home` is
+       `~/sdk/python-3.14.7/bin`.
+     - `pip freeze --all` equals the saved list, apart from pip's own version line.
+     - `python3` and `pip` resolve to `~/default-venv/bin` in `bash -lic`, in `bash -c`
+       (BASH_ENV), and under the `mcremote` drop-in PATH. That PATH has no venv entry today,
+       so there `python3` must stay `/usr/bin/python3`, unchanged.
+     - `~/sdk/python-3.14.7/bin` is on no PATH.
+   - The `.bak` venv is deleted only after that (C4). `/usr/bin/python3.14` stays Ubuntu's (D6).
+   - **Done 2026-09-23.** The archive (119 MiB) matched the published sha256.
+     - The venv is Python 3.14.7, with `home = ~/sdk/python-3.14.7/bin`.
+     - 85 packages installed, none missing and none extra against the freeze. pip is 26.2.1,
+       not the old pin 25.1.1, which is older than the CVE-2025-8869 fix.
+     - `bash -lic` and `bash -c` (BASH_ENV) resolve `python3` and `pip` to the venv. The
+       drop-in PATH without BASH_ENV resolves `/usr/bin/python3`, as before.
+     - `~/sdk/python-3.14.7` is on no PATH.
+     - The `.bak` venv was then removed.
 
 **Verification:** OSV and the publishers' advisories show none for the new versions (MADR
 evidence). The probe's section 3 shows the new versions. The snapshot diff lists only the
@@ -169,6 +214,77 @@ takes the interactive-shell part of P5 early, on Windows only. P5 step 1 still m
 **Scope.** No file added. The machine PATH order is a consequence of the P0 install already in
 scope, not a new edit.
 
+#### Deviation 2 (2026-09-23): the Linux server's Python is Ubuntu's, and apt has no 3.14.7
+
+**Found.** `~/default-venv/pyvenv.cfg` says `home = /usr/bin`, `version = 3.14.4`. The
+interpreter is the Ubuntu 26.04 package `python3.14-minimal` `3.14.4-1ubuntu0.2`, the newest
+candidate in `resolute-security`. There is no separately installed 3.14.4 to update, which step
+4 assumed. Its apt changelog lists 11 backported CVEs. Checking the PSF advisory database's fix
+commits against the `v3.14.4` and `v3.14.7` tags (GitHub compare API) gives 21 advisories that
+affect 3.14.4 and are fixed in 3.14.7. Ubuntu has not backported 10 of them: CVE-2025-15366,
+CVE-2026-0864, -3087, -3298, -6879, -7210, -11940, -11972, -12003, -18503.
+
+**Also found while resolving it.** Adding `python` to the server's global mise config alone
+would move `python3` and `pip` off the venv: `mise activate` puts mise's install directories,
+and `00-paths.sh` puts its shims, ahead of `~/default-venv/bin`.
+
+**Decision (owner, 2026-09-23): a mise-managed Python 3.14.7 as the server's developer Python,
+with mise activating `~/default-venv` itself** (step 4 as amended). The alternative, keeping
+Ubuntu's build and waiting for its backports, was declined. So was installing 3.14.7 through
+mise with no config entry: nothing would record it, and `mise prune` would delete the
+interpreter under the venv.
+
+**Scope.** Added: `~/default-venv` (recreated) on the Linux server. The dotfiles mise config
+was already in scope; its `[env]` line is new.
+
+#### Deviation 3 (2026-09-23): no Python 3.14 release is advisory-free
+
+**Found** by the same check. There is no 3.14.8 (python.org release API, cpython tags). 7
+published advisories affect 3.14.7:
+
+| Advisory | State upstream on 2026-09-23 |
+| --- | --- |
+| CVE-2026-15806 (urllib `HTTPPasswordMgr` scheme), CVE-2026-17084 (stringprep), CVE-2026-15310 (zipfile decompression size) | fix merged on the 3.14 branch, not yet released |
+| CVE-2026-87910 (tarfile link fallback), CVE-2025-15367 (poplib) | fixed on main and other branches; no 3.14 fix commit listed |
+| CVE-2026-19672 (tarfile filter containment), CVE-2024-3220 (Windows `mimetypes`) | no fix commit |
+
+This contradicts MADR D6's premise, so the MADR carries an amendment. The Goal's "no known
+advisory" cannot hold for Python until a fixing release ships.
+
+**Decision (owner, 2026-09-23): stay on 3.14.7 and roll forward to 3.14.8 when it ships.** P1's
+audit reports "known advisory, no fixing release" as its own finding state, listing each one,
+never as a pass.
+
+**Scope.** No file added. P1's audit gains the finding state.
+
+#### Deviation 4 (2026-09-23): mise's shims bypass `_.python.venv`; the owner retires mise
+
+**Found.** The throwaway trial for step 4 kept everything isolated: `MISE_DATA_DIR`, cache,
+state and global config in a temp directory, and a temp venv, all removed afterwards. It
+installed 3.14.7 and ran three checks:
+
+- **Interactive `bash -ic`: pass.** `python3`, `pip`, `sys.prefix` and pip's location were all
+  the venv.
+- **The shim `python3` and `pip`: fail.** They ran mise's bare interpreter
+  (`sys.prefix` = mise's `installs/python/3.14.7`), and pip was that interpreter's pip.
+- **Non-interactive `bash -c` with the shims first on PATH: fail**, the same way.
+
+The server's `00-paths.sh` and its `mcremote` drop-in both put the shims above
+`~/default-venv/bin`. So those contexts would have run the bare interpreter, and `pip install`
+there would have gone outside the venv. This is also the first time the resolution check was
+seen to fail, so it is known to catch this problem.
+
+**Decision (owner, 2026-09-23): retire mise on every host, folded into this record** (MADR
+amendment D13–D15, phase P9). Step 4 installs Python from a python-build-standalone archive
+instead, which needs no PATH change. Three alternatives were declined:
+
+- a directory-scoped mise config;
+- moving the venv above the shims in `00-paths.sh` and the drop-in;
+- `uv python install --no-bin`.
+
+**Scope.** Added: `~/sdk/python-3.14.7` on the Linux server. Removed from step 4: the dotfiles
+mise config edit.
+
 ### P1 — The standard file and the version audit (D11, D12; closes F10)
 
 1. `scripts/tools/devenv/standard.json` (magic-git) holds, per toolchain: `version`, `line`,
@@ -184,6 +300,12 @@ scope, not a new edit.
      versions; GitHub advisories for git, Git for Windows, gh and Dart; Node's `security`
      flag; the OpenJDK advisory list.
    - Exit non-zero on any drift or advisory. Output is one line per finding.
+   - **Known advisory, no fixing release** (added by Deviation 3): an advisory that affects the
+     standard version when no newer supported release fixes it. Reported per advisory, with its
+     own exit code, so it is never mistaken for a pass. The Python advisories for 3.14.7 are the
+     first case, and the PSF advisory database joins the advisory sources.
+   - **mise present** (added by D13): a mise binary, a mise data directory, or a shims directory
+     on a probed PATH is drift once P9 has run on that host.
 3. **Seen to fail (C2 of the house rules):** run it against the probe outputs saved **before**
    P0 (copied aside today). It must report the five Windows exposures (Node, both Temurin
    JDKs, Git for Windows, Python) by name. Then run it against a standard file edited in a temp
@@ -198,7 +320,8 @@ scope, not a new edit.
 1. Per host, install go1.27.1 beside 1.26.6 (go.dev archive, sha256 per C3):
    - Windows: `~\sdk\go1.27.1`;
    - WSL: `~/sdk/go1.27.1`;
-   - Linux server: mise `go = "1.27.1"`;
+   - Linux server: ~~mise `go = "1.27.1"`~~ `~/sdk/go1.27.1`, and the `00-paths.sh` line and the
+     drop-in PATH entry (D13);
    - macOS: `~/.local/go1.27.1`, then repoint `~/.local/bin/go`.
 
    Set `GOTOOLCHAIN=go1.27.1` in each host's Go env file, and in the registry environment on
@@ -209,7 +332,8 @@ scope, not a new edit.
    `gopls check` on a scratch file declaring a generic method. If it reports a
    false error, pin the newest gopls that does not, or record the gap in the execution record
    and keep v0.23.0.
-4. The acp-go-sdk checkouts' `mise.local.toml`: `go@1.27.1`, then `mise exec -- make check test`.
+4. ~~The acp-go-sdk checkouts' `mise.local.toml`: `go@1.27.1`, then `mise exec -- make check test`.~~
+   The acp-go-sdk checkouts use the host's go1.27.1 (D14): `PATH="$PWD/.tools/bin:$PATH" make check test`.
 5. Remove go1.26.6 from a host only after P3's gates pass there (C4).
 
 **Verification:** `go version` = go1.27.1 in a fresh shell on each host;
@@ -230,8 +354,9 @@ scope, not a new edit.
 ### P4 — Flutter 3.47.5 / Dart 3.13.4 (D3; closes F6)
 
 1. Hosts: Windows and WSL `git -C ~/sdk/flutter fetch --tags && git checkout 3.47.5`, then
-   `flutter --version`; Linux server mise `flutter` 3.47.5 (the dotfiles inline table's
-   version field); macOS `brew upgrade --cask flutter`, verified to 3.47.5.
+   `flutter --version`; Linux server ~~mise `flutter` 3.47.5 (the dotfiles inline table's
+   version field)~~ the 3.47.5 archive from the releases JSON (sha256) replacing `~/sdk/flutter`
+   (D13); macOS `brew upgrade --cask flutter`, verified to 3.47.5.
 2. This repository: `FLUTTER_VERSION: "3.47.5"`, then `flutter pub get --enforce-lockfile`,
    `flutter analyze`, `flutter test`, `dart format --set-exit-if-changed`, `make apk` locally.
 3. magic-git: `build_macos.sh` `FLUTTER_VERSION=3.47.5`. On the macOS laptop, run
@@ -247,7 +372,8 @@ scope, not a new edit.
      25.0.4.1, per P0 Deviation 1.)
    - WSL: `~/sdk/jdk-25` (Adoptium tarball, sha256); `jdk-dir` and the `devenv.sh`
      `JAVA_HOME` line.
-   - Linux server: mise `java = "temurin-25"`.
+   - Linux server: ~~mise `java = "temurin-25"`~~ `~/sdk/jdk-25` (Adoptium tarball, sha256);
+     `jdk-dir`, the `JAVA_HOME` lines and the PATH entries (D13).
    - macOS: a Temurin 25 cask; `jdk-dir` to it.
 
    On each host, `make apk` and the assert script, from a scratch clone.
@@ -262,9 +388,11 @@ scope, not a new edit.
 
 - **a (now).** 24.21.0 everywhere:
   - Windows: done in P0.
-  - WSL: mise `node@24.21.0`. There is none native today, and Windows' Node leaks in only
-    through the appended PATH.
-  - Linux server: mise `node = "24"` → `"24.21.0"`.
+  - WSL: ~~mise `node@24.21.0`~~ `~/sdk/node-v24.21.0` (SHASUMS256) and a `devenv.sh` PATH line
+    (D13). There is none native today, and Windows' Node leaks in only through the appended
+    PATH.
+  - Linux server: ~~mise `node = "24"` → `"24.21.0"`~~ `~/sdk/node-v24.21.0` replacing P9's
+    `~/sdk/node-v22.23.2`; reinstall markdownlint-cli2 under the new node (D15).
   - macOS: `brew install node@24`, and unlink `node` 26, on approval.
   - CI: `NODE_VERSION: "24"` already resolves the newest 24.x. Keep it.
 - **b (2026-10-28 or later).** When nodejs.org marks 26 `lts`, repeat a with the newest
@@ -272,19 +400,22 @@ scope, not a new edit.
 
 ### P7 — Python 3.14.7, git 2.55.x, gh 2.101.0, glab 1.119.0 (D6–D9; closes F7, F8, F9)
 
-1. **Python:** WSL gets a mise `python@3.14.7` for developer use, leaving the system 3.12 alone.
+1. **Python:** WSL gets ~~a mise `python@3.14.7`~~ the python-build-standalone 3.14.7 archive
+   in `~/sdk/python-3.14.7` for developer use (D13), leaving the system 3.12 alone.
    macOS is already 3.14.7. Windows and the Linux server are handled in P0.
 2. **git:**
    - WSL: the owner runs `sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`,
      then `git --version` must be 2.55.x.
-   - Linux server: identify how `~/.local/bin/git` 2.53.0 was built, and rebuild or replace
-     it with 2.55.0 the same way.
+   - Linux server: ~~identify how `~/.local/bin/git` 2.53.0 was built, and rebuild or replace
+     it with 2.55.0 the same way.~~ `~/.local/bin/git` is a symlink to Ubuntu's `/usr/bin/git`
+     2.53.0 (found 2026-09-23). Use the git-core PPA as on WSL; the owner runs `sudo`.
    - macOS: Homebrew 2.55.0 already. Windows: done in P0.
 3. **gh 2.101.0 / glab 1.119.0**, from release archives checksummed against the published
    checksums file:
    - Windows `~\toolchains\{gh,glab}`, replacing in place;
    - WSL `~/.local/bin` (new);
-   - Linux server: `~/.local/bin/gh`, and mise `glab = "latest"` → `"1.119.0"`;
+   - Linux server: `~/.local/bin/gh`, and ~~mise `glab = "latest"` → `"1.119.0"`~~
+     `~/.local/bin/glab` (placed there by P9);
    - macOS: `brew upgrade gh glab`.
 
    `gh auth status` and `glab auth status` must still pass after each replacement.
@@ -293,6 +424,133 @@ scope, not a new edit.
 
 A re-run probe and a green audit on all four hosts. Then the execution record, and this plan's
 status.
+
+### P9 — Retire mise (D13, D14, D15; added 2026-09-23 by Deviation 4)
+
+Runs after P1 and before P2–P7. Hosts go in the order 9a → 9e. Retirement is like-for-like: no
+tool's version changes in this phase. On each host, mise's data is removed only after that
+host's verification passes (C4).
+
+**9a — `fork_tools.py` (magic-git `scripts/tools/devenv/`, stdlib only).**
+
+1. It reads the checkout's `mise.toml` `[tools]` table with `tomllib` and installs each entry
+   into `<checkout>/.tools`. Unknown entries fail loudly.
+
+   | `mise.toml` entry | Installer (checksum source) |
+   | --- | --- |
+   | `go` | not installed: the host's Go is used, as its `GOTOOLCHAIN` directs |
+   | `go:golang.org/x/tools/gopls`, `gofumpt`, `golangci-lint`, `actionlint` | `GOBIN=.tools/bin go install <module>@v<version>` (sum.golang.org) |
+   | `aqua:numtide/treefmt`, `uv` | release asset for the host's OS and architecture (GitHub asset digest) |
+   | `pipx:mdformat`, `zizmor` | `uv tool install <pkg>==<version>`, with `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR` under `.tools` (PyPI hashes) |
+   | `rust` | `rustup-init` (its published `.sha256`), with `RUSTUP_HOME` and `CARGO_HOME` under `.tools/rust`, `--profile minimal --no-modify-path` |
+   | `cargo:mdsh` | `cargo install mdsh --version <version> --locked --root .tools` (crates.io checksums) |
+
+2. It adds `.tools/` to `.git/info/exclude`, never to the tracked `.gitignore`. It is
+   idempotent, and it prints each tool's `--version` next to its pin.
+3. **Seen to fail, on scratch copies:**
+   - a copy of `mise.toml` with a nonexistent version must make it exit non-zero, naming the
+     tool;
+   - a copy with an unknown entry must do the same;
+   - in a scratch clone of the fork, an unformatted Markdown file must make
+     `PATH=.tools/bin:$PATH make check` fail.
+
+**9b — WSL.**
+
+1. Back up `~/.config/devenv.sh` (dated).
+2. Run `fork_tools.py` in `~/gitrepos/acp-go-sdk`, then delete its untracked `mise.local.toml`.
+3. `devenv.sh`: remove the mise shims `export` and its two comment lines.
+4. **Verify:**
+   - A fresh `bash -lic` resolves `go` to `~/sdk/go1.26.6/bin/go`, and nothing on PATH
+     contains `mise`.
+   - In the fork, `PATH="$PWD/.tools/bin:$PATH" make check test` passes, and every tool
+     version equals its pin.
+   - The probe's snapshot diff lists only `devenv.sh`.
+5. Remove `~/.local/bin/mise`, `~/.local/share/mise`, `~/.local/state/mise`, `~/.cache/mise` and
+   `~/.config/mise` if present.
+
+**9c — macOS.**
+
+1. Run `fork_tools.py` in `~/gitrepos/acp-go-sdk` with Homebrew's `python3`, since
+   `/usr/bin/python3` 3.9 has no `tomllib`. Delete `mise.local.toml`.
+2. **Verify:** `PATH="$PWD/.tools/bin:$PATH" make check test` passes, with versions equal to the
+   pins.
+3. Remove `~/.local/bin/mise` and the mise directories. No shell init changes, because mise was
+   never activated on this host.
+
+**9d — Linux server.**
+
+1. Take backups, dated, in `~/backups/0169-p9-<date>/`:
+   - every dotfiles file in step 4;
+   - `~/.config/go/env` and the Flutter settings file;
+   - the probe snapshot.
+2. Install like-for-like, each archive checked against its publisher's checksum (C3):
+
+   | Tool | Version | Source (checksum) | Location |
+   | --- | --- | --- | --- |
+   | Go | 1.26.6 | go.dev (`sha256`) | `~/sdk/go1.26.6` |
+   | Flutter | 3.47.2 | releases JSON (`sha256`) | `~/sdk/flutter` |
+   | Temurin | 21.0.12.1 | Adoptium API (`checksum`) | `~/sdk/jdk-21` |
+   | Node | 22.23.2 | nodejs.org (`SHASUMS256.txt`) | `~/sdk/node-v22.23.2` |
+   | cmake | 4.4.2 | Kitware (`SHA-256.txt`) | `~/sdk/cmake-4.4.2` |
+   | protoc | 35.1 | GitHub asset digest | `~/sdk/protoc-35.1` (`bin`, `include`) |
+   | just | 1.58.0 | `SHA256SUMS` | `~/.local/bin/just` |
+   | ninja | 1.13.2 | GitHub asset digest | `~/.local/bin/ninja` |
+   | glab | 1.113.0 | `checksums.txt` | `~/.local/bin/glab` |
+   | Rust | 1.96.1 | the existing standalone rustup | `rustup default 1.96.1` |
+   | markdownlint-cli2 | 0.23.2 | npm registry integrity (D15) | `npm install -g --prefix ~/.local` |
+
+   Also `flutter config --jdk-dir ~/sdk/jdk-21`, keeping the Android SDK path.
+3. Run `fork_tools.py` in the server's acp-go-sdk checkout, and delete `mise.local.toml`.
+4. **Dotfiles edits. These lines only:**
+   - `bash/.bashrc.d/00-paths.sh`:
+     - drop the shims `path_prepend` and its three comment lines;
+     - `~/.local/go/bin` becomes `~/sdk/go1.26.6/bin`;
+     - add `~/sdk/flutter/bin`, `~/sdk/jdk-21/bin`, `~/sdk/node-v22.23.2/bin`,
+       `~/sdk/cmake-4.4.2/bin`, `~/sdk/protoc-35.1/bin` and `~/.cargo/bin`.
+   - `bash/.bashrc.d/05-env.sh`: the two mise comment lines become one toolchain comment; add
+     `export JAVA_HOME="$HOME/sdk/jdk-21"`.
+   - `bash/.bashrc.d/40-completions.sh`: remove the mise completion line and its comment.
+   - `bash/.bashrc.d/50-tools.sh`: remove the `mise activate` line.
+   - `config/environment.d/11-tool-env.conf`: the mise comment line; add a `JAVA_HOME` literal.
+   - `config/systemd/user/mcremote.service.d/path.conf`:
+     - re-derive the PATH literal from the new `00-paths.sh` order, with no shims;
+     - drop the two entries that do not exist on this host (`/opt/homebrew/bin`,
+       `~/.local/flutter/bin`);
+     - update the comments.
+   - `agent-hooks/.global-agent-hooks/pre-add-go.sh` lines 61 and 71: change the
+     `mise install` hint to the `go install` command.
+   - `README.md`: remove the mise row. `bin/apply`: remove `mise` from the stow list. Then
+     `stow -D mise`, and `git rm -r mise/`.
+5. Run `systemctl --user daemon-reload`. **Restart `mcremote` only when the owner says so**,
+   because a restart ends live agent sessions.
+6. **Verify:**
+   - `bash -lic`, `bash -c` (BASH_ENV), and a transient `systemd-run --user --wait --pipe` with
+     the drop-in's PATH and BASH_ENV all resolve every tool in the table to its new location
+     and version. No resolved path contains `mise`.
+   - After the restart, `systemctl --user show mcremote -p Environment` shows the new PATH, and
+     from an agent session `bash -c 'command -v glab node flutter dart java cargo just protoc
+     cmake ninja'` resolves all ten.
+   - `flutter doctor -v` passes.
+   - This repository's `make preflight` passes on the server.
+   - The fork passes `PATH="$PWD/.tools/bin:$PATH" make check test`.
+   - The probe's snapshot diff lists only step 4's files and the new `~/sdk` entries.
+7. After the step 6 checks pass (C4), remove:
+   - `~/.local/bin/mise`, and `~/.local/share/mise` (7.2 GB);
+   - `~/.local/state/mise` and `~/.cache/mise`;
+   - the old `~/.local/go` (go1.26.6, superseded by `~/sdk/go1.26.6`).
+
+   Commit the dotfiles repository with `git commit --no-edit`. Push only on ask.
+
+**9e — This repository.**
+
+1. `docs/spec/0114-MADR-manage-markdownlint-cli2-with-mise.md`: set the status to
+   `superseded by 0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md`,
+   and add an additive amendment naming D15.
+2. Commit the docs alone.
+
+**Verification (whole phase):** the audit reports no mise on any host. `command -v mise` finds
+nothing on each host. The fork's `make check test` passes through `.tools` on WSL, macOS and
+the Linux server. Every step above that must fail was seen to fail.
 
 ## Verification (whole plan)
 
@@ -310,6 +568,10 @@ status.
 | A8 | Node 24.21.0 everywhere, then 26.x after 2026-10-28 | D4 |
 | A9 | Python 3.14.7, git 2.55.x, gh 2.101.0, glab 1.119.0 everywhere; auth intact | D6–D9 |
 | A10 | Every host edit made with a backup and approval; the snapshot diff lists only the intended files | C2 |
+| A11 | No mise binary, data directory, activation line or shims PATH entry on any host; the audit reports mise as drift, and was seen doing so on a pre-P9 probe output | D13 |
+| A12 | On the Linux server, every tool mise supplied resolves at its previous version from `~/sdk` or `~/.local/bin`, in login shells, `bash -c` and the `mcremote` unit, and the agents reach all ten tools the drop-in exists for | D13 |
+| A13 | The acp-go-sdk fork passes `make check test` through `.tools` on WSL, macOS and the Linux server, at upstream's pinned versions; `fork_tools.py` was seen failing on a bad pin and an unknown entry | D14 |
+| A14 | markdownlint-cli2 0.23.2 resolves from `~/.local/bin` on the Linux server; MADR 0114 marked superseded | D15 |
 
 The criterion most likely to be dropped quietly is **A2**. The audit will be written against
 the fixed hosts, and it will pass. Only running it against the saved pre-P0 outputs shows that
@@ -318,8 +580,11 @@ it can catch what it exists to catch.
 ## Rollout and Rollback
 
 Hosts go one at a time within each phase. Rollback per host: restore the dated backup (shell
-init, registry environment, Flutter settings, Go env), `mise use` the previous version, or
-reinstall the previous MSI from the staging folder. This repository: revert the phase's
+init, registry environment, Flutter settings, Go env), ~~`mise use` the previous version~~
+repoint PATH at the previous `~/sdk` directory, or reinstall the previous MSI from the staging
+folder. For P9 on a host, until its step "remove mise" runs, restoring the backed-up dotfiles
+files and running `systemctl --user daemon-reload` brings mise back unchanged. That is why
+mise's data is removed last. This repository: revert the phase's
 commit. Old toolchains stay installed until C4 is met, so every rollback is a pointer change,
 not a reinstall.
 
@@ -332,3 +597,9 @@ not a reinstall.
   decision.
 - **The choco `python`/`python3`/`python314` records**: harmless and stale; uninstall at the
   owner's discretion.
+- **The dotfiles repository's own records that describe mise** (its shell-environment and
+  cross-host Go-env records): they belong to that repository's record sequence, and the owner
+  amends them there. P9 changes only the files it lists.
+- **The `mcremote` drop-in as a literal PATH snapshot** (MADR amendment, Consequences): a
+  generated or included PATH would remove the re-derive step. That is a change to how
+  `mcremote setup-service` writes the unit, so it belongs in its own record.
