@@ -135,6 +135,21 @@ jobs:
       - name: Verify build-tag policy (Linux netgo; Darwin none)
         run: make verify-build-metadata
 
+      # MADR 0169 D18/D19. `make preflight` has run these three since July, and
+      # CI ran none of them, so the Makefile's "a green preflight means a green
+      # CI" was false — and 43 staticcheck findings, a `make install` that never
+      # restarted the service on a degraded systemd manager, and a test that
+      # drove the developer's live unit all stayed invisible. staticcheck's
+      # version is pinned by the Makefile (STATICCHECK_VERSION), not the runner.
+      - name: Staticcheck (pinned; GOOS linux, darwin, windows)
+        run: make staticcheck
+
+      - name: install-binary.sh tests (hermetic, stub service managers)
+        run: bash scripts/install-binary_test.sh
+
+      - name: install.sh tests (hermetic)
+        run: sh scripts/install_test.sh
+
       - name: Fetch build version tags
         if: github.ref_type == 'tag'
         run: |
