@@ -648,7 +648,7 @@ the Linux server. Every step above that must fail was seen to fail.
 P10 (hermetic install tests, the degraded-manager fix, pinned staticcheck and the 43
 findings, doctor, and CI parity) was written and executed here on 2026-09-24. The same day
 the owner moved it to [0170-PLAN-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md](0170-PLAN-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md) as P1–P5, with its execution record. The text as
-first written is in commits `9f15fbb` and `ff3b604`. 9d step 7 still waits for PLAN 0170's
+first written is in commits `d7f02e5` and `bf7e1e5`. 9d step 7 still waits for PLAN 0170's
 P5, a green `make preflight` on the Linux server.
 
 ## Verification (whole plan)

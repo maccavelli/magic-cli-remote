@@ -119,8 +119,8 @@ publishing nothing the guard forbids.
 
 - Good, because the push unblocks, and CI can finally run 0170's new gates.
 - Good, because each commit of 0169 and 0170 survives as its own commit, with an honest message.
-- Bad, because every rebuilt commit gets a new hash. The records that cite hashes (`919204b`,
-  `8944b53`, `bd03cab`, `1c45fe5`, `9f15fbb`, `ff3b604`, `038abf9`, `7e601eb`, `0768315`) need
+- Bad, because every rebuilt commit gets a new hash. The records that cite hashes (`0595c01`,
+  `67f6058`, `beba2d1`, `93e1d0f`, `d7f02e5`, `bf7e1e5`, `a1f1971`, `8058290`, `3ce2d73`) need
   those citations updated in the same rebuild.
 - Neutral, because the old identifiers stay in `origin`'s existing history. This record stops
   new publication. It does not rewrite what is already public, which is the owner's call alone.

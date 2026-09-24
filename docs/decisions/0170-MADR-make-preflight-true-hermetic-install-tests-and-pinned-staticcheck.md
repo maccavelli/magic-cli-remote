@@ -11,7 +11,7 @@ informed: none
 
 This record began on 2026-09-24 as an amendment to
 [MADR 0169](0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md)
-(commit `9f15fbb`). The owner moved it here the same day, so that each record covers one
+(commit `d7f02e5`). The owner moved it here the same day, so that each record covers one
 subject. Its identifiers are renumbered from 1; the table under More Information maps the 0169
 numbers to these.
 
@@ -58,7 +58,7 @@ history. Nothing was changed to obtain it.
     they read the real `/proc/sys/kernel/osrelease` ("microsoft"). They then hit the WSL
     suppression of the advisory they assert (`install.sh:858`), which is MADR 0099 F6 working
     as designed.
-- **staticcheck 0.8.1** (the host Go-tool standard) over `master` at `62dd2e6`, for GOOS
+- **staticcheck 0.8.1** (the host Go-tool standard) over `master` at `0022a46`, for GOOS
   linux, darwin and windows, gives **43 unique findings**, 4 of them in `_test.go` files:
 
   | Check | Count | Where |
@@ -275,7 +275,7 @@ Each new check must first be seen failing:
 | `serverDied` is superseded, not missing | `internal/provider/codex/provider.go:1002-1064`; b56b00f |
 | `describeReality` had one caller, behind `live_codex` | `internal/provider/codex/reality_host_test.go:1` |
 | `mcremote doctor` printed only the codex path | `mcremote doctor` 0.20.0 on the Linux server and Windows |
-| CI's `go` job gates | `.github/workflows/ci.yml:84-159` at `62dd2e6` |
+| CI's `go` job gates | `.github/workflows/ci.yml:84-159` at `0022a46` |
 
 ### Numbering carried over from MADR 0169
 

@@ -88,7 +88,7 @@ P1 → P2 → P3 → P4 → P5. P3 was committed before P2's findings commit (se
 service manager put on the run PATH in a scratch copy, must exit 2. The transient-unit probe on
 the degraded WSL manager must show the unit stopped.
 
-**Executed 2026-09-24, commit `919204b`.**
+**Executed 2026-09-24, commit `0595c01`.**
 - **Seen to fail before the fix** (WSL, degraded):
   - L2 failed with F3's signature: one `is-system-running` call, then "Installed", no stop, no
     start.
@@ -110,7 +110,7 @@ the degraded WSL manager must show the unit stopped.
 
 **Verification:** `make staticcheck` exits 0 with 0 findings for every GOOS.
 
-**Executed 2026-09-24, commit `8944b53`.**
+**Executed 2026-09-24, commit `67f6058`.**
 - **Seen to fail:** exit 2, with 42 findings per GOOS (43 unique).
 - **Fixed:**
   - ST1005: two sentinels replace 17 copies, and the rest are lower-cased.
@@ -132,7 +132,7 @@ the degraded WSL manager must show the unit stopped.
 **Verification:** the test passes, fails under mutation, and a freshly built binary prints the
 store.
 
-**Executed 2026-09-24, commit `bd03cab`.**
+**Executed 2026-09-24, commit `beba2d1`.**
 - The test was seen failing under two `go test -overlay` mutations, with the tree untouched:
   one drops the warning line, one drops the store line.
 - A fresh `mcremote doctor` on Windows prints `store: file_protected` for codex, in 6.0 s
@@ -147,7 +147,7 @@ The `go` job gains `make staticcheck`, `bash scripts/install-binary_test.sh` and
 
 **Verification:** a dispatched `ci.yml` run shows all three steps green.
 
-**Executed 2026-09-24, commit `1c45fe5`.** The dispatched run is **pending**: the push is
+**Executed 2026-09-24, commit `93e1d0f`.** The dispatched run is **pending**: the push is
 blocked by the disclosure guard until PLAN 0171 has run.
 
 ### P5 — Verification on the Linux server (all decisions)
@@ -155,7 +155,7 @@ blocked by the disclosure guard until PLAN 0171 has run.
 `make preflight` in the server's checkout, fast-forwarded to the fixed commits.
 
 **Executed 2026-09-24.** The commits reached the server by a `git bundle` over ssh (nothing was
-published), fast-forwarding its clean checkout from `fac3db6` to `ff3b604`.
+published), fast-forwarding its clean checkout from `fac3db6` to `bf7e1e5`.
 - `make preflight` exits 0, and every step ran: gofmt, tidy, vet, staticcheck v0.8.1 for linux,
   darwin and windows, `go test -race`, the install tests, the systemd units, the release
   build, the Flutter pin, `dart format`, `flutter analyze`, and `flutter test` (1416 passed).

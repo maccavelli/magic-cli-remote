@@ -585,4 +585,4 @@ On 2026-09-24 this record carried a further amendment, with findings F11–F22 a
 decisions D16–D21. It covered the two `make preflight` defects surfaced by PLAN 0169's
 P9 verification (PLAN Deviations 6 and 7). The same day the owner moved it into its own
 record: [0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md), renumbered F1–F12 and D1–D6. The text as first written is in
-commit `9f15fbb`. Nothing in 0169's own decisions depends on it.
+commit `d7f02e5`. Nothing in 0169's own decisions depends on it.

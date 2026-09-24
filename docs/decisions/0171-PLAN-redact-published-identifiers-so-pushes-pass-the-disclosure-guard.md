@@ -114,6 +114,42 @@ P1 → P2 → P3 → P4 → P5, strictly. P1 starts from a clean working tree.
 2. Delete `backup/pre-0171` and `rebuild-0171`, and record the execution.
 3. Report the tool's two defects (MADR D5) to the owner.
 
+## Execution record (2026-09-24)
+
+- **P1.**
+  - `backup/pre-0171` was created at the old `master`, and `rebuild-0171` from
+    `origin/master` (`fac3db6`).
+  - `redact --apply` edited 61 files. Then 14 placeholders in the 6 test files became neutral
+    values: 12 × `mac-host`, 2 × `/Users/user/`. Every count was asserted.
+  - The dry run afterwards: "would edit 0 file(s)".
+  - `go test` passes for `internal/cli`, `internal/config` and `internal/provider/kilo`; the 3
+    Dart tests pass (76 tests); `dart format` shows 0 changed; `go-precheck.sh` is clean on
+    the 3 Go files.
+  - Committed as `5797e0b`, 61 files, 231 lines changed each way.
+- **P2.** All 12 commits replayed with no conflict, each with a fresh hook message:
+
+  | Old | New | Subject |
+  | --- | --- | --- |
+  | `bdbcc86` | `aad79a5` | add MADR and PLAN 0169 |
+  | `62dd2e6` | `0022a46` | amend 0169: retire mise, Python CVEs |
+  | `9f15fbb` | `d7f02e5` | amend 0169: preflight fixes (now 0170) |
+  | `919204b` | `0595c01` | degraded systemd manager in the installer |
+  | `bd03cab` | `beba2d1` | doctor reports codex store reality |
+  | `8944b53` | `67f6058` | staticcheck findings and the pinned run |
+  | `1c45fe5` | `93e1d0f` | CI: staticcheck and the install tests |
+  | `ff3b604` | `bf7e1e5` | P10 execution notes |
+  | `038abf9` | `a1f1971` | move the preflight fixes to 0170 |
+  | `7e601eb` | `8058290` | repoint code comments to 0170 |
+  | `0768315` | `3ce2d73` | plan completions; 0114 superseded |
+  | `51385bd` | `a85e227` | add MADR and PLAN 0171 |
+
+- **P3.**
+  - The tree-equality check passes: exactly 61 files differ from `backup/pre-0171`, and each
+    equals the backup's bytes with the deny-list rules and the neutral values applied.
+  - It was seen failing: against `rebuild-0171~1` it reported the two 0171 files as extra.
+  - Twenty commit-hash citations in the 0169, 0170 and 0171 records were repointed to the new
+    hashes.
+
 ## Verification (whole plan)
 
 ### Acceptance criteria (mapped to MADR Confirmation)
