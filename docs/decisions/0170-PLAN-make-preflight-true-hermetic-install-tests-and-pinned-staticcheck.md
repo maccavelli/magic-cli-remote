@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-24
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -217,3 +217,17 @@ the truth on Windows. The owner asked for a small amendment and the fix.
 | # | Criterion | MADR |
 | --- | --- | --- |
 | A5 | `BASE_VERSION` from PowerShell equals Git Bash's and the independently computed highest `vX.Y.Z` tag, and no `sort` error is printed | D7 |
+
+### Execution record — P6 (2026-09-24)
+
+Commit `1a888e24` changes `Makefile:9` only: `git tag -l --sort=v:refname 'v*.*.*'`, with
+`| sort -V` removed. A5 is met. The expected value, computed in Python as the numeric maximum of
+the `vX.Y.Z` tags, is `0.20.0`, and `BASE_VERSION` matches it in three places:
+
+* make run with a fresh PowerShell environment (machine plus user `Path` from the registry);
+* make through Git Bash;
+* make under Linux (WSL).
+
+None printed a `sort` error. The check was seen failing: the unmodified line, from `HEAD` as a
+scratch copy, in the same fresh PowerShell environment, gave `BASE_VERSION=[]` and the error.
+`make -n ci-windows` from that environment still takes the Windows branch.
