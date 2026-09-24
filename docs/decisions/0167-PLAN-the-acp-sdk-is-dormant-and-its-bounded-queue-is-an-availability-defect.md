@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-09-22
+date: 2026-09-24
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -919,3 +919,68 @@ this branch" stays true. This repository's `go.mod` is unchanged, because the co
 test file only. No files are added to scope: `connection_overflow_policy_test.go` is already P3's.
 The commit waits for P6's push, which still needs an explicit ask. P5's text is refreshed to the
 transcripts above, including a gofumpt line that is true at the pin.
+
+## Execution record — release 3 (2026-09-24)
+
+**Ran:** P5 (refreshed, per the deviation above) and P6. The owner approved the refreshed text and
+asked, in the same turn, for the fork branch to be pushed and the PR and comments posted.
+
+**P5.** The formatting fix is `d0cbedf` on `feat/notification-overflow-policy`. Its subject came
+from the hook: *style(test): reformat newOverflowFixture call in overflow test*. That is 62
+characters in the imperative, so it meets upstream's rule. At `d0cbedf`, with upstream's pins, in
+scratch clones on WSL: `make check`, `make test` and `go test -race ./...` pass, and `gofumpt -l .`
+is empty. vet (12), staticcheck (2) and golangci-lint (2) report the same findings as `v0.13.5`.
+Coverage is 29.0% → 29.4%. Pinned gofumpt was seen failing, listing the test file, on the unfixed
+tree. `make check` was seen failing on three broken copies of `d0cbedf`, as it had been on the tag.
+
+Two measurements were discarded, not used:
+
+* **The first golangci-lint comparison.** Base's findings cited a previous run's deleted temp
+  directory. golangci-lint had served them from its content-keyed cache, and the generated-file
+  filter could not open the file, so errcheck and govet findings from `types_gen.go` leaked through.
+  Re-run with an empty `GOLANGCI_LINT_CACHE` per invocation, base and head each report exactly the
+  same 2 S1016 findings.
+* **treefmt's count.** It reported `formatted 46 files (1 changed)` in some fresh clones and 0 in
+  others. The SHA-256 of every tracked file is identical before and after, `git status` is clean,
+  and a second run formats 0 files. This fits the intermediate mdsh/mdformat churn that upstream's
+  `Makefile` documents as the reason it checks `git diff` rather than `--fail-on-change`. The file
+  was not identified, so the PR body claims only that treefmt ran and `git diff --exit-code` was
+  clean.
+
+MADR 0167 was not linked from the PR body even though it is now published. Its title calls the
+SDK dormant, which leads with the grievance P5 says not to lead with. MADR 0166 carries the trace.
+
+**P6.**
+
+1. Pushed `feat/notification-overflow-policy`, `eb6e808..d0cbedf`. The branch and the tag
+   `v0.13.6-mcr.1` had been pushed in P9. The remote ref was confirmed at `d0cbedf`.
+2. Opened <https://github.com/coder/acp-go-sdk/pull/60>, created 2026-09-24T19:37:22Z: 4 commits,
+   head `d0cbedf`, `MERGEABLE`, `REVIEW_REQUIRED`. The title is the draft's `**Title:**` line. The
+   body is the draft after its `---` separator.
+3. Posted the three comments, with `#N` replaced by `#60`:
+   * #40: <https://github.com/coder/acp-go-sdk/pull/40#issuecomment-5820923155>
+   * #50: <https://github.com/coder/acp-go-sdk/pull/50#issuecomment-5820923499>
+   * #59: <https://github.com/coder/acp-go-sdk/pull/59#issuecomment-5820923801>
+4. **Posted text matches.** After each post, the stored title, body or comment was fetched back
+   from the API and compared with the approved text. All four match exactly, modulo CRLF→LF and
+   trailing newlines.
+
+**CI, verbatim:** workflow `CI`, event `pull_request`, `status=completed`,
+`conclusion=action_required`
+(<https://github.com/coder/acp-go-sdk/actions/runs/36049400854>), exactly as F35 predicted for a
+fork PR. The evidence a reviewer needs is in the PR body (D15).
+
+**What the plan predicted incorrectly, or did not say:**
+
+* **P6 step 3 named five threads (#40, #50, #57, #58, #59); three comments were posted.** #57 and
+  #58 are issues whose fix is #59, so the #59 comment serves all three. This was settled when the
+  texts were drafted and approved; it is recorded here so the count does not read as an omission.
+* **P6 step 1 was half-done before P6 began.** P9 had pushed the branch for the fork tag, so P6's
+  push carried only the formatting commit.
+* **The posting script's own guard stopped it once.** It asserted each comment's `#N` count before
+  posting. #40's was set to 2, but the text has 3. The assertion fired after the PR was opened and
+  before any comment was posted. The comment counts on #40, #50 and #59 were re-read to confirm
+  nothing had posted, and the script resumed at the comments. It refuses to open a second PR.
+
+**Not done:** P7 (the `Connection()` accessor, a separate branch and PR, needs its own explicit
+ask to push and open) and P8 (closes the plan).
