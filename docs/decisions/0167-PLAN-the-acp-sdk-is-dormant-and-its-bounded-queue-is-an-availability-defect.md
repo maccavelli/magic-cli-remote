@@ -881,3 +881,41 @@ Each mutation's anchor was asserted to match exactly once before it was applied.
 P6 (open the upstream PR and post the three comments) waits for the owner's review of the PR text
 and an explicit go-ahead to post. P7 and P8 follow it. Release 5 does not depend on any of them
 (*Sequencing against release 3*).
+
+## Deviation — 2026-09-24: the PR's test file is not gofumpt-clean at upstream's pin
+
+**Found.** Refreshing P5's transcripts once MADR/PLAN 0169 P9 had installed upstream's full pinned
+toolchain (`fork_tools.py --check`: every `mise.toml` pin matched; Go forced to the pinned 1.26.3
+with `GOTOOLCHAIN`), in scratch clones on WSL of `v0.13.6-mcr.1` and of `v0.13.5`, gofumpt
+**0.10.0** listed `connection_overflow_policy_test.go`. `gofumpt -d` wants one call split:
+
+```text
+@@ -182,7 +182,8 @@
+-	f := newOverflowFixture(t, 4,
++	f := newOverflowFixture(
++		t, 4,
+```
+
+`v0.13.5` is clean at the same version, so the defect is this PLAN's own, introduced in P3's
+`eb6e808`. The stability rule's `gofumpt -w .` was run, but with gofumpt 0.12.0, which accepts the
+layout. The PR body drafted in P5 claimed `gofumpt -l .` empty on that basis. Upstream's CI would
+not catch it, since `make check` runs only `gofmt` over Go files (F31). But upstream's `AGENTS.md`
+asks for gofumpt, and its `make version` runs `gofumpt -w .`, so its next release would rewrite
+the file.
+
+Every other P5 claim was re-measured and holds at the pins. `make check` (all five formatters),
+`make test` and `go test -race ./...` pass on both trees. `go vet` (12, `types_gen.go`),
+staticcheck and golangci-lint (2 each, S1016 in `acp_test.go`) report identical findings on both.
+Coverage is 29.0% → 29.4%; the draft's 29.1% was a Windows measurement. `make check` was seen
+failing, exit 2 with the mutated file named, on three broken copies: a markdown bullet
+(mdformat), a Go function (gofmt), and an undefined workflow expression (actionlint and zizmor).
+The first refresh run was discarded: `wsl -e` does not read the login profile, so Go was not on
+`PATH` and every target failed for that reason instead.
+
+**Decision (owner, 2026-09-24).** Add one formatting commit on top of
+`feat/notification-overflow-policy`, rather than rewriting `eb6e808` and force-pushing. The tag
+`v0.13.6-mcr.1` therefore stays an ancestor of the PR head, so "magic-cli-remote builds against
+this branch" stays true. This repository's `go.mod` is unchanged, because the commit touches a
+test file only. No files are added to scope: `connection_overflow_policy_test.go` is already P3's.
+The commit waits for P6's push, which still needs an explicit ask. P5's text is refreshed to the
+transcripts above, including a gofumpt line that is true at the pin.
