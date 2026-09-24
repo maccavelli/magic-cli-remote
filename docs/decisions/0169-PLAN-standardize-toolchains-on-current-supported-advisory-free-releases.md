@@ -548,9 +548,151 @@ host's verification passes (C4).
    and add an additive amendment naming D15.
 2. Commit the docs alone.
 
+#### Deviation 5 (2026-09-23): mise symlinks in the Linux server's `~/.local/bin`
+
+**Found** during 9d, before any edit. `~/.local/bin/go` and `~/.local/bin/gofmt` are symlinks into
+mise's `installs/go/1.26.6`, created 2026-09-23 13:54. `~/.local/bin/glab` points into mise's
+`installs/glab/latest`. `00-paths.sh` puts `~/.local/bin` first, so once mise's directories are
+removed these would dangle ahead of `~/sdk/go1.26.6/bin`. `glab` is already in scope: 9d step 2
+replaced the link with the verified 1.113.0 binary. `go` and `gofmt` were not in the file list.
+The other links there (golangci-lint, gopls, govulncheck, staticcheck into `~/go/bin`; git into
+`/usr/bin`) resolve and are left alone. Their targets are recorded in
+`~/backups/0169-p9-2026-09-23/symlinks.json`.
+
+**Decision (owner, 2026-09-23): remove the dangling symlinks.** `~/.local/bin/go` and
+`~/.local/bin/gofmt` are deleted in step 4. `~/sdk/go1.26.6/bin` on PATH replaces them. After 9d
+step 7, any remaining symlink in `~/.local/bin` whose target is missing is also removed.
+
+**Scope.** Added: `~/.local/bin/go` and `~/.local/bin/gofmt` (deleted), and any other symlink in
+`~/.local/bin` left dangling by step 7.
+
+#### P9 progress (2026-09-23/24)
+
+- **9a done.** `fork_tools.py` was seen failing on four scratch copies: a bad pin, an unknown
+  entry, an unsupported backend and a wrong checksum. The unsupported-backend case first failed
+  for the wrong reason, because it hit "no host go" before validating the entries. An up-front
+  validation pass fixed that.
+- **9b (WSL) and 9c (macOS) done.**
+  - The fork's `make check test` passes through `.tools`, at upstream's pins.
+  - An unformatted README in a scratch clone fails `make check`.
+  - mise is removed: 533 MiB on WSL, 480 MiB on macOS.
+- **9d steps 1–5 done**, and step 6 in part:
+  - All 16 tools resolve at their previous versions from `~/sdk` or `~/.local/bin` in
+    `bash -lic`, `bash -c` with BASH_ENV, and a `systemd-run --user` unit carrying the
+    drop-in's environment.
+  - The same check against the backed-up drop-in fails: glab, just, ninja, markdownlint-cli2
+    and golangci-lint resolve through mise's shims.
+  - `flutter doctor` reports Android on `~/sdk/jdk-21`.
+  - The fork's `make check test` passes.
+- **The drop-in, as executed.** It keeps its previous entries and order, and replaces only the
+  mise entries. Re-deriving it from the new `00-paths.sh`, as written, would have added
+  `~/default-venv/bin` to the daemon's own PATH and changed its `python3`, which P0 step 4
+  verified must stay `/usr/bin/python3`.
+- **The `mcremote` restart was not a deliberate step.** It happened at 02:03:03 UTC, when
+  `install-binary_test.sh` drove the live unit (Deviation 7). The owner had not yet approved a
+  restart. The daemon came back healthy under the new drop-in: its `/proc` environment has
+  the `~/sdk` PATH, `JAVA_HOME` and `BASH_ENV`.
+- **Pending:** `make preflight` green (Deviations 6 and 7, fixed by P10); step 7, removing
+  mise's data (C4 holds it until the preflight passes); the dotfiles commit; 9e.
+
+#### Deviation 6 (2026-09-24): `make preflight` fails at staticcheck on every host
+
+**Found.** The server's preflight stopped at `staticcheck ./...`. There are 43 findings on
+`master`, and 42 on the server's older checkout both under mise's Go and under `~/sdk`'s Go.
+So they predate P9. CI does not run staticcheck. MADR amendment F14, F16–F20 has the detail.
+
+**Decision (owner, 2026-09-24): fix it, under this record.** MADR D18–D21, implemented by P10.
+Every other preflight step passed on the server when run individually: `go test -race`,
+`verify-units`, the release build, the Flutter pin, `dart format`, `flutter analyze`, and
+`flutter test` (1416 tests).
+
+**Scope.** P10's file list.
+
+#### Deviation 7 (2026-09-24): `install-binary_test.sh` drives the live user service
+
+**Found.** Running it on the server restarted the live `mcremote`, and the test still failed.
+Driving it, and the script under test, on three hosts showed three more things:
+
+- the test is not hermetic (F11) and its verdict depends on the host (F12);
+- `make install` never restarts the service when the user manager is `degraded` (F13, a
+  production bug);
+- `install_test.sh` fails 3 of its 139 cases on WSL (F15).
+
+**Decision (owner, 2026-09-24): fix it, under this record.** MADR D16–D18, implemented by P10.
+
+**Scope.** P10's file list.
+
 **Verification (whole phase):** the audit reports no mise on any host. `command -v mise` finds
 nothing on each host. The fork's `make check test` passes through `.tools` on WSL, macOS and
 the Linux server. Every step above that must fail was seen to fail.
+
+### P10 — Make `make preflight` true: hermetic install tests, the degraded-manager fix, the staticcheck findings, and CI parity (D16–D21; closes F11–F22; added 2026-09-24 by Deviations 6 and 7)
+
+Runs before 9d step 7. It adds these files to the in-scope list, and no others:
+
+- `scripts/install-binary.sh`, `scripts/install-binary_test.sh`, `scripts/install_test.sh`
+- `Makefile` (the `STATICCHECK_VERSION` variable, the `staticcheck` target, the preflight
+  staticcheck line, and the gate-for-gate comment)
+- `.github/workflows/ci.yml` (three steps in the `go` job)
+- `internal/provider/codex/{execution,managed_daemon,projects,runtime,session,threads,transport,ws_auth,store_reality}.go`
+- `internal/ws/codex_handlers.go`
+- `internal/providerauth/store.go`
+- `internal/provider/launch/{launch,launch_windows}.go`
+- `internal/appdirs/security_windows.go`
+- `internal/provider/acpagent/rewind_test.go`, `internal/receipt/jws_test.go`
+- `internal/cli/doctor.go` and a new or extended doctor test
+- tests next to the Go changes, where an existing test asserts a changed error string
+
+It also adds, on the Linux server only, a `git pull --ff-only` of its `magic-cli-remote`
+checkout, so preflight runs the fixed tree.
+
+1. **Hermetic install tests (D17), written before the fix.**
+   - `install-binary_test.sh` gets a PATH made only of its stub directory plus the few
+     coreutils it needs, linked in as `install_test.sh` does. It gets a stub `systemctl`, and
+     an entry guard that exits 2 if `command -v systemctl` resolves outside the stub directory.
+   - New Linux cases: a running unit is stopped, swapped and started; a `degraded` manager
+     still restarts; an enabled-but-stopped unit is healed.
+   - `install_test.sh` cases 22c, 24 and 25 set `MC_TEST_OSRELEASE`.
+   - **Seen to fail, on scratch copies:**
+     - the guard, with the real `systemctl` put first on PATH (it must exit 2 and call
+       nothing);
+     - the degraded case, against today's `install-binary.sh` (no stop, no start);
+     - `install_test.sh` on WSL before the seam fix (3 failures).
+2. **D16 in `install-binary.sh`.** `detect_service` uses `install.sh`'s rule: `XDG_RUNTIME_DIR`
+   exists, and `is-system-running` or `show-environment` succeeds. The degraded case then
+   passes.
+   - Drive it again on WSL with the transient-unit probe: the MainPID must change.
+3. **Pinned staticcheck (D19).**
+   - `STATICCHECK_VERSION = v0.8.1`. The `staticcheck` target runs
+     `go run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...` once for each of
+     GOOS linux, darwin and windows. Preflight calls the target.
+   - **Seen to fail** on today's tree: 43 findings.
+4. **Fix the findings (D20),** grouped as ST1005 (sentinels plus lower case), dead code, the
+   `maxCommandLineBatch` move, and SA1019. Then `make staticcheck` must report 0.
+   - `go test -race ./...`, `CGO_ENABLED=0 go test ./...` and `make ci-windows` (Git Bash)
+     all pass.
+   - Search `apps/mobile` again for any changed text: expected none.
+5. **Doctor tells the truth (D21).**
+   - A doctor test pins the codex line for each `StoreReality`. **Seen to fail** against
+     today's doctor, which prints only the path.
+   - Then wire `ObserveCredentialStore` (bounded by the existing timeout) and
+     `describeReality` into `internal/cli/doctor.go`.
+   - Drive `mcremote doctor` from a fresh build on Windows and on the Linux server.
+6. **CI parity (D18).** The `go` job gains three steps: `make staticcheck`,
+   `bash scripts/install-binary_test.sh` and `sh scripts/install_test.sh`.
+   - The Makefile's gate-for-gate comment then holds as written, so it needs no edit.
+   - Push on ask, and a dispatched `ci.yml` run must show all three steps green.
+7. **Verification across hosts:**
+   - `bash scripts/install-binary_test.sh` passes on macOS, WSL and the Linux server. On the
+     server, `systemctl --user show mcremote -p ActiveEnterTimestamp` is unchanged across the
+     run.
+   - `sh scripts/install_test.sh` gives 139 passed on all three.
+   - `make preflight` is green on the Linux server, after the `--ff-only` pull.
+   - `make race` and `make ci-windows` pass on Windows.
+
+Commit discipline: one commit for the tests and the D16 fix, one for staticcheck (pin plus
+findings), one for doctor, and one for CI. Each passes `make pre-add-check` first. Push and
+dispatch only on ask.
 
 ## Verification (whole plan)
 
@@ -572,6 +714,10 @@ the Linux server. Every step above that must fail was seen to fail.
 | A12 | On the Linux server, every tool mise supplied resolves at its previous version from `~/sdk` or `~/.local/bin`, in login shells, `bash -c` and the `mcremote` unit, and the agents reach all ten tools the drop-in exists for | D13 |
 | A13 | The acp-go-sdk fork passes `make check test` through `.tools` on WSL, macOS and the Linux server, at upstream's pinned versions; `fork_tools.py` was seen failing on a bad pin and an unknown entry | D14 |
 | A14 | markdownlint-cli2 0.23.2 resolves from `~/.local/bin` on the Linux server; MADR 0114 marked superseded | D15 |
+| A15 | `install-binary_test.sh` and `install_test.sh` pass on macOS, WSL and the Linux server, touch no real service manager (the live unit's start time is unchanged), and cover the Linux branch including a degraded manager; each new case was seen failing | D16, D17 |
+| A16 | `make staticcheck` (pinned v0.8.1, three GOOS) reports 0 findings, and was seen reporting 43; no suppression added | D19, D20 |
+| A17 | `mcremote doctor` names the codex store reality with its explanation; its test was seen failing first | D21 |
+| A18 | CI's `go` job runs staticcheck and both shell suites, green on a dispatched run; `make preflight` green on the Linux server | D18 |
 
 The criterion most likely to be dropped quietly is **A2**. The audit will be written against
 the fixed hosts, and it will pass. Only running it against the saved pre-P0 outputs shows that
