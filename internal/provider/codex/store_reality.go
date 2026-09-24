@@ -142,9 +142,13 @@ func probeDoctorAuth(ctx context.Context, bin string) (authCredentials, error) {
 	return parseDoctorAuth(out.Bytes())
 }
 
-// describeReality is the operator-facing explanation for a non-protected
-// store. It names no path and no account.
-func describeReality(r StoreReality) string {
+// DescribeReality is the operator-facing explanation for a non-protected
+// store, printed by `mcremote doctor` (MADR 0169 D21). It names no path and no
+// account. Empty for a store that needs no explanation.
+//
+// Until 0169 its only caller was a live_codex test, so MADR 0074's "tell the
+// operator the truth" reached nobody (0169 F18).
+func DescribeReality(r StoreReality) string {
 	switch r {
 	case RealityBroken:
 		return "codex has a stored credential that it cannot use; signing in again " +

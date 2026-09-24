@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 )
 
@@ -118,11 +119,64 @@ func TestRenderCredentialDoctorPrintsNoValues(t *testing.T) {
 	}
 }
 
+// stubCodexReality makes the codex store observation return r, so no test
+// spawns a real `codex doctor` (host-dependent, and ~1.4 s when it runs).
+func stubCodexReality(t *testing.T, r codex.StoreReality) {
+	t.Helper()
+	prev := observeCodexReality
+	observeCodexReality = func() codex.StoreReality { return r }
+	t.Cleanup(func() { observeCodexReality = prev })
+}
+
+// MADR 0169 D21 (F18): MADR 0074's amendment says a codex store mcremote
+// cannot protect "is a reason to tell the operator the truth". doctor must name
+// the observed store, and say why when it is not protectable — and say nothing
+// alarming when it is fine or unknown.
+func TestDoctorReportsCodexStoreReality(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	for _, tc := range []struct {
+		reality  codex.StoreReality
+		wantWarn bool
+	}{
+		{codex.RealityFileProtected, false},
+		{codex.RealityLoggedOut, false},
+		{codex.RealityBroken, true},
+		{codex.RealityUnsupported, true},
+		{codex.RealityUnknown, false},
+	} {
+		stubCodexReality(t, tc.reality)
+		var buf bytes.Buffer
+		renderCredentialDoctor(&buf, probeCredentialStores())
+		out := buf.String()
+		start := strings.Index(out, "codex:")
+		if start < 0 {
+			t.Fatalf("%s: no codex entry:\n%s", tc.reality, out)
+		}
+		section := out[start:]
+		if end := strings.Index(section, "grok:"); end > 0 {
+			section = section[:end]
+		}
+		if want := "store:     " + string(tc.reality); !strings.Contains(section, want) {
+			t.Errorf("%s: codex entry lacks %q:\n%s", tc.reality, want, section)
+		}
+		explanation := codex.DescribeReality(tc.reality)
+		switch {
+		case tc.wantWarn && (explanation == "" || !strings.Contains(section, "warning:   "+explanation)):
+			t.Errorf("%s: the operator is not told why the store is unprotected:\n%s", tc.reality, section)
+		case !tc.wantWarn && strings.Contains(section, "warning:"):
+			t.Errorf("%s: a warning is shown for a store that needs none:\n%s", tc.reality, section)
+		}
+	}
+}
+
 // The probe must not fail on a host where an agent was never installed.
 func TestProbeCredentialStoresOnColdHost(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
+	stubCodexReality(t, codex.RealityUnknown)
 	stores := probeCredentialStores()
 	if len(stores) == 0 {
 		t.Fatal("no stores reported")

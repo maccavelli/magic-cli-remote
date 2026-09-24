@@ -16,7 +16,7 @@ func TestLiveHostReality(t *testing.T) {
 	if got == RealityUnknown {
 		t.Fatal("the probe could not reach a conclusion with a runnable codex binary")
 	}
-	if d := describeReality(got); d != "" {
+	if d := DescribeReality(got); d != "" {
 		t.Logf("operator explanation: %s", d)
 	}
 }

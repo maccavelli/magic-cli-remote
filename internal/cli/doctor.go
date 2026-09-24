@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os/exec"
 	"runtime"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/spf13/cobra"
@@ -40,6 +43,24 @@ type credentialStore struct {
 	Present   bool
 	Upstreams []string
 	Note      string
+	// Store is where the credential actually is, as observed (codex only):
+	// the file mcremote protects, or somewhere it cannot (MADR 0074 §15.13).
+	Store string
+	// Warning explains a store mcremote cannot protect. Empty when fine.
+	Warning string
+}
+
+// observeCodexReality asks codex where its credential really is. It is a
+// variable so tests cover every state without a codex binary. The probe bounds
+// itself (providerauth.ProbeTimeout); with no codex on PATH it falls back to
+// what config.toml declares, as the daemon does.
+var observeCodexReality = func() codex.StoreReality {
+	bin := "codex"
+	if _, err := exec.LookPath(bin); err != nil {
+		bin = ""
+	}
+	reality, _ := codex.ObserveCredentialStore(context.Background(), bin)
+	return reality
 }
 
 // probeCredentialStores reads each agent's store for presence only. Key
@@ -78,6 +99,11 @@ func probeCredentialStores() []credentialStore {
 	}
 	if p, err := credstore.CodexAuthPath(); err == nil {
 		add("codex", p, nil, "device sign-in deletes this file at start (MADR 0074 D8)")
+		// MADR 0074's amendment: a store mcremote cannot protect is a reason
+		// to tell the operator the truth (MADR 0169 D21).
+		reality := observeCodexReality()
+		out[len(out)-1].Store = string(reality)
+		out[len(out)-1].Warning = codex.DescribeReality(reality)
 	}
 	if p, err := credstore.GrokAuthPath(); err == nil {
 		add("grok", p, nil, "")
@@ -98,6 +124,12 @@ func renderCredentialDoctor(w io.Writer, stores []credentialStore) {
 		}
 		if s.Note != "" {
 			fmt.Fprintf(w, "    note:      %s\n", s.Note)
+		}
+		if s.Store != "" {
+			fmt.Fprintf(w, "    store:     %s\n", s.Store)
+		}
+		if s.Warning != "" {
+			fmt.Fprintf(w, "    warning:   %s\n", s.Warning)
 		}
 	}
 }
