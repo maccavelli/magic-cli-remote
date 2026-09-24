@@ -20,6 +20,14 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
+// Errors shared by the session, execution, thread and project paths. One value
+// each instead of the same literal repeated (14 and 3 times), and lower case
+// because callers wrap errors mid-sentence (staticcheck ST1005, MADR 0169 D20).
+var (
+	errCodexUnavailable      = errors.New("codex provider unavailable")
+	errCodexEngineNotRunning = errors.New("codex engine is not running")
+)
+
 const (
 	maxTerminalReplayBytes  = 1 << 20
 	maxTerminalPage         = 100
@@ -214,7 +222,7 @@ func (a *executionAPI) appendAndPush(key terminalKey, stream string, data []byte
 
 func (a *executionAPI) require(id CapabilityID) error {
 	if a.supports == nil || !a.supports(id) {
-		return fmt.Errorf("Codex capability %s is unavailable", id)
+		return fmt.Errorf("codex capability %s is unavailable", id)
 	}
 	return nil
 }
@@ -850,7 +858,7 @@ func (p *Provider) executionFor(ctx context.Context) (*executionAPI, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.execution == nil || p.eng == nil || p.execution.generation != p.eng.generation {
-		return nil, errors.New("Codex execution adapter is unavailable")
+		return nil, errors.New("codex execution adapter is unavailable")
 	}
 	return p.execution, nil
 }
@@ -1023,7 +1031,7 @@ var _ provider.EnvironmentSession = (*session)(nil)
 // RunSandboxedExec runs one structured argv scoped to this native thread.
 func (s *session) RunSandboxedExec(ctx context.Context, request provider.ExecRequest) (provider.ExecResult, error) {
 	if s.p == nil {
-		return provider.ExecResult{}, errors.New("Codex provider unavailable")
+		return provider.ExecResult{}, errCodexUnavailable
 	}
 	request.ThreadID = s.agentID
 	return s.p.RunSandboxedExec(ctx, request)
@@ -1033,7 +1041,7 @@ func (s *session) RunSandboxedExec(ctx context.Context, request provider.ExecReq
 // native thread. Confirmation is enforced by the daemon/phone boundary.
 func (s *session) RunUnsandboxedShell(ctx context.Context, command string) (provider.ExecutionResult, error) {
 	if s.p == nil {
-		return provider.ExecutionResult{}, errors.New("Codex provider unavailable")
+		return provider.ExecutionResult{}, errCodexUnavailable
 	}
 	return s.p.RunUnsandboxedThreadShell(ctx, s.agentID, command)
 }
@@ -1042,7 +1050,7 @@ func (s *session) RunUnsandboxedShell(ctx context.Context, command string) (prov
 // this thread's terminal registry. Confirmation is enforced by the caller.
 func (s *session) SpawnStandaloneProcess(ctx context.Context, request provider.ProcessSpawnRequest) (provider.ProcessInfo, error) {
 	if s.p == nil {
-		return provider.ProcessInfo{}, errors.New("Codex provider unavailable")
+		return provider.ProcessInfo{}, errCodexUnavailable
 	}
 	return s.p.SpawnStandaloneProcess(ctx, request)
 }
@@ -1050,7 +1058,7 @@ func (s *session) SpawnStandaloneProcess(ctx context.Context, request provider.P
 // WriteTerminal sends bounded stdin to a terminal this thread owns.
 func (s *session) WriteTerminal(ctx context.Context, id string, data []byte, closeStdin bool) error {
 	if s.p == nil {
-		return errors.New("Codex provider unavailable")
+		return errCodexUnavailable
 	}
 	if err := s.requireOwnedTerminal(id); err != nil {
 		return err
@@ -1061,7 +1069,7 @@ func (s *session) WriteTerminal(ctx context.Context, id string, data []byte, clo
 // ResizeTerminal resizes a PTY this thread owns.
 func (s *session) ResizeTerminal(ctx context.Context, id string, rows, cols int) error {
 	if s.p == nil {
-		return errors.New("Codex provider unavailable")
+		return errCodexUnavailable
 	}
 	if err := s.requireOwnedTerminal(id); err != nil {
 		return err
@@ -1073,7 +1081,7 @@ func (s *session) ResizeTerminal(ctx context.Context, id string, rows, cols int)
 // reports whether the 1 MiB window already dropped the requested position.
 func (s *session) ReplayTerminal(ctx context.Context, id string, after uint64) ([]provider.TerminalOutput, bool, error) {
 	if s.p == nil {
-		return nil, false, errors.New("Codex provider unavailable")
+		return nil, false, errCodexUnavailable
 	}
 	return s.p.ReplayTerminal(ctx, s.agentID, id, after)
 }
@@ -1093,7 +1101,7 @@ func (s *session) requireOwnedTerminal(id string) error {
 // tying their lifetime to this managed session attachment.
 func (s *session) ListTerminals(ctx context.Context) ([]provider.TerminalInfo, error) {
 	if s.p == nil {
-		return nil, errors.New("Codex provider unavailable")
+		return nil, errCodexUnavailable
 	}
 	return s.p.ListTerminals(ctx, s.agentID)
 }
@@ -1101,7 +1109,7 @@ func (s *session) ListTerminals(ctx context.Context) ([]provider.TerminalInfo, e
 // StopTerminal terminates one exact terminal id.
 func (s *session) StopTerminal(ctx context.Context, id string) error {
 	if s.p == nil {
-		return errors.New("Codex provider unavailable")
+		return errCodexUnavailable
 	}
 	return s.p.StopTerminal(ctx, s.agentID, id)
 }
@@ -1109,7 +1117,7 @@ func (s *session) StopTerminal(ctx context.Context, id string) error {
 // StopAllTerminals terminates every known terminal for this native thread.
 func (s *session) StopAllTerminals(ctx context.Context) (int, error) {
 	if s.p == nil {
-		return 0, errors.New("Codex provider unavailable")
+		return 0, errCodexUnavailable
 	}
 	return s.p.StopAllTerminals(ctx, s.agentID)
 }
@@ -1118,7 +1126,7 @@ func (s *session) StopAllTerminals(ctx context.Context) (int, error) {
 // failure leaves the prior selection untouched.
 func (s *session) SetExecutionEnvironment(ctx context.Context, selection *provider.EnvironmentSelection) error {
 	if s.p == nil {
-		return errors.New("Codex provider unavailable")
+		return errCodexUnavailable
 	}
 	if selection == nil {
 		s.mu.Lock()

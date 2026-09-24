@@ -253,7 +253,7 @@ func (p *Provider) RefreshRuntime(ctx context.Context) error {
 	}
 	framer := p.framer()
 	if framer == nil {
-		return errors.New("Codex engine unavailable")
+		return errors.New("codex engine unavailable")
 	}
 	read := func(capability CapabilityID, method string, params any, apply func(json.RawMessage)) {
 		if !p.supportsCapability(capability) {

@@ -75,13 +75,6 @@ var ErrCommandLineTooLong = errors.New("launch: command line too long")
 // the terminating NUL. It applies when the image is started directly.
 const maxCommandLineNative = 32767
 
-// maxCommandLineBatch is cmd.exe's own line limit, which is four times smaller.
-// It is the one that applies to a shim, because cmd.exe parses that line before
-// anything else sees it — so checking a batch invocation against the
-// CreateProcessW number, as this package did until MADR 0159 D25, checks it
-// against a ceiling it can pass while still being too long (0159 F37).
-const maxCommandLineBatch = 8191
-
 // Resolve finds bin on PATH and classifies it.
 func Resolve(bin string) (Resolved, error) { return resolve(bin) }
 

@@ -155,7 +155,7 @@ func (s *Server) codexProvider() (*codex.Provider, error) {
 	}
 	codexProvider, ok := p.(*codex.Provider)
 	if !ok {
-		return nil, fmt.Errorf("Codex provider unavailable")
+		return nil, fmt.Errorf("codex provider unavailable")
 	}
 	return codexProvider, nil
 }

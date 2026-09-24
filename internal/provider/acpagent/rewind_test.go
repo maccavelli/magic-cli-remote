@@ -481,11 +481,23 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 	}
 
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	// parser.ParseDir is deprecated (it ignores build tags). Parse every
+	// non-test file directly, which is exactly the set ParseDir returned here.
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parse package: %v", err)
+		t.Fatalf("read package dir: %v", err)
+	}
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		files = append(files, file)
 	}
 
 	// literalArg returns the string literal at index i, or "" if it is not one.
@@ -505,59 +517,57 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 	}
 
 	sites := 0
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			ast.Inspect(file, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			where := fset.Position(call.Pos())
+			switch fn := call.Fun.(type) {
+			case *ast.SelectorExpr:
+				if fn.Sel.Name != "rawRequest" {
 					return true
 				}
-				where := fset.Position(call.Pos())
-				switch fn := call.Fun.(type) {
-				case *ast.SelectorExpr:
-					if fn.Sel.Name != "rawRequest" {
+				// rawRequest(ctx, method, params, out)
+				// The one legitimately computed name is callAgentExtension's
+				// own `"_"+method`, which is prefixed by construction.
+				if bin, ok := call.Args[1].(*ast.BinaryExpr); ok {
+					if lit, ok := bin.X.(*ast.BasicLit); ok && bin.Op == token.ADD &&
+						lit.Kind == token.STRING && lit.Value == `"_"` {
+						sites++
 						return true
-					}
-					// rawRequest(ctx, method, params, out)
-					// The one legitimately computed name is callAgentExtension's
-					// own `"_"+method`, which is prefixed by construction.
-					if bin, ok := call.Args[1].(*ast.BinaryExpr); ok {
-						if lit, ok := bin.X.(*ast.BasicLit); ok && bin.Op == token.ADD &&
-							lit.Kind == token.STRING && lit.Value == `"_"` {
-							sites++
-							return true
-						}
-					}
-					method := literalArg(call, 1)
-					if method == "" {
-						t.Errorf("%s: rawRequest is called with a computed method name that is not "+
-							"provably `\"_\"+…`; this check can only reason about literals", where)
-						return true
-					}
-					sites++
-					if !isExtensionMethod(method) && !standard[method] {
-						t.Errorf("%s: rawRequest(%q) takes the unsafe raw-connection cast, but %q is "+
-							"not one of the two standard methods that need it. If it is a vendor "+
-							"extension it must be written with its leading underscore", where, method, method)
-					}
-				case *ast.Ident:
-					if fn.Name != "callAgentExtension" {
-						return true
-					}
-					// callAgentExtension(ctx, s, method, params, out)
-					method := literalArg(call, 2)
-					if method == "" {
-						return true
-					}
-					sites++
-					if isExtensionMethod(method) {
-						t.Errorf("%s: callAgentExtension(%q) — the helper adds the underscore itself, "+
-							"so this would send a double-prefixed method", where, method)
 					}
 				}
-				return true
-			})
-		}
+				method := literalArg(call, 1)
+				if method == "" {
+					t.Errorf("%s: rawRequest is called with a computed method name that is not "+
+						"provably `\"_\"+…`; this check can only reason about literals", where)
+					return true
+				}
+				sites++
+				if !isExtensionMethod(method) && !standard[method] {
+					t.Errorf("%s: rawRequest(%q) takes the unsafe raw-connection cast, but %q is "+
+						"not one of the two standard methods that need it. If it is a vendor "+
+						"extension it must be written with its leading underscore", where, method, method)
+				}
+			case *ast.Ident:
+				if fn.Name != "callAgentExtension" {
+					return true
+				}
+				// callAgentExtension(ctx, s, method, params, out)
+				method := literalArg(call, 2)
+				if method == "" {
+					return true
+				}
+				sites++
+				if isExtensionMethod(method) {
+					t.Errorf("%s: callAgentExtension(%q) — the helper adds the underscore itself, "+
+						"so this would send a double-prefixed method", where, method)
+				}
+			}
+			return true
+		})
 	}
 	if sites < 6 {
 		t.Fatalf("found only %d call sites; the scan is not seeing the package", sites)

@@ -384,7 +384,7 @@ preflight:
 	mv -f .go.mod.pre go.mod; mv -f .go.sum.pre go.sum; \
 	exit $$rc
 	@echo "==> go vet";        go vet ./...
-	@echo "==> staticcheck";   staticcheck ./...
+	@echo "==> staticcheck";   $(MAKE) --no-print-directory staticcheck
 	@echo "==> go test -race"; go test -race ./...
 	@echo "==> install/restart tests"; ./scripts/install-binary_test.sh
 	@echo "==> systemd units"; \
@@ -529,8 +529,29 @@ fmt:
 lint:
 	golint ./cmd/... ./internal/...
 
-staticcheck:
-	staticcheck ./...
+# staticcheck is pinned by the repository, not taken from the host (MADR 0169
+# D19): the version decides what preflight and CI report, and "whatever is on
+# PATH" let every host disagree. It is built once for THIS machine into bin/
+# (gitignored), then run for each GOOS, because some files build for one
+# platform only — a constant used solely by launch_windows.go was reported
+# unused on linux and darwin and never on windows. `go run pkg@v` cannot do the
+# per-GOOS pass: GOOS would cross-compile the tool itself.
+STATICCHECK_VERSION ?= v0.8.1
+STATICCHECK_BIN := bin/tools/staticcheck-$(STATICCHECK_VERSION)$(if $(filter windows,$(HOST_GOOS)),.exe,)
+
+$(STATICCHECK_BIN):
+	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) GOBIN="$(CURDIR)/bin/tools/staticcheck-$(STATICCHECK_VERSION).d" \
+		go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
+	mv -f "bin/tools/staticcheck-$(STATICCHECK_VERSION).d/staticcheck$(if $(filter windows,$(HOST_GOOS)),.exe,)" "$@"
+	rm -rf "bin/tools/staticcheck-$(STATICCHECK_VERSION).d"
+
+staticcheck: $(STATICCHECK_BIN)
+	@set -e; rc=0; \
+	for goos in linux darwin windows; do \
+		echo "staticcheck $(STATICCHECK_VERSION) GOOS=$$goos"; \
+		GOOS=$$goos CGO_ENABLED=0 ./$(STATICCHECK_BIN) ./... || rc=1; \
+	done; \
+	exit $$rc
 
 vulncheck:
 	govulncheck ./...

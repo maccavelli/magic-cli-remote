@@ -144,7 +144,7 @@ func waitWebSocketHealth(ctx context.Context, baseURL string, client *http.Clien
 		case <-ctx.Done():
 			timer.Stop()
 			if lastErr != nil {
-				return fmt.Errorf("Codex WebSocket readiness: %w", lastErr)
+				return fmt.Errorf("codex WebSocket readiness: %w", lastErr)
 			}
 			return ctx.Err()
 		case <-timer.C:

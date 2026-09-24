@@ -14,6 +14,15 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
+// maxCommandLineBatch is cmd.exe's own line limit, four times smaller than
+// [maxCommandLineNative]. Declared here, not in launch.go, because only
+// Windows uses it (staticcheck U1000 on linux and darwin, MADR 0169 D20).
+// It is the one that applies to a shim, because cmd.exe parses that line before
+// anything else sees it — so checking a batch invocation against the
+// CreateProcessW number, as this package did until MADR 0159 D25, checks it
+// against a ceiling it can pass while still being too long (0159 F37).
+const maxCommandLineBatch = 8191
+
 // batchFlags are the cmd.exe switches every shim invocation carries, in front
 // of /c. Each one removes a way the interpreter could change what runs
 // (MADR 0159 D23):

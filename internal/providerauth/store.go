@@ -171,14 +171,6 @@ func (s *store) readGeneration(id string) ([]byte, error) {
 	return os.ReadFile(s.generationPath(id)) //nolint:gosec // derived path
 }
 
-func (s *store) removeGeneration(id string) error {
-	err := os.Remove(s.generationPath(id))
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
 // pruneGenerations deletes every payload the manifest no longer labels. It runs
 // only after the new manifest is durable, so a crash never loses a payload the
 // journal still references (D23/P17 step 8).

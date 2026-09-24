@@ -316,21 +316,21 @@ func (s *session) AgentSessionID() string {
 
 func (s *session) ArchiveNativeThread(ctx context.Context, archived bool) error {
 	if s.p == nil {
-		return errors.New("Codex provider unavailable")
+		return errCodexUnavailable
 	}
 	return s.p.ArchiveNativeThread(ctx, s.AgentSessionID(), archived)
 }
 
 func (s *session) PreviewNativeDelete(ctx context.Context) (provider.ThreadDeletePreview, error) {
 	if s.p == nil {
-		return provider.ThreadDeletePreview{}, errors.New("Codex provider unavailable")
+		return provider.ThreadDeletePreview{}, errCodexUnavailable
 	}
 	return s.p.PreviewDeleteNativeThread(ctx, s.AgentSessionID())
 }
 
 func (s *session) DeleteNativeThread(ctx context.Context) (provider.ThreadDeleteResult, error) {
 	if s.p == nil {
-		return provider.ThreadDeleteResult{}, errors.New("Codex provider unavailable")
+		return provider.ThreadDeleteResult{}, errCodexUnavailable
 	}
 	return s.p.DeleteNativeThread(ctx, s.AgentSessionID())
 }
@@ -2123,37 +2123,6 @@ func (s *session) RespondQuestion(ctx context.Context, questionID string, answer
 	s.mu.Unlock()
 	s.emitQuestionResolved(questionID, cancelled)
 	return nil
-}
-
-func (s *session) serverDied() {
-	s.mu.Lock()
-	closed := s.closed
-	s.closed = true
-	s.steerable = false
-	s.mu.Unlock()
-	if closed {
-		return
-	}
-	s.drainChunks()
-	// The engine is gone, so no answer can reach it — but the phone is still
-	// holding any sheet that was up, and only a resolved event closes it.
-	s.cancelPendingPermissions("engine lost")
-	s.cancelPendingQuestions("engine lost")
-	s.emit(event.Event{
-		Type:           event.TypeSessionStatus,
-		SessionID:      s.localID,
-		Timestamp:      time.Now().UTC(),
-		Status:         "disconnected",
-		AgentSessionID: s.agentID,
-	})
-	s.emit(event.Event{
-		Type:           event.TypeError,
-		SessionID:      s.localID,
-		Timestamp:      time.Now().UTC(),
-		Error:          "engine lost",
-		AgentSessionID: s.agentID,
-	})
-	close(s.done)
 }
 
 // engineLost cancels connection-owned work without destroying the daemon's

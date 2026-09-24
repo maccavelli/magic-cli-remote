@@ -31,7 +31,7 @@ func newProjectAPI(send nativeRPCSender, supports nativeCapability) *projectAPI 
 
 func (a *projectAPI) require(id CapabilityID) error {
 	if a.supports == nil || !a.supports(id) {
-		return fmt.Errorf("Codex capability %s is unavailable", id)
+		return fmt.Errorf("codex capability %s is unavailable", id)
 	}
 	return nil
 }
@@ -293,7 +293,7 @@ func (p *Provider) projectAPIFor(ctx context.Context) (*projectAPI, error) {
 	}
 	fr := p.framer()
 	if fr == nil {
-		return nil, errors.New("Codex engine is not running")
+		return nil, errCodexEngineNotRunning
 	}
 	return newProjectAPI(fr.sendReadOnlyOrWriteRequest, p.supportsCapability), nil
 }

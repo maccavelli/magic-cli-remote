@@ -53,7 +53,7 @@ func parseDaemonLifecycle(raw []byte) (daemonLifecycle, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return daemonLifecycle{}, fmt.Errorf("Codex daemon lifecycle emitted multiple JSON values")
+			return daemonLifecycle{}, fmt.Errorf("codex daemon lifecycle emitted multiple JSON values")
 		}
 		return daemonLifecycle{}, fmt.Errorf("decode trailing Codex daemon lifecycle output: %w", err)
 	}
@@ -67,20 +67,20 @@ func parseDaemonLifecycle(raw []byte) (daemonLifecycle, error) {
 
 func validateManagedLease(out daemonLifecycle, identity BinaryIdentity) (*managedDaemonLease, error) {
 	if out.Status != daemonStarted {
-		return nil, fmt.Errorf("Codex daemon is not owned: start returned %q", out.Status)
+		return nil, fmt.Errorf("codex daemon is not owned: start returned %q", out.Status)
 	}
 	if strings.TrimSpace(out.Backend) == "" || out.PID <= 0 {
-		return nil, fmt.Errorf("Codex daemon start omitted backend/PID ownership evidence")
+		return nil, fmt.Errorf("codex daemon start omitted backend/PID ownership evidence")
 	}
 	if !filepath.IsAbs(out.ManagedCodexPath) || !filepath.IsAbs(out.SocketPath) {
-		return nil, fmt.Errorf("Codex daemon returned non-absolute managed/socket path")
+		return nil, fmt.Errorf("codex daemon returned non-absolute managed/socket path")
 	}
 	version := strings.TrimSpace(identity.Version)
 	if version == "" || version == "unknown" {
-		return nil, fmt.Errorf("Codex daemon ownership requires a known CLI version")
+		return nil, fmt.Errorf("codex daemon ownership requires a known CLI version")
 	}
 	if out.ManagedCodexVersion != version || out.CLIVersion != version || out.AppServerVersion != version {
-		return nil, fmt.Errorf("Codex daemon version mismatch: managed=%q cli=%q app-server=%q expected=%q",
+		return nil, fmt.Errorf("codex daemon version mismatch: managed=%q cli=%q app-server=%q expected=%q",
 			out.ManagedCodexVersion, out.CLIVersion, out.AppServerVersion, version)
 	}
 	return &managedDaemonLease{

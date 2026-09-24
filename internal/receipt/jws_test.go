@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"math/big"
 	"strings"
 	"testing"
 )
@@ -40,11 +39,13 @@ func rfcPublicKey(t *testing.T) *ecdsa.PublicKey {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &ecdsa.PublicKey{
-		Curve: elliptic.P256(),
-		X:     new(big.Int).SetBytes(xb),
-		Y:     new(big.Int).SetBytes(yb),
+	// The coordinate fields are deprecated since Go 1.26; the uncompressed
+	// SEC 1 encoding (0x04 || X || Y) is the supported way in.
+	pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append(append([]byte{4}, xb...), yb...))
+	if err != nil {
+		t.Fatal(err)
 	}
+	return pub
 }
 
 func rfcPrivateKey(t *testing.T) *ecdsa.PrivateKey {
@@ -53,11 +54,16 @@ func rfcPrivateKey(t *testing.T) *ecdsa.PrivateKey {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pub := rfcPublicKey(t)
-	return &ecdsa.PrivateKey{
-		PublicKey: *pub,
-		D:         new(big.Int).SetBytes(db),
+	priv, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), db)
+	if err != nil {
+		t.Fatal(err)
 	}
+	// The RFC publishes (x, y, d) together; the public half derived from d
+	// must be the published point, or the vector is being misread.
+	if !priv.PublicKey.Equal(rfcPublicKey(t)) {
+		t.Fatal("RFC 7515 A.3: d does not derive the published (x, y)")
+	}
+	return priv
 }
 
 func TestES256RFC7515Vector(t *testing.T) {

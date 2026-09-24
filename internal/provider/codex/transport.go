@@ -51,7 +51,7 @@ func newJSONLTransport(writer io.Writer, reader io.Reader) transport {
 
 func (t *jsonlTransport) Send(_ context.Context, frame []byte) error {
 	if len(frame) > maxTransportFrameBytes {
-		return fmt.Errorf("Codex transport frame exceeds %d bytes", maxTransportFrameBytes)
+		return fmt.Errorf("codex transport frame exceeds %d bytes", maxTransportFrameBytes)
 	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
@@ -73,7 +73,7 @@ func (t *jsonlTransport) Read(_ context.Context) ([]byte, error) {
 		for err == bufio.ErrBufferFull {
 			_, err = t.reader.ReadSlice('\n')
 		}
-		return nil, fmt.Errorf("Codex transport frame exceeds %d bytes", maxTransportFrameBytes)
+		return nil, fmt.Errorf("codex transport frame exceeds %d bytes", maxTransportFrameBytes)
 	}
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func dialPipeWebSocketTransport(ctx context.Context, reader io.ReadCloser, write
 		var conn net.Conn
 		once.Do(func() { conn = stream })
 		if conn == nil {
-			return nil, fmt.Errorf("Codex daemon proxy accepts one connection")
+			return nil, fmt.Errorf("codex daemon proxy accepts one connection")
 		}
 		return conn, nil
 	}}
@@ -181,7 +181,7 @@ func dialUnixWebSocketTransport(ctx context.Context, socket string, headers http
 
 func (t *websocketTransport) Send(ctx context.Context, frame []byte) error {
 	if len(frame) > maxTransportFrameBytes {
-		return fmt.Errorf("Codex transport frame exceeds %d bytes", maxTransportFrameBytes)
+		return fmt.Errorf("codex transport frame exceeds %d bytes", maxTransportFrameBytes)
 	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
@@ -194,7 +194,7 @@ func (t *websocketTransport) Read(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	if typ != websocket.MessageText {
-		return nil, fmt.Errorf("Codex transport requires text frames")
+		return nil, fmt.Errorf("codex transport requires text frames")
 	}
 	return frame, nil
 }

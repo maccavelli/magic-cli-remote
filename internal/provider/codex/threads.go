@@ -672,17 +672,6 @@ func inheritForkProject(parent, child provider.AgentSessionMeta) provider.AgentS
 	return child
 }
 
-func (p *Provider) nativeThreads() (*nativeThreadAPI, error) {
-	if _, err := p.ensureEngine(context.Background()); err != nil {
-		return nil, err
-	}
-	fr := p.framer()
-	if fr == nil {
-		return nil, errors.New("Codex engine is not running")
-	}
-	return newNativeThreadAPI(fr.sendReadOnlyOrWriteRequest, p.supportsCapability), nil
-}
-
 // sendReadOnlyOrWriteRequest is intentionally a plain adapter: individual API
 // methods decide whether a method is read-only and conn correlation remains
 // the one wire implementation.
@@ -706,7 +695,7 @@ func (p *Provider) nativeThreadsFor(ctx context.Context) (*nativeThreadAPI, erro
 	}
 	fr := p.framer()
 	if fr == nil {
-		return nil, errors.New("Codex engine is not running")
+		return nil, errCodexEngineNotRunning
 	}
 	return newNativeThreadAPI(fr.sendReadOnlyOrWriteRequest, p.supportsCapability), nil
 }

@@ -34,7 +34,10 @@ var privateACL = sync.OnceValues(func() (*windows.ACL, error) {
 
 // currentUserSID returns the SID of the process token's user.
 func currentUserSID() (*windows.SID, error) {
-	token, err := windows.OpenCurrentProcessToken()
+	// OpenCurrentProcessToken is deprecated for hiding the access it asks for;
+	// TOKEN_QUERY is what it used, and all GetTokenUser needs.
+	var token windows.Token
+	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
 		return nil, fmt.Errorf("appdirs: open process token: %w", err)
 	}
