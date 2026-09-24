@@ -592,8 +592,25 @@ step 7, any remaining symlink in `~/.local/bin` whose target is missing is also 
   `install-binary_test.sh` drove the live unit (Deviation 7). The owner had not yet approved a
   restart. The daemon came back healthy under the new drop-in: its `/proc` environment has
   the `~/sdk` PATH, `JAVA_HOME` and `BASH_ENV`.
-- **Pending:** `make preflight` green (Deviations 6 and 7, fixed by PLAN 0170, first written here as P10); step 7, removing
-  mise's data (C4 holds it until the preflight passes); the dotfiles commit; 9e.
+- ~~**Pending:** `make preflight` green (Deviations 6 and 7, fixed by PLAN 0170, first written here as P10); step 7, removing
+  mise's data (C4 holds it until the preflight passes); the dotfiles commit; 9e.~~
+
+#### P9 completion (2026-09-24)
+
+- **9d step 6 finished.** `make preflight` is green on the Linux server (PLAN 0170 P5). Every
+  step passed: pinned staticcheck for three GOOS, the hermetic install tests, and 1416 Flutter
+  tests. The live `mcremote` start time was unchanged across the run.
+- **9d step 7 done.**
+  - Removed: `~/.local/bin/mise`, `~/.local/share/mise` (7132 MiB), `~/.local/state/mise`,
+    `~/.cache/mise`, and the superseded `~/.local/go` (222 MiB).
+  - The two old mise-config backups were moved into `~/backups/0169-p9-2026-09-23/`, not
+    deleted. No dangling symlink remained in `~/.local/bin`.
+  - The three-context resolution check passes again afterwards.
+  - The dotfiles repository is committed on the server (not pushed).
+- **9e done.** MADR 0114 is marked superseded by this record, with an additive amendment
+  naming D15.
+- **Still open under P9:** A11's "the audit reports mise as drift" waits for P1's audit.
+  macOS keeps no mise, and WSL no mise.
 
 #### Deviation 6 (2026-09-24): `make preflight` fails at staticcheck on every host
 

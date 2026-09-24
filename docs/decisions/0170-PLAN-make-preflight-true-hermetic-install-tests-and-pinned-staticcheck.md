@@ -154,8 +154,13 @@ blocked by the disclosure guard until PLAN 0171 has run.
 
 `make preflight` in the server's checkout, fast-forwarded to the fixed commits.
 
-**Pending at the time of writing.** The commits reached the server by a `git bundle` over ssh
-(nothing was published). The run is in progress.
+**Executed 2026-09-24.** The commits reached the server by a `git bundle` over ssh (nothing was
+published), fast-forwarding its clean checkout from `fac3db6` to `ff3b604`.
+- `make preflight` exits 0, and every step ran: gofmt, tidy, vet, staticcheck v0.8.1 for linux,
+  darwin and windows, `go test -race`, the install tests, the systemd units, the release
+  build, the Flutter pin, `dart format`, `flutter analyze`, and `flutter test` (1416 passed).
+- The live `mcremote` unit's `ActiveEnterTimestamp` stayed at 02:03:03 UTC across the run.
+- A4's local half is met. Its dispatched CI run waits for the push (PLAN 0171).
 
 ## Verification (whole plan)
 

@@ -1,6 +1,6 @@
 ---
-status: "accepted"
-date: 2026-08-28
+status: "superseded by 0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md"
+date: 2026-09-24
 decision-makers: [Project Owner]
 consulted: [Local mise 2026.8.6 help and registry]
 informed: [Repository contributors using the managed user environment]
@@ -159,3 +159,23 @@ runtime, a home-directory global npm install is the sanctioned equivalent, and
 the original rejection of option B is read as scoped to hosts where mise owns
 Node. Nothing above alters the 2026-08-24 rationale, which was correct for the
 environment it was written in.
+
+## Amendment — 2026-09-24: superseded by MADR 0169 D15
+
+mise was retired on every host
+([MADR 0169](../decisions/0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md),
+D13). With it went the "mise already owns the user's Node runtime" driver. That driver was the
+only reason this record preferred mise, on the one host where it held.
+
+0169 D15 replaces this decision. markdownlint-cli2 0.23.2 is installed with
+`npm install --global --prefix ~/.local`, under the host's `~/sdk` Node. That is the same
+home-directory global install the 2026-08-28 amendment sanctioned for Windows, and it is the
+macOS laptop's layout.
+- On the Linux server this was done on 2026-09-24. `markdownlint-cli2` resolves from
+  `~/.local/bin` in a login shell, in non-interactive `bash -c`, and in the `mcremote` unit's
+  environment.
+- The unmet driver the 2026-08-28 amendment named, "record a concrete resolved version",
+  moves to 0169's standard file (D11). The audit checks the version there (D12), rather than a
+  version-manager config enforcing it.
+
+The 2026-08-24 rationale and the 2026-08-28 amendment are left as written.
