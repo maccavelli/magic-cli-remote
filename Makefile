@@ -6,7 +6,7 @@ MODULE  := github.com/maccavelli/magic-cli-remote
 #   A local build stamps <base>.g<commit> and BUILD_KIND=local, which the
 #   updater refuses to replace without --force.
 # Override: make build VERSION=1.2.3
-BASE_VERSION ?= $(shell git tag -l 'v*.*.*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$$' | sort -V | tail -1 | sed 's/^v//' || echo 0.0.0)
+BASE_VERSION ?= $(shell git tag -l --sort=v:refname 'v*.*.*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$$' | tail -1 | sed 's/^v//' || echo 0.0.0)
 # -dirty marks binaries built from a modified tree (tracked changes, same rule
 # as `git describe --dirty`) — otherwise a dirty build is indistinguishable
 # from a clean build of HEAD when debugging from the version string.
