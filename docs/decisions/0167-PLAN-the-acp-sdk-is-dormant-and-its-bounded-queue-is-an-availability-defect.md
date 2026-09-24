@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-24
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -1014,3 +1014,87 @@ only. The test file is `connection_accessor_test.go` (new) instead of `client_co
 P7's scope is now `client.go`, `agent.go` and `connection_accessor_test.go`, on
 `feat/expose-connection` from `main`. The PR text uses the two cases above instead of the
 "standard method" wording.
+
+## Execution record — release 4 (2026-09-24)
+
+**Ran:** P7 and P8. The plan is complete.
+
+**P7.**
+
+1. **The branch.** `feat/expose-connection` was cut from `main` (`0845a3b`, confirmed still
+   upstream's head after a fetch), with one commit, `ed80e81`. The hook wrote its subject, *feat:
+   expose underlying Connection on client and agent connections*, which is 66 characters in the
+   imperative. It adds `ClientSideConnection.Connection()` in `client.go`,
+   `AgentSideConnection.Connection()` in `agent.go`, and `connection_accessor_test.go` with two
+   tests.
+2. **The tests.** Each side runs over a pipe to a bare `Connection` peer that records what it
+   receives. Each asserts three things: the accessor returns the constructor's own connection;
+   `CallExtension` refuses the non-`_` method; and `SendRequest` through the accessor delivers
+   that method and its params and returns the peer's reply.
+3. **Fail-first.** Each mutation ran in its own copy of the working tree on WSL, after an
+   unmutated control copy passed. All six failed for their stated reason:
+
+   | mutation | failed with |
+   | --- | --- |
+   | client accessor returns nil | `Connection() = nil` |
+   | client accessor returns a fresh connection | `Connection() is not the connection NewClientSideConnection built` |
+   | agent accessor returns nil | `Connection() = nil` |
+   | agent accessor returns a fresh connection | `Connection() is not the connection NewAgentSideConnection built` |
+   | peer answers for the wrong method | `reply = map[method:something/else], want the peer's answer to "session/set_model"` |
+   | `CallExtension` accepts any method | `CallExtension("session/set_model") succeeded; expected it to refuse a non-extension method` |
+
+4. **Upstream's stability rule, at the `mise.toml` pins** (Go 1.26.3 through `GOTOOLCHAIN`),
+   against `ed80e81` and `v0.13.5`:
+   * `make check` (treefmt over 45 files, then `git diff --exit-code` clean), `make test`,
+     `go test -race ./...` and `gofumpt -l .` all pass.
+   * vet (12), staticcheck (2) and golangci-lint (2) output is byte-identical to `main`.
+   * Coverage is 29.0% → 29.1%.
+   * `make check` again failed on the three broken copies.
+5. **Independence from #60.** `git merge-tree` of the two branch tips produced a tree with no
+   conflicts. Both add methods to `client.go` and `agent.go`, but at different places.
+6. **Posting.** The owner approved the text and, in the same turn, the push and the post. The
+   branch was pushed, and the remote ref was confirmed at `ed80e81`. The PR is
+   <https://github.com/coder/acp-go-sdk/pull/61>, created 2026-09-24T19:52:59Z: 1 commit,
+   `MERGEABLE`, `REVIEW_REQUIRED`. The title and body were read back from the API and match the
+   approved text exactly, modulo CRLF→LF and trailing newlines. No comments were planned or
+   posted for P7.
+7. **CI, verbatim:** workflow `CI`, event `pull_request`, `status=completed`,
+   `conclusion=action_required`
+   (<https://github.com/coder/acp-go-sdk/actions/runs/36051139171>), as for #60 (F35).
+
+**What P7 predicted incorrectly, or did not say:**
+
+* **Scope named `client.go` and `client_connection_test.go`.** P7 needed `agent.go` too, and its
+  test covers both sides; see the deviation above.
+* **The rationale "a standard method the SDK does not model" was wrong.** `session/set_model` was
+  modelled through `v0.13.4` and dropped by the `v0.13.5` schema. The PR says so.
+* **The session's own `PATH` still pointed at a Go the 0169 upgrade had removed**
+  (`go1.26.5\bin`), so `go` was not found in Git Bash or PowerShell here, although the registry
+  `Path` resolves Go 1.26.6 correctly. Every P7 command ran in WSL at the pins instead, which is
+  what the PR evidence cites anyway.
+* **The registry audit found `C:\Program Files\Git\usr\bin` absent from the user `Path`,** so a
+  fresh PowerShell has no `sh.exe`, and `make ci-windows` would print "skipping" and exit 0. That
+  is the trap AGENTS.md describes. The fix was prepared but not applied: writing the registry
+  was refused by the session's safety check and left to the owner. It does not affect this plan's
+  deliverables.
+
+**P8.** This record and the MADR's *Observed* section close the plan.
+
+### Plan outcome
+
+| Phase | Result |
+| --- | --- |
+| P1, P2 | Done, release 1 |
+| P3, P4 | Done, release 2 |
+| P5, P6 | Done, release 3: PR #60 and comments on #40, #50 and #59 |
+| P7 | Done, release 4: PR #61 |
+| P8 | Done: this record |
+| P9–P13 | Done, release 5: the build uses the fork tag `v0.13.6-mcr.1` |
+
+**Still open, and outside this plan by design:**
+
+* **Upstream review of #60 and #61.** Nothing here can advance it. The *Exit procedure* above says
+  what happens when #60 merges or is rejected.
+* **Deleting our `unsafe.Pointer` cast** (`session.go`, `rawConnOf`). It waits for #61 to merge
+  and be released (*Deferred*).
+* **The Deferred list above is unchanged.** That covers F13, F14, Option C, F22 and 0166 F3.

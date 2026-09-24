@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-09-22
+date: 2026-09-24
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -1104,3 +1104,57 @@ not a someday.
   trade, and it replaces a far worse failure the user could not see explain itself at all.
 * Bad, because the fork must be rebased if upstream moves before merging — the same cost Option E
   always carried.
+
+## Observed — execution results (2026-09-24)
+
+The PLAN ran in five releases (P1–P13). Its execution records hold the transcripts; this section
+records which decisions held and how each open question was answered.
+
+**The contributions exist.** D7 is <https://github.com/coder/acp-go-sdk/pull/60>, the overflow
+policy: four commits, two of them #40's, cherry-picked with authorship kept. The comments on #40,
+#50 and #59 are posted. D9 is <https://github.com/coder/acp-go-sdk/pull/61>, the `Connection()`
+accessor, cut from `main` and merging cleanly beside #60. Both were opened on 2026-09-24, and both
+sit at `action_required` with no jobs run, exactly as F35 predicted for fork PRs. The evidence is
+in their bodies, as D15 required.
+
+**The defect and the fix, measured** (PLAN release 2, P4). 20 runs per cell, `GOMAXPROCS=1`,
+1,224 notifications at a stalled consumer:
+
+* **Default policy:** the transport survived 7/20 runs with a null handler and 2/20 with our
+  real handler.
+* **`OverflowDropNewest`:** it survived 20/20 in both, dropping 0–199 notifications per run.
+
+The null-handler result confirms F5 at a larger sample (0166 measured 3/5 lost). The drop ceiling
+is exactly 1,224 − 1,025, the queue plus one in flight.
+
+**Decisions contradicted or refined by execution:**
+
+* **F18/D9's framing.** They called `session/set_model` "a standard method the SDK does not
+  model". It was modelled through `v0.13.4` and dropped by the `v0.13.5` schema bump. The case for
+  the accessor is stronger for that, and #61 states both cases: a dropped method, and a modelled
+  method whose reply is richer than its type (`session/resume`).
+* **D14/D15's gofumpt claim.** It was first measured with gofumpt 0.12.0, which accepted a layout
+  upstream's pinned 0.10.0 rejects. It was fixed before posting, in `d0cbedf` (PLAN deviation,
+  2026-09-24). Every figure in both PR bodies was re-measured at upstream's exact pins, which
+  MADR/PLAN 0169's toolchain work had made installable without mise.
+* **D1** (no build change until merge) was superseded by the owner on 2026-09-22 (amendment
+  above). D16–D20 hold: `go.mod` pins `v0.13.6-mcr.1`, and the guard test rejects anything else.
+
+**Open questions for the plan, answered:**
+
+1. **Stack or stand alone.** Stacked, but narrowly. #40's two queue commits were cherry-picked onto
+   `main`, and its unrelated third commit (`107b384`) was excluded. The pair applied cleanly and
+   passed `go test ./...` (PLAN deviation, 2026-09-22). If #40 merges first, #60 reduces to its
+   own commits.
+2. Answered before execution (above).
+3. Answered before execution (above).
+4. **Can the policy test fail on demand?** Yes. Seven mutations of the policy and its plumbing all
+   failed (PLAN release 2), including "option parsed but never applied". The first run exposed an
+   unbounded pipe write that hung instead of failing; it was bounded before the tests counted.
+5. **The temporary `replace`.** It was never needed. P4 ran in a scratch worktree whose `go.mod`
+   replaced the SDK, so this repository's `go.mod` was never touched until release 5 adopted the
+   tag on purpose.
+6. **When to reconsider Option E.** Still open, deliberately. Upstream has merged nothing since
+   `v0.13.5` (2026-06-02). The observation that would reopen it is a closed or stale #60. Until
+   then, the fork tag carries the fix in this project's builds.
+7. **Is the 10 MiB frame cap reachable?** Still unmeasured; it stays on the PLAN's Deferred list.
