@@ -694,6 +694,52 @@ Commit discipline: one commit for the tests and the D16 fix, one for staticcheck
 findings), one for doctor, and one for CI. Each passes `make pre-add-check` first. Push and
 dispatch only on ask.
 
+#### P10 execution (2026-09-24)
+
+- **Step 1, seen to fail before the fix** (WSL, degraded manager):
+  - L2 failed with the F13 signature: one `is-system-running` call, then "Installed", no
+    stop and no start.
+  - The guard, with the real `/usr/bin/systemctl` first on the run PATH, exited 2 before any
+    run.
+  - On the Mac, with `/bin/launchctl` first, it also exited 2.
+  - `install_test.sh` had failed 3 of 139 on WSL before the seam fix (measured during the
+    investigation).
+- **Step 2.** After D16, the suites pass on WSL, the Linux server and macOS:
+  `install-binary_test.sh` D1–D2 and L1–L4, and `install_test.sh` 139/139.
+  - On the server the live unit's `ActiveEnterTimestamp` stayed at 02:03:03 across the run.
+  - The transient-unit probe on the degraded WSL manager now stops the unit and attempts a
+    start. The start fails only because a transient unit is gone once stopped, and the script
+    now warns about it where before it said nothing.
+- **Step 3, seen to fail.** `make staticcheck` exited 2 with 42 findings per GOOS (43 unique),
+  matching the triage.
+  - The target installs the pinned tool for the host into `bin/tools/` and then runs it per
+    GOOS. `go run pkg@v` could not be used, because `GOOS=windows` would cross-compile the
+    tool itself.
+- **Step 4.**
+  - 33 ST1005 fixed: two sentinels replace 17 copies, and the rest are lower-cased.
+  - Three dead functions deleted, and `maxCommandLineBatch` moved to `launch_windows.go`.
+  - Five SA1019 uses replaced. The JWS test now also asserts that the RFC's `d` derives its
+    published `(x, y)`.
+  - gofmt is clean; build and vet pass for windows, linux and darwin; `go test -race ./...`
+    and `CGO_ENABLED=0 go test ./...` pass on Windows (42 packages each).
+  - `go-precheck.sh` is clean on all 19 changed Go files.
+  - The pinned `make staticcheck` then exits 0, with 0 findings for linux, darwin and windows
+    (WSL, run after the doctor wiring).
+  - Committed as `8944b53`. A16 is met.
+- **Step 5.** The doctor test was seen failing through `go test -overlay` mutations, with the
+  working tree untouched: one mutation drops the warning line, the other the store line.
+  - A fresh `mcremote doctor` on Windows prints `store: file_protected` for codex, in 6.0 s
+    including the bounded probe.
+  - `describeReality` became the exported `DescribeReality`, so its `live_codex` test
+    (`reality_host_test.go`, one line) is touched. That file was not in the list, though it is
+    the only caller.
+- **Commit order changed.** Doctor (`bd03cab`) was committed before staticcheck, so the
+  staticcheck commit can show 0 findings: `describeReality` stays unused until doctor calls it.
+  Tests and D16 are in `919204b`.
+- **Residual, not fixed.** `install.sh`'s container detection reads host files (`/.dockerenv`,
+  `/proc/1/cgroup`) with no seam, so `install_test.sh`'s "native" cases would still flip
+  inside a container. None of the hosts or CI runners is a container, so nothing fails today.
+
 ## Verification (whole plan)
 
 ### Acceptance criteria (mapped to MADR Confirmation)
