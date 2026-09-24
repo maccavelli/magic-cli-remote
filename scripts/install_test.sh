@@ -15,6 +15,12 @@ INSTALLER="$HERE/install.sh"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
+# A non-WSL kernel release for every case that does not name its own. Without
+# it, detect_environment reads the real /proc/sys/kernel/osrelease, and on a WSL
+# host the "native" cases (22c, 24, 25) got the WSL advisory routing and failed
+# (MADR 0169 F15).
+printf '6.8.0-generic\n' > "$WORK/osrelease-native"
+
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; [ $# -gt 1 ] && printf '       %s\n' "$2"; }
@@ -85,6 +91,7 @@ run_installer() {
       # workstations while passing in a container. The suite must not depend on
       # the environment it is run from.
       unset XDG_RUNTIME_DIR
+      MC_TEST_OSRELEASE="${MC_TEST_OSRELEASE:-$WORK/osrelease-native}"; export MC_TEST_OSRELEASE
       [ -n "$_rp" ] && { PATH="$_rp"; export PATH; }
       [ "$_url" != "-" ] && { MC_TEST_BASE_URL="$_url"; export MC_TEST_BASE_URL; }
       MCREMOTE_INSTALL_DIR="$_dir"; export MCREMOTE_INSTALL_DIR
@@ -581,6 +588,7 @@ broken_advice() { # $1 = /proc/1/comm contents, $2 = tag
       HOME="$WORK/home-p1-$2"; export HOME
       XDG_CONFIG_HOME="$WORK/home-p1-$2/.config"; export XDG_CONFIG_HOME
       unset XDG_RUNTIME_DIR
+      MC_TEST_OSRELEASE="$WORK/osrelease-native"; export MC_TEST_OSRELEASE
       MC_TEST_PID1COMM="$_t/comm"; export MC_TEST_PID1COMM
       "$INSTALLER" >"$WORK/out" 2>"$WORK/err" ) || true
     cat "$WORK/out" "$WORK/err" 2>/dev/null || true
