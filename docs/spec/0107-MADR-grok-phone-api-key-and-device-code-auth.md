@@ -73,7 +73,7 @@ this MADR states the overlap and the leftover. It does **not** reopen
 ### What grok 1.0.5 actually exposes
 
 Probe target: **grok 1.0.5 (`5115b46bc909`) [stable]**. Sources:
-`/Users/saxsmith/gitrepos/grok-build` crate version 1.0.5.
+`/Users/<user>/gitrepos/grok-build` crate version 1.0.5.
 Isolated `GROK_HOME` (no `XAI_API_KEY`, no `auth.json`),
 `grok login --device-auth`, killed after 8s (login not completed):
 

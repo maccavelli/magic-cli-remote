@@ -149,11 +149,11 @@ alone; `setup-service --force` remains the way to re-derive.
 For reproduction. The F2 probe was a throwaway script around a scratch unit —
 not committed; its full output is quoted above.
 
-    ssh wonder 'systemctl --user show -p LoadState --value mcrelay.service'
-    ssh wonder 'diff ~/.config/systemd/user/mcremote.service \
+    ssh <linux-host> 'systemctl --user show -p LoadState --value mcrelay.service'
+    ssh <linux-host> 'diff ~/.config/systemd/user/mcremote.service \
                      <(mcremote setup-service --print-only)'
-    ssh wonder 'env PATH=/usr/bin:/bin ~/.local/bin/mcremote setup-service --print-only'
-    ssh wonder 'env -u XDG_RUNTIME_DIR ~/.local/bin/mcremote setup-service --print-only'
+    ssh <linux-host> 'env PATH=/usr/bin:/bin ~/.local/bin/mcremote setup-service --print-only'
+    ssh <linux-host> 'env -u XDG_RUNTIME_DIR ~/.local/bin/mcremote setup-service --print-only'
 
 ## Phase 7 — host verification of the implemented fix
 

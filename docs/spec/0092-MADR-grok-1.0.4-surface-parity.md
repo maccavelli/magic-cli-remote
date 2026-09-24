@@ -15,7 +15,7 @@ The grok provider last pinned its CLI/ACP contract against **1.0.3
 [0081](./0081-MADR-grok-1.0.3-surface-parity.md)
 ([0081-PLAN](./0081-PLAN-grok-1.0.3-surface-parity.md), Complete
 2026-08-12). The binary on this host is now **grok 1.0.4
-(`d846eb93d94d`) [stable]** at `/Users/saxsmith/.grok/bin/grok` →
+(`d846eb93d94d`) [stable]** at `/Users/<user>/.grok/bin/grok` →
 `../downloads/grok-1.0.4-macos-aarch64` (symlink mtime 2026-08-15
 12:30). `grok update --check --json` reports
 `currentVersion=1.0.4`, `latestVersion=1.0.4`, `updateAvailable=false`.
@@ -358,7 +358,7 @@ Existing tests that remain the regression net:
 ### Method
 
 * Binary: `grok 1.0.4 (d846eb93d94d) [stable]`,
-  `/Users/saxsmith/.local/bin/grok` → `/Users/saxsmith/.grok/bin/grok`
+  `/Users/<user>/.local/bin/grok` → `/Users/<user>/.grok/bin/grok`
   → `../downloads/grok-1.0.4-macos-aarch64`.
 * CLI: `grok --version` / `grok version --json`,
   `grok update --check --json`, `grok --help`, `grok agent --help`,

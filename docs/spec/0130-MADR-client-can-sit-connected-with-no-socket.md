@@ -20,7 +20,7 @@ informed: —
 
 The app can end up **permanently offline while its notification says
 "Connected to host"**. Measured 2026-09-02 on AVD `mcremote_test` / API 36 with
-APK `0.15.3.13`, daemon `macos-laptop`, device `emu-0129b`:
+APK `0.15.3.13`, daemon `<mac-host>`, device `emu-0129b`:
 
 ```text
 23:09:06  mesh path black-holed (iptables DROP, both directions, emulator only)

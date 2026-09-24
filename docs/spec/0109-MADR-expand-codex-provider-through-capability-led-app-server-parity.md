@@ -31,7 +31,7 @@ baseline:
 | Live permission catalog | `:read-only`, `:workspace`, and `:danger-full-access`, all allowed on this host |
 | Live native-thread discovery | `thread/list` returned two matching, unloaded, resumable threads using a state-database-only query scoped to this repository |
 | Live MCP diagnostics | Two configured servers; the bounded `toolsAndAuthOnly` response exposed names, auth states, and tool counts without resources or configuration |
-| Local upstream checkout | `/Users/saxsmith/gitrepos/codex`, clean `main` at [`6d020311f0f883ddf8c4622d36533527800ee905`](https://github.com/openai/codex/commit/6d020311f0f883ddf8c4622d36533527800ee905), matching `upstream/main`, 632 commits after local tag `rust-v0.147.0`, and 234 commits ahead of the configured fork's `origin/main` |
+| Local upstream checkout | `/Users/<user>/gitrepos/codex`, clean `main` at [`6d020311f0f883ddf8c4622d36533527800ee905`](https://github.com/openai/codex/commit/6d020311f0f883ddf8c4622d36533527800ee905), matching `upstream/main`, 632 commits after local tag `rust-v0.147.0`, and 234 commits ahead of the configured fork's `origin/main` |
 
 There is no local stable `rust-v0.148.0` source tag to bind to the installed
 binary. The generated schema and live 0.148.0 probes are therefore the

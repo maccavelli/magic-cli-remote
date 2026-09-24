@@ -245,7 +245,7 @@ make pre-add-check FILES="…"                              # → clean
 | Windows ignores XDG | `internal/appdirs/roots_windows.go:38-72` |
 | `TestLoadDisplayNameUnset` fails on this host every run | `go test ./...` at `b3d3355`, `293f5bd`, `445a1d0`, `7494c4a`; `make ci-windows` A6 at `7494c4a` |
 | Linux leak: 2 failures (planted HOME), 3 (MCREMOTE_CONFIG), control ok | WSL `Ubuntu-24.04`, clone of `1d358de`, 2026-09-18 |
-| wonder passes by luck | `ssh wonder`: live config sets `display_name`; `go test ./internal/config/ ./internal/relay/` ok at `293f5bd` |
+| wonder passes by luck | `ssh <linux-host>`: live config sets `display_name`; `go test ./internal/config/ ./internal/relay/` ok at `293f5bd` |
 | No parallel tests in either package | `git grep -c 't.Parallel()' -- internal/config internal/relay` → no matches |
 | Existing seam is private and Windows-only | `internal/appdirs/roots_windows.go:21-23` |
 | An empty `MCREMOTE_*` value counts as unset | viper v1.21.0 `viper.go:449` (`ok && (v.allowEmptyEnv \|\| val != "")`); the repo never calls `AllowEmptyEnv` (`git grep`) |

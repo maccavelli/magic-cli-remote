@@ -117,7 +117,7 @@ Software quality path: P1–P4 required for “won’t recur”; P5–P6 residua
 
 ## 2. P0 — Immediate host ops (no product code)
 
-**Owner:** operator on `macos-laptop`.  
+**Owner:** operator on `<mac-host>`.  
 **Goal:** phone can connect; codex stall on; one clean device id.
 
 ### 2.1 Restore LaunchAgent
@@ -130,7 +130,7 @@ mcremote setup-service --force
 launchctl print "gui/$(id -u)/com.magiccliremote.mcremote" | head -40
 pgrep -lf mcremote
 tail -n 30 ~/Library/Logs/mcremote/mcremote.err.log
-# Expect: listening …; registered with mcrelay host_id=macos-laptop
+# Expect: listening …; registered with mcrelay host_id=<mac-host>
 ```
 
 If setup-service fails: manual `bootstrap` + `kickstart -k` against

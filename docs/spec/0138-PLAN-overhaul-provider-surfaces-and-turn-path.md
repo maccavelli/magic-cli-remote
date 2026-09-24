@@ -2904,7 +2904,7 @@ documents the setup, and the emulator has been used repeatedly on this host.
 
 Driven properly, all of it worked: AVD booted, the current client built
 (`flutter build apk --debug`, JDK 21 per the ops doc) and installed, and the app
-came up **already paired** and `Connected to macos-laptop over Mesh`. The
+came up **already paired** and `Connected to <mac-host> over Mesh`. The
 previously installed APK was v0.15.9+1 — older than every client change in this
 record — so any paging result from it would have been meaningless.
 

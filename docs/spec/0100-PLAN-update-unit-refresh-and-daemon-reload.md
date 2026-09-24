@@ -154,7 +154,7 @@ line.
 `render` reads `HOME`, `USER`, `PATH` and the `XDG_*` roots from the process
 doing the rendering, not from `Options` (`setup.go:843-852`), and for `mcremote`
 `servicePathEnv` (`setup.go:804-833`) derives PATH from `os.Getenv("PATH")`.
-Phase 0 measured the consequence on wonder: the same binary renders a different
+Phase 0 measured the consequence on <linux-host>: the same binary renders a different
 `Environment=PATH=` under a different caller, and drops
 `Environment=XDG_RUNTIME_DIR=` when the caller has none. Recomputing would make
 every refresh report a change and would rewrite the daemon's PATH to the

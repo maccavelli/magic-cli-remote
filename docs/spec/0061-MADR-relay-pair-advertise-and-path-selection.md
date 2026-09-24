@@ -56,7 +56,7 @@ Split **advertise** credentials (`relay.url` + `relay.host_id`) from
 ## Context and problem statement
 
 mcrelay was deployed at a public edge (`wss://…:8443`). mcremote registered
-successfully as host `macos-laptop` via LaunchAgent env
+successfully as host `<mac-host>` via LaunchAgent env
 (`MCREMOTE_RELAY_*`). Pairing and off-mesh connect still failed or looked
 like “mesh only”:
 
@@ -112,7 +112,7 @@ Preferred layout:
 # ~/.config/mcremote/config.yaml (mode 0600)
 relay:
   url: "wss://relay.example.com:8443"
-  host_id: "macos-laptop"
+  host_id: "<mac-host>"
   secret: ""   # not required here
 ```
 

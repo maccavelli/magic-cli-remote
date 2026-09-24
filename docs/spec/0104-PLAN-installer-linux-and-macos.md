@@ -804,7 +804,7 @@ svc_targets_install_dir() { # $1 = product; 0 = this prefix owns it
 ```
 
 `awk -F ' = '` matches the measured `launchctl print` line
-`program = /Users/saxsmith/.local/bin/mcremote`. Do not parse
+`program = /Users/<user>/.local/bin/mcremote`. Do not parse
 `path =` (that is the plist path).
 
 ### 6.3 Scope `svc_note_active`

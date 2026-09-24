@@ -331,7 +331,7 @@ func TestPairQRStaysScannable(t *testing.T) {
 	// relay tuple, all URL-encoded.
 	uri := "mcremote://pair?code=Z2S2E3S8" +
 		"&fp=Tm-_s2l3OJIRLSuofiq21VHE-zTDQqhLaEZFtLslI0c" +
-		"&hid=macos-laptop" +
+		"&hid=mac-host" +
 		"&host=wss%3A%2F%2F100.64.0.3%3A7531" +
 		"&mode=selfsigned" +
 		"&relay=wss%3A%2F%2Fheadscale.lallygag.net%3A8443"

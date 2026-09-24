@@ -4,11 +4,11 @@
   "binary": "/opt/homebrew/bin/kilo",
   "install": "npm -g @kilocode/cli",
   "paths": {
-    "config": "/Users/saxsmith/.config/kilo",
-    "data": "/Users/saxsmith/.local/share/kilo",
-    "auth": "/Users/saxsmith/.local/share/kilo/auth.json",
-    "cache": "/Users/saxsmith/.cache/kilo",
-    "state": "/Users/saxsmith/.local/state/kilo"
+    "config": "/Users/<user>/.config/kilo",
+    "data": "/Users/<user>/.local/share/kilo",
+    "auth": "/Users/<user>/.local/share/kilo/auth.json",
+    "cache": "/Users/<user>/.cache/kilo",
+    "state": "/Users/<user>/.local/state/kilo"
   },
   "auth_list": {
     "auth_json_credentials": 0,

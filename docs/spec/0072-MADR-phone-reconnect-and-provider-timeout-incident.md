@@ -4,14 +4,14 @@
 
 - **Status**: **Software remediation complete** (0072-PLAN P0–P6, 2026-08-05).
   Owner locked §6.2 A; D1–D7 (D3 write **20 s**). Host P0 applied on
-  `macos-laptop`; code shipped through DialEpisode serialization.
+  `<mac-host>`; code shipped through DialEpisode serialization.
 - **Date**: 2026-08-05
 - **Deciders**: Project Owner (priority / ops actions / D4); Implementer
   (code follow-ups after acceptance)
 - **Implementation plan**:
   [0072-PLAN-phone-reconnect-and-provider-timeout-remediation.md](0072-PLAN-phone-reconnect-and-provider-timeout-remediation.md)
   — P0 ops through P6 close-out; grounded against HEAD+WIP
-- **Scope**: Live incident on host `macos-laptop` (mcremote 0.8.0.2.g077c979)
+- **Scope**: Live incident on host `<mac-host>` (mcremote 0.8.0.2.g077c979)
   and phone `s22+`: mesh+relay disconnect / failed reconnect; goose and
   codex sessions that appear frozen until the app is force-killed; full
   audit of host `~/.config/mcremote/config.yaml` and provider timeout
@@ -106,7 +106,7 @@ Path: `~/.config/mcremote/config.yaml` (mtime 2026-08-04 21:52).
 | `tls` | selfsigned (empty mode, enabled) | OK for mesh IP advertise | OK; fingerprint must match phone pin |
 | `auth.require_client_key` | true | product default | OK |
 | `relay.url` | `wss://headscale.lallygag.net:8443` | empty = off | OK for phone path |
-| `relay.host_id` | `macos-laptop` | — | OK |
+| `relay.host_id` | `<mac-host>` | — | OK |
 | `limits.max_ws_clients` | 8 | 8 | OK |
 | `limits.max_live_sessions` | 16 | 16 | OK |
 | `limits.ws_read_deadline_seconds` | **absent** | **120** (WIP) / **60** (shipped 077c979) | **Drift**: host relies on binary default; shipped still 60 |

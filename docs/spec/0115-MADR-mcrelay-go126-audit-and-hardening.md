@@ -296,7 +296,7 @@ approved**, per `AGENTS.md`.
 * 0017 E5 (metrics) remains deferred and is unchanged by this record.
 * Ops context: `docs/ops-mcrelay.md`; production relay
   `wss://headscale.lallygag.net:8443` with one registered host
-  (`macos-laptop`).
+  (`<mac-host>`).
 
 ## Observed — execution results (2026-08-25)
 

@@ -611,7 +611,7 @@ acceptance criterion 4 would stay open, and P6 could not run.
 
 ### P5 — Alerts and answers from the service isolate: **C3 met** (D4)
 
-APK `0.15.3.12`, AVD `mcremote_test` / API 36, daemon `macos-laptop`, device
+APK `0.15.3.12`, AVD `mcremote_test` / API 36, daemon `<mac-host>`, device
 `emu-0129b`, grok session `a787cbb9` in Plan mode.
 
 **The gate, passed.** With the app swiped from recents, a `permission_request`
@@ -766,7 +766,7 @@ nothing exits zero and proves nothing).
 
 ### P6 — Re-run of 0126 P7: rows 1 and 2 pass, row 4 partly (D1)
 
-APK `0.15.3.13`, AVD `mcremote_test` / API 36, daemon `macos-laptop`, device
+APK `0.15.3.13`, AVD `mcremote_test` / API 36, daemon `<mac-host>`, device
 `emu-0129b`, grok session `a787cbb9`.
 
 ```text

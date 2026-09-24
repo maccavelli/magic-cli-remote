@@ -20,14 +20,14 @@ session loop against OpenCode 1.18.4–1.18.7. Later auth evidence reaches
 by Kilo.
 
 The installed binary is now **OpenCode 1.18.21** at
-`/Users/saxsmith/.opencode/bin/opencode`. `opencode --version` and isolated
+`/Users/<user>/.opencode/bin/opencode`. `opencode --version` and isolated
 `GET /global/health` both report `1.18.21`; the executable is a Darwin
 arm64 Mach-O with SHA-256
 `8c783005340f8dfc5e7d168478dd0dd2bd1faead531cb34270de2a9689d9f135`.
 The official [v1.18.21 release](https://github.com/anomalyco/opencode/releases/tag/v1.18.21)
 is marked latest and was published on 2026-08-21.
 
-Matching sources are present at `/Users/saxsmith/gitrepos/opencode`.
+Matching sources are present at `/Users/<user>/gitrepos/opencode`.
 The release behavior boundary is upstream commit
 [`57fa34f235`](https://github.com/anomalyco/opencode/commit/57fa34f23599f65dd1027f9caac31e6c576ce644);
 [`ad0bb6d9a3`](https://github.com/anomalyco/opencode/commit/ad0bb6d9a3e779def694adc093a811e86a529df0)

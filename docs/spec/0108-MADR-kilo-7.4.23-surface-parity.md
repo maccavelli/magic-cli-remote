@@ -203,7 +203,7 @@ worktrees, PTY, `kilo pr`, Agent Manager, Cloud, or `kilo run` hosting.
 | `internal/provider/kilo/mode.go` | Phone modes are Kilo agents; synthetic `auto` runs the normal `code` agent and daemon-side permission auto-response. |
 | `internal/provider/kilo/permission.go:18-90,373-388` | Permission metadata is shown as detail when needed, while engine replies omit Kilo's optional `interactive` flag. |
 | `internal/provider/kilo/pin_scope_test.go` | Worktree, sandbox, PTY, Agent Manager, Cloud, and run control are intentionally absent. |
-| `/Users/saxsmith/gitrepos/kilocode`, `v7.4.22..0d5d334480` | Local source delta used for 7.4.23 behavior review. GitHub tag commit `40fa10e` has parent `0d5d334480`; its remaining changes are release metadata/version generation. |
+| `/Users/<user>/gitrepos/kilocode`, `v7.4.22..0d5d334480` | Local source delta used for 7.4.23 behavior review. GitHub tag commit `40fa10e` has parent `0d5d334480`; its remaining changes are release metadata/version generation. |
 | Local Kilo checkout HEAD `67cd629f3c` | The local `main` is not the published tag boundary: after `0d5d334480` it includes the VS Code document-viewer series ending at merge `6f87e9c22e` and a different local `release: v7.4.23` commit. All shipped comparisons therefore use the pinned tag parent, not mutable `HEAD`. |
 | Kilo `packages/sdk/openapi.json` at `v7.4.22` and `0d5d334480` | 256/681/119 → 255/680/119; one path removed, one schema removed, no Event types changed. |
 | Kilo `packages/opencode/src/kilocode/agent/index.ts` and commit [`d4f3a3a`](https://github.com/Kilo-Org/kilocode/commit/d4f3a3a9e63a3954214887563dc3816ea179858f) | Ask/Plan reapply read-only guards after broad user permission rules. |

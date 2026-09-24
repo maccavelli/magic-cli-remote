@@ -15,14 +15,14 @@ The grok provider last pinned its CLI/ACP contract against **1.0.4
 [0092](./0092-MADR-grok-1.0.4-surface-parity.md)
 ([0092-PLAN](./0092-PLAN-grok-1.0.4-surface-parity.md), Complete
 2026-08-15). The binary on this host is now **grok 1.0.5
-(`5115b46bc909`) [stable]** at `/Users/saxsmith/.local/bin/grok` →
-`/Users/saxsmith/.grok/bin/grok` → `../downloads/grok-1.0.5-macos-aarch64`
+(`5115b46bc909`) [stable]** at `/Users/<user>/.local/bin/grok` →
+`/Users/<user>/.grok/bin/grok` → `../downloads/grok-1.0.5-macos-aarch64`
 (symlink mtime 2026-08-19 12:03). `grok version --json` reports
 `currentVersion=1.0.5 (5115b46bc909)`, channel `stable`.
 `grok update --check --json` reports `latestVersion=1.0.5`,
 `updateAvailable=false`.
 
-Sources for this release live in `/Users/saxsmith/gitrepos/grok-build`
+Sources for this release live in `/Users/<user>/gitrepos/grok-build`
 (`crates/codegen/xai-grok-version` `version = "1.0.5"`, `SOURCE_REV`
 `7bd63df3c9bb1bf98e7a9b3486f4a0189ea94e55`, last dump commit 2026-08-16).
 The shipped binary stamps a different short hash than the dump revision;
@@ -412,10 +412,10 @@ Existing tests that remain the regression net:
 ### Method
 
 * Binary: `grok 1.0.5 (5115b46bc909) [stable]`,
-  `/Users/saxsmith/.local/bin/grok` → `/Users/saxsmith/.grok/bin/grok`
+  `/Users/<user>/.local/bin/grok` → `/Users/<user>/.grok/bin/grok`
   → `../downloads/grok-1.0.5-macos-aarch64` (Mach-O arm64, 134349648
   bytes, mtime 2026-08-19 12:03).
-* Sources: `/Users/saxsmith/gitrepos/grok-build`, crate version
+* Sources: `/Users/<user>/gitrepos/grok-build`, crate version
   1.0.5, `SOURCE_REV` `7bd63df3c9bb1bf98e7a9b3486f4a0189ea94e55`.
 * CLI: `grok --version` / `grok version --json`,
   `grok update --check --json`, `grok --help`, `grok agent --help`,

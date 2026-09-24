@@ -69,7 +69,7 @@ start mcremote.service` fails, `SwapAndRestart` returns an error, and the
 deferred restore (`swap.go:93-108`) renames `.prev` back over the new binary.
 The update reports failure and undoes a swap that had already succeeded.
 
-Confirmed on a host: an isolated `mcrelay` copy on wonder downloaded the
+Confirmed on a host: an isolated `mcrelay` copy on <linux-host> downloaded the
 release, swapped, failed to start (`Unit mcrelay.service not found.`), printed
 `restored previous binary from .prev`, and exited 1 with the binary
 byte-identical to before ([findings](0100-findings-update-refresh.md) §F3).

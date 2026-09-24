@@ -56,7 +56,7 @@ Success means:
   transport.
 * Sandbox, worktree, PTY, Agent Manager, Cloud, `kilo run`, `kilo pr`, STT,
   and IDE/webview behavior.
-* Fetching or modifying `/Users/saxsmith/gitrepos/kilocode`; that checkout is
+* Fetching or modifying `/Users/<user>/gitrepos/kilocode`; that checkout is
   read-only evidence for this plan.
 * Publishing commits or pushing a branch.
 
@@ -162,7 +162,7 @@ Use fresh temporary files and source objects, not the old prose counts:
 
 ```bash
 probe_root="$(mktemp -d)"
-kilo_source=/Users/saxsmith/gitrepos/kilocode
+kilo_source=/Users/<user>/gitrepos/kilocode
 
 git -C "$kilo_source" show \
   67cda85c94937a7dfad68993bdddc76cb0353c36:packages/sdk/openapi.json \

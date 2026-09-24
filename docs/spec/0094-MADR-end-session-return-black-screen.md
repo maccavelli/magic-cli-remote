@@ -3,7 +3,7 @@ status: accepted
 date: 2026-08-16
 decision-makers: [Project Owner]
 consulted: [Implementer]
-informed: [Operators of macos-laptop, Android phone clients]
+informed: [Operators of <mac-host>, Android phone clients]
 ---
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -14,7 +14,7 @@ informed: [Operators of macos-laptop, Android phone clients]
 
 On 2026-08-16 the operator ended the only active session from inside the
 session window on `s22+` (Android app, host `mcremote` on
-`macos-laptop`). After pressing the back arrow they were returned to a
+`<mac-host>`). After pressing the back arrow they were returned to a
 blank, black screen that never refreshed or populated the session
 landing screen data. The app only recovered by creating a new session
 later.

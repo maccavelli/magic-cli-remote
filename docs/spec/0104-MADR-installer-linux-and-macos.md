@@ -282,7 +282,7 @@ Facts this amendment is grounded in, not inferred:
 * Measured 2026-08-19 on this Mac: `--dir .tmp-0104-bin --no-service`
   logged `running services: mcremote`, booted out
   `gui/503/com.magiccliremote.mcremote` (`program =
-  /Users/saxsmith/.local/bin/mcremote`), and did not start it again.
+  /Users/<user>/.local/bin/mcremote`), and did not start it again.
   Production was restored with `bootstrap` + `kickstart` (pid 68861
   → 73921). The production plist was byte-identical
   (`aca1e984…`).
@@ -300,9 +300,9 @@ Facts this amendment is grounded in, not inferred:
   `os.Executable()` (`internal/cli/service/setup.go:703-718`).
   Measured 5.3: `$DEST/mcremote setup-service --unit-name
   mcremote-0104 --no-start` wrote `ProgramArguments[0] =
-  /Users/saxsmith/.local/bin/mcremote`, not `$DEST/mcremote`.
+  /Users/<user>/.local/bin/mcremote`, not `$DEST/mcremote`.
 * `launchctl print` on a loaded agent emits `program = <abs path>`
-  (measured: `program = /Users/saxsmith/.local/bin/mcremote`). That
+  (measured: `program = /Users/<user>/.local/bin/mcremote`). That
   is the POSIX-parseable source of truth when the job is loaded.
   When it is not, macOS `plutil -extract ProgramArguments.0 raw`
   reads the same path from the plist. Linux reads `ExecStart=` from
@@ -420,7 +420,7 @@ service. Exit 0; `mcremote`/`mcrelay` report `0.13.10.2`; LaunchAgent
 is session-bound LaunchAgent, not "enabled at boot"; FDA advisory
 printed; no `ETXTBSY`, no `Bootstrap failed: 5`. Phase 6 (E3)
 implemented: stub suite **133 passed**; live `--dir $HOME/tmp/mc-0104-edir
---no-service` logged `not stopping mcremote: program=/Users/saxsmith/.local/bin/mcremote`
+--no-service` logged `not stopping mcremote: program=/Users/<user>/.local/bin/mcremote`
 and left production pid **75923** unchanged. Status `accepted`. See
 [More Information](#phase-5-live-verification-2026-08-19).
 
@@ -594,8 +594,8 @@ before any further step.
 | 5.2 | Live Darwin binaries, `--no-service` | this Mac, fake release | exit 0; `os=darwin arch=arm64 init=launchd-agent`; both DEST binaries Mach-O arm64 reporting `0.13.10.2`; FDA advisory printed; `service: skipped (--no-service)`; no leftover `.mcinstall.*`; production plist byte-identical (`aca1e984…`, mtime 2026-08-05) |
 | 5.3a | Live Darwin `--dry-run --verbose` | this Mac | exit 0; `os: darwin`, `arch: arm64`, `init: launchd-agent (pid1=launchd)`; nothing written |
 | 5.3b | Disposable LaunchAgent | `$DEST/mcremote setup-service --unit-name mcremote-0104 --no-start` then `--remove` | plist `~/Library/LaunchAgents/com.magiccliremote.mcremote-0104.plist` written with `Label com.magiccliremote.mcremote-0104`, scope `launchd-agent (session — stops on logout)`, `Started: skipped`; label never loaded; `--remove` deleted the plist; production agent pid unchanged through write and remove |
-| 5.4 | Production one-liner (default dir, with service) | this Mac, piped `scripts/install.sh`, `MC_TEST_BASE_URL=$HOME/tmp/mc-0104-rel` | exit 0; `running services: mcremote`; both `~/.local/bin` binaries `0.13.10.2` Mach-O; `--refresh` "definition unchanged"; plist sha still `aca1e984…`; agent `state = running` pid 75923 `program = /Users/saxsmith/.local/bin/mcremote`; summary LaunchAgent, not "enabled at boot"; FDA advisory; no `ETXTBSY`; no `Bootstrap failed: 5` |
-| 6.8 | Live `--dir` throwaway, `--no-service` | this Mac, `$HOME/tmp/mc-0104-edir` | exit 0; verbose `not stopping mcremote: program=/Users/saxsmith/.local/bin/mcremote want=.../mc-0104-edir/mcremote`; production pid **75923 unchanged**; DEST Mach-O `0.13.10.2` |
+| 5.4 | Production one-liner (default dir, with service) | this Mac, piped `scripts/install.sh`, `MC_TEST_BASE_URL=$HOME/tmp/mc-0104-rel` | exit 0; `running services: mcremote`; both `~/.local/bin` binaries `0.13.10.2` Mach-O; `--refresh` "definition unchanged"; plist sha still `aca1e984…`; agent `state = running` pid 75923 `program = /Users/<user>/.local/bin/mcremote`; summary LaunchAgent, not "enabled at boot"; FDA advisory; no `ETXTBSY`; no `Bootstrap failed: 5` |
+| 6.8 | Live `--dir` throwaway, `--no-service` | this Mac, `$HOME/tmp/mc-0104-edir` | exit 0; verbose `not stopping mcremote: program=/Users/<user>/.local/bin/mcremote want=.../mc-0104-edir/mcremote`; production pid **75923 unchanged**; DEST Mach-O `0.13.10.2` |
 
 **Not claimed.** GitHub `releases/latest` is still **v0.13.10**:
 published `install.sh` rejects Darwin (`detect_arch` Linux-only);

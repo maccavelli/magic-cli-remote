@@ -296,7 +296,7 @@ are not cited.
 
 Implication, one sentence: **the only official levers that see kilo / flutter / opencode RSS are (1) not starting those processes (D5/D7) and (2) the OS process/cgroup APIs `os/exec` and systemd already wrap (D4).**
 
-### Incident timeline (host `wonder`, 2026-08-15 UTC)
+### Incident timeline (host `<linux-host>`, 2026-08-15 UTC)
 
 Source: `journalctl --user -u mcremote`, kilo engine logs under
 `~/.local/share/kilo/log/`, session

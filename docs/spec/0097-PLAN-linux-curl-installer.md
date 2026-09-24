@@ -602,7 +602,7 @@ Defects found, and where they were fixed:
 |---|---|---|---|
 | ✅ | Lima VM, Ubuntu 26.04 **aarch64**, clean host — *fresh install* | `systemd-user` | exit 0; unit created, enabled, `Linger=yes`; daemon listening, first-run self-signed cert |
 | ✅ | arm64 binary executes | — | `ELF ARM aarch64`, reports `0.13.3.1` |
-| ✅ | `wonder`, Ubuntu 26.04 amd64 — *upgrade, mcremote only* | `systemd-user` | exit 0; existing unit preserved; AppArmor advisory printed |
+| ✅ | `<linux-host>`, Ubuntu 26.04 amd64 — *upgrade, mcremote only* | `systemd-user` | exit 0; existing unit preserved; AppArmor advisory printed |
 | ✅ | `awsutility`, Ubuntu 26.04 amd64 — *upgrade, both daemons* | `systemd-user` | exit 0; both restarted; `/proc/<pid>/exe` shows no `(deleted)`; relay re-registered 3 hosts |
 | ✅ | Idempotent re-run | `systemd-user` | one unit; no temp dirs; exit 0 |
 | ✅ | `--uninstall` | `systemd-user` | service stopped, process gone, binaries + unit removed |

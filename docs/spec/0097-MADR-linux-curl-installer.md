@@ -409,7 +409,7 @@ both scripts.
 |---|---|---|---|
 | 1 | Fresh install — unit created, enabled, lingering set | Lima VM, Ubuntu 26.04 **aarch64** | exit 0; daemon listening, self-signed cert generated first run |
 | 2 | `linux/arm64` binary actually executes | same VM | `ELF ARM aarch64`, reports `0.13.3.1` |
-| 3 | Upgrade, mcremote-only service | `wonder`, Ubuntu 26.04 amd64 | exit 0; existing unit preserved, service restarted |
+| 3 | Upgrade, mcremote-only service | `<linux-host>`, Ubuntu 26.04 amd64 | exit 0; existing unit preserved, service restarted |
 | 4 | Upgrade, **both** daemons as services | `awsutility`, Ubuntu 26.04 amd64 | exit 0; both restarted; `/proc/<pid>/exe` confirmed no stale inode; relay re-registered 3 hosts |
 | 5 | Idempotent re-run | VM + `awsutility` | exit 0; one unit; no temp dirs |
 | 6 | `--uninstall` | VM | service stopped, process gone, binaries and unit removed |
@@ -440,7 +440,7 @@ priority order:
 Three defects reached real hosts despite a green suite, and each was found by
 the *first* run in a new environment:
 
-1. **`wonder`** — an existing unit made `setup-service` refuse to overwrite;
+1. **`<linux-host>`** — an existing unit made `setup-service` refuse to overwrite;
    the installer had already stopped the daemon and left it down. Fixed by
    keeping the existing unit and restarting, plus a restore-on-failure path.
 2. **`awsutility`** — only `mcremote` was cycled while *both* binaries were

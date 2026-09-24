@@ -3,7 +3,7 @@ status: proposed
 date: 2026-08-16
 decision-makers: [Project Owner]
 consulted: [Implementer]
-informed: [Operators of macos-laptop, Android phone clients]
+informed: [Operators of <mac-host>, Android phone clients]
 ---
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->

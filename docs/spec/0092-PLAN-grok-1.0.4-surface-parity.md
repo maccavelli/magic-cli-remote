@@ -13,7 +13,7 @@ Associated MADR: [0092-MADR-grok-1.0.4-surface-parity.md](0092-MADR-grok-1.0.4-s
   still discriminates.
 - **Date**: 2026-08-15
 - **Keyed to**: repository HEAD at plan-write time; grok **1.0.4
-  (`d846eb93d94d`) [stable]** at `/Users/saxsmith/.grok/bin/grok`.
+  (`d846eb93d94d`) [stable]** at `/Users/<user>/.grok/bin/grok`.
   Re-record `grok --version` at the top of the first live-test commit
   if the implementer's binary differs. If it is not 1.0.4, **stop**
   and update MADR 0092 rather than guessing a new schema.

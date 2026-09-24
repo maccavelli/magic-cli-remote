@@ -224,7 +224,7 @@ evidence for any part of this record.
 
 Debug APK (`--debug`, versionCode 1, installed with `-r -d`; local release
 builds are debug-signed because `android/key.properties` is absent, so the
-pairing survived the swap). AVD `mcremote_test`, daemon `macos-laptop`, device
+pairing survived the swap). AVD `mcremote_test`, daemon `<mac-host>`, device
 `emu-0129b`.
 
 | # | owner | blocked | result |

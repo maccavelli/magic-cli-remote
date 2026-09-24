@@ -37,7 +37,7 @@ All measured 2026-09-18 at `b3d3355`.
   ':!docs/spec' ':!docs/decisions'` finds only these four lines: the two root
   README lines, which agree with CI, and the two stale ones.
 * Flutter 3.47.2 bundles Dart 3.13.2 (`flutter --version` on this host, in WSL
-  and on wonder).
+  and on <linux-host>).
 * `apps/mobile/pubspec.yaml` declares `sdk: ^3.12.2`. That is the Dart language
   floor for the package, not the toolchain developers should install.
 * `markdownlint-cli2` v0.23.2 reports one existing finding across the two
@@ -169,7 +169,7 @@ git diff --name-only HEAD~1 -- ':!docs/spec'
 | Two stale lines | `apps/mobile/README.md:20`; `docs/mobile-profiling.md:27` |
 | Bump commit left them behind | `git show --stat 244636a` |
 | Only four version lines exist in the docs | `git grep` in "What was measured" |
-| 3.47.2 bundles Dart 3.13.2 | `flutter --version` on this host, in WSL and on wonder, 2026-09-18 |
+| 3.47.2 bundles Dart 3.13.2 | `flutter --version` on this host, in WSL and on <linux-host>, 2026-09-18 |
 | Lint baseline: one finding, README.md:50 | `markdownlint-cli2` v0.23.2 |
 
 ### Related records

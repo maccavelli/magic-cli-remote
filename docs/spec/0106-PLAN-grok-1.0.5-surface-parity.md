@@ -15,7 +15,7 @@ Associated MADR: [0106-MADR-grok-1.0.5-surface-parity.md](0106-MADR-grok-1.0.5-s
   green. Binary: grok **1.0.5 (`5115b46bc909`)** [stable].
 - **Date**: 2026-08-19
 - **Keyed to**: repository HEAD at plan-write time; grok **1.0.5
-  (`5115b46bc909`) [stable]** at `/Users/saxsmith/.grok/bin/grok`.
+  (`5115b46bc909`) [stable]** at `/Users/<user>/.grok/bin/grok`.
   Re-record `grok --version` at the top of the first live-test commit
   if the implementer's binary differs. If it is not 1.0.5, **stop**
   and update MADR 0106 rather than guessing a new schema.

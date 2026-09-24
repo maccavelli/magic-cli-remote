@@ -16,7 +16,7 @@ The grok provider last pinned its CLI/ACP contract against **0.2.112**
 ([0050](./0050-MADR-grok-cli-surface-drift.md),
 [0052](./0052-MADR-thinking-levels-and-settings.md)). The binary on this
 host is now **grok 1.0.3 (`1a29d5bc12d4`) [stable]** at
-`/Users/saxsmith/.local/bin/grok`. That is a major-version jump, not a
+`/Users/<user>/.local/bin/grok`. That is a major-version jump, not a
 patch.
 
 This record asks: **which newly exposed 1.0.3 surfaces should the daemon
@@ -403,7 +403,7 @@ The IDs in that section must stay aligned with this table.
 ### Method
 
 * Binary: `grok 1.0.3 (1a29d5bc12d4) [stable]`,
-  `/Users/saxsmith/.local/bin/grok`.
+  `/Users/<user>/.local/bin/grok`.
 * CLI: `grok --help`, `grok agent --help`, `grok agent stdio --help`,
   every subcommand `--help`, `grok models`, `grok inspect`,
   `grok mcp list`, `grok plugin list`, `grok sessions list`,

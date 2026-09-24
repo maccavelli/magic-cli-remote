@@ -7,7 +7,7 @@
 | status | **accepted** 2026-08-10 — `providers.kilo.enabled` default flipped to **true** everywhere (code `Defaults()`, both config templates, docs) by decider request, four days into the one-week spike-host window with no session-loop regressions reported. Previously: **implemented** 2026-08-06 (plan phases P1–P4 complete on **kilo 7.4.20**; §8 acceptance green — see §8 note) with `enabled` shipping **false** pending the flip criteria |
 | plan | [0075-PLAN-kilo-cli-provider.md](0075-PLAN-kilo-cli-provider.md) (accepted 2026-08-06, decisions PD1–PD6 locked, phases P1–P4; PD1 amends D5 — un-gated engine) |
 | date | 2026-08-06 |
-| deciders | @saxsmith |
+| deciders | @<user> |
 | related | MADR 0011 (OpenCode provider), **0019** (single-engine), **0020** (session tree), **0021** (OpenCode HTTP API), **0023** (slash commands), **0024** (stream coalescing), **0025** (goose), **0028** (codex), **0029** (provider platform), **0031** (catalog), **0037** (CLI uptake), **0043** (models), **0074** (remote auth) |
 | method | Codebase (`httpagent`, `opencode`, daemon, config); official Kilo docs; **live wire spike** against installed `kilo` 7.4.20 — artifacts in [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/) (`summary.json`); **auth re-probe 2026-08-06 after host credentials added** (Appendix E) |
 | known-good CLI | **`kilo` 7.4.22** (0088 pin; 7.4.20 spike evidence remains in [kilo-spike-7.4.20](./kilo-spike-7.4.20/)). Originally **7.4.20** at 0075 accept. |

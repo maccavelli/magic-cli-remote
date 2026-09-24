@@ -566,7 +566,7 @@ func TestRelayValidateAdvertiseWithoutSecret(t *testing.T) {
 	// the QR without the registration secret in the operator shell.
 	cfg := config.Defaults()
 	cfg.Relay.URL = "wss://relay.example.com:8443"
-	cfg.Relay.HostID = "macos-laptop"
+	cfg.Relay.HostID = "mac-host"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("url+host_id without secret should load: %v", err)
 	}

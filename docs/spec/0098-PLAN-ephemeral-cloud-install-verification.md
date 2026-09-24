@@ -54,7 +54,7 @@ recording results; raising findings.
 | Windows out-of-band access | instance profile `AmazonSSMRoleForInstancesQuickSetup` exists, with `AmazonSSMManagedInstanceCore` attached |
 
 **The workstation is itself one of the three droplets, and one of 0097's
-already-tested hosts** — the `wonder` row in the 0097-PLAN matrix is this
+already-tested hosts** — the `<linux-host>` row in the 0097-PLAN matrix is this
 machine, which therefore carries a live `mcremote` install. No phase of this
 plan runs the installer locally, and none may: the local install is production
 state, not a fixture. The only local actions are `aws` and `ssh` calls — and

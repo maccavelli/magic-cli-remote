@@ -309,7 +309,7 @@ void main() {
       tester,
       store: _FakeStore(
         relayUrl: 'wss://relay.example:8443',
-        relayHostId: 'macos-laptop',
+        relayHostId: 'mac-host',
         relayAuthority: '10.0.0.5:7531',
         sticky: TransportMode.mesh,
       ),
@@ -326,7 +326,7 @@ void main() {
   testWidgets('Reconnect now forces the selected transport', (tester) async {
     final store = _FakeStore(
       relayUrl: 'wss://relay.example:8443',
-      relayHostId: 'macos-laptop',
+      relayHostId: 'mac-host',
       relayAuthority: '10.0.0.5:7531',
       sticky: TransportMode.mesh,
     );
@@ -362,7 +362,7 @@ void main() {
       tester,
       store: _FakeStore(
         relayUrl: 'wss://relay.example:8443',
-        relayHostId: 'macos-laptop',
+        relayHostId: 'mac-host',
         relayAuthority: '10.0.0.5:7531',
       ),
       probes: _FakeProbes(meshUp: true, relayUp: false),
@@ -383,7 +383,7 @@ void main() {
       tester,
       store: _FakeStore(
         relayUrl: 'wss://relay.example:8443',
-        relayHostId: 'macos-laptop',
+        relayHostId: 'mac-host',
         relayAuthority: '100.64.0.9:7531',
       ),
       probes: _FakeProbes(meshUp: true, relayUp: true),

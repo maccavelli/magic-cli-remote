@@ -199,7 +199,7 @@ void main() {
         mode: TlsMode.selfsigned,
         transport: TransportMode.relay,
         relayUrl: relay.base,
-        relayHostId: 'macos-laptop',
+        relayHostId: 'mac-host',
         enableAutoReconnect: false,
         allowTransportFallback: false,
       );

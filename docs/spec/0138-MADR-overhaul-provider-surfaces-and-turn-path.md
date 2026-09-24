@@ -295,7 +295,7 @@ $ curl -m3 http://100.64.0.3:7642/healthz ; echo $?
 $ curl -m3 http://127.0.0.1:7642/healthz
 {"ok":true}
 $ lsof -nP -iTCP:7642 -sTCP:LISTEN
-mcremote  17885  saxsmith  6u  IPv4  TCP 127.0.0.1:7642 (LISTEN)
+mcremote  17885  <user>  6u  IPv4  TCP 127.0.0.1:7642 (LISTEN)
 ```
 
 `detectAdvertiseHost` (`internal/cli/pair.go:499`) prefers the Tailscale IPv4

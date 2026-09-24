@@ -494,7 +494,7 @@ void main() {
       const pairUri =
           'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
           '&token=mcr_relay&relay=wss%3A%2F%2Fheadscale.example%3A8443'
-          '&hid=macos-laptop';
+          '&hid=mac-host';
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
         (call) async => call.method == 'Clipboard.getData'
@@ -519,10 +519,10 @@ void main() {
       expect(client.connectCalls, 1);
       // Attempt-scoped relay from the QR must reach the client (not mesh-only).
       expect(client.lastRelayUrl, 'wss://headscale.example:8443');
-      expect(client.lastRelayHostId, 'macos-laptop');
+      expect(client.lastRelayHostId, 'mac-host');
       // And be persisted under the mcremote authority for reconnects.
       expect(store.relayUrl, 'wss://headscale.example:8443');
-      expect(store.relayHostId, 'macos-laptop');
+      expect(store.relayHostId, 'mac-host');
       expect(store.relayAuthority, '100.64.0.3:7531');
     },
   );
@@ -823,11 +823,11 @@ void main() {
   const dualTokenUri =
       'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
       '&token=mcr_relay&relay=wss%3A%2F%2Fheadscale.example%3A8443'
-      '&hid=macos-laptop';
+      '&hid=mac-host';
   const dualCodeUri =
       'mcremote://pair?host=wss%3A%2F%2F100.64.0.3%3A7531&fp=$fp'
       '&code=K7M2-9X4P&relay=wss%3A%2F%2Fheadscale.example%3A8443'
-      '&hid=macos-laptop';
+      '&hid=mac-host';
 
   testWidgets('Select: the menu appears and a code is not dialled '
       'until Connect (V4)', (tester) async {

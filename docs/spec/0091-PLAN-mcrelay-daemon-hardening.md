@@ -109,7 +109,7 @@ D1: `servicePathEnv(home, product)` or `mcrelayPathEnv(home)`.
 
 * **Objective**: D4 probe only. No production filter yet.
 * **Tasks**:
-  - [x] **Task 3.1**: Probe recorded 2026-08-15 on wonder (systemd
+  - [x] **Task 3.1**: Probe recorded 2026-08-15 on <linux-host> (systemd
         `--user` transient `mcrelay-d4-probe.service`):
         `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6` +
         `MemoryDenyWriteExecute=true` + `PrivateTmp=true`. Binary

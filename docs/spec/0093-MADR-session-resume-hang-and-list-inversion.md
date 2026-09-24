@@ -3,7 +3,7 @@ status: accepted
 date: 2026-08-16
 decision-makers: [Project Owner]
 consulted: [Implementer]
-informed: [Operators of macos-laptop, Android phone clients]
+informed: [Operators of <mac-host>, Android phone clients]
 ---
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -14,7 +14,7 @@ informed: [Operators of macos-laptop, Android phone clients]
 
 On 2026-08-16 the operator updated the Android app on `s22+` and tried to
 resume two closed chats. Both attempts hung until they signed out. The
-host daemon (`mcremote` `0.10.11.2.g3ea8f9f` on `macos-laptop`) stayed
+host daemon (`mcremote` `0.10.11.2.g3ea8f9f` on `<mac-host>`) stayed
 up. After the hang they reported a second, contradictory symptom: a
 **kilo** row still offered Resume, while last night's **goose** session
 — which the host had soft-closed on daemon restart — did **not** appear.
