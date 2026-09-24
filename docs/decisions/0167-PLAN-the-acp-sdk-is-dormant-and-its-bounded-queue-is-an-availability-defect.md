@@ -984,3 +984,33 @@ fork PR. The evidence a reviewer needs is in the PR body (D15).
 
 **Not done:** P7 (the `Connection()` accessor, a separate branch and PR, needs its own explicit
 ask to push and open) and P8 (closes the plan).
+
+## Deviation — 2026-09-24: P7 needs `agent.go`, and its test covers both sides
+
+**Found.** P7 step 2 asks for "the symmetric `AgentSideConnection` method", but the file list in
+*Scope* gives only `client.go` and `client_connection_test.go`. On `main` (`0845a3b`, still
+upstream's head), `AgentSideConnection` is declared in `agent.go:11`, next to its `Done` and
+`SetLogger`. The only place for its accessor that an upstream reviewer would expect is therefore
+outside scope. Upstream names test files by concern (`connection_cancel_test.go`,
+`connection_notification_barrier_test.go`), so one test covering both accessors reads better as
+`connection_accessor_test.go`.
+
+**Also re-verified before writing the PR text,** because P7 step 4's rationale rests on it:
+
+* `session/set_model` is not in the schema `v0.13.5` is generated from, stable or unstable.
+  Upstream's own history shows it was modelled (`AgentMethodSessionSetModel`) through `v0.13.4`,
+  and removed by the `v0.13.5` schema bump (`0845a3b`). So it is a method agents still implement
+  that the SDK has since dropped, not "a standard method the SDK does not model", which is how
+  P7's framing reads.
+* `session/resume` is modelled (`ResumeSession`), but grok's reply carries a top-level `models`
+  object that `ResumeSessionResponse` has no field for (`rewind_test.go`, the comment on
+  `TestNoExtensionMethodIsWrittenWithoutItsUnderscore`). That is the second case the accessor
+  serves: a modelled method whose reply is richer than the generated type.
+* `CallExtension` still refuses non-`_` methods (`extensions.go`,
+  `validateExtensionMethodName`). No upstream issue or PR proposes an accessor.
+
+**Decision (owner, 2026-09-24).** Add `agent.go` to P7's scope, for `AgentSideConnection.Connection()`
+only. The test file is `connection_accessor_test.go` (new) instead of `client_connection_test.go`.
+P7's scope is now `client.go`, `agent.go` and `connection_accessor_test.go`, on
+`feat/expose-connection` from `main`. The PR text uses the two cases above instead of the
+"standard method" wording.
