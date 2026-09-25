@@ -106,33 +106,42 @@ func (h *hub) checkSecret(hostID, secret string) bool {
 }
 
 func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, ok := h.allow[hostID]; !ok {
-		// Defense in depth: unreachable via handleHost (checkSecret gates).
-		return errUnauthorized
-	}
-	if len(h.hosts) >= h.limits.MaxHosts {
-		if _, online := h.hosts[hostID]; !online {
-			return errLimit
+	var replaced *websocket.Conn
+	err := func() error {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if _, ok := h.allow[hostID]; !ok {
+			// Defense in depth: unreachable via handleHost (checkSecret gates).
+			return errUnauthorized
 		}
-	}
-	if old, ok := h.hosts[hostID]; ok {
-		// Replace stale registration (reconnect). Cancel control; in-flight
-		// splices keep running; durable phones map is unchanged (D10).
-		if old.cancel != nil {
-			old.cancel()
+		if len(h.hosts) >= h.limits.MaxHosts {
+			if _, online := h.hosts[hostID]; !online {
+				return errLimit
+			}
 		}
-		if old.control != nil {
-			_ = old.control.Close(websocket.StatusGoingAway, "replaced")
+		if old, ok := h.hosts[hostID]; ok {
+			// Replace stale registration (reconnect). Cancel control; in-flight
+			// splices keep running; durable phones map is unchanged (D10).
+			if old.cancel != nil {
+				old.cancel()
+			}
+			replaced = old.control
 		}
+		h.hosts[hostID] = &hostSlot{
+			control: control,
+			cancel:  cancel,
+		}
+		h.log.Info("host registered", slog.String("host_id", hostID), slog.Int("phones", h.phones[hostID]))
+		return nil
+	}()
+	if replaced != nil {
+		// Close runs the close handshake, which waits on the old peer for up to
+		// the library's timeouts. Under h.mu that stalled every host (MADR 0172
+		// F1, F3), so close after unlocking and off the new host's path, as
+		// closeAllHosts does.
+		go func() { _ = replaced.Close(websocket.StatusGoingAway, "replaced") }()
 	}
-	h.hosts[hostID] = &hostSlot{
-		control: control,
-		cancel:  cancel,
-	}
-	h.log.Info("host registered", slog.String("host_id", hostID), slog.Int("phones", h.phones[hostID]))
-	return nil
+	return err
 }
 
 // writeControl sends a join-plane envelope on the host control connection.

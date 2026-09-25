@@ -1,7 +1,11 @@
 package relay
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -438,5 +442,89 @@ func TestHubAbandonTunnelReleasesWaitingPhone(t *testing.T) {
 	}
 	if h.phoneCount("h1") != 0 {
 		t.Fatalf("slot leaked: phones=%d", h.phoneCount("h1"))
+	}
+}
+
+// wsPair returns the server and client ends of a real WebSocket. Neither end
+// is read unless the test reads it.
+func wsPair(t *testing.T) (server, client *websocket.Conn) {
+	t.Helper()
+	conns := make(chan *websocket.Conn, 1)
+	release := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		conns <- c
+		<-release
+	}))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server = <-conns
+	t.Cleanup(func() {
+		close(release)
+		_ = client.CloseNow()
+		_ = server.CloseNow()
+		ts.Close()
+	})
+	return server, client
+}
+
+// TestHubReplacementDoesNotHoldLockOnStaleClose: replacing a host must not
+// hold h.mu across the old control's close handshake (MADR 0172 D1, D2). The
+// old peer never reads and no server read loop runs — the ordering that
+// flaked TestRegisterReplacement — so a handshake under the lock would wait
+// out the library's 5 s timeout and stall every other host with it.
+func TestHubReplacementDoesNotHoldLockOnStaleClose(t *testing.T) {
+	cred1, _ := ParseAllowFlag("h1:sixteen-chars-min-1")
+	cred2, _ := ParseAllowFlag("h2:sixteen-chars-min-2")
+	h := newHub([]HostCredential{cred1, cred2}, DefaultLimits(), false, nil)
+	serverA, clientA := wsPair(t)
+	serverB, _ := wsPair(t)
+	serverC, _ := wsPair(t)
+
+	if err := h.register("h1", serverA, func() {}); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	replaced := make(chan error, 1)
+	go func() { replaced <- h.register("h1", serverB, func() {}) }()
+
+	// An unrelated host registering during the replacement must not wait on
+	// h1's old peer. The pause lets the replacement take h.mu first.
+	time.Sleep(50 * time.Millisecond)
+	unrelatedStart := time.Now()
+	if err := h.register("h2", serverC, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(unrelatedStart); d > time.Second {
+		t.Fatalf("unrelated host h2 waited %v to register while h1 was replaced", d)
+	}
+
+	select {
+	case err := <-replaced:
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Fatalf("re-registering h1 took %v; the stale close ran under the hub lock", d)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("re-registering h1 still blocked after 2s; the stale close ran under the hub lock")
+	}
+
+	// The close is still sent: the old peer learns it was replaced.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _, err := clientA.Read(ctx)
+	var ce websocket.CloseError
+	if !errors.As(err, &ce) || ce.Code != websocket.StatusGoingAway || ce.Reason != "replaced" {
+		t.Fatalf("old control read err = %v, want close %v %q", err, websocket.StatusGoingAway, "replaced")
 	}
 }
