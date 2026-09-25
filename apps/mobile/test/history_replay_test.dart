@@ -7,6 +7,7 @@ import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_path_provider.dart';
+import 'support/transcripts_container.dart';
 
 SessionEvent _ev(String type, {String? text, String? status}) =>
     SessionEvent(type: type, sessionId: 's1', text: text, status: status);
@@ -18,11 +19,8 @@ void main() {
   // reaches a real platform channel that unit tests do not have.
   setUp(() => useFakePathProvider(addTearDown));
 
-  ProviderContainer makeContainer() {
-    final c = ProviderContainer();
-    addTearDown(c.dispose);
-    return c;
-  }
+  // Its teardown waits for the container's transcript saves (MADR 0172 D3).
+  ProviderContainer makeContainer() => transcriptsTestContainer(addTearDown);
 
   group('history replay', () {
     test('feeds events into an empty transcript in order', () async {
