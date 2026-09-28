@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-28
 associated-madr: "0173-MADR-fix-two-ci-flakes-hub-lock-close-and-leaked-transcript-saves.md"
 ---
@@ -45,7 +45,8 @@ Renumbered from 0172 on 2026-09-28: 0172 was already
 - `apps/mobile/test/support/transcripts_container.dart` (new): the helper
 - `apps/mobile/test/transcripts_container_test.dart` (new): the guard test
 - `apps/mobile/test/support/fake_path_provider.dart`: its comment only
-- `apps/mobile/test/history_replay_test.dart`: `makeContainer`
+- `apps/mobile/test/history_replay_test.dart`: `makeContainer`, ~~only~~ and the six tests
+  that set `n.debugCache` on a `makeContainer()` container (Deviation 1)
 - **Only if** the audit (P2 step 3) finds a disposed, transcript-holding container using the
   default cache, one or more of: `chat_end_session_navigation_test.dart`,
   `chat_render_test.dart`, `chat_send_failure_test.dart`, `permission_loop_test.dart`,
@@ -151,16 +152,20 @@ P1 and P2 are independent and may land in either order. P3 depends on both.
 ### P2 — Mobile tests drain their transcript saves (D3, D4; closes F6–F8, F10)
 
 1. **The helper.** Add `test/support/transcripts_container.dart` with
-   `ProviderContainer transcriptsTestContainer(void Function(dynamic Function()) addTearDown)`.
+   `ProviderContainer transcriptsTestContainer(void Function(dynamic Function()) addTearDown)`
+   (Deviation 1 adds optional named `overrides` and `cache` parameters).
    It:
-   - creates the container;
-   - reads `transcriptsProvider.notifier` and sets `debugCache` to a new `TranscriptCache()`;
+   - creates the container (with `overrides`, when given);
+   - reads `transcriptsProvider.notifier` and sets `debugCache` to ~~a new `TranscriptCache()`~~
+     `cache`, or a new `TranscriptCache()` when none is given;
    - registers a teardown that calls `dispose()` and then awaits the cache's `debugWhenIdle`;
    - returns the container.
 
    Its doc comment names MADR 0173 F6/F7.
 2. **The failing file.** Change `history_replay_test.dart`'s `makeContainer` to return
-   `transcriptsTestContainer(addTearDown)`.
+   `transcriptsTestContainer(addTearDown)`. **Not sufficient (Deviation 1):** six of its tests
+   then replace the helper's cache. They pass their cache through `makeContainer(cache: …)`
+   and drop their `n.debugCache = cache` line; nothing else in them changes.
 3. **The audit.** For each of the other nine files in F10, record one verdict:
    - **switched**: it disposes a container that holds transcript state with the default cache;
    - **not needed**: no such container, and the reason;
@@ -237,3 +242,62 @@ A release carrying P1 follows the normal release flow, which is not part of this
 - **Reproducing `Too many elements` itself on demand** (MADR obs. 9, unverified). The collision is
   reproduced and removed. Engineering the exact winning interleaving adds no protection beyond
   A7.
+
+## Deviation 1 — 2026-09-28: the committed helper is defeated by tests that replace its cache
+
+**Found** during P2 step 3's audit. Steps 1 and 2 had already landed (`c7c65d2`, `1c6a04c`),
+without steps 3–7. A scratch clone logged every `_writeEntry` with its resolved directory, and
+every fake path provider setUp and tearDown. A write is a leak when it arrives after its own
+test's directory is torn down. The detector was seen catching a leak first: `history_replay_test.dart`
+as it stood at `30041ed9` (before the helper) showed 13 leaked writes out of 20.
+
+| File (macOS, one run each) | Writes | Leaked |
+| --- | --- | --- |
+| `history_replay_test.dart` at HEAD, using the helper | 23 | **5** |
+| `transcript_ingest_test.dart` | 16 | 16 |
+| `session_synchronizer_test.dart` | 8 | 8 |
+| `staged_images_test.dart` | 1 | 1 |
+| `chat_end_session_navigation_test.dart`, `sessions_screen_test.dart` | 0 | 0 |
+
+The five `history_replay` leaks come from six tests (`:226`–`:396`) that call `makeContainer()`
+and then set `n.debugCache = cache` with a cache of their own. That replaces the helper's cache.
+The teardown waits on the helper's cache, which no longer receives anything, while the disposal
+flush goes into the test's cache, which nobody awaits. On the Linux server, with `_writeEntry`
+delayed 300 ms (step 7's harness), HEAD shows the collision as often as the code before the
+helper:
+
+| Variant, 3 runs each | Collisions per run |
+| --- | --- |
+| `history_replay_test.dart` at `30041ed9` | 5, 5, 6 |
+| HEAD (`1c6a04c`), with the helper | 5, 5, 5 |
+
+Every HEAD collision reads `Transcript cache save failed for s1: PathNotFoundException: Cannot
+open file, path = '…/mcremote_test…/transcripts/s1.json.tmp' (OS Error: No such file or
+directory, errno = 2)`. The defect is pre-existing in HEAD, and A7 cannot pass without a fix.
+
+`session_synchronizer_test.dart` builds all ten of its containers with `overrides:`, which the
+helper's signature as written cannot take.
+
+**Decision (owner, 2026-09-28): option 1, test-only.**
+
+- `transcriptsTestContainer` gains two optional named parameters: `overrides`, passed to the
+  container, and `cache`, used as the notifier's cache instead of a new one. The teardown still
+  disposes the container and then awaits that cache.
+- `history_replay_test.dart`: `makeContainer` forwards `cache`. The six tests pass their cache
+  through it and drop their `n.debugCache = cache` line. No assertion changes. "dispose persists
+  a pending debounced save immediately" is not touched (C1).
+- `session_synchronizer_test.dart` passes its overrides through the helper.
+
+Declined: a `@visibleForTesting` getter on `TranscriptsNotifier`, so the helper could await
+whatever cache the notifier holds at teardown. It changes `apps/mobile/lib/`, against C3 and
+MADR D5.
+
+**Files added to scope:** the six test bodies in `history_replay_test.dart`, and the helper's
+signature. `session_synchronizer_test.dart` was already conditionally in scope.
+
+## Deviation 2 — 2026-09-28: Linux runs go to the Linux server, not WSL
+
+The stability rule and P2 step 7 name Linux (WSL). **Decision (owner, 2026-09-28):** native Linux
+runs use the Linux server, which carries the full toolchain (Go 1.26.6, Flutter 3.47.2). macOS
+runs stay on the macOS laptop. Every run is in a scratch clone under `/tmp`, made from a bundle
+of this repository's HEAD. The server's own checkout is not used. No files added.
