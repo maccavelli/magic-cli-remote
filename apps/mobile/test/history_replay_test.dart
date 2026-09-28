@@ -20,7 +20,8 @@ void main() {
   setUp(() => useFakePathProvider(addTearDown));
 
   // Its teardown waits for the container's transcript saves (MADR 0173 D3).
-  ProviderContainer makeContainer() => transcriptsTestContainer(addTearDown);
+  ProviderContainer makeContainer({TranscriptCache? cache}) =>
+      transcriptsTestContainer(addTearDown, cache: cache);
 
   group('history replay', () {
     test('feeds events into an empty transcript in order', () async {
@@ -225,9 +226,8 @@ void main() {
 
     test('syncFromMeta evicts dead sessions from the cache too', () async {
       final cache = TranscriptCache();
-      final c = makeContainer();
+      final c = makeContainer(cache: cache);
       final n = c.read(transcriptsProvider.notifier);
-      n.debugCache = cache;
       n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
       await cache.save('s1', c.read(transcriptsProvider).forSession('s1'));
       expect(await cache.load('s1'), isNotNull);
@@ -247,9 +247,8 @@ void main() {
       'H-6: non-authoritative empty list must not prune transcripts',
       () async {
         final cache = TranscriptCache();
-        final c = makeContainer();
+        final c = makeContainer(cache: cache);
         final n = c.read(transcriptsProvider.notifier);
-        n.debugCache = cache;
         n.debugOnEvent(seqEv('user_message', 1, text: 'keep-me'));
         await cache.save('s1', c.read(transcriptsProvider).forSession('s1'));
 
@@ -279,9 +278,8 @@ void main() {
             nextSeq: 2,
           ),
         );
-        final c = makeContainer();
+        final c = makeContainer(cache: cache);
         final n = c.read(transcriptsProvider.notifier);
-        n.debugCache = cache;
         // Live status lands before the hydrate finishes.
         n.debugOnEvent(seqEv('session_status', 2, status: 'running'));
         expect(await n.hydrateFromCache('s1'), isTrue);
@@ -304,9 +302,8 @@ void main() {
           nextSeq: 2,
         ),
       );
-      final c = makeContainer();
+      final c = makeContainer(cache: cache);
       final n = c.read(transcriptsProvider.notifier);
-      n.debugCache = cache;
       n.debugOnEvent(
         SessionEvent(
           type: 'session_mode',
@@ -336,9 +333,8 @@ void main() {
           nextSeq: 2,
         ),
       );
-      final c = makeContainer();
+      final c = makeContainer(cache: cache);
       final n = c.read(transcriptsProvider.notifier);
-      n.debugCache = cache;
       n.debugOnEvent(
         SessionEvent(
           type: 'usage_update',
@@ -369,9 +365,8 @@ void main() {
             nextSeq: 2,
           ),
         );
-        final c = makeContainer();
+        final c = makeContainer(cache: cache);
         final n = c.read(transcriptsProvider.notifier);
-        n.debugCache = cache;
         n.debugOnEvent(
           SessionEvent(
             type: 'remote_commands',

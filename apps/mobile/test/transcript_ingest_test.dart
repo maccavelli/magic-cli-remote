@@ -5,6 +5,7 @@ import 'package:magic_cli_remote/data/protocol/models.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
 import 'support/fake_path_provider.dart';
+import 'support/transcripts_container.dart';
 
 /// Ingest-side cost bounds, the counterpart to the render-side guarantees
 /// asserted through `debugMarkdownParseCount` in streaming_markdown_test.dart.
@@ -27,11 +28,8 @@ void main() {
     seq: seq,
   );
 
-  ProviderContainer makeContainer() {
-    final c = ProviderContainer();
-    addTearDown(c.dispose);
-    return c;
-  }
+  // Its teardown waits for the container's transcript saves (MADR 0173 D3).
+  ProviderContainer makeContainer() => transcriptsTestContainer(addTearDown);
 
   /// Open the assistant bubble so later chunks merge into it — the first chunk
   /// of a reply appends a new item and never calls `_appendChunk`.

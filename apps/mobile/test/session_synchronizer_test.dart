@@ -1,10 +1,10 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_cli_remote/state/app_providers.dart';
 import 'package:magic_cli_remote/state/session_synchronizer.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
 import 'support/fake_path_provider.dart';
+import 'support/transcripts_container.dart';
 
 /// MADR 0056 Phase 2 / H-1: connection-scoped synchronizer heals inactive
 /// populated sessions after reconnect without requiring ChatScreen mounted.
@@ -97,10 +97,10 @@ void main() {
         seqEv('assistant_message_chunk', 3, text: ' missed'),
       ];
       final client = _HistoryClient({'A': hostHistory});
-      final c = ProviderContainer(
+      final c = transcriptsTestContainer(
+        addTearDown,
         overrides: [mcremoteClientProvider.overrideWithValue(client)],
       );
-      addTearDown(c.dispose);
 
       // Keep synchronizer alive.
       c.read(sessionSynchronizerProvider);
@@ -134,10 +134,10 @@ void main() {
       seqEv('assistant_message_chunk', 3, text: ' offline'),
     ];
     final client = _HistoryClient({'A': hostHistory});
-    final c = ProviderContainer(
+    final c = transcriptsTestContainer(
+      addTearDown,
       overrides: [mcremoteClientProvider.overrideWithValue(client)],
     );
-    addTearDown(c.dispose);
     c.read(sessionSynchronizerProvider);
     final n = c.read(transcriptsProvider.notifier);
 
@@ -171,10 +171,10 @@ void main() {
           epoch: 'e1',
           seqs: {'A': const SeqBounds(first: 1, latest: 2)},
         );
-        final c = ProviderContainer(
+        final c = transcriptsTestContainer(
+          addTearDown,
           overrides: [mcremoteClientProvider.overrideWithValue(client)],
         );
-        addTearDown(c.dispose);
         c.read(sessionSynchronizerProvider);
         final n = c.read(transcriptsProvider.notifier);
 
@@ -206,10 +206,10 @@ void main() {
         epoch: 'e1',
         seqs: {'A': const SeqBounds(first: 1, latest: 3)},
       );
-      final c = ProviderContainer(
+      final c = transcriptsTestContainer(
+        addTearDown,
         overrides: [mcremoteClientProvider.overrideWithValue(client)],
       );
-      addTearDown(c.dispose);
       c.read(sessionSynchronizerProvider);
       final n = c.read(transcriptsProvider.notifier);
 
@@ -239,10 +239,10 @@ void main() {
           epoch: 'e1',
           seqs: {'A': const SeqBounds(first: 1, latest: 2)},
         );
-        final c = ProviderContainer(
+        final c = transcriptsTestContainer(
+          addTearDown,
           overrides: [mcremoteClientProvider.overrideWithValue(client)],
         );
-        addTearDown(c.dispose);
         c.read(sessionSynchronizerProvider);
         final n = c.read(transcriptsProvider.notifier);
 
@@ -274,10 +274,10 @@ void main() {
         metaStatus: 'idle',
       );
       client.resumedOverride = {'A': const SeqBounds(first: 1, latest: 2)};
-      final c = ProviderContainer(
+      final c = transcriptsTestContainer(
+        addTearDown,
         overrides: [mcremoteClientProvider.overrideWithValue(client)],
       );
-      addTearDown(c.dispose);
       c.read(sessionSynchronizerProvider);
       final n = c.read(transcriptsProvider.notifier);
 
@@ -323,10 +323,10 @@ void main() {
         );
         // Daemon confirmed A at latest 5, but local lastSeq is 2 — changed.
         client.resumedOverride = {'A': const SeqBounds(first: 1, latest: 5)};
-        final c = ProviderContainer(
+        final c = transcriptsTestContainer(
+          addTearDown,
           overrides: [mcremoteClientProvider.overrideWithValue(client)],
         );
-        addTearDown(c.dispose);
         c.read(sessionSynchronizerProvider);
         final n = c.read(transcriptsProvider.notifier);
 
@@ -357,10 +357,10 @@ void main() {
         },
         failures: 1, // one list per pass (0070 F1); first pass fails once
       );
-      final c = ProviderContainer(
+      final c = transcriptsTestContainer(
+        addTearDown,
         overrides: [mcremoteClientProvider.overrideWithValue(client)],
       );
-      addTearDown(c.dispose);
       c.read(sessionSynchronizerProvider);
       final n = c.read(transcriptsProvider.notifier);
       n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));
@@ -388,10 +388,10 @@ void main() {
           epoch: 'e1',
           seqs: {'A': const SeqBounds(first: 0, latest: 0)},
         );
-        final c = ProviderContainer(
+        final c = transcriptsTestContainer(
+          addTearDown,
           overrides: [mcremoteClientProvider.overrideWithValue(client)],
         );
-        addTearDown(c.dispose);
         c.read(sessionSynchronizerProvider);
         final sync = c.read(sessionSynchronizerProvider.notifier);
 
@@ -426,10 +426,10 @@ void main() {
           'H1': const SeqBounds(first: 1, latest: 1),
         },
       );
-      final c = ProviderContainer(
+      final c = transcriptsTestContainer(
+        addTearDown,
         overrides: [mcremoteClientProvider.overrideWithValue(client)],
       );
-      addTearDown(c.dispose);
       c.read(sessionSynchronizerProvider);
       final n = c.read(transcriptsProvider.notifier);
       n.debugOnEvent(seqEv('user_message', 1, text: 'hello'));

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:magic_cli_remote/data/chat/transcript_cache.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
@@ -14,15 +15,22 @@ import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 ///
 /// This gives the notifier a cache of its own and registers a teardown that
 /// disposes the container and then waits for that cache's queue.
+///
+/// A test that needs its own [TranscriptCache] passes it as [cache] rather
+/// than setting `debugCache` afterwards: replacing the cache behind the
+/// helper's back leaves the teardown waiting on a cache that no longer
+/// receives the disposal flush (PLAN 0173, Deviation 1).
 ProviderContainer transcriptsTestContainer(
-  void Function(dynamic Function()) addTearDown,
-) {
-  final container = ProviderContainer();
-  final cache = TranscriptCache();
-  container.read(transcriptsProvider.notifier).debugCache = cache;
+  void Function(dynamic Function()) addTearDown, {
+  List<Override> overrides = const [],
+  TranscriptCache? cache,
+}) {
+  final container = ProviderContainer(overrides: overrides);
+  final drained = cache ?? TranscriptCache();
+  container.read(transcriptsProvider.notifier).debugCache = drained;
   addTearDown(() async {
     container.dispose();
-    await cache.debugWhenIdle;
+    await drained.debugWhenIdle;
   });
   return container;
 }

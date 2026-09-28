@@ -28,8 +28,14 @@ class FakePathProvider extends PathProviderPlatform
 /// The platform instance is deliberately **not** restored on teardown: a
 /// debounced transcript save can complete after the test that started it
 /// ends, and restoring the real (absent) channel would make that late write
-/// throw a MissingPluginException into the next test's output. Only the
-/// directory is cleaned up, and even that tolerates a late writer.
+/// throw a MissingPluginException into the next test's output.
+///
+/// A late save is **not** harmless. The transcript cache resolves its
+/// directory lazily through this global, so a save that outlives its test can
+/// land in the *next* test's directory, sweep that test's temp files and
+/// overwrite its transcript (MADR 0173 F7, F8). A test that disposes a
+/// container holding transcript state must build it with
+/// `transcriptsTestContainer`, whose teardown waits for those saves.
 Directory useFakePathProvider(void Function(void Function()) addTearDown) {
   final dir = Directory.systemTemp.createTempSync('mcremote_test');
   PathProviderPlatform.instance = FakePathProvider(dir);
@@ -37,8 +43,8 @@ Directory useFakePathProvider(void Function(void Function()) addTearDown) {
     try {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     } catch (_) {
-      // A save that outlived its test is harmless; the temp dir is reclaimed
-      // by the OS.
+      // Cleanup is best-effort; the OS reclaims the temp dir. This does not
+      // make a late save safe: see the doc comment above.
     }
   });
   return dir;

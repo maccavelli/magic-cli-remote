@@ -7,6 +7,7 @@ import 'package:magic_cli_remote/data/protocol/models.dart';
 import 'package:magic_cli_remote/state/transcripts_notifier.dart';
 
 import 'support/fake_path_provider.dart';
+import 'support/transcripts_container.dart';
 
 /// Lifecycle of the per-session image buffer.
 ///
@@ -23,11 +24,8 @@ void main() {
   // real platform channel and out of real user directories.
   setUp(() => useFakePathProvider(addTearDown));
 
-  ProviderContainer makeContainer() {
-    final c = ProviderContainer();
-    addTearDown(c.dispose);
-    return c;
-  }
+  // Its teardown waits for the container's transcript saves (MADR 0173 D3).
+  ProviderContainer makeContainer() => transcriptsTestContainer(addTearDown);
 
   SessionEvent imageEcho({required int seq, String sessionId = 's1'}) =>
       SessionEvent(
