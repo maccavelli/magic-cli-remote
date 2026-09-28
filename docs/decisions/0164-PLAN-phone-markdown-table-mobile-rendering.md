@@ -325,3 +325,48 @@ flutter test
 ```
 
 A4 and A5 hold: one hit each, inside `_sheetFor`.
+
+### P2 — 2026-09-28
+
+Added `apps/mobile/test/chat_table_render_test.dart` with the three
+`testWidgets` named in this phase. Finds are scoped with
+`find.descendant(of: find.byType(MarkdownBody), …)`. The selection test
+also asserts a `Scrollbar` under `MarkdownBody` so it fails when the
+wrapper branch is not taken.
+
+**Negative-test verification (A6).** Copied the test to
+`apps/mobile/test/_tmp/chat_table_render_fail.dart`, removed
+`tableColumnWidth: const IntrinsicColumnWidth()`, ran it, then deleted
+`test/_tmp`. All three tests failed:
+
+```text
+renders a wide table wrapped in a horizontal SingleChildScrollView
+  Expected: exactly one matching candidate
+    Actual: Found 0 widgets with type "Scrollbar" descending from MarkdownBody
+
+renders a narrow table without a scrollbar visible …
+  Expected: exactly one matching candidate
+    Actual: Found 0 widgets with type "SingleChildScrollView" descending from MarkdownBody
+
+preserves text selection across cells
+  Expected: exactly one matching candidate
+    Actual: Found 0 widgets with type "Scrollbar" descending from MarkdownBody
+
+00:03 +0 -3: Some tests failed.
+```
+
+With `tableColumnWidth` restored:
+
+```text
+dart format --output=none --set-exit-if-changed test/chat_table_render_test.dart
+  Formatted 1 file (0 changed)
+
+flutter analyze
+  No issues found! (ran in 5.3s)
+
+flutter test test/chat_table_render_test.dart
+  All tests passed!   (3 tests)
+
+flutter test
+  01:10 +1417 ~3: All other tests passed!
+```
