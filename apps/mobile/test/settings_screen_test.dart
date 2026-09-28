@@ -323,6 +323,35 @@ void main() {
     expect(find.textContaining('Relay · up'), findsOneWidget);
   });
 
+  testWidgets('Reconnect now is centered under the mesh/relay control', (
+    tester,
+  ) async {
+    await pumpSettings(
+      tester,
+      store: _FakeStore(
+        relayUrl: 'wss://relay.example:8443',
+        relayHostId: 'mac-host',
+        relayAuthority: '10.0.0.5:7531',
+        sticky: TransportMode.mesh,
+      ),
+      probes: _FakeProbes(meshUp: true, relayUp: true),
+    );
+
+    final segmented = tester.getRect(
+      find.byType(SegmentedButton<TransportMode>),
+    );
+    final reconnect = tester.getRect(
+      find.ancestor(
+        of: find.text('Reconnect now'),
+        matching: find.byType(OutlinedButton),
+      ),
+    );
+    expect(
+      reconnect.center.dx,
+      moreOrLessEquals(segmented.center.dx, epsilon: 0.5),
+    );
+  });
+
   testWidgets('Reconnect now forces the selected transport', (tester) async {
     final store = _FakeStore(
       relayUrl: 'wss://relay.example:8443',

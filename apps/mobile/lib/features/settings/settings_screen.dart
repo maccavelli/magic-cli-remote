@@ -494,7 +494,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: Align(
-            alignment: Alignment.centerLeft,
+            alignment: Alignment.center,
             child: OutlinedButton.icon(
               onPressed: _reconnecting
                   ? null

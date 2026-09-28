@@ -2,37 +2,21 @@
 
 ## Task tracking
 
-**Use the todowrite tool for every task that spans multiple steps.** Write todos
-before starting work and mark them `completed` immediately after each item is
-done — not when the phase is finished. A completed commit without updated todos
-hides progress from the user and makes it impossible to resume cleanly after
-interruption.
-
-Checklist:
+**Use the todowrite tool for every task that spans multiple steps.** Write todos before starting work and mark them `completed` immediately after each item is done — not when the phase is finished.
 
 - Write todos before the first tool call of a new task.
 - Update the status in real time; never batch completions.
 - Keep exactly one `in_progress` item at a time.
 - Mark `completed` only after verification (build, test, lint).
-- When the user says "proceed to the next phase", close out the previous phase's
-  todos first, then write the new phase's list.
+- When the user says "proceed to the next phase", close out the previous phase's todos first, then write the new phase's list.
 
 ## Sandbox escalation
 
-When work that is in scope needs to read from or write to a path outside the
-workspace's granted filesystem roots, request a narrowly scoped sandbox
-escalation immediately. State the command's purpose and the affected path in
-the approval request. Do not report the repository filesystem as read-only or
-stop at a sandbox denial when escalation can safely complete the requested
-work. Report the exact path and error if escalation is declined or still fails.
+When in-scope work needs a path outside the workspace's granted filesystem roots, request a narrowly scoped sandbox escalation immediately. State the command's purpose and the affected path. Do not stop at a sandbox denial when escalation can complete the requested work. Report the exact path and error if escalation is declined or still fails.
 
 ## The pre-add rule (Go)
 
-**No Go file is staged until `gofmt`, `golint` and `govulncheck` are clean.**
-Fix the code first: `git add` is the point where the tree becomes what will be
-committed, so that is where correctness is checked — not after the fact.
-
-Run it yourself with either:
+**No Go file is staged until `gofmt`, `golint` and `govulncheck` are clean.** `git add` is where the tree becomes what will be committed.
 
 ```bash
 make pre-add-check                    # every tracked Go file
@@ -40,68 +24,15 @@ make pre-add-check FILES="a.go b.go"  # just these
 ./scripts/go-precheck.sh a.go b.go    # same thing, directly
 ```
 
-`scripts/go-precheck.sh` is the only implementation of the rule. Everything else
-calls it, so the checks cannot drift apart:
+`scripts/go-precheck.sh` is the only implementation. `make pre-add-check` and the per-machine agent gates (`~/.global-agent-hooks/`) all call it. There is no git `pre-commit` hook; a `git add` typed in a plain terminal is ungated — `make pre-add-check` is the manual equivalent.
 
-| enforcement point | what it covers |
-|---|---|
-| agent pre-add gates | block an agent's `git add`/`git stage` when the checks fail. Configured **per machine, not per repo** — see below |
-| `make pre-add-check` | manual / CI invocation |
+- **gofmt** — plain `gofmt`, not `gofumpt`. `make fmt` formats `cmd` and `internal`.
+- **golint** — per file so the output names what to fix. Any output fails.
+- **govulncheck** — whole module (~7s). A vulnerability fails; an unreachable vuln DB only warns. `GO_PRECHECK_SKIP_VULN=1` skips one run.
 
-There is deliberately **no git `pre-commit` hook**. The gate belongs on
-`git add`, where the tree becomes what will be committed; a second copy of the
-same checks at commit time was only ever a backstop for the case where an agent
-staged files without its hooks running, and it cost a full `go test -race` on
-every commit. If you want that safety net, run `make race` yourself.
+**Dart:** CI runs `dart format --output=none --set-exit-if-changed .` over `apps/mobile`. Format each staged `.dart` file. `make preflight` runs the full mobile trio (`flutter analyze`, `flutter test`, `dart format`).
 
-### Where the gates actually live
-
-Not in this repository. They are installed once per machine and apply to every
-checkout, so a repo does not have to carry six agents' worth of hook config to
-be protected:
-
-```text
-~/.global-agent-hooks/          # the scripts; see its README.md
-```
-
-Registered there for claude, grok, goose, opencode, kilo and agy. Each agent's
-gate runs `scripts/go-precheck.sh` **from the repository being staged into**
-when that repo has one, so this project's checks stay this project's checks —
-elsewhere the gate falls back to plain `gofmt`.
-
-The same directory installs post-edit formatters (`gofmt` / `dart format` on
-write), which is why files usually arrive at `git add` already clean.
-
-A consequence worth knowing: a `git add` typed in a plain terminal is not
-gated by anything. That is the trade for having no commit-time hook — `make
-pre-add-check` is the manual equivalent.
-
-### Dart, too
-
-`flutter analyze` and `flutter test` passing is **not** enough: CI also runs
-`dart format --output=none --set-exit-if-changed .` over `apps/mobile`, so one
-unformatted file is a red build with green tests. The agent gate checks
-`dart format` over the `.dart` files being staged for that reason (skipped when
-`dart` is not installed). `make preflight` runs the full mobile trio.
-
-Editing Dart through a tool that does not format on write? Run `dart format` on
-the file before staging it.
-
-What each check means here:
-
-- **gofmt** — plain `gofmt`, *not* `gofumpt`. gofumpt reflows unrelated code (var
-  blocks, multi-line call arguments), which buries a real change in noise.
-  `make fmt` formats `cmd` and `internal`.
-- **golint** — run per file so the output names what to fix. Any output fails.
-- **govulncheck** — over the whole module, since it reports *called*
-  vulnerabilities rather than per-file ones (~7s). A vulnerability fails; a
-  vulnerability database that cannot be reached only warns, so offline work stays
-  possible. `GO_PRECHECK_SKIP_VULN=1` skips it for one run.
-
-### Checking the gate is really running
-
-Silence from a hook is indistinguishable from success, so test it rather than
-assume — from anywhere in this repo:
+Silence from a hook is indistinguishable from success. Probe from this repo:
 
 ```bash
 printf 'package main\nfunc  X( ){\n}\n' > ztest.go
@@ -109,184 +40,56 @@ echo '{"tool_input":{"command":"git add ztest.go"}}' | ~/.global-agent-hooks/pre
 rm ztest.go
 ```
 
-Agents load hook config at session start, so a change to it needs a new session.
-
-### Bypassing
-
-There is nothing to bypass at commit time. The agent gate has no bypass either:
-fix the file.
+Agents load hook config at session start. There is nothing to bypass: fix the file.
 
 ## Tests
 
-**Windows local gates (0145):** on a Windows host, before push run
-`make ci-windows`; before tag also `make ci-windows-smoke`; functional
-paths/pair/doctor → `scripts/acceptance-windows.ps1`. On macOS/Linux those
-targets skip with a clear message and exit 0 — keep using `make preflight`.
-See `docs/ops-windows-install.md` and MADR/PLAN 0145. No workflow edits without
-Mac permission.
+**Windows local gates (0145):** on a Windows host, before push run `make ci-windows`; before tag also `make ci-windows-smoke`; functional paths/pair/doctor → `scripts/acceptance-windows.ps1`. On macOS/Linux those targets skip and exit 0 — use `make preflight`. See `docs/ops-windows-install.md` and MADR/PLAN 0145. No workflow edits without Mac permission.
 
-**Run `make` on Windows from Git Bash, or from PowerShell with
-`C:\Program Files\Git\usr\bin` on `PATH`.** GNU make needs `sh.exe`. Without
-it, make runs recipes through `cmd.exe`, `uname` fails, the host is detected as
-`linux`, and `make ci-windows` prints "skipping" and exits 0 — green, with
-nothing run. Check first: `make -n ci-windows` must show
-`[ "windows" != "windows" ]`. In PowerShell, `bash` is
-`C:\Windows\System32\bash.exe` (WSL), not Git Bash.
+**Run `make` on Windows from Git Bash, or from PowerShell with `C:\Program Files\Git\usr\bin` on `PATH`.** GNU make needs `sh.exe`. Check: `make -n ci-windows` must show `[ "windows" != "windows" ]`. In PowerShell, `bash` is WSL, not Git Bash.
 
-`make test`, and `make race` / `go test -race ./...` before a commit — nothing
-runs the race suite for you, so run it. Live-tagged tests need the real
-CLIs: `go test -tags live_grok ./...`, `-tags live_opencode ./...`,
-`-tags live_kilo ./...`, `-tags live_codex ./...`.
-Each has a `make live-<agent>` target. They spend real tokens; run them at
-acceptance, not in a loop.
+`make test`, and `make race` / `go test -race ./...` before a commit. Live-tagged tests spend real tokens; run them at acceptance: `make live-grok`, `make live-opencode`, `make live-kilo`, `make live-codex`.
 
-## Commit messages (Git hook auto-generation)
+## Commit messages
 
-**Do NOT pass a commit message (`-m`, `-M`, `--message`, or `-F`) when executing `git commit`.**
-
-A global `prepare-commit-msg` git hook automatically generates and populates
-`.git/COMMIT_EDITMSG`. Accept that file; do not open an editor.
-
-- Run `git commit --no-edit`. A bare `git commit` opens vim and hangs a
-  headless agent.
-- Do not write the subject or body yourself, and do not use
-  `GIT_EDITOR=true` as a substitute for `--no-edit`.
-- This rule applies across all agent environments: Antigravity CLI (`agy`),
-  Claude, Codex, OpenCode, Grok, and Goose.
-- Grok's always-on copy lives in `~/.grok/rules/git-prepare-commit-msg.md`.
-  It is a rule, not a gate, so honour it rather than expecting a hook to
-  reject `-m`.
+**Do not pass a commit message (`-m`, `-M`, `--message`, or `-F`).** A global `prepare-commit-msg` hook fills `.git/COMMIT_EDITMSG`. Run `git commit --no-edit`. A bare `git commit` opens vim and hangs a headless agent. Do not write the subject or body, and do not use `GIT_EDITOR=true`. Grok's always-on copy lives in `~/.grok/rules/git-prepare-commit-msg.md`.
 
 ## Web fetching
 
-After a failed `webfetch` tool result, immediately use `curl` instead — do not
-retry `webfetch`. This applies to web fetches for documentation, APIs, or any
-other URL-based content.
+After a failed `webfetch` tool result, immediately use `curl`. Do not retry `webfetch`.
 
 ## MADR and PLAN before mutating work
 
-Rationale: [docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md).
-Per-agent pointers to this section: `.claude/rules/madr-and-plan-skill.md`,
-`.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
+Rationale: [docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md). Per-agent pointers: `.claude/rules/madr-and-plan-skill.md`, `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
 
-**Whenever the user asks for an MADR and a plan, load the
-`madr-and-plan-writing` skill first** and follow it for authoring,
-naming (`NNNN-MADR-*` / `NNNN-PLAN-*`), and review. This applies both to
-writing a fresh pair and to amending an existing one.
+**This file is the normative copy of the gate.** Those pointers carry the skill name and the gate, and point here. Do not restate this section in them.
 
-The name is exact — it is the `name:` field of
-`~/.claude/skills/madr-and-plan-writing/SKILL.md`, which is the only entry
-under this host's skills root. Owner decision, 2026-09-08 (MADR 0152, second
-amendment).
-
-**Why this name reversed five times, and why it is settled now (MADR 0152 F5,
-F8).** It was never a typo: the two spellings were true of two different
-machines. The Mac's grok skills root has held `madr-and-plan-writing` since at
-least 2026-09-03 — the wire fixture captured that day contains that engine's
-own skill listing, `/home/user/.grok/skills/madr-and-plan-writing/SKILL.md` —
-while this host's `~/.claude/skills` held `writing-madr-and-plans`. Every
-author who checked a filesystem was right about the one they checked, and wrong
-to write it without saying which.
-
-What ends it is not another document. On 2026-09-08 the directory here was
-renamed to match the Mac, so both machines now carry one name and there is no
-longer a second spelling for a future reader to discover and "correct" to.
-
-A mistyped skill does not fail loudly: the call returns `Unknown skill`, and an
-agent that proceeds without the skill writes something shaped like a MADR while
-missing MADR 4.0.0's heading names, the `Good, because …` argument form, and
-the mechanical slug rule. Check, do not remember:
+Whenever the user asks for an MADR and a plan, load **`madr-and-plan-writing`** first and follow it. The name is the filesystem `name:` field. Verify:
 
 ```bash
 ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
 ```
 
-**The command outranks the prose, including the prose above.** If the two ever
-disagree, the filesystem is right and this section is stale — fix the section,
-and do not "fix" the name to match what is written here.
+The command outranks the prose. If they disagree, the filesystem is right — fix this section.
 
-**This file is the normative copy.** `.claude/rules/`, `.grok/rules/` and
-`.opencode/rules.md` carry only the skill name and the gate, and point here for
-the rest. Do not restate this section in them: forked copies are how the skill
-name went stale in **all four** per-agent files at once, each while instructing
-the reader not to fork the workflow (F2). Adding a fifth agent means adding a
-pointer, never a copy.
+**Read-only investigation needs no pair.** Mutating work does. Before the first write, name the `docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair being executed, or stop and write one.
 
-**Read-only investigation is allowed with no pair.** Reading, searching,
-`git log` / `git show` / `git diff`, and existing tests or diagnostics that
-do not write the tree do not need a MADR.
+Mutating: create, edit, or delete files; stage or commit (except the bootstrap exception); dependency or lockfile changes; CI / config / hook changes; builds or installers that write the tree, `$HOME`, or a live service; generating committed artifacts.
 
-**Mutating work is not.** Before the first write, name the
-`docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair being executed, or stop and
-write one.
+Order: (1) investigate (2) write or amend the MADR (`status: proposed` unless already decided); present; do not implement (3) write or amend the PLAN; present (4) mutate only after explicit approval (`proceed`, `execute the plan`, `do phase N`); stay inside that PLAN (5) out-of-scope discoveries wait: amend, re-approve, continue.
 
-Mutating means: creating, editing, or deleting files; staging or committing
-(except the bootstrap exception below); dependency or lockfile changes;
-CI / config / hook changes; builds or installers that write the tree,
-`$HOME`, or a live service; generating committed artifacts.
+Same topic: amend that number. Greenfield: next unused `NNNN`, new pair, same slug.
 
-Order:
-
-1. Investigate (read-only).
-2. Write or amend the MADR (`status: proposed` unless the owner already
-   decided). Present it. Do not implement.
-3. Write or amend the PLAN. Present it.
-4. Mutate **only after** the owner explicitly approves execution
-   (`proceed`, `execute the plan`, `do phase N`). Stay inside that PLAN.
-5. Anything discovered mid-execution that is out of scope waits: amend the
-   pair, re-approve, then continue. Completing a phase is not permission to
-   invent the next unwritten one.
-
-Follow-up vs greenfield:
-
-- **Same topic** (debug, leftover phase, bug found in that plan's live
-  run): amend that number. Add a PLAN phase or an Observed / amendment in
-  the MADR. Do not silently rewrite historical rationale.
-- **Greenfield**: next unused `NNNN`, new MADR, new PLAN, same slug. No
-  mutation until that PLAN is approved.
-
-Bootstrap exception: authoring `docs/NNNN-MADR-*`, `docs/NNNN-PLAN-*`, this
-section, and the per-agent process rules under `.claude/rules/`,
-`.grok/rules/` and `.opencode/rules.md` does not require a *prior* pair. Putting source, tests, CI, or
-product config in that same commit is a violation.
-
-(`.claude/rules/` and `.opencode/rules.md` were added to that list on
-2026-09-01: the exception named `.grok/rules/` only, because that was the only
-per-agent rules directory when it was written — the same enumeration drift as
-F2, two agents later.)
+Bootstrap exception: authoring `docs/NNNN-MADR-*`, `docs/NNNN-PLAN-*`, this section, and the per-agent process rules under `.claude/rules/`, `.grok/rules/` and `.opencode/rules.md` does not require a *prior* pair. Putting source, tests, CI, or product config in that same commit is a violation.
 
 `git push` and tags still need an explicit ask in the same turn.
 
+Record format, naming, numbering, and how to record a deviation: `madr-and-plan-writing`. Docs-tree layout: `documentation-writing`.
+
 ### Host identifiers never appear in records
 
-This repository is public, so nothing committed carries an identifier that only
-makes sense on one machine: no hostname, no account name, and no absolute path
-with a real user in it. Use the placeholder that keeps the meaning —
-`C:\Users\<user>\...`, `<HOST>\<group>`, `<owner-account>` — because a finding
-never needs the real name to be true.
+This repository is public. Nothing committed carries a hostname, account name, or absolute path with a real user in it. Use placeholders (`C:\Users\<user>\...`, `<HOST>\<group>`, `<owner-account>`). Redact as you write, including when quoting live evidence.
 
-This matters most when quoting live evidence. `Get-Acl` output, `ps` listings, CLI
-transcripts and API responses are exactly where a real hostname arrives verbatim,
-and pasting one into a decision record is how it gets committed. Redact as you
-write, not afterwards.
+## File naming
 
-A sweep on 2026-09-21 replaced 50 such identifiers across 15 records, including an
-account email. They had been public since each record was pushed.
-
-## File naming: MADR and plan files
-
-All files in `docs/` must use a zero-padded 4-digit number as a prefix. This
-keeps them grouped consistently in directory listings and makes it easy to
-distinguish MADR files from plan files at a glance.
-
-- **MADR files** follow the pattern `NNNN-MADR-name-of-file.md`. For example:
-  `0022-MADR-name-of-file.md`.
-- **Plan files** follow the pattern `NNNN-PLAN-name-of-file.md`. For example:
-  `0023-PLAN-name-of-file.md`.
-
-The number prefix must be unique and sequential. A MADR and its accompanying
-plan share the same number — `NNNN-MADR-*` and `NNNN-PLAN-*` refer to the
-same topic. When a decision rests on how an
-external CLI behaves, record the probe evidence in the MADR and pin it with a
-live-tagged test: CLI behaviour changes silently, and an assumption with no test
-is a future bug report.
+All files in `docs/` use a zero-padded 4-digit prefix. A MADR and its PLAN share the number (`NNNN-MADR-*` / `NNNN-PLAN-*`). When a decision rests on how an external CLI behaves, record the probe evidence in the MADR and pin it with a live-tagged test. Full naming and numbering rules: `madr-and-plan-writing`.
