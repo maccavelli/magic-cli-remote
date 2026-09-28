@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-28
 decision-makers: Project Owner
 consulted: none
@@ -373,3 +373,47 @@ taken 0172 for
 [0172-MADR-settings-reconnect-now-centers-under-mesh-relay.md](0172-MADR-settings-reconnect-now-centers-under-mesh-relay.md).
 The number is repository-wide and is not reused. This pair is 0173. The
 decisions (D1–D5) are unchanged.
+
+## Observed — execution results
+
+Recorded 2026-09-28 by PLAN 0173 P3. Each experiment ran in a scratch clone. Full detail is in the
+PLAN's execution record.
+
+**D1 and D2 held as decided.**
+
+- The new hub test failed against the unfixed `hub.go` at 5.01 s: `unrelated host h2 waited
+  4.950188583s to register while h1 was replaced`.
+- With the read loop delayed 300 ms, `TestRegisterReplacement` failed 5/5 at 5.00 s without the
+  fix, each time with CI's line `server_lifecycle_test.go:342: second: {V:0 Type: ID:
+  Payload:[]}`. With the fix it passed 5/5 in 0.30 s. This reproduces obs. 5 on macOS.
+- On Linux, `-race -count=20` passed all 12 `TestHub*` and `TestRegisterReplacement` tests 20/20.
+
+**D3 needed more than `makeContainer` to take effect** (PLAN Deviation 1). As first committed,
+the helper changed nothing on the slow-runner ordering. Six `history_replay_test.dart` tests set
+their own cache after the helper had set one, so the teardown awaited a cache the disposal flush
+no longer used. The helper now accepts a test's cache, and container `overrides`. The decision
+is unchanged: a per-container cache, drained at teardown, with no production change (D5).
+
+**Obs. 9 reproduced on Linux, and the fix removes it.** `_writeEntry` was delayed 300 ms, and
+`history_replay_test.dart` ran 3 times per variant:
+
+| Variant | `Cannot rename` per run | `Cannot open` per run |
+| --- | --- | --- |
+| Before the helper (`30041ed9`) | 1, 1, 2 | 4, 4, 4 |
+| The helper as first committed (`1c6a04c`) | 0, 0, 0 | 5, 5, 5 |
+| This record's fix (`44506ac`) | 0, 0, 0 | 0, 0, 0 |
+
+**`Too many elements` was never reproduced.** It did not appear in any of the nine Linux runs,
+or in any macOS run. Obs. 9's **[unverified]** mark stands. The collision that makes it possible
+carries CI's signature, and the fix removes it.
+
+**Open question 1, answered.** Of the nine other files (F10), three disposed transcript-holding
+containers with the default cache: `session_synchronizer_test.dart`, `staged_images_test.dart`
+and `transcript_ingest_test.dart`. All their writes leaked before the switch, and none after.
+The other six do not need the helper: four install no fake path provider, and two are widget
+tests that were measured making no cache writes.
+
+**Open question 2 stays deferred, with evidence for the owner.** Before this record, the pattern
+the guard would catch was in four of the five files that install the fake path provider, and in
+six tests that bypassed the helper. That is common. Whether it justifies a lint remains the
+owner's call, in its own record.

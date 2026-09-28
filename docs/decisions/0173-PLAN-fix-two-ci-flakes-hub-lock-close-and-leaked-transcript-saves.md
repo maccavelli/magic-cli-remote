@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-28
 associated-madr: "0173-MADR-fix-two-ci-flakes-hub-lock-close-and-leaked-transcript-saves.md"
 ---
@@ -299,5 +299,134 @@ signature. `session_synchronizer_test.dart` was already conditionally in scope.
 
 The stability rule and P2 step 7 name Linux (WSL). **Decision (owner, 2026-09-28):** native Linux
 runs use the Linux server, which carries the full toolchain (Go 1.26.6, Flutter 3.47.2). macOS
-runs stay on the macOS laptop. Every run is in a scratch clone under `/tmp`, made from a bundle
-of this repository's HEAD. The server's own checkout is not used. No files added.
+runs stay on the macOS laptop. Every run is in a scratch clone: at first under `/tmp`, and
+from the "with the change" run on, under the host's `$TMPDIR` (see the execution record). Each
+clone is made from a bundle of this repository's HEAD. The server's own checkout is not used. No
+files added. `make ci-windows` runs on the Windows host, from Git Bash, for the same reason:
+on macOS it is a no-op.
+
+## Execution record (2026-09-28)
+
+Owner approval: "proceed with plan 0173" (2026-09-28). The relay fix and the helper had landed
+before this record's evidence was gathered: `ad59160` (P1 steps 1–2), `c7c65d2` and `1c6a04c`
+(P2 steps 1–2). This session ran every remaining step, and committed the Deviation 1 record in
+`011e3d7` and P2's remaining work in `44506ac`.
+
+### P1
+
+- **Step 3, fail-first (macOS).** The new test was run against the unfixed `hub.go`, taken from
+  `ad59160^`, and failed:
+
+  ```text
+  hub_test.go:507: unrelated host h2 waited 4.950188583s to register while h1 was replaced
+  --- FAIL: TestHubReplacementDoesNotHoldLockOnStaleClose (5.01s)
+  ```
+
+- **Step 4, forced ordering (macOS).** The read loop's start was delayed 300 ms, in scratch
+  only. `TestRegisterReplacement` ran with `-race -count=5`:
+  - **without the fix:** 5/5 fail at 5.00 s, each with `server_lifecycle_test.go:342: second:
+    {V:0 Type: ID: Payload:[]}`;
+  - **with the fix:** 5/5 pass, in 0.30–0.31 s.
+- **Stability rule (Linux server).** `go test -race -count=20 -run
+  'TestHub|TestRegisterReplacement' ./internal/relay/` exited 0. Each of the 12 matching tests
+  passed 20/20.
+
+### P2
+
+**Step 3, the audit.** A scratch clone logged every `_writeEntry` and every fake-directory
+setUp and tearDown (Deviation 1 has the method). A control run proved the detector: the
+pre-helper `history_replay_test.dart` showed 13 leaks out of 20 writes.
+
+| File | Verdict | Evidence |
+| --- | --- | --- |
+| `chat_end_session_navigation_test.dart` | not needed | Widget test; installs the fake; 0 cache writes measured |
+| `chat_render_test.dart` | not needed | No fake path provider, so no test directory exists for a stray save to reach. It overrides `sessionTranscriptProvider`. By inspection. |
+| `chat_send_failure_test.dart` | not needed | No fake path provider; by inspection |
+| `permission_loop_test.dart` | not needed | No fake path provider; by inspection |
+| `sessions_screen_test.dart` | not needed | Widget test; installs the fake in one group; 0 cache writes measured |
+| `session_synchronizer_test.dart` | **switched** (10 containers, with `overrides:`) | Before: 8 writes, 8 leaked. After: 9 writes, 0 leaked. |
+| `staged_images_test.dart` | **switched** | Before: 1 write, 1 leaked. After: 6 writes, 0 leaked. |
+| `transcript_ingest_test.dart` | **switched** | Before: 16 writes, 16 leaked. After: 16 writes, 0 leaked. |
+| `transcript_prepend_test.dart` | not needed | No fake path provider; by inspection |
+
+No file was **already draining** its own cache. With every change in,
+`history_replay_test.dart` makes 23 writes and leaks none, and the guard's own file makes 1 and
+leaks none. Write counts vary between runs with timing. The leak count is what the audit reads.
+
+**Step 4.** The comment in `fake_path_provider.dart` now says a late save is not harmless, and
+points at `transcriptsTestContainer`.
+
+**Steps 5–6, the guard and its fail-first.** `transcripts_container_test.dart` passes. In a
+scratch copy whose helper disposes without awaiting, it fails:
+
+```text
+teardown returns only after the transcript save lands [E]
+  Expected: true
+    Actual: <false>
+  the save must land before the teardown returns, or it can reach the next test's directory (MADR 0173 F7)
+```
+
+**Step 7, forced ordering (Linux server).** `_writeEntry` was delayed 300 ms, and
+`history_replay_test.dart` ran 3 times per variant. Every run passed its tests.
+
+| Variant | `Cannot rename` per run | `Cannot open` per run |
+| --- | --- | --- |
+| Before the helper (`30041ed9`'s test file) | 1, 1, 2 | 4, 4, 4 |
+| HEAD before this session (`1c6a04c`) | 0, 0, 0 | 5, 5, 5 |
+| With the change (`44506ac`'s files) | 0, 0, 0 | 0, 0, 0 |
+
+### Whole-plan verification
+
+- **macOS:**
+  - `make race`: exit 0, 42 packages ok;
+  - `dart format --output=none --set-exit-if-changed .`: 0 changed of 213 files;
+  - `flutter analyze`: no issues;
+  - `flutter test`: +1418 ~3, all passed.
+- **Windows host, Git Bash:**
+  - `make -n ci-windows` showed `[ "windows" != "windows" ]`;
+  - `make ci-windows`: exit 0. Toolchain, symlink probe, build and vet all PASS, and 43
+    packages ok, `internal/relay` included.
+- **Unchanged:**
+  - `git diff 30041ed9 HEAD -- internal/relay/server_lifecycle_test.go apps/mobile/lib` is empty;
+  - "dispose persists a pending debounced save immediately" hashes the same at `30041ed9` and
+    HEAD.
+
+### Acceptance criteria
+
+| # | Result |
+| --- | --- |
+| A1 | met: `ad59160` |
+| A2 | met: 20/20 on Linux, and in `make race` and `make ci-windows` |
+| A3 | met: 5.01 s failure above |
+| A4 | met: 5/5 fail without the fix, 5/5 pass with it |
+| A5 | met: helper in `history_replay_test.dart` (Deviation 1); nine verdicts above |
+| A6 | met: guard passes; its failure against a non-draining helper is above |
+| A7 | met: 0/0/0 with the change, against 5/5/5 at `1c6a04c` and 5/5/6 before the helper |
+| A8 | met: see whole-plan verification |
+| A9 | met: both tests unmodified |
+
+### What this plan predicted incorrectly
+
+- **That `makeContainer` alone would fix `history_replay_test.dart`** (Deviation 1). Six tests
+  bypassed it, and as committed first, the helper left the collision rate unchanged.
+- **The helper's signature.** It could not serve `session_synchronizer_test.dart`, whose
+  containers all take `overrides`.
+- **"A switched file changes its container construction and nothing else."** One more line
+  moved: `session_synchronizer_test.dart` dropped its `flutter_riverpod` import, which the
+  switch left unused, and which `flutter analyze` flags. The helper also needed
+  `package:flutter_riverpod/misc.dart` for `Override`, which Riverpod 3 no longer exports from
+  the main library.
+- **The Linux host** (Deviation 2).
+- **Scratch space.** `/tmp` on the Linux server is a 512 MiB tmpfs. The fourth clone there ran
+  it out of space mid-checkout, leaving a clone with no index. That run was discarded before
+  any test ran. The earlier clones were deleted, and the run was repeated under `$TMPDIR`.
+- **Obs. 9's `Cannot rename`.** It is not the only collision signature. On Linux, `Cannot open`
+  on the `.tmp` file was 4–5 times as common, and it was the only one left once the helper was
+  first committed.
+
+### Not done
+
+- **`Too many elements` was never reproduced** (Deferred, unchanged).
+- **The `h.mu` sweep and the transcripts lint** stay deferred. The MADR's *Observed* section
+  gives the audit's numbers for the lint question.
+- **Nothing is pushed.** Pushing needs the owner's ask.
