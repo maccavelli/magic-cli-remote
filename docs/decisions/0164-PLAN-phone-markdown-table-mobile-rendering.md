@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 date: 2026-09-28
 ---
 
@@ -13,14 +13,14 @@ Implements [0164-MADR-phone-markdown-table-mobile-rendering.md](0164-MADR-phone-
 
 A markdown table rendered inside a phone-portrait chat bubble:
 
-* **Scrolls horizontally inside its own wrapper** when wider than the bubble, instead of either wrapping into very tall rows or pushing the whole bubble off-screen.
+* **Scrolls horizontally inside its own wrapper** when wider than the bubble, instead of either wrapping into very tall rows or pushing the whole bubble off-screen. A left/right swipe on the table reveals the rest of the columns.
 * **Shrinks to its content** when narrower than the bubble, instead of stretching to fill it.
-* **Has a visible horizontal scrollbar thumb** on mobile so the affordance is discoverable.
+* ~~**Has a visible horizontal scrollbar thumb** on mobile so the affordance is discoverable.~~ Dropped 2026-09-28: the owner wants a swipe, not a persistent thumb.
 * **Visually matches the existing fenced-code chrome** (same surface tint, same rounded border) so a table does not look like a different document type.
-* **Never inflates a single column past the others** because of one long unbroken identifier.
-* **Is pinned by a widget test** that fails if any of the above stops being true.
+* ~~**Never inflates a single column past the others** because of one long unbroken identifier.~~ Dropped 2026-09-28 with P3/D4.
+* **Is pinned by a widget test** that fails if a wide table cannot be dragged horizontally.
 
-Observable end-state: `flutter test apps/mobile/test/chat_table_render_test.dart` is green and asserts the wrapper, scroll axis, and thumb visibility; `flutter analyze apps/mobile/` is clean; `flutter test apps/mobile/test/` is green.
+Observable end-state: `flutter test apps/mobile/test/chat_table_render_test.dart` is green and asserts the horizontal wrapper plus a drag that moves the scroll offset; `flutter analyze apps/mobile/` is clean; `flutter test apps/mobile/test/` is green.
 
 ## Scope
 
@@ -162,6 +162,10 @@ If any of the three `testWidgets` does not fail when the stylesheet is missing `
 
 **Commit boundary:** P2 lands on its own. P3 is independent and may follow.
 
+### ~~P3 — Cap cell text so a single identifier cannot inflate its column (D4; closes F5)~~
+
+**Cancelled 2026-09-28.** See Deviations. The original P3 text is left below for the record.
+
 ### P3 — Cap cell text so a single identifier cannot inflate its column (D4; closes F5)
 
 **Files:** `apps/mobile/lib/features/chat/chat_bubble.dart` only.
@@ -260,14 +264,14 @@ Add a fourth `testWidgets` to `chat_table_render_test.dart` (in P3, not P2):
 
 | # | Criterion | MADR | Phase |
 | --- | --- | --- | --- |
-| A1 | `chat_table_render_test.dart` is green; three baseline assertions (P2) plus the P3 cell-cap assertion | Confirmation, D5 | P2, P3 |
-| A2 | `flutter test apps/mobile/test/` is green | Confirmation | P1, P2, P3 |
-| A3 | `flutter analyze apps/mobile/` is clean | Confirmation | P1, P2, P3 |
+| A1 | `chat_table_render_test.dart` is green; horizontal wrapper, drag moves offset, narrow table has no overflow, selection still works | Confirmation, D5 as amended | P2 |
+| A2 | `flutter test apps/mobile/test/` is green | Confirmation | P1, P2 |
+| A3 | `flutter analyze apps/mobile/` is clean | Confirmation | P1, P2 |
 | A4 | `git grep -n 'tableColumnWidth' apps/mobile/lib` returns exactly one hit, inside `_sheetFor` | D1 | P1 |
-| A5 | `git grep -n 'tableScrollbarThumbVisibility' apps/mobile/lib` returns exactly one hit | D2 | P1 |
-| A6 | Negative-test verification captured for the wrapper assertion (P2) and the cell-cap assertion (P3) | "A check is not trusted until it has been seen to fail" | P2, P3 |
-| A7 | `flutter build apk --debug` from `apps/mobile` succeeds (Android phone build still compiles with the new builder) | Confirmation | P3 |
-| A8 | Manual: a 4-column prose table in a chat reply on a phone emulator scrolls horizontally inside its bubble; the table height is no greater than the equivalent text-only reply + ~50% | Confirmation | P3 |
+| A5 | ~~`git grep -n 'tableScrollbarThumbVisibility'` exactly one hit~~ Vacated 2026-09-28: D2 no longer sets this field. `git grep` must now return **zero** hits under `apps/mobile/lib`. | D2 as amended | P2 follow-up |
+| A6 | Negative-test verification captured for the wrapper assertion (P2). Cell-cap negative test vacated with P3. | "A check is not trusted until it has been seen to fail" | P2 |
+| A7 | ~~`flutter build apk --debug` with the new cell builder~~ Vacated 2026-09-28: no cell builder. | — | — |
+| A8 | Widget test: a wide table’s horizontal drag increases `controller.offset`. No phone emulator was connected on this host (macos desktop + chrome only). | D5 as amended | P2 follow-up |
 
 **Criterion most likely to be quietly dropped under pressure: A8.** It is the only criterion that requires a real Android emulator, and a reviewer under time pressure will trust the widget test instead. **Do not declare the plan complete without running the chat on an emulator with the fixture.** `flutter run -d <device>` against an Android emulator started via `docs/ops-android-emulator.md`, paste a 4-column table reply, scroll the table horizontally, confirm thumb visibility and vertical height. The script in `docs/ops-android-emulator.md` is the one to follow.
 
@@ -370,3 +374,46 @@ flutter test test/chat_table_render_test.dart
 flutter test
   01:10 +1417 ~3: All other tests passed!
 ```
+
+### P3 — cancelled 2026-09-28
+
+Not executed. A `td`/`th` builder on this package never inserts cells into the `Table`. Owner requirement is swipe-to-read columns; D1’s wrapper already does that. See Deviations.
+
+### P2 follow-up — 2026-09-28 (owner: swipe, not a thumb)
+
+Removed `tableScrollbarThumbVisibility: true` from `_sheetFor` and from the test fake stylesheet. The wide-table test now asserts `maxScrollExtent > 0` and that a leftward drag on the `SingleChildScrollView` increases `controller.offset` (drag target is the on-screen scroll view; dragging the `Table` itself hits its off-screen centre).
+
+**Negative-test verification.** Same `_tmp` copy with `tableColumnWidth` stripped:
+
+```text
+renders a wide table wrapped in a horizontal SingleChildScrollView
+  Expected: exactly one matching candidate
+    Actual: Found 0 widgets with type "SingleChildScrollView"
+
+renders a narrow table without overflow (wrapper still present)
+  Expected: exactly one matching candidate
+    Actual: Found 0 widgets with type "SingleChildScrollView"
+
+preserves text selection across cells
+  passed (selection does not depend on the wrapper)
+
+00:03 +1 -2: Some tests failed.
+```
+
+With `tableColumnWidth` restored:
+
+```text
+flutter test test/chat_table_render_test.dart
+  All tests passed!   (3 tests)
+
+git grep -n 'tableScrollbarThumbVisibility' -- apps/mobile/lib
+  (zero hits)
+```
+
+## Deviations
+
+* **2026-09-28 — P3 cancelled; D2/D4 amended.**
+  Found: `flutter_markdown_plus` 1.0.12 `builder.dart` `visitElementAfter` skips `_buildTableCell` when a `td`/`th` builder is registered, and overwrites a `table` builder with `_buildTable()`.
+  Owner: wide tables should scroll horizontally on swipe/slide; a persistent scrollbar thumb is not wanted; cell ellipsis is not wanted.
+  Decision: do not implement P3; stop setting `tableScrollbarThumbVisibility`; pin a horizontal drag in the existing P2 test file.
+  Files added to this follow-up: the same two in-scope files (`chat_bubble.dart`, `chat_table_render_test.dart`) plus this pair’s records.

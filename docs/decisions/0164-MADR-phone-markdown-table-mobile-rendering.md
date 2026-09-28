@@ -182,6 +182,8 @@ one test.
 * **D2 — Enable `tableScrollbarThumbVisibility: true`** on the chat
   stylesheet. Mobile users do not reflexively swipe a table horizontally;
   the thumb is the affordance. Closes **F4**.
+  *Amended 2026-09-28: see Amendment below. The owner’s affordance is a
+  horizontal swipe on the table, not a persistent thumb.*
 * **D3 — Style `tableBorder`, `tableCellsPadding`, `tablePadding`, and
   `tableHead` on the stylesheet** to match the existing fenced-code
   chrome: rounded border, subtle surface tint (use
@@ -197,6 +199,8 @@ one test.
   line count (start at 8 — the package's default has no cap, which is
   what produces the "very tall" outcome the bug report describes).
   Closes **F5**.
+  *Amended 2026-09-28: see Amendment below. D4 is not implemented; overflow
+  is owned by D1’s horizontal scroll.*
 * **D5 — Add a widget test in `apps/mobile/test/` that renders a wide
   markdown table inside a `MarkdownBody` styled with the chat stylesheet
   and asserts**: a `Scrollbar` is present, a `SingleChildScrollView` with
@@ -348,3 +352,34 @@ phone, manually                                               # a 4-column wide 
    streaming assertion would protect against a future change that wraps
    mid-stream and produces a half-wrapped table. Defer unless the test
    is cheap.
+
+## Amendment — 2026-09-28: swipe to read columns; no persistent thumb; no cell builder
+
+Owner, during execution of PLAN 0164: the product requirement is that a
+wide table in a chat bubble can be **swiped or slid horizontally** so
+later columns come into view. A visible scrollbar thumb is not wanted.
+Cell ellipsis (D4) is not wanted.
+
+**D2.** Do not set `tableScrollbarThumbVisibility`. The package still
+wraps an overflowing `IntrinsicColumnWidth` table in
+`Scrollbar(SingleChildScrollView(scrollDirection: Axis.horizontal))`;
+the thumb follows the platform default (not forced on). The widget test
+pins a horizontal drag that moves the scroll offset, not a visible
+thumb.
+
+**D4 / F5.** A `td`/`th` `MarkdownElementBuilder` on
+`flutter_markdown_plus` 1.0.12 never reaches `_buildTableCell`:
+`visitElementAfter` takes the `builders.containsKey` branch and skips
+the `else if (tag == 'th' || tag == 'td')` that inserts the cell into
+the row. Returning `null` still skips that branch. A custom `table`
+builder is also discarded: the `tag == 'table'` branch always replaces
+`child` with `_buildTable()`. D4 is therefore unreachable without
+reimplementing GFM tables (Option C, already rejected). Overflow is
+owned by D1: columns size to content, the user swipes to read them.
+
+**D5.** The widget test asserts a horizontal `SingleChildScrollView`,
+`maxScrollExtent > 0` on a wide table, and that a leftward drag
+increases `controller.offset`. It does not require a visible thumb.
+
+**F4** (chrome: border, padding, header weight) is unchanged and still
+closed by D3. The “visible thumb” half of F4 is dropped.

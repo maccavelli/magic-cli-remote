@@ -750,7 +750,6 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
       codeblockPadding: const EdgeInsets.all(10),
       a: TextStyle(color: theme.colorScheme.primary),
       tableColumnWidth: const IntrinsicColumnWidth(),
-      tableScrollbarThumbVisibility: true,
       tableBorder: TableBorder.all(
         color: theme.colorScheme.outlineVariant,
         borderRadius: BorderRadius.circular(8),

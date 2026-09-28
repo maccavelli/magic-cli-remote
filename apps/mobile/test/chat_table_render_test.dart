@@ -9,7 +9,6 @@ class _FakeChatStyleSheet {
     final theme = Theme.of(context);
     return MarkdownStyleSheet.fromTheme(theme).copyWith(
       tableColumnWidth: const IntrinsicColumnWidth(),
-      tableScrollbarThumbVisibility: true,
       tableBorder: TableBorder.all(
         color: theme.colorScheme.outlineVariant,
         borderRadius: BorderRadius.circular(8),
@@ -90,39 +89,44 @@ void main() {
     (tester) async {
       await _pumpTable(tester, _wideTable);
 
-      expect(_inMarkdown(find.byType(Scrollbar)), findsOneWidget);
       expect(_inMarkdown(find.byType(SingleChildScrollView)), findsOneWidget);
-      expect(
-        tester
-            .widget<SingleChildScrollView>(
-              _inMarkdown(find.byType(SingleChildScrollView)),
-            )
-            .scrollDirection,
-        Axis.horizontal,
+      final scsv = tester.widget<SingleChildScrollView>(
+        _inMarkdown(find.byType(SingleChildScrollView)),
       );
+      expect(scsv.scrollDirection, Axis.horizontal);
       expect(_inMarkdown(find.byType(Table)), findsOneWidget);
       expect(find.textContaining('long prose text'), findsOneWidget);
+
+      final controller = scsv.controller;
+      expect(controller, isNotNull);
+      expect(controller!.position.maxScrollExtent, greaterThan(0));
+      final before = controller.offset;
+      await tester.drag(
+        _inMarkdown(find.byType(SingleChildScrollView)),
+        const Offset(-120, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.offset, greaterThan(before));
     },
   );
 
   testWidgets(
-    'renders a narrow table without a scrollbar visible (scrollable wrapper still wraps, but no overflow)',
+    'renders a narrow table without overflow (wrapper still present)',
     (tester) async {
       await _pumpTable(tester, _narrowTable);
 
       expect(_inMarkdown(find.byType(SingleChildScrollView)), findsOneWidget);
-      final scrollbar = tester.widget<Scrollbar>(
-        _inMarkdown(find.byType(Scrollbar)),
+      final scsv = tester.widget<SingleChildScrollView>(
+        _inMarkdown(find.byType(SingleChildScrollView)),
       );
-      expect(scrollbar.controller, isNotNull);
-      expect(scrollbar.controller!.position.maxScrollExtent, 0);
+      expect(scsv.controller, isNotNull);
+      expect(scsv.controller!.position.maxScrollExtent, 0);
     },
   );
 
   testWidgets('preserves text selection across cells', (tester) async {
     await _pumpTable(tester, _selectTable, selectable: true);
 
-    expect(_inMarkdown(find.byType(Scrollbar)), findsOneWidget);
     await tester.longPress(find.textContaining('alpha cell'));
     await tester.pumpAndSettle();
     expect(find.byType(AdaptiveTextSelectionToolbar), findsWidgets);
