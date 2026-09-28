@@ -1,13 +1,17 @@
 ---
 status: proposed
-date: 2026-09-24
+date: 2026-09-28
+associated-madr: "0173-MADR-fix-two-ci-flakes-hub-lock-close-and-leaked-transcript-saves.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
-# PLAN 0172 — Fix two CI flakes: the hub-lock close and leaked transcript saves
+# PLAN 0173 — Fix two CI flakes: the hub-lock close and leaked transcript saves
 
-Implements [0172-MADR-fix-two-ci-flakes-hub-lock-close-and-leaked-transcript-saves.md](0172-MADR-fix-two-ci-flakes-hub-lock-close-and-leaked-transcript-saves.md)
+Implements [0173-MADR-fix-two-ci-flakes-hub-lock-close-and-leaked-transcript-saves.md](0173-MADR-fix-two-ci-flakes-hub-lock-close-and-leaked-transcript-saves.md)
 decisions **D1–D5**, closing findings **F1–F10**.
+
+Renumbered from 0172 on 2026-09-28: 0172 was already
+[0172-MADR-settings-reconnect-now-centers-under-mesh-relay.md](0172-MADR-settings-reconnect-now-centers-under-mesh-relay.md).
 
 ## Goal
 
@@ -154,7 +158,7 @@ P1 and P2 are independent and may land in either order. P3 depends on both.
    - registers a teardown that calls `dispose()` and then awaits the cache's `debugWhenIdle`;
    - returns the container.
 
-   Its doc comment names MADR 0172 F6/F7.
+   Its doc comment names MADR 0173 F6/F7.
 2. **The failing file.** Change `history_replay_test.dart`'s `makeContainer` to return
    `transcriptsTestContainer(addTearDown)`.
 3. **The audit.** For each of the other nine files in F10, record one verdict:

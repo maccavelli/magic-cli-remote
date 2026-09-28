@@ -136,7 +136,7 @@ func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) er
 	}()
 	if replaced != nil {
 		// Close runs the close handshake, which waits on the old peer for up to
-		// the library's timeouts. Under h.mu that stalled every host (MADR 0172
+		// the library's timeouts. Under h.mu that stalled every host (MADR 0173
 		// F1, F3), so close after unlocking and off the new host's path, as
 		// closeAllHosts does.
 		go func() { _ = replaced.Close(websocket.StatusGoingAway, "replaced") }()

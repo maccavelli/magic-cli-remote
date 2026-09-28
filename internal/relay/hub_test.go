@@ -476,7 +476,7 @@ func wsPair(t *testing.T) (server, client *websocket.Conn) {
 }
 
 // TestHubReplacementDoesNotHoldLockOnStaleClose: replacing a host must not
-// hold h.mu across the old control's close handshake (MADR 0172 D1, D2). The
+// hold h.mu across the old control's close handshake (MADR 0173 D1, D2). The
 // old peer never reads and no server read loop runs — the ordering that
 // flaked TestRegisterReplacement — so a handshake under the lock would wait
 // out the library's 5 s timeout and stall every other host with it.

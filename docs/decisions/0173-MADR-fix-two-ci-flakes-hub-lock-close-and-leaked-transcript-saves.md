@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-09-24
+date: 2026-09-28
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -365,3 +365,11 @@ dart format --output=none --set-exit-if-changed apps/mobile
    cache? The PLAN audits each one and records the verdict.
 2. Can a guard catch a bare `ProviderContainer` built for transcripts in a new test, such as a
    lint or a test-support assertion? Deferred unless the audit shows the pattern is common.
+
+## Amendment — 2026-09-28: this pair is 0173, not 0172
+
+Filed on 2026-09-24 as `0172-MADR-` / `0172-PLAN-`. `9abbed78` had already
+taken 0172 for
+[0172-MADR-settings-reconnect-now-centers-under-mesh-relay.md](0172-MADR-settings-reconnect-now-centers-under-mesh-relay.md).
+The number is repository-wide and is not reused. This pair is 0173. The
+decisions (D1–D5) are unchanged.
