@@ -749,6 +749,22 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
       ),
       codeblockPadding: const EdgeInsets.all(10),
       a: TextStyle(color: theme.colorScheme.primary),
+      tableColumnWidth: const IntrinsicColumnWidth(),
+      tableScrollbarThumbVisibility: true,
+      tableBorder: TableBorder.all(
+        color: theme.colorScheme.outlineVariant,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      tableCellsPadding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 8,
+      ),
+      tablePadding: const EdgeInsets.only(bottom: 4),
+      tableHead: theme.textTheme.bodyMedium?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+      tableHeadAlign: TextAlign.left,
+      tableBody: theme.textTheme.bodyMedium,
       blockquotePadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
       blockquoteDecoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,

@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-21
+status: in-progress
+date: 2026-09-28
 ---
 
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -290,4 +290,38 @@ Add a fourth `testWidgets` to `chat_table_render_test.dart` (in P3, not P2):
 
 ## Execution record (filled in by the executor)
 
-_To be appended after each phase lands._
+### P1 — 2026-09-28
+
+Added the table stylesheet fields to `_sheetFor` in
+`apps/mobile/lib/features/chat/chat_bubble.dart` (`tableColumnWidth:
+IntrinsicColumnWidth()`, `tableScrollbarThumbVisibility: true`,
+`tableBorder`, `tableCellsPadding`, `tablePadding`, `tableHead`,
+`tableHeadAlign`, `tableBody`). MADR status set to `accepted`; this plan
+status set to `in-progress`.
+
+Verification:
+
+```text
+dart format lib/features/chat/chat_bubble.dart
+  Formatted 1 file (1 changed)
+
+git grep -n 'tableColumnWidth' -- apps/mobile/lib
+  apps/mobile/lib/features/chat/chat_bubble.dart:752:      tableColumnWidth: const IntrinsicColumnWidth(),
+
+git grep -n 'tableScrollbarThumbVisibility' -- apps/mobile/lib
+  apps/mobile/lib/features/chat/chat_bubble.dart:753:      tableScrollbarThumbVisibility: true,
+
+flutter analyze
+  No issues found! (ran in 19.7s)
+
+flutter test test/chat_render_test.dart
+  All tests passed!
+
+flutter test test/streaming_markdown_test.dart
+  All tests passed!
+
+flutter test
+  01:04 +1414 ~3: All other tests passed!
+```
+
+A4 and A5 hold: one hit each, inside `_sheetFor`.
