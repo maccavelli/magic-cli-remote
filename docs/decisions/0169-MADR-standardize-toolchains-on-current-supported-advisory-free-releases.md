@@ -599,3 +599,17 @@ commit `d7f02e5`. Nothing in 0169's own decisions depends on it.
   CVE-2026-87910, CVE-2025-15367 and CVE-2024-3220, OSV lists no 3.14 release as affected.
   Which count is right is unresolved. D6 and the decision to adopt 3.14.8 when it ships are
   unchanged either way. PLAN 0169's P1 execution record has the evidence.
+
+## Amendment — 2026-09-29: git 2.56 and glab 1.120 (D7, D9)
+
+git 2.56.0 became final after this record was written, as did Git for Windows
+2.56.0.windows.1 (2026-09-28), and glab released 1.120.0 on 2026-09-29. The audit (D12)
+reported the standard as stale on its first run. With the standard moved, it found no
+advisory affecting any of the three. Under D1 they are the standard, so the owner adopted
+them before P7 installs anything:
+
+- **D7 now reads:** git 2.56.x, newest maintenance build: Git for Windows
+  **2.56.0.windows.1** on Windows, **2.56.0** elsewhere.
+- **D9 now reads:** glab **1.120.0** everywhere.
+
+PLAN 0169 Deviation 8 has the evidence.

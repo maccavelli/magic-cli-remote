@@ -393,6 +393,69 @@ OSV's git-range analysis reports 4 for the v3.14.7 tag: CVE-2026-15310, -15806, 
 tag list contains no 3.14 release, so the audit does not report them. The difference is
 unresolved: the audit reports what OSV computes, and this record keeps the hand count.
 
+#### Deviation 8 (2026-09-29): git, Git for Windows and glab moved on before P7
+
+**Found** by P1's audit on its first run. git 2.56.0 is final (tag `v2.56.0`), Git for
+Windows released 2.56.0.windows.1 on 2026-09-28, and glab released 1.120.0 on 2026-09-29.
+All three are newer than the standard the MADR names, so the audit reported them `STALE`.
+With `standard.json` moved to them, the audit reports no advisory at any of the three.
+
+**Decision (owner, 2026-09-29): adopt the newest.** P7 installs git 2.56.0 (Git for Windows
+2.56.0.windows.1) and glab 1.120.0, so hosts move once. MADR amendment of 2026-09-29 (D7,
+D9). The alternative, installing 2.55.x and 1.119.0 as written and rolling forward later,
+was declined.
+
+**Scope.** No file added. `standard.json` (in scope) carries the new values, verified
+2026-09-29.
+
+#### Deviation 9 (2026-09-29): an old Go 1.26.5 install on the macOS laptop
+
+**Found** by P1's audit on the current state. `~/.local/go1.26.5` (July 2026) is still on
+disk. Nothing points at it: `~/.local/bin/go` resolves to `~/.local/go1.26.6`. It carries
+10 Go advisories (8 stdlib, 2 toolchain), all fixed in 1.26.6 and later.
+
+**Decision (owner, 2026-09-29): remove it in P2**, when go1.27.1 is installed on the macOS
+laptop.
+
+**Scope.** Added to P2: `~/.local/go1.26.5` on the macOS laptop (deleted).
+
+#### Deviation 10 (2026-09-29): Homebrew OpenJDK 26 on the macOS laptop is past end of life
+
+**Found** by P1's audit. Homebrew's `openjdk` formula is 26.0.2.1, and the Java 26 line
+ended 2026-09-15 (endoflife.date, eclipse-temurin). It is not Flutter's JDK
+(`openjdk@21` is).
+
+**Decision (owner, 2026-09-29): fold it into P5.** After the Temurin 25 cask builds the APK on
+the macOS laptop, list what depends on Homebrew `openjdk`. Uninstall it if nothing does;
+otherwise report the dependent.
+
+**Scope.** Added to P5: Homebrew `openjdk` on the macOS laptop.
+
+#### Deviation 11 (2026-09-29): `go_tools_standard.py` does not exist
+
+**Found** before P2 step 2. The script is not on any of the four hosts, in magic-git, or in
+any repository here. The probe of 2026-09-29 shows the same 11 tools at the same versions on
+every host:
+- benchstat `v0.0.0-20260825160852-19be9d8e6c70`
+- dlv v1.27.1
+- gofumpt v0.12.0
+- golangci-lint v2.13.2
+- golint `v0.0.0-20241112194109-818c5a804067`
+- gopls v0.23.0
+- gotestsum v1.13.0
+- govulncheck v1.7.0
+- rsrc v0.10.2
+- staticcheck v0.8.1
+- treefmt v2.5.0
+
+All were built with go1.26.6.
+
+**Resolution.** Rebuild each with `go install <package>@<same version>` under go1.27.1. That
+does what the named script would have done, at unchanged versions. The audit's
+Go-bin-directory check confirms the result.
+
+**Scope.** No file added.
+
 ### P2 — Go 1.27.1 on every host (D2; closes F2, F3)
 
 1. Per host, install go1.27.1 beside 1.26.6 (go.dev archive, sha256 per C3):
@@ -416,6 +479,79 @@ unresolved: the audit reports what OSV computes, and this record keeps the hand 
 
 **Verification:** `go version` = go1.27.1 in a fresh shell on each host;
 `go version -m ~/go/bin/*` all go1.27.1; the audit shows no Go drift.
+
+#### P2 execution (2026-09-29)
+
+The owner approved all four hosts (C2). Each host had dated backups in
+`~/backups/0169-p2-2026-09-29/`, outside any repository, and a `devenv_snapshot.py` taken
+before and after. Every archive matched go.dev's published sha256 (C3):
+- darwin-arm64 `ee215d57…`;
+- linux-amd64 `63d339f0…`;
+- windows-amd64 `a3911b5e…`.
+
+go1.26.6 stays installed on every host until P3's gates pass (step 5, C4).
+
+| Host | go1.27.1 | PATH / link | `GOTOOLCHAIN` | Snapshot diff |
+| --- | --- | --- | --- | --- |
+| macOS laptop | `~/.local/go1.27.1` | `~/.local/bin/go` and `gofmt` relinked | Go env file | the Go env file only |
+| Linux server | `~/sdk/go1.27.1` | `00-paths.sh` line and the `mcremote` drop-in PATH literal (dotfiles commit `34221b0`, not pushed); `daemon-reload` | `~/.config/go/env` | `00-paths.sh`, `~/.config/go/env` |
+| WSL | `~/sdk/go1.27.1` | the `devenv.sh` PATH entry | `~/.config/go/env` (new file) | `devenv.sh`, `~/.config/go/env` |
+| Windows | `~\sdk\go1.27.1` | the one User PATH entry, value kind kept (`String`, as before) | registry User environment and `%APPDATA%\go\env` | `HKCU\Environment`, `%APPDATA%\go\env` |
+
+**Resolution.** Every host resolves go1.27.1 from its new location:
+- the Linux server in `bash -lic`, in `bash -c`, and in a transient `systemd-run --user`
+  unit carrying the drop-in's PATH;
+- WSL and the macOS laptop in a login shell;
+- Windows from the registry. The probe's fresh-logon environment reads it.
+
+The owner then had `mcremote` restarted on the Linux server. It came back active, and its
+`/proc` environment's PATH starts with `~/sdk/go1.27.1/bin`.
+
+**Step 2, the tools (Deviation 11).** On every host, 10 of the 11 tools were rebuilt with
+`go install <package>@<same version>`. `treefmt` v2.5.0 cannot be `go install`ed: its
+module zip is rejected (`malformed file path "test/examples/emoji 🕰️/README.md"`). The
+existing binaries had been built from a checkout of the tag. The build info showed
+`vcs.revision=7ab41ba4…`, and no ldflags. So on each host it was rebuilt the same way:
+- a clone of tag `v2.5.0`;
+- HEAD checked equal to `7ab41ba4491e77bfdbdda24d81554618ba1cfff6`, which GitHub's
+  annotated tag `0a36c1d…` points to;
+- `go build`;
+- the result still stamps `mod … v2.5.0`.
+
+`go version` on every tool in each host's Go bin directory reports go1.27.1.
+
+**Step 3, gopls (MADR open question): answered, keep v0.23.0.** It was built with go1.27.1
+on the macOS laptop. The scratch module declares `func (b Box) Map[T any](f func(int) T) T`
+and runs under `go run`. Results:
+- `gopls check` on it reports nothing;
+- on a copy with a planted type error, gopls reports it: `cannot use b.v (variable of type
+  int) as string value in variable declaration`. So its silence on the first file is
+  meaningful.
+
+**Step 4, the acp-go-sdk fork.** `PATH="$PWD/.tools/bin:$PATH" make check test` passes on the
+host's go1.27.1 on the macOS laptop, the Linux server and WSL. The fork's `git status` is
+empty before and after. The fork has no checkout on Windows, where P9 did not apply.
+
+**Deviation 9 done.** `~/.local/go1.26.5` was removed from the macOS laptop, after checking
+that no shell-init file or `~/.local/bin` link referenced it.
+
+**Verification.** A four-host probe gave `UNCHANGED` for every snapshot. The audit then
+reported **0** Go findings, against 9 before P2 (the 1.26.5 advisory among them). What it
+still reports belongs to later phases.
+
+**Observations, recorded rather than acted on:**
+- **dl.google.com answered the Linux server with HTTP 404** for the go1.27.1 archive, and
+  the macOS laptop with 200. The archive was fetched on the macOS laptop, checked there, and
+  copied over. The server's script checked the same sha256 again before unpacking.
+- **Running `~/.local/go1.26.5/bin/go version` downloaded the go1.27.1 toolchain.** This
+  happened on the macOS laptop after `GOTOOLCHAIN=go1.27.1` was set. The download went into
+  the module cache, checksum-verified by the Go toolchain. The module cache also still
+  holds a `go1.26.5` toolchain entry. The audit does not inspect the module cache, and
+  nothing puts that entry on PATH.
+- **The Windows step was first run under Windows PowerShell 5.1.** Its `Expand-Archive`
+  was still unpacking after more than ten minutes, and it was stopped at the owner's
+  request. It had changed nothing outside its temp directory. The run was repeated under
+  PowerShell 7.6.6.
 
 ### P3 — This repository on Go 1.27 (D2)
 
