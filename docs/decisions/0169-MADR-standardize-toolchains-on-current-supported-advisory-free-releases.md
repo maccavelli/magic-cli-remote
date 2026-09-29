@@ -586,3 +586,16 @@ decisions D16–D21. It covered the two `make preflight` defects surfaced by PLA
 P9 verification (PLAN Deviations 6 and 7). The same day the owner moved it into its own
 record: [0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md), renumbered F1–F12 and D1–D6. The text as first written is in
 commit `d7f02e5`. Nothing in 0169's own decisions depends on it.
+
+## Amendment — 2026-09-29: where the standard lives, and the audit's Python count
+
+- **Open question "where the standard file lives" is answered.** It lives beside the audit
+  in magic-git: `scripts/tools/devenv/standard.json`, read by
+  `scripts/tools/devenv/version_audit.py` (D11, D12; PLAN 0169 P1).
+- **The audit counts four advisories against Python 3.14.7, not seven.** The previous
+  amendment's seven came from checking the PSF database's fix commits by hand. The audit
+  asks OSV, which evaluates the same records' git ranges against the `v3.14.7` tag and
+  returns four: CVE-2026-15806, CVE-2026-17084, CVE-2026-15310 and CVE-2026-19672. For
+  CVE-2026-87910, CVE-2025-15367 and CVE-2024-3220, OSV lists no 3.14 release as affected.
+  Which count is right is unresolved. D6 and the decision to adopt 3.14.8 when it ships are
+  unchanged either way. PLAN 0169's P1 execution record has the evidence.

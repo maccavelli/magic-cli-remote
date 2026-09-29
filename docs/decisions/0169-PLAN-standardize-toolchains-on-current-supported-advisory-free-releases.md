@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-23
+status: in-progress
+date: 2026-09-29
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -314,6 +314,84 @@ mise config edit.
 4. README section: how to run it, and the calendar (Go point releases; the Oracle Critical
    Patch Update on the third Tuesday of Jan/Apr/Jul/Oct; Node security releases; Flutter
    hotfixes).
+
+#### P1 execution (2026-09-29)
+
+**Files (magic-git `scripts/tools/devenv/`, left uncommitted for the owner):**
+`standard.json` (new), `version_audit.py` (new), `README.md` (two sections added), and
+`fork_tools.py`. `fork_tools.py` was recorded as done under 9a, but it had never been
+committed. The only copy was an untracked file in the Windows host's magic-git checkout. It
+was copied into the canonical checkout unchanged (sha256 `3a25f778…`, identical on both).
+
+**Design points the plan left open:**
+- **Where the standard lives (MADR open question):** beside the audit in magic-git. The
+  audit reads one file.
+- **Host kind.** Each probe document's `host` section gives the host kind (windows, wsl,
+  linux, macos), so `standard.json` carries no host identifier. Git for Windows' version is
+  a per-kind field.
+- **Prose advisory ranges.** git, Git for Windows and Dart publish affected ranges as
+  prose. `standard.json` records each advisory's fixed versions under
+  `reviewed_advisories`, with a `reviewed_through` date per repository. An advisory
+  published after that date is a `REVIEW` finding. The two Git for Windows advisories of
+  2026-09-28 (GHSA-v3h4-vrpr-rh9x, GHSA-5j7x-r6vf-jhq2) state no patched version. They were
+  split from GHSA-rxqw-wxqg-g7hw (fixed in 2.55.0.windows.3) and their ranges end at
+  v2.54.0.windows.1, so both are recorded as fixed in 2.55.0.windows.3.
+- **Advisory sources.**
+  - OSV for Go stdlib and toolchain, gh and glab.
+  - OSV by release-tag commit for CPython. That is how the PSF database is queried.
+  - nodejs.org's `security` flag for Node.
+  - The newest OpenJDK advisory pages. Each lists the last affected release of each line
+    "and earlier".
+- **Exit codes.** 1 for any DRIFT, MISE, ADVISORY, REVIEW, STALE or UNSUPPORTED; else 2 for
+  ERROR; else 3 for NO-FIX only; else 0.
+- **GitHub API.** It reads GitHub with `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`.
+  Unauthenticated, the 60-request hourly limit ran out during the fixture runs; the audit
+  reported each refused request as ERROR rather than passing.
+
+**Seen to fail (A2).** Every fixture was run from the scratchpad, and none is committed.
+
+| Input | Result |
+| --- | --- |
+| Pre-P0 probe outputs | exit 1. The five Windows exposures by name: Node 24.14.0 (3 later security releases: v24.14.1, v24.17.0, v24.18.1); Temurin 21.0.12 and 25.0.4 ("the OpenJDK advisory of 2026-08-18 affects 21.0.12 / 25.0.4 and earlier"); Git for Windows 2.55.0.windows.3 (GHSA-xrpg-8j9v-v282, fixed in .windows.4); Python 3.14.3 (29 advisories fixed by 3.14.7) |
+| Temp standard naming Go 1.26.5 | exit 1. `ADVISORY standard go 1.26.5: 10 advisories fixed by 1.27.1`: the 8 stdlib ones (GO-2026-5026, -5942, -5972, -6088, -6089, -6090, -6091, -6218) and 2 toolchain ones (GO-2026-6179, -6180) |
+| Pre-P9 probe outputs (A11) | `MISE` on macOS, the Linux server (binary, 11 PATH entries) and WSL (binary, shims entry) |
+| Temp standard with Git for Windows reviewed only through 2026-09-23 | two `REVIEW` lines, for GHSA-v3h4-vrpr-rh9x and GHSA-5j7x-r6vf-jhq2 |
+| `--today 2026-10-29` | `STALE standard node 24.21.0 -> 26.10.0 (line 26 is the newest Active LTS)` |
+| Negative control: Windows and Linux documents rewritten to every standard value | no DRIFT, ADVISORY or MISE for either host |
+
+Two bugs were fixed before the runs above:
+- **Go findings were named by CVE alias.** OSV records are now merged by alias and named
+  GO-, then CVE-, then PSF-.
+- **NO-FIX used the standard as the fix candidate.** With a vulnerable standard, that
+  printed "also affects 1.26.5". The candidate is now the newest release.
+
+The audit also runs, with identical output, under macOS's system Python 3.9.
+
+**Stability rule, 2026-09-29.** The four-host probe, run from the Windows host, gave
+`UNCHANGED` for every snapshot. The audit then exited 1 with: 34 DRIFT, 2 ADVISORY, 16
+NO-FIX, 3 STALE and 1 UNSUPPORTED.
+- **No MISE on any host (A11), and no advisory on Windows.** P0's remediation holds.
+- **The DRIFT lines are P2–P7's remaining work.** On WSL they include "no developer
+  Python 3.14.7 precedes" the system python3, which is P7's question.
+- **NO-FIX:** Python 3.14.7's four advisories, reported on each host and on the standard.
+  See the observation below.
+- **STALE:**
+  - git 2.55.0 → 2.56.0;
+  - Git for Windows 2.55.0.windows.5 → 2.56.0.windows.1 (released 2026-09-28);
+  - glab 1.119.0 → 1.120.0 (2026-09-29).
+- **ADVISORY:**
+  - the macOS laptop has an unreferenced `~/.local/go1.26.5`, which carries 10 Go
+    advisories;
+  - WSL's Ubuntu git 2.43.0 is flagged against upstream's fixes. Ubuntu's backports are
+    invisible to this check, and P7 replaces the package.
+- **UNSUPPORTED:** the macOS laptop's Homebrew OpenJDK 26.0.2.1, whose line ended
+  2026-09-15.
+
+**Observation: Python 3.14.7's advisory count.** Deviation 3 counted 7 advisories by hand.
+OSV's git-range analysis reports 4 for the v3.14.7 tag: CVE-2026-15310, -15806, -17084 and
+-19672. For the other three (CVE-2026-87910, CVE-2025-15367, CVE-2024-3220), OSV's affected
+tag list contains no 3.14 release, so the audit does not report them. The difference is
+unresolved: the audit reports what OSV computes, and this record keeps the hand count.
 
 ### P2 — Go 1.27.1 on every host (D2; closes F2, F3)
 
