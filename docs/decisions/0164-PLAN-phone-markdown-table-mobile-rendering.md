@@ -1,6 +1,6 @@
 ---
 status: completed
-date: 2026-09-28
+date: 2026-09-29
 ---
 
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -271,7 +271,7 @@ Add a fourth `testWidgets` to `chat_table_render_test.dart` (in P3, not P2):
 | A5 | ~~`git grep -n 'tableScrollbarThumbVisibility'` exactly one hit~~ Vacated 2026-09-28: D2 no longer sets this field. `git grep` must now return **zero** hits under `apps/mobile/lib`. | D2 as amended | P2 follow-up |
 | A6 | Negative-test verification captured for the wrapper assertion (P2). Cell-cap negative test vacated with P3. | "A check is not trusted until it has been seen to fail" | P2 |
 | A7 | ~~`flutter build apk --debug` with the new cell builder~~ Vacated 2026-09-28: no cell builder. | — | — |
-| A8 | Widget test: a wide table’s horizontal drag increases `controller.offset`. No phone emulator was connected on this host (macos desktop + chrome only). | D5 as amended | P2 follow-up |
+| A8 | Widget test: a wide table’s horizontal drag increases `controller.offset`. No phone emulator was connected on this host (macos desktop + chrome only). **Met 2026-09-29** on the Android emulator: see "A8 emulator check" in the execution record. | D5 as amended | P2 follow-up |
 
 **Criterion most likely to be quietly dropped under pressure: A8.** It is the only criterion that requires a real Android emulator, and a reviewer under time pressure will trust the widget test instead. **Do not declare the plan complete without running the chat on an emulator with the fixture.** `flutter run -d <device>` against an Android emulator started via `docs/ops-android-emulator.md`, paste a 4-column table reply, scroll the table horizontally, confirm thumb visibility and vertical height. The script in `docs/ops-android-emulator.md` is the one to follow.
 
@@ -410,6 +410,52 @@ git grep -n 'tableScrollbarThumbVisibility' -- apps/mobile/lib
   (zero hits)
 ```
 
+### A8 emulator check — 2026-09-29
+
+The plan's status was set to `completed` on 2026-09-28 with A8 still
+outstanding, which is the case the A8 warning above names. This entry closes
+it.
+
+Setup: AVD `mcremote_test` (API 36, gesture navigation) booted per
+`docs/ops-android-emulator.md`, display override `wm density 480`, so the
+screen is 360 dp wide. The app was built from `e0d08168` with `flutter run -d
+emulator-5554 --no-resident` (debug), installed over the existing debug
+install, and was still paired and connected to the local daemon.
+
+Input: the table came from a live reply rather than a paste. The emulator
+owns no stored session containing a table, and the stored sessions that do
+contain one belong to other devices. With the owner's approval, one grok turn
+was spent in a new session, prompted: *Reply with only a markdown table …
+Columns: Provider, Transport, Auth method, Notes. Four rows. Each Notes cell is
+one sentence of about fifteen words.* This exercises the production
+`_sheetFor` stylesheet through the real chat screen. The P2 widget test cannot
+do that, because it pins a duplicate stylesheet (`_FakeChatStyleSheet`).
+
+Observed (host-side screenshots via `adb emu screenrecord screenshot`, kept
+out of the tree):
+
+* **Wide table scrolls inside its own wrapper.** On first render, the bubble
+  showed the Provider column and part of the Transport column, clipped at the
+  bubble's right edge. The chat list and the rest of the bubble stayed at
+  screen width.
+* **Swipe moves the table, not the page.** One leftward swipe across the table
+  shifted it to the Transport/Auth method columns. The user bubble above and
+  the composer below did not move. Repeated swipes reached the Notes column
+  and stopped at the table's right border, where the rounded corner is visible.
+* **Vertical height stays compact.** Every Notes cell (a full sentence)
+  rendered on one line, and all four body rows kept a single-line height
+  (about 38 dp each) at every scroll position. There was no column-wrap
+  growth, which is the problem MADR F1 describes.
+* **Chrome.** The table sits in the same tinted, rounded surface as fenced
+  code, with an `outlineVariant` border.
+* **No scrollbar thumb.** This is expected: it was dropped in the P2
+  follow-up (D2 as amended). The criterion's original wording, "confirm thumb
+  visibility", no longer applies.
+
+Cleanup: the test session was ended from the app ("End session"), which
+removed it from the sessions list. The emulator display override was already
+`480` before this check and was left as found.
+
 ## Deviations
 
 * **2026-09-28 — P3 cancelled; D2/D4 amended.**
@@ -417,3 +463,8 @@ git grep -n 'tableScrollbarThumbVisibility' -- apps/mobile/lib
   Owner: wide tables should scroll horizontally on swipe/slide; a persistent scrollbar thumb is not wanted; cell ellipsis is not wanted.
   Decision: do not implement P3; stop setting `tableScrollbarThumbVisibility`; pin a horizontal drag in the existing P2 test file.
   Files added to this follow-up: the same two in-scope files (`chat_bubble.dart`, `chat_table_render_test.dart`) plus this pair’s records.
+
+* **2026-09-29 — A8 input was a live reply, not a paste.**
+  Found: the emulator owns no stored session with a table, and the chat has no way to show a pasted table as an assistant reply without a provider turn.
+  Owner: approved spending one grok turn.
+  Decision: prompt grok for a 4-column table with sentence-length Notes cells, run the A8 checks on that reply, then end the session. The check is unchanged, and the input is a real assistant reply rendered through the production stylesheet. No files were added to scope beyond this record.
