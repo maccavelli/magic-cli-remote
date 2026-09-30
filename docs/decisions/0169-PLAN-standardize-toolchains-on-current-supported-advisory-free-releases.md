@@ -1047,6 +1047,74 @@ Linux server is not approved yet. Until it happens, `~/sdk/jdk-21` and
 A re-run probe and a green audit on all four hosts. Then the execution record, and this plan's
 status.
 
+#### P8 execution (2026-09-30), first pass
+
+**P2 step 5 (Deviation 14), done.** Before removal, each host was checked:
+- `go` in a login shell resolves go1.27.1;
+- `GOTOOLCHAIN=go1.27.1`;
+- no shell-init, Go-env or dotfiles file references go1.26.6. The one hit is the server
+  drop-in's history comment (line 12). Its PATH line names go1.27.1;
+- no link in `~/.local/bin` points into it;
+- no process runs from it.
+
+go1.26.6 was then removed from all four hosts:
+- the macOS laptop's `~/.local/go1.26.6` (231M);
+- `~/sdk/go1.26.6` on the Linux server (270M) and WSL (270M);
+- Windows' `~\\sdk\\go1.26.6` (256M).
+
+Afterwards, `go version` reports go1.27.1 on every host.
+
+**Blockers re-checked.** Python 3.14's newest release is still 3.14.7 (endoflife.date). The
+git-core PPA still publishes only 2.55.0 for noble and resolute. Node 26 becomes Active
+LTS on 2026-10-28.
+
+**Final probe and audit.** A four-host probe gave UNCHANGED for every snapshot. The audit
+exited 1 with:
+- 2 DRIFT: git 2.55.0 against 2.56.0 on the Linux server and WSL (Deviation 19);
+- 20 NO-FIX: Python 3.14.7's four known advisories on each host and on the standard
+  (Deviation 3).
+
+There was no ADVISORY, STALE, UNSUPPORTED, MISE or ERROR. Server: a `systemd-run --user`
+unit with the drop-in's PATH resolves all ten tools the drop-in exists for (`glab`, `node`,
+`flutter`, `dart`, `java`, `cargo`, `just`, `protoc`, `cmake`, `ninja`), plus `go`, each
+from `~/sdk` or `~/.local/bin`.
+
+**This repository on the final toolchains** (macOS laptop, `make preflight`): exit 0, "✅ preflight passed". It ran on go1.27.1 and
+Flutter 3.47.5:
+- staticcheck v0.8.1 for linux, darwin and windows (the cache keyed on go1.27.1, Deviation
+  13);
+- `go test -race`, the install tests and the release build;
+- "pub-advisories: 158 hosted packages, no advisories.";
+- `flutter analyze` "No issues found!";
+- `flutter test` "+1418 ~3: All tests passed!".
+
+**Acceptance, 2026-09-30.**
+
+| # | State | Evidence or what remains |
+| --- | --- | --- |
+| A1 | met | P0; the audit reports no advisory on any host |
+| A2 | met | P1 execution: pre-P0 fixtures (the five Windows exposures) and the Go 1.26.5 standard (the 8 stdlib advisories, plus 2 toolchain) |
+| A3 | met in part | `standard.json` exists and the audit reads it. Drift is zero except Linux git (Deviation 19) |
+| A4 | met | P2: go1.27.1 on every host; every tool in the Go bin dirs built by it; gopls v0.23.0 kept (generic method checked); go1.26.6 removed |
+| A5 | met | P3: local gates and `make ci-windows`; CI run 36653083292 green on go1.27.1 |
+| A6 | met locally | P4: 3.47.5 on every host and in magic-git (its tests pass, no golden moved). CI on 3.47.5 waits for the push |
+| A7 | met on hosts | P5: every host's APK built on Temurin 25, daemon JVM checked, classes major 61. The dispatched CI `android-apk` run waits for the owner |
+| A8 | met in part | 24.21.0 everywhere (P0, P6a). 26.x waits for 2026-10-28 (P6b) |
+| A9 | met in part | Python 3.14.7 is the developer Python on every host, with 4 NO-FIX advisories (Deviation 3). gh 2.102.0 and glab 1.120.0 everywhere (Deviation 18); auth intact where a login existed. git 2.56.0 on macOS and Windows, 2.55.0 on Linux (Deviation 19) |
+| A10 | met | every host edit had a dated backup under `~/backups/0169-p*`; each phase's snapshot diff listed only the intended files, or only history files |
+| A11 | met | the audit reports no mise on any host; it reported mise on the pre-P9 outputs (P1) |
+| A12 | met | above; login, `bash -c` and unit contexts checked in P9, and again for each later move |
+| A13 | met | P9, and again on go1.27.1 in P2 |
+| A14 | met | `markdownlint-cli2` 0.23.2 answers from `~/.local/bin` under Node 24.21.0; MADR 0114 superseded (P9e) |
+
+**Plan status stays `in-progress`.** Four items remain:
+- the owner's push and a dispatched `ci.yml` run, for A6 and A7 in CI;
+- P6b on or after 2026-10-28;
+- Linux git 2.56 when the PPA publishes it;
+- Python 3.14.8 when it ships.
+
+The audit reports each of them until it is done.
+
 ### P9 — Retire mise (D13, D14, D15; added 2026-09-23 by Deviation 4)
 
 Runs after P1 and before P2–P7. Hosts go in the order 9a → 9e. Retirement is like-for-like: no
