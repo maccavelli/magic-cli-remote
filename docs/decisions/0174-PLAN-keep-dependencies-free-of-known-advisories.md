@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-09-29
 associated-madr: "0174-MADR-keep-dependencies-free-of-known-advisories.md"
 ---
@@ -160,7 +160,10 @@ actionlint 1.7.12 first flagged SC2155 in the new step (`export PATH="$(…)"`).
 fixed by assigning first. The file then reports the same two shellcheck notes as before
 this change: SC2086 and SC2012, both in steps this plan does not touch.
 
-**Step 2 pending:** a pushed CI run whose new step passes and lists GO-2026-5932.
+**Step 2 done.** Pushed on the owner's ask (`6ea9f3f1..662650ca`). CI run 36655321841 on
+`662650ca` concluded `success`. The Go job's "Vulnerability check (govulncheck, every level)"
+step logged `vulncheck: clear; allowlisted required-module findings: GO-2026-5932` (A4).
+Every other job passed; the tag-only jobs were skipped.
 
 ### P4 — Pub advisories (D5)
 
@@ -217,6 +220,17 @@ The rerun passed every step, exit 0 ("✅ preflight passed"):
 The criterion most likely to be dropped quietly is **A3's "imported or called" case**.
 Nothing in the real tree reaches it. Only the fixture shows that the exception cannot
 cover `openpgp` being linked in.
+
+### Acceptance, 2026-09-29
+
+| # | Met | Evidence |
+| --- | --- | --- |
+| A1 | yes | P1: Module Results list only GO-2026-5932 |
+| A2 | yes | P2: `make pre-add-check` and `make vulncheck` pass |
+| A3 | yes | P2: fails on x/crypto v0.55.0, on a missing allowlist entry, and on the ID imported or called; the test fails against a broken gate |
+| A4 | yes | P3: CI run 36655321841, step log above |
+| A5 | yes | P4: preflight runs the step; exit 1 on `http` 0.13.2 |
+| A6 | yes | P1: `make race` 42 ok, `make ci-windows` 43 ok |
 
 ## Rollout and Rollback
 
