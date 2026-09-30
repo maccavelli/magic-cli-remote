@@ -926,8 +926,11 @@ the two findings that predate this change. The dispatched run waits for the owne
 - **Windows:** the Temurin 21.0.12.1 MSI (`{285FFC48-…}`) was uninstalled, `msiexec /x`
   exit 0. The machine PATH now lists only `jdk-25.0.4.101-hotspot\bin`. The ssh session
   proved to be elevated (`net session` succeeds), so no UAC prompt was involved.
-- **Linux server:** `~/sdk/jdk-21` stays until `mcremote` is restarted. The running
-  daemon's environment still names it.
+- **Linux server:** the owner restarted `mcremote` on 2026-09-30 (active since 19:35:58
+  UTC). Its `/proc` environment has `JAVA_HOME=~/sdk/jdk-25` and PATH entries for
+  `~/sdk/jdk-25/bin` and `~/sdk/node-v24.21.0/bin`. No dotfiles, Flutter or Gradle
+  setting and no running process referenced the old JDK. `~/sdk/jdk-21` (346 MB) was
+  then removed; a login shell resolves Java 25.0.4.1.
 
 #### P6 execution (2026-09-30), part a
 
@@ -937,7 +940,8 @@ Node 24.21.0 on every host. The Linux archives were checked against nodejs.org's
 - **Linux server:** `~/sdk/node-v24.21.0`, with `00-paths.sh` and the drop-in PATH moved
   from `node-v22.23.2`, and `daemon-reload`. markdownlint-cli2 0.23.2 was reinstalled under
   the new npm (D15). `bash -lic` and `bash -c` both resolve `node` v24.21.0.
-  `~/sdk/node-v22.23.2` stays until `mcremote` restarts.
+  `~/sdk/node-v22.23.2` (204 MB) was removed after the owner's `mcremote` restart. Nothing
+  referenced it, and markdownlint-cli2 0.23.2 still answers.
 - **WSL:** `~/sdk/node-v24.21.0` plus a `devenv.sh` PATH entry, where there was no native
   Node before.
 - **macOS laptop:** `brew install node@24`, `brew unlink node` (26.8.1, left installed),
