@@ -983,8 +983,8 @@ its publisher's checksums file.
   until the new binaries answered with their versions. Over ssh neither can read the
   owner's stored credentials: glab reports "failed to read 'token' from the operating
   system keyring … A specified logon session does not exist", and gh calls its token
-  invalid. The owner has to check `gh auth status` and `glab auth status` in a normal
-  Windows terminal.
+  invalid. **Confirmed by the owner (2026-09-30):** in a normal Windows terminal, both
+  `gh auth status` and `glab auth status` pass.
 
 **Audit after P4–P7.** A four-host probe gave UNCHANGED for every snapshot. The audit
 reported 2 DRIFT and 20 NO-FIX:
