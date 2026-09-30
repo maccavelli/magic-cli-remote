@@ -645,6 +645,32 @@ Moving x/crypto is a dependency change outside this plan's scope.
 **Not yet done:** the push and CI (step 4) wait for the owner. go1.26.6 comes off the hosts
 only after CI is green on this change (P2 step 5, C4).
 
+#### Deviation 13 (2026-09-29): the cached staticcheck outlives a Go upgrade
+
+**Found** by PLAN 0174 P4's `make preflight` on the macOS laptop, after P3 had landed.
+`make staticcheck` failed on every GOOS with errors like:
+- `method must have no type parameters` (in go1.27.1's `math/rand/v2`);
+- `package requires newer Go version go1.27 (application built with go1.26)` (this
+  module's own packages).
+
+**Cause.** The Makefile caches the pinned tool at
+`bin/tools/staticcheck-$(STATICCHECK_VERSION)` and rebuilds it only when that file is
+missing.
+- The cached binary was built with go1.26.6 before P2, and a staticcheck built by an older
+  Go cannot load code for a newer one. The Linux server's checkout has the same stale
+  build.
+- CI builds the tool fresh each run, and it passed.
+- P3's gate list did not include staticcheck, so nothing ran it.
+- A fresh scratch clone, which has no cache, built it with go1.27.1, and `make
+  staticcheck` passed on linux, darwin and windows.
+
+**Decision (owner, 2026-09-29): key the cache on the Go version too.** The cached binary
+becomes `bin/tools/staticcheck-<version>-<go version>` (`go env GOVERSION`), so a toolchain
+change rebuilds it on every host, and a rebuild clears older builds. Declined: deleting
+the stale binaries by hand, which would recur at the next Go upgrade.
+
+**Scope.** Added to P3: `Makefile` (the staticcheck block).
+
 ### P4 — Flutter 3.47.5 / Dart 3.13.4 (D3; closes F6)
 
 1. Hosts: Windows and WSL `git -C ~/sdk/flutter fetch --tags && git checkout 3.47.5`, then

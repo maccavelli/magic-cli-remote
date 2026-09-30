@@ -537,13 +537,19 @@ lint:
 # unused on linux and darwin and never on windows. `go run pkg@v` cannot do the
 # per-GOOS pass: GOOS would cross-compile the tool itself.
 STATICCHECK_VERSION ?= v0.8.1
-STATICCHECK_BIN := bin/tools/staticcheck-$(STATICCHECK_VERSION)$(if $(filter windows,$(HOST_GOOS)),.exe,)
+# The cached build is keyed on the Go that builds it too: a staticcheck built by an
+# older Go cannot load code written for a newer one, so a toolchain upgrade must
+# rebuild it (magic-cli-remote PLAN 0169, Deviation 13). A rebuild clears older builds.
+STATICCHECK_GO := $(shell go env GOVERSION)
+STATICCHECK_STEM := bin/tools/staticcheck-$(STATICCHECK_VERSION)-$(STATICCHECK_GO)
+STATICCHECK_BIN := $(STATICCHECK_STEM)$(if $(filter windows,$(HOST_GOOS)),.exe,)
 
 $(STATICCHECK_BIN):
-	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) GOBIN="$(CURDIR)/bin/tools/staticcheck-$(STATICCHECK_VERSION).d" \
+	rm -rf bin/tools/staticcheck-*
+	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) GOBIN="$(CURDIR)/$(STATICCHECK_STEM).d" \
 		go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
-	mv -f "bin/tools/staticcheck-$(STATICCHECK_VERSION).d/staticcheck$(if $(filter windows,$(HOST_GOOS)),.exe,)" "$@"
-	rm -rf "bin/tools/staticcheck-$(STATICCHECK_VERSION).d"
+	mv -f "$(STATICCHECK_STEM).d/staticcheck$(if $(filter windows,$(HOST_GOOS)),.exe,)" "$@"
+	rm -rf "$(STATICCHECK_STEM).d"
 
 staticcheck: $(STATICCHECK_BIN)
 	@set -e; rc=0; \
