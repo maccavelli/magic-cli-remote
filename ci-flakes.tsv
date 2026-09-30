@@ -7,3 +7,4 @@ run_id	job_name	commit_sha	first_attempt_result	retry_result	failing_test	timest
 35606940444	Go (linux/arm64)	5225a3a5ab4903ceff7d468a026f15bc722d1bd9	fail	pass	TestResolveBinaryIdentityHelperDoesNotCountAsLaunch	2026-09-21T13:40:00Z
 36024135246	Go (linux/arm64)	eb001ac792d8ab40a47bb59af340051204152558	fail	pass	TestRegisterReplacement	2026-09-24T16:00:20Z
 36456419320	Go (linux/arm64)	9abbed78b03b2b3ef00eba9bee53cc02d3b86007	fail	pass	TestRealityProbeRefreshesAfterItsWindow	2026-09-28T17:13:08Z
+36727070180	Go (windows/amd64)	7432f111c65d5ca6d71cc9d9255e6de56697e73f	fail	pass	TestTaskStateRealProbeReportsAbsent	2026-09-30T14:12:45Z
