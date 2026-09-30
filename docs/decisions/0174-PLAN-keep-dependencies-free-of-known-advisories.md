@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-29
 associated-madr: "0174-MADR-keep-dependencies-free-of-known-advisories.md"
 ---
@@ -51,6 +51,27 @@ Associated MADR: [0174-MADR-keep-dependencies-free-of-known-advisories.md](0174-
    host), and CI's "Go mod tidy is clean" check run locally (`go mod tidy && git diff
    --exit-code go.mod go.sum`).
 4. Commit.
+
+#### P1 execution (2026-09-29)
+
+Approved by the owner, "proceed 0174". `go get golang.org/x/crypto@v0.57.0` reported:
+- `golang.org/x/crypto v0.55.0 => v0.57.0`
+- `golang.org/x/mod v0.40.0 => v0.41.0`
+- `golang.org/x/sync v0.22.0 => v0.23.0`
+- `golang.org/x/sys v0.47.0 => v0.48.0`
+- `golang.org/x/term v0.45.0 => v0.46.0`
+- `golang.org/x/text v0.41.0 => v0.42.0`
+
+That is exactly the scratch trial's set. `go mod tidy` added nothing: `go.mod` 6 lines, `go.sum`
+12 lines changed.
+
+| Gate | Result |
+| --- | --- |
+| `govulncheck -show verbose ./...` | exit 0. Symbol Results and Package Results empty; Module Results: `Vulnerability #1: GO-2026-5932` only (A1) |
+| `go mod tidy` again, compared with the committed files | unchanged (CI's "Go mod tidy is clean") |
+| `make pre-add-check` | exit 0, "816 file(s) clean (gofmt, golint, govulncheck)" |
+| `make race` | exit 0, 42 ok |
+| `make ci-windows` (Git Bash on the Windows host, scratch clone of `HEAD` plus this change, go1.27.1) | exit 0, 43 ok, "ci-windows-local: ALL SELECTED CHECKS PASSED" |
 
 ### P2 — The strict gate (D3, D4)
 
