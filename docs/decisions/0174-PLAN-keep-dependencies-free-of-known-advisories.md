@@ -174,6 +174,35 @@ this change: SC2086 and SC2012, both in steps this plan does not touch.
    lists as affected must exit 1 and name it. The real lock exits 0.
 4. Gates: `make preflight`. Commit.
 
+#### P4 execution (2026-09-29)
+
+**Files.**
+- `scripts/check-pub-advisories.py` (new, stdlib only).
+- `Makefile`: a "pub advisories (OSV)" step in `preflight`, after the Flutter pin. Exit 2
+  (OSV unreachable, or the lock unreadable) prints "(pub advisories not checked: see
+  above)" and continues. Exit 1 fails preflight.
+- `.gitignore`: `__pycache__/` and `*.py[cod]`.
+
+**Coverage.** The script checks only packages whose `source` is `hosted`: 158 of the lock's
+163. The other five are SDK packages, which have no pub.dev version for OSV to match.
+
+**Seen to fail (A5).**
+
+| Input | Result |
+| --- | --- |
+| temp copy of `pubspec.lock` with `http` 1.6.0 → 0.13.2 | exit 1, "pub-advisories: http 0.13.2: GHSA-4rgh-jx4f-qfcq" (CVE-2020-35669) |
+| the preflight step's shell logic on that copy | exit 1 |
+| a lock path that does not exist | exit 2; the step prints its warning and exits 0 |
+| the real lock | exit 0, "158 hosted packages, no advisories." |
+
+**Gates.** `make preflight`: the first run failed at staticcheck, before the new step.
+The cached staticcheck had been built by go1.26.6 and could not load go1.27 code. That is
+PLAN 0169 Deviation 13, fixed there in `6d3e1c8f`, which keys the cache on the Go version.
+The rerun passed every step, exit 0 ("✅ preflight passed"):
+- the new step printed "pub-advisories: 158 hosted packages, no advisories.";
+- `flutter analyze` "No issues found!";
+- `flutter test` "+1418 ~3: All tests passed!".
+
 ## Verification
 
 | # | Criterion | MADR |

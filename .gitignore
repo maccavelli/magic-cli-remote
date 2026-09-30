@@ -33,3 +33,6 @@ apps/mobile/android/app/profile/
 apps/mobile/android/app/release/
 apps/mobile/**/GeneratedPluginRegistrant.*
 
+# Python (scripts/*.py; MADR 0174)
+__pycache__/
+*.py[cod]

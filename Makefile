@@ -398,6 +398,9 @@ preflight:
 	@./bin/mcremote version
 	@./bin/mcrelay version
 	@echo "==> flutter pin"; ./scripts/assert-flutter-pin.sh
+	@echo "==> pub advisories (OSV)"; \
+	rc=0; python3 scripts/check-pub-advisories.py || rc=$$?; \
+	if [ $$rc -eq 2 ]; then echo "(pub advisories not checked: see above)"; elif [ $$rc -ne 0 ]; then exit $$rc; fi
 	@echo "==> dart format";  cd apps/mobile && dart format --output=none --set-exit-if-changed .
 	@echo "==> flutter analyze"; cd apps/mobile && flutter analyze
 	@echo "==> flutter test";  cd apps/mobile && flutter test
