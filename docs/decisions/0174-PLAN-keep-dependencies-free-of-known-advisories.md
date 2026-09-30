@@ -149,6 +149,19 @@ That is exactly the scratch trial's set. `go mod tidy` added nothing: `go.mod` 6
 2. Push on ask, and check the new step's log in the CI run: it passes and lists the one
    allowlisted finding.
 
+#### P3 execution (2026-09-29)
+
+**Step 1 done.** `ci.yml`, `Go (test; build on tag)` job: one step after "Go mod tidy is
+clean", named "Vulnerability check (govulncheck, every level)". It runs `go install
+golang.org/x/vuln/cmd/govulncheck@v1.7.0`, puts `$(go env GOPATH)/bin` on PATH, and runs
+`make vulncheck`.
+
+actionlint 1.7.12 first flagged SC2155 in the new step (`export PATH="$(…)"`). That was
+fixed by assigning first. The file then reports the same two shellcheck notes as before
+this change: SC2086 and SC2012, both in steps this plan does not touch.
+
+**Step 2 pending:** a pushed CI run whose new step passes and lists GO-2026-5932.
+
 ### P4 — Pub advisories (D5)
 
 1. `scripts/check-pub-advisories.py` uses the stdlib only. It reads

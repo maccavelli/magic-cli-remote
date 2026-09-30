@@ -103,6 +103,19 @@ jobs:
             exit 1
           fi
 
+      # MADR 0174 D4. govulncheck at every level (called, imported, required
+      # module), with scripts/vulncheck-allow.txt as the only exceptions; its plain
+      # "No vulnerabilities found" covers called code only. Pinned to the host
+      # standard's govulncheck rather than @latest: the gate parses its output and
+      # refuses output it does not recognise.
+      - name: Vulnerability check (govulncheck, every level)
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          gobin="$(go env GOPATH)/bin"
+          export PATH="$gobin:$PATH"
+          make vulncheck
+
       - name: Vet
         run: go vet ./...
 
