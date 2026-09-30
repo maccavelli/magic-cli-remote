@@ -553,6 +553,43 @@ still reports belongs to later phases.
   request. It had changed nothing outside its temp directory. The run was repeated under
   PowerShell 7.6.6.
 
+#### Deviation 12 (2026-09-29): Go 1.27's `json.Decoder` hangs the codex test harness
+
+**Found** at P3 step 2. `make race` on go1.27.1 failed one test:
+`internal/provider/codex` `TestDiffUsesCWDOnlyAndValidatesSHA`, at `diff_fork_test.go:88`
+("timeout").
+- **Not a flake.** With `-race -count=50` it fails 50 of 50 runs on go1.27.1. It passes 50
+  of 50 on go1.26.6 in a scratch clone of `HEAD`.
+- **Go 1.27 builds `encoding/json` from its v2 implementation by default.** `go list`
+  shows `v2_stream.go` where 1.26.6 has `stream.go`.
+- **Why the test hangs.** The codex transport sends a frame and its `\n` in one `Write`
+  (`transport.go:64`). On an `io.Pipe`, that write returns only when the reader has taken
+  every byte. The tests' fake engines read the request with `json.NewDecoder(<pipe>)`. On
+  1.27 that decoder stops at the value's closing brace and leaves the `\n` unread.
+- **Confirmed by instrumentation.** In a scratch clone, `Diff` stayed blocked in its
+  request write until cleanup closed the pipe, then returned `write request: io:
+  read/write on closed pipe`.
+- **Production is unaffected.** The engine is a separate process on kernel-buffered pipes,
+  and replies are read line by line. The production `json.NewDecoder` uses are on a
+  socket (`internal/admin`) or on in-memory readers.
+- **The latent hazard is wider.** The same pattern appears at 25 sites in 9 codex test
+  files; only the longest request failed. And since P2 set `GOTOOLCHAIN=go1.27.1` on every
+  host, `make race` fails there even on an unchanged tree.
+
+**Decision (owner, 2026-09-29): fix every fake engine.** One test helper, `readFrame`,
+reads a request frame the way the engine does: byte by byte to the newline, then
+`json.Unmarshal`. It consumes the whole write, and never reads into a following frame.
+Every `json.NewDecoder(<pipe>)` request read in the codex tests uses it. There is no
+production change. Declined:
+- fixing only the failing test;
+- the unoffered workarounds: GOEXPERIMENT/GODEBUG to restore the old decoder, a longer
+  timeout, or a skip.
+
+**Scope.** Added to P3, in `internal/provider/codex/`: `conn_test.go` (the helper and 3
+sites), `diff_fork_test.go`, `collaboration_state_test.go`, `thinking_test.go`,
+`review_test.go`, `fixtures_test.go`, `fast_personality_test.go`, `mode_test.go` and
+`permissions_p5_test.go`.
+
 ### P3 — This repository on Go 1.27 (D2)
 
 1. `go mod edit -go=1.27.1`, then `go mod tidy`. Record exactly what tidy rewrote (the 1.27
@@ -564,6 +601,49 @@ still reports belongs to later phases.
    - `go test -json` `OutputType`: any consumer of test JSON (CI flake ledger).
 4. Push on ask. CI green. If any gate fails for a reason 1.27 introduced, that is a deviation:
    stop and propose a fix. Under D2 the floor for this repository is go1.26.8 until it is fixed.
+
+#### P3 execution (2026-09-29)
+
+**Step 1.** `go mod edit -go=1.27.1`, then `go mod tidy` (exit 0). Tidy rewrote nothing:
+`go.mod` changed only its `go` line, and `go.sum` is byte-identical. Consequences
+anticipated a require-block merge. It did not happen: the two `require` blocks are
+unchanged. CI's three `setup-go` steps read `go-version-file: go.mod`, so CI moves to
+1.27.1 with this commit.
+
+**Step 3, behaviour changes.**
+- **`asynctimerchan`:** no `//go:debug`, no `godebug` line, no GODEBUG setting, and no
+  `len`/`cap` of a timer or ticker channel anywhere in the module.
+- **`go test -json`:** nothing consumes it. The CI flake ledger (`ci-flake-capture.sh`)
+  parses the plain-text `--- FAIL:` lines, and 1.27 does not change them.
+- **A fourth change, not in the MADR:** Go 1.27 builds `encoding/json` from its v2
+  implementation. It hung a codex test (Deviation 12, fixed there; MADR amendment of
+  2026-09-29).
+
+**Step 2, the gates, all on go1.27.1:**
+
+| Gate | Result |
+| --- | --- |
+| `go vet ./...` (includes `stdversion`) | exit 0 |
+| `govulncheck ./...` | exit 0: no called vulnerabilities (see below) |
+| `make pre-add-check` | exit 0, "816 file(s) clean (gofmt, golint, govulncheck)" |
+| `make race`, before Deviation 12 | exit 2: 41 ok; `--- FAIL: TestDiffUsesCWDOnlyAndValidatesSHA` (`diff_fork_test.go:88: timeout`) |
+| that test, `-race -count=50`, before the fix | go1.27.1: 50 of 50 fail; go1.26.6 (scratch clone of `HEAD`): 0 of 50 |
+| after the fix (25 sites, 9 files): that test ×50 and the codex package ×5, `-race` | 0 failures on go1.27.1, and on go1.26.6 with the same test files |
+| `make race`, after the fix | exit 0, 42 ok |
+| `make ci-windows` (Git Bash on the Windows host, scratch clone of `HEAD` plus this change, go1.27.1) | exit 0, 43 ok, "ci-windows-local: ALL SELECTED CHECKS PASSED" |
+
+**Found, not acted on: three uncalled `golang.org/x/crypto` vulnerabilities.**
+`govulncheck -show verbose` lists three in `golang.org/x/crypto@v0.55.0` that this code
+does not call:
+- GO-2026-6354 and GO-2026-6355, denial of service from deadlocked `ssh` channels (one
+  undecided, one established), both fixed in v0.56.0;
+- GO-2026-5932, the unmaintained `openpgp` package, which has no fix.
+
+They do not depend on the Go version: `go.sum` is unchanged, so `master` has them too.
+Moving x/crypto is a dependency change outside this plan's scope.
+
+**Not yet done:** the push and CI (step 4) wait for the owner. go1.26.6 comes off the hosts
+only after CI is green on this change (P2 step 5, C4).
 
 ### P4 — Flutter 3.47.5 / Dart 3.13.4 (D3; closes F6)
 

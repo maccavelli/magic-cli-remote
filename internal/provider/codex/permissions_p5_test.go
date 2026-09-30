@@ -110,7 +110,7 @@ func TestGuardianApproveExactGenerationOneShot(t *testing.T) {
 		Method string         `json:"method"`
 		Params map[string]any `json:"params"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatal(err)
 	}
 	if req.Method != "thread/approveGuardianDeniedAction" || req.Params["threadId"] != "thread-1" {

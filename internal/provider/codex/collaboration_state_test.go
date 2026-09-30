@@ -166,7 +166,7 @@ func TestSetCollaborationModeUpdatesAndRetainsOnFailure(t *testing.T) {
 		Method string         `json:"method"`
 		Params map[string]any `json:"params"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatal(err)
 	}
 	if req.Method != "thread/settings/update" {
@@ -198,7 +198,7 @@ func TestSetCollaborationModeUpdatesAndRetainsOnFailure(t *testing.T) {
 	go func() {
 		done <- s.SetCollaborationMode(context.Background(), "default")
 	}()
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := engineW.Write([]byte(`{"id":` + itoa64(req.ID) + `,"error":{"code":-32603,"message":"boom"}}` + "\n")); err != nil {
@@ -275,7 +275,7 @@ func TestTurnStartCollaborationAfterSwitch(t *testing.T) {
 		Method string         `json:"method"`
 		Params map[string]any `json:"params"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatal(err)
 	}
 	if req.Method != "turn/start" {
@@ -325,7 +325,7 @@ func TestSetCollaborationModeStaleGenerationIgnored(t *testing.T) {
 	var req struct {
 		ID int64 `json:"id"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatal(err)
 	}
 	s.mu.Lock()

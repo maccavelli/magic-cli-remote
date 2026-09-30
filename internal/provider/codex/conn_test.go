@@ -16,6 +16,29 @@ func testLogger(_ *testing.T) *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 }
 
+// readFrame reads one request frame the way the engine does: a whole JSONL line, then
+// json.Unmarshal. The transport writes frame and newline in one Write, and on an io.Pipe
+// that Write returns only once every byte is read. A json.Decoder on the pipe stops at the
+// value's closing brace on Go 1.27 (encoding/json v2), leaving the newline unread and the
+// sender blocked (PLAN 0169 Deviation 12). Reading a byte at a time also never consumes
+// the start of a following frame.
+func readFrame(r io.Reader, v any) error {
+	var line []byte
+	b := make([]byte, 1)
+	for {
+		n, err := r.Read(b)
+		if n == 1 {
+			if b[0] == '\n' {
+				return json.Unmarshal(line, v)
+			}
+			line = append(line, b[0])
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
 func TestConnSendRequestReadsResponse(t *testing.T) {
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
@@ -73,8 +96,7 @@ func TestConnSendRequestReadsResponse(t *testing.T) {
 		Method string          `json:"method"`
 		Params json.RawMessage `json:"params"`
 	}
-	dec := json.NewDecoder(stdoutR)
-	if err := dec.Decode(&req); err != nil {
+	if err := readFrame(stdoutR, &req); err != nil {
 		t.Fatalf("read request: %v", err)
 	}
 	if req.Method != "test/method" {
@@ -135,11 +157,10 @@ func TestConnSendRequestContextCancelled(t *testing.T) {
 
 	// Drain the request from c's stdout so writeLine does not block.
 	go func() {
-		dec := json.NewDecoder(stdoutR)
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		_ = dec.Decode(&req)
+		_ = readFrame(stdoutR, &req)
 	}()
 
 	_, err := c.sendRequest(ctx, "test/method", nil)
@@ -175,11 +196,10 @@ func TestConnFailAllUnblocksPending(t *testing.T) {
 
 	// Drain the request from c's stdout so sendRequest lands in select.
 	go func() {
-		dec := json.NewDecoder(stdoutR)
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		_ = dec.Decode(&req)
+		_ = readFrame(stdoutR, &req)
 	}()
 
 	time.Sleep(10 * time.Millisecond)

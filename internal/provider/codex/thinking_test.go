@@ -176,7 +176,7 @@ func TestTurnStartEffortFromStartOptions(t *testing.T) {
 		Params map[string]any `json:"params"`
 		ID     int64          `json:"id"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatalf("read request: %v", err)
 	}
 	if req.Method != "turn/start" {
@@ -241,7 +241,7 @@ func captureTurnStartParams(t *testing.T, level string) map[string]any {
 		Method string         `json:"method"`
 		Params map[string]any `json:"params"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatalf("read request: %v", err)
 	}
 	if req.Method != "turn/start" {

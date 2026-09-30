@@ -83,7 +83,7 @@ func TestSetServiceTierImmediateExperimental(t *testing.T) {
 			Method string         `json:"method"`
 			Params map[string]any `json:"params"`
 		}
-		_ = json.NewDecoder(engineR).Decode(&req)
+		_ = readFrame(engineR, &req)
 		got <- map[string]any{"method": req.Method, "params": req.Params}
 		b, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
 		_, _ = engineW.Write(append(b, '\n'))

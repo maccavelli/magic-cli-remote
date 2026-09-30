@@ -329,7 +329,7 @@ func captureThreadRequest(t *testing.T, cfg Config, opts provider.StartOptions) 
 		Params map[string]any  `json:"params"`
 		Raw    json.RawMessage `json:"-"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatalf("read request: %v", err)
 	}
 

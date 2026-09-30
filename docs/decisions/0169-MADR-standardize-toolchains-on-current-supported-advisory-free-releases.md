@@ -613,3 +613,12 @@ them before P7 installs anything:
 - **D9 now reads:** glab **1.120.0** everywhere.
 
 PLAN 0169 Deviation 8 has the evidence.
+
+## Amendment — 2026-09-29: Go 1.27 also switches `encoding/json` to its v2 implementation
+
+Consequences lists three Go 1.27 behaviour changes a repository may depend on. PLAN 0169 P3
+found a fourth. Go 1.27 builds `encoding/json` from its v2 implementation by default. Its
+`json.Decoder` stops reading at the end of a value, where 1.26's had drained the reader's
+chunk. This repository's codex test harness depended on the old behaviour, and one of its
+tests hung (PLAN 0169 Deviation 12). The fix is test-only. The per-repository gate in D2
+exists for exactly this, and it caught it.

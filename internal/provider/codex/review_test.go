@@ -106,7 +106,7 @@ func TestReviewStartSendsInlineAndPreservesSettings(t *testing.T) {
 			Method string         `json:"method"`
 			Params map[string]any `json:"params"`
 		}
-		if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+		if err := readFrame(engineR, &req); err != nil {
 			return
 		}
 		got <- map[string]any{"method": req.Method, "params": req.Params}
@@ -175,7 +175,7 @@ func TestReviewBusyRejectsPromptAndSecondReview(t *testing.T) {
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		_ = json.NewDecoder(engineR).Decode(&req)
+		_ = readFrame(engineR, &req)
 		b, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{
 			"turn": map[string]any{"id": "t1", "status": "inProgress"},
 		}})

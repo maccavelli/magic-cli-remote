@@ -61,7 +61,7 @@ func TestDiffUsesCWDOnlyAndValidatesSHA(t *testing.T) {
 		Method string         `json:"method"`
 		Params map[string]any `json:"params"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatal(err)
 	}
 	if req.Method != "gitDiffToRemote" {
@@ -113,7 +113,7 @@ func TestDiffInvalidSHA(t *testing.T) {
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		_ = json.NewDecoder(engineR).Decode(&req)
+		_ = readFrame(engineR, &req)
 		_, _ = engineW.Write([]byte(`{"id":` + itoa64(req.ID) + `,"result":{"sha":"nope","diff":""}}` + "\n"))
 	}()
 	if _, err := s.Diff(context.Background(), ""); err == nil {
@@ -152,7 +152,7 @@ func TestDiffFallbackOnMethodNotFound(t *testing.T) {
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		_ = json.NewDecoder(engineR).Decode(&req)
+		_ = readFrame(engineR, &req)
 		_, _ = engineW.Write([]byte(`{"id":` + itoa64(req.ID) + `,"error":{"code":-32601,"message":"Method not found"}}` + "\n"))
 	}()
 	res, err := s.Diff(context.Background(), "")
@@ -193,7 +193,7 @@ func TestForkSendsLastTurnIDOnly(t *testing.T) {
 		Method string         `json:"method"`
 		Params map[string]any `json:"params"`
 	}
-	if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+	if err := readFrame(engineR, &req); err != nil {
 		t.Fatal(err)
 	}
 	if req.Method != "thread/fork" {
@@ -248,7 +248,7 @@ func TestForkNoRolloutFound(t *testing.T) {
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		_ = json.NewDecoder(engineR).Decode(&req)
+		_ = readFrame(engineR, &req)
 		_, _ = engineW.Write([]byte(`{"id":` + itoa64(req.ID) + `,"error":{"code":-32600,"message":"no rollout found"}}` + "\n"))
 	}()
 	_, err := s.Fork(context.Background(), provider.ForkOptions{})
@@ -285,7 +285,7 @@ func TestDiffAcceptsSHA64AndEmptyPatch(t *testing.T) {
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		_ = json.NewDecoder(engineR).Decode(&req)
+		_ = readFrame(engineR, &req)
 		sha := strings.Repeat("ab", 32)
 		b, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{"sha": sha, "diff": ""}})
 		_, _ = engineW.Write(append(b, '\n'))
@@ -322,7 +322,7 @@ func TestDiffFallbackUnavailableAndLatch(t *testing.T) {
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+		if err := readFrame(engineR, &req); err != nil {
 			return
 		}
 		_, _ = engineW.Write([]byte(`{"id":` + itoa64(req.ID) + `,"error":{"code":-32601,"message":"Method not found"}}` + "\n"))
@@ -382,7 +382,7 @@ func TestForkWholeThreadOmitsBoundary(t *testing.T) {
 			Method string         `json:"method"`
 			Params map[string]any `json:"params"`
 		}
-		if err := json.NewDecoder(engineR).Decode(&req); err != nil {
+		if err := readFrame(engineR, &req); err != nil {
 			return
 		}
 		got <- map[string]any{"method": req.Method, "params": req.Params}
@@ -440,7 +440,7 @@ func TestForkUnknownLastTurnIDDoesNotSilentFork(t *testing.T) {
 		var req struct {
 			ID int64 `json:"id"`
 		}
-		_ = json.NewDecoder(engineR).Decode(&req)
+		_ = readFrame(engineR, &req)
 		_, _ = engineW.Write([]byte(`{"id":` + itoa64(req.ID) + `,"error":{"code":-32602,"message":"unknown lastTurnId"}}` + "\n"))
 	}()
 	_, err := s.Fork(context.Background(), provider.ForkOptions{LastTurnID: "missing"})
@@ -480,7 +480,7 @@ func TestForkDeferGoalSerializedOnlyWhenExperimental(t *testing.T) {
 			ID     int64          `json:"id"`
 			Params map[string]any `json:"params"`
 		}
-		_ = json.NewDecoder(engineR).Decode(&req)
+		_ = readFrame(engineR, &req)
 		got <- req.Params
 		b, _ := json.Marshal(map[string]any{
 			"id": req.ID,
