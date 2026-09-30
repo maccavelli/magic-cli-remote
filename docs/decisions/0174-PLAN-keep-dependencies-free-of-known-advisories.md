@@ -104,6 +104,43 @@ That is exactly the scratch trial's set. `go mod tidy` added nothing: `go.mod` 6
    runs the real output to a pass.
 5. Gates: `make pre-add-check`, `bash scripts/vulncheck_test.sh`, `make race`. Commit.
 
+#### P2 execution (2026-09-29)
+
+**Files.**
+- `scripts/vulncheck.sh` (new).
+- `scripts/vulncheck-allow.txt` (new): one entry, GO-2026-5932, tab-separated.
+- `scripts/vulncheck_test.sh` (new): 7 cases.
+- `scripts/go-precheck.sh`: its inline govulncheck block, including the `need
+  govulncheck` hint, now calls `scripts/vulncheck.sh`.
+- `Makefile`: `vulncheck` already existed as a bare `govulncheck ./...` that nothing
+  called, with the same blind spot. It now runs `scripts/vulncheck.sh`.
+
+**The gate.**
+- It reads the three `=== … Results ===` sections of `govulncheck -show verbose`. If any
+  section is missing it exits 2 ("refusing to pass blind") rather than passing.
+- govulncheck's exit 3 (called findings) is parsed as findings. Other non-zero exits with
+  network text are an unreachable database, which stays a warning, as before.
+- It warns, without failing, when an allowlisted ID is no longer reported.
+
+**Seen to fail (A3).**
+
+| Case | How | Result |
+| --- | --- | --- |
+| x/crypto v0.55.0 | scratch clone at `HEAD~1` with the new scripts and Makefile: `make pre-add-check` | exit 1 (make 2): "GO-2026-6355 affects a required module and is not in scripts/vulncheck-allow.txt", and the same for GO-2026-6354. The old precheck passed this tree in 0169 P3 |
+| allowlist entry missing | the tree's real output, `GO_VULNCHECK_ALLOW` pointing at a temp copy without GO-2026-5932 | exit 1: "GO-2026-5932 affects a required module and is not in …" |
+| allowlisted ID imported | `vulncheck_test.sh` fixture | exit 1: "GO-2026-5932 is imported by this module. It is allowlisted only as a required module that is not in the build, so that no longer holds." |
+| allowlisted ID called | `vulncheck_test.sh` fixture | exit 1, the same message with "called" |
+| the test itself | a scratch clone whose gate was edited to accept allowlisted IDs at every level | `vulncheck_test.sh`: 5 passed, 2 failed (both "want exit 1 got 0"), exit 1 |
+
+**Gates.**
+- `make vulncheck`: exit 0, "clear; allowlisted required-module findings: GO-2026-5932"
+  (A2).
+- `make pre-add-check`: exit 0, 816 files clean.
+- `bash scripts/vulncheck_test.sh`: 7 passed, 0 failed.
+- `make race`: exit 0, 42 ok.
+- On the Windows host, under Git Bash, in the P1 scratch clone: `scripts/vulncheck.sh`
+  exit 0 with the same accepted ID, and `vulncheck_test.sh` 7 of 7.
+
 ### P3 — CI (D4)
 
 1. In `ci.yml`'s `Go (test; build on tag)` job, after the tidy check: install govulncheck at

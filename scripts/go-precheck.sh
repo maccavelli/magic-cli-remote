@@ -44,7 +44,6 @@ need() {
   echo "go-precheck: $1 not found in PATH." >&2
   case "$1" in
   golint) echo "  install: go install golang.org/x/lint/golint@latest" >&2 ;;
-  govulncheck) echo "  install: go install golang.org/x/vuln/cmd/govulncheck@latest" >&2 ;;
   esac
   return 1
 }
@@ -78,31 +77,19 @@ else
   failed=2
 fi
 
-# 3. govulncheck, over the module. It reports *called* vulnerabilities, so it is
-# a property of the whole build rather than of the edited files. ~7s here.
+# 3. govulncheck, over the module: scripts/vulncheck.sh fails on a called, imported or
+# required-module finding, apart from its allowlist (MADR 0174). It is a property of the
+# whole build rather than of the edited files. ~7s here.
 if [ "${GO_PRECHECK_SKIP_VULN:-0}" = "1" ]; then
   echo "govulncheck: skipped (GO_PRECHECK_SKIP_VULN=1)" >&2
-elif need govulncheck; then
-  vuln_out="$(govulncheck ./... 2>&1)"
-  vuln_rc=$?
-  if [ "$vuln_rc" -ne 0 ]; then
-    # A vulnerability database that cannot be reached is not a finding. Warn and
-    # continue, rather than making offline work impossible — the finding case
-    # below is what must block.
-    if printf '%s' "$vuln_out" | grep -qiE 'no such host|connection refused|timeout|dial tcp|proxy'; then
-      echo "govulncheck: could not reach the vulnerability database; skipped." >&2
-    else
-      echo "govulncheck:" >&2
-      printf '%s' "$vuln_out" | tail -30 | sed 's/^/  /' >&2
-      failed=1
-    fi
-  elif ! printf '%s' "$vuln_out" | grep -q 'No vulnerabilities found'; then
-    echo "govulncheck:" >&2
-    printf '%s' "$vuln_out" | tail -30 | sed 's/^/  /' >&2
-    failed=1
-  fi
 else
-  failed=2
+  # Its findings go to stderr; its "clear" line is left out of this summary.
+  "$REPO_ROOT/scripts/vulncheck.sh" >/dev/null
+  case $? in
+  0) ;;
+  2) failed=2 ;;
+  *) [ "$failed" -eq 0 ] && failed=1 ;;
+  esac
 fi
 
 if [ "$failed" -eq 0 ]; then

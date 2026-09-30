@@ -1,0 +1,6 @@
+# govulncheck findings accepted by scripts/vulncheck.sh (MADR 0174 D3).
+# One per line, tab-separated: ID, module, review date, reason.
+# Accepted only at the required-module level: an allowlisted ID that is imported or
+# called still fails. Review each entry again by its date, and remove it once it is
+# no longer reported.
+GO-2026-5932	golang.org/x/crypto	2026-09-29	openpgp is not in the build (go mod why); no fixed version exists; x/crypto is required by golang.org/x/net, certmagic and acmez

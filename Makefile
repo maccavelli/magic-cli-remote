@@ -553,8 +553,9 @@ staticcheck: $(STATICCHECK_BIN)
 	done; \
 	exit $$rc
 
+# govulncheck at every level, with scripts/vulncheck-allow.txt (MADR 0174 D3, D4).
 vulncheck:
-	govulncheck ./...
+	@./scripts/vulncheck.sh
 
 # The pre-add rule (AGENTS.md): gofmt, golint and govulncheck must be clean
 # before Go files are staged. This script is the one implementation; the agent
