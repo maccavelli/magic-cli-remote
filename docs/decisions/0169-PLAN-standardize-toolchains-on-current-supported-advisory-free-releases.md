@@ -671,6 +671,44 @@ the stale binaries by hand, which would recur at the next Go upgrade.
 
 **Scope.** Added to P3: `Makefile` (the staticcheck block).
 
+#### Deviation 14 (2026-09-30): removing go1.26.6 from the hosts is deferred
+
+**Found.** P2 step 5's condition (C4) is met: P3's gates passed on every host, and CI run
+36653083292 is green on go1.27.1 (`6ea9f3f1`).
+
+**Decision (owner, 2026-09-30): defer step 5, and proceed to P4–P7.** go1.26.6 stays
+installed, unused, beside go1.27.1 on all four hosts:
+- `~/.local/go1.26.6` on the macOS laptop;
+- `~/sdk/go1.26.6` on the Linux server and WSL;
+- `~\sdk\go1.26.6` on Windows.
+
+Nothing points at them: every PATH and `GOTOOLCHAIN` names go1.27.1. They leave with P8, or
+at the owner's word.
+
+**Scope.** No file added.
+
+#### Deviation 15 (2026-09-30): WSL has no `unzip`, which Flutter needs
+
+**Found** at P4 step 1 on WSL.
+- The `~/sdk/flutter` checkout moved from `stable` (3.47.2) to tag 3.47.5; tag commit
+  `6a19cca564`, checked against the stable release.
+- `flutter --version` then failed: `Missing "unzip" tool. Unable to extract Dart SDK.`
+- `unzip` is not installed (apt candidate `6.0-28ubuntu4.1`). Flutter needs it for every
+  artifact it unpacks on Linux, and sudo on WSL needs the owner's password.
+- **C4 was broken for a few minutes.** The old version was replaced before the new one
+  worked. The checkout was restored to branch `stable` at `d3b14c87` (3.47.2), and
+  `flutter --version` works again. The tool rebuilt once. There are no tracked changes.
+
+**Decision (owner, 2026-09-30): the owner installs `unzip` on WSL**
+(`sudo apt-get install -y unzip`); WSL's P4 move resumes after that. Declined: skipping
+WSL for P4. Using the release archive instead of the checkout was not offered: it would
+postpone the same failure to the first artifact download.
+
+**Scope.** Added to WSL: the apt package `unzip`. The owner installs it.
+
+**Process note.** Each host's P4 step now checks `unzip` (Linux) before switching the
+checkout, so no host is left half-moved again.
+
 ### P4 — Flutter 3.47.5 / Dart 3.13.4 (D3; closes F6)
 
 1. Hosts: Windows and WSL `git -C ~/sdk/flutter fetch --tags && git checkout 3.47.5`, then
@@ -684,6 +722,73 @@ the stale binaries by hand, which would recur at the next Go upgrade.
    A golden that moves is a deviation.
 4. CI: push on ask, then dispatch `ci.yml` so `android-apk` runs. Both repositories land in the
    same session.
+
+#### P4 execution (2026-09-30)
+
+**Step 1, hosts.** Every host is on Flutter 3.47.5 (framework `6a19cca564`, engine
+`af7e796e16`) with Dart 3.13.4. The commit was checked against the stable release in
+`releases_linux.json`.
+
+| Host | How | Evidence |
+| --- | --- | --- |
+| macOS laptop | `brew upgrade --cask --greedy flutter`. The cask is `auto_updates`, so a plain upgrade skips it; brew's record said 3.44.6 because the SDK had been updating itself | `flutter --version` 3.47.5; `~/.config/flutter/settings` unchanged |
+| Linux server | `flutter_linux_3.47.5-stable.tar.xz`, sha256 `2132e990…` matched. Unpacked beside the old tree, then swapped; 3.47.2 kept as `~/sdk/flutter-3.47.2` until P5 builds an APK here | `flutter doctor -v`: Android toolchain on `~/sdk/jdk-21`; snapshot UNCHANGED |
+| Windows | `~\sdk\flutter` fast-forwarded on branch `stable` to the 3.47.5 commit (Deviation 16) | `flutter doctor -v` exit 0, Android toolchain on Temurin 21.0.12.1 |
+| WSL | the same fast-forward, after `unzip` (Deviation 15) | `flutter doctor -v`: Android toolchain on `~/sdk/jdk-21`; snapshot UNCHANGED |
+
+**Fast-forward rather than checkout.** The git checkouts on Windows and WSL were
+fast-forwarded on branch `stable` rather than detached at tag `3.47.5` as step 1 is
+written. The commit is the same. The SDK stays on the stable channel, where a detached
+tag reports `[user-branch]`.
+
+The only snapshot changes are history files: PowerShell's `ConsoleHost_history.txt` on
+Windows (the owner's own `flutter --version`) and `.bash_history` on the macOS laptop. No
+shell-init or environment file changed.
+
+**Step 2, this repository.** `.github/workflows/ci.yml` `FLUTTER_VERSION: "3.47.5"`. On the
+macOS laptop:
+- `scripts/assert-flutter-pin.sh`: "local and pinned Flutter agree (3.47.5)";
+- `flutter pub get --enforce-lockfile`: exit 0, lockfile unchanged;
+- `flutter analyze`: "No issues found!";
+- `dart format --set-exit-if-changed`: 0 of 213 files changed;
+- `flutter test`: "+1418 ~3: All tests passed!";
+- `make apk`: exit 0, 41.1 MB, "OK release-mode APK".
+
+**Step 3, magic-git.** `build_macos.sh` `FLUTTER_VERSION="3.47.5"`, left uncommitted for
+the owner. On the macOS laptop, `flutter pub get --enforce-lockfile` exited 0. `flutter
+test` gave "+4660 ~3: All tests passed!", and afterwards `git status` was empty: no golden
+image changed.
+
+**Step 4, CI:** push and a dispatched `ci.yml` run (so `android-apk` runs) wait for the
+owner.
+
+#### Deviation 16 (2026-09-30): the Windows Flutter cache, broken over ssh
+
+**Found** at P4 step 1 on Windows, after the fast-forward.
+- **The first run used the wrong launcher.** It ran the POSIX `bin/flutter` from Git Bash,
+  not `flutter.bat`. It left `bin/cache/dart-sdk` empty, beside an `engine-dart-sdk.stamp`
+  claiming 3.47.5's Dart SDK, and a `flutter_tools.stamp` of `:`.
+- **`flutter.bat` then failed on every retry** ("The system cannot find the path
+  specified"), because it believed the stamp and never downloaded Dart.
+- **The ssh session's Git Bash environment broke every repair attempt:**
+  - `TEMP=/tmp` crashed PowerShell 7's startup inside `update_engine_version.ps1`;
+  - GNU `timeout` shadowed `timeout.exe` in `flutter.bat`'s retry wait;
+  - under a PATH rebuilt from the registry, the `7z` extraction hung for 25 minutes.
+- **Processes of mine outlived their ssh sessions** and held Flutter's lock; I stopped
+  them. None of the owner's processes were touched.
+- **Clean-up.** The empty `dart-sdk` and the false stamps were removed each time, so the
+  next run would download afresh. None of this touched the git checkout or any shell or
+  environment file.
+
+**Resolution (owner, 2026-09-30).** The owner ran `flutter --version` in a normal Windows
+terminal, which downloaded and unpacked the Dart SDK. Verified afterwards from a
+registry-built environment: `flutter --version` 3.47.5 / Dart 3.13.4, and `flutter doctor
+-v` exit 0.
+
+**Process note.** On Windows, run Flutter only through `flutter.bat`, in an environment
+built from the registry (PATH, TEMP, TMP), never the POSIX script from Git Bash.
+
+**Scope.** No file added.
 
 ### P5 — Java 25 as the build JDK (D5; closes F5)
 
