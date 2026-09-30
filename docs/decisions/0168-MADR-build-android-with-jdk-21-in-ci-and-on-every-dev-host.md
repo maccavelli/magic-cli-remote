@@ -209,3 +209,22 @@ three on 17. D3's "Windows is already on 21" is struck: Windows moves its `jdk-d
 others. The decision itself (option A, D1–D5) is unchanged. The probe was fixed to read the
 file Flutter reads and to report any other settings file as stale. The stale file is backed up
 and removed as part of PLAN P1, so it cannot mislead again.
+
+## Amendment — 2026-09-30: the build JDK is 25, superseded by MADR 0169 D5
+
+D1 and D3 chose JDK 21 as the JDK that runs Gradle, in CI and on every host. That choice is
+**superseded by MADR 0169 D5**: Temurin 25 LTS, 25.0.4.1+1 today.
+- It was measured building this project's release APK on 2026-09-23, and PLAN 0169 P5
+  rebuilt it on each host on 2026-09-30.
+- `ci.yml`'s `java-version` is `"25"`.
+
+**D2 is unchanged**: the app's bytecode target stays Java 17 (class-file major 61). On each
+host, P5's build checked that the three app classes are major 61. It also checked that the
+check rejects the major 69 a JDK 25 `javac` produces by default.
+
+One finding from that work belongs here, because D3's host setup assumed Flutter's
+`jdk-dir` decides the build JDK. On the macOS laptop, `~/.gradle/gradle.properties` sets
+`org.gradle.java.home`, which Gradle obeys over the `JAVA_HOME` Flutter passes. That host
+had been building on the JDK named there, whatever `jdk-dir` said. PLAN 0169 Deviation 17
+has the evidence, and why a build now counts only when the Gradle daemon's own JVM is
+checked.

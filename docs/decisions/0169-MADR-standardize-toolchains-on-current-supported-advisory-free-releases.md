@@ -622,3 +622,9 @@ found a fourth. Go 1.27 builds `encoding/json` from its v2 implementation by def
 chunk. This repository's codex test harness depended on the old behaviour, and one of its
 tests hung (PLAN 0169 Deviation 12). The fix is test-only. The per-repository gate in D2
 exists for exactly this, and it caught it.
+
+## Amendment — 2026-09-30: gh 2.102.0 (D8)
+
+cli/cli released gh 2.102.0 on 2026-09-30, and OSV reports no advisory affecting it. Under
+D1 it is the standard, and the owner adopted it before P7 installs gh anywhere.
+**D8 now reads:** gh **2.102.0** everywhere. PLAN 0169 Deviation 18 has the evidence.

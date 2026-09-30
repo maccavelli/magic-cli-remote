@@ -809,6 +809,41 @@ built from the registry (PATH, TEMP, TMP), never the POSIX script from Git Bash.
 5. Remove JDK 21 per host after that host's APK passes on 25 (C4). On Windows, that is the
    Temurin 21 MSI.
 
+#### Deviation 17 (2026-09-30): a user Gradle setting pins JDK 21 on the macOS laptop
+
+**Found** at P5 step 1 on the macOS laptop. The build looked like it passed:
+- `flutter config --jdk-dir` pointed at the Temurin 25.0.4.1 cask;
+- `make apk` from a scratch clone exited 0;
+- the assert script passed;
+- all three app classes were major 61.
+
+But the only Gradle daemon was started by that build (12:25:25), it served the scratch
+clone, and it ran on `/opt/homebrew/opt/openjdk@21/…/bin/java`. The cause is
+`~/.gradle/gradle.properties`, which sets `org.gradle.java.home` to Homebrew's
+`openjdk@21`, and Gradle obeys it over the `JAVA_HOME` Flutter passes from `jdk-dir`. So
+that build was JDK 21's and is not P5 evidence. The Linux server, WSL and Windows have no
+such setting.
+
+A second gap was found at the same time. Windows' user `JAVA_HOME` still names Temurin
+21. Flutter builds do not read it, but a direct `gradlew` does, and step 5's removal of
+the 21 MSI would leave it pointing at nothing. It is in this plan's Windows file list,
+but step 1 does not move it.
+
+**Decision (owner, 2026-09-30).**
+- `~/.gradle/gradle.properties` on the macOS laptop: `org.gradle.java.home` is repointed
+  to `/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home`, with a dated
+  backup. It is kept rather than removed, because the shell's `JAVA_HOME` is Homebrew's
+  `openjdk` 26, which Gradle 9.1 does not run on.
+- Windows' `HKCU\Environment` `JAVA_HOME` moves to Temurin 25.0.4.1 in step 1, with a
+  dated backup.
+
+**Verification change.** A P5 build counts only if the Gradle daemon that served it ran
+on the Temurin 25 JDK, checked from the daemon's process. `jdk-dir` and a green APK are
+not enough.
+
+**Scope.** Added to the macOS laptop: `~/.gradle/gradle.properties` (the
+`org.gradle.java.home` line only). Windows: `JAVA_HOME` joins P5 step 1.
+
 ### P6 — Node: Active LTS now, 26 on 2026-10-28 (D4; closes F4)
 
 - **a (now).** 24.21.0 everywhere:
@@ -844,6 +879,164 @@ built from the registry (PATH, TEMP, TMP), never the POSIX script from Git Bash.
    - macOS: `brew upgrade gh glab`.
 
    `gh auth status` and `glab auth status` must still pass after each replacement.
+
+#### P5 execution (2026-09-30)
+
+**Step 1, hosts, and step 3, bytecode.**
+- Every host has Temurin 25.0.4.1+1:
+  - the macOS laptop has the `temurin@25` cask, a `.pkg` whose sha256 `68e28a99…` Homebrew
+    checks;
+  - the Linux server and WSL have `~/sdk/jdk-25`, from Adoptium's tarball (sha256
+    `dbb69839…`);
+  - Windows has the P0 MSI.
+- Flutter's `jdk-dir` points at it on every host.
+- Each host then built the release APK from a scratch clone of `HEAD`, with three checks:
+  - the Gradle daemon that served the build ran on that JDK (Deviation 17);
+  - `assert-flutter-release-apk.sh` passed;
+  - `javap -v` gives major 61 for `MainActivity`, `UpdateInstaller` and
+    `UpdateInstallReceiver`.
+- **Seen to fail first, on every host:** a class that JDK 25's `javac` compiles by default
+  is major 69, and the same check rejected it.
+
+| Host | Other edits (dated backups in `~/backups/0169-p5-2026-09-30/`) | Daemon JVM | APK |
+| --- | --- | --- | --- |
+| macOS laptop | `~/.gradle/gradle.properties` `org.gradle.java.home` (Deviation 17) | `temurin-25.jdk/…/bin/java` | 39M |
+| Linux server | dotfiles: `05-env.sh` `JAVA_HOME`, `00-paths.sh` PATH, `11-tool-env.conf` `JAVA_HOME`, the drop-in PATH; `daemon-reload` | `~/sdk/jdk-25/bin/java` | 40M |
+| WSL | `devenv.sh` `JAVA_HOME` | `~/sdk/jdk-25/bin/java` | 40M |
+| Windows | `HKCU\Environment` `JAVA_HOME` (Deviation 17; value kind `String`, as before) | `jdk-25.0.4.101-hotspot\bin\java.exe` | 39.2MB |
+
+**Windows ran a different build command.** It ran `flutter.bat build apk --release
+--target-platform android-arm64`, the command `make apk` runs, in a registry-built
+environment (Deviation 16) rather than through `make` from Git Bash. The repository's
+assert script then ran through Git Bash.
+
+**Step 2, CI.** `ci.yml`'s `android-apk` job: `java-version: "25"`. actionlint reports only
+the two findings that predate this change. The dispatched run waits for the owner.
+
+**Step 4, MADR 0168.** An additive amendment says its D1/D3 choice of 21 is superseded by
+0169 D5, and that D2 stands.
+
+**Step 5, JDK 21 removed where C4 allows.**
+- **macOS laptop:** `brew uninstall openjdk@21 openjdk` removed 21.0.12.1 and, per
+  Deviation 10, 26.0.2.1. Nothing depended on either. `~/.config/bash/env.sh` exports
+  `JAVA_HOME` only if Homebrew's `openjdk` exists, so a fresh login now leaves it unset,
+  and `/usr/bin/java` resolves through `java_home` to Temurin 25.0.4.1.
+- **WSL:** `~/sdk/jdk-21` removed. Its only reference was an old Gradle daemon log.
+  Ubuntu's `/usr/lib/jvm` packages are the distribution's and stay.
+- **Windows:** the Temurin 21.0.12.1 MSI (`{285FFC48-…}`) was uninstalled, `msiexec /x`
+  exit 0. The machine PATH now lists only `jdk-25.0.4.101-hotspot\bin`. The ssh session
+  proved to be elevated (`net session` succeeds), so no UAC prompt was involved.
+- **Linux server:** `~/sdk/jdk-21` stays until `mcremote` is restarted. The running
+  daemon's environment still names it.
+
+#### P6 execution (2026-09-30), part a
+
+Node 24.21.0 on every host. The Linux archives were checked against nodejs.org's
+`SHASUMS256.txt` (`fd8e59d5…`).
+- **Windows:** unchanged since P0.
+- **Linux server:** `~/sdk/node-v24.21.0`, with `00-paths.sh` and the drop-in PATH moved
+  from `node-v22.23.2`, and `daemon-reload`. markdownlint-cli2 0.23.2 was reinstalled under
+  the new npm (D15). `bash -lic` and `bash -c` both resolve `node` v24.21.0.
+  `~/sdk/node-v22.23.2` stays until `mcremote` restarts.
+- **WSL:** `~/sdk/node-v24.21.0` plus a `devenv.sh` PATH entry, where there was no native
+  Node before.
+- **macOS laptop:** `brew install node@24`, `brew unlink node` (26.8.1, left installed),
+  and `brew link --force --overwrite node@24`. A fresh login resolves `node` v24.21.0. The
+  agent CLIs were checked before and after:
+  - `gemini` runs `/opt/homebrew/opt/node/bin/node` by absolute path;
+  - `opencode` is a native binary;
+  - `@openai/codex` 0.158.0 needs `node >=16`;
+  - `@kilocode/cli` 7.8.1 declares no engine requirement.
+
+  All four still start.
+- **CI:** `NODE_VERSION: "24"` is kept.
+
+Part b (Node 26) waits for 2026-10-28.
+
+#### P7 execution (2026-09-30)
+
+**Python (step 1, Deviation 20).** WSL has `~/sdk/python-3.14.7`, from
+python-build-standalone `20260901` (GitHub digest `0ab33054…`), and `~/default-venv` on it
+is first in `devenv.sh`'s PATH.
+- A login shell's `python3` is 3.14.7, with pip 26.2.1.
+- `/usr/bin/python3` is still Ubuntu's 3.12.3.
+- The archive's own `bin` is on no PATH.
+
+**git (step 2).**
+- **macOS laptop:** `brew upgrade git` gave 2.56.0 (with `pcre2` 10.48 → 10.49).
+- **Linux server and WSL:** the git-core PPA gave 2.55.0 (`…ubuntu26.04.2` and
+  `…ubuntu24.04.2`), per Deviation 19. The only new apt sources are the two PPA files. The
+  server's `~/.local/bin/git` still links to `/usr/bin/git`.
+- **Windows:** Git for Windows 2.56.0.windows.1 (`Git-2.56.0-64-bit.exe`, digest
+  `bfe94e7b…`, re-verified before running). Its installer aborts while any `bash.exe` runs,
+  and every ssh command starts Git Bash. So it ran from a one-time scheduled task, in the
+  owner's session with highest privileges, which waited until no Git Bash process was
+  left. Setup exit 0; `git --version` 2.56.0.windows.1; the task was then deleted.
+
+**gh 2.102.0 and glab 1.120.0 (step 3, Deviation 18).** Each archive was checked against
+its publisher's checksums file.
+- **macOS laptop:** `brew upgrade gh glab`. `gh auth status` and `glab auth status` pass.
+- **Linux server:** `~/.local/bin`, previous binaries backed up. gh is still logged in.
+  glab reported "No token found" before and after: this host was never logged in to glab.
+- **WSL:** `~/.local/bin`, both new; neither is logged in.
+- **Windows:** `~\toolchains\{gh,glab}` replaced in place. The old folders were kept
+  until the new binaries answered with their versions. Over ssh neither can read the
+  owner's stored credentials: glab reports "failed to read 'token' from the operating
+  system keyring … A specified logon session does not exist", and gh calls its token
+  invalid. The owner has to check `gh auth status` and `glab auth status` in a normal
+  Windows terminal.
+
+**Audit after P4–P7.** A four-host probe gave UNCHANGED for every snapshot. The audit
+reported 2 DRIFT and 20 NO-FIX:
+- DRIFT: Linux git 2.55.0 against 2.56.0 on the server and WSL (Deviation 19);
+- NO-FIX: Python 3.14.7's four known advisories on each host and on the standard
+  (Deviation 3).
+
+There was no ADVISORY, STALE, UNSUPPORTED or MISE. Go, Flutter/Dart, Node, JDK 25, git,
+gh and glab match the standard everywhere else.
+
+#### Deviation 18 (2026-09-30): gh 2.102.0 released before P7
+
+**Found** at P7. cli/cli released v2.102.0 on 2026-09-30, a stable release, not a
+prerelease. OSV reports no advisory at 2.102.0 (nor at 2.101.0). Homebrew already offers it.
+
+**Decision (owner, 2026-09-30): adopt 2.102.0**, the same policy as Deviation 8, so hosts
+move once. `standard.json` and MADR D8 (amendment of 2026-09-30) name 2.102.0.
+
+**Scope.** No file added.
+
+#### Deviation 19 (2026-09-30): the git-core PPA has only 2.55.0
+
+**Found** at P7 step 2. Launchpad's published sources for `~git-core/ppa` are
+`1:2.55.0-0ppa1~ubuntu24.04.2` (noble, WSL) and `1:2.55.0-0ppa1~ubuntu26.04.2` (resolute,
+the Linux server). 2.56.0, the standard since Deviation 8, is not published there yet.
+
+**Decision (owner, 2026-09-30): install the PPA's 2.55.0 now**, replacing 2.53.0 on the
+server and 2.43.0 on WSL, and roll to 2.56 when the PPA publishes it. The audit reports
+Linux git drift until then. Both hosts' steps ran with their passwordless sudo. The WSL
+note first said the owner would run them; the owner then pointed out that WSL's sudo is
+passwordless too. Declined: building 2.56.0 from source, and waiting.
+
+**Scope.** No file added. The PPA was already in scope for both hosts.
+
+#### Deviation 20 (2026-09-30): WSL's developer Python needs a place on PATH
+
+**Found** at P7 step 1. The step installs the python-build-standalone 3.14.7 archive into
+`~/sdk/python-3.14.7`, but nothing puts it on PATH. P1's audit judges the developer Python
+by the first `python3` on PATH, and on WSL that stays Ubuntu's 3.12.3.
+
+**Decision (owner, 2026-09-30): the Linux server's arrangement.** `~/default-venv` is
+created on the 3.14.7 archive, and `~/default-venv/bin` goes first in `devenv.sh`'s PATH.
+`/usr/bin/python3` (Ubuntu's 3.12, D6) stays for apt and system scripts. Declined: the
+archive's own `bin` on PATH, and leaving it off PATH.
+
+**Scope.** Added to WSL: `~/default-venv` (new), and a PATH entry in `~/.config/devenv.sh`.
+
+**Also decided (owner, 2026-09-30):** the Windows elevated step runs now: uninstall the
+Temurin 21 MSI, and install Git for Windows 2.56.0.windows.1. The `mcremote` restart on the
+Linux server is not approved yet. Until it happens, `~/sdk/jdk-21` and
+`~/sdk/node-v22.23.2` stay there, because the running daemon's environment still names them
+(C4).
 
 ### P8 — Close out
 
