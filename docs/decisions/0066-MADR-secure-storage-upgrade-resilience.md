@@ -29,7 +29,7 @@
   one `pair list` column in the daemon/CLI. **No protocol changes.**
 - **Related**: [0065-MADR-update-automation.md](0065-MADR-update-automation.md)
   (in-place updates are the trigger; its Stage 0 premise is amended here),
-  [MADR-client-identity-decision.md](MADR-client-identity-decision.md) /
+  [0005-MADR-client-identity.md](0005-MADR-client-identity.md) /
   ADR 0005 (client-key enrolment being the thing that breaks),
   [ops-android-signing.md](ops-android-signing.md) (the runbook that made
   in-place updates possible at all).

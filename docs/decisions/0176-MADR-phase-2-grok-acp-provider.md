@@ -1,3 +1,5 @@
+> **2026-10-01 (0175 P3).** Relocated from `docs/MADR-phase2-grok-acp.md`. Self-claimed "MADR 0004" collided with `0004-MADR-certificate-management.md` (hardening series). Renumbered to 0176; numbers are unique, not chronological.
+
 # MADR 0004: Phase 2 — Grok ACP provider
 
 - **Status**: Accepted

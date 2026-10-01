@@ -1,8 +1,10 @@
+> **2026-10-01 (0175 P3).** Relocated from `docs/MADR-client-identity-decision.md` to `docs/decisions/0005-MADR-client-identity.md`. The title already claimed 0005; the hardening series 0006–0008 continues from it.
+
 # 0005 — Client identity
 
 * Status: **Accepted**
 * Date: 2026-07-20
-* Relates to: [MADR-certificate-management-decision.md](MADR-certificate-management-decision.md),
+* Relates to: [0004-MADR-certificate-management.md](0004-MADR-certificate-management.md),
   [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) Phase 3
 
 ## Context

@@ -1524,7 +1524,7 @@ Language/style guides live under `docs/standards/`.
 |-----|-------------|
 | [docs/decisions/0001-MADR-architecture-mcremote.md](docs/decisions/0001-MADR-architecture-mcremote.md) | Architecture MADR |
 | [docs/decisions/0003-MADR-phase1-decisions.md](docs/decisions/0003-MADR-phase1-decisions.md) | Phase 1 locked decisions |
-| [docs/MADR-phase2-grok-acp.md](docs/MADR-phase2-grok-acp.md) | Phase 2 Grok ACP |
+| [docs/decisions/0176-MADR-phase-2-grok-acp-provider.md](docs/decisions/0176-MADR-phase-2-grok-acp-provider.md) | Phase 2 Grok ACP |
 | [docs/decisions/0015-MADR-mcrelay-transport-security.md](docs/decisions/0015-MADR-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice) |
 | [docs/decisions/0020-MADR-opencode-session-tree.md](docs/decisions/0020-MADR-opencode-session-tree.md) | OpenCode multi-agent session tree |
 | [docs/decisions/0023-MADR-canonical-slash-commands.md](docs/decisions/0023-MADR-canonical-slash-commands.md) | Canonical slash commands |

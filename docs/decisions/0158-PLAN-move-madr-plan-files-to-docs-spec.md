@@ -1,8 +1,10 @@
 ---
-status: proposed
-date: 2026-09-14
+status: superseded by 0175-MADR-conform-docs-tree-to-adopted-record-layout.md
+date: 2026-10-01
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
+
+> **2026-10-01.** Superseded by [0175-MADR-conform-docs-tree-to-adopted-record-layout.md](0175-MADR-conform-docs-tree-to-adopted-record-layout.md). Rationale text stays as written.
 
 # PLAN 0158 — Move MADR/PLAN files to docs/spec/ subdirectory
 

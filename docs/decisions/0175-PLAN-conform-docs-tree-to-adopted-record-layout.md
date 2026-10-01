@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-01
 associated-madr: "0175-MADR-conform-docs-tree-to-adopted-record-layout.md"
 ---
@@ -55,7 +55,7 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 
 1. `git mv` every `docs/spec/*.md` into `docs/decisions/` in one operation (all 291; MADR/PLAN pairs move together; `docs/spec/` disappears).
 2. Repair from `check_records.py --check` output, plus `git grep` for path text: `docs/spec/NNNN-…` citations inside `docs/decisions/0166-PLAN`, `0167-PLAN`, `0169-PLAN`, `0171-MADR`, `0171-PLAN` and inside the moved 0158–0161 records become sibling or `docs/decisions/…` references; `../spec/…` forms become sibling links; root-form links (`docs/0120-…`, `docs/spec/0160-…`) are repaired to the moved locations. Historical prose in 0158 naming `docs/spec/` stays as written.
-3. Mark both 0158 records `status: superseded` with a dated note pointing at `0175-MADR-conform-docs-tree-to-adopted-record-layout.md`.
+3. ~~Mark both 0158 records `status: superseded` with a dated note pointing at `0175-MADR-conform-docs-tree-to-adopted-record-layout.md`.~~ Landed in the P3 commit (deviation 2026-10-01).
 4. Agent-facing conformance, one pass: `AGENTS.md` (rationale link to 0105 → `docs/decisions/0105-…`; the gate's and bootstrap exception's `docs/NNNN-MADR-*` paths → `docs/decisions/NNNN-MADR-*`; the "File naming" section restated per the adopted layout — records in `docs/decisions/` and `docs/reports/`, four kinds, kind infix, cite by full filename, next number from `scripts/check_records.py --next`, docs-tree layout is `documentation-writing`); `.grok/rules/madr-plan-before-mutating-work.md` (line 4 link, line 41–42 paths); `.claude/rules/madr-and-plan-skill.md` (line 41 path); verify `.opencode/rules.md` needs nothing.
 5. Repair the ~50 `docs/spec/` links in the root `README.md` to `docs/decisions/…`.
 6. Gates: `make check-records` reports no failure that is not on the recorded baseline; `npx markdownlint-cli2` over the changed `.md` files; `git log --follow` resolves for two sampled moved records; commit.
@@ -128,4 +128,8 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 
 ## Deviations
 
-None yet. Any mid-execution finding follows the skill's protocol: a dated deviation entry here naming what was found and decided, an amendment to the MADR when a decision or asserted fact changed, and the deviation carried into the commit and the handoff.
+**2026-10-01 — 0158 supersession landed in P3.** P2 commit `64282e29` moved `docs/spec/` into `docs/decisions/` and repaired agent-facing paths, but left both 0158 records at `status: proposed` with no supersession note. P3 includes those two files so A15 is not deferred. No MADR amendment: D1 is unchanged.
+
+**2026-10-01 — `--next` fills gaps.** At P3 execution `scripts/check_records.py --next` printed `0004` because 0004 and 0005 were still unused filenames. The phase records still took 0176 and 0177 as D2 specified; intervening pairs had not claimed them. Using `--next` here would have assigned 0004 to the colliding phase-2 MADR. No MADR amendment: D2 already named 0176/0177.
+
+Any further mid-execution finding follows the skill's protocol: a dated deviation entry here naming what was found and decided, an amendment to the MADR when a decision or asserted fact changed, and the deviation carried into the commit and the handoff.

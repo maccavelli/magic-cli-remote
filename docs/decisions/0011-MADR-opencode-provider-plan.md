@@ -19,7 +19,7 @@
   see §Spike results; live tests green incl. model selection).
   ACP transport superseded by MADR 0019 on 2026-07-24.
 - **Date**: 2026-07-21
-- **Related**: [MADR 0004](./MADR-phase2-grok-acp.md) (Grok ACP provider),
+- **Related**: [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md) (Grok ACP provider),
   [MADR 0003](./0003-MADR-phase1-decisions.md) (provider abstraction),
   [MADR 0019](./0019-MADR-opencode-process-management-plan.md) (ACP removal,
   single-engine process management)

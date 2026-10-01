@@ -1,6 +1,8 @@
+> **2026-10-01 (0175 P3).** Relocated from `docs/MADR-certificate-management-decision.md` to `docs/decisions/0004-MADR-certificate-management.md`. The title already claimed 0004; the hardening series 0006–0008 continues from it.
+
 # 0004 — Certificate management
 
-* Status: **Accepted** — decision §2 (recovery `fp=` in both TLS modes; chain-or-pin for `letsencrypt`) is **implemented** and is the wire contract in [protocol-v1.md](protocol-v1.md). The "defect" narrative below describes the pre-fix state.
+* Status: **Accepted** — decision §2 (recovery `fp=` in both TLS modes; chain-or-pin for `letsencrypt`) is **implemented** and is the wire contract in [protocol-v1.md](../protocol-v1.md). The "defect" narrative below describes the pre-fix state.
 * Date: 2026-07-20
 * Supersedes the ad-hoc TLS defaults introduced alongside `internal/certs`
 

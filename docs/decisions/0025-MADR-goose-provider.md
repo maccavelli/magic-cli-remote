@@ -7,7 +7,7 @@
 - **Deciders**: Project Owner (scope, enablement, phasing); Implementer
   (daemon/provider/transport)
 - **Related**:
-  - [MADR 0004](./MADR-phase2-grok-acp.md) — Grok ACP provider (the ACP pattern we
+  - [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md) — Grok ACP provider (the ACP pattern we
     already ship; goose is the HTTP counterpart)
   - [MADR 0011](./0011-MADR-opencode-provider-plan.md) — OpenCode provider (HTTP+SSE
     engine, spike methodology)

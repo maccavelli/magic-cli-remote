@@ -2,7 +2,7 @@
 
 * Status: **Accepted (defer)**
 * Date: 2026-07-20
-* Relates to: hardening plan §5.3, [0004](MADR-certificate-management-decision.md),
+* Relates to: hardening plan §5.3, [0004-MADR-certificate-management.md](0004-MADR-certificate-management.md),
   D5
 
 ## Context

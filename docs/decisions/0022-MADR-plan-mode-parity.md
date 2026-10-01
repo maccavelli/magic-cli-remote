@@ -10,7 +10,7 @@
     built-in slash commands
   - [MADR 0020](./0020-MADR-opencode-session-tree.md) — OpenCode agents (`agents.list`,
     `StartOptions.Agent`), slash commands (Sprint 5)
-  - [MADR 0004](./MADR-phase2-grok-acp.md) — grok ACP transport
+  - [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md) — grok ACP transport
 
 **Verified against** (live, not inferred): grok **0.2.112** over ACP stdio,
 OpenCode **1.18.5** over HTTP, on `master` at 2026-07-25.

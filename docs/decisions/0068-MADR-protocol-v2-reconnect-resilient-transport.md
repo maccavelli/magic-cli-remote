@@ -26,7 +26,7 @@
   (verified liveness — v2 formalizes its cadence into the contract),
   [0062-MADR-phone-transport-selection.md](0062-MADR-phone-transport-selection.md)
   (dial episodes/budgets — v2 adjusts their lifecycle interaction),
-  [MADR-client-identity-decision.md](MADR-client-identity-decision.md)
+  [0005-MADR-client-identity.md](0005-MADR-client-identity.md)
   (auth model unchanged), [protocol-v1.md](protocol-v1.md), and
   [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md) with its
   [approved P17–P22 plan](0074-PLAN-remote-provider-auth-from-phone.md)

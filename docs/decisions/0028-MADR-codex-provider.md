@@ -6,7 +6,7 @@
 - **Deciders**: Project Owner (scope, enablement, phasing); Implementer
   (daemon/provider/transport)
 - **Related**:
-  - [MADR 0004](./MADR-phase2-grok-acp.md) — Grok ACP provider (stdio ACP pattern)
+  - [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md) — Grok ACP provider (stdio ACP pattern)
   - [MADR 0011](./0011-MADR-opencode-provider-plan.md) — OpenCode provider (spike
     methodology; later HTTP engine)
   - [MADR 0019](./0019-MADR-opencode-process-management-plan.md) — shared-engine

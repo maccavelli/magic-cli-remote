@@ -19,7 +19,7 @@
 - **Related**:
   - [Assessment](./0038-MADR-grok-acp-parity-assessment.md) — the wire probe whose
     findings this MADR turns into decisions
-  - [MADR 0004](./MADR-phase2-grok-acp.md) — original Grok ACP provider
+  - [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md) — original Grok ACP provider
   - [MADR 0022](./0022-MADR-plan-mode-parity.md) — plan-mode parity (mode contract)
   - [MADR 0023](./0023-MADR-canonical-slash-commands.md) — canonical slash commands
   - [MADR 0031](./0031-MADR-opencode-catalog-and-metadata-parity.md) — live model

@@ -14,7 +14,7 @@ key enforcement built, tailnet-lock and Headscale-certs documented-and-deferred
 replay built (cross-stack, same-JSON-shape verified), permission-set prune,
 doc drift fixed; interleaved-chunk item closed won't-fix with justification.
 **Date:** 2026-07-20
-**Companion:** [MADR-certificate-management-decision.md](MADR-certificate-management-decision.md).  
+**Companion:** [0004-MADR-certificate-management.md](0004-MADR-certificate-management.md).  
 **Follow-on work:** [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) (reliability polish, multi-device UX, durable history, relay).
 
 Consolidates the findings from the mobile deep scan, the protocol cross-check,
@@ -64,7 +64,7 @@ fails at build (an XML-comment defect shipped exactly this way once).
 | D3 | **Client identity / mTLS promoted to Phase 3**, ahead of operability, because it may change the transport design. |
 | D4 | **Backlog is in scope** (now Phase 6) — executed last, after every other phase is complete and tests pass. |
 | D5 | **4.1 MagicDNS** — option 3: IP-dialled hosts stay on `selfsigned`; `override_local_dns` stays `false`. |
-| D6 | **Phase 3 client identity** — public-key allowlist, SSH-style. **No CA.** Recorded as [ADR 0005](MADR-client-identity-decision.md). |
+| D6 | **Phase 3 client identity** — public-key allowlist, SSH-style. **No CA.** Recorded as [0005-MADR-client-identity.md](0005-MADR-client-identity.md). |
 | D7 | **3.2e enforcement ships default-ON.** The fleet is a single phone owned by the operator, so the staged keyless→keyed migration in ADR 0005 is unnecessary. Re-pairing that one device is the accepted cost. Revisit if a second device is ever enrolled. |
 
 ---
@@ -153,7 +153,7 @@ nothing about the mesh; with a valid token it returns the current payload.
 
 # Phase 2 — Make both TLS modes safe (P0/P1)
 
-Implements [ADR 0004](MADR-certificate-management-decision.md). **The default
+Implements [0004-MADR-certificate-management.md](0004-MADR-certificate-management.md). **The default
 stays conditional** — `selfsigned` unless a domain *and* email are configured.
 This phase does not change mode selection; it fixes how each mode fails.
 
@@ -379,7 +379,7 @@ unknown in the recommended design.
 
 ### 3.2 Implement the public-key allowlist — **L**
 
-**ADR accepted:** [MADR-client-identity-decision.md](MADR-client-identity-decision.md).
+**ADR accepted:** [0005-MADR-client-identity.md](0005-MADR-client-identity.md).
 Public-key allowlist, SSH-style. No CA.
 
 **3.2a — Spike: DONE (2026-07-20), design confirmed.** A standalone Dart↔Go

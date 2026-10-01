@@ -59,7 +59,7 @@ Out of scope for this plan:
 | Record | Binding consequence for Codex |
 |---|---|
 | [0028](./0028-MADR-codex-provider.md) | Native app-server JSON-RPC, shared stdio engine, host-config inheritance, binary-only readiness, and no vendor remote-control dependency are the primary decisions. |
-| [0004](./MADR-phase2-grok-acp.md), [0025](./0025-MADR-goose-provider.md) | ACP patterns are useful for permission/session semantics only. Codex must not be forced through ACP because its wire protocol and item model are different. |
+| [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md), [0025](./0025-MADR-goose-provider.md) | ACP patterns are useful for permission/session semantics only. Codex must not be forced through ACP because its wire protocol and item model are different. |
 | [0019](./0019-MADR-opencode-process-management-plan.md) | Apply the shared-engine process guarantees: process group, death signal, lazy restart, prewarm, and graceful shutdown. Do not copy the HTTP health-check or orphan-port machinery, which is specific to `opencode serve`. |
 | [0020](./0020-MADR-opencode-session-tree.md) | Reuse tree-idle, cancellation, and child-lifecycle lessons only after the Codex relationship contract is live-proven. The current alias design is not nested local sessions. |
 | [0023](./0023-MADR-canonical-slash-commands.md) | A command is advertised only after a provider operation is implemented and wire-tested; Codex TUI help text is not evidence of an app-server command. |

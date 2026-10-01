@@ -22,10 +22,10 @@
   relay changes.** The pairing contract (`internal/pairuri/pairuri.go`),
   auth model (0005), and transport policy (0062/0063) are consumed as-is.
 - **Related**:
-  [MADR-client-identity-decision.md](MADR-client-identity-decision.md)
+  [0005-MADR-client-identity.md](0005-MADR-client-identity.md)
   (client key must remain PEM-loadable by Dart `SecurityContext` — D-key
   storage constraint carries over),
-  [MADR-certificate-management-decision.md](MADR-certificate-management-decision.md)
+  [0004-MADR-certificate-management.md](0004-MADR-certificate-management.md)
   (pin-first trust model),
   [0063-MADR-connection-liveness-truth.md](0063-MADR-connection-liveness-truth.md)
   (verified liveness; iOS suspension makes this the norm, not the edge),
@@ -47,7 +47,7 @@
 ## Problem
 
 The companion app is Android-only. We want the same app on iPhone. Flutter
-was chosen in `PLAN-flutter-android-client-assessment.md` partly because it
+was chosen in `0177-PLAN-flutter-android-client-assessment.md` partly because it
 "leaves a path to iOS without rewriting domain code" — this MADR decides
 how to walk that path.
 

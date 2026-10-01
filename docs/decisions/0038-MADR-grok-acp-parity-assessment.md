@@ -4,7 +4,7 @@
 - **Date**: 2026-07-27
 - **Probe target**: `grok 0.2.112 (9bbd559437) [stable]`, `~/.grok/bin/grok`
 - **Related**:
-  - [MADR 0004](./MADR-phase2-grok-acp.md) — Grok ACP provider
+  - [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md) — Grok ACP provider
   - [MADR 0022](./0022-MADR-plan-mode-parity.md) — plan-mode parity
   - [MADR 0023](./0023-MADR-canonical-slash-commands.md) — canonical slash commands
   - [MADR 0036](./0036-MADR-protocol-contract-completeness.md) — protocol contract completeness
