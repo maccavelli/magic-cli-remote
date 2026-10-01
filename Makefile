@@ -158,7 +158,7 @@ MOBILE_DIR := apps/mobile
 
 .PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-kilo race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
-	pre-add-check vet tidy clean check-host-target check-cgo-off
+	pre-add-check vet tidy clean check-host-target check-cgo-off check-records
 
 build: check-cgo-off
 	@mkdir -p bin
@@ -279,6 +279,12 @@ check-host-target:
 		echo "cross-compile without installing: make build GOOS=$(GOOS) GOARCH=$(GOARCH)" >&2; \
 		exit 1; \
 	fi
+
+# Docs records gate (MADR 0175): numbered records and unnumbered docs must have
+# no broken relative markdown link. Errors fail the gate; warnings (known
+# numbering debt, records mid-move) are advisory.
+check-records:
+	@echo "==> records and docs links"; python3 scripts/check_records.py --check-all
 
 install: check-host-target
 	@$(MAKE) build
