@@ -161,7 +161,7 @@ at logon rather than boot, and there is a durability caveat on NTFS.
 | `linux/amd64` | 1 | primary |
 | `linux/arm64` | 1 | |
 | `darwin/arm64` | 1 | |
-| `darwin/amd64` | — | **retired** after v0.14.10; see [MADR 0120](docs/spec/0120-MADR-retire-the-darwin-amd64-target.md) |
+| `darwin/amd64` | — | **retired** after v0.14.10; see [MADR 0120](docs/decisions/0120-MADR-retire-the-darwin-amd64-target.md) |
 | `windows/amd64` | **2** | built and tested in CI, not exercised by the live provider suites |
 | `windows/arm64` | — | **not supported**; see below |
 
@@ -172,7 +172,7 @@ with a documented list of unsupported surfaces.
 `windows/arm64` is **not supported** — not built, not published. That is a
 decision, not a gap: it is not a first-class Go port, it has no local
 acceptance host, and its CI image is the most divergent
-([MADR 0116](docs/spec/0116-MADR-windows-and-linux-arm64-build-targets.md) D19).
+([MADR 0116](docs/decisions/0116-MADR-windows-and-linux-arm64-build-targets.md) D19).
 Windows on Arm runs the amd64 build under emulation, but the installer will
 not select it for you.
 
@@ -214,13 +214,13 @@ Module: `github.com/maccavelli/magic-cli-remote`
        grok agent stdio · opencode serve · codex app-server · kilo serve
 ```
 
-Design spine: [docs/spec/0001-MADR-architecture-mcremote.md](docs/spec/0001-MADR-architecture-mcremote.md),
+Design spine: [docs/decisions/0001-MADR-architecture-mcremote.md](docs/decisions/0001-MADR-architecture-mcremote.md),
 wire contract: [docs/protocol-v1.md](docs/protocol-v1.md).
 
 **Phone → daemon transport choices** (app path selection, not daemon config):
 mesh direct, relay join, or LAN — see
-[docs/spec/0062-MADR-phone-transport-selection.md](docs/spec/0062-MADR-phone-transport-selection.md)
-and [docs/spec/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/spec/0061-MADR-relay-pair-advertise-and-path-selection.md).
+[docs/decisions/0062-MADR-phone-transport-selection.md](docs/decisions/0062-MADR-phone-transport-selection.md)
+and [docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md).
 
 ---
 
@@ -307,7 +307,7 @@ daemon. It does **not** copy the binary — install first with `make install`.
 | Linux | systemd `--user` unit | Yes (linger enabled by default) |
 | macOS | launchd **user LaunchAgent** (`~/Library/LaunchAgents`) | **No** — session-bound; no sudo system daemon |
 
-Design notes: [docs/spec/0058-MADR-macos-launchd-service-hardening.md](docs/spec/0058-MADR-macos-launchd-service-hardening.md).
+Design notes: [docs/decisions/0058-MADR-macos-launchd-service-hardening.md](docs/decisions/0058-MADR-macos-launchd-service-hardening.md).
 
 ### Step-by-step
 
@@ -716,7 +716,7 @@ macOS; see `mcremote paths`).
 The daemon resolves every directory through the XDG variables on **both** Linux
 and macOS — macOS does not get Apple's `~/Library/Application Support` layout,
 deliberately, so a single set of paths documents both platforms
-([MADR 0059](docs/spec/0059-MADR-native-paths-and-linux-macos-parity.md)).
+([MADR 0059](docs/decisions/0059-MADR-native-paths-and-linux-macos-parity.md)).
 `mcremote paths` prints exactly what the daemon will use, creating nothing:
 
 ```bash
@@ -756,7 +756,7 @@ Precedence: **CLI flags > environment > config file > defaults**.
 ### Remote mutation policy (off by default)
 
 Two OpenCode capabilities are **disabled unless you turn them on for this host**
-([MADR 0112](docs/spec/0112-MADR-opencode-1.18.21-surface-parity.md) A8/A9). They are
+([MADR 0112](docs/decisions/0112-MADR-opencode-1.18.21-surface-parity.md) A8/A9). They are
 independent — permitting collaboration does not imply permitting execution:
 
 ```yaml
@@ -908,7 +908,7 @@ Representative client messages (full schema in
 
 Canonical slash commands (`/help`, `/plan`, `/mode`, `/model`, `/thinking`, …)
 are documented in protocol-v1 and
-[docs/spec/0023-MADR-canonical-slash-commands.md](docs/spec/0023-MADR-canonical-slash-commands.md).
+[docs/decisions/0023-MADR-canonical-slash-commands.md](docs/decisions/0023-MADR-canonical-slash-commands.md).
 
 ---
 
@@ -1025,7 +1025,7 @@ enabled and the binary is missing.
 | `stream_coalesce_ms` | `80` | Hold streamed text; 0 = one per token; max 1000 |
 | `approval_policy` | *(empty)* | Override: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds mcremote default mode (`on-request` + `workspace-write`, MADR 0047) |
 | `sandbox_mode` | *(empty)* | Override: `read-only`, `workspace-write`, `danger-full-access` |
-| `allow_full_access` | `false` | Advertise the `full-access` session mode (no approval **and** no sandbox). Opt-in ([MADR 0044](docs/spec/0044-MADR-auto-approve-modes.md) D5) |
+| `allow_full_access` | `false` | Advertise the `full-access` session mode (no approval **and** no sandbox). Opt-in ([MADR 0044](docs/decisions/0044-MADR-auto-approve-modes.md) D5) |
 | `transport` | `stdio` | `stdio`, `unix_ws`, `ws`, or Unix-only `managed_daemon_proxy` |
 | `listen_address` | *(empty)* | Optional `ws` loopback host and port. Wildcard and non-loopback binds are rejected |
 | `ws_auth_mode` | *(empty)* | `capability_token` or `signed_bearer`; `ws` defaults internally to a generated capability token |
@@ -1045,7 +1045,7 @@ than failing silently — `/deep-research`, `/workflow`, and similar.
 **Ubuntu 24.04+ note:** Codex sandboxes need unprivileged user namespaces. If
 kernel policy blocks them, sandboxed tools fail and only `danger-full-access` /
 full-access mode works — see [docs/config.md](docs/config.md) and
-[MADR 0048](docs/spec/0048-MADR-codex-sandbox-namespace.md).
+[MADR 0048](docs/decisions/0048-MADR-codex-sandbox-namespace.md).
 
 **macOS note:** in `auto`/default modes Codex enforces `workspace-write` with
 an Apple Seatbelt sandbox — operations outside the session cwd fail with
@@ -1054,7 +1054,7 @@ an Apple Seatbelt sandbox — operations outside the session cwd fail with
 `allow_full_access: true`. Configs provisioned by `setup-service` before
 MADR 0069 omitted the key entirely, hiding the mode on exactly the hosts
 that needed the explanation — see
-[MADR 0069](docs/spec/0069-MADR-macos-permissions-and-sandbox-parity.md).
+[MADR 0069](docs/decisions/0069-MADR-macos-permissions-and-sandbox-parity.md).
 The *other* macOS "operation not permitted" — privacy protection (TCC)
 on Documents/Desktop/Downloads — is a separate layer: diagnose with
 `mcremote doctor` and see
@@ -1062,10 +1062,10 @@ on Documents/Desktop/Downloads — is a separate layer: diagnose with
 Full Disk Access grant across upgrades with
 `make install MC_CODESIGN_IDENTITY=…`.
 
-Design: [MADR 0028](docs/spec/0028-MADR-codex-provider.md),
-[0035](docs/spec/0035-MADR-codex-ui-ux-remediation.md),
-[0047](docs/spec/0047-MADR-codex-default-mode.md),
-[0048](docs/spec/0048-MADR-codex-sandbox-namespace.md).
+Design: [MADR 0028](docs/decisions/0028-MADR-codex-provider.md),
+[0035](docs/decisions/0035-MADR-codex-ui-ux-remediation.md),
+[0047](docs/decisions/0047-MADR-codex-default-mode.md),
+[0048](docs/decisions/0048-MADR-codex-sandbox-namespace.md).
 
 ---
 
@@ -1097,7 +1097,7 @@ keys such as `OPENROUTER_API_KEY`) until the MADR 0074 phone-auth phases land.
 `session_tree` stays `false` until child-event fixtures prove tree demux on
 this fork (MADR 0075 Q7).
 
-Design: [docs/spec/0075-MADR-kilo-cli-provider.md](docs/spec/0075-MADR-kilo-cli-provider.md).
+Design: [docs/decisions/0075-MADR-kilo-cli-provider.md](docs/decisions/0075-MADR-kilo-cli-provider.md).
 
 ---
 
@@ -1106,13 +1106,13 @@ Design: [docs/spec/0075-MADR-kilo-cli-provider.md](docs/spec/0075-MADR-kilo-cli-
 - **Session modes** (`session.set_mode` / `/mode` / `/plan`): provider-specific
   ids (`default`/`plan` on grok; agent names like `build`/`plan` on OpenCode;
   Codex pairs approval+sandbox). Modes marked `dangerous: true` arm auto-approve
-  for that session ([MADR 0044](docs/spec/0044-MADR-auto-approve-modes.md)).
+  for that session ([MADR 0044](docs/decisions/0044-MADR-auto-approve-modes.md)).
 - **Model catalogs** (`models.list`): scope `models` or `providers` (model
   *providers* such as anthropic/openai, distinct from agent CLI providers).
   Options may advertise `thinking_levels`.
 - **Thinking / reasoning** (`thinking_level` on create, `/thinking`): next-turn
   on Codex; spawn-scoped on Grok; absent for OpenCode when unsupported
-  ([MADR 0052](docs/spec/0052-MADR-thinking-levels-and-settings.md)).
+  ([MADR 0052](docs/decisions/0052-MADR-thinking-levels-and-settings.md)).
 
 ---
 
@@ -1138,7 +1138,7 @@ Ownership is tracked through the on-disk **engine registry**
 (`mcremote paths` → `engine_registry`), which is the cross-platform contract.
 Linux additionally carries environment markers and `PR_SET_PDEATHSIG` as
 defense in depth, neither of which macOS provides
-([MADR 0059](docs/spec/0059-MADR-native-paths-and-linux-macos-parity.md) D8).
+([MADR 0059](docs/decisions/0059-MADR-native-paths-and-linux-macos-parity.md) D8).
 
 ---
 
@@ -1186,15 +1186,15 @@ into its — linked by a shared handoff subject so an auditor can tie the two
 halves together across the two devices' separate chains.
 
 **Design and complete reference:** [docs/receipts.md](docs/receipts.md) ·
-[MADR 0077](docs/spec/0077-MADR-signed-receipts-permission-handoffs.md) ·
-[MADR 0078](docs/spec/0078-MADR-session-handoff-and-receipt-surfacing.md).
+[MADR 0077](docs/decisions/0077-MADR-signed-receipts-permission-handoffs.md) ·
+[MADR 0078](docs/decisions/0078-MADR-session-handoff-and-receipt-surfacing.md).
 
 ---
 
 ## mcrelay (public join-plane edge)
 
 Outbound join router for phones that cannot reach mcremote on the mesh
-([MADR 0015](docs/spec/0015-MADR-mcrelay-transport-security.md)). Opaque WebSocket
+([MADR 0015](docs/decisions/0015-MADR-mcrelay-transport-security.md)). Opaque WebSocket
 splice with end-to-end TLS to mcremote — mcrelay does not authenticate devices,
 run agents, or see protocol-v1 plaintext on the inner hop.
 
@@ -1292,7 +1292,7 @@ See **[docs/config-mcrelay.md](docs/config-mcrelay.md)** for every key.
 | User unit (all env commented) | [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
 | Ops runbook | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) |
 | Provider credential backup and recovery | [docs/ops-credential-recovery.md](docs/ops-credential-recovery.md) |
-| Hardening plan | [docs/spec/0017-MADR-mcrelay-memory-security-action-plan.md](docs/spec/0017-MADR-mcrelay-memory-security-action-plan.md) |
+| Hardening plan | [docs/decisions/0017-MADR-mcrelay-memory-security-action-plan.md](docs/decisions/0017-MADR-mcrelay-memory-security-action-plan.md) |
 
 ---
 
@@ -1415,7 +1415,7 @@ chmod +x ./mcremote-darwin-arm64-*
 `gh release download` does **not** set the attribute, so the step is unnecessary
 when fetching through the CLI — and it never applies to `make install`, which
 produces a local file that was never quarantined. Rationale:
-[docs/spec/0060-MADR-local-unsigned-build-and-install.md](docs/spec/0060-MADR-local-unsigned-build-and-install.md).
+[docs/decisions/0060-MADR-local-unsigned-build-and-install.md](docs/decisions/0060-MADR-local-unsigned-build-and-install.md).
 
 ---
 
@@ -1522,32 +1522,32 @@ Language/style guides live under `docs/standards/`.
 
 | Doc | Description |
 |-----|-------------|
-| [docs/spec/0001-MADR-architecture-mcremote.md](docs/spec/0001-MADR-architecture-mcremote.md) | Architecture MADR |
-| [docs/spec/0003-MADR-phase1-decisions.md](docs/spec/0003-MADR-phase1-decisions.md) | Phase 1 locked decisions |
+| [docs/decisions/0001-MADR-architecture-mcremote.md](docs/decisions/0001-MADR-architecture-mcremote.md) | Architecture MADR |
+| [docs/decisions/0003-MADR-phase1-decisions.md](docs/decisions/0003-MADR-phase1-decisions.md) | Phase 1 locked decisions |
 | [docs/MADR-phase2-grok-acp.md](docs/MADR-phase2-grok-acp.md) | Phase 2 Grok ACP |
-| [docs/spec/0015-MADR-mcrelay-transport-security.md](docs/spec/0015-MADR-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice) |
-| [docs/spec/0020-MADR-opencode-session-tree.md](docs/spec/0020-MADR-opencode-session-tree.md) | OpenCode multi-agent session tree |
-| [docs/spec/0023-MADR-canonical-slash-commands.md](docs/spec/0023-MADR-canonical-slash-commands.md) | Canonical slash commands |
-| [docs/spec/0024-MADR-stream-coalescing.md](docs/spec/0024-MADR-stream-coalescing.md) | Stream text coalescing |
-| [docs/spec/0160-MADR-remove-goose-cli-support.md](docs/spec/0160-MADR-remove-goose-cli-support.md) | Goose provider removed (supersedes 0025) |
-| [docs/spec/0028-MADR-codex-provider.md](docs/spec/0028-MADR-codex-provider.md) | Codex provider |
-| [docs/spec/0044-MADR-auto-approve-modes.md](docs/spec/0044-MADR-auto-approve-modes.md) | Auto-approve as session modes |
-| [docs/spec/0047-MADR-codex-default-mode.md](docs/spec/0047-MADR-codex-default-mode.md) | Codex default session mode |
-| [docs/spec/0048-MADR-codex-sandbox-namespace.md](docs/spec/0048-MADR-codex-sandbox-namespace.md) | Codex sandbox / user namespaces |
-| [docs/spec/0052-MADR-thinking-levels-and-settings.md](docs/spec/0052-MADR-thinking-levels-and-settings.md) | Thinking levels |
-| [docs/spec/0058-MADR-macos-launchd-service-hardening.md](docs/spec/0058-MADR-macos-launchd-service-hardening.md) | macOS launchd design (agent-only) |
-| [docs/spec/0059-MADR-native-paths-and-linux-macos-parity.md](docs/spec/0059-MADR-native-paths-and-linux-macos-parity.md) | XDG paths + functional parity |
-| [docs/spec/0060-MADR-local-unsigned-build-and-install.md](docs/spec/0060-MADR-local-unsigned-build-and-install.md) | Local install / ad-hoc sign |
-| [docs/spec/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/spec/0061-MADR-relay-pair-advertise-and-path-selection.md) | Relay pair advertise |
-| [docs/spec/0062-MADR-phone-transport-selection.md](docs/spec/0062-MADR-phone-transport-selection.md) | Phone transport selection |
-| [docs/spec/0063-MADR-connection-liveness-truth.md](docs/spec/0063-MADR-connection-liveness-truth.md) | Connection liveness |
-| [docs/spec/0065-MADR-update-automation.md](docs/spec/0065-MADR-update-automation.md) | Update automation |
-| [docs/spec/0067-MADR-ios-port.md](docs/spec/0067-MADR-ios-port.md) | iOS port of the mobile companion (software-complete; hardware validation parked) |
-| [docs/spec/0068-MADR-protocol-v2-reconnect-resilient-transport.md](docs/spec/0068-MADR-protocol-v2-reconnect-resilient-transport.md) | Protocol v2: negotiation, liveness, resume, gap signalling (shipped) |
-| [docs/spec/0069-MADR-macos-permissions-and-sandbox-parity.md](docs/spec/0069-MADR-macos-permissions-and-sandbox-parity.md) | macOS permissions / sandbox parity (TCC, full-access mode) |
-| [docs/spec/0074-MADR-remote-provider-auth-from-phone.md](docs/spec/0074-MADR-remote-provider-auth-from-phone.md) | Remote provider auth from phone (proposed; not yet implemented) |
-| [docs/spec/0075-MADR-kilo-cli-provider.md](docs/spec/0075-MADR-kilo-cli-provider.md) | Kilo CLI provider |
-| [docs/spec/0077-MADR-signed-receipts-permission-handoffs.md](docs/spec/0077-MADR-signed-receipts-permission-handoffs.md) | Signed receipts for permission decisions |
+| [docs/decisions/0015-MADR-mcrelay-transport-security.md](docs/decisions/0015-MADR-mcrelay-transport-security.md) | mcrelay outbound relay (E2E TLS splice) |
+| [docs/decisions/0020-MADR-opencode-session-tree.md](docs/decisions/0020-MADR-opencode-session-tree.md) | OpenCode multi-agent session tree |
+| [docs/decisions/0023-MADR-canonical-slash-commands.md](docs/decisions/0023-MADR-canonical-slash-commands.md) | Canonical slash commands |
+| [docs/decisions/0024-MADR-stream-coalescing.md](docs/decisions/0024-MADR-stream-coalescing.md) | Stream text coalescing |
+| [docs/decisions/0160-MADR-remove-goose-cli-support.md](docs/decisions/0160-MADR-remove-goose-cli-support.md) | Goose provider removed (supersedes 0025) |
+| [docs/decisions/0028-MADR-codex-provider.md](docs/decisions/0028-MADR-codex-provider.md) | Codex provider |
+| [docs/decisions/0044-MADR-auto-approve-modes.md](docs/decisions/0044-MADR-auto-approve-modes.md) | Auto-approve as session modes |
+| [docs/decisions/0047-MADR-codex-default-mode.md](docs/decisions/0047-MADR-codex-default-mode.md) | Codex default session mode |
+| [docs/decisions/0048-MADR-codex-sandbox-namespace.md](docs/decisions/0048-MADR-codex-sandbox-namespace.md) | Codex sandbox / user namespaces |
+| [docs/decisions/0052-MADR-thinking-levels-and-settings.md](docs/decisions/0052-MADR-thinking-levels-and-settings.md) | Thinking levels |
+| [docs/decisions/0058-MADR-macos-launchd-service-hardening.md](docs/decisions/0058-MADR-macos-launchd-service-hardening.md) | macOS launchd design (agent-only) |
+| [docs/decisions/0059-MADR-native-paths-and-linux-macos-parity.md](docs/decisions/0059-MADR-native-paths-and-linux-macos-parity.md) | XDG paths + functional parity |
+| [docs/decisions/0060-MADR-local-unsigned-build-and-install.md](docs/decisions/0060-MADR-local-unsigned-build-and-install.md) | Local install / ad-hoc sign |
+| [docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md) | Relay pair advertise |
+| [docs/decisions/0062-MADR-phone-transport-selection.md](docs/decisions/0062-MADR-phone-transport-selection.md) | Phone transport selection |
+| [docs/decisions/0063-MADR-connection-liveness-truth.md](docs/decisions/0063-MADR-connection-liveness-truth.md) | Connection liveness |
+| [docs/decisions/0065-MADR-update-automation.md](docs/decisions/0065-MADR-update-automation.md) | Update automation |
+| [docs/decisions/0067-MADR-ios-port.md](docs/decisions/0067-MADR-ios-port.md) | iOS port of the mobile companion (software-complete; hardware validation parked) |
+| [docs/decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md](docs/decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md) | Protocol v2: negotiation, liveness, resume, gap signalling (shipped) |
+| [docs/decisions/0069-MADR-macos-permissions-and-sandbox-parity.md](docs/decisions/0069-MADR-macos-permissions-and-sandbox-parity.md) | macOS permissions / sandbox parity (TCC, full-access mode) |
+| [docs/decisions/0074-MADR-remote-provider-auth-from-phone.md](docs/decisions/0074-MADR-remote-provider-auth-from-phone.md) | Remote provider auth from phone (proposed; not yet implemented) |
+| [docs/decisions/0075-MADR-kilo-cli-provider.md](docs/decisions/0075-MADR-kilo-cli-provider.md) | Kilo CLI provider |
+| [docs/decisions/0077-MADR-signed-receipts-permission-handoffs.md](docs/decisions/0077-MADR-signed-receipts-permission-handoffs.md) | Signed receipts for permission decisions |
 
 Further numbered MADRs and plans live under [`docs/`](docs/)
 (`NNNN-MADR-*.md` / `NNNN-PLAN-*.md`). Standards: [`docs/standards/`](docs/standards/).

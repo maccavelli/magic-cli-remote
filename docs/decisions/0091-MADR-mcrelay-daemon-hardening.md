@@ -16,10 +16,10 @@ informed: [Operators running mcrelay as a public join-plane edge]
 it; it never terminates protocol-v1. The binary is `cmd/mcrelay` →
 `internal/relay.Execute` / `Server`. The unit that `mcrelay setup-service`
 writes is now
-[`internal/cli/service/mcrelay.user.service.tmpl`](../internal/cli/service/mcrelay.user.service.tmpl)
+[`internal/cli/service/mcrelay.user.service.tmpl`](../../internal/cli/service/mcrelay.user.service.tmpl)
 (no longer the shared mcremote template). Example copies live in
-[`deploy/systemd/mcrelay.user.service`](../deploy/systemd/mcrelay.user.service)
-and [`deploy/systemd/mcrelay.service`](../deploy/systemd/mcrelay.service).
+[`deploy/systemd/mcrelay.user.service`](../../deploy/systemd/mcrelay.user.service)
+and [`deploy/systemd/mcrelay.service`](../../deploy/systemd/mcrelay.service).
 
 MADR [0015](0015-MADR-mcrelay-transport-security.md),
 [0016](0016-MADR-mcrelay-audit-hardening.md), and

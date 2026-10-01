@@ -38,6 +38,6 @@ ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
 `show` / `diff`, and existing tests or diagnostics that do not write the tree.
 
 **Mutating work does.** Before the first write, name the
-`docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair being executed, or stop and write
+`docs/decisions/NNNN-MADR-*` / `docs/decisions/NNNN-PLAN-*` pair being executed, or stop and write
 one. See `AGENTS.md` for what counts as mutating, the approval order, the
 follow-up-vs-greenfield rule, and the bootstrap exception.

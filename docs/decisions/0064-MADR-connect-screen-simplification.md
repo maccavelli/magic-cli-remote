@@ -18,7 +18,7 @@
 - **Related**:
   [0062-MADR-phone-transport-selection.md](0062-MADR-phone-transport-selection.md)
   (transport menu, QR deferral D5),
-  [0046-MADR](0046-MADR-reconnect-and-pairing-hardening.md) (per-daemon pair
+  [0046-MADR](0046-MADR-mobile-debug-pass.md) (per-daemon pair
   hints, M-2).
 
 ---

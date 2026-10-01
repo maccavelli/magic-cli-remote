@@ -25,7 +25,7 @@ The finish line, as observable states:
 
 1. `internal/provider/goose/` and `internal/provider/acphttp/` do not exist, and
    no `.go` file imports either path.
-2. `git grep -il goose -- . ':!docs/spec'` prints **exactly** the eight paths in
+2. `git grep -il goose -- . ':!docs/decisions'` prints **exactly** the eight paths in
    A2, in that order (seven until the 2026-09-18 P2 amendment added
    `internal/config/load.go`).
 3. `go build ./...`, `go vet ./...` pass; `go test ./...` and
@@ -179,15 +179,15 @@ Modify:
 
 **P5 — historical records (additive marks only):**
 
-* `docs/spec/0110-MADR-goose-keyring-prompts-block-headless-launch.md` — frontmatter `status`, `date`
-* `docs/spec/0122-MADR-deterministic-goose-file-log-tail-attach.md` — frontmatter `status`, `date`
-* `docs/spec/0025-MADR-goose-provider.md` — banner
-* `docs/spec/0026-MADR-mobile-goose-support.md` — banner
-* `docs/spec/0030-MADR-goose-remote-parity.md` — banner
-* `docs/spec/0025-PLAN-goose-provider.md` — banner
-* `docs/spec/0030-PLAN-goose-remote-parity.md` — banner
-* `docs/spec/0110-PLAN-goose-keyring-prompts-block-headless-launch.md` — banner
-* `docs/spec/0122-PLAN-deterministic-goose-file-log-tail-attach.md` — banner
+* `docs/decisions/0110-MADR-goose-keyring-prompts-block-headless-launch.md` — frontmatter `status`, `date`
+* `docs/decisions/0122-MADR-deterministic-goose-file-log-tail-attach.md` — frontmatter `status`, `date`
+* `docs/decisions/0025-MADR-goose-provider.md` — banner
+* `docs/decisions/0026-MADR-mobile-goose-support.md` — banner
+* `docs/decisions/0030-MADR-goose-remote-parity.md` — banner
+* `docs/decisions/0025-PLAN-goose-provider.md` — banner
+* `docs/decisions/0030-PLAN-goose-remote-parity.md` — banner
+* `docs/decisions/0110-PLAN-goose-keyring-prompts-block-headless-launch.md` — banner
+* `docs/decisions/0122-PLAN-deterministic-goose-file-log-tail-attach.md` — banner
 
 **Every phase may also append to this file's `## Execution record`.**
 
@@ -582,7 +582,7 @@ go test ./... -json 2>/dev/null | grep -c '"Action":"pass","Package":[^,]*,"Test
   `stream_coalesce_ms` (`:818`) and `mcp_servers` (`:853`) sentences, the whole
   `## Provider: Goose` section (`:966-991`), `:1145`, `:1152`, `:1385`, the
   live-test line (`:1492`), the tree comment (`:1512`). Replace the design-table
-  row at `:1564` with one row: `| [docs/spec/0160-MADR-remove-goose-cli-support.md](docs/spec/0160-MADR-remove-goose-cli-support.md) | Goose provider removed (supersedes 0025) |`.
+  row at `:1564` with one row: `| [docs/decisions/0160-MADR-remove-goose-cli-support.md](docs/decisions/0160-MADR-remove-goose-cli-support.md) | Goose provider removed (supersedes 0025) |`.
   That row is README's only remaining Goose hit.
 * **`docs/config.md`:** delete the `providers.goose.*` key table and the
   `MCREMOTE_PROVIDERS_GOOSE_*` env rows; add one row or sentence, the file's
@@ -664,13 +664,13 @@ flutter test                                             # test count ≥ pre-P4
 **Verification (P5):**
 
 ```bash
-git grep -n '^status:' -- docs/spec/0110-MADR-*.md docs/spec/0122-MADR-*.md
+git grep -n '^status:' -- docs/decisions/0110-MADR-*.md docs/decisions/0122-MADR-*.md
 #   → both: status: superseded by 0160-MADR-remove-goose-cli-support.md
-git grep -l 'Superseded by \[MADR 0160\]' -- docs/spec ':!docs/spec/0160-*' | wc -l   # → 7
+git grep -l 'Superseded by \[MADR 0160\]' -- docs/decisions ':!docs/decisions/0160-*' | wc -l   # → 7
 #   (the exclusion matters: this PLAN quotes the banner text itself)
-git diff --numstat HEAD~1 -- docs/spec ':!docs/spec/0160-*' | awk '{print $1, $2, $3}'
+git diff --numstat HEAD~1 -- docs/decisions ':!docs/decisions/0160-*' | awk '{print $1, $2, $3}'
 #   → 9 files; banner files "2 0" (banner + blank); YAML files "2 2"
-git diff --quiet HEAD~1 -- docs/spec/0073-MADR-goose-prompt-hang-and-debug-pass.md && echo 0073-untouched
+git diff --quiet HEAD~1 -- docs/decisions/0073-MADR-goose-prompt-hang-and-debug-pass.md && echo 0073-untouched
 ```
 
 ## Verification (whole plan)
@@ -682,7 +682,7 @@ P4 lines on the Flutter host):
 # A1
 test ! -e internal/provider/goose && test ! -e internal/provider/acphttp && echo OK
 # A2
-git grep -il goose -- . ':!docs/spec'
+git grep -il goose -- . ':!docs/decisions'
 # A3
 go build ./... && go vet ./...
 go test ./... 2>&1 | grep -E '^(--- FAIL|FAIL)'
@@ -700,7 +700,7 @@ make ci-windows
 | # | Criterion | MADR |
 | --- | --- | --- |
 | A1 | `internal/provider/goose/` and `internal/provider/acphttp/` do not exist; no `.go` imports them | D1, D2 (Confirmation §1) |
-| A2 | `git grep -il goose -- . ':!docs/spec'` prints exactly: `AGENTS.md`, `README.md`, `docs/agent_cli_slash_commands_matrix.md`, `docs/config.md`, `internal/config/load.go`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
+| A2 | `git grep -il goose -- . ':!docs/decisions'` prints exactly: `AGENTS.md`, `README.md`, `docs/agent_cli_slash_commands_matrix.md`, `docs/config.md`, `internal/config/load.go`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
 | A3 | build, vet, `go test`, `go test -race` green under the baseline rule; `go mod tidy` no diff | D1, D8 (§3) |
 | A4 | `mcremote paths --json` on a leftover-block config and on a copy of this host's live config exits 0 with `retired_provider_goose` | D3 (§4) |
 | A5 | `MCREMOTE_PROVIDERS_GOOSE_ENABLED=true` → exit 0, diagnostic names the variable | D3 (§4) |
@@ -941,7 +941,7 @@ numstat is exactly `2 0` for each banner file and `2 2` for each YAML file.
 | # | Result |
 | --- | --- |
 | A1 | Both trees are gone, and no Go file imports them. |
-| A2 | `git grep -il goose -- . ':!docs/spec'` prints exactly the 8 amended paths. |
+| A2 | `git grep -il goose -- . ':!docs/decisions'` prints exactly the 8 amended paths. |
 | A3 | Windows: 40 `ok` plus the baseline failure only. Linux: 41 `ok`, clean. Race is the same on both. `go mod tidy`: no diff. (Measured at P2; P3–P5 changed no Go.) |
 | A4–A6 | Driven through the built binary at P1 (see P1). |
 | A7 | Format, analyze and 1416 tests pass; no `goose.svg`; `keyring_managed` copy names no agent; `unknown_provider` has copy and a test. |

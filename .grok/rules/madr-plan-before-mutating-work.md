@@ -1,7 +1,7 @@
 # MADR and PLAN before mutating work
 
 **Normative text lives in `AGENTS.md`**, section "MADR and PLAN before mutating
-work". Rationale: [docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md](../../docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md).
+work". Rationale: [docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md](../../docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md).
 
 This file used to restate that whole section. It no longer does — that fork is
 what let the skill name drift out of date in every per-agent copy at once while
@@ -39,7 +39,7 @@ ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
 `show` / `diff`, and existing tests or diagnostics that do not write the tree.
 
 **Mutating work does.** Before the first write, name the
-`docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair being executed, or stop and write
+`docs/decisions/NNNN-MADR-*` / `docs/decisions/NNNN-PLAN-*` pair being executed, or stop and write
 one.
 
 Everything else — what counts as mutating, the four-step approval order, the

@@ -225,7 +225,7 @@ discovered via Goose (dangerous `auto` as a default, large catalogs,
 keyring-managed methods) and must be retargeted, not deleted.
 
 **The full inventory is larger than the 09-17 plan listed (new, F22).**
-`git ls-files | grep -v '^docs/spec/' | xargs grep -il goose` → **130 files**,
+`git ls-files | grep -v '^docs/decisions/' | xargs grep -il goose` → **130 files**,
 37 of them inside the two deleted trees. Of the remaining 93, the 09-17 plan's
 scope omitted 22 that still contain Goose text (all comments or fixture
 strings, none compile-breaking):
@@ -302,7 +302,7 @@ gone.** `provider.Registry.Get` returns `unknown provider %q`
 No code auto-purges transcripts by provider id.
 
 **Historical records: shape and status (new, F20).**
-Goose-topic records under `docs/spec/`, with their current status form:
+Goose-topic records under `docs/decisions/`, with their current status form:
 
 | File | Status form today |
 | --- | --- |
@@ -634,7 +634,7 @@ the user-visible face of D5.
 
 **D14 — "Removed in its entirety" is a mechanical check, not a judgement.**
 After execution, a case-insensitive `git grep -il goose` over the tree,
-excluding `docs/spec/`, returns exactly the allow-list in Confirmation. Living
+excluding `docs/decisions/`, returns exactly the allow-list in Confirmation. Living
 code and docs that need provenance cite a MADR number, not the agent name.
 
 ### Consequences
@@ -683,7 +683,7 @@ git grep -n -e 'internal/provider/goose"' -e 'internal/provider/acphttp"' -- '*.
 #   → no output
 
 # 2. D14 — the exact allow-list. Output must equal these paths, no more, no fewer:
-git grep -il goose -- . ':!docs/spec'
+git grep -il goose -- . ':!docs/decisions'
 #   AGENTS.md                                                (developer Goose, :67 and :148 only)
 #   README.md                                                (one design-table row linking 0160)
 #   docs/agent_cli_slash_commands_matrix.md                  (dated survey)
@@ -718,7 +718,7 @@ cp "$APPDATA/mcremote/config.yaml" "$T/live-copy.yaml"   # a real product-seeded
 
 # 5. Build surface.
 make -n live-goose            # → "No rule to make target"
-git grep -n live_goose        # → no output outside docs/spec
+git grep -n live_goose        # → no output outside docs/decisions
 
 # 6. Protocol string kept (D6).
 git grep -n '"keyring_managed"' -- internal/protocol
@@ -730,9 +730,9 @@ cd apps/mobile && dart format --output=none --set-exit-if-changed lib test \
 test ! -e apps/mobile/assets/vendor_icons/goose.svg
 
 # 8. Historical records (D9).
-git grep -n '^status:' -- docs/spec/0110-MADR-*.md docs/spec/0122-MADR-*.md
+git grep -n '^status:' -- docs/decisions/0110-MADR-*.md docs/decisions/0122-MADR-*.md
 #   → both "superseded by 0160-MADR-remove-goose-cli-support.md"
-git diff --stat <base>.. -- docs/spec/0073-MADR-goose-prompt-hang-and-debug-pass.md
+git diff --stat <base>.. -- docs/decisions/0073-MADR-goose-prompt-hang-and-debug-pass.md
 #   → no change
 
 # 9. Windows gate, before calling the work done.
@@ -854,7 +854,7 @@ make ci-windows
 | Auth conformance Goose row | `internal/provider/auth_conformance_test.go:47-52` |
 | chunkbuf pins `acphttp/session.go` | `internal/chunkbuf/provider_mode_test.go:41-42` |
 | Goose-named config tests | `internal/config/acp_config_test.go:100,116`; `config_test.go:625,1112,1124,1142,1161` |
-| 130 tracked files mention Goose outside `docs/spec` | measured: `git ls-files \| grep -v '^docs/spec/' \| xargs grep -il goose` |
+| 130 tracked files mention Goose outside `docs/decisions` | measured: `git ls-files \| grep -v '^docs/decisions/' \| xargs grep -il goose` |
 | 22 files missed by the 09-17 scope | measured: that list minus the 09-17 plan's in-scope list |
 | Codex fixture's "goose" is a path string | `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` |
 | live_goose tests and target | `internal/provider/goose/live_*.go`; `Makefile:159,351-355`; `AGENTS.md:132` |
@@ -866,7 +866,7 @@ make ci-windows
 | Vendor icon union; icon bundled by directory; single manifest entry | `tools/vendor-icons/sync.sh:5-8`; `apps/mobile/pubspec.yaml:75`; `vendor_icon_manifest.g.dart:46`; `ids.txt:83` |
 | AGENTS.md live tag vs developer Goose | `AGENTS.md:67,132,148` |
 | agenterr Goose-shaped classifiers also used elsewhere | `internal/agenterr/agenterr.go:315-329,351-384` |
-| Historical record status forms; no `0073-PLAN` | measured: `head` of each file; `ls docs/spec \| grep -i goose` |
+| Historical record status forms; no `0073-PLAN` | measured: `head` of each file; `ls docs/decisions \| grep -i goose` |
 | 0073 cited by live non-Goose code | `internal/provider/codex/provider.go:571`; `codex/session.go:2317`; `kilo/lifecycle.go:122`; `opencode/lifecycle.go:122` |
 | PLAN status vocabulary has no `superseded` | `madr-and-plan-writing` skill, PLAN frontmatter rules |
 | `rg`, `flutter`, `dart` absent at first; race works | measured: `which`; WSL `Ubuntu-24.04` `command -v`; `go test -race ./internal/picker/` |
@@ -905,7 +905,7 @@ make ci-windows
   back) is the Windows face of the update-path risk L1 would have created
   everywhere.
 * [0158-MADR-move-madr-plan-files-to-docs-spec.md](0158-MADR-move-madr-plan-files-to-docs-spec.md)
-  — this pair lives in `docs/spec/`.
+  — this pair lives in `docs/decisions/`.
 
 ### Open questions for the plan
 

@@ -14,7 +14,7 @@ decisions D1–D4 (D4 from the 2026-09-18 amendment), closing findings F1–F5.
 1. `apps/mobile/README.md` and `docs/mobile-profiling.md` each name Flutter
    3.47.2 / Dart 3.13.2 and point at `FLUTTER_VERSION` in
    `.github/workflows/ci.yml`.
-2. Outside `docs/spec` and `docs/decisions`, no Markdown file names a Flutter or
+2. Outside `docs/decisions`, no Markdown file names a Flutter or
    Dart version other than the pin (MADR Confirmation §1 prints nothing).
 3. After P1, `markdownlint-cli2` reports the same single finding in the two
    files as before: MD013 on the "**Linux keyring:**" paragraph of
@@ -93,7 +93,7 @@ trusting the number.
 **Verification:**
 
 ```bash
-git grep -n -E 'Flutter 3\.[0-9]+|Dart ?(≥|>=)? ?3\.[0-9]+' -- '*.md' ':!docs/spec' ':!docs/decisions' \
+git grep -n -E 'Flutter 3\.[0-9]+|Dart ?(≥|>=)? ?3\.[0-9]+' -- '*.md' ':!docs/decisions' \
   | grep -v -E 'Flutter \*{0,2}3\.47\.[2x]|Dart \*{0,2}(≥ )?3\.13\.2'      # → nothing
 git grep -n 'FLUTTER_VERSION' -- apps/mobile/README.md docs/mobile-profiling.md   # → 2 lines
 markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/mobile-profiling.md):'   # → 1
@@ -126,7 +126,7 @@ Then stage `apps/mobile/README.md` alone and commit per the Stability rule.
 Same as P1 and P2, plus MADR Confirmation §4 after each phase's commit:
 
 ```bash
-git diff --name-only HEAD~1 -- ':!docs/spec'   # → the two files
+git diff --name-only HEAD~1 -- ':!docs/decisions'   # → the two files
 ```
 
 ### Acceptance criteria (mapped to MADR Confirmation)

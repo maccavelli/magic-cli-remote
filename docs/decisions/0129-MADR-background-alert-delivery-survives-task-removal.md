@@ -335,7 +335,7 @@ Putting Allow/Deny on the foreground-service notification is the only way to use
 * Bad, because the ask would ride the `host_connection` channel instead of
   `approval_needed` — it would not peek, and the per-kind approval toggle in
   Settings would no longer govern it, contradicting
-  [0101](0101-MADR-notification-fidelity-and-test-affordance.md) C.
+  [0101](0101-MADR-android-agent-alert-delivery.md) C.
 * Bad, because one button set means one actionable ask at a time.
 * Bad, because the persistent status row and the alert row become the same row,
   which undoes D3's separation of "what the connection is doing" from "what the

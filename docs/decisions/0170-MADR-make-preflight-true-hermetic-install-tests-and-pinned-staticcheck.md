@@ -290,9 +290,9 @@ Each new check must first be seen failing:
 
 - [0169-MADR](0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md):
   the toolchain work whose verification surfaced this.
-- [0074-MADR](../spec/0074-MADR-remote-provider-auth-from-phone.md): the "tell the operator the
+- [0074-MADR](0074-MADR-remote-provider-auth-from-phone.md): the "tell the operator the
   truth" amendment that D6 implements.
-- [0099-MADR](../spec/0099-MADR-installer-service-state-verification.md): the installer's WSL
+- [0099-MADR](0099-MADR-installer-service-state-verification.md): the installer's WSL
   advisory routing that F5's cases exercise.
 
 ## Amendment — 2026-09-24: `BASE_VERSION` is empty when make runs from PowerShell

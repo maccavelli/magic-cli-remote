@@ -23,7 +23,7 @@
   (resume, 4001, caps, dial episodes),
   [0058](0058-MADR-macos-launchd-service-hardening.md) (LaunchAgent lifecycle),
   [0065](0065-MADR-update-automation.md) (binary swap + service control),
-  [0046](0046-MADR-reconnect-and-pairing-hardening.md) (park / permanent
+  [0046](0046-MADR-mobile-debug-pass.md) (park / permanent
   errors), [0071](0071-MADR-codebase-assessment.md) (prior software pass)
 - **Method**: live host forensics (config, LaunchAgent, `devices.json`,
   `mcremote.err.log`, `launchctl`, Tailscale, binary version); code

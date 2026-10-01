@@ -67,8 +67,8 @@ Observable end states:
 * `internal/provider/acpagent/rewind_test.go` (P2)
 * `internal/provider/acpagent/initialize_test.go` *(new, P2)*
 * `docs/decisions/0167-MADR-*.md`, `docs/decisions/0167-PLAN-*.md`
-* `docs/spec/0038-MADR-*.md`, `docs/spec/0039-MADR-*.md`, `docs/spec/0081-PLAN-*.md`,
-  `docs/spec/0137-PLAN-*.md`, `docs/decisions/0166-MADR-*.md`
+* `docs/decisions/0038-MADR-*.md`, `docs/decisions/0039-MADR-*.md`, `docs/decisions/0081-PLAN-*.md`,
+  `docs/decisions/0137-PLAN-*.md`, `docs/decisions/0166-MADR-*.md`
 
 ### Out of scope
 
@@ -167,15 +167,15 @@ sequenced last so it cannot delay release 2.
 
 Docs only; no source file in this commit.
 
-1. `docs/spec/0038-MADR-*` `:112-119` — annotate: `InitializeResponse.Meta` exists at
+1. `docs/decisions/0038-MADR-*` `:112-119` — annotate: `InitializeResponse.Meta` exists at
    `types_gen.go:2322`, so `_meta` is not discarded. `:157-161` — annotate: extension
    notifications *are* routed (`connection.go:582-587`).
-2. `docs/spec/0039-MADR-*` `:254-256` and `:460-463` — the same two claims.
-3. `docs/spec/0081-PLAN-*` `:444-448` — the open question is **answered** from source; no
+2. `docs/decisions/0039-MADR-*` `:254-256` and `:460-463` — the same two claims.
+3. `docs/decisions/0081-PLAN-*` `:444-448` — the open question is **answered** from source; no
    follow-up on "the SDK hook" is required.
-4. ~~`docs/spec/0137-PLAN-*` — the `SetLogger` problem is a **data race**, not a construction race;
+4. ~~`docs/decisions/0137-PLAN-*` — the `SetLogger` problem is a **data race**, not a construction race;
    upstream #57/#58 report it and #59 fixes it (D8).~~ **Replaced 2026-09-22 (deviation below):**
-   `docs/spec/0137-PLAN-*` — add a note that upstream #57/#58 now report the race 0137 already
+   `docs/decisions/0137-PLAN-*` — add a note that upstream #57/#58 now report the race 0137 already
    diagnosed, and #59 fixes it with `atomic.Pointer`. 0137 was accurate; this is confirmation, not
    correction.
 5. `docs/decisions/0166-MADR-*` — amendment: its deferred "upstream a patch" item is now decided by
@@ -722,7 +722,7 @@ published to `<owner>/acp-go-sdk`.
 **This repository:** `go.mod`, `go.sum`; `internal/provider/acpagent/acpagent.go`;
 `internal/provider/acpagent/session.go`; `internal/provider/acpagent/stalledpump_test.go`;
 `internal/provider/acpagent/droppednotice_test.go` *(new)*; `internal/modguard_test.go`
-*(new, P13)*; `docs/decisions/0166-MADR-*.md`; `docs/spec/0138-MADR-*.md`; this pair.
+*(new, P13)*; `docs/decisions/0166-MADR-*.md`; `docs/decisions/0138-MADR-*.md`; this pair.
 
 ### P9 — Tag and publish the fork (D16; **explicit ask required**)
 

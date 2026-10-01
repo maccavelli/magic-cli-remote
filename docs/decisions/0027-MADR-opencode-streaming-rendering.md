@@ -10,9 +10,9 @@
 - **Related**:
   - [MADR 0018](./0018-MADR-mobile-chat-performance-action-plan.md) — mobile chat performance (foundational optimizations, now done)
   - [MADR 0024](./0024-MADR-stream-coalescing.md) — daemon-side chunkbuf coalescer
-  - [MADR 0014](./0014-opencode-session-resync.md) — session resync (history replay path)
+  - [MADR 0014](0014-MADR-sse-reconnect-resync-decision.md) — session resync (history replay path)
   - [MADR 0020](./0020-MADR-opencode-session-tree.md) — session-tree model
-  - [MADR 0012](./0012-opencode-engine-management.md) — engine lifecycle
+  - [MADR 0012](0012-MADR-mcremote-daemon-assessment-action-plan.md) — engine lifecycle
   - [MADR 0057](./0057-MADR-chat-markdown-stream-hardening.md) — later stream/markdown hardening
   - [0070](./0070-MADR-deep-dive-debugging-pass.md) F14
 

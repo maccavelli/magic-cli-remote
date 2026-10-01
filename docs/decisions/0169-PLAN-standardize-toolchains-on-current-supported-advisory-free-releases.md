@@ -35,7 +35,7 @@ Observable end states, each checked by the version audit (D12) against the probe
 toolchain's `go mod tidy` rewrites); `.github/workflows/ci.yml` (`FLUTTER_VERSION`, `NODE_VERSION`,
 `java-version` lines only); this pair; the additive amendment to
 `0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md` (P5); the status line and
-an additive amendment of `docs/spec/0114-MADR-manage-markdownlint-cli2-with-mise.md` (P9, D15).
+an additive amendment of `docs/decisions/0114-MADR-manage-markdownlint-cli2-with-mise.md` (P9, D15).
 
 **magic-git** (the owner commits there): `scripts/tools/devenv/standard.json` (new),
 `scripts/tools/devenv/version_audit.py` (new), `scripts/tools/devenv/fork_tools.py` (new, P9),
@@ -1233,7 +1233,7 @@ host's verification passes (C4).
 
 **9e — This repository.**
 
-1. `docs/spec/0114-MADR-manage-markdownlint-cli2-with-mise.md`: set the status to
+1. `docs/decisions/0114-MADR-manage-markdownlint-cli2-with-mise.md`: set the status to
    `superseded by 0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md`,
    and add an additive amendment naming D15.
 2. Commit the docs alone.

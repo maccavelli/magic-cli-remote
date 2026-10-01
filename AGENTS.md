@@ -60,7 +60,7 @@ After a failed `webfetch` tool result, immediately use `curl`. Do not retry `web
 
 ## MADR and PLAN before mutating work
 
-Rationale: [docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/spec/0105-MADR-mutating-work-requires-madr-and-plan.md). Per-agent pointers: `.claude/rules/madr-and-plan-skill.md`, `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
+Rationale: [docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md](docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md). Per-agent pointers: `.claude/rules/madr-and-plan-skill.md`, `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`.
 
 **This file is the normative copy of the gate.** Those pointers carry the skill name and the gate, and point here. Do not restate this section in them.
 
@@ -72,7 +72,7 @@ ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
 
 The command outranks the prose. If they disagree, the filesystem is right — fix this section.
 
-**Read-only investigation needs no pair.** Mutating work does. Before the first write, name the `docs/NNNN-MADR-*` / `docs/NNNN-PLAN-*` pair being executed, or stop and write one.
+**Read-only investigation needs no pair.** Mutating work does. Before the first write, name the `docs/decisions/NNNN-MADR-*` / `docs/decisions/NNNN-PLAN-*` pair being executed, or stop and write one.
 
 Mutating: create, edit, or delete files; stage or commit (except the bootstrap exception); dependency or lockfile changes; CI / config / hook changes; builds or installers that write the tree, `$HOME`, or a live service; generating committed artifacts.
 
@@ -80,7 +80,7 @@ Order: (1) investigate (2) write or amend the MADR (`status: proposed` unless al
 
 Same topic: amend that number. Greenfield: next unused `NNNN`, new pair, same slug.
 
-Bootstrap exception: authoring `docs/NNNN-MADR-*`, `docs/NNNN-PLAN-*`, this section, and the per-agent process rules under `.claude/rules/`, `.grok/rules/` and `.opencode/rules.md` does not require a *prior* pair. Putting source, tests, CI, or product config in that same commit is a violation.
+Bootstrap exception: authoring `docs/decisions/NNNN-MADR-*`, `docs/decisions/NNNN-PLAN-*`, this section, and the per-agent process rules under `.claude/rules/`, `.grok/rules/` and `.opencode/rules.md` does not require a *prior* pair. Putting source, tests, CI, or product config in that same commit is a violation.
 
 `git push` and tags still need an explicit ask in the same turn.
 
@@ -92,4 +92,4 @@ This repository is public. Nothing committed carries a hostname, account name, o
 
 ## File naming
 
-All files in `docs/` use a zero-padded 4-digit prefix. A MADR and its PLAN share the number (`NNNN-MADR-*` / `NNNN-PLAN-*`). When a decision rests on how an external CLI behaves, record the probe evidence in the MADR and pin it with a live-tagged test. Full naming and numbering rules: `madr-and-plan-writing`.
+Numbered records live in `docs/decisions/` (MADR, PLAN) and `docs/reports/` (REPORT, GATES); guides are unnumbered in `docs/guides/`. Filenames carry the kind infix and a zero-padded 4-digit number (`NNNN-MADR-*` / `NNNN-PLAN-*` / `NNNN-REPORT-*` / `NNNN-GATES-*`), unique across the whole repository; a MADR and its PLAN share the number. The next number comes from `scripts/check_records.py --next`; `make check-records` validates links and pairing. Cite records by full filename, never by number alone. When a decision rests on how an external CLI behaves, record the probe evidence in the MADR and pin it with a live-tagged test. Full naming and numbering rules: `madr-and-plan-writing`. Docs-tree layout: `documentation-writing`.

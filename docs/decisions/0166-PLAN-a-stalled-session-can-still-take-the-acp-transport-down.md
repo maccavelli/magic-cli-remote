@@ -37,7 +37,7 @@ Observable states, not activities:
 ```text
 P1  internal/provider/acpagent/stalledpump_test.go   retire the transport assertion; assert containment
 P2  internal/provider/acpagent/session.go            comments only: :110-125, :1407-1413
-    docs/spec/0138-MADR-overhaul-provider-surfaces-and-turn-path.md   additive amendment to F5
+    docs/decisions/0138-MADR-overhaul-provider-surfaces-and-turn-path.md   additive amendment to F5
 P3  docs/decisions/0166-PLAN-*.md                    execution record only
 ```
 
@@ -154,7 +154,7 @@ decoration and must be sharpened before the phase lands.
    client-side change prevents at v0.13.5. Cite 0166 F6/F9/F10.
 2. `stalledpump_test.go:16-24`'s `sdkNotificationQueueDepth` comment: keep the
    mechanism, drop the implication that our guard prevents the teardown.
-3. Amend `docs/spec/0138-MADR-overhaul-provider-surfaces-and-turn-path.md` with an
+3. Amend `docs/decisions/0138-MADR-overhaul-provider-surfaces-and-turn-path.md` with an
    `## Amendment — 2026-09-21` section: F5's hazard analysis was right, its
    mitigation is weaker than claimed, here is the measurement, see MADR 0166. Do not
    edit F5's original text (**C4**).
@@ -165,7 +165,7 @@ decoration and must be sharpened before the phase lands.
 go vet ./internal/provider/acpagent/
 # C1, mechanically: no non-comment change to production Go
 git diff --unified=0 -- internal/provider/acpagent/session.go | grep -E '^[+-][^+-]' | grep -v -E '^[+-]\s*(//|$)'
-npx markdownlint-cli2 "docs/spec/0138-MADR-*.md"
+npx markdownlint-cli2 "docs/decisions/0138-MADR-*.md"
 ```
 
 The `grep` must print nothing. If it prints a line, a behaviour change crept into a

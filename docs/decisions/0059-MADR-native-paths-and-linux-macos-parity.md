@@ -173,9 +173,9 @@ CI, and signing — not in inventing a second product directory tree.
 
 | Concern | Current code | Current behavior | Assessment |
 |---|---|---|---|
-| Config | [`internal/xdg/dirs.go`](../internal/xdg/dirs.go) | `$XDG_CONFIG_HOME/<app>`, else `$HOME/.config/<app>` on every OS | Correct product policy shape; must reject relative `$XDG_*` |
+| Config | [`internal/xdg/dirs.go`](../../internal/xdg/dirs.go) | `$XDG_CONFIG_HOME/<app>`, else `$HOME/.config/<app>` on every OS | Correct product policy shape; must reject relative `$XDG_*` |
 | Data | same | `$XDG_DATA_HOME/<app>`, else `$HOME/.local/share/<app>` | Same |
-| Cache | [`internal/cli/service/setup.go`](../internal/cli/service/setup.go) | Duplicated helper for service environment | Needs shared contract in `appdirs` |
+| Cache | [`internal/cli/service/setup.go`](../../internal/cli/service/setup.go) | Duplicated helper for service environment | Needs shared contract in `appdirs` |
 | State | none | Mixed into data | Incomplete XDG; add StateDir |
 | Runtime | none | Admin socket is `<data_dir>/admin.sock` | Ephemeral IPC must leave durable data |
 | Temp | call-site-specific | Predictable `file.tmp` in several stores; `CreateTemp` in some service writes | Inconsistent collision/symlink/crash behavior |
@@ -202,7 +202,7 @@ ACME storage, data, and provider working-directory values can resolve against
 different CWDs. A LaunchAgent sets working directory to `$HOME`; a foreground
 command inherits the invocation directory.
 
-[`internal/cli/service/plist_render.go`](../internal/cli/service/plist_render.go)
+[`internal/cli/service/plist_render.go`](../../internal/cli/service/plist_render.go)
 injects `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_CACHE_HOME`. Under
 XDG-everywhere that **direction is correct**, but values must be the daemon's
 **resolved absolute** roots (including state/runtime when used), not
@@ -231,9 +231,9 @@ state. It must never move to CacheDir.
 Process groups and file locking have Darwin implementations. Engine discovery
 and crash recovery do not:
 
-- [`internal/cli/engines.go`](../internal/cli/engines.go) refuses non-Linux
+- [`internal/cli/engines.go`](../../internal/cli/engines.go) refuses non-Linux
   because it depends on `/proc`.
-- [`internal/procutil/owner_other.go`](../internal/procutil/owner_other.go)
+- [`internal/procutil/owner_other.go`](../../internal/procutil/owner_other.go)
   cannot enumerate environments or verify PID reuse on Darwin.
 - Startup orphan reaping therefore finds nothing on macOS.
 

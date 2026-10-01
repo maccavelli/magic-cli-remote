@@ -57,7 +57,7 @@ phase.
 * **P1:** `scripts/acceptance-windows.ps1` (line 65 only).
 * **P2:**
   * `docs/ops-windows-install.md` (the signing paragraph, `:40-43`);
-  * `docs/spec/0116-MADR-windows-and-linux-arm64-build-targets.md` (an
+  * `docs/decisions/0116-MADR-windows-and-linux-arm64-build-targets.md` (an
     appended amendment section only).
 * **P3:** `internal/admin/owner_windows.go`, `internal/admin/owner_windows_test.go`,
   `internal/admin/admin.go` (the two `socketIdentity` call sites only), and, by
@@ -280,7 +280,7 @@ failure is **not** fixed here.
    build (`MC_WINDOWS_SIGN_*`)" with a statement that the binaries are not yet
    Authenticode-signed, and that a signing hook waits for a code-signing
    certificate (MADR 0159 D10). Keep the rest of the paragraph.
-2. Append to `docs/spec/0116-MADR-windows-and-linux-arm64-build-targets.md`
+2. Append to `docs/decisions/0116-MADR-windows-and-linux-arm64-build-targets.md`
    exactly one section: `## Amendment — 2026-09-19: the D14 signing hook waits
    for a certificate`. It should cite MADR 0159 F13 and D10, and state that no
    `MC_WINDOWS_SIGN_*` hook exists, because a hook nothing can call cannot be
@@ -291,7 +291,7 @@ failure is **not** fixed here.
 ```bash
 git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md     # → only the "not yet" wording
 git diff --stat                                                  # → the two files
-git diff -U0 -- docs/spec/0116-MADR-*.md | grep -c '^-[^-]'      # → 0 (no removed lines)
+git diff -U0 -- docs/decisions/0116-MADR-*.md | grep -c '^-[^-]'      # → 0 (no removed lines)
 ```
 
 ### P3 — `socketIdentity` reads a real file index (D4; closes F4, F5)

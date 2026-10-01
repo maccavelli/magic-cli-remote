@@ -34,7 +34,7 @@ All measured 2026-09-18 at `b3d3355`.
   `.github/workflows/ci.yml`, `README.md` and `apps/mobile/.metadata`
   (`git show --stat 244636a`). The two docs above were not part of it.
 * `git grep -n -E '3\.4[0-9]\.[0-9]+|Dart ?(≥|>=)? ?3\.1[0-9]' -- '*.md'
-  ':!docs/spec' ':!docs/decisions'` finds only these four lines: the two root
+  ':!docs/decisions'` finds only these four lines: the two root
   README lines, which agree with CI, and the two stale ones.
 * Flutter 3.47.2 bundles Dart 3.13.2 (`flutter --version` on this host, in WSL
   and on <linux-host>).
@@ -119,7 +119,7 @@ tells the next person bumping Flutter where the authoritative value lives.
 ```bash
 # 1. No doc outside the decision records names a Flutter or Dart version other
 #    than the pin.
-git grep -n -E 'Flutter 3\.[0-9]+|Dart ?(≥|>=)? ?3\.[0-9]+' -- '*.md' ':!docs/spec' ':!docs/decisions' \
+git grep -n -E 'Flutter 3\.[0-9]+|Dart ?(≥|>=)? ?3\.[0-9]+' -- '*.md' ':!docs/decisions' \
   | grep -v -E 'Flutter \*{0,2}3\.47\.[2x]|Dart \*{0,2}(≥ )?3\.13\.2'
 #   → no output
 
@@ -132,7 +132,7 @@ markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/mobile-profiling
 #   → 1
 
 # 4. Docs only.
-git diff --name-only HEAD~1 -- ':!docs/spec'
+git diff --name-only HEAD~1 -- ':!docs/decisions'
 #   → apps/mobile/README.md, docs/mobile-profiling.md
 ```
 

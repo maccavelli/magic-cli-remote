@@ -134,7 +134,7 @@ vs reconnect center `152.65` on the 1000-wide test viewport) and pass on
 
 ## More Information
 
-* Related: [0062-MADR-phone-transport-selection.md](../spec/0062-MADR-phone-transport-selection.md)
+* Related: [0062-MADR-phone-transport-selection.md](0062-MADR-phone-transport-selection.md)
   (D6: Route section, transport control, Reconnect now). This record does
   not amend 0062.
 * Implementation: [0172-PLAN-settings-reconnect-now-centers-under-mesh-relay.md](0172-PLAN-settings-reconnect-now-centers-under-mesh-relay.md).

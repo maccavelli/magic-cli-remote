@@ -525,7 +525,7 @@ probe failure is reported as "not running" rather than as the error it is.
 
 **F13 — Authenticode signing was decided and never wired, and the ops doc
 claims otherwise.** MADR 0116 D14
-(`docs/spec/0116-MADR-windows-and-linux-arm64-build-targets.md:917-918`) states
+(`docs/decisions/0116-MADR-windows-and-linux-arm64-build-targets.md:917-918`) states
 "Authenticode signing is designed in now and procured later. The build gains an
 `MC_WINDOWS_SIGN_*` hook mirroring `MC_CODESIGN_IDENTITY`." Repo-wide,
 `MC_WINDOWS_SIGN` appears **only in docs**. `Makefile:204-210` `codesign-maybe`
@@ -976,7 +976,7 @@ git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "no
 | Only launchd creates a log dir / names log files | `internal/cli/service/setup.go:431-435`; `internal/cli/service/plist_render.go:177-178` |
 | systemd logs to journald | `internal/cli/service/mcremote.user.service.tmpl:55-57` |
 | No `--log-file` flag exists | measured: repo-wide grep `log-file\|logFile\|LogFile\|log_file` in `internal/cli` → zero hits |
-| MADR 0157 is unexecuted | `docs/spec/0157-MADR-daemon-owned-rolling-logs.md` frontmatter `status: proposed` |
+| MADR 0157 is unexecuted | `docs/decisions/0157-MADR-daemon-owned-rolling-logs.md` frontmatter `status: proposed` |
 | `socketIdentity` asserts the wrong type | `internal/admin/owner_windows.go:41-47` |
 | `fi.Sys()` is `*syscall.Win32FileAttributeData` | measured, probe 1 |
 | `Win32FileAttributeData` has no file index | measured, probe 2 (`attrs=0x420`, no FileIndex field) |
@@ -1019,7 +1019,7 @@ git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "no
 | Status parsing matches English literals | `internal/cli/service/control_schtasks.go:23-32` |
 | A locale-free state probe exists | measured, probe 11: `Get-ScheduledTask` State 4 or absent, 1261–2375 ms |
 | `WaitHealthy` polls `Running` for 30s | `internal/updateclient/lifecycle.go:93-128`, `:15-20` |
-| D14 promised `MC_WINDOWS_SIGN_*` | `docs/spec/0116-MADR-windows-and-linux-arm64-build-targets.md:917-918` |
+| D14 promised `MC_WINDOWS_SIGN_*` | `docs/decisions/0116-MADR-windows-and-linux-arm64-build-targets.md:917-918` |
 | The hook does not exist | measured: repo-wide grep `MC_WINDOWS_SIGN\|signtool` → hits only in `docs/` |
 | `codesign-maybe` is darwin-gated | `Makefile:204-210` |
 | Ops doc claims signing is wired | `docs/ops-windows-install.md:40-43` |

@@ -16,9 +16,9 @@
 | [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md) | mcrelay threat model |
 | [0019-MADR-opencode-process-management-plan.md](0019-MADR-opencode-process-management-plan.md) | Child process group / kill semantics (systemd `KillMode=control-group`) |
 | [config.md](config.md) / [config-mcrelay.md](config-mcrelay.md) | Config paths, flags, env |
-| [deploy/launchd/com.magiccliremote.mcremote.plist](../deploy/launchd/com.magiccliremote.mcremote.plist) | Current example agent (manual) |
-| [internal/cli/service/setup.go](../internal/cli/service/setup.go) | Linux `setup-service` implementation |
-| [internal/cli/service/mcremote.user.service.tmpl](../internal/cli/service/mcremote.user.service.tmpl) | Linux unit template (parity reference) |
+| [deploy/launchd/com.magiccliremote.mcremote.plist](../../deploy/launchd/com.magiccliremote.mcremote.plist) | Current example agent (manual) |
+| [internal/cli/service/setup.go](../../internal/cli/service/setup.go) | Linux `setup-service` implementation |
+| [internal/cli/service/mcremote.user.service.tmpl](../../internal/cli/service/mcremote.user.service.tmpl) | Linux unit template (parity reference) |
 
 ---
 
