@@ -204,7 +204,7 @@ func sandboxBrokenNotice(h sandboxHealth) string
 
 Single template (MADR D2). Include `h.Detail` truncated (reuse `truncateRunes`,
 cap ~300). Mention `allow_full_access` + full-access mode + ops doc pointer
-(`docs/0048-…` or `docs/config.md#codex-sandbox`).
+(`docs/0048-…` or `docs/guides/config.md#codex-sandbox`).
 
 ### 2.2 Emit on create/resume
 
@@ -366,7 +366,7 @@ without double-notice spam.
 |---|---|
 | `docs/0048-MADR-codex-sandbox-namespace.md` | Status → Accepted/Implemented when done |
 | `docs/0048-PLAN-codex-sandbox-namespace.md` | phase checkmarks + notes |
-| `docs/config.md` | new keys + "Codex sandbox / user namespaces" section |
+| `docs/guides/config.md` | new keys + "Codex sandbox / user namespaces" section |
 | `docs/0028-MADR-codex-provider.md` | link 0048 from userns spike note |
 | `docs/0044-MADR-auto-approve-modes.md` | short note under D5: auto requires working workspace-write sandbox; see 0048 |
 | `docs/0047-MADR-codex-default-mode.md` | note: wire fix ≠ execution; 0048 |
@@ -450,7 +450,7 @@ go test -tags live_codex ./internal/provider/codex/ -count=1 -run 'Sandbox|Healt
 | `internal/config/config.go` + `load.go` + validate | field + default |
 | `internal/daemon/daemon.go` | pass field |
 | `configs/config*.yaml` | comments / example |
-| `docs/config.md` | ops + key |
+| `docs/guides/config.md` | ops + key |
 | `docs/0048-*` | this pair |
 | `docs/0028`, `0044`, `0047` | cross-links |
 

@@ -146,10 +146,10 @@ Modify:
 * `Makefile`
 * `AGENTS.md` — line 132 only
 * `README.md`
-* `docs/config.md`
-* `docs/protocol-v1.md`
-* `docs/ops-macos-tcc.md`
-* `docs/ops-android-emulator.md`
+* `docs/guides/config.md`
+* `docs/guides/protocol-v1.md`
+* `docs/guides/ops-macos-tcc.md`
+* `docs/guides/ops-android-emulator.md`
 * `apps/mobile/README.md`
 
 **P4 — mobile (on a Flutter host):**
@@ -282,7 +282,7 @@ D9 names. `0073` is untouched.
 
 **C7 — `keyring_managed` stays registered and documented:**
 `protocol.ErrKeyringManaged`, `protocol.AuthReasonKeyringManaged`, its
-`ErrorCodes()` entry, and its `docs/protocol-v1.md` entry
+`ErrorCodes()` entry, and its `docs/guides/protocol-v1.md` entry
 (`TestErrorCodesAreDocumented` enforces the last).
 
 **C8 — No new test reads the host's live config.** Every test added or edited
@@ -584,24 +584,24 @@ go test ./... -json 2>/dev/null | grep -c '"Action":"pass","Package":[^,]*,"Test
   live-test line (`:1492`), the tree comment (`:1512`). Replace the design-table
   row at `:1564` with one row: `| [docs/decisions/0160-MADR-remove-goose-cli-support.md](docs/decisions/0160-MADR-remove-goose-cli-support.md) | Goose provider removed (supersedes 0025) |`.
   That row is README's only remaining Goose hit.
-* **`docs/config.md`:** delete the `providers.goose.*` key table and the
+* **`docs/guides/config.md`:** delete the `providers.goose.*` key table and the
   `MCREMOTE_PROVIDERS_GOOSE_*` env rows; add one row or sentence, the file's
   only remaining Goose hit: "`providers.goose` / `MCREMOTE_PROVIDERS_GOOSE_*` —
   retired (MADR 0160). Ignored; the daemon logs a warning and `mcremote paths`
   reports `retired_provider_goose`. Delete the setting."
-* **`docs/protocol-v1.md`:** provider enum without `goose`; Goose examples
+* **`docs/guides/protocol-v1.md`:** provider enum without `goose`; Goose examples
   rewritten with `"provider":"grok"`; `:1297` "only codex did"; the
   `keyring_managed` entry stays (C7) with text that names no agent.
-* **`docs/ops-macos-tcc.md`**, **`docs/ops-android-emulator.md`**,
+* **`docs/guides/ops-macos-tcc.md`**, **`docs/guides/ops-android-emulator.md`**,
   **`apps/mobile/README.md`:** remove the one Goose mention each.
 
 **Verification (P3):**
 
 ```bash
-git grep -il goose -- README.md docs/config.md docs/protocol-v1.md docs/ops-*.md apps/mobile/README.md Makefile AGENTS.md
-#   → exactly: AGENTS.md  README.md  docs/config.md
+git grep -il goose -- README.md docs/guides/config.md docs/guides/protocol-v1.md docs/ops-*.md apps/mobile/README.md Makefile AGENTS.md
+#   → exactly: AGENTS.md  README.md  docs/guides/config.md
 git grep -n -i goose -- AGENTS.md | cut -d: -f2          # → 67 and 148
-git grep -c -i goose -- README.md docs/config.md          # → README.md:1  docs/config.md:1 (each a single line)
+git grep -c -i goose -- README.md docs/guides/config.md          # → README.md:1  docs/guides/config.md:1 (each a single line)
 make -n live-goose 2>&1 | grep -c 'No rule'              # → 1
 go test ./internal/protocol/                             # → ok (keyring_managed still documented)
 ```
@@ -700,7 +700,7 @@ make ci-windows
 | # | Criterion | MADR |
 | --- | --- | --- |
 | A1 | `internal/provider/goose/` and `internal/provider/acphttp/` do not exist; no `.go` imports them | D1, D2 (Confirmation §1) |
-| A2 | `git grep -il goose -- . ':!docs/decisions'` prints exactly: `AGENTS.md`, `README.md`, `docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md`, `docs/config.md`, `internal/config/load.go`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
+| A2 | `git grep -il goose -- . ':!docs/decisions'` prints exactly: `AGENTS.md`, `README.md`, `docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md`, `docs/guides/config.md`, `internal/config/load.go`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
 | A3 | build, vet, `go test`, `go test -race` green under the baseline rule; `go mod tidy` no diff | D1, D8 (§3) |
 | A4 | `mcremote paths --json` on a leftover-block config and on a copy of this host's live config exits 0 with `retired_provider_goose` | D3 (§4) |
 | A5 | `MCREMOTE_PROVIDERS_GOOSE_ENABLED=true` → exit 0, diagnostic names the variable | D3 (§4) |
@@ -709,7 +709,7 @@ make ci-windows
 | A8 | 0110/0122 MADRs superseded by 0160; seven banner files carry the banner and nothing else changed | D9 (§8) |
 | A9 | 0073 unchanged | D9 (§8) |
 | A10 | `make ci-windows` passes under the baseline rule | (§9) |
-| A11 | `protocol.ErrorCodes()` and `docs/protocol-v1.md` still contain `keyring_managed` | D6 (§6) |
+| A11 | `protocol.ErrorCodes()` and `docs/guides/protocol-v1.md` still contain `keyring_managed` | D6 (§6) |
 | A12 | `AGENTS.md:67` and `:148` still name Goose as a coding agent | D11 (§2) |
 | A13 | `agenterr` still classifies the former Goose fixture strings (tests renamed, not removed) | D7 |
 | A14 | P2 leaves the Go test count unchanged from P1 | D8 (C2) |
@@ -891,9 +891,9 @@ succeeded.
 
 `2bd5114`: 8 files, +36 −96, exactly P3's list.
 
-* After P3, only `AGENTS.md`, `README.md` and `docs/config.md` mention Goose
+* After P3, only `AGENTS.md`, `README.md` and `docs/guides/config.md` mention Goose
   among its files. `AGENTS.md` keeps lines 67 and 148 (C6). `README.md` and
-  `docs/config.md` each have one line: the 0160 design row and the retired-key
+  `docs/guides/config.md` each have one line: the 0160 design row and the retired-key
   row.
 * `make -n live-goose` reports no rule.
 * `go test ./internal/protocol/ ./internal/cli/service/`: ok
@@ -904,7 +904,7 @@ succeeded.
 * Two small calls the plan did not spell out:
   * The README box-diagram provider line was re-separated with commas so it
     fits inside the box. It had overflowed the border before, with Goose in it.
-  * `docs/protocol-v1.md`'s two provider-id lists now name `kilo` where `goose`
+  * `docs/guides/protocol-v1.md`'s two provider-id lists now name `kilo` where `goose`
     was. Kilo is a registered provider that the lists had omitted. The
     `agent_sessions.list` example uses `grok`, which advertises
     `sessionCapabilities.list` (MADR 0138 F10).
@@ -948,7 +948,7 @@ numstat is exactly `2 0` for each banner file and `2 2` for each YAML file.
 | A8 | 0110 and 0122 superseded; 7 banners; nothing else changed. |
 | A9 | 0073 is byte-identical. |
 | A10 | `make ci-windows`: A2 through A5 pass. A6 fails only on the baseline `TestLoadDisplayNameUnset`, so A10 is met under the baseline rule. |
-| A11 | `ErrKeyringManaged` and `AuthReasonKeyringManaged` are present, and `docs/protocol-v1.md` documents the string. |
+| A11 | `ErrKeyringManaged` and `AuthReasonKeyringManaged` are present, and `docs/guides/protocol-v1.md` documents the string. |
 | A12 | `AGENTS.md` names Goose only at lines 67 and 148. |
 | A13 | The `agenterr` suite passes, and the renamed structured-JSON and Rust-Debug tests still classify the captured lines. |
 | A14 | 3300 passing Go tests after P2, equal to P1. |

@@ -286,5 +286,5 @@ option 2 as the whole answer.
   — origin of the relay unit's hardening directives, including the D4 probe that
   covered `RestrictAddressFamilies` and `MemoryDenyWriteExecute` but not the two
   directives that turned out to break it.
-* [ops-linux-install.md](ops-linux-install.md) — backend capability table and
+* [ops-linux-install.md](../guides/ops-linux-install.md) — backend capability table and
   advisories; updated when the summary vocabulary changes.

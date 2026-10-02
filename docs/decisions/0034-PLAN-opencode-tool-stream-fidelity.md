@@ -359,7 +359,7 @@ existing test.
 
 ## Phase 5 — documentation, verification, rollout
 
-1. Update `docs/protocol-v1.md`:
+1. Update `docs/guides/protocol-v1.md`:
    - Specify the `tool_call` / `tool_call_update` `status` vocabulary —
      `pending | running | completed | failed`. It is currently undocumented
      (only `tool_kind` is, at `:733-736`), which is what let codex diverge to
@@ -375,7 +375,7 @@ existing test.
    §2.3, and correct its §1 reference to the mobile "120/200/320 ms throttle
    tiers" — those were superseded by the frame-aligned throttle
    (`chat_bubble.dart:505`, "Proposal F"), so the description is now historical.
-3. Leave `docs/config.md:76` as-is. `stream_coalesce_ms` is already documented
+3. Leave `docs/guides/config.md:76` as-is. `stream_coalesce_ms` is already documented
    with the tradeoff and the `0` escape hatch; report 0033 rev 1's claim that it
    was "buried" does not hold, and `config.example.yaml` does not exist.
 4. Set MADR 0034 status to Accepted with the implementation date; add an

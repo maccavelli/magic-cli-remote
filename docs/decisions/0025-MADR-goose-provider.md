@@ -20,7 +20,7 @@
     plan / spike notes (historical; this MADR is the source of truth for as-built)
   - [0026-MADR-mobile-goose-support.md](./0026-MADR-mobile-goose-support.md) — mobile app
     surface for selecting goose
-  - [protocol-v1.md](./protocol-v1.md) — Phone control plane (goose advertised
+  - [protocol-v1.md](../guides/protocol-v1.md) — Phone control plane (goose advertised
     commands and permission modes)
 
 **Verified against**: goose **v1.44.0** (live-probed 2026-07-25 via MADR 0023;
@@ -645,7 +645,7 @@ Live-probed goose v1.44.0 `goose serve`. Headline findings (full table in
 ### Milestone 4 — Docs — **partial**
 
 - This MADR updated to as-built ✓
-- `docs/config.md` goose key reference — still open
+- `docs/guides/config.md` goose key reference — still open
 - Matrix file already has goose v1.44.0 probe data (MADR 0023); no further
   matrix change required for ship
 - Mobile preferred-provider list — see MADR 0026

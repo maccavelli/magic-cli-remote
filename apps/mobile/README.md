@@ -95,7 +95,7 @@ In the app:
 3. App host field: MagicDNS name or tailnet IP, e.g. `devbox:7531`  
 4. Scan pair QR (or paste device token)  
 
-See [docs/headscale.md](../../docs/headscale.md).
+See [docs/guides/headscale.md](../../docs/guides/headscale.md).
 
 ## Cleartext WebSocket
 
@@ -170,9 +170,9 @@ make profile-apk              # arm64 profile APK only
 ```
 
 Then open DevTools (`dart devtools`) and paste the VM service URI from the run
-terminal. Full guide: [docs/mobile-profiling.md](../../docs/mobile-profiling.md).
+terminal. Full guide: [docs/guides/mobile-profiling.md](../../docs/guides/mobile-profiling.md).
 
-Chat-specific knobs: [docs/chat-performance.md](../../docs/chat-performance.md).
+Chat-specific knobs: [docs/guides/chat-performance.md](../../docs/guides/chat-performance.md).
 
 ## Tests
 

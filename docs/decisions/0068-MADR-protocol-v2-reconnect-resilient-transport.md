@@ -3,9 +3,9 @@
 <!-- markdownlint-disable MD013 MD024 -->
 
 - **Status**: Implemented (P0–P6 complete, 2026-08-05). Protocol v2 is
-  the shipped contract behind negotiation; v1 (`docs/protocol-v1.md`)
+  the shipped contract behind negotiation; v1 (`docs/guides/protocol-v1.md`)
   remains byte-identical for v1 clients (U1 golden). The finalized wire
-  delta is [protocol-v2.md](protocol-v2.md); per-phase records live in
+  delta is [protocol-v2.md](../guides/protocol-v2.md); per-phase records live in
   the plan's Status. Remaining outside this MADR: hardware gate G1
   (ops-hardware-validation.md Part F row F6, needs an iPhone) and the
   U7 `tls_resumed` live check (needs a host codesigning identity).
@@ -15,7 +15,7 @@
   [0068-PLAN-protocol-v2-reconnect-resilient-transport.md](0068-PLAN-protocol-v2-reconnect-resilient-transport.md)
   (P0–P6; carries refinement R1 — resume piggybacked on `auth` — for
   review against D4's separate-message shape)
-- **Scope**: The phone↔daemon wire contract (`docs/protocol-v1.md` →
+- **Scope**: The phone↔daemon wire contract (`docs/guides/protocol-v1.md` →
   v2), `internal/ws/`, `internal/relay/`, `internal/relayhost/`,
   `internal/session/` (gap signalling), and the Dart transport engine
   (`apps/mobile/lib/data/ws/*`). Carries the T1–T11 work list from
@@ -27,7 +27,7 @@
   [0062-MADR-phone-transport-selection.md](0062-MADR-phone-transport-selection.md)
   (dial episodes/budgets — v2 adjusts their lifecycle interaction),
   [0005-MADR-client-identity.md](0005-MADR-client-identity.md)
-  (auth model unchanged), [protocol-v1.md](protocol-v1.md), and
+  (auth model unchanged), [protocol-v1.md](../guides/protocol-v1.md), and
   [MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md) with its
   [approved P17–P22 plan](0074-PLAN-remote-provider-auth-from-phone.md)
   (D27/P20 reuse this record's negotiated resume window for owned provider

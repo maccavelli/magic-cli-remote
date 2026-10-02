@@ -151,7 +151,7 @@ INSTALL_PATH := $(USER_BIN_DIR)/$(INSTALL_NAME)
 SERVICE_NAME ?= mcremote
 RELAY_SERVICE_NAME ?= mcrelay
 
-# Android profile targets (see docs/mobile-profiling.md).
+# Android profile targets (see docs/guides/mobile-profiling.md).
 # DEVICE=  Flutter device id from `flutter devices` / `make profile-devices`.
 DEVICE ?=
 MOBILE_DIR := apps/mobile
@@ -182,7 +182,7 @@ build: check-cgo-off
 # goroutine-leak profile, enabled at runtime only via MC_DEBUG_ADDR
 # (loopback-only). Never ship these binaries — the tag compiles in a
 # profiling surface release builds deliberately do not have. Keeps -ldflags
-# symbol stripping off so profiles resolve names (docs/ops-mcrelay.md §6).
+# symbol stripping off so profiles resolve names (docs/guides/ops-mcrelay.md §6).
 debug:
 	@mkdir -p bin
 	@echo "Building DEBUG mcremote + mcrelay (tags=debugpprof, GOEXPERIMENT=goroutineleakprofile)…"
@@ -199,7 +199,7 @@ debug:
 # and an anchor-based designated requirement, so TCC grants (Full Disk
 # Access, firewall) survive rebuilds and updates. Unset: the Go linker's
 # ad-hoc signature stands — identity churns with every real code change and
-# grants must be re-added after upgrades (docs/ops-macos-tcc.md).
+# grants must be re-added after upgrades (docs/guides/ops-macos-tcc.md).
 MC_CODESIGN_IDENTITY ?=
 codesign-maybe:
 	@if [ -n "$(MC_CODESIGN_IDENTITY)" ] && [ "$(GOOS)" = "darwin" ]; then \
@@ -490,7 +490,7 @@ apk:
 
 # ---------------------------------------------------------------------------
 # Flutter profile mode (runtime performance; not binary size).
-# Docs: docs/mobile-profiling.md
+# Docs: docs/guides/mobile-profiling.md
 # ---------------------------------------------------------------------------
 
 # List connected devices (pick an Android id for DEVICE=).

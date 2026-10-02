@@ -38,15 +38,15 @@ Lint these 11 docs:
 
 - `README.md`
 - `apps/mobile/README.md`
-- `docs/chat-performance.md`
-- `docs/config.md`
-- `docs/config-mcrelay.md`
-- `docs/headscale.md`
-- `docs/iam-route53-acme.md`
-- `docs/mobile-profiling.md`
-- `docs/ops-mcrelay.md`
-- `docs/ops-android-signing.md`
-- `docs/protocol-v1.md`
+- `docs/guides/chat-performance.md`
+- `docs/guides/config.md`
+- `docs/guides/config-mcrelay.md`
+- `docs/guides/headscale.md`
+- `docs/guides/iam-route53-acme.md`
+- `docs/guides/mobile-profiling.md`
+- `docs/guides/ops-mcrelay.md`
+- `docs/guides/ops-android-signing.md`
+- `docs/guides/protocol-v1.md`
 
 Do not lint `AGENTS.md`, MADRs (`docs/00NN-*.md`), implementation plans, or
 other agent-oriented assessments. If a new reader-facing runbook/reference is
@@ -72,9 +72,9 @@ The recommended configuration reports 55 findings in 9 files:
 | Finding | Count | Meaning |
 | --- | ---: | --- |
 | MD013 line length | 48 | Prose above 120 columns; code blocks, tables, and headings are exempt. |
-| MD029 ordered-list sequence | 3 | `docs/headscale.md` repeats `3.` where items 4–6 are intended. |
-| MD010 hard tab | 1 | One tab in `docs/iam-route53-acme.md`. |
-| MD040 fence language | 1 | One unlabelled fence in `docs/protocol-v1.md`. |
+| MD029 ordered-list sequence | 3 | `docs/guides/headscale.md` repeats `3.` where items 4–6 are intended. |
+| MD010 hard tab | 1 | One tab in `docs/guides/iam-route53-acme.md`. |
+| MD040 fence language | 1 | One unlabelled fence in `docs/guides/protocol-v1.md`. |
 | MD004/MD032 list style/spacing | 2 | A `+` list that is not separated from its preceding text in `README.md`. |
 
 These are a small, worthwhile baseline-cleanup set. Fix them before enabling

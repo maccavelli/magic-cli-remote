@@ -22,7 +22,7 @@
   - [MADR 0028](./0028-MADR-codex-provider.md) — codex app-server transport
   - [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md) — SSE resync, which
     re-emits pending permission sheets
-  - [protocol-v1.md](./protocol-v1.md) — `session_mode`, `session.set_mode`,
+  - [protocol-v1.md](../guides/protocol-v1.md) — `session_mode`, `session.set_mode`,
     `permission_request`, `permission_resolved`
 
 **Verified against** (live, not inferred, on `master` at 2026-07-28):

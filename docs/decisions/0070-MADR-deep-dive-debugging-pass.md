@@ -24,7 +24,7 @@
   (unbuilt product), [0063](0063-MADR-connection-liveness-truth.md)
   (status drift), [0048](0048-MADR-codex-sandbox-namespace.md)
   (unfixed host-class bug),
-  [ops-hardware-validation.md](ops-hardware-validation.md)
+  [ops-hardware-validation.md](../guides/ops-hardware-validation.md)
 - **Method**: incompleteness-marker sweep; open/proposed MADR+PLAN audit;
   residual-risk and empty-catch review in transport/session paths;
   provider capability matrix; hardware-gate inventory; adversarial
@@ -262,7 +262,7 @@ exactly the class of bug that only appears under lifecycle pressure.
 
 ### F9 — Hardware validation backlog is the dominant residual risk (S3, product-blocking for “daily driver iOS”)
 
-**Source of truth:** [ops-hardware-validation.md](ops-hardware-validation.md)
+**Source of truth:** [ops-hardware-validation.md](../guides/ops-hardware-validation.md)
 
 | Gate | Status (doc) |
 | --- | --- |

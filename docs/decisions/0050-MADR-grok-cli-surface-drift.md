@@ -9,7 +9,7 @@
   permanent test and passes.
 - **Date**: 2026-07-29
 - **Scope**: `internal/provider/grok`, `internal/provider/acpagent` (config
-  surface), `internal/config`, `docs/config.md`. No protocol change; no mobile
+  surface), `internal/config`, `docs/guides/config.md`. No protocol change; no mobile
   change.
 - **Measured against**: grok **0.2.114** (`0c78503879`, stable), installed at
   `/home/mac/.grok/bin/grok`, on this development host

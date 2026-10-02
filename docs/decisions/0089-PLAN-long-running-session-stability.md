@@ -108,11 +108,11 @@ or after a subsequent `set_prewarm true`.
 | G5 | `configs/config.example.yaml` | docs |
 | G6 | `configs/config.mesh-grok.yaml` | docs |
 | G7 | `configs/config.prod.example.yaml` | docs |
-| G8 | `docs/config.md` | table rows |
+| G8 | `docs/guides/config.md` | table rows |
 | G9 | `README.md` | prewarm rows (~748, ~818) |
 | G10 | `internal/daemon/daemon.go` | `if cfg.Providers.*.Prewarm { EnsureServer() }` |
 | G11 | `internal/protocol/messages.go` | `ProviderInfoPayload`, new types |
-| G12 | `docs/protocol-v1.md` | client→server table |
+| G12 | `docs/guides/protocol-v1.md` | client→server table |
 | G13 | `internal/ws/server.go` | `handleProvidersList`, new handler |
 | G14 | `apps/mobile/lib/data/protocol/models.dart` | `ProviderInfo` |
 | G15 | `apps/mobile/lib/data/ws/mcremote_client.dart` | `listProviders`, new RPC |
@@ -164,11 +164,11 @@ latch lives there.
         Verify: `rg -n 'prewarm: true' internal/cli/service/defaults_mcremote.yaml configs/`
         prints **nothing**.
 
-  - [ ] **T1.4** Docs only (same commit as T1.1–T1.3): `docs/config.md`
+  - [ ] **T1.4** Docs only (same commit as T1.1–T1.3): `docs/guides/config.md`
         and `README.md` rows that say default `true` for grok/opencode/kilo
         become default `false`. One-line errata under 0019/0075 is
         **not** this phase (T5.4).
-        Verify: `rg -n 'prewarm.*[Dd]efault `true`' docs/config.md README.md`
+        Verify: `rg -n 'prewarm.*[Dd]efault `true`' docs/guides/config.md README.md`
         prints nothing for those three agents.
 
   - [ ] **T1.5** Daemon spy test: in `internal/daemon/daemon_test.go`
@@ -243,7 +243,7 @@ latch lives there.
               Engine     string `json:"engine"` // running|stopped|stopping_when_idle
           }
           ```
-        * add the request to `docs/protocol-v1.md` client→server table
+        * add the request to `docs/guides/protocol-v1.md` client→server table
           on the line after `providers.list`.
         Verify: `go test ./internal/protocol/ -count=1`.
 

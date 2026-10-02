@@ -14,7 +14,7 @@
     `workspace-write`; full-access gated
   - [MADR 0047](./0047-MADR-codex-default-mode.md) — default mode + create-time
     seed + never-alone repair (policy **wire** fixed; **execution** still broken)
-  - [protocol-v1.md](./protocol-v1.md) — `session_mode`, `session_capabilities`,
+  - [protocol-v1.md](../guides/protocol-v1.md) — `session_mode`, `session_capabilities`,
     notices / tool cards
 - **Companion plan**:
   [0048-PLAN-codex-sandbox-namespace.md](./0048-PLAN-codex-sandbox-namespace.md)
@@ -365,7 +365,7 @@ When tool/item completion text or command output matches the known markers
 
 ### D6 — Ops remediation is part of the decision
 
-Document, in `docs/config.md` and a short ops subsection of this MADR / README
+Document, in `docs/guides/config.md` and a short ops subsection of this MADR / README
 codex section, the host fixes for the failure class:
 
 1. **Preferred for multi-user / least privilege:** restore working unprivileged

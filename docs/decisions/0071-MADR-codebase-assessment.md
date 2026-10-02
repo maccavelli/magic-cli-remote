@@ -23,7 +23,7 @@
   closed), [0065](0065-MADR-update-automation.md) (update automation —
   out of scope here), [0048](0048-MADR-codex-sandbox-namespace.md)
   (landed via 0070 P3),
-  [ops-hardware-validation.md](ops-hardware-validation.md)
+  [ops-hardware-validation.md](../guides/ops-hardware-validation.md)
 - **Method**: marker sweep; review of freshly landed 0070 code paths
   (excluding 0065 surfaces); incomplete-wiring checks for non-update
   features; sandbox probe behaviour; empty-catch density; perf hotspots;
@@ -134,7 +134,7 @@ as operator-only advanced key next to the 0048 config.md section.
 **Where:** ~32 bare `catch (_) {}` in `apps/mobile/lib` production code
 after 0070 P5 (mostly teardown + secondary UI).
 
-**What:** Convention landed in `docs/standards/mobile/dart.md`. Primary
+**What:** Convention landed in `docs/guides/standards/mobile/dart.md`. Primary
 create/delete paths largely surface errors; residual discards remain in
 settings/chat/sessions (prefs, clipboard, optional meta).
 

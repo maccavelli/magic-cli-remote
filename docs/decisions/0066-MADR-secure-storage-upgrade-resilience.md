@@ -10,7 +10,7 @@
   (force-closed, upgraded over the top) reopened still paired with active
   sessions intact, the incident's exact scenario. **0065's phone-stage
   gate is open** (D6). E3 (deliberate-clear negative) remains, tracked in
-  [ops-hardware-validation.md](ops-hardware-validation.md). History —
+  [ops-hardware-validation.md](../guides/ops-hardware-validation.md). History —
   round 1 self-correction 2026-08-02:
   F1/D1 reworked after reading the plugin's installed source — the first
   draft's "switch to DataStore" named a nonexistent option (see External
@@ -31,7 +31,7 @@
   (in-place updates are the trigger; its Stage 0 premise is amended here),
   [0005-MADR-client-identity.md](0005-MADR-client-identity.md) /
   ADR 0005 (client-key enrolment being the thing that breaks),
-  [ops-android-signing.md](ops-android-signing.md) (the runbook that made
+  [ops-android-signing.md](../guides/ops-android-signing.md) (the runbook that made
   in-place updates possible at all).
 
 ---

@@ -9,7 +9,7 @@
   [MADR 0023](./0023-MADR-canonical-slash-commands.md) (the conformance-test pattern
   reused for drift guards), [MADR 0024](./0024-MADR-stream-coalescing.md),
   [MADR 0034](./0034-MADR-opencode-tool-stream-fidelity.md)
-- **Evidence**: audit of `docs/protocol-v1.md` against the tree at `92372a9`
+- **Evidence**: audit of `docs/guides/protocol-v1.md` against the tree at `92372a9`
 - **Companion plan**: [0036-PLAN-protocol-contract-completeness.md](./0036-PLAN-protocol-contract-completeness.md)
 
 ---

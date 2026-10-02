@@ -8,8 +8,8 @@ engine start**, so it is load-bearing rather than advisory.
 
 This page is how to move that pin to a new Codex release.
 
-Decisions behind it: [0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md](spec/0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md),
-and the earlier [0109](spec/0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md) that
+Decisions behind it: [0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md](../decisions/0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md),
+and the earlier [0109](../decisions/0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md) that
 introduced the manifest.
 
 ## The command

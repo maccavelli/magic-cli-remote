@@ -114,7 +114,7 @@ So a host that was installed from `v0.13.9` / asset `0.13.9.1` cannot
 take `v0.13.10` / asset `0.13.10.1` without `--force`. That is the
 reported failure: the installed version *is* the previous published
 release, and the validator still calls it a "dev suffix". `--force` was
-defined as "overwrite a local compile" (0065 D2, `docs/config.md:608`);
+defined as "overwrite a local compile" (0065 D2, `docs/guides/config.md:608`);
 it is now required for every ordinary hop between published releases.
 
 The other half of D2 is still wrong even when `--force` is not required.
@@ -309,7 +309,7 @@ rejected: a crashed daemon with a unit file must come back.
 * Good, because a host on `0.13.9.1` takes `0.13.10.1` (or `0.13.9.2`)
   with a plain `mcremote update` / `mcrelay update`, no `--force`.
 * Good, because `--force` again means "replace my local compile",
-  matching `docs/config.md` and 0065's original intent.
+  matching `docs/guides/config.md` and 0065's original intent.
 * Good, because a stock mcrelay binary install (no unit) cannot fail or
   roll back a swap over `Unit not found`.
 * Good, because a crashed mcremote or mcrelay that **has** a unit is
@@ -438,7 +438,7 @@ rejected: a crashed daemon with a unit file must come back.
     tag-run stamping, `scripts/install.sh` (`PRODUCTS`,
     `--with-relay-service`, `--no-service`, `setup_service`,
     `summary` nohup-as-advice), `scripts/install_test.sh`
-  * `docs/config.md` `--force` row, 0065 D2, 0100 F3
+  * `docs/guides/config.md` `--force` row, 0065 D2, 0100 F3
 * Out of scope:
   * Changing how GitHub tags or `build/<BASE>.<N>` ledger tags are cut.
   * Making the one-liner enable mcrelay by default.

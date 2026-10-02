@@ -77,7 +77,7 @@ Finish line (observable states):
 * `internal/cli/service/defaults_mcremote.yaml`,
   `internal/cli/service/defaults_mcrelay.yaml` — embedded defaults (D12)
 * `internal/cli/examples.go` — examples (D12)
-* `docs/config.md`, `docs/config-mcrelay.md`, `docs/ops-windows-install.md` — docs (D12)
+* `docs/guides/config.md`, `docs/guides/config-mcrelay.md`, `docs/guides/ops-windows-install.md` — docs (D12)
 * `scripts/acceptance-windows.ps1` — Windows acceptance (D12)
 
 `internal/cli/paths.go` (mcremote) needs **no change**: it already emits
@@ -579,16 +579,16 @@ go run ./cmd/mcrelay  paths --json | Select-String log_dir
 
 ### P6 — Docs, defaults, and examples (D12; closes F15; keeps C6)
 
-1. `docs/config.md`: five rows in the defaults table beside `log.level`/
+1. `docs/guides/config.md`: five rows in the defaults table beside `log.level`/
    `log.format` (106–107); five `MCREMOTE_LOG_*` rows in the env table beside
    409–410; five rows in the flag reference beside `--log-level`/`--log-format`
    (546–547). State the D5 defaults, the `off` sentinel, `0 = unbounded`, and
    that the active file is `<log_dir>/mcremote.log` with per-platform
    `log_dir` from `mcremote paths`.
-2. `docs/config-mcrelay.md`: the same three edits beside 69–70 (combined
+2. `docs/guides/config-mcrelay.md`: the same three edits beside 69–70 (combined
    default/env/flag table), 145–146 (env), 324–325 (flags); leaf
    `mcrelay.log`.
-3. `docs/ops-windows-install.md`: layout table (51–58) — the `Logs` row gains
+3. `docs/guides/ops-windows-install.md`: layout table (51–58) — the `Logs` row gains
    the active file: `%LocalAppData%\mcremote\Logs\mcremote.log`. Add a short
    "Logs" subsection after the table: `Get-Content -Wait` tail command, the
    F16 caveat (after a rotation the tail follows the renamed backup —
@@ -646,7 +646,7 @@ and honour `-SkipTests` (param, line 20) for the functional blocks below.
    assertion is instead D7's fallback: the daemon kept logging to the same
    file and emitted exactly one `log rotation` warning; record which branch
    ran in the transcript and add a one-line note to
-   `docs/ops-windows-install.md`. Never delete this probe; a silent
+   `docs/guides/ops-windows-install.md`. Never delete this probe; a silent
    behaviour change here is the failure mode C7 exists for.
 
 **Verification (Windows host):**

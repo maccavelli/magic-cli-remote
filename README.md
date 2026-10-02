@@ -128,7 +128,7 @@ the two you got, and never claims persistence it did not actually set up.
 
 Full per-environment detail, including WSL2 setup and the AppArmor note for
 Ubuntu 24.04 and newer, is in
-[docs/ops-linux-install.md](docs/ops-linux-install.md).
+[docs/guides/ops-linux-install.md](docs/guides/ops-linux-install.md).
 
 ### macOS notes
 
@@ -136,7 +136,7 @@ The same one-liner installs on macOS. Full Disk Access is **not** granted by
 the script — add `~/.local/bin/mcremote` in System Settings → Privacy &
 Security after install. Unsigned upgrades drop that grant; to keep it, sign
 with `MC_CODESIGN_IDENTITY` (see
-[docs/ops-macos-tcc.md](docs/ops-macos-tcc.md)).
+[docs/guides/ops-macos-tcc.md](docs/guides/ops-macos-tcc.md)).
 
 ## Install on Windows
 
@@ -150,7 +150,7 @@ irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/inst
 Binaries land in `%LOCALAPPDATA%\Programs\` and `mcremote setup-service`
 registers a Task Scheduler at-logon task — **no elevation at any point**.
 
-Read [docs/ops-windows-install.md](docs/ops-windows-install.md) before relying
+Read [docs/guides/ops-windows-install.md](docs/guides/ops-windows-install.md) before relying
 on it: the binaries are not Authenticode-signed yet, the background task starts
 at logon rather than boot, and there is a durability caveat on NTFS.
 
@@ -215,7 +215,7 @@ Module: `github.com/maccavelli/magic-cli-remote`
 ```
 
 Design spine: [docs/decisions/0001-MADR-architecture-mcremote.md](docs/decisions/0001-MADR-architecture-mcremote.md),
-wire contract: [docs/protocol-v1.md](docs/protocol-v1.md).
+wire contract: [docs/guides/protocol-v1.md](docs/guides/protocol-v1.md).
 
 **Phone → daemon transport choices** (app path selection, not daemon config):
 mesh direct, relay join, or LAN — see
@@ -228,7 +228,7 @@ and [docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/d
 
 - **Go 1.26.x** (module pins `go 1.26.5`)
 - **Linux** (primary), **macOS**, or **Windows 10 1809+** (`amd64`, Tier 2)
-- Optional mesh: Headscale + Tailscale clients ([docs/headscale.md](docs/headscale.md))
+- Optional mesh: Headscale + Tailscale clients ([docs/guides/headscale.md](docs/guides/headscale.md))
 - For `setup-service`: Linux **systemd --user**, macOS **launchd** user
   LaunchAgent, or Windows **Task Scheduler** at-logon task (no sudo, no
   elevation, on any of the three)
@@ -441,7 +441,7 @@ domain and an ACME email are configured, `selfsigned` otherwise.**
 
 The pair URI always carries `mode=` (`selfsigned` | `letsencrypt` | `off`) and
 carries `fp=` in both TLS-on modes. See
-[docs/protocol-v1.md](docs/protocol-v1.md) (transport security).
+[docs/guides/protocol-v1.md](docs/guides/protocol-v1.md) (transport security).
 
 ### Let's Encrypt (default when configured)
 
@@ -475,8 +475,8 @@ days; a host left dark longer returns with an expired cert until renewal
 succeeds.
 
 IAM / zone setup for DNS-01:
-**[docs/iam-route53-acme.md](docs/iam-route53-acme.md)**.
-Config matrix: **[docs/config.md](docs/config.md)**.
+**[docs/guides/iam-route53-acme.md](docs/guides/iam-route53-acme.md)**.
+Config matrix: **[docs/guides/config.md](docs/guides/config.md)**.
 
 ### Self-signed (fallback, and the right choice for bare mesh IPs)
 
@@ -690,7 +690,7 @@ mcremote setup-service --binary ~/.local/bin/mcremote --force
 
 Viper also maps other keys as `MCREMOTE_` + uppercased path with `_` (e.g.
 `MCREMOTE_PROVIDERS_GROK_PREWARM`, `MCREMOTE_PROVIDERS_GROK_SANDBOX`). Full table:
-[docs/config.md](docs/config.md).
+[docs/guides/config.md](docs/guides/config.md).
 
 ```bash
 export MCREMOTE_LISTEN_HOST=tailscale       # tailnet IPv4 only; 0.0.0.0 is an explicit opt-in
@@ -790,7 +790,7 @@ Environment equivalents are
 ### YAML surface
 
 See [configs/config.example.yaml](configs/config.example.yaml) for every key
-annotated with defaults and comments. See [docs/config.md](docs/config.md) for
+annotated with defaults and comments. See [docs/guides/config.md](docs/guides/config.md) for
 the full defaults table and env map.
 
 | Section | Keys |
@@ -880,7 +880,7 @@ serves both protocol versions. Also:
 
 Every client→daemon frame is capped at **1 MiB** serialized UTF-8 JSON.
 
-**Protocol v2** ([docs/protocol-v2.md](docs/protocol-v2.md), MADR 0068) is a
+**Protocol v2** ([docs/guides/protocol-v2.md](docs/guides/protocol-v2.md), MADR 0068) is a
 fully shipped delta over v1, negotiated per-connection (client offers
 `protocols` on `auth`/`pair.claim`; server picks the highest mutual version —
 absent an offer, a client stays plain v1). It adds, on top of the unchanged v1
@@ -892,8 +892,8 @@ a truncated or stale history read is never silent), and reconnect **resume**
 changed).
 
 Representative client messages (full schema in
-[docs/protocol-v1.md](docs/protocol-v1.md), v2 delta in
-[docs/protocol-v2.md](docs/protocol-v2.md)):
+[docs/guides/protocol-v1.md](docs/guides/protocol-v1.md), v2 delta in
+[docs/guides/protocol-v2.md](docs/guides/protocol-v2.md)):
 
 | Type | Purpose |
 |------|---------|
@@ -928,7 +928,7 @@ stays host-only.
 
 When the agent needs tool approval, the server pushes `permission_request`
 events; answer with `permission.respond` (see
-[docs/protocol-v1.md](docs/protocol-v1.md)).
+[docs/guides/protocol-v1.md](docs/guides/protocol-v1.md)).
 
 Grok supports live mid-session model switching (`/model`) via ACP
 `session/set_model`, and exposes canonical slash commands `/deep-research`,
@@ -956,7 +956,7 @@ app (MADR 0044 / 0049), distinct from config `always_approve`.
 | `stream_coalesce_ms` | Default `80` |
 
 Some tool allow/deny flags are **measured no-ops for remote sessions** — see
-notes in [docs/config.md](docs/config.md). Prefer `permission_mode`, session
+notes in [docs/guides/config.md](docs/guides/config.md). Prefer `permission_mode`, session
 modes, or `sandbox` for real policy.
 
 ---
@@ -1044,7 +1044,7 @@ than failing silently — `/deep-research`, `/workflow`, and similar.
 
 **Ubuntu 24.04+ note:** Codex sandboxes need unprivileged user namespaces. If
 kernel policy blocks them, sandboxed tools fail and only `danger-full-access` /
-full-access mode works — see [docs/config.md](docs/config.md) and
+full-access mode works — see [docs/guides/config.md](docs/guides/config.md) and
 [MADR 0048](docs/decisions/0048-MADR-codex-sandbox-namespace.md).
 
 **macOS note:** in `auto`/default modes Codex enforces `workspace-write` with
@@ -1058,7 +1058,7 @@ that needed the explanation — see
 The *other* macOS "operation not permitted" — privacy protection (TCC)
 on Documents/Desktop/Downloads — is a separate layer: diagnose with
 `mcremote doctor` and see
-[docs/ops-macos-tcc.md](docs/ops-macos-tcc.md), including how to keep a
+[docs/guides/ops-macos-tcc.md](docs/guides/ops-macos-tcc.md), including how to keep a
 Full Disk Access grant across upgrades with
 `make install MC_CODESIGN_IDENTITY=…`.
 
@@ -1149,7 +1149,7 @@ hash-chained record of a human's permission decision on a paired phone —
 "which device approved this, and can I prove it wasn't tampered with after
 the fact." Matching decisions (`receipts.allow_patterns`/`deny_patterns`,
 shell-glob syntax) get a JWS-signed
-[in-toto-style Statement](docs/receipts.md#the-statement-shape) appended to
+[in-toto-style Statement](docs/guides/receipts.md#the-statement-shape) appended to
 `<data_dir>/receipts/<device_id>.jsonl`.
 
 ```bash
@@ -1185,7 +1185,7 @@ default), each handoff records **two** signed receipts — the releaser signs a
 into its — linked by a shared handoff subject so an auditor can tie the two
 halves together across the two devices' separate chains.
 
-**Design and complete reference:** [docs/receipts.md](docs/receipts.md) ·
+**Design and complete reference:** [docs/guides/receipts.md](docs/guides/receipts.md) ·
 [MADR 0077](docs/decisions/0077-MADR-signed-receipts-permission-handoffs.md) ·
 [MADR 0078](docs/decisions/0078-MADR-session-handoff-and-receipt-surfacing.md).
 
@@ -1199,8 +1199,8 @@ splice with end-to-end TLS to mcremote — mcrelay does not authenticate devices
 run agents, or see protocol-v1 plaintext on the inner hop.
 
 **Complete config, flags, env, TLS, and limits:**
-**[docs/config-mcrelay.md](docs/config-mcrelay.md)**. Ops runbook:
-[docs/ops-mcrelay.md](docs/ops-mcrelay.md).
+**[docs/guides/config-mcrelay.md](docs/guides/config-mcrelay.md)**. Ops runbook:
+[docs/guides/ops-mcrelay.md](docs/guides/ops-mcrelay.md).
 
 ```bash
 make build-relay
@@ -1230,8 +1230,8 @@ else `off`. Explicit: `letsencrypt` | `files` | `off`.
 This is **not** the same as mcremote: mcremote is **DNS-01 only** (mesh-only
 hosts). mcrelay is a public edge, so HTTP-01 is the default and DNS-01 is fully
 supported as well. Full matrix, examples, and flags:
-[docs/config-mcrelay.md § TLS (outer edge)](docs/config-mcrelay.md#tls-outer-edge) and
-[§ ACME challenge selection](docs/config-mcrelay.md#acme-challenge-selection).
+[docs/guides/config-mcrelay.md § TLS (outer edge)](docs/guides/config-mcrelay.md#tls-outer-edge) and
+[§ ACME challenge selection](docs/guides/config-mcrelay.md#acme-challenge-selection).
 
 ```bash
 # HTTP-01 (default) — public VPS, port 80 free
@@ -1271,7 +1271,7 @@ mcrelay setup-service | mcrelay version | mcrelay completion …
 | `completion` | Shell completion scripts |
 
 Precedence: CLI flags > `MCRELAY_*` env > config.yaml > defaults.
-See **[docs/config-mcrelay.md](docs/config-mcrelay.md)** for every key.
+See **[docs/guides/config-mcrelay.md](docs/guides/config-mcrelay.md)** for every key.
 
 ### Key limits (config file / env only — no CLI flags)
 
@@ -1286,12 +1286,12 @@ See **[docs/config-mcrelay.md](docs/config-mcrelay.md)** for every key.
 
 | Artifact | Path |
 |----------|------|
-| **Config / flags / env (source of truth)** | [docs/config-mcrelay.md](docs/config-mcrelay.md) |
+| **Config / flags / env (source of truth)** | [docs/guides/config-mcrelay.md](docs/guides/config-mcrelay.md) |
 | Example config (all keys) | [configs/mcrelay.example.yaml](configs/mcrelay.example.yaml) |
 | setup-service default | [internal/cli/service/defaults_mcrelay.yaml](internal/cli/service/defaults_mcrelay.yaml) |
 | User unit (all env commented) | [deploy/systemd/mcrelay.user.service](deploy/systemd/mcrelay.user.service) |
-| Ops runbook | [docs/ops-mcrelay.md](docs/ops-mcrelay.md) |
-| Provider credential backup and recovery | [docs/ops-credential-recovery.md](docs/ops-credential-recovery.md) |
+| Ops runbook | [docs/guides/ops-mcrelay.md](docs/guides/ops-mcrelay.md) |
+| Provider credential backup and recovery | [docs/guides/ops-credential-recovery.md](docs/guides/ops-credential-recovery.md) |
 | Hardening plan | [docs/decisions/0017-MADR-mcrelay-memory-security-action-plan.md](docs/decisions/0017-MADR-mcrelay-memory-security-action-plan.md) |
 
 ---
@@ -1311,7 +1311,7 @@ Unit options (user template): `Restart=always`, `TimeoutStopSec=45`,
 `KillMode=control-group`, XDG env, `NoNewPrivileges` / `PrivateTmp` /
 `RestrictSUIDSGID` / `ProtectKernelTunables` / `ProtectControlGroups` /
 `SystemCallArchitectures=native` / `LimitNOFILE=65536`. Full table:
-[docs/config.md](docs/config.md).
+[docs/guides/config.md](docs/guides/config.md).
 
 Useful after setup:
 
@@ -1367,7 +1367,7 @@ Local APK (debug-signed for sideload):
 ```
 
 Release signing for CI/canonical tags:
-[docs/ops-android-signing.md](docs/ops-android-signing.md).
+[docs/guides/ops-android-signing.md](docs/guides/ops-android-signing.md).
 
 ---
 
@@ -1464,7 +1464,7 @@ make live-codex
 make profile-devices
 make profile                 # flutter run --profile
 make profile-apk             # arm64 profile APK
-# → docs/mobile-profiling.md
+# → docs/guides/mobile-profiling.md
 ```
 
 ### Repository layout
@@ -1495,7 +1495,7 @@ scripts/                    # build, install, smoke, precheck, hooks
 
 See [AGENTS.md](AGENTS.md) for the **pre-add rule** (`gofmt` + `golint` +
 `govulncheck` before staging Go), Dart format, and agent conventions.
-Language/style guides live under `docs/standards/`.
+Language/style guides live under `docs/guides/standards/`.
 
 ---
 
@@ -1505,18 +1505,18 @@ Language/style guides live under `docs/standards/`.
 
 | Doc | Description |
 |-----|-------------|
-| [docs/protocol-v1.md](docs/protocol-v1.md) | WebSocket JSON schema (source of truth for the wire) |
-| [docs/protocol-v2.md](docs/protocol-v2.md) | v1 delta: negotiation, resume, gap signalling (shipped) |
-| [docs/config.md](docs/config.md) | mcremote config, flags, and env reference |
-| [docs/receipts.md](docs/receipts.md) | Signed permission-decision receipts: Statement shape, `predicateType` registry, CLI reference |
-| [docs/config-mcrelay.md](docs/config-mcrelay.md) | mcrelay config, flags, env, setup-service |
-| [docs/ops-mcrelay.md](docs/ops-mcrelay.md) | mcrelay ops: systemd/launchd, LE, secret rotation, smoke |
-| [docs/headscale.md](docs/headscale.md) | Mesh grants & pairing |
-| [docs/iam-route53-acme.md](docs/iam-route53-acme.md) | Route 53 IAM for ACME DNS-01 |
-| [docs/ops-android-signing.md](docs/ops-android-signing.md) | Release APK keystore / CI secrets |
+| [docs/guides/protocol-v1.md](docs/guides/protocol-v1.md) | WebSocket JSON schema (source of truth for the wire) |
+| [docs/guides/protocol-v2.md](docs/guides/protocol-v2.md) | v1 delta: negotiation, resume, gap signalling (shipped) |
+| [docs/guides/config.md](docs/guides/config.md) | mcremote config, flags, and env reference |
+| [docs/guides/receipts.md](docs/guides/receipts.md) | Signed permission-decision receipts: Statement shape, `predicateType` registry, CLI reference |
+| [docs/guides/config-mcrelay.md](docs/guides/config-mcrelay.md) | mcrelay config, flags, env, setup-service |
+| [docs/guides/ops-mcrelay.md](docs/guides/ops-mcrelay.md) | mcrelay ops: systemd/launchd, LE, secret rotation, smoke |
+| [docs/guides/headscale.md](docs/guides/headscale.md) | Mesh grants & pairing |
+| [docs/guides/iam-route53-acme.md](docs/guides/iam-route53-acme.md) | Route 53 IAM for ACME DNS-01 |
+| [docs/guides/ops-android-signing.md](docs/guides/ops-android-signing.md) | Release APK keystore / CI secrets |
 | [apps/mobile/README.md](apps/mobile/README.md) | Flutter companion runbook |
-| [docs/mobile-profiling.md](docs/mobile-profiling.md) | Android profile mode / DevTools |
-| [docs/chat-performance.md](docs/chat-performance.md) | Mobile chat scroll/stream notes |
+| [docs/guides/mobile-profiling.md](docs/guides/mobile-profiling.md) | Android profile mode / DevTools |
+| [docs/guides/chat-performance.md](docs/guides/chat-performance.md) | Mobile chat scroll/stream notes |
 
 ### Architecture & key decisions
 
@@ -1550,7 +1550,7 @@ Language/style guides live under `docs/standards/`.
 | [docs/decisions/0077-MADR-signed-receipts-permission-handoffs.md](docs/decisions/0077-MADR-signed-receipts-permission-handoffs.md) | Signed receipts for permission decisions |
 
 Further numbered MADRs and plans live under [`docs/`](docs/)
-(`NNNN-MADR-*.md` / `NNNN-PLAN-*.md`). Standards: [`docs/standards/`](docs/standards/).
+(`NNNN-MADR-*.md` / `NNNN-PLAN-*.md`). Standards: [`docs/guides/standards/`](docs/guides/standards).
 
 ---
 

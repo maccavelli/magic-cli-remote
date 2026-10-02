@@ -51,7 +51,7 @@ before proceeding.
 | G9 | Catalog paging: sheet page size 100 (`upstream_catalog_sheet.dart:35`), server default 100 / cap 200 (MADR 0074 D16); the sheet already debounces 250 ms and generation-guards searches (`:87-132`). | sheet + `internal/ws/server.go` |
 | G10 | pubspec: **no `flutter_svg`**; the only asset is `assets/MC_icon.png` (`pubspec.yaml:51-54`). | `apps/mobile/pubspec.yaml` |
 | G11 | Vendor-id universes: goose is a pinned 73-id table in `internal/provider/goose/catalog.go` (ids include `together`, `aws_bedrock`, `gcp_vertex_ai`, `github_copilot`, `xai`, `zhipu`, `ollama`, `lmstudio`, `venice`, `openrouter`); kilo/opencode ids come from the live engine (fixture `internal/provider/kilo/testdata/provider-7.4.21.json` is a 10-id subset: `anthropic deepseek github-copilot groq kilo openai opencode-go openrouter togetherai xai`); full lists are engine-fetched (185/184 live). | Go tree |
-| G12 | Standards: predictive back must keep working via `PopScope`/GoRouter (`docs/standards/mobile/flutter.md:27-28`); CI gates are `dart format --set-exit-if-changed`, `dart analyze`, `flutter test` (`.github/workflows`, Flutter job). | docs, CI |
+| G12 | Standards: predictive back must keep working via `PopScope`/GoRouter (`docs/guides/standards/mobile/flutter.md:27-28`); CI gates are `dart format --set-exit-if-changed`, `dart analyze`, `flutter test` (`.github/workflows`, Flutter job). | docs, CI |
 | G13 | The settings screen already live-refreshes on `providerAuthStatus` pushes (`settings_screen.dart:101-105`) — the pattern each new screen must repeat. | settings_screen.dart |
 
 ## Implementation Steps

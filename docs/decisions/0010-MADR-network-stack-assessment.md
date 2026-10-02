@@ -3,7 +3,7 @@
 - **Status**: Findings for review (analysis only; no code changes)
 - **Date**: 2026-07-21
 - **Scope**: Go daemon network path — TCP/TLS listener, HTTP surface, WebSocket control plane, admin Unix socket, auth/pair, session event fan-out, and adjacent performance/caching. Mobile client noted only where it constrains server behavior.
-- **Companions**: [0001-architecture](0001-MADR-architecture-mcremote.md), [protocol-v1](protocol-v1.md), [hardening-implementation-plan](0054-PLAN-hardening-implementation.md), [mcremote-server-remediation-plan](0055-PLAN-mcremote-server-remediation.md), [0009-post-hardening-action-plan](0009-MADR-post-hardening-action-plan.md)
+- **Companions**: [0001-architecture](0001-MADR-architecture-mcremote.md), [protocol-v1](../guides/protocol-v1.md), [hardening-implementation-plan](0054-PLAN-hardening-implementation.md), [mcremote-server-remediation-plan](0055-PLAN-mcremote-server-remediation.md), [0009-post-hardening-action-plan](0009-MADR-post-hardening-action-plan.md)
 
 ---
 

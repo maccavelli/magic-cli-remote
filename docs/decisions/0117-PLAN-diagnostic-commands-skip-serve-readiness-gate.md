@@ -49,7 +49,7 @@ The finish line is mechanical:
   parameter (P4)
 * `internal/cli/receipts.go`, `internal/cli/auth_recovery.go` — call sites
   updated for that signature (P4)
-* `docs/config-mcrelay.md`, `docs/config.md` — D8, and the `--json` shape
+* `docs/guides/config-mcrelay.md`, `docs/guides/config.md` — D8, and the `--json` shape
   change from D9
 
 **Tests (modified / created):**
@@ -387,9 +387,9 @@ the four probes above.
 
 **Docs:**
 
-* `docs/config-mcrelay.md:21` — note that `paths` works before any config
+* `docs/guides/config-mcrelay.md:21` — note that `paths` works before any config
   exists and reports serve-readiness as a diagnostic rather than an error.
-* `docs/config.md` — the same note at its `mcremote paths` reference
+* `docs/guides/config.md` — the same note at its `mcremote paths` reference
   (`config.md:12,60`).
 
 **Coverage:** `internal/relay` and `internal/cli` must not regress below the

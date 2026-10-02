@@ -66,7 +66,7 @@ func newRootCmd() *cobra.Command {
 for Flutter clients over Headscale/Tailscale.
 
 All long flags use a double dash (--help, --config, --setup-service, --listen-host, …).
-Short -h is help only. See docs/config.md for the full flag and MCREMOTE_* env reference.`,
+Short -h is help only. See docs/guides/config.md for the full flag and MCREMOTE_* env reference.`,
 		Example:       rootExample,
 		Version:       VersionString(),
 		SilenceUsage:  true,

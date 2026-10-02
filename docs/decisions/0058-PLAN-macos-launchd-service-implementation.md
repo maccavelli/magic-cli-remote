@@ -15,8 +15,8 @@ the **build order**: phase-sequenced, file-specific, and grounded in the tree.
   Linux systemd path must keep working unchanged.
 - **Out of scope:** LaunchDaemon / system-domain install, logout linger that
   requires sudo, SMAppService, notarization. See §9.
-- **Standards:** [Go CLI](standards/go/cli.md), [Go config](standards/go/config.md),
-  [Go logging](standards/go/logging.md), project AGENTS.md pre-add gates
+- **Standards:** [Go CLI](../guides/standards/go/cli.md), [Go config](../guides/config.md),
+  [Go logging](../guides/standards/go/logging.md), project AGENTS.md pre-add gates
 - **Related:** [MADR 0019](0019-MADR-opencode-process-management-plan.md)
   (process-group kill), [MADR 0015](0015-MADR-mcrelay-transport-security.md)
   (mcrelay public edge)
@@ -452,9 +452,9 @@ Comments: prefer `setup-service`; examples are for review/manual.
 | Task | Files | Detail |
 |---|---|---|
 | 5.1 | `README.md` | macOS first-class setup; session-bound; no sudo; Background Items |
-| 5.2 | `docs/config.md` | setup-service macOS matrix |
-| 5.3 | `docs/config-mcrelay.md` | same |
-| 5.4 | `docs/ops-mcrelay.md` | macOS subsection if needed |
+| 5.2 | `docs/guides/config.md` | setup-service macOS matrix |
+| 5.3 | `docs/guides/config-mcrelay.md` | same |
+| 5.4 | `docs/guides/ops-mcrelay.md` | macOS subsection if needed |
 | 5.5 | MADR status → implemented when phases 1–5 done | |
 
 ### Phase 6 — Polish (optional, same release if time)

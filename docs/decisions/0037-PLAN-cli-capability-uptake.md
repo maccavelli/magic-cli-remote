@@ -114,7 +114,7 @@ process, and survives a session that also overrides the model.
    (`providers.opencode.pure`), default `false`.
 2. Thread it to the serve-args builder (`http.go:287`) and append `--pure` when
    set.
-3. Document in `docs/config.md` that the flag is fixed at engine spawn: because
+3. Document in `docs/guides/config.md` that the flag is fixed at engine spawn: because
    the engine is shared and prewarmed, changing `pure` requires an engine
    restart (daemon restart, or whatever the existing engine-recycle path is) to
    take effect. An operator who flips it and sees no change otherwise has no way
@@ -192,7 +192,7 @@ for what is safe to kill and its own tests.
 
 ## Phase 5 — documentation and verification
 
-1. `docs/config.md`: document `providers.grok.reasoning_effort` (engine-level,
+1. `docs/guides/config.md`: document `providers.grok.reasoning_effort` (engine-level,
    passed through to `grok agent`, no value validation — grok rejects unknown
    values) and `providers.opencode.pure` (opt-in, fixed at engine spawn).
 2. Set MADR 0037 to Accepted with an implementation record, including anything
@@ -230,7 +230,7 @@ mode is "no sessions start", so it must be revertible alone.
 - `providers.opencode.pure` boots a plugin-free engine.
 - The goose ACP dial sends a matching loopback `Origin` and sessions still work.
 - No comment claims `ReapOrphans`.
-- Both new config keys documented in `docs/config.md`.
+- Both new config keys documented in `docs/guides/config.md`.
 - Live tests pin `--reasoning-effort`, `--pure` and `--allowed-origin` on the
   probed versions.
 - `make preflight`, `make race`, `make test-all`, `flutter test` green.

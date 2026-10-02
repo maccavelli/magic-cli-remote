@@ -552,7 +552,7 @@ verify paths, not the systemd path — systemd coverage requires a VM or a
 1. **README**: install section leading with the one-liner, the
    environment-variable form for piped flags, and a link to the manual
    `make install` path for developers.
-2. **`docs/ops-linux-install.md`** (new): the backend capability table from
+2. **`docs/guides/ops-linux-install.md`** (new): the backend capability table from
    §4.G, the AppArmor advisory, the WSL2 systemd enablement steps, the `su`/
    `XDG_RUNTIME_DIR` trap, and uninstall.
 3. Cross-link MADR 0048 (AppArmor) and 0065 (`mcremote update` owns upgrades,

@@ -43,7 +43,7 @@ the algorithms, the tests, and the rollback.
   `providerauth`; grok / codex / goose verify-after-write
 * `internal/ws` — `writeAuthErr`, `awaitDeviceFlow` log/result
 * `apps/mobile` — agent chip, auth error copy, device-flow launcher, tests
-* `docs/protocol-v1.md` — register the new code/reason (0036 D4)
+* `docs/guides/protocol-v1.md` — register the new code/reason (0036 D4)
 * Live-tagged tests behind `live_kilo` / `live_opencode` /
   `MCREMOTE_LIVE_AUTH_WRITE=1`
 * Errata notes on 0074 / 0083 claims this record corrects
@@ -85,7 +85,7 @@ the algorithms, the tests, and the rollback.
 | G13 | Device sheet is copy-only. `url_launcher` is not in `apps/mobile/pubspec.yaml`. | `device_flow_sheet.dart:7-10` |
 | G14 | Kilo has no `AuthFileWriterDialect`. A down engine cannot accept a phone key. OpenCode can (`SetCredentialFile` → `MergeJSONAuthMetadata`). | `httpagent.go:166-197`; `opencode/auth.go:238-266` |
 | G15 | OpenCode has `TestLiveOpenCodeCredentialRoundTrip` (`MCREMOTE_LIVE_AUTH_WRITE=1`) against the **host** store. Kilo has no write live test. | `opencode/live_auth_test.go:105-163`; `kilo/live_auth_test.go` |
-| G16 | 0083 error codes already registered: `keyring_managed`, `method_unsupported`, `invalid_key`, `engine_unavailable`, `provider_busy`. New codes must land in `protocol.ErrorCodes()` **and** `docs/protocol-v1.md` or `TestWSErrorCodesAreRegistered` / `TestErrorCodesAreDocumented` fail. `friendlyOpError` has no `credential_not_accepted` case. | `protocol/errors.go:113-138,223-229`; `mc_exception.dart:45-61`; `docs/protocol-v1.md:858+` |
+| G16 | 0083 error codes already registered: `keyring_managed`, `method_unsupported`, `invalid_key`, `engine_unavailable`, `provider_busy`. New codes must land in `protocol.ErrorCodes()` **and** `docs/guides/protocol-v1.md` or `TestWSErrorCodesAreRegistered` / `TestErrorCodesAreDocumented` fail. `friendlyOpError` has no `credential_not_accepted` case. | `protocol/errors.go:113-138,223-229`; `mc_exception.dart:45-61`; `docs/guides/protocol-v1.md:858+` |
 | G17 | `AuthMethod.Unavailable` + `Reason` already exist; `upstreamAuthPayload` copies them, then overlays `browser_only` / `device_unsupported`. A provider-set `host_oauth` is the 0083 D4 extension point. | `provider/auth.go:87-93`; `ws/server.go:1923-1946` |
 | G18 | `AuthReason*` constants: `keyring_managed`, `browser_only`, `device_unsupported`. Phone `AuthMethod.reason` is an opaque string; copy for unknown reasons can fall back to the existing host-only chip. | `protocol/messages.go:528-533`; `models.dart:563-576` |
 | G19 | `MergeJSONAuthMetadata` is the kilo/opencode file format (0600 atomic). `ReadJSONAuth` returns id+type only. | `credstore/write.go:80-128`; `credstore.go:172-202` |
@@ -178,7 +178,7 @@ that is neither device nor loopback.
 **Files:** `internal/protocol/errors.go`, `internal/protocol/messages.go`,
 `internal/protocol/provider_auth_test.go` (if a reason table exists),
 `internal/provider/auth.go`, `internal/ws/server.go` (`authErrCode`),
-`internal/ws/auth_err_code_test.go`, `docs/protocol-v1.md`,
+`internal/ws/auth_err_code_test.go`, `docs/guides/protocol-v1.md`,
 `apps/mobile/lib/data/ws/mc_exception.dart` (+ its unit test if any).
 
 **Daemon**

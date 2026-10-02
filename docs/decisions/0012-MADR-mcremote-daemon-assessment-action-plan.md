@@ -12,7 +12,7 @@
 | [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) | Front door, TLS, client identity — complete |
 | [0055-PLAN-mcremote-server-remediation.md](0055-PLAN-mcremote-server-remediation.md) | Lifecycle, admin sock, fan-out — code complete |
 | [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) | Product polish, durable history, relay |
-| [protocol-v1.md](protocol-v1.md) | Wire contract |
+| [protocol-v1.md](../guides/protocol-v1.md) | Wire contract |
 | [0001-MADR-architecture-mcremote.md](0001-MADR-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
 | [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md) | Outbound relay design (E2E TLS splice; Phase E) |
 

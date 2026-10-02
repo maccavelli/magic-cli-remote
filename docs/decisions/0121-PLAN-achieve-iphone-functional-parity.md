@@ -323,14 +323,14 @@ the changed documents.
   mark either implemented.
 * Capture a fresh `git status`, commit, toolchain, simulator, physical-device,
   codesigning-identity, Flutter-test, analyzer, and Go-test baseline in
-  `docs/ops-ios-signing.md` and `docs/ops-hardware-validation.md`.
+  `docs/guides/ops-ios-signing.md` and `docs/guides/ops-hardware-validation.md`.
 
 ### Files
 
 * `docs/0121-MADR-achieve-iphone-functional-parity.md`
 * `docs/0121-PLAN-achieve-iphone-functional-parity.md`
-* `docs/ops-ios-signing.md`
-* `docs/ops-hardware-validation.md`
+* `docs/guides/ops-ios-signing.md`
+* `docs/guides/ops-hardware-validation.md`
 
 ### Commands
 
@@ -473,7 +473,7 @@ remove the iOS binary surface blocks phase 2.
 * `README.md`
 * `apps/mobile/README.md`
 * `apps/mobile/pubspec.yaml`
-* `docs/ops-ios-signing.md`
+* `docs/guides/ops-ios-signing.md`
 
 ### Verification
 
@@ -522,8 +522,8 @@ recorded and stops the phase for an approved amendment.
 
 ### Files
 
-* `docs/ops-hardware-validation.md`
-* `docs/ops-ios-signing.md`
+* `docs/guides/ops-hardware-validation.md`
+* `docs/guides/ops-ios-signing.md`
 * Phase-1/2 files only when a covered, specified defect is reproduced
 
 ### Verification
@@ -601,7 +601,7 @@ code inspection, or “shared by Flutter” assertion substitutes for a device p
 * `internal/config/config_test.go`
 * `configs/config.example.yaml`
 * `configs/config.prod.example.yaml`
-* `docs/config.md`
+* `docs/guides/config.md`
 * `docs/protocol.md`
 
 ### Verification
@@ -853,7 +853,7 @@ no background mode appears; foreground-only remains complete. Commit phase 6.
 * `apps/mobile/integration_test/attention_delivery_test.dart` (new)
 * `apps/mobile/test/support/fake_attention_gateway.dart` (new)
 * `scripts/run-ios-simulator-tests.sh`
-* `docs/ops-hardware-validation.md`
+* `docs/guides/ops-hardware-validation.md`
 * `docs/ops-mcpush.md`
 
 ### Verification
@@ -933,7 +933,7 @@ phase 7.
 * `apps/mobile/test/notifications_test.dart`
 * `apps/mobile/integration_test/attention_action_test.dart` (new)
 * `internal/attention/testdata/action_vectors.json` (new shared vectors)
-* `docs/ops-hardware-validation.md`
+* `docs/guides/ops-hardware-validation.md`
 
 ### Verification
 
@@ -999,8 +999,8 @@ failure. The gateway cannot mint or alter a valid action. Commit phase 8.
 * `apps/mobile/test/app_update_tile_test.dart`
 * `scripts/assert-ios-archive.sh` (new)
 * `.github/workflows/ios-testflight.yml` (new)
-* `docs/ops-ios-signing.md`
-* `docs/ops-hardware-validation.md`
+* `docs/guides/ops-ios-signing.md`
+* `docs/guides/ops-hardware-validation.md`
 * `apps/mobile/store/export-compliance.md` (new)
 
 ### Verification
@@ -1082,7 +1082,7 @@ separately authorized external action.
 * `apps/mobile/ios/fastlane/metadata/en-US/support_url.txt` (new)
 * `apps/mobile/ios/fastlane/metadata/en-US/review_information/notes.txt` (new)
 * `apps/mobile/ios/fastlane/screenshots/README.md` (new; generated screenshots remain release artifacts unless policy says otherwise)
-* `docs/ops-hardware-validation.md`
+* `docs/guides/ops-hardware-validation.md`
 
 ### Verification
 
@@ -1137,8 +1137,8 @@ phase 10. Metadata upload/submission still requires explicit authorization.
 
 * `docs/0121-MADR-achieve-iphone-functional-parity.md`
 * `docs/0121-PLAN-achieve-iphone-functional-parity.md`
-* `docs/ops-hardware-validation.md`
-* `docs/ops-ios-signing.md`
+* `docs/guides/ops-hardware-validation.md`
+* `docs/guides/ops-ios-signing.md`
 * `docs/ops-mcpush.md`
 * `README.md`
 * `apps/mobile/README.md`

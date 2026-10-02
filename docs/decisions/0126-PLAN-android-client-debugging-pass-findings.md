@@ -1237,7 +1237,7 @@ alive; no `FATAL EXCEPTION` and no Dart error in logcat.
 #### Not verified, and why
 
 **Rows 1–3 need a paired connection to a live daemon, which this environment
-cannot produce.** `docs/ops-android-emulator.md` records the reason: a typed
+cannot produce.** `docs/guides/ops-android-emulator.md` records the reason: a typed
 pair code cannot complete pairing (it carries no certificate fingerprint and the
 app refuses an unpinned host — 0046/0074 working as designed), so the QR is the
 only way in, and *"the scene camera cannot be aimed from adb … the pose is

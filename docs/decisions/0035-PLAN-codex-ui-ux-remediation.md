@@ -388,7 +388,7 @@ empty-clear path; the item no longer produces a tool card (phase 2 regression).
 
 ## Phase 9 — documentation and verification
 
-1. **`docs/protocol-v1.md`** — specify the `tool_call` / `tool_call_update`
+1. **`docs/guides/protocol-v1.md`** — specify the `tool_call` / `tool_call_update`
    `status` vocabulary: `pending | running | completed | failed`. Its absence
    (`:733-746` documents only `tool_kind`) is why phase 3's drift went unnoticed.
    opencode's `mapToolStatus` (`http.go:1092-1105`) is the reference. **Shared

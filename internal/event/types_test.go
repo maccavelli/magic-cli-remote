@@ -66,7 +66,7 @@ func TestTypesEnumerationIsComplete(t *testing.T) {
 	for value, pos := range declared {
 		if !listed[value] {
 			t.Errorf("event type %q declared at %s is missing from event.Types() — "+
-				"add it there and document it in docs/protocol-v1.md", value, pos)
+				"add it there and document it in docs/guides/protocol-v1.md", value, pos)
 		}
 	}
 	for value := range listed {

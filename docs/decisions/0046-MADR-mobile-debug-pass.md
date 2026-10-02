@@ -10,7 +10,7 @@
 - **Scope**: `apps/mobile` (Dart sources + tests) at HEAD `5322e63`, i.e. *after*
   the MADR 0045 remediation batch (`c05b805..5322e63`), plus daemon↔app parity
   against `internal/event`, `internal/ws`, `internal/session`,
-  `internal/provider`, and `docs/protocol-v1.md`
+  `internal/provider`, and `docs/guides/protocol-v1.md`
 - **Related**: [MADR 0045](./0045-MADR-mobile-app-hardening-audit.md) /
   [plan](./0045-PLAN-mobile-app-hardening-audit.md),
   [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md),
@@ -445,7 +445,7 @@ the per-item steps.
 ## 5. Informational and cross-cutting
 
 - **I-1**: fix the `event.go:387-389` comment and document in
-  `docs/protocol-v1.md` that a `plan` event **omits** `entries` to clear
+  `docs/guides/protocol-v1.md` that a `plan` event **omits** `entries` to clear
   (replace semantics; absence ≠ merge), explicitly contrasting with
   `session_mode`'s absent→keep-current rule. Wire shape unchanged — this app
   already handles it, and changing emission would be churn without benefit.

@@ -2567,7 +2567,7 @@ func (m *Manager) signReceipt(rs ReceiptSupport, deviceID, sessionID, correlatio
 	// the auth store is the ONLY other holder of this key, and a later
 	// `pair revoke`/`pair prune` deletes it there — archiving at receipt
 	// time is what keeps this chain verifiable for the rest of its life
-	// (docs/receipts.md "Revoked devices"). Fetched once here and reused for
+	// (docs/guides/receipts.md "Revoked devices"). Fetched once here and reused for
 	// signature verification below.
 	devicePub, devicePubErr := rs.AuthStore.PublicKeyFor(deviceID)
 	if devicePubErr == nil {

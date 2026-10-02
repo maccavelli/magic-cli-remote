@@ -490,8 +490,8 @@ Only if operator noise is material.
 | --- | --- |
 | 0072 MADR | Status → Accepted / In progress → Software complete as phases land; link this plan |
 | 0072 PLAN | Status per phase |
-| `docs/config.md` | Codex stall default 120; limits liveness keys |
-| `docs/ops-hardware-validation.md` | Rows for: bootout heal, stall notice, sticky status, re-pair single key |
+| `docs/guides/config.md` | Codex stall default 120; limits liveness keys |
+| `docs/guides/ops-hardware-validation.md` | Rows for: bootout heal, stall notice, sticky status, re-pair single key |
 | `README` service section | bootout vs kickstart; doctor service section |
 
 ### 8.3 Full validation matrix (after P0–P4)

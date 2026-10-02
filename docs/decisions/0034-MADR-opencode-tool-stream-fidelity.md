@@ -102,7 +102,7 @@ re-proposed.
   turns three ways (`resync.go:219,222-224,233-235`) plus a `!o.h.EndTurn()`
   race guard (`:252`). The concurrency concern is documented as handled
   (`resync.go:236-244`).
-- **`stream_coalesce_ms` is already documented** in `docs/config.md:76` with a
+- **`stream_coalesce_ms` is already documented** in `docs/guides/config.md:76` with a
   full explanation of the tradeoff and the `0` escape hatch. (`config.example.yaml`
   does not exist; rev 1's recommendation targeted the wrong file.)
 
@@ -309,4 +309,4 @@ rate limiting.
 - **Phase 2 (D3)**: Added `event.IsInPlaceUpdate` and updated `chunkbuf.Add` to allow in-place tool updates with a tool ID to pass through without force-draining pending assistant text runs. Unit tests added in `chunkbuf_test.go`.
 - **Phase 3 (D2)**: Implemented `clipBlock` (preserving newlines and rune boundaries) and updated tool output detail precedence chain (`maxToolOutputChars = 8000`). Unit tests added in `http_delta_test.go`.
 - **Phase 4 (D4)**: Added client-side identity guard in `apps/mobile/lib/data/chat/transcript_reducer.dart` to prevent redundant transcript copies and re-renders. Verified with unit tests in `transcript_reducer_test.dart`.
-- **Phase 5**: Protocol spec (`docs/protocol-v1.md`), MADR 0024, and MADR 0034 updated. Verification suite green.
+- **Phase 5**: Protocol spec (`docs/guides/protocol-v1.md`), MADR 0024, and MADR 0034 updated. Verification suite green.

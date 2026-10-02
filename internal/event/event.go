@@ -116,7 +116,7 @@ const (
 //
 // This is the enumeration clients are specified against, and
 // TestEventTypesAreDocumented asserts each entry appears in the event-type list
-// in docs/protocol-v1.md (MADR 0036 D6). A new type therefore fails the build
+// in docs/guides/protocol-v1.md (MADR 0036 D6). A new type therefore fails the build
 // until it is documented — the guard for `session_title`, which shipped as a
 // live control event with zero mentions in the spec.
 //
@@ -253,7 +253,7 @@ func IsInPlaceUpdate(ev Event) bool {
 }
 
 // Tool statuses carried on tool_call / tool_call_update events. The closed
-// vocabulary is specified in docs/protocol-v1.md under `tool_status`.
+// vocabulary is specified in docs/guides/protocol-v1.md under `tool_status`.
 const (
 	ToolStatusPending   = "pending"
 	ToolStatusRunning   = "running"
@@ -582,7 +582,7 @@ type Event struct {
 	// on the host), "server" (provider-side 500/502/504, usually
 	// transient), "permission" (OS/sandbox denial, MADR 0069). Empty for
 	// generic errors. The authoritative vocabulary is
-	// internal/agenterr.Kind; docs/protocol-v1.md documents the wire
+	// internal/agenterr.Kind; docs/guides/protocol-v1.md documents the wire
 	// contract.
 	ErrorKind string `json:"error_kind,omitempty"`
 

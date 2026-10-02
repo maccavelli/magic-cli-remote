@@ -61,7 +61,7 @@ unit test and P2 adds the fixture test, and neither alone is sufficient.
   workflow change permitted is adding the four test steps (P3).
 * `internal/updateclient/*`. It resolves assets by exact name, not through
   `SHA256SUMS` (F10), so it is not implicated.
-* `README.md` and `docs/ops-windows-install.md`. The documented command is
+* `README.md` and `docs/guides/ops-windows-install.md`. The documented command is
   correct and does not change — only the script behind it does.
 
 ## Stability rule

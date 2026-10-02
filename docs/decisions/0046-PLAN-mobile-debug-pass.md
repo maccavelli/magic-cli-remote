@@ -83,7 +83,7 @@ each phase must add the test that would have caught its finding.
 | Provider meta (Go) | `internal/provider/provider.go` |
 | Events (Go) | `internal/event/event.go` |
 | WS server (Go) | `internal/ws/server.go` |
-| Protocol doc | `docs/protocol-v1.md` |
+| Protocol doc | `docs/guides/protocol-v1.md` |
 
 ### Verified baseline facts (do not rediscover)
 
@@ -734,7 +734,7 @@ One call site + ordering.
    fail the **snapshot** only.
 3. **L-3** (`mc_exception.dart:43-70`):
    - `pair_error`: `permanent: code != 'rate_limited'` at minimum; align the
-     full set with `docs/protocol-v1.md:739` (only `client_key_*` and the
+     full set with `docs/guides/protocol-v1.md:739` (only `client_key_*` and the
      doc's explicit permanent codes stay permanent).
    - `auth_error`: `permanent` only for `invalid_token`, `bad_version`,
      `unauthorized`, `client_key_*`; generic `auth_failed` → transient.
@@ -845,7 +845,7 @@ after the backend recovers → notification delivered.
 ## Phase C5 — Go/protocol hygiene (L-13, I-1, I-2)
 
 **Files:** `internal/provider/provider.go`, `internal/event/event.go`,
-`internal/ws/server.go`, `docs/protocol-v1.md`, Go tests.
+`internal/ws/server.go`, `docs/guides/protocol-v1.md`, Go tests.
 
 ### Steps
 
@@ -855,7 +855,7 @@ after the backend recovers → notification delivered.
    `_test` files) — fix every wire-facing hit the same way. Unit test:
    marshal a zero `UpdatedAt` → key absent.
 2. **I-1**: correct the `event.go:387-389` comment (a clear **omits**
-   `entries`); add a "plan event" note to `docs/protocol-v1.md`: absent
+   `entries`); add a "plan event" note to `docs/guides/protocol-v1.md`: absent
    `entries` ⇒ replace-with-empty (clear), explicitly contrasted with
    `session_mode`'s absent⇒keep-current merge.
 3. **I-2**: in `handleSessionPendingAsks` (`server.go:588`), read
@@ -884,7 +884,7 @@ side needs no change (its `updated_at` parse already tolerates absence —
 6. Checklist against MADR 0046 §1: every ID maps to a landed phase and a
    named test; any deliberate deferral is recorded in the MADR (edit its
    Status line), not silently dropped.
-7. Manual smoke (device or emulator, per `docs/mobile-profiling.md` setup):
+7. Manual smoke (device or emulator, per `docs/guides/mobile-profiling.md` setup):
    - pair, kill daemon, watch reconnect backoff continue past the first
      failure (H-A);
    - scan a second daemon's QR, cancel, reconnect to the first (H-B);

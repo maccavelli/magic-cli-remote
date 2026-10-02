@@ -352,7 +352,7 @@ app honest about it, nothing more.
 Seventh and eighth verification-of-a-verification failures in this body of work.
 Both were caught because the result contradicted something already established.
 
-#### Scope addition — `docs/ops-android-emulator.md`
+#### Scope addition — `docs/guides/ops-android-emulator.md`
 
 Not in this plan's file list. Pairing failed three times with **"code already
 used"** before the cause was found: **the emulator loads the virtual-scene

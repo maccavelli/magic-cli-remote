@@ -389,7 +389,7 @@ func printRelayLines(out interface{ Write([]byte) (int, error) }, cfg config.Con
 // Limitation, stated plainly: in letsencrypt mode the advertised fingerprint is
 // not the certificate a healthy daemon serves. A client in that mode must treat
 // it as "additionally acceptable", never as "the only acceptable" — see the
-// mode= contract in docs/protocol-v1.md. `mcremote pair` cannot do better,
+// mode= contract in docs/guides/protocol-v1.md. `mcremote pair` cannot do better,
 // since it may run before `serve` has ever obtained an ACME certificate, and a
 // pin that is wrong *on the fallback path* would be worse than no pin at all.
 func pairFingerprint(cfg config.Config) (string, error) {

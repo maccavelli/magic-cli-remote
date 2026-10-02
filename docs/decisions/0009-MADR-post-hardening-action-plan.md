@@ -12,7 +12,7 @@
 | [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) | Front door, TLS, client identity, operability — **complete** |
 | [0055-PLAN-mcremote-server-remediation.md](0055-PLAN-mcremote-server-remediation.md) | Lifecycle, admin sock, fan-out, auth, limits — **code complete**; some checkboxes stale |
 | [0012-MADR-mcremote-daemon-assessment-action-plan.md](0012-MADR-mcremote-daemon-assessment-action-plan.md) | Post-audit residual concurrency/auth/provider work (Phases 0–4 shipped) |
-| [protocol-v1.md](protocol-v1.md) | Wire contract (mostly current) |
+| [protocol-v1.md](../guides/protocol-v1.md) | Wire contract (mostly current) |
 | [0001-MADR-architecture-mcremote.md](0001-MADR-architecture-mcremote.md) | Relay-primary vision vs mesh-first ship |
 | [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md) | **Phase E design accepted** — mcrelay E2E TLS splice, join plane, hardening |
 | [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md) | Post-E0–E3 audit findings; P1–P6 capacity/backoff/limits/Origin/rate |
@@ -284,7 +284,7 @@ Locked decisions (see 0015 for full text):
 - [x] **0016 P1–P6** Hub phone capacity, relayhost backoff reset, field-wise limits, Origin harden, rate map GC, mobile peer lock + outer buffer
 - [x] **0016 R5/R15/R17** Host control ping, splice idle/max lifetime, shutdown drain
 - [x] **0016 R20** Join-plane e2e tests in CI (`go test` + race on relay packages)
-- [x] **E4** Ops docs ([ops-mcrelay.md](ops-mcrelay.md), systemd unit, LE, secret rotation, smoke checklist)
+- [x] **E4** Ops docs ([ops-mcrelay.md](../guides/ops-mcrelay.md), systemd unit, LE, secret rotation, smoke checklist)
 
 ### E.3 Phase E exit
 
@@ -293,7 +293,7 @@ Locked decisions (see 0015 for full text):
 - [x] Automated smoke: register/join/splice + unauthorized register + idle/shutdown + security e2e (see `internal/relay/e2e_test.go`)
 - [x] Automated security: wrong secret cannot register; join alone cannot mint host sessions; host drop fails pending join; wrong tunnel token rejected
 - [x] Mesh-direct preferred when reachable (unit + probe); relay fallback when not
-- [ ] **Operator-only:** manual off-mesh phone smoke (auth + create + prompt + permission + history/`models.list`) — checklist in [ops-mcrelay.md](ops-mcrelay.md) §7
+- [ ] **Operator-only:** manual off-mesh phone smoke (auth + create + prompt + permission + history/`models.list`) — checklist in [ops-mcrelay.md](../guides/ops-mcrelay.md) §7
 
 ---
 

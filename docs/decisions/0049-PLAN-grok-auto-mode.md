@@ -64,7 +64,7 @@ other mode disarms it.
 | Grok provider | `internal/provider/grok/grok.go` |
 | Grok tests | `internal/provider/grok/grok_test.go` |
 | ACP-stdio tests | `internal/provider/acpagent/*_test.go` |
-| Config docs | `docs/config.md` |
+| Config docs | `docs/guides/config.md` |
 
 ### Verified baseline facts (do not rediscover)
 
@@ -271,14 +271,14 @@ before.
 
 ## Phase B — grok: opt in
 
-**Files:** `internal/provider/grok/grok.go`, `docs/config.md`
+**Files:** `internal/provider/grok/grok.go`, `docs/guides/config.md`
 
 1. Set `SynthesizeAutoMode: true` in `spec` beside `DefaultModeID: "default"`.
 2. Leave `staticModes` as-is — `default` first, `plan` second; `auto` is
    appended by the daemon, so the menu reads **default, plan, auto**.
 3. Extend the `staticModes` doc comment to say that auto is synthetic and
    daemon-enforced, and that it is *not* grok's `--permission-mode auto`.
-4. `docs/config.md`: under `providers.grok.permission_mode`, add that it is a
+4. `docs/guides/config.md`: under `providers.grok.permission_mode`, add that it is a
    process-wide launch flag and that the per-session `auto` mode is separate
    and daemon-enforced; if the process was launched with `bypassPermissions`,
    grok will not ask and the session mode is advisory (MADR 0049 D6).

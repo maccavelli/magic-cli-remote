@@ -24,7 +24,7 @@
   [0061-MADR-relay-pair-advertise-and-path-selection.md](0061-MADR-relay-pair-advertise-and-path-selection.md)
   (attempt-scoped force-relay on QR — superseded for interactive path; advertise
   vs register),
-  [protocol-v1.md](protocol-v1.md) (inner control plane after transport is up).
+  [protocol-v1.md](../guides/protocol-v1.md) (inner control plane after transport is up).
 - **Supersedes**: Implicit path policy in 0061 **D2** for interactive connect
   (QR/paste/Connect). Replaces “QR with relay always forces relay” with
   probe-aware availability + explicit user selection when both transports are

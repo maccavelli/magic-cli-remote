@@ -271,7 +271,7 @@ by this record, and why. Everything else in D10 stands.
 **D3 — Every encoding of the target list moves in the same phase.**
 `ci.yml`, `scripts/verify-build-metadata.sh`, `scripts/install_test.sh`,
 `README.md` (both the platform table and the stale CI sentence at `:1409`), and
-`docs/ops-linux-install.md:66`. F3's existing drift is repaired at the same
+`docs/guides/ops-linux-install.md:66`. F3's existing drift is repaired at the same
 time — leaving `README.md:1409` naming three of five while changing five to
 four would make it wrong in a new way.
 
@@ -409,7 +409,7 @@ README:1409                          → names all four targets
 | README CI sentence stale by two targets | `README.md:1409` |
 | README lists darwin/amd64 Tier 1 | `README.md:160` |
 | Tier 2 definition | `README.md:163` |
-| ops doc names both Darwin arches | `docs/ops-linux-install.md:66` |
+| ops doc names both Darwin arches | `docs/guides/ops-linux-install.md:66` |
 | Updater resolves by runtime GOOS/GOARCH | `internal/update/run.go:67` |
 | Updater missing-asset error | `internal/update/github.go:92-94` |
 | Installer arch mapping | `scripts/install.sh:85` |

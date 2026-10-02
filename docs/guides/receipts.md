@@ -1,10 +1,10 @@
 # Signed receipts for permission decisions
 
-Design: [MADR 0077](0077-MADR-signed-receipts-permission-handoffs.md) ·
-Implementation plan: [0077-PLAN](0077-PLAN-signed-receipts-permission-handoffs.md)
+Design: [MADR 0077](../decisions/0077-MADR-signed-receipts-permission-handoffs.md) ·
+Implementation plan: [0077-PLAN](../decisions/0077-PLAN-signed-receipts-permission-handoffs.md)
 
 Signed receipts are an **opt-in** feature (`receipts.enabled: false` by
-default — see [`docs/config.md`](config.md)): a durable, tamper-evident,
+default — see [`docs/guides/config.md`](config.md)): a durable, tamper-evident,
 device-signed record of a human's permission decision on a paired phone.
 Nothing about this feature changes behavior for an operator who never
 touches the `receipts` config section.
@@ -35,7 +35,7 @@ receipts:
 `[set]`) matched against `"<tool_name> <detail>"` — the same human-readable
 summary already carried on the `permission_request` event. A deny match
 always wins over an allow match on the same decision. See
-[`internal/receipt/match.go`](../internal/receipt/match.go) for exactly why
+[`internal/receipt/match.go`](../../internal/receipt/match.go) for exactly why
 this is **not** Go stdlib `path.Match` (its `*` cannot cross a `/`, which
 broke on the very first realistic example — a receipt-triggering pattern
 matching a file path would silently never fire).
@@ -52,8 +52,8 @@ Each enrolled device with at least one receipt gets its own file:
   `internal/receipt.Store` that rewrites an existing line, by construction.
 - **One JWS compact string per line.** `header.payload.signature`
   (base64url, RFC 7515 §3.1) — no library on either side (Go or Dart); see
-  [`internal/receipt/jws.go`](../internal/receipt/jws.go) and
-  [`apps/mobile/lib/data/ws/jws.dart`](../apps/mobile/lib/data/ws/jws.dart).
+  [`internal/receipt/jws.go`](../../internal/receipt/jws.go) and
+  [`apps/mobile/lib/data/ws/jws.dart`](../../apps/mobile/lib/data/ws/jws.dart).
 - **Backward hash-chained per device** (not per session — a device's
   accountability history outlives any one session). Each entry's decoded
   payload carries `chain.prev_sha256`: the SHA-256 of the complete previous
@@ -174,8 +174,8 @@ out of the box, and nothing here claims it does.
 Every `predicateType` this codebase has ever defined, in one place — a
 future receipt kind (the session-handoff follow-up MADR 0077 D1 names, or
 anything else) registers itself here **before shipping**, the same
-discipline [`docs/protocol-v1.md`](protocol-v1.md)/
-[`docs/protocol-v2.md`](protocol-v2.md) already apply to wire messages.
+discipline [`docs/guides/protocol-v1.md`](protocol-v1.md)/
+[`docs/guides/protocol-v2.md`](protocol-v2.md) already apply to wire messages.
 
 | `predicateType` | Signed by | Meaning |
 | --- | --- | --- |
@@ -194,7 +194,7 @@ discipline [`docs/protocol-v1.md`](protocol-v1.md)/
 
 All three read `data_dir` the same way every other `mcremote` command
 does (`--data-dir`, else config, else the XDG default) — see
-[`docs/config.md`](config.md#locations-xdg).
+[`docs/guides/config.md`](config.md#locations-xdg).
 
 ## Reading a chain from the phone (MADR 0078)
 

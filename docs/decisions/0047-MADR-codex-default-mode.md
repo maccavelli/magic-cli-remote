@@ -8,7 +8,7 @@
     mode; codex mode table introduced in D5
   - [MADR 0022](./0022-MADR-plan-mode-parity.md) — session modes end to end
   - [MADR 0028](./0028-MADR-codex-provider.md) — codex app-server transport
-  - [protocol-v1.md](./protocol-v1.md) — `session_mode`, `session.set_mode`
+  - [protocol-v1.md](../guides/protocol-v1.md) — `session_mode`, `session.set_mode`
 - **Companion plan**:
   [0047-PLAN-codex-default-mode.md](./0047-PLAN-codex-default-mode.md)
 - **Evidence**: code inspection of `internal/provider/codex/mode.go`,

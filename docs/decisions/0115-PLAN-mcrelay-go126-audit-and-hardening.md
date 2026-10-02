@@ -31,8 +31,8 @@ phones and hosts on the wire.
 * `internal/config/config.go`, `internal/config/load.go`,
   `internal/daemon/daemon.go` — **only** the F6 knob
   (`relay.max_frame_bytes`) and its wiring.
-* `configs/config.example.yaml`, `docs/config.md`, `docs/config-mcrelay.md`,
-  `docs/ops-mcrelay.md` — documentation for the F6 knob and changed
+* `configs/config.example.yaml`, `docs/guides/config.md`, `docs/guides/config-mcrelay.md`,
+  `docs/guides/ops-mcrelay.md` — documentation for the F6 knob and changed
   operational behaviour.
 
 ### Out of scope
@@ -363,7 +363,7 @@ bridge goroutines use `WaitGroup.Go`.
 `internal/relayhost/client.go`, `internal/relayhost/client_test.go`,
 `internal/config/config.go`, `internal/config/load.go`,
 `internal/daemon/daemon.go`, `configs/config.example.yaml`,
-`docs/config.md`.
+`docs/guides/config.md`.
 
 **Steps.**
 
@@ -481,8 +481,8 @@ may stay cold if the package clears the bar), docs updated, full suite green.
 **Files.** New/extended tests only:
 `internal/relay/server_lifecycle_test.go` (create),
 `internal/relay/cli_test.go` (create), `internal/relay/fileconfig_test.go`,
-`internal/relayhost/client_test.go`; docs: `docs/config-mcrelay.md`,
-`docs/ops-mcrelay.md`.
+`internal/relayhost/client_test.go`; docs: `docs/guides/config-mcrelay.md`,
+`docs/guides/ops-mcrelay.md`.
 
 **Steps.**
 
@@ -510,10 +510,10 @@ may stay cold if the package clears the bar), docs updated, full suite green.
    step 1 until both totals ≥ 80.0%. Do not add tests solely to inflate
    trivial accessors; failure paths first.
 3. Docs:
-   * `docs/config-mcrelay.md`: note the pre-auth 64 KiB first-frame bound and
+   * `docs/guides/config-mcrelay.md`: note the pre-auth 64 KiB first-frame bound and
      oldest-first rate eviction (operational behaviour, not knobs).
-   * `docs/config.md`: document `relay.max_frame_bytes`.
-   * `docs/ops-mcrelay.md`: one paragraph on the F1 fix (parked-tunnel
+   * `docs/guides/config.md`: document `relay.max_frame_bytes`.
+   * `docs/guides/ops-mcrelay.md`: one paragraph on the F1 fix (parked-tunnel
      symptom retired; slot-sweep WARN lines for this cause should no longer
      appear).
 4. Final regression, in order:

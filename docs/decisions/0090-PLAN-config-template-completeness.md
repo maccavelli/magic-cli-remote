@@ -22,7 +22,7 @@ target-milestone: [Template sync + fitness test with the MADR; SetDefault follow
   * [x] `TestTemplatesSpellEveryConfigKey` + `TestTemplateTopLevelKeysMatchExample` + `TestTemplateGrokPermissionModeIsDefault` green
   * [ ] `setDefaults` binds `limits.ws_read_deadline_seconds`, `limits.ws_resume_window_seconds`, `limits.tcp_keepalive.*`, `providers.codex.sandbox_broken_policy` (MADR D6)
   * [ ] Env-override tests for those keys (same shape as `TestReceiptsEnvOverride`)
-  * [ ] `docs/config.md` env table lists the newly bound vars
+  * [ ] `docs/guides/config.md` env table lists the newly bound vars
   * [ ] `make pre-add-check FILES="<touched .go>"` clean before any `git add`
 
 ## Prerequisites & Dependencies
@@ -84,7 +84,7 @@ Omitted on purpose (MADR D3): `providers.opencode.transport`,
   - [x] **Task 1.3**: `config.prod.example.yaml` and
         `config.mesh-grok.yaml` — add `kilo`, `receipts`,
         `limits.ws_*` + `tcp_keepalive`; same permission_mode pin.
-  - [x] **Task 1.4**: `docs/config.md` — document
+  - [x] **Task 1.4**: `docs/guides/config.md` — document
         `limits.tcp_keepalive.*`; kilo known-good 7.4.22.
 * **Verify**: `rg -n '^receipts:'` hits all four YAML files;
   `rg -n 'permission_mode: ""'` over those files is empty.
@@ -120,7 +120,7 @@ Omitted on purpose (MADR D3): `providers.opencode.transport`,
         (`MCREMOTE_LIMITS_WS_READ_DEADLINE_SECONDS=90` etc.), same
         shape as `TestReceiptsEnvOverride`.
   - [ ] **Task 3.3**: Add those variables to the
-        `docs/config.md` environment table.
+        `docs/guides/config.md` environment table.
 * **Verify**: `go test ./internal/config/ -run Env` green; a
   missing `SetDefault` would make the new test fail the same way
   `TestRoute53MaxRetriesEnvOverride` was written to fail.
@@ -166,7 +166,7 @@ Omitted on purpose (MADR D3): `providers.opencode.transport`,
   - [x] Task 1.1: install seed
   - [x] Task 1.2: documented example
   - [x] Task 1.3: prod + mesh
-  - [x] Task 1.4: docs/config.md keepalive + kilo pin
+  - [x] Task 1.4: docs/guides/config.md keepalive + kilo pin
 - [x] **Phase 2: Fitness tests**
   - [x] Task 2.1–2.4
 - [ ] **Phase 3: SetDefault / env (D6)** — wait for MADR review

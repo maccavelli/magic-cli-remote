@@ -102,7 +102,7 @@ Depends on P1. Pure transport plumbing.
    `Manager.Claim`, reply a `session.created`-shaped `Meta`). Register both in
    the dispatch switch. Both async-dispatched like other session ops if they
    can block on persist.
-3. `docs/protocol-v1.md`: add both verbs to the message table and a short
+3. `docs/guides/protocol-v1.md`: add both verbs to the message table and a short
    "Session handoff" subsection (release/claim semantics, `to_device_id`
    optional, ownership/visibility rules).
 
@@ -174,7 +174,7 @@ Depends on P1, P2, P3. The first new receipt kinds since 0077.
    digest over `from \x00 to \x00 session`.
 2. `internal/config/config.go` + `load.go`: `ReceiptsConfig.Handoffs bool`
    (default true; only consulted when `Enabled`). `configs/config.example.yaml`
-   + `docs/config.md` updated.
+   + `docs/guides/config.md` updated.
 3. `internal/session/manager.go`: on successful `Release`/`Claim`, if
    `receipts.Enabled && receipts.Handoffs`, fire a background round-trip (D5's
    `RequestReceipt`) building the matching handoff Statement, verifying, and
@@ -236,7 +236,7 @@ permission entries alone.
 3. `internal/ws/server.go`: advertise a `receipts` capability bit in the
    auth_ok / capability block when `receipts.enabled`, so the phone shows the
    UI only when the daemon keeps receipts.
-4. `docs/protocol-v1.md`: document both verbs, the own-chain-only rule, and the
+4. `docs/guides/protocol-v1.md`: document both verbs, the own-chain-only rule, and the
    capability bit.
 
 ### Tests
@@ -317,7 +317,7 @@ Depends on everything.
 2. `README.md`: "Session handoff" subsection (release/claim, targeted vs open)
    and extend the "Signed receipts" section with the handoff predicate types +
    the phone surfacing.
-3. `docs/receipts.md`: register the two new `predicateType`s in the registry
+3. `docs/guides/receipts.md`: register the two new `predicateType`s in the registry
    table; document the phone read surface and local verification.
 4. MADR 0077's status line: note that D1's follow-up shipped as 0078 (one-line
    cross-reference, no content change).

@@ -53,7 +53,7 @@ Commit per phase; no push until review.
 1. `SessionSynchronizer`: if bounds for id has `latest == 0` (and no gap),
    skip history even when `force` — empty host ring has nothing to fetch.
 2. Test: epoch force with empty latest skips historyCalls.
-3. `docs/standards/mobile/dart.md`: one line that discard metrics remain
+3. `docs/guides/standards/mobile/dart.md`: one line that discard metrics remain
    optional (no code counter required).
 
 ## P3 — Close-out (F5)

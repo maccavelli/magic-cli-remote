@@ -8,7 +8,7 @@
   hardening. Scope: `cmd/mcrelay`, `internal/relay`, `internal/relayhost`.
 - **Extends**: [MADR 0015](0015-MADR-mcrelay-transport-security.md),
   [MADR 0016](0016-MADR-mcrelay-audit-hardening.md)
-- **Companions**: [config-mcrelay.md](config-mcrelay.md), [ops-mcrelay.md](ops-mcrelay.md)
+- **Companions**: [config-mcrelay.md](../guides/config-mcrelay.md), [ops-mcrelay.md](../guides/ops-mcrelay.md)
 - **Implementation scope**: Phases **A–D**, **E1** (opt-in trusted proxies),
   **E2** (splice/host buffer pooling), **E3** (rate-map background prune).
   **E5** (Prometheus metrics) remains deferred (0015 non-goal).
@@ -159,7 +159,7 @@ Owner locked: **recommendations for D7–D12, D14, D16**; overrides **D13 #2**,
 |------|------|---------|---------------|
 | **B1** | `FileConfig.Validate` rejects over-ceiling limits (D9) | R30, R40 | `fileconfig.go` |
 | **B2** | `ResolvedLimits` clamps as second line of defense (tests constructing `Config` directly) | R30 | `config.go` |
-| **B3** | Document ceilings in `config-mcrelay.md` | R30 | `docs/config-mcrelay.md` |
+| **B3** | Document ceilings in `config-mcrelay.md` | R30 | `docs/guides/config-mcrelay.md` |
 | **B4** | Tests for reject/clamp of absurd values | R30, R40 | `fileconfig_test.go`, `config` tests |
 
 **Exit criteria:**

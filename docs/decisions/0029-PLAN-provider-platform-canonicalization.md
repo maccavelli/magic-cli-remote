@@ -504,8 +504,8 @@ Every phase updates its source-of-truth documentation in the same change:
 
 - [MADR 0029](./0029-MADR-provider-platform-canonicalization.md) implementation log
   and status;
-- [protocol-v1](./protocol-v1.md) for any capability/history wire addition;
-- [config.md](./config.md) and example YAML for a new or moved
+- [protocol-v1](../guides/protocol-v1.md) for any capability/history wire addition;
+- [config.md](../guides/config.md) and example YAML for a new or moved
   stream_coalesce_ms key;
 - provider live-test notes when observed CLI behavior changes;
 - Flutter README only if client compatibility or cache behavior changes.

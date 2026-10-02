@@ -34,7 +34,7 @@ That is the entire surface. No `pubspec.yaml` change (the package version is alr
 
 ### Out of scope
 
-* **Engine swap** to Markwon, `flutter_markdown`, or anything else. `docs/chat-performance.md:75,79` rules this out as a non-goal pending post-Phase-B profiling. Anchored by MADR 0018 D11.
+* **Engine swap** to Markwon, `flutter_markdown`, or anything else. `docs/guides/chat-performance.md:75,79` rules this out as a non-goal pending post-Phase-B profiling. Anchored by MADR 0018 D11.
 * **Streaming-time table buffering** in `streaming_markdown.dart`. F7 is parked in the MADR; the streaming behaviour already produces a table the moment the delimiter row lands, which is correct.
 * **Tap-to-scroll / tap-to-expand affordance** beyond the package's scrollbar thumb. The thumb alone is sufficient; a custom gesture is a future polish.
 * **Card-on-mobile layout** (Option D in the MADR). Decision is in the MADR; not re-opened here.
@@ -273,7 +273,7 @@ Add a fourth `testWidgets` to `chat_table_render_test.dart` (in P3, not P2):
 | A7 | ~~`flutter build apk --debug` with the new cell builder~~ Vacated 2026-09-28: no cell builder. | — | — |
 | A8 | Widget test: a wide table’s horizontal drag increases `controller.offset`. No phone emulator was connected on this host (macos desktop + chrome only). **Met 2026-09-29** on the Android emulator: see "A8 emulator check" in the execution record. | D5 as amended | P2 follow-up |
 
-**Criterion most likely to be quietly dropped under pressure: A8.** It is the only criterion that requires a real Android emulator, and a reviewer under time pressure will trust the widget test instead. **Do not declare the plan complete without running the chat on an emulator with the fixture.** `flutter run -d <device>` against an Android emulator started via `docs/ops-android-emulator.md`, paste a 4-column table reply, scroll the table horizontally, confirm thumb visibility and vertical height. The script in `docs/ops-android-emulator.md` is the one to follow.
+**Criterion most likely to be quietly dropped under pressure: A8.** It is the only criterion that requires a real Android emulator, and a reviewer under time pressure will trust the widget test instead. **Do not declare the plan complete without running the chat on an emulator with the fixture.** `flutter run -d <device>` against an Android emulator started via `docs/guides/ops-android-emulator.md`, paste a 4-column table reply, scroll the table horizontally, confirm thumb visibility and vertical height. The script in `docs/guides/ops-android-emulator.md` is the one to follow.
 
 ## Rollout and Rollback
 
@@ -417,7 +417,7 @@ outstanding, which is the case the A8 warning above names. This entry closes
 it.
 
 Setup: AVD `mcremote_test` (API 36, gesture navigation) booted per
-`docs/ops-android-emulator.md`, display override `wm density 480`, so the
+`docs/guides/ops-android-emulator.md`, display override `wm density 480`, so the
 screen is 360 dp wide. The app was built from `e0d08168` with `flutter run -d
 emulator-5554 --no-resident` (debug), installed over the existing debug
 install, and was still paired and connected to the local daemon.

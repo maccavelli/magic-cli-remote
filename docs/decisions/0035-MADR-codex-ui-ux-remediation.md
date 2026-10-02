@@ -500,7 +500,7 @@ Phases 0–9 landed on 2026-07-27 against `codex-cli 0.145.0`. Net changes:
 | 6 | `internal/session/commands.go`, `internal/command/conformance_test.go` | `runCanonical`'s `KindDaemon` arm refactored to a data table (`daemonCommands`) with `DaemonCommandNames()` for the test. New conformance tests: `TestEveryKindDaemonMappingIsDispatched` and `TestKindOpNamesKnownOp`. Codex added to `TestTablesAreKeyedByCanonicalName`. The chunkbuf boundary regression (`TestBoundaryFlushesTailAheadOfItselfAndBlocks`) continues to pass. |
 | 7 | `internal/provider/codex/{session.go,hardening_test.go}` | D7: redundant `drainChunks` removed at turn boundary; close-path drain now logs dropped bytes. D8: stall detection is now one atomic store per notification + one per-session ticker. D9: `account/rateLimits/updated` produces a `TypeError` with `error_kind: rate_limit` at ≥100% and a `TypeNotice` at ≥90%; `mcpServer/startupStatus/updated` failure surfaces a `TypeNotice`. |
 | 8 | `internal/provider/codex/{session.go,items.go,plan_test.go}`, `live_test.go` | `turn/plan/updated` wired to `TypePlan` with status normalization (`inProgress` → `in_progress`). Empty plan emits non-nil empty entries (replace-semantics). Live tests added for plan emission and capabilities. |
-| 9 | `docs/protocol-v1.md`, this file | Tool status vocabulary documented in `protocol-v1.md` (was the MADR 0035 D2 root cause). |
+| 9 | `docs/guides/protocol-v1.md`, this file | Tool status vocabulary documented in `protocol-v1.md` (was the MADR 0035 D2 root cause). |
 
 Phase 0 also revised some report-0032 claims: the `turn/plan/updated`
 notification IS in the v2 schema (it was just not exercised by the

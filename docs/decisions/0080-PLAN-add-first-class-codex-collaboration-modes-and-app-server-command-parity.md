@@ -89,7 +89,7 @@ fixtures and explicit assertions, not generated TypeScript.
   goal/diff/review/fork presentation.
 * `internal/command/conformance_test.go` to register kilo, accept
   `KindCollaborationMode`, and extend `knownOps`.
-* Corresponding Go and Flutter test files, `docs/protocol-v1.md`, the Codex
+* Corresponding Go and Flutter test files, `docs/guides/protocol-v1.md`, the Codex
   capability matrix/comments, and `Makefile` live-test targets.
 
 ### Files to add
@@ -313,7 +313,7 @@ Add two event types:
   clear.
 
 Add each to `event.Types`, control-event classification, JSON coverage,
-history/replay, and `docs/protocol-v1.md`. Never put developer instructions or
+history/replay, and `docs/guides/protocol-v1.md`. Never put developer instructions or
 raw goal objectives in diagnostic logs.
 
 Add this authenticated WebSocket operation:
@@ -649,7 +649,7 @@ Implements D4, D5, D8, D9, D11, D12, D21 and required-sequence item 3.
 6. Add protocol payloads/results/errors and authenticated WebSocket dispatch.
    Add mutating async classification and preserve response ordering.
 7. Document exact event merge semantics, operation payload, errors, old-client
-   behavior, and no-developer-instruction rule in `docs/protocol-v1.md`.
+   behavior, and no-developer-instruction rule in `docs/guides/protocol-v1.md`.
    Rewrite the sentences that treat `plan` as a universal `session_mode` id
    and that enable `/plan` from `session_mode` alone. Codex `/plan` is
    enabled from the collaboration event.

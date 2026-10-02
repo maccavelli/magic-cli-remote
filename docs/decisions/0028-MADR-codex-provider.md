@@ -27,7 +27,7 @@
     (item-stream fidelity, command truth, capability disclosure, turn
     completion normalization, hardening). Landed 2026-07-27.
     — repository-grounded delivery phases and acceptance gates
-  - [protocol-v1.md](./protocol-v1.md) — phone control plane
+  - [protocol-v1.md](../guides/protocol-v1.md) — phone control plane
   - [0023-REPORT-agent-cli-slash-commands-matrix.md](../reports/0023-REPORT-agent-cli-slash-commands-matrix.md) —
     historical survey only (superseded by MADR 0023)
   - Spike evidence: [docs/codex-spike-0.145.0/](./codex-spike-0.145.0/)

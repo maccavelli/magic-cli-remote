@@ -9,7 +9,7 @@
 # Precedence: CLI flags on ExecStart > Environment= below > config.yaml > defaults.
 # Prefer /etc/mcrelay/config.yaml for non-secrets; put registration secrets in
 # Environment= (unit mode 0600) or a drop-in under mcrelay.service.d/.
-# Full reference: docs/config-mcrelay.md
+# Full reference: docs/guides/config-mcrelay.md
 
 [Unit]
 Description=mcrelay public join-plane edge (mcremote outbound relay)
@@ -45,7 +45,7 @@ KillSignal=SIGTERM
 # Environment=MCRELAY_LOG_LEVEL=info
 # Environment=MCRELAY_LOG_FORMAT=json
 #
-# TLS (letsencrypt shown; see docs/config-mcrelay.md for file/dns-01 modes)
+# TLS (letsencrypt shown; see docs/guides/config-mcrelay.md for file/dns-01 modes)
 # Environment=MCRELAY_TLS_MODE=letsencrypt
 # Environment=MCRELAY_TLS_DOMAINS=relay.example.com
 # Environment=MCRELAY_TLS_EMAIL=ops@example.com

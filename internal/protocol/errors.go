@@ -5,7 +5,7 @@ package protocol
 //
 // This block is the registry: every code the daemon can put on the wire is
 // named here, and TestErrorCodesAreDocumented asserts each one appears in
-// docs/protocol-v1.md. TestWSErrorCodesAreRegistered walks the internal/ws
+// docs/guides/protocol-v1.md. TestWSErrorCodesAreRegistered walks the internal/ws
 // package with go/ast and asserts the converse — that no emit site invents a
 // code this list does not know about. Adding a code therefore fails the build
 // until it is both registered and documented.

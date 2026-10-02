@@ -3,7 +3,7 @@
 Apply-ready runbook for the credentials `mcremote` needs to obtain Let's
 Encrypt certificates via the DNS-01 challenge. This is the source of truth for
 the policy; surrounding design and configuration live in the root
-[README TLS section](../README.md#tls) and [config.md](config.md).
+[README TLS section](../../README.md#tls) and [config.md](config.md).
 
 Everything below assumes the worked example from
 [headscale.md](headscale.md): registered domain `lallygag.net`, MagicDNS base
@@ -61,7 +61,7 @@ The intended split is:
 
 The public zone never needs an address record for the daemon.
 
-**Check this before deploying:** `docs/headscale.md:91` currently sets
+**Check this before deploying:** `docs/guides/headscale.md:91` currently sets
 
 ```yaml
 override_local_dns: false   # safer on multi-use servers
@@ -92,7 +92,7 @@ dig +short devbox.ts.lallygag.net       # must return the 100.x tailnet IP
 ### Do not reuse the Headscale name
 
 `headscale.lallygag.net` already runs its own ACME client
-(`tls_letsencrypt_hostname`, HTTP-01 on port 80 — `docs/headscale.md:78-80`).
+(`tls_letsencrypt_hostname`, HTTP-01 on port 80 — `docs/guides/headscale.md:78-80`).
 Give the daemon a distinct name. Two ACME clients renewing the same hostname
 fight over the certificate and burn the "5 duplicate certificates per week"
 limit.
@@ -111,7 +111,7 @@ aws route53 list-hosted-zones-by-name \
 Output looks like `lallygag.net. /hostedzone/Z0123456789ABCDEFGHIJ`. You want
 the bare ID (`Z0123456789ABCDEFGHIJ`) — strip the `/hostedzone/` prefix.
 
-**Make sure `PrivateZone` is false.** `docs/headscale.md` notes this account
+**Make sure `PrivateZone` is false.** `docs/guides/headscale.md` notes this account
 also runs a *private* Route 53 view of `lallygag.net` for the VPC resolver.
 Writing challenge records into the private zone is invisible to Let's Encrypt
 and fails validation every time. The query above filters it out; verify you got

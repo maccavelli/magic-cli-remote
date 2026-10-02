@@ -128,7 +128,7 @@ side effect; Dart parsing and rendering tests.
    from its 1.18.4 snapshot to 1.18.5 and mark completed tree/command/compact
    work accurately. Record the intentional exclusion of experimental native
    session discovery.
-2. Update [protocol-v1.md](./protocol-v1.md) with rename and diagnostics
+2. Update [protocol-v1.md](../guides/protocol-v1.md) with rename and diagnostics
    schemas, authorization, payload bounds, and unsupported-provider behavior.
 3. Run `go test ./...`, `go test -race ./...`, targeted live OpenCode tests,
    `flutter analyze`, `flutter test`, and Dart formatting. Before staging any

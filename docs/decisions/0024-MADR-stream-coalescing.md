@@ -10,7 +10,7 @@
   chat performance; **closes decision D1**),
   [MADR 0019](./0019-MADR-opencode-process-management-plan.md) (HTTP-only OpenCode),
   [MADR 0020](./0020-MADR-opencode-session-tree.md) (session tree)
-- **Companion**: [docs/chat-performance.md](./chat-performance.md)
+- **Companion**: [docs/guides/chat-performance.md](../guides/chat-performance.md)
 
 ---
 
@@ -129,7 +129,7 @@ traffic, and the chunk-drop path together.
 `Manager.pump` was rejected on correctness: to coalesce there you must hold text
 *outside* the ring while pending, which opens a window where a reconnecting
 client's `session.history` / `since_seq` response
-(`docs/protocol-v1.md`) is missing the tail the daemon still holds. The ring is
+(`docs/guides/protocol-v1.md`) is missing the tail the daemon still holds. The ring is
 the durable contract; nothing may buffer between it and the client.
 
 `ws.Server` was rejected because it leaves §1.3, the manager lock, and the

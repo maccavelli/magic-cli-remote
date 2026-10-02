@@ -5,7 +5,7 @@
 - **Deciders**: Project Owner
 - **Locked decisions**: D1b, D2b, D3b, D4b, D5b, D6b, D7b, D8b (after B), D9 → local last-N cache (E1), D10b, D11a
 - **Context**: Deep dive of the Flutter Android session chat after the 2026-07
-  stability pass (`docs/chat-performance.md`, reverse-list architecture).
+  stability pass (`docs/guides/chat-performance.md`, reverse-list architecture).
   Lenses: **caching / buffers / FPS**, **scroll correctness**, **memory & GC**,
   **robustness under reconnect/history**, **look & feel / polish**.
 - **Scope**: `apps/mobile` session chat path primarily:
@@ -14,13 +14,13 @@
   - `lib/state/transcripts_notifier.dart`
   - `lib/theme/{scroll_activity,widgets}.dart`
   - tests under `apps/mobile/test/*{chat,transcript,stream,history}*`
-  - companion docs: `docs/chat-performance.md`, this MADR
+  - companion docs: `docs/guides/chat-performance.md`, this MADR
 - **Out of scope (explicit)**: FCM / remote push channel design (see
   `docs/reports/0178-REPORT-mobile-ux-assessment.md` P0), mcrelay, daemon protocol redesign,
   iOS, second provider / Antigravity, replacing `flutter_markdown_plus`
   unless Phase B profiling still pins it.
 - **Extends**: [0177-PLAN-flutter-android-client-assessment.md](./0177-PLAN-flutter-android-client-assessment.md),
-  [chat-performance.md](docs/chat-performance.md),
+  [chat-performance.md](../guides/chat-performance.md),
   [0178-REPORT-mobile-ux-assessment.md](../reports/0178-REPORT-mobile-ux-assessment.md)
 - **Companions**: Host history ring (`internal/session/manager.go`:
   `historyBufferCap=500`, page defaults 200/max 500, ~512 KiB soft response cap)
@@ -91,7 +91,7 @@ Treat as done unless regression tests fail. Do not rewrite these for their own s
 | Idle send guard | First message sendable when idle (tested) | `chat_render_test.dart` |
 | Empty-state starfield | Off non-empty path | `ChatScreen` body |
 
-**Doc debt:** `docs/chat-performance.md` still mentions 16 ms batch and
+**Doc debt:** `docs/guides/chat-performance.md` still mentions 16 ms batch and
 `cacheExtent: 400`; code is **32 ms** and **`scrollCacheExtent` 900 px**. Fix in
 Phase A (no behavior change).
 
@@ -180,7 +180,7 @@ Ship as sequential commits (or stacked PRs). Each phase must leave tests green.
 
 | Task | Detail |
 |------|--------|
-| A1 | Rewrite `docs/chat-performance.md`: reverse list, 32 ms batch, 900 px cache, closer-style stream buffer, scroll activity, profiling checklist |
+| A1 | Rewrite `docs/guides/chat-performance.md`: reverse list, 32 ms batch, 900 px cache, closer-style stream buffer, scroll activity, profiling checklist |
 | A2 | Add `docs/0018-MADR-mobile-chat-performance-action-plan.md` (this plan, status → Accepted once locked) |
 | A3 | Optional debug overlay (kDebugMode only) or comments documenting: batch window, last MD parse ms — only if useful; otherwise DevTools checklist in doc is enough |
 | A4 | Confirm `session.history` client: pass `limit: historyMaxPage` (500) if protocol supports it; document byte soft-cap behavior |

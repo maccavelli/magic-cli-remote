@@ -4,7 +4,7 @@
 
 - **Status**: **Implemented 2026-08-02** — P0–P5 landed, one commit per
   phase; Flutter and Go suites green throughout. Hardware rows E1–E3
-  outstanding in [ops-hardware-validation.md](ops-hardware-validation.md).
+  outstanding in [ops-hardware-validation.md](../guides/ops-hardware-validation.md).
   Implements
   [0066-MADR-secure-storage-upgrade-resilience.md](0066-MADR-secure-storage-upgrade-resilience.md)
   D1–D9: round-1 D1–D6, plus the round-2 additions (D8 host
@@ -287,8 +287,8 @@ assertions change anywhere.
 | `apps/mobile/test/connect_screen_test.dart` | P1, P2 |
 | `apps/mobile/lib/features/settings/settings_screen.dart` | P3 |
 | `apps/mobile/test/settings_screen_test.dart` | P3 |
-| `docs/ops-android-signing.md` | P4 |
-| `docs/ops-hardware-validation.md` | P4 |
+| `docs/guides/ops-android-signing.md` | P4 |
+| `docs/guides/ops-hardware-validation.md` | P4 |
 | `docs/0066-MADR-secure-storage-upgrade-resilience.md` | P4 (status) |
 | `docs/0065-MADR-update-automation.md`, `docs/0065-PLAN-update-automation.md` | P4 (gate cross-ref) |
 | `internal/ws/server.go` + server tests | P5 |

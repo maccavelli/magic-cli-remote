@@ -21,7 +21,7 @@ Finish line:
 * `PLATFORMS` in `ci.yml` names four targets; `verify-build-metadata.sh` builds
   and asserts the same four;
 * `scripts/install.sh` rejects Darwin/x86\_64 before any download, with a reason;
-* `README.md` and `docs/ops-linux-install.md` describe four supported targets
+* `README.md` and `docs/guides/ops-linux-install.md` describe four supported targets
   and one retired one, and `README.md:1409` is no longer stale;
 * `docs/0059-MADR-*` carries an additive amendment narrowing its D10;
 * no production Go file is changed.
@@ -37,7 +37,7 @@ Finish line:
 * `scripts/install.sh` — the D4 rejection
 * `scripts/install_test.sh` — the inverted `darwin-amd64` fixture
 * `README.md` — the platform table and the CI-job sentence at `:1409`
-* `docs/ops-linux-install.md` — the macOS arch sentence at `:66`
+* `docs/guides/ops-linux-install.md` — the macOS arch sentence at `:66`
 * `docs/0059-MADR-native-paths-and-linux-macos-parity.md` — a new
   `## Amendment` section, appended; nothing above it edited
 * `docs/0120-*` — this pair's own status and execution record
@@ -196,7 +196,7 @@ says so explicitly rather than committing an unverified inversion.
 
 ### P3 — Make the prose say four, and stop saying macOS CI costs money (D3, D6, D7, D10; closes F3, F8)
 
-`README.md`, `docs/ops-linux-install.md`, and the comment at
+`README.md`, `docs/guides/ops-linux-install.md`, and the comment at
 `.github/workflows/ci.yml:322-325`.
 
 * Platform table (`README.md:160`): `darwin/amd64` keeps its row, tier becomes
@@ -205,7 +205,7 @@ says so explicitly rather than committing an unverified inversion.
 * `README.md:1409`: currently names three of the five actual targets. Rewrite to
   the four. This is F3's pre-existing drift; fixing it is in scope precisely
   because leaving it would make the sentence freshly wrong.
-* `docs/ops-linux-install.md:66`: drop `darwin/amd64` from the macOS arch list.
+* `docs/guides/ops-linux-install.md:66`: drop `darwin/amd64` from the macOS arch list.
 * Wherever the retirement is described, D7 applies: no Rosetta claim.
 * `ci.yml:322-325` (D10): replace *"Re-enable a go-macos job when ready to pay
   for hosted runners again"* with the truth — standard macOS runners are free
@@ -216,7 +216,7 @@ says so explicitly rather than committing an unverified inversion.
 **Verification:**
 
 ```bash
-grep -n 'darwin/amd64' README.md docs/ops-linux-install.md
+grep -n 'darwin/amd64' README.md docs/guides/ops-linux-install.md
 # → only the retired-row line in README, with a reason on it
 grep -n 'pay for hosted runners' .github/workflows/ci.yml
 # → 0 hits
@@ -396,7 +396,7 @@ manifest-driven platform-selection path.
 The prescribed sweep returned exactly these hits:
 
 ```text
-./docs/ops-linux-install.md:68:[MADR 0120](0120-MADR-retire-the-darwin-amd64-target.md). The service there is
+./docs/guides/ops-linux-install.md:68:[MADR 0120](0120-MADR-retire-the-darwin-amd64-target.md). The service there is
 ./README.md:160:| `darwin/amd64` | — | **retired** after v0.14.10; see [MADR 0120](docs/0120-MADR-retire-the-darwin-amd64-target.md) |
 ./scripts/install.sh:94:        die 1 "darwin/amd64 is retired and is not published after v0.14.10 (MADR 0120).
 ./scripts/install.sh:96:v0.14.10 was the last release to carry darwin/amd64; install it manually if needed."
@@ -407,7 +407,7 @@ The prescribed sweep returned exactly these hits:
 
 Every hit is intentional:
 
-* `docs/ops-linux-install.md:68` is the decision link; the audit's `.` wildcard
+* `docs/guides/ops-linux-install.md:68` is the decision link; the audit's `.` wildcard
   matches the hyphen in the MADR filename, not a supported-target claim;
 * `README.md:160` is D6's required retained-and-retired platform row;
 * `scripts/install.sh:94,96` are D4's explanatory rejection;
@@ -433,7 +433,7 @@ No missed build, release, installer, documentation, or test encoding was found.
 * The range from the pre-execution baseline `be242ac` through the current
   worktree changes zero Go files, production or test (A9/C1).
 * Targeted Markdown lint found README clean and six pre-existing MD004 findings
-  in `docs/ops-linux-install.md`; none is on the changed lines.
+  in `docs/guides/ops-linux-install.md`; none is on the changed lines.
 
 
 ## P6 — observed on tag v0.15.0 (2026-08-29)

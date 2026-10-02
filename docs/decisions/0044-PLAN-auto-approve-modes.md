@@ -955,7 +955,7 @@ byte-for-byte unchanged** — no dialog, no restyle.
 
 ## Phase 6 — Docs and configuration
 
-1. `docs/protocol-v1.md` — **required, not optional** (go/session.md: wire
+1. `docs/guides/protocol-v1.md` — **required, not optional** (go/session.md: wire
    changes are revised in `internal/protocol` *with conformance and
    compatibility tests*). Document the new optional `SessionMode.dangerous`
    field, its default when absent, and that `session_mode` may carry an `auto`
@@ -996,7 +996,7 @@ restatements:
 | `go/testing.md` — "consider `testing/synctest` for timers and channels" | Use it for the retry/backoff loop and for the `TrackPermission` → `expirePermission` interaction in 2.0. That interaction is *timing*-defined; a wall-clock test would be slow and flaky, and the standard forbids sleeps. |
 | `go/testing.md` — "test both acceptance and rejection paths" | Every phase's tests include the negative case; phase 0's live test asserts the wrong wire shape is *rejected*. |
 | `go/testing.md` — build-tagged live suites, opt-in | Phase 0 added `live_codex`. **`make live-codex` does not exist** — the Makefile has only `live-opencode` (line 183). Add it, mirroring that target, or the suite stays undiscoverable. |
-| `go/session.md` — "add or revise wire messages in `internal/protocol` with conformance and compatibility tests" | `SessionMode.dangerous` (5.0) is a wire change: document it in `docs/protocol-v1.md` and add the compatibility test. Note `internal/protocol/doc_coverage_test.go` guards **event types and error codes only** — it will *not* catch an undocumented field, so this one is on the author. |
+| `go/session.md` — "add or revise wire messages in `internal/protocol` with conformance and compatibility tests" | `SessionMode.dangerous` (5.0) is a wire change: document it in `docs/guides/protocol-v1.md` and add the compatibility test. Note `internal/protocol/doc_coverage_test.go` guards **event types and error codes only** — it will *not* catch an undocumented field, so this one is on the author. |
 | `mobile/flutter.md` — Material 3, Celestial tokens, no per-screen palette | The dangerous chip uses `scheme.errorContainer` / `onErrorContainer`, never literal colours. |
 | `mobile/flutter.md` — "check `context.mounted` after an `await`" | Applies to the confirm dialog → `setMode` → notification sequence (5.2). |
 | `mobile/flutter.md` — "protocol and state-reduction logic belongs in data/state layers" | `dangerous` is decoded in `models.dart`; the widget reads a bool and never inspects mode ids. This is also what keeps goose safe (5.0). |
@@ -1047,7 +1047,7 @@ as a whole; nothing here is satisfied yet by phase 0 alone.
 - No new background goroutine without a named owner, cancellation path and exit
   condition (go/concurrency.md); the auto-approve goroutine is the only one this
   work adds.
-- `docs/protocol-v1.md` describes `SessionMode.dangerous`, with a compatibility
+- `docs/guides/protocol-v1.md` describes `SessionMode.dangerous`, with a compatibility
   test for the absent-field case.
 - Manual end-to-end, per provider: start a session → switch to `auto` →
   confirm → prompt something that requests permission → **no sheet**, notice

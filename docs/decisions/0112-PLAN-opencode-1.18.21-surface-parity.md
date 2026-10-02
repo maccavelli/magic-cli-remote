@@ -181,7 +181,7 @@ assertion.
 
 The corresponding request/result structs live in
 `internal/protocol/messages.go`, message constants are documented in
-`docs/protocol-v1.md`, dispatch lives in `internal/ws/server.go`, and Dart
+`docs/guides/protocol-v1.md`, dispatch lives in `internal/ws/server.go`, and Dart
 models/client methods live in `apps/mobile/lib/data/protocol/models.dart` and
 `apps/mobile/lib/data/ws/mcremote_client.dart`.
 
@@ -683,7 +683,7 @@ session.
   `apps/mobile/lib/features/sessions/sessions_screen.dart`.
 * `apps/mobile/test/resume_flow_test.dart`,
   `sessions_screen_test.dart`, and create `project_picker_test.dart`.
-* `docs/protocol-v1.md`.
+* `docs/guides/protocol-v1.md`.
 
 ### Steps
 
@@ -776,7 +776,7 @@ contract (MADR 0112 A14), and sends non-text prompt content in stable
 * `apps/mobile/test/staged_images_test.dart`,
   `thinking_picker_ui_test.dart`, `model_picker_test.dart`, and create
   `audio_attachment_test.dart`.
-* `docs/protocol-v1.md`.
+* `docs/guides/protocol-v1.md`.
 
 ### Steps
 
@@ -941,7 +941,7 @@ show complete tool terminal state, and remove or reconcile stale content.
   `queue_test.go`, and `coalesce_test.go`.
 * `internal/session/manager.go`, `manager_history_test.go`, and
   `manager_durable_test.go`.
-* `docs/protocol-v1.md` and `internal/protocol/doc_coverage_test.go`.
+* `docs/guides/protocol-v1.md` and `internal/protocol/doc_coverage_test.go`.
 * `apps/mobile/lib/data/chat/chat_models.dart`,
   `transcript_reducer.dart`, and `transcript_cache.dart`.
 * `apps/mobile/test/history_replay_test.dart`,
@@ -1054,7 +1054,7 @@ cost accounting is visible without breaking the legacy context indicator.
 * `internal/event/event.go` and `event_test.go`.
 * `internal/provider/opencode/parts.go`, `parts_test.go`, `usage.go`,
   `http.go`, and create `usage_test.go`.
-* `docs/protocol-v1.md`.
+* `docs/guides/protocol-v1.md`.
 * `apps/mobile/lib/data/chat/chat_models.dart`,
   `transcript_reducer.dart`, `transcript_rows.dart`,
   `apps/mobile/lib/features/chat/chat_bubble.dart`, and
@@ -1134,7 +1134,7 @@ granting shell access or introducing a write path.
   `op_timeouts.json`, and `errors.go`.
 * `internal/ws/server.go`, `server_session_handlers_test.go`,
   `op_timeout_test.go`, and create `workspace_handlers_test.go`.
-* `docs/protocol-v1.md`.
+* `docs/guides/protocol-v1.md`.
 * Create `apps/mobile/lib/features/chat/workspace_sheet.dart`.
 * `apps/mobile/lib/data/protocol/models.dart`,
   `apps/mobile/lib/data/ws/mcremote_client.dart`, and
@@ -1250,7 +1250,7 @@ an idle project instance so OpenCode discovers the result.
   `skill_authoring_sheet.dart`, `apps/mobile/test/diagnostics_sheet_test.dart`,
   and `skill_authoring_test.dart`.
 * `Makefile`.
-* `docs/protocol-v1.md`.
+* `docs/guides/protocol-v1.md`.
 
 ### Steps
 
@@ -1385,7 +1385,7 @@ added.
 * `internal/config/config.go`, `load.go`, and `config_test.go`.
 * `configs/config.example.yaml`, `configs/config.prod.example.yaml`,
   `internal/cli/service/defaults_mcremote.yaml`,
-  `internal/cli/service/template_parity_test.go`, `docs/config.md`, and
+  `internal/cli/service/template_parity_test.go`, `docs/guides/config.md`, and
   `README.md`.
 * `internal/daemon/daemon.go` and `daemon_test.go`.
 * `internal/provider/opencode/http.go`, `http_model_test.go`, and create
@@ -1454,7 +1454,7 @@ clear external-disclosure warning and validated URL handling.
   `apps/mobile/lib/data/ws/mcremote_client.dart`,
   `apps/mobile/lib/features/chat/chat_screen.dart`, and create
   `apps/mobile/test/session_share_test.dart`.
-* `docs/protocol-v1.md` and `docs/config.md`.
+* `docs/guides/protocol-v1.md` and `docs/guides/config.md`.
 
 ### Steps
 
@@ -1539,7 +1539,7 @@ permissions and with output represented by normal bounded tool events.
   `apps/mobile/lib/features/chat/shell_command_sheet.dart`.
 * Create `apps/mobile/test/shell_command_test.dart`.
 * `Makefile`.
-* `docs/protocol-v1.md` and `docs/config.md`.
+* `docs/guides/protocol-v1.md` and `docs/guides/config.md`.
 
 ### Steps
 
@@ -1631,7 +1631,7 @@ enable incrementally.
 
 * `docs/0021-MADR-opencode-http-api-coverage.md`,
   `docs/0112-MADR-opencode-1.18.21-surface-parity.md`,
-  `docs/protocol-v1.md`, `docs/config.md`, and `README.md`.
+  `docs/guides/protocol-v1.md`, `docs/guides/config.md`, and `README.md`.
 
 Any source or test correction discovered by the commands below is outside P11:
 stop, amend the relevant earlier phase and MADR facts, obtain re-approval, then

@@ -23,7 +23,7 @@ Associated MADR: [0106-MADR-grok-1.0.5-surface-parity.md](0106-MADR-grok-1.0.5-s
   `internal/provider/acpagent` (session/new|load `_meta`, spawnArgs,
   SetThinkingLevel, harvest helpers), `internal/provider/provider.go`
   (StartOptions comment), `internal/config/config.go` (Grok
-  ReasoningEffort comment), `docs/config.md`, `README.md` grok rows,
+  ReasoningEffort comment), `docs/guides/config.md`, `README.md` grok rows,
   MADR 0106 status, this plan. No remote-protocol change. No mobile
   change. No new `providers.grok.*` config keys. Do not edit
   goose/codex/opencode/kilo/fake command tables. Do not edit
@@ -70,7 +70,7 @@ execution of that option. It does not add architecture.
 | `defaultArgs` still emits `-m` / `--reasoning-effort` from config | `grok.go:127-163` |
 | P4 argv forbid list exists and already includes `--no-ask-user` | `grok_test.go:240-252`; **does not yet list `--no-plan`** |
 | `TestSetThinkingLevelFixed` and `TestSpawnArgsThinkingPrecedence` encode the 0052 spawn-only contract | `acpagent/thinking_test.go:180-241` |
-| README and `docs/config.md` still say reasoning effort is the CLI flag | `README.md:871`; `docs/config.md:96` |
+| README and `docs/guides/config.md` still say reasoning effort is the CLI flag | `README.md:871`; `docs/guides/config.md:96` |
 
 ### What the MADR under-specified (now plan gates, not new architecture)
 
@@ -483,7 +483,7 @@ request attach helpers),
 `internal/provider/provider.go` (StartOptions.ThinkingLevel
 comment),
 `internal/config/config.go` (ReasoningEffort comment),
-`docs/config.md:96`,
+`docs/guides/config.md:96`,
 `README.md:869-871`.
 
 Only start this phase if Phase A is green.
@@ -560,7 +560,7 @@ Only start this phase if Phase A is green.
      Phase C.
    * `config.go:505-506`: still emitted as `--reasoning-effort`
      (ACP no-op on 1.0.5); applied via `_meta.reasoningEffort`.
-   * `docs/config.md:96`: same distinction, plus "live 1.0.5".
+   * `docs/guides/config.md:96`: same distinction, plus "live 1.0.5".
    * `README.md:869-871`: `args` / `model` / `reasoning_effort`
      rows name `_meta.modelId` / `_meta.reasoningEffort` as the
      application path; flags remain accepted no-ops. Bump the

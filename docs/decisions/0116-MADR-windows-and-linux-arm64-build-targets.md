@@ -1727,7 +1727,7 @@ parser's default, where UTF-16 with a BOM is what Task Scheduler writes itself.
 
 MADR 0159 F13 found that D14's `MC_WINDOWS_SIGN_*` hook was never wired:
 `MC_WINDOWS_SIGN` and `signtool` appear only in documentation, and
-`Makefile`'s `codesign-maybe` is gated to `darwin`. `docs/ops-windows-install.md`
+`Makefile`'s `codesign-maybe` is gated to `darwin`. `docs/guides/ops-windows-install.md`
 described the hook in the present tense.
 
 MADR 0159 D10 decides the hook waits for a code-signing certificate. Until one

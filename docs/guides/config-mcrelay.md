@@ -6,9 +6,9 @@ prefix is **`MCRELAY_`** and app dir **`mcrelay`**.
 
 | Artifact | Path |
 |----------|------|
-| Example config | [configs/mcrelay.example.yaml](../configs/mcrelay.example.yaml) |
-| setup-service default | [internal/cli/service/defaults_mcrelay.yaml](../internal/cli/service/defaults_mcrelay.yaml) |
-| User unit example | [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service) |
+| Example config | [configs/mcrelay.example.yaml](../../configs/mcrelay.example.yaml) |
+| setup-service default | [internal/cli/service/defaults_mcrelay.yaml](../../internal/cli/service/defaults_mcrelay.yaml) |
+| User unit example | [deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service) |
 | Ops runbook | [ops-mcrelay.md](ops-mcrelay.md) |
 
 ## Locations (XDG)
@@ -177,7 +177,7 @@ All use the **`MCRELAY_`** prefix. Nested YAML keys use underscores.
 | `MCRELAY_LIMITS_SPLICE_MAX_SECONDS` | `limits.splice_max_seconds` | Max splice lifetime (R15); `-1` disables |
 
 These are also listed as commented `Environment=` lines in
-[deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service).
+[deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service).
 
 ### Examples
 
@@ -238,7 +238,7 @@ export MCRELAY_HOSTS='devbox-1:long-random-secret-here,laptop:another-long-secre
 The join-plane listener requires **TLS 1.3**. TLS 1.2-only scanners and
 clients fail the handshake. First-party clients (mcremote `relayhost`, Flutter)
 speak 1.3. Rollback of that floor is the Phase 6 commit of
-[0142-PLAN-mcrelay-2026-09-public-edge-audit.md](0142-PLAN-mcrelay-2026-09-public-edge-audit.md).
+[0142-PLAN-mcrelay-2026-09-public-edge-audit.md](../decisions/0142-PLAN-mcrelay-2026-09-public-edge-audit.md).
 
 | `tls.mode` | Behaviour |
 |------------|-----------|
@@ -358,8 +358,8 @@ Limits (`limits.*`) are **yaml / env only** (no CLI flags) — set in config or
 
 Linux: systemd `--user` unit. macOS: launchd user LaunchAgent
 `com.magiccliremote.mcrelay` (session-bound, no sudo). Examples:
-[deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service),
-[deploy/launchd/com.magiccliremote.mcrelay.plist](../deploy/launchd/com.magiccliremote.mcrelay.plist).
+[deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service),
+[deploy/launchd/com.magiccliremote.mcrelay.plist](../../deploy/launchd/com.magiccliremote.mcrelay.plist).
 
 | Flag | Description |
 |------|-------------|
@@ -384,7 +384,7 @@ and `MemoryDenyWriteExecute` (0091 D4; probed on a user unit).
 `KillMode=mixed`. `PATH` is a closed set (`~/.local/bin`, `/usr/local/bin`,
 `/usr/bin`, `/bin`) — no grok/opencode/kilo/flutter prefixes (0091 D1).
 `UMask=0077` (0091 D2). Source of truth:
-[internal/cli/service/mcrelay.user.service.tmpl](../internal/cli/service/mcrelay.user.service.tmpl).
+[internal/cli/service/mcrelay.user.service.tmpl](../../internal/cli/service/mcrelay.user.service.tmpl).
 
 ```bash
 make build-relay
@@ -413,16 +413,16 @@ Prints `mcrelay <version> (<commit>) <date>`.
 ## Join plane (runtime)
 
 Unchanged from MADR 0015 E1: `GET /v1/host`, `/v1/tunnel`, `/v1/phone`, `/healthz`.
-See [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md).
+See [0015-MADR-mcrelay-transport-security.md](../decisions/0015-MADR-mcrelay-transport-security.md).
 
 ## Ops runbook
 
 Production install, systemd, ACME, secret rotation, and Phase E smoke checklist:
-[ops-mcrelay.md](ops-mcrelay.md). Unit example: [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service).
+[ops-mcrelay.md](ops-mcrelay.md). Unit example: [deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service).
 
 ## Example / default files
 
 | File | Role |
 |------|------|
-| [configs/mcrelay.example.yaml](../configs/mcrelay.example.yaml) | Annotated production-oriented example |
-| [internal/cli/service/defaults_mcrelay.yaml](../internal/cli/service/defaults_mcrelay.yaml) | Written by `setup-service` when config is missing |
+| [configs/mcrelay.example.yaml](../../configs/mcrelay.example.yaml) | Annotated production-oriented example |
+| [internal/cli/service/defaults_mcrelay.yaml](../../internal/cli/service/defaults_mcrelay.yaml) | Written by `setup-service` when config is missing |

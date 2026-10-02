@@ -4,7 +4,7 @@ The executable inventory of the app-server protocol, embedded into the daemon by
 `contract.go`. An invalid manifest fails engine start, so this is load-bearing.
 
 Captured 2026-09-21 with `./scripts/codex-contract.ps1` — see
-[docs/ops-codex-contract.md](../../../../docs/ops-codex-contract.md) for the
+[docs/guides/ops-codex-contract.md](../../../../../docs/guides/ops-codex-contract.md) for the
 procedure and the five things that will mislead you.
 
 - Version: `codex-cli 0.155.1`

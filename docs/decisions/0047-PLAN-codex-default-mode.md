@@ -269,8 +269,8 @@ green; codex empty create is non-dangerous `default`.
 |---|---|
 | `docs/0047-MADR-codex-default-mode.md` | Status → Implemented when done |
 | `docs/0044-MADR-auto-approve-modes.md` | D5 note: mode **list** extended by 0047; auto/full-access semantics unchanged; never-alone is a bug fixed in 0047 |
-| `docs/protocol-v1.md` | if codex modes listed, add `default` |
-| `docs/config.md` / example yaml | empty codex policy = mcremote `default` mode for remote sessions; `approval_policy: never` alone is treated as auto pair |
+| `docs/guides/protocol-v1.md` | if codex modes listed, add `default` |
+| `docs/guides/config.md` / example yaml | empty codex policy = mcremote `default` mode for remote sessions; `approval_policy: never` alone is treated as auto pair |
 
 ### 4.2 Pre-commit / gates
 

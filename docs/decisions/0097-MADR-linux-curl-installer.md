@@ -22,7 +22,7 @@ curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/downlo
 
 Scope is **Linux only**. macOS is deliberately excluded: its install path
 depends on code-signing identity for durable TCC grants
-([ops-macos-tcc.md](ops-macos-tcc.md), MADR 0069 D6), and distributing to
+([ops-macos-tcc.md](../guides/ops-macos-tcc.md), MADR 0069 D6), and distributing to
 machines the operator does not own additionally requires a paid Developer ID
 and notarization. None of that machinery exists on Linux — there is no
 Gatekeeper, no quarantine attribute, no notary service, and no TCC — so the

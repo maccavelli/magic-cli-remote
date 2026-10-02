@@ -54,7 +54,7 @@ The finish line is mechanical, not editorial:
 * `internal/cli/service/`: `setup_windows.go`, `control_windows.go`,
   `schtasks_windows.go`
 * `scripts/install.ps1`
-* `docs/ops-windows-install.md`
+* `docs/guides/ops-windows-install.md`
 
 **Existing files edited:**
 
@@ -73,7 +73,7 @@ The finish line is mechanical, not editorial:
   `exec.LookPath` → `launch.Resolve` substitution
 * `Makefile`, `.github/workflows/ci.yml`,
   `scripts/verify-build-metadata.sh`, `scripts/install.sh`
-* `README.md`, `docs/config.md`, `docs/config-mcrelay.md`, `docs/ops-mcrelay.md`
+* `README.md`, `docs/guides/config.md`, `docs/guides/config-mcrelay.md`, `docs/guides/ops-mcrelay.md`
 
 ### Scope expansion recorded 2026-08-27
 
@@ -639,7 +639,7 @@ cross-process serialisation.
    // error would break every SyncDir caller (the device token store included,
    // internal/auth/store.go:602), and swallowing it inside callers would
    // re-introduce exactly the silent success MADR 0074 D25 forbids. The
-   // consequence is real and documented in docs/ops-windows-install.md: on
+   // consequence is real and documented in docs/guides/ops-windows-install.md: on
    // NTFS the rename is ordered, but the directory entry is not separately
    // flushed, so a power loss in the window after WriteFileAtomic returns can
    // lose the rename. SyncFile is unaffected — FlushFileBuffers on a file
@@ -1679,7 +1679,7 @@ plus tests. **`internal/svcrun/` is not created** — see the note below.
    it. `cmd/mcremote/main.go` and `cmd/mcrelay/main.go` are **untouched** by
    this phase.
 
-   Record the consequence in `docs/ops-windows-install.md` (P10) rather than in
+   Record the consequence in `docs/guides/ops-windows-install.md` (P10) rather than in
    code: `sc.exe create` / NSSM against these binaries will fail at the SCM
    start-up timeout, because they never call `StartServiceCtrlDispatcher`.
 
@@ -1772,8 +1772,8 @@ prompts for elevation, D12 has been implemented wrongly.
 **Outcome.** The support tier is discoverable before install, the Windows
 durability caveat is written down, and coverage does not regress.
 
-**Files.** `README.md`, `docs/ops-windows-install.md` (create),
-`docs/config.md`, `docs/config-mcrelay.md`, `docs/ops-mcrelay.md`,
+**Files.** `README.md`, `docs/guides/ops-windows-install.md` (create),
+`docs/guides/config.md`, `docs/guides/config-mcrelay.md`, `docs/guides/ops-mcrelay.md`,
 `internal/relay/cli.go` (the F15 copy), plus any test files needed to hold the
 coverage floor.
 
@@ -1784,7 +1784,7 @@ coverage floor.
    (windows/amd64), with the D15 exclusion list linked. State plainly that
    `windows/arm64` is **not supported** — not "coming soon" — per D19, so a
    Windows-on-Arm user learns it before downloading rather than after.
-2. **`docs/ops-windows-install.md`** — install via `install.ps1`; the Known
+2. **`docs/guides/ops-windows-install.md`** — install via `install.ps1`; the Known
    Folders path table from D3; the D5 durability caveat in plain language; the
    D14 SmartScreen note; the D15 unsupported-surface list; the F15 port notes
    (no privileged-port restriction, but check
@@ -1794,7 +1794,7 @@ coverage floor.
    Windows (F15). Extend the existing `res.Scope` switch with a Windows arm
    printing the excluded-port-range and firewall text. This uses the scope
    value already computed, so no new `runtime.GOOS` is introduced.
-4. **`docs/config.md` / `docs/config-mcrelay.md`** — document that default
+4. **`docs/guides/config.md` / `docs/guides/config-mcrelay.md`** — document that default
    config and data paths differ per OS and point at the D3 table rather than
    hard-coding `~/.config/...`. The `ConfigPathHint` / `DataDirHint`
    fallbacks at `relay/fileconfig.go:787,796` return POSIX strings only when
@@ -2185,12 +2185,12 @@ Windows is not a supported host; use WSL2."
 ```sh
 die 1 "this installer supports Linux and macOS only (found $uname_s).
 Windows has its own PowerShell installer (install.ps1) at the same release
-URL; see README.md and docs/ops-windows-install.md."
+URL; see README.md and docs/guides/ops-windows-install.md."
 ```
 
 The new message points Windows users at the correct installer (D13's
 `install.ps1`) instead of telling them to use WSL2, which contradicts
-the README and `docs/ops-windows-install.md`. The check itself is
+the README and `docs/guides/ops-windows-install.md`. The check itself is
 unchanged: `install.sh` still runs only on Linux/macOS; only the message
 the user sees is fixed.
 

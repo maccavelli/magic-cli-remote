@@ -106,7 +106,7 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 		if agenterr.IsPermission(err) {
 			return acp.CreateTerminalResponse{}, fmt.Errorf(
 				"start command: %w — the mcremote daemon lacks OS permission "+
-					"here (macOS: see docs/ops-macos-tcc.md)", err)
+					"here (macOS: see docs/guides/ops-macos-tcc.md)", err)
 		}
 		return acp.CreateTerminalResponse{}, fmt.Errorf("start command: %w", err)
 	}

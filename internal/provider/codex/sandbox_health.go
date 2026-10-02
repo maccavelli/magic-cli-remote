@@ -144,7 +144,7 @@ func probeSandboxHealthGOOS(ctx context.Context, bin, goos string) sandboxHealth
 func sandboxBrokenNotice(h sandboxHealth) string {
 	base := "Codex sandbox cannot write on this host (user namespace / bubblewrap). " +
 		"Modes that use workspace-write will fail file edits. " +
-		"Fix the host (see docs/config.md Codex sandbox / user namespaces), " +
+		"Fix the host (see docs/guides/config.md Codex sandbox / user namespaces), " +
 		"or enable providers.codex.allow_full_access and switch to full-access, " +
 		"or set sandbox_broken_policy."
 	if h.Detail != "" {

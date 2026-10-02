@@ -7,7 +7,7 @@
 - **Scope**: Android-only Flutter companion for `mcremote`
 - **Product name**: Magic CLI Remote
 - **Decisions**: monorepo; grok-if-ready else fake; paste-only pairing; cleartext `ws://` in debug
-- **Related**: [protocol-v1.md](../protocol-v1.md), [0001-MADR-architecture-mcremote.md](./0001-MADR-architecture-mcremote.md), [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md)
+- **Related**: [protocol-v1.md](../guides/protocol-v1.md), [0001-MADR-architecture-mcremote.md](./0001-MADR-architecture-mcremote.md), [0176-MADR-phase-2-grok-acp-provider.md](./0176-MADR-phase-2-grok-acp-provider.md)
 
 ---
 

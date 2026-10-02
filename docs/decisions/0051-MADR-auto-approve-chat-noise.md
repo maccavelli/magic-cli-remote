@@ -17,7 +17,7 @@
     `childAliases`, tree-idle turn accounting
   - [MADR 0024](./0024-MADR-stream-coalescing.md) — chunkbuf; the tool-lane
     fold-away (MADR 0042 D4)
-  - [protocol-v1.md](./protocol-v1.md) — event vocabulary, `TypeNotice`,
+  - [protocol-v1.md](../guides/protocol-v1.md) — event vocabulary, `TypeNotice`,
     `TypeToolCall`/`TypeToolUpdate` in-place semantics, `plan` replace semantics
 - **Companion plan**:
   [0051-PLAN-auto-approve-chat-noise.md](./0051-PLAN-auto-approve-chat-noise.md)

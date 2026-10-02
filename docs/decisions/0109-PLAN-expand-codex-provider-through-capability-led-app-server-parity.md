@@ -333,7 +333,7 @@ mutation under the official maturity warning remain deferred.
 * `apps/mobile/lib/data/`, `apps/mobile/lib/state/`, and
   `apps/mobile/lib/features/` for typed models, client methods, reconnect state,
   forms, screens, transcript cards, confirmations, and realtime signaling.
-* `docs/protocol-v1.md`, `docs/config.md`, the Codex support matrix/README
+* `docs/guides/protocol-v1.md`, `docs/guides/config.md`, the Codex support matrix/README
   material, `Makefile`, and focused Go/Flutter tests.
 
 ### Files to add
@@ -1802,13 +1802,13 @@ secrets or raw payloads.
 
 #### Documentation closure
 
-1. Update `docs/protocol-v1.md` with every additive operation, event, bound,
+1. Update `docs/guides/protocol-v1.md` with every additive operation, event, bound,
    retry class, error code, confirmation, and secret rule. Update
-   `docs/protocol-v2.md` as well: it is the delta document that specifies the
+   `docs/guides/protocol-v2.md` as well: it is the delta document that specifies the
    negotiated `Caps` block and the client version offer, so the
    `codex_surface` capability block and the additive
    `codex_surface_version` client field belong there, not only in v1.
-2. Update `docs/config.md` with transport, roots, reconnect, policy, and feature
+2. Update `docs/guides/config.md` with transport, roots, reconnect, policy, and feature
    configuration plus secure defaults.
 3. Update the provider matrix/README and command help with stable,
    experimental-adjunct, fallback, and deferred states.
@@ -2039,7 +2039,7 @@ Six corrections were applied:
 | 2 | P2 step 3 reuses `event.QuestionItem.Custom` for `isOther` instead of adding `allow_other`, and moves `description` onto `event.PermissionOption`. | `Custom` is already the cross-provider free-text flag populated by Kilo and OpenCode. A second field for the same concept would have forked question semantics per provider. Upstream `description` is an option field, not a question field. |
 | 3 | P2 test 5 pins `PermissionGrantScope` (`turn \| session`) and the optional nullable `strictAutoReview`. | `strictAutoReview` is the per-grant expression of the D7 reviewer axis. It was reachable only through the Confirmation section's strict-review clause, so P2 could have shipped a subset grant that silently dropped it. |
 | 4 | The `codex_surface_version:1` client advertisement now names a concrete additive `AuthPayload`/`pair.claim` field with an old-client parse test. | No client capability channel exists: `AuthPayload` carries only `token`, `protocols`, `resume`, and `resume_window_ms`, and `Caps` is server-to-client. The gate the whole rollout depends on had no defined wire mechanism. |
-| 5 | Documentation closure now updates `docs/protocol-v2.md` alongside `protocol-v1.md`. | v2 is the delta document that specifies the negotiated `Caps` block and the client version offer. Documenting `codex_surface` only in v1 would have left the v2 contract incomplete. |
+| 5 | Documentation closure now updates `docs/guides/protocol-v2.md` alongside `protocol-v1.md`. | v2 is the delta document that specifies the negotiated `Caps` block and the client version offer. Documenting `codex_surface` only in v1 would have left the v2 contract incomplete. |
 | 6 | The evidence baseline records `b944880`, the later `ff92858`, and the in-flight docs-only cross-reference change; the P0 row and steps 1 and 5 reflect that acceptance already happened. | P0 instructed an already-completed status change and told the implementer not to absorb unrelated worktree changes while the log still read "Not started" against a tree that had moved. |
 
 MADR 0109 received a paired erratum on the same date covering the

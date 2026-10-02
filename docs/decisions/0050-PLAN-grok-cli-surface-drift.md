@@ -17,7 +17,7 @@ D1–D5. This is the build order, keyed to source as of `4e8e7e3` and to grok
   headless-only `--tools`/`--disallowed-tools`.
 - **Date**: 2026-07-29
 - **Scope**: `internal/provider/grok`, `internal/provider/acpagent/config.go`,
-  `internal/config`, `docs/config.md`. No protocol change, no mobile change.
+  `internal/config`, `docs/guides/config.md`. No protocol change, no mobile change.
 - **Standards**: `/home/mac/standards/go` — `testing.md` (read first: D2 turns
   on the difference between asserting our own argv and executing the binary)
 
@@ -200,7 +200,7 @@ the seven flag cases fail, restore.
 ## Phase C — `permission_mode` defaults to `default`
 
 **Files:** `internal/config/config.go`, `internal/config/load.go`,
-`docs/config.md`, `README` grok section if it names defaults
+`docs/guides/config.md`, `README` grok section if it names defaults
 
 ### Steps
 
@@ -209,7 +209,7 @@ the seven flag cases fail, restore.
    (`default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`) —
    mirroring `validApprovalPolicy`/`validSandboxMode` for codex. Empty stays
    legal and means "inherit grok's own config".
-2. `docs/config.md`: document the enum, the new default, what empty means, and
+2. `docs/guides/config.md`: document the enum, the new default, what empty means, and
    **why** the default changed — with an empty value the daemon cannot know the
    session's approval posture (grok resolves it from `~/.grok/config.toml`,
    project config, or fleet-wide remote config since 0.2.102), so the mode chip
@@ -231,7 +231,7 @@ message.
 ## Phase D — Expose grok's sandbox
 
 **Files:** `internal/provider/acpagent/config.go`, `internal/provider/grok/grok.go`,
-`internal/config/*`, `docs/config.md`
+`internal/config/*`, `docs/guides/config.md`
 
 ### Steps
 
@@ -243,7 +243,7 @@ message.
    else** as a custom profile name — grok resolves those from
    `~/.grok/sandbox.toml` / `.grok/sandbox.toml` and fails with a clear message
    if absent. Do not hard-code an enum that breaks the day grok adds a profile.
-4. `docs/config.md`: list the built-ins, note the custom-profile path and the
+4. `docs/guides/config.md`: list the built-ins, note the custom-profile path and the
    `GROK_SANDBOX` env var, and cross-reference MADR 0048 — this is grok's
    analogue of the codex sandbox story, and on AppArmor-restricted hosts a
    containment profile may hit the same user-namespace wall.
@@ -257,7 +257,7 @@ surfaces grok's own error rather than a generic start failure.
 
 ## Phase E — Are `--tools`/`--disallowed-tools` real for ACP?
 
-**Files:** `docs/config.md`, possibly `internal/config/config.go`
+**Files:** `docs/guides/config.md`, possibly `internal/config/config.go`
 
 The cheat sheet documents both as **headless-only**. If they are inert for
 `agent stdio`, describing them as tool allow/deny lists is a lie of the same
@@ -269,14 +269,14 @@ family as the one this MADR is about.
    shell command; then `DisallowedTools: ["Bash"]` and prompt likewise. Compare
    against an unrestricted control. Record the outcome the way MADR §2 does.
 2. If effective: document precisely which tool names are accepted.
-3. If inert: mark both keys as **no-op for ACP sessions** in `docs/config.md`
+3. If inert: mark both keys as **no-op for ACP sessions** in `docs/guides/config.md`
    with the measurement date and grok version, and open a follow-up to either
    remove them or route tool policy through `--allow`/`--deny` (which are
    permission rules, not headless-only).
 
 ### Acceptance
 
-`docs/config.md` states measured behaviour, not the CLI's summary line.
+`docs/guides/config.md` states measured behaviour, not the CLI's summary line.
 
 ---
 

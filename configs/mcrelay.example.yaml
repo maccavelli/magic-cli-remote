@@ -3,8 +3,8 @@
 #          chmod 600 ~/.config/mcrelay/config.yaml
 #
 # Precedence: CLI flags > MCRELAY_* env > this file > defaults.
-# Full reference: docs/config-mcrelay.md
-# Ops runbook:    docs/ops-mcrelay.md
+# Full reference: docs/guides/config-mcrelay.md
+# Ops runbook:    docs/guides/ops-mcrelay.md
 # setup-service default template: internal/cli/service/defaults_mcrelay.yaml
 
 listen:

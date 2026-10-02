@@ -12,7 +12,7 @@ informed: none
 ## Context and Problem Statement
 
 `mcrelay paths` is documented as "Print resolved XDG path layout (no mutation)"
-(`internal/relay/cli.go:98`) and `docs/config-mcrelay.md:21` tells operators to
+(`internal/relay/cli.go:98`) and `docs/guides/config-mcrelay.md:21` tells operators to
 use it to inspect the layout. It was introduced by MADR 0059 A6/P2 as *the*
 path-introspection diagnostic, on the stated invariant that `paths --json`
 "matches serve resolution — identical" (`0059:471`).
@@ -203,7 +203,7 @@ read-only command was noticed and normalised rather than fixed.
 ## Considered Options
 
 * **A — Document the `MCRELAY_HOSTS` workaround.** Change no code; add a note
-  to `docs/config-mcrelay.md`.
+  to `docs/guides/config-mcrelay.md`.
 * **B — Give `paths` its own resolver** that reproduces the precedence chain
   without `Validate`.
 * **C — Make the purpose explicit in `Load`.** Add a purpose to `LoadOptions`;
@@ -313,7 +313,7 @@ tests would otherwise not run on the platform the defect was found on.
 `TestCLIServeInvalidConfig` must pass untouched. `serve` continues to refuse a
 config with no hosts, before any listener is opened.
 
-**D8 — `docs/config-mcrelay.md` states the contract.**
+**D8 — `docs/guides/config-mcrelay.md` states the contract.**
 
 The line that points operators at `mcrelay paths` (`config-mcrelay.md:21`)
 notes that it works before any config exists and reports serve-readiness as a
@@ -469,7 +469,7 @@ is green.
 | `paths` tests skip on Windows | `internal/relay/cli_test.go:59,78` → `internal/testexec/*.go:98–104` |
 | `XDG_CONFIG_HOME` ignored on Windows | probe: fixture ignored, `config_dir` = `%AppData%\mcrelay` |
 | Diagnostics channel already exists | `internal/relay/fileconfig.go:39–40`; `internal/appdirs/roots.go:38`; emitted at `cli.go:126` |
-| Operators are told to run `paths` | `docs/config-mcrelay.md:21` |
+| Operators are told to run `paths` | `docs/guides/config-mcrelay.md:21` |
 | Workaround already in project process | `docs/0115-PLAN-mcrelay-go126-audit-and-hardening.md:506` |
 
 ### Related records

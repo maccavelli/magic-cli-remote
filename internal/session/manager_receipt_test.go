@@ -263,7 +263,7 @@ func TestReceiptRoundTripSuccess(t *testing.T) {
 
 	// The device's public key was archived beside its chain, so this chain
 	// stays verifiable even after a later `pair revoke` deletes the Device
-	// record (docs/receipts.md "Revoked devices").
+	// record (docs/guides/receipts.md "Revoked devices").
 	archived, err := f.rcptStore.ArchivedKey(f.deviceID)
 	if err != nil {
 		t.Fatalf("ArchivedKey: %v", err)

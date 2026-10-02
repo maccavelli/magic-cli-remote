@@ -55,7 +55,7 @@ P3  internal/provider/codex/items.go                functionCallOutput registrat
 P4  internal/provider/codex/contract_generate_test.go   literals become inputs; stability from source
     internal/provider/codex/contract.go             manifest loading unchanged shape, new fields if needed
     scripts/codex-contract.ps1               (new)  the documented re-pin command
-    docs/ops-codex-contract.md               (new)  how to re-pin, and the schema-vs-source rule
+    docs/guides/ops-codex-contract.md               (new)  how to re-pin, and the schema-vs-source rule
 P5  internal/provider/codex/live_contract_test.go   two-mode drift check
     internal/provider/codex/contract.go             breaking-vs-additive classification helper
 P6  internal/provider/codex/testdata/0.155.1/**     regenerated manifest, fixtures, source-watch
@@ -76,7 +76,7 @@ P10 internal/provider/codex/provider.go             explicit USERNAME in the eng
     internal/provider/codex/config.go               managed_daemon_proxy refusal reworded, still disabled
     internal/provider/codex/launch.go               same
     internal/procutil/spawnsites_test.go            static ban on windowsSandbox/setupStart
-    docs/ops-windows-install.md                     sandbox ACL repair + the two deny sources
+    docs/guides/ops-windows-install.md                     sandbox ACL repair + the two deny sources
 P11 internal/provider/codex/execution.go            thread/shellCommand timeoutMs
     internal/provider/codex/runtime.go              McpServerStatus.runtimeStatus / toolsError
 P12 internal/provider/codex/device_auth.go          evidence note: still destructive at 0.155.1
@@ -321,7 +321,7 @@ body.
    `--experimental`), locates `ServerRequest.json` beside each composite schema as
    the generator expects (`:78-84`), and invokes the generator with every input
    set. It prints the resolved version, path and SHA before doing anything.
-6. `docs/ops-codex-contract.md` (new): the procedure, plus the two rules this
+6. `docs/guides/ops-codex-contract.md` (new): the procedure, plus the two rules this
    audit paid for — **the schema blobs are committed, not introspected**, so a
    source tree at a different commit than the binary yields a stale contract
    silently; and method literals live at `oneOf[].properties.method.enum[0]`,
@@ -536,7 +536,7 @@ fail naming the advice difference.
    **108-byte AF_UNIX path limit including the terminator** (so a short
    `CODEX_HOME`), and no per-client environment isolation. Enabling it is
    Deferred.
-5. `docs/ops-windows-install.md`: a Codex sandbox section stating what Codex does
+5. `docs/guides/ops-windows-install.md`: a Codex sandbox section stating what Codex does
    not provide — there is no repair or uninstall subcommand
    (`clean_up_packaged_windows_sandbox` has one caller, the MSIX uninstall event),
    the only record of applied denies is
@@ -1165,7 +1165,7 @@ Two things were picked up that the phase did not ask for and that cost nothing:
 category, which the schema warns is open-ended and must never be switched on.
 
 `steer_message` is additive and server-first, documented in `internal/event` and
-in `docs/protocol-v1.md`, and counted in `retention.go`'s size accounting — the
+in `docs/guides/protocol-v1.md`, and counted in `retention.go`'s size accounting — the
 last of which is easy to forget and silently under-counts retention.
 
 **Mutations: 4/4 caught**, including the one this plan named. Collapsing the two

@@ -11,7 +11,7 @@ decisions D1–D4 (D4 from the 2026-09-18 amendment), closing findings F1–F5.
 
 ## Goal
 
-1. `apps/mobile/README.md` and `docs/mobile-profiling.md` each name Flutter
+1. `apps/mobile/README.md` and `docs/guides/mobile-profiling.md` each name Flutter
    3.47.2 / Dart 3.13.2 and point at `FLUTTER_VERSION` in
    `.github/workflows/ci.yml`.
 2. Outside `docs/decisions`, no Markdown file names a Flutter or
@@ -26,7 +26,7 @@ decisions D1–D4 (D4 from the 2026-09-18 amendment), closing findings F1–F5.
 ### In scope (the only files any phase may touch)
 
 * `apps/mobile/README.md`: line 20 only.
-* `docs/mobile-profiling.md`: line 27 only.
+* `docs/guides/mobile-profiling.md`: line 27 only.
 * `apps/mobile/README.md`: the "**Linux keyring:**" paragraph only (P2).
 
 ### Out of scope
@@ -85,7 +85,7 @@ trusting the number.
 
 1. In `apps/mobile/README.md`, replace the line
    `- Flutter 3.44+ / Dart 3.12+` with the three lines in MADR D1.
-2. In `docs/mobile-profiling.md`, replace the line
+2. In `docs/guides/mobile-profiling.md`, replace the line
    `1. Flutter 3.44+ / Dart 3.12+ (\`flutter doctor\`).` with the two lines in
    MADR D2.
 3. Change nothing else (C1, and D3 closes F4 by leaving `pubspec.yaml` alone).
@@ -95,8 +95,8 @@ trusting the number.
 ```bash
 git grep -n -E 'Flutter 3\.[0-9]+|Dart ?(≥|>=)? ?3\.[0-9]+' -- '*.md' ':!docs/decisions' \
   | grep -v -E 'Flutter \*{0,2}3\.47\.[2x]|Dart \*{0,2}(≥ )?3\.13\.2'      # → nothing
-git grep -n 'FLUTTER_VERSION' -- apps/mobile/README.md docs/mobile-profiling.md   # → 2 lines
-markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/mobile-profiling.md):'   # → 1
+git grep -n 'FLUTTER_VERSION' -- apps/mobile/README.md docs/guides/mobile-profiling.md   # → 2 lines
+markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/guides/mobile-profiling.md):'   # → 1
 git diff --stat                                                          # → 2 files changed
 ```
 
@@ -114,7 +114,7 @@ Owner instruction 2026-09-18: "Fix the lint and the line number".
 **Verification:**
 
 ```bash
-markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/mobile-profiling.md):'   # → 0
+markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/guides/mobile-profiling.md):'   # → 0
 git diff --word-diff=porcelain -- apps/mobile/README.md | grep -E '^[-+][^-+]'           # → nothing: only line breaks moved
 git diff --stat                                                                            # → 1 file changed
 ```
@@ -164,7 +164,7 @@ Docs only; nothing ships. Rollback is `git revert` of the P1 or P2 commit.
 ## Execution record (2026-09-18)
 
 P1 ran on the Windows host at the owner's "proceed", in one commit, `7c4479b`,
-touching exactly `apps/mobile/README.md` and `docs/mobile-profiling.md`
+touching exactly `apps/mobile/README.md` and `docs/guides/mobile-profiling.md`
 (2 files, +5 −2). This pair was committed before it in `5b0153b`, together with
 the 0159 and 0160 record revisions at the owner's request. That commit held
 only files under `docs/spec`, so the bootstrap exception held.

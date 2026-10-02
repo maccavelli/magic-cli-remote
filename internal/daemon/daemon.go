@@ -111,11 +111,11 @@ func Run(ctx context.Context, opts Options) error {
 		log.Warn("macOS Full Disk Access not granted for this binary; " +
 			"agent sessions under Documents/Desktop/Downloads will fail " +
 			"with 'operation not permitted' — run `mcremote doctor` or see " +
-			"docs/ops-macos-tcc.md")
+			"docs/guides/ops-macos-tcc.md")
 	}
 
 	// No-op in release builds; `make debug` + MC_DEBUG_ADDR only (0068 P6,
-	// goroutine-leak triage — docs/ops-mcrelay.md).
+	// goroutine-leak triage — docs/guides/ops-mcrelay.md).
 	debugserve.Start(ctx, log)
 
 	// Resolve the "tailscale" sentinel before anything derives from the bind

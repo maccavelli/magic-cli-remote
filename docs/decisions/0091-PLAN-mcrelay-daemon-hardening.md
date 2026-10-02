@@ -88,7 +88,7 @@ D1: `servicePathEnv(home, product)` or `mcrelayPathEnv(home)`.
         `deploy/systemd/mcrelay.service`.
   - [ ] **Task 1.3**: Extend `TestRenderUnitMcrelay` /
         `TestRenderUnit` for D1/D2. Document PATH in
-        `docs/config-mcrelay.md` / `docs/ops-mcrelay.md`.
+        `docs/guides/config-mcrelay.md` / `docs/guides/ops-mcrelay.md`.
 
 ### Phase 2: Core Implementation
 

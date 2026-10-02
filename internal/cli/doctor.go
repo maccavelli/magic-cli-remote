@@ -189,9 +189,9 @@ func renderDoctor(w io.Writer, goos string, res tcc.ProbeResult) {
 		fmt.Fprintln(w, "    tccutil reset SystemPolicyAllFiles")
 		fmt.Fprintln(w, "  To confirm a live denial:")
 		fmt.Fprintln(w, "    log stream --predicate 'subsystem == \"com.apple.TCC\"' | grep -i deny")
-		fmt.Fprintln(w, "  Details: docs/ops-macos-tcc.md")
+		fmt.Fprintln(w, "  Details: docs/guides/ops-macos-tcc.md")
 	default:
 		fmt.Fprintln(w, "  UNKNOWN: the probe location (~/Downloads) is missing or errored")
-		fmt.Fprintln(w, "  in a non-TCC way; no verdict. See docs/ops-macos-tcc.md.")
+		fmt.Fprintln(w, "  in a non-TCC way; no verdict. See docs/guides/ops-macos-tcc.md.")
 	}
 }

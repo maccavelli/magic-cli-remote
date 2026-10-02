@@ -535,8 +535,8 @@ Linux + macOS (+ mobile if required by existing pipeline) all green.
 
 ### Phase 8 — Documentation and final parity acceptance
 
-Update `README.md`, `docs/config.md`, `docs/config-mcrelay.md`,
-`docs/ops-mcrelay.md`, examples, deploy assets. Historical MADRs stay
+Update `README.md`, `docs/guides/config.md`, `docs/guides/config-mcrelay.md`,
+`docs/guides/ops-mcrelay.md`, examples, deploy assets. Historical MADRs stay
 historical; add 0059 pointers rather than rewriting history.
 
 Document:

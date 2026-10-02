@@ -20,7 +20,7 @@ On a fresh `mcremote` install the operator's live file is **not**
 `ensureDefaultConfig` never overwrites an existing file). That seed is
 what this host received. The signed-receipts section (`receipts.*`,
 MADR 0077 / 0078) was absent from it; the operator had to add it by
-hand after reading `docs/config.md` / `docs/receipts.md`.
+hand after reading `docs/guides/config.md` / `docs/guides/receipts.md`.
 
 The question is: **which file is the operator-facing contract for
 "every effective setting", how did receipts (and other keys) fall out
@@ -66,7 +66,7 @@ added to the *example* only),
   an explicit empty string overwrites a non-empty default.
 * The 0069 parity test is the existing fitness function; it must
   actually see the class of bug we just hit (top-level sections).
-* `docs/config.md` already says "Keep `configs/*.yaml` in sync when
+* `docs/guides/config.md` already says "Keep `configs/*.yaml` in sync when
   keys change." That rule had no test that covered `receipts`.
 
 ## Considered Options
@@ -125,7 +125,7 @@ that teach the levers (sandbox, receipts patterns, ACME).
 Every operator-facing key is visible in the file the operator is
 given.
 
-* Good, because it matches `docs/config.md` ("Keep `configs/*.yaml`
+* Good, because it matches `docs/guides/config.md` ("Keep `configs/*.yaml`
   in sync") and the 0069 lesson.
 * Good, because comments stay next to the keys they explain.
 * Bad, because N YAML files remain a manual edit set.
@@ -136,7 +136,7 @@ given.
 
 * Good, because a short file is easier to scan.
 * Bad, because that is how receipts disappeared: 0077-PLAN step 4
-  updated `config.example.yaml` and `docs/config.md` only. The
+  updated `config.example.yaml` and `docs/guides/config.md` only. The
   provider-only parity test stayed green.
 * Bad, because omitted keys with a *non-zero* `Defaults()` value
   (`permission_mode: default`, `receipts.handoffs: true`) become
@@ -183,10 +183,10 @@ what install does.
 0077-PLAN P5 steps 4–5:
 
 > 4. `configs/config.example.yaml`: add a documented `receipts:` block
-> 5. `docs/config.md`: add the `receipts.*` keys
+> 5. `docs/guides/config.md`: add the `receipts.*` keys
 
 No step names `defaults_mcremote.yaml`, `config.prod.example.yaml`,
-or `config.mesh-grok.yaml`. `docs/config.md` already documented
+or `config.mesh-grok.yaml`. `docs/guides/config.md` already documented
 `receipts.enabled` / `allow_patterns` / `deny_patterns` /
 `handoffs` and the `MCREMOTE_RECEIPTS_*` env vars. `config.Defaults()`
 already sets `ReceiptsConfig{Handoffs: true}` (enabled false).
@@ -253,7 +253,7 @@ this audit.
 * `providers.codex.sandbox_broken_policy`
 
 AutomaticEnv only resolves keys already in viper's key set (the
-route53.max_retries / receipts lessons). `docs/config.md` does not
+route53.max_retries / receipts lessons). `docs/guides/config.md` does not
 list env vars for those limits keys, so this is a silent-env trap
 for anyone who follows the "Viper also accepts automatic env"
 footnote, not a documented-but-broken table row. 0073 finding 4
@@ -265,14 +265,14 @@ so that env path works.
 
 ### F7 — Stale comments around the templates
 
-* Seed / example / `docs/config.md` still said kilo **7.4.20** after
+* Seed / example / `docs/guides/config.md` still said kilo **7.4.20** after
   MADR 0088 pinned known-good to **7.4.22**.
 * Example comment on `providers.grok.auth_method_id` said "Empty =
   none (grok needs none)." `ACPProviderConfig` documents the opposite:
   empty is correct because 0085 D2 auto-selects a headless-safe
   advertised method.
 * `reasoning_effort` comments listed `low | medium | high` and omitted
-  `xhigh` (documented in `docs/config.md` for grok-4.6).
+  `xhigh` (documented in `docs/guides/config.md` for grok-4.6).
 * `config.go` `KiloProviderConfig` still says "Enabled defaults false
   until MADR 0075 M1–M3 acceptance" next to `Enabled: true` in
   `Defaults()`. Comment-only; not a YAML gap.

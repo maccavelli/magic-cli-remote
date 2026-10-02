@@ -2,7 +2,7 @@
 
 # 0004 — Certificate management
 
-* Status: **Accepted** — decision §2 (recovery `fp=` in both TLS modes; chain-or-pin for `letsencrypt`) is **implemented** and is the wire contract in [protocol-v1.md](../protocol-v1.md). The "defect" narrative below describes the pre-fix state.
+* Status: **Accepted** — decision §2 (recovery `fp=` in both TLS modes; chain-or-pin for `letsencrypt`) is **implemented** and is the wire contract in [protocol-v1.md](../guides/protocol-v1.md). The "defect" narrative below describes the pre-fix state.
 * Date: 2026-07-20
 * Supersedes the ad-hoc TLS defaults introduced alongside `internal/certs`
 
@@ -91,7 +91,7 @@ All three reviews independently ranked these above the certificate question:
   project's own checklist (`docs/0002-…:278`, `:303`).
 * **Ship a deny-by-default Headscale ACL** consuming the `tag:mcremote-host` /
   `tag:mcremote-client` tags the docs already instruct operators to apply, and
-  delete the allow-all example in `docs/headscale.md`. `config.prod.example.yaml`
+  delete the allow-all example in `docs/guides/headscale.md`. `config.prod.example.yaml`
   justifies its `0.0.0.0` bind with "only with Headscale grants locking TCP
   7531" — grants that were never written.
 

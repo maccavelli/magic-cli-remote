@@ -33,7 +33,7 @@ shipped the installer as **Linux only**, and the tree still enforces it:
 | Hard reject | `scripts/install.sh:73-75` (`detect_arch`) | `uname -s` must be `Linux` or exit 1 |
 | Test lock | `scripts/install_test.sh:116-125` | asserts `Darwin rejected (exit 1)` and the "Linux only" string |
 | README | `README.md:126-132` | "The installer is Linux-only on purpose" |
-| Ops runbook | `docs/ops-linux-install.md:66-67` | "macOS is deliberately out of scope" |
+| Ops runbook | `docs/guides/ops-linux-install.md:66-67` | "macOS is deliberately out of scope" |
 | Release aliases | `.github/workflows/ci.yml:624-626` | Darwin aliases are **not** published, because "darwin aliases would advertise support that does not exist" |
 
 0097 itself said the cut was temporary: "the Linux installer can ship now
@@ -80,7 +80,7 @@ assumed. The Go side already does the Darwin job:
 | ETXTBSY-safe swap on a running Darwin binary | `scripts/install-binary.sh` | Stage, **then** stop, **then** rename. `install.sh` today installs *before* it stops (`install.sh:769-774`), which is fine on Linux (old inode) and wrong on Darwin. |
 | launchd teardown race | `scripts/install-binary.sh:104-117` (`wait_for_teardown`) | `bootout` is async. Bootstrapping while the label is still releasing fails with `Bootstrap failed: 5: Input/output error`. The installer has no equivalent wait. |
 | Unsigned Darwin execution | [0060](0060-MADR-local-unsigned-build-and-install.md) F1, F4 | `make install` already produces a working unsigned LaunchAgent. A curl-installed unsigned binary is the same class of artifact. |
-| TCC / FDA grant | [0069](0069-MADR-macos-permissions-and-sandbox-parity.md) D5/D6, [ops-macos-tcc.md](ops-macos-tcc.md) | Grants attach to code identity. Unsigned identity churns on every upgrade. The installer cannot mint a Developer ID. It can only tell the truth. |
+| TCC / FDA grant | [0069](0069-MADR-macos-permissions-and-sandbox-parity.md) D5/D6, [ops-macos-tcc.md](../guides/ops-macos-tcc.md) | Grants attach to code identity. Unsigned identity churns on every upgrade. The installer cannot mint a Developer ID. It can only tell the truth. |
 
 The 0097 rationale for excluding macOS was "durable TCC grants need
 code-signing, and we have no Developer ID / notarization pipeline." That
@@ -235,7 +235,7 @@ Concretely:
    * Darwin always prints the Full Disk Access grant path
      (`~/.local/bin/mcremote`) and that unsigned upgrades drop the
      grant unless the operator signs with `MC_CODESIGN_IDENTITY` (see
-     [ops-macos-tcc.md](ops-macos-tcc.md)).
+     [ops-macos-tcc.md](../guides/ops-macos-tcc.md)).
    * Uninstall boots out both labels, deletes both plists, then
      deletes both binaries — the Darwin sibling of the 0099 uninstall
      stop-before-delete fix. **Amended by (10): definition teardown

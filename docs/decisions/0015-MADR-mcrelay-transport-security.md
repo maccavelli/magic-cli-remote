@@ -7,7 +7,7 @@
 - **Extends**: [MADR 0001](0001-MADR-architecture-mcremote.md) hybrid networking (relay path)
 - **Preserves**: [0004-MADR-certificate-management.md](0004-MADR-certificate-management.md) server TLS,
   [0005-MADR-client-identity.md](0005-MADR-client-identity.md) client-key allowlist,
-  [protocol-v1.md](protocol-v1.md) full control-plane surface
+  [protocol-v1.md](../guides/protocol-v1.md) full control-plane surface
 - **Supersedes**: Mesh-only remote reachability as the *only* path ([MADR 0003](0003-MADR-phase1-decisions.md)
   Phase 1 constraint); mesh remains the preferred path when available
 
@@ -256,7 +256,7 @@ semantics — implementation choice must preserve client cert presentation).
 
 - [x] ADR accepted (**this document**)
 - [x] Automated join-plane smoke + e2e (`internal/relay/e2e_test.go`, CI race on relay)
-- [ ] Manual smoke: phone **off-mesh** can auth + create + prompt + permission + history + `models.list` via relay — [ops-mcrelay.md](ops-mcrelay.md) §7 *(operator device; not automatable)*
+- [ ] Manual smoke: phone **off-mesh** can auth + create + prompt + permission + history + `models.list` via relay — [ops-mcrelay.md](../guides/ops-mcrelay.md) §7 *(operator device; not automatable)*
 - [x] Security review (automated): compromised mcrelay credentials alone cannot mint host sessions; unauthorized register; join alone does not imply host auth — `TestE2EPhaseESecurity` / `TestE2EHostClientPhoneSplice`
 - [x] Mesh-direct preference when reachable (unit: `ConnectionPath` + `probeDirectReachable`; full device path still in ops §7)
 - [x] Host drop / revoke fails pending join path (`TestE2EPhaseESecurity`)
@@ -271,11 +271,11 @@ semantics — implementation choice must preserve client cert presentation).
 | **E1** | `mcrelay` MVP: register, join, splice, TLS, limits, multi-host | **Shipped** — `cmd/mcrelay`, `internal/relay` |
 | **E2** | `mcremote` outbound registration + tunnel→local TCP bridge + pair URI | **Shipped** — `internal/relayhost`, `relay.*` config |
 | **E3** | Mobile off-mesh: outer join + **inner TLS** through splice (S1–S13) | **Shipped** — `RelayTransport` loopback bridge + `connectionFactory` |
-| **E4** | Ops docs (systemd, LE, rotation of registration secret) | **Shipped** — [ops-mcrelay.md](ops-mcrelay.md), `deploy/systemd/mcrelay.user.service` |
+| **E4** | Ops docs (systemd, LE, rotation of registration secret) | **Shipped** — [ops-mcrelay.md](../guides/ops-mcrelay.md), `deploy/systemd/mcrelay.user.service` |
 
 ### E1 operator sketch
 
-Full CLI / config / env / `setup-service`: **[config-mcrelay.md](config-mcrelay.md)**.
+Full CLI / config / env / `setup-service`: **[config-mcrelay.md](../guides/config-mcrelay.md)**.
 
 ```bash
 make build-relay
@@ -363,4 +363,4 @@ Code must not invent a second auth model on the relay without reopening this ADR
 - Product track: [0009](0009-MADR-post-hardening-action-plan.md) Phase E
 - Post-MVP audit / P1–P6: [0016](0016-MADR-mcrelay-audit-hardening.md)
 - Community relay patterns: [0002](0002-MADR-community-assessment-and-stack-recommendations.md) (Shellular E2E)
-- Wire protocol: [protocol-v1.md](protocol-v1.md)
+- Wire protocol: [protocol-v1.md](../guides/protocol-v1.md)

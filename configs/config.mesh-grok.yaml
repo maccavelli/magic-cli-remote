@@ -240,7 +240,7 @@ limits:
     count: 4
 
 # Signed receipts for permission decisions (MADR 0077). Off by default.
-# See docs/receipts.md.
+# See docs/guides/receipts.md.
 receipts:
   enabled: false
   allow_patterns: []

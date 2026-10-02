@@ -1,6 +1,6 @@
 # mcremote default configuration (written by setup-service when missing).
 # Location: $XDG_CONFIG_HOME/mcremote/config.yaml or ~/.config/mcremote/config.yaml
-# Values match config.Defaults(). See docs/config.md.
+# Values match config.Defaults(). See docs/guides/config.md.
 
 listen:
   host: "127.0.0.1"        # use "tailscale" for mesh-only remote access
@@ -196,10 +196,10 @@ relay:
   max_frame_bytes: 0
 
 # Signed receipts for permission decisions (MADR 0077). Off by default —
-# opt in per pattern, not globally. See docs/receipts.md. Omitting this
+# opt in per pattern, not globally. See docs/guides/receipts.md. Omitting this
 # block from a previous setup-service seed hid the lever entirely;
 # receipts still default off via config.Defaults(), but operators had
-# to discover the keys from docs/config.md or add them by hand.
+# to discover the keys from docs/guides/config.md or add them by hand.
 receipts:
   enabled: false             # MCREMOTE_RECEIPTS_ENABLED
   allow_patterns: []         # MCREMOTE_RECEIPTS_ALLOW_PATTERNS (comma-separated)

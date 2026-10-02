@@ -49,7 +49,7 @@ this repository. `staticcheck` and `go vet` are part of `make preflight`.
 
 - [Core and build](core.md)
 - [CLI](cli.md)
-- [Configuration](config.md)
+- [Configuration](../../config.md)
 - [Networking](network.md)
 - [Sessions](session.md)
 - [Concurrency](concurrency.md)

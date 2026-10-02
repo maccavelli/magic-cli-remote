@@ -3,7 +3,7 @@
 <!-- markdownlint-disable MD013 -->
 
 Codex and Grok logins driven from the phone run inside a **credential
-transaction** ([MADR 0074 §15](0074-MADR-remote-provider-auth-from-phone.md),
+transaction** ([MADR 0074 §15](../decisions/0074-MADR-remote-provider-auth-from-phone.md),
 decisions D20–D29). This document is the operator's view: what the states mean,
 and what to do when one needs a decision.
 

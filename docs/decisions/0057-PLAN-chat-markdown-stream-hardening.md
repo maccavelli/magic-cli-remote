@@ -19,13 +19,13 @@ grounded in the tree at baseline `74e3c49` (`master`, 2026-07-30).
     `internal/config`, `internal/daemon`, `internal/session` (optional later phases)
   - Flutter: `apps/mobile/lib/data/chat/*`, `features/chat/chat_bubble.dart`,
     `state/transcripts_notifier.dart` (optional later), tests under `apps/mobile/test/`
-  - Docs/examples: `docs/0057-MADR-*`, `docs/protocol-v1.md` only if wire changes,
+  - Docs/examples: `docs/0057-MADR-*`, `docs/guides/protocol-v1.md` only if wire changes,
     `configs/*.yaml`, `README.md` config tables
-- **Standards:** [Go sessions](standards/go/session.md),
-  [Go concurrency](standards/go/concurrency.md),
-  [Go testing](standards/go/testing.md),
-  [mobile networking](standards/mobile/networking.md),
-  [Flutter](standards/mobile/flutter.md)
+- **Standards:** [Go sessions](../guides/standards/go/session.md),
+  [Go concurrency](../guides/standards/go/concurrency.md),
+  [Go testing](../guides/standards/go/testing.md),
+  [mobile networking](../guides/standards/mobile/networking.md),
+  [Flutter](../guides/standards/mobile/flutter.md)
 - **Related plans (do not re-open done work):**
   [0024 stream coalescing](0024-MADR-stream-coalescing.md) (shipped for OC/Goose/Codex),
   [0056 plan](0056-PLAN-mcremote-android-protocol-stack-remediation.md) phases 0–7
@@ -447,7 +447,7 @@ Port/adapt from `httpagent/coalesce_test.go` and keep rewritten versions of
 
 - README: document `providers.grok.stream_coalesce_ms`.
 - MADR 0057 status note: H-1 implemented when done.
-- Optional one line in `docs/chat-performance.md` if still referenced.
+- Optional one line in `docs/guides/chat-performance.md` if still referenced.
 
 ### A.7 Phase A gate
 

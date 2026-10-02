@@ -22,7 +22,7 @@ first — in particular §4.2 (why neither new type joins `IsInPlaceUpdate`),
 | Layer | Change | Phase |
 |---|---|---|
 | `internal/event/event.go` | `TypeApprovalSummary` + `ApprovalItem`; `TypeSubagents` + `SubagentInfo`; `Types()`; `IsControl` | 0 |
-| `docs/protocol-v1.md` | both types documented, incl. the `Event type values:` line | 0 |
+| `docs/guides/protocol-v1.md` | both types documented, incl. the `Event type values:` line | 0 |
 | `internal/provider/opencode/permission.go`, `http.go`, `mode.go` | approval accumulation, serialised emit | 1 |
 | `internal/provider/codex/session.go`, `mode.go` | approval accumulation; `pendingPerms` gains a descriptor | 2 |
 | `internal/provider/acpagent/session.go` | first ACP approval audit trail | 3 |
@@ -82,7 +82,7 @@ the message. **Do not push.**
 
 ## Phase 0 — Event model and protocol spec
 
-**Files:** `internal/event/event.go`, `docs/protocol-v1.md`
+**Files:** `internal/event/event.go`, `docs/guides/protocol-v1.md`
 
 ### 0.1 Constants
 
@@ -194,7 +194,7 @@ Leave `event.go:163-165` unchanged and extend its doc comment:
 
 ### 0.7 Protocol spec
 
-`docs/protocol-v1.md`:
+`docs/guides/protocol-v1.md`:
 
 1. Add both type names to the canonical enumeration line, which begins with the
    exact prefix:

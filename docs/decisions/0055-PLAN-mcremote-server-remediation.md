@@ -3,7 +3,7 @@
 **Status:** Phases 0–5 (including 1b) **implemented in code** (2026-07-21). Phase 6 product follow-ons and residual polish live in [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md).  
 **Date:** 2026-07-20 (decisions recorded same day; status refreshed 2026-07-21)  
 **Source:** Deep-dive audit of the mcremote Go server (bugs, gaps, wiring, hardening, concurrency, Go 1.26.5)  
-**Companion:** [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) (phases 1–6 already complete), [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) (what remains), [0012-MADR-mcremote-daemon-assessment-action-plan.md](0012-MADR-mcremote-daemon-assessment-action-plan.md) (post-audit phases 0–4), [protocol-v1.md](protocol-v1.md), [0001-MADR-architecture-mcremote.md](0001-MADR-architecture-mcremote.md)
+**Companion:** [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) (phases 1–6 already complete), [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) (what remains), [0012-MADR-mcremote-daemon-assessment-action-plan.md](0012-MADR-mcremote-daemon-assessment-action-plan.md) (post-audit phases 0–4), [protocol-v1.md](../guides/protocol-v1.md), [0001-MADR-architecture-mcremote.md](0001-MADR-architecture-mcremote.md)
 
 This plan turns the audit into **actionable, sequenced work**. It is remediation of shipped defects and reliability gaps — not a product redesign. Out of scope here: Flutter client deep work (except protocol notes for new error fields), outbound relay product build, new providers (Antigravity), and load-test benchmarks as gates (optional evidence only).
 
@@ -390,7 +390,7 @@ To ≥ fixed release for `GO-2026-5026`; `govulncheck ./...`.
 
 - `Defaults()`: `providers.fake.enabled = false`.
 - Example YAML: `require_client_key: true`; fake only with “dev/smoke” comment.
-- `docs/config.md`: admin sock, limits, owner isolation, fake default.
+- `docs/guides/config.md`: admin sock, limits, owner isolation, fake default.
 
 ### 5.3 Protocol docs
 
@@ -495,7 +495,7 @@ Phases **0–5** (including **1b**) complete when:
 3. R1–R6 implemented as chosen (including R4 owner isolation and R3 close-and-replace leaving a live session).
 4. `go test ./...`, `go vet ./...`, scoped `-race` green on Go 1.26.5.
 5. `govulncheck` clean for known reachable `x/net` idna issue (or residual documented).
-6. `docs/protocol-v1.md` and `docs/config.md` match revoke kick, live rules, replace create, owner isolation, limits.
+6. `docs/guides/protocol-v1.md` and `docs/guides/config.md` match revoke kick, live rules, replace create, owner isolation, limits.
 
 Phase **6** product items remain backlog.
 

@@ -538,4 +538,4 @@ raw-RPC `session/set_model` + `ModelSession` + command remap →
 - **Phase 3 (2026-07-27)**: Promoted `deep-research` and `workflow` to canonical command specs in `command/specs.go` and mapped in `grok/commandtable.go`.
 - **Phase 4 (2026-07-27)**: Added 7 typed policy config fields to `acpagent.Config` and `GrokProviderConfig`, updated `defaultArgs` and `ModelArgs` builder.
 - **Phase 5 (2026-07-27)**: Added `provider.MCPStatusSession` and `DiagnosticsSession` implementations on `acpagent.session`, registered `_x.ai/mcp/server_status` and `_x.ai/mcp_initialized` notification handlers.
-- **Phase 6 (2026-07-27)**: Updated operator docs (`docs/config.md`), `README.md`, command matrix, and completed pre-add checks and unit tests.
+- **Phase 6 (2026-07-27)**: Updated operator docs (`docs/guides/config.md`), `README.md`, command matrix, and completed pre-add checks and unit tests.

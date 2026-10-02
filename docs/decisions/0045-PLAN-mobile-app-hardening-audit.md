@@ -87,7 +87,7 @@ product follow-ups and are not closure criteria.
 | Daemon events | `internal/event/event.go` |
 | Session manager | `internal/session/manager.go` |
 | WS server | `internal/ws/server.go` |
-| Protocol doc | `docs/protocol-v1.md` |
+| Protocol doc | `docs/guides/protocol-v1.md` |
 
 ### Verified baseline facts (do not rediscover)
 
@@ -220,7 +220,7 @@ Local cache-key type only; no persisted data migration.
 - `apps/mobile/lib/features/chat/chat_screen.dart` (pick path ~538)
 - `apps/mobile/lib/data/ws/mcremote_client.dart`
 - new `apps/mobile/lib/data/protocol/frame_budget.dart`
-- `docs/protocol-v1.md`
+- `docs/guides/protocol-v1.md`
 - mobile request/prompt and chat tests
 
 ### Problem recap
@@ -276,7 +276,7 @@ loses the prompt. Text-only prompts are also currently unbounded.
 
 #### A1.3 Protocol documentation
 
-In `docs/protocol-v1.md`:
+In `docs/guides/protocol-v1.md`:
 
 - state that each client→daemon WebSocket message is limited to **1 MiB**;
 - state attachments are base64 within the JSON frame and count after encoding;
@@ -313,7 +313,7 @@ Revert cap + doc; behaviour returns to today's breakage for large photos.
 **Closes:** H3
 
 **Files:** `pair_uri.dart`, `connect_screen.dart`, `apps/mobile/README.md`,
-`docs/protocol-v1.md`,
+`docs/guides/protocol-v1.md`,
 `pair_uri_test.dart`, `connect_screen_test.dart`
 
 ### Problem recap
@@ -919,7 +919,7 @@ Restore stop-on-error.
 - `internal/protocol/messages.go`, `messages_test.go`, `doc_coverage_test.go`
 - `internal/session/manager.go` + manager tests
 - `internal/ws/server.go` + handler tests
-- `docs/protocol-v1.md`
+- `docs/guides/protocol-v1.md`
 - `mcremote_client.dart`
 - `notification_coordinator.dart`
 
@@ -1465,8 +1465,8 @@ Land in three waves. Each wave is one commit unless noted.
 | L-n4 | folded into B7 | Maintenance backoff and parked Wi-Fi-lock policy |
 | L-n5 | folded into A9 | Notification identity includes kind + session + request |
 | L-w1 | `chat_screen.dart` | Usage chip with count when `size <= 0 && used > 0` |
-| L-w2 | `docs/protocol-v1.md` | `session_config` merge semantics, not full replacement |
-| L-w4 | `docs/protocol-v1.md` | Add `switch_mode` to tool_kind vocabulary |
+| L-w2 | `docs/guides/protocol-v1.md` | `session_config` merge semantics, not full replacement |
+| L-w4 | `docs/guides/protocol-v1.md` | Add `switch_mode` to tool_kind vocabulary |
 | L-w5 | `apps/mobile/README.md` | Replace “transcripts are in-memory only” with daemon-ring replay + best-effort bounded phone-cache behavior |
 
 ### C-wave tests
@@ -1680,7 +1680,7 @@ reclassified product follow-ups rather than correctness gaps.
 ## 6. References
 
 - [MADR 0045 — findings](./0045-MADR-mobile-app-hardening-audit.md)
-- [protocol-v1.md](./protocol-v1.md) — frame limits, `session_title`, `timed_out`
+- [protocol-v1.md](../guides/protocol-v1.md) — frame limits, `session_title`, `timed_out`
 - [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md) — resync precedent
 - [MADR 0015](./0015-MADR-mcrelay-transport-security.md) — relay threat model
 - Commit `00d15b7` — permission modal loop fix (mirror for H9)

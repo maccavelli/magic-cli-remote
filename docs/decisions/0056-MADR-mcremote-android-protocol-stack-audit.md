@@ -12,17 +12,17 @@
   outbound relay host; Android/Flutter WebSocket client, relay bridge,
   transcript reconciliation, notifications, foreground service, lifecycle, and
   session-chat markdown rendering
-- **Related:** [protocol v1](protocol-v1.md),
+- **Related:** [protocol v1](../guides/protocol-v1.md),
   [implementation plan 0056](0056-PLAN-mcremote-android-protocol-stack-remediation.md),
   [MADR 0046](0046-MADR-mobile-debug-pass.md),
   [MADR 0018](0018-MADR-mobile-chat-performance-action-plan.md),
   [MADR 0027](0027-MADR-opencode-streaming-rendering.md),
   [MADR 0045](0045-MADR-mobile-app-hardening-audit.md) (P2/P4 status),
   [server remediation plan 0055](0055-PLAN-mcremote-server-remediation.md)
-- **Repository standards:** [Go networking](standards/go/network.md),
-  [Go sessions](standards/go/session.md),
-  [mobile networking](standards/mobile/networking.md),
-  [Android](standards/mobile/android.md)
+- **Repository standards:** [Go networking](../guides/standards/go/network.md),
+  [Go sessions](../guides/standards/go/session.md),
+  [mobile networking](../guides/standards/mobile/networking.md),
+  [Android](../guides/standards/mobile/android.md)
 
 > **Note on numbering:** there is no MADR 0058. This document is the
 > cross-stack protocol audit. Plans 0054/0055 cover earlier server hardening;

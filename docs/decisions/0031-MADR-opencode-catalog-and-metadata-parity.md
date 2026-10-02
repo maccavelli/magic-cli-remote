@@ -9,7 +9,7 @@
   [MADR 0020](./0020-MADR-opencode-session-tree.md),
   [MADR 0022](./0022-MADR-plan-mode-parity.md),
   [MADR 0023](./0023-MADR-canonical-slash-commands.md), and
-  [protocol-v1.md](./protocol-v1.md).
+  [protocol-v1.md](../guides/protocol-v1.md).
 - **Implementation plan**:
   [0031-PLAN-opencode-catalog-metadata-parity.md](./0031-PLAN-opencode-catalog-metadata-parity.md).
 

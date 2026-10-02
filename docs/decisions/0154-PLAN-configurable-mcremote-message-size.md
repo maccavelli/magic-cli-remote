@@ -32,7 +32,7 @@ Only the following files may change; new test files are explicitly identified.
 | `internal/ws/liveness_test.go` | Update capability helper tests if its signature changes |
 | `internal/cli/service/defaults_mcremote.yaml` | Service configuration seed |
 | `configs/config.example.yaml`, `configs/config.prod.example.yaml`, `configs/config.mesh-grok.yaml` | All required examples |
-| `docs/config.md`, `docs/config-mcrelay.md` | Key, environment variable, framing layers, restart and limits |
+| `docs/guides/config.md`, `docs/guides/config-mcrelay.md` | Key, environment variable, framing layers, restart and limits |
 | `apps/mobile/lib/data/protocol/frame_budget.dart` | Shared budget validation/default and display helper |
 | `apps/mobile/lib/data/protocol/models.dart` | Safe parsing of the advertised budget |
 | `apps/mobile/lib/data/ws/mcremote_client.dart` | Current connection budget getter and final send guard |
@@ -173,7 +173,7 @@ repository's authoritative gate on this complete planned Go file list:
 
 ```bash
 ./scripts/go-precheck.sh internal/config/config.go internal/config/load.go internal/config/config_test.go internal/daemon/daemon.go internal/ws/server.go internal/ws/liveness.go internal/ws/message_size_test.go internal/ws/negotiation_test.go internal/ws/liveness_test.go
-markdownlint-cli2 docs/config.md docs/config-mcrelay.md
+markdownlint-cli2 docs/guides/config.md docs/guides/config-mcrelay.md
 git diff --check
 ```
 

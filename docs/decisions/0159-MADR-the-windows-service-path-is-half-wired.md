@@ -307,7 +307,7 @@ The managed path is taken because `service.IsInstalled` →
 registered task. So on Windows: install the service, then every subsequent
 `update` downloads, verifies, swaps the binary, fails reconciliation, and rolls
 the swap back. Self-update is unavailable to every Windows operator who follows
-the documented install path. `docs/ops-windows-install.md` does not mention
+the documented install path. `docs/guides/ops-windows-install.md` does not mention
 `update` at all.
 
 **F2 — `setup-service` prints systemd instructions on Windows.**
@@ -346,7 +346,7 @@ advertises one.** `internal/appdirs/roots_windows.go:64` sets
 non-empty `roots.Logs` into `p.LogDir`, **appending the product name**
 (`paths.go:70`); `internal/cli/paths.go:91-92` prints `log_dir:`. So
 `mcremote paths` on Windows reports `%LocalAppData%\mcremote\Logs\mcremote`.
-`docs/ops-windows-install.md:58` lists `%LocalAppData%\mcremote\Logs` in the
+`docs/guides/ops-windows-install.md:58` lists `%LocalAppData%\mcremote\Logs` in the
 "Where things live" table, as though it were populated, and
 `scripts/acceptance-windows.ps1:142-143` asserts that same path. The code, the
 document and the gate all disagree (probe 12; MADR 0157 F4 records the same
@@ -394,7 +394,7 @@ the test that would have caught this **can never fail on Windows**. Measured:
 because the ping fails.** Probe 3 measured that after `TerminateProcess` the
 socket file survives with mode `Srw-rw-rw-`; dialling it returns "target machine
 actively refused it", `os.Remove` succeeds, and rebinding succeeds. So the
-`docs/ops-windows-install.md` claim that "a stale admin socket is detected and
+`docs/guides/ops-windows-install.md` claim that "a stale admin socket is detected and
 cleared on the next start" holds — via `admin.go:109-114`, which pings and then
 removes. It holds *because the dial fails*, not because anything verified the
 file's identity; given F4 there is no identity check to fall back on. Probe 2
@@ -530,7 +530,7 @@ claims otherwise.** MADR 0116 D14
 `MC_WINDOWS_SIGN_*` hook mirroring `MC_CODESIGN_IDENTITY`." Repo-wide,
 `MC_WINDOWS_SIGN` appears **only in docs**. `Makefile:204-210` `codesign-maybe`
 is gated `[ "$(GOOS)" = "darwin" ]`, and there is no `signtool` invocation
-anywhere. Yet `docs/ops-windows-install.md:42` says, in the present tense,
+anywhere. Yet `docs/guides/ops-windows-install.md:42` says, in the present tense,
 "Signing is designed into the build (`MC_WINDOWS_SIGN_*`)". An operator reading
 that will set a variable that does nothing. The hook was the deliverable D14
 claimed; the certificate was the part explicitly deferred.
@@ -610,7 +610,7 @@ on every update.
 matches `ERROR_ACCESS_DENIED` *and* `ERROR_SHARING_VIOLATION` on measured
 behaviour (MADR 0153 F2), `rename_other.go:5-19` makes the POSIX retry a
 compile-time no-op, and `syncdir_windows.go` documents its durability gap with
-an upstream issue (golang/go#75541) that `docs/ops-windows-install.md` repeats.
+an upstream issue (golang/go#75541) that `docs/guides/ops-windows-install.md` repeats.
 `procutil.SuperviseStarted` has five real call sites (six before MADR 0160) and
 `TestSuperviseStartedKillsTree` passes on this host. `launch_windows.go` routes
 `.cmd` shims through `cmd.exe /c`, rejects cmd.exe metacharacters rather than
@@ -639,7 +639,7 @@ config.
   broken environment into silent non-coverage.
 * **D-e — Parity gaps must be either closed or named.** F7, F9 and F13 are all
   cases where a decision was recorded and the implementation stopped short.
-  `docs/ops-windows-install.md` already models the right response — its "What is
+  `docs/guides/ops-windows-install.md` already models the right response — its "What is
   not supported on Windows" section exists so gaps "read as decisions rather
   than oversights". These three are not in it.
 * **D-f — Windows stays Tier 2.** MADR 0116 set that tier deliberately and
@@ -781,7 +781,7 @@ phase that depends on it.
   * Closes **F12**, without depending on the unmeasured localisation claim.
 * **D10 — Correct the documents; defer the signing hook until a certificate
   exists.**
-  * `docs/ops-windows-install.md:40-43` stops claiming the hook is wired.
+  * `docs/guides/ops-windows-install.md:40-43` stops claiming the hook is wired.
   * MADR 0116 gets an additive amendment: D14's hook waits for a certificate,
     because a hook nothing can call cannot be verified.
   * Closes **F13**.
@@ -880,7 +880,7 @@ $env:USERNAME='bogus'; mcremote setup-service --print-only     # UserId is the S
 mcremote setup-service --print-only --unit-name other          # error, not silence
 
 # 9. D10 - no document claims an unwired hook.
-git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "not yet" wording
+git grep -n 'MC_WINDOWS_SIGN' -- docs/guides/ops-windows-install.md   # only in the "not yet" wording
 ```
 
 ## Pros and Cons of the Options
@@ -922,7 +922,7 @@ git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "no
 * Good, because the Event Log is a first-class log sink, which would address F3
   without the daemon owning rotation.
 * Bad, because it contradicts D-g and MADR 0116 D12 outright: `sc.exe create`
-  requires elevation, and `docs/ops-windows-install.md` already states these
+  requires elevation, and `docs/guides/ops-windows-install.md` already states these
   binaries "do not call `StartServiceCtrlDispatcher`, so the Service Control
   Manager kills them at the start-up timeout. Running them under the SCM is
   unsupported." Reversing that is a new decision, not a bug fix.
@@ -942,7 +942,7 @@ git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "no
 * Good, because it would be the right answer if the remaining gaps were
   unbounded. They are not — every one has a named, local fix.
 * Bad, because it regresses a shipped, documented, CI-tested capability.
-  `docs/ops-windows-install.md` has a whole "Running in the background" section,
+  `docs/guides/ops-windows-install.md` has a whole "Running in the background" section,
   and `install.ps1` installs binaries whose purpose includes background
   operation.
 * Bad, because background operation is the product. A remote-control daemon an
@@ -1022,7 +1022,7 @@ git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "no
 | D14 promised `MC_WINDOWS_SIGN_*` | `docs/decisions/0116-MADR-windows-and-linux-arm64-build-targets.md:917-918` |
 | The hook does not exist | measured: repo-wide grep `MC_WINDOWS_SIGN\|signtool` → hits only in `docs/` |
 | `codesign-maybe` is darwin-gated | `Makefile:204-210` |
-| Ops doc claims signing is wired | `docs/ops-windows-install.md:40-43` |
+| Ops doc claims signing is wired | `docs/guides/ops-windows-install.md:40-43` |
 | Acceptance script coverage | `scripts/acceptance-windows.ps1:74-176`, manual steps `:181-186` |
 | Acceptance script never parsed | measured, probe 12: PowerShell 5.1 and 7 `ParseFile` 1 error at line 65; `git log -L65,65` gives `ca436bb` |
 | Once parsed, 2 checks fail | measured, probe 12: `log_dir` mismatch; `go test ./...` timing failures (3 tests, each 3/3 alone) |
@@ -1073,7 +1073,7 @@ git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md   # only in the "no
 * **MADR 0118** — symlink privilege as a machine property, and D2's rule that a
   blanket skip converts a broken environment into silent non-coverage. That rule
   is what makes **F4**'s `t.Skip` and **F15** defects rather than pragmatism.
-* `docs/ops-windows-install.md` — the operator-facing page. Already documents
+* `docs/guides/ops-windows-install.md` — the operator-facing page. Already documents
   the syncDir gap, `/end` semantics, at-logon-not-boot, the npm `.cmd` shim, and
   the "not supported" list. **F3** (the Logs table row) and **F13** (the signing
   claim) are statements in it that the code does not support.
@@ -1398,7 +1398,7 @@ all 12 `runSchtasks` calls — are in the same position.
 with `exec.Command(p.cfg.Bin, …)` (`acpagent.go:411`/`:424`,
 `codex/provider.go:222`/`:530`, `httpagent/provider.go:165`/`:502`). So the
 `cmd.exe` routing, the `ErrUnsafeBatchArgs` guard and the length check —
-MADR 0116 D11, documented to users in `docs/ops-windows-install.md` — are not in
+MADR 0116 D11, documented to users in `docs/guides/ops-windows-install.md` — are not in
 the spawn path. The 0150 F1 pattern a third time: a Windows-only helper that
 exists, is tested, is documented as active, and is never called.
 
@@ -1524,7 +1524,7 @@ invocation is checked against a ceiling four times too high.
   32767 for `KindNative`, with the constant named for which limit it is. Closes
   **F37**.
 * **D26 — Every user-facing claim this record contradicts is corrected in the
-  same release.** `docs/ops-windows-install.md`: the npm section's launch claim
+  same release.** `docs/guides/ops-windows-install.md`: the npm section's launch claim
   and its rejected-character list (F33, D23), agent CLIs being windowless, the
   graceful stop, and AutoRun. A page that describes a guard the code does not
   have is worse than a page that says nothing.

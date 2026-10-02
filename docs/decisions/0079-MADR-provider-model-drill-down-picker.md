@@ -5,7 +5,7 @@
 | field | value |
 | --- | --- |
 | status | **Accepted 2026-08-12.** Originally proposed 2026-08-11 and implemented through the associated plan; automated acceptance passed, with daemon-backed Android smoke testing retained as a rollout gate. |
-| related | MADR 0043 (model catalogs and the current two-step picker), MADR 0052 (thinking levels), MADR 0074 (provider credentials), `docs/standards/mobile/flutter.md` (predictive back) |
+| related | MADR 0043 (model catalogs and the current two-step picker), MADR 0052 (thinking levels), MADR 0074 (provider credentials), `docs/guides/standards/mobile/flutter.md` (predictive back) |
 | evidence | Current code and tests: `apps/mobile/lib/features/sessions/sessions_screen.dart`, `apps/mobile/lib/features/widgets/option_picker_sheet.dart`, `apps/mobile/lib/data/protocol/picker.dart`, `apps/mobile/lib/data/protocol/models.dart`, `apps/mobile/lib/features/settings/settings_screen.dart`, `internal/ws/server.go`, `internal/provider/opencode/http.go`, `internal/provider/kilo/catalog_live.go`, `internal/provider/acphttp/catalog.go`, `internal/provider/httpagent/provider.go`, `apps/mobile/test/model_provider_step_test.dart`, `apps/mobile/test/model_picker_test.dart`, and `apps/mobile/test/picker_test.dart` |
 | plan | [0079-PLAN-provider-model-drill-down-picker.md](0079-PLAN-provider-model-drill-down-picker.md) |
 
@@ -127,7 +127,7 @@ path or changing the daemon.
 | **D7** | **One-provider catalogs skip level 1.** When the reported provider catalog has zero or one option, open the ordinary model list directly. Goose's usual one-connected/many-reported shape still uses level 1 because the all-reported path is meaningful. |
 | **D8** | **Provider authentication stays Settings-owned.** The picker may render the existing `meta.connected` distinction, but this MADR adds no credential form, auth-status join, or setup action. The current tree already exposes `configured / missing / error / quota` through `ProviderInfo.auth` and manages credentials in Settings; a future decision may join that state by upstream ID. |
 | **D9** | **New model-specific widget, shared picker primitives.** Add a model drill-down entry point under `lib/features/widgets/`. Extract reusable sheet chrome, search/list rows, badges, custom input, thinking chips, and footer behavior from `option_picker_sheet.dart`; do not duplicate them. Preserve the `showOptionPicker` public behavior for its remaining production uses: agent selection, ACP config selects, and the in-session `/model` command. |
-| **D10** | **Back and empty states are explicit.** Header back and `PopScope` navigate models → provider menu → dismiss, following `docs/standards/mobile/flutter.md`. Zero connected providers shows **Browse all reported providers (N)…** plus `No configured providers were reported. Set one up in Settings or on the host, or browse all providers.` An empty scoped catalog retains the existing custom-value state. |
+| **D10** | **Back and empty states are explicit.** Header back and `PopScope` navigate models → provider menu → dismiss, following `docs/guides/standards/mobile/flutter.md`. Zero connected providers shows **Browse all reported providers (N)…** plus `No configured providers were reported. Set one up in Settings or on the host, or browse all providers.` An empty scoped catalog retains the existing custom-value state. |
 | **D11** | **Keep existing cache boundaries, but describe them accurately.** Reuse the dialog's completed-catalog maps and the daemon's TTL/single-flight cache. A plan may cache in-flight futures to prevent a prefetch/tap race, but this decision does not claim the current phone code emits at most one RPC per key. |
 
 ### Wireflow
@@ -264,4 +264,4 @@ current facts without a new live probe.
 * `docs/0043-MADR-model-selection.md`
 * `docs/0052-MADR-thinking-levels-and-settings.md`
 * `docs/0074-MADR-remote-provider-auth-from-phone.md`
-* `docs/standards/mobile/flutter.md`
+* `docs/guides/standards/mobile/flutter.md`

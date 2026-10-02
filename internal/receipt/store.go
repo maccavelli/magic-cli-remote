@@ -64,7 +64,7 @@ var ErrNoArchivedKey = errors.New("no archived public key for device")
 // (<dir>/<deviceID>.spki, 0600). The auth store is the only other holder of
 // this key, and `pair revoke`/`pair prune` delete it there — archiving at
 // receipt time is what keeps the chain verifiable for the rest of its life
-// (docs/receipts.md "Revoked devices"). Write-once: an existing archive is
+// (docs/guides/receipts.md "Revoked devices"). Write-once: an existing archive is
 // never overwritten — a device id's key never changes (identity IS the key,
 // ADR 0005), so a differing rewrite could only ever be corruption or an
 // attempt to swap the verification key out from under an existing chain.

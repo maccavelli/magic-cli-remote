@@ -400,7 +400,7 @@ Lands **before** the connect screen loses anything (F6).
 | `test/settings_screen_test.dart` | | ● | | | |
 | `test/connect_screen_test.dart` | | | ● | ● | ● |
 | `test/dial_episode_test.dart` (or client test) | | | | ● | ● |
-| `docs/ops-hardware-validation.md` + MADR status | | | | | P5 |
+| `docs/guides/ops-hardware-validation.md` + MADR status | | | | | P5 |
 
 Not touched: `transport_policy.dart`, `transport_probes.dart`, `pair_uri.dart`,
 anything in `internal/` (Go), `app.dart` (the route already exists).

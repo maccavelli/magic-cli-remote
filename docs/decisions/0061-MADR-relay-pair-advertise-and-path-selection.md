@@ -27,8 +27,8 @@
   (opaque splice, pair URI `relay`/`hid`, mesh when available),
   [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md)
   (reachability probe R7),
-  [ops-mcrelay.md](ops-mcrelay.md) (wire mcremote to mcrelay),
-  [config.md](config.md) (`relay.*` keys and env),
+  [ops-mcrelay.md](../guides/ops-mcrelay.md) (wire mcremote to mcrelay),
+  [config.md](../guides/config.md) (`relay.*` keys and env),
   [0058-MADR-macos-launchd-service-hardening.md](0058-MADR-macos-launchd-service-hardening.md)
   (LaunchAgent env for secrets).
 - **Extends**: 0015 D (pair discovery) and phone join path — does not reopen
@@ -206,7 +206,7 @@ prints a `Relay:` line, then **Scan QR** or paste the full URI.
 | `internal/daemon/daemon.go` | Serve fails if `Enabled()` && !`CanRegister()` |
 | `apps/mobile/.../mcremote_client.dart` | Attempt-scoped relay always; claim no longer null-wipes route |
 | `apps/mobile/.../connect_screen.dart` | Relay display; hint order; `hasRelay`-only attempt flag |
-| `docs/config.md` | Secret required for serve registration only |
+| `docs/guides/config.md` | Secret required for serve registration only |
 | Tests | `TestRelayValidateAdvertiseWithoutSecret`; connect_screen paste-relay case |
 
 ## Verification

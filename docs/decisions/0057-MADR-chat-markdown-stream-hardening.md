@@ -12,7 +12,7 @@
   **Codex**, **Goose**. Lenses: **throughput**, **stability**, **hardening**,
   **caching**, **buffering**.
 - **Related:**
-  [protocol v1](protocol-v1.md),
+  [protocol v1](../guides/protocol-v1.md),
   [MADR 0018](0018-MADR-mobile-chat-performance-action-plan.md),
   [MADR 0024](0024-MADR-stream-coalescing.md),
   [MADR 0027](0027-MADR-opencode-streaming-rendering.md),
@@ -20,7 +20,7 @@
   [MADR 0042](0042-MADR-android-app-remediation.md),
   [MADR 0051](0051-MADR-auto-approve-chat-noise.md),
   [MADR 0056](0056-MADR-mcremote-android-protocol-stack-audit.md),
-  [chat-performance.md](chat-performance.md)
+  [chat-performance.md](../guides/chat-performance.md)
 - **Out of scope:** Pairing/auth redesign, FCM push product, non-chat surfaces,
   iOS, replacing the WebSocket control plane.
 

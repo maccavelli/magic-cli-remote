@@ -59,7 +59,7 @@ regardless — a jail only breaks legitimate absolute-path reads. Chosen instead
 - **Opt-in** `Config.FSRoots` (default empty = unrestricted); when set, paths must
   resolve — after symlink evaluation — within a root or the session cwd.
 
-Documented in code/`docs/config.md` as defense-in-depth + audit, **not** a sandbox.
+Documented in code/`docs/guides/config.md` as defense-in-depth + audit, **not** a sandbox.
 
 ### D3 — M5: promote a matching orphan `cert.new`, don't delete it
 

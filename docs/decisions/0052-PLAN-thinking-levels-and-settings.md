@@ -199,7 +199,7 @@ returns the typed error.
 ### Phase A4 — daemon: per-session level and the `/thinking` command
 
 **Files:** `internal/provider/provider.go`, `internal/session/`,
-`internal/command/`, `docs/protocol-v1.md`
+`internal/command/`, `docs/guides/protocol-v1.md`
 
 1. Capability interface, mirroring `ModelSession`:
 
@@ -219,7 +219,7 @@ returns the typed error.
 4. Canonical command `/thinking` in the MADR 0023 registry — advertised only
    when the session implements the interface, so it never appears for opencode
    or goose. `cmdThinking` mirrors `cmdModel`.
-5. `docs/protocol-v1.md`: document `thinking_levels` on picker options, the
+5. `docs/guides/protocol-v1.md`: document `thinking_levels` on picker options, the
    `thinking_level` create-session field, and `/thinking`.
 
 **Tests:** a fake session implementing `ThinkingSession` proves the op appears;

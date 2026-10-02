@@ -16,7 +16,7 @@ Associated MADR: [0081-MADR-grok-1.0.3-surface-parity.md](0081-MADR-grok-1.0.3-s
 - **Scope**: `internal/provider/grok`, `internal/provider/acpagent`
   (only where grok's Spec or spawn/session hooks require it),
   `internal/command` (only if Phase G promotes `/loop`), every other
-  provider command table (conformance, Phase G only), `docs/config.md`,
+  provider command table (conformance, Phase G only), `docs/guides/config.md`,
   `README.md` grok rows, MADR 0081 status. No remote-protocol change.
   No mobile change. No new `providers.grok.*` config keys unless a
   measure-gated phase below explicitly adds one.
@@ -1037,12 +1037,12 @@ shapes. No half-wired handler.
 ## Phase J — Docs and MADR status
 
 **MADR:** Confirmation
-**Files:** `docs/config.md`, `README.md`,
+**Files:** `docs/guides/config.md`, `README.md`,
 `docs/0081-MADR-grok-1.0.3-surface-parity.md`, this plan
 
 ### Steps
 
-1. `docs/config.md` `providers.grok.reasoning_effort` row: change
+1. `docs/guides/config.md` `providers.grok.reasoning_effort` row: change
    the example list from `low, medium, high` to `low, medium, high,
    xhigh` and note that the live model advertises the set (grok-4.6
    includes `xhigh`; grok-4.5 does not). Do not add a new config key

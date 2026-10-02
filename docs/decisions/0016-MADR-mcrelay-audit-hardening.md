@@ -14,7 +14,7 @@
 | Doc | Role |
 |-----|------|
 | [0015-MADR-mcrelay-transport-security.md](0015-MADR-mcrelay-transport-security.md) | Trust model, join plane, phases E0–E3 |
-| [config-mcrelay.md](config-mcrelay.md) | Operator config surface |
+| [config-mcrelay.md](../guides/config-mcrelay.md) | Operator config surface |
 | [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) | Product Phase E tracking |
 
 ---
@@ -170,5 +170,5 @@ hook if cheap).
 | 2026-07-23 | P6: Origin empty (no `*`); rate map TTL prune + hard cap 4096 (make room before new IP). |
 | 2026-07-23 | Tests: `hub_test`, `rate_test`, `backoff_test`, ResolvedLimits, Flutter relay. |
 | 2026-07-23 | R5 host control Ping; R15 splice idle/max; R17 shutdown drain; R20 e2e + CI race. |
-| 2026-07-23 | E4 ops: `docs/ops-mcrelay.md`, `deploy/systemd/mcrelay.user.service`, smoke checklist. |
+| 2026-07-23 | E4 ops: `docs/guides/ops-mcrelay.md`, `deploy/systemd/mcrelay.user.service`, smoke checklist. |
 | 2026-07-23 | R7 healthz/TLS probe; R10 join hygiene + per-host rate; R11 healthz; R12 tunnel token; R13 ACME port errors; R16 multi-bucket rates; R18 pending GC; Phase E security e2e. |

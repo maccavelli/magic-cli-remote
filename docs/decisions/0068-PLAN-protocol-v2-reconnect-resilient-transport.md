@@ -99,8 +99,8 @@ reopen or modify 0068's completed session-resumption phases.
 - **Scope**: `internal/protocol`, `internal/ws`, `internal/relay`,
   `internal/relayhost`, `internal/session`, `internal/config`,
   `apps/mobile/lib/data/ws/*`, `apps/mobile/lib/state/session_synchronizer.dart`,
-  `apps/mobile/lib/app_lifecycle.dart`, `docs/protocol-v1.md` (+ new
-  `docs/protocol-v2.md`). No auth-model, pin, or pairing changes.
+  `apps/mobile/lib/app_lifecycle.dart`, `docs/guides/protocol-v1.md` (+ new
+  `docs/guides/protocol-v2.md`). No auth-model, pin, or pairing changes.
 - **Source**: [0068-MADR-protocol-v2-reconnect-resilient-transport.md](0068-MADR-protocol-v2-reconnect-resilient-transport.md)
 
 ---
@@ -168,11 +168,11 @@ a rejected alternative with this rationale.
 
 ## P0 — Spec + version negotiation (D1)
 
-1. Write `docs/protocol-v2.md` as a **delta spec** over v1: negotiation
+1. Write `docs/guides/protocol-v2.md` as a **delta spec** over v1: negotiation
    rules, the `auth_ok` capability block schema (below), `resume`/
    `resumed`/`resume_failed`, `replaced` close code, `first_seq`/
    `latest_seq`/`epoch` fields, `retry_after`. Add the missing
-   **Connection lifecycle** section to `docs/protocol-v1.md`
+   **Connection lifecycle** section to `docs/guides/protocol-v1.md`
    retroactively documenting shipped behaviour (60 s deadline, app-ping
    reset, no server pings, no replacement — A1 T5's doc half; sourced
    from `internal/ws/server.go:164-166`, `:528-537`, `:588-590`).
@@ -456,8 +456,8 @@ honours `retry_after_ms` floor.
 
 | File | Phases |
 | --- | --- |
-| `docs/protocol-v2.md` (new) | P0, P6 |
-| `docs/protocol-v1.md` (lifecycle section) | P0 |
+| `docs/guides/protocol-v2.md` (new) | P0, P6 |
+| `docs/guides/protocol-v1.md` (lifecycle section) | P0 |
 | `internal/protocol/messages.go` | P0, P2 |
 | `internal/ws/server.go` | P0, P1, P2, P3, P4, P6 |
 | `internal/ws/liveness.go` (new — `LivenessSpec`, pinger) | P0, P1 |
@@ -474,7 +474,7 @@ honours `retry_after_ms` floor.
 | `apps/mobile/lib/app_lifecycle.dart` | P5 |
 | `apps/mobile/lib/state/session_synchronizer.dart` | P3, P4 |
 | `apps/mobile/lib/features/connect/connect_screen.dart` | P5.7 |
-| `docs/ops-hardware-validation.md` | P6 |
+| `docs/guides/ops-hardware-validation.md` | P6 |
 
 ## Verification map (MADR → plan)
 

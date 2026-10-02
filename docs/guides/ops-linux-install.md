@@ -2,8 +2,8 @@
 
 <!-- markdownlint-disable MD013 -->
 
-Decision record: [MADR 0097](0097-MADR-linux-curl-installer.md); implementation
-plan: [0097-PLAN](0097-PLAN-linux-curl-installer.md).
+Decision record: [MADR 0097](../decisions/0097-MADR-linux-curl-installer.md); implementation
+plan: [0097-PLAN](../decisions/0097-PLAN-linux-curl-installer.md).
 
 ```bash
 curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh
@@ -11,8 +11,8 @@ curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/downlo
 
 The installer is a **bootstrap**, not a package manager. It places two verified
 binaries and hands off to `mcremote setup-service`. Upgrades are
-`mcremote update` ([MADR 0065](0065-MADR-update-automation.md),
-[0100](0100-MADR-update-unit-refresh-and-daemon-reload.md) — see
+`mcremote update` ([MADR 0065](../decisions/0065-MADR-update-automation.md),
+[0100](../decisions/0100-MADR-update-unit-refresh-and-daemon-reload.md) — see
 [Updating](#updating)), so this script is run once per host.
 
 What it guarantees:
@@ -65,7 +65,7 @@ alike. 32-bit ARM, i686 and riscv64 are not published and are rejected by name.
 
 The same `install.sh` also installs on Apple Silicon macOS (`darwin/arm64`).
 Intel Macs are not supported; see
-[MADR 0120](0120-MADR-retire-the-darwin-amd64-target.md). The service there is
+[MADR 0120](../decisions/0120-MADR-retire-the-darwin-amd64-target.md). The service there is
 a launchd LaunchAgent, not systemd; Full Disk Access is a separate grant, see
 [ops-macos-tcc.md](ops-macos-tcc.md).
 
@@ -159,7 +159,7 @@ After the first install, upgrades are the daemon's own job:
 mcremote update          # or: mcrelay update
 ```
 
-Since [MADR 0100](0100-MADR-update-unit-refresh-and-daemon-reload.md) an update
+Since [MADR 0100](../decisions/0100-MADR-update-unit-refresh-and-daemon-reload.md) an update
 does four things, in this order:
 
 1. download the release asset and verify it against `SHA256SUMS`;

@@ -33,7 +33,7 @@ including a live emulator pass.
 | Area | Files |
 |---|---|
 | Daemon: expiry marking (B) | `internal/provider/httpagent/session.go`, `internal/provider/acpagent/session.go`, `internal/provider/acpagent/extensions.go`, `internal/provider/httpagent/expiry_test.go`, `internal/provider/acpagent/session_test.go`, `internal/provider/acpagent/extensions_test.go` |
-| Protocol docs (B) | `docs/protocol-v1.md` (question `timed_out`, additive) |
+| Protocol docs (B) | `docs/guides/protocol-v1.md` (question `timed_out`, additive) |
 | Coordinator: tombstones + error body + test guard (A, D, E) | `apps/mobile/lib/data/notifications/notification_coordinator.dart` |
 | Notification service: tombstone + channel probe + test sends (A, C, D) | `apps/mobile/lib/data/notifications/notification_service.dart`, `apps/mobile/lib/data/notifications/agent_notifications.dart` |
 | Settings UI (C, D) | `apps/mobile/lib/features/settings/settings_screen.dart` |
@@ -42,7 +42,7 @@ including a live emulator pass.
 **Out of scope, deliberately**
 
 * **`permission_timeout_seconds` defaults.** Widening the actionable window is
-  host configuration; the MADR records the trade-off. A `docs/config.md`
+  host configuration; the MADR records the trade-off. A `docs/guides/config.md`
   sentence may ride along with Phase 5, nothing more.
 * **iOS.** No channels, no background socket (MADR 0067 D2). Part C returns
   null / renders nothing on iOS; parts A, D, E apply unchanged where iOS
@@ -66,7 +66,7 @@ including a live emulator pass.
 | B4 | `acpagent/session.go:1949-1966` | permission timeout arm (the `case <-timeout:` branch); its emit at `:1964` calls the helper with `cancelled, "", ""`. Two other cancel-path callers (`:1889`, `:1947`) are NOT timeouts and stay unmarked |
 | B5 | `acpagent/extensions.go:325-338` | question timeout arm emits via `questionResolvedEvent(qID, cancelled)` — no TimedOut |
 | B6 | `acphttp/session.go:1396`, `codex/session.go:1719` | the two conformant emitters, for signature reference |
-| B7 | `docs/protocol-v1.md:1104-1108` | `timed_out` on `permission_resolved` is already contract; `:926` documents `question_resolved` without it |
+| B7 | `docs/guides/protocol-v1.md:1104-1108` | `timed_out` on `permission_resolved` is already contract; `:926` documents `question_resolved` without it |
 | A1 | `notification_coordinator.dart:152-156` | any resolution → `_knownAsks.remove` + cancel; `ev.timedOut` ignored |
 | A2 | `models.dart:1395,1488,1648` | `SessionEvent.timedOut` parsed from `timed_out` — no model change needed |
 | A3 | `models.dart` `SessionEvent` | has **no** `deviceId` field; keying part A on `timedOut` alone is equivalent per B7's contract (timeout ⇔ `timed_out: true`; human answers never set it) and avoids a model change |
@@ -323,7 +323,7 @@ Each phase is one commit, `make pre-add-check` (Go) and
 2. acpagent: `permissionExpired` / `questionExpiredEvent` helpers; timeout
    arms switched (B4, B5); non-timeout callers untouched.
 3. Extend/add the six tests from §1.
-4. `docs/protocol-v1.md`: question `timed_out` documented (additive).
+4. `docs/guides/protocol-v1.md`: question `timed_out` documented (additive).
 5. `go test ./internal/provider/...` green.
 
 **Exit criterion:** the MADR F5 matrix reads ✅ in all five rows, proven by
@@ -373,7 +373,7 @@ navigates nor errors (logcat clean).
 
 ### Phase 5 — Docs — ✅ done 2026-08-18
 
-1. `docs/config.md` (or the settings copy already landed in Phase 3): one
+1. `docs/guides/config.md` (or the settings copy already landed in Phase 3): one
    sentence that `permission_timeout_seconds` bounds the actionable window of
    an ask notification.
 2. MADR 0101 §Confirmation rows updated with the test names that pin them.

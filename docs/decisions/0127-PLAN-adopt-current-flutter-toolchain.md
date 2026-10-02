@@ -249,7 +249,7 @@ flutter build apk --release --target-platform android-arm64
 ```
 
 `JAVA_HOME` is not optional: this host's default JDK is 26 and Gradle rejects it
-(`docs/ops-android-emulator.md`, gotcha 2).
+(`docs/guides/ops-android-emulator.md`, gotcha 2).
 
 Then record each of these as a number, not as "fine":
 
@@ -662,7 +662,7 @@ the app got well past `main()`.
 
 **Capture caveat, worth writing down.** `xcrun simctl io booted screenshot`
 renders the Metal/Impeller surface as flat grey — the same class of limitation
-`docs/ops-android-emulator.md` gotcha 1 documents for `adb exec-out screencap`.
+`docs/guides/ops-android-emulator.md` gotcha 1 documents for `adb exec-out screencap`.
 System UI (the alert, status bar) captures fine, which is what makes it look
 like a broken app rather than a broken screenshot. Do not read a grey simulator
 screenshot as a blank screen; check the logs.

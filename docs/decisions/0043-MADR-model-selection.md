@@ -648,7 +648,7 @@ Each decision has a check that fails before the change:
 | D11 | Widget: group order matches the catalog order (not alphabetical); a 500-option catalog builds without a frame budget overrun |
 | D12 | Widget: a 71-value select scrolls and filters |
 
-Protocol documentation (`docs/protocol-v1.md`) is updated for the new
+Protocol documentation (`docs/guides/protocol-v1.md`) is updated for the new
 `models.list` fields — `internal/protocol/doc_coverage_test.go` guards types,
 not fields, so this one is on the checklist rather than the compiler.
 

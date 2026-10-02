@@ -447,7 +447,7 @@ fires when this says yes).
 4. `configs/config.example.yaml`: add a documented `receipts:` block
    (disabled, with example patterns commented out) in the same annotated
    style as every other section.
-5. `docs/config.md`: add the `receipts.*` keys to the config reference table.
+5. `docs/guides/config.md`: add the `receipts.*` keys to the config reference table.
 6. **New `internal/receipt/match_test.go`** (missing from the original draft
    of this plan, which only described this test's coverage in Acceptance
    prose — added as an explicit step here): table-driven test covering
@@ -744,18 +744,18 @@ and wired to real data once P7 exists.
    - `mcremote receipts show --device ID --permission ID`: pretty-print one
      decoded Statement (human-readable, not raw JWS) for a specific decision
      — the "what exactly did this receipt attest to" command.
-2. `docs/receipts.md` (new, mirroring `docs/protocol-v1.md`'s role as the
+2. `docs/guides/receipts.md` (new, mirroring `docs/guides/protocol-v1.md`'s role as the
    source of truth for a wire surface): documents the `Statement` shape, the
    two shipped `predicateType`s (`permission-decision`, `receipt-unavailable`),
    the chain format, and — explicitly, per MADR 0077's own risk table — a
    **`predicateType` registry section**: every `predicateType` URI this
    codebase has ever defined, in one place, so a future receipt kind (D1's
    session-handoff follow-up, or anything else) registers itself here before
-   shipping, the same discipline `docs/protocol-v1.md` already applies to
+   shipping, the same discipline `docs/guides/protocol-v1.md` already applies to
    wire messages.
 3. `README.md`: add `mcremote receipts` to the CLI reference table (matching
    the existing `engines`/`paths` rows), and a short "Signed receipts"
-   subsection cross-linking `docs/receipts.md` and MADR 0077 — following the
+   subsection cross-linking `docs/guides/receipts.md` and MADR 0077 — following the
    same pattern used for the Kilo provider section.
 4. **New `internal/cli/receipts_test.go`** (missing from the original draft,
    which described this phase's tests only as Acceptance prose — added as an
@@ -776,7 +776,7 @@ and wired to real data once P7 exists.
   exits zero.
 - `mcremote receipts show` output matches what a human would need to answer
   "what did this receipt actually attest to" without reading raw JSON.
-- `docs/receipts.md` exists and is linked from `README.md`'s docs index,
+- `docs/guides/receipts.md` exists and is linked from `README.md`'s docs index,
   matching the existing table's format.
 - All three bullets above are asserted in `internal/cli/receipts_test.go`
   (step 4); none are exercised only by manual/ad-hoc invocation.
@@ -942,14 +942,14 @@ scope-prefix-collision case `device:dev-1` vs `device:dev-1-evil`).
 **Doc gaps closed** (the "register every wire surface" discipline this plan
 itself invokes):
 
-- `docs/protocol-v1.md`: `permission.receipt` added to the message table; a
+- `docs/guides/protocol-v1.md`: `permission.receipt` added to the message table; a
   "Signed receipts" section documents both new message types and the
   daemon's three acceptance conditions; `permission_resolved`'s new
   `device_id`/`option_id` fields documented, including exactly when they
   are omitted.
-- `docs/config.md`: `### mcremote receipts …` CLI subsection added
+- `docs/guides/config.md`: `### mcremote receipts …` CLI subsection added
   (flags, exit-code contract, where the daemon marker key comes from).
-- `docs/receipts.md`: the daemon's three append-time enforcement rules; the
+- `docs/guides/receipts.md`: the daemon's three append-time enforcement rules; the
   subject-digest preimage (`SHA-256(tool_name + "\x00" + detail)`) so an
   external verifier can reproduce it; and the revoked-device limitation
   below.
@@ -974,7 +974,7 @@ rejection), `TestStoreArchiveKeyDoesNotPolluteDeviceIDs`, archival
 assertions added to the manager's success and timeout round-trip tests, and
 `TestReceiptsVerifyAfterDeviceRevoked` /
 `TestReceiptsVerifyRevokedWithoutArchiveFailsClearly` at the CLI layer.
-Residual (documented in docs/receipts.md): a pre-archival chain whose
+Residual (documented in docs/guides/receipts.md): a pre-archival chain whose
 device was revoked before its next receipt has no archive — `verify` names
 both misses instead of failing vaguely.
 

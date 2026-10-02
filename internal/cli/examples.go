@@ -1,7 +1,7 @@
 package cli
 
 // Centralized CLI examples shown via cobra Example / Long help.
-// Keep in sync with README.md and docs/config.md.
+// Keep in sync with README.md and docs/guides/config.md.
 
 const rootExample = `
   # Version

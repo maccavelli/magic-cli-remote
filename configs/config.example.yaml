@@ -2,7 +2,7 @@
 #
 # Every effective setting is spelled out — no invisible defaults. If you add
 # a key to the daemon config (internal/config), add it here with its default
-# and a comment. See docs/config.md for the full reference.
+# and a comment. See docs/guides/config.md for the full reference.
 
 listen:
   host: "127.0.0.1"        # or "tailscale" (mesh IPv4 only) / "0.0.0.0" (explicit opt-in)
@@ -317,7 +317,7 @@ relay:
 # <detail>" summary matches allow_patterns (and doesn't match deny_patterns,
 # which always wins) get a device-signed, hash-chained receipt appended to
 # <data_dir>/receipts/<device_id>.jsonl. Shell-glob syntax (*, ?, [set]);
-# see docs/receipts.md.
+# see docs/guides/receipts.md.
 receipts:
   enabled: false             # MCREMOTE_RECEIPTS_ENABLED
   allow_patterns: []         # MCREMOTE_RECEIPTS_ALLOW_PATTERNS (comma-separated)

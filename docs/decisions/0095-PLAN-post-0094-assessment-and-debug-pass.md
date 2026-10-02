@@ -269,7 +269,7 @@ is new evidence" rule. Each was diagnosed before any test was adapted.
   the original F6 text overstated the single-in-flight case.
 * **E8 (Step 14) — `retry_no_result` needed a docs entry.**
   `TestErrorCodesAreDocumented` requires every registered code to appear
-  in `docs/protocol-v1.md`; the code was added to both tables there.
+  in `docs/guides/protocol-v1.md`; the code was added to both tables there.
 * **E9 (Step 16) — a pre-existing flaky test surfaced, recorded as F12.**
   `TestCloseAllKeepsSessionsListable` failed 5 times in 30 runs on the
   untouched baseline `b0e7261` (verified in a scratch worktree, so it is

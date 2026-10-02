@@ -7,7 +7,7 @@
 - **Scope**: `apps/mobile` (41 production Dart sources, 33 Dart tests,
   `android/` project) plus
   daemon↔app protocol parity against `internal/event`, `internal/ws`,
-  `internal/protocol`, and `docs/protocol-v1.md`
+  `internal/protocol`, and `docs/guides/protocol-v1.md`
 - **Related**: [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md),
   [MADR 0015](./0015-MADR-mcrelay-transport-security.md),
   [MADR 0018](./0018-MADR-mobile-chat-performance-action-plan.md),
@@ -225,7 +225,7 @@ The composer accepts images up to 4 MB raw (`chat_screen.dart:538`) then sends
 `coder/websocket` closes with `StatusMessageTooBig` on breach. A 2 MB photo —
 well under the app's own stated cap — produces a ~2.7 MB frame, so the daemon
 closes the socket, the request times out, the client enters reconnect, and the
-prompt plus image are gone. `docs/protocol-v1.md` documents no attachment budget
+prompt plus image are gone. `docs/guides/protocol-v1.md` documents no attachment budget
 at all.
 
 **Decision**: enforce the limit twice in the client. `McremoteClient.request`
@@ -662,8 +662,8 @@ Verified, low-severity. Grouped by area; each is a one-line fix.
 | L-n4 | `foreground_service.dart:47` | Wakelock + wifi-lock held all night; 30 s-capped retry loop drains battery on an unreachable host | Disable both locks, verify screen-off reconnect, and use N1's slow maintenance retry after the fast budget |
 | L-n5 | `agent_notifications.dart:95` | Permission notification ids omit `sessionId`, and use `String.hashCode`, which is not a cross-process persistence contract; collisions/restarts can update or fail to cancel the intended request | Stable-hash a versioned `kind + sessionId + requestId` target key and use the same helper for show/cancel |
 | L-w1 | `chat_screen.dart:2386` | Usage chip hidden entirely when `size <= 0`, but codex legally emits `size:0` (render the count alone) | Render count without a percentage when `size <= 0 && used > 0` |
-| L-w2 | `docs/protocol-v1.md` | `session_config` documented as "full replacement" but both daemon and app merge by id; removal is impossible | Fix the current contract to specify merge-by-id semantics |
-| L-w4 | `docs/protocol-v1.md` | tool_kind vocabulary omits `switch_mode` (the app maps it deliberately, so no runtime bug) | Add `switch_mode` to the doc's enum list |
+| L-w2 | `docs/guides/protocol-v1.md` | `session_config` documented as "full replacement" but both daemon and app merge by id; removal is impossible | Fix the current contract to specify merge-by-id semantics |
+| L-w4 | `docs/guides/protocol-v1.md` | tool_kind vocabulary omits `switch_mode` (the app maps it deliberately, so no runtime bug) | Add `switch_mode` to the doc's enum list |
 | L-w5 | `apps/mobile/README.md:104` | README says transcripts are memory-only and awaits a history/cache API, but both daemon history replay and the bounded phone cache exist | Document daemon ring authority plus the best-effort last-N phone cache |
 
 ---
@@ -789,5 +789,5 @@ L-w4) are documentation corrections to `protocol-v1.md`, not code.
 - [MADR 0018 — mobile chat performance](./0018-MADR-mobile-chat-performance-action-plan.md) — streaming-render budget (P2)
 - [Report 0032 — Codex UI/UX](./0032-MADR-codex-ui-ux-polish-report.md) / [Report 0033 — OpenCode UI/UX](./0033-MADR-opencode-ui-ux-polish-report.md) — sister report-style audits; verification discipline followed here
 - [MADR 0044 — auto-approve modes](./0044-MADR-auto-approve-modes.md) — the dangerous-mode UI whose parity §6 confirms complete
-- `docs/protocol-v1.md` and `apps/mobile/README.md` — the contracts
+- `docs/guides/protocol-v1.md` and `apps/mobile/README.md` — the contracts
   H4/H5/W1–W3 and L-w1/L-w2/L-w4/L-w5 measure against

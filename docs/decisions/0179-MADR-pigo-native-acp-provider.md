@@ -141,12 +141,12 @@ These facts correct pi-go's records. pi-go amends its own records with them.
 
 * The grok command table keeps `compact`, `usage`, `status` and `undo` as `KindNone` (`internal/provider/grok/commandtable.go:28-48`), and `KindNone` is final. MADR 0138 (`0138-MADR-overhaul-provider-surfaces-and-turn-path.md`) nevertheless implemented those ops, and its PLAN's acceptance item 9 says grok answers `/compact`. `internal/session/live_command_test.go:46-68` still asserts that `/compact` is refused. Either the table or the record is wrong.
 * `0023-MADR-canonical-slash-commands.md` "Known limitations" says no `_x.ai` call exposes compact. 0138 says one does.
-* `docs/protocol-v1.md` is out of date:
+* `docs/guides/protocol-v1.md` is out of date:
   * `:684` says `/thinking` on grok is spawn-only, but it is live (`commands.go:1373-1375`);
   * `:705` says grok `/model` restarts the agent, but it uses `OpSetModel`;
   * `:147` says the read deadline is 60 s, but the code default is 120 s (`config.go:131-136,866`);
   * `:155-158` predates close code 4001.
-* `docs/protocol-v2.md:13` links to the old path of `0068-MADR-protocol-v2-reconnect-resilient-transport.md`.
+* `docs/guides/protocol-v2.md:13` links to the old path of `0068-MADR-protocol-v2-reconnect-resilient-transport.md`.
 * Comments that disagree with the code: `specs.go:9-10` ("only `/goal` defaults to forwarding"), and `command.go:72-75` (grok thinking "spawn-only").
 * `internal/session/tokencost.go:54` always suggests `/compact`, even where it is unavailable.
 * The phone composer still offers agent commands the daemon resolved as unavailable (`chat_screen.dart:633-640`). This contradicts 0023 D2 ("table beats advertisement") on the client.
@@ -251,7 +251,7 @@ These changes apply to every ACP Spec, not to pigo only:
 
 * **Provider id and configuration:**
   * `provider.IDPigo` with wire id `"pigo"` (`internal/provider/provider.go:62-73`). pi-go's records call it `IDPi`, and they read this name from here.
-  * A `PigoProviderConfig` embedding `ACPProviderConfig` (`config.go:450,471-506`), with defaults, `validateACPProvider` (`:1104`), and `MCREMOTE_PROVIDERS_PIGO_*` documented in `docs/config.md`.
+  * A `PigoProviderConfig` embedding `ACPProviderConfig` (`config.go:450,471-506`), with defaults, `validateACPProvider` (`:1104`), and `MCREMOTE_PROVIDERS_PIGO_*` documented in `docs/guides/config.md`.
   * `KnownProviderIDs` in `config/prewarm_write.go:27`.
 * **Registration:** in `internal/daemon/daemon.go`, through `acpAgentConfig` (`:734-757`).
 * **The pigo Spec:**
@@ -273,7 +273,7 @@ These changes apply to every ACP Spec, not to pigo only:
   * the conformance test lists in `internal/command/conformance_test.go:52-80`;
   * a pigo row in `internal/cli/doctor.go:80-110`;
   * the mobile vendor icon manifest, `provider_detail_screen`, and the diagnostics gating at `chat_screen.dart:2548`;
-  * the provider lists in `docs/protocol-v1.md`.
+  * the provider lists in `docs/guides/protocol-v1.md`.
 * **Testing:** a `live-pigo` Make target, with wire fixtures captured by `internal/wirecap`.
 
 **D9 — pigo's command table. It is the 0005 target, expressed under D1–D3.**

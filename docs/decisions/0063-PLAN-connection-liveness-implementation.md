@@ -12,7 +12,7 @@ acceptance gates.
 - **Status:** **Implemented** (software 2026-08; P0–P4 landed on master).
   Amendments B1–B5 accepted as written; the four sequencing/cadence questions
   are closed (see §7). Hardware Part A / G* gates remain in
-  [ops-hardware-validation.md](ops-hardware-validation.md) — verification only;
+  [ops-hardware-validation.md](../guides/ops-hardware-validation.md) — verification only;
   no software phase open.
 - **Date:** 2026-08-01
 - **Scope:** Flutter client (`apps/mobile`) only. No daemon, mcrelay, or wire
@@ -353,7 +353,7 @@ needs a route that swallows packets, which is why V7/V8 stay hardware checks.
 ### 4.4 Manual (hardware)
 
 Run these from
-[ops-hardware-validation.md](ops-hardware-validation.md), which carries the same
+[ops-hardware-validation.md](../guides/ops-hardware-validation.md), which carries the same
 rows with macOS **and** Linux commands and the service-manager pitfalls that
 silently invalidate them.
 

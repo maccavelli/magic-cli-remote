@@ -388,4 +388,4 @@ write and permission rules decide the outcome.
 - [MADR 0020](./0020-MADR-opencode-session-tree.md) — session tree + control plane plan  
 - [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md) — resync gates  
 - [MADR 0019](./0019-MADR-opencode-process-management-plan.md) — single engine  
-- [protocol-v1.md](./protocol-v1.md) — phone wire protocol  
+- [protocol-v1.md](../guides/protocol-v1.md) — phone wire protocol  

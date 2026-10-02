@@ -288,7 +288,7 @@ Unchanged from rev 1, sharpened by F7: with `MC_CODESIGN_IDENTITY` set
 build is signed with a stable identifier (embedded `__info_plist`
 bundle id — replacing `a.out`) and an anchor-based designated
 requirement, so grants survive upgrades. Unset keeps today's ad-hoc
-path byte-for-byte (0060 D1 intact). `docs/ops-macos-tcc.md` (new) is
+path byte-for-byte (0060 D1 intact). `docs/guides/ops-macos-tcc.md` (new) is
 the runbook; 0065's plan gains the cross-reference (update flow re-signs
 with the local identity when configured, or documents the re-grant
 cost). Amends 0060 D1 with the middle path it never evaluated: Developer

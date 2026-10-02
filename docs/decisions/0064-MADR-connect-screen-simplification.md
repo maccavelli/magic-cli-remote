@@ -4,7 +4,7 @@
 
 - **Status**: **Implemented 2026-08-02** (software: V1–V9, V12–V14 all
   automated and green; hardware rows V10/V11/V15 tracked as Part C of
-  [ops-hardware-validation.md](ops-hardware-validation.md), C5/V15 deferred
+  [ops-hardware-validation.md](../guides/ops-hardware-validation.md), C5/V15 deferred
   with B12). Review rounds 1–3 answered 2026-08-02; all open questions closed.
   D3 withdrawn, D4a accepted, D2a superseded by **D6 (Connect mode, default
   `auto`)**, **D7 (burnt-code recovery)** added as D6's paired mitigation, and

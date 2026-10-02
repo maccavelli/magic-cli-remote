@@ -164,7 +164,7 @@ the response call are likewise not ordered behind a connected-state barrier.
 
 Therefore the action can arrive while the socket is still parked or connecting.
 The catch opens the session, but the selected Allow/Deny result is not queued or
-retried. Part F3 of `docs/ops-hardware-validation.md:334-346` expects this path
+retried. Part F3 of `docs/guides/ops-hardware-validation.md:334-346` expects this path
 to resolve correctly, yet every iOS row is still parked for lack of a device.
 
 Apple's notification API does not require forcing these actions into the
@@ -229,14 +229,14 @@ camera/speech behavior, APNs callback, Keychain reinstall behavior, or an Xcode
 archive failure.
 
 The signing runbook records simulator-only status, no enrolled device, no paid
-team, no APNs, and no TestFlight (`docs/ops-ios-signing.md:7-47`). The Xcode
+team, no APNs, and no TestFlight (`docs/guides/ops-ios-signing.md:7-47`). The Xcode
 project commits no development team and targets iOS 16, which is reasonable for
 source development, but there is no reproducible release path.
 
 #### F6 — real-device confidence is still zero for the iOS acceptance matrix (S1)
 
 All six iPhone hardware rows remain parked
-(`docs/ops-hardware-validation.md:329-346`):
+(`docs/guides/ops-hardware-validation.md:329-346`):
 
 | Gate | Unverified behavior |
 | --- | --- |
@@ -909,8 +909,8 @@ in Dart" is not evidence.
 | No push/background configuration | `ios/Runner/Info.plist`; `ios/Runner/Runner.entitlements:1-14` |
 | No iOS CI or release artifact | `.github/workflows/ci.yml:357-405`; `README.md:1400-1412` |
 | Native test is a stub | `ios/RunnerTests/RunnerTests.swift:5-9` |
-| All physical iPhone gates are parked | `docs/ops-hardware-validation.md:329-346` |
-| Signing is simulator/free-team only | `docs/ops-ios-signing.md:7-47` |
+| All physical iPhone gates are parked | `docs/guides/ops-hardware-validation.md:329-346` |
+| Signing is simulator/free-team only | `docs/guides/ops-ios-signing.md:7-47` |
 | Only later iOS smoke is a stubbed simulator UI | `docs/0112-PLAN-opencode-1.18.21-surface-parity.md:1878-1899` |
 | iPad is unintentionally targeted | `ios/Runner.xcodeproj/project.pbxproj:472-476,602-606,653-659` |
 | Product docs disagree | `apps/mobile/README.md:1-4,112-118`; `README.md:1360-1369`; `pubspec.yaml:2-4` |
@@ -943,4 +943,4 @@ in Dart" is not evidence.
 * [0068-MADR-protocol-v2-reconnect-resilient-transport.md](0068-MADR-protocol-v2-reconnect-resilient-transport.md) — reconnect/resume foundation this decision preserves.
 * [0070-MADR-deep-dive-debugging-pass.md](0070-MADR-deep-dive-debugging-pass.md) and [0071-MADR-codebase-assessment.md](0071-MADR-codebase-assessment.md) — prior records that identify APNs and iPhone hardware as residual product work.
 * [0101-MADR-android-agent-alert-delivery.md](0101-MADR-android-agent-alert-delivery.md) — the Android alert outcome and timeout/tombstone behavior iPhone must match.
-* [ops-hardware-validation.md](ops-hardware-validation.md) and [ops-ios-signing.md](ops-ios-signing.md) — current device and provisioning source of truth.
+* [ops-hardware-validation.md](../guides/ops-hardware-validation.md) and [ops-ios-signing.md](../guides/ops-ios-signing.md) — current device and provisioning source of truth.

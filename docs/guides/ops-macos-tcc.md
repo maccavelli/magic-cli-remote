@@ -3,7 +3,7 @@
 <!-- markdownlint-disable MD013 -->
 
 The macOS sibling of the platform ops docs; decision record:
-[MADR 0069](0069-MADR-macos-permissions-and-sandbox-parity.md) (D5/D6).
+[MADR 0069](../decisions/0069-MADR-macos-permissions-and-sandbox-parity.md) (D5/D6).
 Read this when an agent session fails with **"operation not permitted"** —
 and note that string has **three distinct causes** with three different
 remedies:

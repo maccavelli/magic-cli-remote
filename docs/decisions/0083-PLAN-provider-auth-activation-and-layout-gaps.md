@@ -27,7 +27,7 @@ OpenCode-family agents, and errors that say what to do next.
 ## Scope
 
 In scope: `apps/mobile`, `internal/provider/*`, `internal/ws`,
-`internal/protocol`, `docs/protocol-v1.md`. Out of scope: goose OS-keyring
+`internal/protocol`, `docs/guides/protocol-v1.md`. Out of scope: goose OS-keyring
 writes (MADR 0083 D6 — its own future record), the browser-OAuth loopback
 tunnel (0074 W3), and any engine-side change (both engines are used as
 shipped).
@@ -179,7 +179,7 @@ Done before the wiring phases so P3/P4 failures are debuggable in the field.
 1. **Protocol** (`internal/protocol/messages.go:512`): `AuthMethodPayload`
    gains `Available *bool` + `Reason string` (omitempty; absent = available,
    so old daemons read as all-available on new phones and vice versa — G8).
-   Document in `docs/protocol-v1.md`'s 0074 table.
+   Document in `docs/guides/protocol-v1.md`'s 0074 table.
 2. **Daemon annotation** at catalog/status build time (`internal/ws`
    `upstreamAuthPayload`, plus goose's `authCatalog`):
    * goose on a keyring-managed host (`!credstore.GooseKeyringDisabled`,

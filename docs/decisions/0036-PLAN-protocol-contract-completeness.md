@@ -3,7 +3,7 @@
 **Status:** Implemented 2026-07-27
 **Date:** 2026-07-27
 **Decision:** [MADR 0036](./0036-MADR-protocol-contract-completeness.md)
-**Evidence:** audit of `docs/protocol-v1.md` against the tree at `92372a9`
+**Evidence:** audit of `docs/guides/protocol-v1.md` against the tree at `92372a9`
 
 ## Goal and non-goal
 
@@ -72,7 +72,7 @@ with the daemon pairing.
 
 ## Phase 2 — P1: close the documentation gaps
 
-**Files:** `docs/protocol-v1.md`
+**Files:** `docs/guides/protocol-v1.md`
 
 1. **`stop_reason` vocabulary** (MADR 0036 D2) — replace the open "e.g." list
    with the closed table, including `error`'s pairing invariant and each value's
@@ -129,7 +129,7 @@ which is exactly the regression guard for a mechanical rename.
 
 **Files:** `internal/protocol/` (or a small `docs` test package)
 
-1. **Event-type coverage** — read `docs/protocol-v1.md`, locate the
+1. **Event-type coverage** — read `docs/guides/protocol-v1.md`, locate the
    `Event type values:` line, assert every `event.Type` constant appears in it.
    Failure message names the missing type and the line to update.
 2. **Error-code coverage** — assert every `protocol.ErrorCodes()` entry appears

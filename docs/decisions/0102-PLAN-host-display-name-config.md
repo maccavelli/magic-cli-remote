@@ -29,10 +29,10 @@ mandatory in those tests.
 
 * Go daemon: config struct, defaults/env wiring, validation, `auth_ok`
   and `pair_ok` payload fields, WS server plumbing, daemon wiring.
-* All four YAML templates, `docs/config.md`, and the README YAML-surface
-  table (MADR 0090 parity gate + `docs/standards/go/config.md` "update
+* All four YAML templates, `docs/guides/config.md`, and the README YAML-surface
+  table (MADR 0090 parity gate + `docs/guides/standards/go/config.md` "update
   user documentation in the same change").
-* `docs/protocol-v1.md` note for the optional `auth_ok` / `pair_ok`
+* `docs/guides/protocol-v1.md` note for the optional `auth_ok` / `pair_ok`
   fields.
 * Phone app: client-side capture from both success frames, sessions-screen
   label substitution, settings Host row, plus Dart tests.
@@ -208,7 +208,7 @@ display_name: ""
 Do **not** add `display_name` to `omittedConfigKeys` in
 `template_parity_test.go` — the parity tests must pass unexempted.
 
-**1.7 `docs/config.md` — two table rows**
+**1.7 `docs/guides/config.md` — two table rows**
 
 * Settings table: after the `data_dir` row (currently line 84), add:
 
@@ -404,7 +404,7 @@ func TestPairOKCarriesDisplayName(t *testing.T) {
 }
 ```
 
-**2.5 `docs/protocol-v1.md` — contract note**
+**2.5 `docs/guides/protocol-v1.md` — contract note**
 
 After the `auth_ok` success example (currently lines 180-182), insert:
 

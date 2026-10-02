@@ -118,7 +118,7 @@ the transport a provider is built on:
 Any client behavior keyed on "this ask expired unattended" is blind on grok,
 opencode, and kilo alike — a parity hole across three of the five providers,
 not a single-provider quirk. It is also a conformance defect, not a missing
-nicety: `docs/protocol-v1.md:1104` already specifies `timed_out` as *"true
+nicety: `docs/guides/protocol-v1.md:1104` already specifies `timed_out` as *"true
 when the request was auto-cancelled because the client did not answer within
 `permission_timeout_seconds`"* — the three ❌ rows violate the documented
 contract today. (`question_resolved` documents no such flag (`:926`), so the

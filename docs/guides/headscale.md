@@ -235,7 +235,7 @@ App host field:
 # or MagicDNS name, e.g. awsutility.ts.lallygag.net:7531
 ```
 
-WebSocket path: `/v1/ws` (see [protocol-v1.md](./protocol-v1.md)).
+WebSocket path: `/v1/ws` (see [protocol-v1.md](protocol-v1.md)).
 
 ---
 
@@ -273,7 +273,7 @@ Always keep `auth.require_device_token: true` in production.
 3. Durable token is stored on the device after claim — no re-emailing. Codes expire in 5 minutes.  
 4. Phone Tailscale logged into the same Headscale tailnet.  
 5. Connect to `ws://<host-magicdns-or-tailnet-ip>:7531/v1/ws`  
-6. Send the `auth` message with the token (see [protocol-v1.md](./protocol-v1.md)).  
+6. Send the `auth` message with the token (see [protocol-v1.md](protocol-v1.md)).  
 
 ## What Phase 1 does **not** do
 

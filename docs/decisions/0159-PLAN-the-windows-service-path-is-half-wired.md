@@ -56,7 +56,7 @@ phase.
 
 * **P1:** `scripts/acceptance-windows.ps1` (line 65 only).
 * **P2:**
-  * `docs/ops-windows-install.md` (the signing paragraph, `:40-43`);
+  * `docs/guides/ops-windows-install.md` (the signing paragraph, `:40-43`);
   * `docs/decisions/0116-MADR-windows-and-linux-arm64-build-targets.md` (an
     appended amendment section only).
 * **P3:** `internal/admin/owner_windows.go`, `internal/admin/owner_windows_test.go`,
@@ -80,7 +80,7 @@ phase.
     `result_print_launchd.golden` (new);
   * `internal/cli/service/setup.go` (`normalize` only);
   * `internal/cli/service/setup_test.go`;
-  * `docs/ops-windows-install.md` (the "Running in the background" section).
+  * `docs/guides/ops-windows-install.md` (the "Running in the background" section).
 * **P8:** `internal/cli/service/control_schtasks.go`,
   `internal/cli/service/schtasks_test.go`,
   `internal/cli/service/control_schtasks_windows_test.go` (new).
@@ -90,13 +90,13 @@ phase.
   * `internal/cli/service/setup_schtasks.go` (the comparison fields only);
   * `internal/cli/service/schtasks_test.go`,
     `internal/cli/service/task_compare_test.go`;
-  * `docs/ops-windows-install.md` (the restart and stop wording).
+  * `docs/guides/ops-windows-install.md` (the restart and stop wording).
 * **P10:**
   * `internal/cli/service/refresh.go`,
     `internal/cli/service/refresh_schtasks.go` (new),
     `internal/cli/service/refresh_schtasks_test.go` (new);
   * `internal/cli/service/testdata/task-export-v0174.xml`;
-  * `docs/ops-windows-install.md` (a new "Updating" section).
+  * `docs/guides/ops-windows-install.md` (a new "Updating" section).
 * **P11:** `scripts/acceptance-windows-service.ps1` (new).
 * **P12:**
   * `internal/cli/service/setup.go`, `internal/cli/service/schtasks.go`,
@@ -106,7 +106,7 @@ phase.
   * `internal/cli/serve.go`, `internal/relay/cli.go` (the serve command's
     flags only);
   * `internal/cli/envfile.go` (new) and its `_test.go`;
-  * `docs/ops-windows-install.md`.
+  * `docs/guides/ops-windows-install.md`.
 * **P13:**
   * `internal/cli/serve.go`, `internal/relay/cli.go` (the serve command's
     flags only);
@@ -114,7 +114,7 @@ phase.
     (new);
   * `internal/cli/service/schtasks.go` and its test;
   * `scripts/acceptance-windows-service.ps1`;
-  * `docs/ops-windows-install.md`.
+  * `docs/guides/ops-windows-install.md`.
 
 Every phase may also append to this file's `## Execution record`, and set this
 pair's `status` and `date`.
@@ -276,7 +276,7 @@ failure is **not** fixed here.
 
 ### P2 — The signing documentation stops claiming a hook (D10; closes F13)
 
-1. In `docs/ops-windows-install.md:40-43`, replace "Signing is designed into the
+1. In `docs/guides/ops-windows-install.md:40-43`, replace "Signing is designed into the
    build (`MC_WINDOWS_SIGN_*`)" with a statement that the binaries are not yet
    Authenticode-signed, and that a signing hook waits for a code-signing
    certificate (MADR 0159 D10). Keep the rest of the paragraph.
@@ -289,7 +289,7 @@ failure is **not** fixed here.
 **Verification (P2):**
 
 ```bash
-git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md     # → only the "not yet" wording
+git grep -n 'MC_WINDOWS_SIGN' -- docs/guides/ops-windows-install.md     # → only the "not yet" wording
 git diff --stat                                                  # → the two files
 git diff -U0 -- docs/decisions/0116-MADR-*.md | grep -c '^-[^-]'      # → 0 (no removed lines)
 ```
@@ -456,7 +456,7 @@ Then P5's live idempotency check again, which must stay UNCHANGED.
      golden files (C5).
 4. `setup_test.go`: under `OverrideInstallOS("windows")`, cover the two
    refusals; `--unit-name mcremote` is accepted.
-5. `docs/ops-windows-install.md`, "Running in the background": replace any
+5. `docs/guides/ops-windows-install.md`, "Running in the background": replace any
    systemd-shaped instruction with the step 1 commands, and say that `--env`
    and `--unit-name` are refused on Windows and why.
 
@@ -528,7 +528,7 @@ go test ./internal/updateclient/ -count=1                  # → ok (WaitHealthy
 
    If it does not relaunch, stop: the boundary form is wrong. Amend the MADR
    with the measurement before choosing another.
-6. `docs/ops-windows-install.md`: restarts happen within about a minute; stop
+6. `docs/guides/ops-windows-install.md`: restarts happen within about a minute; stop
    with the P7 commands; a bare `schtasks /end` is undone within a minute.
 
 **Verification (P9):** the Stability rule, step 5's recorded result, and C4:
@@ -584,7 +584,7 @@ the rendered `<Arguments>` line is unchanged from v0.17.4.
    * `PrintOnly` issues no `/create`;
    * `RestoreUnitBackup` with a `Task Scheduler\` path issues `/create` with
      the backup's content and removes the backup.
-4. `docs/ops-windows-install.md` gains an **Updating** section:
+4. `docs/guides/ops-windows-install.md` gains an **Updating** section:
    * `mcremote update` stops (disables and ends), swaps, refreshes the task,
      starts, and waits for `Running`;
    * on failure it rolls back;
@@ -686,7 +686,7 @@ Starts only after release 1 has been published (C4, F18).
    into `ExtraEnviron`. A missing file gives kept, with the reason.
 4. Tests: render and recovery round-trip; the file is created and removed; C5
    holds for Unix.
-5. `docs/ops-windows-install.md`: `--env` works on Windows through
+5. `docs/guides/ops-windows-install.md`: `--env` works on Windows through
    `service.env`.
 
 **Verification (P12):** the Stability rule, plus P11's script extended by one
@@ -725,7 +725,7 @@ file sink) has been executed.
    If a console host still appears, stop. The fallback is a GUI-subsystem
    service binary (MADR probe 7 row 2). That fallback is a new decision, not
    part of this plan.
-7. `docs/ops-windows-install.md`: no console at logon, and the log file is the
+7. `docs/guides/ops-windows-install.md`: no console at logon, and the log file is the
    place to look (MADR 0157).
 
 **Verification (P13):** the Stability rule, P11's script with S3b, and step
@@ -745,7 +745,7 @@ pwsh -File scripts\acceptance-windows.ps1                                  # onl
 pwsh -File scripts\acceptance-windows-service.ps1                          # 0 CHECK(S) FAILED
 mcremote setup-service; mcremote setup-service                             # second: unchanged, exit 0 (C3 cmp)
 $env:USERNAME='bogus'; mcremote setup-service --print-only | Select-String UserId   # the SID
-git grep -n 'MC_WINDOWS_SIGN' -- docs/ops-windows-install.md                # "not yet" wording only
+git grep -n 'MC_WINDOWS_SIGN' -- docs/guides/ops-windows-install.md                # "not yet" wording only
 ```
 
 ### Acceptance criteria (mapped to MADR Confirmation)
@@ -963,7 +963,7 @@ refresh restores the old task.
 scope list omitted. P13 may also touch `internal/cli/service/refresh_schtasks.go`
 and `internal/cli/service/refresh_schtasks_test.go`.
 
-**P13 step 7, changed.** `docs/ops-windows-install.md` says the task-launched
+**P13 step 7, changed.** `docs/guides/ops-windows-install.md` says the task-launched
 daemon has no console, and that until MADR 0157 lands its log output is not
 kept anywhere: run `mcremote serve` in a terminal to see it. It also says a
 task written by v0.18.1 names `--detach-console`, which v0.18.0 and earlier
@@ -1047,11 +1047,11 @@ P14.
    `MCREMOTE_INSTALL_NO_PATH_UPDATE=1` in every mode. A new check compares
    the real `HKCU\Environment` `Path` (raw, and its kind) before and after the
    whole run.
-4. `docs/ops-windows-install.md` (Install): the installer adds both folders to
+4. `docs/guides/ops-windows-install.md` (Install): the installer adds both folders to
    the User `Path`, and explains how to opt out.
 
 **Scope (P15):** `scripts/install.ps1`, `scripts/install_ps1_unit_test.ps1`,
-`scripts/install_ps1_test.ps1`, `docs/ops-windows-install.md` (the Install
+`scripts/install_ps1_test.ps1`, `docs/guides/ops-windows-install.md` (the Install
 section).
 
 **Verification (P15):** P14's four commands, plus:
@@ -1233,7 +1233,7 @@ P19  internal/provider/launch/launch.go           D23, D25: errors, limits, doc 
      internal/provider/codex/provider.go          D24: spawn through launch.Command
      internal/provider/acpagent/acpagent.go       D24: same
      internal/provider/httpagent/provider.go      D24: same
-P20  docs/ops-windows-install.md                  D26
+P20  docs/guides/ops-windows-install.md                  D26
 ```
 
 Out of scope, named so the boundary is not mistaken for an oversight: resolving
@@ -1461,7 +1461,7 @@ the built line contains `/d`, not by behaviour.
 
 ### P20 — The Windows page stops describing a guard that was never reached (D26)
 
-1. `docs/ops-windows-install.md`, "Provider CLIs installed by npm": replace the
+1. `docs/guides/ops-windows-install.md`, "Provider CLIs installed by npm": replace the
    claim that only the `.cmd` is launchable and that Windows requires
    `cmd.exe /c` (F33) with what was measured — the shim launches directly, cmd.exe
    is supplied implicitly, and `mcremote` therefore routes through it explicitly
@@ -1551,7 +1551,7 @@ every phase; `make pre-add-check` passed on every Go file staged.
 | P17 | `99c69eb` | 25 spawn calls across 15 files moved to the constructor; the static ban |
 | P18 | `246ac79` | `signalBreak` — attach, signal, detach — and `NoteConsoleDetached` |
 | P19 | `5500d62` | The batch quoting guard, `launch.Command` wired into all three providers, split ceilings |
-| P20 | `db92d59` | `docs/ops-windows-install.md` corrected |
+| P20 | `db92d59` | `docs/guides/ops-windows-install.md` corrected |
 
 **Mutation results.** Every guard was checked against a broken implementation,
 because a test that passes against the bug is worth nothing.

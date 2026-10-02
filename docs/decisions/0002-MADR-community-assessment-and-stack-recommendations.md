@@ -605,4 +605,4 @@ Please confirm or correct:
 5. **Port default**: 7910 (grok-remote familiar) vs something else? → **Resolved: 7531** ([0003](0003-MADR-phase1-decisions.md)).  
 6. **Any provider besides Grok** required in the first milestone, or interface-only?
 
-Once reviewed, the next concrete step is scaffolding the Go module and freezing a short `docs/protocol-v1.md` WebSocket schema.
+Once reviewed, the next concrete step is scaffolding the Go module and freezing a short `docs/guides/protocol-v1.md` WebSocket schema.

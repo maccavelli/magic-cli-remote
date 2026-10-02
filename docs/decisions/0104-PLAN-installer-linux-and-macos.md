@@ -29,7 +29,7 @@ macOS is no longer a hard error.
 * `scripts/install_test.sh` — invert the Darwin rejection; add Darwin
   download/verify/launchd/uninstall cases; keep every Linux assertion.
 * Operator docs: `README.md` (install section + "macOS and Windows"),
-  `docs/ops-linux-install.md` (platform table), `docs/ops-macos-tcc.md`
+  `docs/guides/ops-linux-install.md` (platform table), `docs/guides/ops-macos-tcc.md`
   (one-liner is now a valid way to place the unsigned binary).
 
 **Out**
@@ -543,7 +543,7 @@ always runs when `OS=darwin`:
             launchctl kickstart -k gui/$(id -u)/com.magiccliremote.mcremote
         Unsigned upgrades drop that grant. To keep it, rebuild signed:
             make install MC_CODESIGN_IDENTITY='Apple Development: you (TEAMID)'
-        See docs/ops-macos-tcc.md.
+        See docs/guides/ops-macos-tcc.md.
 ```
 
 Do not mention AppArmor, linger, `su`, or `XDG_RUNTIME_DIR` on Darwin.
@@ -583,7 +583,7 @@ no-op those commands (`systemctl` missing, dirs empty).
   supported. Keep the FDA / signing pointer. Windows stays
   "use WSL2".
 
-`docs/ops-linux-install.md`:
+`docs/guides/ops-linux-install.md`:
 
 * Title can stay (it is the Linux runbook). Change
   "macOS is deliberately out of scope" (`:66-67`) to a pointer:
@@ -592,7 +592,7 @@ no-op those commands (`systemctl` missing, dirs empty).
 * Add `launchd-agent` to the service-backend table:
   supervised yes, starts at boot **no** (login session).
 
-`docs/ops-macos-tcc.md`:
+`docs/guides/ops-macos-tcc.md`:
 
 * In "Granting Full Disk Access", note that
   `curl …/install.sh | sh` now places `~/.local/bin/mcremote` and

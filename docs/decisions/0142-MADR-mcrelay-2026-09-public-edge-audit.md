@@ -448,7 +448,7 @@ F38 remains deferred (wire-visible). `GOEXPERIMENT=goroutineleakprofile` on `mak
   default, heap-base randomization, `crypto/tls` PQ KEMs, `go fix`
   modernizers, experimental `runtime/secret` (not adopted).
 * 0017 E5 (metrics) remains deferred.
-* Ops: `docs/ops-mcrelay.md`; production relay
+* Ops: `docs/guides/ops-mcrelay.md`; production relay
   `wss://headscale.lallygag.net:8443`.
 
 ## Observed — execution results (2026-09-05)

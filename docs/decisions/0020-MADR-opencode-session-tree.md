@@ -13,9 +13,9 @@
     **must preserve and extend, not replace**
   - [MADR 0019](./0019-MADR-opencode-process-management-plan.md) — single `opencode serve`
     ownership; ACP path removed
-  - [protocol-v1.md](./protocol-v1.md) — phone control plane (`plan`, permissions, status,
+  - [protocol-v1.md](../guides/protocol-v1.md) — phone control plane (`plan`, permissions, status,
     modes/config for ACP agents, questions)
-  - [config.md](./config.md) — `providers.opencode.*`
+  - [config.md](../guides/config.md) — `providers.opencode.*`
   - [0021-MADR-opencode-http-api-coverage.md](./0021-MADR-opencode-http-api-coverage.md) — full REST/SSE
     coverage matrix (shipped / planned / gap / wontfix)
 
@@ -834,7 +834,7 @@ REST:
 - `POST /question/{requestID}/reply` — `{ answers: string[][] }` labels
 - `POST /question/{requestID}/reject`
 
-**Daemon events** (new; `internal/event/event.go` + `docs/protocol-v1.md`):
+**Daemon events** (new; `internal/event/event.go` + `docs/guides/protocol-v1.md`):
 
 ```go
 TypeQuestion         Type = "question_request"
@@ -1254,7 +1254,7 @@ var ErrTurnBusy = errors.New("turn busy")
 | `acpagent` / `fake` | same sentinel (fake tests currently assert the free-text string — update to `errors.Is`) |
 | `session.Manager.Prompt` | pass through unchanged (`errors.Is` works across return) |
 | `ws.writeSessionErr` | `case errors.Is(err, provider.ErrTurnBusy): code = "turn_busy"` |
-| `docs/protocol-v1.md` | error code table row: `turn_busy` — "a turn is already in progress; wait for idle or cancel" |
+| `docs/guides/protocol-v1.md` | error code table row: `turn_busy` — "a turn is already in progress; wait for idle or cancel" |
 | Mobile | treat `turn_busy` as non-fatal toast / disable send; do not show generic "prompt failed" |
 
 **PR7** owns this thin stack (can land after PR1; no dependency on tree work).
@@ -1599,7 +1599,7 @@ enqueue-on-busy.
    - **false** (kill switch): **exact pre-0020 behavior** — no `childAliases`
      binds (bootstrap and `BindChildAlias` no-op), parent-only EndTurn (no
      idle-confirm tree REST), no child event fan-in. Not a mixed mode.  
-   Document in `docs/config.md` (PR9).
+   Document in `docs/guides/config.md` (PR9).
 
 2. **Staged**: PR1 transport → PR2 dialect lifecycle → PR5 resync → PR3
    permissions → PR7 turn_busy; then 1b questions → mobile.
@@ -1677,7 +1677,7 @@ No open product questions remain for Sprint 1–3 design scope.
     (pattern for future `QuestionSession`)  
   - `internal/provider/acpagent/session.go` — plan mapping + ACP parity precedent  
   - `apps/mobile/lib/data/chat/transcript_reducer.dart` — plan UI  
-- Docs: MADR 0011, 0014, 0019; `docs/protocol-v1.md`; `docs/config.md`  
+- Docs: MADR 0011, 0014, 0019; `docs/guides/protocol-v1.md`; `docs/guides/config.md`  
 - Upstream types: `@opencode-ai/sdk` `types.gen.d.ts` (v1 + v2) — Session,
   EventTodoUpdated, EventSessionStatus, permission/question routes  
 - Host binary: OpenCode **1.18.4**  
@@ -1776,7 +1776,7 @@ Independently reviewable, mergeable increments. Prefer small PRs; each keeps
 - **Files/components**:  
   `internal/provider/provider.go` (`QuestionSession` optional interface),  
   `internal/event/event.go`, `internal/protocol/messages.go`,  
-  `docs/protocol-v1.md`, manager type-assert + WS handler (mirror set_mode/set_config),  
+  `docs/guides/protocol-v1.md`, manager type-assert + WS handler (mirror set_mode/set_config),  
   `internal/provider/opencode/http.go` (question.* / v2),  
   `GET/POST /question*`, pending+expiry, tests
 - **Dependencies**: PR1–PR2; **PR5** before question list resync; PR3 nice for
@@ -1821,7 +1821,7 @@ Independently reviewable, mergeable increments. Prefer small PRs; each keeps
   `internal/provider/provider.go` (`ErrTurnBusy`),  
   `internal/provider/httpagent/session.go` (+ acpagent/fake),  
   `internal/ws/server.go` `writeSessionErr`,  
-  `docs/protocol-v1.md` error table, tests
+  `docs/guides/protocol-v1.md` error table, tests
 - **Dependencies**: none strictly; after PR1 to avoid merge pain
 - **Description**: Full §7.2.1 plumbing (A5 bridge). **No queue** in this PR;
   queue is Owner Q1 and lands in PR7b (Sprint 3). After queue ships, keep

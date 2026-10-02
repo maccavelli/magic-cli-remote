@@ -20,7 +20,7 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
   `/config/providers`, scoped `/provider`, filtered agents, commands),
   AfterBoot default-model + context-limit resolve (live: picked up
   `kilo/kilo-auto/balanced`, the Gateway-authenticated default — PD4 verified),
-  MADR 0023 command table, docs (README, config.example.yaml, docs/config.md,
+  MADR 0023 command table, docs (README, config.example.yaml, docs/guides/config.md,
   service defaults template). Live catalog test green (200 models capped,
   181 providers, agents `[ask code debug orchestrator plan]` default `code`).
   **P4 implemented 2026-08-06**: engines help text, service PATH gains
@@ -32,7 +32,7 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
   extension belongs to its own decision. **Plan complete; MADR status
   → implemented, enabled stays false pending the one-week flip criteria.**
   **2026-08-10: flip executed — MADR status → accepted, `enabled` defaults
-  `true` in `config.Defaults()`, both templates, README, and docs/config.md.**
+  `true` in `config.Defaults()`, both templates, README, and docs/guides/config.md.**
 - **Date**: 2026-08-06
 - **Scope**: Everything required to take `providers.kilo.enabled: true` from config to a
   working phone session — `internal/provider/kilo` dialect, config schema, daemon
@@ -69,7 +69,7 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
 | OpenCode SSE unwrap to copy | `opencode/http.go:720–739` (`DecodeFrame`) |
 | OpenCode live tests build tag | `//go:build live_opencode` (5 files) |
 | Fork source inventory (non-test): `http.go` 1617, `lifecycle.go` 447, `permission.go` 388, `mode.go` 311, `resync.go` 283, `session_ops.go` 271, `command.go` 221 | `internal/provider/opencode/` |
-| Docs to touch: README providers table (`README.md:598–602`), `configs/config.example.yaml:152–178` (opencode block as template), `docs/config.md` | verified |
+| Docs to touch: README providers table (`README.md:598–602`), `configs/config.example.yaml:152–178` (opencode block as template), `docs/guides/config.md` | verified |
 
 Kilo wire facts (argv, paths, Basic Auth behavior, SSE envelope/types, prompt body,
 agents, catalog size, auth-state-dependent defaults) are **not** restated here — the
@@ -208,7 +208,7 @@ over a shared flavored dialect):
 5. `session_tree` stays `false` (PD2); do not port `child_suppression` demux until
    Q7 fixtures exist — keep the config key wired so the flip is config-only.
 6. Docs: README providers table row (`README.md:598–602` pattern),
-   `configs/config.example.yaml` kilo block (template `:152–178`), `docs/config.md`,
+   `configs/config.example.yaml` kilo block (template `:152–178`), `docs/guides/config.md`,
    install + known-good version note (`npm i -g @kilocode/cli`, brew tap,
    host binary `/opt/homebrew/bin/kilo`).
 

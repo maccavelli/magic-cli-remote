@@ -35,7 +35,7 @@ hosts that have no service installed.
 | Wiring | `internal/cli/update.go`, `internal/relay/update.go` |
 | Installed-ness probe | `internal/cli/service/control.go`, `internal/cli/service/control_test.go` |
 | Installer | `scripts/install.sh`, `scripts/install_test.sh` |
-| Docs | `docs/ops-linux-install.md`, `docs/ops-mcrelay.md`, `README.md`, `docs/0065-MADR-update-automation.md` (pointer only) |
+| Docs | `docs/guides/ops-linux-install.md`, `docs/guides/ops-mcrelay.md`, `README.md`, `docs/0065-MADR-update-automation.md` (pointer only) |
 
 **Out of scope, deliberately**
 
@@ -581,10 +581,10 @@ back when the start fails.
 
 **Deliverable:** the new behaviour and its one real limitation are written down.
 
-1. `docs/ops-linux-install.md` — an "Updating" section: what `update` now does
+1. `docs/guides/ops-linux-install.md` — an "Updating" section: what `update` now does
    in order, what `--refresh` reports, and that a host on a pre-0100 binary
    needs one more update (or `curl | sh`) before the refresh applies.
-2. `docs/ops-mcrelay.md` §2 — replace the "re-run `setup-service --force` to
+2. `docs/guides/ops-mcrelay.md` §2 — replace the "re-run `setup-service --force` to
    pick up 0091 hardening" advice with `--refresh`, which does the same thing
    without resetting baked options. (The `daemon-reload` at `:194` belongs to a
    drop-in recipe and stays.)

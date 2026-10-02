@@ -57,7 +57,7 @@ package's public docs, or in the linked upstream issues / PRs.
 | Origin of the wrap request | `flutter/flutter#129052` (closed by bot, but the PRs above realise it) |
 | No Go-side markdown rendering | `grep` across `*.go` for `goldmark`/`markdown.New`/`markdown.Render`/`MarkdownRenderer` → zero hits; the daemon forwards raw assistant text verbatim |
 | Existing tests cover tables | `apps/mobile/test/chat_render_test.dart` and `streaming_markdown_test.dart` — zero hits for `table` |
-| MADR 0057 / MADR 0018 context | `docs/chat-performance.md:75,79`: "Replacing `flutter_markdown_plus` unless profiling after Phase B still pins it (MADR 0018 D11)" and "Markdown engine swap (E5 — re-evaluate only if profiles pin parse cost)" — engine swap is explicitly out of scope |
+| MADR 0057 / MADR 0018 context | `docs/guides/chat-performance.md:75,79`: "Replacing `flutter_markdown_plus` unless profiling after Phase B still pins it (MADR 0018 D11)" and "Markdown engine swap (E5 — re-evaluate only if profiles pin parse cost)" — engine swap is explicitly out of scope |
 
 ### Findings
 
@@ -130,7 +130,7 @@ plan does not mistake it for the bug being fixed.
 * **Phone portrait is the primary surface.** Every chosen option is
   evaluated against what fits in a ~360 dp wide bubble, not against a
   tablet or desktop.
-* **No engine swap.** `docs/chat-performance.md:75,79` makes engine
+* **No engine swap.** `docs/guides/chat-performance.md:75,79` makes engine
   replacement a non-goal pending post-Phase-B profiling. The chosen
   option must use the package we already have.
 * **Match the existing chrome.** A scrollable table should look like a
@@ -312,7 +312,7 @@ phone, manually                                               # a 4-column wide 
 | Comparable project: smalldocs | espressoplease/smalldocs commit `b33d4b1` — `.md-table-scroll { overflow-x: auto }` wrapper inserted at render time |
 | Comparable project: kmesh | kmesh-net/website#307 — MDX `table` component wrapped in `overflowX: auto` container |
 | Card-on-mobile failure mode | cr0x.net "Responsive Tables for Technical Docs", 2025-10-14 — internal platform team shipped and reverted |
-| No engine-swap decision | `docs/chat-performance.md:75,79` (MADR 0018 D11, MADR 0057 non-goal E5) |
+| No engine-swap decision | `docs/guides/chat-performance.md:75,79` (MADR 0018 D11, MADR 0057 non-goal E5) |
 | No Go-side markdown rendering | repo-wide `grep` for `goldmark`/`markdown.New`/`markdown.Render` — zero hits |
 | No existing table test | `apps/mobile/test/chat_render_test.dart`, `streaming_markdown_test.dart` — zero hits for `table` |
 

@@ -11,7 +11,7 @@ import (
 )
 
 // protocolDoc is the wire contract these guards check against.
-const protocolDoc = "../../docs/protocol-v1.md"
+const protocolDoc = "../../docs/guides/protocol-v1.md"
 
 // eventTypeListPrefix marks the canonical enumeration a client implements
 // against. Kept as a prefix match so the list can be reflowed without breaking

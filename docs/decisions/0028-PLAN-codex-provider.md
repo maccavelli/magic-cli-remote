@@ -51,7 +51,7 @@ Out of scope for this plan:
 | Event vocabulary | `internal/event/event.go` already represents assistant/reasoning chunks, tool lifecycle, permissions, questions, plans, usage, title, mode, status, and turn completion. | The MVP needs event mapping, not a phone protocol redesign. |
 | Shared-engine precedents | `httpagent.Provider` (OpenCode) and `acphttp.Provider` (Goose) already supervise a child process, process group, death signal, restart generation, session map, prewarm, and shutdown. | Reuse their lifecycle invariants and `procutil`, but do not reuse their HTTP, SSE, WebSocket, or ACP framers. |
 | Mobile provider UI | Flutter obtains `providers.list`, `models.list`, and canonical commands dynamically; the new-session UI is not an enum of provider IDs. | A ready Codex provider automatically appears. MVP needs no provider-specific Flutter screen. |
-| Config surfaces | `ProvidersConfig`, `Defaults`, Viper defaults, `Validate`, `configs/config*.yaml`, service defaults, and `docs/config.md` enumerate each provider separately. | Every new Codex key must be added and tested at all of these locations; adding only a struct would silently break environment overrides. |
+| Config surfaces | `ProvidersConfig`, `Defaults`, Viper defaults, `Validate`, `configs/config*.yaml`, service defaults, and `docs/guides/config.md` enumerate each provider separately. | Every new Codex key must be added and tested at all of these locations; adding only a struct would silently break environment overrides. |
 | Existing tree implementation | OpenCode's `childAliases` route child SSE events into the *parent* local session. `session.Meta` and the wire session metadata have no parent/local-child field. | MADR 0028's “first-class nested mcremote sessions” is not implementable by copying OpenCode tree demux; it requires a new product contract and verified Codex child IDs. |
 
 ### 2.2 Relevant decision records and their effect
@@ -215,7 +215,7 @@ user turn.
    `approvalsReviewer` out of config until a product requirement exists.
 3. Add Viper defaults for every scalar key, defaults/validation tests including
    environment overrides, and documented example blocks in all three config
-   samples, service setup defaults, `docs/config.md`, and the README. An empty
+   samples, service setup defaults, `docs/guides/config.md`, and the README. An empty
    override must be visibly documented as inheritance, never as `never`.
 4. Add the daemon conversion function and registration beside Goose/OpenCode.
    It logs a missing binary, calls `EnsureServer` only when `prewarm` is true,
@@ -406,7 +406,7 @@ together.
 ### Phase 5 — documentation, rollout, and long-term maintenance
 
 1. Update MADR 0028 implementation status after each accepted phase; update
-   `docs/protocol-v1.md`, `docs/config.md`, README configuration guidance, and
+   `docs/guides/protocol-v1.md`, `docs/guides/config.md`, README configuration guidance, and
    the provider/support matrix only for shipped behavior.
 2. Document operator prerequisites: installed `codex`, host-owned `codex
    login`, private stdio engine, and Linux bubblewrap/user-namespace conditions

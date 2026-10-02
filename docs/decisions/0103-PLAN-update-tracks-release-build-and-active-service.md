@@ -35,7 +35,7 @@ one, the other, or both. GitHub tags stay `vX.Y.Z`.
   `VER`; `RestartService` equals `IsInstalled(product)`.
 * CLI `--force` help on both products (`internal/cli/update.go`,
   `internal/relay/update.go`).
-* Operator docs: `docs/config.md` update section, `docs/ops-linux-install.md`
+* Operator docs: `docs/guides/config.md` update section, `docs/guides/ops-linux-install.md`
   updating section, `README.md` upgrading paragraph. Cite MADR 0103.
 
 **Out of scope** (MADR More Information)
@@ -470,7 +470,7 @@ cmd.Flags().BoolVar(&force, "force", false, "reinstall the latest release even w
 
 Do not mention "four-part" or `BASE.N` as a reason for `--force`.
 
-**4.2 `docs/config.md`** — section `### mcremote update / mcrelay update`
+**4.2 `docs/guides/config.md`** — section `### mcremote update / mcrelay update`
 (currently lines 598-612):
 
 * Title: keep the heading; add `(MADR 0065, amended 0103)`.
@@ -483,7 +483,7 @@ Do not mention "four-part" or `BASE.N` as a reason for `--force`.
   0.13.9.1.gdeadbeef). A published BASE.N such as 0.13.9.1 does not
   need --force.`
 
-**4.3 `docs/ops-linux-install.md`** — "Updating" (currently lines
+**4.3 `docs/guides/ops-linux-install.md`** — "Updating" (currently lines
 145-163): after the four-step list, add one paragraph:
 
 `mcremote update` only cycles `mcremote.service`. `mcrelay update` only

@@ -54,7 +54,7 @@ Severity is user impact, not implementation size.
 | **F14** | `resetStallTimer` allocates and cancels a timer on every notification, including every stream delta | **Low** | `session.go:515,1154-1176` |
 | **F12** | Codex Plan mode is already probed but declared unavailable | **Low** | `summary2.json`; `0028:852` |
 | **F15** | Two observed notifications are unhandled, including rate-limit updates | **Low** | `summary.json` `notif_methods` |
-| **F16** | `protocol-v1.md` never specifies the `tool_call` status vocabulary — the root enabler of F3 | **Low** | `docs/protocol-v1.md:733-746` |
+| **F16** | `protocol-v1.md` never specifies the `tool_call` status vocabulary — the root enabler of F3 | **Low** | `docs/guides/protocol-v1.md:733-746` |
 
 ---
 
@@ -704,4 +704,4 @@ wire format is asserted in this report without a capture behind it.
 - [MADR 0023 — Canonical slash commands](./0023-MADR-canonical-slash-commands.md) — command table contract
 - [MADR 0024 — Stream coalescing](./0024-MADR-stream-coalescing.md) — chunk buffer design
 - [MADR 0020 — OpenCode session tree](./0020-MADR-opencode-session-tree.md) — `TypePlan` / `PlanEntry`
-- [protocol-v1](./protocol-v1.md) — event vocabulary; §733-746 needs the tool-status addition (F16)
+- [protocol-v1](../guides/protocol-v1.md) — event vocabulary; §733-746 needs the tool-status addition (F16)

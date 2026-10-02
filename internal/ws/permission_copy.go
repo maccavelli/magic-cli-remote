@@ -24,7 +24,7 @@ func permissionGuidanceFor(goos string, err error, msg string) string {
 		return msg + " — macOS privacy protection (TCC) is likely blocking " +
 			"the daemon. Grant mcremote Full Disk Access in System Settings → " +
 			"Privacy & Security, or choose a path outside " +
-			"Documents/Desktop/Downloads. See docs/ops-macos-tcc.md."
+			"Documents/Desktop/Downloads. See docs/guides/ops-macos-tcc.md."
 	}
 	return msg
 }

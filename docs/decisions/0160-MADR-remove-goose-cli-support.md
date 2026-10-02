@@ -332,12 +332,12 @@ Dozens of later records mention Goose as one of several agents (0023, 0028,
 bind the remaining providers.
 
 **Living product docs still sell Goose.** Case-insensitive hit counts:
-`README.md` 24, `docs/config.md` 23, `docs/protocol-v1.md` 13 (including
-`:1297`, which names "the acphttp transport"), `docs/ops-macos-tcc.md` 1,
-`docs/ops-android-emulator.md` 1, `apps/mobile/README.md` 1,
+`README.md` 24, `docs/guides/config.md` 23, `docs/guides/protocol-v1.md` 13 (including
+`:1297`, which names "the acphttp transport"), `docs/guides/ops-macos-tcc.md` 1,
+`docs/guides/ops-android-emulator.md` 1, `apps/mobile/README.md` 1,
 `configs/config.example.yaml` 14, `configs/config.mesh-grok.yaml` 3,
 `configs/config.prod.example.yaml` 2. `docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md`
-(6) is a 2026-07-25 survey, not operator docs. `docs/config.md` has no
+(6) is a 2026-07-25 survey, not operator docs. `docs/guides/config.md` has no
 retired-keys section today.
 
 **Shared ACP config is not Goose-only.** `ACPProviderConfig` is embedded by
@@ -591,7 +591,7 @@ rewrite of stored provider ids.
 **D6 — Keep `keyring_managed` in the protocol and on the phone as a reserved
 generic string.** Keep both `protocol.ErrKeyringManaged` and
 `protocol.AuthReasonKeyringManaged`, their registration, and
-`docs/protocol-v1.md`'s entry. Remove the only producer. Rewrite the phone
+`docs/guides/protocol-v1.md`'s entry. Remove the only producer. Rewrite the phone
 sentence so it does not say `goose configure` and still contains `keyring` and
 `host` (`friendly_op_error_test.dart:11-12`). A new phone talking to an old
 daemon still decodes the code; a new daemon never emits it.
@@ -687,7 +687,7 @@ git grep -il goose -- . ':!docs/decisions'
 #   AGENTS.md                                                (developer Goose, :67 and :148 only)
 #   README.md                                                (one design-table row linking 0160)
 #   docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md                  (dated survey)
-#   docs/config.md                                           (one retired-key row)
+#   docs/guides/config.md                                           (one retired-key row)
 #   internal/config/retired_goose.go                         (D3 detection)
 #   internal/config/retired_goose_test.go                    (D3 tests)
 #   internal/provider/codex/testdata/wire/0.152.1/frames.jsonl  (path string in a wire capture)
@@ -914,7 +914,7 @@ The 09-17 draft's four questions are answered: (1) no capture type — D3 uses
 `dart format`, `flutter analyze` and `flutter test` on any Flutter 3.47.2
 host, which since the later 2026-09-18 install includes this Windows host
 (F21); (3) the record list is fixed by D9 and F20,
-and there is no `0073-PLAN`; (4) `docs/protocol-v1.md` Goose examples are
+and there is no `0073-PLAN`; (4) `docs/guides/protocol-v1.md` Goose examples are
 rewritten onto `grok`. None remain open.
 
 ## Amendment — 2026-09-18: the wire-fixture guard counts the Goose fixture

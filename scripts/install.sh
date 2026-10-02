@@ -77,7 +77,7 @@ detect_arch() {
         *)
             die 1 "this installer supports Linux and macOS only (found $uname_s).
 Windows has its own PowerShell installer (install.ps1) at the same release
-URL; see README.md and docs/ops-windows-install.md."
+URL; see README.md and docs/guides/ops-windows-install.md."
             ;;
     esac
 
@@ -907,7 +907,7 @@ advisories() {
         log "    launchctl kickstart -k gui/\$(id -u)/com.magiccliremote.mcremote"
         log "Unsigned upgrades drop that grant. To keep it, rebuild signed:"
         log "    make install MC_CODESIGN_IDENTITY='Apple Development: you (TEAMID)'"
-        log "See docs/ops-macos-tcc.md."
+        log "See docs/guides/ops-macos-tcc.md."
     fi
 }
 

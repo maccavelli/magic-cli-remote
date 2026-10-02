@@ -713,7 +713,7 @@ comment still says 1.0.3.
 
 **MADR:** Confirmation
 **Files:** `docs/0092-MADR-grok-1.0.4-surface-parity.md`, this plan.
-Optional one-line note in `docs/config.md` only if a grok `/fork`
+Optional one-line note in `docs/guides/config.md` only if a grok `/fork`
 row already exists (it does not — grep is clean). Do not invent a
 config key.
 

@@ -6,7 +6,7 @@
 - **Deciders**: Project Owner (command surface, phasing); Implementer
   (daemon/providers/mobile)
 - **Related**:
-  - [protocol-v1.md](./protocol-v1.md) — `session_mode` event, `session.set_mode`,
+  - [protocol-v1.md](../guides/protocol-v1.md) — `session_mode` event, `session.set_mode`,
     built-in slash commands
   - [MADR 0020](./0020-MADR-opencode-session-tree.md) — OpenCode agents (`agents.list`,
     `StartOptions.Agent`), slash commands (Sprint 5)

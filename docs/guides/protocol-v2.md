@@ -10,7 +10,7 @@ all shipped. This document is the finalized v2 contract.
 v2 is a **delta over [protocol-v1.md](protocol-v1.md)**: the envelope
 format, message types, auth model, and error codes are unchanged. v2 adds a
 negotiated capability surface and (in later phases) a formal connection
-lifecycle. Design record: [MADR 0068](0068-MADR-protocol-v2-reconnect-resilient-transport.md).
+lifecycle. Design record: [MADR 0068](../decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md).
 
 ## Version negotiation (shipped)
 

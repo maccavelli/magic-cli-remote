@@ -330,13 +330,13 @@ so the client's reducer is unchanged.
 **3.3 Server.** `internal/ws/server.go` history handler routes on the new
 fields. `op_timeouts.json` needs no change: `session.history` stays at 30 s.
 
-**3.4 Documentation.** `docs/protocol-v1.md` and `docs/protocol-v2.md` gain the
+**3.4 Documentation.** `docs/guides/protocol-v1.md` and `docs/guides/protocol-v2.md` gain the
 new fields with the mutual-exclusion rule. The repo treats these as the wire
 contract; a field that ships undocumented is a field the next client author
 guesses at.
 
 **Files:** `internal/protocol/messages.go`, `internal/ws/server.go`,
-`internal/session/manager.go`, `docs/protocol-v1.md`, `docs/protocol-v2.md`,
+`internal/session/manager.go`, `docs/guides/protocol-v1.md`, `docs/guides/protocol-v2.md`,
 plus tests in `internal/ws/` and `internal/session/`.
 
 **Fail-first evidence required:**
@@ -499,7 +499,7 @@ rest of the record and returned on `session.list_result`.
 **Files:** `internal/session/turnlatency.go`, `internal/session/manager.go`,
 `internal/event/event.go`, `internal/protocol/messages.go`,
 `internal/provider/kilo/`, `internal/provider/opencode/`,
-`internal/agenterr/agenterr.go`, `docs/protocol-v1.md`, and the mobile client.
+`internal/agenterr/agenterr.go`, `docs/guides/protocol-v1.md`, and the mobile client.
 
 **Fail-first evidence required:**
 
@@ -1041,9 +1041,9 @@ client's reducer is unchanged.
 carries the cursor for the direction it was asked in and omits the other, so a
 client cannot accidentally walk away from the screen it just rendered.
 
-**3.4 Docs.** `docs/protocol-v1.md` documents both directions, the
+**3.4 Docs.** `docs/guides/protocol-v1.md` documents both directions, the
 mutual-exclusion rule, the backward cursor and the new byte-based retention with
-its class order. `docs/protocol-v2.md` documents `history_budget_bytes` beside
+its class order. `docs/guides/protocol-v2.md` documents `history_budget_bytes` beside
 `history_ring` and explains why the latter stays an event count. The eight
 markdownlint findings in `protocol-v1.md` are all on lines this phase did not
 touch — checked against `git show HEAD:` rather than assumed.
@@ -2899,7 +2899,7 @@ is not on `PATH` or at the usual SDK location.~~
 check behind it was `which emulator` plus one hardcoded path
 (`~/Library/Android/sdk/emulator/emulator`), and it ignored `ANDROID_HOME`,
 which was set in the environment the whole time:
-`/opt/homebrew/share/android-commandlinetools`. `docs/ops-android-emulator.md`
+`/opt/homebrew/share/android-commandlinetools`. `docs/guides/ops-android-emulator.md`
 documents the setup, and the emulator has been used repeatedly on this host.
 
 Driven properly, all of it worked: AVD booted, the current client built

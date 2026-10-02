@@ -131,10 +131,10 @@ Also:
 | Path:line | Change |
 |---|---|
 | `README.md:322` | config-key table row for `providers.opencode` — remove `transport`, `args`, `fs_roots` |
-| `docs/config.md:70` | delete the `transport` row |
-| `docs/config.md:71` | delete the `args` row |
-| `docs/config.md:76` | rewrite `prewarm` row (drop the "acp: keep one spare" half) |
-| `docs/config.md:78` | delete the `fs_roots` row |
+| `docs/guides/config.md:70` | delete the `transport` row |
+| `docs/guides/config.md:71` | delete the `args` row |
+| `docs/guides/config.md:76` | rewrite `prewarm` row (drop the "acp: keep one spare" half) |
+| `docs/guides/config.md:78` | delete the `fs_roots` row |
 | `docs/0011-MADR-opencode-provider-plan.md` | **Do not rewrite history.** Append a status banner pointing at this MADR: ACP chosen in 0011, superseded here. Lines `:31-35`, `:44-49`, `:226-227` are the relevant claims. |
 | `docs/0019-…` (this file) | mark Accepted on merge |
 
@@ -452,13 +452,13 @@ above is preferred because commit 2 shrinks the surface that 3–6 must reason a
 
 ### Definition of done
 
-- [ ] `rg -i 'transport.*acp|acp.*transport' -- internal/ configs/ docs/config.md README.md` returns
+- [ ] `rg -i 'transport.*acp|acp.*transport' -- internal/ configs/ docs/guides/config.md README.md` returns
       only the migration guard and this MADR
 - [ ] `go build ./... && go test ./...` green
 - [ ] `go test -tags live_opencode ./internal/provider/opencode/ -count=1 -timeout 300s` green
 - [ ] `go vet ./...` and the repo's lint pass clean
 - [ ] §7.4 verification script passes on the dev host, including the `kill -9` case
-- [ ] `providers.opencode` documents 8 keys in `docs/config.md`, `README.md:322`, and all three
+- [ ] `providers.opencode` documents 8 keys in `docs/guides/config.md`, `README.md:322`, and all three
       `configs/*.yaml`, with no key that the code ignores
 - [ ] MADR 0011 carries a superseded-by-0019 banner; this MADR is marked Accepted
 

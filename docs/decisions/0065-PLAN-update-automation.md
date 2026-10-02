@@ -8,7 +8,7 @@
   Phone: Settings **App update** tile, streaming verify, MethodChannel
   `mcremote/app_update`, FileProvider + PackageInstaller session +
   MY_PACKAGE_REPLACED notification. Hardware U5–U11 in
-  [ops-hardware-validation.md](ops-hardware-validation.md) Part D.
+  [ops-hardware-validation.md](../guides/ops-hardware-validation.md) Part D.
   **The 0066 phone gate remains satisfied** (E1/E2 ✔ 2026-08-03).
 - **Date**: 2026-08-02
 - **Source**: [0065-MADR-update-automation.md](0065-MADR-update-automation.md)
@@ -19,7 +19,7 @@
   (`ANDROID_RELEASE_CERT_SHA256`); first signed release **v0.6.6**
   published; developer identity verified and
   `com.maccavelli.magic_cli_remote` registered
-  ([ops-android-signing.md](ops-android-signing.md)).
+  ([ops-android-signing.md](../guides/ops-android-signing.md)).
 
 Line anchors reference the working tree at the time of writing and will
 drift.
@@ -225,7 +225,7 @@ green, committed with `--no-edit`. Nothing pushed until the owner says so.
   re-sign the staged binary with the local identity before the swap
   (mirroring the Makefile's `codesign-maybe`); otherwise the update
   output must state the re-grant cost. See
-  [ops-macos-tcc.md](ops-macos-tcc.md).
+  [ops-macos-tcc.md](../guides/ops-macos-tcc.md).
 - Tests via the override seams:
   - **U3**: the `install-binary_test.sh` incident replayed in Go — a unit
     stranded down by a previous failed run comes back up; up/down state
@@ -244,7 +244,7 @@ green, committed with `--no-edit`. Nothing pushed until the owner says so.
   "install" with stubbed service runner; `--check` exit codes; dev-suffix
   refusal without `--force`; `mcrelay update` shares everything but the
   product string.
-- **Docs rider**: `docs/config.md` / command examples gain `update`.
+- **Docs rider**: `docs/guides/config.md` / command examples gain `update`.
 
 ### P3 — Phone: check + download + verify (Dart only)
 
@@ -299,7 +299,7 @@ green, committed with `--no-edit`. Nothing pushed until the owner says so.
 | `apps/mobile/lib/features/settings/settings_screen.dart` | | | | ● | ● | |
 | `android/.../AndroidManifest.xml`, `res/xml/file_paths.xml` | | | | | ● | ● |
 | `android/.../MainActivity.kt`, `UpdateInstaller.kt` (new) | | | | | ● | ● |
-| `docs/ops-hardware-validation.md`, MADR status | | | | | | P6 |
+| `docs/guides/ops-hardware-validation.md`, MADR status | | | | | | P6 |
 
 Untouched: the release workflow (already produces everything the updater
 consumes), `transport_policy`, protocol code.

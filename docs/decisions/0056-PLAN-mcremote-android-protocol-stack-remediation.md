@@ -17,10 +17,10 @@ file-specific, and grounded in the tree at baseline `fa21393` (`master`).
   (`apps/mobile/lib/data/ws`, `state`, `features/chat`, `features/sessions`,
   `data/chat`, `data/notifications`, `app_lifecycle`) plus matching tests and
   protocol docs
-- **Standards:** [Go networking](standards/go/network.md),
-  [Go sessions](standards/go/session.md),
-  [mobile networking](standards/mobile/networking.md),
-  [Android](standards/mobile/android.md)
+- **Standards:** [Go networking](../guides/standards/go/network.md),
+  [Go sessions](../guides/standards/go/session.md),
+  [mobile networking](../guides/standards/mobile/networking.md),
+  [Android](../guides/standards/mobile/android.md)
 - **Related plans:** [0055 server remediation](0055-PLAN-mcremote-server-remediation.md)
   (done), [0046 mobile debug](0046-PLAN-mobile-debug-pass.md) (done),
   [0027 streaming rendering](0027-MADR-opencode-streaming-rendering.md) (partial)
@@ -136,7 +136,7 @@ not lose durable host data, but they dominate day-to-day perceived quality.
 7. **No client auto-retry of mutations** until Phase 3 ledger is green.
 8. **Exactly one owner** of connection/session reconciliation state after
    Phase 2 — ChatScreen must not re-own list/history resync.
-9. **Protocol doc + smoke:** any wire field change updates `docs/protocol-v1.md`
+9. **Protocol doc + smoke:** any wire field change updates `docs/guides/protocol-v1.md`
    and, where applicable, `scripts/smoke-protocol` / existing protocol tests.
 
 ### Verification commands (repeatable)
@@ -172,7 +172,7 @@ flutter test test/relay_transport_test.dart test/history_replay_test.dart \
 | Relay host | `internal/relayhost/client.go` |
 | Protocol types | `internal/protocol/messages.go`, `errors.go` |
 | Events | `internal/event/event.go` |
-| Protocol doc | `docs/protocol-v1.md` |
+| Protocol doc | `docs/guides/protocol-v1.md` |
 
 ### Android / Flutter
 
@@ -359,7 +359,7 @@ broadened ownership.
 ### 1.3 H-6 — Non-destructive list snapshots
 
 **Server files:** `internal/session/store.go`, `manager.go`,
-`internal/protocol/messages.go`, `internal/ws/server.go`, `docs/protocol-v1.md`.
+`internal/protocol/messages.go`, `internal/ws/server.go`, `docs/guides/protocol-v1.md`.
 
 **Implementation (server):**
 
@@ -708,7 +708,7 @@ user-visible notification text.
    `await notifs.init()` → permission → then service start.
 5. Restart receiver: either disable false promise or show “Open app to
    reconnect” if socket not restored.
-6. Update `docs/standards/mobile/android.md` to match.
+6. Update `docs/guides/standards/mobile/android.md` to match.
 
 **Out of scope for 6:** moving `McremoteClient` to service isolate (Phase 9).
 

@@ -11,7 +11,7 @@ dart_sdk: "^3.12.2"
 
 These standards apply to the Flutter companion in `apps/mobile`, which
 targets Android and iOS from one codebase (iOS added by
-[MADR 0067](../../0067-MADR-ios-port.md), 2026-08). Platform-specific
+[MADR 0067](../../../decisions/0067-MADR-ios-port.md), 2026-08). Platform-specific
 behaviour is documented per platform — do not describe one platform's
 configuration as the other's.
 

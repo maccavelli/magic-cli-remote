@@ -5,7 +5,7 @@
 - **Status**: **Implemented** (software 2026-08-05; plan P0–P6). Host CLI
   update path, phone Settings tile, FileProvider install intent, and
   PackageInstaller session path shipped. Hardware gates U5–U11 remain in
-  [ops-hardware-validation.md](ops-hardware-validation.md) Part D (U5 needs
+  [ops-hardware-validation.md](../guides/ops-hardware-validation.md) Part D (U5 needs
   the release *after* this one — plan F3). **Gated 2026-08-02 by MADR 0066**;
   **gate satisfied 2026-08-03** (E1/E2). Open questions 1–5, 7 in §7 remain
   product decisions (minisign, system-unit relay, etc.), not software blockers.
@@ -40,7 +40,7 @@ device to the installer.
 |---|---|---|
 | `mcremote update` | **Feasible now** | Public repo, deterministic asset names, published checksums, swap semantics already solved in `install-binary.sh`, service model already in Go (`internal/cli/service`) |
 | `mcrelay update` | **Feasible now** | Same pipeline, same service machinery, own cobra tree ready for the subcommand |
-| Phone "Restart to update" | **Feasible now — B1 and B3 both resolved 2026-08-02** | ~~Blocked on release signing (B1) and time-boxed by developer verification (B3).~~ Resolved: upload keystore live in CI (fail-closed provisioning, pinned signer digest), first signed release **v0.6.6** published, identity verified and the package name registered ahead of the 2026-09-30 wave. History and details: §0.5, §2.2, [ops-android-signing.md](ops-android-signing.md). |
+| Phone "Restart to update" | **Feasible now — B1 and B3 both resolved 2026-08-02** | ~~Blocked on release signing (B1) and time-boxed by developer verification (B3).~~ Resolved: upload keystore live in CI (fail-closed provisioning, pinned signer digest), first signed release **v0.6.6** published, identity verified and the package name registered ahead of the 2026-09-30 wave. History and details: §0.5, §2.2, [ops-android-signing.md](../guides/ops-android-signing.md). |
 
 ---
 
@@ -269,7 +269,7 @@ observed on hardware. Kept below as the record of what was required:
    from then on shares one key. **CI wiring landed 2026-08-02**
    (fail-closed provisioning + post-build signature assertion with optional
    digest pinning); the owner-side steps are the runbook
-   [ops-android-signing.md](ops-android-signing.md).
+   [ops-android-signing.md](../guides/ops-android-signing.md).
 2. **Migration**: first stable-key release requires uninstall + re-pair on
    every existing device (dev-key installs cannot update across keys).
    One-time; announce in the release notes; `mcremote pair list` +

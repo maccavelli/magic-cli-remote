@@ -3,7 +3,7 @@
 `mcremote` and `mcrelay` run natively on **Windows 10 1809 or later,
 `windows/amd64`**. This page covers what differs from Linux and macOS.
 
-Decisions behind this page: [0116-MADR-windows-and-linux-arm64-build-targets.md](0116-MADR-windows-and-linux-arm64-build-targets.md).
+Decisions behind this page: [0116-MADR-windows-and-linux-arm64-build-targets.md](../decisions/0116-MADR-windows-and-linux-arm64-build-targets.md).
 
 ## Support tier
 
@@ -303,8 +303,8 @@ keep using `make preflight`. Do not register an auto-hook that runs
 | Functional F5 / paths / doctor | `scripts/acceptance-windows.ps1` |
 
 Script: `scripts/ci-windows-local.ps1`. Decisions:
-[0145-MADR-local-windows-ci-style-tests.md](0145-MADR-local-windows-ci-style-tests.md),
-[0145-PLAN-local-windows-ci-style-tests.md](0145-PLAN-local-windows-ci-style-tests.md).
+[0145-MADR-local-windows-ci-style-tests.md](../decisions/0145-MADR-local-windows-ci-style-tests.md),
+[0145-PLAN-local-windows-ci-style-tests.md](../decisions/0145-PLAN-local-windows-ci-style-tests.md).
 
 ### Drift vs CI (local intentionally omits)
 

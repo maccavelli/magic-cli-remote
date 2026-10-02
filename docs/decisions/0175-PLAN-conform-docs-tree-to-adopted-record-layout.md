@@ -136,4 +136,10 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 
 **2026-10-01 — P4 markdownlint is pre-existing.** `npx markdownlint-cli2 --no-globs` over the five REPORT files plus `docs/chat-performance.md` reports 96 issues (MD013/MD022/MD032/MD031 on 0023; MD046/MD004/MD007/MD014/MD025/MD032 on 0098–0100; MD029 on 0178; MD013 on chat-performance). Same findings as before the move. Content rewrites are out of scope; left for the owner.
 
+**2026-10-01 — P5 `go test ./...` vs host umask.** First run failed `internal/appdirs.TestFileIsOwnerOnly` and `internal/providerauth.TestValidateRejectsBadCandidates/group_readable` (0666/0644 written, still treated as owner-only). Those packages are unmodified. Host `umask` is `0077`. Re-run of those packages and of `go test ./...` under `umask 022` is green. `internal/protocol` (including `doc_coverage_test.go` reading `docs/guides/protocol-v1.md`) passed on the first run. No MADR amendment.
+
+**2026-10-01 — P5 Go files beyond the five named in the step.** Comment-path repairs also landed in `internal/cli/examples.go`, `pair.go`, `internal/event/*`, `internal/fsutil/syncdir_windows.go`, `internal/protocol/errors.go`, `internal/provider/acpagent/*`, `internal/provider/codex/sandbox_health.go`, `internal/receipt/*`, `internal/relay/cli.go`, `internal/session/*`, `internal/ws/*`, plus `defaults_mcrelay.yaml` and `deploy/systemd/mcrelay*.service`. That is the grep-enumerated remainder in P5 step 2. `apps/mobile/lib/data/chat/chat_models.dart` had no `docs/` path. No MADR amendment.
+
+**2026-10-01 — P5 markdownlint is pre-existing.** `npx markdownlint-cli2 --no-globs` over `docs/guides/**/*.md`, `README.md`, `AGENTS.md`, and `apps/mobile/README.md` reports 49 issues in 9 files (MD013, MD004, MD056, MD040). `protocol-v1.md` MD056/MD013 matches the 2026-10-01 measurement in this phase. Content rewrites are out of scope.
+
 Any further mid-execution finding follows the skill's protocol: a dated deviation entry here naming what was found and decided, an amendment to the MADR when a decision or asserted fact changed, and the deviation carried into the commit and the handoff.

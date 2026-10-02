@@ -13,7 +13,7 @@ package fsutil
 // error would break every SyncDir caller (the device token store included,
 // internal/auth/store.go), and swallowing it inside callers would
 // re-introduce exactly the silent success MADR 0074 D25 forbids. The
-// consequence is real and documented in docs/ops-windows-install.md: on NTFS
+// consequence is real and documented in docs/guides/ops-windows-install.md: on NTFS
 // the rename is ordered, but the directory entry is not separately flushed, so
 // a power loss in the window after WriteFileAtomic returns can lose the
 // rename. SyncFile is unaffected — FlushFileBuffers on a file handle works

@@ -63,7 +63,7 @@ Verified 2026-08-05:
 | Codex sandbox | `internal/provider/codex/*`, `docs/0048-PLAN-*` | F4 | Dispatch 0048 |
 | Update automation | no `internal/update` | F5 | Dispatch 0065 |
 | Park→resume harness | absent | F8 | New test harness under `apps/mobile/test/` |
-| Hardware rows | `docs/ops-hardware-validation.md` | F9 | Checklist + results section refresh |
+| Hardware rows | `docs/guides/ops-hardware-validation.md` | F9 | Checklist + results section refresh |
 | UI empty catch density | chat/sessions/settings | F13 | Convention note + one high-risk audit sample (not mass rewrite) |
 
 ---
@@ -332,8 +332,8 @@ copy here — 0048 is the source of truth. This phase only adds:
 
 ### 0070 deltas on top of 0048
 
-1. **Cross-link 0069:** in 0048 docs phase and `docs/ops-macos-tcc.md` (or
-   a short `docs/config.md` note), disambiguate:
+1. **Cross-link 0069:** in 0048 docs phase and `docs/guides/ops-macos-tcc.md` (or
+   a short `docs/guides/config.md` note), disambiguate:
    - **macOS FDA / Seatbelt** → 0069
    - **Linux userns / bwrap** → 0048  
    so operators do not apply the wrong fix.
@@ -434,7 +434,7 @@ every `catch (_)`.
 
 ### Steps
 
-1. **Write the convention** in `docs/standards/mobile/dart.md` (or
+1. **Write the convention** in `docs/guides/standards/mobile/dart.md` (or
    `apps/mobile/README.md` if standards edit is heavier) — short rules:
 
    | Allowed empty / discard catch | Not allowed |
@@ -496,7 +496,7 @@ software-done vs device-blocked. No false “open software” signals.
    add “software complete as of 0070 P2” for 0063.
 3. **F12** — one sentence under 0068 residual: `pending_asks` full fetch
    retained until F6 measures cost; no code change.
-4. **0069 G1** — checklist pointer to `docs/ops-macos-tcc.md` (already
+4. **0069 G1** — checklist pointer to `docs/guides/ops-macos-tcc.md` (already
    exists); mark steps not run as ⏸.
 
 ### Acceptance
@@ -570,11 +570,11 @@ test). Avoid parallel edits to `Makefile` / `install-binary.sh` with
 | `docs/0039-MADR-grok-acp-parity.md` (+ PLAN if needed) | P2 |
 | `docs/0029-MADR-provider-platform-canonicalization.md` | P2 |
 | `docs/0070-MADR-deep-dive-debugging-pass.md` | P2 |
-| `docs/ops-hardware-validation.md` | P2, P6 |
+| `docs/guides/ops-hardware-validation.md` | P2, P6 |
 | `docs/0048-*` + codex provider tree | P3 (via 0048) |
 | `apps/mobile/test/**` harness + park-resume test | P4 |
 | `docs/0067-MADR-ios-port.md` (T11 disposition) | P4 |
-| `docs/standards/mobile/dart.md` or `apps/mobile/README.md` | P5 |
+| `docs/guides/standards/mobile/dart.md` or `apps/mobile/README.md` | P5 |
 | `apps/mobile/lib/features/{chat,sessions,settings,connect}/*` | P5 (limited) |
 | `docs/0065-*` + update tree | Track U |
 

@@ -55,7 +55,7 @@ var errorCodeEmitters = map[string]bool{
 // protocol.ErrorCodes() (MADR 0036 D4).
 //
 // Registration is what makes the codes documentable: TestErrorCodesAreDocumented
-// asserts the registry appears in docs/protocol-v1.md, so an unregistered
+// asserts the registry appears in docs/guides/protocol-v1.md, so an unregistered
 // literal would be an undocumented code on the wire — the failure mode that let
 // twelve codes ship unspecified.
 //
@@ -119,7 +119,7 @@ func TestWSErrorCodesAreRegistered(t *testing.T) {
 	slices.Sort(found)
 	for _, f := range slices.Compact(found) {
 		t.Errorf("unregistered error code %s — add it to protocol.ErrorCodes() "+
-			"and document it in docs/protocol-v1.md", f)
+			"and document it in docs/guides/protocol-v1.md", f)
 	}
 }
 

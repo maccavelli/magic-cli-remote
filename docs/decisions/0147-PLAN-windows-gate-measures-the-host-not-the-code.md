@@ -102,7 +102,7 @@ it does not touch the files read.
 
 **C5 — the entry point is preserved.** `make ci-windows` and
 `powershell -File scripts/ci-windows-local.ps1` behave as documented in
-`AGENTS.md` and `docs/ops-windows-install.md`.
+`AGENTS.md` and `docs/guides/ops-windows-install.md`.
 
 **C6 — no new CI lane.** Originally "no meta-test and no new CI lane" (D8).
 The meta-test half was reversed by the second 2026-09-07 amendment: D11 adds one

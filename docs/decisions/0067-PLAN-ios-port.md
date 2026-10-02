@@ -23,7 +23,7 @@
   hardware Part F authored (parked).
 - **Date**: 2026-08-03
 - **Scope**: `apps/mobile` only (Dart, `ios/` runner, tests), plus
-  `docs/standards/mobile/` and `docs/ops-hardware-validation.md` Part F.
+  `docs/guides/standards/mobile/` and `docs/guides/ops-hardware-validation.md` Part F.
   No Go changes.
 - **Source**: [0067-MADR-ios-port.md](0067-MADR-ios-port.md)
 
@@ -73,7 +73,7 @@ Notable non-facts (checked, not assumed):
 4. Set `DEVELOPMENT_TEAM` locally (not committed if it embeds the team id
    in a way the owner prefers private — mirror how
    `ops-android-signing.md` handles keystore secrets; start
-   `docs/ops-ios-signing.md` recording the paid-program/provisioning
+   `docs/guides/ops-ios-signing.md` recording the paid-program/provisioning
    decision, D8).
 5. Smoke: `flutter build ios --simulator` and `flutter run` on simulator —
    app reaches the connect screen.
@@ -159,12 +159,12 @@ run.
 
 ## P5 — Docs, standards, and hardware gate
 
-1. `docs/standards/mobile/ios.md` mirroring `android.md` (Keychain
+1. `docs/guides/standards/mobile/ios.md` mirroring `android.md` (Keychain
    posture, no-UIBackgroundModes rationale, privacy overlay, signing
    pointer); amend the `standards/mobile/README.md` sentence reserving iOS.
-2. Finish `docs/ops-ios-signing.md` (provisioning, team, renewal cadence —
+2. Finish `docs/guides/ops-ios-signing.md` (provisioning, team, renewal cadence —
    the `ops-android-signing.md` sibling).
-3. Add **Part F** to `docs/ops-hardware-validation.md` with rows
+3. Add **Part F** to `docs/guides/ops-hardware-validation.md` with rows
    F1g–F5g from the MADR verification table, plus the Gate row in the top
    table.
 4. Flip Status bullets in MADR + this plan as phases land.
@@ -178,7 +178,7 @@ run.
 | `ios/Podfile`, `ios/Podfile.lock` | P0 |
 | `ios/Runner/Runner.entitlements` (new) | P0 |
 | `ios/Runner.xcodeproj/project.pbxproj` | P0 |
-| `docs/ops-ios-signing.md` (new) | P0, P5 |
+| `docs/guides/ops-ios-signing.md` (new) | P0, P5 |
 | `lib/app_lifecycle.dart` | P1 |
 | `lib/data/ws/lifecycle_policy.dart` | P1 |
 | `lib/data/notifications/notification_coordinator.dart` | P1, P2 |
@@ -190,8 +190,8 @@ run.
 | `ios/Runner/SceneDelegate.swift` | P4 |
 | `lib/features/chat/chat_screen.dart` (only if Q2/Q3 demand) | P4 |
 | `lib/features/connect/qr_scan_screen.dart` (only if Q3 demands) | P4 |
-| `docs/standards/mobile/ios.md` (new), `docs/standards/mobile/README.md` | P5 |
-| `docs/ops-hardware-validation.md` | P5 |
+| `docs/guides/standards/mobile/ios.md` (new), `docs/guides/standards/mobile/README.md` | P5 |
+| `docs/guides/ops-hardware-validation.md` | P5 |
 
 ## Verification map (MADR → plan)
 

@@ -28,7 +28,7 @@ All measured 2026-09-18 at `b3d3355`.
 * Root `README.md:238` says "Flutter 3.47.x / Dart ≥ 3.13.2 (CI pins Flutter
   3.47.2)", and `README.md:1415` says "Flutter 3.47.2 pinned".
 * `apps/mobile/README.md:20` says "Flutter 3.44+ / Dart 3.12+".
-  `docs/mobile-profiling.md:27` says "Flutter 3.44+ / Dart 3.12+ (`flutter
+  `docs/guides/mobile-profiling.md:27` says "Flutter 3.44+ / Dart 3.12+ (`flutter
   doctor`)".
 * Commit `244636a` (2026-09-01, "bump flutter version to 3.47.2") changed only
   `.github/workflows/ci.yml`, `README.md` and `apps/mobile/.metadata`
@@ -51,7 +51,7 @@ asks for "that exact version".
 ### Findings
 
 **F1 — Two docs name a toolchain CI does not use.** `apps/mobile/README.md:20`
-and `docs/mobile-profiling.md:27` say 3.44+ / 3.12+. CI and the root README say
+and `docs/guides/mobile-profiling.md:27` say 3.44+ / 3.12+. CI and the root README say
 3.47.2 / 3.13.2.
 
 **F2 — "3.44+" is the wrong kind of statement.** The lockfile gate wants the
@@ -94,7 +94,7 @@ tells the next person bumping Flutter where the authoritative value lives.
   `flutter pub get` changes `pubspec.lock`.
 ```
 
-**D2.** Replace `docs/mobile-profiling.md:27` with:
+**D2.** Replace `docs/guides/mobile-profiling.md:27` with:
 
 ```markdown
 1. Flutter **3.47.2** / Dart **3.13.2**, the CI pin (`FLUTTER_VERSION` in
@@ -124,16 +124,16 @@ git grep -n -E 'Flutter 3\.[0-9]+|Dart ?(≥|>=)? ?3\.[0-9]+' -- '*.md' ':!docs/
 #   → no output
 
 # 2. Both edited lines point at the pin.
-git grep -n 'FLUTTER_VERSION' -- apps/mobile/README.md docs/mobile-profiling.md
+git grep -n 'FLUTTER_VERSION' -- apps/mobile/README.md docs/guides/mobile-profiling.md
 #   → exactly two lines, one per file
 
 # 3. No new lint findings in the two files (baseline: 1, README.md:50 MD013).
-markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/mobile-profiling.md):'
+markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/guides/mobile-profiling.md):'
 #   → 1
 
 # 4. Docs only.
 git diff --name-only HEAD~1 -- ':!docs/decisions'
-#   → apps/mobile/README.md, docs/mobile-profiling.md
+#   → apps/mobile/README.md, docs/guides/mobile-profiling.md
 ```
 
 ## Pros and Cons of the Options
@@ -166,7 +166,7 @@ git diff --name-only HEAD~1 -- ':!docs/decisions'
 | CI pin 3.47.2, "keep in step" comment | `.github/workflows/ci.yml:24-27` |
 | Lockfile gate demands the exact version | `.github/workflows/ci.yml:504-517`; MADR 0127 D7 |
 | Root README agrees with CI | `README.md:238,1415` |
-| Two stale lines | `apps/mobile/README.md:20`; `docs/mobile-profiling.md:27` |
+| Two stale lines | `apps/mobile/README.md:20`; `docs/guides/mobile-profiling.md:27` |
 | Bump commit left them behind | `git show --stat 244636a` |
 | Only four version lines exist in the docs | `git grep` in "What was measured" |
 | 3.47.2 bundles Dart 3.13.2 | `flutter --version` on this host, in WSL and on <linux-host>, 2026-09-18 |
@@ -211,7 +211,7 @@ Confirmation §3 is superseded by:
 
 ```bash
 # 3 (amended). No lint findings in the two files.
-markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/mobile-profiling.md):'
+markdownlint-cli2 2>&1 | grep -cE '^(apps/mobile/README.md|docs/guides/mobile-profiling.md):'
 #   → 0
 # and the re-wrap changed no words:
 git diff --word-diff=porcelain HEAD~1 -- apps/mobile/README.md | grep -E '^[-+][^-+]'

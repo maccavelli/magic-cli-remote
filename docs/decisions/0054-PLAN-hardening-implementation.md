@@ -112,7 +112,7 @@ on `0.0.0.0` regardless of `RequireDeviceToken`.
 
 ### 1.2 Ship a deny-by-default Headscale ACL — **M**
 
-`docs/headscale.md:117-127` ships `"src": ["*"], "dst": ["*:*"]` with a "tighten
+`docs/guides/headscale.md:117-127` ships `"src": ["*"], "dst": ["*:*"]` with a "tighten
 later" note that was never actioned. `configs/config.prod.example.yaml:4`
 justifies its `0.0.0.0` bind with "only with Headscale grants locking TCP 7531"
 — grants that do not exist anywhere in the repo.
@@ -175,7 +175,7 @@ state. The fallback preserved the daemon process and nothing the user needed.
 1. Emit the fingerprint in the pair QR in **both** modes. Decouple "which
    fingerprint to advertise" from `Pinned()`.
 2. Carry the mode in the pair payload so the client knows which rule to apply.
-3. Client acceptance (current wire contract — [protocol-v1.md](protocol-v1.md)):
+3. Client acceptance (current wire contract — [protocol-v1.md](../guides/protocol-v1.md)):
 
    | Mode | Rule | Trust set |
    |---|---|---|
@@ -409,7 +409,7 @@ is the key, deliberately, as with SSH.
 `flutter_secure_storage` alongside the token, present it on every connection.
 
 **3.2d — Enrolment protocol.** Carry the public key in the pair-claim payload;
-document in `docs/protocol-v1.md`.
+document in `docs/guides/protocol-v1.md`.
 
 **3.2e — Enforcement flag, default ON (D7).** A client key is required to
 connect. The keyless path still exists behind the flag for anyone who needs the
@@ -434,7 +434,7 @@ state whose shape depends on the outcome here.
 
 ### 4.1 MagicDNS gap — **DECIDED (D5): option 3, no code change**
 
-`docs/headscale.md:91` sets `override_local_dns: false`, so Headscale does not
+`docs/guides/headscale.md:91` sets `override_local_dns: false`, so Headscale does not
 push MagicDNS to clients and the phone may not resolve
 `devbox.ts.lallygag.net` at all. The natural workaround — dialling the raw
 `100.x.y.z` — can **never** work under Let's Encrypt, which does not issue for

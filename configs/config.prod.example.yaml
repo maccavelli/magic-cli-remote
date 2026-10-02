@@ -5,7 +5,7 @@
 
 # "tailscale" binds this host's Tailscale IPv4 only, resolved at startup;
 # the daemon fails closed if no tailnet address exists. Combine with the
-# deny-by-default Headscale ACL in docs/headscale.md.
+# deny-by-default Headscale ACL in docs/guides/headscale.md.
 listen:
   host: "tailscale"    # or "0.0.0.0" to deliberately serve off-tailnet clients
   port: 7531
@@ -198,7 +198,7 @@ limits:
     count: 4
 
 # Signed receipts for permission decisions (MADR 0077). Off by default.
-# See docs/receipts.md.
+# See docs/guides/receipts.md.
 receipts:
   enabled: false
   allow_patterns: []

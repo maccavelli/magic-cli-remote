@@ -5,7 +5,7 @@
 - **Status**: **Implemented 2026-08-04** (software; P0–P5 of the plan, one
   commit per phase, suite green at 709 tests + simulator builds throughout).
   Hardware validation is **parked — no iPhone hardware exists**: Part F rows
-  in [ops-hardware-validation.md](ops-hardware-validation.md) are authored
+  in [ops-hardware-validation.md](../guides/ops-hardware-validation.md) are authored
   and marked `⏸ no device`; Q1–Q3 below stay open until they run. D3's
   follow-up MADR (background attention) remains undecided by design. The
   iOS shell was scaffolded ahead of this decision (commit `14bdbd0`,
@@ -18,7 +18,7 @@
 - **Deciders**: Project Owner
 - **Implementation plan**: [0067-PLAN-ios-port.md](0067-PLAN-ios-port.md)
 - **Scope**: `apps/mobile` (Dart + `ios/` runner), docs under
-  `docs/standards/mobile/`. **No protocol changes, no daemon changes, no
+  `docs/guides/standards/mobile/`. **No protocol changes, no daemon changes, no
   relay changes.** The pairing contract (`internal/pairuri/pairuri.go`),
   auth model (0005), and transport policy (0062/0063) are consumed as-is.
 - **Related**:
@@ -267,7 +267,7 @@ build.
 
 No fork, no rewrite. The `dart:io` transport/security core (F1) ships to
 iOS byte-for-byte. iOS-divergent behaviour is expressed inside the
-existing seams, never scattered through features. `docs/standards/mobile/`
+existing seams, never scattered through features. `docs/guides/standards/mobile/`
 gains `ios.md` (mirror of `android.md`) and its README sentence "do not
 describe iOS-specific configuration as implemented behavior" is amended
 when phases land. Deployment target is **iOS 16.0** (owner-decided
@@ -422,7 +422,7 @@ constraints interact with the background answer.
 | F5g | QR pair, speech input (>60 s session behaviour), HEIC image attach, mesh (Tailscale) vs RFC1918 prompt behaviour | hardware (Part F) |
 
 Hardware rows are authored as **Part F** in
-[ops-hardware-validation.md](ops-hardware-validation.md), parked
+[ops-hardware-validation.md](../guides/ops-hardware-validation.md), parked
 `⏸ no device` until an iPhone exists.
 
 ## Open questions
@@ -450,7 +450,7 @@ what "protocol parity" still requires. Method: two full audits against the
 tree — the Dart engine (`lib/data/ws/*`, both dial paths, teardown/resume
 machinery, test inventory) and the Go contract (`internal/ws/server.go`,
 `internal/relay/*`, `internal/relayhost/client.go`, `internal/auth`,
-`docs/protocol-v1.md`). Everything below carries file:line anchors.
+`docs/guides/protocol-v1.md`). Everything below carries file:line anchors.
 
 ### The headline, stated precisely
 

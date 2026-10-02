@@ -2149,7 +2149,7 @@ Two additive message types exist only when the daemon has `receipts.enabled:
 true` and a resolved permission matched `receipts.allow_patterns` — a client
 that never handles them loses nothing (the daemon falls back to a
 daemon-signed `receipt-unavailable` marker after 10 s). Full design, Statement
-shape, and the `predicateType` registry: [docs/receipts.md](receipts.md).
+shape, and the `predicateType` registry: [docs/guides/receipts.md](receipts.md).
 
 **`permission.receipt_request` (server → client, push).** No request `id` —
 this is server-initiated, not a response. Sent only to the device that

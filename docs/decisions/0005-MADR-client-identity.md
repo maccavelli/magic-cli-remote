@@ -220,7 +220,7 @@ still left unverified.
    **Resolved (3.2b).** No payload change was needed: the client key rides the
    TLS layer, so the daemon reads the presented certificate from the connection
    at `pair.claim` and records its SPKI fingerprint on the device record.
-   Documented in `docs/protocol-v1.md` (Client identity), along with the
+   Documented in `docs/guides/protocol-v1.md` (Client identity), along with the
    `client_key_required` / `client_key_mismatch` error codes and the
    `auth.require_client_key` flag (default on, D7). Daemon side implemented:
    `internal/auth` (`ClientKeyFP` on the device record + `CreateWithClientKey`),

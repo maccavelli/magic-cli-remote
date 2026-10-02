@@ -12,8 +12,8 @@
 #   systemctl --user enable --now mcrelay.service
 #   loginctl enable-linger $USER
 #
-# Full ops: docs/ops-mcrelay.md
-# Config:   docs/config-mcrelay.md
+# Full ops: docs/guides/ops-mcrelay.md
+# Config:   docs/guides/config-mcrelay.md
 # Defaults: internal/cli/service/defaults_mcrelay.yaml
 # Example:  configs/mcrelay.example.yaml
 #
@@ -99,7 +99,7 @@ Environment=XDG_CACHE_HOME=%h/.cache
 # Environment=MCRELAY_ALLOW_LEGACY_TUNNEL_SECRET=false
 # Environment=MCRELAY_TRUSTED_PROXIES=127.0.0.1/32
 #
-# Limits (all optional; defaults in docs/config-mcrelay.md)
+# Limits (all optional; defaults in docs/guides/config-mcrelay.md)
 # Environment=MCRELAY_LIMITS_MAX_HOSTS=32
 # Environment=MCRELAY_LIMITS_MAX_PHONES_PER_HOST=8
 # Environment=MCRELAY_LIMITS_MAX_MESSAGE_BYTES=1048576

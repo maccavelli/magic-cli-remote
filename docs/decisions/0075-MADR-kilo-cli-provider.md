@@ -714,7 +714,7 @@ Implementation is **accepted**: new provider id `kilo`, `httpagent` dialect fork
 | Config | `internal/config/config.go`, `load.go`, tests |
 | Daemon | `internal/daemon/daemon.go` register + prewarm |
 | Commands | session command tables if provider-specific |
-| Docs | README providers table, `docs/config.md`, this MADR status → accepted |
+| Docs | README providers table, `docs/guides/config.md`, this MADR status → accepted |
 | Configs | example `providers.kilo` block |
 | Mobile | verify picker label only (likely zero change) |
 | Live | `//go:build live_kilo` |

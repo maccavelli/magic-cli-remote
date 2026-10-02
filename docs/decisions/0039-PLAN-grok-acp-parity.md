@@ -448,7 +448,7 @@ runs them (forwarded as session/prompt with the slash text).
   (validation tests)
 - `internal/daemon/daemon.go` (copy fields from
   `GrokProviderConfig` to `acpagent.Config`)
-- `docs/config.md` (operator docs — phase 6)
+- `docs/guides/config.md` (operator docs — phase 6)
 - `internal/provider/grok/live_policyflags_test.go` (from phase 0 — flags)
 
 **The seven fields and flags:**
@@ -650,7 +650,7 @@ them).
 ## Phase 6 — docs and verify
 
 **Files:**
-- `docs/config.md` (operator docs for the seven new config keys, with
+- `docs/guides/config.md` (operator docs for the seven new config keys, with
   the `permission_mode` × `always_approve` interaction note)
 - `README.md` (grok provider section — add `/model` mid-session switch
   and `/deep-research`, `/workflow` to the supported-commands list)

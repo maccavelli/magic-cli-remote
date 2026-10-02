@@ -38,7 +38,7 @@ const PredicateTypeSessionHandoffClaim = "https://mcremote.dev/attestations/sess
 // produces (MADR 0077 D5, an in-toto Attestation Framework-style envelope).
 // PredicateType is the extension point: a future receipt kind is a new
 // PredicateType and a new predicate payload struct, not a new envelope
-// shape — see docs/receipts.md's predicateType registry.
+// shape — see docs/guides/receipts.md's predicateType registry.
 type Statement struct {
 	Type          string               `json:"_type"`
 	Subject       []ResourceDescriptor `json:"subject"`

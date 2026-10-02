@@ -81,7 +81,7 @@ String friendlyOpError(Object e) {
 }
 
 /// Handshake failures that retrying with the same credentials cannot fix, so
-/// auto-reconnect must stop rather than dial forever (`docs/protocol-v1.md`,
+/// auto-reconnect must stop rather than dial forever (`docs/guides/protocol-v1.md`,
 /// "auth_error frames" / "pair_error frames").
 ///
 /// Everything else is transient by default. Treating the whole set as

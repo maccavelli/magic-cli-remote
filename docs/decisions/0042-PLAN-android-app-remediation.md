@@ -322,7 +322,7 @@ gate.
    - `buildTranscriptRows` calls for 6 tools — expect ≤ 2, was 12.
 3. Device pass on Android 13+: predictive back (5d), a tool-heavy OpenCode turn
    for jitter/collapse, and TalkBack announcing a failed send (5b).
-4. Update `docs/chat-performance.md` — its "Row fold memo" and "List element
+4. Update `docs/guides/chat-performance.md` — its "Row fold memo" and "List element
    reuse" rows describe behaviour phases 3 and 4 change.
 5. Set MADR 0042 to Accepted with the implementation record, including the
    device-verified predictive-back result from 5d.

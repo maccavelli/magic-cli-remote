@@ -24,7 +24,7 @@
     normal mode first
   - [MADR 0051](./0051-MADR-auto-approve-chat-noise.md) — approval_summary,
     finishApprovals on leave-auto
-  - [protocol-v1.md](./protocol-v1.md) — `session_mode`, `session.set_mode`
+  - [protocol-v1.md](../guides/protocol-v1.md) — `session_mode`, `session.set_mode`
 - **Runtime evidence** (this host, 2026-07-30):
   - `mcremote 0.5.3.3` (`8b7f3ba`), journald unit `mcremote.service`
   - Grok sessions under `~/.local/share/mcremote/sessions/`

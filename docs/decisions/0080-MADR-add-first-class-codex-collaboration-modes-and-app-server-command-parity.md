@@ -7,7 +7,7 @@
 | status | **Accepted** |
 | date | 2026-08-12 |
 | deciders | Project Owner (scope and acceptance); Implementer (daemon, provider, protocol, and mobile design) |
-| related | [MADR 0022](0022-MADR-plan-mode-parity.md), [MADR 0023](0023-MADR-canonical-slash-commands.md), [MADR 0028](0028-MADR-codex-provider.md), [MADR 0035](0035-MADR-codex-ui-ux-remediation.md), [MADR 0044](0044-MADR-auto-approve-modes.md), [protocol-v1.md](protocol-v1.md) |
+| related | [MADR 0022](0022-MADR-plan-mode-parity.md), [MADR 0023](0023-MADR-canonical-slash-commands.md), [MADR 0028](0028-MADR-codex-provider.md), [MADR 0035](0035-MADR-codex-ui-ux-remediation.md), [MADR 0044](0044-MADR-auto-approve-modes.md), [protocol-v1.md](../guides/protocol-v1.md) |
 | research baseline | Official OpenAI documentation and source searched 2026-08-12; local schema and live probes against **`codex-cli 0.147.0`** on macOS arm64 |
 | implementation plan | [0080-PLAN-add-first-class-codex-collaboration-modes-and-app-server-command-parity.md](0080-PLAN-add-first-class-codex-collaboration-modes-and-app-server-command-parity.md) |
 

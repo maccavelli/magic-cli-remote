@@ -273,4 +273,4 @@ not.
 * [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md)
 * [0017-MADR-mcrelay-memory-security-action-plan.md](0017-MADR-mcrelay-memory-security-action-plan.md)
 * [0019-MADR-opencode-process-management-plan.md](0019-MADR-opencode-process-management-plan.md) (`KillMode`)
-* [config-mcrelay.md](config-mcrelay.md), [ops-mcrelay.md](ops-mcrelay.md)
+* [config-mcrelay.md](../guides/config-mcrelay.md), [ops-mcrelay.md](../guides/ops-mcrelay.md)

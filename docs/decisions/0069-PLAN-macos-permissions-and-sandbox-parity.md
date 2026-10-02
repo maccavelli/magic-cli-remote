@@ -62,7 +62,7 @@
   signing via `MC_CODESIGN_IDENTITY` (Makefile `codesign-maybe`, stable
   identifiers `com.magiccliremote.*`; unsigned path verified
   byte-identical — `a.out`/adhoc); install script verifies the signature
-  survives the swap; `docs/ops-macos-tcc.md` published (three-cause
+  survives the swap; `docs/guides/ops-macos-tcc.md` published (three-cause
   disambiguation table, grant walkthrough, recovery, grok
   daemon-identity note); 0065 PLAN gains the re-sign-on-update
   requirement and 0060 D1 the amendment note; README points at doctor +
@@ -103,7 +103,7 @@ All seams verified 2026-08-04 (MADR F1–F7 carry the evidence):
 | goose modes | `internal/provider/goose/goose.go:23-28`, `:44` | `auto` dangerous, default `approve` (P4) |
 | Probe/doctor | `internal/cli/` (new `doctor.go`), daemon startup | P5 |
 | Signing | `Makefile:13-18` region, `scripts/install-binary.sh` | opt-in `MC_CODESIGN_IDENTITY` (P6) |
-| Runbook | `docs/ops-macos-tcc.md` (new) | P6 |
+| Runbook | `docs/guides/ops-macos-tcc.md` (new) | P6 |
 
 Notable non-facts (checked): no `runtime.GOOS` anywhere in providers —
 none is added by this plan (classification is platform-neutral; only
@@ -226,7 +226,7 @@ absent / ok); doctor golden output.
 2. `scripts/install-binary.sh`: preserve the signature (no strip/copy
    that invalidates it; `install`+`mv` already safe — add a
    `codesign --verify` post-install check when the env var is set).
-3. `docs/ops-macos-tcc.md` (new): grant-keying model, the
+3. `docs/guides/ops-macos-tcc.md` (new): grant-keying model, the
    upgrade-revocation trap unsigned, granting FDA to a bare binary,
    `tccutil reset SystemPolicyAllFiles`, log predicate, and the
    LaunchAgent-not-Terminal attribution warning (MADR F7).
@@ -263,7 +263,7 @@ the env var, `codesign -dv` still reports adhoc/`a.out` (unchanged).
 | `docs/0044-MADR-auto-approve-modes.md` | P4 |
 | `internal/cli/doctor.go` (new), daemon startup | P5 |
 | `Makefile`, `scripts/install-binary.sh` | P6 |
-| `docs/ops-macos-tcc.md` (new) | P6 |
+| `docs/guides/ops-macos-tcc.md` (new) | P6 |
 | `docs/0065-PLAN-update-automation.md`, `docs/0060-MADR-local-unsigned-build-and-install.md` | P6 |
 
 ## Verification map (MADR → plan)

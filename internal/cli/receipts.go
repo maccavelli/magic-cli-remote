@@ -31,7 +31,7 @@ func newReceiptsCmd() *cobra.Command {
 		Long: "Signed receipts (MADR 0077) are opt-in, device-signed, hash-chained\n" +
 			"records of permission decisions matching receipts.allow_patterns. Each\n" +
 			"line in <data_dir>/receipts/<device_id>.jsonl is a JWS compact string\n" +
-			"wrapping an in-toto-style Statement; see docs/receipts.md for the wire\n" +
+			"wrapping an in-toto-style Statement; see docs/guides/receipts.md for the wire\n" +
 			"shape and the predicateType registry.",
 		Example: receiptsExample,
 	}

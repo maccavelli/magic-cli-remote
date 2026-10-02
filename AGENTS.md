@@ -44,7 +44,7 @@ Agents load hook config at session start. There is nothing to bypass: fix the fi
 
 ## Tests
 
-**Windows local gates (0145):** on a Windows host, before push run `make ci-windows`; before tag also `make ci-windows-smoke`; functional paths/pair/doctor → `scripts/acceptance-windows.ps1`. On macOS/Linux those targets skip and exit 0 — use `make preflight`. See `docs/ops-windows-install.md` and MADR/PLAN 0145. No workflow edits without Mac permission.
+**Windows local gates (0145):** on a Windows host, before push run `make ci-windows`; before tag also `make ci-windows-smoke`; functional paths/pair/doctor → `scripts/acceptance-windows.ps1`. On macOS/Linux those targets skip and exit 0 — use `make preflight`. See `docs/guides/ops-windows-install.md` and MADR/PLAN 0145. No workflow edits without Mac permission.
 
 **Run `make` on Windows from Git Bash, or from PowerShell with `C:\Program Files\Git\usr\bin` on `PATH`.** GNU make needs `sh.exe`. Check: `make -n ci-windows` must show `[ "windows" != "windows" ]`. In PowerShell, `bash` is WSL, not Git Bash.
 

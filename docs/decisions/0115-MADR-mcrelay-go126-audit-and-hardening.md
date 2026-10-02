@@ -294,7 +294,7 @@ approved**, per `AGENTS.md`.
   [0017](./0017-MADR-mcrelay-memory-security-action-plan.md); 0068 P1/P6 and
   0091 D3/D5/D10 for the later edge hardening this audit verified as wired.
 * 0017 E5 (metrics) remains deferred and is unchanged by this record.
-* Ops context: `docs/ops-mcrelay.md`; production relay
+* Ops context: `docs/guides/ops-mcrelay.md`; production relay
   `wss://headscale.lallygag.net:8443` with one registered host
   (`<mac-host>`).
 

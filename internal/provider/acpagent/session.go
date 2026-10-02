@@ -2323,7 +2323,7 @@ func (s *session) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest
 		if agenterr.IsPermission(err) {
 			return acp.ReadTextFileResponse{}, fmt.Errorf(
 				"%w — the mcremote daemon lacks OS permission for this path "+
-					"(macOS: grant Full Disk Access; see docs/ops-macos-tcc.md)", err)
+					"(macOS: grant Full Disk Access; see docs/guides/ops-macos-tcc.md)", err)
 		}
 		return acp.ReadTextFileResponse{}, err
 	}
@@ -2369,7 +2369,7 @@ func wrapFSPermission(err error) error {
 	}
 	return fmt.Errorf(
 		"%w — the mcremote daemon lacks OS permission for this path "+
-			"(macOS: grant Full Disk Access; see docs/ops-macos-tcc.md)", err)
+			"(macOS: grant Full Disk Access; see docs/guides/ops-macos-tcc.md)", err)
 }
 
 // auditFSAccess emits a tool event for an agent filesystem callback (so the

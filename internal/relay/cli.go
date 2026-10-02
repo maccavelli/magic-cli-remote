@@ -72,7 +72,7 @@ Default config: ` + ConfigPathHint() + `
 Default data:   ` + DataDirHint() + `
 
 All long flags use a double dash (--help, --config, --listen-host, …).
-Short -h is help only. See docs/config-mcrelay.md.`,
+Short -h is help only. See docs/guides/config-mcrelay.md.`,
 		SilenceUsage:     true,
 		SilenceErrors:    true,
 		Version:          VersionString(),
@@ -291,7 +291,7 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 
 			srv := New(srvCfg, log)
 			// No-op in release builds; `make debug` + MC_DEBUG_ADDR only
-			// (0068 P6, goroutine-leak triage — docs/ops-mcrelay.md).
+			// (0068 P6, goroutine-leak triage — docs/guides/ops-mcrelay.md).
 			debugserve.Start(ctx, log)
 			log.Info("mcrelay starting",
 				slog.String("version", cliVersion),

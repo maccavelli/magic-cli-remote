@@ -540,7 +540,7 @@ Controls, in the order they matter:
   installer decision this record verifies.
 * [0097-PLAN-linux-curl-installer.md](0097-PLAN-linux-curl-installer.md) — the
   acceptance matrix that is updated as rows are executed.
-* [ops-linux-install.md](ops-linux-install.md) — the runbook whose SELinux and
+* [ops-linux-install.md](../guides/ops-linux-install.md) — the runbook whose SELinux and
   WSL guidance is currently speculative and becomes measured as a result.
 * [0048-MADR-codex-sandbox-namespace.md](0048-MADR-codex-sandbox-namespace.md)
   — AppArmor userns advisory printed by the installer.

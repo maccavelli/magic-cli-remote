@@ -79,7 +79,7 @@ recorded in MADR 0110 on 2026-08-21.
 * `internal/daemon/daemon.go` — evaluate the guard and reconcile before the
   Goose provider is constructed.
 * `configs/config.example.yaml`, `configs/config.prod.example.yaml`
-* `docs/config.md`
+* `docs/guides/config.md`
 
 ### Files to add
 
@@ -390,7 +390,7 @@ plan is amended before proceeding.
    `stream_coalesce_ms`, with a comment stating what it does, why it defaults
    true, and that the file store must already hold the secrets. Add the bare
    key to `configs/config.prod.example.yaml`.
-5. Document it in `docs/config.md` in the Goose provider table.
+5. Document it in `docs/guides/config.md` in the Goose provider table.
 
 #### Verification
 
@@ -402,7 +402,7 @@ go test -race -count=1 ./internal/config
 #### Acceptance
 
 An absent key yields `true`; an explicit `false` yields `false`; the example
-configs and `docs/config.md` describe the key; no behaviour has changed yet,
+configs and `docs/guides/config.md` describe the key; no behaviour has changed yet,
 because nothing consumes the value.
 
 ---
@@ -638,7 +638,7 @@ rather than by inspection.
    Failing to write a preference must not take the provider down.
 4. Surface the outcome in the Goose auth state so the phone renders the hold
    case, rather than leaving the operator to find it in a host log.
-5. Update `docs/config.md` and the provider matrix.
+5. Update `docs/guides/config.md` and the provider matrix.
 
 #### Verification
 
@@ -741,7 +741,7 @@ Execution approved and completed 2026-08-21.
 | Phase | Commit | Verification | Notes |
 | --- | --- | --- | --- |
 | P0 | **Complete** (no commit — research only) | Source read at goose 1.47.0, matching the installed binary | F12 and F13 confirmed; F14 withdrawn; MADR D1/D9 revised to the config-file mechanism. |
-| P1 | `6f603db` | `go test ./internal/config` and full repo green; pre-add clean | Config key, viper default, three example configs, service default template, `docs/config.md`. |
+| P1 | `6f603db` | `go test ./internal/config` and full repo green; pre-add clean | Config key, viper default, three example configs, service default template, `docs/guides/config.md`. |
 | P2 | `53eb114` | `go test`/`-race` on credstore green; pre-add clean | `SetGooseKeyringDisabled` with the ownership marker; nine tests including a byte-identical on/off round trip. |
 | P3 | `ac0f2b6` | providers + full repo green; `-race` green | F12 fixed: env is presence-only, config accepts only `true`/`1`. Guard, `EffectiveKeyringDisabled`, `Reconcile`. |
 | P4 | `1bb98e6` | goose + credstore green; `-race` green | Parity proven against an independent statement of goose's rule. No production change needed beyond P3, as predicted. |

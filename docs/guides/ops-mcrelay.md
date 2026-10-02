@@ -1,7 +1,7 @@
 # mcrelay operations (E4)
 
-Operator runbook for the public-edge join router. Design: [0015](0015-MADR-mcrelay-transport-security.md).
-Config reference: [config-mcrelay.md](config-mcrelay.md). Audit hardening: [0016](0016-MADR-mcrelay-audit-hardening.md).
+Operator runbook for the public-edge join router. Design: [0015](../decisions/0015-MADR-mcrelay-transport-security.md).
+Config reference: [config-mcrelay.md](config-mcrelay.md). Audit hardening: [0016](../decisions/0016-MADR-mcrelay-audit-hardening.md).
 
 ## What mcrelay is (and is not)
 
@@ -32,10 +32,10 @@ Templates (keep in sync with [config-mcrelay.md](config-mcrelay.md)):
 
 | File | Role |
 |------|------|
-| [configs/mcrelay.example.yaml](../configs/mcrelay.example.yaml) | Annotated example (all keys + env/flag comments) |
-| [internal/cli/service/defaults_mcrelay.yaml](../internal/cli/service/defaults_mcrelay.yaml) | Written by `setup-service` when config missing |
-| [internal/cli/service/mcrelay.user.service.tmpl](../internal/cli/service/mcrelay.user.service.tmpl) | Embedded by `mcrelay setup-service` (slim `PATH`, `UMask=0077`) |
-| [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service) | Manual unit; comments list every `MCRELAY_*` env |
+| [configs/mcrelay.example.yaml](../../configs/mcrelay.example.yaml) | Annotated example (all keys + env/flag comments) |
+| [internal/cli/service/defaults_mcrelay.yaml](../../internal/cli/service/defaults_mcrelay.yaml) | Written by `setup-service` when config missing |
+| [internal/cli/service/mcrelay.user.service.tmpl](../../internal/cli/service/mcrelay.user.service.tmpl) | Embedded by `mcrelay setup-service` (slim `PATH`, `UMask=0077`) |
+| [deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service) | Manual unit; comments list every `MCRELAY_*` env |
 
 Edit:
 
@@ -80,7 +80,7 @@ journalctl --user -u mcrelay -f
 loginctl enable-linger "$USER"   # keep running after logout (default from setup-service)
 ```
 
-Manual unit: [deploy/systemd/mcrelay.user.service](../deploy/systemd/mcrelay.user.service).
+Manual unit: [deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service).
 
 An existing unit does **not** pick up template changes — 0091 hardening (slim
 `PATH`, `UMask=0077`, `RestrictAddressFamilies`), or the 0099 F4a removal of
@@ -91,7 +91,7 @@ the file itself is rewritten. The running process is unchanged until then.
 mcrelay setup-service --refresh    # re-render from this binary's template
 ```
 
-`--refresh` ([MADR 0100](0100-MADR-update-unit-refresh-and-daemon-reload.md))
+`--refresh` ([MADR 0100](../decisions/0100-MADR-update-unit-refresh-and-daemon-reload.md))
 keeps the options baked into the installed unit (`--listen-port`,
 `--service-config`, `--env`, and the unit's own `PATH`), rewrites only a unit
 `setup-service` wrote and can reproduce, backs the old one up as
@@ -110,8 +110,8 @@ launchctl print "gui/$(id -u)/com.magiccliremote.mcrelay"
 tail -f ~/Library/Logs/mcrelay/mcrelay.err.log
 ```
 
-Manual plist: [deploy/launchd/com.magiccliremote.mcrelay.plist](../deploy/launchd/com.magiccliremote.mcrelay.plist).
-See [0058-MADR](0058-MADR-macos-launchd-service-hardening.md).
+Manual plist: [deploy/launchd/com.magiccliremote.mcrelay.plist](../../deploy/launchd/com.magiccliremote.mcrelay.plist).
+See [0058-MADR](../decisions/0058-MADR-macos-launchd-service-hardening.md).
 
 ### Low ports (80 / 443)
 
@@ -351,8 +351,8 @@ cd apps/mobile && flutter test test/relay_transport_test.dart test/relay_path_te
 - [config-mcrelay.md](config-mcrelay.md) — full flags / env
 - [iam-route53-acme.md](iam-route53-acme.md) — Route 53 IAM for DNS-01
 - [config.md](config.md#tls-modes) — mcremote TLS modes (DNS-01 only; recovery pin)
-- [0009-MADR-post-hardening-action-plan.md](0009-MADR-post-hardening-action-plan.md) Phase E
-- [0016-MADR-mcrelay-audit-hardening.md](0016-MADR-mcrelay-audit-hardening.md) backlog R10+
+- [0009-MADR-post-hardening-action-plan.md](../decisions/0009-MADR-post-hardening-action-plan.md) Phase E
+- [0016-MADR-mcrelay-audit-hardening.md](../decisions/0016-MADR-mcrelay-audit-hardening.md) backlog R10+
 
 ## 0115: parked-tunnel symptom retired
 

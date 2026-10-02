@@ -158,8 +158,8 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.codex.stream_coalesce_ms` | `80` — same coalescing as other providers (MADR 0024). `0` = one event per token; max `1000` |
 | `providers.codex.approval_policy` | *(empty — mcremote `default` session mode: `on-request`)*. Valid: `untrusted`, `on-request`, `never`. Empty with empty sandbox seeds the normal mode pair (MADR 0047); `never` alone is repaired to auto (`never` + `workspace-write`). Set **both** fields to pin a custom pair |
 | `providers.codex.sandbox_mode` | *(empty — mcremote `default` session mode: `workspace-write`)*. Valid: `read-only`, `workspace-write`, `danger-full-access`. See approval_policy; both empty → default mode, not silent engine-file inheritance for remote sessions |
-| `providers.codex.allow_full_access` | `false` — advertise the `full-access` session mode (no approval prompts **and** no sandbox). Opt-in; see [MADR 0044](./0044-MADR-auto-approve-modes.md) D5 |
-| `providers.codex.sandbox_broken_policy` | `warn` (default) — when the daemon's workspace-write probe fails (Linux userns/bwrap): `warn` = notice only; `require_full_access` = seed full-access (needs `allow_full_access: true`) or fail create; `refuse` = fail create. See [MADR 0048](./0048-MADR-codex-sandbox-namespace.md) |
+| `providers.codex.allow_full_access` | `false` — advertise the `full-access` session mode (no approval prompts **and** no sandbox). Opt-in; see [MADR 0044](../decisions/0044-MADR-auto-approve-modes.md) D5 |
+| `providers.codex.sandbox_broken_policy` | `warn` (default) — when the daemon's workspace-write probe fails (Linux userns/bwrap): `warn` = notice only; `require_full_access` = seed full-access (needs `allow_full_access: true`) or fail create; `refuse` = fail create. See [MADR 0048](../decisions/0048-MADR-codex-sandbox-namespace.md) |
 | `providers.kilo.enabled` | `true` — default-on since MADR 0075 acceptance (2026-08-10); set `false` per host to drop it from the phone's new-session provider menu. Known-good CLI: **kilo 7.4.22** (MADR 0088; `npm i -g @kilocode/cli` or `brew install Kilo-Org/tap/kilo`) |
 | `providers.kilo.bin` | `kilo` |
 | `providers.kilo.always_approve` | `false` |
@@ -186,7 +186,7 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `relay.insecure_skip_verify` | `false` — skip TLS verify of **mcrelay** only (dev) |
 | `relay.max_frame_bytes` | `0` — bridge frame cap (0115 F6); `0` = 1 MiB. Set 4096–16777216 to match a raised relay `limits.max_message_bytes` |
 | `pair.advertise_host` | *(empty — auto-detect: Tailscale IPv4, else loopback)* — host (or host:port) advertised in the pair QR/URI. A bare host inherits `listen.port`. Ignored in `letsencrypt` mode (the ACME domain is used); `mcremote pair --host` overrides per run |
-| `receipts.enabled` | `false` — signed receipts for permission decisions are opt-in (MADR 0077). See `docs/receipts.md` |
+| `receipts.enabled` | `false` — signed receipts for permission decisions are opt-in (MADR 0077). See `docs/guides/receipts.md` |
 | `receipts.allow_patterns` | `[]` — shell-glob patterns (`*`, `?`, `[set]`) matched against `"<tool_name> <detail>"`; a match triggers a device-signed, hash-chained receipt for that decision |
 | `receipts.deny_patterns` | `[]` — same syntax; a match here wins over `allow_patterns` on the same decision |
 | `receipts.handoffs` | `true` — when receipts are enabled, sign a receipt for each device-to-device session handoff (release + claim, MADR 0078). Only consulted when `receipts.enabled`. The handoff feature is always available; this gates only its attestation. |
@@ -217,7 +217,7 @@ Use `permission_mode`, the per-session `auto` mode, or `sandbox` for policy
 that actually binds remote sessions. These four keys are retained because they
 are harmless and may become effective in a later grok; re-measure before
 relying on them. Tracked in
-[MADR 0050](./0050-MADR-grok-cli-surface-drift.md) §4.
+[MADR 0050](../decisions/0050-MADR-grok-cli-surface-drift.md) §4.
 
 ### Grok sandbox profiles
 
@@ -239,7 +239,7 @@ Define it in ~/.grok/sandbox.toml or .grok/sandbox.toml
 
 On Linux hosts where AppArmor restricts unprivileged user namespaces, a
 containment profile may hit the same wall as the codex sandbox — see the
-section below and [MADR 0048](./0048-MADR-codex-sandbox-namespace.md).
+section below and [MADR 0048](../decisions/0048-MADR-codex-sandbox-namespace.md).
 
 ### Grok permission mode is pinned, not inherited
 
@@ -265,7 +265,7 @@ behaviour, choose one:
 - `providers.grok.permission_mode: ""` — inherit grok's own config again, with
   the caveats above.
 
-Background: [MADR 0050](./0050-MADR-grok-cli-surface-drift.md) D3.
+Background: [MADR 0050](../decisions/0050-MADR-grok-cli-surface-drift.md) D3.
 
 ### Codex engine transports and authority boundary
 
@@ -344,7 +344,7 @@ Granting the capability back inside the AppArmor profile (a
 `local/unprivileged_userns` override) does **not** work: the profile's
 `audit deny capability,` wins, because in AppArmor deny always beats allow.
 Background and the narrower per-binary-profile alternative:
-[MADR 0048](./0048-MADR-codex-sandbox-namespace.md) §2.1.1–§2.1.2.
+[MADR 0048](../decisions/0048-MADR-codex-sandbox-namespace.md) §2.1.1–§2.1.2.
 
 If you cannot change host policy, set `providers.codex.allow_full_access: true`
 and use the `full-access` session mode — auto-approve with no sandbox, so only
@@ -510,7 +510,7 @@ their MagicDNS names are not in public DNS, so an ACME validator cannot reach
 them for HTTP-01 or TLS-ALPN-01. IAM / zone setup:
 [iam-route53-acme.md](iam-route53-acme.md). Wire trust rules:
 [protocol-v1.md](protocol-v1.md) (transport security). Product overview:
-[README.md](../README.md#tls).
+[README.md](../../README.md#tls).
 
 ## CLI flags
 
@@ -548,7 +548,7 @@ Long options always use **two dashes** (`--flag`). Help is `--help` or `-h`. Ver
 | `--relay-secret` | Registration secret (min 16); env `MCREMOTE_RELAY_SECRET` |
 
 When `relay.url` is set, `mcremote pair` adds `relay=` and `hid=` to the pair URI
-(secret is never on the QR). See [0015](0015-MADR-mcrelay-transport-security.md).
+(secret is never on the QR). See [0015](../decisions/0015-MADR-mcrelay-transport-security.md).
 
 ### `mcremote engines`
 
@@ -559,7 +559,7 @@ When `relay.url` is set, `mcremote pair` adds `relay=` and `hid=` to the pair UR
 ### `mcremote receipts list` / `receipts verify` / `receipts show`
 
 Inspect and verify signed permission-decision receipts (MADR 0077, opt-in —
-see [docs/receipts.md](receipts.md)).
+see [docs/guides/receipts.md](receipts.md)).
 
 | Flag | Description |
 |------|-------------|
@@ -575,7 +575,7 @@ the advertised fingerprint (`EnsureCerts` on the resolved data dir), so
 The device's key comes from its live `devices.json` record, falling back to
 the key archived beside the chain (`receipts/<device_id>.spki`) — so a
 **revoked** device's chain still verifies (see
-[docs/receipts.md](receipts.md#revoked-devices)).
+[docs/guides/receipts.md](receipts.md#revoked-devices)).
 
 ### `mcremote pair` / `pair code` / `pair create`
 
@@ -679,9 +679,9 @@ digest then intentionally differs from the release digest).
 
 ## Examples
 
-- Dev: [configs/config.example.yaml](../configs/config.example.yaml)
-- Prod-oriented: [configs/config.prod.example.yaml](../configs/config.prod.example.yaml)
-- Mesh + Grok: [configs/config.mesh-grok.yaml](../configs/config.mesh-grok.yaml)
+- Dev: [configs/config.example.yaml](../../configs/config.example.yaml)
+- Prod-oriented: [configs/config.prod.example.yaml](../../configs/config.prod.example.yaml)
+- Mesh + Grok: [configs/config.mesh-grok.yaml](../../configs/config.mesh-grok.yaml)
 
 ## OpenCode remote mutation controls (MADR 0112 A8/A9)
 

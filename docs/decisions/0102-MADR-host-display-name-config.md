@@ -99,7 +99,7 @@ templates — the setup-service seed (`internal/cli/service/defaults_mcremote.ya
 `configs/config.example.yaml`, `configs/config.prod.example.yaml`, and
 `configs/config.mesh-grok.yaml` — and the seed and example must have
 identical key sets (`internal/cli/service/template_parity_test.go:186-248`).
-`docs/config.md` is the operator reference and says to keep `configs/*.yaml`
+`docs/guides/config.md` is the operator reference and says to keep `configs/*.yaml`
 in sync. Viper's `AutomaticEnv` only resolves keys it already knows
 (`internal/config/load.go:256-364`; `config_test.go:47-50` documents the
 same gap for `receipts.*`). A new key therefore needs `SetDefault` even
@@ -220,9 +220,9 @@ request — one setting in config.yaml that every paired phone picks up.
 * Templates and docs (CI-enforced): `display_name: ""` with a comment in
   `internal/cli/service/defaults_mcremote.yaml`,
   `configs/config.example.yaml`, `configs/config.prod.example.yaml`,
-  `configs/config.mesh-grok.yaml`; reference entry in `docs/config.md`;
+  `configs/config.mesh-grok.yaml`; reference entry in `docs/guides/config.md`;
   a row in the README YAML-surface table; a contract note in
-  `docs/protocol-v1.md` on both `auth_ok` and `pair_ok`.
+  `docs/guides/protocol-v1.md` on both `auth_ok` and `pair_ok`.
 
 ### Consequences
 
@@ -313,9 +313,9 @@ request — one setting in config.yaml that every paired phone picks up.
   * `internal/cli/service/defaults_mcremote.yaml` (`data_dir` at line 32),
     `configs/config.example.yaml` (line 58),
     `configs/config.prod.example.yaml` (line 60),
-    `configs/config.mesh-grok.yaml` (line 62), `docs/config.md` (settings
+    `configs/config.mesh-grok.yaml` (line 62), `docs/guides/config.md` (settings
     table `data_dir` at line 84; env table `MCREMOTE_DATA_DIR` at line
-    353), `docs/protocol-v1.md` (`auth_ok` example at 180-182, `pair_ok`
+    353), `docs/guides/protocol-v1.md` (`auth_ok` example at 180-182, `pair_ok`
     example at 208-219), `README.md` YAML-surface table at 717-733
   * `apps/mobile/lib/data/ws/mcremote_client.dart`,
     `apps/mobile/lib/features/sessions/sessions_screen.dart`,

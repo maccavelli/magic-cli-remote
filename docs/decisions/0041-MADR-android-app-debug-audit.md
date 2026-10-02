@@ -72,7 +72,7 @@ polish; three items are real defects.
 `_memoTranscriptRows` returns `(rows, sameKeys)`. `sameKeys: true` tells
 `_TranscriptPaneState` that the row keys are unchanged, so it may keep the
 existing `_keyIndex` — the map `findChildIndexCallback` uses to relocate list
-elements under `reverse: true` (documented in `docs/chat-performance.md` under
+elements under `reverse: true` (documented in `docs/guides/chat-performance.md` under
 "List element reuse").
 
 The doc comment on the function states the contract precisely:

@@ -5,7 +5,7 @@
 - **Status**: **Implemented** (software 2026-08; plan P0–P4 landed). Anchors:
   `apps/mobile/lib/data/ws/link_health.dart`, `McremoteClient.linkHealth`,
   `apps/mobile/test/link_liveness_test.dart`. Hardware Part A rows remain in
-  [ops-hardware-validation.md](ops-hardware-validation.md). Decisions locked
+  [ops-hardware-validation.md](../guides/ops-hardware-validation.md). Decisions locked
   2026-08-01; amended the same day by the plan (B1 app-ping obligation,
   B4 `pingInterval` 20 s).
 - **Implementation plan**:
@@ -22,7 +22,7 @@
   epoch supersession, the ping-flap rule L-1),
   [0062-MADR-phone-transport-selection.md](0062-MADR-phone-transport-selection.md)
   (per-leg `TransportMode`, `activeTransport`, DialEpisode failover),
-  [protocol-v1.md](protocol-v1.md) (`ping` request; server read deadline).
+  [protocol-v1.md](../guides/protocol-v1.md) (`ping` request; server read deadline).
 - **Extends**: 0046's liveness machinery. Does not reopen the reconnect
   backoff, the epoch rules, or the permanent-error taxonomy.
 

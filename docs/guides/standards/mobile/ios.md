@@ -9,7 +9,7 @@ deployment_target: "16.0"
 # iOS Platform and Security Standards
 
 Decisions and rationale live in
-[MADR 0067](../../0067-MADR-ios-port.md); this page is the working
+[MADR 0067](../../../decisions/0067-MADR-ios-port.md); this page is the working
 reference. Where Android and iOS deliberately diverge, both sides are
 stated so neither is "the default".
 

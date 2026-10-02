@@ -72,7 +72,7 @@ acceptance script.** On this Windows host:
 }
 ```
 
-`docs/ops-windows-install.md:58` documents `%LocalAppData%\mcremote\Logs`, and
+`docs/guides/ops-windows-install.md:58` documents `%LocalAppData%\mcremote\Logs`, and
 `scripts/acceptance-windows.ps1:142-143` asserts exactly that against a strict
 `OrdinalIgnoreCase` comparison (`Assert-SamePath`, `:61-67`). The resolved path
 carries a second `\mcremote` leaf. The cause is real: `Roots.Logs` is already
@@ -199,7 +199,7 @@ its reasoning (`internal/cli/serve.go:143-165`). Log retention should read the
 same way.
 
 **F15 — The Windows log path is already promised to operators.** The layout
-table at `docs/ops-windows-install.md:51-58` lists it; the acceptance script
+table at `docs/guides/ops-windows-install.md:51-58` lists it; the acceptance script
 checks it. This work fills a promise rather than inventing one.
 
 **F16 — On Windows, rotation under a tail succeeds, rename-over-existing
@@ -303,7 +303,7 @@ and the per-platform `Logs` base becomes: Darwin `~/Library/Logs`, Linux
 | macOS | `~/Library/Logs/mcremote` | `…/mcremote/mcremote.log` |
 | Windows | `%LocalAppData%\mcremote\Logs` | `…\mcremote\Logs\mcremote.log` |
 
-This fixes F4 (the Windows double leaf), makes `docs/ops-windows-install.md:58`
+This fixes F4 (the Windows double leaf), makes `docs/guides/ops-windows-install.md:58`
 and `acceptance-windows.ps1:142-143` true, and gives Linux the XDG-correct
 location (XDG designates `XDG_STATE_HOME` for logs). On Linux this makes
 `LogDir` and `StateDir` the same directory (`$XDG_STATE_HOME/<product>`); that
@@ -392,7 +392,7 @@ stdio directory and the daemon's own file cannot diverge. *(F7, F8)*
 `mcrelay paths` emits `log_dir` in both JSON and text. *(F9)*
 
 **D12 — Documentation, embedded defaults, and tests move with the code.**
-`docs/config.md`, `docs/config-mcrelay.md`, `docs/ops-windows-install.md`, the
+`docs/guides/config.md`, `docs/guides/config-mcrelay.md`, `docs/guides/ops-windows-install.md`, the
 embedded `defaults_*.yaml`, and `examples.go` are updated; the rotator and the
 platform `LogDir` gain unit tests; the Windows acceptance script asserts the
 file exists and contains a startup line. *(F4, F5, F15)*
@@ -550,7 +550,7 @@ start the task; assert %LocalAppData%\mcremote\Logs\mcremote.log contains the st
 | Both daemons call `logging.Setup` with no `Out` | `internal/cli/serve.go:80-83`; `internal/relay/cli.go:257-260` |
 | Windows task has no output redirection | `internal/cli/service/schtasks.go:126-129`; `setup_schtasks.go:32-49` |
 | Windows resolved `log_dir` has a doubled leaf | `go run ./cmd/mcremote paths --json` on this host; `internal/appdirs/paths.go:70` vs `roots.go:27-35`, `roots_windows.go:64,67` |
-| Docs and acceptance assert `%LocalAppData%\mcremote\Logs` | `docs/ops-windows-install.md:58`; `scripts/acceptance-windows.ps1:61-67`, `142-144` (`git blame` `ca436bbc`, 2026-09-06) |
+| Docs and acceptance assert `%LocalAppData%\mcremote\Logs` | `docs/guides/ops-windows-install.md:58`; `scripts/acceptance-windows.ps1:61-67`, `142-144` (`git blame` `ca436bbc`, 2026-09-06) |
 | Linux has no `Logs` root, pinned by a test | `internal/appdirs/roots_unix.go:48-54`; `internal/appdirs/systempaths_test.go:38-41` |
 | Only `DataDir`/`ConfigDir` are converged | `internal/daemon/daemon.go:86`, `100-106` |
 | launchd path creates its log dir; its `Result.LogDir` comment says macOS-only | `internal/cli/service/setup.go:431-435`, `112-113` |

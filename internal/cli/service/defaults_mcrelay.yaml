@@ -1,6 +1,6 @@
 # mcrelay default configuration (written by setup-service when missing).
 # Location: $XDG_CONFIG_HOME/mcrelay/config.yaml or ~/.config/mcrelay/config.yaml
-# Values match relay.DefaultsFile(). Full reference: docs/config-mcrelay.md
+# Values match relay.DefaultsFile(). Full reference: docs/guides/config-mcrelay.md
 #
 # Precedence: CLI flags > MCRELAY_* env > this file > built-in defaults.
 #

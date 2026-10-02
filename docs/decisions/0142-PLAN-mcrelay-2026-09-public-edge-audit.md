@@ -225,7 +225,7 @@ All pass. `assertNoDivergence` is inside each.
 * `internal/relay/conns_test.go` *(create)*
 * `internal/relay/clientip_test.go`
 * `internal/relay/fileconfig_test.go` *(MaxConns validate/clamp rows)*
-* `docs/config-mcrelay.md`
+* `docs/guides/config-mcrelay.md`
 
 **2.1 `http.Server` in `New` (`server.go` ~111–122).** Set, and do not set
 anything else:
@@ -372,7 +372,7 @@ dotted-quad strings.
 Do not use `httptest.NewServer` — that bypasses `s.http` timeouts and
 `limitListener`.
 
-**2.6 Docs.** `docs/config-mcrelay.md`:
+**2.6 Docs.** `docs/guides/config-mcrelay.md`:
 
 * knob table: `limits.max_conns` default `1024`, env
   `MCRELAY_LIMITS_MAX_CONNS`, yaml/env only.
@@ -472,7 +472,7 @@ already quote only `id` after charset validation; leave them.
 
 **Files (only):** `internal/relay/memlimit.go` *(create)*,
 `internal/relay/memlimit_test.go` *(create)*, `internal/relay/cli.go`,
-`docs/ops-mcrelay.md`, `docs/config-mcrelay.md`.
+`docs/guides/ops-mcrelay.md`, `docs/guides/config-mcrelay.md`.
 
 **4.1** `memlimit.go` — copy the mcremote split, do not import
 `internal/cli`:
@@ -519,10 +519,10 @@ process-wide GC). Test `memoryLimitPlan` only:
 | `TestMemoryLimitPlanDefault` | `t.Setenv` cannot unset a missing key — if `GOMEMLIMIT` is already in the environment, `t.Setenv("GOMEMLIMIT", "")` then skip; else `limit, src := memoryLimitPlan()` → `512<<20, "default"` |
 | `TestMemoryLimitPlanEnv` | `t.Setenv("GOMEMLIMIT", "256MiB")` | `src == "GOMEMLIMIT"` |
 
-**4.4 Docs.** `docs/ops-mcrelay.md`: one paragraph — default 512 MiB;
+**4.4 Docs.** `docs/guides/ops-mcrelay.md`: one paragraph — default 512 MiB;
 `GOMEMLIMIT` in the unit file wins; raise it if `max_message_bytes` /
 `max_phones_per_host` / `max_conns` are raised toward ceilings.
-`docs/config-mcrelay.md`: one sentence under limits pointing at that
+`docs/guides/config-mcrelay.md`: one sentence under limits pointing at that
 paragraph. Not a YAML key.
 
 **Commit.**
@@ -534,7 +534,7 @@ paragraph. Not a YAML key.
 **Files (only):** `internal/relay/fileconfig.go`,
 `internal/relay/clientip.go`, `internal/relay/fileconfig_test.go`,
 `internal/relay/clientip_test.go`, `internal/relay/tls.go`,
-`internal/relay/cli.go`, `docs/config-mcrelay.md`.
+`internal/relay/cli.go`, `docs/guides/config-mcrelay.md`.
 
 **5.1 Config file.** In `Load`, after a YAML file is successfully read
 (`usedConfigFile != ""`), before `Unmarshal`:
@@ -621,7 +621,7 @@ Config-file paragraph: serve and `Load` require owner-only mode.
 `internal/relay/listen_policy_test.go`, `internal/relay/tls_test.go`,
 `internal/relay/server_lifecycle_test.go` *(only if it asserts 1.2)*,
 `internal/certs/acme_http.go` *(one comment, no behaviour)*,
-`docs/config-mcrelay.md`, `docs/ops-mcrelay.md`.
+`docs/guides/config-mcrelay.md`, `docs/guides/ops-mcrelay.md`.
 
 **Do not** change `internal/certs/acme.go` `TLSConfig()` MinVersion
 (mcremote stays 1.2).
@@ -762,8 +762,8 @@ e2e hash unchanged.
 ### Phase 8 — F23 coverage, docs sweep, regression
 
 **Files:** additional `*_test.go` under `internal/relay/` only if
-`coverage-delta.sh floor` fails after 8.1; `docs/ops-mcrelay.md`;
-`docs/config-mcrelay.md` only for leftover mismatches.
+`coverage-delta.sh floor` fails after 8.1; `docs/guides/ops-mcrelay.md`;
+`docs/guides/config-mcrelay.md` only for leftover mismatches.
 
 **8.1** Capture and floor:
 

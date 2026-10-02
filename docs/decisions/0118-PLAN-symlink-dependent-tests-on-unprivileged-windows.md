@@ -34,7 +34,7 @@ Finish line:
 * `internal/provider/acpagent/session_test.go`
 * `internal/provider/codex/projects_p6_test.go`
 * `.github/workflows/ci.yml` — one env line on the Windows test lane
-* `AGENTS.md` or `docs/ops-windows-install.md` — one line on the developer
+* `AGENTS.md` or `docs/guides/ops-windows-install.md` — one line on the developer
   prerequisite, only if P3 finds no existing home for it
 
 ### Out of scope
