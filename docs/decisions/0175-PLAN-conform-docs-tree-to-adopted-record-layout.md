@@ -142,6 +142,8 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 
 **2026-10-01 — P5 markdownlint is pre-existing.** `npx markdownlint-cli2 --no-globs` over `docs/guides/**/*.md`, `README.md`, `AGENTS.md`, and `apps/mobile/README.md` reports 49 issues in 9 files (MD013, MD004, MD056, MD040). `protocol-v1.md` MD056/MD013 matches the 2026-10-01 measurement in this phase. Content rewrites are out of scope.
 
-**2026-10-01 — P6 leaves one non-spike broken link.** After the spike moves, `check_records.py --check-all` has a single remaining error: `docs/decisions/0059-MADR-native-paths-and-linux-macos-parity.md:176: ../../internal/xdg/dirs.go` (one extra `../` from the old `docs/spec/` depth). Not a spike reference. 0158 historical prose naming `docs/codex-spike-*` was left as written. Repair of 0059 waits for P8 A6.
+**2026-10-01 — P6 leaves one non-spike broken link.** After the spike moves, `check_records.py --check-all` has a single remaining error: `docs/decisions/0059-MADR-native-paths-and-linux-macos-parity.md:176: ../../internal/xdg/dirs.go`. P6 left it. 0158 historical prose naming `docs/codex-spike-*` was left as written.
+
+**2026-10-01 — P7 repairs the 0059 code link.** The target is gone (`internal/xdg` was replaced by `internal/appdirs`); the depth was already correct from `docs/decisions/`. P8 cannot change records, so the href is now `../../internal/appdirs/paths.go` in this phase so A6 can pass. No MADR amendment.
 
 Any further mid-execution finding follows the skill's protocol: a dated deviation entry here naming what was found and decided, an amendment to the MADR when a decision or asserted fact changed, and the deviation carried into the commit and the handoff.

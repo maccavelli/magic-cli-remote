@@ -10,6 +10,8 @@ plane when the phone is off-mesh), or loopback/LAN for development.
 | **`mcremote`** | Host daemon: providers, sessions, TLS, pairing, protocol v1 |
 | **`mcrelay`** | Optional public-edge join router: host register + phone join + opaque WS splice |
 
+Documentation index: [docs/README.md](docs/README.md).
+
 ---
 
 ## Install on Linux and macOS

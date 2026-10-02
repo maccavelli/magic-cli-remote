@@ -173,7 +173,7 @@ CI, and signing — not in inventing a second product directory tree.
 
 | Concern | Current code | Current behavior | Assessment |
 |---|---|---|---|
-| Config | [`internal/xdg/dirs.go`](../../internal/xdg/dirs.go) | `$XDG_CONFIG_HOME/<app>`, else `$HOME/.config/<app>` on every OS | Correct product policy shape; must reject relative `$XDG_*` |
+| Config | [`internal/appdirs/paths.go`](../../internal/appdirs/paths.go) | `$XDG_CONFIG_HOME/<app>`, else `$HOME/.config/<app>` on every OS | Correct product policy shape; must reject relative `$XDG_*` |
 | Data | same | `$XDG_DATA_HOME/<app>`, else `$HOME/.local/share/<app>` | Same |
 | Cache | [`internal/cli/service/setup.go`](../../internal/cli/service/setup.go) | Duplicated helper for service environment | Needs shared contract in `appdirs` |
 | State | none | Mixed into data | Incomplete XDG; add StateDir |
