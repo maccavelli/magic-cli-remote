@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-01
 associated-madr: "0175-MADR-conform-docs-tree-to-adopted-record-layout.md"
 ---
@@ -146,4 +146,109 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 
 **2026-10-01 — P7 repairs the 0059 code link.** The target is gone (`internal/xdg` was replaced by `internal/appdirs`); the depth was already correct from `docs/decisions/`. P8 cannot change records, so the href is now `../../internal/appdirs/paths.go` in this phase so A6 can pass. No MADR amendment.
 
+**2026-10-01 — P8 markdownlint is pre-existing.** `npx markdownlint-cli2 --no-globs` over the 358 `.md` files the pair touched reports 9006 issues, almost all in MADR/PLAN files the project config excludes (`*MADR*`, `*PLAN*`). The same command over the 51 user-facing files (guides, REPORTs, spike READMEs, `docs/README.md`, `architecture.md`, root `README.md`, `AGENTS.md`, `apps/mobile/README.md`) reports 151 issues. Default-config `npx markdownlint-cli2` over the tree reports 3257. None of these were introduced as content rewrites; P4/P5 already left the REPORT/guide findings for the owner. No MADR amendment.
+
+**2026-10-01 — A10 grep also matches this pair's own prose.** The criterion command `git grep -nE ']\\([^)]*docs/spec|\`docs/spec/NNNN'` hits 0158 (historical, as specified) and this PLAN/MADR where they quote old `docs/spec/` paths. There is no remaining markdown href that resolves under `docs/spec/` (`docs/spec/` is gone). No MADR amendment.
+
 Any further mid-execution finding follows the skill's protocol: a dated deviation entry here naming what was found and decided, an amendment to the MADR when a decision or asserted fact changed, and the deviation carried into the commit and the handoff.
+
+## Execution record (2026-10-01)
+
+Local commits, one per phase. Nothing pushed.
+
+| Phase | Commit | Subject |
+| :--- | :--- | :--- |
+| P1 | `32a0f46b` | feat(docs): add records validation tooling (2 files, +237 −1) |
+| P2 | `64282e29` | docs(records): reorganize numbered records into decisions (301 files, +131 −131) |
+| P3 | `772c041e` | docs(decisions): align records with adopted layout (27 files, +56 −40) |
+| P4 | `8d5e363f` | docs: reorganize decision records and reports (24 files, +40 −36) |
+| P5 | `ed21e326` | docs(repo): reorganize reference documentation into guides (236 files, +739 −733) |
+| P6 | `784df04b` | docs(reports): reorganize spike evidence and update provider fidelity (89 files, +89 −87) |
+| P7 | `5935d9f7` | docs(records): add documentation index and align record layout (5 files, +488 −2) |
+
+### P1 — Tooling
+
+Added `scripts/check_records.py` (`--next`, `--check`, `--check-all`, `--write-index`) and `Makefile` target `check-records`. `python3 -m py_compile scripts/check_records.py` ok.
+
+Planted-failure evidence was not in the P1 commit body. Re-run at P8 on a scratch clone of this tree (system temp dir; clone deleted after): two files `0180-MADR-planted-broken-link.md` (`[dead](./no-such-file.md)`) and `0180-MADR-planted-duplicate.md`. `python3 scripts/check_records.py --check` exited 1:
+
+```text
+number 0180 is claimed by 2 MADRs: docs/decisions/0180-MADR-planted-broken-link.md, docs/decisions/0180-MADR-planted-duplicate.md (a number is never reused; 0154 is the recorded pre-existing case, renumbering deferred)
+broken relative link: docs/decisions/0180-MADR-planted-broken-link.md:3: ./no-such-file.md
+1 broken relative link(s)
+```
+
+`--next` on that clone printed `0181`. This tree's `--next` is `0180`.
+
+### P2 — Records relocation
+
+`git mv` of every `docs/spec/*.md` into `docs/decisions/` (291 records). Agent-facing paths in `AGENTS.md`, `.grok/rules/madr-plan-before-mutating-work.md`, `.claude/rules/madr-and-plan-skill.md` retargeted; `.opencode/rules.md` needed nothing. Root `README.md` `docs/spec/` links repaired. 0158 supersession slipped to P3 (deviation above).
+
+### P3 — Legacy records
+
+Renames: `0004-MADR-certificate-management.md`, `0005-MADR-client-identity.md`, `0176-MADR-phase-2-grok-acp-provider.md`, `0177-PLAN-flutter-android-client-assessment.md`, each with a dated 2026-10-01 note. `--next` printed `0004` (gap-fill); D2 numbers 0176/0177 used anyway. 0158 MADR and PLAN marked `status: superseded` pointing at 0175.
+
+### P4 — Reports
+
+Five REPORTs in `docs/reports/`: 0098, 0099, 0100, 0023, 0178 (mobile-ux took `--next`; 0179 was already `0179-MADR-pigo-native-acp-provider.md`). Repair scripts double-prefixed when a new filename contains the old basename; fixed by full-path replace. markdownlint 96 pre-existing issues left.
+
+### P5 — Guides and standards
+
+19 guides plus `docs/standards` → `docs/guides/`. `protocolDoc` is `../../docs/guides/protocol-v1.md`. Extra-depth links after the added `guides/` segment repaired from `--check-all` (65 new, then 0). Host umask `0077` failed unmodified `appdirs`/`providerauth` mode tests; `umask 022` made `go test ./...` green. markdownlint 49 pre-existing issues left.
+
+### P6 — Spike evidence
+
+Five `*-spike-*` directories → `docs/reports/`. 35-file path repair; 0075 template `docs/reports/kilo-spike-<version>/` by hand. 0158 historical spike prose left as written. One leftover 0059 link deferred.
+
+### P7 — Scaffold
+
+`docs/README.md` generated ToC plus hand-written "I want to…" matrix. `docs/architecture.md` (no "we used to" / "we chose"). Root README links `docs/README.md`. Second `--write-index` is a no-op. 0059 href retargeted to `../../internal/appdirs/paths.go`. `ls docs/` is exactly `README.md`, `architecture.md`, `decisions/`, `guides/`, `reports/`.
+
+### P8 — Closeout
+
+`make check-records` exit 0:
+
+```text
+==> records and docs links
+number 0054 has a PLAN but no MADR: docs/decisions/0054-PLAN-hardening-implementation.md (0177 is the recorded legacy lone plan)
+number 0055 has a PLAN but no MADR: docs/decisions/0055-PLAN-mcremote-server-remediation.md (0177 is the recorded legacy lone plan)
+number 0154 is claimed by 2 MADRs: docs/decisions/0154-MADR-configurable-mcremote-message-size.md, docs/decisions/0154-MADR-mcrelay-paths-demands-a-runnable-server.md (a number is never reused; 0154 is the recorded pre-existing case, renumbering deferred)
+number 0177 has a PLAN but no MADR: docs/decisions/0177-PLAN-flutter-android-client-assessment.md (0177 is the recorded legacy lone plan)
+```
+
+No broken-link errors. Those four warnings are the recorded inventory, not a leftover baseline.
+
+`go build ./...` exit 0. `go test ./...` under `umask 022` exit 0; `go test ./internal/protocol` ok; `protocolDoc` const is `../../docs/guides/protocol-v1.md`. `make pre-add-check` on the 21 Go files in `ed21e326` clean.
+
+`git log --follow` (first lines):
+
+- `docs/decisions/0001-MADR-architecture-mcremote.md` — `64282e29` then `9ac32229` (`docs/spec`) then `7daf98b8`
+- `docs/decisions/0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md` — `64282e29` then `81dd1bc2`
+- `docs/guides/receipts.md` — `ed21e326` then `4b33f88f`
+- `docs/guides/protocol-v1.md` — `ed21e326` then earlier protocol commits
+- `docs/guides/standards/go/README.md` — `ed21e326` then `e7c6bd99`
+
+### Acceptance
+
+| # | Result |
+| --- | --- |
+| A1 | met — `ls docs/` is those five names |
+| A2 | met — `docs/spec/` gone; 175 MADR and 143 PLAN in `docs/decisions/` only |
+| A3 | met — five REPORT files as mapped; 0178 is mobile-ux |
+| A4 | met — five spike dirs under `docs/reports/` |
+| A5 | met — 19 guides and `standards/{go,mobile}` under `docs/guides/`; no numbered file directly in `docs/` |
+| A6 | met — `make check-records` exit 0 |
+| A7 | met — planted duplicate + broken link on a scratch clone, exit 1, output above |
+| A8 | met — `go test ./...` green under `umask 022`; protocol guard reads the moved doc |
+| A9 | met — pre-add-check clean on P5's 21 Go files |
+| A10 | met as intent — no live `docs/spec/` href; remaining grep hits are 0158 and this pair's historical wording (P8 deviation) |
+| A11 | met — `AGENTS.md` and both per-agent rules teach `docs/decisions/`; `.opencode/rules.md` has no `docs/spec` |
+| A12 | met — generated ToC, "I want to…" matrix, second `--write-index` unchanged, root README links the index |
+| A13 | met — no "we used to" / "we chose" in `docs/architecture.md` |
+| A14 | met — four legacy files renamed with 2026-10-01 notes; citers use full filenames (e.g. `0005`, `0007`, `0008`, `0015`, `0054`) |
+| A15 | met — both 0158 records `status: superseded` pointing at 0175 |
+| A16 | met — `--follow` resolves the five samples |
+
+What was not done, as scoped: CI/`make preflight` wiring of `check_records.py` (D8); mobile tree split (D7); deleting spikes; content rewrites of pre-existing markdownlint; push.
+
+No MADR amendment: D1–D8 still describe what landed.
