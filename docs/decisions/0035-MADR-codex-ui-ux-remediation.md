@@ -490,7 +490,7 @@ Phases 0–9 landed on 2026-07-27 against `codex-cli 0.145.0`. Net changes:
 
 | Phase | Commit | Notes |
 |---|---|---|
-| 0 | `scripts/probe-codex-item-stream.py`, `docs/codex-spike-0.145.0/item-stream.json` | Probe revealed the codex app-server emits the v2 wire format (item type lives on `params.item.type`, not `params.itemType`). The previous codex provider implementation was written against v1 and was silently broken — every `item/started` produced a tool card with empty fields. The v2 migration is the foundation of every later phase. |
+| 0 | `scripts/probe-codex-item-stream.py`, `docs/reports/codex-spike-0.145.0/item-stream.json` | Probe revealed the codex app-server emits the v2 wire format (item type lives on `params.item.type`, not `params.itemType`). The previous codex provider implementation was written against v1 and was silently broken — every `item/started` produced a tool card with empty fields. The v2 migration is the foundation of every later phase. |
 | 1 | `internal/provider/codex/{commandtable.go,session.go,model_test.go}` | `/model` switched to `KindOp` + `OpSetModel`. `SetModel` now validates against the live catalog and fails open on `model/list` errors. |
 | 2 | `internal/provider/codex/{session.go,items.go,item_test.go}` | `itemsRenderedAsTools` allowlist + v2 wire-format migration. `contextCompaction` / review-mode become notices. Tool cards no longer spawn for non-tool items. |
 | 3 | `internal/provider/codex/items.go` | Tool status goes through `codexToolStatus`: `inProgress` → `running`, `declined` → `failed`. No raw `"in_progress"` left in production code. |
@@ -505,5 +505,5 @@ Phases 0–9 landed on 2026-07-27 against `codex-cli 0.145.0`. Net changes:
 Phase 0 also revised some report-0032 claims: the `turn/plan/updated`
 notification IS in the v2 schema (it was just not exercised by the
 0.145.0 free-tier model used in the original spike). The schema is
-captured in `docs/codex-spike-0.145.0/item-stream.json` and the unit
+captured in `docs/reports/codex-spike-0.145.0/item-stream.json` and the unit
 tests pin the translation.

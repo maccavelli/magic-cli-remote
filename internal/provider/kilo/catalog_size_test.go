@@ -12,7 +12,7 @@ import (
 )
 
 // The shape measured against kilo 7.4.20 on 2026-08-06, spike day
-// (docs/kilo-spike-7.4.20/provider-summary.json: provider_count 179, sum of
+// (docs/reports/kilo-spike-7.4.20/provider-summary.json: provider_count 179, sum of
 // per-provider model_count 6,006). This is Kilo's OWN measured scale, not a
 // copy of opencode's (172 providers / 5,788 models) — kilo's real catalog is
 // larger on both axes (MADR 0076 M4 #3). The later plan P3 acceptance run

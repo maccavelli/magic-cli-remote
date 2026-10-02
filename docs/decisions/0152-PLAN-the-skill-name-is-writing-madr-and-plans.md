@@ -37,7 +37,7 @@ decisions D1–D6, closing findings F1–F7.
 * **Everything under `~`** (D6). The assessment found one skill, correctly
   named; there is nothing to change, and editing a user's global environment to
   match a document is the failure mode this record exists to end.
-* **The wire fixtures, `docs/0106-*`, `docs/kilo-spike-7.4.20/*`** (D5). They
+* **The wire fixtures, `docs/0106-*`, `docs/reports/kilo-spike-7.4.20/*`** (D5). They
   are captured evidence of another host, and they are the only reason F5 could
   be established. `grep` matches there are observations, not instructions.
 * **The Mac's `~/.grok/skills/`.** Not reachable from this host; MADR open
@@ -50,7 +50,7 @@ There is no build to run: no phase touches Go. Each phase ends with
 
 ```bash
 grep -rn 'madr-and-plan-writing' AGENTS.md .claude/ .grok/ .opencode/
-git diff --stat -- internal/ docs/0106-* docs/kilo-spike-7.4.20/
+git diff --stat -- internal/ docs/0106-* docs/reports/kilo-spike-7.4.20/
 ```
 
 the first printing nothing after P2, the second printing nothing after either.
@@ -135,7 +135,7 @@ grep -rln 'ls -d ~/.claude/skills' .claude/ .grok/ .opencode/ # all three
 ```bash
 grep -rn 'madr-and-plan-writing' AGENTS.md .claude/ .grok/ .opencode/
 ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
-git diff --stat -- internal/ docs/0106-* docs/kilo-spike-7.4.20/
+git diff --stat -- internal/ docs/0106-* docs/reports/kilo-spike-7.4.20/
 git status --short
 ```
 
@@ -152,7 +152,7 @@ than `Unknown skill`.
 | A3 | All four retain a filesystem check | D4, C2 |
 | A4 | The ledger, symlink paragraph, verification note and birth-time dispute are gone | D2, F3, F4, F6 |
 | A5 | Each file states the two-machine mechanism | D3, F5 |
-| A6 | Zero diff under `internal/`, `docs/0106-*`, `docs/kilo-spike-7.4.20/` | D5, C1 |
+| A6 | Zero diff under `internal/`, `docs/0106-*`, `docs/reports/kilo-spike-7.4.20/` | D5, C1 |
 | A7 | Nothing under `~` is modified | D6, F7 |
 | A8 | The skill loads by the documented name in a live session | Confirmation 2 |
 
@@ -221,7 +221,7 @@ Both phases ran: `596a9f1` (P1), `c50ea33` (P2, with the A1 amendment).
 | A3 | met — all four retain the check block |
 | A4 | met — ledger, symlink paragraph, verification note and birth-time dispute all gone |
 | A5 | met — five explanatory mentions, one per file plus the fixture path in `AGENTS.md` |
-| A6 | met — `git diff --stat` over `internal/`, `docs/0106-*`, `docs/kilo-spike-7.4.20/` is empty |
+| A6 | met — `git diff --stat` over `internal/`, `docs/0106-*`, `docs/reports/kilo-spike-7.4.20/` is empty |
 | A7 | met — nothing under `~` was touched |
 | A8 | met — `writing-madr-and-plans` returned the skill body this session; `madr-and-plan-writing` returned `Unknown skill` |
 

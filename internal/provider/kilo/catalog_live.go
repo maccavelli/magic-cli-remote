@@ -212,7 +212,7 @@ func (d *httpDialect) modelsOf(p providerEntry, defaults map[string]string) pick
 // maxDefaultCatalogModels bounds the connected-set default models.list reply.
 // Kilo's own connected set runs larger than opencode's: 866 models across 9
 // connected providers on the 7.4.22 host, and 677 across three on the 7.4.20
-// spike (docs/kilo-spike-7.4.20/provider-summary.json). 150 is the largest
+// spike (docs/reports/kilo-spike-7.4.20/provider-summary.json). 150 is the largest
 // count that keeps the serialized reply inside the 32 KB default-catalog
 // budget TestDefaultCatalogFitsTheFrame enforces, with headroom for longer
 // Kilo model ids (e.g. `~vendor/model` aliases).

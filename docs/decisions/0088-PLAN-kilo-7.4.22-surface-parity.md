@@ -24,7 +24,7 @@ target-milestone: 2026-08-15
   * [x] 0087 chrome + durable-envelope tests remain green
   * [x] `live_kilo` prompt/permission pass on a host with a usable model
   * [x] 7.4.22 path/agent/command probe notes exist under
-        `docs/kilo-spike-7.4.22/` (thin; do not copy the multi-MB
+        `docs/reports/kilo-spike-7.4.22/` (thin; do not copy the multi-MB
         catalog)
 
 ## Prerequisites & Dependencies
@@ -48,7 +48,7 @@ No new packages. Touch list for the pin:
 | `internal/provider/kilo/commandtable.go` | `review` → `KindOp`/`Op` via command submit; add resume-import rows if they are canonical or live-only advertised |
 | `internal/provider/kilo/command.go` | live catalog already advertises whatever `GET /command` returns — confirm resume-* flow through `submitCommand` |
 | `docs/0075-MADR-kilo-cli-provider.md` | one-line erratum: known-good now 7.4.22 per 0088 |
-| `docs/kilo-spike-7.4.22/` | README + path list + agents/commands JSON (not `/provider`) |
+| `docs/reports/kilo-spike-7.4.22/` | README + path list + agents/commands JSON (not `/provider`) |
 
 0087’s `session.go` / `dialect.go` / `command.go` chrome+decode work is
 a prerequisite, not this plan’s code.
@@ -65,7 +65,7 @@ KnownGoodVersion              7.4.22  ◄── GET /global/health
 
 * **Objective**: Pin the probe so the version bump is evidence-backed.
 * **Tasks**:
-  - [x] **Task 1.1**: Write `docs/kilo-spike-7.4.22/README.md` with
+  - [x] **Task 1.1**: Write `docs/reports/kilo-spike-7.4.22/README.md` with
         health, path counts, added paths, live command list, `code`
         tool map, sandbox/auth notes (copy from 0088 §More Information).
   - [x] **Task 1.2**: Save `openapi-paths.txt` (names only) from the

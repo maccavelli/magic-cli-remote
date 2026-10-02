@@ -71,12 +71,12 @@ had drifted from what MADR 0076 recorded.
 | `resolveDisplayedMode` hardcodes `['default', 'build']`, no `code` case | `apps/mobile/lib/features/chat/chat_helpers.dart:27` |
 | Existing Dart test file to extend for M1 (pattern: one `const` mode list per provider + a `test('empty current prefers X on Y-shaped list')` case) | `apps/mobile/test/resolve_displayed_mode_test.dart` (codex/opencode/goose cases already present, lines 7–21, 28–39) |
 | Existing Go test file to extend for M1 (pattern: one table-row per provider) | `internal/session/defaultmode_test.go` (opencode/grok/codex/goose/custom-agent cases present, lines 20–70) |
-| Kilo's live agent order has `code` first (why M1 hasn't broken yet) | `docs/kilo-spike-7.4.20/agents-summary.json` (`code` before `ask`/`debug`/...) |
+| Kilo's live agent order has `code` first (why M1 hasn't broken yet) | `docs/reports/kilo-spike-7.4.20/agents-summary.json` (`code` before `ask`/`debug`/...) |
 | `mode.go`'s doc comment still says "`build`" next to the correctly-adapted `normalAgentID()` | `internal/provider/kilo/mode.go:114-117` |
 | `catalog_live.go`'s security comment cites `TestConnectedCatalogDropsAPIKey`, which only exists for opencode's struct | `internal/provider/kilo/catalog_live.go:118-124`; opencode's test at `internal/provider/opencode/catalog_test.go:180` |
 | `daemon.go`'s "no provider ready" warning OR-chain omits `cfg.Providers.Kilo.Enabled` | `internal/daemon/daemon.go:285` |
 | Coverage: kilo 14.6% vs opencode 85.4%, no races | `go test -cover ./internal/provider/kilo/... ./internal/provider/opencode/...`; `go test -race` clean on both |
-| Kilo's real catalog is bigger than opencode's tested synthetic shape (172 providers/5,788 models) on both axes | `docs/kilo-spike-7.4.20/provider-summary.json` (179 providers/6,006 models spike-day), `docs/0075-PLAN-kilo-cli-provider.md:24-25` (181 providers live P3 run) |
+| Kilo's real catalog is bigger than opencode's tested synthetic shape (172 providers/5,788 models) on both axes | `docs/reports/kilo-spike-7.4.20/provider-summary.json` (179 providers/6,006 models spike-day), `docs/0075-PLAN-kilo-cli-provider.md:24-25` (181 providers live P3 run) |
 | Function/type names in kilo mirror opencode's 1:1 (`httpDialect`, `httpSession`, `ListAgentsLive`, `ListModelsLive`, `ListModelProvidersLive`, `ListModelsForLive`, `modelsOf`, `capDefaultCatalogModels`, `providerOption`, `AfterBoot`, `emitStatus`, `noteTool`, `noteToolEmit`) — every port below is a mechanical adaptation, not a redesign | confirmed via `grep -n "^func "` diff, `internal/provider/kilo/{catalog_live,dialect,session}.go` vs `internal/provider/opencode/http.go` |
 | Kilo's existing tests: `dialect_test.go` (12 tests incl. `TestSplitModelFirstSlash`), `session_test.go` (7 tests), `live_test.go` + `live_permission_test.go` (build-tagged) | `internal/provider/kilo/*_test.go`, function names enumerated by `grep -n "^func Test"` |
 | Opencode's full test-name inventory for every file this plan ports from | enumerated below per phase, from `grep -n "^func Test" internal/provider/opencode/*.go` |
@@ -382,7 +382,7 @@ brings kilo's catalog/model-picker backend to opencode-equivalent coverage.
    `realProviderCount = 172` / `realModelCount = 5788` /
    `realConnectedCount = 3` / `realConnectedModels = 113` with kilo's own
    measured shape: `realProviderCount = 181`, and a model count sourced from
-   `docs/kilo-spike-7.4.20/provider-summary.json` (confirm the exact number
+   `docs/reports/kilo-spike-7.4.20/provider-summary.json` (confirm the exact number
    there — MADR 0076 M4 #3 cites "179 providers / 6,006 models" spike-day
    and "181 providers" from the later P3 run; use the P3 run's paired
    model count if `provider-summary.json` or the P3 test log records one,

@@ -87,7 +87,7 @@ Must land with the pin (session-loop correctness):
    model is available.
 5. Fixture refresh: save 7.4.22 `/doc` path list + agent/command
    summaries next to the 7.4.20 spike (or a thin
-   `docs/kilo-spike-7.4.22/` README pointing at the probe).
+   `docs/reports/kilo-spike-7.4.22/` README pointing at the probe).
 
 Should land soon after (uptake, not blockers):
 
@@ -180,7 +180,7 @@ Explicitly not in this pin: D7, D8, D10, D11.
 | Permission reply | 404 without Basic (not gated) |
 | Experimental | `GET /experimental/capabilities` → `{"backgroundSubagents":false}` |
 
-Added HTTP paths vs [docs/kilo-spike-7.4.20/openapi-paths.txt](./kilo-spike-7.4.20/openapi-paths.txt):
+Added HTTP paths vs [docs/reports/kilo-spike-7.4.20/openapi-paths.txt](../reports/kilo-spike-7.4.20/openapi-paths.txt):
 
 ```
 GET  /api/session/active
@@ -261,7 +261,7 @@ control plane or IDE-only.
   (D6 superseded)
 * [0044-MADR-auto-approve-modes.md](./0044-MADR-auto-approve-modes.md)
 * [0023-MADR-canonical-slash-commands.md](./0023-MADR-canonical-slash-commands.md)
-* Spike 7.4.20: [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/)
+* Spike 7.4.20: [docs/reports/kilo-spike-7.4.20/](../reports/kilo-spike-7.4.20)
 
 ## Erratum — 2026-08-20: 0108 pin and canonical Event clarification
 
@@ -279,5 +279,5 @@ descent is not canonical because it also finds nested values such as
 The 7.4.23 comparison also established that `session.next.prompted`,
 `session.next.prompt.admitted`, and the `invalid` recovery tool already
 existed in 7.4.22. They are not 7.4.23 additions. See
-[kilo-spike-7.4.23/openapi-summary.json](./kilo-spike-7.4.23/openapi-summary.json)
+[kilo-spike-7.4.23/openapi-summary.json](../reports/kilo-spike-7.4.23/openapi-summary.json)
 for the exact path, schema, and canonical Event set differences.

@@ -500,7 +500,7 @@ emits, so pinning a ratio would flake on a quiet turn.
 
 Two incidental findings, not fixed here:
 
-- `TestLiveToolStreamDynamics` writes `docs/opencode-spike-1.18.5/tool-frames.json`
+- `TestLiveToolStreamDynamics` writes `docs/reports/opencode-spike-1.18.5/tool-frames.json`
   with `cli_version` hardcoded to `"1.18.5"`, but the installed CLI is 1.18.7 —
   so a re-run files a **mislabelled** capture into a version-named directory.
   The regenerated file was reverted rather than committed. Fixing it means

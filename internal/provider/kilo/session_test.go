@@ -249,7 +249,7 @@ func TestTransientLifecyclePartsFiltered(t *testing.T) {
 				"text":"Initializing snapshot…",
 				"metadata":{"kilocode":{"lifecycle":"transient"}}}`,
 		},
-		// Live kilo 7.4.20–7.4.22 wire (docs/kilo-spike-7.4.20/sse-or.raw):
+		// Live kilo 7.4.20–7.4.22 wire (docs/reports/kilo-spike-7.4.20/sse-or.raw):
 		// dotted metadata key + synthetic:true + braille spinner prefix.
 		{
 			name: "live_dotted_key_synthetic",
@@ -429,7 +429,7 @@ func TestSessionErrorEmitsClassifiedError(t *testing.T) {
 }
 
 // frameLivePermissionAsk is the verbatim permission.asked frame captured from
-// kilo 7.4.20 on 2026-08-06 (docs/kilo-spike-7.4.20/sse-permission.raw, path
+// kilo 7.4.20 on 2026-08-06 (docs/reports/kilo-spike-7.4.20/sse-permission.raw, path
 // anonymized) — the PD6 fixture that resolves MADR 0075 Q10.
 const frameLivePermissionAsk = `{"directory": "/work/project", "project": "global", "payload": {"id": "evt_fd7f683de002ISDK4Nlpt0nACW", "type": "permission.asked", "properties": {"id": "per_fd7f683de00185EH7qTcT5q0vk", "sessionID": "ses_0280995bbffef2wMjAO32CCPXs", "permission": "bash", "patterns": ["echo fixture-ok"], "metadata": {"command": "echo fixture-ok", "description": "Run echo fixture-ok"}, "always": ["echo *"], "tool": {"messageID": "msg_fd7f66f9d001GMQGBvoRaQ1d39", "callID": "call-c2ca8d85-5fe3-4fa2-922a-2d2628e33a91"}}}}`
 

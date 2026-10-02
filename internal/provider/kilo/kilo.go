@@ -3,7 +3,7 @@
 // session over HTTP + SSE, mirroring the OpenCode integration it was forked
 // from. Kilo is an OpenCode fork, so the wire shapes match closely (same
 // GlobalEvent SSE envelope, same /global/health and /global/event paths —
-// live-proven on kilo 7.4.20, docs/kilo-spike-7.4.20/), but it stays a
+// live-proven on kilo 7.4.20, docs/reports/kilo-spike-7.4.20/), but it stays a
 // distinct dialect: config homes, model-id aliases, agents, and Kilo-only
 // event types differ, and sharing one flavored dialect would rot as the fork
 // drifts (MADR 0075 alternative G).

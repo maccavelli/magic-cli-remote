@@ -30,7 +30,7 @@
   - [protocol-v1.md](../guides/protocol-v1.md) — phone control plane
   - [0023-REPORT-agent-cli-slash-commands-matrix.md](../reports/0023-REPORT-agent-cli-slash-commands-matrix.md) —
     historical survey only (superseded by MADR 0023)
-  - Spike evidence: [docs/codex-spike-0.145.0/](./codex-spike-0.145.0/)
+  - Spike evidence: [docs/reports/codex-spike-0.145.0/](../reports/codex-spike-0.145.0)
 
 **Researched / live-probed against** (2026-07-26):
 
@@ -39,7 +39,7 @@
 | Host CLI | **`codex-cli 0.145.0`** (`~/.local/bin/codex` → npm `@openai/codex`, musl linux-x64 vendor binary) |
 | Auth on host | `codex login status` → **Logged in using ChatGPT** |
 | Schema dump | `codex app-server generate-ts` / `generate-json-schema` → 617 `.ts`, 273 JSON (v1+v2) |
-| Live stdio | Four app-server sessions; summaries under `docs/codex-spike-0.145.0/` |
+| Live stdio | Four app-server sessions; summaries under `docs/reports/codex-spike-0.145.0/` |
 | Official docs | [CLI](https://developers.openai.com/codex/cli/), [App Server](https://developers.openai.com/codex/app-server), harness post |
 | Peers | Remodex, codex-web, `codex-acp` (third-party ACP shim) |
 
@@ -651,7 +651,7 @@ approvals blocked only by host sandbox, not protocol.
 - Assistant deltas + turn complete + usage; cancel via interrupt.
 - Close → unsubscribe; resume via stored agent session id.
 - Config + `IDCodex` registration; unit tests from recorded JSONL fixtures
-  (`docs/codex-spike-0.145.0/` + golden frames).
+  (`docs/reports/codex-spike-0.145.0/` + golden frames).
 - `//go:build live_codex` smoke (initialize → pong → close).
 
 ### Milestone 2 — Control plane fidelity
@@ -714,7 +714,7 @@ acceptance, not in PR loops — same rule as `live_grok` / `live_opencode`.
 
 | Risk | Mitigation |
 |---|---|
-| Protocol churn (92 client methods, experimental gates) | Pin CLI; inventory in `docs/codex-spike-0.145.0/protocol-inventory.json`; stable subset only |
+| Protocol churn (92 client methods, experimental gates) | Pin CLI; inventory in `docs/reports/codex-spike-0.145.0/protocol-inventory.json`; stable subset only |
 | Linux sandbox / userns broken on some hosts | Document; approvals/tools degrade; still stream chat |
 | Concurrent `turn/start` accepted but serialized | Steer/queue policy §3.9 — never assume parallel |
 | Steer before `turn/started` fails | Latch active only after `turn/started` (or successful steer) |
@@ -802,7 +802,7 @@ acceptance, not in PR loops — same rule as `live_grok` / `live_opencode`.
 
 ## 16. Spike results (2026-07-26, `codex-cli 0.145.0`)
 
-Artifacts: [docs/codex-spike-0.145.0/](./codex-spike-0.145.0/)  
+Artifacts: [docs/reports/codex-spike-0.145.0/](../reports/codex-spike-0.145.0)  
 (`protocol-inventory.json`, `summary.json`, `summary2.json`, `summary4.json`;
 full schema dump was generated under `/tmp/codex-spike-0.145.0/{schema,ts}`).
 

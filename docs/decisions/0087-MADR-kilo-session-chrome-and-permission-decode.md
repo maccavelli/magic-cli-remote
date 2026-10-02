@@ -186,7 +186,7 @@ Map SSE `session.diff` onto a new protocol event or a tool card.
 | --- | --- |
 | Binary | `/home/mac/.local/bin/kilo` → 7.4.22 |
 | 0075 pin | `KnownGoodVersion = "7.4.20"` |
-| 7.4.20 spike (still authoritative for the spinner) | `docs/kilo-spike-7.4.20/sse-or.raw` lines 31–45: `text` is `⠋/⠙/⠹ Initializing snapshot…`, `synthetic: true`, `metadata: {"kilocode.lifecycle":"transient"}` |
+| 7.4.20 spike (still authoritative for the spinner) | `docs/reports/kilo-spike-7.4.20/sse-or.raw` lines 31–45: `text` is `⠋/⠙/⠹ Initializing snapshot…`, `synthetic: true`, `metadata: {"kilocode.lifecycle":"transient"}` |
 | 0075 filter as shipped | nested `metadata.kilocode.lifecycle` only — **does not match** the spike |
 | 0075 test as shipped | asserted the **wrong** nested shape (`session_test.go` before this change) |
 | 7.4.22 OpenAPI | 256 paths (spike had 243). New part types: `snapshot`, `patch`, `step-start`, `step-finish`. New events: `session.next.synthetic`, `session.next.tool.*`, `session.next.shell.*`, `file.edited` |
@@ -220,5 +220,5 @@ Per-permission reply itself is fine (404 for a fake id, not 401).
   loop was “byte-correct vs opencode”; this bug was in the kilo-only
   filter and in 7.4.22 envelope drift)
 * [0044-MADR-auto-approve-modes.md](./0044-MADR-auto-approve-modes.md)
-* Spike: [docs/kilo-spike-7.4.20/](./kilo-spike-7.4.20/)
+* Spike: [docs/reports/kilo-spike-7.4.20/](../reports/kilo-spike-7.4.20)
 * Code: `internal/provider/kilo/{session,dialect,command}.go`

@@ -15,7 +15,7 @@ import (
 // Evidence for 7.5.6: internal/provider/kilo/testdata/wire/7.5.6/, a live turn
 // captured from the SSE stream — 56 frames covering message.part.delta,
 // message.part.updated, message.updated and 18 `sync` frames (MADR 0137 Phase
-// 1). The 7.4.23 spike (MADR 0108, docs/kilo-spike-7.4.23/) remains as
+// 1). The 7.4.23 spike (MADR 0108, docs/reports/kilo-spike-7.4.23/) remains as
 // historical evidence for the previous pin.
 const KnownGoodVersion = "7.5.6"
 

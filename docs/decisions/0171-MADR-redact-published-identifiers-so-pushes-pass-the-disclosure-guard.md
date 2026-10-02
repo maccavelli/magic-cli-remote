@@ -35,7 +35,7 @@ its own diff.
   | Area | Files | What the identifier is |
   | --- | --- | --- |
   | `docs/spec/` records | 37 | a user name in quoted paths, or a host name in prose |
-  | `docs/kilo-spike-7.4.20/` captures | 15 | a user name inside captured paths (8 of them single-line JSON) |
+  | `docs/reports/kilo-spike-7.4.20/` captures | 15 | a user name inside captured paths (8 of them single-line JSON) |
   | `docs/reports/0100-REPORT-update-refresh.md` | 1 | a host name in quoted commands |
   | Go tests | 3 | a relay host ID (`internal/cli/pair_test.go`, `internal/config/config_test.go`); a directory path in two captured kilo frames (`internal/provider/kilo/dialect_test.go`) |
   | Dart tests | 3 | the relay host ID in `connect_screen_test.dart`, `settings_screen_test.dart`, `relay_inner_tls_test.dart` |
@@ -45,7 +45,7 @@ its own diff.
   `<mac-host>`, including inside a pairing URL's `&hid=` query parameter. The tests would
   assert on a value no real host could have, and could exercise different parsing.
 - **Nothing reads the captures at run time.** The seven code references to
-  `docs/kilo-spike-7.4.20/` are comments. The captures are evidence, like prose.
+  `docs/reports/kilo-spike-7.4.20/` are comments. The captures are evidence, like prose.
 - **Two defects in the tool itself**, both measured on Windows:
   - `redact` crashes with `UnicodeEncodeError` (cp1252) when its output is redirected and a
     diff line holds a non-ASCII character (here U+2264). `PYTHONIOENCODING=utf-8` works

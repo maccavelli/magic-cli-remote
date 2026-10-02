@@ -50,7 +50,7 @@ evidence in fixtures, tests, scripts, and earlier decisions:
 | --- | --- | --- |
 | `0.147.0` | `internal/provider/codex/testdata/0.147.0`; `internal/provider/codex/collaboration_test.go:18`; MADR 0080 | Installed `0.148.0` is newer by one release. |
 | `0.146.0` | `internal/provider/codex/device_auth.go:23`; `internal/provider/codex/device_auth_test.go:14` | Installed `0.148.0` is newer by two releases. |
-| `0.145.0` | `docs/codex-spike-0.145.0`; `internal/provider/codex/session.go:281,680,1667`; `scripts/bwrap-apparmor-fix.sh:23,48` | Installed `0.148.0` is newer by three releases. |
+| `0.145.0` | `docs/reports/codex-spike-0.145.0`; `internal/provider/codex/session.go:281,680,1667`; `scripts/bwrap-apparmor-fix.sh:23,48` | Installed `0.148.0` is newer by three releases. |
 
 The installed Codex binary is therefore newer than every Codex compatibility
 pin found in the codebase. That is evidence of coverage drift, not a reason to

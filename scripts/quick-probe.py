@@ -108,7 +108,7 @@ def main():
     s.wait_response(turn_id, all_events=all_events)
     s.wait_turn_done(all_events, timeout=120)
 
-    out_dir = REPO / "docs" / "codex-spike-0.145.0"
+    out_dir = REPO / "docs" / "reports" / "codex-spike-0.145.0"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "item-stream-raw.jsonl"
     with out.open("w") as f:

@@ -849,7 +849,7 @@ func firstNonEmpty(vals ...string) string {
 }
 
 // isKiloChromePart reports engine-generated parts that must never reach the
-// transcript. Live kilo (docs/kilo-spike-7.4.20/sse-or.raw, 7.4.22 OpenAPI)
+// transcript. Live kilo (docs/reports/kilo-spike-7.4.20/sse-or.raw, 7.4.22 OpenAPI)
 // marks them with synthetic:true and/or metadata["kilocode.lifecycle"] as a
 // dotted key. The nested metadata.kilocode.lifecycle shape is also accepted
 // so a future engine cleanup cannot re-open the leak.

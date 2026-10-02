@@ -6,7 +6,7 @@ Drives `codex app-server --listen stdio://` through the item-stream shapes
 that phase 2's allowlist, phase 8's plan panel, and D9's rate-limit card
 all need to be reconciled against.
 
-Outputs docs/codex-spike-0.145.0/item-stream.json with the captured shapes.
+Outputs docs/reports/codex-spike-0.145.0/item-stream.json with the captured shapes.
 """
 
 import json
@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 REPO = Path("/home/mac/gitrepos/magic-cli-remote")
-OUT_DIR = REPO / "docs" / "codex-spike-0.145.0"
+OUT_DIR = REPO / "docs" / "reports" / "codex-spike-0.145.0"
 OUT_PATH = OUT_DIR / "item-stream.json"
 CODEX_BIN = os.environ.get("CODEX_BIN", "codex")
 APP_SERVER = [CODEX_BIN, "app-server", "--listen", "stdio://",

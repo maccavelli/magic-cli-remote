@@ -15,7 +15,7 @@ Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md
   EndTurn, kilo-extra event ignores, PD3 first-slash model split, `code`
   agent); live green: PONG stream, resume, cancel, and the PD6 permission
   round-trip (allow + reject) — raw `permission.asked` fixture committed to
-  docs/kilo-spike-7.4.20/sse-permission.raw, MADR Q10 resolved.
+  docs/reports/kilo-spike-7.4.20/sse-permission.raw, MADR Q10 resolved.
   **P3 implemented 2026-08-06**: live catalogs (connected models via
   `/config/providers`, scoped `/provider`, filtered agents, commands),
   AfterBoot default-model + context-limit resolve (live: picked up
@@ -129,7 +129,7 @@ MADR §2.3–§2.8 and Appendices D–E are the source of truth; steps below cit
    fields; same explicit `SessionTree`/`StreamCoalesce` pointer semantics, same
    `Ready()` warn, `Prewarm → EnsureServer()`.
 6. Unit tests: `dialect_test.go` (ServeArgs with/without pure; DecodeFrame against
-   frames lifted from `docs/kilo-spike-7.4.20/sse-samples.json`); config tests.
+   frames lifted from `docs/reports/kilo-spike-7.4.20/sse-samples.json`); config tests.
 
 ### Acceptance
 
@@ -174,7 +174,7 @@ over a shared flavored dialect):
      `code`, prompt that writes a file under the session cwd) until the engine
      emits a permission ask on `/global/event`.
    - Capture the raw ask frame(s) and commit them (anonymized) under
-     `docs/kilo-spike-7.4.20/` as `sse-permission.raw` + a decoder unit fixture.
+     `docs/reports/kilo-spike-7.4.20/` as `sse-permission.raw` + a decoder unit fixture.
    - Round-trip the REST reply (`once`) and assert the turn continues to idle;
      repeat with `reject` and assert the turn ends without the tool effect.
    - Update MADR Q10 to **Resolved** with the observed event type/shape.

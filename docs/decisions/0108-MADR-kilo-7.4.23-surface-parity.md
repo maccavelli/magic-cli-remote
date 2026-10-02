@@ -338,4 +338,4 @@ that mixed-output behavior part of the deterministic parser contract.
 * [0075-MADR-kilo-cli-provider.md](./0075-MADR-kilo-cli-provider.md)
 * [0076-MADR-kilo-debug-pass.md](./0076-MADR-kilo-debug-pass.md)
 * [0096-MADR-kilo-model-catalog-scope-and-order.md](./0096-MADR-kilo-model-catalog-scope-and-order.md)
-* Spike 7.4.22: [docs/kilo-spike-7.4.22/](./kilo-spike-7.4.22/)
+* Spike 7.4.22: [docs/reports/kilo-spike-7.4.22/](../reports/kilo-spike-7.4.22)
