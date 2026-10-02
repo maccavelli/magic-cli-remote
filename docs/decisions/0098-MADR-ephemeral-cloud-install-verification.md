@@ -555,7 +555,7 @@ Executed 2026-08-18. All 12 outstanding rows run on real hosts (one blocked and
 recorded as such); **seven findings, two HIGH**, every one in a row 0097 had
 marked untested. Teardown assertions all returned empty. Measured spend well
 under the $1.30 ceiling. Findings:
-[0098-findings-install-verification-sweep.md](0098-findings-install-verification-sweep.md).
+[0098-REPORT-install-verification-sweep.md](../reports/0098-REPORT-install-verification-sweep.md).
 
 One prerequisite this record got wrong, corrected in the findings: **EC2 rejects
 ed25519 key pairs for Windows AMIs outright**, not merely for password

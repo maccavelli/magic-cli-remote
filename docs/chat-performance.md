@@ -74,10 +74,10 @@ Client item cap (800) can exceed the host ring (500): phone may retain more from
 - Antigravity / second-provider chat work.
 - Replacing `flutter_markdown_plus` unless profiling after Phase B still pins it (MADR 0018 D11).
 - Host-side million-message archives.
-- FCM / background push (see `mobile-ux-assessment.md`).
+- FCM / background push (see `0178-REPORT-mobile-ux-assessment.md`).
 - Full phone-side archive (only last-N cache; host remains source of truth).
 - Markdown engine swap (E5 — re-evaluate only if profiles pin parse cost).
-- FCM / remote push (E6 — see `mobile-ux-assessment.md`).
+- FCM / remote push (E6 — see `0178-REPORT-mobile-ux-assessment.md`).
 
 ## Profiling checklist (physical device, profile mode)
 

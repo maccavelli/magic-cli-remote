@@ -23,7 +23,7 @@ decisions D1–D5, closing findings F1–F5.
 ### In scope (the only files any phase may touch)
 
 - The 61 files the tool's dry run lists (MADR table): 37 records under `docs/spec/`, 15 under
-  `docs/kilo-spike-7.4.20/`, `docs/0100-findings-update-refresh.md`,
+  `docs/kilo-spike-7.4.20/`, `docs/reports/0100-REPORT-update-refresh.md`,
   `internal/cli/pair_test.go`, `internal/config/config_test.go`,
   `internal/provider/kilo/dialect_test.go`, the three Dart tests, and the two wire `meta.json`
   files.

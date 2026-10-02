@@ -581,7 +581,7 @@ the strongest possible argument for having run it. Full evidence and write-ups:
 
 **All defects are now fixed and re-verified** — see
 [MADR 0099](0099-MADR-installer-service-state-verification.md) and
-[0099-findings-reverification.md](0099-findings-reverification.md). Fixed in
+[0099-REPORT-reverification.md](../reports/0099-REPORT-reverification.md). Fixed in
 v0.13.5, except F5 which needed a second pass in **v0.13.6** after the
 re-verification sweep found the first gate could still be fooled by a
 `Type=simple` unit that is `active` for an instant before dying. **F8** was

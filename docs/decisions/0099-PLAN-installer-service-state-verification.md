@@ -15,7 +15,7 @@ Associated MADR:
 ## Objective and Scope
 
 Make `install.sh` report only what it has measured, then repair the three
-mechanisms the [0098 sweep](0098-findings-install-verification-sweep.md) proved
+mechanisms the [0098-REPORT-install-verification-sweep.md](../reports/0098-REPORT-install-verification-sweep.md) proved
 broken, and re-prove each fix on the same real hosts that found it.
 
 **Done means:** every ✅ row in the 0099 §Confirmation table has been re-run

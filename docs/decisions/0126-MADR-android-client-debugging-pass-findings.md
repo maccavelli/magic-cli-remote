@@ -478,7 +478,7 @@ Everything else is confirmable from a build artifact or a unit test.
 
 * Baseline for this pass: `flutter analyze` clean, `flutter test` `+1358 ~3`,
   tree at `19b8cd8`, Flutter 3.44.8 / Dart 3.12.2.
-* Prior mobile assessment: [docs/mobile-ux-assessment.md](mobile-ux-assessment.md).
+* Prior mobile assessment: [0178-REPORT-mobile-ux-assessment.md](../reports/0178-REPORT-mobile-ux-assessment.md).
   Its headline gap ("there are no push notifications") has since been closed by
   MADR 0052 / 0101; it is stale and was not used as a source here.
 * Related records: [0084](0084-MADR-android-app-hardening-and-performance.md) (D3 WAKE_LOCK removal,

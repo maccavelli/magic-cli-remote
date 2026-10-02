@@ -16,12 +16,12 @@
   - tests under `apps/mobile/test/*{chat,transcript,stream,history}*`
   - companion docs: `docs/chat-performance.md`, this MADR
 - **Out of scope (explicit)**: FCM / remote push channel design (see
-  `docs/mobile-ux-assessment.md` P0), mcrelay, daemon protocol redesign,
+  `docs/reports/0178-REPORT-mobile-ux-assessment.md` P0), mcrelay, daemon protocol redesign,
   iOS, second provider / Antigravity, replacing `flutter_markdown_plus`
   unless Phase B profiling still pins it.
 - **Extends**: [0177-PLAN-flutter-android-client-assessment.md](./0177-PLAN-flutter-android-client-assessment.md),
   [chat-performance.md](docs/chat-performance.md),
-  [mobile-ux-assessment.md](docs/mobile-ux-assessment.md)
+  [0178-REPORT-mobile-ux-assessment.md](../reports/0178-REPORT-mobile-ux-assessment.md)
 - **Companions**: Host history ring (`internal/session/manager.go`:
   `historyBufferCap=500`, page defaults 200/max 500, ~512 KiB soft response cap)
 
@@ -334,7 +334,7 @@ swap, FCM.
 | E3 Show more on assistant (C13) | **Done** — clamp at 6k chars with Show more / Show less |
 | E4 Host ring raise / pagination UX | **Done** — ring + max page 800; client auto-pages `truncated` history |
 | E5 Markdown engine evaluation | **Deferred** — stay on `flutter_markdown_plus` until profile pins parse cost |
-| E6 Notifications / background | **Out of scope here** — see `mobile-ux-assessment.md` |
+| E6 Notifications / background | **Out of scope here** — see `0178-REPORT-mobile-ux-assessment.md` |
 
 ---
 

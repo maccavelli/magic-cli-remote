@@ -183,7 +183,7 @@ What the code does today (`run.go:133-151`, `swap.go:76-94`):
   that the cycle is supposed to be `IsInstalled(this product)`. A
   pre-0100 binary on a host still does unconditional HealStart and is
   the original "mcrelay update rolled back because Unit not found"
-  report ([0100-findings](0100-findings-update-refresh.md) §F3).
+  report ([0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md) §F3).
 
 Confirmed matrix, **desired and (for the Start/no-Start split) current
 after 0100 F3**, applied independently to whichever product the operator

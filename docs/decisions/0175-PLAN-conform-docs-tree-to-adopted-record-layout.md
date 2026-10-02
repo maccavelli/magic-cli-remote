@@ -132,4 +132,8 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 
 **2026-10-01 — `--next` fills gaps.** At P3 execution `scripts/check_records.py --next` printed `0004` because 0004 and 0005 were still unused filenames. The phase records still took 0176 and 0177 as D2 specified; intervening pairs had not claimed them. Using `--next` here would have assigned 0004 to the colliding phase-2 MADR. No MADR amendment: D2 already named 0176/0177.
 
+**2026-10-01 — P4 also retargeted `docs/chat-performance.md`.** Two backticks named `mobile-ux-assessment.md`. That file is a guide (P5), but the pointers would be dead until P5. They now name `0178-REPORT-mobile-ux-assessment.md`. No MADR amendment.
+
+**2026-10-01 — P4 markdownlint is pre-existing.** `npx markdownlint-cli2 --no-globs` over the five REPORT files plus `docs/chat-performance.md` reports 96 issues (MD013/MD022/MD032/MD031 on 0023; MD046/MD004/MD007/MD014/MD025/MD032 on 0098–0100; MD029 on 0178; MD013 on chat-performance). Same findings as before the move. Content rewrites are out of scope; left for the owner.
+
 Any further mid-execution finding follows the skill's protocol: a dated deviation entry here naming what was found and decided, an amendment to the MADR when a decision or asserted fact changed, and the deviation carried into the commit and the handoff.

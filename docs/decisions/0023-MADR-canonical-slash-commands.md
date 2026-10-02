@@ -10,7 +10,7 @@
   - [MADR 0022](./0022-MADR-plan-mode-parity.md) — session modes, `/plan`, `/mode`
   - [MADR 0020](./0020-MADR-opencode-session-tree.md) — OpenCode agents, commands,
     fork/revert/diff
-  - [agent_cli_slash_commands_matrix.md](./agent_cli_slash_commands_matrix.md) —
+  - [0023-REPORT-agent-cli-slash-commands-matrix.md](../reports/0023-REPORT-agent-cli-slash-commands-matrix.md) —
     the survey this corrects
 
 **Verified against** (live, not inferred): grok **0.2.112** over ACP stdio,

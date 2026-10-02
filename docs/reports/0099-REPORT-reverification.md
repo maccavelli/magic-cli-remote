@@ -1,7 +1,7 @@
 # 0099 re-verification results (v0.13.5 / v0.13.6)
 
 Executed 2026-08-18 against **published release artifacts**, one host at a time,
-per [0099-PLAN](0099-PLAN-installer-service-state-verification.md) Phase 7.
+per [0099-PLAN-installer-service-state-verification.md](../decisions/0099-PLAN-installer-service-state-verification.md) Phase 7.
 All resources torn down; every teardown assertion returned empty.
 
 The decisive output is quoted inline below. Raw per-host logs are deliberately

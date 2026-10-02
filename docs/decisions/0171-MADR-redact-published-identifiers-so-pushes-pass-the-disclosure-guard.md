@@ -36,7 +36,7 @@ its own diff.
   | --- | --- | --- |
   | `docs/spec/` records | 37 | a user name in quoted paths, or a host name in prose |
   | `docs/kilo-spike-7.4.20/` captures | 15 | a user name inside captured paths (8 of them single-line JSON) |
-  | `docs/0100-findings-update-refresh.md` | 1 | a host name in quoted commands |
+  | `docs/reports/0100-REPORT-update-refresh.md` | 1 | a host name in quoted commands |
   | Go tests | 3 | a relay host ID (`internal/cli/pair_test.go`, `internal/config/config_test.go`); a directory path in two captured kilo frames (`internal/provider/kilo/dialect_test.go`) |
   | Dart tests | 3 | the relay host ID in `connect_screen_test.dart`, `settings_screen_test.dart`, `relay_inner_tls_test.dart` |
   | wire fixtures | 2 | the user name in each `meta.json`'s `redacted` note (`kilo/testdata/wire/7.5.6`, `opencode/testdata/wire/1.18.26`) |

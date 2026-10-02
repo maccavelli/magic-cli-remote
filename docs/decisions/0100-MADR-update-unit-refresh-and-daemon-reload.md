@@ -72,7 +72,7 @@ The update reports failure and undoes a swap that had already succeeded.
 Confirmed on a host: an isolated `mcrelay` copy on <linux-host> downloaded the
 release, swapped, failed to start (`Unit mcrelay.service not found.`), printed
 `restored previous binary from .prev`, and exited 1 with the binary
-byte-identical to before ([findings](0100-findings-update-refresh.md) §F3).
+byte-identical to before ([0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md) §F3).
 
 ### The constraint that shapes the decision
 
@@ -94,7 +94,7 @@ is about to replace.
 ### The third constraint: a render is not a pure function of the unit
 
 Confirmed on a host during Phase 0
-([findings](0100-findings-update-refresh.md) §F4). `render` takes `HOME`,
+([0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md) §F4). `render` takes `HOME`,
 `USER`, `PATH` and the `XDG_*` roots from the **process doing the rendering**,
 not from `Options`. For `mcremote`, `servicePathEnv` (`setup.go:804-833`)
 prepends tool prefixes to `os.Getenv("PATH")`, so the same binary renders a
@@ -313,7 +313,7 @@ currently installed binary predates this record.
 | C9 | End to end | On a Linux host: install a unit with the 0099 F4a directives, `mcrelay update --force`, unit no longer carries them and the service is active |
 | C10 | A refresh does not rewrite the environment block | `TestRefreshPinsRenderedEnvironment`: render with one `PATH`, refresh under another, `Environment=PATH=` unchanged; `XDG_RUNTIME_DIR` unset in the caller does not drop the line |
 
-**Observed** ([0100 findings](0100-findings-update-refresh.md), wonder, Ubuntu
+**Observed** ([0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md), wonder, Ubuntu
 26.04 / systemd 259). Phase 0 (2026-08-18, pre-implementation): F2 — a restart
 without `daemon-reload` runs the cached definition while reporting success;
 F3 — `update` on a host with no unit rolls back a byte-identical binary and
@@ -436,7 +436,7 @@ a host with no unit installed.
 
 * [0100-PLAN-update-unit-refresh-and-daemon-reload.md](0100-PLAN-update-unit-refresh-and-daemon-reload.md)
   — the implementation plan for this decision.
-* [0100-findings-update-refresh.md](0100-findings-update-refresh.md) — Phase 0
+* [0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md) — Phase 0
   host confirmation of F2, F3 and the backup location, and the discovery of F4.
 * [0065-MADR-update-automation.md](0065-MADR-update-automation.md) — defines the
   update sequence this record extends. §D1 (`:344`) describes it as

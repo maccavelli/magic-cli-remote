@@ -13,7 +13,7 @@ consulted: none
 The [MADR 0098](0098-MADR-ephemeral-cloud-install-verification.md) sweep ran all
 twelve outstanding [0097-PLAN](0097-PLAN-linux-curl-installer.md) acceptance
 rows on real hosts and returned
-[seven findings](0098-findings-install-verification-sweep.md), two of them HIGH.
+[0098-REPORT-install-verification-sweep.md](../reports/0098-REPORT-install-verification-sweep.md), two of them HIGH.
 Every one landed in a row that table had marked untested.
 
 Read as a list they look like four unrelated bugs. They are not. MADR 0097 §4.0
@@ -227,7 +227,7 @@ assertion, and it fails today.
 ### Outcome
 
 Implemented across v0.13.5 and v0.13.6 and re-verified on real hosts
-2026-08-18: [0099-findings-reverification.md](0099-findings-reverification.md).
+2026-08-18: [0099-REPORT-reverification.md](../reports/0099-REPORT-reverification.md).
 All five fixes confirmed against published artifacts.
 
 The sweep vindicated the decision to prefer the trigger-agnostic gate over
@@ -277,7 +277,7 @@ option 2 as the whole answer.
 * [0098-MADR](0098-MADR-ephemeral-cloud-install-verification.md) /
   [0098-PLAN](0098-PLAN-ephemeral-cloud-install-verification.md) — the sweep
   that produced these findings, and the harness that re-verifies the fixes.
-* [0098-findings-install-verification-sweep.md](0098-findings-install-verification-sweep.md)
+* [0098-REPORT-install-verification-sweep.md](../reports/0098-REPORT-install-verification-sweep.md)
   — measured evidence, verbatim output, per finding.
 * [0097-MADR](0097-MADR-linux-curl-installer.md) /
   [0097-PLAN](0097-PLAN-linux-curl-installer.md) — the installer, its §4.0

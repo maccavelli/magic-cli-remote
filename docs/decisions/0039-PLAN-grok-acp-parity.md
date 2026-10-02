@@ -656,7 +656,7 @@ them).
   and `/deep-research`, `/workflow` to the supported-commands list)
 - `docs/0039-MADR-grok-acp-parity.md` (fill in the Implementation Record
   block at the bottom)
-- `docs/agent_cli_slash_commands_matrix.md` (add `deep-research`,
+- `docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md` (add `deep-research`,
   `workflow` rows for grok)
 
 **Verify gate:** the AGENTS.md pre-add rule applies. Before any commit that

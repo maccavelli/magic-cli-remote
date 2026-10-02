@@ -4,7 +4,7 @@
 
 Executed 2026-08-18 on **wonder** (Ubuntu 26.04 LTS, x86_64, systemd 259,
 `mcremote` 0.13.7.1 / `6b7b470`), per
-[0100-PLAN](0100-PLAN-update-unit-refresh-and-daemon-reload.md) Phase 0.
+[0100-PLAN-update-unit-refresh-and-daemon-reload.md](../decisions/0100-PLAN-update-unit-refresh-and-daemon-reload.md) Phase 0.
 
 Read-only except where stated. No live service was stopped, started, or
 rewritten: F2 used a throwaway `mc0100probe.service`, F3 used an isolated copy

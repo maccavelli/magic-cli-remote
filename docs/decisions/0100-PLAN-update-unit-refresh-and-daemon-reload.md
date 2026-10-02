@@ -435,7 +435,7 @@ on their own.
 
 **Deliverable:** an observation for each code reading the design rests on.
 Executed on **wonder** (Ubuntu 26.04, systemd 259); full evidence in
-[0100-findings-update-refresh.md](0100-findings-update-refresh.md).
+[0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md).
 
 | Item | Result |
 |---|---|
@@ -604,7 +604,7 @@ update as the only option.
 
 **Deliverable:** C1-C9 observed on a real host, not inferred. Executed on
 wonder against linux/amd64 binaries built from the implementation branch; full
-evidence in [0100-findings-update-refresh.md](0100-findings-update-refresh.md)
+evidence in [0100-REPORT-update-refresh.md](../reports/0100-REPORT-update-refresh.md)
 §"Phase 7". Host restored to its exact pre-Phase-7 state afterward.
 
 1. Ephemeral Linux host (0098 pattern). Install the current release via
@@ -623,7 +623,7 @@ evidence in [0100-findings-update-refresh.md](0100-findings-update-refresh.md)
    `XDG_RUNTIME_DIR` unset: the unit's `Environment=PATH=` and
    `Environment=XDG_RUNTIME_DIR=` must be unchanged afterwards (F4 regression on
    a real host, not just in a test).
-8. Record everything in `docs/0100-findings-update-refresh.md`, appending to the
+8. Record everything in `docs/reports/0100-REPORT-update-refresh.md`, appending to the
    Phase 0 results.
 
 **Exit criterion:** every row of MADR §Confirmation marked observed, with the
@@ -703,7 +703,7 @@ backup. Drop-ins under `<unit>.d/` are never read, written, or removed.
 - [x] F3 reproduced: update fails and rolls back with no unit installed
 - [x] `<unit>.prev` confirmed inert in the unit directory
 - [x] F4 discovered; MADR §"third constraint" and plan §1a added
-- [x] `docs/0100-findings-update-refresh.md` written; wonder left unchanged
+- [x] `docs/reports/0100-REPORT-update-refresh.md` written; wonder left unchanged
 
 **Phase 1 — `RefreshUnit`**
 

@@ -195,7 +195,7 @@ Modify:
 
 * **MADR 0073** and every other mixed record (0023, 0028, 0029, 0043, 0044,
   0069, 0074, 0083, 0086, 0089, 0095, …). D9/F20.
-* **`docs/agent_cli_slash_commands_matrix.md`.** Dated survey.
+* **`docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md`.** Dated survey.
 * **`AGENTS.md:67` and `:148`.** Developer Goose (D11).
 * **`internal/provider/codex/testdata/wire/0.152.1/frames.jsonl`.** A wire
   capture; its "goose" is a directory path.
@@ -700,7 +700,7 @@ make ci-windows
 | # | Criterion | MADR |
 | --- | --- | --- |
 | A1 | `internal/provider/goose/` and `internal/provider/acphttp/` do not exist; no `.go` imports them | D1, D2 (Confirmation §1) |
-| A2 | `git grep -il goose -- . ':!docs/decisions'` prints exactly: `AGENTS.md`, `README.md`, `docs/agent_cli_slash_commands_matrix.md`, `docs/config.md`, `internal/config/load.go`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
+| A2 | `git grep -il goose -- . ':!docs/decisions'` prints exactly: `AGENTS.md`, `README.md`, `docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md`, `docs/config.md`, `internal/config/load.go`, `internal/config/retired_goose.go`, `internal/config/retired_goose_test.go`, `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl` | D14 (§2) |
 | A3 | build, vet, `go test`, `go test -race` green under the baseline rule; `go mod tidy` no diff | D1, D8 (§3) |
 | A4 | `mcremote paths --json` on a leftover-block config and on a copy of this host's live config exits 0 with `retired_provider_goose` | D3 (§4) |
 | A5 | `MCREMOTE_PROVIDERS_GOOSE_ENABLED=true` → exit 0, diagnostic names the variable | D3 (§4) |

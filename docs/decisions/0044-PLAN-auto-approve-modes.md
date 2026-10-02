@@ -974,7 +974,7 @@ byte-for-byte unchanged** — no dialog, no restyle.
    `providers.codex.allow_full_access`, and cross-reference the existing
    `always_approve` as the *global* form of the same behaviour so the two are
    not confused.
-3. `docs/agent_cli_slash_commands_matrix.md` — codex now supports `/mode`;
+3. `docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md` — codex now supports `/mode`;
    `/plan` remains unsupported there.
 4. MADR 0044 status → Accepted, with the shipped date.
 
@@ -1115,7 +1115,7 @@ helpers too: construct through the real constructor.
 
 ### Deliberately not done
 
-- **`docs/agent_cli_slash_commands_matrix.md`** (plan 6.3) was left alone. It is
+- **`docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md`** (plan 6.3) was left alone. It is
   a superseded historical survey of *vendor CLI* behaviour, explicitly headed
   "do not implement from the matrix below". Nothing about the vendor CLIs
   changed, so an edit there would misrepresent it as current.

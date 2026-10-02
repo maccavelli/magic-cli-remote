@@ -336,7 +336,7 @@ bind the remaining providers.
 `:1297`, which names "the acphttp transport"), `docs/ops-macos-tcc.md` 1,
 `docs/ops-android-emulator.md` 1, `apps/mobile/README.md` 1,
 `configs/config.example.yaml` 14, `configs/config.mesh-grok.yaml` 3,
-`configs/config.prod.example.yaml` 2. `docs/agent_cli_slash_commands_matrix.md`
+`configs/config.prod.example.yaml` 2. `docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md`
 (6) is a 2026-07-25 survey, not operator docs. `docs/config.md` has no
 retired-keys section today.
 
@@ -613,7 +613,7 @@ already uses.** For the two MADRs with YAML frontmatter (0110, 0122): set
 change nothing else (PLAN status lines stay as they are: a PLAN's status
 records whether it ran, and these did). **Do not mark 0073**: it is mixed (F20).
 Do not mark any other mixed record. Leave
-`docs/agent_cli_slash_commands_matrix.md` as a dated survey.
+`docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md` as a dated survey.
 
 **D10 — Drop the Goose agent brand icon by hand.** Delete `goose.svg`, delete
 `ids.txt:83`, delete manifest line 46 by hand (do **not** rerun `sync.sh`,
@@ -686,7 +686,7 @@ git grep -n -e 'internal/provider/goose"' -e 'internal/provider/acphttp"' -- '*.
 git grep -il goose -- . ':!docs/decisions'
 #   AGENTS.md                                                (developer Goose, :67 and :148 only)
 #   README.md                                                (one design-table row linking 0160)
-#   docs/agent_cli_slash_commands_matrix.md                  (dated survey)
+#   docs/reports/0023-REPORT-agent-cli-slash-commands-matrix.md                  (dated survey)
 #   docs/config.md                                           (one retired-key row)
 #   internal/config/retired_goose.go                         (D3 detection)
 #   internal/config/retired_goose_test.go                    (D3 tests)
