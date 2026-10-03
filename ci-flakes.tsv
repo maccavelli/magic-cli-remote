@@ -9,3 +9,4 @@ run_id	job_name	commit_sha	first_attempt_result	retry_result	failing_test	timest
 36456419320	Go (linux/arm64)	9abbed78b03b2b3ef00eba9bee53cc02d3b86007	fail	pass	TestRealityProbeRefreshesAfterItsWindow	2026-09-28T17:13:08Z
 36727070180	Go (windows/amd64)	7432f111c65d5ca6d71cc9d9255e6de56697e73f	fail	pass	TestTaskStateRealProbeReportsAbsent	2026-09-30T14:12:45Z
 36852538360	Go (windows/amd64)	8a82458e2a593f0a3cbb956d1fdb5bfa73a9da16	fail	pass	TestTaskStateRealProbeReportsAbsent	2026-10-01T11:02:03Z
+37127235407	Go (linux/arm64)	9ac4812536d9d717203fafba71adad256cbc261d	fail	pass	TestExperimentalInitializeRetriesOnce	2026-10-03T13:46:02Z
