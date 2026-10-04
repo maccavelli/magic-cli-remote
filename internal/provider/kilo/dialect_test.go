@@ -36,7 +36,7 @@ func TestServeArgsPure(t *testing.T) {
 }
 
 // Frames below are verbatim captures from the kilo 7.4.20 live spike
-// (docs/reports/kilo-spike-7.4.20/sse-samples.json), ids included.
+// (internal/provider/kilo/testdata/kilo-spike-7.4.20/sse-samples.json), ids included.
 const (
 	frameDeltaWrapped  = `{"directory": "/Users/user/gitrepos/go/magic-cli-remote", "project": "9d6971a88a97de05c9d2896bdc517ecaa2e78ec6", "payload": {"id": "evt_fd7771c54001ldlmeGsnaoiAVl", "type": "message.part.delta", "properties": {"sessionID": "ses_02888f266ffeN1neSYGSrakhhu", "messageID": "msg_fd777134d001oQ1XMK5Fp8MCXj", "partID": "prt_fd7771c51001ZOra3OcxwTVC02", "field": "text", "delta": "The"}}}`
 	frameStatusWrapped = `{"directory": "/Users/user/gitrepos/go/magic-cli-remote", "project": "9d6971a88a97de05c9d2896bdc517ecaa2e78ec6", "payload": {"id": "evt_fd777134c0011DdV4mVU6J0YtY", "type": "session.status", "properties": {"sessionID": "ses_02888f266ffeN1neSYGSrakhhu", "status": {"type": "busy"}}}}`

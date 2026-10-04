@@ -176,9 +176,9 @@ func TestLiveToolStreamDynamics(t *testing.T) {
 		ToolCaptures: captures,
 	}
 
-	// Save capture into docs/reports/opencode-spike-1.18.5/tool-frames.json
+	// Save capture into internal/provider/opencode/testdata/opencode-spike-1.18.5/tool-frames.json
 	repoRoot := filepath.Join("..", "..", "..")
-	outDir := filepath.Join(repoRoot, "docs", "reports", "opencode-spike-1.18.5")
+	outDir := filepath.Join(repoRoot, "internal", "provider", "opencode", "testdata", "opencode-spike-1.18.5")
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		t.Fatalf("failed to create spike doc dir: %v", err)
 	}

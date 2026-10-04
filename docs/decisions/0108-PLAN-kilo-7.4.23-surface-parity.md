@@ -126,14 +126,14 @@ Execution prerequisites:
 | `internal/provider/kilo/version.go` | Move pin and health-comment example to 7.4.23; cite 0108. |
 | `internal/provider/kilo/dialect_test.go` | Rename/update the two 7.4.22 version tests. |
 | `internal/provider/kilo/live_surface_test.go` | Add no-model version/OpenAPI/ACP/permission live gates. |
-| `docs/reports/kilo-spike-7.4.23/README.md` | Record provenance, commands, sanitization, exact deltas, and environment-dependent observations. |
-| `docs/reports/kilo-spike-7.4.23/openapi-paths.txt` | Sorted 255-path runtime snapshot. |
-| `docs/reports/kilo-spike-7.4.23/event-types.txt` | Sorted 119-type canonical Event snapshot. |
-| `docs/reports/kilo-spike-7.4.23/openapi-summary.json` | Counts and exact removed/added sets. |
-| `docs/reports/kilo-spike-7.4.23/agents-summary.json` | Stable agent identity/mode/visibility fields only. |
-| `docs/reports/kilo-spike-7.4.23/agent-permission-summary.json` | Controlled Code/Ask/Plan boundary results only. |
-| `docs/reports/kilo-spike-7.4.23/commands.json` | Stable built-in command subset only. |
-| `docs/reports/kilo-spike-7.4.23/acp-initialize.json` | Sanitized ACP initialize result. |
+| `internal/provider/kilo/testdata/kilo-spike-7.4.23/README.md` | Record provenance, commands, sanitization, exact deltas, and environment-dependent observations. |
+| `internal/provider/kilo/testdata/kilo-spike-7.4.23/openapi-paths.txt` | Sorted 255-path runtime snapshot. |
+| `internal/provider/kilo/testdata/kilo-spike-7.4.23/event-types.txt` | Sorted 119-type canonical Event snapshot. |
+| `internal/provider/kilo/testdata/kilo-spike-7.4.23/openapi-summary.json` | Counts and exact removed/added sets. |
+| `internal/provider/kilo/testdata/kilo-spike-7.4.23/agents-summary.json` | Stable agent identity/mode/visibility fields only. |
+| `internal/provider/kilo/testdata/kilo-spike-7.4.23/agent-permission-summary.json` | Controlled Code/Ask/Plan boundary results only. |
+| `internal/provider/kilo/testdata/kilo-spike-7.4.23/commands.json` | Stable built-in command subset only. |
+| `internal/provider/kilo/testdata/kilo-spike-7.4.23/acp-initialize.json` | Sanitized ACP initialize result. |
 | `docs/0075-MADR-kilo-cli-provider.md` | Append an erratum moving the known-good pin to 0108. |
 | `docs/0088-MADR-kilo-7.4.22-surface-parity.md` | Append a pin erratum and Event-extraction clarification; preserve historical text. |
 | `Makefile` | Correct the `live-kilo` comment to distinguish required catalog checks from model-dependent skips. |
@@ -350,7 +350,7 @@ commit, and the worktree contains no implementation mutation from Phase 1.
    when the installed executable is absent. Wrong version, startup failure,
    malformed JSON, changed counts/capabilities/rules, or an assertion mismatch
    is a failure, not a skip.
-6. Generate and inspect all eight files under `docs/reports/kilo-spike-7.4.23/` from
+6. Generate and inspect all eight files under `internal/provider/kilo/testdata/kilo-spike-7.4.23/` from
    the same successful runtime and source comparison. `openapi-summary.json`
    must include counts plus sorted `paths_removed`, `paths_added`,
    `schemas_removed`, `schemas_added`, `events_removed`, and `events_added`.
@@ -367,11 +367,11 @@ go test -tags live_kilo ./internal/provider/kilo/ \
   -count=1 -timeout 180s -v
 make pre-add-check FILES="internal/provider/kilo/live_surface_test.go"
 go test -race ./internal/provider/kilo/
-jq empty docs/reports/kilo-spike-7.4.23/*.json
-test "$(wc -l < docs/reports/kilo-spike-7.4.23/openapi-paths.txt)" -eq 255
-test "$(wc -l < docs/reports/kilo-spike-7.4.23/event-types.txt)" -eq 119
-LC_ALL=C sort -cu docs/reports/kilo-spike-7.4.23/openapi-paths.txt
-LC_ALL=C sort -cu docs/reports/kilo-spike-7.4.23/event-types.txt
+jq empty internal/provider/kilo/testdata/kilo-spike-7.4.23/*.json
+test "$(wc -l < internal/provider/kilo/testdata/kilo-spike-7.4.23/openapi-paths.txt)" -eq 255
+test "$(wc -l < internal/provider/kilo/testdata/kilo-spike-7.4.23/event-types.txt)" -eq 119
+LC_ALL=C sort -cu internal/provider/kilo/testdata/kilo-spike-7.4.23/openapi-paths.txt
+LC_ALL=C sort -cu internal/provider/kilo/testdata/kilo-spike-7.4.23/event-types.txt
 git diff --check
 ```
 

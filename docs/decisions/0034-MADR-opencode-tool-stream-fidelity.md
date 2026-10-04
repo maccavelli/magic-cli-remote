@@ -304,7 +304,7 @@ rate limiting.
 
 ## 7. Implementation record
 
-- **Phase 0**: Pinned empirical behavior via `live_tool_stream_test.go` and committed capture (`docs/reports/opencode-spike-1.18.5/tool-frames.json`). Verified monotonic output growth and terminal status frame ordering.
+- **Phase 0**: Pinned empirical behavior via `live_tool_stream_test.go` and committed capture (`internal/provider/opencode/testdata/opencode-spike-1.18.5/tool-frames.json`). Verified monotonic output growth and terminal status frame ordering.
 - **Phase 1 (D1)**: Implemented dialect-level deduplication (`lastToolEmit` map + `noteToolEmit` latch) in `internal/provider/opencode/http.go` with unit tests in `dedup_test.go`.
 - **Phase 2 (D3)**: Added `event.IsInPlaceUpdate` and updated `chunkbuf.Add` to allow in-place tool updates with a tool ID to pass through without force-draining pending assistant text runs. Unit tests added in `chunkbuf_test.go`.
 - **Phase 3 (D2)**: Implemented `clipBlock` (preserving newlines and rune boundaries) and updated tool output detail precedence chain (`maxToolOutputChars = 8000`). Unit tests added in `http_delta_test.go`.

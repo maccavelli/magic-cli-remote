@@ -14,7 +14,7 @@ import (
 //
 // Refreshed for codex 0.155.1, whose ThreadItem union has 19 variants — measured
 // from the binary's own schema export, not from a probe transcript. The previous
-// list was the live 0.145.0 probe (docs/reports/codex-spike-0.145.0/item-stream.json) and
+// list was the live 0.145.0 probe (internal/provider/codex/testdata/codex-spike-0.145.0/item-stream.json) and
 // was therefore frozen at 18: functionCallOutput was missing, so nothing in this
 // suite noticed that the item was being dropped (MADR 0163 F13).
 var threadItemTypes = []string{

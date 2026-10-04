@@ -207,4 +207,4 @@ standing confirmation. `make pre-add-check`, `make test` and
   1 reached chat as a raw `AI_APICallError` naming an array index; and
   five `//go:build live_kilo` files had no `make` target and no mention in
   AGENTS.md, so nothing documented how to run them.
-* Probe evidence: `docs/reports/kilo-spike-7.4.22/`.
+* Probe evidence: `internal/provider/kilo/testdata/kilo-spike-7.4.22/`.

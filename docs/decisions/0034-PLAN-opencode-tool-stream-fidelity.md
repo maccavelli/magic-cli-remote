@@ -50,8 +50,8 @@ The one number this plan depends on and nobody has: how many
    - whether `state.title` / `state.input` ever change mid-run.
 2. Repeat for a `read` of a large file and a `grep` with many matches — three
    tool shapes, since output cadence may differ by tool.
-3. Commit the capture as `docs/reports/opencode-spike-1.18.5/tool-frames.json` with the
-   recorded CLI version, mirroring `docs/reports/codex-spike-0.145.0/`.
+3. Commit the capture as `internal/provider/opencode/testdata/opencode-spike-1.18.5/tool-frames.json` with the
+   recorded CLI version, mirroring `internal/provider/codex/testdata/codex-spike-0.145.0/`.
 4. Pin the two facts the design rests on with assertions in the live test:
    output is non-decreasing within a call, and a terminal status
    (`completed`/`error`) is the last frame for that call.

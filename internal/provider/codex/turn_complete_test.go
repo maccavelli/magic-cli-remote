@@ -201,7 +201,7 @@ func TestEmitTurnCompleteCompletedIsSilent(t *testing.T) {
 // notification handler in handleNotification routing through
 // emitTurnComplete (MADR 0035 D5 — the single-emitter requirement).
 // This is a wire-level test: the JSON shape comes from MADR 0028 §16.3
-// and the live probe (docs/reports/codex-spike-0.145.0/item-stream.json).
+// and the live probe (internal/provider/codex/testdata/codex-spike-0.145.0/item-stream.json).
 func TestTurnCompletedNotificationRoutesThroughEmitter(t *testing.T) {
 	s := &session{
 		events:  make(chan event.Event, 8),

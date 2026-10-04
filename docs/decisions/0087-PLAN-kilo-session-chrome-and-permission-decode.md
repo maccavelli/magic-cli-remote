@@ -43,7 +43,7 @@ time).
   * [x] Re-read 0075 §2.4, 0076 session-loop claim, kilo
         `session.go` / `dialect.go` / `permission.go` / `command.go`
   * [x] Confirm the 7.4.20 spike dotted key in
-        `docs/reports/kilo-spike-7.4.20/sse-or.raw`
+        `internal/provider/kilo/testdata/kilo-spike-7.4.20/sse-or.raw`
   * [x] Boot kilo 7.4.22, dump `/doc` permission + `SnapshotFileDiff`
         + `Part` schemas, list `code` agent bash/grep rules
   * [x] Confirm httpagent drops `sid == ""` (`httpagent/provider.go`

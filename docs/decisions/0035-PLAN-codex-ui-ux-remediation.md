@@ -53,7 +53,7 @@ installed, so this is a scripted probe.
    notification. Gates phase 8 entirely.
 3. **`account/rateLimits/updated` params.** Capture one. Gates phase 7 step 3.
 
-Commit as `docs/reports/codex-spike-0.145.0/item-stream.json` alongside the existing
+Commit as `internal/provider/codex/testdata/codex-spike-0.145.0/item-stream.json` alongside the existing
 captures, recording the CLI version. Pin the two load-bearing facts with a
 `live_codex`-tagged test: the item types that carry a tool-like payload, and
 that `item/completed` arrives for every `item/started`.

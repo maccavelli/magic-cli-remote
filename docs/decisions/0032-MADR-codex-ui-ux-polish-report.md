@@ -682,7 +682,7 @@ User Prompt
 Claims in this revision are backed by one of:
 
 - **Source read** — file and line cited inline.
-- **Spike capture** — `docs/reports/codex-spike-0.145.0/{protocol-inventory,summary,summary2,summary4}.json`,
+- **Spike capture** — `internal/provider/codex/testdata/codex-spike-0.145.0/{protocol-inventory,summary,summary2,summary4}.json`,
   recorded against codex-cli 0.145.0, the pinned version and the one installed
   locally. Used for: the `turn/completed` payload, the `turn_status` enum, the
   observed `notif_methods` list, `thread_item_types`, model input modalities,

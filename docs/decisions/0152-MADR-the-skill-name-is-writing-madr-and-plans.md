@@ -176,7 +176,7 @@ instruction is the one thing all four previous versions got right.
 
 **D5 — do not touch the fixtures or `0106`.** They are captured evidence of what
 was true on another host on a given day; editing them would destroy the only
-thing that explained F5. `docs/reports/kilo-spike-7.4.20/*` likewise.
+thing that explained F5. `internal/provider/kilo/testdata/kilo-spike-7.4.20/*` likewise.
 
 **D6 — do not rename anything under `~`.** F7 says there is nothing to fix
 there, and D1 matches the name that is already correct.
@@ -207,7 +207,7 @@ grep -rn 'madr-and-plan-writing' AGENTS.md .claude/ .grok/ .opencode/   # expect
 ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
 
 # 3. The captured evidence for F5 is untouched:
-git diff --stat -- internal/provider/ docs/0106-* docs/reports/kilo-spike-7.4.20/   # expect empty
+git diff --stat -- internal/provider/ docs/0106-* internal/provider/kilo/testdata/kilo-spike-7.4.20/   # expect empty
 ```
 
 ## Pros and Cons of the Options

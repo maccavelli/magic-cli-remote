@@ -9,8 +9,8 @@
 | date | 2026-08-06 |
 | deciders | @<user> |
 | related | MADR 0011 (OpenCode provider), **0019** (single-engine), **0020** (session tree), **0021** (OpenCode HTTP API), **0023** (slash commands), **0024** (stream coalescing), **0025** (goose), **0028** (codex), **0029** (provider platform), **0031** (catalog), **0037** (CLI uptake), **0043** (models), **0074** (remote auth) |
-| method | Codebase (`httpagent`, `opencode`, daemon, config); official Kilo docs; **live wire spike** against installed `kilo` 7.4.20 — artifacts in [docs/reports/kilo-spike-7.4.20/](../reports/kilo-spike-7.4.20) (`summary.json`); **auth re-probe 2026-08-06 after host credentials added** (Appendix E) |
-| known-good CLI | **`kilo` 7.4.22** (0088 pin; 7.4.20 spike evidence remains in [kilo-spike-7.4.20](../reports/kilo-spike-7.4.20)). Originally **7.4.20** at 0075 accept. |
+| method | Codebase (`httpagent`, `opencode`, daemon, config); official Kilo docs; **live wire spike** against installed `kilo` 7.4.20 — artifacts in [internal/provider/kilo/testdata/kilo-spike-7.4.20/](../../internal/provider/kilo/testdata/kilo-spike-7.4.20) (`summary.json`); **auth re-probe 2026-08-06 after host credentials added** (Appendix E) |
+| known-good CLI | **`kilo` 7.4.22** (0088 pin; 7.4.20 spike evidence remains in [kilo-spike-7.4.20](../../internal/provider/kilo/testdata/kilo-spike-7.4.20)). Originally **7.4.20** at 0075 accept. |
 
 **Host probe (this workspace, 2026-08-06):**
 
@@ -192,7 +192,7 @@ kilo serve --hostname 127.0.0.1 --port <port> [--pure]
 
 ### 2.4 HTTP + SSE API — live inventory (7.4.20)
 
-OpenAPI: `GET /doc` returns raw OpenAPI **3.1.0** JSON (`info.title=kilo`, **243** paths). Full path list: [kilo-spike-7.4.20/openapi-paths.txt](../reports/kilo-spike-7.4.20/openapi-paths.txt).
+OpenAPI: `GET /doc` returns raw OpenAPI **3.1.0** JSON (`info.title=kilo`, **243** paths). Full path list: [kilo-spike-7.4.20/openapi-paths.txt](../../internal/provider/kilo/testdata/kilo-spike-7.4.20/openapi-paths.txt).
 
 #### Critical routes (all present and exercised or schema-confirmed)
 
@@ -534,7 +534,7 @@ Shutdown path already iterates `reg.All()` — ensure `httpagent.Provider` Shutd
 
 ### 4.6 SSE / event mapping
 
-Reuse OpenCode decode strategy; pin differences in spike artifacts under `docs/reports/kilo-spike-<version>/`:
+Reuse OpenCode decode strategy; pin differences in spike artifacts under `internal/provider/kilo/testdata/kilo-spike-<version>/`:
 
 - Raw SSE frames (anonymized)
 - Event type histogram
@@ -625,7 +625,7 @@ Document known-good version in README prerequisites after spike.
 
 ### Milestone 0 — Live spike — **COMPLETE (2026-08-06)**
 
-Artifacts: [docs/reports/kilo-spike-7.4.20/](../reports/kilo-spike-7.4.20) (`summary.json`, SSE samples, OpenAPI path inventory, agents, messages).
+Artifacts: [internal/provider/kilo/testdata/kilo-spike-7.4.20/](../../internal/provider/kilo/testdata/kilo-spike-7.4.20) (`summary.json`, SSE samples, OpenAPI path inventory, agents, messages).
 
 | Gate | Result |
 | --- | --- |
@@ -691,7 +691,7 @@ Residual for implementation (not blocking M1): ~~live **permission.asked** SSE f
 | 7 | Session tree min version? | **Open** — routes exist; need child SSE fixture before enabling default `session_tree` |
 | 8 | ACP transport? | **Resolved:** stdio initialize works; port flags optional |
 | 9 | Host daemon collision? | **Open / ops** — document: mcremote owns its serve; operators should not rely on shared `kilo daemon` |
-| 10 | Permission SSE shape? | **Resolved (2026-08-06, plan P2/PD6):** live `permission.asked` frame captured ([sse-permission.raw](../reports/kilo-spike-7.4.20/sse-permission.raw)) — properties `{id, sessionID, permission, patterns, metadata{command,description}, always, tool{messageID,callID}}`, same shape OpenCode's `normalizePermissionAsk` handles; CLI options once/always/reject; live round-trip (allow → turn completes; reject → no tool effect) green in `live_permission_test.go` |
+| 10 | Permission SSE shape? | **Resolved (2026-08-06, plan P2/PD6):** live `permission.asked` frame captured ([sse-permission.raw](../../internal/provider/kilo/testdata/kilo-spike-7.4.20/sse-permission.raw)) — properties `{id, sessionID, permission, patterns, metadata{command,description}, always, tool{messageID,callID}}`, same shape OpenCode's `normalizePermissionAsk` handles; CLI options once/always/reject; live round-trip (allow → turn completes; reject → no tool effect) green in `live_permission_test.go` |
 | 11 | Model id alias rules? | **Partial** — `~vendor/model` under kilo provider; document from catalog not string concat |
 
 ---
@@ -700,7 +700,7 @@ Residual for implementation (not blocking M1): ~~live **permission.asked** SSE f
 
 Milestone 0 **proved** that Kilo CLI **7.4.20** is an OpenCode-class HTTP+SSE agent with **full capacity** for mcremote’s session product: shared serve, Basic Auth, prompt_async, SSE text streaming, turn lifecycle, catalogs, abort, and ACP as a secondary surface.
 
-Implementation is **accepted**: new provider id `kilo`, `httpagent` dialect forked from OpenCode, known-good pin **7.4.20**, evidence under [docs/reports/kilo-spike-7.4.20/](../reports/kilo-spike-7.4.20). Phone credential write paths remain MADR **0074**. Do not dual-stack transports; do not adopt host daemon or Kilo cloud remote.
+Implementation is **accepted**: new provider id `kilo`, `httpagent` dialect forked from OpenCode, known-good pin **7.4.20**, evidence under [internal/provider/kilo/testdata/kilo-spike-7.4.20/](../../internal/provider/kilo/testdata/kilo-spike-7.4.20). Phone credential write paths remain MADR **0074**. Do not dual-stack transports; do not adopt host daemon or Kilo cloud remote.
 
 ---
 
@@ -754,12 +754,12 @@ Implementation is **accepted**: new provider id `kilo`, `httpagent` dialect fork
 
 | File | Contents |
 | --- | --- |
-| [kilo-spike-7.4.20/summary.json](../reports/kilo-spike-7.4.20/summary.json) | Machine-readable probe summary |
-| [kilo-spike-7.4.20/openapi-paths.txt](../reports/kilo-spike-7.4.20/openapi-paths.txt) | 243 OpenAPI paths |
-| [kilo-spike-7.4.20/sse-samples.json](../reports/kilo-spike-7.4.20/sse-samples.json) | Sample SSE frames by type |
-| [kilo-spike-7.4.20/messages-success.json](../reports/kilo-spike-7.4.20/messages-success.json) | Successful PONG turn |
-| [kilo-spike-7.4.20/agents-summary.json](../reports/kilo-spike-7.4.20/agents-summary.json) | Agent list summary |
-| [kilo-spike-7.4.20/provider-summary.json](../reports/kilo-spike-7.4.20/provider-summary.json) | Slim provider catalog |
+| [kilo-spike-7.4.20/summary.json](../../internal/provider/kilo/testdata/kilo-spike-7.4.20/summary.json) | Machine-readable probe summary |
+| [kilo-spike-7.4.20/openapi-paths.txt](../../internal/provider/kilo/testdata/kilo-spike-7.4.20/openapi-paths.txt) | 243 OpenAPI paths |
+| [kilo-spike-7.4.20/sse-samples.json](../../internal/provider/kilo/testdata/kilo-spike-7.4.20/sse-samples.json) | Sample SSE frames by type |
+| [kilo-spike-7.4.20/messages-success.json](../../internal/provider/kilo/testdata/kilo-spike-7.4.20/messages-success.json) | Successful PONG turn |
+| [kilo-spike-7.4.20/agents-summary.json](../../internal/provider/kilo/testdata/kilo-spike-7.4.20/agents-summary.json) | Agent list summary |
+| [kilo-spike-7.4.20/provider-summary.json](../../internal/provider/kilo/testdata/kilo-spike-7.4.20/provider-summary.json) | Slim provider catalog |
 
 ## Appendix E — Auth re-probe, 2026-08-06 (kilo 7.4.20, post-login host)
 
@@ -787,6 +787,6 @@ A follow-up check later the same day found the credential state unchanged (same 
 [0108-MADR-kilo-7.4.23-surface-parity.md](./0108-MADR-kilo-7.4.23-surface-parity.md)
 supersedes only this record's current known-good Kilo version. The pin is now
 **7.4.23**, with its deterministic evidence in
-[kilo-spike-7.4.23/](../reports/kilo-spike-7.4.23). The original 7.4.20 acceptance
+[kilo-spike-7.4.23/](../../internal/provider/kilo/testdata/kilo-spike-7.4.23). The original 7.4.20 acceptance
 narrative and the later 7.4.22 re-probe remain historical evidence; no other
 transport, product-boundary, or deferred-surface decision in 0075 changes.

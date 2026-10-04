@@ -133,7 +133,7 @@ cosmetic / doc-only.
   `plan` and isn't `Dangerous`". Kilo's default agent is `code` (MADR 0075
   §2.8) — neither list contains it.
 - **Why it hasn't broken**: Kilo's live `GET /agent` happens to return `code`
-  first (verified: `docs/reports/kilo-spike-7.4.20/agents-summary.json` lists `code`
+  first (verified: `internal/provider/kilo/testdata/kilo-spike-7.4.20/agents-summary.json` lists `code`
   before `ask`/`debug`/`explore`/...), so the "first non-plan non-dangerous"
   fallback silently produces the right answer today.
 - **Failure scenario**: This is an unvalidated engine-ordering coincidence,
@@ -270,7 +270,7 @@ Ranked by risk if a future kilo-specific edit regresses them silently:
    `catalog_size_test.go` guards it against a synthetic 172-provider/
    5,788-model shape and a 32/64 KiB relay-frame budget. Kilo's *real*
    measured catalog is bigger on both axes — 179–181 providers / ~6,006
-   models (`docs/reports/kilo-spike-7.4.20/provider-summary.json`,
+   models (`internal/provider/kilo/testdata/kilo-spike-7.4.20/provider-summary.json`,
    `docs/0075-PLAN-kilo-cli-provider.md:24-25`) — and has zero test at any
    scale. A regression could blow the relay frame budget or truncate the
    model picker incorrectly, and CI would stay green.
