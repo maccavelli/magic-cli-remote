@@ -26,6 +26,7 @@ Implements [0182-MADR-protocol-event-line-continuation.md](0182-MADR-protocol-ev
 - `docs/guides/protocol-v1.md`. Do not join lines 1648-1651.
 - Doing the test edit in the commit that adds this pair. That commit is docs only.
 - Deleting, moving, creating, or pushing any git tag. See Deferred.
+- Rebasing local `master` onto `origin/master`, and any `git push`. This commit does not rebase. A push of this `master` would not fast-forward.
 
 ## Stability rule
 
@@ -42,7 +43,7 @@ git ls-remote --tags origin refs/tags/v0.20.2
 
 Commit discipline for P1: one commit, execution-record edits to this pair included only when P1 actually ran. Do not pass `-m`, `-M`, `--message`, or `-F`. Run `git commit --no-edit`. Do not skip hooks. Do not amend. Do not reset.
 
-`git push` is not permitted. Tags must not be deleted, moved, or pushed. This docs commit does not retag. P1 does not retag. No phase creates a tag.
+`git push` is not permitted, and this commit does not rebase. Local `master` and fetched `origin/master` diverge at `95b385652a9201d3c298d2ff25b528b2e7e9021f`, so a push of this `master` would not fast-forward. Tags must not be deleted, moved, or pushed. This docs commit does not retag. P1 does not retag. No phase creates a tag.
 
 ## Cross-cutting contracts
 
@@ -54,7 +55,7 @@ C3. No CI file is edited.
 
 C4. `git push` is not permitted in any phase.
 
-C5. No tag ref is created, deleted, moved, or pushed. C5 is the contract most likely to break under pressure: a green test makes "just retag v0.20.2" feel like the next step. F6 says that move is not the graph that was measured, and D3 forbids it.
+C5. No tag ref is created, deleted, moved, or pushed. C5 is the contract most likely to break under pressure: a green test makes "just retag v0.20.2" feel like the next step. F6 shows fetched `origin/master` already contains the tagged commit and six commits after it, so the later retag is possible, and D3 still forbids doing it in this plan.
 
 ## Dependency and delivery order
 
@@ -100,7 +101,7 @@ The peel is still `3a49f541be1a34c6187d903827da541a74fa37df`. No tag command tha
 | A3 | `event.Types()` is unchanged at 34 names | D2; F4 |
 | A4 | Remote `v0.20.2` still peels to `3a49f541be1a34c6187d903827da541a74fa37df` | D3; F6; Confirmation `git ls-remote` block |
 
-A4 is the criterion most likely to be dropped. A passing test looks like permission to publish the same tag name on the new commit. It is not. F6 is unchanged by P1.
+A4 is the criterion most likely to be dropped. A passing test looks like permission to delete and recreate `v0.20.2`. It is not. The retag stays deferred (D3, F7). P1 does not change F6.
 
 ## Rollout and Rollback
 
@@ -108,4 +109,4 @@ Rollout of P1 is the test commit on `master`. It does not push and it does not r
 
 ## Deferred (named, so they are not mistaken for oversights)
 
-Recreate annotated tag `v0.20.2` on current master after the test fix, including commits already past `3a49f541`. That is what was asked. It is deferred, not scheduled as a phase. Re-measured this pass: local master HEAD is `1e1e9b86ac4dceb2db4a2ef89b65e6a4673ac60e` (`HEAD^` `ef65f5d76462defdde53a9035b66be97e9e0e2ce`, `HEAD^^` `95b385652a9201d3c298d2ff25b528b2e7e9021f`); remote annotated `v0.20.2` still peels to `3a49f541be1a34c6187d903827da541a74fa37df`; that commit's only parent is `95b385652a9201d3c298d2ff25b528b2e7e9021f`, not HEAD; the two commits on master after that parent are not the tagged commit; master is not behind the tag by 1; the histories diverged; there is no commit on master past `3a49f541`; the object is not in the local database and was not fetched (F6, F7). The retag as stated is not feasible. Recreating an annotated tag on a published name is destructive. This plan does not delete, move, create, or push the existing tag, and it does not contain a phase that does so. A later explicit instruction, in the turn that does the work, is required before any tag ref changes.
+Recreate annotated tag `v0.20.2` later: land the test fix on current `origin/master` (`82fb0356d6b5f3b03894631f3d8c2b57292e9bd2`), wait for green CI, then delete and recreate the annotated tag. That is the retag already chosen. It is deferred, not an executable phase. This plan does not add a phase that retags. Re-measured this pass after `git fetch origin`: the previous local `origin/master` ref was stale at `95b385652a9201d3c298d2ff25b528b2e7e9021f`, which is why `3a49f541be1a34c6187d903827da541a74fa37df` was missing locally. Fetched `origin/master` contains that commit and the six first-parent commits after it (`a9843f592a74f6070eabb808a18c3c1286645059`, `bc3431dfb87f131e4b624b0960f2b915af5d5af3`, `b5ed5a3062de005b7c3fff6f4a5130a5856c6173`, `ab8122fa79f4b66ad41146af36b99f2e1aefe1d1`, `36772a6f2f1c4e2f9224f5e7715ec89d721b0d6f`, `82fb0356d6b5f3b03894631f3d8c2b57292e9bd2`). `git rev-list --first-parent --count` for that range is 6 (F6, F7). Local `master` is the other side of `95b385652a9201d3c298d2ff25b528b2e7e9021f`: `ef65f5d76462defdde53a9035b66be97e9e0e2ce`, `1e1e9b86ac4dceb2db4a2ef89b65e6a4673ac60e`, `3a59d7c23981ab5006f3ca2adb6efccb0117fa34`, plus this correction commit. Those commits still need a rebase onto fetched `origin/master` before any push. This commit does not rebase. `git push` is not permitted. A push of this `master` would not fast-forward. Recreating an annotated tag on a published name is destructive. This plan does not delete, move, create, or push the existing tag. A later explicit instruction, in the turn that does the work, is required before any tag ref changes and before any rebase.
