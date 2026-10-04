@@ -17,13 +17,13 @@ binaries and hands off to `mcremote setup-service`. Upgrades are
 
 What it guarantees:
 
-* **No root.** Everything lands under `$HOME`; the script never calls `sudo`.
-* **Verified.** Each binary's SHA-256 is compared against the published
+- **No root.** Everything lands under `$HOME`; the script never calls `sudo`.
+- **Verified.** Each binary's SHA-256 is compared against the published
   `SHA256SUMS` *before* anything is installed. A mismatch leaves an existing
   installation untouched.
-* **No GitHub API call**, so the 60-requests/hour per-IP anonymous limit
+- **No GitHub API call**, so the 60-requests/hour per-IP anonymous limit
   cannot break an install behind shared egress.
-* **Atomic.** Downloads are staged inside the install directory and renamed
+- **Atomic.** Downloads are staged inside the install directory and renamed
   into place, so a partial download can never become a live binary.
 
 ## Options
@@ -192,12 +192,12 @@ template itself changed.
 
 Two limitations worth knowing:
 
-* **The behaviour arrives with the release that installs it.** The parent process
+- **The behaviour arrives with the release that installs it.** The parent process
   in an update is the previous binary, so a host running a pre-0100 release gets
   the refresh from its *next* update. To apply a unit fix immediately, re-run
   `curl … | sh` (the installer refreshes on upgrade) or run
   `mcremote setup-service --refresh` by hand.
-* **PATH is pinned, not re-derived.** If a release adds a directory to the
+- **PATH is pinned, not re-derived.** If a release adds a directory to the
   service `PATH`, the refresh keeps your unit's existing value and says which
   entries it did not apply. `mcremote setup-service --force` re-derives them —
   at the cost of resetting every baked option to its default.

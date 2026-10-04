@@ -277,7 +277,8 @@ systemctl --user status mcrelay
 journalctl --user -u mcrelay -n 100 --no-pager
 ```
 
-Useful log lines: `host registered`, `join ok`, `splice ended`, `register denied`, `join denied`, `join timeout`, `phone slot divergence corrected` (0068 P6 sweep — the symptom self-heals in ≤60 s, but a recurring line means a release-pairing bug worth reporting).
+Useful log lines: `host registered`, `join ok`, `splice ended`, `register denied`, `join denied`, `join timeout`, `phone slot divergence corrected` (0068 P6 sweep — the symptom self-heals in ≤60 s,
+but a recurring line means a release-pairing bug worth reporting).
 
 ### Goroutine-leak triage (debug builds only, 0068 P6)
 

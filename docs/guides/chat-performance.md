@@ -19,7 +19,9 @@ see [mobile-profiling.md](../../apps/mobile/docs/guides/mobile-profiling.md) (`m
 - Transcript uses a **`reverse: true` `ListView.builder`**: newest content is at offset `0` (visual bottom).
 - Growing the live assistant bubble does **not** chase `maxScrollExtent` every chunk (that was the prior jitter source). Append jumps only when the user is near the live end.
 - Near-bottom detection: `pixels < 120`. Jump-to-latest: `jumpTo(0)`.
-- Auto-follow **never runs while the user is scrolling**, and is skipped when already pinned at `0`. `jumpTo` begins with `goIdle()`, which cancels the current `ScrollActivity` — so an unguarded jump yanked the list out from under a drag or fling. Inside the 120 px band during a tool burst that fired several times a second and made the transcript unscrollable ([MADR 0042](../../apps/mobile/docs/decisions/0042-MADR-android-app-remediation.md) D5). The gate is `_listScrolling`, the same notifier the shimmer/pulse animations use.
+- Auto-follow **never runs while the user is scrolling**, and is skipped when already pinned at `0`. `jumpTo` begins with `goIdle()`, which cancels the current `ScrollActivity` — so an unguarded jump
+  yanked the list out from under a drag or fling. Inside the 120 px band during a tool burst that fired several times a second and made the transcript unscrollable ([MADR
+  0042](../../apps/mobile/docs/decisions/0042-MADR-android-app-remediation.md) D5). The gate is `_listScrolling`, the same notifier the shimmer/pulse animations use.
 - `scrollCacheExtent: ScrollCacheExtent.pixels(900)` for offscreen row pre-render.
 - Near-bottom / FAB visibility uses a `ValueNotifier` so scroll threshold crossings do not rebuild the whole chat shell.
 
@@ -58,7 +60,8 @@ see [mobile-profiling.md](../../apps/mobile/docs/guides/mobile-profiling.md) (`m
 | `kMaxStreamingMarkdownChars` | 4_000 | Full MD while streaming below; plain path above |
 | `kAssistantShowMoreChars` | 6_000 | Finalized assistant "Show more" clamp |
 
-Client item cap (800) can exceed the host ring (500): phone may retain more from a live session than cold history can fully rebuild. Prefer explicit `limit: 500` on history so wire pages match the ring.
+Client item cap (800) can exceed the host ring (500): phone may retain more from a live session than cold history can fully rebuild. Prefer explicit `limit: 500` on history so wire pages match the
+ring.
 
 ## Graphics
 
@@ -89,4 +92,5 @@ Client item cap (800) can exceed the host ring (500): phone may retain more from
 6. Kill app mid-session, reopen — history still via host (no regression).
 7. Reconnect during stream — resync + composer not stuck running.
 
-Use Flutter DevTools Performance: frame build times, rebuild counts on the transcript pane vs shell, GC during stream. Note batch window (**32 ms**) and markdown path (short vs long-stream) when interpreting parse cost.
+Use Flutter DevTools Performance: frame build times, rebuild counts on the transcript pane vs shell, GC during stream. Note batch window (**32 ms**) and markdown path (short vs long-stream) when
+interpreting parse cost.

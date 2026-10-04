@@ -1,6 +1,8 @@
-> **2026-10-01 (0175 P3).** Relocated from `docs/PLAN-flutter-android-client-assessment.md`. Cited as PLAN 0005 in 0018/0026; 0005 is `0005-MADR-client-identity.md`. Renumbered to 0177. Lone PLAN predating the pairing rule.
+> **2026-10-01 (0175 P3).** Relocated from `docs/PLAN-flutter-android-client-assessment.md`. Cited as PLAN 0005 in 0018/0026; 0005 is `0005-MADR-client-identity.md`. Renumbered to 0177. Lone PLAN
+> predating the pairing rule.
 >
-> **2026-10-03 (0180 P1).** Kind changed from PLAN to REPORT: this file is an assessment, not a paired decision. Filename is now `0177-REPORT-flutter-android-client-assessment.md` under `docs/reports/`.
+> **2026-10-03 (0180 P1).** Kind changed from PLAN to REPORT: this file is an assessment, not a paired decision. Filename is now `0177-REPORT-flutter-android-client-assessment.md` under
+> `docs/reports/`.
 
 # Phase 3 Plan: Flutter Android Client Assessment & Scaffolding
 
@@ -9,7 +11,8 @@
 - **Scope**: Android-only Flutter companion for `mcremote`
 - **Product name**: Magic CLI Remote
 - **Decisions**: monorepo; grok-if-ready else fake; paste-only pairing; cleartext `ws://` in debug
-- **Related**: [protocol-v1.md](../../../../docs/guides/protocol-v1.md), [0001-MADR-architecture-mcremote.md](../../../../docs/decisions/0001-MADR-architecture-mcremote.md), [0176-MADR-phase-2-grok-acp-provider.md](../../../../docs/decisions/0176-MADR-phase-2-grok-acp-provider.md)
+- **Related**: [protocol-v1.md](../../../../docs/guides/protocol-v1.md), [0001-MADR-architecture-mcremote.md](../../../../docs/decisions/0001-MADR-architecture-mcremote.md),
+  [0176-MADR-phase-2-grok-acp-provider.md](../../../../docs/decisions/0176-MADR-phase-2-grok-acp-provider.md)
 
 ---
 
@@ -17,7 +20,8 @@
 
 **Yes — scaffold the Flutter Android client now.**
 
-The daemon already exposes a usable control plane (`auth`, sessions, streaming events, `permission.respond`). The product gap is no longer the agent loop; it is a **phone-grade supervision UI**. That matches the #1 community demand across Claude Code, OpenCode, Grok remote tools, and Telegram/ntfy hacks: *leave the desk without leaving the agent stuck*.
+The daemon already exposes a usable control plane (`auth`, sessions, streaming events, `permission.respond`). The product gap is no longer the agent loop; it is a **phone-grade supervision UI**. That
+matches the #1 community demand across Claude Code, OpenCode, Grok remote tools, and Telegram/ntfy hacks: *leave the desk without leaving the agent stuck*.
 
 **Android-only for this phase** is correct:
 

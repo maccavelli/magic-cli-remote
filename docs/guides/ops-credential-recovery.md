@@ -104,7 +104,7 @@ or the next login at the latest.
 
 ## What is never done automatically
 
-* An externally deleted credential is never resurrected.
-* A generation revoked by a logout is never offered for recovery.
-* An older credential never overwrites a newer one.
-* A rollback never happens after a publication has been verified.
+- An externally deleted credential is never resurrected.
+- A generation revoked by a logout is never offered for recovery.
+- An older credential never overwrites a newer one.
+- A rollback never happens after a publication has been verified.

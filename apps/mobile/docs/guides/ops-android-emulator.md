@@ -60,10 +60,10 @@ Verified end to end 2026-08-13: the emulator paired and reached
 
 Two constraints shape this, and neither is a bug:
 
-* The daemon binds **only to its tailnet IPv4** (`listen: tailscale`), so
+- The daemon binds **only to its tailnet IPv4** (`listen: tailscale`), so
   `10.0.2.2` — the emulator's alias for the host loopback — cannot reach it.
   Use the tailnet address; the emulator's NAT routes to it fine.
-* A **typed pair code cannot complete pairing**: it carries no certificate
+- A **typed pair code cannot complete pairing**: it carries no certificate
   fingerprint, and the app refuses to trust an unpinned host. Observed message:
   *"This host's certificate can't be verified — no fingerprint is stored for
   it. Scan the QR from `mcremote pair code`: a typed code doesn't carry the
@@ -100,7 +100,7 @@ Restore the stock scene afterwards with
 
 ### Why it has to be done this way
 
-* **The scene poster is loaded at BOOT and cached.** Replacing `poster.png`
+- **The scene poster is loaded at BOOT and cached.** Replacing `poster.png`
   while the emulator is running changes nothing on screen — the camera keeps
   showing whatever was on disk when it started. Swap the poster *first*, then
   boot; if the emulator is already up, restart it. Found the hard way on
@@ -108,41 +108,41 @@ Restore the stock scene afterwards with
   scanning the first one, failing with **"code already used"** because that
   first one-shot code had been consumed an hour earlier. `mcremote pair list`
   is the check — a code that was never claimed does not appear there at all.
-* **`-virtualscene-poster wall=<file>` is silently ignored** (emulator
+- **`-virtualscene-poster wall=<file>` is silently ignored** (emulator
   37.1.11). No log line, no effect — verified with a correctly formatted
   1024×1024 RGBA image on both `wall` and `table`. Overwriting the default
   `poster.png` that `Toren1BD.posters` declares is what actually works.
-* **`qrencode` writes a 1-bit palette PNG by default**, which the scene's
+- **`qrencode` writes a 1-bit palette PNG by default**, which the scene's
   texture loader will not display. The stock `poster.png` is 8-bit RGBA, and
   `-t PNG32` matches it.
-* **The scene camera cannot be aimed from adb.** `adb emu sensor set
+- **The scene camera cannot be aimed from adb.** `adb emu sensor set
   orientation` does not move it (verified: identical frames across a full yaw
   sweep) — the pose is driven by WASD/mouse in the emulator window only. A
   human turns to face the poster in seconds; a script cannot. This is the one
   manual step.
-* Pair codes default to a 5-minute TTL; `--ttl 20m` removes the time pressure
+- Pair codes default to a 5-minute TTL; `--ttl 20m` removes the time pressure
   while you aim.
 
 ## What this environment can and cannot cover
 
 **Can** — all verified 2026-08-13 against the live daemon:
 
-* MADR 0082: the settings hub (search, grouped containers), the Providers
+- MADR 0082: the settings hub (search, grouped containers), the Providers
   fleet with per-agent brand icons and worst-status folding, and the per-agent
   detail screen (status / session defaults / active upstream / credentials).
-* MADR 0083: bottom insets under gesture nav — *Add credential*, the row the
+- MADR 0083: bottom insets under gesture nav — *Add credential*, the row the
   bug report was about, clears the `navigationBars` inset (y=2337 on a 2400 px
   display); semantic status chips with `Active` as its own pill; and
   confirm-before-remove, cancelled without deleting.
-* MADR 0083 D4, the clearest result — two catalogs, same UI, correctly
+- MADR 0083 D4, the clearest result — two catalogs, same UI, correctly
   different: an offline agent (since removed, MADR 0160) reads *"Offline catalog · 73 vendors · list pinned to a
   known CLI version"* with greyed **"Host only · keyring"** rows, while
   opencode reads *"Live catalog · showing 100 of 184"* with enabled rows and
   "API key" / "Device code" method chips. The 184 count and 100-per-page match
   the Go live tests exactly.
-* MADR 0082 D5: monogram fallback (`digitalocean` → "DI", `gitlab` → "GI",
+- MADR 0082 D5: monogram fallback (`digitalocean` → "DI", `gitlab` → "GI",
   distinct hash-derived colours) beside real brand marks.
-* MADR 0084: the Recent errors row and screen. Nothing was recorded across a
+- MADR 0084: the Recent errors row and screen. Nothing was recorded across a
   full session of navigation — the boundary caught no failures.
 
 **Cannot**: device flows that must be *completed* (they consume a real

@@ -54,7 +54,7 @@ There is no CA to trust in that mode, so clients authenticate the daemon by
 **pinning the certificate's SHA-256 fingerprint**, distributed out-of-band by
 the same pair QR that carries the pair code:
 
-```
+```text
 mcremote://pair?host=wss%3A%2F%2F100.64.0.1%3A7531&code=K7M29X4P&fp=<fingerprint>&mode=selfsigned
 ```
 
@@ -328,10 +328,10 @@ denies transport access rather than merely a bearer secret.
 | `models.list` | `{ "provider", "scope?", "model_provider?", "session_id?" }` | `models.list_result` |
 | `agents.list` | `{ "provider" }` | `agents.list_result` |
 | `agent_sessions.list` | `{ "provider" }` | `agent_sessions.list_result` |
-| `codex.threads.read` | `{ "action": "list"|"search"|"sections"|"projects"|"delete_preview", ...bounded filters }` | `codex.threads.read_result` |
-| `codex.threads.write` | `{ "action": "rename"|"fork"|"archive"|"unarchive"|"delete"|"move_section"|"assign_project"|section/project action, ...typed fields }` | `codex.threads.write_result` |
-| `codex.execution.read` | `{ "action": "terminals"|"output"|"environments"|"environment_status"|"environment_info", "session_id", ...bounded selectors }` | `codex.execution.read_result` |
-| `codex.execution.write` | `{ "action": "exec"|"shell"|"spawn"|"write"|"resize"|"stop"|"stop_all"|"select_environment", "session_id", ...typed fields, "confirm"? }` | `codex.execution.write_result` |
+| `codex.threads.read` | `{ "action": "list"/"search"/"sections"/"projects"/"delete_preview", ...bounded filters }` | `codex.threads.read_result` |
+| `codex.threads.write` | `{ "action": "rename"/"fork"/"archive"/"unarchive"/"delete"/"move_section"/"assign_project"/section/project action, ...typed fields }` | `codex.threads.write_result` |
+| `codex.execution.read` | `{ "action": "terminals"/"output"/"environments"/"environment_status"/"environment_info", "session_id", ...bounded selectors }` | `codex.execution.read_result` |
+| `codex.execution.write` | `{ "action": "exec"/"shell"/"spawn"/"write"/"resize"/"stop"/"stop_all"/"select_environment", "session_id", ...typed fields, "confirm"? }` | `codex.execution.write_result` |
 | `commands.list` | `{ "provider" }` | `commands.list_result` |
 | `session.fork` | `{ "session_id", "message_id?" }` | `session.created` |
 | `session.revert` | `{ "session_id", "message_id", "part_id?" }` | `ok` |
@@ -1259,11 +1259,14 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   codex's `codexToolStatus` (`internal/provider/codex/items.go`) handles
   the codex v2 enum (`inProgress` → `running`, `declined` → `failed`).
 
-  **Snapshot semantics & detail clipping.** `tool_call_update.text` carries a **snapshot** of tool output/detail (clipped daemon-side at `maxToolOutputChars = 8000`), not an incremental delta. Clients replace the card detail with non-empty incoming text snapshots.
+  **Snapshot semantics & detail clipping.** `tool_call_update.text` carries a **snapshot** of tool output/detail (clipped daemon-side at `maxToolOutputChars = 8000`), not an incremental delta. Clients
+replace the card detail with non-empty incoming text snapshots.
 
   **Delivery vs Ordering guarantees (MADR 0034 §2.3).**
-  - `tool_call` carries both a **delivery guarantee** (blocking transport send) and an **ordering guarantee** (creates a transcript item position, acting as a stream boundary for pending assistant text).
-  - `tool_call_update` with a non-empty `tool_id` carries a **delivery guarantee** (must not be dropped under back-pressure) but **no ordering constraint** relative to streaming text chunks, because it mutates an item an earlier `tool_call` already positioned. An update with an empty `tool_id` falls back to boundary semantics.
+  - `tool_call` carries both a **delivery guarantee** (blocking transport send) and an **ordering guarantee** (creates a transcript item position, acting as a stream boundary for pending assistant
+    text).
+  - `tool_call_update` with a non-empty `tool_id` carries a **delivery guarantee** (must not be dropped under back-pressure) but **no ordering constraint** relative to streaming text chunks, because
+    it mutates an item an earlier `tool_call` already positioned. An update with an empty `tool_id` falls back to boundary semantics.
 
   **Unknown values.** A provider that meets a native status it cannot map emits
   it as-is rather than inventing one from this table — the contract is "do not
@@ -1642,7 +1645,10 @@ the **active model's** advertised inputs (MADR 0112 A2), so it can change
 mid-session without a restart. Attachment bytes and data URLs never appear in
 daemon logs, and `user_message` echoes carry descriptors only.
 
-Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`, `question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`, `session_capabilities`, `session_title`, `artifact`, `diagnostics_changed`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`, `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
+Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`,
+`question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`,
+`session_capabilities`, `session_title`, `artifact`, `diagnostics_changed`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`,
+`codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 
 Every type in that list has a section or a field entry in this document, and a
 test enforces it (`TestEventTypesAreDocumented`): a new event type fails the
@@ -2007,7 +2013,8 @@ provider config); a session that never auto-approves never sees this event.
 
 ### `available_commands` event (slash commands)
 
-Advertised by the agent (ACP `available_commands_update`). Clients show them in the composer; **invoke by sending a normal `session.prompt`** whose text starts with `/name` (optionally followed by args):
+Advertised by the agent (ACP `available_commands_update`). Clients show them in the composer; **invoke by sending a normal `session.prompt`** whose text starts with `/name` (optionally followed by
+args):
 
 ```json
 {

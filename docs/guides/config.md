@@ -476,7 +476,8 @@ AWS credentials for the DNS-01 solver are **not** mcremote settings: the
 `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`, `AWS_PROFILE`, or an instance
 role). See [iam-route53-acme.md](iam-route53-acme.md) for the IAM policy.
 
-Viper also accepts automatic env for other keys using `MCREMOTE_` + uppercased path with `_` (e.g. `MCREMOTE_PROVIDERS_GROK_BIN`, `MCREMOTE_PROVIDERS_GROK_PREWARM`, `MCREMOTE_AUTH_ALLOWED_ORIGINS`). Prefer the explicit table above for production.
+Viper also accepts automatic env for other keys using `MCREMOTE_` + uppercased path with `_` (e.g. `MCREMOTE_PROVIDERS_GROK_BIN`, `MCREMOTE_PROVIDERS_GROK_PREWARM`, `MCREMOTE_AUTH_ALLOWED_ORIGINS`).
+Prefer the explicit table above for production.
 
 ### Examples
 

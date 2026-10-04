@@ -210,7 +210,7 @@ competitive; our async loop is not.
 
 ### P1 — high value
 
-4. **Granular approval UX + notification path.** Extend the permission sheet:
+1. **Granular approval UX + notification path.** Extend the permission sheet:
    approve-once vs approve-always (with a second confirm), show
    repo/tool/command/scope, redact in the notification, event-driven with a
    timeout fallback.
@@ -225,7 +225,7 @@ competitive; our async loop is not.
 
 ### P2 — differentiators / polish
 
-8. **Voice input** (Happy/Omnara's most-loved) — larger lift.
+1. **Voice input** (Happy/Omnara's most-loved) — larger lift.
 2. **Device handoff / "take control"** continuity between desktop and phone.
 3. **Conversation fork / edit-and-resubmit / regenerate**.
 4. **Humanize status** (not raw `running/idle`) and **de-duplicate** the

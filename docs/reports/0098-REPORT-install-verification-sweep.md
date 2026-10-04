@@ -4,7 +4,9 @@
 
 `scripts/install.sh:svc_is_active()` probes an s6 service with:
 
-    s6-svc -l "$S6_DIR/$1"
+```text
+s6-svc -l "$S6_DIR/$1"
+```
 
 `-l` is **not a valid `s6-svc` option**. On s6 as shipped in Alpine 3.23.5 it
 exits **100** with a usage error, so the probe can never return true.
@@ -16,12 +18,14 @@ and exits **0**.
 
 Measured on a real s6 host:
 
-    $ pgrep -f "mcremote serve"      -> 2515
-    $ sh install.sh --uninstall      -> exit 0, "stopping any running service…"
-    $ ls ~/.local/bin/               -> empty (binaries removed)
-    $ ps aux | grep mcremote         -> 2515 still running
-    $ ls -l /proc/2515/exe
-      /proc/2515/exe -> /home/alpine/.local/bin/mcremote (deleted)
+```text
+$ pgrep -f "mcremote serve"      -> 2515
+$ sh install.sh --uninstall      -> exit 0, "stopping any running service…"
+$ ls ~/.local/bin/               -> empty (binaries removed)
+$ ps aux | grep mcremote         -> 2515 still running
+$ ls -l /proc/2515/exe
+  /proc/2515/exe -> /home/alpine/.local/bin/mcremote (deleted)
+```
 
 The `(deleted)` inode is exactly the failure the code comments say the
 mechanism exists to prevent:
@@ -31,15 +35,18 @@ mechanism exists to prevent:
 > on-disk binary reports the new version. Silent staleness is worse than a crash."
 
 Two distinct impacts:
-  * **uninstall** — user is told it is gone; a daemon keeps serving from a
+
+- **uninstall** — user is told it is gone; a daemon keeps serving from a
     deleted binary until reboot.
-  * **upgrade** — binary replaced, daemon never cycled, so it keeps running old
+- **upgrade** — binary replaced, daemon never cycled, so it keeps running old
     code while `mcremote version` reports the new one.
 
 Correct tool is `s6-svstat`, confirmed working on the same host:
 
-    $ s6-svstat ~/.local/share/s6/service/mcremote
-    up (pid 2515 pgid 2515) 40 seconds
+```text
+$ s6-svstat ~/.local/share/s6/service/mcremote
+up (pid 2515 pgid 2515) 40 seconds
+```
 
 Scope: **s6 backend only.** The runit branch uses `sv status` and the systemd
 branch uses `systemctl --user is-active`, both valid. 0097-PLAN listed s6 as
@@ -51,10 +58,12 @@ branch uses `systemctl --user is-active`, both valid. 0097-PLAN listed s6 as
 **do not delete it** — the probe fails for an environmental reason, not a
 missing feature.
 
-    $ rc-service --version                    -> OpenRC 0.63
-    $ rc-service --help | grep user           -> "-U, --user   Run in user mode"
-    $ rc-service --user --help                -> "XDG_RUNTIME_DIR unset."  exit 1
-    $ XDG_RUNTIME_DIR=/tmp/x rc-service --user --help  -> exit 0
+```text
+rc-service --version                    -> OpenRC 0.63
+rc-service --help | grep user           -> "-U, --user   Run in user mode"
+rc-service --user --help                -> "XDG_RUNTIME_DIR unset."  exit 1
+XDG_RUNTIME_DIR=/tmp/x rc-service --user --help  -> exit 0
+```
 
 OpenRC 0.63 fully supports user mode. The probe fails only because stock Alpine
 installs no elogind, so `XDG_RUNTIME_DIR` is never set for an SSH session. The
@@ -74,25 +83,25 @@ still unreachable. Use `subnet-0fc17839ef9f6d906` (us-east-1c). Cost: one host.
 
 ## Confirmed working (no defect)
 
-* **Row 10 — busybox `wget` fallback.** No `curl` on the host; `wget -qO- | sh`
+- **Row 10 — busybox `wget` fallback.** No `curl` on the host; `wget -qO- | sh`
   followed GitHub's redirect to `objects.githubusercontent.com` over TLS and the
   SHA-256 verified. exit 0, version `0.13.4.1`.
-* **Row 8a — `openrc-system`.** `SERVICE_RESULT=none`, exit **0**, background
+- **Row 8a — `openrc-system`.** `SERVICE_RESULT=none`, exit **0**, background
   `nohup` command printed, exactly as 0097-PLAN §4.F specifies.
-* **Row 6 — s6 detection and supervision.** `INIT=s6`, run script `0755` at
+- **Row 6 — s6 detection and supervision.** `INIT=s6`, run script `0755` at
   `~/.local/share/s6/service/mcremote/run`, `s6-supervise` running, daemon up,
   `supervised-session` reported with an honest "at boot: NOT configured".
-* **Static binary on musl.** `ldd` reports "Not a valid dynamic program" —
+- **Static binary on musl.** `ldd` reports "Not a valid dynamic program" —
   the `CGO_ENABLED=0 -tags netgo,osusergo` claim in ops-linux-install.md holds.
-* **`--dry-run` writes nothing.**
-* **Idempotent re-run** over an existing install: exit 0, binaries replaced.
-* **Dead-man switch** (`sleep 10800; poweroff`) confirmed running via cloud-init
+- **`--dry-run` writes nothing.**
+- **Idempotent re-run** over an existing install: exit 0, binaries replaced.
+- **Dead-man switch** (`sleep 10800; poweroff`) confirmed running via cloud-init
   on Alpine — the busybox-incompatible `shutdown -h +180` form would have failed
   silently here.
 
 ---
 
-# Session B (arm64, SELinux, relay + pin) — 2026-08-18
+## Session B (arm64, SELinux, relay + pin) — 2026-08-18
 
 ## F4 — `--with-relay-service` produces a unit that can never start (HIGH)
 
@@ -100,16 +109,20 @@ Row 5 of the 0097 matrix ("untested — never created a relay service from
 scratch"). On a **fresh, stock Ubuntu 26.04 amd64 host**, `--with-relay-service`
 creates both units and exits **0**, reporting:
 
-    service:  running, and enabled at boot (systemd user unit + linger)
+```text
+service:  running, and enabled at boot (systemd user unit + linger)
+```
 
 `mcrelay` is in fact in a permanent crash loop (`Restart=always`, `RestartSec=5`).
 There are **two independent failures**, stacked:
 
 ### F4a — 218/CAPABILITIES: the unit cannot even spawn
 
-    mcrelay.service: Failed to drop capabilities: Operation not permitted
-    mcrelay.service: Failed at step CAPABILITIES spawning .../mcrelay: Operation not permitted
-    status=218/CAPABILITIES
+```text
+mcrelay.service: Failed to drop capabilities: Operation not permitted
+mcrelay.service: Failed at step CAPABILITIES spawning .../mcrelay: Operation not permitted
+status=218/CAPABILITIES
+```
 
 Bisected with drop-ins on the live host:
 
@@ -144,10 +157,12 @@ apparently never probed in user scope.
 With capabilities resolved, the next start fails on the config
 `mcrelay setup-service` just wrote:
 
-    mcrelay starting version=0.13.4.1 listen=0.0.0.0:8443 tls=off
-    error: plaintext listen on 0.0.0.0:8443 refused: set tls.mode=files|letsencrypt,
-           bind a loopback address, or pass --allow-plaintext
-    status=1/FAILURE
+```text
+mcrelay starting version=0.13.4.1 listen=0.0.0.0:8443 tls=off
+error: plaintext listen on 0.0.0.0:8443 refused: set tls.mode=files|letsencrypt,
+       bind a loopback address, or pass --allow-plaintext
+status=1/FAILURE
+```
 
 So even after F4a is fixed, `--with-relay-service` still yields a non-starting
 service out of the box: it writes `listen=0.0.0.0:8443` with `tls=off`, a
@@ -166,7 +181,9 @@ Root cause of why F4 is invisible, and independently reproduced twice.
 once the start job is *issued* — not once the unit is *running*. A unit that
 immediately dies and enters `auto-restart` therefore still reports:
 
-    service:  running, and enabled at boot (systemd user unit + linger)
+```text
+service:  running, and enabled at boot (systemd user unit + linger)
+```
 
 Observed twice, from unrelated causes:
 
@@ -182,39 +199,39 @@ Suggested remedy (out of scope here): after `setup-service`, poll
 `systemctl --user is-active` for a few seconds and report `failed` or
 `activating` honestly instead of assuming `supervised+boot`.
 
-## Confirmed working
+## Confirmed working (Session B)
 
-* **Row 12 — arm64 on Graviton3** (`c7g.medium`, Ubuntu 26.04). `arch=arm64`,
+- **Row 12 — arm64 on Graviton3** (`c7g.medium`, Ubuntu 26.04). `arch=arm64`,
   `systemd-user`, `supervised+boot`, `Linger=yes`, daemon listening.
   `file`: `ELF 64-bit LSB executable, ARM aarch64, statically linked`.
   Upgrade path correct — service stopped, binary replaced, restarted, and
   `/proc/<pid>/exe` showed **no** `(deleted)`, in direct contrast to F1 on s6.
-* **Row 12b — arm64 + musl + busybox wget** (`t4g.small`, Alpine 3.23.5
+- **Row 12b — arm64 + musl + busybox wget** (`t4g.small`, Alpine 3.23.5
   aarch64). Install and uninstall clean; `ld-musl-aarch64.so.1: Not a valid
   dynamic program` confirms the static build on arm64 musl.
-* **Row 4 — SELinux enforcing** (Rocky 9.8). `getenforce`=**Enforcing** before
+- **Row 4 — SELinux enforcing** (Rocky 9.8). `getenforce`=**Enforcing** before
   the run; `ausearch -m avc -ts recent` → **`<no matches>`**; dmesg clean;
   binary context `unconfined_u:object_r:gconf_home_t:s0`; unit active and
   **actually listening** on `127.0.0.1:7531`. **Retires 0097 open question 1** —
   a `systemd --user` unit running an unlabelled binary from `$HOME` works
   unmodified under enforcing SELinux. The `restorecon` guidance in
   ops-linux-install.md is not required (harmless as a fallback).
-* **Row 4b — root login model.** Real root SSH session (not `sudo -i`):
+- **Row 4b — root login model.** Real root SSH session (not `sudo -i`):
   `XDG_RUNTIME_DIR=/run/user/0`, `INSTALL_DIR=/root/.local/bin`,
   `systemd-user`, `Linger=yes`, unit created. Path works; see F5 for the
   reporting defect it exposed.
-* **Row 9 — version pinning.** `--version 0.13.3` → URL
+- **Row 9 — version pinning.** `--version 0.13.3` → URL
   `releases/download/v0.13.3`, installs `0.13.3.1` (a downgrade, and it worked).
   `--version 0.12.0` (pre-alias release) → exit **2**, 404 on `SHA256SUMS`, the
   exact "releases before MADR 0097 do not carry the alias assets" guidance, and
   **the existing install left untouched at 0.13.3.1**. Back to latest →
   `0.13.4.1`.
-* **`--with-relay-service` on the upgrade path** is ignored, as predicted from
+- **`--with-relay-service` on the upgrade path** is ignored, as predicted from
   reading `setup_service()` — the early return fires when a unit already exists.
 
 ---
 
-# Session C (tamper, sysvinit, WSL) — 2026-08-18
+## Session C (tamper, sysvinit, WSL) — 2026-08-18
 
 ## F6 — WSL hosts are told to fix a problem they do not have (MEDIUM)
 
@@ -225,17 +242,21 @@ Both WSL rows classify as **`systemd-broken`**, not `none` — `detect_init`
 returns on `have systemctl`, and Ubuntu-on-WSL ships `/usr/bin/systemctl`
 regardless of `[boot] systemd=`.
 
-    WSL2, systemd=false:  arch=amd64 env=wsl2 init=systemd-broken (pid1=init(Ubuntu))
-    WSL1:                 arch=amd64 env=wsl1 init=systemd-broken (pid1=init(Ubuntu))
+```text
+WSL2, systemd=false:  arch=amd64 env=wsl2 init=systemd-broken (pid1=init(Ubuntu))
+WSL1:                 arch=amd64 env=wsl1 init=systemd-broken (pid1=init(Ubuntu))
+```
 
 Both then print **two advisories back to back** — the wrong one first:
 
-    systemctl is present but the user bus is unreachable.
-    This usually means the session was entered with 'su', which skips
-    pam_systemd and leaves XDG_RUNTIME_DIR unset. Reconnect with ssh,
-    or use: machinectl shell root@
+```text
+systemctl is present but the user bus is unreachable.
+This usually means the session was entered with 'su', which skips
+pam_systemd and leaves XDG_RUNTIME_DIR unset. Reconnect with ssh,
+or use: machinectl shell root@
 
-    WSL2 without systemd. Enable it by adding to /etc/wsl.conf: ...
+WSL2 without systemd. Enable it by adding to /etc/wsl.conf: ...
+```
 
 The first paragraph is wrong in three separate ways on a WSL host:
 
@@ -276,33 +297,35 @@ the 0097-PLAN expectation column from `none` to `systemd-broken`.
    "WSL2 without systemd" case now requires writing `[boot] systemd=false`
    explicitly; it is no longer the default state.
 
-## Confirmed working
+## Confirmed working (Session C)
 
-* **Row 11 — checksum failure over real HTTPS.** Against an S3 mirror
+- **Row 11 — checksum failure over real HTTPS.** Against an S3 mirror
   (`https://<bucket>.s3.amazonaws.com`, valid wildcard cert, so curl's
   `--proto '=https' --tlsv1.2` accepted it) serving a binary with one byte
   flipped at offset 1024, run on a host with a **working install already
   present**:
 
-      exit=2
-      error: checksum mismatch for mcremote
-        expected 80adcd856df1d4e578815d6fd5bf2e747aedb34bbe6010f3a08bf080367ea254
-        got      28daa49202f6077f13ba5a46acb75e70cad56329e4920f80e65ae586b022f02a
-      Nothing was installed.
+```text
+exit=2
+error: checksum mismatch for mcremote
+  expected 80adcd856df1d4e578815d6fd5bf2e747aedb34bbe6010f3a08bf080367ea254
+  got      28daa49202f6077f13ba5a46acb75e70cad56329e4920f80e65ae586b022f02a
+Nothing was installed.
+```
 
   Post-conditions all held: binary digest **unchanged**, `mcremote version`
   still `0.13.4.1`, service still `active`, no `.mcinstall.*` residue.
   Control case against the same mirror with the clean binary: exit 0, installed.
   So the failure was the tampering, not the mirror.
 
-* **Rows 1 and 3 — WSL2-with-systemd and WSL1 detection.**
+- **Rows 1 and 3 — WSL2-with-systemd and WSL1 detection.**
   Row 1: `env=wsl2`, `init=systemd-user`, `supervised+boot`, unit created,
   `systemctl --user is-active` → `active`, `Linger=yes`, daemon running as
   PID 321 **inside WSL**. Linger under WSL's systemd works.
   Row 3: `env=wsl1` correctly matched from osrelease `4.4.0-26100-Microsoft`,
   and the WSL1-specific "upgrade to WSL2" advisory printed. Exit 0.
 
-* **Nested virtualization on a virtual EC2 instance** — the corrected premise of
+- **Nested virtualization on a virtual EC2 instance** — the corrected premise of
   MADR 0098, validated end to end. `m8i.xlarge` with
   `CpuOptions.NestedVirtualization=enabled`, `HypervisorPresent=True`, WSL2
   running kernel `6.18.33.2-microsoft-standard-WSL2`. No bare metal, ~$0.40/hr.

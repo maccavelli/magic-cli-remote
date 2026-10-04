@@ -2,7 +2,8 @@
 
 Phase 1 uses **Headscale/Tailscale only** (no vendor phone-home required for the app path). The phone and the host running `mcremote` must be on the **same tailnet**.
 
-**Important:** Headscale does **not** reverse-proxy or “forward” to mcremote. It only coordinates the mesh (login, keys, IPs, policy). After join, the phone opens **TCP 7531 on the host’s tailnet IP** (WireGuard), not on Headscale’s HTTPS port.
+**Important:** Headscale does **not** reverse-proxy or “forward” to mcremote. It only coordinates the mesh (login, keys, IPs, policy). After join, the phone opens **TCP 7531 on the host’s tailnet IP**
+(WireGuard), not on Headscale’s HTTPS port.
 
 ```text
 Phone ──HTTPS :443──► Headscale (control plane only)
@@ -40,7 +41,8 @@ Optional (not required for control plane): records under MagicDNS base are manag
 
 Wait until the name resolves from the public internet (phone LTE DNS or an external checker) to **exactly** this host’s public IP.
 
-**Split-horizon / VPC DNS:** On this AWS host, the VPC resolver (`10.10.0.2`) serves a private view of `lallygag.net` that may **not** include `headscale` even when public DNS does. That does **not** block Let’s Encrypt (validators use public DNS). For same-host tools (`curl`, `tailscale up`), either:
+**Split-horizon / VPC DNS:** On this AWS host, the VPC resolver (`10.10.0.2`) serves a private view of `lallygag.net` that may **not** include `headscale` even when public DNS does. That does **not**
+block Let’s Encrypt (validators use public DNS). For same-host tools (`curl`, `tailscale up`), either:
 
 ```bash
 # one-line local override (already used on the utility box)
@@ -196,7 +198,8 @@ sudo tailscale up \
   --accept-dns=false
 ```
 
-On the same box as Headscale, `http://127.0.0.1:8080` can work for join **only if** Headscale still serves plain HTTP locally; after pure HTTPS `server_url`, use the public `https://…` URL (or the documented local socket/CLI paths).
+On the same box as Headscale, `http://127.0.0.1:8080` can work for join **only if** Headscale still serves plain HTTP locally; after pure HTTPS `server_url`, use the public `https://…` URL (or the
+documented local socket/CLI paths).
 
 ```bash
 tailscale status

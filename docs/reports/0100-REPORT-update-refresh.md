@@ -26,16 +26,18 @@ unchanged at the end — same unit directory, `mcremote.service` still `active`,
 Scratch unit installed, started, then edited on disk with no reload — exactly
 what `update` does today:
 
-    1. loaded Description after install : 0100 probe v1
-    2. NeedDaemonReload after edit      : yes
-    3. restart WITHOUT daemon-reload:
-         Warning: The unit file, source configuration file or drop-ins of
-         mc0100probe.service changed on disk. Run 'systemctl --user
-         daemon-reload' to reload units.
-       loaded Description now           : 0100 probe v1
-       on-disk Description              : 0100 probe v2
-    4. restart WITH daemon-reload:
-       loaded Description now           : 0100 probe v2
+```text
+1. loaded Description after install : 0100 probe v1
+2. NeedDaemonReload after edit      : yes
+3. restart WITHOUT daemon-reload:
+     Warning: The unit file, source configuration file or drop-ins of
+     mc0100probe.service changed on disk. Run 'systemctl --user
+     daemon-reload' to reload units.
+   loaded Description now           : 0100 probe v1
+   on-disk Description              : 0100 probe v2
+4. restart WITH daemon-reload:
+   loaded Description now           : 0100 probe v2
+```
 
 The restart *succeeds* and runs the old definition. That is the failure mode:
 not an error, a silent no-op.
@@ -49,20 +51,22 @@ reloads unconditionally rather than gating on it.
 `mcrelay.service` is `LoadState=not-found` on this host, so an isolated copy of
 the binary reproduces the case without touching anything live:
 
-    $ cp ~/.local/bin/mcrelay /tmp/mc0100/f3/mcrelay
-    $ /tmp/mc0100/f3/mcrelay update --force --yes
-    latest release: v0.13.7 (base 0.13.7)
-    local version:  0.13.7.1
-    downloading mcrelay-linux-amd64-0.13.7.1 …
-    stopping mcrelay service
-    stop: … exit status 5 (Failed to stop mcrelay.service: Unit mcrelay.service
-          not loaded.) (continuing)
-    starting mcrelay service
-    restored previous binary from .prev
-    start service: … exit status 5 (Failed to start mcrelay.service: Unit
-          mcrelay.service not found.)
-    error: start service: …
-    EXIT=1
+```text
+$ cp ~/.local/bin/mcrelay /tmp/mc0100/f3/mcrelay
+$ /tmp/mc0100/f3/mcrelay update --force --yes
+latest release: v0.13.7 (base 0.13.7)
+local version:  0.13.7.1
+downloading mcrelay-linux-amd64-0.13.7.1 …
+stopping mcrelay service
+stop: … exit status 5 (Failed to stop mcrelay.service: Unit mcrelay.service
+      not loaded.) (continuing)
+starting mcrelay service
+restored previous binary from .prev
+start service: … exit status 5 (Failed to start mcrelay.service: Unit
+      mcrelay.service not found.)
+error: start service: …
+EXIT=1
+```
 
 Post-state: the binary is byte-identical to before —
 `sha256 687d9e61…` both sides, version unchanged. The download and the swap both
@@ -71,10 +75,12 @@ succeeded; the update then undid them and reported failure. Every
 
 ## P0.3 — the backup file is inert
 
-    5. daemon-reload with mc0100probe.service.prev present:
-       exit=0
-       list-unit-files matching prev    : 0
-       journal complaints               : 0
+```text
+5. daemon-reload with mc0100probe.service.prev present:
+   exit=0
+   list-unit-files matching prev    : 0
+   journal complaints               : 0
+```
 
 `<unit>.service.prev` beside the unit is safe. The design's backup location
 stands; no move to `$XDG_STATE_HOME` is needed.
@@ -84,40 +90,48 @@ stands; no move to `$XDG_STATE_HOME` is needed.
 This was not in the plan. It came out of comparing the installed unit against
 what the **same binary version** renders now:
 
-    $ diff ~/.config/systemd/user/mcremote.service <(mcremote setup-service --print-only)
-    45c45
-    < Environment=PATH=/opt/homebrew/bin:…/.local/flutter/bin:…/.local/go/bin:…
-    ---
-    > Environment=PATH=/opt/homebrew/bin:…/.local/flutter/bin:…/.cache/kilo/bin:…
-    58c58,59
-    < # Hardening (user-unit safe)
-    ---
-    > # Hardening (user-unit safe). On by default; set any of these to false
-    > # in a drop-in to disable. Do not omit them from this template.
+```text
+$ diff ~/.config/systemd/user/mcremote.service <(mcremote setup-service --print-only)
+45c45
+< Environment=PATH=/opt/homebrew/bin:…/.local/flutter/bin:…/.local/go/bin:…
+---
+> Environment=PATH=/opt/homebrew/bin:…/.local/flutter/bin:…/.cache/kilo/bin:…
+58c58,59
+< # Hardening (user-unit safe)
+---
+> # Hardening (user-unit safe). On by default; set any of these to false
+> # in a drop-in to disable. Do not omit them from this template.
+```
 
 Two differences, from two different causes:
 
-* The hardening comment is **genuine template drift** — the unit was written
+- The hardening comment is **genuine template drift** — the unit was written
   2026-08-15 by an older binary. This is the class of change a refresh exists to
   apply, and a byte comparison finds it correctly.
-* The `PATH` line is **not** drift. `servicePathEnv` (`setup.go:804-833`) builds
+- The `PATH` line is **not** drift. `servicePathEnv` (`setup.go:804-833`) builds
   mcremote's PATH by prepending tool prefixes to `os.Getenv("PATH")`, so the
   rendered unit is a function of *whoever runs the render*:
 
-      caller PATH = ambient    -> Environment=PATH=/opt/homebrew/bin:…/.local/share/mise/shims:…
-      caller PATH=/usr/bin:/bin -> Environment=PATH=/usr/local/bin:/opt/homebrew/bin:…
+```text
+caller PATH = ambient    -> Environment=PATH=/opt/homebrew/bin:…/.local/share/mise/shims:…
+caller PATH=/usr/bin:/bin -> Environment=PATH=/usr/local/bin:/opt/homebrew/bin:…
+```
 
   `mcrelay` is immune — its PATH is a fixed closed set (MADR 0091 D1):
 
-      Environment=PATH=/home/mac/.local/bin:/usr/local/bin:/usr/bin:/bin
+```text
+Environment=PATH=/home/mac/.local/bin:/usr/local/bin:/usr/bin:/bin
+```
 
   identical under both callers.
 
 `XDG_RUNTIME_DIR` behaves the same way, and worse — it disappears entirely:
 
-    $ diff a.service <(env -u XDG_RUNTIME_DIR mcremote setup-service --print-only)
-    50d49
-    < Environment=XDG_RUNTIME_DIR=/run/user/1000
+```text
+$ diff a.service <(env -u XDG_RUNTIME_DIR mcremote setup-service --print-only)
+50d49
+< Environment=XDG_RUNTIME_DIR=/run/user/1000
+```
 
 ### Why this changes the design
 
@@ -149,11 +163,13 @@ alone; `setup-service --force` remains the way to re-derive.
 For reproduction. The F2 probe was a throwaway script around a scratch unit —
 not committed; its full output is quoted above.
 
-    ssh <linux-host> 'systemctl --user show -p LoadState --value mcrelay.service'
-    ssh <linux-host> 'diff ~/.config/systemd/user/mcremote.service \
-                     <(mcremote setup-service --print-only)'
-    ssh <linux-host> 'env PATH=/usr/bin:/bin ~/.local/bin/mcremote setup-service --print-only'
-    ssh <linux-host> 'env -u XDG_RUNTIME_DIR ~/.local/bin/mcremote setup-service --print-only'
+```text
+ssh <linux-host> 'systemctl --user show -p LoadState --value mcrelay.service'
+ssh <linux-host> 'diff ~/.config/systemd/user/mcremote.service \
+                 <(mcremote setup-service --print-only)'
+ssh <linux-host> 'env PATH=/usr/bin:/bin ~/.local/bin/mcremote setup-service --print-only'
+ssh <linux-host> 'env -u XDG_RUNTIME_DIR ~/.local/bin/mcremote setup-service --print-only'
+```
 
 ## Phase 7 — host verification of the implemented fix
 
@@ -179,20 +195,22 @@ unchanged and `active`, `NeedDaemonReload=no`, `mcrelay.service` `not-found`.
 A real `mcrelay setup-service` install was deliberately regressed to the old
 template shape, then cleared by `--refresh`:
 
-    == 2. inject the 0099 F4a directives ==
-       ActiveState=activating SubState=auto-restart NRestarts=0
-    Failed to drop capabilities: Operation not permitted
-    Failed at step CAPABILITIES spawning /home/mac/.local/bin/mcrelay: Operation not permitted
+```text
+== 2. inject the 0099 F4a directives ==
+   ActiveState=activating SubState=auto-restart NRestarts=0
+Failed to drop capabilities: Operation not permitted
+Failed at step CAPABILITIES spawning /home/mac/.local/bin/mcrelay: Operation not permitted
 
-    == 3. setup-service --refresh ==
-    service definition refreshed: …/mcrelay.service (previous kept at …mcrelay.service.prev)
-    warning: the definition runs /home/mac/.local/bin/mcrelay, not this binary (…)
-       directive lines in the new unit : 0
-       directive lines in .prev        : 2
+== 3. setup-service --refresh ==
+service definition refreshed: …/mcrelay.service (previous kept at …mcrelay.service.prev)
+warning: the definition runs /home/mac/.local/bin/mcrelay, not this binary (…)
+   directive lines in the new unit : 0
+   directive lines in .prev        : 2
 
-    == 4. restart on the refreshed unit ==
-       ActiveState=active SubState=running NRestarts=0
-       mcremote (untouched): active
+== 4. restart on the refreshed unit ==
+   ActiveState=active SubState=running NRestarts=0
+   mcremote (untouched): active
+```
 
 (The initial grep for "PrivateDevices\|RestrictNamespaces" matched 2 lines in
 the refreshed unit — both in the template's own explanatory comment, not a
@@ -208,33 +226,39 @@ instead of silently rewriting to the wrong path.
 
 Using a scratch `XDG_CONFIG_HOME` so the real unit was never touched:
 
-    == 4. baked options + --env survive ==
-       mode after setup      : 600
-    service definition refreshed: …
-       --listen-port 9099 kept : 1
-       Environment=K=V kept    : 1
-       stale directive gone    : 0
-       mode after refresh      : 600
+```text
+== 4. baked options + --env survive ==
+   mode after setup      : 600
+service definition refreshed: …
+   --listen-port 9099 kept : 1
+   Environment=K=V kept    : 1
+   stale directive gone    : 0
+   mode after refresh      : 600
+```
 
 ### C3 — a hand-edited unit is kept, byte-for-byte
 
-    == 5. hand-edited unit is kept ==
-    service definition kept: … — carries ExecStartPre=, which setup-service
-    never writes; refresh it with: mcremote setup-service --force
-       file byte-identical: yes
+```text
+== 5. hand-edited unit is kept ==
+service definition kept: … — carries ExecStartPre=, which setup-service
+never writes; refresh it with: mcremote setup-service --force
+   file byte-identical: yes
+```
 
 ### C7 / F3 — the original bug, on the fixed binary
 
 Same reproduction as Phase 0 §F3, now against the 0100 build:
 
-    latest release: v0.13.7 (base 0.13.7)
-    local version:  0.13.7.99.g0100test
-    downloading mcrelay-linux-amd64-0.13.7.1 …
-    service definition refresh failed: … setup-service --refresh: exit status 1
-      (error: unknown flag: --refresh) (continuing)
-    binary installed at /tmp/mc0100p7/f3/mcrelay (restart the service yourself if needed)
-    reinstalled mcrelay at v0.13.7
-    EXIT=0
+```text
+latest release: v0.13.7 (base 0.13.7)
+local version:  0.13.7.99.g0100test
+downloading mcrelay-linux-amd64-0.13.7.1 …
+service definition refresh failed: … setup-service --refresh: exit status 1
+  (error: unknown flag: --refresh) (continuing)
+binary installed at /tmp/mc0100p7/f3/mcrelay (restart the service yourself if needed)
+reinstalled mcrelay at v0.13.7
+EXIT=0
+```
 
 The refresh step failed as expected — the *downloaded* release binary
 (v0.13.7.1) predates `--refresh`, exactly the downgrade path Phase 4's tests
@@ -245,12 +269,14 @@ version now `0.13.7.1`).
 
 ### C10 — environment pinning under a hostile caller
 
-    == 7. env pinning: real mcrelay unit, hostile caller environment ==
-    (env -i HOME=... USER=... PATH=/usr/bin:/bin, no XDG_RUNTIME_DIR)
-    service definition unchanged: …/mcrelay.service
-       PATH line unchanged: yes
-       XDG_RUNTIME_DIR lines: 1
-       mcrelay still active: active
+```text
+== 7. env pinning: real mcrelay unit, hostile caller environment ==
+(env -i HOME=... USER=... PATH=/usr/bin:/bin, no XDG_RUNTIME_DIR)
+service definition unchanged: …/mcrelay.service
+   PATH line unchanged: yes
+   XDG_RUNTIME_DIR lines: 1
+   mcrelay still active: active
+```
 
 Confirms the Phase 0 F4 fix holds against the actual defect it was written for:
 a refresh run from a stripped environment neither rewrote `PATH` nor dropped
