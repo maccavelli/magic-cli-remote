@@ -345,6 +345,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0180 | PLAN | Implement closing 0175 leftovers and making docs gates fail the merge | [0180-PLAN-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-PLAN-check-records-is-a-preflight-and-ci-gate.md) |
 | 0181 | MADR | Make mcremote message size configurable | [0181-MADR-configurable-mcremote-message-size.md](decisions/0181-MADR-configurable-mcremote-message-size.md) |
 | 0181 | PLAN | Implement configurable mcremote message size | [0181-PLAN-configurable-mcremote-message-size.md](decisions/0181-PLAN-configurable-mcremote-message-size.md) |
+| 0182 | MADR | Match wrapped protocol event-type lines without retagging | [0182-MADR-protocol-event-line-continuation.md](decisions/0182-MADR-protocol-event-line-continuation.md) |
+| 0182 | PLAN | PLAN 0182 — Match wrapped protocol event-type lines | [0182-PLAN-protocol-event-line-continuation.md](decisions/0182-PLAN-protocol-event-line-continuation.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
