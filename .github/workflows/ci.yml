@@ -73,6 +73,15 @@ jobs:
           major="$(node -p "process.versions.node.split('.')[0]")"
           test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
 
+      # MADR 0180 / 0170 D3. Numbered records and user-facing markdownlint
+      # (D6) on this linux go job only. Windows, Flutter, and ci-windows
+      # do not run these. Node 24 is already on PATH for npx.
+      - name: Check records
+        run: make check-records
+
+      - name: Markdownlint (user-facing docs)
+        run: make markdownlint-docs
+
       - name: Set up Go
         # v6 runs natively on node24 (v5 still declares node20)
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
