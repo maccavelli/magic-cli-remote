@@ -388,7 +388,12 @@ test-all:
 # The release-binary build runs with the version ledger disabled: preflight
 # proves the ldflags/cross-compile path still works without claiming a
 # build/<BASE>.<N> serial or pushing a tag.
+#
+# Docs gates (MADR 0180 D1/D6): check-records and markdownlint-docs. CI
+# wiring for the same pair is P7.
 preflight:
+	@echo "==> check-records"; $(MAKE) --no-print-directory check-records
+	@echo "==> markdownlint-docs"; $(MAKE) --no-print-directory markdownlint-docs
 	@set -e; \
 	echo "==> gofmt"; \
 	unformatted="$$(gofmt -l cmd internal)"; \
