@@ -7,7 +7,8 @@ Modes:
                  placement, and relative markdown links
   --check-all    --check plus link checks for unnumbered docs
                  (docs/guides/**, docs/README.md, docs/architecture.md,
-                 root README.md)
+                 root README.md, and apps/mobile/docs/ README, architecture,
+                 and guides/** when those paths exist)
   --write-index  regenerate the records ToC in docs/README.md between the
                  generated markers; never hand-edit between them
 
@@ -31,8 +32,8 @@ LINK_RE = re.compile(r"\]\(([^)]+)\)")
 SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 KIND_ORDER = {"MADR": 0, "PLAN": 1, "REPORT": 2, "GATES": 3}
-KIND_DIR = {"MADR": "docs/decisions", "PLAN": "docs/decisions",
-            "REPORT": "docs/reports", "GATES": "docs/reports"}
+KIND_SUFFIX = {"MADR": "docs/decisions", "PLAN": "docs/decisions",
+               "REPORT": "docs/reports", "GATES": "docs/reports"}
 SKIP_PARTS = {".git", "node_modules", "vendor", "dist", ".pub-cache",
               ".pub", ".symlinks", "build", ".dart_tool", ".gradle",
               ".idea", ".vscode"}
@@ -115,10 +116,11 @@ def check_structure(records: list[Record]) -> None:
             warn(f"number {num} has a GATES but no PLAN: "
                  + ", ".join(r.rel for r in gates))
     for r in records:
-        expected = KIND_DIR[r.kind]
+        expected = KIND_SUFFIX[r.kind]
         parent = r.path.parent.relative_to(REPO).as_posix()
-        if parent != expected:
-            warn(f"record outside its directory: {r.rel} (expected {expected}/)")
+        if parent != expected and not parent.endswith("/" + expected):
+            warn(f"record outside its directory: {r.rel} "
+                 f"(expected a path ending in {expected}/)")
 
 
 def strip_code_spans(line: str) -> str:
@@ -169,6 +171,11 @@ def unnumbered_docs() -> list[Path]:
         if rel == "README.md" or rel in ("docs/README.md", "docs/architecture.md"):
             out.append(p)
         elif rel.startswith("docs/guides/"):
+            out.append(p)
+        elif rel in ("apps/mobile/docs/README.md",
+                     "apps/mobile/docs/architecture.md"):
+            out.append(p)
+        elif rel.startswith("apps/mobile/docs/guides/"):
             out.append(p)
     return out
 

@@ -280,9 +280,10 @@ check-host-target:
 		exit 1; \
 	fi
 
-# Docs records gate (MADR 0175): numbered records and unnumbered docs must have
-# no broken relative markdown link. Errors fail the gate; warnings (known
-# numbering debt, records mid-move) are advisory.
+# Docs records gate (MADR 0175 / 0180): numbered records and unnumbered docs
+# must have no broken relative markdown link. Placement is any docs/decisions
+# or docs/reports tree. Errors fail the gate; pairing/placement warnings are
+# advisory.
 check-records:
 	@echo "==> records and docs links"; python3 scripts/check_records.py --check-all
 
