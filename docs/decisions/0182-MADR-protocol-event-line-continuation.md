@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-04
 decision-makers: Project Owner
 consulted: none
@@ -140,3 +140,22 @@ git ls-remote --tags origin refs/tags/v0.20.2
 
 - Whether to rebase the local docs commits onto fetched `origin/master` before any push. Not done here. A push of this `master` would not fast-forward.
 - Whether to run the deferred retag after the test fix is on current `origin/master` and CI is green. Not a phase of this plan.
+
+## Amendment — 2026-10-04: v0.20.2 remains; a later release is a new tag
+
+This supersedes the later step in F7 and D3 that said to delete and recreate annotated tag `v0.20.2`. F7 and D3 are left as written so the proposal stays visible. They are not the next action.
+
+- `v0.20.2` remains. It keeps peeling to `3a49f541be1a34c6187d903827da541a74fa37df`.
+- Do not delete, recreate, or move that tag.
+- Any later release is a new tag, created and pushed only under a later explicit instruction. This amendment does not create a tag and does not authorize a push.
+- The open question about running the deferred retag is closed by this amendment. The answer is no. There is no deferred delete-and-recreate.
+
+## Observed — execution results (2026-10-04)
+
+No new test commit was made. The matcher change is the existing `origin/master` commit `27956ea5f23fa00353801153d1b9cf128cc5d58e`, subject `test(protocol): support reflowed event type documentation`. This commit only marks the decision accepted and records that fact. `docs/guides/protocol-v1.md` and `internal/event/event.go` were not edited. Nothing was pushed. `v0.20.2` was not moved.
+
+What the proposal had wrong, recorded rather than rewritten:
+
+- F7's later step was delete-and-recreate of `v0.20.2`. The owner superseded that before this commit. The tag stays. A later release is a new tag. See the amendment above.
+- D1 describes a new edit that stops at the sentence-ending period. That edit was not made here. `27956ea5f23fa00353801153d1b9cf128cc5d58e` already changed the guard, and it stops at the next blank line. On the current guide the blank line follows the period.
+- F6 measured fetched `origin/master` as `82fb0356d6b5f3b03894631f3d8c2b57292e9bd2`. A later fetch, before the rebase that preceded this commit, moved `origin/master` to `27956ea5f23fa00353801153d1b9cf128cc5d58e`. That object still contains `82fb0356d6b5f3b03894631f3d8c2b57292e9bd2` and `3a49f541be1a34c6187d903827da541a74fa37df`.

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: completed
 date: 2026-10-04
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -109,4 +109,32 @@ Rollout of P1 is the test commit on `master`. It does not push and it does not r
 
 ## Deferred (named, so they are not mistaken for oversights)
 
+**Not the next action (2026-10-04).** Do not delete, recreate, or move annotated tag `v0.20.2`. That tag remains and keeps peeling to `3a49f541be1a34c6187d903827da541a74fa37df`. Any later release is a new tag, not a delete or move of `v0.20.2`. The paragraph below is the earlier deferred step. It is superseded by the amendment at the end of this plan.
+
 Recreate annotated tag `v0.20.2` later: land the test fix on current `origin/master` (`82fb0356d6b5f3b03894631f3d8c2b57292e9bd2`), wait for green CI, then delete and recreate the annotated tag. That is the retag already chosen. It is deferred, not an executable phase. This plan does not add a phase that retags. Re-measured this pass after `git fetch origin`: the previous local `origin/master` ref was stale at `95b385652a9201d3c298d2ff25b528b2e7e9021f`, which is why `3a49f541be1a34c6187d903827da541a74fa37df` was missing locally. Fetched `origin/master` contains that commit and the six first-parent commits after it (`a9843f592a74f6070eabb808a18c3c1286645059`, `bc3431dfb87f131e4b624b0960f2b915af5d5af3`, `b5ed5a3062de005b7c3fff6f4a5130a5856c6173`, `ab8122fa79f4b66ad41146af36b99f2e1aefe1d1`, `36772a6f2f1c4e2f9224f5e7715ec89d721b0d6f`, `82fb0356d6b5f3b03894631f3d8c2b57292e9bd2`). `git rev-list --first-parent --count` for that range is 6 (F6, F7). Local `master` is the other side of `95b385652a9201d3c298d2ff25b528b2e7e9021f`: `ef65f5d76462defdde53a9035b66be97e9e0e2ce`, `1e1e9b86ac4dceb2db4a2ef89b65e6a4673ac60e`, `3a59d7c23981ab5006f3ca2adb6efccb0117fa34`, plus this correction commit. Those commits still need a rebase onto fetched `origin/master` before any push. This commit does not rebase. `git push` is not permitted. A push of this `master` would not fast-forward. Recreating an annotated tag on a published name is destructive. This plan does not delete, move, create, or push the existing tag. A later explicit instruction, in the turn that does the work, is required before any tag ref changes and before any rebase.
+
+## Amendment — 2026-10-04: v0.20.2 remains; a later release is a new tag
+
+This supersedes the delete-and-recreate step in the Deferred paragraph above, and the same step as stated in [0182-MADR-protocol-event-line-continuation.md](0182-MADR-protocol-event-line-continuation.md) F7 and D3. Those passages are left as written. They are not the next action.
+
+- Annotated tag `v0.20.2` stays. It keeps peeling to `3a49f541be1a34c6187d903827da541a74fa37df`.
+- This plan does not delete, recreate, move, or push that tag. No phase creates a tag.
+- Any later release is a new tag. Creating or pushing it needs an explicit instruction in the turn that does the work. This amendment is not that instruction.
+- C5 and A4 still forbid retagging inside this plan. Their mention of a later retag of `v0.20.2` is also superseded. There is no deferred delete-and-recreate.
+
+## Execution record (2026-10-04)
+
+This commit is docs only. It does not add a test commit.
+
+P1's matcher is the existing `origin/master` commit `27956ea5f23fa00353801153d1b9cf128cc5d58e`, subject `test(protocol): support reflowed event type documentation`. That commit is already on the rebased base. This commit does not edit `internal/protocol/doc_coverage_test.go`, `internal/event/event.go`, or `docs/guides/protocol-v1.md`.
+
+The matched MADR is `accepted`. This plan is `completed` because that existing commit is the test change and the only executable phase is not being repeated. PLAN status uses `completed`, not `accepted`.
+
+Nothing in this commit was pushed. No tag ref was created, deleted, or moved.
+
+What this plan had wrong, recorded here instead of rewritten into the earlier sections:
+
+- Deferred, and MADR F7 and D3, named a later delete-and-recreate of `v0.20.2` after a new test fix landed on `82fb0356d6b5f3b03894631f3d8c2b57292e9bd2` and CI was green. Before this commit the owner superseded that step. `v0.20.2` remains. A later release is a new tag.
+- The plan describes P1 as a new edit to `TestEventTypesAreDocumented` in a commit that also carries this execution record. That new test commit was not made. The test change is `27956ea5f23fa00353801153d1b9cf128cc5d58e`.
+- P1's written stop was the sentence-ending period. `27956ea5f23fa00353801153d1b9cf128cc5d58e` stops at the next blank line. On the current guide that blank line is the line after the period, so the searched text is the wrapped enumeration. This commit does not change that matcher.
+- The stability rule said this work does not rebase. Local `master` was rebased onto fetched `origin/master` before this docs commit, by instruction. After that fetch, `origin/master` was `27956ea5f23fa00353801153d1b9cf128cc5d58e`, which still contains `82fb0356d6b5f3b03894631f3d8c2b57292e9bd2` and `3a49f541be1a34c6187d903827da541a74fa37df`. This commit still does not push.
