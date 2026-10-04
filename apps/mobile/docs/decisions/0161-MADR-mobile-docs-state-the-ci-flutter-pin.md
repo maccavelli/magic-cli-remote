@@ -176,7 +176,7 @@ git diff --name-only HEAD~1 -- ':!docs/decisions'
 
 * MADR 0127 D7: the lockfile-reproducibility gate this record lines the docs
   up with.
-* [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md):
+* [0160-MADR-remove-goose-cli-support.md](../../../../docs/decisions/0160-MADR-remove-goose-cli-support.md):
   also edits `apps/mobile/README.md` (P3), and relies on a 3.47.2 "Flutter
   host" for its P4.
 

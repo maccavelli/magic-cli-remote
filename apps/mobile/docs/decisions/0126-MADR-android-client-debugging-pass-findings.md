@@ -377,7 +377,7 @@ It becomes wrong the first time a four-part tag is published.
 * Findings differ in kind: F1, F2, F5, F6, F7 are defects with a right answer;
   F3 and F4 are decisions to restate or change. Mixing them into one
   "just fix it" pass would smuggle a decision into an implementation.
-* This repository's convention ([0105](0105-MADR-mutating-work-requires-madr-and-plan.md))
+* This repository's convention ([0105](../../../../docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md))
   is that no source changes until an approved plan exists.
 
 ## Considered Options
@@ -483,10 +483,10 @@ Everything else is confirmable from a build artifact or a unit test.
   MADR 0052 / 0101; it is stale and was not used as a source here.
 * Related records: [0084](0084-MADR-android-app-hardening-and-performance.md) (D3 WAKE_LOCK removal,
   D7 R8/lint, the manifest posture F3 contradicts),
-  [0068](0068-MADR-protocol-v2-reconnect-resilient-transport.md) (D2 advertised deadline, D3 close code 4001),
-  [0065](0065-MADR-update-automation.md) (P4/P5, the installer in F5),
+  [0068](../../../../docs/decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md) (D2 advertised deadline, D3 close code 4001),
+  [0065](../../../../docs/decisions/0065-MADR-update-automation.md) (P4/P5, the installer in F5),
   [0067](0067-MADR-ios-port.md) (why iOS is out of scope for this pass),
-  [0103](0103-MADR-update-tracks-release-build-and-active-service.md)
+  [0103](../../../../docs/decisions/0103-MADR-update-tracks-release-build-and-active-service.md)
   (`NewerPublished`, the F8 note).
 
 ## Amendment — 2026-09-02: the plan is complete; row 4's residual moved to 0130
@@ -494,7 +494,7 @@ Everything else is confirmable from a build artifact or a unit test.
 [The plan](0126-PLAN-android-client-debugging-pass-findings.md) is `complete`.
 All eight findings F1–F8 are addressed, and P7's owner-verification rows 1, 2
 and 3 pass — rows 1 and 2 via
-[0129](0129-MADR-background-alert-delivery-survives-task-removal.md) P6, row 3
+[0129](../../../../docs/decisions/0129-MADR-background-alert-delivery-survives-task-removal.md) P6, row 3
 on 2026-09-02.
 
 **Row 4 is the exception and is recorded as unsatisfied rather than closed.**
@@ -504,7 +504,7 @@ believe it is connected for tens of seconds after its socket dies, and every
 surface that mirrors that belief — including the foreground-service
 notification — repeats it. That is connection liveness, outside F1–F8, and now
 carries its own record:
-[0130](0130-MADR-client-can-sit-connected-with-no-socket.md), parked with the
+[0130](../../../../docs/decisions/0130-MADR-client-can-sit-connected-with-no-socket.md), parked with the
 cause unfound.
 
 Two corrections this record should carry, because both were asserted here or in

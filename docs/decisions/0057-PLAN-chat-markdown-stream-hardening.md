@@ -24,11 +24,11 @@ grounded in the tree at baseline `74e3c49` (`master`, 2026-07-30).
 - **Standards:** [Go sessions](../guides/standards/go/session.md),
   [Go concurrency](../guides/standards/go/concurrency.md),
   [Go testing](../guides/standards/go/testing.md),
-  [mobile networking](../guides/standards/mobile/networking.md),
-  [Flutter](../guides/standards/mobile/flutter.md)
+  [mobile networking](../../apps/mobile/docs/guides/standards/mobile/networking.md),
+  [Flutter](../../apps/mobile/docs/guides/standards/mobile/flutter.md)
 - **Related plans (do not re-open done work):**
   [0024 stream coalescing](0024-MADR-stream-coalescing.md) (shipped for OC/Goose/Codex),
-  [0056 plan](0056-PLAN-mcremote-android-protocol-stack-remediation.md) phases 0–7
+  [0056 plan](../../apps/mobile/docs/decisions/0056-PLAN-mcremote-android-protocol-stack-remediation.md) phases 0–7
   (markdown single engine + max-latency history shipped)
 
 ---

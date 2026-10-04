@@ -5,7 +5,7 @@
 - **Status**: **Implemented 2026-08-04** (software; P0–P5 of the plan, one
   commit per phase, suite green at 709 tests + simulator builds throughout).
   Hardware validation is **parked — no iPhone hardware exists**: Part F rows
-  in [ops-hardware-validation.md](../guides/ops-hardware-validation.md) are authored
+  in [ops-hardware-validation.md](../../../../docs/guides/ops-hardware-validation.md) are authored
   and marked `⏸ no device`; Q1–Q3 below stay open until they run. D3's
   follow-up MADR (background attention) remains undecided by design. The
   iOS shell was scaffolded ahead of this decision (commit `14bdbd0`,
@@ -22,19 +22,19 @@
   relay changes.** The pairing contract (`internal/pairuri/pairuri.go`),
   auth model (0005), and transport policy (0062/0063) are consumed as-is.
 - **Related**:
-  [0005-MADR-client-identity.md](0005-MADR-client-identity.md)
+  [0005-MADR-client-identity.md](../../../../docs/decisions/0005-MADR-client-identity.md)
   (client key must remain PEM-loadable by Dart `SecurityContext` — D-key
   storage constraint carries over),
-  [0004-MADR-certificate-management.md](0004-MADR-certificate-management.md)
+  [0004-MADR-certificate-management.md](../../../../docs/decisions/0004-MADR-certificate-management.md)
   (pin-first trust model),
-  [0063-MADR-connection-liveness-truth.md](0063-MADR-connection-liveness-truth.md)
+  [0063-MADR-connection-liveness-truth.md](../../../../docs/decisions/0063-MADR-connection-liveness-truth.md)
   (verified liveness; iOS suspension makes this the norm, not the edge),
-  [0066-MADR-secure-storage-upgrade-resilience.md](0066-MADR-secure-storage-upgrade-resilience.md)
+  [0066-MADR-secure-storage-upgrade-resilience.md](../../../../docs/decisions/0066-MADR-secure-storage-upgrade-resilience.md)
   (F14 there records the iOS Keychain failure mode as "dormant" — this MADR
   wakes it),
-  [0064-MADR-connect-screen-simplification.md](0064-MADR-connect-screen-simplification.md)
+  [0064-MADR-connect-screen-simplification.md](../../../../docs/decisions/0064-MADR-connect-screen-simplification.md)
   (connect flow gains an iOS local-network first-run step),
-  [0065-MADR-update-automation.md](0065-MADR-update-automation.md)
+  [0065-MADR-update-automation.md](../../../../docs/decisions/0065-MADR-update-automation.md)
   (APK install channel has no iOS analogue — named as a non-port below).
 - **Non-goals**: App Store distribution; background push ("walk away and
   get pinged") — deliberately split out as a follow-up decision (see D3);
@@ -422,7 +422,7 @@ constraints interact with the background answer.
 | F5g | QR pair, speech input (>60 s session behaviour), HEIC image attach, mesh (Tailscale) vs RFC1918 prompt behaviour | hardware (Part F) |
 
 Hardware rows are authored as **Part F** in
-[ops-hardware-validation.md](../guides/ops-hardware-validation.md), parked
+[ops-hardware-validation.md](../../../../docs/guides/ops-hardware-validation.md), parked
 `⏸ no device` until an iPhone exists.
 
 ## Open questions

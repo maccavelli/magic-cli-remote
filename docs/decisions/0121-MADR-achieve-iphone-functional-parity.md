@@ -937,10 +937,10 @@ in Dart" is not evidence.
 
 ### Related project records
 
-* [0067-MADR-ios-port.md](0067-MADR-ios-port.md) — simulator-first port,
+* [0067-MADR-ios-port.md](../../apps/mobile/docs/decisions/0067-MADR-ios-port.md) — simulator-first port,
   foreground lifecycle, Keychain, Local Network prompt, deferred background
   attention, and the still-open hardware matrix.
 * [0068-MADR-protocol-v2-reconnect-resilient-transport.md](0068-MADR-protocol-v2-reconnect-resilient-transport.md) — reconnect/resume foundation this decision preserves.
 * [0070-MADR-deep-dive-debugging-pass.md](0070-MADR-deep-dive-debugging-pass.md) and [0071-MADR-codebase-assessment.md](0071-MADR-codebase-assessment.md) — prior records that identify APNs and iPhone hardware as residual product work.
-* [0101-MADR-android-agent-alert-delivery.md](0101-MADR-android-agent-alert-delivery.md) — the Android alert outcome and timeout/tombstone behavior iPhone must match.
-* [ops-hardware-validation.md](../guides/ops-hardware-validation.md) and [ops-ios-signing.md](../guides/ops-ios-signing.md) — current device and provisioning source of truth.
+* [0101-MADR-android-agent-alert-delivery.md](../../apps/mobile/docs/decisions/0101-MADR-android-agent-alert-delivery.md) — the Android alert outcome and timeout/tombstone behavior iPhone must match.
+* [ops-hardware-validation.md](../guides/ops-hardware-validation.md) and [ops-ios-signing.md](../../apps/mobile/docs/guides/ops-ios-signing.md) — current device and provisioning source of truth.

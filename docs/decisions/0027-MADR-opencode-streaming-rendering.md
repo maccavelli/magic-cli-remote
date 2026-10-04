@@ -8,7 +8,7 @@
 - **Date**: 2026-07-26
 - **Deciders**: Project Owner, Implementer
 - **Related**:
-  - [MADR 0018](./0018-MADR-mobile-chat-performance-action-plan.md) — mobile chat performance (foundational optimizations, now done)
+  - [MADR 0018](../../apps/mobile/docs/decisions/0018-MADR-mobile-chat-performance-action-plan.md) — mobile chat performance (foundational optimizations, now done)
   - [MADR 0024](./0024-MADR-stream-coalescing.md) — daemon-side chunkbuf coalescer
   - [MADR 0014](0014-MADR-sse-reconnect-resync-decision.md) — session resync (history replay path)
   - [MADR 0020](./0020-MADR-opencode-session-tree.md) — session-tree model

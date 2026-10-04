@@ -17,7 +17,7 @@ locations as of 2026-07-28 (`5322e63`).
   `architecture.md`, `dart.md`, `flutter.md`, `android.md`
 - **Related**: [MADR 0045](./0045-MADR-mobile-app-hardening-audit.md) /
   [plan](./0045-PLAN-mobile-app-hardening-audit.md),
-  [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md)
+  [MADR 0014](../../../../docs/decisions/0014-MADR-sse-reconnect-resync-decision.md)
 
 ---
 

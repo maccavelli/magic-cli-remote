@@ -19,7 +19,7 @@
   (`ANDROID_RELEASE_CERT_SHA256`); first signed release **v0.6.6**
   published; developer identity verified and
   `com.maccavelli.magic_cli_remote` registered
-  ([ops-android-signing.md](../guides/ops-android-signing.md)).
+  ([ops-android-signing.md](../../apps/mobile/docs/guides/ops-android-signing.md)).
 
 Line anchors reference the working tree at the time of writing and will
 drift.

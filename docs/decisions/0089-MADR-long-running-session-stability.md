@@ -50,7 +50,7 @@ Related: [0062](0062-MADR-phone-transport-selection.md) (DialEpisode
 failover), [0063](0063-MADR-connection-liveness-truth.md) (app-ping /
 read deadline), [0068](0068-MADR-protocol-v2-reconnect-resilient-transport.md)
 (resume window), [0019](0019-MADR-opencode-process-management-plan.md)
-(KillMode=control-group), [0084](0084-MADR-android-app-hardening-and-performance.md)
+(KillMode=control-group), [0084](../../apps/mobile/docs/decisions/0084-MADR-android-app-hardening-and-performance.md)
 (wake lock removed), [0072](0072-MADR-phone-reconnect-and-provider-timeout-incident.md)
 (prior reconnect incident), [0075](0075-MADR-kilo-cli-provider.md) /
 [0088](0088-MADR-kilo-7.4.22-surface-parity.md) (kilo dialect; `background_process`

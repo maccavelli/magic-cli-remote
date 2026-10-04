@@ -13,8 +13,8 @@
   `internal/provider`, and `docs/guides/protocol-v1.md`
 - **Related**: [MADR 0045](./0045-MADR-mobile-app-hardening-audit.md) /
   [plan](./0045-PLAN-mobile-app-hardening-audit.md),
-  [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md),
-  [MADR 0044](./0044-MADR-auto-approve-modes.md)
+  [MADR 0014](../../../../docs/decisions/0014-MADR-sse-reconnect-resync-decision.md),
+  [MADR 0044](../../../../docs/decisions/0044-MADR-auto-approve-modes.md)
 - **Standards applied**: `/home/mac/standards/mobile` v3.12.2-v3 (2026-07-28) —
   `networking.md`, `architecture.md`, `dart.md`, `flutter.md`, `android.md`
 - **Companion plan**: [0046-PLAN-mobile-debug-pass.md](./0046-PLAN-mobile-debug-pass.md)

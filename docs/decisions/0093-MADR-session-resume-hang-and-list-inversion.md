@@ -58,7 +58,7 @@ Related: [0068](0068-MADR-protocol-v2-reconnect-resilient-transport.md)
 (`visibleTo` / owner list), [0089](0089-MADR-long-running-session-stability.md)
 (CloseAll + durable rows), [0053](0053-MADR-grok-auto-mode-silent-arm.md)
 (synthetic `auto` + `emitArmedMode`), [0051](0051-MADR-auto-approve-chat-noise.md)
-(control-event delivery), [0056](0056-MADR-mcremote-android-protocol-stack-audit.md)
+(control-event delivery), [0056](../../apps/mobile/docs/decisions/0056-MADR-mcremote-android-protocol-stack-audit.md)
 (H-6 complete snapshots).
 
 ## Decision Drivers

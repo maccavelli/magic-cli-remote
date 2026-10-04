@@ -14,11 +14,11 @@ current source locations as of 2026-07-28 (`ff4b2c1`).
   H8 authoritative pending-ask reconciliation + protocol docs
 - **Standards**: `/home/mac/standards/mobile` v3.12.2-v3 — `networking.md`,
   `architecture.md`, `dart.md`, `flutter.md`, `android.md`
-- **Related**: [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md),
-  [MADR 0015](./0015-MADR-mcrelay-transport-security.md),
+- **Related**: [MADR 0014](../../../../docs/decisions/0014-MADR-sse-reconnect-resync-decision.md),
+  [MADR 0015](../../../../docs/decisions/0015-MADR-mcrelay-transport-security.md),
   [MADR 0042](./0042-MADR-android-app-remediation.md) /
   [plan](./0042-PLAN-android-app-remediation.md),
-  [MADR 0044](./0044-MADR-auto-approve-modes.md)
+  [MADR 0044](../../../../docs/decisions/0044-MADR-auto-approve-modes.md)
 
 ---
 
@@ -1680,7 +1680,7 @@ reclassified product follow-ups rather than correctness gaps.
 ## 6. References
 
 - [MADR 0045 — findings](./0045-MADR-mobile-app-hardening-audit.md)
-- [protocol-v1.md](../guides/protocol-v1.md) — frame limits, `session_title`, `timed_out`
-- [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md) — resync precedent
-- [MADR 0015](./0015-MADR-mcrelay-transport-security.md) — relay threat model
+- [protocol-v1.md](../../../../docs/guides/protocol-v1.md) — frame limits, `session_title`, `timed_out`
+- [MADR 0014](../../../../docs/decisions/0014-MADR-sse-reconnect-resync-decision.md) — resync precedent
+- [MADR 0015](../../../../docs/decisions/0015-MADR-mcrelay-transport-security.md) — relay threat model
 - Commit `00d15b7` — permission modal loop fix (mirror for H9)

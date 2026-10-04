@@ -18,7 +18,7 @@
     vocabulary (goose command table, verified from real behaviour)
   - [0025-PLAN-goose-provider.md](./0025-PLAN-goose-provider.md) — pre-implementation
     plan / spike notes (historical; this MADR is the source of truth for as-built)
-  - [0026-MADR-mobile-goose-support.md](./0026-MADR-mobile-goose-support.md) — mobile app
+  - [0026-MADR-mobile-goose-support.md](../../apps/mobile/docs/decisions/0026-MADR-mobile-goose-support.md) — mobile app
     surface for selecting goose
   - [protocol-v1.md](../guides/protocol-v1.md) — Phone control plane (goose advertised
     commands and permission modes)
@@ -234,7 +234,7 @@ A thin spec package above `acphttp`, exactly as `grok` is a thin spec above
   warning).
 - grok remains the preferred auto-select on the phone when multiple providers
   are ready; the user picks goose from the provider menu for a session.
-- See [0026-MADR-mobile-goose-support.md](./0026-MADR-mobile-goose-support.md) for the
+- See [0026-MADR-mobile-goose-support.md](../../apps/mobile/docs/decisions/0026-MADR-mobile-goose-support.md) for the
   one-line preferred-provider list change on mobile.
 
 ### 3.4 Prewarm off by default

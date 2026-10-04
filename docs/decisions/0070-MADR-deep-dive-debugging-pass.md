@@ -20,7 +20,7 @@
 - **Related**:
   [0068](0068-MADR-protocol-v2-reconnect-resilient-transport.md) /
   [0069](0069-MADR-macos-permissions-and-sandbox-parity.md) (recent
-  closes), [0067](0067-MADR-ios-port.md) A1, [0065](0065-MADR-update-automation.md)
+  closes), [0067](../../apps/mobile/docs/decisions/0067-MADR-ios-port.md) A1, [0065](0065-MADR-update-automation.md)
   (unbuilt product), [0063](0063-MADR-connection-liveness-truth.md)
   (status drift), [0048](0048-MADR-codex-sandbox-namespace.md)
   (unfixed host-class bug),

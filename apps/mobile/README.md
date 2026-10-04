@@ -3,6 +3,8 @@
 Flutter companion app for the `mcremote` daemon. **Android is the product
 target**; a Linux desktop target is included for local development.
 
+Documentation: [docs/README.md](docs/README.md).
+
 ## Features
 
 - Connect via **Enter code** (8-char, 5 min), QR scan, or long-lived token

@@ -5,7 +5,7 @@ release ships an APK signed with one stable upload key, which is the
 prerequisite for in-place phone updates (Settings → **App update**,
 0065 P3–P5), Play Protect reputation, and package-name registration under
 the verified developer account. See also
-[ops-hardware-validation.md](ops-hardware-validation.md) Part D.
+[ops-hardware-validation.md](../../../../docs/guides/ops-hardware-validation.md) Part D.
 
 The CI side is already wired (`.github/workflows/ci.yml`, **android-apk job,
 tag-only** — PRs and branch pushes do not build the APK; use `make apk`
@@ -105,7 +105,7 @@ install keeps working.
 Post-incident notes (MADR 0066, 2026-08-02): an in-place update is
 expected to **preserve pairing** from the first post-0066 release onward
 (hardware rows E1/E2 in
-[ops-hardware-validation.md](ops-hardware-validation.md)). If Android's
+[ops-hardware-validation.md](../../../../docs/guides/ops-hardware-validation.md)). If Android's
 keystore still resets the secret store across an update, the app now shows
 one "Stored credentials were reset" banner and recovers with a re-pair —
 preferences and pinned paths survive; never clear app data for this. After

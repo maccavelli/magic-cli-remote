@@ -1369,7 +1369,7 @@ Local APK (debug-signed for sideload):
 ```
 
 Release signing for CI/canonical tags:
-[docs/guides/ops-android-signing.md](docs/guides/ops-android-signing.md).
+[docs/guides/ops-android-signing.md](apps/mobile/docs/guides/ops-android-signing.md).
 
 ---
 
@@ -1515,9 +1515,9 @@ Language/style guides live under `docs/guides/standards/`.
 | [docs/guides/ops-mcrelay.md](docs/guides/ops-mcrelay.md) | mcrelay ops: systemd/launchd, LE, secret rotation, smoke |
 | [docs/guides/headscale.md](docs/guides/headscale.md) | Mesh grants & pairing |
 | [docs/guides/iam-route53-acme.md](docs/guides/iam-route53-acme.md) | Route 53 IAM for ACME DNS-01 |
-| [docs/guides/ops-android-signing.md](docs/guides/ops-android-signing.md) | Release APK keystore / CI secrets |
+| [docs/guides/ops-android-signing.md](apps/mobile/docs/guides/ops-android-signing.md) | Release APK keystore / CI secrets |
 | [apps/mobile/README.md](apps/mobile/README.md) | Flutter companion runbook |
-| [docs/guides/mobile-profiling.md](docs/guides/mobile-profiling.md) | Android profile mode / DevTools |
+| [docs/guides/mobile-profiling.md](apps/mobile/docs/guides/mobile-profiling.md) | Android profile mode / DevTools |
 | [docs/guides/chat-performance.md](docs/guides/chat-performance.md) | Mobile chat scroll/stream notes |
 
 ### Architecture & key decisions
@@ -1544,7 +1544,7 @@ Language/style guides live under `docs/guides/standards/`.
 | [docs/decisions/0062-MADR-phone-transport-selection.md](docs/decisions/0062-MADR-phone-transport-selection.md) | Phone transport selection |
 | [docs/decisions/0063-MADR-connection-liveness-truth.md](docs/decisions/0063-MADR-connection-liveness-truth.md) | Connection liveness |
 | [docs/decisions/0065-MADR-update-automation.md](docs/decisions/0065-MADR-update-automation.md) | Update automation |
-| [docs/decisions/0067-MADR-ios-port.md](docs/decisions/0067-MADR-ios-port.md) | iOS port of the mobile companion (software-complete; hardware validation parked) |
+| [docs/decisions/0067-MADR-ios-port.md](apps/mobile/docs/decisions/0067-MADR-ios-port.md) | iOS port of the mobile companion (software-complete; hardware validation parked) |
 | [docs/decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md](docs/decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md) | Protocol v2: negotiation, liveness, resume, gap signalling (shipped) |
 | [docs/decisions/0069-MADR-macos-permissions-and-sandbox-parity.md](docs/decisions/0069-MADR-macos-permissions-and-sandbox-parity.md) | macOS permissions / sandbox parity (TCC, full-access mode) |
 | [docs/decisions/0074-MADR-remote-provider-auth-from-phone.md](docs/decisions/0074-MADR-remote-provider-auth-from-phone.md) | Remote provider auth from phone (proposed; not yet implemented) |

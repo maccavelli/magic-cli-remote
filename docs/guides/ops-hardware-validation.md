@@ -333,7 +333,7 @@ iPhone exists** — every P0–P4 behaviour they exercise is implemented and
 unit/widget-tested; what is missing is real iOS: the permission prompts,
 true suspension, the Keychain surviving an actual delete/reinstall, and the
 camera/speech hardware. Requires a paid-or-free developer team on the Mac
-([ops-ios-signing.md](ops-ios-signing.md)) and the daemon reachable from
+([ops-ios-signing.md](../../apps/mobile/docs/guides/ops-ios-signing.md)) and the daemon reachable from
 the phone's network.
 
 | # | Scenario | Expected | Pass |

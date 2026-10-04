@@ -467,7 +467,7 @@ Trigger: **a published `11.0.x` whose `android/build.gradle` no longer pins
 Re-checked 2026-09-01: open, unmerged, last updated 2026-08-30; 11.0.0 is still
 the newest published version. Full analysis, including why the
 credential-migration risk does *not* apply to this app, is in
-[0066](0066-MADR-secure-storage-upgrade-resilience.md)'s 2026-09-01 amendment —
+[0066](../../../../docs/decisions/0066-MADR-secure-storage-upgrade-resilience.md)'s 2026-09-01 amendment —
 which is also where the "not a release we will take" preference now lives, since
 the `dependabot.yml` comment that used to hold it is gone.
 
@@ -753,7 +753,7 @@ is worth more because it is fragile on *any* SDK, not just this router.
 
 **Scope added to this phase:** `apps/mobile/lib/features/chat/chat_screen.dart`,
 and an amendment to
-[0095](0095-MADR-post-0094-assessment-and-debug-pass.md) (its D4 probe's S2 row
+[0095](../../../../docs/decisions/0095-MADR-post-0094-assessment-and-debug-pass.md) (its D4 probe's S2 row
 is no longer reachable). 0094's decisions are untouched — the pop /
 `didPopNext` path is unchanged.
 
@@ -890,7 +890,7 @@ touch this app. D4's own criterion decides it: a release requiring an API level
 the pinned toolchain does not use is not "supported by the CI/CD".
 
 0127 D4 amended (two majors of three) and
-[0066](0066-MADR-secure-storage-upgrade-resilience.md) amended with the D1
+[0066](../../../../docs/decisions/0066-MADR-secure-storage-upgrade-resilience.md) amended with the D1
 revisit outcome — placed there because P7 deletes the `dependabot.yml` comment
 that previously carried this preference.
 

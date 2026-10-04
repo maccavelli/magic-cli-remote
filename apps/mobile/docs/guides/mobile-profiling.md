@@ -2,7 +2,7 @@
 
 How to measure **runtime** performance of the Magic CLI Remote phone app in a
 build mode close to production. Companion notes for chat UX live in
-[chat-performance.md](chat-performance.md) and [MADR 0018](../decisions/0018-MADR-mobile-chat-performance-action-plan.md).
+[chat-performance.md](../../../../docs/guides/chat-performance.md) and [MADR 0018](../decisions/0018-MADR-mobile-chat-performance-action-plan.md).
 
 ## Modes (Flutter)
 
@@ -41,7 +41,7 @@ Official references:
    | Physical / Headscale | tailnet IP or `0.0.0.0` + grants | MagicDNS / mesh IP |
    | mcrelay | host registers to relay | pair URI with `relay` |
 
-   See [apps/mobile/README.md](../../apps/mobile/README.md) and [headscale.md](headscale.md).
+   See [apps/mobile/README.md](standards/mobile/README.md) and [headscale.md](../../../../docs/guides/headscale.md).
 
 4. Optional: pair code ready (`mcremote pair code --name phone --qr`).
 
@@ -169,7 +169,7 @@ See Flutter’s [Measuring your app’s size](https://docs.flutter.dev/perf/app-
 
 ## Related
 
-- [apps/mobile/README.md](../../apps/mobile/README.md) — run, pair, APK sideload  
-- [chat-performance.md](chat-performance.md) — chat architecture knobs  
+- [apps/mobile/README.md](standards/mobile/README.md) — run, pair, APK sideload  
+- [chat-performance.md](../../../../docs/guides/chat-performance.md) — chat architecture knobs  
 - [0018-MADR-mobile-chat-performance-action-plan.md](../decisions/0018-MADR-mobile-chat-performance-action-plan.md)  
 - Root Makefile: `profile`, `profile-apk`, `profile-devices`, `apk`  

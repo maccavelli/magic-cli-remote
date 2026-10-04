@@ -214,7 +214,7 @@ alone. The record is amended with the answer before any fix is designed.
   where a ping or deadline change would belong.
 * [0062](0062-MADR-phone-transport-selection.md) D11's per-generation fallback
   budget is why D4 refuses to tune timings speculatively.
-* [0046](0046-MADR-mobile-debug-pass.md) L-1 is why the ping needs two misses;
+* [0046](../../apps/mobile/docs/decisions/0046-MADR-mobile-debug-pass.md) L-1 is why the ping needs two misses;
   L-2 is the stale-teardown hazard already handled inside
   `_teardownSocketImpl`, and reading it is what made the falsified mechanism
   look plausible.

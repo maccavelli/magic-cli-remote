@@ -99,4 +99,4 @@ Local Network. There is no discovery/mDNS in the product, so
 QR camera behaviour, speech (60 s SFSpeechRecognizer session cap), HEIC
 mime labelling, local-network prompt behaviour on Tailscale addresses, and
 cold-launch notification tap replay are validated only on hardware — Part
-F of [ops-hardware-validation.md](../../ops-hardware-validation.md).
+F of [ops-hardware-validation.md](../../../../../../docs/guides/ops-hardware-validation.md).

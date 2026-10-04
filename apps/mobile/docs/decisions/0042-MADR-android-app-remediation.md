@@ -6,11 +6,11 @@
 - **Related**: [0041](./0041-MADR-android-app-debug-audit.md) (the audit this closes),
   [MADR 0018](./0018-MADR-mobile-chat-performance-action-plan.md) (row memo, key
   index, batch window — D1/D2 amend it),
-  [MADR 0024](./0024-MADR-stream-coalescing.md) (chunk coalescing — D4 extends its
+  [MADR 0024](../../../../docs/decisions/0024-MADR-stream-coalescing.md) (chunk coalescing — D4 extends its
   reasoning to tool events),
-  [MADR 0034](./0034-MADR-opencode-tool-stream-fidelity.md) (tool dedup + in-place
+  [MADR 0034](../../../../docs/decisions/0034-MADR-opencode-tool-stream-fidelity.md) (tool dedup + in-place
   ordering, which stays),
-  [MADR 0036](./0036-MADR-protocol-contract-completeness.md) (drift-guard pattern
+  [MADR 0036](../../../../docs/decisions/0036-MADR-protocol-contract-completeness.md) (drift-guard pattern
   reused in D8)
 - **Evidence**: [audit 0041](./0041-MADR-android-app-debug-audit.md), measured at
   `66d6f1e`
@@ -403,7 +403,7 @@ rather than a unit test.
 
 **Not in scope.** R8/resource shrinking (needs keep rules + device smoke test);
 moving reader-facing docs into their own directory (raised by
-[0040](./0040-MADR-markdownlint-assessment.md)); any daemon change beyond D4.
+[0040](../../../../docs/decisions/0040-MADR-markdownlint-assessment.md)); any daemon change beyond D4.
 
 ---
 

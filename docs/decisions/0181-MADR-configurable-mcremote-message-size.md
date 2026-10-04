@@ -160,7 +160,7 @@ relying on their passing results. Exact steps and gates are in the associated
 
 ## More Information
 
-* [MADR 0056](0056-MADR-mcremote-android-protocol-stack-audit.md): exact framing.
+* [MADR 0056](../../apps/mobile/docs/decisions/0056-MADR-mcremote-android-protocol-stack-audit.md): exact framing.
 * [MADR 0068](0068-MADR-protocol-v2-reconnect-resilient-transport.md): capabilities.
 * [MADR 0115](0115-MADR-mcrelay-go126-audit-and-hardening.md): bridge configuration.
 * [MADR 0090](0090-MADR-config-template-completeness.md): template completeness.

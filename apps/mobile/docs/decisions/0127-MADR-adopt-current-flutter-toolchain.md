@@ -89,7 +89,7 @@ three exact pins left, and D5 deleting the config, the list this record
 originally contemplated has no home and is not written.
 
 **This has happened before, and was resolved the other way.**
-[0112](0112-MADR-opencode-1.18.21-surface-parity.md) finding 4 records the same
+[0112](../../../../docs/decisions/0112-MADR-opencode-1.18.21-surface-parity.md) finding 4 records the same
 shape in August: a lockfile "from an automated dependency bump" that realigned
 six SDK-pinned transitives when built on the pinned toolchain. The resolution
 then was to **move the CI pin up to match the locally installed SDK** (3.44.6 →
@@ -114,7 +114,7 @@ three, plus Dart 3.12.2 → 3.13.2. `pubspec.yaml` declares `sdk: ^3.12.2`, whic
 already admits 3.13.2 — no constraint change is required.
 
 **One recorded adverse data point, and it is the important one.**
-[0124](0124-PLAN-transcript-cache-path-separator.md) (`:70-76`) states, from the
+[0124](../../../../docs/decisions/0124-PLAN-transcript-cache-path-separator.md) (`:70-76`) states, from the
 owner's Windows host:
 
 > `flutter analyze` locally is not authoritative. This host runs Flutter 3.47.1
@@ -167,7 +167,7 @@ carries a different obligation:
   the *evidence*, and 0126 P1 is already applied to the working tree.
 * **`flutter_secure_storage 11.0.0`** — the highest-risk of the three, and the
   one where the repository's two records disagree with each other.
-  [0066](0066-MADR-secure-storage-upgrade-resilience.md) D1 (`:248-257`) says:
+  [0066](../../../../docs/decisions/0066-MADR-secure-storage-upgrade-resilience.md) D1 (`:248-257`) says:
 
   > stay on flutter_secure_storage 10.3.1 with current options … and do not
   > adopt the 11.0.0-beta.1 **prerelease** … **Revisit the plugin major on its
@@ -267,7 +267,7 @@ The rejected options, fairly:
   supports" — decide it: a release requiring `compileSdk 37` is not supported by
   a toolchain whose default is 36. The full analysis and the revisit 0066 D1
   asked for are recorded in
-  [0066](0066-MADR-secure-storage-upgrade-resilience.md)'s 2026-09-01
+  [0066](../../../../docs/decisions/0066-MADR-secure-storage-upgrade-resilience.md)'s 2026-09-01
   amendment, deliberately placed there because D5 deletes the
   `dependabot.yml` comment that used to hold this preference.
 * **D5 — `.github/dependabot.yml` is deleted.** Not narrowed. It has produced
@@ -275,7 +275,7 @@ The rejected options, fairly:
   pub proposals unsatisfiable. Dependency currency becomes a deliberate,
   recorded act — which is what this pair is.
 
-  **Amended 2026-09-01 by [0128](0128-MADR-triage-the-0126-and-0127-deferred-items.md)
+  **Amended 2026-09-01 by [0128](../../../../docs/decisions/0128-MADR-triage-the-0126-and-0127-deferred-items.md)
   D1: partially reversed.** D5 deleted all three ecosystems because one of them
   failed. Measured afterwards, the `github-actions` ecosystem had been doing its
   job — 6 of 7 pins current, and the single exception (`actions/setup-java`, one
@@ -358,11 +358,11 @@ decoration.
 * Baseline captured 2026-09-01, tree at `19b8cd8` plus 0126 P1's uncommitted
   edits: Flutter 3.44.8, Dart 3.12.2, Xcode 26.6, Gradle 9.1.0, AGP 9.0.1,
   Kotlin 2.3.20, `flutter test` `+1358 ~3`.
-* Precedent: [0112](0112-MADR-opencode-1.18.21-surface-parity.md) finding 4 —
+* Precedent: [0112](../../../../docs/decisions/0112-MADR-opencode-1.18.21-surface-parity.md) finding 4 —
   the previous instance of this drift and the pin move that resolved it.
-* Constraint on the method: [0124](0124-PLAN-transcript-cache-path-separator.md)
+* Constraint on the method: [0124](../../../../docs/decisions/0124-PLAN-transcript-cache-path-separator.md)
   `:70-76` — the newer analyzer misses lints CI enforces.
-* Touched by D4: [0066](0066-MADR-secure-storage-upgrade-resilience.md) D1
+* Touched by D4: [0066](../../../../docs/decisions/0066-MADR-secure-storage-upgrade-resilience.md) D1
   (`:248-257`) instructs revisiting the `flutter_secure_storage` major on its
   stable release; this record performs that revisit and must amend 0066 with the
   outcome.

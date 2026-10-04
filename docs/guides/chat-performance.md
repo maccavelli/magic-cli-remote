@@ -1,11 +1,11 @@
 # Chat session performance & keyboard UX
 
 Notes for the Android Flutter chat screen. Keep this in sync with
-[MADR 0018](../decisions/0018-MADR-mobile-chat-performance-action-plan.md) and the code under
+[MADR 0018](../../apps/mobile/docs/decisions/0018-MADR-mobile-chat-performance-action-plan.md) and the code under
 `apps/mobile/lib/{features/chat,data/chat,state}`.
 
 **How to measure:** run the app in Flutter **profile** mode and use DevTools —
-see [mobile-profiling.md](mobile-profiling.md) (`make profile`, `make profile-apk`).
+see [mobile-profiling.md](../../apps/mobile/docs/guides/mobile-profiling.md) (`make profile`, `make profile-apk`).
 
 ## Keyboard policy
 
@@ -19,7 +19,7 @@ see [mobile-profiling.md](mobile-profiling.md) (`make profile`, `make profile-ap
 - Transcript uses a **`reverse: true` `ListView.builder`**: newest content is at offset `0` (visual bottom).
 - Growing the live assistant bubble does **not** chase `maxScrollExtent` every chunk (that was the prior jitter source). Append jumps only when the user is near the live end.
 - Near-bottom detection: `pixels < 120`. Jump-to-latest: `jumpTo(0)`.
-- Auto-follow **never runs while the user is scrolling**, and is skipped when already pinned at `0`. `jumpTo` begins with `goIdle()`, which cancels the current `ScrollActivity` — so an unguarded jump yanked the list out from under a drag or fling. Inside the 120 px band during a tool burst that fired several times a second and made the transcript unscrollable ([MADR 0042](../decisions/0042-MADR-android-app-remediation.md) D5). The gate is `_listScrolling`, the same notifier the shimmer/pulse animations use.
+- Auto-follow **never runs while the user is scrolling**, and is skipped when already pinned at `0`. `jumpTo` begins with `goIdle()`, which cancels the current `ScrollActivity` — so an unguarded jump yanked the list out from under a drag or fling. Inside the 120 px band during a tool burst that fired several times a second and made the transcript unscrollable ([MADR 0042](../../apps/mobile/docs/decisions/0042-MADR-android-app-remediation.md) D5). The gate is `_listScrolling`, the same notifier the shimmer/pulse animations use.
 - `scrollCacheExtent: ScrollCacheExtent.pixels(900)` for offscreen row pre-render.
 - Near-bottom / FAB visibility uses a `ValueNotifier` so scroll threshold crossings do not rebuild the whole chat shell.
 
@@ -28,7 +28,7 @@ see [mobile-profiling.md](mobile-profiling.md) (`make profile`, `make profile-ap
 | Layer | Behavior |
 |---|---|
 | Rebuild isolation | Chat shell uses Riverpod `.select` on status / plan / commands / pending / hasItems; only the transcript pane watches `items` during stream chunks |
-| Row fold memo | Skip the full `buildTranscriptRows` when the change is resolvable from the tail alone: the last item's text grew, the newest tool's status/output changed, or one item was appended (a tool extends the trailing group, anything else becomes a new row). A 6-tool OpenCode burst folds **0** times, was 12 ([MADR 0042](../decisions/0042-MADR-android-app-remediation.md) D3) |
+| Row fold memo | Skip the full `buildTranscriptRows` when the change is resolvable from the tail alone: the last item's text grew, the newest tool's status/output changed, or one item was appended (a tool extends the trailing group, anything else becomes a new row). A 6-tool OpenCode burst folds **0** times, was 12 ([MADR 0042](../../apps/mobile/docs/decisions/0042-MADR-android-app-remediation.md) D3) |
 | Markdown widget cache | Assistant markdown keeps the parsed subtree; re-parses only when shown text changes |
 | Markdown throttle | 120 / 200 / 320 ms at 4k / 16k chars while short-stream path is active |
 | Long-stream MD | Above `kMaxStreamingMarkdownChars` (4k) while streaming: plain/mono text (buffer closers applied as plain); full `MarkdownBody` once finalized |

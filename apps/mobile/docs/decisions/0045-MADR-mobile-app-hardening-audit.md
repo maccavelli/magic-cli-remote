@@ -8,13 +8,13 @@
   `android/` project) plus
   daemon↔app protocol parity against `internal/event`, `internal/ws`,
   `internal/protocol`, and `docs/guides/protocol-v1.md`
-- **Related**: [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md),
-  [MADR 0015](./0015-MADR-mcrelay-transport-security.md),
+- **Related**: [MADR 0014](../../../../docs/decisions/0014-MADR-sse-reconnect-resync-decision.md),
+  [MADR 0015](../../../../docs/decisions/0015-MADR-mcrelay-transport-security.md),
   [MADR 0018](./0018-MADR-mobile-chat-performance-action-plan.md),
-  [Report 0032](./0032-MADR-codex-ui-ux-polish-report.md),
-  [Report 0033](./0033-MADR-opencode-ui-ux-polish-report.md),
+  [Report 0032](../../../../docs/decisions/0032-MADR-codex-ui-ux-polish-report.md),
+  [Report 0033](../../../../docs/decisions/0033-MADR-opencode-ui-ux-polish-report.md),
   [MADR 0042](./0042-MADR-android-app-remediation.md),
-  [MADR 0044](./0044-MADR-auto-approve-modes.md)
+  [MADR 0044](../../../../docs/decisions/0044-MADR-auto-approve-modes.md)
 - **Standards applied**: `/home/mac/standards/mobile` v3.12.2-v3
   (2026-07-28) — `networking.md`, `architecture.md`, `dart.md`, `flutter.md`,
   `android.md`
@@ -784,10 +784,10 @@ L-w4) are documentation corrections to `protocol-v1.md`, not code.
 
 ## 9. References
 
-- [MADR 0014 — SSE reconnect resync](./0014-MADR-sse-reconnect-resync-decision.md) — the resync gates H2/H8 build on
-- [MADR 0015 — mcrelay transport security](./0015-MADR-mcrelay-transport-security.md) — the relay bridge T4 concerns
+- [MADR 0014 — SSE reconnect resync](../../../../docs/decisions/0014-MADR-sse-reconnect-resync-decision.md) — the resync gates H2/H8 build on
+- [MADR 0015 — mcrelay transport security](../../../../docs/decisions/0015-MADR-mcrelay-transport-security.md) — the relay bridge T4 concerns
 - [MADR 0018 — mobile chat performance](./0018-MADR-mobile-chat-performance-action-plan.md) — streaming-render budget (P2)
-- [Report 0032 — Codex UI/UX](./0032-MADR-codex-ui-ux-polish-report.md) / [Report 0033 — OpenCode UI/UX](./0033-MADR-opencode-ui-ux-polish-report.md) — sister report-style audits; verification discipline followed here
-- [MADR 0044 — auto-approve modes](./0044-MADR-auto-approve-modes.md) — the dangerous-mode UI whose parity §6 confirms complete
+- [Report 0032 — Codex UI/UX](../../../../docs/decisions/0032-MADR-codex-ui-ux-polish-report.md) / [Report 0033 — OpenCode UI/UX](../../../../docs/decisions/0033-MADR-opencode-ui-ux-polish-report.md) — sister report-style audits; verification discipline followed here
+- [MADR 0044 — auto-approve modes](../../../../docs/decisions/0044-MADR-auto-approve-modes.md) — the dangerous-mode UI whose parity §6 confirms complete
 - `docs/guides/protocol-v1.md` and `apps/mobile/README.md` — the contracts
   H4/H5/W1–W3 and L-w1/L-w2/L-w4/L-w5 measure against

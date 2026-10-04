@@ -6,7 +6,7 @@
 - **Related**: [MADR 0011](./0011-MADR-opencode-provider-plan.md) (OpenCode provider;
   performance addendum), [MADR 0014](./0014-MADR-sse-reconnect-resync-decision.md)
   (SSE reconnect resync — the concurrent `Emit` caller this design must order
-  against), [MADR 0018](./0018-MADR-mobile-chat-performance-action-plan.md) (mobile
+  against), [MADR 0018](../../apps/mobile/docs/decisions/0018-MADR-mobile-chat-performance-action-plan.md) (mobile
   chat performance; **closes decision D1**),
   [MADR 0019](./0019-MADR-opencode-process-management-plan.md) (HTTP-only OpenCode),
   [MADR 0020](./0020-MADR-opencode-session-tree.md) (session tree)

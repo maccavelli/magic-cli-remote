@@ -4,8 +4,11 @@ Index for magic-cli-remote. This tree holds only this file, [architecture.md](ar
 
 - [architecture.md](architecture.md) — the system as it is now
 - [decisions/](decisions/) — numbered MADRs and PLANs
-- [reports/](reports/) — numbered REPORTs and captured spike evidence
+- [reports/](reports/) — numbered REPORTs
 - [guides/](guides/) — unnumbered operator, protocol, and language guides
+
+A second tree covers the Flutter companion:
+[apps/mobile/docs/README.md](../apps/mobile/docs/README.md).
 
 Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR`, `PLAN`, `REPORT`, `GATES`). Next unused number: `python3 scripts/check_records.py --next`.
 
@@ -32,7 +35,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0015 | MADR | MADR 0015: mcrelay — outbound relay transport & security | [0015-MADR-mcrelay-transport-security.md](decisions/0015-MADR-mcrelay-transport-security.md) |
 | 0016 | MADR | MADR 0016: mcrelay audit — findings & P1–P6 hardening | [0016-MADR-mcrelay-audit-hardening.md](decisions/0016-MADR-mcrelay-audit-hardening.md) |
 | 0017 | MADR | MADR 0017: mcrelay memory / GC / overflow / security action plan | [0017-MADR-mcrelay-memory-security-action-plan.md](decisions/0017-MADR-mcrelay-memory-security-action-plan.md) |
-| 0018 | MADR | MADR 0018: Mobile session chat performance, stability & polish | [0018-MADR-mobile-chat-performance-action-plan.md](decisions/0018-MADR-mobile-chat-performance-action-plan.md) |
+| 0018 | MADR | MADR 0018: Mobile session chat performance, stability & polish | [0018-MADR-mobile-chat-performance-action-plan.md](../apps/mobile/docs/decisions/0018-MADR-mobile-chat-performance-action-plan.md) |
 | 0019 | MADR | MADR 0019: OpenCode process management — remove the ACP transport, guarantee a single engine | [0019-MADR-opencode-process-management-plan.md](decisions/0019-MADR-opencode-process-management-plan.md) |
 | 0020 | MADR | MADR 0020: OpenCode session tree + async control plane | [0020-MADR-opencode-session-tree.md](decisions/0020-MADR-opencode-session-tree.md) |
 | 0021 | MADR | OpenCode HTTP API coverage matrix (mcremote) | [0021-MADR-opencode-http-api-coverage.md](decisions/0021-MADR-opencode-http-api-coverage.md) |
@@ -42,7 +45,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0024 | MADR | MADR 0024: Coalesce streaming chunk text at the transport emit seam | [0024-MADR-stream-coalescing.md](decisions/0024-MADR-stream-coalescing.md) |
 | 0025 | MADR | MADR 0025: Goose ACP-over-HTTP provider | [0025-MADR-goose-provider.md](decisions/0025-MADR-goose-provider.md) |
 | 0025 | PLAN | Goose ACP-over-HTTP Provider — Implementation Plan | [0025-PLAN-goose-provider.md](decisions/0025-PLAN-goose-provider.md) |
-| 0026 | MADR | Mobile App Goose Support — Assessment | [0026-MADR-mobile-goose-support.md](decisions/0026-MADR-mobile-goose-support.md) |
+| 0026 | MADR | Mobile App Goose Support — Assessment | [0026-MADR-mobile-goose-support.md](../apps/mobile/docs/decisions/0026-MADR-mobile-goose-support.md) |
 | 0027 | MADR | MADR 0027: OpenCode Chat Streaming & Rendering Hardening | [0027-MADR-opencode-streaming-rendering.md](decisions/0027-MADR-opencode-streaming-rendering.md) |
 | 0027 | PLAN | OpenCode Streaming & Rendering — Phase 1 Implementation Plan | [0027-PLAN-opencode-streaming-rendering.md](decisions/0027-PLAN-opencode-streaming-rendering.md) |
 | 0028 | MADR | MADR 0028: Codex CLI provider — surfaces, protocol, and implementation specifications | [0028-MADR-codex-provider.md](decisions/0028-MADR-codex-provider.md) |
@@ -67,17 +70,17 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0039 | MADR | MADR 0039: Grok ACP parity — mid-session model switch, live catalog, and CLI policy surfaces | [0039-MADR-grok-acp-parity.md](decisions/0039-MADR-grok-acp-parity.md) |
 | 0039 | PLAN | Grok ACP parity: implementation plan | [0039-PLAN-grok-acp-parity.md](decisions/0039-PLAN-grok-acp-parity.md) |
 | 0040 | MADR | Markdownlint assessment and recommendation | [0040-MADR-markdownlint-assessment.md](decisions/0040-MADR-markdownlint-assessment.md) |
-| 0041 | MADR | Android app: deep-dive debug audit | [0041-MADR-android-app-debug-audit.md](decisions/0041-MADR-android-app-debug-audit.md) |
-| 0042 | MADR | MADR 0042: Android app remediation — stable tool rows, coalesced ingest, and the audit backlog | [0042-MADR-android-app-remediation.md](decisions/0042-MADR-android-app-remediation.md) |
-| 0042 | PLAN | Android app remediation: implementation plan | [0042-PLAN-android-app-remediation.md](decisions/0042-PLAN-android-app-remediation.md) |
+| 0041 | MADR | Android app: deep-dive debug audit | [0041-MADR-android-app-debug-audit.md](../apps/mobile/docs/decisions/0041-MADR-android-app-debug-audit.md) |
+| 0042 | MADR | MADR 0042: Android app remediation — stable tool rows, coalesced ingest, and the audit backlog | [0042-MADR-android-app-remediation.md](../apps/mobile/docs/decisions/0042-MADR-android-app-remediation.md) |
+| 0042 | PLAN | Android app remediation: implementation plan | [0042-PLAN-android-app-remediation.md](../apps/mobile/docs/decisions/0042-PLAN-android-app-remediation.md) |
 | 0043 | MADR | MADR 0043: Model selection — scoped catalogs, a provider step, and an in-session picker | [0043-MADR-model-selection.md](decisions/0043-MADR-model-selection.md) |
 | 0043 | PLAN | Model selection: implementation plan | [0043-PLAN-model-selection.md](decisions/0043-PLAN-model-selection.md) |
 | 0044 | MADR | MADR 0044: Auto-approve as a session mode (OpenCode, Codex) | [0044-MADR-auto-approve-modes.md](decisions/0044-MADR-auto-approve-modes.md) |
 | 0044 | PLAN | MADR 0044 — Implementation plan: auto-approve session modes | [0044-PLAN-auto-approve-modes.md](decisions/0044-PLAN-auto-approve-modes.md) |
-| 0045 | MADR | MADR 0045: Mobile App Hardening Audit — Findings and Remediation Decisions | [0045-MADR-mobile-app-hardening-audit.md](decisions/0045-MADR-mobile-app-hardening-audit.md) |
-| 0045 | PLAN | MADR 0045 — Implementation plan: mobile app hardening audit | [0045-PLAN-mobile-app-hardening-audit.md](decisions/0045-PLAN-mobile-app-hardening-audit.md) |
-| 0046 | MADR | MADR 0046: Post-Remediation Mobile Debug Pass — Findings and Fix Decisions | [0046-MADR-mobile-debug-pass.md](decisions/0046-MADR-mobile-debug-pass.md) |
-| 0046 | PLAN | MADR 0046 — Implementation plan: post-remediation mobile debug pass | [0046-PLAN-mobile-debug-pass.md](decisions/0046-PLAN-mobile-debug-pass.md) |
+| 0045 | MADR | MADR 0045: Mobile App Hardening Audit — Findings and Remediation Decisions | [0045-MADR-mobile-app-hardening-audit.md](../apps/mobile/docs/decisions/0045-MADR-mobile-app-hardening-audit.md) |
+| 0045 | PLAN | MADR 0045 — Implementation plan: mobile app hardening audit | [0045-PLAN-mobile-app-hardening-audit.md](../apps/mobile/docs/decisions/0045-PLAN-mobile-app-hardening-audit.md) |
+| 0046 | MADR | MADR 0046: Post-Remediation Mobile Debug Pass — Findings and Fix Decisions | [0046-MADR-mobile-debug-pass.md](../apps/mobile/docs/decisions/0046-MADR-mobile-debug-pass.md) |
+| 0046 | PLAN | MADR 0046 — Implementation plan: post-remediation mobile debug pass | [0046-PLAN-mobile-debug-pass.md](../apps/mobile/docs/decisions/0046-PLAN-mobile-debug-pass.md) |
 | 0047 | MADR | MADR 0047: Codex default mode, create-time selection, and auto sandbox | [0047-MADR-codex-default-mode.md](decisions/0047-MADR-codex-default-mode.md) |
 | 0047 | PLAN | MADR 0047 — Implementation plan: Codex default mode and auto sandbox | [0047-PLAN-codex-default-mode.md](decisions/0047-PLAN-codex-default-mode.md) |
 | 0048 | MADR | MADR 0048: Codex sandbox user-namespace failure — auto cannot write | [0048-MADR-codex-sandbox-namespace.md](decisions/0048-MADR-codex-sandbox-namespace.md) |
@@ -94,8 +97,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0053 | PLAN | MADR 0053 — Implementation plan: grok auto silent arm and mode-path gaps | [0053-PLAN-grok-auto-mode-silent-arm.md](decisions/0053-PLAN-grok-auto-mode-silent-arm.md) |
 | 0055 | MADR | Remediate the mcremote Go server from the 2026-07 audit | [0055-MADR-mcremote-server-remediation.md](decisions/0055-MADR-mcremote-server-remediation.md) |
 | 0055 | PLAN | mcremote Go server remediation plan | [0055-PLAN-mcremote-server-remediation.md](decisions/0055-PLAN-mcremote-server-remediation.md) |
-| 0056 | MADR | MADR 0056: mcremote ↔ Android protocol-stack audit | [0056-MADR-mcremote-android-protocol-stack-audit.md](decisions/0056-MADR-mcremote-android-protocol-stack-audit.md) |
-| 0056 | PLAN | MADR 0056 — Implementation plan: mcremote ↔ Android protocol-stack remediation | [0056-PLAN-mcremote-android-protocol-stack-remediation.md](decisions/0056-PLAN-mcremote-android-protocol-stack-remediation.md) |
+| 0056 | MADR | MADR 0056: mcremote ↔ Android protocol-stack audit | [0056-MADR-mcremote-android-protocol-stack-audit.md](../apps/mobile/docs/decisions/0056-MADR-mcremote-android-protocol-stack-audit.md) |
+| 0056 | PLAN | MADR 0056 — Implementation plan: mcremote ↔ Android protocol-stack remediation | [0056-PLAN-mcremote-android-protocol-stack-remediation.md](../apps/mobile/docs/decisions/0056-PLAN-mcremote-android-protocol-stack-remediation.md) |
 | 0057 | MADR | MADR 0057: Chat session markdown streaming — cross-stack re-assessment | [0057-MADR-chat-markdown-stream-hardening.md](decisions/0057-MADR-chat-markdown-stream-hardening.md) |
 | 0057 | PLAN | MADR 0057 — Implementation plan: chat markdown + stream hardening | [0057-PLAN-chat-markdown-stream-hardening.md](decisions/0057-PLAN-chat-markdown-stream-hardening.md) |
 | 0058 | MADR | MADR 0058: macOS launchd service setup — research, gaps, and hardened design | [0058-MADR-macos-launchd-service-hardening.md](decisions/0058-MADR-macos-launchd-service-hardening.md) |
@@ -115,8 +118,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0065 | PLAN | MADR 0065 — Implementation plan: update automation | [0065-PLAN-update-automation.md](decisions/0065-PLAN-update-automation.md) |
 | 0066 | MADR | MADR 0066: Secure-storage upgrade resilience and credential recovery | [0066-MADR-secure-storage-upgrade-resilience.md](decisions/0066-MADR-secure-storage-upgrade-resilience.md) |
 | 0066 | PLAN | PLAN 0066: Secure-storage upgrade resilience — implementation plan | [0066-PLAN-secure-storage-upgrade-resilience.md](decisions/0066-PLAN-secure-storage-upgrade-resilience.md) |
-| 0067 | MADR | MADR 0067: iOS port of the mobile companion app | [0067-MADR-ios-port.md](decisions/0067-MADR-ios-port.md) |
-| 0067 | PLAN | MADR 0067 — Implementation plan: iOS port of the mobile companion app | [0067-PLAN-ios-port.md](decisions/0067-PLAN-ios-port.md) |
+| 0067 | MADR | MADR 0067: iOS port of the mobile companion app | [0067-MADR-ios-port.md](../apps/mobile/docs/decisions/0067-MADR-ios-port.md) |
+| 0067 | PLAN | MADR 0067 — Implementation plan: iOS port of the mobile companion app | [0067-PLAN-ios-port.md](../apps/mobile/docs/decisions/0067-PLAN-ios-port.md) |
 | 0068 | MADR | MADR 0068: Protocol v2 — reconnect-resilient transport | [0068-MADR-protocol-v2-reconnect-resilient-transport.md](decisions/0068-MADR-protocol-v2-reconnect-resilient-transport.md) |
 | 0068 | PLAN | MADR 0068 — Implementation plan: protocol v2, reconnect-resilient transport | [0068-PLAN-protocol-v2-reconnect-resilient-transport.md](decisions/0068-PLAN-protocol-v2-reconnect-resilient-transport.md) |
 | 0069 | MADR | MADR 0069: macOS permissions — sandbox parity, EPERM honesty, TCC identity | [0069-MADR-macos-permissions-and-sandbox-parity.md](decisions/0069-MADR-macos-permissions-and-sandbox-parity.md) |
@@ -148,8 +151,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0082 | PLAN | Implement restructure settings into a hub with a graphically rich provider area | [0082-PLAN-settings-provider-menu-ux-overhaul.md](decisions/0082-PLAN-settings-provider-menu-ux-overhaul.md) |
 | 0083 | MADR | MADR 0083 — Make phone-driven provider auth actually complete: activation gaps and bottom-inset layout defects | [0083-MADR-provider-auth-activation-and-layout-gaps.md](decisions/0083-MADR-provider-auth-activation-and-layout-gaps.md) |
 | 0083 | PLAN | Implement make phone-driven provider auth actually complete | [0083-PLAN-provider-auth-activation-and-layout-gaps.md](decisions/0083-PLAN-provider-auth-activation-and-layout-gaps.md) |
-| 0084 | MADR | MADR 0084 — Harden the Android app: crash visibility, transcript-cache storage, and platform build gaps | [0084-MADR-android-app-hardening-and-performance.md](decisions/0084-MADR-android-app-hardening-and-performance.md) |
-| 0084 | PLAN | Implement Android app hardening: crash visibility, cache storage, and build gates | [0084-PLAN-android-app-hardening-and-performance.md](decisions/0084-PLAN-android-app-hardening-and-performance.md) |
+| 0084 | MADR | MADR 0084 — Harden the Android app: crash visibility, transcript-cache storage, and platform build gaps | [0084-MADR-android-app-hardening-and-performance.md](../apps/mobile/docs/decisions/0084-MADR-android-app-hardening-and-performance.md) |
+| 0084 | PLAN | Implement Android app hardening: crash visibility, cache storage, and build gates | [0084-PLAN-android-app-hardening-and-performance.md](../apps/mobile/docs/decisions/0084-PLAN-android-app-hardening-and-performance.md) |
 | 0085 | MADR | Select grok ACP auth methods from the live initialize catalog and write keys where grok actually reads them | [0085-MADR-grok-acp-auth-method-wiring.md](decisions/0085-MADR-grok-acp-auth-method-wiring.md) |
 | 0085 | PLAN | Implement grok ACP auth-method wiring | [0085-PLAN-grok-acp-auth-method-wiring.md](decisions/0085-PLAN-grok-acp-auth-method-wiring.md) |
 | 0086 | MADR | Treat a phone credential setup as complete only when the agent can actually use it | [0086-MADR-phone-provider-auth-completion.md](decisions/0086-MADR-phone-provider-auth-completion.md) |
@@ -185,8 +188,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0100 | MADR | Reconcile the service definition during `update`, and reload the manager before the restart | [0100-MADR-update-unit-refresh-and-daemon-reload.md](decisions/0100-MADR-update-unit-refresh-and-daemon-reload.md) |
 | 0100 | PLAN | Plan: Reconcile the service definition during `update`, and reload the manager before the restart | [0100-PLAN-update-unit-refresh-and-daemon-reload.md](decisions/0100-PLAN-update-unit-refresh-and-daemon-reload.md) |
 | 0100 | REPORT | 0100 Phase 0 — host confirmation of the update-refresh findings | [0100-REPORT-update-refresh.md](../docs/reports/0100-REPORT-update-refresh.md) |
-| 0101 | MADR | Make Android agent alerts survive their own lifecycle, and make their absence diagnosable | [0101-MADR-android-agent-alert-delivery.md](decisions/0101-MADR-android-agent-alert-delivery.md) |
-| 0101 | PLAN | Plan: Make Android agent alerts survive their own lifecycle, and make their absence diagnosable | [0101-PLAN-android-agent-alert-delivery.md](decisions/0101-PLAN-android-agent-alert-delivery.md) |
+| 0101 | MADR | Make Android agent alerts survive their own lifecycle, and make their absence diagnosable | [0101-MADR-android-agent-alert-delivery.md](../apps/mobile/docs/decisions/0101-MADR-android-agent-alert-delivery.md) |
+| 0101 | PLAN | Plan: Make Android agent alerts survive their own lifecycle, and make their absence diagnosable | [0101-PLAN-android-agent-alert-delivery.md](../apps/mobile/docs/decisions/0101-PLAN-android-agent-alert-delivery.md) |
 | 0102 | MADR | Add a `display_name` config parameter so the phone shows a friendly host name instead of an IP address | [0102-MADR-host-display-name-config.md](decisions/0102-MADR-host-display-name-config.md) |
 | 0102 | PLAN | Implement host display name configuration | [0102-PLAN-host-display-name-config.md](decisions/0102-PLAN-host-display-name-config.md) |
 | 0103 | MADR | Compare `update` against the published `BASE.N` release, and recycle a product's service only when that product has a unit file | [0103-MADR-update-tracks-release-build-and-active-service.md](decisions/0103-MADR-update-tracks-release-build-and-active-service.md) |
@@ -235,10 +238,10 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0124 | PLAN | PLAN 0124 — Separator-agnostic entry names in the transcript cache | [0124-PLAN-transcript-cache-path-separator.md](decisions/0124-PLAN-transcript-cache-path-separator.md) |
 | 0125 | MADR | Wait for launchd teardown instead of guessing at it, and restart on rollback | [0125-MADR-launchd-bootout-is-asynchronous.md](decisions/0125-MADR-launchd-bootout-is-asynchronous.md) |
 | 0125 | PLAN | PLAN 0125 — Wait for launchd teardown; never leave the service stopped | [0125-PLAN-launchd-bootout-is-asynchronous.md](decisions/0125-PLAN-launchd-bootout-is-asynchronous.md) |
-| 0126 | MADR | Fix the Android keep-alive and teardown defects found by the debugging pass, as one remediation pair | [0126-MADR-android-client-debugging-pass-findings.md](decisions/0126-MADR-android-client-debugging-pass-findings.md) |
-| 0126 | PLAN | PLAN 0126 — Make the Android client survive being backgrounded, and stop shipping surface nobody reviewed | [0126-PLAN-android-client-debugging-pass-findings.md](decisions/0126-PLAN-android-client-debugging-pass-findings.md) |
-| 0127 | MADR | Adopt Flutter 3.47.2 and move the local and CI pins together, instead of resolving the lockfile downward | [0127-MADR-adopt-current-flutter-toolchain.md](decisions/0127-MADR-adopt-current-flutter-toolchain.md) |
-| 0127 | PLAN | PLAN 0127 — Move to Flutter 3.47.2, pin and host together, and stop dependabot recreating the drift | [0127-PLAN-adopt-current-flutter-toolchain.md](decisions/0127-PLAN-adopt-current-flutter-toolchain.md) |
+| 0126 | MADR | Fix the Android keep-alive and teardown defects found by the debugging pass, as one remediation pair | [0126-MADR-android-client-debugging-pass-findings.md](../apps/mobile/docs/decisions/0126-MADR-android-client-debugging-pass-findings.md) |
+| 0126 | PLAN | PLAN 0126 — Make the Android client survive being backgrounded, and stop shipping surface nobody reviewed | [0126-PLAN-android-client-debugging-pass-findings.md](../apps/mobile/docs/decisions/0126-PLAN-android-client-debugging-pass-findings.md) |
+| 0127 | MADR | Adopt Flutter 3.47.2 and move the local and CI pins together, instead of resolving the lockfile downward | [0127-MADR-adopt-current-flutter-toolchain.md](../apps/mobile/docs/decisions/0127-MADR-adopt-current-flutter-toolchain.md) |
+| 0127 | PLAN | PLAN 0127 — Move to Flutter 3.47.2, pin and host together, and stop dependabot recreating the drift | [0127-PLAN-adopt-current-flutter-toolchain.md](../apps/mobile/docs/decisions/0127-PLAN-adopt-current-flutter-toolchain.md) |
 | 0128 | MADR | Take four of the ten deferred items now, and give the rest named triggers instead of a backlog | [0128-MADR-triage-the-0126-and-0127-deferred-items.md](decisions/0128-MADR-triage-the-0126-and-0127-deferred-items.md) |
 | 0128 | PLAN | PLAN 0128 — Clear the deferred lists: four fixes, four triggers, two closures | [0128-PLAN-triage-the-0126-and-0127-deferred-items.md](decisions/0128-PLAN-triage-the-0126-and-0127-deferred-items.md) |
 | 0129 | MADR | Move the host connection into the foreground service's own isolate, so alerts survive a swipe | [0129-MADR-background-alert-delivery-survives-task-removal.md](decisions/0129-MADR-background-alert-delivery-survives-task-removal.md) |
@@ -304,22 +307,22 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0159 | PLAN | PLAN 0159 — The Windows service path is half-wired: it installs a daemon it cannot refresh, cannot log, and mis-describes | [0159-PLAN-the-windows-service-path-is-half-wired.md](decisions/0159-PLAN-the-windows-service-path-is-half-wired.md) |
 | 0160 | MADR | Remove Goose CLI support from the product, including its ACP-over-HTTP transport | [0160-MADR-remove-goose-cli-support.md](decisions/0160-MADR-remove-goose-cli-support.md) |
 | 0160 | PLAN | PLAN 0160 — Remove Goose CLI support from the product, including its ACP-over-HTTP transport | [0160-PLAN-remove-goose-cli-support.md](decisions/0160-PLAN-remove-goose-cli-support.md) |
-| 0161 | MADR | The mobile docs state the CI Flutter pin, not a stale 3.44 floor | [0161-MADR-mobile-docs-state-the-ci-flutter-pin.md](decisions/0161-MADR-mobile-docs-state-the-ci-flutter-pin.md) |
-| 0161 | PLAN | PLAN 0161 — The mobile docs state the CI Flutter pin, not a stale 3.44 floor | [0161-PLAN-mobile-docs-state-the-ci-flutter-pin.md](decisions/0161-PLAN-mobile-docs-state-the-ci-flutter-pin.md) |
+| 0161 | MADR | The mobile docs state the CI Flutter pin, not a stale 3.44 floor | [0161-MADR-mobile-docs-state-the-ci-flutter-pin.md](../apps/mobile/docs/decisions/0161-MADR-mobile-docs-state-the-ci-flutter-pin.md) |
+| 0161 | PLAN | PLAN 0161 — The mobile docs state the CI Flutter pin, not a stale 3.44 floor | [0161-PLAN-mobile-docs-state-the-ci-flutter-pin.md](../apps/mobile/docs/decisions/0161-PLAN-mobile-docs-state-the-ci-flutter-pin.md) |
 | 0162 | MADR | Config tests read the host's live config; give them an isolated root on every platform | [0162-MADR-config-tests-read-the-live-config.md](decisions/0162-MADR-config-tests-read-the-live-config.md) |
 | 0162 | PLAN | PLAN 0162 — Config tests read the host's live config; give them an isolated root on every platform | [0162-PLAN-config-tests-read-the-live-config.md](decisions/0162-PLAN-config-tests-read-the-live-config.md) |
 | 0163 | MADR | The Codex provider's jank is stale pins and a dead drift gate, not upstream churn | [0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md](decisions/0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md) |
 | 0163 | PLAN | PLAN 0163 — The Codex provider's jank is stale pins and a dead drift gate | [0163-PLAN-codex-jank-is-stale-pins-not-upstream-churn.md](decisions/0163-PLAN-codex-jank-is-stale-pins-not-upstream-churn.md) |
-| 0164 | MADR | Phone chat: large markdown tables need a scroll container, not column wrap | [0164-MADR-phone-markdown-table-mobile-rendering.md](decisions/0164-MADR-phone-markdown-table-mobile-rendering.md) |
-| 0164 | PLAN | PLAN 0164 — Phone chat: large markdown tables need a scroll container, not column wrap | [0164-PLAN-phone-markdown-table-mobile-rendering.md](decisions/0164-PLAN-phone-markdown-table-mobile-rendering.md) |
+| 0164 | MADR | Phone chat: large markdown tables need a scroll container, not column wrap | [0164-MADR-phone-markdown-table-mobile-rendering.md](../apps/mobile/docs/decisions/0164-MADR-phone-markdown-table-mobile-rendering.md) |
+| 0164 | PLAN | PLAN 0164 — Phone chat: large markdown tables need a scroll container, not column wrap | [0164-PLAN-phone-markdown-table-mobile-rendering.md](../apps/mobile/docs/decisions/0164-PLAN-phone-markdown-table-mobile-rendering.md) |
 | 0165 | MADR | Two CI flakes: a file lock that starves its waiter, and an assertion that outlived its design | [0165-MADR-ci-flakes-are-a-starving-lock-and-an-overreaching-assertion.md](decisions/0165-MADR-ci-flakes-are-a-starving-lock-and-an-overreaching-assertion.md) |
 | 0165 | PLAN | PLAN 0165 — Queue the file lock, and stop a test asserting past its own fault point | [0165-PLAN-ci-flakes-are-a-starving-lock-and-an-overreaching-assertion.md](decisions/0165-PLAN-ci-flakes-are-a-starving-lock-and-an-overreaching-assertion.md) |
 | 0166 | MADR | One stalled session can still take the ACP transport down | [0166-MADR-a-stalled-session-can-still-take-the-acp-transport-down.md](decisions/0166-MADR-a-stalled-session-can-still-take-the-acp-transport-down.md) |
 | 0166 | PLAN | PLAN 0166 — Assert the containment we have, not the transport we cannot keep | [0166-PLAN-a-stalled-session-can-still-take-the-acp-transport-down.md](decisions/0166-PLAN-a-stalled-session-can-still-take-the-acp-transport-down.md) |
 | 0167 | MADR | MADR 0167: `acp-go-sdk` tears the transport down on a full notification queue — contribute an overflow policy upstream | [0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md](decisions/0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md) |
 | 0167 | PLAN | PLAN 0167 — Contribute a notification overflow policy to `acp-go-sdk` | [0167-PLAN-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md](decisions/0167-PLAN-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md) |
-| 0168 | MADR | MADR 0168: Build Android with JDK 21 in CI and on every dev host, keeping Java 17 bytecode | [0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md](decisions/0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md) |
-| 0168 | PLAN | PLAN 0168 — Build Android with JDK 21 in CI and on every dev host | [0168-PLAN-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md](decisions/0168-PLAN-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md) |
+| 0168 | MADR | MADR 0168: Build Android with JDK 21 in CI and on every dev host, keeping Java 17 bytecode | [0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md](../apps/mobile/docs/decisions/0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md) |
+| 0168 | PLAN | PLAN 0168 — Build Android with JDK 21 in CI and on every dev host | [0168-PLAN-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md](../apps/mobile/docs/decisions/0168-PLAN-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md) |
 | 0169 | MADR | MADR 0169: Standardize every toolchain on its newest supported, advisory-free stable release | [0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md](decisions/0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md) |
 | 0169 | PLAN | PLAN 0169 — Standardize every toolchain on its newest supported, advisory-free stable release | [0169-PLAN-standardize-toolchains-on-current-supported-advisory-free-releases.md](decisions/0169-PLAN-standardize-toolchains-on-current-supported-advisory-free-releases.md) |
 | 0170 | MADR | Make `make preflight` true: hermetic install tests, a degraded-manager fix, pinned staticcheck, and CI parity | [0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md](decisions/0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md) |
@@ -335,8 +338,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0175 | MADR | Conform the docs tree to the adopted record layout | [0175-MADR-conform-docs-tree-to-adopted-record-layout.md](decisions/0175-MADR-conform-docs-tree-to-adopted-record-layout.md) |
 | 0175 | PLAN | Implement conforming the docs tree to the adopted record layout | [0175-PLAN-conform-docs-tree-to-adopted-record-layout.md](decisions/0175-PLAN-conform-docs-tree-to-adopted-record-layout.md) |
 | 0176 | MADR | MADR 0004: Phase 2 — Grok ACP provider | [0176-MADR-phase-2-grok-acp-provider.md](decisions/0176-MADR-phase-2-grok-acp-provider.md) |
-| 0177 | REPORT | Phase 3 Plan: Flutter Android Client Assessment & Scaffolding | [0177-REPORT-flutter-android-client-assessment.md](../docs/reports/0177-REPORT-flutter-android-client-assessment.md) |
-| 0178 | REPORT | Magic CLI Remote — Mobile UX/UI Assessment & Research | [0178-REPORT-mobile-ux-assessment.md](../docs/reports/0178-REPORT-mobile-ux-assessment.md) |
+| 0177 | REPORT | Phase 3 Plan: Flutter Android Client Assessment & Scaffolding | [0177-REPORT-flutter-android-client-assessment.md](../apps/mobile/docs/reports/0177-REPORT-flutter-android-client-assessment.md) |
+| 0178 | REPORT | Magic CLI Remote — Mobile UX/UI Assessment & Research | [0178-REPORT-mobile-ux-assessment.md](../apps/mobile/docs/reports/0178-REPORT-mobile-ux-assessment.md) |
 | 0179 | MADR | MADR 0179: Drive pigo as a first-class ACP provider — Spec-declared session operations, strict command fallback, and complete ACP event mapping | [0179-MADR-pigo-native-acp-provider.md](decisions/0179-MADR-pigo-native-acp-provider.md) |
 | 0180 | MADR | Close 0175 leftovers and make docs gates fail the merge | [0180-MADR-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-MADR-check-records-is-a-preflight-and-ci-gate.md) |
 | 0180 | PLAN | Implement closing 0175 leftovers and making docs gates fail the merge | [0180-PLAN-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-PLAN-check-records-is-a-preflight-and-ci-gate.md) |
@@ -354,6 +357,6 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | configure mcrelay | [config-mcrelay.md](guides/config-mcrelay.md) |
 | configure signed receipts | [receipts.md](guides/receipts.md) |
 | set up Headscale | [headscale.md](guides/headscale.md) |
-| sign Android or iOS builds | [Android signing](guides/ops-android-signing.md), [iOS signing](guides/ops-ios-signing.md) |
+| sign Android or iOS builds | [Android signing](../apps/mobile/docs/guides/ops-android-signing.md), [iOS signing](../apps/mobile/docs/guides/ops-ios-signing.md) |
 | understand the wire protocol | [protocol-v2.md](guides/protocol-v2.md) (delta over [protocol-v1.md](guides/protocol-v1.md)) |
 | find why a decision was made | the records table above, starting at [0001-MADR-architecture-mcremote.md](decisions/0001-MADR-architecture-mcremote.md) |

@@ -11,8 +11,8 @@ informed: none
 
 ## Context and Problem Statement
 
-[0126](0126-MADR-android-client-debugging-pass-findings.md) and
-[0127](0127-MADR-adopt-current-flutter-toolchain.md) each closed with a
+[0126](../../apps/mobile/docs/decisions/0126-MADR-android-client-debugging-pass-findings.md) and
+[0127](../../apps/mobile/docs/decisions/0127-MADR-adopt-current-flutter-toolchain.md) each closed with a
 *Deferred (named, so they are not mistaken for oversights)* list. Ten entries
 between them. Left as prose in two execution records they will decay into the
 thing the heading was written to prevent.
@@ -148,7 +148,7 @@ justifies it; recording only would leave the same prose in a third document.
 ### Decisions
 
 * **D1 — Dependabot is restored for `github-actions` only.** `pub` and `gomod`
-  stay deleted. This amends [0127](0127-MADR-adopt-current-flutter-toolchain.md)
+  stay deleted. This amends [0127](../../apps/mobile/docs/decisions/0127-MADR-adopt-current-flutter-toolchain.md)
   D5, which deleted all three because one failed.
 
   **Revised 2026-09-01**, after the owner asked what best practice actually is.
@@ -239,13 +239,13 @@ justifies it; recording only would leave the same prose in a third document.
 
 ## More Information
 
-* Sources: [0126-PLAN](0126-PLAN-android-client-debugging-pass-findings.md) and
-  [0127-PLAN](0127-PLAN-adopt-current-flutter-toolchain.md) Deferred sections.
+* Sources: [0126-PLAN](../../apps/mobile/docs/decisions/0126-PLAN-android-client-debugging-pass-findings.md) and
+  [0127-PLAN](../../apps/mobile/docs/decisions/0127-PLAN-adopt-current-flutter-toolchain.md) Deferred sections.
 * [0103](0103-MADR-update-tracks-release-build-and-active-service.md) is the
   record D2 brings the phone into line with.
 * [0066](0066-MADR-secure-storage-upgrade-resilience.md)'s 2026-09-01 amendment
   holds E's analysis and revisit trigger.
-* [0084](0084-MADR-android-app-hardening-and-performance.md) is where D's
+* [0084](../../apps/mobile/docs/decisions/0084-MADR-android-app-hardening-and-performance.md) is where D's
   measurement belongs if it turns out to matter.
 * 0126 P7 rows 1–3 remain open and are **not** part of this record; G is gated
   on row 1.

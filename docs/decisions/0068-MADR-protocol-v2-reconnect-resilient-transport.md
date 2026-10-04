@@ -19,8 +19,8 @@
   v2), `internal/ws/`, `internal/relay/`, `internal/relayhost/`,
   `internal/session/` (gap signalling), and the Dart transport engine
   (`apps/mobile/lib/data/ws/*`). Carries the T1–T11 work list from
-  [0067 Amendment A1](0067-MADR-ios-port.md) to a decision.
-- **Related**: [0067-MADR-ios-port.md](0067-MADR-ios-port.md) A1 (the
+  [0067 Amendment A1](../../apps/mobile/docs/decisions/0067-MADR-ios-port.md) to a decision.
+- **Related**: [0067-MADR-ios-port.md](../../apps/mobile/docs/decisions/0067-MADR-ios-port.md) A1 (the
   audit this answers; F10–F14 are assumed here, not restated),
   [0063-MADR-connection-liveness-truth.md](0063-MADR-connection-liveness-truth.md)
   (verified liveness — v2 formalizes its cadence into the contract),

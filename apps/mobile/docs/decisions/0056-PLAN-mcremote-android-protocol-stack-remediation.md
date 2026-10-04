@@ -17,13 +17,13 @@ file-specific, and grounded in the tree at baseline `fa21393` (`master`).
   (`apps/mobile/lib/data/ws`, `state`, `features/chat`, `features/sessions`,
   `data/chat`, `data/notifications`, `app_lifecycle`) plus matching tests and
   protocol docs
-- **Standards:** [Go networking](../guides/standards/go/network.md),
-  [Go sessions](../guides/standards/go/session.md),
+- **Standards:** [Go networking](../../../../docs/guides/standards/go/network.md),
+  [Go sessions](../../../../docs/guides/standards/go/session.md),
   [mobile networking](../guides/standards/mobile/networking.md),
   [Android](../guides/standards/mobile/android.md)
-- **Related plans:** [0055 server remediation](0055-PLAN-mcremote-server-remediation.md)
+- **Related plans:** [0055 server remediation](../../../../docs/decisions/0055-PLAN-mcremote-server-remediation.md)
   (done), [0046 mobile debug](0046-PLAN-mobile-debug-pass.md) (done),
-  [0027 streaming rendering](0027-MADR-opencode-streaming-rendering.md) (partial)
+  [0027 streaming rendering](../../../../docs/decisions/0027-MADR-opencode-streaming-rendering.md) (partial)
 
 ---
 

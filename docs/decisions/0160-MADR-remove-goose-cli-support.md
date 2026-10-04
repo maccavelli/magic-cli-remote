@@ -897,7 +897,7 @@ make ci-windows
   — Goose catalog + `ErrGooseKeyringManaged`. Remaining agents keep the rest.
 * [0083-MADR-provider-auth-activation-and-layout-gaps.md](0083-MADR-provider-auth-activation-and-layout-gaps.md)
   — `keyring_managed` wire reason. Kept as reserved (D6).
-* [0026-MADR-mobile-goose-support.md](0026-MADR-mobile-goose-support.md) —
+* [0026-MADR-mobile-goose-support.md](../../apps/mobile/docs/decisions/0026-MADR-mobile-goose-support.md) —
   phone has no provider enum; F12 still true after removal.
 * [0159-MADR-the-windows-service-path-is-half-wired.md](0159-MADR-the-windows-service-path-is-half-wired.md)
   — its evidence counts `acphttp/provider.go:361` among six `SuperviseStarted`

@@ -284,7 +284,7 @@ host.
 
 * [0095](0095-MADR-post-0094-assessment-and-debug-pass.md) — introduced `PurgeSession`
   and the timeout ladder; F9 is why D6 refuses to touch either timeout.
-* [0046](0046-MADR-mobile-debug-pass.md) — M-4 made the phone drop
+* [0046](../../apps/mobile/docs/decisions/0046-MADR-mobile-debug-pass.md) — M-4 made the phone drop
   pending asks after a delete; F5 is the daemon half that was assumed.
 * [0094](0094-MADR-end-session-return-black-screen.md) — D7's confirm-against-the-list
   fallback, which is what currently rescues the user after the timeout.

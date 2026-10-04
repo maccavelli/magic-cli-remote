@@ -635,7 +635,7 @@ Corrections this record makes:
 
 ## Amendment, 2026-09-01 — D4's S2 row is unreachable under go_router 18.0.0
 
-Recorded while executing [0127-PLAN](0127-PLAN-adopt-current-flutter-toolchain.md)
+Recorded while executing [0127-PLAN](../../apps/mobile/docs/decisions/0127-PLAN-adopt-current-flutter-toolchain.md)
 P6a, which bumps `go_router` 17.5.0 → 18.0.0.
 
 The D4 probe above measured S2 — *"user backed out mid-delete"* — as

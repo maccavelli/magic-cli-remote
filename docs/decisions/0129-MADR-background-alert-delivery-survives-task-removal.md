@@ -12,7 +12,7 @@ informed: none
 ## Context and Problem Statement
 
 The app's stated P0 is "walk away and get pinged".
-[0126](0126-MADR-android-client-debugging-pass-findings.md) F1 found that
+[0126](../../apps/mobile/docs/decisions/0126-MADR-android-client-debugging-pass-findings.md) F1 found that
 `android:stopWithTask="true"` had disabled every path that could restart the
 keep-alive service, and P1 removed it. 0126 P7 then tested the result on a real
 Android 16 image against a live daemon.
@@ -222,16 +222,16 @@ connection is gone and tapping it restores it.
 
 ## More Information
 
-* Evidence: [0126-PLAN](0126-PLAN-android-client-debugging-pass-findings.md)
+* Evidence: [0126-PLAN](../../apps/mobile/docs/decisions/0126-PLAN-android-client-debugging-pass-findings.md)
   execution record, 2026-09-01 P7 entry — thread-name diff, socket samples,
   `dumpsys` output.
-* [0126](0126-MADR-android-client-debugging-pass-findings.md) F1 is the
+* [0126](../../apps/mobile/docs/decisions/0126-MADR-android-client-debugging-pass-findings.md) F1 is the
   necessary-but-not-sufficient fix this record builds on.
-* [0056](0056-MADR-mcremote-android-protocol-stack-audit.md) H-5a is the invariant D3
+* [0056](../../apps/mobile/docs/decisions/0056-MADR-mcremote-android-protocol-stack-audit.md) H-5a is the invariant D3
   restores.
 * [0068](0068-MADR-protocol-v2-reconnect-resilient-transport.md) D3 is the 4001
   behaviour D2 is designed around.
-* [0067](0067-MADR-ios-port.md) D2 explains why this is Android-only.
+* [0067](../../apps/mobile/docs/decisions/0067-MADR-ios-port.md) D2 explains why this is Android-only.
 * Row 3 of P7 passed and is unrelated to this record.
 
 ## Amendment — 2026-09-02: D4's named mechanism cannot carry a per-ask alert
@@ -335,7 +335,7 @@ Putting Allow/Deny on the foreground-service notification is the only way to use
 * Bad, because the ask would ride the `host_connection` channel instead of
   `approval_needed` — it would not peek, and the per-kind approval toggle in
   Settings would no longer govern it, contradicting
-  [0101](0101-MADR-android-agent-alert-delivery.md) C.
+  [0101](../../apps/mobile/docs/decisions/0101-MADR-android-agent-alert-delivery.md) C.
 * Bad, because one button set means one actionable ask at a time.
 * Bad, because the persistent status row and the alert row become the same row,
   which undoes D3's separation of "what the connection is doing" from "what the

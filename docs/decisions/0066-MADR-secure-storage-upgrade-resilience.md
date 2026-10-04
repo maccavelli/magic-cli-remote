@@ -31,7 +31,7 @@
   (in-place updates are the trigger; its Stage 0 premise is amended here),
   [0005-MADR-client-identity.md](0005-MADR-client-identity.md) /
   ADR 0005 (client-key enrolment being the thing that breaks),
-  [ops-android-signing.md](../guides/ops-android-signing.md) (the runbook that made
+  [ops-android-signing.md](../../apps/mobile/docs/guides/ops-android-signing.md) (the runbook that made
   in-place updates possible at all).
 
 ---
@@ -495,7 +495,7 @@ faith.
 
 D1 ended *"Revisit the plugin major on its stable release."* 11.0.0 shipped
 2026-08-06, so the revisit was carried out during
-[0127-PLAN](0127-PLAN-adopt-current-flutter-toolchain.md) P6c. **Outcome: do not
+[0127-PLAN](../../apps/mobile/docs/decisions/0127-PLAN-adopt-current-flutter-toolchain.md) P6c. **Outcome: do not
 take 11.0.0 yet.** The reason is not the one D1 anticipated.
 
 ### The credential risk D1 worried about does not apply
@@ -555,5 +555,5 @@ that point the migration analysis above still holds, so it should be a plain
 version bump.
 
 Recorded here deliberately: the equivalent note lived only in
-`.github/dependabot.yml`'s comment, and [0127](0127-MADR-adopt-current-flutter-toolchain.md)
+`.github/dependabot.yml`'s comment, and [0127](../../apps/mobile/docs/decisions/0127-MADR-adopt-current-flutter-toolchain.md)
 D5 deletes that file. This amendment is where the preference now lives.

@@ -30,7 +30,7 @@ Decision context: MADR 0067 D8/F9.
 3. On the phone: enable Developer Mode (Settings → Privacy & Security),
    then trust the developer cert (Settings → General → VPN & Device
    Management) after the first install.
-4. Run Part F of [ops-hardware-validation.md](ops-hardware-validation.md).
+4. Run Part F of [ops-hardware-validation.md](../../../../docs/guides/ops-hardware-validation.md).
 
 ## Free tier vs paid program
 

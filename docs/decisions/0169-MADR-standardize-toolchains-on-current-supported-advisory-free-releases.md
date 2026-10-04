@@ -391,7 +391,7 @@ Raw responses are saved with the session's research scripts (`fetch_sources.py`,
 
 ### Related records
 
-- [0168-MADR](0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md): JDK 21 for
+- [0168-MADR](../../apps/mobile/docs/decisions/0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md): JDK 21 for
   CI and the hosts, bytecode 17. D5 here amends its D1/D3 choice of 21 and keeps its D2.
 - [0114-MADR-manage-markdownlint-cli2-with-mise.md](0114-MADR-manage-markdownlint-cli2-with-mise.md):
   markdownlint-cli2 through mise. Superseded by D15 (added by the mise-retirement amendment).

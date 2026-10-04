@@ -18,7 +18,7 @@
   change the daemon, the wire protocol, mcrelay, or the 0062 transport
   selection rules.
 - **Related**:
-  [0046-MADR](0046-MADR-mobile-debug-pass.md) (reconnect loop,
+  [0046-MADR](../../apps/mobile/docs/decisions/0046-MADR-mobile-debug-pass.md) (reconnect loop,
   epoch supersession, the ping-flap rule L-1),
   [0062-MADR-phone-transport-selection.md](0062-MADR-phone-transport-selection.md)
   (per-leg `TransportMode`, `activeTransport`, DialEpisode failover),

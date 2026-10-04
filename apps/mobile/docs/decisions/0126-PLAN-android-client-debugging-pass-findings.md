@@ -770,7 +770,7 @@ Trigger: **P7 row 1 shows `START_STICKY` alone does not restore alerts after a
 swipe.**~~
 
 **Resolved as "not needed"** by
-[0129](0129-PLAN-background-alert-delivery-survives-task-removal.md) P6, which
+[0129](../../../../docs/decisions/0129-PLAN-background-alert-delivery-survives-task-removal.md) P6, which
 is where rows 1 and 2 were finally run. Both pass **without** a
 battery-optimisation exemption:
 
@@ -799,7 +799,7 @@ execution record). What remains:
   the socket dies, and the title mirrors that belief. That is connection
   liveness, not the alert path. **It is no longer this plan's item:** the
   measurement 0129 asked for was taken, and the residual became its own record,
-  [0130](0130-MADR-client-can-sit-connected-with-no-socket.md), which is parked
+  [0130](../../../../docs/decisions/0130-MADR-client-can-sit-connected-with-no-socket.md), which is parked
   with the cause unfound and no fix shipped. Row 4 as literally worded — "at no
   point does the title claim Connected while no socket exists" — **is not
   satisfied**, and the reason is tracked there rather than here.
@@ -1654,7 +1654,7 @@ after its socket dies, and the notification faithfully mirrors that belief.
 That is not one of F1–F8. It is a defect in connection liveness, discovered
 *by* this row rather than caused by anything this plan changed, and it now has
 its own record:
-[0130](0130-MADR-client-can-sit-connected-with-no-socket.md) — parked, cause
+[0130](../../../../docs/decisions/0130-MADR-client-can-sit-connected-with-no-socket.md) — parked, cause
 unfound, no fix shipped, with a working `mc.trace` instrument and a named next
 step should it recur.
 

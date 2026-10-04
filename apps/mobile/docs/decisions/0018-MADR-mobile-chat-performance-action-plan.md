@@ -20,7 +20,7 @@
   iOS, second provider / Antigravity, replacing `flutter_markdown_plus`
   unless Phase B profiling still pins it.
 - **Extends**: [0177-REPORT-flutter-android-client-assessment.md](../reports/0177-REPORT-flutter-android-client-assessment.md),
-  [chat-performance.md](../guides/chat-performance.md),
+  [chat-performance.md](../../../../docs/guides/chat-performance.md),
   [0178-REPORT-mobile-ux-assessment.md](../reports/0178-REPORT-mobile-ux-assessment.md)
 - **Companions**: Host history ring (`internal/session/manager.go`:
   `historyBufferCap=500`, page defaults 200/max 500, ~512 KiB soft response cap)
