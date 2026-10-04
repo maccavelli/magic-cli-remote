@@ -14,8 +14,9 @@ import (
 const protocolDoc = "../../docs/guides/protocol-v1.md"
 
 // eventTypeListPrefix marks the canonical enumeration a client implements
-// against. Kept as a prefix match so the list can be reflowed without breaking
-// the guard.
+// against. The enumeration is the paragraph that starts with this prefix and
+// runs to the next blank line, so the list can be reflowed without breaking
+// the guard (MADR 0180 D8).
 const eventTypeListPrefix = "Event `type` values:"
 
 // readProtocolDoc loads the spec relative to this package so the guards work
@@ -43,21 +44,28 @@ func readProtocolDoc(t *testing.T) string {
 func TestEventTypesAreDocumented(t *testing.T) {
 	doc := readProtocolDoc(t)
 
-	var list string
+	var paragraph []string
 	for line := range strings.SplitSeq(doc, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), eventTypeListPrefix) {
-			list = line
+		if paragraph == nil {
+			if strings.HasPrefix(strings.TrimSpace(line), eventTypeListPrefix) {
+				paragraph = []string{line}
+			}
+			continue
+		}
+		if strings.TrimSpace(line) == "" {
 			break
 		}
+		paragraph = append(paragraph, line)
 	}
-	if list == "" {
+	if paragraph == nil {
 		t.Fatalf("no line starting %q in %s — the enumeration this guard checks "+
 			"is gone or was reworded", eventTypeListPrefix, protocolDoc)
 	}
+	list := strings.Join(paragraph, "\n")
 
 	for _, typ := range event.Types() {
 		if !strings.Contains(list, "`"+string(typ)+"`") {
-			t.Errorf("event type %q is emitted but missing from the %q line in %s",
+			t.Errorf("event type %q is emitted but missing from the %q paragraph in %s",
 				typ, eventTypeListPrefix, protocolDoc)
 		}
 	}
