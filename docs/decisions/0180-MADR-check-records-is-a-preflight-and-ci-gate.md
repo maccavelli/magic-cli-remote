@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-03
+date: 2026-10-04
 informed: repository agents
 ---
 
@@ -114,3 +114,33 @@ Owner: "add the out of pair items to scope." The first draft's "warnings stay wa
 * 0177 becomes `0177-REPORT` (B), not a new MADR.
 * D6 user-facing markdownlint set only (B), not whole-tree 3257.
 * 0055 keeps its number; write `0055-MADR` (C). Do not rename to 0012-PLAN.
+
+## Amendment (2026-10-04) — a mechanical lint fix broke a Go guard
+
+D6 said "mechanical fixes only" and assumed they did not change content. One of them did. P5 (`36cb45bd`) reflowed the ``Event `type` values:`` enumeration in `docs/guides/protocol-v1.md` from one line into four, to satisfy MD013 (200 characters). `TestEventTypesAreDocumented` in `internal/protocol/doc_coverage_test.go` is the guard from [0036-MADR-protocol-contract-completeness.md](0036-MADR-protocol-contract-completeness.md). It reads only the line that starts with the prefix, so it reported 25 of the 34 documented types as missing. The test's own comment says the prefix match exists "so the list can be reflowed without breaking the guard"; the code never did that.
+
+Evidence, 2026-10-04:
+
+* Every CI Go job failed on that test: linux/arm64, windows/amd64, and "Go (test; build on tag)". That covered master runs 37173869896 and 37177612995, and tag `v0.20.2` run 37176700789. Run 37177361678 was cancelled after its linux/arm64 job had already failed on it. `ci-flakes.tsv` records each one as `fail`/`fail`, so this is deterministic, not a flake.
+* The failure reproduces locally: `go test -count=1 -run TestEventTypesAreDocumented ./internal/protocol/` exits 1.
+* No GitHub release exists for `v0.20.2`; its build-on-tag job stopped at the test step.
+* `make preflight` runs `go test -race ./...` and would have caught this. Neither the P5 gates nor the P8 closeout ran it. A9 was checked by reading the recipe, not by running it.
+* No other Go test reads a file in the D6 lint set. `internal/protocol/sessionmode_compat_test.go` reads the same document through `readProtocolDoc` but searches the whole text, so a reflow cannot break it.
+
+Options considered:
+
+* **Guard reads the blank-line-bounded paragraph that starts with the prefix (chosen).**
+  * Good, because the code now does what its comment already promises, and the doc stays as linted.
+  * Neutral, because the assertion does not get looser: every type must still appear in that one enumeration, not anywhere in the document.
+  * Bad, because it touches a Go test file outside D6's docs-only scope.
+* **Restore the single line under `<!-- markdownlint-disable-next-line MD013 -->`.**
+  * Good, because it is a one-line doc change.
+  * Bad, because it suppresses a lint rule on a gated file, and the next reflow breaks the guard again.
+* **Turn the enumeration into a bullet list and parse that.**
+  * Bad, because it changes the spec's shape to fix a parser.
+
+Owner decision, 2026-10-04: the paragraph reader ("yes" to the first option).
+
+* **D8 — Doc-parsing guards tolerate reflow; doc edits run the tests that read them.** `TestEventTypesAreDocumented` checks the paragraph from the prefix line up to the next blank line. Any phase that edits a file a Go test reads runs `go test` on that package, and a closeout that claims a preflight gate runs `make preflight`. 0036 D6 (presence, not correctness) is unchanged.
+
+Executed by P9 in [0180-PLAN-check-records-is-a-preflight-and-ci-gate.md](0180-PLAN-check-records-is-a-preflight-and-ci-gate.md).

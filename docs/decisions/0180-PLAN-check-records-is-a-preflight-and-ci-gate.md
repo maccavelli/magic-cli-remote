@@ -1,5 +1,5 @@
 ---
-status: complete
+status: in-progress
 date: 2026-10-04
 associated-madr: "0180-MADR-check-records-is-a-preflight-and-ci-gate.md"
 ---
@@ -26,6 +26,7 @@ Numbering debt gone, spike blobs under package `testdata/`, mobile docs tree sta
 * P6: `Makefile` `preflight` gains `check-records` and `markdownlint-docs`.
 * P7: `.github/workflows/ci.yml` linux `go` job gains both steps (workflow edit; owner-gated).
 * P8: this PLAN's execution record and status; MADR amendment only if D1–D7 change.
+* P9 (added 2026-10-04, D8): `internal/protocol/doc_coverage_test.go` only, plus this PLAN's execution record. `docs/guides/protocol-v1.md` is **not** touched; it stays as P5 linted it.
 
 User-facing lint set (D6): `README.md`, `docs/README.md`, `docs/architecture.md`, `docs/guides/**/*.md`, `docs/reports/**/*.md`, `apps/mobile/README.md`, and after P4 `apps/mobile/docs/README.md`, `apps/mobile/docs/architecture.md`, `apps/mobile/docs/guides/**/*.md`, `apps/mobile/docs/reports/**/*.md`. Not `AGENTS.md`. Not MADR/PLAN.
 
@@ -35,6 +36,7 @@ User-facing lint set (D6): `README.md`, `docs/README.md`, `docs/architecture.md`
 * Whole-tree `npx markdownlint-cli2` (the 3257).
 * Windows Go matrix, Flutter CI jobs, `make ci-windows`.
 * Push, unless the owner asks in the same turn.
+* Re-tagging or releasing `v0.20.2`, or cutting a new tag. A published tag is not moved; a replacement tag needs its own ask.
 
 ## Implementation Steps
 
@@ -88,6 +90,18 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 
 1. `make check-records` 0, no numbering warnings. `make markdownlint-docs` 0. Both call sites in Makefile and `ci.yml`. No `docs/reports/*spike*`. Execution record. `status: complete` only when A1–A12 hold.
 
+**P9 — Event-type guard reads the paragraph (D8; added 2026-10-04).**
+
+1. ~~Branch off `master` before any commit. Org rule 011 forbids commits on `master`; load `enforcing-git-branch-gates`. Suggested name: `fix/0180-p9-event-type-guard`. First commit: this MADR/PLAN amendment alone (bootstrap exception; no Go in it).~~ Superseded 2026-10-04 (see deviations): no branch, and the agent does not commit. The agent stages the work on `master` and the owner commits and pushes.
+2. In `TestEventTypesAreDocumented`, once the line starting with `eventTypeListPrefix` is found, take it and each following line until the first line where `strings.TrimSpace` is empty or the file ends. Check types against that joined text. Keep the existing `Fatalf` for a missing prefix. Reword the error so it names the paragraph rather than the line, and update the comment to match. `TestErrorCodesAreDocumented`, `readProtocolDoc`, and `protocolDoc` stay as they are.
+3. Fail-first, in a `git clone --local` under the session scratchpad and never in this tree. Each plant gets its own clean copy of the doc:
+   * (a) the doc with `` `codex_unsupported_item` `` deleted from the last line of the enumeration: the test fails, naming that type and only that type;
+   * (b) the doc with a blank line inserted before the enumeration's last line: the test fails, naming the three types on that line. This proves the paragraph stops at a blank line and the test does not search the rest of the document;
+   * (c) the doc with the `Event \`type\` values:` prefix reworded: `Fatalf` fires with "no line starting".
+   Record each command, its exit code, and its output.
+4. Gates: `go test -count=1 ./internal/protocol/` exits 0 against the unmodified `protocol-v1.md`. `make pre-add-check FILES=internal/protocol/doc_coverage_test.go` exits 0. `make preflight` exits 0; this is the gate P5 and P8 skipped. `make check-records` exits 0. ~~Commit with `git commit --no-edit`.~~ Stage with `git add`; the owner commits (2026-10-04 deviation).
+5. Execution record: P9 entry, A13–A16 results. Set `status: complete` only once A16 holds. Whoever confirms A16 green flips the status. A16 needs a push, and a push needs the owner's ask in the same turn. Until then, `status` stays `in-progress`.
+
 ## Verification
 
 | # | Criterion |
@@ -104,12 +118,16 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 | A10 | Linux `go` job runs both; windows/Flutter/`ci-windows` do not |
 | A11 | Scratch-clone proofs: broken link, duplicate number, planted MD013 on the user-facing set, record outside `docs/decisions` |
 | A12 | `git log --follow` resolves the renumbered 0154-later pair and one moved mobile MADR |
+| A13 | `go test -count=1 ./internal/protocol/` exit 0 with `docs/guides/protocol-v1.md` as P5 left it (four-line enumeration) |
+| A14 | P9 scratch-clone proofs (a), (b), (c) each fail with the expected message |
+| A15 | `make preflight` exit 0 on the P9 commit |
+| A16 | CI Go jobs (linux/arm64, windows/amd64, "Go (test; build on tag)") green on the pushed P9 commit |
 
 ## Rollout and Rollback
 
-**Rollout:** P1→P8. No push unless asked in the same turn. P7 is the workflow edit.
+**Rollout:** P1→P8. No push unless asked in the same turn. P7 is the workflow edit. ~~P9 lands on a branch. Pushing it, opening a PR, and merging it to `master` each need an explicit ask.~~ P9 is staged on `master`; the owner commits and pushes (2026-10-04 deviation).
 
-**Rollback:** revert P7 then P6 to drop gates; P2 is a `git mv` so revert restores `docs/reports/*-spike-*`.
+**Rollback:** revert P7 then P6 to drop gates; P2 is a `git mv` so revert restores `docs/reports/*-spike-*`. Reverting P9 restores the single-line reader, and CI goes red again on the current doc. If P9 has to be backed out, the fallback is the MADR's MD013-suppression option, which needs its own owner decision.
 
 ## Deviations
 
@@ -118,6 +136,10 @@ Order is fixed; each phase ends with its gates and one commit (`git commit --no-
 **2026-10-03 — owner picks.** 1A split; 2B testdata; 3B 0177-REPORT; 4B user-facing lint; 5C 0055-MADR. ~~Not yet executed.~~ Executed P1–P8.
 
 **2026-10-04 — P7 replayed onto origin before push.** After P7 landed on P6, origin gained two out-of-pair flake-ledger commits (`3a49f541` / `v0.20.2`, then `a9843f59`, both `ci-flakes.tsv` only). Owner: "fix repo sync." The unpushed P7 `ci.yml` commit was rebased onto that tip and fast-forwarded (`a2fef3f9` → `bc3431df`). No MADR amendment: D1–D7 unchanged.
+
+**2026-10-04 — CI red after push; P9 added.** P5's reflow of the event-type enumeration in `docs/guides/protocol-v1.md` broke `TestEventTypesAreDocumented` (`internal/protocol/doc_coverage_test.go:43`), which reads only the prefix line. Every Go CI job failed from the first push carrying P5 onward (runs 37173869896, 37176700789 on `v0.20.2`, 37177612995), and the failure reproduces locally. Neither P5's gates nor P8 ran `go test` or `make preflight`. Owner: "yes" to having the guard read the paragraph. Files added to scope: `internal/protocol/doc_coverage_test.go`. MADR amended (2026-10-04, D8). Status goes back from `complete` to `in-progress`.
+
+**2026-10-04 — P9 is staged, not branched or committed.** Owner: "we will not be providing a jira key nor creating a feature branch. this project does not require adherence to those mandates. you only add and stage. i will commit and push." P9 step 1's branch and records-only commit are dropped, and step 4's commit becomes `git add`. Records and test are staged together on `master`; the owner chooses how to split commits. No MADR change: D8 is unaffected.
 
 ## Execution record (2026-10-04)
 
@@ -132,6 +154,7 @@ Local phases P1–P7, one commit each. P1–P7 are on `origin/master` after the 
 | P5 | `36cb45bd` | chore(docs): add markdown lint target |
 | P6 | `95b38565` | ci(preflight): run documentation validation gates |
 | P7 | `bc3431df` | ci(linux): run records and docs markdown lint checks |
+| P9 | staged, not committed | owner commits (2026-10-04 deviation) |
 
 ### P1 — Numbering debt
 
@@ -226,12 +249,63 @@ docs/guides/config.md:718:201 error MD013/line-length Line length [Expected: 200
 - `docs/decisions/0181-MADR-configurable-mcremote-message-size.md` — `a1bee687`, `4e2ac105` (renumber from 0154), `64282e29`, `9ac32229`, `8eccfafb` (original 0154-later add)
 - `apps/mobile/docs/decisions/0018-MADR-mobile-chat-performance-action-plan.md` — `a1bee687` (P4 move), then `4e2ac105`, `ed21e326`, `8d5e363f`, `772c041e`, `64282e29`, `9ac32229`, …
 
+### P9 — Event-type guard reads the paragraph (2026-10-04)
+
+`TestEventTypesAreDocumented` now takes the paragraph from the `Event \`type\` values:` line through to the next blank line, joins it, and checks each `event.Types()` entry against that text. The `Fatalf` for a missing prefix is unchanged. The error text says "paragraph" instead of "line", and the `eventTypeListPrefix` comment cites D8. `docs/guides/protocol-v1.md` is untouched (`git diff --quiet` exit 0).
+
+Before the change, on the four-line enumeration, `go test -count=1 -run TestEventTypesAreDocumented ./internal/protocol/` exited 1 with 25 "missing from the ... line" errors, matching CI.
+
+A13, after the change, against the unmodified doc:
+
+```text
+$ go test -count=1 ./internal/protocol/      # exit 0
+ok  	github.com/maccavelli/magic-cli-remote/internal/protocol	0.738s
+```
+
+A14 ran in a `git clone --local` of HEAD under the session scratchpad, with the uncommitted test copied in. Each plant used a fresh copy of the doc, and the clone was removed afterwards. This tree was not modified. The control run on the pristine doc exited 0.
+
+(a) `` `codex_unsupported_item` `` deleted from the enumeration's last line, exit 1:
+
+```text
+doc_coverage_test.go:68: event type "codex_unsupported_item" is emitted but missing from the "Event `type` values:" paragraph in ../../docs/guides/protocol-v1.md
+```
+
+(b) A blank line inserted before the enumeration's last line, exit 1. Those three types are still in the document, so this shows the reader stops at the blank line:
+
+```text
+doc_coverage_test.go:68: event type "codex_model_verification" is emitted but missing from the "Event `type` values:" paragraph in ../../docs/guides/protocol-v1.md
+doc_coverage_test.go:68: event type "codex_terminal_interaction" is emitted but missing from the "Event `type` values:" paragraph in ../../docs/guides/protocol-v1.md
+doc_coverage_test.go:68: event type "codex_unsupported_item" is emitted but missing from the "Event `type` values:" paragraph in ../../docs/guides/protocol-v1.md
+```
+
+(c) Prefix reworded to `Event kinds:`, exit 1:
+
+```text
+doc_coverage_test.go:61: no line starting "Event `type` values:" in ../../docs/guides/protocol-v1.md — the enumeration this guard checks is gone or was reworded
+```
+
+Gates:
+
+```text
+$ make pre-add-check FILES=internal/protocol/doc_coverage_test.go   # exit 0
+go-precheck: 1 file(s) clean (gofmt, golint, govulncheck).
+$ make preflight                                                     # exit 0 (A15)
+==> check-records ... markdownlint-docs ... Summary: 0 issues in 0 files
+==> go test -race ... ok  github.com/maccavelli/magic-cli-remote/internal/protocol  3.221s
+==> flutter analyze ... No issues found!
+==> flutter test ... All tests passed!
+✅ preflight passed
+```
+
+Zero `FAIL` lines in the preflight log. The three files are staged on `master`. A16 waits on the owner's commit and push.
+
 ### What was not done
 
 * Whole-tree `npx markdownlint-cli2` (3126 issues). Out of scope.
 * Windows Go matrix, Flutter jobs, `make ci-windows`. Out of scope.
 * 0158/0175 historical spike-path prose. Left as written (D3).
-* MADR amendment: D1–D7 did not change.
+* ~~MADR amendment: D1–D7 did not change.~~ Superseded 2026-10-04: D6's "mechanical fixes" assumption failed; D8 added.
+* `make preflight` and `go test` were not run at P5 or P8. A9 was checked by reading the recipe. This is the gap D8 closes (added 2026-10-04).
 
 ### Acceptance
 
@@ -249,3 +323,7 @@ docs/guides/config.md:718:201 error MD013/line-length Line length [Expected: 200
 | A10 | met — linux `go` job runs both; Flutter / `windows-latest` / `make/ci-windows.mk` do not |
 | A11 | met — scratch worktree output above |
 | A12 | met — `--follow` on 0181 and on moved 0018 mobile MADR |
+| A13 | met — `go test -count=1 ./internal/protocol/` exit 0 on the four-line enumeration |
+| A14 | met — plants (a), (b), (c) each exit 1 with the expected message; control exit 0 |
+| A15 | met — `make preflight` exit 0 on the staged P9 tree |
+| A16 | pending — owner commits and pushes; then the CI Go jobs must be green |
