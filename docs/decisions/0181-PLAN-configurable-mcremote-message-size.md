@@ -1,14 +1,16 @@
 ---
 status: proposed
 date: 2026-09-08
-associated-madr: 0154-MADR-configurable-mcremote-message-size.md
+associated-madr: 0181-MADR-configurable-mcremote-message-size.md
 ---
 <!-- markdownlint-configure-file {"MD004": {"style": "asterisk"}} -->
+
+> **2026-10-03 (0180 P1).** Renumbered from `0154-PLAN-configurable-mcremote-message-size.md` with its MADR. Number 0154 stays with the earlier mcrelay-paths pair.
 
 # Implement configurable mcremote message size
 
 Associated MADR:
-[0154-MADR-configurable-mcremote-message-size.md](0154-MADR-configurable-mcremote-message-size.md).
+[0181-MADR-configurable-mcremote-message-size.md](0181-MADR-configurable-mcremote-message-size.md).
 
 ## Goal
 

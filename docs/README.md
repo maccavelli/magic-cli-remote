@@ -18,6 +18,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0002 | MADR | Report: Community Landscape Assessment & Foundation Stack Recommendations for `mcremote` | [0002-MADR-community-assessment-and-stack-recommendations.md](decisions/0002-MADR-community-assessment-and-stack-recommendations.md) |
 | 0003 | MADR | MADR 0003: Phase 1 scaffolding decisions | [0003-MADR-phase1-decisions.md](decisions/0003-MADR-phase1-decisions.md) |
 | 0004 | MADR | 0004 — Certificate management | [0004-MADR-certificate-management.md](decisions/0004-MADR-certificate-management.md) |
+| 0004 | PLAN | Hardening implementation plan | [0004-PLAN-hardening-implementation.md](decisions/0004-PLAN-hardening-implementation.md) |
 | 0005 | MADR | 0005 — Client identity | [0005-MADR-client-identity.md](decisions/0005-MADR-client-identity.md) |
 | 0006 | MADR | 0006 — Token lifecycle | [0006-MADR-token-lifecycle-decision.md](decisions/0006-MADR-token-lifecycle-decision.md) |
 | 0007 | MADR | 0007 — Tailnet lock (control-plane MITM) | [0007-MADR-tailnet-lock-decision.md](decisions/0007-MADR-tailnet-lock-decision.md) |
@@ -91,7 +92,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0052 | PLAN | MADR 0052 — Implementation plan: thinking levels and the settings panel | [0052-PLAN-thinking-levels-and-settings.md](decisions/0052-PLAN-thinking-levels-and-settings.md) |
 | 0053 | MADR | MADR 0053: Grok auto mode — silent arm, missing chip, mode-path gaps | [0053-MADR-grok-auto-mode-silent-arm.md](decisions/0053-MADR-grok-auto-mode-silent-arm.md) |
 | 0053 | PLAN | MADR 0053 — Implementation plan: grok auto silent arm and mode-path gaps | [0053-PLAN-grok-auto-mode-silent-arm.md](decisions/0053-PLAN-grok-auto-mode-silent-arm.md) |
-| 0054 | PLAN | Hardening implementation plan | [0054-PLAN-hardening-implementation.md](decisions/0054-PLAN-hardening-implementation.md) |
+| 0055 | MADR | Remediate the mcremote Go server from the 2026-07 audit | [0055-MADR-mcremote-server-remediation.md](decisions/0055-MADR-mcremote-server-remediation.md) |
 | 0055 | PLAN | mcremote Go server remediation plan | [0055-PLAN-mcremote-server-remediation.md](decisions/0055-PLAN-mcremote-server-remediation.md) |
 | 0056 | MADR | MADR 0056: mcremote ↔ Android protocol-stack audit | [0056-MADR-mcremote-android-protocol-stack-audit.md](decisions/0056-MADR-mcremote-android-protocol-stack-audit.md) |
 | 0056 | PLAN | MADR 0056 — Implementation plan: mcremote ↔ Android protocol-stack remediation | [0056-PLAN-mcremote-android-protocol-stack-remediation.md](decisions/0056-PLAN-mcremote-android-protocol-stack-remediation.md) |
@@ -289,9 +290,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0152 | PLAN | PLAN 0152 — Make every instruction file name the skill that exists | [0152-PLAN-the-skill-name-is-writing-madr-and-plans.md](decisions/0152-PLAN-the-skill-name-is-writing-madr-and-plans.md) |
 | 0153 | MADR | Atomic writes fail on Windows whenever anything holds the destination open | [0153-MADR-atomic-writes-lose-a-race-any-windows-reader-can-start.md](decisions/0153-MADR-atomic-writes-lose-a-race-any-windows-reader-can-start.md) |
 | 0153 | PLAN | PLAN 0153 — Survive a Windows reader holding the destination | [0153-PLAN-atomic-writes-lose-a-race-any-windows-reader-can-start.md](decisions/0153-PLAN-atomic-writes-lose-a-race-any-windows-reader-can-start.md) |
-| 0154 | MADR | Make mcremote message size configurable | [0154-MADR-configurable-mcremote-message-size.md](decisions/0154-MADR-configurable-mcremote-message-size.md) |
 | 0154 | MADR | `mcrelay paths` refuses to print a path until the relay could serve | [0154-MADR-mcrelay-paths-demands-a-runnable-server.md](decisions/0154-MADR-mcrelay-paths-demands-a-runnable-server.md) |
-| 0154 | PLAN | Implement configurable mcremote message size | [0154-PLAN-configurable-mcremote-message-size.md](decisions/0154-PLAN-configurable-mcremote-message-size.md) |
 | 0154 | PLAN | PLAN 0154 — Let `mcrelay paths` answer without a runnable relay | [0154-PLAN-mcrelay-paths-demands-a-runnable-server.md](decisions/0154-PLAN-mcrelay-paths-demands-a-runnable-server.md) |
 | 0155 | MADR | The same shared secret is permission-guarded in mcrelay's config and unguarded in mcremote's | [0155-MADR-one-daemon-guards-its-config-the-other-does-not.md](decisions/0155-MADR-one-daemon-guards-its-config-the-other-does-not.md) |
 | 0155 | PLAN | PLAN 0155 — Guard mcremote's config the way the rest of the product guards secrets | [0155-PLAN-one-daemon-guards-its-config-the-other-does-not.md](decisions/0155-PLAN-one-daemon-guards-its-config-the-other-does-not.md) |
@@ -336,9 +335,13 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0175 | MADR | Conform the docs tree to the adopted record layout | [0175-MADR-conform-docs-tree-to-adopted-record-layout.md](decisions/0175-MADR-conform-docs-tree-to-adopted-record-layout.md) |
 | 0175 | PLAN | Implement conforming the docs tree to the adopted record layout | [0175-PLAN-conform-docs-tree-to-adopted-record-layout.md](decisions/0175-PLAN-conform-docs-tree-to-adopted-record-layout.md) |
 | 0176 | MADR | MADR 0004: Phase 2 — Grok ACP provider | [0176-MADR-phase-2-grok-acp-provider.md](decisions/0176-MADR-phase-2-grok-acp-provider.md) |
-| 0177 | PLAN | Phase 3 Plan: Flutter Android Client Assessment & Scaffolding | [0177-PLAN-flutter-android-client-assessment.md](decisions/0177-PLAN-flutter-android-client-assessment.md) |
+| 0177 | REPORT | Phase 3 Plan: Flutter Android Client Assessment & Scaffolding | [0177-REPORT-flutter-android-client-assessment.md](../docs/reports/0177-REPORT-flutter-android-client-assessment.md) |
 | 0178 | REPORT | Magic CLI Remote — Mobile UX/UI Assessment & Research | [0178-REPORT-mobile-ux-assessment.md](../docs/reports/0178-REPORT-mobile-ux-assessment.md) |
 | 0179 | MADR | MADR 0179: Drive pigo as a first-class ACP provider — Spec-declared session operations, strict command fallback, and complete ACP event mapping | [0179-MADR-pigo-native-acp-provider.md](decisions/0179-MADR-pigo-native-acp-provider.md) |
+| 0180 | MADR | Close 0175 leftovers and make docs gates fail the merge | [0180-MADR-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-MADR-check-records-is-a-preflight-and-ci-gate.md) |
+| 0180 | PLAN | Implement closing 0175 leftovers and making docs gates fail the merge | [0180-PLAN-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-PLAN-check-records-is-a-preflight-and-ci-gate.md) |
+| 0181 | MADR | Make mcremote message size configurable | [0181-MADR-configurable-mcremote-message-size.md](decisions/0181-MADR-configurable-mcremote-message-size.md) |
+| 0181 | PLAN | Implement configurable mcremote message size | [0181-PLAN-configurable-mcremote-message-size.md](decisions/0181-PLAN-configurable-mcremote-message-size.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

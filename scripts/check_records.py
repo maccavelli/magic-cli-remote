@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record and docs-link tooling for the fixed docs tree (PLAN 0175).
+"""Record and docs-link tooling for the fixed docs tree (PLAN 0175 / 0180).
 
 Modes:
   --next         print the next unused NNNN across the whole repository
@@ -12,11 +12,9 @@ Modes:
                  generated markers; never hand-edit between them
 
 Errors print to stdout, warnings to stderr; exit status is 1 iff errors were
-found. Known warnings that are deliberate: a number claimed by more than one
-MADR (0154 is the recorded pre-existing case; renumbering is deferred), a PLAN
-without a same-number MADR (0177 is the recorded legacy lone plan), a GATES
-without a same-number PLAN, and records sitting outside their directory while
-a migration phase is in flight.
+found. Warnings: a number claimed by more than one MADR, a PLAN without a
+same-number MADR, a GATES without a same-number PLAN, and records sitting
+outside their kind directory.
 """
 
 from __future__ import annotations
@@ -109,11 +107,10 @@ def check_structure(records: list[Record]) -> None:
         if len(madrs) > 1:
             warn(f"number {num} is claimed by {len(madrs)} MADRs: "
                  + ", ".join(r.rel for r in madrs)
-                 + " (a number is never reused; 0154 is the recorded pre-existing case, renumbering deferred)")
+                 + " (a number is never reused)")
         if plans and not madrs:
             warn(f"number {num} has a PLAN but no MADR: "
-                 + ", ".join(r.rel for r in plans)
-                 + " (0177 is the recorded legacy lone plan)")
+                 + ", ".join(r.rel for r in plans))
         if gates and not plans:
             warn(f"number {num} has a GATES but no PLAN: "
                  + ", ".join(r.rel for r in gates))

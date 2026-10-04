@@ -4,6 +4,8 @@ date: 2026-09-08
 ---
 <!-- markdownlint-configure-file {"MD004": {"style": "asterisk"}} -->
 
+> **2026-10-03 (0180 P1).** Renumbered from `0154-MADR-configurable-mcremote-message-size.md`. Number 0154 stays with the earlier pair `0154-MADR-mcrelay-paths-demands-a-runnable-server.md` (`8f4363ab`).
+
 # Make mcremote message size configurable
 
 ## Context and Problem Statement
@@ -134,7 +136,7 @@ capabilities. Verify mobile UTF-8/base64 accounting, larger and smaller
 negotiated budgets, legacy fallback, reconnect, and composer feedback.
 Observe the new regression tests fail against verified broken copies before
 relying on their passing results. Exact steps and gates are in the associated
-[implementation plan](0154-PLAN-configurable-mcremote-message-size.md).
+[implementation plan](0181-PLAN-configurable-mcremote-message-size.md).
 
 ## Pros and Cons of the Options
 

@@ -9,7 +9,7 @@
 
 | Doc | Role |
 |-----|------|
-| [0054-PLAN-hardening-implementation.md](0054-PLAN-hardening-implementation.md) | Front door, TLS, client identity, operability — **complete** |
+| [0004-PLAN-hardening-implementation.md](0004-PLAN-hardening-implementation.md) | Front door, TLS, client identity, operability — **complete** |
 | [0055-PLAN-mcremote-server-remediation.md](0055-PLAN-mcremote-server-remediation.md) | Lifecycle, admin sock, fan-out, auth, limits — **code complete**; some checkboxes stale |
 | [0012-MADR-mcremote-daemon-assessment-action-plan.md](0012-MADR-mcremote-daemon-assessment-action-plan.md) | Post-audit residual concurrency/auth/provider work (Phases 0–4 shipped) |
 | [protocol-v1.md](../guides/protocol-v1.md) | Wire contract (mostly current) |

@@ -5,7 +5,7 @@
 - **Status**: Superseded by [MADR 0030](./0030-MADR-goose-remote-parity.md)
 - **Date**: 2026-07-26
 - **Scope**: Add goose provider support to the Flutter Android app
-- **Related**: [MADR 0025 goose provider](./0025-MADR-goose-provider.md), [0177-PLAN-flutter-android-client-assessment.md](./0177-PLAN-flutter-android-client-assessment.md)
+- **Related**: [MADR 0025 goose provider](./0025-MADR-goose-provider.md), [0177-REPORT-flutter-android-client-assessment.md](../reports/0177-REPORT-flutter-android-client-assessment.md)
 
 ---
 

@@ -47,7 +47,7 @@
 ## Problem
 
 The companion app is Android-only. We want the same app on iPhone. Flutter
-was chosen in `0177-PLAN-flutter-android-client-assessment.md` partly because it
+was chosen in `0177-REPORT-flutter-android-client-assessment.md` partly because it
 "leaves a path to iOS without rewriting domain code" — this MADR decides
 how to walk that path.
 

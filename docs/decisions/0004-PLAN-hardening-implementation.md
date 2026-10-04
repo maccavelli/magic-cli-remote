@@ -1,3 +1,5 @@
+> **2026-10-03 (0180 P1).** Relocated from `0054-PLAN-hardening-implementation.md` to share number 0004 with [0004-MADR-certificate-management.md](0004-MADR-certificate-management.md). A MADR may carry several plans.
+
 # Hardening implementation plan
 
 **Status:** **ALL PHASES COMPLETE** (2026-07-20). Phases 1-6 implemented and
