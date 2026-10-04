@@ -42,7 +42,7 @@ git ls-remote --tags origin refs/tags/v0.20.2
 
 Commit discipline for P1: one commit, execution-record edits to this pair included only when P1 actually ran. Do not pass `-m`, `-M`, `--message`, or `-F`. Run `git commit --no-edit`. Do not skip hooks. Do not amend. Do not reset.
 
-`git push` is not permitted. Tags must not be deleted, moved, created, or pushed unless a later explicit instruction in the same turn says so. This docs commit does not retag. P1 does not retag.
+`git push` is not permitted. Tags must not be deleted, moved, or pushed. This docs commit does not retag. P1 does not retag. No phase creates a tag.
 
 ## Cross-cutting contracts
 
@@ -108,4 +108,4 @@ Rollout of P1 is the test commit on `master`. It does not push and it does not r
 
 ## Deferred (named, so they are not mistaken for oversights)
 
-Recreate annotated tag `v0.20.2` on current master after the test fix, including commits already past `3a49f541`. That is what was asked. It is deferred, not scheduled as a phase. Measured: local master is `95b385652a9201d3c298d2ff25b528b2e7e9021f`; remote annotated `v0.20.2` peels to `3a49f541be1a34c6187d903827da541a74fa37df`; that commit's parent is the master sha above; master is behind the tag by 1, not ahead; there is no commit on master past `3a49f541`; the object is not in the local database (F6, F7). The retag as stated is not feasible until that relationship is resolved. Recreating an annotated tag on a published name is destructive. This plan does not delete, move, or push the existing tag, and it does not contain a phase that does so. A later explicit instruction, in the turn that does the work, is required before any tag ref changes.
+Recreate annotated tag `v0.20.2` on current master after the test fix, including commits already past `3a49f541`. That is what was asked. It is deferred, not scheduled as a phase. Re-measured this pass: local master HEAD is `1e1e9b86ac4dceb2db4a2ef89b65e6a4673ac60e` (`HEAD^` `ef65f5d76462defdde53a9035b66be97e9e0e2ce`, `HEAD^^` `95b385652a9201d3c298d2ff25b528b2e7e9021f`); remote annotated `v0.20.2` still peels to `3a49f541be1a34c6187d903827da541a74fa37df`; that commit's only parent is `95b385652a9201d3c298d2ff25b528b2e7e9021f`, not HEAD; the two commits on master after that parent are not the tagged commit; master is not behind the tag by 1; the histories diverged; there is no commit on master past `3a49f541`; the object is not in the local database and was not fetched (F6, F7). The retag as stated is not feasible. Recreating an annotated tag on a published name is destructive. This plan does not delete, move, create, or push the existing tag, and it does not contain a phase that does so. A later explicit instruction, in the turn that does the work, is required before any tag ref changes.

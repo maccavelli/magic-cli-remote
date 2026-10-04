@@ -15,13 +15,13 @@ informed: none
 
 ### What was measured, not assumed
 
-- `git rev-parse HEAD` on local `master` is `95b385652a9201d3c298d2ff25b528b2e7e9021f`. Before these records, `git status -sb` showed `master` level with `origin/master` and a clean tree.
-- `git tag -l v0.20*` in this clone lists `v0.20.0` and `v0.20.1` only. `git cat-file -t 3a49f541` reports `Not a valid object name`. The tagged commit is not in the local object database.
+- Re-measured this pass. `git rev-parse HEAD` on local `master` is `1e1e9b86ac4dceb2db4a2ef89b65e6a4673ac60e`. `git status -sb` showed `## master...origin/master [ahead 2]` and a clean tree. `HEAD^` is `ef65f5d76462defdde53a9035b66be97e9e0e2ce`. `HEAD^^` is `95b385652a9201d3c298d2ff25b528b2e7e9021f`. `git log --oneline 95b385652a9201d3c298d2ff25b528b2e7e9021f..HEAD` lists those two commits and no others. An earlier pass recorded HEAD as `95b38565` with master level with its remote. That was before these two commits. It is not what HEAD is now.
+- `git tag -l v0.20*` in this clone lists `v0.20.0` and `v0.20.1` only. `git cat-file -t 3a49f541be1a34c6187d903827da541a74fa37df` could not get object info. The tagged commit is not in the local object database. It was not fetched.
 - `git ls-remote --tags origin` reports `refs/tags/v0.20.2` as annotated tag object `c2135c90e9746bc02c3b0cadcd9a2138cf6be6a8`, peeling to `3a49f541be1a34c6187d903827da541a74fa37df`.
-- The GitHub commit object for `3a49f541be1a34c6187d903827da541a74fa37df` is `chore(ci): append MADR 0143 flake ledger rows`. Its parent is `95b385652a9201d3c298d2ff25b528b2e7e9021f`. Compare of that commit against master (`3a49f541...95b38565`) is `status: behind`, `ahead_by: 0`, `behind_by: 1`, `total_commits: 0`. Master is behind the tag by 1. It is not ahead. There are no commits on master past `3a49f541`.
-- The annotated tag message is `v0.20.2`. The tag object tagger date is `2026-10-04T04:19:59Z`.
+- The commit object for `3a49f541be1a34c6187d903827da541a74fa37df`, read again this pass, has message `chore(ci): append MADR 0143 flake ledger rows` and one parent, `95b385652a9201d3c298d2ff25b528b2e7e9021f`. That parent is `HEAD^^`, not `HEAD`. Neither commit on master after that parent is `3a49f541`. Master is not behind the tag by 1. The histories diverged at `95b38565`. Master does not contain `3a49f541`, so it contains no commit past that sha.
+- The annotated tag message is `v0.20.2`. The tag object tagger date is `2026-10-04T04:19:59Z`. Re-read this pass.
 - `internal/protocol/doc_coverage_test.go` lines 46-51 keep the first line whose trimmed text starts with `Event `type` values:` and then `break`. Line 60 is the `t.Errorf` for a type missing from that single line.
-- `go test -count=1 -run TestEventTypesAreDocumented ./internal/protocol/` failed. Line 60 reported 25 types, from `question_resolved` through `codex_unsupported_item`. The nine names on guide line 1648 were not reported missing.
+- `go test -count=1 -run TestEventTypesAreDocumented ./internal/protocol/` was re-run this pass and failed. Line 60 reported 25 types, from `question_resolved` through `codex_unsupported_item`, in `event.Types()` order. The nine names on guide line 1648 were not reported missing.
 - `docs/guides/protocol-v1.md` lines 1648-1651 are the enumeration. Measured lengths are 196, 193, 187, and 83 characters. Line 1648 stops at `` `question_request`, ``. Lines 1649-1651 hold the other 25 names. Line 1651 ends with a period after `` `codex_unsupported_item` ``.
 - Counting backtick-wrapped event names on those four lines, and not counting the words inside the prefix `Event `type` values:`, gives 34 names. `event.Types()` in `internal/event/event.go` returns 34 constants. The 25 failures are exactly the names that are not on line 1648, so the guide list and `Types()` are the same 34 names.
 - `.markdownlint-cli2.jsonc` sets MD013 `line_length` to 200. Line 1648 is already 196 characters. Joining it to line 1649 exceeds 200.
@@ -38,9 +38,9 @@ F4. `event.Types()` returns those same 34 names. The failure does not justify ad
 
 F5. MD013 line length is 200. The wrapped lines are individually under that limit (196, 193, 187, 83). Joining line 1648 with line 1649 does not fit.
 
-F6. Remote annotated `v0.20.2` peels to `3a49f541be1a34c6187d903827da541a74fa37df`, whose parent is local master `95b385652a9201d3c298d2ff25b528b2e7e9021f`. Master is behind that tag by 1, not ahead. No commit on master is past `3a49f541`. That object is not in the local database.
+F6. Remote annotated `v0.20.2` still peels to `3a49f541be1a34c6187d903827da541a74fa37df`. That commit's only parent is `95b385652a9201d3c298d2ff25b528b2e7e9021f`, which is `HEAD^^`, not current master. Current master is `1e1e9b86ac4dceb2db4a2ef89b65e6a4673ac60e`, two commits after that parent (`ef65f5d7`, then `1e1e9b86`). Neither sha is `3a49f541`. Master is not behind the tag by 1. The histories diverged. Master does not contain the tagged commit, so no commit on master is past it. The object is not in the local database.
 
-F7. The retag that was asked for — recreate annotated `v0.20.2` on current master after the test fix, including commits already past `3a49f541` — does not match F6. Those commits are not on master. The retag as stated is not feasible until that relationship is resolved.
+F7. The retag that was asked for — recreate annotated `v0.20.2` on current master after the test fix, including commits already past `3a49f541` — does not match F6. Those commits are not on master. The test fix is not on master either. Pointing the published name at current master would drop `3a49f541` and still would not include commits past it. The retag as stated is not feasible. It stays deferred.
 
 ## Decision Drivers
 
@@ -65,14 +65,14 @@ D1. Change `TestEventTypesAreDocumented` so the text it searches is the prefix l
 
 D2. Do not add or remove event constants in `internal/event/event.go`. The 34 names already match.
 
-D3. Do not delete, move, create, or push `v0.20.2` as an executable phase. The requested retag stays deferred until the parent/child relationship in F6 is resolved on purpose. This docs commit does not retag.
+D3. Do not delete, move, create, or push `v0.20.2` as an executable phase. F6 shows the requested retag is not feasible as stated, so it stays deferred. This docs commit does not retag.
 
 ### Consequences
 
 - The test fix is a small change in `internal/protocol/doc_coverage_test.go`. It is not done in this commit.
 - The guide's four-line enumeration stays the canonical list.
 - `v0.20.2` keeps peeling to `3a49f541be1a34c6187d903827da541a74fa37df` on the remote. This proposal does not authorize shipping current master under that name.
-- The assumption that master is ahead of the tag is closed. The parent of the tagged commit is current master.
+- The assumption that master is strictly behind the tag by 1 is closed. The parent of the tagged commit is `HEAD^^`, not current master. The histories diverged.
 
 ### Confirmation
 
@@ -106,7 +106,7 @@ git ls-remote --tags origin refs/tags/v0.20.2
 ### C — Retag `v0.20.2` onto current master as an executable phase
 
 - Good, because a tag that does not contain the test fix cannot name the release that fix is for.
-- Bad, because master is behind the tag by 1. Recreating the annotated tag on current master would move a published name backward, off `3a49f541`, and would not include commits past that sha. There are none on master.
+- Bad, because master and the tag diverged at `95b38565`. Recreating the annotated tag on current master would move a published name off `3a49f541` onto a history that does not contain that commit, and would not include commits past that sha. There are none on master.
 - Bad, because recreating an annotated tag on a published name is destructive. This proposal does not authorize that delete or move.
 
 ## More Information
@@ -115,14 +115,15 @@ git ls-remote --tags origin refs/tags/v0.20.2
 
 | Claim | Source |
 | --- | --- |
-| Local master is `95b385652a9201d3c298d2ff25b528b2e7e9021f`, level with `origin/master`, clean before these records | `git rev-parse HEAD`; `git rev-parse origin/master`; `git status -sb` |
-| Local `v0.20*` tags are `v0.20.0` and `v0.20.1` only; `3a49f541` is not a local object | `git tag -l v0.20*`; `git cat-file -t 3a49f541` returned `Not a valid object name` |
+| Local master HEAD is `1e1e9b86ac4dceb2db4a2ef89b65e6a4673ac60e`, ahead of its remote by 2, clean before this amendment | `git rev-parse HEAD`; `git status -sb` |
+| `HEAD^` is `ef65f5d76462defdde53a9035b66be97e9e0e2ce`; `HEAD^^` is `95b385652a9201d3c298d2ff25b528b2e7e9021f`; those are the only two commits after `95b38565` | `git rev-parse HEAD^`; `git rev-parse HEAD^^`; `git log --oneline 95b385652a9201d3c298d2ff25b528b2e7e9021f..HEAD` |
+| Local `v0.20*` tags are `v0.20.0` and `v0.20.1` only; `3a49f541be1a34c6187d903827da541a74fa37df` is not a local object | `git tag -l v0.20*`; `git cat-file -t` could not get object info |
 | Remote `refs/tags/v0.20.2` is annotated object `c2135c90e9746bc02c3b0cadcd9a2138cf6be6a8` peeling to `3a49f541be1a34c6187d903827da541a74fa37df` | `git ls-remote --tags origin` |
-| Tagged commit message is `chore(ci): append MADR 0143 flake ledger rows`; parent is `95b385652a9201d3c298d2ff25b528b2e7e9021f` | GitHub commit API for `3a49f541be1a34c6187d903827da541a74fa37df` |
-| Master is behind that commit by 1 and ahead by 0 | GitHub compare `3a49f541be1a34c6187d903827da541a74fa37df...95b385652a9201d3c298d2ff25b528b2e7e9021f` (`status: behind`, `ahead_by: 0`, `behind_by: 1`, `total_commits: 0`) |
-| Tag message `v0.20.2`, tagger date `2026-10-04T04:19:59Z` | GitHub tag API for `v0.20.2` |
+| Tagged commit message is `chore(ci): append MADR 0143 flake ledger rows`; only parent is `95b385652a9201d3c298d2ff25b528b2e7e9021f` | commit API for `3a49f541be1a34c6187d903827da541a74fa37df`, re-read this pass |
+| Master is not behind that commit by 1; the histories diverged, and master contains no commit past `3a49f541` | parent sha above plus `git log 95b385652a9201d3c298d2ff25b528b2e7e9021f..HEAD` |
+| Tag message `v0.20.2`, tagger date `2026-10-04T04:19:59Z` | tag API for object `c2135c90e9746bc02c3b0cadcd9a2138cf6be6a8`, re-read this pass |
 | The test keeps the first prefix line and stops | `internal/protocol/doc_coverage_test.go` lines 46-51 |
-| Failures are reported at line 60 | `internal/protocol/doc_coverage_test.go` line 60; `go test -count=1 -run TestEventTypesAreDocumented ./internal/protocol/` |
+| Failures are reported at line 60 | `internal/protocol/doc_coverage_test.go` line 60; `go test -count=1 -run TestEventTypesAreDocumented ./internal/protocol/` re-run this pass |
 | 25 continuation names failed, starting at `question_resolved` and ending at `codex_unsupported_item` | that test run |
 | Guide enumeration is lines 1648-1651, lengths 196, 193, 187, 83; line 1648 ends at `question_request`; line 1651 ends with a period | `docs/guides/protocol-v1.md` lines 1648-1651 |
 | 34 names on the guide lines and 34 names from `event.Types()` | count of the wrapped list; `internal/event/event.go` `Types()` |
@@ -136,5 +137,5 @@ git ls-remote --tags origin refs/tags/v0.20.2
 
 ### Open questions for the plan
 
-- Whether `3a49f541be1a34c6187d903827da541a74fa37df` must be replayed onto a future master before any tag named `v0.20.2` may move. Not decided here.
+- Whether `3a49f541be1a34c6187d903827da541a74fa37df` must be merged before any tag named `v0.20.2` may move. Not decided here. Current master does not contain it.
 - Whether any ref other than `master` contains commits after that sha. Not checked. **[unverified]**
