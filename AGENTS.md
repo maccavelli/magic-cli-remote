@@ -64,10 +64,10 @@ Rationale: [docs/decisions/0105-MADR-mutating-work-requires-madr-and-plan.md](do
 
 **This file is the normative copy of the gate.** Those pointers carry the skill name and the gate, and point here. Do not restate this section in them.
 
-Whenever the user asks for an MADR and a plan, load **`madr-and-plan-writing`** first and follow it. The name is the filesystem `name:` field. Verify:
+On any task that involves documentation work, load both **`madr-and-plan-writing`** and **`documentation-writing`** before the first edit, and follow them. Reload both every time. A copy read earlier in the session is not enough. The names are the filesystem `name:` fields. Verify:
 
 ```bash
-ls -d ~/.claude/skills/*madr* && grep '^name:' ~/.claude/skills/*madr*/SKILL.md
+ls -d ~/.claude/skills/madr-and-plan-writing ~/.claude/skills/documentation-writing && grep '^name:' ~/.claude/skills/madr-and-plan-writing/SKILL.md ~/.claude/skills/documentation-writing/SKILL.md
 ```
 
 The command outranks the prose. If they disagree, the filesystem is right — fix this section.
