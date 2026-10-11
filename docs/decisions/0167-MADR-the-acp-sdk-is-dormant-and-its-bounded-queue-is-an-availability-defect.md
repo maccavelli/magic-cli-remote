@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-09-24
+date: 2026-10-10
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -1158,3 +1158,70 @@ is exactly 1,224 − 1,025, the queue plus one in flight.
    `v0.13.5` (2026-06-02). The observation that would reopen it is a closed or stale #60. Until
    then, the fork tag carries the fix in this project's builds.
 7. **Is the 10 MiB frame cap reachable?** Still unmeasured; it stays on the PLAN's Deferred list.
+
+## Amendment — 2026-10-10: assess `acp-go-sdk2` as the fork exit
+
+The owner asked for a source-level evaluation of `acp-go-sdk2` and this repository, followed by a
+review report explaining how the newer SDK could replace the current ACP dependency and improve
+protocol adherence. This is the successor assessment anticipated by D20's exit procedure; it does
+not itself approve the dependency migration.
+
+### Evidence available before the report
+
+* This repository at `9778cbc17b39` still requires `github.com/coder/acp-go-sdk v0.13.5`, replaces
+  it with `github.com/maccavelli/acp-go-sdk v0.13.6-mcr.1`, imports the Coder path from 29 Go files,
+  opts into `OverflowDropNewest`, and carries a guard written specifically for the `-mcr.N`
+  replacement tag.
+* `acp-go-sdk2` at `d534f27fab2d` is the direct module
+  `github.com/maccavelli/acp-go-sdk2`, declares Go 1.27.2, and is generated from stable ACP schema
+  1.25.0. It contains the overflow policy, the connection accessor, and the race-safe logger from
+  this record's earlier work. Its current `main` is five commits ahead of tag `v0.14.0` and has no
+  exact tag, so a production plan must not pin `main`, a local path, or an unreviewed pseudo-version.
+* Both green baselines were run before the compatibility probe: the existing Magic ACP packages
+  passed, and both modules of `acp-go-sdk2` passed their tests; the SDK root also passed with the
+  race detector.
+* A scratch copy that changed only the module/import path produced 24 compiler diagnostics at 23
+  source locations. They cluster around stable schema promotions (`session/delete` and
+  elicitation), schema-correct integer and identifier types, and the `planId` field rename. After
+  minimal compatibility edits, the ACP-focused packages compiled and passed.
+* That scratch run exposed one behavior change after compilation: an absent `json.RawMessage`
+  rendered as the literal `null` in a permission summary. Treating empty and JSON-null raw values
+  as absent restored the package tests. This needs a regression test in any migration plan.
+* The scratch full-suite run had no additional ACP failure. Its remaining failures came from the
+  deliberately local module replacement and from permission-bit tests in the copied tree, so they
+  are not evidence about the SDK migration.
+
+The working trees already contain unrelated owner work. In `magic-cli-remote`, that includes
+`docs/README.md`, `go.mod`, toolchain records and scripts. In `acp-go-sdk2`, that includes the
+phase-5 generator records. The assessment preserves those changes and distinguishes committed
+source at the SHAs above from uncommitted documentation.
+
+### Decision outcome for this amendment
+
+**D21 — Produce an evidence report before choosing the migration.** The report is
+`docs/reports/0167-REPORT-acp-go-sdk2-integration-assessment.md`. It records observations,
+recommended phases, compatibility work, protocol-adherence opportunities, risks, and acceptance
+gates. It does not change the active dependency or accept a migration decision.
+
+**D22 — Evaluate the current source, but recommend only an immutable release.** The report may use
+current `acp-go-sdk2/main` to identify the intended API and wire behavior. Any recommendation to
+adopt it must require a release tag containing the relied-on post-`v0.14.0` commits, then pin that
+tag directly under the new module path. A local `replace`, branch pin, or pseudo-version is not an
+acceptable product end state.
+
+**D23 — Separate transport migration from capability uptake.** The report must distinguish the
+mechanical dependency/API migration from later product choices such as advertising ACP
+elicitation, notices, compaction, plan extensions, or unstable subagents. Magic must not advertise
+a capability until its complete inbound behavior and phone-facing mapping exist.
+
+### Consequences
+
+* Good, because review receives a reproducible migration map rather than a dependency-bump guess.
+* Good, because D20's fork exit is assessed against a successor that already contains D17's
+  availability policy and D9's accessor.
+* Good, because stable-schema conformance work is not conflated with advertising unsupported
+  product behavior.
+* Bad, because the report is an intermediate artifact; source migration still requires a later
+  accepted amendment and PLAN phase.
+* Bad, because the most valuable SDK behavior is currently ahead of the latest tag, so release
+  readiness is an external prerequisite to adoption.

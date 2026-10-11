@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-09-29
+date: 2026-10-08
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -14,8 +14,10 @@ decisions D1–D12, closing findings F1–F10, and the mise-retirement amendment
 Observable end states, each checked by the version audit (D12) against the probe:
 
 - **No known advisory** affects any installed or standard version on any of the four hosts or in CI.
-- **Go 1.27.1** is the toolchain on every host and in CI. This repository's `go.mod` says
-  `go 1.27.1`. The 11 standard Go tools are built by go1.27.1.
+- ~~**Go 1.27.1** is the toolchain on every host and in CI. This repository's `go.mod` says
+  `go 1.27.1`. The 11 standard Go tools are built by go1.27.1.~~
+- **Go 1.27.2** is the toolchain on every host and in CI. This repository's `go.mod` says
+  `go 1.27.2`. The 11 standard Go tools are built by go1.27.2. (MADR amendment 2026-10-08.)
 - **Flutter 3.47.5 / Dart 3.13.4** on every host, in CI (`FLUTTER_VERSION`) and in magic-git's
   pinned SDK.
 - **Temurin 25** (25.0.4.1, or its newer CPU successor) is Flutter's JDK on every host and CI's
@@ -36,6 +38,10 @@ toolchain's `go mod tidy` rewrites); `.github/workflows/ci.yml` (`FLUTTER_VERSIO
 `java-version` lines only); this pair; the additive amendment to
 `0168-MADR-build-android-with-jdk-21-in-ci-and-on-every-dev-host.md` (P5); the status line and
 an additive amendment of `docs/decisions/0114-MADR-manage-markdownlint-cli2-with-mise.md` (P9, D15).
+**P11 adds:** `go.mod` / `go.sum` again (`go 1.27.2`); `README.md` Requirements; `docs/guides/standards/go/README.md`;
+`scripts/test-linux-arm64.sh` (`GO_IMAGE` default). CI still reads `go-version-file: go.mod`;
+`.github/workflows/ci.yml` is not edited. **P12** edits host Go installs / `GOTOOLCHAIN` and
+magic-git `scripts/tools/devenv/standard.json` (the owner commits there).
 
 **magic-git** (the owner commits there): `scripts/tools/devenv/standard.json` (new),
 `scripts/tools/devenv/version_audit.py` (new), `scripts/tools/devenv/fork_tools.py` (new, P9),
@@ -103,10 +109,12 @@ diff exists to catch exactly that.
 ## Dependency and delivery order
 
 P0 → P1 → **P9 (retire mise; numbered last because it was added last, but it runs before P2–P7,
-whose Linux-server steps assume `~/sdk`)** → then P2, P3, P4, P5, P6, P7 in any order, each gated by the audit → P8. P2 (Go on
-the hosts) precedes P3 (this repository's `go.mod`). P4 (Flutter) is coupled to magic-git and
+whose Linux-server steps assume `~/sdk`)** → then P2, P3, P4, P5, P6, P7 in any order, each gated by the audit → P8.
+P2 (Go on the hosts) precedes P3 (this repository's `go.mod`). P4 (Flutter) is coupled to magic-git and
 lands in both repositories in one working session. The Node line change (P6b) is dated: it
-waits for 2026-10-28.
+waits for 2026-10-28. **P11 (this repository on 1.27.2) runs on a host that already has
+go1.27.2; P12 (remaining hosts and `standard.json`) follows, and is what lets those hosts
+build the P11 module. P10 was used once and moved to PLAN 0170.**
 
 ## Implementation Steps
 
@@ -1107,7 +1115,8 @@ Flutter 3.47.5:
 | A13 | met | P9, and again on go1.27.1 in P2 |
 | A14 | met | `markdownlint-cli2` 0.23.2 answers from `~/.local/bin` under Node 24.21.0; MADR 0114 superseded (P9e) |
 
-**Plan status stays `in-progress`.** Four items remain:
+**Plan status stays `in-progress`.** Remaining as of 2026-10-08:
+- P11 (this repository on Go 1.27.2) and P12 (remaining hosts and `standard.json`);
 - the owner's push and a dispatched `ci.yml` run, for A6 and A7 in CI;
 - P6b on or after 2026-10-28;
 - Linux git 2.56 when the PPA publishes it;
@@ -1341,6 +1350,62 @@ the owner moved it to [0170-PLAN-make-preflight-true-hermetic-install-tests-and-
 first written is in commits `d7f02e5` and `bf7e1e5`. 9d step 7 still waits for PLAN 0170's
 P5, a green `make preflight` on the Linux server.
 
+### P11 — This repository on Go 1.27.2 (D2 amendment 2026-10-08)
+
+Go 1.27.2 is the advisory-free patch of the current line. This phase pins the module and
+the live docs that name the pin. It does not edit `.github/workflows/ci.yml`: every `setup-go`
+step already uses `go-version-file: go.mod`. It does not rewrite historical records that
+quote 1.27.1 as the toolchain they ran on.
+
+The macOS laptop already resolves `go1.27.2` (`GOTOOLCHAIN=go1.27.2`, `~/.local/bin/go` →
+`~/.local/go1.27.2`). A host still on `GOTOOLCHAIN=go1.27.1` cannot build this module after
+step 1; that is P12.
+
+1. `go mod edit -go=1.27.2`, then `go mod tidy`. Record exactly what tidy rewrote.
+2. Live docs that name the current pin, not a historical measurement:
+   - `README.md` Requirements: Go **1.27.2** (module pins `go 1.27.2`).
+   - `docs/guides/standards/go/README.md`: `go_version` / declared module version **1.27.2**.
+   - `scripts/test-linux-arm64.sh`: default `GO_IMAGE=golang:1.27.2` (still 1.26.6 today).
+3. Gates on go1.27.2: `go vet ./...`, `govulncheck ./...`, `make pre-add-check`,
+   `make staticcheck` (the cache key includes `go env GOVERSION`, so the 1.27.1 binary is
+   replaced — PLAN Deviation 13), `make race`. `make ci-windows` on macOS/Linux exits 0 by
+   skipping; the Windows run is P12.
+4. Commit with `git commit --no-edit`. Push and CI wait for an explicit ask.
+
+**Verification:** `go.mod` line 3 is `go 1.27.2`; `go version` is `go1.27.2`; the three live
+docs name 1.27.2; every gate in step 3 exits 0. `govulncheck` is a called-code check; the
+stdlib advisories that moved D2 are in the toolchain, not in this module's dependencies.
+
+**Rollback:** revert the phase commit. Hosts still on 1.27.1 keep building the previous
+module.
+
+### P12 — Remaining hosts and `standard.json` on Go 1.27.2 (D2 amendment 2026-10-08)
+
+Runs after P11. Per host, with a dated backup and C2 approval (C3 checksums from
+`https://go.dev/dl/?mode=json`):
+
+| Archive | SHA-256 |
+| --- | --- |
+| `go1.27.2.darwin-arm64.tar.gz` | `76812b213b1b2302c978d28fa52fa92d541704b9e7d9d5db8002c50e4018c4c5` |
+| `go1.27.2.linux-amd64.tar.gz` | `ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5` |
+| `go1.27.2.linux-arm64.tar.gz` | `94f3e30b8e374bc285e7dadc11e0865726b9bc6e85b841ccceaabc0214c6b7c8` |
+| `go1.27.2.windows-amd64.zip` | `1314008898bd40df77af4b014f777f08873dbdfbcd3d92308728ee03304fe04f` |
+
+1. Install go1.27.2 beside 1.27.1 (macOS laptop already has it). Repoint PATH and set
+   `GOTOOLCHAIN=go1.27.2`. Leave 1.27.1 installed until this host's gates pass (C4).
+2. Rebuild the 11 standard Go tools with go1.27.2 (`go_tools_standard.py --go 1.27.2 --apply`).
+3. magic-git: set `standard.json`'s Go version to 1.27.2 and the floor to 1.26.9. The owner
+   commits there.
+4. On the Windows host, `make ci-windows` from Git Bash against this repository at the P11
+   commit.
+
+**Verification:** `go version` = `go1.27.2` in a fresh shell on each host; `go version -m`
+on each tool in the Go bin dirs reports go1.27.2; the audit reports no Go drift and no
+advisory on the Go standard or installs; `make ci-windows` exits 0.
+
+**Rollback:** restore the dated PATH / Go-env backup so `GOTOOLCHAIN` names go1.27.1 again.
+The P11 commit can stay; that host then cannot build this module until it moves.
+
 ## Verification (whole plan)
 
 ### Acceptance criteria (mapped to MADR Confirmation)
@@ -1362,6 +1427,8 @@ P5, a green `make preflight` on the Linux server.
 | A13 | The acp-go-sdk fork passes `make check test` through `.tools` on WSL, macOS and the Linux server, at upstream's pinned versions; `fork_tools.py` was seen failing on a bad pin and an unknown entry | D14 |
 | A14 | markdownlint-cli2 0.23.2 resolves from `~/.local/bin` on the Linux server; MADR 0114 marked superseded | D15 |
 | ~~A15–A18~~ | Moved with P10 to PLAN 0170, as its A1–A4 | — |
+| A19 | This repository on `go 1.27.2`; live docs and `GO_IMAGE` name 1.27.2; gates green on go1.27.2 | D2 (2026-10-08) |
+| A20 | go1.27.2 on every host; tools rebuilt by it; `standard.json` names 1.27.2 / floor 1.26.9; audit reports no Go advisory | D2 (2026-10-08) |
 
 The criterion most likely to be dropped quietly is **A2**. The audit will be written against
 the fixed hosts, and it will pass. Only running it against the saved pre-P0 outputs shows that

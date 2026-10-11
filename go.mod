@@ -1,6 +1,6 @@
 module github.com/maccavelli/magic-cli-remote
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/caddyserver/certmagic v0.25.4

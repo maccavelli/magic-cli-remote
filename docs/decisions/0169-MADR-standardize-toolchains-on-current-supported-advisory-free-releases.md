@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-09-23
+date: 2026-10-08
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -628,3 +628,58 @@ exists for exactly this, and it caught it.
 cli/cli released gh 2.102.0 on 2026-09-30, and OSV reports no advisory affecting it. Under
 D1 it is the standard, and the owner adopted it before P7 installs gh anywhere.
 **D8 now reads:** gh **2.102.0** everywhere. PLAN 0169 Deviation 18 has the evidence.
+
+## Amendment — 2026-10-08: Go 1.27.2 is the standard (D2)
+
+Go 1.27.2 and Go 1.26.9 shipped on 2026-10-08 as a security point release. golang-announce
+lists 15 security fixes. OSV, queried the same day, reports those 15 against the versions
+this record still named:
+
+| Package | 1.27.1 / 1.26.8 | 1.27.2 / 1.26.9 |
+| --- | --- | --- |
+| `stdlib` | 13 | 0 |
+| `toolchain` | 2 | 0 |
+
+The 15, with OSV id and CVE alias:
+
+| OSV | CVE | Package | Summary |
+| --- | --- | --- | --- |
+| GO-2026-6617 | CVE-2026-97032 | `net/http` | HTTP/2 server crash from an HPACK encoder race |
+| GO-2026-6603 | CVE-2026-78659 | `net/http` | HTTP/2 server memory exhaustion via Trailer headers |
+| GO-2026-6612 | CVE-2026-78663 | `net/http` | HTTP/2 double flow-control refund on reset streams |
+| GO-2026-6611 | CVE-2026-78669 | `net/http` | HTTP/2 CPU from repeated `SETTINGS_INITIAL_WINDOW_SIZE` |
+| GO-2026-6610 | CVE-2026-78660 | `net/http` | HTTP/2 transport forwards malformed framing headers |
+| GO-2026-6609 | CVE-2026-78667 | `net/http` | unbounded Range-header CPU in `ServeContent` / `FileServer` |
+| GO-2026-6605 | CVE-2026-56866 | `net/http` | HTTP/1 client desynchronization after CONNECT rejection |
+| GO-2026-6613 | CVE-2026-94439 | `net/http` | HTTP/1 server desynchronization after a 2xx CONNECT |
+| GO-2026-6607 | CVE-2026-97031 | `crypto/tls` | malformed ECH outer-extension references |
+| GO-2026-6599 | CVE-2026-94448 | `html/template` | context tracking on consecutive template expressions |
+| GO-2026-6600 | CVE-2026-97030 | `html/template` | `yield` as a regexp-preceder keyword |
+| GO-2026-6608 | CVE-2026-94440 | `net/textproto`, `mime/multipart` | MIME-header memory-limit bypass |
+| GO-2026-6604 | CVE-2026-56857 | `os` | `Root.Mkdir(All)` follows Windows junctions out of the root |
+| GO-2026-6601 | CVE-2026-94444 | `cmd/go` | checksum bypass for `golang.org/fips140` |
+| GO-2026-6602 | CVE-2026-94447 | `cmd/go` | checksum-database bypass for `golang.org/toolchain` |
+
+go.dev's featured stable is `go1.27.2` (`https://go.dev/dl/?mode=json`). The release history
+also records bug fixes in 1.27.2 to the compiler, linker, runtime, `cover`, `go fix`, vet,
+`compress/flate`, `crypto/mlkem`, `encoding/json`, `encoding/json/v2`, `net/http`, and `os`.
+The json/v2 fixes sit on the same default that PLAN 0169 Deviation 12 already hit.
+
+Under D1, 1.27.1 is no longer the standard: it has published advisories, and 1.27.2 is the
+newest stable patch of the newest supported line with none. The 1.26 floor moves with it:
+1.26.8 carries the same 15, 1.26.9 does not. Go 1.26 remains an acceptable fallback until
+1.28 ships (~2027-02), at 1.26.9.
+
+**D2 now reads:** Go **1.27.2** on every host and in CI, with the `go` directive of Go
+modules moved to 1.27.2 repository by repository after each passes its own gates. Until a
+repository has passed, the floor is **1.26.9**. The standard Go tools (the 11-tool list)
+are rebuilt with 1.27.2.
+
+Confirmation for Go is `go version` = `go1.27.2` (or `go1.26.9` while a repo is on the
+floor). PLAN 0169 P11 implements the pin in this repository; P12 moves the remaining hosts
+and `standard.json`.
+
+Sources: [go.dev release history](https://go.dev/doc/devel/release#go1.27.2),
+[golang-announce 2026-10-08](https://seclists.org/oss-sec/2026/q4/101),
+OSV `POST /v1/query` for `stdlib`/`toolchain` at 1.27.1, 1.27.2, 1.26.8 and 1.26.9,
+and `GET /v1/vulns/<id>` for the aliases above.
