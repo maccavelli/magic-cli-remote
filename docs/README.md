@@ -95,6 +95,9 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0052 | PLAN | MADR 0052 — Implementation plan: thinking levels and the settings panel | [0052-PLAN-thinking-levels-and-settings.md](decisions/0052-PLAN-thinking-levels-and-settings.md) |
 | 0053 | MADR | MADR 0053: Grok auto mode — silent arm, missing chip, mode-path gaps | [0053-MADR-grok-auto-mode-silent-arm.md](decisions/0053-MADR-grok-auto-mode-silent-arm.md) |
 | 0053 | PLAN | MADR 0053 — Implementation plan: grok auto silent arm and mode-path gaps | [0053-PLAN-grok-auto-mode-silent-arm.md](decisions/0053-PLAN-grok-auto-mode-silent-arm.md) |
+| 0054 | MADR | Standardize self-update on `go-selfupdate-lib`: command, releases, services, installers | [0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md) |
+| 0054 | PLAN | Implement standardizing self-update on `go-selfupdate-lib` | [0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](decisions/0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md) |
+| 0054 | REPORT | `go-selfupdate-lib` full-adoption assessment for `magic-cli-remote` | [0054-REPORT-go-selfupdate-lib-full-adoption-assessment.md](../docs/reports/0054-REPORT-go-selfupdate-lib-full-adoption-assessment.md) |
 | 0055 | MADR | Remediate the mcremote Go server from the 2026-07 audit | [0055-MADR-mcremote-server-remediation.md](decisions/0055-MADR-mcremote-server-remediation.md) |
 | 0055 | PLAN | mcremote Go server remediation plan | [0055-PLAN-mcremote-server-remediation.md](decisions/0055-PLAN-mcremote-server-remediation.md) |
 | 0056 | MADR | MADR 0056: mcremote ↔ Android protocol-stack audit | [0056-MADR-mcremote-android-protocol-stack-audit.md](../apps/mobile/docs/decisions/0056-MADR-mcremote-android-protocol-stack-audit.md) |
@@ -345,7 +348,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0180 | PLAN | Implement closing 0175 leftovers and making docs gates fail the merge | [0180-PLAN-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-PLAN-check-records-is-a-preflight-and-ci-gate.md) |
 | 0181 | MADR | Make mcremote message size configurable | [0181-MADR-configurable-mcremote-message-size.md](decisions/0181-MADR-configurable-mcremote-message-size.md) |
 | 0181 | PLAN | Implement configurable mcremote message size | [0181-PLAN-configurable-mcremote-message-size.md](decisions/0181-PLAN-configurable-mcremote-message-size.md) |
-| 0182 | MADR | Match wrapped protocol event-type lines without retagging | [0182-MADR-protocol-event-line-continuation.md](decisions/0182-MADR-protocol-event-line-continuation.md) |
+| 0182 | MADR | Match wrapped protocol event-type lines and leave v0.20.2 in place | [0182-MADR-protocol-event-line-continuation.md](decisions/0182-MADR-protocol-event-line-continuation.md) |
 | 0182 | PLAN | PLAN 0182 — Match wrapped protocol event-type lines | [0182-PLAN-protocol-event-line-continuation.md](decisions/0182-PLAN-protocol-event-line-continuation.md) |
 <!-- check_records.py ToC end -->
 

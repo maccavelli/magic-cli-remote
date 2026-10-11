@@ -1,0 +1,408 @@
+---
+status: proposed
+date: 2026-10-10
+decision-makers: Project Owner
+consulted: none
+informed: operators running mcremote update / mcrelay update; install-script consumers; anyone consuming the GitHub release assets
+---
+
+<!-- markdownlint-disable MD013 MD024 MD060 -->
+
+# Standardize self-update on `go-selfupdate-lib`: command, releases, services, installers
+
+> Record number note (2026-10-10): `0054` is the number
+> `scripts/check_records.py --next` returns — the one gap in the
+> repository-wide sequence. Gap-fill numbers are established practice:
+> [0180-MADR-check-records-is-a-preflight-and-ci-gate.md](0180-MADR-check-records-is-a-preflight-and-ci-gate.md)
+> records 0181 as one.
+>
+> History of this record (2026-10-10): first drafted as
+> "Rehome self-update from the mcplib module to go-selfupdate-lib" with a
+> rehome-plus-gap-closing recommendation. Before any review, the owner
+> asked for the deep-adoption option to be the proposal, so this draft
+> supersedes that one; it was never committed. The rehome remains the
+> first phase of what is now proposed.
+
+## Context and Problem Statement
+
+`mcremote update` and `mcrelay update` are implemented once in
+`github.com/maccavelli/mcplib/selfupdate`, pinned at `mcplib v1.4.1`
+(`go.mod:12`), and bound to this repository by `internal/updateclient`
+([0065-MADR-update-automation.md](0065-MADR-update-automation.md),
+[0100-MADR-update-unit-refresh-and-daemon-reload.md](0100-MADR-update-unit-refresh-and-daemon-reload.md),
+[0103-MADR-update-tracks-release-build-and-active-service.md](0103-MADR-update-tracks-release-build-and-active-service.md),
+each superseded as to *where the code lives* by MADR 0005 in mcplib). The
+release pipeline publishes through mcplib's reusable workflow, pinned by
+commit (`.github/workflows/ci.yml:1042`). This record proposes moving to
+`github.com/maccavelli/go-selfupdate-lib` and adopting the library's
+whole self-update stack — the canonical command, the build stamps, the
+embedded release spec, the build workflow, the reference service
+lifecycles, and the generated installers — and records every operator
+contract that changes.
+
+`mcplib` is the owner's general fleet library; `selfupdate` has since been
+extracted from it into `go-selfupdate-lib`, a standalone module whose only
+dependencies are the standard library and `golang.org/x/mod`, `x/sys`,
+`x/term`. The package and its release workflow are mcplib `v1.6.0`'s,
+**with the same Go API** (go-selfupdate-lib@v1.13.0/docs/decisions/
+0002-MADR-rehome-selfupdate-from-mcplib.md), plus the fixes of three
+debugging passes — everything after that extraction exists only in the
+new module. Its guides name this repository three times: the migration
+guide for `magic-cli-remote`'s `codesignTransformer` and for a
+`bridge-release` input that exists only for this repository's spent
+`v0.16.0` bridge, and the reference `ExecReconciler`'s receipt is
+described as "version 1 of magic-cli-remote's refresh result"
+(go-selfupdate-lib@v1.13.0/selfupdate/service/execreconciler.go:32-33) —
+this library was built with this repository's requirements as a first
+class input, not around them. The guides are explicit that the migration
+runs under each product's own records; this record is that authorization,
+under review.
+
+### What this repository consumes today (evidence)
+
+Everything below was verified in the tree and in the module cache.
+
+* `mcplib` is imported **only** for `mcplib/selfupdate`. The seam is
+  `internal/updateclient`:
+  * `client.go` composes the updater with every component explicit, then
+    builds the shared cobra command (`update`; flags `--check`, `--yes`,
+    `--force`, `--version`; exit codes 0/10/1; `GH_TOKEN`/`GITHUB_TOKEN`;
+    `MC_CODESIGN_IDENTITY`).
+  * `legacy.go` normalizes this binary's own stamped identity,
+    `BASE.N` → `vMAJOR.MINOR.PATCH`. Release builds since v0.16 stamp
+    `X.Y.Z` without the `v` (`Makefile:173`, ci.yml build job:
+    `ver="${GITHUB_REF_NAME#v}"`), so the normalize path is live on
+    every release binary, not only legacy ones.
+  * `lifecycle.go` adapts `internal/cli/service` to the library's
+    `Lifecycle` and `Reconciler` (ExecRefresher runs the **new** binary's
+    `setup-service --refresh --json` and parses its JSON receipt —
+    `verdict`, `path`, `backup`, `changed`, `reloaded`, `reason`,
+    `warnings`, `internal/cli/service/refresh.go:43-49`).
+  * `codesign_darwin.go` / `codesign_other.go`: a `Transformer` that
+    re-signs the staged binary on macOS so TCC grants survive an update
+    ([0069-MADR-macos-permissions-and-sandbox-parity.md](0069-MADR-macos-permissions-and-sandbox-parity.md)).
+  * `legacy_test.go` carries the **frozen v0.15.3 selector fixture** —
+    a verbatim copy, not production code — proving an already-installed
+    pre-0.16 client can still resolve the `v0.16.0` bridge file set.
+* The release pipeline builds, stamps, renames, smoke-checks, cgo-checks,
+  sums and stages **in this repository** (ci.yml build/release jobs:
+  `build_matrix`, the `awk '{print $2}'` version smoke, the
+  `go version -m` cgo assert of
+  [0116-MADR-windows-and-linux-arm64-build-targets.md](0116-MADR-windows-and-linux-arm64-build-targets.md)
+  D21, the SHA256SUMS block, the APK staging, the spent v0.16.0 bridge
+  copies), then hands a bare artifact to mcplib's publish workflow.
+* The shipped installers are hand-written here: `scripts/install.sh`,
+  `scripts/install.ps1`, with hermetic suites (`scripts/install_test.sh`,
+  `scripts/install_ps1_test.ps1`, `install_ps1_unit_test.ps1`,
+  [0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md))
+  and decided behaviors: install both binaries by default, run
+  `mcremote setup-service` by default, keep the relay service opt-in via
+  `--with-relay-service`
+  ([0097-MADR-linux-curl-installer.md](0097-MADR-linux-curl-installer.md),
+  [0099-MADR-installer-service-state-verification.md](0099-MADR-installer-service-state-verification.md),
+  [0104-MADR-installer-linux-and-macos.md](0104-MADR-installer-linux-and-macos.md),
+  [0156-MADR-only-the-posix-installer-learned-canonical-names.md](0156-MADR-only-the-posix-installer-learned-canonical-names.md)).
+* `go-selfupdate-lib` is published (module cache resolves `v1.5.0`…
+  `v1.13.0`; `git ls-remote` shows `v1.13.0` → peeled commit
+  `5e199c831b5691ea687943e3c3fd495d50c739ed`). It requires `go 1.27.1`;
+  this module is `go 1.27.2`
+  ([0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md](0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md)),
+  and its three `x/` module requirements are ones this module already
+  meets or exceeds, so `go.mod` swaps one line for another
+  ([0174-MADR-keep-dependencies-free-of-known-advisories.md](0174-MADR-keep-dependencies-free-of-known-advisories.md)).
+
+### API compatibility, verified symbol by symbol
+
+Every exported identifier this repository touches exists unchanged in
+`go-selfupdate-lib@v1.13.0/selfupdate`; `*` marks additive items the
+current code builds without knowing:
+
+| This repository uses | Same in v1.13.0? |
+|---|---|
+| `Repository`, `Platform`, `DefaultLimits`, `Limits` | Yes |
+| `NewGitHubSource`, `GitHubOptions` (incl. `APIBaseURL`, which the seam's tests require) | Yes |
+| `NewExactAssetSelector`, the `Installer`/`ReleaseSource` seams | Yes (`*`: releasespec composes them) |
+| `NewStandaloneInstaller`, `NewManagedInstaller` (`*`: `With`/`For` variants, `ReplaceBeforeStop`) | Yes |
+| `NewStrictVersionPolicy`, `Request{Product, CurrentVersion, CurrentBuild, TargetVersion, CheckOnly, Force, Yes}` (`*`: `Platform`, `DryRun`, `Channel`) | Yes |
+| `BuildKind` (`ReleaseBuild`/`LocalBuild`/`BuildUnknown`) | Yes |
+| `Result`, `ExitCode`, `ErrUpdateAvailable` (`*`: `Warnings`, `RolledBack`, `ReplacedBeforeStop`) | Yes |
+| `Lifecycle`, `Reconciler`, `ReconcileResult{Changed, Detail, State}` (`*`: `Warnings`) | Yes — **plus `EnabledLifecycle`**, which gates one behavior below |
+| `Transformer`, `TransformRequest`, `NewTextReporter`, `NewTerminalConfirmer` | Yes — a nil `Transformer` stays a legal no-op, as `codesign_other.go` relies on |
+
+### What `go-selfupdate-lib`'s stack is, piece by piece
+
+All verified in the library source and guides, not assumed.
+
+* **`buildinfo`** owns the build stamps
+  (`buildinfo.version`, `buildinfo.kind`, link-time only;
+  `LDFlags(tag)` renders the one `-ldflags` string). `Identity()` reports
+  a release **only** when the stamp is exactly `release` and the version
+  is a strict `vMAJOR.MINOR.PATCH` tag; anything else is a local build.
+  `Current()`/`String()` give the identity command's output.
+* **`selfupdate/cli`** is the canonical command: one flag set
+  (`--check`, `--yes`/`-y`, `--force`, `--dry-run`, `--json`,
+  `--version`, `--channel`), one stream rule (stdout is protocol output
+  and empty without `--json`; everything else — events, prompts, the
+  outcome line — goes to stderr), the 0/10/1 exit codes, signal
+  cancellation and a run timeout. A cobra product binds `cli.Flags` on
+  its pflag set and calls `Flags.Request`, `Run`, `Exit`
+  (go-selfupdate-lib@v1.13.0/selfupdate/cli/{doc.go,command.go,flags.go,
+  run.go}).
+* **`releasespec`** is one embedded `selfupdate-release.json` (products
+  with `package` and `identity_args`, platforms, packaging, extras with
+  optional `{tag}` names, prerelease channels, installer settings) that
+  the program parses for its asset selector and the workflows read for
+  the build and the publish. It replaces the platform matrix copies this
+  repository keeps in Makefile, CI, tests, and installers.
+* **`build-selfupdate-release.yml`** builds every product on every
+  platform with one fixed recipe (one linux runner, cross-compile,
+  `CGO_ENABLED=0`, `-trimpath -buildvcs=true`, `buildinfo` stamps, no
+  per-platform flags), checks each binary from its own build information
+  (platform, tags, cgo, trimpath, commit, clean tree, toolchain, module),
+  runs each product's identity command on every GitHub-hosted platform
+  (linux/amd64, linux/arm64, darwin/arm64, windows/amd64 and
+  windows/arm64), writes `SHA256SUMS`, takes extras from artifacts of
+  the same run, and uploads the staged set. Off a tag it **rehearses**:
+  the same recipe and checks on every branch push and PR.
+* **`install.sh` / `install.ps1` templates** render from the same spec
+  when `"installer"` is present: download by tag over HTTPS, strict
+  `SHA256SUMS` verification before anything is installed, platform
+  pick, install into `~/.local/bin` (never `sudo`) /
+  `%LOCALAPPDATA%\Programs\<name>`, `.prev` retention, identity check
+  per product with rollback, PATH handling, `--product`/`--dir`/
+  `--version`/`--no-hooks`/`--dry-run`/`--uninstall` options,
+  `before_install`/`after_install` hooks into product subcommands, exit
+  codes 0/1/2/3, and `SELFUPDATE_INSTALL_BASE_URL` for local testing.
+  The one-liner URLs keep the asset names
+  (`install.sh`, `install.ps1`). Hook and `identity_args` arguments keep
+  to `[A-Za-z0-9._:=/,+@%-]` because the installers embed them.
+* **`selfupdate/service` backends** — `systemd`, `launchd` (and `scm`
+  for Windows **services**) — each a `Lifecycle` and `EnabledLifecycle`
+  and `Reconciler` and `service.Detacher`:
+  `systemd.New(Options{Unit, Scope: User, …})`,
+  `launchd.New(Options{Label, Domain, Plist, …})`. Stops wait out the
+  service manager's own kill bound; `WaitHealthy` requires a **new
+  instance** (new invocation ID / PID) that stays up for a settle
+  window, then an optional application probe; `Enabled` answers
+  `is-enabled` / `RunAtLoad <true/>` / the SCM start type.
+  `service.NewExecReconciler(ExecOptions{Reconcile, RestoreFunc})` asks
+  the product's own binary to reconcile its definition and print a
+  receipt — "magic-cli-remote's refresh result" — schema fields
+  `schema_version`, `verdict`, `path`, `backup`, `changed`, `reloaded`,
+  `reason`, `warnings` — the same field names
+  `internal/cli/service/refresh.go:43-49` already ships as a
+  cross-version contract, and `RestoreFunc` covers this repository's
+  in-process restore (amendment A1 of the library's 0011-MADR names it
+  as "where magic-cli-remote restores").
+* **`codesign.NewSigner`** re-signs the staged binary under a fixed
+  `Identifier` with `codesign` resolved to an absolute path, fixing the
+  two defects the migration guide names in this repository's own
+  `codesignTransformer`: an identifier taken from the staging file's
+  name, and a `codesign` found on `PATH`.
+
+### What changes for this repository's contracts, `v1.4.1` → the stack
+
+Each row was verified in the library source, not assumed.
+
+| Change | Effect here |
+|---|---|
+| `ManagedInstaller` starts a **stopped** service only when the `Lifecycle` implements `EnabledLifecycle` (`selfupdate/managed.go:136-143`) | **Ends HealStart as-is.** `mcplib@v1.4.1`'s chain (`managed.go:64-133`, inventoried in [0159-MADR-the-windows-service-path-is-half-wired.md](0159-MADR-the-windows-service-path-is-half-wired.md)) calls `Start` after `Reconcile` unconditionally when installed. The reference backends implement `Enabled`, so the gate comes alive with them; the Windows adapter below must implement it too. |
+| Command surface: stdout empty without `--json`, progress and outcome on stderr; `--dry-run`, `--json`, `--channel` appear; signals and a run timeout are installed | An **amendment of [0065](0065-MADR-update-automation.md)/[0103](0103-MADR-update-tracks-release-build-and-active-service.md)'s documented UX** (progress on stdout). `--check`, `--yes`, `--force`, `--version` and the 0/10/1/exit-1 codes stay. `docs/guides/config.md` is rewritten for the stream rule and the new flags; `--channel` is refused ("not offered by the version policy") until channels are configured — none proposed. |
+| Identity: stamps move to `buildinfo`; `version` prints `buildinfo.Identity()` first ("`vX.Y.Z (release) 0123456789ab`"); `main.version/commit/date/main.buildKind` and the identity closures die; `NormalizeInstalled` retires (never-BASE.N stamps; strict-tag by construction) | The `version` output shape changes (`mcremote X.Y.Z (commit) date` today, `internal/cli/root.go:47`). The CI `awk '{print $2}'` smokes and the identity_args check replace it. The **frozen v0.15.3 fixture stays**; only live identity normalization goes — a strict-tag stamp cannot be `BASE.N`. |
+| `WaitHealthy` requires a new instance up for a settle window (default 10 s), then an optional probe | Stricter than today's poll-`IsActive` (a crash loop flapping under the window now fails health and rolls back); the daemon health check `doctor` already runs can later back `launchd.Options.Probe`/`systemd.Options.Probe` — wiring it is deliberately not in this migration (see "not adopted"). |
+| `Reconciler` runs the same child command but the receipt, warnings and in-process restore are library-owned (`ExecReconciler`) | A reconcile failure stays **fatal** with rollback, as decided (mcplib MADR 0005); the reconcile child and its JSON are unchanged — the product keeps owning the definition through `setup-service --refresh`. The half-wired Windows refresh is [0159](0159-MADR-the-windows-service-path-is-half-wired.md) D1's in-progress work, independent of this migration: `setup-service --refresh` learns the schtasks path in `internal/cli/service`, and `ExecReconciler` runs whatever the product ships. |
+| EOF at the `[y/N]` prompt is a decline (exit 0); non-TTY without `--yes` still fails `ErrConfirmationRequired` (`selfupdate/confirmer.go:38-58`) | The documented "non-interactive apply without `--yes` fails" is preserved; `docs/guides/config.md` gains one sentence for the EOF edge. |
+| A post-`complete` error is a warning (exit 0); `.<base>.selfupdate.pending` journal and `selfupdate-kept` backups appear beside the binary | Softer exit-code edge and new housekeeping files — both need a documentation line; `--json` carries them as `warnings`. |
+| Only the selected binary and `SHA256SUMS` are checked; unrelated assets (the ~60 MB APK) no longer block updates; Windows busy-image replace is retried; `--version` is pinned to `ErrIntegrity` | Fixes this repository's shipped shapes directly; strengthens the documented "install that exact release". |
+| Release pipeline: the build workflow replaces this repository's build/stamp/rename/smoke/cgo-assert/sum/stage steps; publish moves to the new module's workflow and `bridge-release` is deleted (GitHub rejects unknown inputs, and the `v0.16.0` bridge is spent) | The fixed recipe's build-information checks supersede the CI-side cgo assert ([0116](0116-MADR-windows-and-linux-arm64-build-targets.md) D21) and the release-lane side of `make verify-build-metadata` (`netgo`/`osusergo` are inert under `CGO_ENABLED=0`; the Darwin-omits-`netgo` invariant of [0059](0059-MADR-native-paths-and-linux-macos-parity.md) D9 holds with no tags added anywhere). The local dev-build gate stays. Rehearsals run on every push and PR instead of the release recipe being first tried on the tag. |
+| Installers: `scripts/install.sh`, `scripts/install.ps1` and their suites are deleted; `install.sh`/`install.ps1` become template-rendered extras (same URLs) | Operator-visible amendments below; the Android APK becomes a spec `extra` from the build run's artifact (`extras-artifact-name`), so the android-apk job stays and feeds the build workflow. |
+| Publish workflow support (`prerelease_channels`, `--verify-attestation`, `ghattest`) | Not proposed: stable-only stays decided; provenance verification needs a logged-in `gh`, which a service host has no reason to own. Available later without another migration. |
+
+## Decision Drivers
+
+* One self-update implementation, the one that is maintained: the fleet's fixes land in `go-selfupdate-lib`; `mcplib/selfupdate` is the snapshot it was extracted from.
+* Fleet consistency: `mcremote`/`mcrelay` get the same command surface, stamps, spec, release recipe, and installer behavior as every other fleet product, instead of keeping a private variant of each next to the shared library.
+* Delete duplicated maintenance, not just a dependency: the hand-rolled command wrapper (flags, prompts, exit mapping, reporter, confirmer), the platform matrix copies, the release build/stage recipe, the codesign transformer, and the shipped installers are all things the library now ships and this repository pays to maintain anyway.
+* Preserve this repository's decided operator contracts, and amend each one visibly in this record rather than silently: exit codes 0/10/1; HealStart of a crashed unit; `--force` as "replace a local build"; the release contract — exact asset names, `SHA256SUMS` format, the published `v0.16.0` bridge an installed pre-0.16 client needs; install both binaries by default.
+* The library's own guides are the path, and they cite this repository by name in them; inventing a private subset re-opens the divergence problem the extraction was meant to close.
+* Dependency governance: advisory-clean pin, toolchain floor met, `x/` requirements already present
+  ([0169](0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md), [0174](0174-MADR-keep-dependencies-free-of-known-advisories.md)).
+* Sequencing risk: a tag is still the first time the publish path runs end to end; rehearsals retire most of that risk before the tag, and the first tagged release after the merge is the release-contract acceptance.
+
+## Considered Options
+
+* **Option A — Deep standardization (chosen):** move to `go-selfupdate-lib v1.13.0` and adopt the stack: buildinfo stamps, the `cli` command surface bound through cobra, the embedded `releasespec`, the build workflow, the publish workflow move with `bridge-release` deleted, reference `systemd`/`launchd` lifecycles with `NewExecReconciler`, `codesign.NewSigner`, and the generated installers replacing `scripts/install.sh` and `scripts/install.ps1`.
+* **Option B — Deep standardization, but keep the hand-written installers:** adopt everything except `"installer"`; keep `scripts/install.sh`, `scripts/install.ps1` and their suites as extras.
+* **Option C — Rehome plus targeted gap-closing:** swap the import and the publish pin, add `Enabled`, replace the codesign transformer, change nothing else.
+* **Option D — Stay on `mcplib`:** bump to its final `selfupdate` (`v1.6.0`) or remain at `v1.4.1`.
+
+## Decision Outcome
+
+Chosen option: "**Option A — Deep standardization**: move to `go-selfupdate-lib v1.13.0` and adopt the stack: buildinfo stamps, the `cli` command surface bound through cobra, the embedded `releasespec`, the build workflow, the publish workflow move with `bridge-release` deleted, reference `systemd`/`launchd` lifecycles with `NewExecReconciler`, `codesign.NewSigner`, and the generated installers replacing `scripts/install.sh` and `scripts/install.ps1`", because every piece replaces something this repository maintains privately today with the fleet-owned equivalent that already encodes this repository's own decided behaviors (the ExecReconciler receipt is this repository's refresh contract; the migration guide names its codesign transformer and its bridge input; the build workflow's checks subsume the repository's own CI asserts); because the operator-visible changes are enumerated below and each is an amendment of a documented contract that this record makes explicit rather than silent; and because deferring any piece (Option C) or carving out the installers (Option B) keeps the most maintenance-heavy surface hand-rolled while paying the full dependency cost of the library.
+
+### The shape, per surface
+
+* `internal/updateclient` stays the one seam and keeps what is
+  product-specific: the embedded `selfupdate-release.json`, the updater
+  factory (source, policy, per-GOOS lifecycle choice, codesign identity),
+  the cobra binding of `cli.Flags`, and the Windows lifecycle adapter.
+  It loses the hand-rolled command body, the identity normalization, the
+  lifecycle/reconcile adapters for Linux/macOS, and the codesign
+  transformer.
+* Composition on Linux/macOS:
+  `NewManagedInstaller(standalone, systemd.New(...)|launchd.New(...), service.NewExecReconciler(...))`
+  — the backend supplies `Lifecycle` and `Enabled` (HealStart gate live
+  and honest), `NewExecReconciler` supplies the reconcile child this
+  repository already ships, with the in-process `RestoreFunc`.
+* Windows keeps the Task Scheduler model decided by
+  [0159-MADR-the-windows-service-path-is-half-wired.md](0159-MADR-the-windows-service-path-is-half-wired.md)
+  (in progress): the repo's adapter stays as the Windows `Lifecycle`,
+  grows an `Enabled` probe (the task's at-logon presence), and its
+  reconcile remains the product's `setup-service --refresh` once 0159 D1
+  ships it. The library's `scm` backend is for Windows *services* and is
+  not adopted.
+* The spec, roughly:
+
+```json
+{
+  "schema": 1,
+  "products": [
+    {"name": "mcremote", "package": "./cmd/mcremote", "identity_args": ["version"]},
+    {"name": "mcrelay",  "package": "./cmd/mcrelay",  "identity_args": ["version"]}
+  ],
+  "platforms": [
+    {"os": "linux", "arch": "amd64"},
+    {"os": "linux", "arch": "arm64"},
+    {"os": "darwin", "arch": "arm64"},
+    {"os": "windows", "arch": "amd64"}
+  ],
+  "packaging": "binary",
+  "extras": [
+    {"name": "magic-cli-remote-{tag}-arm64.apk"}
+  ],
+  "installer": {"name": "magic-cli-remote", "env_prefix": "MAGIC_CLI_REMOTE"}
+}
+```
+
+  The list of platforms encodes [0116](0116-MADR-windows-and-linux-arm64-build-targets.md) D19 (`windows/arm64` absent) and [0120-MADR-retire-the-darwin-amd64-target.md](0120-MADR-retire-the-darwin-amd64-target.md) (`darwin/amd64` absent) exactly once, read by client, build and publish. A unit test calls `spec.Product` and `spec.AssetSelector` per product so a spec the program cannot use fails in tests, not in a release.
+* CI: jobs build (rehearsing) → release
+  (`needs.build.outputs.*` → publish), `apk` feeds the build via
+  `extras-artifact-name`; the repository's own build/stamp/rename/
+  smoke/cgo/sum/stage steps and the `bridge-release` input and bridge
+  staging go. Test, lint, unit, doctor and mobile jobs stay and can be
+  `need`ed by the build.
+* Installers: hooks keep the decided defaults — one `after_install` hook
+  runs `mcremote setup-service` (the stock install still ends with a
+  unit), nothing runs for `mcrelay` (the relay service stays opt-in, now
+  by running `mcrelay setup-service` afterwards instead of an installer
+  flag). `--no-hooks` replaces `--no-service`.
+
+### The amendments, stated
+
+1. **HealStart becomes "enabled ⇒ heal".**
+   [0103](0103-MADR-update-tracks-release-build-and-active-service.md)
+   F2's matrix keeps its cases; the "unit file means the daemon is
+   supposed to run" rule becomes "**enabled** unit file means it". This
+   product's supplied state always answers enabled (systemd
+   `WantedBy=default.target` plus the `enable` `setup-service` runs,
+   `internal/cli/service/mcremote.user.service.tmpl:78`,
+   `internal/cli/setup_service.go:85`; launchd `RunAtLoad` + `KeepAlive`
+   always true, `internal/cli/service/plist_render.go:169-170`; the
+   Windows task runs at logon), so the change bites only an operator who
+   deliberately disabled the unit — the honest case. A deliberately
+   disabled unit is no longer healed.
+2. **`update` output moves to stderr; stdout becomes protocol-only.**
+   `--dry-run` and `--json` appear; `--channel` is refused until
+   channels are configured. Scripts that captured progress on stdout
+   must switch (none known in this repository; the docs are the
+   contract).
+3. **`version` output changes shape** to `buildinfo.Identity()` —
+   `vX.Y.Z (release) 0123456789ab` — because the build workflow's
+   identity check and the installers both require it. The CI smokes that
+   parsed `$2` change with it.
+4. **The installer's relay opt-in flag retires.** `--with-relay-service`
+   and `--no-service` (and their tests) go; the equivalents are
+   `mcrelay setup-service` after install and `--no-hooks`. The condition
+   of adopting the hook: `setup-service` on a host with no supported
+   service manager must not fail the install (today's installer detects
+   and hints); the PLAN verifies what `setup-service` exits there and,
+   if needed, that behavior ships as part of this work — otherwise the
+   `after_install` hook would turn a working install into exit 3 on
+   unsupported hosts.
+5. **Install exit codes become 0/1/2/3** (the templates'), and the
+   Windows PATH write is the template's, not ours.
+6. **A post-`complete` failure is exit 0 plus a warning; EOF at the
+   prompt declines; journal/kept-backup files appear.** All documented;
+   `--json` surfaces them machine-readably.
+
+### Consequences
+
+* Good, because `mcplib` and its `go.mod`/`go.sum` entries leave, one dependency-focused module covers command, stamps, spec, release, services, codesign and installers, and three debugging passes of fixes arrive — two of which address this repository's real shapes (the always-uploading APK extra; the Windows busy-image replace).
+* Good, because the release recipe is rehearsed on every push and PR instead of being tried first on the tag, and each binary is checked from its own build information and run (identity command) on every GitHub-hosted platform — strictly more than today's host-native smoke.
+* Good, because maintenance this repository duplicates retires: the hand-rolled command wrapper, the platform-matrix copies (Makefile, CI, tests), the release build/stage recipe and its asserts, the codesign transformer, the legacy identity normalizer, and the shipped installers with their hermetic suites.
+* Good, because reconciliation, the receipt and in-process restore become library-owned while the product keeps owning the definition: the child command and its JSON are unchanged, a reconcile failure stays fatal with rollback, and `ExecReconciler`'s receipt is the contract `refresh.go` already ships.
+* Good, because HealStart survives with an honest gate, `WaitHealthy` stops accepting a flapping restart as healthy, and the pre-0.16 published bridge is untouched — the frozen fixture keeps proving it, with only its import path changed.
+* Neutral, because `internal/updateclient` shrinks rather than disappears: the spec, the per-GOOS composition, the Windows adapter and the codesign identity stay product code.
+* Neutral, because local dev builds keep the Makefile, its stamps and `make verify-build-metadata`; only the release lane's build moves into the workflow.
+* Bad, because operators see behavior changes that no mechanical migration could avoid: the stream flip, new flags, a different `version` string, installer option changes, the relay opt-in flag becoming a manual command, the softer exit-0 warning edge, and new housekeeping files. Each is enumerated above; the docs must say all of it.
+* Bad, because the hand-written installer suites ([0097](0097-MADR-linux-curl-installer.md), [0099](0099-MADR-installer-service-state-verification.md), [0104](0104-MADR-installer-linux-and-macos.md), [0156](0156-MADR-only-the-posix-installer-learned-canonical-names.md), [0170](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md)) are deleted with the scripts, and their decided behaviors rest on the templates honoring them ([0156](0156-MADR-only-the-posix-installer-learned-canonical-names.md)'s canonical-name lesson included — the templates' names and URLs are the same, so its bridge concern carries over intact).
+* Bad, because the Windows adapter is still this repository's to finish ([0159](0159-MADR-the-windows-service-path-is-half-wired.md) in progress): the deep adoption adds the `Enabled` probe to it but neither fixes nor worsens the half-wired refresh; it must land with or after 0159 D1 for Windows managed updates to work at all.
+* Bad, because the first tagged release after the change is the end-to-end acceptance: an imperfect release cannot be unpublished (immutable), and although rehearsals cover the build, the publish job itself first runs at the tag.
+
+### Confirmation
+
+* `grep -rn 'mcplib/selfupdate' --include='*.go' .` finds nothing; `grep -rn 'maccavelli/mcplib/.github/workflows' .github` finds nothing; the publish `with:` block has no `bridge-release`.
+* `go build ./...`, `go vet ./...`, the full suite, `make preflight`, `make pre-add-check` ([0174](0174-MADR-keep-dependencies-free-of-known-advisories.md)) and Windows gates ([0145-MADR-local-windows-ci-style-tests.md](0145-MADR-local-windows-ci-style-tests.md)) pass; `scripts/acceptance-windows.ps1` and `scripts/acceptance-windows-service.ps1` run against the generated installers, and the live-installer tradition of [0098-MADR-ephemeral-cloud-install-verification.md](0098-MADR-ephemeral-cloud-install-verification.md) is rerun on the generated installers before the shipped scripts are deleted.
+* Unit tests pin the seams: `spec.Product`/`spec.AssetSelector` per product; `Enabled=true` + installed + down ⇒ started (and `false` ⇒ not) on each OS adapter; the `ExecReconciler` receipt round-trip against `refresh.go`'s emitter; the codesign signer's fixed identifier and resolved binary; the identity command's first line.
+* CI observables: a rehearsal on a branch push produces a staged, checked, identity-run artifact for all four platforms and both products with the APK extra, `SHA256SUMS` naming canonical names only; a publish produces an immutable, attested release whose asset set the frozen v0.15.3 fixture still resolves; `update --check` from an older installed binary exits 10 against it.
+* Docs: `docs/guides/config.md`'s update section rewritten (streams, flags, warnings, journal, EOF); README and operator guides' installer options corrected.
+
+## Pros and Cons of the Options
+
+### Option A — Deep standardization (chosen)
+
+* Good, because it finishes what the 0005-extraction started: one shared implementation, and this repository stops maintaining a private variant of flags, stamps, matrix, build, signing and installers beside it.
+* Good, because the pieces interlock by design — the spec feeds client, build and publish; the stamps feed the identity checks; the receipt feeds reconciliation — and adopting them together is less work than adopting any two halves.
+* Good, because the operator-facing changes arrive once, in one release, with one documented delta, instead of dribbling across future migrations.
+* Neutral, because `internal/updateclient` remains, smaller, and the cobra binding is retained as a thin `cli.Flags` binding rather than `cli.Command` directly.
+* Bad, because the blast radius of one migration covers command UX, release infrastructure, services and installers at once; the phases in the PLAN must land in dependency order (stamps before build workflow; spec before both workflows; identity command before the identity run works).
+* Bad, because the installer and stream amendments are user-visible and the installer suite deletion gives up bespoke behavior coverage this repository built carefully ([0099](0099-MADR-installer-service-state-verification.md)'s state machine in particular).
+
+### Option B — Defer the generated installers
+
+* Good, because it keeps the two most operator-coupled artifacts (installers) in this repository's proven hands for one more cycle, and the spec's `installer` block can be added later without another migration.
+* Neutral, because `install.sh`/`install.ps1` continue as spec `extras`, and their test suites keep running.
+* Bad, because the installers are the maintenance heaviest piece this decision exists to shed — hand-maintained bootstrap scripts with per-OS branching — and keeping them re-opens the fork ([0156](0156-MADR-only-the-posix-installer-learned-canonical-names.md) is the cautionary record).
+* Bad, because the hook-listing amenity experiments glimpsed in the templates (`--product`, `--uninstall`, attestation) would each need duplication to offer at all.
+
+### Option C — Rehome plus targeted gap-closing
+
+* Good, because the churn is smallest: imports, one probe meeting, one transformer swap, one workflow pin, one input deleted.
+* Bad, because it keeps this repository paying for the whole duplicated surface the library now ships, and the fleet divergence the extraction closed re-opens at the command, spec and pipeline levels anyway.
+* Bad, because every deferred piece arrives later anyway, with a second doc pass, a second test pass and a second release.
+
+### Option D — Stay on `mcplib`
+
+* Good, because nothing moves today.
+* Neutral, because bumping to `mcplib v1.6.0` delivers the first-pass fixes (APK, Windows replace) through a module whose other packages (the MCP go-sdk stack, `llmprovider`, `wizard`) this repository does not use.
+* Bad, because that is where the mcplib path dead-ends: nothing after the extraction (the enabled gate, the canonical command, the spec, the build workflow, the templates, the packaged codesign signer) exists in mcplib at all.
+* Bad, because the successor publish workflow no longer accepts `bridge-release`, so the publish side must move regardless — staying buys nothing there.
+
+## More Information
+
+* Library evidence (cited relative to the module): `docs/guides/migrating-from-mcplib-selfupdate.md` (§2 behavior deltas, §3 release workflow, §4 check greps, §5 canonical command with the cobra recipe, §6–§13 version deltas); `docs/guides/building-releases.md` (§1 spec, §2 embed, §3 identity command, §4 workflow wiring and immutability, §5 rehearsals, §6 extras-from-artifacts — the APK pattern, §7 archives, §8 build recipe and checks, §11 moving from a Makefile, §12 installers, hooks, options, exit codes, moving from a hand-written installer); `docs/guides/extending-selfupdate.md` ("Run as a service": backend selection, stop/health/`Enabled` semantics, `NewExecReconciler` for a program that owns its definition); `selfupdate/service/execreconciler.go` (Receipt, schema 1 of mcremote's refresh contract, `RestoreFunc` for in-process restore); `selfupdate/service/systemd/unit.go`, `selfupdate/service/launchd/job.go` (Options); `selfupdate/managed.go:136-143` (the `Enabled` gate); `selfupdate/confirmer.go:38-58` (TTY/EOF/nil-`In`); `selfupdate/codesign/codesign.go:151` (`NewSigner`); `buildinfo/buildinfo.go` (stamps, `Identity`, `LDFlags`); `selfupdate/cli/{doc.go,command.go,flags.go,run.go}` (command surface, streams, signals, exit codes); `scripts/verify-selfupdate-release.sh` (the verifier whose contract
+  [0132-MADR-verify-the-apk-by-github-asset-digest.md](0132-MADR-verify-the-apk-by-github-asset-digest.md)
+  records, moved with the package).
+* Current pin evidence: `go.mod:12`; `.github/workflows/ci.yml:1042` (`…mcplib/.github/workflows/publish-selfupdate-release.yml@8d4d89ff34ff79c1ed65f223cc3d83b3ec0550aa # mcplib v1.4.1`); `internal/updateclient/{client,legacy,lifecycle,codesign_darwin,codesign_other}.go` and its four `_test.go` files; `cmd/mcremote/main.go:29`, `cmd/mcrelay/main.go:25` (`ExitCode`); `internal/cli/root.go:46-48` (`VersionString`), `internal/cli/update.go`, `internal/relay/update.go`; `internal/cli/service/{control.go,refresh.go:43-49,exec_refresher.go,plist_render.go:169-170}`; `Makefile:173-190,222-239` (release and dev stamps); `scripts/{install.sh,install.ps1,install_test.sh,install_ps1_test.ps1,install_ps1_unit_test.ps1,verify-build-metadata.sh}`; `docs/guides/config.md:637-717`; `apps/mobile/lib/data/update/app_update.dart:112-113` (comments citing the publisher/verifier).
+* Workflow pins, both resolved to the peeled commit of the annotated `v1.13.0` tag with `git ls-remote https://github.com/maccavelli/go-selfupdate-lib 'refs/tags/v1.13.0^{}'` (2026-10-10; tag ref `0a121fbc2001f7013cac58f65399ab72fef6f47d`):
+  `build-selfupdate-release.yml@5e199c831b5691ea687943e3c3fd495d50c739ed` and `publish-selfupdate-release.yml@5e199c831b5691ea687943e3c3fd495d50c739ed # go-selfupdate-lib v1.13.0`, moved together with the `go.mod` requirement, per the build workflow's own version check.
+* Relationships this record amends or touches, to update when it is accepted: [0103](0103-MADR-update-tracks-release-build-and-active-service.md) (HealStart matrix — enabled gate; stdout UX), [0065](0065-MADR-update-automation.md) (command surface), [0059](0059-MADR-native-paths-and-linux-macos-parity.md) D9 (per-OS build tags — release recipe flattens under cgo-off, local gates stay), [0116](0116-MADR-windows-and-linux-arm64-build-targets.md) D19/D21 (platform set — encoded in the spec; cgo assert — subsumed), [0097](0097-MADR-linux-curl-installer.md)/[0099](0099-MADR-installer-service-state-verification.md)/[0104](0104-MADR-installer-linux-and-macos.md)/[0156](0156-MADR-only-the-posix-installer-learned-canonical-names.md)/[0170](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md) (installer behavior moves to the templates), [0159](0159-MADR-the-windows-service-path-is-half-wired.md) (Windows adapter stays schtasks and grows `Enabled`; refresh interplay stated above), [0132](0132-MADR-verify-the-apk-by-github-asset-digest.md) (`SHA256SUMS`/canonical-name contract preserved). Historical records that cite `mcplib v1.4.1` file:line evidence stay as written — snapshots — with this record as the pointer forward.
+* Deliberately **not** adopted (each available later without another migration): prerelease channels (`spec.prerelease_channels` + `--channel` live), provenance verification (`ghattest`, installer `--verify-attestation` — needs a logged-in `gh` on the updating host), archive packaging, `ReplaceBeforeStop` (its conditions — no self-spawn, no stop hooks — do not all hold here), the service `Detacher`/handoff (updates here run from an operator shell, not inside the daemon), `systemd.Ready()`/`Type=notify` (a unit-template change of its own), the `Probe` readied health checks (wire the existing probes into `Options.Probe` after the backend lands).
+* Implementation Plan: none yet. Per
+  [0105-MADR-mutating-work-requires-madr-and-plan.md](0105-MADR-mutating-work-requires-madr-and-plan.md),
+  a PLAN under this number precedes any code change, phased in dependency
+  order (rehome → stamps/identity → spec → command surface → services/
+  reconcile/codesign → build+publish workflows → installers), with this
+  record's Confirmation section and the migration guide §4 greps as its
+  verification bar, and the first tagged release after the merge as the
+  release-contract acceptance.
