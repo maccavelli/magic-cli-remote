@@ -353,6 +353,10 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0181 | PLAN | Implement configurable mcremote message size | [0181-PLAN-configurable-mcremote-message-size.md](decisions/0181-PLAN-configurable-mcremote-message-size.md) |
 | 0182 | MADR | Match wrapped protocol event-type lines and leave v0.20.2 in place | [0182-MADR-protocol-event-line-continuation.md](decisions/0182-MADR-protocol-event-line-continuation.md) |
 | 0182 | PLAN | PLAN 0182 — Match wrapped protocol event-type lines | [0182-PLAN-protocol-event-line-continuation.md](decisions/0182-PLAN-protocol-event-line-continuation.md) |
+| 0183 | REPORT | go-llmprovider-sdk catalog API parity assessment for magic-cli-remote | [0183-REPORT-go-llmprovider-sdk-catalog-parity-assessment.md](../docs/reports/0183-REPORT-go-llmprovider-sdk-catalog-parity-assessment.md) |
+| 0184 | MADR | Adopt `acp-go-sdk2` and move ACP protocol handling into the SDK | [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](decisions/0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md) |
+| 0184 | PLAN | Implement adopting `acp-go-sdk2` and moving ACP protocol handling into the SDK | [0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](decisions/0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md) |
+| 0185 | MADR | Keep Magic's model catalogs engine-backed: migrating to `go-llmprovider-sdk` is out of scope | [0185-MADR-migrating-to-go-llmprovider-sdk-is-out-of-scope.md](decisions/0185-MADR-migrating-to-go-llmprovider-sdk-is-out-of-scope.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-10-10
+date: 2026-10-13
 decision-makers: Project Owner
 consulted: none
 informed: operators running mcremote update / mcrelay update; install-script consumers; anyone consuming the GitHub release assets
@@ -406,3 +406,204 @@ Chosen option: "**Option A — Deep standardization**: move to `go-selfupdate-li
   record's Confirmation section and the migration guide §4 greps as its
   verification bar, and the first tagged release after the merge as the
   release-contract acceptance.
+
+## Amendment — 2026-10-13: fullest adoption, `v1.15.2`, and the owner's installer decisions
+
+The owner's direction (2026-10-13): *"I want magic to offload as much as possible to the
+libraries, and provide the fullest adoption possible."* This amendment applies that direction to
+Option A. It records the facts that changed since the draft, as found by
+[0054-REPORT-go-selfupdate-lib-full-adoption-assessment.md](../reports/0054-REPORT-go-selfupdate-lib-full-adoption-assessment.md)
+and by a scratch-copy probe on 2026-10-13. It also records four owner decisions, and the decisions
+that follow from them. Where a decision below contradicts the draft above, this amendment governs.
+The draft's text is kept as the record of what was first proposed. The direction does not extend
+to `go-llmprovider-sdk`. Migrating Magic's model catalogs to it is out of scope by
+[0185-MADR-migrating-to-go-llmprovider-sdk-is-out-of-scope.md](0185-MADR-migrating-to-go-llmprovider-sdk-is-out-of-scope.md).
+
+### Facts that changed
+
+* **The target is `v1.15.2`, not `v1.13.0`.** `v1.14.0` (2026-10-10), `v1.15.0`, `v1.15.1`
+  (2026-10-11) and `v1.15.2` (2026-10-12) have been published. The library's migration guide
+  states that each one only adds to the API or changes none, as reported by its `make apicheck`
+  (`docs/guides/migrating-from-mcplib-selfupdate.md` §2, §14, §15). `git ls-remote` on
+  2026-10-13 resolves `refs/tags/v1.15.2^{}` to `436a7f5976a6815491c7384527fef90869574a1b`. That
+  commit replaces both workflow pins under "More Information". The library still requires only
+  `golang.org/x/mod v0.40.0`, `x/sys v0.47.0` and `x/term v0.43.0`, which this module already
+  exceeds.
+* **The Windows backend exists.** `v1.14.0` added `selfupdate/service/taskscheduler`, a
+  `Lifecycle`, `EnabledLifecycle`, `Reconciler` and `service.Detacher` for a per-user task, built
+  from this repository's 0159 measurements. `v1.15.0` makes it refuse to stop a disabled task it
+  could not start again (`ErrTaskDisabled`). `v1.15.2` bounds its stop grace and re-enables a
+  task whose stop failed. The draft's "Windows keeps … the repo's adapter" no longer holds.
+* **0159 D1 has shipped** (`internal/cli/service/refresh_schtasks.go`). The draft's condition that
+  Windows "must land with or after 0159 D1" is met.
+* **The Go API matches symbol for symbol.** A script over `git show v1.15.2:selfupdate/*.go` finds
+  every one of the 26 `selfupdate` identifiers this repository uses. The library exports 219
+  names, mcplib `v1.4.1` exports 95, and none of the 95 is missing.
+* **A rehome on its own changes behavior, and no test notices.** Observed on a scratch copy on
+  2026-10-13: with only the import path changed and `go mod tidy` run, `go build ./...`, `go vet`
+  (darwin/arm64, windows/amd64, and linux/amd64 with `CGO_ENABLED=0`) and `go test` of
+  `internal/updateclient`, `internal/cli`, `internal/cli/service`, `internal/relay` and
+  `internal` all pass. But mcplib `v1.4.1` starts any installed service after an update
+  (`selfupdate/managed.go:92`). `v1.15.2` starts a stopped one only when the `Lifecycle` reports
+  it enabled (`selfupdate/managed.go:135-145`). `internal/updateclient/lifecycle.go` implements no
+  `Enabled`, so after a bare rehome a stopped daemon is no longer restarted by an update, and the
+  suite stays green. The report's Phase 1 statement, "Behavior does not change, because the API is
+  unchanged", is wrong in this one respect.
+* **`go mod tidy` adds two indirect lines.** In the same probe, `github.com/davecgh/go-spew` and
+  `github.com/pmezard/go-difflib` became explicit `// indirect` requirements. mcplib had supplied
+  them. The MCP go-sdk, `invopop/jsonschema`, `x/oauth2` and `yaml/v4` leave the module graph.
+* **The installers have no uninstall hook.** `releasespec.Installer.Hooks` accepts only
+  `before_install` and `after_install` (`selfupdate/releasespec/installer.go`, `HookBeforeInstall`
+  and `HookAfterInstall`). A template `--uninstall` removes binaries and `.prev` files only, so the
+  shipped installer's removal of service definitions (gap G4 in the report) has no library seam.
+* **`installer.name` names the Windows folder and the default environment prefix.**
+  `%LOCALAPPDATA%\Programs\<Name>`, with the prefix derived from `Name` unless `env_prefix` is set
+  (`releasespec.Installer`). The draft's `"env_prefix": "MAGIC_CLI_REMOTE"` would rename every
+  variable operators use today (`MCREMOTE_VERSION`, `MCREMOTE_INSTALL_DIR`, `MCREMOTE_NO_SERVICE`,
+  `MCREMOTE_INSTALL_NO_PATH_UPDATE`).
+* **The release staging is already compatible with the library's publish workflow.** It copies
+  regular files only (`cp -f`, `.github/workflows/ci.yml:980-988`), and the three extra names
+  match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`. The only incompatible inputs are `bridge-release` and
+  the `v0.16.0` bridge step (`ci.yml:990-1014`, `:1048`).
+
+### Owner decisions (2026-10-13)
+
+* **O1 — Fullest adoption.** Every concern the library owns moves to it. Product code remains only
+  where the library deliberately does not own the concern: the service definition and its refresh
+  child, the release spec's content, the signing identity, the Android APK build, and the
+  developer `make install` path.
+* **O2 — The supervisors move into `setup-service`.** runit, s6, OpenRC (user and system), and the
+  broken-systemd fallback, now handled only by `scripts/install.sh`, become Go code in
+  `mcremote setup-service`, with tests. The post-setup state verification of
+  [0099-MADR-installer-service-state-verification.md](0099-MADR-installer-service-state-verification.md)
+  moves with them. No operator loses supervision when the scripts are deleted.
+* **O3 — Windows adopts the library's install folder.** Binaries install into
+  `%LOCALAPPDATA%\Programs\<installer.name>`, replacing
+  [0116-MADR-windows-and-linux-arm64-build-targets.md](0116-MADR-windows-and-linux-arm64-build-targets.md)
+  D13's `%LOCALAPPDATA%\Programs`. Existing installs are migrated, not abandoned.
+* **O4 — ACP is decided separately.** The `acp-go-sdk2` adoption is not part of this record. It is
+  [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md).
+
+### Decisions that follow
+
+* **D1 — Pin `go-selfupdate-lib v1.15.2`,** or the latest tag at implementation time if the
+  migration guide records it as API-compatible. `go.mod` and both workflow pins move together, the
+  pins to the tag's peeled commit.
+* **D2 — No rehome without the backends.** The import swap lands in the same change as
+  `systemd.New`, `launchd.New` and `taskscheduler.New`, each of which implements
+  `EnabledLifecycle`, so "enabled ⇒ heal" (amendment 1 of the draft) is true from the first build
+  that drops mcplib. No interim release ships `lifecycle.go` against the new library.
+* **D3 — Windows uses `taskscheduler`.** `taskscheduler.New(Options{Name: <the task name
+  setup-service registers>})` with `service.NewExecReconciler` replaces the product's Windows
+  adapter, `control_schtasks.go`'s update-path functions, and the draft's planned `Enabled` probe.
+  The library's `scm` backend stays unadopted: the product runs a per-user task, not a Windows
+  service. The draft's Consequences bullet "the Windows adapter is still this repository's to
+  finish" is withdrawn.
+* **D4 — Reconciliation is `service.NewExecReconciler`.** It runs
+  `ExecOptions{Reconcile: []string{"setup-service", "--refresh", "--json"}}`, with `RestoreFunc`
+  wrapping the product's in-process restore (`RestoreUnitBackup`, `internal/cli/service/refresh.go`).
+  `exec_refresher.go` and the product `Reconciler` are deleted.
+* **D5 — The backends own health.** Each backend's `WaitHealthy` (a new instance that stays up for
+  a settle window) replaces the product's `IsActive` poll. Fullest adoption also wires what the
+  draft deferred under "not adopted":
+  * the daemon's existing health check as each backend's `Options.Probe`;
+  * a graceful shutdown request as `taskscheduler.Options.RequestStop`, where the daemon offers
+    one;
+  * `systemd.Notify` from the daemon, with `Type=notify` in the user unit template.
+* **D6 — `doctor` and `update` read one source.** `service.ProbeStatus` is rebased on the
+  backends' `Installed`, `Enabled` and running probes, so the two commands cannot disagree.
+  `Stop`, `Start` and `control_schtasks.go` are deleted once nothing calls them.
+* **D7 — Tests use `selfupdatetest`.** The library's `FakeSource` and `GitHubServer` replace the
+  product's hand-built release fixtures wherever they cover the same case. The frozen v0.15.3
+  selector fixture stays, with only its import path changed: it is a contract fixture.
+* **D8 — The environment prefix is `MCREMOTE`.** The spec sets
+  `"installer": {"name": "magic-cli-remote", "env_prefix": "MCREMOTE"}`. Two variables are renamed,
+  and both renames are documented: `MCREMOTE_NO_SERVICE` becomes `MCREMOTE_NO_HOOKS`, and
+  `MCREMOTE_INSTALL_NO_PATH_UPDATE` becomes `MCREMOTE_NO_PATH_UPDATE`. Tests use
+  `SELFUPDATE_INSTALL_BASE_URL` in place of `MC_TEST_BASE_URL`.
+* **D9 — The Windows folder is `%LOCALAPPDATA%\Programs\magic-cli-remote`** (O3, D8). It holds
+  both products, so it carries the release's name rather than one product's. The owner's question
+  on 2026-10-13 illustrated the folder as `…\Programs\mcremote`; this record proposes the library's
+  default, the repository name, and the owner confirms the name when accepting this record. The
+  migration: `setup-service --refresh`, which every managed update already runs, finds a task whose
+  `Exec` path is under the old folder, re-registers the task at the new path, and moves the user
+  `PATH` entry. The first managed update after the change performs the move. A fresh install never
+  sees the old folder.
+* **D10 — `setup-service` grows to close the installer gaps** (O2). It gains:
+  * the runit, s6 and OpenRC backends and the broken-systemd fallback (G1);
+  * a verified "running, enabled at boot" result with crash-loop detection, so the
+    `after_install` hook's exit status is honest (G2);
+  * environment-variable equivalents of the per-invocation installer options `--no-linger`,
+    `--force-service` and `--with-relay-service`, because hook arguments are fixed in the spec
+    (G3);
+  * `setup-service --uninstall`, which stops the service and removes every definition it can own
+    (G4);
+  * an exit status of 0, with a printed hint, on a host with no supported service manager, which
+    meets the draft's amendment 4.
+* **D11 — Ask the library for a `before_uninstall` hook.** Without one, a template `--uninstall`
+  leaves a service definition pointing at a deleted binary. The request is made under
+  `go-selfupdate-lib`'s own records, and this product adopts the hook when it ships. Until then,
+  the documented uninstall is `mcremote setup-service --uninstall`, then the installer's
+  `--uninstall`, and the installer's uninstall output is checked to say so. This is the one gap
+  where the library, not this repository, has to move.
+* **D12 — BusyBox `wget` is refused.** The templates refuse a `wget` without `--https-only` (G5).
+  The stricter policy is accepted, not worked around: Alpine-style hosts install `curl`, and the
+  operator guide says so.
+* **D13 — `/health` reports `buildinfo` as it is.** A release's version becomes `v0.X.Y`, where it
+  is `0.X.Y` today (`internal/ws/server.go:531`). No code in `apps/mobile/lib` was found reading
+  the field. The change is documented for operators who poll `/health`.
+* **D14 — The publish workflow moves in the same change as the rehome.** That change switches the
+  `uses:` line to `maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml`
+  at the D1 pin, and deletes `bridge-release` and the bridge staging step. After it, no file
+  references mcplib except the historical records. The build workflow (`build-selfupdate-release.yml`)
+  follows in a later phase, because it depends on `buildinfo` and the embedded spec.
+
+### What stays deliberately unadopted
+
+Each item is available later without another migration, and each has a reason other than effort:
+
+* **Prerelease channels:** no channel is a product decision yet, and stable-only remains decided.
+* **Client-side provenance verification (`ghattest`):** it needs a logged-in `gh` on the updating
+  host, which a service host has no reason to own. The templates' `--verify-attestation`
+  installer option is adopted with the templates.
+* **`ReplaceBeforeStop`:** its conditions, no self-spawn and no stop hooks, do not all hold here.
+* **The `service.Detacher` handoff:** updates run from an operator shell, never inside the daemon,
+  so nothing would call it. If the phone ever triggers updates, this is the seam to adopt.
+
+### Consequences of this amendment
+
+* Good, because mcplib leaves in one change with no window in which a stopped daemon is silently
+  left down, and that change also deletes the product's Linux, macOS and Windows lifecycle
+  adapters, its refresher wrapper and its codesign transformer.
+* Good, because Windows managed updates gain the library's measured Task Scheduler behavior. That
+  includes the `v1.15.x` fixes: refusing a disabled task, a bounded stop grace, and re-enabling
+  the task after a failed stop.
+* Good, because no operator loses supervision or uninstall behavior when the hand-written
+  installers go (O2, D10, D11). The installer itself becomes the library's, with the
+  library's tests.
+* Neutral, because `setup-service` grows: the supervisors, verification and uninstall move into
+  it rather than disappearing. That is product code the library deliberately leaves to the
+  product, now in Go with tests instead of in shell.
+* Bad, because D9 migrates every existing Windows install once, and a migration bug there would
+  point the task at a missing binary. Its tests must cover the old-folder, new-folder and
+  already-migrated cases, and `scripts/acceptance-windows-service.ps1` must run it before the
+  first tag.
+* Bad, because D11 depends on a change in another repository. Until it ships, an uninstall is two
+  commands, and an operator who runs only the installer's leaves a dangling definition.
+* Bad, because two installer variables are renamed (D8) and `/health`'s version gains a `v` (D13).
+  Both are documented, and neither can be avoided under the library's conventions.
+
+### Confirmation added by this amendment
+
+* On a scratch copy, the rehome with `lifecycle.go` still in place is shown to leave an installed,
+  enabled, stopped service stopped. With the backends wired, the same test shows it started. The
+  test is seen failing first.
+* Each backend: installed, enabled and stopped means started; disabled and stopped means not
+  started; running means restarted. On Windows, a disabled task that is running gives
+  `ErrTaskDisabled` and nothing changes.
+* `setup-service --refresh` migrates a task and a `PATH` entry from `%LOCALAPPDATA%\Programs` to
+  `%LOCALAPPDATA%\Programs\magic-cli-remote`, and is a no-op on an already-migrated install.
+* `setup-service --uninstall` leaves no definition for any backend it supports, on a scratch user
+  or a VM, never on the operator's own account.
+* After the rehome change, a file scan finds `mcplib` only under `docs/decisions/` and
+  `docs/reports/`.

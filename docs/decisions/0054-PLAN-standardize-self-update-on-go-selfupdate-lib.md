@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-11
+date: 2026-10-13
 associated-madr: "0054-MADR-standardize-self-update-on-go-selfupdate-lib.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -149,3 +149,237 @@ MADR edit (owner draft). The report recommends the MADR amendment as its Phase 0
 
 R1 is complete. This PLAN stays open until source phases are added by amendment after the MADR is
 accepted.
+
+## Amendment — 2026-10-13: source phases S1–S8 for the fullest adoption
+
+Implements the MADR's "Amendment — 2026-10-13: fullest adoption, `v1.15.2`, and the owner's
+installer decisions" (O1–O4, D1–D14). **Not approved for execution.** The MADR is still `proposed`.
+A phase starts only after the MADR is accepted **and** the owner approves that phase by name
+("do S1"). Each phase ends with `make pre-add-check` on its staged Go files, the race suite and
+`make preflight`. On a Windows host it also runs the 0145 gates. The owner commits (`git commit
+--no-edit`). An agent stages only.
+
+The phase order follows the dependencies: the backends before anything deletes the adapter, the
+stamps before the build workflow, the spec before both workflows, and `setup-service`'s growth
+before the installer scripts are deleted.
+
+### Rules for every phase
+
+* **Fail-first.** A new or changed assertion counts only after it has been seen to fail on a
+  deliberately broken scratch copy. The phase's execution record names the break and quotes the
+  failure.
+* **Read before concluding.** Long output goes to a scratch file with its exit status captured
+  before any filter. The whole file is read before a phase is called green.
+* **No identifiers.** Nothing staged carries a hostname, an account name, or a real-machine path.
+* **Scope is closed.** A phase touches only the paths it lists. Anything else found mid-phase is
+  recorded as a dated deviation in this PLAN, and in the MADR if it changes a decision or a fact,
+  and waits for re-approval.
+
+### S1 — Rehome with the library's backends, and move the publish pin (D1–D4, D6, D7, D14)
+
+Scope:
+
+* `go.mod`, `go.sum`;
+* `cmd/mcremote/main.go`, `cmd/mcrelay/main.go`;
+* `internal/updateclient/` (all files);
+* `internal/cli/service/exec_refresher.go` (deleted), `control.go`, `control_schtasks.go`,
+  `refresh.go`, and the tests of those files;
+* `internal/cli/doctor.go`, if `ProbeStatus`'s signature changes;
+* `.github/workflows/ci.yml`, limited to the `publish` job and the bridge staging step;
+* comments naming mcplib: `apps/mobile/lib/data/update/app_update.dart:112-113`.
+
+Steps:
+
+1. Confirm `git ls-remote https://github.com/maccavelli/go-selfupdate-lib 'refs/tags/v1.15.2^{}'`
+   still gives `436a7f5976a6815491c7384527fef90869574a1b`, or take the latest tag the migration
+   guide records as compatible, and record which in the execution record.
+2. Write the failing tests first, against the current `lifecycle.go`:
+   * an installed, **enabled**, stopped service is started after an update;
+   * an installed, **disabled**, stopped service is not;
+   * a running service is restarted;
+   * the backend for the current OS cannot be constructed (for example, the user manager's
+     `XDG_RUNTIME_DIR` is unset): the update refuses when a definition exists, and installs
+     standalone when none exists.
+
+   Record which ones fail against mcplib `v1.4.1`, and which against `v1.15.2` with the old
+   adapter.
+3. `go get github.com/maccavelli/go-selfupdate-lib@<D1 tag>`, rewrite the 11 imports, and run
+   `go mod tidy`. mcplib must leave `go.mod`.
+4. In `internal/updateclient`, choose the lifecycle per GOOS:
+   * `systemd.New(systemd.Options{Unit: product + ".service", Scope: systemd.User})`;
+   * `launchd.New(launchd.Options{Label: "com.magiccliremote." + product, Domain:
+     launchd.GUI(os.Getuid()), Plist: <the LaunchAgents path setup-service writes>})`;
+   * `taskscheduler.New(taskscheduler.Options{Name: <the task name setup-service registers>})`.
+
+   Pass each to `selfupdate.NewManagedInstaller` with `service.NewExecReconciler(ExecOptions{
+   Reconcile: []string{"setup-service", "--refresh", "--json"}, RestoreFunc: <wrapping
+   RestoreUnitBackup>})`. Implement the construction-failure rule from step 2.
+5. Replace the codesign transformer with `codesign.NewSigner`, using the fixed identifier
+   `com.magiccliremote.<product>` and the `MC_CODESIGN_IDENTITY` identity.
+6. Delete `lifecycle.go`, `lifecycle_test.go`, `codesign_darwin.go`, `codesign_other.go`, and
+   `internal/cli/service/exec_refresher.go`. Rebase `ProbeStatus` on the backends' probes (D6),
+   then delete `Stop`, `Start` and the update-path parts of `control_schtasks.go` that nothing
+   calls.
+7. Move release test fakes to `selfupdatetest` where they cover the same case (D7). The frozen
+   v0.15.3 fixture changes its import only.
+8. CI: change the publish `uses:` to the library's `publish-selfupdate-release.yml@<peeled
+   commit>`. Delete `bridge-release` and the bridge staging step (`ci.yml:990-1014`). Leave every
+   other release-lane step for S4.
+9. Update the comments that name mcplib.
+
+Verification:
+
+* the step 2 tests fail before step 4 and pass after it;
+* the `ExecReconciler` receipt round-trips against `refresh.go`'s emitter, including a receipt
+  with no `schema_version`;
+* the signer test pins the fixed identifier and an absolute `codesign`;
+* the Python scan used in the 2026-10-13 probe finds `mcplib` only under `docs/decisions/` and
+  `docs/reports/`;
+* `go build ./...`, `go vet ./...` for darwin/arm64, windows/amd64 and linux/amd64
+  (`CGO_ENABLED=0` for the cross-vet), and `go test -race ./...` pass;
+* `scripts/acceptance-windows-service.ps1` passes on a Windows host;
+* a branch push runs the publish job's syntax validation. The publish itself first runs at the
+  next tag, which is S8's acceptance.
+
+### S2 — Stamps and identity through `buildinfo` (MADR draft amendment 3, D13)
+
+Scope: `cmd/mcremote/main.go`, `cmd/mcrelay/main.go`, `internal/cli/root.go`,
+`internal/relay/cli.go`, `internal/updateclient/legacy.go` (deleted), the `daemon.Options.Version`
+plumbing up to `internal/ws/server.go`, the `Makefile` release and debug stamps, the CI version
+smoke, and their tests.
+
+Steps:
+
+1. Write the failing test: `version`'s first line equals `buildinfo.Identity()` for a release-stamped
+   test build.
+2. Render the stamps with `buildinfo.LDFlags`. Print `buildinfo.Identity()` first in `version` and
+   `--version`. Pass the `buildinfo` version to `/health`.
+3. Delete `legacy.go` and `NormalizeInstalled`. `legacy_test.go`'s frozen fixture stays.
+4. Change the CI smoke from `awk '{print $2}'` to the identity line, in the same change.
+
+Verification: the identity test; `make verify-build-metadata` on a local build; a `/health` test
+asserting the `v`-prefixed version.
+
+### S3 — The embedded release spec and the library command (D8, draft amendments 2 and 6)
+
+Scope: a new `internal/updateclient/selfupdate-release.json` (embedded), `internal/updateclient/`,
+`internal/cli/update.go`, `internal/relay/update.go`, `docs/guides/config.md`'s update section,
+and their tests.
+
+Steps:
+
+1. Write the spec: products, the four platforms, the APK extra, and **no `installer` block yet**
+   (S7 adds it).
+2. Add a unit test per product calling `spec.Product` and `spec.AssetSelector`. Show that it fails
+   on a scratch copy of the spec with a platform removed.
+3. Replace the hand-rolled command with `cli.Flags` bound on cobra's flag set, then `Flags.Request`,
+   `cli.Run` and `cli.Exit`, per the library guide §5 "With cobra".
+4. Rewrite `docs/guides/config.md`'s update section for the stream rule, the new flags, the
+   warnings, the journal files and the EOF decline.
+
+Verification: golden tests of `update --check` and `--json` output against
+`selfupdatetest.GitHubServer`; exit codes 0, 10 and 1.
+
+### S4 — The library's build workflow (draft "CI", D1)
+
+Scope: `.github/workflows/ci.yml` (build, release and APK jobs), `scripts/verify-build-metadata.sh`
+(release-lane half only).
+
+Steps:
+
+1. Call `build-selfupdate-release.yml` at the D1 pin. Feed the APK through `extras-artifact-name`.
+2. Delete the release job's build, stamp, rename, smoke, cgo-assert, checksum and staging steps.
+   Keep the APK build and `assert-flutter-release-apk.sh`. Ship `scripts/install.sh` and
+   `install.ps1` as spec `extras` until S7.
+3. Run a branch rehearsal and read its staged artifact: four platforms, both products, the APK, and
+   a `SHA256SUMS` naming canonical names only.
+
+Verification: the rehearsal's own checks, quoted in the execution record; the frozen v0.15.3
+fixture still resolves the rehearsed asset set.
+
+### S5 — `setup-service` closes the installer gaps (O2, D9, D10)
+
+Scope: `internal/cli/service/` and `internal/cli/setup_service.go`, with new files for the runit,
+s6 and OpenRC backends, plus their tests and `docs/guides/` operator text.
+
+Steps, each test-first:
+
+1. Port `install.sh`'s `detect_init`, `svc_runit`, `svc_s6`, `svc_openrc_user` and the
+   broken-systemd fallback to Go, behind the same `setup-service` entry point (G1).
+2. Report "running, enabled at boot", with a settle wait and crash-loop detection, and exit
+   non-zero when it is not (G2, 0099).
+3. Read `MCREMOTE_NO_LINGER`, `MCREMOTE_FORCE_SERVICE` and `MCREMOTE_WITH_RELAY_SERVICE` as the
+   equivalents of the retiring installer flags (G3). Document them.
+4. Add `setup-service --uninstall`: stop, then remove every definition this product can own, for
+   every backend (G4).
+5. On a host with no supported service manager, exit 0 with a hint (draft amendment 4).
+6. Teach `--refresh` the Windows folder migration (D9): old `Exec` path ⇒ re-register at the new
+   folder and move the user `PATH` entry; already migrated ⇒ no-op.
+
+Verification:
+
+* hermetic tests per backend, against fake `sv`, `s6-svc`, `rc-service` and `systemctl`
+  binaries on a temp `PATH`;
+* the migration tests for the old-folder, new-folder and migrated cases;
+* a live run on a scratch Linux VM for each supervisor, and on the Windows test host. Never on the
+  operator's own account.
+
+### S6 — Ask the library for `before_uninstall` (D11)
+
+Outside this repository. Draft the request as a `go-selfupdate-lib` record (a MADR proposal or an
+issue), cited by repository and number, never by relative path. This PLAN records only the request
+and the library version that ships it. S7 does not wait for it. Until it ships, S7 documents the
+two-command uninstall.
+
+### S7 — The generated installers replace the scripts (draft Option A, D8, D9, D12)
+
+Scope: `internal/updateclient/selfupdate-release.json` (the `installer` block), `.github/workflows/ci.yml`
+(the extras list), `scripts/install.sh`, `scripts/install.ps1`, `scripts/install_test.sh`,
+`scripts/install_ps1_test.ps1` and `scripts/install_ps1_unit_test.ps1` (all deleted), the CI
+"install.sh tests" step, the README install section, and `docs/guides/` installer text.
+
+Steps:
+
+1. Add `"installer": {"name": "magic-cli-remote", "env_prefix": "MCREMOTE", "hooks":
+   [{"when": "after_install", "product": "mcremote", "args": ["setup-service"]}]}`, plus a
+   `before_install` hook only if S6's hook has shipped by then.
+2. Run a branch rehearsal and read the rendered `install.sh` and `install.ps1`.
+3. Rerun the [0098-MADR-ephemeral-cloud-install-verification.md](0098-MADR-ephemeral-cloud-install-verification.md)
+   live installs, and `scripts/acceptance-windows.ps1` and `scripts/acceptance-windows-service.ps1`,
+   against the rendered installers. Include one runit or OpenRC host, and one upgrade of a Windows
+   install from the old folder.
+4. Only after step 3 passes, delete the scripts, their suites and the CI step, and rewrite the
+   install documentation, including both variable renames and the BusyBox `wget` refusal.
+
+Verification: step 3's transcripts in the execution record; uninstall leaves no definition
+pointing at a removed binary when the documented two commands are run.
+
+### S8 — Health wiring, records and the first tag (D5, D13)
+
+Scope: the daemon's health and shutdown seams, the user unit template, `internal/updateclient/`,
+and the records each change amends.
+
+Steps:
+
+1. Wire the daemon health check as each backend's `Options.Probe`. Wire a graceful shutdown
+   request as `taskscheduler.Options.RequestStop`, with a `StopGrace` shorter than the poll timeout
+   (`v1.15.2` refuses otherwise). Add `systemd.Notify` to the daemon and `Type=notify` to the unit
+   template.
+2. Add pointer amendments to the records this MADR's "More Information" lists: 0103, 0065, 0059 D9,
+   0116 D13/D19/D21, 0097, 0099, 0104, 0156, 0170, 0159 and 0132.
+3. Tag the first release, with the owner's explicit ask, and verify the release contract: an
+   immutable, attested release; the frozen v0.15.3 fixture resolves its asset set; `update --check`
+   from the last mcplib-built release exits 10 against it.
+
+Verification: health tests per backend, including a crash-looping fixture that must now fail
+health and roll back; the tag's published asset list, quoted in the execution record.
+
+### Rollout and rollback for S1–S8
+
+* S1, S2, S3 and S5 are source changes, each reverted by reverting its commit. S1's revert
+  restores mcplib and the bridge-capable publish job together.
+* S4 and S7 change the release lane. Revert the workflow change before the next tag. A tag already
+  published under a broken lane cannot be unpublished, which is why S4 and S7 rehearse on a branch
+  first.
+* D9's Windows migration is one-way on each host. A rollback release keeps reading both folders
+  until no install remains in the old one.

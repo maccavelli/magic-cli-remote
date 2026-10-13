@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-10
+date: 2026-10-13
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -1225,3 +1225,13 @@ a capability until its complete inbound behavior and phone-facing mapping exist.
   accepted amendment and PLAN phase.
 * Bad, because the most valuable SDK behavior is currently ahead of the latest tag, so release
   readiness is an external prerequisite to adoption.
+
+## Amendment — 2026-10-13: the migration is decided in 0184
+
+The owner chose, on 2026-10-13, to decide the `acp-go-sdk2` migration and full adoption in a new
+record rather than in this one:
+[0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+(proposed). This record's decisions stand as written. When 0184 is accepted and its first phase
+lands, it supersedes D16 for this repository's build, executes D20, keeps D17–D19, and applies D23.
+D22's prerequisite is met: `acp-go-sdk2` has published tags `v0.15.0` to `v0.17.1` since the
+report, and 0184 pins `v0.17.1`.
