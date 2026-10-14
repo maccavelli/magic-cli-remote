@@ -12,7 +12,9 @@ Associated MADR: [0189-MADR-carry-the-agent-session-cost-as-a-session-total.md](
 ~~**Not approved for execution.** The MADR is `proposed`.~~ On 2026-10-14 the owner accepted the
 MADR's recommended option and approved C1 and C2 ("accept option 1, do C1 and C2"). This PLAN
 implements that option, "Carry the agent's cumulative cost as a separately named session total,
-with its currency" (D1–D5). C3 and C4 still wait for approval by name.
+with its currency" (D1–D5). ~~C3 and C4 still wait for approval by name.~~ On 2026-10-14, after C1
+and C2 were committed, the owner said "committed, proceed". That approves C3 and C4 step 1. C4
+step 2, the grok turn, still waits for the owner's quota.
 
 * A phase starts only after the owner approves it by name.
 * Each Go phase ends with `make pre-add-check` on its staged Go files, `go test -race ./...` and the
@@ -198,3 +200,76 @@ only a restart.
 
 **Not done:** C3 (the phone) and C4 (the 0179 note, and the grok probe). They wait for approval by
 name. The grok probe also waits for the quota.
+
+C1 and C2 were committed as `e6e95205`.
+
+### C3 and C4 step 1, 2026-10-14: complete (staged, not committed)
+
+**Approval:** the owner on 2026-10-14, "committed, proceed".
+
+**C3, structure.** `SessionCost` (`amount`, `currency`, `==`, and a `label` stub returning `''`) and
+an unparsed `Usage.sessionCost` were added first.
+
+**C3, the test.** `apps/mobile/test/session_cost_test.dart` has 13 tests:
+
+* parsing: a valid cost, a free zero, a lower-case code, six malformed shapes, and absent;
+* the label: USD and another currency;
+* the reducer: a change that is only in the cost, keeping the last known cost, and an identical
+  report;
+* the context chip, pumped in `ChatScreen`: the tooltip with a USD cost, with another currency,
+  and with no cost.
+
+Against the bare structure it **failed** 9 of 13, for example:
+
+* `parsing a valid cost is kept with its currency`: `Expected: <Instance of 'SessionCost'>`,
+  `Actual: <null>`;
+* `label USD is dollars…`: `Expected: '$0.0234'`, `Actual: ''`;
+* `reducer a report whose only change is cost reaches the transcript`: `Expected: <0.2>`,
+  `Actual: <null>`;
+* `context chip the tooltip shows a USD session cost`: `Found 0 widgets`.
+
+The four that passed are the ones that should already pass: the malformed shapes, absent, the
+identical report, and the chip with no cost.
+
+**C3, the implementation.**
+
+* `SessionCost.tryParse` refuses a missing, negative or non-finite amount, or a currency that is
+  not three ASCII letters, and upper-cases the code. `label` follows MADR D3.
+* `Usage` parses `session_cost`, and its `==` and `hashCode` include it. `withSessionCost` copies a
+  report with another cost.
+* The reducer carries the last known cost onto a report that omits it, then compares.
+* `_ContextUsageChip` adds `Session cost <label>` as the tooltip's last line.
+
+**C3, planted breaks, each on a scratch copy of `apps/mobile`.** Every plant failed:
+
+| Plant | Failing test |
+| --- | --- |
+| equality ignores the cost | `reducer a report whose only change is cost reaches the transcript` |
+| a report without a cost clears it | `reducer a report without a cost keeps the last known one` |
+| `session_cost` not parsed | five tests, from `parsing a valid cost…` to the reducer pair |
+| negative amount accepted | `parsing a cost that cannot be shown honestly is dropped` |
+| code not upper-cased | `parsing a lower-case code is upper-cased` |
+| every currency shown as dollars | `label any other currency keeps its code`, and the chip's other-currency tooltip |
+| the two-decimal rule lost | both label tests, and the chip's other-currency tooltip |
+| the tooltip omits the cost | both chip tooltips that carry a cost |
+
+**C4 step 1.** [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md)
+has dated notes in three places:
+
+* D5's `usage_update.cost` → `CostUSD` line is struck through and points here.
+* F4's "`cost` is dropped" now says it is mapped since C1.
+* Its Confirmation item notes that the cost half of the mapping test exists.
+
+**Verification.** `make preflight` passed:
+
+* records and docs links, and markdownlint;
+* `gofmt`, `go mod tidy`, `go vet`, `staticcheck`, and `go test -race`;
+* the install tests, systemd units and release build;
+* the Flutter pin and pub advisories;
+* `dart format` (`Formatted 215 files (0 changed)`), `flutter analyze` (`No issues found!`), and
+  `flutter test` (`+1437 ~3: All tests passed!`).
+
+No Go file changed in this step.
+
+**Not done.** C4 step 2, the grok turn, waits for the owner's quota. Until then, the fixture stays
+built from the schema. The PLAN stays `in-progress`.

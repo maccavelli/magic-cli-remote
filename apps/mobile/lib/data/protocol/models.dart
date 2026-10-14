@@ -2066,6 +2066,7 @@ class Usage {
     this.cacheRead = 0,
     this.cacheWrite = 0,
     this.costUsd,
+    this.sessionCost,
   });
 
   final int used;
@@ -2085,6 +2086,11 @@ class Usage {
   /// A present zero is a real value — a known-free turn — and the two must
   /// stay distinguishable in the UI.
   final double? costUsd;
+
+  /// The agent's own running total for the whole session, in its currency
+  /// (MADR 0189). Unlike [costUsd] it is cumulative, so it is never added to
+  /// or compared with a turn's cost. Null when the agent reported none.
+  final SessionCost? sessionCost;
 
   /// True when any bucket or cost was reported, so a client can decide whether
   /// an expandable breakdown is worth offering at all.
@@ -2110,15 +2116,80 @@ class Usage {
       cacheRead: (json['cache_read'] as num?)?.toInt() ?? 0,
       cacheWrite: (json['cache_write'] as num?)?.toInt() ?? 0,
       costUsd: (json['cost_usd'] as num?)?.toDouble(),
+      sessionCost: SessionCost.tryParse(json['session_cost']),
     );
+  }
+
+  /// This report with [cost] as its session cost. A report that omits the
+  /// cost does not mean it was reset, so the reducer carries the last known
+  /// one forward with this (MADR 0189 D3).
+  Usage withSessionCost(SessionCost? cost) => Usage(
+    used: used,
+    size: size,
+    input: input,
+    output: output,
+    reasoning: reasoning,
+    cacheRead: cacheRead,
+    cacheWrite: cacheWrite,
+    costUsd: costUsd,
+    sessionCost: cost,
+  );
+
+  // The session cost takes part, or a report whose only change is the cost
+  // would be dropped as a no-op (MADR 0189 D3).
+  @override
+  bool operator ==(Object other) =>
+      other is Usage &&
+      other.used == used &&
+      other.size == size &&
+      other.sessionCost == sessionCost;
+
+  @override
+  int get hashCode => Object.hash(used, size, sessionCost);
+}
+
+/// An agent-reported cumulative session cost (MADR 0189). [currency] is an
+/// upper-case three-letter code; the phone never converts between currencies.
+class SessionCost {
+  const SessionCost({required this.amount, required this.currency});
+
+  final double amount;
+  final String currency;
+
+  static final _code = RegExp(r'^[A-Z]{3}$');
+
+  /// Parses `session_cost`, or returns null for anything that cannot be shown
+  /// honestly: a missing, negative or non-finite amount, or a currency that is
+  /// not three ASCII letters. The daemon already checks both; this keeps a
+  /// malformed frame from drawing a confident wrong number.
+  static SessionCost? tryParse(Object? json) {
+    if (json is! Map) return null;
+    final amount = json['amount'];
+    final currency = json['currency'];
+    if (amount is! num || currency is! String) return null;
+    final value = amount.toDouble();
+    if (!value.isFinite || value < 0) return null;
+    final code = currency.toUpperCase();
+    if (!_code.hasMatch(code)) return null;
+    return SessionCost(amount: value, currency: code);
+  }
+
+  /// The cost for display: four decimals under one unit and two from one up,
+  /// as the daemon's `/context` writes it. USD reads as dollars; any other
+  /// currency keeps its code (MADR 0189 D3).
+  String get label {
+    final figure = amount.toStringAsFixed(amount >= 1 ? 2 : 4);
+    return currency == 'USD' ? '\$$figure' : '$figure $currency';
   }
 
   @override
   bool operator ==(Object other) =>
-      other is Usage && other.used == used && other.size == size;
+      other is SessionCost &&
+      other.amount == amount &&
+      other.currency == currency;
 
   @override
-  int get hashCode => Object.hash(used, size);
+  int get hashCode => Object.hash(amount, currency);
 }
 
 /// A non-text prompt content block sent with a prompt (ACP image/audio).

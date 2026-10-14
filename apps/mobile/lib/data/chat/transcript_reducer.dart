@@ -60,8 +60,13 @@ SessionTranscript applySessionEvent(
     // Token/context report → context-window indicator only, no chat bubble.
     // Replace-semantics; identical instance on a no-op so the notifier can
     // suppress a rebuild (usage arrives frequently mid-turn).
-    final u = ev.usage;
-    if (u == null || u == current.usage) return current;
+    var u = ev.usage;
+    if (u == null) return current;
+    // A report without a session cost keeps the last known one: the cost is
+    // a running total, and its absence is not a reset (MADR 0189 D3).
+    final known = current.usage?.sessionCost;
+    if (u.sessionCost == null && known != null) u = u.withSessionCost(known);
+    if (u == current.usage) return current;
     return current.copyWith(usage: u);
   }
 

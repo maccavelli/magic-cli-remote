@@ -3349,9 +3349,12 @@ class _ContextUsageChip extends ConsumerWidget {
         : scheme.onSurfaceVariant;
     final pct = (f * 100).round();
     final label = usage.size > 0 ? '$pct%' : '${usage.used}';
-    final tooltip = usage.size > 0
-        ? '$pct% of context used\n${usage.used} / ${usage.size} tokens'
-        : '${usage.used} context tokens used';
+    final cost = usage.sessionCost;
+    final tooltip =
+        (usage.size > 0
+            ? '$pct% of context used\n${usage.used} / ${usage.size} tokens'
+            : '${usage.used} context tokens used') +
+        (cost == null ? '' : '\nSession cost ${cost.label}');
 
     return Center(
       child: Tooltip(

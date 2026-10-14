@@ -90,7 +90,7 @@ The assessment found the issues below. Each one is evidenced at file:line and ch
 
 * `session_info_update` falls to the `default` branch (`:1784`). `event.TypeSessionTitle` is already handled at `manager.go:1342`, so a title from the agent never reaches the phone.
 * `usage_update` keeps only `used` and `size` (`:1757-1764`).
-  * `cost` is dropped, although the SDK carries it (`types_gen.go:9206-9219`) and `event.Usage.CostUSD` exists.
+  * `cost` is dropped, although the SDK carries it (`types_gen.go:9206-9219`) and `event.Usage.CostUSD` exists. *Note, 2026-10-14:* since 0189 C1, `cost` is mapped to `event.Usage.SessionCost` (see D5's note).
   * `usage_update` is marked **UNSTABLE** in schema 0.13.5 (`types_gen.go:9201-9205`). It is not baseline ACP.
 * For `tool_call` / `tool_call_update`:
   * a diff becomes the string `"diff <path>"` (`:2556-2586`);
@@ -230,7 +230,8 @@ The decision has ten parts, D1 to D10.
 These changes apply to every ACP Spec, not to pigo only:
 
 * `session_info_update.title` → `event.TypeSessionTitle`.
-* `usage_update.cost` → `event.Usage.CostUSD`. The event type is unstable in schema 0.13.5, so the mapping tolerates its absence.
+* ~~`usage_update.cost` → `event.Usage.CostUSD`. The event type is unstable in schema 0.13.5, so the mapping tolerates its absence.~~
+  *Note, 2026-10-14:* replaced by [0189-MADR-carry-the-agent-session-cost-as-a-session-total.md](0189-MADR-carry-the-agent-session-cost-as-a-session-total.md). ACP's `cost` is the session's cumulative total, in any currency, and `CostUSD` is a per-turn USD figure. So the cost now maps to `event.Usage.SessionCost` (`session_cost`) and never to `CostUSD`. `usage_update` is a stable variant in schema 1.25 (`acp-go-sdk2@v0.17.1`). This record is `proposed`, so this is a note, not a supersession.
 * Tool-call `locations` and diff old/new text are forwarded. The phone renders the diff, within the frame budget of MADR 0154.
 * `configOptions` forwards the option category and grouped values.
 * `config_option_update` with category `model` or `thought_level` updates `meta.Model` and `ThinkingLevel`, and so does a forwarded `/model` or `/thinking` that is confirmed by such an update.
@@ -320,7 +321,7 @@ The `live-pigo` suite must show these:
 * A resolver unit test: with a strict pigo table that maps `compact` to `KindNative compact`, and agent commands empty, `Resolve("compact")` is `KindNone`. With strict off, the same input resolves to `KindOp` (today's behaviour). The test is shown failing on the current resolver before the change.
 * A unit test with a fake `acpagent` Spec whose `SessionOps` is empty. `commandContext` reports none of OpCompact, OpFork, OpUndo, OpSetModel, OpSetThinkingLevel, OpUsage or OpStatus. A recorded connection shows no `_x.ai/*` method across `/compact`, `/fork`, `/undo`, `/thinking high`, a phone fork, and a phone rename.
 * Grok's existing unit, conformance and `live-grok` suites pass unchanged.
-* An `acpagent` mapping test feeds `session_info_update`, `usage_update` (with cost), a tool call with `locations` and a diff, and a categorized `config_option_update`. It asserts the resulting daemon events.
+* An `acpagent` mapping test feeds `session_info_update`, `usage_update` (with cost), a tool call with `locations` and a diff, and a categorized `config_option_update`. It asserts the resulting daemon events. *Note, 2026-10-14:* the `usage_update` cost half exists as `TestUsageCostBecomesASessionCost` (0189 C1).
 * The D10 probes run green against a tagged pigo release before `IDPigo` ships.
 
 ## Pros and Cons of the Options
