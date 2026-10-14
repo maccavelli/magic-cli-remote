@@ -359,6 +359,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0185 | MADR | Keep Magic's model catalogs engine-backed: migrating to `go-llmprovider-sdk` is out of scope | [0185-MADR-migrating-to-go-llmprovider-sdk-is-out-of-scope.md](decisions/0185-MADR-migrating-to-go-llmprovider-sdk-is-out-of-scope.md) |
 | 0186 | MADR | Integrate the current `go-selfupdate-lib` and `acp-go-sdk2` releases as two independent tracks, then make gobble the native agent | [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](decisions/0186-MADR-integrate-current-library-releases-and-prepare-gobble.md) |
 | 0186 | PLAN | Implement integrating the current library releases as two tracks, and preparing gobble | [0186-PLAN-integrate-current-library-releases-and-prepare-gobble.md](decisions/0186-PLAN-integrate-current-library-releases-and-prepare-gobble.md) |
+| 0187 | MADR | Show the agent's session title from `session_info_update`, without overwriting a name the user set | [0187-MADR-show-the-agent-session-title-without-overwriting-a-user-name.md](decisions/0187-MADR-show-the-agent-session-title-without-overwriting-a-user-name.md) |
+| 0187 | PLAN | Implement showing the agent's session title without overwriting a user name | [0187-PLAN-show-the-agent-session-title-without-overwriting-a-user-name.md](decisions/0187-PLAN-show-the-agent-session-title-without-overwriting-a-user-name.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
