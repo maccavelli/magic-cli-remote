@@ -12,7 +12,7 @@ import (
 // initializeFrame is the initialize request Magic sends, as JSON. Pinned byte
 // for byte, so any change to what Magic advertises is a reviewed change to
 // this test (PLAN 0184 A2 step 2).
-const initializeFrame = `{"clientCapabilities":{"auth":{},"fs":{"readTextFile":true,"writeTextFile":true},` +
+const initializeFrame = `{"clientCapabilities":{"auth":{},"elicitation":{"form":{}},"fs":{"readTextFile":true,"writeTextFile":true},` +
 	`"session":{"compaction":{},"configOptions":{"boolean":{}},"notices":{}},"terminal":true},` +
 	`"clientInfo":{"name":"mcremote","version":"v0.21.0"},"protocolVersion":1}`
 
@@ -60,9 +60,10 @@ func TestCapabilityHonesty(t *testing.T) {
 	dishonest := map[string]acp.ClientCapabilities{
 		// session.notices and session.compaction were examples here until
 		// MADR 0188 and MADR 0190 implemented them.
-		"elicitation":   {Elicitation: &acp.ElicitationCapabilities{}},
-		"plan":          {Plan: &acp.PlanCapabilities{}},
-		"auth.terminal": {Auth: acp.AuthCapabilities{Terminal: true}},
+		// elicitation.form is implemented (MADR 0191); URL mode is not.
+		"elicitation.url": {Elicitation: &acp.ElicitationCapabilities{Url: &acp.ElicitationUrlCapabilities{}}},
+		"plan":            {Plan: &acp.PlanCapabilities{}},
+		"auth.terminal":   {Auth: acp.AuthCapabilities{Terminal: true}},
 	}
 	for name, c := range dishonest {
 		if problems := CheckClientCapabilities(c); len(problems) == 0 {

@@ -262,3 +262,19 @@ Under the chosen option:
   [0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md](0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md).
   ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
   accepted the recommended option and approved the PLAN on 2026-10-14.
+
+## Amendment — 2026-10-14: D7's zero-token probe ran
+
+Magic advertises `elicitation.form` (PLAN L4). D6 rests on grok accepting that advertisement. D7
+asked whether grok uses it. The zero-token half of the probe answered both for session start.
+
+* **Evidence.** `TestLiveGrokElicitationAtSessionStart`
+  (`internal/provider/grok/live_elicitation_test.go`, `live_grok` tag) ran against
+  `grok 1.0.50 (c58f321264ba) [stable]` with wire capture.
+  * grok accepted the `initialize` carrying `elicitation: {form: {}}` and opened the session.
+  * In the 12 seconds after `session/new`, it sent 29 frames: no `elicitation/create`, and no error.
+* **Consequence.** The advertisement is safe for grok `1.0.50` at session start. The fixture remains
+  the schema-built requests, as D7 allows.
+* **Still open.** Whether grok asks the user through `elicitation/create` rather than its own
+  `_x.ai/ask_user_question`, now that both are offered. That needs model turns, so it waits for the
+  owner's quota.

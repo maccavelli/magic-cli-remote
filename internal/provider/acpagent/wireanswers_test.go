@@ -53,19 +53,21 @@ func TestWireUnknownMethodIsMethodNotFound(t *testing.T) {
 	}
 }
 
-// TestWireUnadvertisedElicitationIsRefused: Magic does not advertise
-// elicitation (MADR 0184 D9). The SDK gates elicitation by its mode variant,
-// not by method, so an unadvertised form elicitation is invalid params, -32602,
-// naming the capability. The params are the SDK's own valid form request, so
-// the refusal is the gate's and not a decode failure's.
+// TestWireUnadvertisedElicitationIsRefused: Magic advertises elicitation
+// form mode only (MADR 0191 D1, D6; until then, none, MADR 0184 D9). The SDK
+// gates elicitation by its mode variant, not by method, so an unadvertised URL
+// elicitation is invalid params, -32602, naming the capability. The params are
+// the SDK's own valid URL request, so the refusal is the gate's and not a
+// decode failure's.
 func TestWireUnadvertisedElicitationIsRefused(t *testing.T) {
 	_, a := newWireSession(t, `{}`)
 	a.send(map[string]any{"jsonrpc": "2.0", "id": 4, "method": "elicitation/create",
-		"params": acp.CreateElicitationRequest{Form: &acp.CreateElicitationForm{Message: "need a name", Mode: "form",
+		"params": acp.CreateElicitationRequest{Url: &acp.CreateElicitationUrl{Message: "sign in", Mode: "url",
+			ElicitationId: "e1", Url: "https://example.com/login",
 			Session: &acp.ElicitationSessionScope{SessionId: "agent-1"}}}})
 	m := a.answerTo("4", wireBudget)
-	if m.Error == nil || m.Error.Code != -32602 || !strings.Contains(string(m.Error.Data), "elicitation.form not advertised") {
-		t.Fatalf("an unadvertised elicitation was answered %+v; want -32602 naming elicitation.form", m.Error)
+	if m.Error == nil || m.Error.Code != -32602 || !strings.Contains(string(m.Error.Data), "elicitation.url not advertised") {
+		t.Fatalf("an unadvertised elicitation was answered %+v; want -32602 naming elicitation.url", m.Error)
 	}
 }
 

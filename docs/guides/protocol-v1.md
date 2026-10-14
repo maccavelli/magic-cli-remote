@@ -1129,6 +1129,12 @@ free-text or choice field as before, and the daemon still validates the answer.
 The `question_request` event itself may carry `allow_decline: true`: the form's
 provider can return an explicit decline, so offer one beside cancel.
 
+ACP agents' form elicitations arrive this way. The daemon advertises
+`elicitation.form` to every ACP agent that uses its default client capabilities
+(grok included). Each form becomes a `question_request` with `allow_decline:
+true` and typed fields, one per schema property: required fields first, then the
+rest by name. URL-mode elicitation is not advertised (MADR 0191).
+
 Domain events (inside live `event` push / history):
 
 | type | fields |

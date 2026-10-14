@@ -252,5 +252,83 @@ answers in `RespondQuestion`. It waits for the owner's word.
 
 **Not done.**
 
-* **L4** waits until L1–L3 are committed.
+* ~~**L4** waits until L1–L3 are committed.~~ L1–L3 were committed as `96389fcb`, and L4 followed
+  (below).
 * **L5** follows L4. Its second step waits for the quota.
+
+### L4 and L5 step 1, 2026-10-14: complete (staged, not committed)
+
+**Approval:** the owner on 2026-10-14, "committed, proceed", after L1–L3. That met L4's gate. L5's
+first step spends no model tokens, so it ran too. Its second step waits for the quota.
+
+**L4, the wire tests first.**
+
+* `TestWireElicitationFormIsAnswered` (`elicitation_wire_test.go`) sends a form over a real
+  connection, through the SDK's gate as production configures it. It answers the resulting
+  `question_request`, and reads the accept back.
+  * Before the advertisement it **failed**: `no question_request within 5s; the client wrote
+    {ID:41 … Error:…}`. That is the SDK's refusal at the gate.
+* 0184's `TestWireUnadvertisedElicitationIsRefused` asserted that a **form** was refused naming
+  `elicitation.form`. Once form is advertised, that assertion is wrong. It now sends a **URL**
+  request and requires `-32602` naming `elicitation.url`. The test still guards an unadvertised
+  mode, and it is now the "URL request is still refused" half that step L4.2 asks for.
+
+**L4 step 1.**
+
+* On a scratch copy, form was advertised without being marked implemented. The honesty test
+  **failed**:
+  `the default advertisement is dishonest: [elicitation.form is advertised but not implemented]`.
+* Then, in the tree, `elicitation.form` was added to `implementedClientCapabilities`. The dishonest
+  example became `elicitation.url`.
+* `elicitation` was added to `capabilityContainers` at first, then **removed**. It only changes how
+  an empty `elicitation: {}` is judged, which no test exercised and Magic never sends. Without it,
+  an empty object is still reported as dishonest, which is the stricter reading.
+
+**L4 step 2.**
+
+* `Elicitation: &acp.ElicitationCapabilities{Form: …}` is in `defaultClientCapabilities`, and its
+  doc comment says what implements it.
+* The pinned frame now begins `{"clientCapabilities":{"auth":{},"elicitation":{"form":{}},…`.
+* `protocol-v1.md` says ACP forms arrive as typed `question_request`s, and that URL mode is not
+  advertised.
+
+**L4, planted breaks, each on a scratch copy.** All three failed:
+
+| Plant | Failure |
+| --- | --- |
+| advertisement withdrawn | `initialize frame changed`, and the form wire test's `no question_request within 5s` |
+| form advertised but not marked implemented | `elicitation.form is advertised but not implemented` |
+| URL mode advertised too | `elicitation.url is advertised but not implemented`, and `an unadvertised elicitation was answered <nil>; want -32602 naming elicitation.url` |
+
+**L4, verification.**
+
+* `go test -race ./...`: passed, including `internal/provider/grok` with the new frame.
+* `make pre-add-check` on the four changed Go files: clean. `make lint`: clean.
+* `make markdownlint-docs` and `check_records.py --check-all`: clean.
+* `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with `internal/provider/acpagent`
+  and `internal/provider/grok` both `ok`.
+
+**L5 step 1, the zero-token probe.**
+
+* `TestLiveGrokElicitationAtSessionStart` (`internal/provider/grok/live_elicitation_test.go`,
+  `live_grok` tag) ran against `grok 1.0.50 (c58f321264ba) [stable]` with wire capture. It sent no
+  prompt and spent no model tokens.
+* grok accepted the `initialize` advertising `elicitation.form`, authenticated with its cached token,
+  and opened the session. The test **passed** in 12.86 s: `grok sent 0 form(s) at session start`.
+* The capture holds 29 frames from grok:
+  * 12 `_x.ai/session/setup`, and 2 `session/update` (both `available_commands_update`);
+  * 2 each of `_x.ai/models/update`, `_x.ai/announcements/update` and `_x.ai/mcp/init_progress`;
+  * one each of `servers_updated`, `settings/update`, `mcp_initialized`, `server_status` and
+    `sessions/changed`.
+* There are no errors and no `elicitation/create`. The only matches for "ask_user_question" are
+  grok's tool names inside its command list.
+* The schema-built requests in `elicitation_test.go` stand as the fixture, as D7 allows. The capture
+  was not committed.
+
+**Not done.**
+
+* **L5 step 2** waits for the owner's grok quota: a turn that leads grok to ask the user something,
+  to see whether it uses `elicitation/create` or `_x.ai/ask_user_question` now that both are
+  offered.
+* **The grok `ask_user_question` race** reported under L1–L3 still waits for the owner's word.
+* The PLAN stays `in-progress`.

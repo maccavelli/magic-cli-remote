@@ -1077,6 +1077,10 @@ const clientName = "mcremote"
 //     keeps in history and the phone draws as one row per compaction. Agents
 //     send them only when this is advertised, and the SDK refuses one
 //     otherwise (MADR 0190 D4).
+//   - elicitation.form: CreateElicitation maps a session-scoped form onto the
+//     question flow, checks the answer against the schema and returns typed
+//     content, a decline or a cancel. URL mode is not advertised, so the SDK
+//     refuses it (MADR 0191 D1, D6).
 //
 // Nothing else is advertised until its behavior exists; the
 // capability-honesty test holds each Spec to that.
@@ -1089,6 +1093,7 @@ func defaultClientCapabilities() acp.ClientCapabilities {
 			Notices:       &acp.NoticeCapabilities{},
 			Compaction:    &acp.CompactionCapabilities{},
 		},
+		Elicitation: &acp.ElicitationCapabilities{Form: &acp.ElicitationFormCapabilities{}},
 	}
 }
 
@@ -1111,6 +1116,7 @@ var implementedClientCapabilities = map[string]bool{
 	"session.configOptions.boolean": true,
 	"session.notices":               true,
 	"session.compaction":            true,
+	"elicitation.form":              true,
 }
 
 // capabilityContainers are the objects of the clientCapabilities block that
