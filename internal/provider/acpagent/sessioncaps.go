@@ -32,11 +32,30 @@ import (
 // wedged agent, not a long computation.
 const extCallTimeout = 20 * time.Second
 
+// negotiation returns what initialize agreed on this session's connection. It
+// is the SDK's own record, the one its gates check every message against, so
+// reading it here cannot disagree with what the SDK will let through
+// (MADR 0184 D4). False before initialize and on a closed session.
+func (s *session) negotiation() (acp.Negotiation, bool) {
+	conn := s.connOrNil()
+	if conn == nil {
+		return acp.Negotiation{}, false
+	}
+	return conn.Negotiated()
+}
+
+// allows reports whether the negotiated capabilities let this client send
+// method.
+func (s *session) allows(method string) bool {
+	n, ok := s.negotiation()
+	return ok && n.Allows(method) == nil
+}
+
 // supportsList reports whether the agent advertised `session/list`.
-func (s *session) supportsList() bool { return s.agentCaps.SessionCapabilities.List != nil }
+func (s *session) supportsList() bool { return s.allows(acp.AgentMethodSessionList) }
 
 // supportsDelete reports whether the agent advertised `session/delete`.
-func (s *session) supportsDelete() bool { return s.agentCaps.SessionCapabilities.Delete != nil }
+func (s *session) supportsDelete() bool { return s.allows(acp.AgentMethodSessionDelete) }
 
 // ListAgentSessions implements provider.AgentSessionLister over `session/list`.
 //
@@ -162,13 +181,17 @@ func callAgentExtension(ctx context.Context, s *session, method string, params a
 	return nil
 }
 
-// isMethodNotFound reports whether err is JSON-RPC -32601.
+// isMethodNotFound reports whether err is JSON-RPC method-not-found, from the
+// agent, or the SDK's refusal to send a method the agent did not advertise
+// (MADR 0184 D5). Both mean the agent has no such method; neither is a
+// failure worth showing anyone.
 func isMethodNotFound(err error) bool {
 	var re *acp.RequestError
 	if errors.As(err, &re) {
-		return re.Code == -32601
+		return re.Code == int(acp.ErrorCodeMethodNotFound)
 	}
-	return false
+	var ce *acp.CapabilityError
+	return errors.As(err, &ce) && ce.Field == "" && ce.Variant == ""
 }
 
 func derefString(p *string) string {

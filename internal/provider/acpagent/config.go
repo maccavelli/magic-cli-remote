@@ -104,6 +104,9 @@ type Config struct {
 	// delayed. nil uses defaultStreamCoalesce; an explicit 0 disables coalescing
 	// entirely (one event per chunk).
 	StreamCoalesce *time.Duration
+	// ClientVersion is the daemon's own version, sent to the agent as
+	// clientInfo.version at initialize (MADR 0184 D4). Empty sends "dev".
+	ClientVersion string
 }
 
 // StreamCoalesceWindow reports the streaming-text coalescing window, defaulting

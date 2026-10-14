@@ -22,16 +22,19 @@ func TestListAgentSessionsRequiresTheAdvertisedCapability(t *testing.T) {
 }
 
 func TestSupportsReadsTheAdvertisedCapabilities(t *testing.T) {
-	s := &session{}
-	if s.supportsList() || s.supportsDelete() {
+	// No connection, so no negotiated record: nothing is supported.
+	if s := (&session{}); s.supportsList() || s.supportsDelete() {
+		t.Fatal("a session with no negotiated record must support nothing")
+	}
+
+	// An agent that advertises nothing optional.
+	if s, _ := newWireSession(t, `{}`); s.supportsList() || s.supportsDelete() {
 		t.Fatal("an empty capability block must advertise nothing")
 	}
 
-	// grok 1.0.13: list, resume, close — no delete.
-	s.agentCaps = acp.AgentCapabilities{SessionCapabilities: acp.SessionCapabilities{
-		List:  &acp.SessionListCapabilities{},
-		Close: &acp.SessionCloseCapabilities{},
-	}}
+	// grok 1.0.13: list, resume, close — no delete. Read from the SDK's
+	// negotiated record, which its gates also check (MADR 0184 D4).
+	s, _ := newWireSession(t, `{"sessionCapabilities":{"list":{},"resume":{},"close":{}}}`)
 	if !s.supportsList() {
 		t.Fatal("session/list was advertised and must be read")
 	}
@@ -114,6 +117,14 @@ func TestIsMethodNotFoundReadsTheJSONRPCCode(t *testing.T) {
 	}
 	if isMethodNotFound(&acp.RequestError{Code: -32602, Message: "Invalid params"}) {
 		t.Fatal("invalid params is not a missing method")
+	}
+	// The SDK refusing to send an unadvertised method means the same thing
+	// (MADR 0184 D5); a refused property or variant does not.
+	if !isMethodNotFound(&acp.CapabilityError{Method: "session/delete", Capability: "sessionCapabilities.delete"}) {
+		t.Fatal("an unadvertised method must read as method-not-found")
+	}
+	if isMethodNotFound(&acp.CapabilityError{Method: "session/prompt", Capability: "promptCapabilities.image", Variant: "image"}) {
+		t.Fatal("a refused variant is not a missing method")
 	}
 }
 

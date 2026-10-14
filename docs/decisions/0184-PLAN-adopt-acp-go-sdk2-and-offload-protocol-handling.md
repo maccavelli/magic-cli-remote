@@ -353,5 +353,139 @@ Python scan of 821 .go files, go.mod, go.sum for the Coder path   exit=0, 0 hits
 * ~~nothing is staged~~ (committed as `db717ed3`, above);
 * ~~the `go-native` `windows/amd64` CI leg and `make ci-windows` on the Windows host have not run,
   and A1 is not complete until both pass~~ (`make ci-windows` passed; see "Windows verification".
-  The CI leg runs on push);
+  The CI leg passed on the push of `54d15365`: run 38493595777, job `Go (windows/amd64)`, success);
 * `make preflight` has not run, since A1 changes no Flutter code.
+
+### A2, 2026-10-13: implemented and verified; not committed
+
+**Approval:** the owner on 2026-10-13, "Push to master, then proceed to a2".
+
+**Steps 1 and 2 (D4).**
+
+* `Provider.initializeRequest` builds the one initialize request. It sends `clientInfo`
+  (`mcremote`, plus the daemon's version, threaded through as the new `Config.ClientVersion` from
+  `daemon.Options.Version`; `dev` when empty). Its client capabilities are the `Spec`'s.
+* `defaultClientCapabilities` adds `session.configOptions.boolean` to fs and terminal.
+* `TestSessionNewAcceptsABooleanConfigOption`, run before the advertisement through the new
+  request builder with the old capabilities, failed: "session/new: capability
+  session.configOptions.boolean not advertised: variant boolean". It passes after.
+* `TestInitializeFrameIsPinned` pins the serialized frame byte for byte, and
+  `TestInitializeSendsClientInfo` covers the empty version.
+
+**Step 3.**
+
+* `CheckClientCapabilities`, exported so each `Spec`'s package can use it, walks the advertised
+  block. A capability is advertised when its value is `true` or a present `{}`.
+  * `auth`, `fs`, `session` and `session.configOptions` are containers, not capabilities. The first
+    run showed `auth` always serializes as `{}`.
+  * Anything advertised that is not in `implementedClientCapabilities` is a problem.
+* `TestCapabilityHonesty` covers the default set, an empty set, and four dishonest sets.
+  `TestGrokAdvertisesOnlyWhatMagicImplements` (grok's package) covers grok's `Spec`, which keeps fs
+  and terminal.
+
+**Step 4.**
+
+* `supportsList` and `supportsDelete` read the SDK's `Negotiated()` record through
+  `session.negotiation` and `allows`.
+* The MCP server filter at `session/new` and `session/load` reads the same record.
+* `s.agentCaps` is kept for the prompt capabilities and `loadSession`, which this step does not
+  name. It is the same initialize response.
+* `TestSupportsReadsTheAdvertisedCapabilities` now runs over real initialized connections.
+
+**Step 5.**
+
+* `isMethodNotFound` compares `acp.ErrorCodeMethodNotFound`, and also reads a method-level
+  `*acp.CapabilityError` (the SDK refusing an unadvertised method) as method-not-found.
+* `isBenignPromptErr` compares `acp.ErrorCodeRequestCancelled`.
+* No Magic path classifies `*acp.ValidationError` today. A validation refusal surfaces with the
+  SDK's own message, which names the property.
+
+**Step 6.** The new wire harness (`wireagent_test.go`) plays the agent at byte level, over a
+connection built with `clientConnOptions`. The SDK's answers, pinned by `wireanswers_test.go`:
+
+| Agent sends | Answer |
+| :--- | :--- |
+| malformed JSON | `-32700` |
+| a request whose `method` is not a string | `-32600` |
+| an unknown method | `-32601` |
+| `terminal/create` to a `Spec` without terminal | `-32601`, "capability terminal not advertised" |
+| `elicitation/create` (not advertised) | **`-32602`**, "capability elicitation.form not advertised: variant form" |
+| `fs/read_text_file` with no, empty or relative `path`; `fs/write_text_file` with a relative path | `-32602`, naming the property |
+| a line past `maxACPMessageSize` | `-32600`, and the next request is served |
+
+* **Finding: the PLAN's `-32601` for an unadvertised method is not the SDK's answer for
+  elicitation.** The SDK gates elicitation by its mode variant, so the answer is `-32602`. `-32601`
+  is pinned with `terminal/create` instead, which also exercises a per-`Spec` advertisement (step
+  11).
+* With the SDK shown refusing bad paths before the handler (a handler refusal would be `-32603`),
+  the absolute-path checks in `ReadTextFile` and `WriteTextFile` were deleted. The wire tests pass
+  after the deletion.
+
+**Steps 7 and 9 (D8): already true; now pinned.**
+
+* `Cancel` and `Close` already resolve every pending permission and question.
+* `awaitDecision` already emits `permission_resolved: cancelled` when the handler's context ends.
+* `Close` already announces each pending card cancelled.
+* `TestCancelClosesAPendingPermissionCard` and `TestCloseClosesAPendingPermissionCard` pin this
+  over a real connection: the card closes cancelled, and the agent's request is answered
+  `outcome: cancelled`.
+* `stopReason: cancelled` already reached `turn_complete` unchanged.
+  `TestACancelledTurnEndsCancelledEitherWay` pins both endings, `stopReason: cancelled` and
+  `-32800`.
+* **Deviation: no Flutter change or widget test.** The phone already clears a pending card on any
+  `permission_resolved` (`apps/mobile/lib/data/chat/transcript_reducer.dart:303-306`), and
+  `transcript_reducer_test.dart:556` ("permission_resolved unlocks the composer") already pins the
+  cancelled case. The step's "close the phone's card" needed no new code.
+
+**Step 8 (SDK B16).**
+
+* `TestCloseIsBoundedWhenTheAgentStopsReading` uses an agent whose reads stop, so every client
+  write blocks. On the code before this step, it **failed**: "Close did not return within 7s of an
+  agent that stopped reading". The 2-second context never bounded the write.
+* `closeAgentSession` now runs `CloseSession` under a timer (`closeTimeout`, 2 s) that does not
+  wait on the write, and the test passes.
+
+**Step 10 (SDK B9).** On the code before this step, both tests **failed**:
+
+* `TestCloseSendsNothingWithAnEndedContext`: "Close with an ended context put "session/close" on the
+  wire";
+* `TestPromptSendsNothingWithAnEndedContext`: "put "session/prompt" on the wire".
+
+`closeAgentSession` and `submitPrompt` now check the context first. `closeAgentSession` also skips
+an agent that did not advertise `close`, which the SDK would refuse locally.
+
+**Step 11.** `Spec.ClientCapabilities` (nil means the default). grok's `Spec` leaves it nil.
+
+**Fail first, on scratch copies.** Every plant failed its test:
+
+* `session.notices` advertised: the honesty tests, default and grok.
+* `clientInfo` dropped: the frame pin and the clientInfo test.
+* `supportsList` forced true: the supports test.
+* The method-level `CapabilityError` branch removed: the method-not-found test.
+* An abandoned card marked resolved: the cancel-card test.
+* `Close`'s two release routes both removed: the close-card test. Removing one route was rightly
+  not caught, since the other still closed the card.
+* `-32800` no longer read: the cancelled-turn test.
+* The stop reason not passed through: the cancelled-turn test.
+
+Two first-attempt plants broke the build rather than an assertion. They were rewritten to compile,
+then failed as required.
+
+**Verification,** each exit status recorded before reading its output:
+
+```text
+go test -count=1 -race ./internal/...            exit=0, no failures, no races
+./scripts/go-precheck.sh <12 changed Go files>   exit=0 (gofmt, golint, govulncheck)
+gofmt -l <12 changed Go files>                   nothing listed
+```
+
+* **Windows.** `make ci-windows` ran on the Windows test host, in Git Bash, against the A2 working
+  tree. It is uncommitted, so it was sent as a tarball of the 1833 files git lists (tracked and new,
+  no ignored file) and removed afterwards. Result: exit 0, "ci-windows-local: ALL SELECTED CHECKS
+  PASSED". `go build`, `go vet` and `go test ./...` passed, `internal/provider/acpagent`,
+  `internal/provider/grok` and `internal/daemon` included. So the wire tests' path answers hold under
+  Windows' path rule.
+* **Not done:**
+  * no commit: A2 is staged, and a commit needs the owner's word in its turn;
+  * CI on push;
+  * `make preflight`, since A2 changes no Flutter code (see the deviation under steps 7 and 9).

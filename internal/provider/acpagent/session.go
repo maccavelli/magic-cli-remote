@@ -552,6 +552,12 @@ func (s *session) submitPrompt(ctx context.Context, blocks []acp.ContentBlock) (
 	if s.testSubmit != nil {
 		return s.testSubmit(ctx, blocks)
 	}
+	// acp-go-sdk2 v0.17.1 writes a typed request even when its context has
+	// already ended, then cancels it (its B9), so an abandoned turn could still
+	// reach the agent. Checked here instead (MADR 0186 D6).
+	if err := ctx.Err(); err != nil {
+		return acp.PromptResponse{}, err
+	}
 	return s.conn.Prompt(ctx, acp.PromptRequest{
 		SessionId: acp.SessionId(s.agentID),
 		Prompt:    blocks,
@@ -1154,6 +1160,46 @@ func (s *session) watchConnClose(conn interface{ Done() <-chan struct{} }) {
 	s.signalDisconnected(fmt.Sprintf("%s agent connection lost", s.providerID))
 }
 
+// closeTimeout bounds the best-effort session/close on teardown.
+const closeTimeout = 2 * time.Second
+
+// closeAgentSession sends session/close and waits at most closeTimeout for it.
+//
+// The bound is a timer around the call, not only the call's context:
+// acp-go-sdk2 v0.17.1 holds a write across a blocking pipe and ignores the
+// write's context (the SDK's 0019-MADR-remediate-debugging-pass-findings.md,
+// B16), so against an agent that has stopped reading, a context deadline
+// alone never fires (TestCloseIsBoundedWhenTheAgentStopsReading). A call left
+// blocked here ends when Close's process kill closes the pipe.
+//
+// Nothing is sent when the caller's context has already ended, since the SDK
+// would write the request and then cancel it (its B9), or when the agent did
+// not advertise close, which the SDK would refuse locally anyway. Both are
+// MADR 0186 D6 mitigations, removed once acp-go-sdk2 v0.18.0 is pinned.
+func (s *session) closeAgentSession(ctx context.Context) {
+	if s.conn == nil || ctx.Err() != nil {
+		return
+	}
+	if n, ok := s.conn.Negotiated(); !ok || n.Allows(acp.AgentMethodSessionClose) != nil {
+		return
+	}
+	closeCtx, cancel := context.WithTimeout(ctx, closeTimeout)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.agentID)})
+	}()
+	timer := time.NewTimer(closeTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		s.log.Debug("session/close did not complete in time; tearing down regardless",
+			slog.String("session_id", s.localID))
+	}
+}
+
 func (s *session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {
@@ -1226,13 +1272,7 @@ func (s *session) Close(ctx context.Context) error {
 
 	// Best-effort ACP close, bounded: a wedged agent that stops reading stdin
 	// must not pin the caller — the process kill below is the real teardown.
-	if s.conn != nil {
-		closeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		_, _ = s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{
-			SessionId: acp.SessionId(s.agentID),
-		})
-		cancel()
-	}
+	s.closeAgentSession(ctx)
 
 	if s.terms != nil {
 		s.terms.CloseAll()
@@ -2313,11 +2353,12 @@ func pickAllowOptionID(opts []event.PermissionOption) string {
 	return first
 }
 
+// ReadTextFile serves fs/read_text_file. The SDK has already refused a
+// missing, empty or non-absolute path with -32602 before this runs
+// (TestWireFSPathsAreValidatedByTheSDK; MADR 0184 D5), so the path is not
+// checked again here.
 func (s *session) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
 	path := params.Path
-	if !filepath.IsAbs(path) {
-		return acp.ReadTextFileResponse{}, fmt.Errorf("path must be absolute: %s", path)
-	}
 	if err := s.auditFSAccess("read_file", path); err != nil {
 		return acp.ReadTextFileResponse{}, err
 	}
@@ -2343,11 +2384,10 @@ func (s *session) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest
 	return acp.ReadTextFileResponse{Content: content}, nil
 }
 
+// WriteTextFile serves fs/write_text_file. As for ReadTextFile, the SDK has
+// already refused a path that is not absolute.
 func (s *session) WriteTextFile(_ context.Context, params acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
 	path := params.Path
-	if !filepath.IsAbs(path) {
-		return acp.WriteTextFileResponse{}, fmt.Errorf("path must be absolute: %s", path)
-	}
 	if err := s.auditFSAccess("write_file", path); err != nil {
 		return acp.WriteTextFileResponse{}, err
 	}
@@ -2525,8 +2565,11 @@ func isBenignPromptErr(err error) bool {
 	// The SDK maps a cancelled request to *RequestError{Code: -32800}
 	// (JSON-RPC "request cancelled") rather than wrapping context.Canceled, so
 	// inspect the structured error first; string matching is only a fallback.
+	// An acp-go-sdk2 agent answers a cancelled turn with stopReason "cancelled"
+	// instead, which needs nothing here: it is a successful answer, and its stop
+	// reason reaches turn_complete unchanged (MADR 0184 D8).
 	var reqErr *acp.RequestError
-	if errors.As(err, &reqErr) && reqErr.Code == -32800 {
+	if errors.As(err, &reqErr) && reqErr.Code == int(acp.ErrorCodeRequestCancelled) {
 		return true
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

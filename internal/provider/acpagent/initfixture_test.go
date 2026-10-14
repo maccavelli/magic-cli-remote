@@ -23,9 +23,16 @@ const testInitializeResult = `{"protocolVersion":1,"agentCapabilities":{}}`
 // (PLAN 0184 A1, execution record). The fixture's agent must answer it.
 func initializeForTest(t *testing.T, conn *acp.ClientSideConnection) {
 	t.Helper()
+	initializeForTestWith(t, conn, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
+}
+
+// initializeForTestWith is initializeForTest with a given initialize request,
+// for a test whose gates depend on what the client advertises.
+func initializeForTestWith(t *testing.T, conn *acp.ClientSideConnection, req acp.InitializeRequest) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	if _, err := conn.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
+	if _, err := conn.Initialize(ctx, req); err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
 	if _, ok := conn.Negotiated(); !ok {

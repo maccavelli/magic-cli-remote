@@ -137,6 +137,12 @@ type Spec struct {
 	CommandCaveat string
 	// ExtensionNotifications registers handlers for extension notifications.
 	ExtensionNotifications map[string]ExtensionNotificationHandler
+	// ClientCapabilities, when non-nil, is what initialize advertises to this
+	// agent in place of defaultClientCapabilities: an agent can be given less
+	// than Magic implements, such as no fs or terminal for an agent that runs
+	// its own tools (MADR 0184, amendment, owner answer Q3). It must never
+	// advertise more; the capability-honesty test checks every Spec.
+	ClientCapabilities *acp.ClientCapabilities
 }
 
 // Provider is an ACP CLI agent adapter parameterized by a Spec.
@@ -505,18 +511,9 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
 	defer initCancel()
 
-	initReq := acp.InitializeRequest{
-		ProtocolVersion: acp.ProtocolVersionNumber,
-		ClientCapabilities: acp.ClientCapabilities{
-			Fs:       acp.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
-			Terminal: true,
-		},
-	}
-	// The typed call sends the identical frame the raw path did — the SDK's
-	// Initialize is SendRequest over the same connection — and its response
-	// keeps the top-level _meta block in initResp.Meta, which is where grok's
-	// vendor fields live (MADR 0167 F15).
-	initResp, err := conn.Initialize(initCtx, initReq)
+	// The typed call's response keeps the top-level _meta block in
+	// initResp.Meta, which is where grok's vendor fields live (MADR 0167 F15).
+	initResp, err := conn.Initialize(initCtx, p.initializeRequest())
 	if err != nil {
 		// cmd.Wait (not Process.Wait) so exec closes the parent ends of the
 		// stdio pipes — Process.Wait leaks two fds per failed spawn. Safe
@@ -835,7 +832,12 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	conn := s.conn
 	killAndReap := s.markClosedAndKill
 
-	mcpServers := p.buildMcpServers(s.agentCaps, s.log)
+	// Filtered against the SDK's negotiated record, which its gate also reads:
+	// the SDK refuses a session/new or session/load carrying a transport the
+	// agent did not advertise, so an unadvertised server is dropped here with a
+	// warning rather than failing the session (MADR 0184 D4).
+	negotiated, _ := s.negotiation()
+	mcpServers := p.buildMcpServers(negotiated.Response.AgentCapabilities, s.log)
 
 	if opts.AgentSessionID != "" {
 		// Gate on the advertised capability: an agent without loadSession would
@@ -1025,6 +1027,127 @@ func clientConnOptions(log *slog.Logger) []acp.ConnectionOption {
 
 // maxACPMessageSize bounds one inbound ACP line, in bytes.
 const maxACPMessageSize = 10 << 20
+
+// clientName is the clientInfo name Magic sends at initialize.
+const clientName = "mcremote"
+
+// defaultClientCapabilities is what this package implements as an ACP client,
+// and what initialize advertises unless a Spec says otherwise (MADR 0184 D4):
+//
+//   - fs.readTextFile and fs.writeTextFile: session.ReadTextFile and
+//     WriteTextFile;
+//   - terminal: the terminalHost behind session's terminal methods;
+//   - session.configOptions.boolean: emitConfigOptions maps boolean options to
+//     the phone, and SetConfigOption sends them back. acp-go-sdk2 refuses a
+//     session/new answer carrying one unless this is advertised.
+//
+// Nothing else is advertised until its behavior exists; the
+// capability-honesty test holds each Spec to that.
+func defaultClientCapabilities() acp.ClientCapabilities {
+	return acp.ClientCapabilities{
+		Fs:       acp.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
+		Terminal: true,
+		Session: &acp.ClientSessionCapabilities{
+			ConfigOptions: &acp.SessionConfigOptionsCapabilities{Boolean: &acp.BooleanConfigOptionCapabilities{}},
+		},
+	}
+}
+
+// ClientCapabilities is what initialize advertises to this provider's agent:
+// the Spec's own set when it has one, otherwise defaultClientCapabilities.
+func (p *Provider) ClientCapabilities() acp.ClientCapabilities {
+	if p.spec.ClientCapabilities != nil {
+		return *p.spec.ClientCapabilities
+	}
+	return defaultClientCapabilities()
+}
+
+// implementedClientCapabilities are the capabilities this package has the
+// behavior for, as dotted paths of the initialize clientCapabilities block.
+// See defaultClientCapabilities for what implements each.
+var implementedClientCapabilities = map[string]bool{
+	"fs.readTextFile":               true,
+	"fs.writeTextFile":              true,
+	"terminal":                      true,
+	"session.configOptions.boolean": true,
+}
+
+// capabilityContainers are the objects of the clientCapabilities block that
+// group capabilities rather than being one. auth and fs are always present,
+// and an empty one means "none of these"; session and session.configOptions
+// are present whenever anything under them is.
+var capabilityContainers = map[string]bool{
+	"auth":                  true,
+	"fs":                    true,
+	"session":               true,
+	"session.configOptions": true,
+}
+
+// CheckClientCapabilities returns one problem for every capability c
+// advertises that this package does not implement, and nil when c is honest
+// (MADR 0184 D4: a capability is advertised exactly when its behavior exists).
+// A capability is advertised when its value is true, or a present object with
+// no fields of its own, such as session.configOptions.boolean's {}, unless the
+// object is one of the capabilityContainers.
+func CheckClientCapabilities(c acp.ClientCapabilities) []string {
+	b, err := json.Marshal(c)
+	if err != nil {
+		return []string{"clientCapabilities do not marshal: " + err.Error()}
+	}
+	var tree map[string]any
+	if err := json.Unmarshal(b, &tree); err != nil {
+		return []string{"clientCapabilities do not decode: " + err.Error()}
+	}
+	var problems []string
+	var walk func(prefix string, v any)
+	walk = func(prefix string, v any) {
+		switch t := v.(type) {
+		case bool:
+			if t && !implementedClientCapabilities[prefix] {
+				problems = append(problems, prefix+" is advertised but not implemented")
+			}
+		case map[string]any:
+			if len(t) == 0 && prefix != "" && !capabilityContainers[prefix] {
+				if !implementedClientCapabilities[prefix] {
+					problems = append(problems, prefix+" is advertised but not implemented")
+				}
+				return
+			}
+			for k, child := range t {
+				if k == "_meta" {
+					continue
+				}
+				path := k
+				if prefix != "" {
+					path = prefix + "." + k
+				}
+				walk(path, child)
+			}
+		case []any:
+			if len(t) > 0 {
+				problems = append(problems, prefix+" is advertised but not implemented")
+			}
+		}
+	}
+	walk("", tree)
+	slices.Sort(problems)
+	return problems
+}
+
+// initializeRequest is the initialize Magic sends every agent this provider
+// spawns: its client capabilities, and clientInfo naming the daemon and its
+// version (MADR 0184 D4).
+func (p *Provider) initializeRequest() acp.InitializeRequest {
+	version := p.cfg.ClientVersion
+	if version == "" {
+		version = "dev"
+	}
+	return acp.InitializeRequest{
+		ProtocolVersion:    acp.ProtocolVersionNumber,
+		ClientCapabilities: p.ClientCapabilities(),
+		ClientInfo:         &acp.Implementation{Name: clientName, Version: version},
+	}
+}
 
 // decodeGrokInitializeMeta reads grok's vendor block out of the _meta map the
 // SDK keeps on its typed InitializeResponse.
