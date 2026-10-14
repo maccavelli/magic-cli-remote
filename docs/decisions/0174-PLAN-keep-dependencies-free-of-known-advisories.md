@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-13
 associated-madr: "0174-MADR-keep-dependencies-free-of-known-advisories.md"
 ---
@@ -295,8 +295,23 @@ nothing.
   - the clone's `go.mod` and `go.sum`, written into the index with `git hash-object -w` and
     `git update-index --cacheinfo`, so the ACP lines in the working tree are not staged;
   - this PLAN.
-- **Not done:** `make ci-windows` on the Windows host. This PLAN stays `in-progress` until it has
-  run.
+- ~~**Not done:** `make ci-windows` on the Windows host. This PLAN stays `in-progress` until it has
+  run.~~ Run on 2026-10-13 against `db717ed3`, which carries P5. Exit 0, "ci-windows-local: ALL
+  SELECTED CHECKS PASSED", with Go 1.27.2 windows/amd64: toolchain, symlink probe, `go build`,
+  `go vet`, and `go test ./...` with every package ok. The details are in 0184's PLAN, "Windows
+  verification". P5 is complete.
+
+**Deviation — 2026-10-13, the commit: P5 shares a commit with 0184 A1.**
+
+- The owner committed P5 and 0184's A1 together, as `db717ed3` ("feat(acpagent): migrate to
+  acp-go-sdk2"): 38 files, with the `x/net` bump inside the ACP migration's `go.mod` and `go.sum`.
+- The plan was two commits, P5 first, so that a regression could be bisected to one of them.
+- **Effect:** reverting `db717ed3` restores `x/net v0.58.0` and its five advisories together with
+  the Coder fork.
+- **The content is unchanged.** Both phases were verified separately before commit, P5 on a clean
+  clone of `68e348a1`, and the commit holds exactly what was verified.
+- **History is the owner's to keep or split before push.** At this entry the commit was unpushed
+  (`master` 4 ahead of `origin`).
 
 ## Rollout and Rollback
 

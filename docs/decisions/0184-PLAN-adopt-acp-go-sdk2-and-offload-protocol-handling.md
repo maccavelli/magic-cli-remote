@@ -207,7 +207,7 @@ MADR is still `proposed`, and each phase still needs approval by name.
 
 ## Execution record
 
-### A1, 2026-10-13: implemented and verified on macOS; not staged
+### A1, 2026-10-13: complete (committed as `db717ed3`, verified on macOS and Windows)
 
 **Approval:** the owner on 2026-10-13, "Accept 0184 + 0186, do A1".
 
@@ -327,10 +327,31 @@ Python scan of 821 .go files, go.mod, go.sum for the Coder path   exit=0, 0 hits
     golint, govulncheck)";
   * the tree's `go.mod` and `go.sum` differ from P5's staged copies only by A1's ACP lines (8 and
     4).
+* **The commit:** the owner committed P5 and A1 together, as `db717ed3`. This is recorded as a
+  deviation in 0174's PLAN, P5 execution. A1's content is as verified above.
+
+**Windows verification, 2026-10-13.**
+
+* `make ci-windows` ran on the Windows test host, in Git Bash, against `db717ed3`. The commit was
+  unpushed, so it was sent as a git bundle, cloned into a fresh directory, and checked by full hash;
+  the clone, bundle and log were removed afterwards.
+* Result: exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", with Go 1.27.2 windows/amd64,
+  `CGO_ENABLED=0` and `MC_REQUIRE_SYMLINK=1`. Every check passed:
+  * A3, the `go.mod` toolchain;
+  * A2, the symlink probe;
+  * A4, `go build ./...`;
+  * A5, `go vet ./...`;
+  * A6, `go test ./...` as CI runs it, with every package ok, `internal/provider/acpagent` and
+    `internal/provider/grok` included.
+* This confirms steps 4a and 4b on the host whose path rule they concern: no ACP test was refused a
+  POSIX path on Windows.
+* **Not run:** CI's own `go-native` `windows/amd64` leg, which runs on push. The commit is not
+  pushed. `make ci-windows` is 0145's local equivalent of that leg.
 
 **Not done:**
 
-* nothing is staged;
-* the `go-native` `windows/amd64` CI leg and `make ci-windows` on the Windows host have not run,
-  and A1 is not complete until both pass;
+* ~~nothing is staged~~ (committed as `db717ed3`, above);
+* ~~the `go-native` `windows/amd64` CI leg and `make ci-windows` on the Windows host have not run,
+  and A1 is not complete until both pass~~ (`make ci-windows` passed; see "Windows verification".
+  The CI leg runs on push);
 * `make preflight` has not run, since A1 changes no Flutter code.
