@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-14
 decision-makers: Project Owner
 consulted: none
@@ -113,7 +113,8 @@ is known to send one?
 
 Chosen option: "A new `compaction` event, folded by ID, drawn as one transcript row with its status
 and a collapsed summary", because it is the only option that honors the whole contract, including
-the summary, while showing one compaction as one row.
+the summary, while showing one compaction as one row. The owner accepted it on 2026-10-14 ("accept
+option 1, proceed to k1-k3").
 
 Under the chosen option:
 
@@ -268,9 +269,18 @@ Under the chosen option:
   `acp-go-sdk2@v0.17.1`.
 * **An ask for `acp-go-sdk2`, under 0184 D11.** Patch-semantic fields need a three-state value
   (absent, `null`, or set), for example a generic `Optional[T]`. With it, Magic could follow ACP's
-  `null`-clears rule. Filing it is outward-facing, so it waits for the owner's word. Like
-  https://github.com/maccavelli/acp-go-sdk2/issues/4, it belongs to that repository's records, not
-  this one.
+  `null`-clears rule. ~~Filing it is outward-facing, so it waits for the owner's word.~~ Filed on
+  2026-10-14 at the owner's request ("file the issue and ensure it is on github") as
+  https://github.com/maccavelli/acp-go-sdk2/issues/5, "Patch-semantic fields cannot represent null:
+  omitted and null decode alike, and null cannot be sent".
+  * Before filing, its reproduction was run against `v0.17.1`. Both directions were confirmed: an
+    omitted field and `null` decode alike, for `SessionCompactionUpdate` and for `SubagentUpdate`.
+    And a `nil` field is dropped on encode, so an agent cannot send `null`.
+  * The issue also names the subagent fields (`capabilities`, `description`, `state`, `title`),
+    which D10's item 7 will meet.
+  * Like https://github.com/maccavelli/acp-go-sdk2/issues/4, it belongs to that repository's
+    records, not this one.
 * The PLAN is
   [0190-PLAN-show-agent-context-compaction-on-the-phone.md](0190-PLAN-show-agent-context-compaction-on-the-phone.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+  ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
+  accepted the recommended option and approved K1–K3 on 2026-10-14.

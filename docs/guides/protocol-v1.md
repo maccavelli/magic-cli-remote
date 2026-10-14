@@ -1343,6 +1343,9 @@ replace the card detail with non-empty incoming text snapshots.
   engine (codex). A client may ignore it.
 - `notice_severity`, `notice_title`, `notice_description` (MADR 0188): on `agent_notice` events.
   See [`agent_notice`](#agent_notice-event-an-agents-message-for-the-user).
+- `compaction_id`, `compaction_status`, `compaction_summary`, `compaction_error`,
+  `compaction_truncated` (MADR 0190): on `compaction` events. See
+  [`compaction`](#compaction-event-an-agent-compacted-its-context).
 
 - `native_message_id` / `native_part_id`: the agent's own identity for a
   transcript-bearing event. Empty when the provider supplies none; such rows
@@ -1693,7 +1696,8 @@ mid-session without a restart. Attachment bytes and data URLs never appear in
 daemon logs, and `user_message` echoes carry descriptors only.
 
 Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`,
-`question_resolved`, `turn_complete`, `error`, `notice`, `agent_notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`,
+`question_resolved`, `turn_complete`, `error`, `notice`, `agent_notice`, `compaction`, `available_commands`, `remote_commands`, `plan`, `usage_update`,
+`session_mode`, `collaboration_mode`, `session_goal`, `session_config`,
 `session_capabilities`, `session_title`, `artifact`, `diagnostics_changed`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`,
 `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 
@@ -1842,6 +1846,37 @@ when it arrived sees it on replay. A notice identical to the one before it is dr
 notices only to a client that advertised `session.notices`. The daemon advertises it to every ACP
 agent that uses its default client capabilities (grok included), so the event appears whenever such
 an agent sends one.
+
+### `compaction` event (an agent compacted its context)
+
+The current state of one ACP context compaction (MADR 0190): the agent summarised earlier turns to
+free context. Several events can describe one compaction. Fold them by `compaction_id`: the last
+state wins, and the compaction keeps the position of its first event.
+
+```json
+{
+  "type": "compaction",
+  "session_id": "...",
+  "compaction_id": "c-3",
+  "compaction_status": "completed",
+  "compaction_summary": "Kept: the failing test, the fix in parser.go, and the open TODO.",
+  "compaction_truncated": false
+}
+```
+
+- `compaction_id`: the agent's ID for this compaction, unique within the session.
+- `compaction_status`: `in_progress`, `completed`, `failed` or `cancelled`, passed through from the
+  agent. A client should treat any other value as `in_progress`.
+- `compaction_summary`: optional. The text of what the agent kept, so far. Non-text content in the
+  agent's summary is omitted.
+- `compaction_error`: optional. The agent's error text. Show it only while the status is `failed`:
+  an agent cannot be seen clearing it (MADR 0190 D3).
+- `compaction_truncated`: true when the summary was cut at the daemon's 32 KiB bound.
+
+The event is must-deliver and is kept in the session's history. A state identical to the previous
+one for the same compaction is dropped. A summary the agent streams in pieces arrives as one event
+when it starts and one when the agent updates the compaction, not one per piece. Agents send
+compaction updates only to a client that advertised `session.compaction`.
 
 ### `question_request` / `question_resolved` events
 

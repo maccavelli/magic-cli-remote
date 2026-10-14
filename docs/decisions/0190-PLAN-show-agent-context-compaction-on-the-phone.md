@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-14
 associated-madr: "0190-MADR-show-agent-context-compaction-on-the-phone.md"
 ---
@@ -9,9 +9,11 @@ associated-madr: "0190-MADR-show-agent-context-compaction-on-the-phone.md"
 
 Associated MADR: [0190-MADR-show-agent-context-compaction-on-the-phone.md](0190-MADR-show-agent-context-compaction-on-the-phone.md)
 
-**Not approved for execution.** The MADR is `proposed`. This PLAN implements its recommended option,
-"A new `compaction` event, folded by ID, drawn as one transcript row with its status and a collapsed
-summary" (D1–D6).
+~~**Not approved for execution.** The MADR is `proposed`.~~ On 2026-10-14 the owner accepted the
+MADR's recommended option and approved K1–K3 ("accept option 1, proceed to k1-k3"). This PLAN
+implements that option, "A new `compaction` event, folded by ID, drawn as one transcript row with
+its status and a collapsed summary" (D1–D6). K3 still follows its own gate: it is taken after K1 and
+K2 are committed. K4 waits for approval by name, and its second step for the quota.
 
 * A phase starts only after the owner approves it by name.
 * Each Go phase ends with `make pre-add-check` on its staged Go files, `go test -race ./...` and the
@@ -101,3 +103,142 @@ Taken only after K1 and K2 are committed.
   compaction updates.
 * A phone build without K2 ignores `compaction`, so K3 must not ship to a phone that lacks K2. K2
   ships first.
+
+## Execution record
+
+### K1 and K2, 2026-10-14: complete (staged, not committed)
+
+**Approval:** the owner on 2026-10-14, "accept option 1, proceed to k1-k3". K3 waits, by its own
+gate, for K1 and K2 to be committed.
+
+**K1 step 1, structure.**
+
+* `event.TypeCompaction` (`compaction`) and five fields: `CompactionID`, `CompactionStatus`,
+  `CompactionSummary`, `CompactionError` and `CompactionTruncated` (`compaction_id`, …).
+* The type is in `Types()`, in `IsControl`'s must-deliver set, and in `ClassOf` as content. Its
+  strings are counted in `Bytes`.
+* `TestTypeConstants` and `TestControlTypesComplete` list it.
+* `protocol-v1.md` has the event in the type enumeration and the field list, and a section of its
+  own. The enumeration line was rewrapped when markdownlint's 200-column rule caught it during
+  `make preflight`.
+* The guards passed after this step, each seen running: `TestEventTypesAreDocumented`,
+  `TestClassOfIsExhaustive`, `TestBytesTracksStructGrowth`, `TestTypeConstants` and
+  `TestControlTypesComplete`.
+
+**K1 steps 2–3, the fold.**
+
+* `compaction_test.go` builds its frames from the SDK types; they are the schema-built fixture (D5).
+  It covers 11 cases in three tests: `TestCompactionUpdatesFoldByID`, `TestCompactionIsBounded`
+  and `TestCompactionDeclinesWhatItCannotShow`.
+* The structure (`compaction.go`'s constants and fold type, and the session field) was added first,
+  with the A4 declines still in place. Every case **failed**, for example `events = []`,
+  `after two chunks: [], want one in_progress event…`, and `no compaction events`.
+* `compaction.go` folds by ID:
+  * `onCompactionUpdate` sets the status. A non-nil `summary` replaces the accumulated one, and an
+    empty one clears it. A non-nil `error` replaces the stored one, and `nil` leaves both.
+  * `onCompactionChunk` appends, and emits only when it creates the compaction.
+  * The summary is capped at 32 KiB on a rune boundary, at most 16 IDs are tracked with the oldest
+    forgotten, non-text blocks are declined as `compaction.summary.<type>`, and `_meta` is declined
+    on each variant.
+* The A4 table's two rows now expect `compaction`.
+* **A test-design finding.** The first event of a chunk-started compaction carries that chunk's
+  text, because D1 emits "the full current state". Two expectations written as `Summary: ""` were
+  corrected to match D1 before the implementation ran.
+* **An SDK finding, beyond issue #5.** `json.Marshal` drops `Summary: []acp.ContentBlock{}`
+  (`omitempty`). So a Go agent on `acp-go-sdk2` cannot send the `summary: []` that clears, any more
+  than it can send `null`. The test sends that frame as raw JSON, as a non-Go agent would. The
+  issue was not amended; that is an outward-facing step for the owner.
+
+**K1 step 4, the manager.**
+
+* `TestCompactionIsKeptAndDeduplicatedPerID` **failed** at first, with all seven states kept,
+  repeats included.
+* `compactionChangedLocked` (`internal/session/compaction.go`) keeps an FNV-64a hash of the last
+  state per ID. A repeat is dropped even with another compaction's state in between. The memory is
+  capped at 64 IDs and starts over past the cap, which can only let a repeat through, never drop a
+  change. A replayed event is never suppressed.
+* `TestCompactionDedupeIsBounded` passes against the bare structure by construction; plant 13
+  below shows that it guards the cap.
+
+**K1, planted breaks, each on a scratch copy of the repository.** All 15 failed:
+
+| # | Plant | Failure |
+| --- | --- | --- |
+| 1 | a first-seen chunk emits nothing | `after two chunks: [], want one in_progress event…` |
+| 2 | every chunk emits | `after two chunks: [{…Kept } {…Kept the parser fix.}]…` |
+| 3 | an update's summary appends | `Summary:draftfinal … want the summary replaced by "final"` |
+| 4 | an omitted summary clears | `completed = [{… Summary: …}], want […Summary:Kept the parser fix.…]` |
+| 5 | an omitted error clears | `{… Status:cancelled Summary:partial Error: …}` |
+| 6 | no summary cap | `summary 40960 bytes, truncated false; want 32768 and true` |
+| 7 | the cut splits a rune | `summary 32768 bytes, truncated true; want 32767, true, and no split rune` |
+| 8 | no ID cap | `events = [{ID:id-0 Status:completed Summary:oldnew …}]` |
+| 9 | a non-text block not declined | `declined [compaction_summary_chunk._meta compaction_update._meta] … want […compaction.summary.image…]` |
+| 10 | update `_meta` not declined | `declined [compaction_summary_chunk._meta compaction.summary.image] …` |
+| 11 | the manager keeps repeats | `compactions in history = [c1\|in_progress\| c1\|in_progress\| …]` |
+| 12 | the manager ignores the summary | `… = [c1\|in_progress\| c2\|in_progress\| c1\|completed\|Kept the parser fix.]` |
+| 13 | the manager's memory unbounded | `remembering 192 compaction IDs, want at most 64` |
+| 14 | `Bytes` ignores the strings | `string fields Bytes does not count: [CompactionID CompactionStatus CompactionSummary CompactionError]` |
+| 15 | compaction droppable | `IsControl("compaction") = false, want true` |
+
+**K1, verification.**
+
+* `go test -race ./...`: passed.
+* `make pre-add-check` on the 10 changed Go files: clean. `make lint`: clean.
+* `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with `internal/event`,
+  `internal/provider/acpagent` and `internal/session` all `ok`.
+
+**K2, the phone.**
+
+* `apps/mobile/test/compaction_test.dart` has 14 tests.
+  * Reducer: one compaction is one row, updated in place at its first position. Two IDs are two
+    rows. An identical state is a no-op. An event without an ID is ignored. A replay of the same
+    events gives the same row. The row survives the transcript cache.
+  * Row: the line for each of the four statuses, and an unknown status reading as in progress. The
+    summary is collapsed until opened, behind "What the agent kept". A truncated summary says so.
+    The error shows only while the status is `failed`.
+* The structure came first: the `SessionEvent` fields and parsing, `ChatItemKind.compaction`,
+  `ChatItem.compactionError` and `compactionTruncated` with cache round-trip, and a `SizedBox`
+  placeholder in the row switch. Against it, 12 of 14 **failed**, for example
+  `Expected: ChatItemKind.compaction`, `Actual: ChatItemKind.assistant`, and
+  `Found 0 widgets with text "Conversation compacted"`. The two that passed were the no-op and the
+  ignored ID, which should already pass.
+* `_upsertCompaction` (`transcript_reducer.dart`) replaces the row in place, keyed by `toolId`, as
+  the approvals card is. The row is a `_CompactStatusTile`, the thought, tool and approvals idiom,
+  with a status line, an icon, and a rail coloured by status. The collapsed detail holds the error
+  (only when `failed`), "What the agent kept:" with the summary, and a truncation line.
+* While placing `_upsertCompaction`, I put it between `_upsertApprovals`' doc comment and its
+  declaration. The diff showed it, and the comment was moved back before verification.
+
+**K2, planted breaks, each on a scratch copy of `apps/mobile`.** All 11 failed:
+
+| Plant | Failing test |
+| --- | --- |
+| every state appends a row | `one compaction is one row…`, `an identical state is a no-op`, the replay test, and the error test |
+| an identical state rebuilds | `an identical state is a no-op` |
+| an update moves the row to the end | `one compaction is one row, updated in place at its first position` |
+| an event without an ID makes a row | `an event without an id is ignored` |
+| the error shows in every status | `the error shows only while the status is failed` |
+| the summary loses its label | `the summary is collapsed until opened` |
+| truncation is not said | `a truncated summary says so` |
+| an unknown status reads as something else | `status in_progress …` and `status paused …` |
+| the cache drops the error | `the row survives the transcript cache` |
+| the cache drops truncation | `the row survives the transcript cache` |
+| the parser drops truncation | the cache test, and `a truncated summary says so` |
+
+**K2, verification.** `make preflight` passed:
+
+* records and docs links;
+* markdownlint, with 0 issues after the rewrap above;
+* `gofmt`, `go mod tidy`, `go vet`, `staticcheck` and `go test -race`;
+* the install tests, systemd units and release build;
+* the Flutter pin and pub advisories;
+* `dart format` (`Formatted 216 files (0 changed)`), `flutter analyze` (`No issues found!`), and
+  `flutter test` (`+1451 ~3: All tests passed!`).
+
+**Not done.**
+
+* **K3** waits until K1 and K2 are committed, per its own gate.
+* **K4** waits for approval by name, and its second step for the quota.
+* **Noticed, not changed.** In `chat_bubble.dart`, `_LimitNotice`'s doc comment sits above
+  `_AgentNotice`'s, so the two read as one. It was introduced by 0188 N2 (`fc737d36`) and is
+  outside this PLAN.

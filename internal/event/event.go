@@ -45,6 +45,11 @@ const (
 	// (NoticeSeverity, NoticeTitle, NoticeDescription). Distinct from TypeNotice,
 	// which is the daemon's (MADR 0188 D1).
 	TypeAgentNotice Type = "agent_notice"
+	// TypeCompaction carries the current state of one ACP context compaction
+	// (CompactionID, CompactionStatus, CompactionSummary, CompactionError,
+	// CompactionTruncated). Several events can describe one compaction; a client
+	// folds them by CompactionID and the last state wins (MADR 0190 D1, D2).
+	TypeCompaction Type = "compaction"
 	// TypeUsage carries a token/context usage report (ACP usage_update). Advisory
 	// telemetry for a context-window indicator; droppable under back-pressure.
 	TypeUsage Type = "usage_update"
@@ -144,6 +149,7 @@ func Types() []Type {
 		TypePlan,
 		TypeNotice,
 		TypeAgentNotice,
+		TypeCompaction,
 		TypeUsage,
 		TypeMode,
 		TypeSessionConfig,
@@ -191,6 +197,9 @@ func IsControl(t Type) bool {
 		// An agent's notice is a warning or error meant for the user; it is
 		// low-rate, and a drop loses it for good (MADR 0188 D2).
 		TypeAgentNotice,
+		// A compaction changes what the agent remembers; its few states per
+		// compaction must all arrive, or a row stays "in progress" (MADR 0190 D2).
+		TypeCompaction,
 		TypeToolCall,
 		TypeToolUpdate,
 		TypeUserMessage,
@@ -608,6 +617,17 @@ type Event struct {
 	NoticeSeverity    string `json:"notice_severity,omitempty"`
 	NoticeTitle       string `json:"notice_title,omitempty"`
 	NoticeDescription string `json:"notice_description,omitempty"`
+
+	// The Compaction fields are set on compaction events: the agent's ID for
+	// the compaction, its status (`in_progress`, `completed`, `failed`,
+	// `cancelled`, or an unknown value as sent), the text of its summary so
+	// far, its error, and whether the summary was cut at the daemon's bound
+	// (MADR 0190 D1).
+	CompactionID        string `json:"compaction_id,omitempty"`
+	CompactionStatus    string `json:"compaction_status,omitempty"`
+	CompactionSummary   string `json:"compaction_summary,omitempty"`
+	CompactionError     string `json:"compaction_error,omitempty"`
+	CompactionTruncated bool   `json:"compaction_truncated,omitempty"`
 	// TimedOut is set on permission_resolved events when the permission timed out
 	// (the user did not respond in time).
 	TimedOut bool `json:"timed_out,omitempty"`

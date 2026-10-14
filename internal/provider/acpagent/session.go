@@ -61,7 +61,10 @@ type session struct {
 	// cmdDedupe suppresses repeated identical available_commands
 	// advertisements (MADR 0137 F2). Touched only from the notification
 	// handler goroutine, which is the sole caller of the emit site.
-	cmdDedupe               event.CommandDeduper
+	cmdDedupe event.CommandDeduper
+	// compactions folds ACP compaction updates by ID (MADR 0190 D1). Touched
+	// only from the notification handler goroutine, like cmdDedupe.
+	compactions             compactionFold
 	provider                *Provider
 	extNotificationHandlers map[string]ExtensionNotificationHandler
 	localID                 string
@@ -1947,9 +1950,10 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			NoticeDescription: description,
 		})
 	case u.CompactionUpdate != nil:
-		s.declineUpdate("compaction_update")
+		// The agent compacted, or is compacting, its context (MADR 0190 D1).
+		s.onCompactionUpdate(u.CompactionUpdate, now)
 	case u.CompactionSummaryChunk != nil:
-		s.declineUpdate("compaction_summary_chunk")
+		s.onCompactionChunk(u.CompactionSummaryChunk, now)
 	case u.SubagentUpdate != nil:
 		s.declineUpdate("subagent_update")
 	case u.SessionMessage != nil:

@@ -115,6 +115,11 @@ enum ChatItemKind {
   system,
   approvals,
   artifact,
+
+  /// An agent's context compaction (MADR 0190 D3): [ChatItem.toolId] holds
+  /// its ID, [ChatItem.toolStatus] its status and [ChatItem.text] its
+  /// summary, so the reducer can replace it in place as approvals do.
+  compaction,
 }
 
 /// Coarse classification of an agent action, used to fold bursts of tool
@@ -180,6 +185,8 @@ class ChatItem {
     this.artifact,
     this.noticeSeverity,
     this.noticeDetail,
+    this.compactionError,
+    this.compactionTruncated = false,
   });
 
   final ChatItemKind kind;
@@ -279,6 +286,12 @@ class ChatItem {
   /// daemon system line.
   bool get isAgentNotice => noticeSeverity != null;
 
+  /// Set only on a [ChatItemKind.compaction] row: the agent's error, which is
+  /// drawn only while the status is `failed`, and whether the daemon cut the
+  /// summary at its bound (MADR 0190 D3).
+  final String? compactionError;
+  final bool compactionTruncated;
+
   /// Text derived from [userParts] when present, else the plain [text].
   String get userText {
     if (userParts.isEmpty) return text ?? '';
@@ -373,6 +386,8 @@ class ChatItem {
     artifact: artifact ?? this.artifact,
     noticeSeverity: noticeSeverity,
     noticeDetail: noticeDetail,
+    compactionError: compactionError,
+    compactionTruncated: compactionTruncated,
   );
 
   Map<String, dynamic> toJson() => {
@@ -406,6 +421,9 @@ class ChatItem {
     // cache entries read back unchanged.
     if (noticeSeverity != null) 'noticeSeverity': noticeSeverity,
     if (noticeDetail != null) 'noticeDetail': noticeDetail,
+    // A compaction (MADR 0190 D3). Absent on every other row.
+    if (compactionError != null) 'compactionError': compactionError,
+    if (compactionTruncated) 'compactionTruncated': true,
   };
 
   factory ChatItem.fromJson(Map<String, dynamic> j) {
@@ -437,6 +455,8 @@ class ChatItem {
       nativePartId: j['nativePartId'] as String?,
       noticeSeverity: j['noticeSeverity'] as String?,
       noticeDetail: j['noticeDetail'] as String?,
+      compactionError: j['compactionError'] as String?,
+      compactionTruncated: j['compactionTruncated'] == true,
       artifact: switch (j['artifact']) {
         final Map<String, dynamic> m => ArtifactInfo.fromJson(m),
         final Map<dynamic, dynamic> m => ArtifactInfo.fromJson(

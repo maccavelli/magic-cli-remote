@@ -270,6 +270,10 @@ type entry struct {
 	// noticeDedupe suppresses a notice identical to the one before it
 	// (MADR 0137 F6a). Guarded by m.mu, like every other entry field.
 	noticeDedupe event.NoticeDeduper
+	// compactionSeen holds a hash of the last state kept for each compaction
+	// ID, so an identical repeat is dropped (MADR 0190 D2). Bounded by
+	// maxCompactionStates.
+	compactionSeen map[string]uint64
 
 	promptAt      time.Time
 	firstOutputAt time.Time
@@ -1462,6 +1466,12 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				// carries the severity, so it never matches a daemon notice.
 				if !ev.Replay && ev.Type == event.TypeAgentNotice &&
 					!e.noticeDedupe.ShouldEmit("agent:"+ev.NoticeSeverity, ev.NoticeTitle+"\n"+ev.NoticeDescription) {
+					m.mu.Unlock()
+					continue
+				}
+				// A compaction's state repeats per ID, not as a run, so it has
+				// its own memory rather than the notice deduper (MADR 0190 D2).
+				if !ev.Replay && ev.Type == event.TypeCompaction && !e.compactionChangedLocked(&ev) {
 					m.mu.Unlock()
 					continue
 				}

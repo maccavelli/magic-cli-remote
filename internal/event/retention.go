@@ -79,7 +79,9 @@ func ClassOf(t Type) Class {
 		TypeCodexTerminalInteraction,
 		// An agent's notice is kept for a phone that was not watching when it
 		// arrived; evicting it first would defeat that (MADR 0188 D2).
-		TypeAgentNotice:
+		TypeAgentNotice,
+		// A compaction's summary is what the agent kept of the conversation.
+		TypeCompaction:
 		return ClassContent
 
 	// Progress: detail that made sense while the turn ran.
@@ -137,6 +139,7 @@ func Bytes(ev *Event) int {
 	n += len(ev.CurrentCollaborationModeID)
 	n += len(ev.NativeMessageID) + len(ev.NativePartID)
 	n += len(ev.NoticeSeverity) + len(ev.NoticeTitle) + len(ev.NoticeDescription)
+	n += len(ev.CompactionID) + len(ev.CompactionStatus) + len(ev.CompactionSummary) + len(ev.CompactionError)
 
 	for i := range ev.Options {
 		n += optionBytes + len(ev.Options[i].OptionID) + len(ev.Options[i].Name) + len(ev.Options[i].Kind)

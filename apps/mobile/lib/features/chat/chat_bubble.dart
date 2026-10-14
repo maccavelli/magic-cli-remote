@@ -170,6 +170,47 @@ class _ChatBubble extends StatelessWidget {
     switch (item.kind) {
       case ChatItemKind.artifact:
         return _ArtifactCard(artifact: item.artifact);
+      case ChatItemKind.compaction:
+        // The agent compacted its context (MADR 0190 D3). One quiet row per
+        // compaction, its summary behind the disclosure. The error shows only
+        // while the status is failed: an agent's null that clears it cannot
+        // reach the phone, so a stale error must not trail a later state.
+        final failed = item.toolStatus == 'failed';
+        final (
+          String line,
+          IconData icon,
+          Color accent,
+        ) = switch (item.toolStatus) {
+          'completed' => (
+            'Conversation compacted',
+            Icons.compress,
+            tokens.success.withValues(alpha: 0.6),
+          ),
+          'failed' => ('Compaction failed', Icons.error_outline, scheme.error),
+          'cancelled' => (
+            'Compaction cancelled',
+            Icons.block,
+            scheme.outlineVariant,
+          ),
+          _ => (
+            'Compacting the conversation…',
+            Icons.compress,
+            scheme.tertiary,
+          ),
+        };
+        final summary = (item.text ?? '').trim();
+        final error = failed ? (item.compactionError ?? '').trim() : '';
+        return _CompactStatusTile(
+          leading: Icon(icon, size: 16, color: accent),
+          title: line,
+          railColor: accent,
+          detail: [
+            if (error.isNotEmpty) error,
+            if (summary.isNotEmpty) 'What the agent kept:\n$summary',
+            if (summary.isNotEmpty && item.compactionTruncated)
+              '(The summary was cut short; the agent kept more than this.)',
+          ].join('\n\n'),
+        );
       case ChatItemKind.user:
         final text = item.text ?? '';
         final maxW = maxUserWidth ?? MediaQuery.sizeOf(context).width * 0.85;

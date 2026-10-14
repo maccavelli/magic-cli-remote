@@ -84,9 +84,9 @@ var sessionUpdateRows = map[string]updateRow{
 		emits: event.TypeSessionTitle, declines: []string{"session_info_update.updated_at"}}, // MADR 0187 D1
 	"UsageUpdate": {update: `{"sessionUpdate":"usage_update","used":1,"size":2,"cost":{"amount":0.5,"currency":"USD"}}`,
 		emits: event.TypeUsage}, // MADR 0189 D1: the cost is mapped to session_cost
-	"Notice":                 {update: `{"sessionUpdate":"notice","severity":"info","title":"t"}`, emits: event.TypeAgentNotice}, // MADR 0188 D1
-	"CompactionUpdate":       {update: `{"sessionUpdate":"compaction_update","compactionId":"c1","status":"completed"}`, declines: []string{"compaction_update"}},
-	"CompactionSummaryChunk": {update: `{"sessionUpdate":"compaction_summary_chunk","compactionId":"c1","content":` + text + `}`, declines: []string{"compaction_summary_chunk"}},
+	"Notice":                 {update: `{"sessionUpdate":"notice","severity":"info","title":"t"}`, emits: event.TypeAgentNotice},                               // MADR 0188 D1
+	"CompactionUpdate":       {update: `{"sessionUpdate":"compaction_update","compactionId":"c1","status":"completed"}`, emits: event.TypeCompaction},          // MADR 0190 D1
+	"CompactionSummaryChunk": {update: `{"sessionUpdate":"compaction_summary_chunk","compactionId":"c1","content":` + text + `}`, emits: event.TypeCompaction}, // first-seen ID
 	"SubagentUpdate":         {update: `{"sessionUpdate":"subagent_update","sessionId":"child-1"}`, declines: []string{"subagent_update"}},
 	"SessionMessage":         {update: `{"sessionUpdate":"session_message","messageId":"m1"}`, declines: []string{"session_message"}},
 	"SessionMessageChunk":    {update: `{"sessionUpdate":"session_message_chunk","messageId":"m1","content":` + text + `}`, declines: []string{"session_message_chunk"}},

@@ -195,6 +195,8 @@ SessionTranscript applySessionEvent(
       t = _upsertCodex(t, ev);
     case 'approval_summary':
       t = _upsertApprovals(t, ev);
+    case 'compaction':
+      t = _upsertCompaction(t, ev);
     case 'permission_request':
       t = _onPermissionRequest(t, ev);
     case 'permission_resolved':
@@ -762,6 +764,50 @@ SessionTranscript _appendThought(SessionTranscript t, String text) {
   }
   if (text.trim().isEmpty) return t;
   return _append(t, ChatItem.thought(clipItemText(text)));
+}
+
+/// Folds a `compaction` event into its row (MADR 0190 D3). The daemon sends
+/// the compaction's whole current state each time, so the row is replaced in
+/// place: it keeps the position of the compaction's first event, as ACP's
+/// "fixes the compaction's timeline position" asks, and a replay over a
+/// transcript that already holds it changes nothing.
+SessionTranscript _upsertCompaction(SessionTranscript t, SessionEvent ev) {
+  final id = (ev.compactionId ?? '').trim();
+  if (id.isEmpty) return t;
+  final status = (ev.compactionStatus ?? '').trim();
+  final summary = ev.compactionSummary ?? '';
+  final error = (ev.compactionError ?? '').trim();
+  final next = ChatItem(
+    kind: ChatItemKind.compaction,
+    toolId: id,
+    toolStatus: status,
+    text: summary,
+    compactionError: error.isEmpty ? null : error,
+    compactionTruncated: ev.compactionTruncated,
+  );
+
+  for (var i = t.items.length - 1; i >= 0; i--) {
+    final prev = t.items[i];
+    if (prev.kind != ChatItemKind.compaction || prev.toolId != id) continue;
+    if (prev.toolStatus == next.toolStatus &&
+        prev.text == next.text &&
+        prev.compactionError == next.compactionError &&
+        prev.compactionTruncated == next.compactionTruncated) {
+      return t;
+    }
+    final items = _mutableItems(t);
+    items[i] = ChatItem(
+      kind: ChatItemKind.compaction,
+      seq: prev.seq,
+      toolId: id,
+      toolStatus: next.toolStatus,
+      text: next.text,
+      compactionError: next.compactionError,
+      compactionTruncated: next.compactionTruncated,
+    );
+    return t.copyWith(items: items, growableItems: true);
+  }
+  return _append(t, next);
 }
 
 /// Upsert the auto-approval card for `ev.approvalGroupId`.

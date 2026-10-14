@@ -2605,6 +2605,11 @@ class SessionEvent {
     this.noticeSeverity,
     this.noticeTitle,
     this.noticeDescription,
+    this.compactionId,
+    this.compactionStatus,
+    this.compactionSummary,
+    this.compactionError,
+    this.compactionTruncated = false,
     this.text,
     this.toolId,
     this.toolName,
@@ -2670,6 +2675,16 @@ class SessionEvent {
   final String? noticeSeverity;
   final String? noticeTitle;
   final String? noticeDescription;
+
+  /// One state of an agent's context compaction, on `compaction` events
+  /// (MADR 0190): its ID, its status as the agent sent it, the summary text so
+  /// far, its error, and whether the daemon cut the summary at its bound.
+  /// Several events describe one compaction; the reducer folds them by ID.
+  final String? compactionId;
+  final String? compactionStatus;
+  final String? compactionSummary;
+  final String? compactionError;
+  final bool compactionTruncated;
   final String? text;
   final String? toolId;
   final String? toolName;
@@ -2869,6 +2884,11 @@ class SessionEvent {
       noticeSeverity: json['notice_severity'] as String?,
       noticeTitle: json['notice_title'] as String?,
       noticeDescription: json['notice_description'] as String?,
+      compactionId: json['compaction_id'] as String?,
+      compactionStatus: json['compaction_status'] as String?,
+      compactionSummary: json['compaction_summary'] as String?,
+      compactionError: json['compaction_error'] as String?,
+      compactionTruncated: json['compaction_truncated'] == true,
       text: json['text'] as String?,
       toolId: json['tool_id'] as String?,
       toolName: json['tool_name'] as String?,
