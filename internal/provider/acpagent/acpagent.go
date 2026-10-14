@@ -1068,6 +1068,10 @@ const clientName = "mcremote"
 //   - session.configOptions.boolean: emitConfigOptions maps boolean options to
 //     the phone, and SetConfigOption sends them back. acp-go-sdk2 refuses a
 //     session/new answer carrying one unless this is advertised.
+//   - session.notices: SessionUpdate maps a notice to agent_notice, which the
+//     daemon keeps in history and the phone draws with its severity. Agents
+//     send notices only when this is advertised, and the SDK refuses one
+//     otherwise (MADR 0188 D4).
 //
 // Nothing else is advertised until its behavior exists; the
 // capability-honesty test holds each Spec to that.
@@ -1077,6 +1081,7 @@ func defaultClientCapabilities() acp.ClientCapabilities {
 		Terminal: true,
 		Session: &acp.ClientSessionCapabilities{
 			ConfigOptions: &acp.SessionConfigOptionsCapabilities{Boolean: &acp.BooleanConfigOptionCapabilities{}},
+			Notices:       &acp.NoticeCapabilities{},
 		},
 	}
 }
@@ -1098,6 +1103,7 @@ var implementedClientCapabilities = map[string]bool{
 	"fs.writeTextFile":              true,
 	"terminal":                      true,
 	"session.configOptions.boolean": true,
+	"session.notices":               true,
 }
 
 // capabilityContainers are the objects of the clientCapabilities block that

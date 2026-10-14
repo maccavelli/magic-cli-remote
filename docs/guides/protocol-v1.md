@@ -1810,8 +1810,9 @@ not part of the conversation. Distinct from `notice`, which is the daemon's own 
 
 The event is must-deliver and is kept in the session's history, so a client that was not connected
 when it arrived sees it on replay. A notice identical to the one before it is dropped. Agents send
-notices only to a client that advertised `session.notices`, so the event appears only once the
-daemon advertises it.
+notices only to a client that advertised `session.notices`. The daemon advertises it to every ACP
+agent that uses its default client capabilities (grok included), so the event appears whenever such
+an agent sends one.
 
 ### `question_request` / `question_resolved` events
 

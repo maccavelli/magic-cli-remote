@@ -13,7 +13,7 @@ import (
 // for byte, so any change to what Magic advertises is a reviewed change to
 // this test (PLAN 0184 A2 step 2).
 const initializeFrame = `{"clientCapabilities":{"auth":{},"fs":{"readTextFile":true,"writeTextFile":true},` +
-	`"session":{"configOptions":{"boolean":{}}},"terminal":true},` +
+	`"session":{"configOptions":{"boolean":{}},"notices":{}},"terminal":true},` +
 	`"clientInfo":{"name":"mcremote","version":"v0.21.0"},"protocolVersion":1}`
 
 // TestInitializeFrameIsPinned pins the serialized initialize request.
@@ -58,10 +58,11 @@ func TestCapabilityHonesty(t *testing.T) {
 	// Each of these advertises something with no behavior here; each must be
 	// caught.
 	dishonest := map[string]acp.ClientCapabilities{
-		"session.notices": {Session: &acp.ClientSessionCapabilities{Notices: &acp.NoticeCapabilities{}}},
-		"elicitation":     {Elicitation: &acp.ElicitationCapabilities{}},
-		"plan":            {Plan: &acp.PlanCapabilities{}},
-		"auth.terminal":   {Auth: acp.AuthCapabilities{Terminal: true}},
+		// session.notices was the example here until MADR 0188 implemented it.
+		"session.compaction": {Session: &acp.ClientSessionCapabilities{Compaction: &acp.CompactionCapabilities{}}},
+		"elicitation":        {Elicitation: &acp.ElicitationCapabilities{}},
+		"plan":               {Plan: &acp.PlanCapabilities{}},
+		"auth.terminal":      {Auth: acp.AuthCapabilities{Terminal: true}},
 	}
 	for name, c := range dishonest {
 		if problems := CheckClientCapabilities(c); len(problems) == 0 {

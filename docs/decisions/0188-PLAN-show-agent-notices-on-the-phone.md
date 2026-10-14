@@ -103,7 +103,7 @@ Taken only after N1 and N2 are committed.
 
 ## Execution record
 
-### N1 and N2, 2026-10-13: implemented and verified; not committed
+### N1 and N2, 2026-10-13: complete (committed as `fc737d36`)
 
 **Approval:** the owner on 2026-10-13, "committed and pushed, accept option 1, do N1 and N2".
 
@@ -212,6 +212,68 @@ make preflight                                       exit=0: check-records, mark
 
 **Not done:**
 
-* N3 (advertise) and N4 (probe): not approved. N3 waits until N1 and N2 are committed;
-* no commit: N1 and N2 are staged, and a commit needs the owner's word in its turn;
+* ~~N3 (advertise) and~~ N4 (probe): not approved. N3 is below;
+* ~~no commit: N1 and N2 are staged, and a commit needs the owner's word in its turn;~~ the owner
+  committed `fc737d36`. It was not yet pushed when N3 started;
+* CI on push.
+
+### N3, 2026-10-13: implemented and verified; not committed
+
+**Approval:** the owner on 2026-10-13, "committed, proceed", after N1 and N2 were committed as the
+step requires.
+
+**Seen failing first.** `TestANoticeArrivesOverTheWire` (`agentnotice_test.go`) sends a `notice`
+from the byte-level fixture agent, over a real connection configured as production configures it.
+Before the advertisement it **failed**, with the SDK refusing the notice at its capability gate:
+
+```text
+ERROR failed to handle notification method=session/update err="{"code":-32602,"message":"Invalid params",
+  "data":{"error":"session/update: capability session.notices not advertised: variant notice"}}"
+agentnotice_test.go:38: no agent_notice within 5s: the notice did not get past the SDK's capability gate
+```
+
+**The change.**
+
+* `defaultClientCapabilities` advertises `session.notices` (`{}`), with a doc bullet naming the
+  behavior that implements it.
+* `implementedClientCapabilities` lists it.
+* The pinned `initialize` frame is now
+  `"session":{"configOptions":{"boolean":{}},"notices":{}}`.
+* `TestCapabilityHonesty`'s dishonest example moved from `session.notices` to
+  `session.compaction`, a capability Magic still lacks.
+* grok's `Spec` uses the default, so grok is offered notices. gobble's set is
+  [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md)'s to decide.
+* `protocol-v1.md`'s `agent_notice` section now says the daemon advertises `session.notices` to
+  every agent that uses the default capabilities.
+
+**Fail first, on scratch copies.** Each plant failed its test:
+
+| Plant | Caught by |
+| :--- | :--- |
+| H1a notices advertised, not in the implemented set | `TestCapabilityHonesty`: "session.notices is advertised but not implemented" |
+| H1b the same, seen through grok's `Spec` | `TestGrokAdvertisesOnlyWhatMagicImplements` |
+| H2 the advertisement removed | `TestInitializeFrameIsPinned`, and `TestANoticeArrivesOverTheWire` (the SDK gate again) |
+
+**Verification,** each exit status recorded before reading its output:
+
+```text
+go test -race -count=1 ./...                         exit=0
+./scripts/go-precheck.sh <3 changed Go files>        exit=0 (gofmt, golint, govulncheck)
+make lint                                            exit=0
+make markdownlint-docs                               exit=0
+```
+
+* **Windows.** `make ci-windows` ran on the Windows test host, in Git Bash, against the N3 working
+  tree, as a tarball of the 1852 files git lists. Result: exit 0, "ci-windows-local: ALL SELECTED
+  CHECKS PASSED", with `internal/provider/acpagent` and `internal/provider/grok` both `ok`.
+
+**Rollout.** This is the switch. As the Rollout and Rollback section says, a phone without N2
+ignores `agent_notice`. A release carrying N3 should go out with, or after, a phone build carrying
+N2.
+
+**Not done:**
+
+* N4 (the probe): not approved. Its zero-token half is now possible, since the advertisement
+  exists. The half with model turns waits for the owner's grok quota to reset;
+* no commit: N3 is staged, and a commit needs the owner's word in its turn;
 * CI on push.

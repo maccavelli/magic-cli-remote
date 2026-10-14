@@ -2,9 +2,43 @@ package acpagent
 
 import (
 	"testing"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
+
+// TestANoticeArrivesOverTheWire is PLAN 0188 N3: once Magic advertises
+// session.notices, an agent's notice sent over a real connection, through the
+// SDK's capability gate as production configures it, reaches the session as
+// an agent_notice. Without the advertisement the SDK refuses it before the
+// handler runs (MADR 0188 D4).
+func TestANoticeArrivesOverTheWire(t *testing.T) {
+	s, a := newWireSession(t, `{}`)
+	a.send(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "session/update",
+		"params": map[string]any{
+			"sessionId": "agent-1",
+			"update": map[string]any{
+				"sessionUpdate": "notice", "severity": "warning", "title": "gopls unavailable",
+			},
+		},
+	})
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeAgentNotice {
+				if ev.NoticeSeverity != "warning" || ev.NoticeTitle != "gopls unavailable" {
+					t.Fatalf("agent_notice = %q/%q", ev.NoticeSeverity, ev.NoticeTitle)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("no agent_notice within 5s: the notice did not get past the SDK's capability gate")
+		}
+	}
+}
 
 // TestNoticeBecomesAnAgentNotice is PLAN 0188 N1 step 1: an ACP `notice` of
 // each severity, with and without a description, becomes an agent_notice
