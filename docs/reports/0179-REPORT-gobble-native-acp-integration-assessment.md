@@ -8,9 +8,9 @@ and ran no probe. Statements marked **[derived]** are reasoned from source and h
 
 Associated records:
 
-- [0179-MADR-pigo-native-acp-provider.md](../decisions/0179-MADR-pigo-native-acp-provider.md)
+- [0179-MADR-gobble-native-acp-provider.md](../decisions/0179-MADR-gobble-native-acp-provider.md)
   (proposed; written for the agent under its earlier name)
-- [0179-PLAN-pigo-native-acp-provider.md](../decisions/0179-PLAN-pigo-native-acp-provider.md)
+- [0179-PLAN-gobble-native-acp-provider.md](../decisions/0179-PLAN-gobble-native-acp-provider.md)
   (phase R1 produced this report)
 - [0167-REPORT-acp-go-sdk2-integration-assessment.md](0167-REPORT-acp-go-sdk2-integration-assessment.md)
   (full-adoption section)

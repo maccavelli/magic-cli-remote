@@ -1,13 +1,13 @@
 ---
 status: in-progress
 date: 2026-10-11
-associated-madr: "0179-MADR-pigo-native-acp-provider.md"
+associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 # Implement driving the native ACP agent as a first-class provider
 
-Associated MADR: [0179-MADR-pigo-native-acp-provider.md](0179-MADR-pigo-native-acp-provider.md)
+Associated MADR: [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md)
 
 The MADR is `proposed`. It was written for the agent under its earlier name, `pigo`; the agent is now
 `gobble` (repository `gobble-cli`). This PLAN has one phase, R1, which is documentation only. R1
@@ -122,3 +122,23 @@ Not done, deliberately: no probe, build or test in either repository (R1 is read
 
 R1 is complete. This PLAN stays open until the owner decides whether to amend or supersede the MADR,
 and source phases are planned.
+
+### Rename, 2026-10-13
+
+- **The owner decided** to amend in place under a gobble name, not supersede
+  ([0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md),
+  owner answer Q2).
+- **The pair was renamed with `git mv`,** from the `pigo` filenames to
+  `0179-MADR-gobble-native-acp-provider.md` and this file's name.
+- **Links were repointed** in:
+  - the 0179 MADR and this PLAN;
+  - `0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md`;
+  - `0186-MADR-integrate-current-library-releases-and-prepare-gobble.md`;
+  - `docs/reports/0167-REPORT-acp-go-sdk2-integration-assessment.md`;
+  - `docs/reports/0179-REPORT-gobble-native-acp-integration-assessment.md`.
+- **The index was regenerated.**
+- **The old filename survives once,** as historical text in
+  `0175-PLAN-conform-docs-tree-to-adopted-record-layout.md`'s execution record. That is a record of
+  what the file was called then, not a link.
+- **Still to do:** the MADR's content rewrite, and this PLAN's source phases, follow 0184's A2
+  (0186 D9). They are planned by an amendment of this PLAN.

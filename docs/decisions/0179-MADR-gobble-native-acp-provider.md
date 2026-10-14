@@ -387,7 +387,7 @@ The `live-pigo` suite must show these:
 
 * pi-go `0002-MADR-cli-acp-headless-mcp-v1.md` (fourth and fifth amendments) and `0005-MADR-v1-feature-scope.md` (companion target table) carry the agent side of this contract. Their companion checklists defer to this record.
 * `0023-MADR-canonical-slash-commands.md`, `0137-MADR-prompt-to-first-token-latency-regression.md`, `0138-MADR-overhaul-provider-surfaces-and-turn-path.md`, `0160-MADR-remove-goose-cli-support.md`, `0166-MADR-a-stalled-session-can-still-take-the-acp-transport-down.md`, `0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md`.
-* No PLAN is attached yet. When this record is accepted, `0179-PLAN-pigo-native-acp-provider.md` phases the work:
+* No PLAN is attached yet. When this record is accepted, `0179-PLAN-gobble-native-acp-provider.md` phases the work:
   1. D2 + D3 with their failing-first tests;
   2. D1, moving grok's ops into its Spec;
   3. D5 and D6;
@@ -395,3 +395,10 @@ The `live-pigo` suite must show these:
   5. D7–D10 and the pigo registration, after a pigo release exists.
 
   The number was taken on 2026-10-01: `scripts/check_records.py --next` printed `0178`, which `0175-PLAN-conform-docs-tree-to-adopted-record-layout.md` P4 reserves for the mobile-UX report, so this record took the next free number.
+
+## Amendment — 2026-10-13: renamed for gobble; content rewrite pending
+
+* **The owner's rule (2026-10-13):** nothing in `gobble-cli` references `pi-go` or `pigo`. The project is `gobble-cli`, and the binary is `gobble`.
+* **Why the rename was needed.** `gobble-cli`'s only references to the old names were citations of this record's filename. So this record and its PLAN were renamed with `git mv`, to `0179-MADR-gobble-native-acp-provider.md` and `0179-PLAN-gobble-native-acp-provider.md`, and every link in this repository was repointed. The number is unchanged. The decision is in [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md), owner answer Q2.
+* **The text above is unchanged, and still names `pigo`, `pi-go`, `IDPigo` and `_pigo/*`.** It is rewritten as the gobble contract on ACP schema 1.25 after [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)'s phase A2. The rewrite uses `IDGobble`, wire id `"gobble"`, binary `gobble` and gobble's frozen `_gobble/*` table, and carries 0186 D9's scope and the owner's answers Q3–Q5. Until then this record stays `proposed`. Where its body and 0186 disagree, 0186 governs.
+* **Repointing `gobble-cli`'s citations** is gobble's work, under gobble's records.

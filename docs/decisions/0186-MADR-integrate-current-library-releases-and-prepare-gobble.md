@@ -25,7 +25,7 @@ Each library already has a decision record in this repository, and neither is ac
   its PLAN carries source phases S1–S8. Only R1, a report, has run.
 * [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
   is `proposed`. It decides full adoption at `v0.17.1` (D1–D13), and its PLAN carries phases A1–A5.
-* [0179-MADR-pigo-native-acp-provider.md](0179-MADR-pigo-native-acp-provider.md), the
+* [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md), the
   native-agent contract, is `proposed`. It still names the agent `pigo`. Its PLAN ran only R1,
   which produced
   [0179-REPORT-gobble-native-acp-integration-assessment.md](../reports/0179-REPORT-gobble-native-acp-integration-assessment.md).
@@ -454,7 +454,7 @@ another repository.
   and its PLAN: the self-update track.
 * [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
   and its PLAN: the ACP track.
-* [0179-MADR-pigo-native-acp-provider.md](0179-MADR-pigo-native-acp-provider.md) and
+* [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md) and
   [0179-REPORT-gobble-native-acp-integration-assessment.md](../reports/0179-REPORT-gobble-native-acp-integration-assessment.md):
   the native-agent contract that D9's record supersedes.
 * [0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md](0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md):
@@ -474,7 +474,7 @@ decision above, this amendment governs, and the original text stays as what was 
   * The owner's rule: nothing in `gobble-cli` references `pi-go` or `pigo`. The project is
     `gobble-cli`, and the binary is `gobble`.
   * A scan on 2026-10-13 found no such reference in gobble's code. Its only ones are in seven of its
-    records, and every one cites or quotes this repository's `0179-MADR-pigo-native-acp-provider.md`.
+    records, and every one cites or quotes this repository's `0179-MADR-gobble-native-acp-provider.md`.
     So this repository's filename is the source.
   * The 0179 pair is renamed with `git mv`, to `0179-MADR-gobble-native-acp-provider.md` and
     `0179-PLAN-gobble-native-acp-provider.md`. Every link to them is repaired, and the index is

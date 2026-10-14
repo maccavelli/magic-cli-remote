@@ -105,7 +105,7 @@ Observed at `9778cbc17b39`, plus a scratch-copy probe on 2026-10-13.
   `stopReason: cancelled` instead.
 * **Only grok uses ACP** (`internal/provider/grok`). gobble, built on `acp-go-sdk2 v0.14.0`, is the
   intended second ACP agent under the proposed
-  [0179-MADR-pigo-native-acp-provider.md](0179-MADR-pigo-native-acp-provider.md) and
+  [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md) and
   [0179-REPORT-gobble-native-acp-integration-assessment.md](../reports/0179-REPORT-gobble-native-acp-integration-assessment.md).
 
 ## Decision Drivers
@@ -346,3 +346,46 @@ follows only when an engine it runs speaks v2.
   with the daemon user's permissions, as decided in
   [0069-MADR-macos-permissions-and-sandbox-parity.md](0069-MADR-macos-permissions-and-sandbox-parity.md)
   D4. Confinement would change what an agent can do, so it needs its own record.
+
+## Amendment — 2026-10-13: the program record's findings and the owner's answers
+
+[0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md)
+(its D4) asked for these amendments. The owner's answers to its questions Q3 and Q7 add two more.
+This record stays `proposed`. Where an item below contradicts a decision above, the item governs,
+and the original text stays as first proposed.
+
+* **D12's fact has changed.** gobble pins `acp-go-sdk2 v0.17.1` (and `go-selfupdate-lib v1.15.2`)
+  as of 2026-10-13. Both repositories are on the same tag today, so the one-pin rule already holds.
+  D11's request about a second `session/prompt` stands.
+* **`v0.17.1` ships known defects. Each is accepted with a mitigation, deleted at `v0.18.0`** (0186
+  D6). The SDK's `0019-MADR-remediate-debugging-pass-findings.md` (accepted 2026-10-13) fixes them
+  in `v0.18.0`, which is not tagged.
+  * **B16:** a write ignores its context. Magic's close stops relying on the context to bound
+    `CloseSession`: a timer that does not wait for the write starts the process-tree kill.
+  * **B4:** `CloseSession` leaves pending permission requests open. Closing a session ends them,
+    and closes their phone cards, as D8 does on cancel.
+  * **B9:** a typed call is written even after its context has ended. The turn and close paths
+    check the context first.
+  * **B19:** local errors lose their identity. Classify by code constants and `errors.As` until
+    `v0.18.0`, then by `errors.Is`.
+  * **B1:** a request sent from a notification handler deadlocks. `SessionUpdate` keeps sending
+    none, and a comment at the handler says why.
+* **The `v0.18.0` bump is a named later phase,** taken only after its release notes are read
+  against D4–D8 and the list above. It removes exported identity `MarshalJSON` methods, adds
+  `Close`, the connection hand-off and error unwrapping, and gates extension messages received
+  before `initialize`.
+* **The host path rule applies to every phase** (0186 D5).
+  * From `v0.16.0`, the SDK refuses a received path that the host's `filepath.IsAbs` rejects.
+  * Every test path that reaches the SDK is absolute on the running host, and a replayed wire
+    capture's root is rewritten to the host's on read. No test is skipped on Windows.
+  * A1 is not done until the `go-native` `windows/amd64` CI leg and `make ci-windows` pass
+    ([0145-MADR-local-windows-ci-style-tests.md](0145-MADR-local-windows-ci-style-tests.md)).
+* **D4's client capabilities become per-`Spec`** (owner answer Q3).
+  * The `fs.readTextFile`, `fs.writeTextFile` and `terminal` advertisement is a field of
+    `acpagent.Spec`. grok's `Spec` keeps all three.
+  * gobble's `Spec`, added by
+    [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md) after A2,
+    advertises none of them.
+  * The capability-honesty test covers each `Spec`.
+* **Quota for A3's live grok probe and acceptance `make live-grok` is pre-approved** (owner answer
+  Q7). Other live runs still need approval.

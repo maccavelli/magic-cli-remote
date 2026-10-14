@@ -162,3 +162,44 @@ Whole-plan acceptance is the MADR's Confirmation section. In addition:
 * A3's fallback keeps grok working whether or not grok advertises the standard options, so it can
   ship before the live probe answers. The probe decides only whether the fallback is still used.
 * No phase changes what an operator configures.
+
+## Amendment — 2026-10-13: steps added from 0186 and the owner's answers
+
+This implements the MADR's amendment of the same date. The steps below join the phases named.
+Where they conflict with a step above, they govern. Nothing here is approved for execution: the
+MADR is still `proposed`, and each phase still needs approval by name.
+
+* **A1, added steps:**
+  * **4a.** Make every ACP test path absolute on the running host. Use `t.TempDir()` or a helper
+    that maps a fixed POSIX fixture path to the host. The 2026-10-13 scan found 15 POSIX literals
+    in `acpagent`'s tests and a few in grok's.
+  * **4b.** Rewrite a replayed wire capture's recorded root to the host's on read. Never edit a
+    capture. grok's `1.0.13` capture holds 383 POSIX path values.
+  * **4c.** At `SessionUpdate`, add the comment that the handler must not send a request (SDK
+    B1).
+  * **Verification:** add the `go-native` `windows/amd64` CI leg and `make ci-windows` on the
+    Windows host, with no new Windows-specific skip.
+* **A2, added steps:**
+  * **8.** Close is bounded by a timer, not by a write's context (SDK B16). Write a test with a
+    fixture agent that stops reading stdin with its pipe full. It shows close returning within the
+    bound, and it is seen failing on the current code first.
+  * **9.** Closing a session ends its pending permission requests and closes their phone cards
+    (SDK B4), with the daemon test seen failing first.
+  * **10.** The turn and close paths do not start a typed call with a context that has already
+    ended (SDK B9).
+  * **11.** Client capabilities become an `acpagent.Spec` field (owner answer Q3). grok's `Spec`
+    keeps `fs.readTextFile`, `fs.writeTextFile` and `terminal`, and the capability-honesty test
+    iterates every `Spec`.
+* **A3 step 6:** the owner pre-approved this run's quota on 2026-10-13 (owner answer Q7), and
+  acceptance's `make live-grok` is pre-approved too. The rest of the step is unchanged.
+* **A5 step 3:** gobble is at `v0.17.1`, not `v0.14.0`. The step becomes recording the joint
+  bump rule for `v0.18.0`.
+* **New phase B1 — move to `acp-go-sdk2 v0.18.0`, once it is tagged.**
+  1. Read its release notes against the MADR's D4–D8 and its amendment's defect list.
+  2. Pin it. Then remove the B16, B4, B9 and B19 mitigations in favor of the SDK's `Close`, writer
+     goroutine, cancellation of pending requests on close, and `errors.Is` on
+     `ErrPeerDisconnected`.
+  3. Handle the removed identity `MarshalJSON` methods, and the gating of extension messages
+     received before `initialize`.
+  4. Verify as A1 and A2, with `make live-grok` under the MADR's quota rule.
+  5. Coordinate the bump with gobble (D12).

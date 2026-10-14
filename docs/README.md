@@ -344,8 +344,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0176 | MADR | MADR 0004: Phase 2 — Grok ACP provider | [0176-MADR-phase-2-grok-acp-provider.md](decisions/0176-MADR-phase-2-grok-acp-provider.md) |
 | 0177 | REPORT | Phase 3 Plan: Flutter Android Client Assessment & Scaffolding | [0177-REPORT-flutter-android-client-assessment.md](../apps/mobile/docs/reports/0177-REPORT-flutter-android-client-assessment.md) |
 | 0178 | REPORT | Magic CLI Remote — Mobile UX/UI Assessment & Research | [0178-REPORT-mobile-ux-assessment.md](../apps/mobile/docs/reports/0178-REPORT-mobile-ux-assessment.md) |
-| 0179 | MADR | MADR 0179: Drive pigo as a first-class ACP provider — Spec-declared session operations, strict command fallback, and complete ACP event mapping | [0179-MADR-pigo-native-acp-provider.md](decisions/0179-MADR-pigo-native-acp-provider.md) |
-| 0179 | PLAN | Implement driving the native ACP agent as a first-class provider | [0179-PLAN-pigo-native-acp-provider.md](decisions/0179-PLAN-pigo-native-acp-provider.md) |
+| 0179 | MADR | MADR 0179: Drive pigo as a first-class ACP provider — Spec-declared session operations, strict command fallback, and complete ACP event mapping | [0179-MADR-gobble-native-acp-provider.md](decisions/0179-MADR-gobble-native-acp-provider.md) |
+| 0179 | PLAN | Implement driving the native ACP agent as a first-class provider | [0179-PLAN-gobble-native-acp-provider.md](decisions/0179-PLAN-gobble-native-acp-provider.md) |
 | 0179 | REPORT | gobble native ACP integration assessment | [0179-REPORT-gobble-native-acp-integration-assessment.md](../docs/reports/0179-REPORT-gobble-native-acp-integration-assessment.md) |
 | 0180 | MADR | Close 0175 leftovers and make docs gates fail the merge | [0180-MADR-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-MADR-check-records-is-a-preflight-and-ci-gate.md) |
 | 0180 | PLAN | Implement closing 0175 leftovers and making docs gates fail the merge | [0180-PLAN-check-records-is-a-preflight-and-ci-gate.md](decisions/0180-PLAN-check-records-is-a-preflight-and-ci-gate.md) |
@@ -358,6 +358,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0184 | PLAN | Implement adopting `acp-go-sdk2` and moving ACP protocol handling into the SDK | [0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](decisions/0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md) |
 | 0185 | MADR | Keep Magic's model catalogs engine-backed: migrating to `go-llmprovider-sdk` is out of scope | [0185-MADR-migrating-to-go-llmprovider-sdk-is-out-of-scope.md](decisions/0185-MADR-migrating-to-go-llmprovider-sdk-is-out-of-scope.md) |
 | 0186 | MADR | Integrate the current `go-selfupdate-lib` and `acp-go-sdk2` releases as two independent tracks, then make gobble the native agent | [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](decisions/0186-MADR-integrate-current-library-releases-and-prepare-gobble.md) |
+| 0186 | PLAN | Implement integrating the current library releases as two tracks, and preparing gobble | [0186-PLAN-integrate-current-library-releases-and-prepare-gobble.md](decisions/0186-PLAN-integrate-current-library-releases-and-prepare-gobble.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

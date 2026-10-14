@@ -9,7 +9,7 @@ Associated records:
 
 - [0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md](../decisions/0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md)
 - [0167-PLAN-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md](../decisions/0167-PLAN-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md)
-- [0179-MADR-pigo-native-acp-provider.md](../decisions/0179-MADR-pigo-native-acp-provider.md)
+- [0179-MADR-gobble-native-acp-provider.md](../decisions/0179-MADR-gobble-native-acp-provider.md)
 
 ## Executive assessment
 
@@ -648,7 +648,7 @@ any other engine on ACP. Whether another engine should move to ACP, or a new nat
 should be added, is a provider decision with its own trade-offs:
 [0176-MADR-phase-2-grok-acp-provider.md](../decisions/0176-MADR-phase-2-grok-acp-provider.md)
 and the proposed
-[0179-MADR-pigo-native-acp-provider.md](../decisions/0179-MADR-pigo-native-acp-provider.md) are
+[0179-MADR-gobble-native-acp-provider.md](../decisions/0179-MADR-gobble-native-acp-provider.md) are
 where those choices are recorded. This report does not absorb them. What L1–L4 give such a
 decision is an `acpagent` whose protocol behavior is the SDK's, so a second ACP engine needs a
 `Spec` and fixtures, not more protocol code.
