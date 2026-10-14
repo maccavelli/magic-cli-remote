@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-14
 decision-makers: Project Owner
 consulted: none
@@ -99,7 +99,8 @@ Magic put it, and what does the user see?
 Chosen option: "Carry the agent's cumulative cost as a separately named session total, with its
 currency", because it is the only option that keeps ACP's meaning (a running session total in a
 named currency) without either relabelling it as a per-turn figure or guessing a delta. A dropped
-or repeated report cannot corrupt it.
+or repeated report cannot corrupt it. The owner accepted it on 2026-10-14 ("accept option 1, do C1
+and C2").
 
 Under the chosen option:
 
@@ -208,4 +209,5 @@ Under the chosen option:
   `acp-go-sdk2@v0.17.1`.
 * The PLAN is
   [0189-PLAN-carry-the-agent-session-cost-as-a-session-total.md](0189-PLAN-carry-the-agent-session-cost-as-a-session-total.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+  ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
+  accepted the recommended option and approved C1 and C2 on 2026-10-14.

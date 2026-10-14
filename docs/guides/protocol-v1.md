@@ -1162,6 +1162,12 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   - A client may ignore it. It is informational: the daemon enforces the rule it describes (see
     [`session_title`](#session_title-event-session-title-update)).
 
+- `session_cost` (optional, MADR 0189): `{ "amount", "currency" }`, the agent's
+  latest report of its whole-session cost, from `usage_update`'s `session_cost`.
+  It is replaced by each report that carries one, and kept through reports that
+  do not. Resume keeps it; a fork starts without one. Absent when the agent never
+  reported a cost.
+
 - `status`: last observed session status — `idle`, `running`, `error`, `cancelled`,
   `disconnected`.
 - `live`: whether the daemon currently holds a running provider process for this
@@ -1589,6 +1595,20 @@ Counts are non-negative 64-bit integers. A negative or non-finite value is
 omitted rather than clamped. `cost_usd` absent means the agent reported no cost;
 `cost_usd: 0` is a real value meaning a known-free turn, and the two remain
 distinguishable.
+
+Since MADR 0189 it may also carry `session_cost`, which is **not** per turn:
+
+```json
+"session_cost": { "amount": 0.42, "currency": "USD" }
+```
+
+`session_cost` is the agent's own running total for the whole session (ACP
+`usage_update` `cost`), in the agent's currency. `currency` is three upper-case
+letters; the daemon does not convert between currencies. It is never copied into
+`cost_usd`. Each report states the whole total, so a dropped `usage_update` loses
+nothing. A report without `session_cost` does not mean the cost was reset: keep
+the last one seen. The daemon also keeps the latest value on the session's
+`Meta` as `session_cost`.
 
 ### Transcript identity, replacement and removal
 

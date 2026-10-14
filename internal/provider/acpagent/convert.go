@@ -1,6 +1,12 @@
 package acpagent
 
-import "math"
+import (
+	"math"
+	"strings"
+
+	acp "github.com/maccavelli/acp-go-sdk2"
+	"github.com/maccavelli/magic-cli-remote/internal/event"
+)
 
 // The SDK types several protocol numbers as unsigned (usage counts, file line
 // and limit, terminal output limits and exit codes), where this package works
@@ -14,6 +20,26 @@ func saturatingInt(v uint64) int {
 		return math.MaxInt
 	}
 	return int(v)
+}
+
+// sessionCost converts ACP's cumulative session cost, or returns nil when the
+// figure cannot be shown honestly: a negative or non-finite amount, or a
+// currency that is not three ASCII letters. The code is upper-cased but not
+// checked against the ISO 4217 list, and never converted (MADR 0189 D1).
+func sessionCost(c *acp.Cost) *event.SessionCost {
+	if c == nil || c.Amount < 0 || math.IsNaN(c.Amount) || math.IsInf(c.Amount, 0) {
+		return nil
+	}
+	code := strings.ToUpper(c.Currency)
+	if len(code) != 3 {
+		return nil
+	}
+	for i := range len(code) {
+		if code[i] < 'A' || code[i] > 'Z' {
+			return nil
+		}
+	}
+	return &event.SessionCost{Amount: c.Amount, Currency: code}
 }
 
 // defaultTerminalBuffer is the output a terminal retains when the agent asks

@@ -1854,18 +1854,25 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		})
 	case u.UsageUpdate != nil:
 		// Token/context report → advisory usage event (droppable telemetry).
-		// The cost is not mapped yet (MADR 0184 D7, D10).
-		if u.UsageUpdate.Cost != nil {
-			s.declineUpdate("usage_update.cost")
+		// ACP's cost is the session's running total, so it travels as
+		// SessionCost and never as the per-turn CostUSD (MADR 0189 D1).
+		usage := &event.Usage{
+			Used: saturatingInt(u.UsageUpdate.Used),
+			Size: saturatingInt(u.UsageUpdate.Size),
+		}
+		if c := u.UsageUpdate.Cost; c != nil {
+			usage.SessionCost = sessionCost(c)
+			if usage.SessionCost == nil {
+				s.declineUpdate("usage_update.cost")
+			} else if len(c.Meta) > 0 {
+				s.declineUpdate("usage_update.cost._meta")
+			}
 		}
 		s.emit(event.Event{
 			Type:      event.TypeUsage,
 			SessionID: s.localID,
 			Timestamp: now,
-			Usage: &event.Usage{
-				Used: saturatingInt(u.UsageUpdate.Used),
-				Size: saturatingInt(u.UsageUpdate.Size),
-			},
+			Usage:     usage,
 		})
 	case u.CurrentModeUpdate != nil:
 		// The active mode changed. Carry only the current id; the client keeps

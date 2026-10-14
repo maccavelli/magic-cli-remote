@@ -182,6 +182,9 @@ func Bytes(ev *Event) int {
 
 	if ev.Usage != nil {
 		n += int(unsafe.Sizeof(Usage{}))
+		if c := ev.Usage.SessionCost; c != nil {
+			n += int(unsafe.Sizeof(SessionCost{})) + len(c.Currency)
+		}
 	}
 	if ev.Capabilities != nil {
 		n += int(unsafe.Sizeof(Capabilities{}))

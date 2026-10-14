@@ -155,6 +155,11 @@ type Meta struct {
 	InputTokens  int64 `json:"input_tokens,omitempty"`
 	OutputTokens int64 `json:"output_tokens,omitempty"`
 	CachedTokens int64 `json:"cached_tokens,omitempty"`
+	// SessionCost is the agent's latest report of the whole session's cost,
+	// in its own currency. Reported, not accrued: each report is already a
+	// total, so it replaces the last and a report without one leaves it alone.
+	// Resume keeps it; a fork starts without one (MADR 0189 D2).
+	SessionCost *event.SessionCost `json:"session_cost,omitempty"`
 
 	ModeID              string   `json:"mode_id,omitempty"`
 	CollaborationModeID string   `json:"collaboration_mode_id,omitempty"`
@@ -1048,8 +1053,11 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 	// Dead entries (mid auto-close) still carry an owner and are checked too.
 	replacing := false
 	reserved := false
-	// The name this id already has, live or stored, and its source.
+	// The name this id already has, live or stored, and its source. Its
+	// session cost comes along: resume and relaunch keep the agent's last
+	// reported total (MADR 0189 D2).
 	var priorName, priorSource string
+	var priorCost *event.SessionCost
 	havePrior := false
 	m.mu.Lock()
 	if m.shuttingDown {
@@ -1059,6 +1067,7 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 	if e, ok := m.sessions[opts.LocalSessionID]; ok {
 		replacing = !e.dead
 		priorName, priorSource, havePrior = e.meta.Name, e.meta.NameSource, true
+		priorCost = e.meta.SessionCost
 		if e.meta.OwnerDeviceID != "" && ownerDeviceID != "" && e.meta.OwnerDeviceID != ownerDeviceID {
 			m.mu.Unlock()
 			return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
@@ -1099,6 +1108,7 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 			}
 			if !havePrior {
 				priorName, priorSource, havePrior = rec.Name, rec.NameSource, true
+				priorCost = rec.SessionCost
 			}
 			if opts.ModeID == "" {
 				opts.ModeID = rec.ModeID
@@ -1169,6 +1179,7 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 		CWD:                 cwd,
 		AgentSessionID:      sess.AgentSessionID(),
 		OwnerDeviceID:       ownerDeviceID,
+		SessionCost:         priorCost,
 		CreatedAt:           time.Now().UTC(),
 		Status:              "idle",
 		Live:                true,
@@ -1413,6 +1424,15 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					// the advertised list needs a second look.
 					reresolve = e.lastUsage == nil
 					e.lastUsage = ev.Usage
+					// The agent's session total replaces the stored one; a
+					// report without one leaves it (MADR 0189 D2).
+					if c := ev.Usage.SessionCost; c != nil &&
+						(e.meta.SessionCost == nil || *e.meta.SessionCost != *c) {
+						cost := *c
+						e.meta.SessionCost = &cost
+						meta := e.meta
+						persistMeta = &meta
+					}
 				}
 				// Suppress a notice identical to the one before it
 				// (MADR 0137 F6a). One codex session recorded 77 copies of a
@@ -2254,6 +2274,7 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			OwnerDeviceID:       rec.OwnerDeviceID,
 			PendingHandoffTo:    rec.PendingHandoffTo,
 			HandoffNonce:        rec.HandoffNonce,
+			SessionCost:         rec.SessionCost,
 			CreatedAt:           rec.CreatedAt,
 			UpdatedAt:           rec.UpdatedAt,
 			Status:              rec.Status,
@@ -3363,6 +3384,7 @@ func (m *Manager) writePersist(meta Meta) error {
 		OwnerDeviceID:       meta.OwnerDeviceID,
 		PendingHandoffTo:    meta.PendingHandoffTo,
 		HandoffNonce:        meta.HandoffNonce,
+		SessionCost:         meta.SessionCost,
 		CreatedAt:           meta.CreatedAt,
 		Status:              meta.Status,
 	})

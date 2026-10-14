@@ -49,10 +49,13 @@ type Record struct {
 	PendingHandoffTo string `json:"pending_handoff_to,omitempty"`
 	// HandoffNonce links the release and claim receipts of one transfer
 	// (MADR 0078 D4). Persisted alongside PendingHandoffTo.
-	HandoffNonce string    `json:"handoff_nonce,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Status       string    `json:"status"`
+	HandoffNonce string `json:"handoff_nonce,omitempty"`
+	// SessionCost is Meta.SessionCost. Records written before MADR 0189 omit
+	// it, which reads as no cost reported.
+	SessionCost *event.SessionCost `json:"session_cost,omitempty"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	Status      string             `json:"status"`
 }
 
 // Store persists session metadata under data_dir/sessions/<id>/meta.json.

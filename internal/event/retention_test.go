@@ -175,6 +175,18 @@ func TestBytesTracksStructGrowth(t *testing.T) {
 	}
 }
 
+// A usage report's session cost is a second allocation with a string in it,
+// so the budget must count it (MADR 0189 D1).
+func TestBytesCountsSessionCost(t *testing.T) {
+	plain := Event{Type: TypeUsage, Usage: &Usage{Used: 1}}
+	costed := Event{Type: TypeUsage, Usage: &Usage{Used: 1,
+		SessionCost: &SessionCost{Amount: 0.5, Currency: "USD"}}}
+	want := int(unsafe.Sizeof(SessionCost{})) + len("USD")
+	if got := Bytes(&costed) - Bytes(&plain); got != want {
+		t.Fatalf("session cost adds %d bytes, want %d", got, want)
+	}
+}
+
 func TestBytesDoesNotUnderReportRetainedSize(t *testing.T) {
 	// The budget's whole job is to bound memory, so under-reporting is the
 	// failure that matters. Compare the accounting against what the allocator

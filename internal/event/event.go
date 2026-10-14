@@ -421,6 +421,21 @@ type Usage struct {
 	// CostUSD is nil when the agent reported no cost at all. A present zero is
 	// a real value — a known-free turn — and the two must stay distinguishable.
 	CostUSD *float64 `json:"cost_usd,omitempty"`
+
+	// SessionCost is the agent's own running total for the whole session, in
+	// the agent's currency (ACP usage_update cost). Unlike everything above it
+	// is cumulative, which is why it is never folded into CostUSD: the two
+	// answer different questions (MADR 0189 D1). Nil when the agent reported
+	// none.
+	SessionCost *SessionCost `json:"session_cost,omitempty"`
+}
+
+// SessionCost is an agent-reported cumulative session cost. Currency is an
+// upper-case three-letter code as the agent sent it; Magic does not convert
+// between currencies (MADR 0189 D1).
+type SessionCost struct {
+	Amount   float64 `json:"amount"`
+	Currency string  `json:"currency"`
 }
 
 // Artifact is a file the agent produced, surfaced to the transcript.

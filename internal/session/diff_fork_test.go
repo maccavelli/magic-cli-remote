@@ -19,6 +19,8 @@ type forkProvider struct {
 	starts []provider.StartOptions
 	forks  []provider.ForkOptions
 	n      atomic.Int64
+	// last is the most recently started session, for tests that feed events.
+	last *forkSession
 }
 
 func (p *forkProvider) ID() provider.ID { return "forker" }
@@ -48,6 +50,9 @@ func (p *forkProvider) Start(_ context.Context, opts provider.StartOptions) (pro
 		events: make(chan event.Event, 8),
 	}
 	s.events <- event.Event{Type: event.TypeSessionStatus, SessionID: id, Status: "idle"}
+	p.mu.Lock()
+	p.last = s
+	p.mu.Unlock()
 	return s, nil
 }
 

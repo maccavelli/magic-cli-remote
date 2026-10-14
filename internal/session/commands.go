@@ -478,9 +478,11 @@ func (m *Manager) cmdCompact(ctx context.Context, id string) error {
 func (m *Manager) cmdContext(id string) error {
 	m.mu.RLock()
 	var usage *event.Usage
+	var cost *event.SessionCost
 	var model, mode string
 	if e, ok := m.sessions[id]; ok {
 		usage = e.lastUsage
+		cost = e.meta.SessionCost
 		model = e.meta.Model
 		mode = e.currentModeID
 	}
@@ -501,8 +503,27 @@ func (m *Manager) cmdContext(id string) error {
 	if mode != "" {
 		msg += " · mode " + mode
 	}
+	if cost != nil {
+		msg += " · session cost " + formatSessionCost(*cost)
+	}
 	m.emitNotice(id, msg)
 	return nil
+}
+
+// formatSessionCost renders an agent's session total: four decimals under one
+// unit and two from one up, as the engine runtime line does. USD reads as
+// dollars; any other currency keeps its code, because the daemon has no rate
+// to convert with (MADR 0189 D3).
+func formatSessionCost(c event.SessionCost) string {
+	format := "%.4f"
+	if c.Amount >= 1 {
+		format = "%.2f"
+	}
+	amount := fmt.Sprintf(format, c.Amount)
+	if c.Currency == "USD" {
+		return "$" + amount
+	}
+	return amount + " " + c.Currency
 }
 
 func (m *Manager) cmdRuntime(ctx context.Context, id string, usage bool) error {
