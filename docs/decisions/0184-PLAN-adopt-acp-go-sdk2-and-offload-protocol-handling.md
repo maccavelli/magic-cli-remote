@@ -750,7 +750,7 @@ make lint                                                            exit=0
     when this was written. A4 changes no Flutter code;
   * `make preflight`, since A4 changes no Flutter code.
 
-### A5, 2026-10-13: findings recorded; the SDK request is drafted, not filed
+### A5, 2026-10-13: complete; the SDK request is `maccavelli/acp-go-sdk2#4`
 
 **Approval:** the owner on 2026-10-13, "proceed to a5". This phase reads code and records. It
 changes no Go file.
@@ -818,7 +818,10 @@ The draft, for the owner to file as an issue or as an SDK record:
 
 The PLAN asks for the request "cited by repository and number". It has no number until it is
 filed. Filing writes to another repository, an issue or a record under that repository's own
-process, so it waits for the owner.
+process, so it waits for the owner. **Filed 2026-10-13** on the owner's word ("file it as a github
+issue in the acp-go-sdk2 repo"): [maccavelli/acp-go-sdk2#4](https://github.com/maccavelli/acp-go-sdk2/issues/4),
+"Make prompt supersession an agent-side choice". It is open, with the draft above as its body plus
+the citations.
 
 **Step 3. The joint bump rule for `v0.18.0`** (D12, as amended: gobble is already on `v0.17.1`).
 
@@ -835,6 +838,6 @@ process, so it waits for the owner.
 
 **Not done:**
 
-* filing the draft above: it needs the owner's choice of an issue or an SDK record, and the
-  owner's word to write to that repository;
+* ~~filing the draft above: it needs the owner's choice of an issue or an SDK record, and the
+  owner's word to write to that repository;~~ filed as `maccavelli/acp-go-sdk2#4`;
 * gobble's half of the bump rule, which belongs to gobble-cli's records.
