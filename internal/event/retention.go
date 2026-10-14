@@ -76,7 +76,10 @@ func ClassOf(t Type) Class {
 		TypeSessionTitle,
 		TypeGoal,
 		TypeCodexModelReroute,
-		TypeCodexTerminalInteraction:
+		TypeCodexTerminalInteraction,
+		// An agent's notice is kept for a phone that was not watching when it
+		// arrived; evicting it first would defeat that (MADR 0188 D2).
+		TypeAgentNotice:
 		return ClassContent
 
 	// Progress: detail that made sense while the turn ran.
@@ -133,6 +136,7 @@ func Bytes(ev *Event) int {
 	n += len(ev.CurrentModeID) + len(ev.ApprovalsReviewer)
 	n += len(ev.CurrentCollaborationModeID)
 	n += len(ev.NativeMessageID) + len(ev.NativePartID)
+	n += len(ev.NoticeSeverity) + len(ev.NoticeTitle) + len(ev.NoticeDescription)
 
 	for i := range ev.Options {
 		n += optionBytes + len(ev.Options[i].OptionID) + len(ev.Options[i].Name) + len(ev.Options[i].Kind)

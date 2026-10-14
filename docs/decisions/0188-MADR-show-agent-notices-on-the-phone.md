@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-13
 decision-makers: Project Owner
 consulted: none
@@ -79,15 +79,15 @@ all, when no agent it runs is known to send one?
 
 ## Decision Outcome
 
-Chosen option: none yet, because this record is `proposed`. Recommended: "A new `agent_notice`
-event, kept in Magic's history and drawn as a transcript row with its severity". It is the only
-option that both keeps the severity and reaches a phone that was not watching. It follows the
-precedent of `codex_warning`, not the phone's banner, which no event uses.
+Chosen option: "A new `agent_notice` event, kept in Magic's history and drawn as a transcript row
+with its severity", because it is the only option that both keeps the severity and reaches a phone
+that was not watching. It follows the precedent of `codex_warning`, not the phone's banner, which no
+event uses. The owner accepted it on 2026-10-13 ("accept option 1, do N1 and N2").
 
 On ACP's wording: Magic's history is Magic's own record for its clients. It is not the agent's
 session history, and `session/load` never replays a notice into it, so ACP's rule holds.
 
-Under the recommended option:
+Under the chosen option:
 
 * **D1 — acpagent maps `notice` to a new event `agent_notice`.** It carries `severity` (`info`,
   `warning`, `error`), `title`, and `description` when present.
@@ -180,6 +180,7 @@ Under the recommended option:
 * The facts above were read from the code on 2026-10-13, at `145713d7`, and from
   `acp-go-sdk2@v0.17.1`.
 * The PLAN is [0188-PLAN-show-agent-notices-on-the-phone.md](0188-PLAN-show-agent-notices-on-the-phone.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+  ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
+  accepted the recommended option and approved N1 and N2 on 2026-10-13.
 * grok's quota was exhausted on 2026-10-13. D5's zero-token run spends no model tokens; anything
   more waits for the reset.

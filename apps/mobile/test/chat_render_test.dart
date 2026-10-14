@@ -769,6 +769,40 @@ void main() {
     expect(find.byIcon(Icons.cloud_off), findsOneWidget);
   });
 
+  testWidgets('agent notices render with their severity, and an unknown '
+      'severity as info (MADR 0188 D3)', (tester) async {
+    ChatItem notice(String severity, String title, [String? detail]) =>
+        ChatItem(
+          kind: ChatItemKind.system,
+          text: title,
+          noticeSeverity: severity,
+          noticeDetail: detail,
+        );
+    await tester.pumpWidget(
+      _host(
+        seeded([
+          notice('info', 'Indexed 120 files'),
+          notice('warning', 'gopls unavailable', 'Navigation is limited.'),
+          notice('error', 'Rate limited'),
+          notice('critical', 'Future severity'),
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Indexed 120 files'), findsOneWidget);
+    expect(find.text('gopls unavailable'), findsOneWidget);
+    expect(find.text('Navigation is limited.'), findsOneWidget);
+    expect(find.text('Rate limited'), findsOneWidget);
+    expect(find.text('Future severity'), findsOneWidget);
+    // Severity is asserted on the icon each row carries — not on pixel
+    // widths, which the fixed-width test font makes meaningless. The unknown
+    // severity draws as info, so info appears twice.
+    expect(find.byIcon(Icons.info_outline), findsNWidgets(2));
+    expect(find.byIcon(Icons.warning_amber_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.error_outline), findsOneWidget);
+  });
+
   testWidgets('app bar shows which CLI is being controlled and where', (
     tester,
   ) async {

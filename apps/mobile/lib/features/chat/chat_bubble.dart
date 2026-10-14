@@ -331,6 +331,10 @@ class _ChatBubble extends StatelessWidget {
         );
       case ChatItemKind.system:
         final text = item.text ?? '';
+        // An agent's own notice carries its severity (MADR 0188 D3).
+        if (item.isAgentNotice) {
+          return _AgentNotice(item: item);
+        }
         // Quota / rate-limit hits — and provider-side server failures, which
         // share the same "transient, retry in a moment" posture — get a
         // proper card with guidance, not a raw red provider dump.
@@ -423,6 +427,74 @@ String limitResetPhrase(
 /// Card shown when the agent hits a usage quota or rate limit. Leads with
 /// what happened and when it resets (when the provider said), keeps the raw
 /// provider message as fine print, and points at the practical outs.
+/// Row for an ACP agent's own `notice` (MADR 0188 D3): the transcript's
+/// left-rail idiom, with the rail and icon carrying the severity, the title as
+/// the row's text and any detail under it, clipped. An unknown severity draws
+/// as info — the vocabulary is the agent's and may grow.
+class _AgentNotice extends StatelessWidget {
+  const _AgentNotice({required this.item});
+
+  final ChatItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tokens = celestialOf(context);
+    final (Color accent, IconData icon) = switch (item.noticeSeverity) {
+      'error' => (scheme.error, Icons.error_outline),
+      'warning' => (tokens.caution, Icons.warning_amber_outlined),
+      _ => (scheme.onSurfaceVariant, Icons.info_outline),
+    };
+    final detail = (item.noticeDetail ?? '').trim();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+          decoration: BoxDecoration(
+            border: Border(left: BorderSide(color: accent, width: 3)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 16, color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item.text ?? '',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (detail.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        detail,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Card for `errorKind: permission` (MADR 0069 D4.5). Stateless — unlike
 /// the limit card there is no countdown; the daemon-composed message *is*
 /// the guidance (sandbox-mode switch, Full Disk Access grant, or plain

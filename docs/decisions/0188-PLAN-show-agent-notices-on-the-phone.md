@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-13
 associated-madr: "0188-MADR-show-agent-notices-on-the-phone.md"
 ---
@@ -9,9 +9,10 @@ associated-madr: "0188-MADR-show-agent-notices-on-the-phone.md"
 
 Associated MADR: [0188-MADR-show-agent-notices-on-the-phone.md](0188-MADR-show-agent-notices-on-the-phone.md)
 
-**Not approved for execution.** The MADR is `proposed`. This PLAN implements its recommended option,
-"A new `agent_notice` event, kept in Magic's history and drawn as a transcript row with its
-severity" (D1–D5). If the owner chooses another option, this PLAN is rewritten first.
+~~**Not approved for execution.** The MADR is `proposed`.~~ On 2026-10-13 the owner accepted the
+MADR's recommended option and approved N1 and N2 ("accept option 1, do N1 and N2"). This PLAN
+implements that option, "A new `agent_notice` event, kept in Magic's history and drawn as a
+transcript row with its severity" (D1–D5). N3 and N4 still wait for approval by name.
 
 * A phase starts only after the owner approves it by name.
 * Each Go phase ends with `make pre-add-check` on its staged Go files, `go test -race ./...` and the
@@ -99,3 +100,118 @@ Taken only after N1 and N2 are committed.
 * N3 is the switch. Reverting it withdraws the advertisement, and agents stop sending notices.
 * A phone build without N2 ignores `agent_notice`, so N3 must not ship to a phone that lacks N2. N2
   ships first.
+
+## Execution record
+
+### N1 and N2, 2026-10-13: implemented and verified; not committed
+
+**Approval:** the owner on 2026-10-13, "committed and pushed, accept option 1, do N1 and N2".
+
+**N1, structure first.** These went in with no behavior, so the tests below could compile against
+the code before the mapping.
+
+* `event.TypeAgentNotice` (`agent_notice`) and the fields `NoticeSeverity`, `NoticeTitle` and
+  `NoticeDescription` (`notice_severity`, `notice_title`, `notice_description`).
+* The type is in `Types()`, in `IsControl`'s must-deliver set, and in `ClassOf` as content, so it
+  outlives telemetry and progress when history is trimmed (D2). Its strings are counted in `Bytes`.
+* `TestTypeConstants` and `TestControlTypesComplete` list it.
+* `protocol-v1.md` names it in the event-type enumeration and in the field list, and has its own
+  section, which says the event appears only once the daemon advertises `session.notices` (N3).
+* The guards passed after this step: `TestEventTypesAreDocumented`, `TestClassOfIsExhaustive` and
+  `TestBytesTracksStructGrowth`.
+
+**N1, the mapping.**
+
+* `TestNoticeBecomesAnAgentNotice` delivers a notice of each severity, with and without a
+  description, with `_meta`, and with an unknown severity. On A4's decline it **failed**:
+  `Indexed 120 files: agent_notice events = 0, want 1`.
+* The `u.Notice` case now emits `agent_notice`. The severity is passed through as sent, and the
+  title and description are trimmed. `_meta` is declined as `notice._meta`.
+* The A4 table's `Notice` row now expects `agent_notice`.
+
+**N1, the manager.**
+
+* `TestAgentNoticeIsKeptAndDeduplicated` sends a notice, the same notice again, then the same words
+  with a new severity, then with new detail, then a daemon `notice` with the same words. Before the
+  change it **failed**: the repeat was kept.
+* The existing notice dedupe now also covers `agent_notice`. It shares the session's
+  `NoticeDeduper`, with kind `agent:<severity>` and text title and description, so an agent notice
+  never matches a daemon notice.
+* `TestAgentNoticeIsContent` pins D2's history class. It was added when a review of the plants
+  found nothing covering it.
+
+**N2, structure first.**
+
+* `SessionEvent` gained `noticeSeverity`, `noticeTitle` and `noticeDescription`, parsed from the
+  three keys.
+* `ChatItem` gained `noticeSeverity`, `noticeDetail` and `isAgentNotice`, carried through
+  `copyWith`. An agent notice is a `system` row whose text is the title.
+
+**N2, the tests.** Before the reducer and the row existed, three **failed**:
+
+* `test/agent_notice_test.dart`, the reducer row: `Expected: an object with length of <1>`,
+  `Actual: []`;
+* the cache round trip: `Expected: true`, `Actual: <false>`;
+* the widget test in `test/chat_render_test.dart`: `Found 0 widgets with text "Navigation is
+  limited."`.
+
+The widget test asserts severity on each row's icon, not on pixel widths, since the test font is
+fixed-width. The icons are `info_outline` (twice: `info` and the unknown `critical`),
+`warning_amber_outlined` and `error_outline`.
+
+**N2, the change.**
+
+* `transcript_reducer.dart` has an `agent_notice` case. It ignores a blank title.
+* `ChatItem.toJson` and `fromJson` carry both fields, and a cache entry without them reads back as
+  before.
+* `chat_bubble.dart` draws `_AgentNotice`: the left accent rail, with an icon in the severity's
+  color (`error` the scheme's error, `warning` the theme's `caution`, anything else as info), the
+  title in medium weight, and the detail under it, up to four lines.
+
+**Fail first, on scratch copies.** Every plant failed its test.
+
+| Plant | Caught by |
+| :--- | :--- |
+| G1 description dropped | `TestNoticeBecomesAnAgentNotice` |
+| G2 `_meta` decline removed | the same (`declined [], want [notice._meta]`) |
+| G3 agent-notice dedupe removed | `TestAgentNoticeIsKeptAndDeduplicated` |
+| G4 dedupe key ignoring severity | the same (the error-severity repeat was dropped) |
+| G5 classed as telemetry | `TestAgentNoticeIsContent` |
+| G6 `Bytes` not counting the fields | `TestBytesTracksStructGrowth` |
+| G7 made droppable | `TestControlTypesComplete` |
+| F1 reducer dropping `agent_notice` | the reducer tests |
+| F2 cache dropping the severity | the cache round-trip test |
+| F3 `warning` drawn with the info icon | the widget test |
+| F4 an unknown severity drawn as error | the widget test |
+| F5 bubble ignoring agent notices | the widget test |
+| F6 detail not shown | the widget test |
+
+The first try at G1 broke the build (an unused variable), not an assertion. It was rewritten to
+compile, then failed as required. The Flutter plants ran on copies of `apps/mobile`, each with
+`flutter test` on the named files.
+
+**Verification,** each exit status recorded before reading its output:
+
+```text
+go test -race -count=1 ./...                         exit=0
+./scripts/go-precheck.sh <9 changed Go files>        exit=0 (gofmt, golint, govulncheck)
+make lint                                            exit=0
+make markdownlint-docs                               exit=0, "Summary: 0 issues in 0 files"
+make preflight                                       exit=0: check-records, markdownlint, gofmt,
+                                                     go vet, staticcheck, go test -race, dart format
+                                                     ("Formatted 214 files (0 changed)"), flutter
+                                                     analyze ("No issues found!"), flutter test
+                                                     ("+1424 ~3: All tests passed!")
+```
+
+* **Windows.** `make ci-windows` ran on the Windows test host, in Git Bash, against the N1/N2
+  working tree, as a tarball of the 1852 files git lists. Result: exit 0, "ci-windows-local: ALL
+  SELECTED CHECKS PASSED", with `internal/event`, `internal/provider/acpagent` and
+  `internal/session` all `ok`. That target runs the Go suite. The Flutter suite ran on macOS
+  through `make preflight` above.
+
+**Not done:**
+
+* N3 (advertise) and N4 (probe): not approved. N3 waits until N1 and N2 are committed;
+* no commit: N1 and N2 are staged, and a commit needs the owner's word in its turn;
+* CI on push.

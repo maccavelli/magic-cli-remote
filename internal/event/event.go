@@ -40,6 +40,11 @@ const (
 	// built-in slash command like /model or /help). Rendered as a system message,
 	// distinct from TypeError so it is not styled as a failure.
 	TypeNotice Type = "notice"
+	// TypeAgentNotice carries an ACP agent's own `notice` session update: a
+	// message for the user with a severity, a title and an optional description
+	// (NoticeSeverity, NoticeTitle, NoticeDescription). Distinct from TypeNotice,
+	// which is the daemon's (MADR 0188 D1).
+	TypeAgentNotice Type = "agent_notice"
 	// TypeUsage carries a token/context usage report (ACP usage_update). Advisory
 	// telemetry for a context-window indicator; droppable under back-pressure.
 	TypeUsage Type = "usage_update"
@@ -138,6 +143,7 @@ func Types() []Type {
 		TypeAvailableCommands,
 		TypePlan,
 		TypeNotice,
+		TypeAgentNotice,
 		TypeUsage,
 		TypeMode,
 		TypeSessionConfig,
@@ -182,6 +188,9 @@ func IsControl(t Type) bool {
 		TypeTurnComplete,
 		TypeError,
 		TypeNotice,
+		// An agent's notice is a warning or error meant for the user; it is
+		// low-rate, and a drop loses it for good (MADR 0188 D2).
+		TypeAgentNotice,
 		TypeToolCall,
 		TypeToolUpdate,
 		TypeUserMessage,
@@ -576,6 +585,14 @@ type Event struct {
 	// (codex thread/name/updated). The manager never lets a generated title
 	// replace a name the user set (MADR 0187 D1, D3).
 	TitleGenerated bool `json:"title_generated,omitempty"`
+
+	// NoticeSeverity, NoticeTitle and NoticeDescription are set on agent_notice
+	// events: ACP's `info`, `warning` or `error` (passed through, so an unknown
+	// value arrives as sent), the notice's stand-alone title, and its optional
+	// detail (MADR 0188 D1).
+	NoticeSeverity    string `json:"notice_severity,omitempty"`
+	NoticeTitle       string `json:"notice_title,omitempty"`
+	NoticeDescription string `json:"notice_description,omitempty"`
 	// TimedOut is set on permission_resolved events when the permission timed out
 	// (the user did not respond in time).
 	TimedOut bool `json:"timed_out,omitempty"`

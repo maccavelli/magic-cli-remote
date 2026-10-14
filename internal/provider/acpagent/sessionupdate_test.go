@@ -84,7 +84,7 @@ var sessionUpdateRows = map[string]updateRow{
 		emits: event.TypeSessionTitle, declines: []string{"session_info_update.updated_at"}}, // MADR 0187 D1
 	"UsageUpdate": {update: `{"sessionUpdate":"usage_update","used":1,"size":2,"cost":{"amount":0.5,"currency":"USD"}}`,
 		emits: event.TypeUsage, declines: []string{"usage_update.cost"}},
-	"Notice":                 {update: `{"sessionUpdate":"notice","severity":"info","title":"t"}`, declines: []string{"notice"}},
+	"Notice":                 {update: `{"sessionUpdate":"notice","severity":"info","title":"t"}`, emits: event.TypeAgentNotice}, // MADR 0188 D1
 	"CompactionUpdate":       {update: `{"sessionUpdate":"compaction_update","compactionId":"c1","status":"completed"}`, declines: []string{"compaction_update"}},
 	"CompactionSummaryChunk": {update: `{"sessionUpdate":"compaction_summary_chunk","compactionId":"c1","content":` + text + `}`, declines: []string{"compaction_summary_chunk"}},
 	"SubagentUpdate":         {update: `{"sessionUpdate":"subagent_update","sessionId":"child-1"}`, declines: []string{"subagent_update"}},

@@ -1921,7 +1921,24 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			TitleGenerated: true,
 		})
 	case u.Notice != nil:
-		s.declineUpdate("notice")
+		// The agent's own message for the user (MADR 0188 D1). The SDK has
+		// already refused a blank title; severity is passed through as sent.
+		n := u.Notice
+		if len(n.Meta) > 0 {
+			s.declineUpdate("notice._meta")
+		}
+		description := ""
+		if n.Description != nil {
+			description = strings.TrimSpace(*n.Description)
+		}
+		s.emit(event.Event{
+			Type:              event.TypeAgentNotice,
+			SessionID:         s.localID,
+			Timestamp:         now,
+			NoticeSeverity:    string(n.Severity),
+			NoticeTitle:       strings.TrimSpace(n.Title),
+			NoticeDescription: description,
+		})
 	case u.CompactionUpdate != nil:
 		s.declineUpdate("compaction_update")
 	case u.CompactionSummaryChunk != nil:

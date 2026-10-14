@@ -1326,6 +1326,8 @@ replace the card detail with non-empty incoming text snapshots.
 - `title_generated` (optional, MADR 0187): on `session_title` events, `true` when the agent wrote
   the title itself (ACP `session_info_update`). Absent when the title follows a user's rename in the
   engine (codex). A client may ignore it.
+- `notice_severity`, `notice_title`, `notice_description` (MADR 0188): on `agent_notice` events.
+  See [`agent_notice`](#agent_notice-event-an-agents-message-for-the-user).
 
 - `native_message_id` / `native_part_id`: the agent's own identity for a
   transcript-bearing event. Empty when the provider supplies none; such rows
@@ -1662,7 +1664,7 @@ mid-session without a restart. Attachment bytes and data URLs never appear in
 daemon logs, and `user_message` echoes carry descriptors only.
 
 Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`,
-`question_resolved`, `turn_complete`, `error`, `notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`,
+`question_resolved`, `turn_complete`, `error`, `notice`, `agent_notice`, `available_commands`, `remote_commands`, `plan`, `usage_update`, `session_mode`, `collaboration_mode`, `session_goal`, `session_config`,
 `session_capabilities`, `session_title`, `artifact`, `diagnostics_changed`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`,
 `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
 
@@ -1785,6 +1787,31 @@ generated title never replaces a name the user set (`name_source: "user"` on the
 The daemon drops such a title before history and push, so a client never receives it. A generated
 title is delivered only to a session that is unnamed or already carries a generated name. A title
 without `title_generated` is applied as before, and the last one applied is the name.
+
+### `agent_notice` event (an agent's message for the user)
+
+An ACP agent's own `notice` session update (MADR 0188): something it wants the user to know that is
+not part of the conversation. Distinct from `notice`, which is the daemon's own system line.
+
+```json
+{
+  "type": "agent_notice",
+  "session_id": "...",
+  "notice_severity": "warning",
+  "notice_title": "MCP server gopls is unavailable",
+  "notice_description": "Code navigation is limited until it reconnects."
+}
+```
+
+- `notice_severity`: `info`, `warning` or `error`, passed through from the agent. A client should
+  treat any other value as `info`.
+- `notice_title`: always present and non-empty. It stands alone.
+- `notice_description`: optional detail.
+
+The event is must-deliver and is kept in the session's history, so a client that was not connected
+when it arrived sees it on replay. A notice identical to the one before it is dropped. Agents send
+notices only to a client that advertised `session.notices`, so the event appears only once the
+daemon advertises it.
 
 ### `question_request` / `question_resolved` events
 

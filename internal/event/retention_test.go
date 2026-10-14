@@ -136,6 +136,15 @@ func TestAnchorsOutrankEverythingElse(t *testing.T) {
 	}
 }
 
+// TestAgentNoticeIsContent: an agent's notice is kept for a phone that was not
+// watching when it arrived, so it must outlive telemetry and progress when the
+// transcript is trimmed (MADR 0188 D2).
+func TestAgentNoticeIsContent(t *testing.T) {
+	if got := ClassOf(TypeAgentNotice); got != ClassContent {
+		t.Fatalf("agent_notice is %s, want content", got)
+	}
+}
+
 func TestBytesTracksStructGrowth(t *testing.T) {
 	// A 45th field the budget does not count is how a budget silently stops
 	// bounding anything. eventHeaderBytes is derived from the type, so this

@@ -178,6 +178,8 @@ class ChatItem {
     this.nativePartId,
     this.userParts = const [],
     this.artifact,
+    this.noticeSeverity,
+    this.noticeDetail,
   });
 
   final ChatItemKind kind;
@@ -265,6 +267,17 @@ class ChatItem {
   /// The file this row represents; null for every kind but
   /// [ChatItemKind.artifact].
   final ArtifactInfo? artifact;
+
+  /// Set only on a [ChatItemKind.system] row that is an agent's own notice
+  /// (MADR 0188 D3): its severity as the agent sent it, and its optional
+  /// detail. The row's [text] is the notice's title. Null on every other row,
+  /// including the daemon's own notices.
+  final String? noticeSeverity;
+  final String? noticeDetail;
+
+  /// True for an agent's notice, which renders as its own row rather than as a
+  /// daemon system line.
+  bool get isAgentNotice => noticeSeverity != null;
 
   /// Text derived from [userParts] when present, else the plain [text].
   String get userText {
@@ -358,6 +371,8 @@ class ChatItem {
     nativePartId: nativePartId ?? this.nativePartId,
     userParts: userParts ?? this.userParts,
     artifact: artifact ?? this.artifact,
+    noticeSeverity: noticeSeverity,
+    noticeDetail: noticeDetail,
   );
 
   Map<String, dynamic> toJson() => {
@@ -387,6 +402,10 @@ class ChatItem {
     // Metadata only: ArtifactInfo.toJson drops inline bytes, so a transcript
     // cache never becomes a file store (PLAN P5 step 3).
     if (artifact != null) 'artifact': artifact!.toJson(),
+    // An agent's notice (MADR 0188 D3). Absent on every other row, so older
+    // cache entries read back unchanged.
+    if (noticeSeverity != null) 'noticeSeverity': noticeSeverity,
+    if (noticeDetail != null) 'noticeDetail': noticeDetail,
   };
 
   factory ChatItem.fromJson(Map<String, dynamic> j) {
@@ -416,6 +435,8 @@ class ChatItem {
       // readable and are never guessed at during removal (PLAN P4 step 10).
       nativeMessageId: j['nativeMessageId'] as String?,
       nativePartId: j['nativePartId'] as String?,
+      noticeSeverity: j['noticeSeverity'] as String?,
+      noticeDetail: j['noticeDetail'] as String?,
       artifact: switch (j['artifact']) {
         final Map<String, dynamic> m => ArtifactInfo.fromJson(m),
         final Map<dynamic, dynamic> m => ArtifactInfo.fromJson(

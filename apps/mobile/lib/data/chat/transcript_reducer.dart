@@ -205,6 +205,23 @@ SessionTranscript applySessionEvent(
       // output). Rendered as a neutral system message, not an error.
       final msg = (ev.text ?? '').trim();
       if (msg.isNotEmpty) t = _append(t, ChatItem.system(msg));
+    case 'agent_notice':
+      // The agent's own message for the user (MADR 0188 D3). Kept apart from
+      // the daemon's notice: it carries a severity and optional detail, and
+      // renders as its own row.
+      final title = (ev.noticeTitle ?? '').trim();
+      if (title.isNotEmpty) {
+        final detail = (ev.noticeDescription ?? '').trim();
+        t = _append(
+          t,
+          ChatItem(
+            kind: ChatItemKind.system,
+            text: title,
+            noticeSeverity: (ev.noticeSeverity ?? '').trim(),
+            noticeDetail: detail.isEmpty ? null : detail,
+          ),
+        );
+      }
     case 'error':
       final msg = (ev.error ?? ev.text ?? '').trim();
       if (msg.isNotEmpty) {

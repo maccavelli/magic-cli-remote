@@ -1433,6 +1433,13 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					m.mu.Unlock()
 					continue
 				}
+				// An agent's notice repeats the same way (MADR 0188 D2). Its kind
+				// carries the severity, so it never matches a daemon notice.
+				if !ev.Replay && ev.Type == event.TypeAgentNotice &&
+					!e.noticeDedupe.ShouldEmit("agent:"+ev.NoticeSeverity, ev.NoticeTitle+"\n"+ev.NoticeDescription) {
+					m.mu.Unlock()
+					continue
+				}
 				// Turn timing (MADR 0137 Phase 2). Recorded before the
 				// switch below so a turn-ending event still sees the first
 				// output that preceded it.

@@ -2531,6 +2531,9 @@ class SessionEvent {
     this.timestamp,
     this.status,
     this.title,
+    this.noticeSeverity,
+    this.noticeTitle,
+    this.noticeDescription,
     this.text,
     this.toolId,
     this.toolName,
@@ -2589,6 +2592,13 @@ class SessionEvent {
   final DateTime? timestamp;
   final String? status;
   final String? title;
+
+  /// An agent's own notice, on `agent_notice` events (MADR 0188): `info`,
+  /// `warning` or `error` as the agent sent it, its stand-alone title, and
+  /// optional detail. Null on every other event.
+  final String? noticeSeverity;
+  final String? noticeTitle;
+  final String? noticeDescription;
   final String? text;
   final String? toolId;
   final String? toolName;
@@ -2785,6 +2795,9 @@ class SessionEvent {
       timestamp: ts,
       status: json['status'] as String?,
       title: json['title'] as String?,
+      noticeSeverity: json['notice_severity'] as String?,
+      noticeTitle: json['notice_title'] as String?,
+      noticeDescription: json['notice_description'] as String?,
       text: json['text'] as String?,
       toolId: json['tool_id'] as String?,
       toolName: json['tool_name'] as String?,
