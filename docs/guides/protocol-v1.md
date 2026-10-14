@@ -1876,7 +1876,9 @@ state wins, and the compaction keeps the position of its first event.
 The event is must-deliver and is kept in the session's history. A state identical to the previous
 one for the same compaction is dropped. A summary the agent streams in pieces arrives as one event
 when it starts and one when the agent updates the compaction, not one per piece. Agents send
-compaction updates only to a client that advertised `session.compaction`.
+compaction updates only to a client that advertised `session.compaction`. The daemon advertises it
+to every ACP agent that uses its default client capabilities (grok included), so the event appears
+whenever such an agent reports a compaction.
 
 ### `question_request` / `question_resolved` events
 

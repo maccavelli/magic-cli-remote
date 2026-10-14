@@ -237,8 +237,59 @@ gate, for K1 and K2 to be committed.
 
 **Not done.**
 
-* **K3** waits until K1 and K2 are committed, per its own gate.
+* ~~**K3** waits until K1 and K2 are committed, per its own gate.~~ K1 and K2 were committed as
+  `575f02e1`, and K3 followed (below).
 * **K4** waits for approval by name, and its second step for the quota.
 * **Noticed, not changed.** In `chat_bubble.dart`, `_LimitNotice`'s doc comment sits above
   `_AgentNotice`'s, so the two read as one. It was introduced by 0188 N2 (`fc737d36`) and is
   outside this PLAN.
+
+### K3, 2026-10-14: complete (staged, not committed)
+
+**Approval:** the owner on 2026-10-14, "committed, proceed", after K1 and K2 were committed as
+`575f02e1`. That met K3's gate.
+
+**The wire test, first.** `TestACompactionArrivesOverTheWire` (`compaction_wire_test.go`) sends a
+`compaction_update` over a real connection, through the SDK's capability gate as production
+configures it. Before the advertisement it **failed**: the SDK refused the update with
+`capability session.compaction not advertised`, and the test reported
+`no compaction within 5s: the update did not get past the SDK's capability gate`.
+
+**Step 1.**
+
+* On a scratch copy, `Compaction` was added to `defaultClientCapabilities` without marking it
+  implemented. The honesty test **failed**:
+  `the default advertisement is dishonest: [session.compaction is advertised but not implemented]`.
+* Then, in the tree, `session.compaction` was added to `implementedClientCapabilities`, and removed
+  from the honesty test's dishonest examples. `elicitation`, `plan` and `auth.terminal` remain.
+
+**Step 2.**
+
+* `Compaction: &acp.CompactionCapabilities{}` is in `defaultClientCapabilities`, and its doc
+  comment says what implements it.
+* The pinned `initialize` frame now reads
+  `"session":{"compaction":{},"configOptions":{"boolean":{}},"notices":{}}`.
+* `protocol-v1.md`'s compaction section says the daemon advertises it to every ACP agent that uses
+  the default capabilities, grok included.
+
+**Planted breaks, each on a scratch copy.** Both failed:
+
+| Plant | Failure |
+| --- | --- |
+| advertisement withdrawn | `initialize frame changed`, and the wire test's `no compaction within 5s` |
+| advertised but not marked implemented | `session.compaction is advertised but not implemented` |
+
+**Verification.**
+
+* `go test -race ./...`: passed; the `internal/provider/grok` tests pass with the new frame.
+* `make pre-add-check` on the three changed Go files: clean. `make lint`: clean.
+* `make markdownlint-docs`: clean. `python3 scripts/check_records.py --check-all`: clean.
+* `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with `internal/provider/acpagent`
+  and `internal/provider/grok` both `ok`.
+
+**Rollout.** K3 is the switch. A phone build with K2 (`575f02e1`) must ship with or before a daemon
+release that contains K3. An older phone ignores `compaction` events: it shows nothing, but does not
+break.
+
+**Not done.** K4, the probe, waits for approval by name. Its first step spends no model tokens; its
+second waits for the owner's quota.

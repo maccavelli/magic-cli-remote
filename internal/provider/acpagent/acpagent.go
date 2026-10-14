@@ -1072,6 +1072,11 @@ const clientName = "mcremote"
 //     daemon keeps in history and the phone draws with its severity. Agents
 //     send notices only when this is advertised, and the SDK refuses one
 //     otherwise (MADR 0188 D4).
+//   - session.compaction: SessionUpdate folds compaction_update and
+//     compaction_summary_chunk by ID into compaction events, which the daemon
+//     keeps in history and the phone draws as one row per compaction. Agents
+//     send them only when this is advertised, and the SDK refuses one
+//     otherwise (MADR 0190 D4).
 //
 // Nothing else is advertised until its behavior exists; the
 // capability-honesty test holds each Spec to that.
@@ -1082,6 +1087,7 @@ func defaultClientCapabilities() acp.ClientCapabilities {
 		Session: &acp.ClientSessionCapabilities{
 			ConfigOptions: &acp.SessionConfigOptionsCapabilities{Boolean: &acp.BooleanConfigOptionCapabilities{}},
 			Notices:       &acp.NoticeCapabilities{},
+			Compaction:    &acp.CompactionCapabilities{},
 		},
 	}
 }
@@ -1104,6 +1110,7 @@ var implementedClientCapabilities = map[string]bool{
 	"terminal":                      true,
 	"session.configOptions.boolean": true,
 	"session.notices":               true,
+	"session.compaction":            true,
 }
 
 // capabilityContainers are the objects of the clientCapabilities block that
