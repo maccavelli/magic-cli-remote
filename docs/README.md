@@ -363,6 +363,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0187 | PLAN | Implement showing the agent's session title without overwriting a user name | [0187-PLAN-show-the-agent-session-title-without-overwriting-a-user-name.md](decisions/0187-PLAN-show-the-agent-session-title-without-overwriting-a-user-name.md) |
 | 0188 | MADR | Show an ACP agent's `notice` updates on the phone, and advertise `session.notices` | [0188-MADR-show-agent-notices-on-the-phone.md](decisions/0188-MADR-show-agent-notices-on-the-phone.md) |
 | 0188 | PLAN | Implement showing agent notices on the phone | [0188-PLAN-show-agent-notices-on-the-phone.md](decisions/0188-PLAN-show-agent-notices-on-the-phone.md) |
+| 0189 | MADR | Carry an ACP agent's `usage_update` cost as a session total, never as a per-turn figure | [0189-MADR-carry-the-agent-session-cost-as-a-session-total.md](decisions/0189-MADR-carry-the-agent-session-cost-as-a-session-total.md) |
+| 0189 | PLAN | Implement carrying the agent session cost as a session total | [0189-PLAN-carry-the-agent-session-cost-as-a-session-total.md](decisions/0189-PLAN-carry-the-agent-session-cost-as-a-session-total.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
