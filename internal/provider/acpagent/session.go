@@ -1896,7 +1896,30 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	case u.PlanUpdate != nil:
 		s.declineUpdate("plan_update")
 	case u.SessionInfoUpdate != nil:
-		s.declineUpdate("session_info_update")
+		// The agent's own title for the session. It is generated, so the
+		// manager never lets it replace a name the user set (MADR 0187 D1).
+		// updatedAt and _meta are not used.
+		info := u.SessionInfoUpdate
+		if info.UpdatedAt != nil {
+			s.declineUpdate("session_info_update.updated_at")
+		}
+		if len(info.Meta) > 0 {
+			s.declineUpdate("session_info_update._meta")
+		}
+		if info.Title == nil {
+			return nil
+		}
+		title := strings.TrimSpace(*info.Title)
+		if title == "" {
+			return nil
+		}
+		s.emit(event.Event{
+			Type:           event.TypeSessionTitle,
+			SessionID:      s.localID,
+			Timestamp:      now,
+			Title:          title,
+			TitleGenerated: true,
+		})
 	case u.Notice != nil:
 		s.declineUpdate("notice")
 	case u.CompactionUpdate != nil:

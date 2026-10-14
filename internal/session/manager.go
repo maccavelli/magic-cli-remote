@@ -107,11 +107,32 @@ var (
 	ErrShuttingDown = errors.New("session manager shutting down")
 )
 
+// The values of Meta.NameSource (MADR 0187 D2).
+const (
+	NameSourceUser      = "user"
+	NameSourceGenerated = "generated"
+)
+
+// effectiveNameSource is a name's source, reading a record written before
+// MADR 0187 as the user's when it has a name: a name nobody can classify is
+// never overwritten (D4).
+func effectiveNameSource(name, source string) string {
+	if source != "" || name == "" {
+		return source
+	}
+	return NameSourceUser
+}
+
 // Meta is public session metadata.
 type Meta struct {
 	ID       string      `json:"id"`
 	Provider provider.ID `json:"provider"`
 	Name     string      `json:"name"`
+	// NameSource says where Name came from: NameSourceUser (typed at create,
+	// /new, Rename, or a codex rename) or NameSourceGenerated (the agent's
+	// own title). A generated title never replaces a user's name. Empty with
+	// an empty Name means unnamed (MADR 0187 D2–D4).
+	NameSource string `json:"name_source,omitempty"`
 	// Model is the agent model this session was last (re)started with. Empty
 	// means the provider's default. Persisted on disk with the session record
 	// so resume after restart keeps the same model (Phase 3.3).
@@ -985,6 +1006,14 @@ func (m *Manager) LiveCount() int {
 // ownerDeviceID may be empty in tests; production WS paths pass the authed
 // device id (R4=B).
 func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provider.StartOptions, ownerDeviceID string) (Meta, error) {
+	return m.create(ctx, providerID, opts, ownerDeviceID, "")
+}
+
+// create is Create with the source of opts.Name, when the caller knows it
+// (Fork). Empty means: the stored source when this re-opens an existing id
+// under its stored name (phone resume, relaunch), else the user's when
+// opts.Name is set (MADR 0187 D2, D4).
+func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provider.StartOptions, ownerDeviceID, nameSource string) (Meta, error) {
 	p, err := m.reg.Get(providerID)
 	if err != nil {
 		return Meta{}, err
@@ -1019,6 +1048,9 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	// Dead entries (mid auto-close) still carry an owner and are checked too.
 	replacing := false
 	reserved := false
+	// The name this id already has, live or stored, and its source.
+	var priorName, priorSource string
+	havePrior := false
 	m.mu.Lock()
 	if m.shuttingDown {
 		m.mu.Unlock()
@@ -1026,6 +1058,7 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 	}
 	if e, ok := m.sessions[opts.LocalSessionID]; ok {
 		replacing = !e.dead
+		priorName, priorSource, havePrior = e.meta.Name, e.meta.NameSource, true
 		if e.meta.OwnerDeviceID != "" && ownerDeviceID != "" && e.meta.OwnerDeviceID != ownerDeviceID {
 			m.mu.Unlock()
 			return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
@@ -1063,6 +1096,9 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		if rec, err := m.store.Get(opts.LocalSessionID); err == nil {
 			if !replacing && ownerDeviceID != "" && rec.OwnerDeviceID != "" && rec.OwnerDeviceID != ownerDeviceID {
 				return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
+			}
+			if !havePrior {
+				priorName, priorSource, havePrior = rec.Name, rec.NameSource, true
 			}
 			if opts.ModeID == "" {
 				opts.ModeID = rec.ModeID
@@ -1106,11 +1142,22 @@ func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provi
 		cwd = c.CWD()
 	}
 
+	switch {
+	case opts.Name == "":
+		nameSource = ""
+	case nameSource != "":
+	case havePrior && opts.Name == priorName:
+		nameSource = effectiveNameSource(priorName, priorSource)
+	default:
+		nameSource = NameSourceUser
+	}
+
 	runCtx, cancel := context.WithCancel(m.runCtx)
 	meta := Meta{
 		ID:                  sess.ID(),
 		Provider:            providerID,
 		Name:                opts.Name,
+		NameSource:          nameSource,
 		Model:               opts.Model,
 		ThinkingLevel:       strings.TrimSpace(opts.ThinkingLevel),
 		ModeID:              strings.TrimSpace(opts.ModeID),
@@ -1340,9 +1387,23 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					}
 				}
 				if ev.Type == event.TypeSessionTitle {
+					// A title the agent generated never replaces a name the
+					// user set. It is withheld entirely, like a duplicate
+					// notice below, because the phone renames the chat on
+					// any session_title it receives (MADR 0187 D3).
+					if ev.TitleGenerated && effectiveNameSource(e.meta.Name, e.meta.NameSource) == NameSourceUser {
+						m.mu.Unlock()
+						continue
+					}
 					title := strings.TrimSpace(ev.Title)
 					if title != "" && title != e.meta.Name {
 						e.meta.Name = title
+						// An unflagged title follows a user's own rename
+						// (codex thread/name/updated).
+						e.meta.NameSource = NameSourceUser
+						if ev.TitleGenerated {
+							e.meta.NameSource = NameSourceGenerated
+						}
 						meta := e.meta
 						persistMeta = &meta
 					}
@@ -2171,6 +2232,7 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			ID:                  rec.ID,
 			Provider:            rec.Provider,
 			Name:                rec.Name,
+			NameSource:          effectiveNameSource(rec.Name, rec.NameSource),
 			Model:               rec.Model,
 			ThinkingLevel:       rec.ThinkingLevel,
 			ModeID:              rec.ModeID,
@@ -2423,6 +2485,7 @@ func (m *Manager) Rename(ctx context.Context, id, title, deviceID string) (Meta,
 		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	e.meta.Name = title
+	e.meta.NameSource = NameSourceUser // MADR 0187 D2
 	meta := e.meta
 	m.mu.Unlock()
 	_ = m.persistNow(meta)
@@ -2771,7 +2834,14 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 	} else {
 		name = "fork"
 	}
-	return m.Create(ctx, meta.Provider, provider.StartOptions{
+	// The derived name keeps the parent's source: the fork of a session the
+	// user named is the user's; any other fork stays open to agent titles
+	// (MADR 0187 D2).
+	nameSource := NameSourceGenerated
+	if effectiveNameSource(meta.Name, meta.NameSource) == NameSourceUser {
+		nameSource = NameSourceUser
+	}
+	return m.create(ctx, meta.Provider, provider.StartOptions{
 		Name:                name,
 		CWD:                 meta.CWD,
 		Model:               meta.Model,
@@ -2783,7 +2853,7 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 		ServiceTier:         meta.ServiceTier,
 		Personality:         meta.Personality,
 		AgentSessionID:      newAgentID,
-	}, deviceID)
+	}, deviceID, nameSource)
 }
 
 // Revert undoes a message in the provider-native session (OpenCode).
@@ -3271,6 +3341,7 @@ func (m *Manager) writePersist(meta Meta) error {
 		ID:                  meta.ID,
 		Provider:            meta.Provider,
 		Name:                meta.Name,
+		NameSource:          meta.NameSource,
 		Model:               meta.Model,
 		ThinkingLevel:       meta.ThinkingLevel,
 		ModeID:              meta.ModeID,

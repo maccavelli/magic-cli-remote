@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-13
 decision-makers: Project Owner
 consulted: none
@@ -84,11 +84,11 @@ Which wins when grok's generated title and a user's name disagree?
 
 ## Decision Outcome
 
-Chosen option: none yet, because this record is `proposed`. Recommended: "Map the title as a
-generated title; a name the user set wins". It is the only option that gives unnamed sessions a
-readable title and also keeps a user's name. It also leaves codex as it is.
+Chosen option: "Map the title as a generated title; a name the user set wins", because it is the
+only option that gives unnamed sessions a readable title and also keeps a user's name. It also
+leaves codex as it is. The owner accepted it on 2026-10-13 ("accept option 1, do T1 and T2").
 
-Under the recommended option:
+Under the chosen option:
 
 * **D1 — acpagent maps `session_info_update.title` to `session_title`, marked generated.**
   `event.Event` gains `TitleGenerated bool`, set only by acpagent. A title that is empty after
@@ -179,4 +179,26 @@ Under the recommended option:
 * [0106-MADR-grok-1.0.5-surface-parity.md](0106-MADR-grok-1.0.5-surface-parity.md) listed session
   titles and the recap as later work. This record takes up the title only.
 * The PLAN is [0187-PLAN-show-the-agent-session-title-without-overwriting-a-user-name.md](0187-PLAN-show-the-agent-session-title-without-overwriting-a-user-name.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+  ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
+  accepted the recommended option and approved T1 and T2 on 2026-10-13.
+
+## Amendment — 2026-10-13: what D2 and D3 needed in practice
+
+Implementing T2 showed that D2's rule, "a non-empty name at create sets `user`", is not the whole
+rule, and that D3 needs more than leaving `Meta.Name` alone. The decision is unchanged. These three
+points are what it takes to hold.
+
+* **Re-opening a session keeps its stored source.**
+  * The phone resumes a closed session by re-sending `session.create` with the session's id and its
+    current name (`apps/mobile/lib/data/ws/mcremote_client.dart:4028-4045`).
+  * `/reset` and model recovery re-create a live session the same way (`relaunch`).
+  * Under D2 as written, both would turn an agent-titled name into the user's on the first resume.
+  * So when a create re-opens an existing id, live or stored, under that id's own name, the session
+    keeps the source it had, with D4's rule for records that have none.
+  * A different name in that create is the user's.
+* **A refused generated title is withheld, not just ignored.** The phone renames the chat on any
+  `session_title` it receives. So a generated title the manager refuses is dropped before history
+  and broadcast, as a duplicate notice is, and not merely kept off `Meta.Name`.
+* **A title without `TitleGenerated` marks the name the user's.** That title follows a rename the
+  user made in the engine (codex `thread/name/updated`), so D2's sources gain it.
+

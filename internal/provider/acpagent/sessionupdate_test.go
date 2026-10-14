@@ -80,7 +80,8 @@ var sessionUpdateRows = map[string]updateRow{
 	"CurrentModeUpdate": {update: `{"sessionUpdate":"current_mode_update","currentModeId":"plan"}`, emits: event.TypeMode},
 	"ConfigOptionUpdate": {update: `{"sessionUpdate":"config_option_update","configOptions":[{"type":"boolean","id":"b","name":"B","currentValue":true}]}`,
 		emits: event.TypeSessionConfig},
-	"SessionInfoUpdate": {update: `{"sessionUpdate":"session_info_update","title":"t"}`, declines: []string{"session_info_update"}},
+	"SessionInfoUpdate": {update: `{"sessionUpdate":"session_info_update","title":"t","updatedAt":"2026-10-13T00:00:00Z"}`,
+		emits: event.TypeSessionTitle, declines: []string{"session_info_update.updated_at"}}, // MADR 0187 D1
 	"UsageUpdate": {update: `{"sessionUpdate":"usage_update","used":1,"size":2,"cost":{"amount":0.5,"currency":"USD"}}`,
 		emits: event.TypeUsage, declines: []string{"usage_update.cost"}},
 	"Notice":                 {update: `{"sessionUpdate":"notice","severity":"info","title":"t"}`, declines: []string{"notice"}},

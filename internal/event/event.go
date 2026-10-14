@@ -571,6 +571,11 @@ type Event struct {
 
 	// Title is set on session_title events (ACP sessionInfoUpdate).
 	Title string `json:"title,omitempty"`
+	// TitleGenerated marks a session_title the agent wrote itself (ACP
+	// session_info_update), as opposed to one that follows a user's rename
+	// (codex thread/name/updated). The manager never lets a generated title
+	// replace a name the user set (MADR 0187 D1, D3).
+	TitleGenerated bool `json:"title_generated,omitempty"`
 	// TimedOut is set on permission_resolved events when the permission timed out
 	// (the user did not respond in time).
 	TimedOut bool `json:"timed_out,omitempty"`
