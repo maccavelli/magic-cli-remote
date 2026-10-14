@@ -76,13 +76,19 @@ var spec = acpagent.Spec{
 			DisableWebSearch: cfg.DisableWebSearch,
 		})
 	},
-	SessionMeta:        grokSessionMeta,
-	StaticModels:       staticModels,
-	StaticModes:        staticModes,
-	DefaultModeID:      "default",
-	SynthesizeAutoMode: true,
-	Commands:           commandTable,
-	CommandCaveat:      commandCaveat,
+	SessionMeta: grokSessionMeta,
+	// For a grok that offers no standard model or thought_level config option,
+	// as 1.0.13 does not; 1.0.50 offers both, and the standard path runs
+	// instead (MADR 0184 D6, PLAN 0184 A3 probe).
+	SetModelFallback:    setModelFallback,
+	SetThinkingFallback: setThinkingFallback,
+	HarvestSessionMeta:  harvestSessionMeta,
+	StaticModels:        staticModels,
+	StaticModes:         staticModes,
+	DefaultModeID:       "default",
+	SynthesizeAutoMode:  true,
+	Commands:            commandTable,
+	CommandCaveat:       commandCaveat,
 	ExtensionNotifications: map[string]acpagent.ExtensionNotificationHandler{
 		// 1.0.5 emits the slash form as a notification (no id). The
 		// underscore key is the 0039 name, kept so a spelling revert

@@ -184,6 +184,11 @@ type session struct {
 	// currentModelID is the last applied ACP model id (sessionDetail or
 	// SetModel), not spawn argv. Guarded by s.mu.
 	currentModelID string
+	// configOptions is the agent's last full set of session config options
+	// (session/new|load, a set_config_option answer, or config_option_update).
+	// SetModel and SetThinkingLevel look in it for a standard `model` or
+	// `thought_level` option (MADR 0184 D6). Guarded by s.mu.
+	configOptions []acp.SessionConfigOption
 	// engineModelID is the model the agent reported at `initialize`
 	// (`_meta.modelState.currentModelId`). It is the fallback for
 	// CurrentModel: currentModelID above starts as what the *client asked
@@ -946,45 +951,87 @@ func (s *session) ThinkingMutability() provider.ThinkingMutability {
 // advertised. SetThinkingLevel is in thinking.go (MADR 0106).
 var _ provider.ThinkingSession = (*session)(nil)
 
-// SetModel switches the live model mid-session via ACP session/set_model
-// (verified live against grok 0.2.112; MADR 0039 D1).
+// SetModel switches the live model mid-session. The standard path is the
+// agent's `model` config option (MADR 0184 D6); an agent that offers none
+// gets its Spec's SetModelFallback, which for grok is its session/set_model
+// (MADR 0039 D1).
 func (s *session) SetModel(ctx context.Context, model string) error {
 	s.mu.Lock()
-	agentID := s.agentID
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
 		return fmt.Errorf("session closed")
 	}
-	var resp struct {
-		Meta struct {
-			Model struct {
-				Ok  string `json:"Ok,omitempty"`
-				Err string `json:"Err,omitempty"`
-			} `json:"model"`
-		} `json:"_meta"`
+	applied, handled, err := s.setSelectOption(ctx, acp.SessionConfigOptionCategoryModel, model)
+	if !handled {
+		fallback := s.spec().SetModelFallback
+		if fallback == nil {
+			return fmt.Errorf("set model: the agent offers no model config option: %w", provider.ErrNotImplemented)
+		}
+		applied, err = fallback(ctx, s, model)
 	}
-	if err := s.rawRequest(ctx, "session/set_model",
-		map[string]any{"sessionId": agentID, "modelId": model}, &resp); err != nil {
+	if err != nil {
 		return err
 	}
-	if resp.Meta.Model.Err != "" {
-		return fmt.Errorf("set_model: %s", resp.Meta.Model.Err)
-	}
-	applied := model
-	if resp.Meta.Model.Ok != "" {
-		applied = resp.Meta.Model.Ok
-		if applied != model {
-			s.log.Warn("set_model accepted a different id",
-				slog.String("requested", model),
-				slog.String("accepted", applied))
-		}
+	if applied != model {
+		s.log.Warn("set model accepted a different id",
+			slog.String("requested", model),
+			slog.String("accepted", applied))
 	}
 	s.mu.Lock()
 	s.currentModelID = applied
 	s.mu.Unlock()
 	return nil
 }
+
+// spec is the Spec of the provider that opened this session; the zero Spec
+// for a session built without one, as unit tests do.
+func (s *session) spec() Spec {
+	if s.provider == nil {
+		return Spec{}
+	}
+	return s.provider.spec
+}
+
+// setSelectOption sets the session's select config option in category to
+// value with session/set_config_option and returns the value the agent's
+// answer reports current. handled is false, and nothing is sent, when the
+// agent offers no option in that category.
+func (s *session) setSelectOption(ctx context.Context, category acp.SessionConfigOptionCategory, value string) (applied string, handled bool, err error) {
+	s.mu.Lock()
+	agentID := s.agentID
+	id, _, ok := selectOption(s.configOptions, category)
+	s.mu.Unlock()
+	if !ok {
+		return "", false, nil
+	}
+	resp, err := s.conn.SetSessionConfigOption(ctx, acp.SetSessionConfigOptionRequest{
+		ValueId: &acp.SetSessionConfigOptionValueId{
+			ConfigId:  acp.SessionConfigId(id),
+			SessionId: acp.SessionId(agentID),
+			Value:     acp.SessionConfigValueId(value),
+		},
+	})
+	if err != nil {
+		return "", true, err
+	}
+	s.mu.Lock()
+	s.recordConfigOptions(resp.ConfigOptions)
+	s.mu.Unlock()
+	s.emitConfigOptions(resp.ConfigOptions)
+	_, applied, ok = selectOption(resp.ConfigOptions, category)
+	if !ok {
+		return "", true, fmt.Errorf("set_config_option %s: the answer carries no %s option", id, category)
+	}
+	return applied, true, nil
+}
+
+// RawRequest is rawRequest for a Spec's vendor fallback (RawCaller).
+func (s *session) RawRequest(ctx context.Context, method string, params, out any) error {
+	return s.rawRequest(ctx, method, params, out)
+}
+
+var _ RawCaller = (*session)(nil)
 
 // MCPStatus implements provider.MCPStatusSession.
 func (s *session) MCPStatus(ctx context.Context) ([]provider.MCPServerStatus, error) {
@@ -1827,6 +1874,9 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	case u.ConfigOptionUpdate != nil:
 		// The agent updated its config options mid-session. Re-emit the full
 		// set so the client can refresh its UI.
+		s.mu.Lock()
+		s.recordConfigOptions(u.ConfigOptionUpdate.ConfigOptions)
+		s.mu.Unlock()
 		s.emitConfigOptions(u.ConfigOptionUpdate.ConfigOptions)
 	default:
 		s.log.Debug("unhandled session update")
@@ -2708,8 +2758,9 @@ var standardConnOf = func(c *acp.ClientSideConnection) *acp.Connection {
 }
 
 // rawRequest sends a JSON-RPC request over the ACP connection and decodes the
-// result into out. Used for session/set_model, which schema 1.25 does not
-// define, for grok's session/resume read-back, and for _x.ai/* extensions.
+// result into out. Used for _x.ai/* extensions and, through RawRequest, by
+// grok's Spec fallbacks for session/set_model, which schema 1.25 does not
+// define, and its session/resume read-back.
 //
 // Two transports, chosen by the method name:
 //

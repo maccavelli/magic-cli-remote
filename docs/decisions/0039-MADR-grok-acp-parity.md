@@ -539,3 +539,14 @@ raw-RPC `session/set_model` + `ModelSession` + command remap →
 - **Phase 4 (2026-07-27)**: Added 7 typed policy config fields to `acpagent.Config` and `GrokProviderConfig`, updated `defaultArgs` and `ModelArgs` builder.
 - **Phase 5 (2026-07-27)**: Added `provider.MCPStatusSession` and `DiagnosticsSession` implementations on `acpagent.session`, registered `_x.ai/mcp/server_status` and `_x.ai/mcp_initialized` notification handlers.
 - **Phase 6 (2026-07-27)**: Updated operator docs (`docs/guides/config.md`), `README.md`, command matrix, and completed pre-add checks and unit tests.
+
+## Amendment — 2026-10-13: D1's raw `session/set_model` now lives in grok's spec
+
+[0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](./0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+(D6) moved D1's mechanism. `acpagent.session.SetModel` no longer sends `session/set_model`. It sets
+the agent's standard `model` config option with `session/set_config_option`, when the agent
+advertises one. D1's raw call is now `setModelFallback` in `internal/provider/grok/fallback.go`,
+behind the `acpagent.Spec` hook `SetModelFallback`. It runs only for a grok that advertises no
+`model` option. grok `1.0.50` advertises one, so on that release the standard path runs and this
+record's raw call does not. The `OpSetModel` command mapping and `provider.ModelSession` are
+unchanged. D1 is kept above as written.

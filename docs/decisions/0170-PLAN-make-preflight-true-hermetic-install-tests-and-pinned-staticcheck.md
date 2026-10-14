@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-13
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -270,4 +270,8 @@ Approved by the owner: "Bump to v0.8.2 under 0170".
   38493595777; on a scratch clone of `54d15365`, the same six import errors appeared.
 * **Not staged.** The ACP change occupies the index, and this phase is a separate change. The owner
   commits that first, then stages this: the `Makefile` and this pair.
-* **Not done:** the CI step on the next push. This PLAN stays `in-progress` until it passes there.
+* ~~**Not done:** the CI step on the next push. This PLAN stays `in-progress` until it passes there.~~
+  **Done.** The commit was `56f95237`. Its push ran CI run 38495795003, which succeeded on every
+  leg: `Go (test; build on tag)`, `Go (linux/arm64)` and `Go (windows/amd64)` among them. The
+  staticcheck step passed with `v0.8.2`, so every acceptance criterion is met and this PLAN is
+  `complete`.

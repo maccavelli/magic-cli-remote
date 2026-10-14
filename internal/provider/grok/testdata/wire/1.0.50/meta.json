@@ -1,0 +1,10 @@
+{
+  "provider": "grok",
+  "version": "1.0.50",
+  "kind": "in-daemon",
+  "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap)",
+  "captured_at": "2026-10-14T01:43:53Z",
+  "frames": 14,
+  "redacted": "macOS per-user temp root -> /var/folders/<id>/<user>/T",
+  "note": "selected verbatim agent frames from a make live-grok run (PLAN 0184 A3): session/new and session/load answers carrying standard model and thought_level configOptions, session/set_config_option answers, config_option_update notifications, and -32602 refusals"
+}

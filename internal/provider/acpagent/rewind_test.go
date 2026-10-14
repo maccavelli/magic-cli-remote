@@ -467,19 +467,15 @@ func TestUndoLastWithoutAnAgentSession(t *testing.T) {
 // rawRequest would classify it as a standard method and put it on the standard
 // path, which is precisely the path Phase 9 took extension methods off.
 func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
-	// The standard methods whose payload the SDK's typed API cannot carry:
-	// session/set_model is not in schema 1.25 at all, and grok's session/resume
-	// reply puts its model list in a top-level `models` object that
-	// ResumeSessionResponse has no field for. They reach the connection through
-	// standardConnOf, and this set is the complete list of what may use it, until
-	// 0184's A3 moves both behind grok's spec.
+	// No standard method takes the raw path from this package. The two whose
+	// payload the SDK's typed API cannot carry, session/set_model (not in schema
+	// 1.25) and grok's session/resume (its `models` object), moved behind grok's
+	// Spec fallbacks in 0184's A3; TestStandardMethodsAreTypedOutsideGrokFallbacks
+	// covers them there.
 	//
 	// initialize is deliberately absent: it goes through the typed Initialize,
 	// whose response keeps _meta (MADR 0167 F15, F17).
-	standard := map[string]bool{
-		"session/set_model": true,
-		"session/resume":    true,
-	}
+	standard := map[string]bool{}
 
 	fset := token.NewFileSet()
 	// parser.ParseDir is deprecated (it ignores build tags). Parse every
@@ -520,6 +516,9 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 	sites := 0
 	for _, file := range files {
 		ast.Inspect(file, func(n ast.Node) bool {
+			if fd, ok := n.(*ast.FuncDecl); ok && fd.Name.Name == "RawRequest" {
+				return false // the RawCaller wrapper; its method is a parameter
+			}
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
@@ -548,9 +547,9 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 				}
 				sites++
 				if !isExtensionMethod(method) && !standard[method] {
-					t.Errorf("%s: rawRequest(%q) takes the standard-method raw path, but %q is "+
-						"not one of the two standard methods that need it. If it is a vendor "+
-						"extension it must be written with its leading underscore", where, method, method)
+					t.Errorf("%s: rawRequest(%q) takes the standard-method raw path, which no "+
+						"call in this package may use. If %q is a vendor extension it must be "+
+						"written with its leading underscore", where, method, method)
 				}
 			case *ast.Ident:
 				if fn.Name != "callAgentExtension" {

@@ -4,39 +4,16 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	acp "github.com/maccavelli/acp-go-sdk2"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
-func setThinkingRequest(agentID, modelID, level string) map[string]any {
-	return map[string]any{
-		"sessionId": agentID,
-		"modelId":   modelID,
-		"_meta":     map[string]any{"reasoningEffort": level},
-	}
-}
-
-func resumeSnapshotRequest(agentID, cwd string) map[string]any {
-	return map[string]any{"sessionId": agentID, "cwd": cwd}
-}
-
-type grokResumeSnapshot struct {
-	Models struct {
-		CurrentModelID  string               `json:"currentModelId"`
-		AvailableModels []GrokAvailableModel `json:"availableModels"`
-	} `json:"models"`
-	Meta map[string]any `json:"_meta"`
-}
-
-func (sn grokResumeSnapshot) appliedEffort(modelID string) string {
-	for _, m := range sn.Models.AvailableModels {
-		if m.ModelID == modelID && m.Meta.ReasoningEffort != "" {
-			return m.Meta.ReasoningEffort
-		}
-	}
-	return appliedEffortFromMeta(sn.Meta)
-}
-
-// SetThinkingLevel applies grok 1.0.5 session/set_model `_meta.reasoningEffort`
-// and confirms via session/resume (MADR 0106). It does not return
+// SetThinkingLevel sets the session's thinking level. The standard path is the
+// agent's `thought_level` config option, whose set_config_option answer is
+// the read-back (MADR 0184 D6); an agent that offers none gets its Spec's
+// SetThinkingFallback, which for grok is set_model `_meta.reasoningEffort`
+// confirmed by session/resume (MADR 0106). It does not return
 // ErrThinkingLevelFixed.
 func (s *session) SetThinkingLevel(ctx context.Context, level string) error {
 	level = strings.TrimSpace(level)
@@ -46,38 +23,29 @@ func (s *session) SetThinkingLevel(ctx context.Context, level string) error {
 	s.mu.Lock()
 	closed := s.closed
 	agentID := s.agentID
-	cwd := s.cwd
 	modelID := s.currentModelID
 	current := s.thinkingLevel
 	s.mu.Unlock()
 	if closed {
 		return fmt.Errorf("session closed")
 	}
-	if agentID == "" || modelID == "" {
-		return fmt.Errorf("thinking: missing session id or model")
-	}
 	if level == current {
 		return nil
 	}
-	var setResp struct {
-		Meta struct {
-			Model struct {
-				Ok  string `json:"Ok,omitempty"`
-				Err string `json:"Err,omitempty"`
-			} `json:"model"`
-		} `json:"_meta"`
+	got, handled, err := s.setSelectOption(ctx, acp.SessionConfigOptionCategoryThoughtLevel, level)
+	if !handled {
+		fallback := s.spec().SetThinkingFallback
+		if fallback == nil {
+			return fmt.Errorf("thinking: the agent offers no thought_level config option: %w", provider.ErrNotImplemented)
+		}
+		if agentID == "" || modelID == "" {
+			return fmt.Errorf("thinking: missing session id or model")
+		}
+		got, err = fallback(ctx, s, modelID, level)
 	}
-	if err := s.rawRequest(ctx, "session/set_model", setThinkingRequest(agentID, modelID, level), &setResp); err != nil {
+	if err != nil {
 		return err
 	}
-	if setResp.Meta.Model.Err != "" {
-		return fmt.Errorf("set_model: %s", setResp.Meta.Model.Err)
-	}
-	var snap grokResumeSnapshot
-	if err := s.rawRequest(ctx, "session/resume", resumeSnapshotRequest(agentID, cwd), &snap); err != nil {
-		return fmt.Errorf("thinking read-back: %w", err)
-	}
-	got := snap.appliedEffort(modelID)
 	if got != level {
 		return fmt.Errorf("thinking level %q not applied (agent reports %q)", level, got)
 	}

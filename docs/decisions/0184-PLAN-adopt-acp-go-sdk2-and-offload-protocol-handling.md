@@ -356,7 +356,7 @@ Python scan of 821 .go files, go.mod, go.sum for the Coder path   exit=0, 0 hits
   The CI leg passed on the push of `54d15365`: run 38493595777, job `Go (windows/amd64)`, success);
 * `make preflight` has not run, since A1 changes no Flutter code.
 
-### A2, 2026-10-13: implemented and verified; not committed
+### A2, 2026-10-13: complete (committed as `01c07620`, verified on macOS, Windows and CI)
 
 **Approval:** the owner on 2026-10-13, "Push to master, then proceed to a2".
 
@@ -486,6 +486,172 @@ gofmt -l <12 changed Go files>                   nothing listed
   `internal/provider/grok` and `internal/daemon` included. So the wire tests' path answers hold under
   Windows' path rule.
 * **Not done:**
-  * no commit: A2 is staged, and a commit needs the owner's word in its turn;
-  * CI on push;
+  * ~~no commit: A2 is staged, and a commit needs the owner's word in its turn;~~ committed as
+    `01c07620` and pushed;
+  * ~~CI on push;~~ CI run 38495795003 on `56f95237` (A2 plus 0170's P7) succeeded on every leg,
+    `Go (windows/amd64)` and `Flutter (test on windows)` included;
   * `make preflight`, since A2 changes no Flutter code (see the deviation under steps 7 and 9).
+
+### A3, 2026-10-13: implemented and verified; not committed
+
+**Approval:** the owner on 2026-10-13, "committed and pushed, proceed", then "proceed". Step 6's
+quota was pre-approved (owner answer Q7).
+
+**Step 1.** `rawpath_test.go`'s `TestStandardMethodsAreTypedOutsideGrokFallbacks` parses the
+non-test files of `acpagent` and `grok`. It fails on any untyped call (`rawRequest`, `RawRequest`,
+`SendRequest`) whose literal method does not begin with `_`, outside `grok.setModelFallback` and
+`grok.setThinkingFallback`. It also fails on a computed method name that is not `"_" + …`. On the
+code before this phase it **failed** at three sites:
+
+```text
+session.go:967:12: acpagent.SetModel sends the standard method "session/set_model" untyped
+thinking.go:70:12: acpagent.SetThinkingLevel sends the standard method "session/set_model" untyped
+thinking.go:77:12: acpagent.SetThinkingLevel sends the standard method "session/resume" untyped
+```
+
+**Step 2.**
+
+* `acpagent.Spec` has three hooks: `SetModelFallback`, `SetThinkingFallback` and
+  `HarvestSessionMeta`. Hooks reach the agent through the new `RawCaller` interface, which the
+  session implements.
+* The session keeps the agent's last full `configOptions`. It is recorded from session/new and
+  session/load (`applySessionState`), from each `set_config_option` answer, and from every
+  `config_option_update` (`recordConfigOptions`).
+* `SetModel` and `SetThinkingLevel` take the agent's select option in category `model` or
+  `thought_level` when it has one. They send `session/set_config_option` and read the value back
+  from the answer's `configOptions`. The answer is also forwarded to the phone as `session_config`.
+* With no such option they call the `Spec` fallback. With neither, they return an error wrapping
+  `provider.ErrNotImplemented`.
+* At session open, a standard option's current value outranks the `_meta` harvest. The harvest is
+  read only for a setting the agent offers no option for.
+
+**Step 3.** grok's raw `session/set_model`, the `_meta.reasoningEffort` form, the `session/resume`
+read-back and the `x.ai/sessionConfig` / `x.ai/sessionDetail` harvest moved to
+`internal/provider/grok/fallback.go`, wired into grok's `Spec`. `TestAppliedModelAndEffortFromMeta`
+and `TestSetThinkingRequestShape` moved with them. `TestNoExtensionMethodIsWrittenWithoutItsUnderscore`
+now allows no standard method on the raw path in `acpagent`.
+
+**Step 4.** Nothing to do: after step 3, no untyped `session/resume` remains outside grok's
+fallback.
+
+**Step 5.** `configoption_test.go`, over a real connection to the byte-level fixture agent:
+
+* `TestModelAndThinkingUseStandardConfigOptions`: an agent with both options gets
+  `session/set_config_option` frames naming the option id and value. The set answer is the
+  read-back, so an answer that keeps the old value fails as "not applied". One `session_config`
+  event is emitted per answer. No fallback runs; the fallbacks fail the test if called.
+* `TestModelAndThinkingFallBackOnlyWithoutStandardOptions`: an agent without the options gets the
+  fallbacks only, and acpagent itself puts nothing on the wire.
+* `TestModelAndThinkingWithNeitherPathIsNotImplemented` and
+  `TestConfigOptionUpdateMovesModelAndThinking` cover the remaining two paths.
+* grok's `fallback_test.go` drives the moved fallbacks through a fake `RawCaller`. That covers the
+  accepted id, the refusal, and a resume read-back that differs from the request.
+
+**Step 6. Finding: grok `1.0.50` advertises both standard options.** `make live-grok` ran with
+`MCREMOTE_WIRE_CAPTURE_DIR` against `grok 1.0.50 (c58f321264ba) [stable]`. The capture held 1161
+agent frames.
+
+* Every session/new and session/load answer carried a select option `model` (category `model`) and
+  a select option `reasoning_effort` (category `thought_level`).
+* The four `set_config_option` answers carried the same two options, each followed by a
+  `config_option_update`.
+* Setting the model to `grok-4.5` shrank the `thought_level` option's values to `high`, `medium`
+  and `low`, so the answer carries per-model state.
+* grok's own error answers: unknown model id `-32602 "unknown model id"`, unknown level `-32602
+  "unknown reasoning_effort value"`.
+* The committed `1.0.13` capture has no `configOptions` at all.
+
+So on `1.0.50` the standard path is the one that runs, and grok's fallbacks serve only releases
+without the options, such as the `1.0.13` known-good pin. `TestLiveGrokSetModelWireContract`,
+`TestLiveGrokSetModelMetaReasoningEffort` and `TestLiveGrokSetThinkingLevel` passed through it. The
+fallbacks were not exercised live, since no installed grok lacks the options. The fixture and fake
+tests above cover them.
+
+The finding is pinned twice:
+
+* `TestLiveGrokAdvertisesStandardConfigOptions` (`live_grok` tag) opens a session and requires both
+  categories. It spends no tokens, and it passed on `1.0.50`.
+* `TestGrok1050FramesDecodeAsStandardConfigOptions` decodes the committed frames with the SDK's own
+  response types and requires both categories in every one.
+
+The capture is committed at `internal/provider/grok/testdata/wire/1.0.50/`, `frames.jsonl` with a
+`meta.json` beside `1.0.13`'s. See the deviation below.
+
+**The rest of `make live-grok`: four failures, none from A3.**
+
+| Test | Failure | Cause |
+| :--- | :--- | :--- |
+| `TestLiveGrokAutoDiscriminationPair` | no permission prompt, no write, in either arm | account: every model call answered `-32603`, "API error (status 402 Payment Required): Grok Build usage balance exhausted" |
+| `TestLiveGrokLoopSchedules` | `/loop` reply was 0 bytes | the same 402 |
+| `TestLiveGrokPlanApprovalHandOff` | grok never asked to approve a plan | the same 402 |
+| `TestLiveGrokColdCatalog` | "cold catalog has 4 options; the live list is being merged with the static floor" | grok `1.0.50` offers four models (`grok-4.7`, `grok-4.7-build-fast`, `grok-4.6`, `grok-4.5`). The same test fails identically on `56f95237` (HEAD), exported to a scratch directory, so it predates A3 |
+
+The 402 is the account's balance, and nothing a code change can fix. The catalog drift belongs to a
+grok `1.0.50` surface record, not to this PLAN. Both are left for the owner.
+
+**Step 7.** Pointer amendments, dated 2026-10-13, close
+[0039-MADR-grok-acp-parity.md](0039-MADR-grok-acp-parity.md) and
+[0106-MADR-grok-1.0.5-surface-parity.md](0106-MADR-grok-1.0.5-surface-parity.md). The MADR's
+amendment of the same date records the probe.
+
+**Deviation, 2026-10-13: the committed capture is a verbatim subset, not the whole run.** Step 6
+says "Commit the new capture, redacted". The run's capture is 1161 frames. 436 are
+`_x.ai/session/setup` and most of the rest are vendor notifications that carry account and
+environment state, including the host's own installed skill catalog. Only 14 frames are evidence
+for this step. Those 14 are committed, each byte-identical to its captured line except one
+redaction:
+
+* kept: the first session/new answer, the first session/load answer, the four `set_config_option`
+  answers, the four `config_option_update` notifications, and the four `-32602` refusals;
+* redacted: the macOS per-user temp root in three `cwd` values, `/var/folders/<id>/<user>/T/`.
+  Values changed, not shape, as 0151's C4 allows.
+
+`meta.json` says both. This also departs from A1 step 4b's "Never edit a capture", so it awaits the
+owner's confirmation before commit. The alternative is the whole 1161-frame capture with the same
+redaction, after a full identifier review.
+
+**Fail first, on scratch copies.** Every plant failed its test:
+
+* The `configOptions` lookup emptied, so the session always falls back: the standard-path test (the
+  refusing fallback ran, and no `set_config_option` was sent).
+* The requested value returned in place of the answer's: the standard-path test ("not applied" was
+  not reported).
+* The harvest allowed to override a standard option: the standard-path test (model
+  `harvested-model`).
+* `config_option_update` not recorded: the update test.
+* `rawRequest(ctx, "session/set_model", …)` added in `acpagent`: the raw-path test and the
+  underscore test.
+* A grok function off the allowlist sending `session/resume`: the raw-path test.
+* grok's `Spec` without `HarvestSessionMeta`: the wiring test.
+* grok's fallbacks ignoring the accepted model id, or the resume read-back: their fake tests.
+* One fixture answer's `model` category relabelled: the fixture test.
+* A Windows home path injected into the new fixture: `TestCommittedFixturesCarryNoIdentifiers`.
+  The existing guard therefore covers the new directory.
+
+The first try at the harvest plant broke the build, not an assertion. It was rewritten to compile,
+then failed as required. The first try at the resume read-back test could not catch its plant: its
+read-back answered the requested level. The test now also uses a read-back that differs from the
+request.
+
+**Verification,** each exit status recorded before reading its output:
+
+```text
+go test -race -count=1 ./...                                   exit=0, no failures, no races
+go test -race -count=1 ./internal/provider/{acpagent,grok}/ ./internal/wirecap/
+                                                               exit=0 (after the last edits)
+./scripts/go-precheck.sh <14 changed Go files>                 exit=0 (gofmt, golint, govulncheck)
+make lint                                                      exit=0
+go vet -tags live_grok ./internal/provider/grok/               exit=0
+make live-grok (wire capture)                                  4 failures, none A3's (above)
+go test -tags live_grok -run TestLiveGrokAdvertisesStandardConfigOptions   exit=0
+```
+
+* **Windows.** `make ci-windows` ran on the Windows test host, in Git Bash, against the A3 working
+  tree, as a tarball of the 1837 files git lists. Result: exit 0, "ci-windows-local: ALL SELECTED
+  CHECKS PASSED", with `internal/provider/acpagent` and `internal/provider/grok` both `ok`. The run
+  predates the fixture, its two tests and four comment edits. Those ran on macOS only.
+* **Not done:**
+  * no commit: A3 is staged, a commit needs the owner's word in its turn, and the deviation above
+    needs the owner's confirmation first;
+  * CI on push;
+  * `make preflight`, since A3 changes no Flutter code.

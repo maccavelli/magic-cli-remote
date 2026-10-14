@@ -389,3 +389,34 @@ and the original text stays as first proposed.
   * The capability-honesty test covers each `Spec`.
 * **Quota for A3's live grok probe and acceptance `make live-grok` is pre-approved** (owner answer
   Q7). Other live runs still need approval.
+
+## Amendment — 2026-10-13: D6's probe ran; grok `1.0.50` advertises the standard options
+
+D6 kept grok's fallbacks live "until a live probe shows otherwise", because the committed `1.0.13`
+capture advertises no config option. A3's probe has now shown otherwise for the installed grok. D6
+itself is unchanged. It already chooses by what the agent advertises, so no code decision moves.
+What changes is the fact D6 rested on.
+
+* **Evidence.** `make live-grok` with `MCREMOTE_WIRE_CAPTURE_DIR`, against `grok 1.0.50
+  (c58f321264ba) [stable]`, on 2026-10-13.
+  * Every session/new and session/load answer carries a select option `model` (category `model`)
+    and a select option `reasoning_effort` (category `thought_level`).
+  * `session/set_config_option` answers with the full set. grok follows each answer with a
+    `config_option_update`.
+  * Selecting `grok-4.5` drops `xhigh` from the `thought_level` option's values.
+  * Recorded in `internal/provider/grok/testdata/wire/1.0.50/frames.jsonl`.
+* **Consequence.** On `1.0.50`, Magic sets model and thinking through `session/set_config_option`.
+  grok's `session/set_model` and `session/resume` fallbacks run only for a grok that offers neither
+  option, such as the `1.0.13` known-good pin. They stay until the known-good pin moves past the
+  release that added the options. Removing them is a later decision, not part of A3.
+* **Pinned** by `TestLiveGrokAdvertisesStandardConfigOptions` (live, no tokens) and by
+  `TestGrok1050FramesDecodeAsStandardConfigOptions` (the committed frames, decoded with the SDK's
+  response types).
+* **Found beside it, outside this record:**
+  * grok `1.0.50` lists four models, and `TestLiveGrokColdCatalog` fails on that, on HEAD as well;
+  * the account's Grok Build balance was exhausted (HTTP 402), so the live tests that need a model
+    turn failed.
+
+  Details are in
+  [0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md),
+  under A3.

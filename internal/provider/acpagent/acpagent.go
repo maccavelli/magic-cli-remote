@@ -143,6 +143,34 @@ type Spec struct {
 	// its own tools (MADR 0184, amendment, owner answer Q3). It must never
 	// advertise more; the capability-honesty test checks every Spec.
 	ClientCapabilities *acp.ClientCapabilities
+
+	// The three hooks below are vendor fallbacks for model and thinking. The
+	// standard path is a session config option of category `model` or
+	// `thought_level`, set with session/set_config_option and read back from
+	// its answer; a hook runs only for an agent that offers no such option
+	// (MADR 0184 D6). grok is the case: releases up to at least 1.0.13 offer
+	// none and have their own untyped methods; 1.0.50 offers both options.
+
+	// SetModelFallback switches the model and returns the model the agent
+	// applied.
+	SetModelFallback func(ctx context.Context, rc RawCaller, model string) (applied string, err error)
+	// SetThinkingFallback sets the thinking level for modelID and returns the
+	// level the agent reports applied.
+	SetThinkingFallback func(ctx context.Context, rc RawCaller, modelID, level string) (applied string, err error)
+	// HarvestSessionMeta reads the model and thinking level from session/new
+	// or session/load `_meta`; either may be "".
+	HarvestSessionMeta func(meta map[string]any) (model, effort string)
+}
+
+// RawCaller is the session as a Spec's vendor fallback sees it: the untyped
+// JSON-RPC path, for a method the SDK's typed API does not carry, and the
+// identifiers such a method needs. The SDK does not check what is sent this
+// way against initialize, so only named fallbacks use it
+// (TestStandardMethodsAreTypedOutsideGrokFallbacks).
+type RawCaller interface {
+	RawRequest(ctx context.Context, method string, params, out any) error
+	AgentSessionID() string
+	CWD() string
 }
 
 // Provider is an ACP CLI agent adapter parameterized by a Spec.
@@ -873,7 +901,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 			return nil, fmt.Errorf("acp session/load: %w", err)
 		}
 		s.mu.Lock()
-		applyHarvestedMeta(s, loadResp.Meta)
+		p.applySessionState(s, loadResp.Meta, loadResp.ConfigOptions)
 		s.mu.Unlock()
 		s.log.Info("acp session loaded", slog.String("agent_session_id", opts.AgentSessionID))
 		s.emitCapabilities()
@@ -887,7 +915,7 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 		}
 		s.mu.Lock()
 		s.agentID = string(newSess.SessionId)
-		applyHarvestedMeta(s, newSess.Meta)
+		p.applySessionState(s, newSess.Meta, newSess.ConfigOptions)
 		s.mu.Unlock()
 		s.log.Info("acp session created", slog.String("agent_session_id", string(newSess.SessionId)))
 

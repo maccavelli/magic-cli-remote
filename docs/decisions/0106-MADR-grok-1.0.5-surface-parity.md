@@ -555,3 +555,22 @@ from that map. We are the unusual client that sends none of it.
   — accepted credential-lifecycle follow-up pinned to this same Grok 1.0.5
   binary; it owns isolated device login, backup generations, logout, and flow
   ownership without reopening this record's ACP `_meta` decisions
+
+## Amendment — 2026-10-13: the mid-session thinking path and the `_meta` harvest live in grok's spec
+
+[0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](./0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+(D6) moved this record's ACP paths out of `acpagent`.
+
+* `SetThinkingLevel` now sets the agent's standard `thought_level` config option with
+  `session/set_config_option`, and reads the level back from that call's answer, when the agent
+  advertises one.
+* P2's mechanism is now `setThinkingFallback` in `internal/provider/grok/fallback.go`, behind the
+  `acpagent.Spec` hook `SetThinkingFallback`. That mechanism is `session/set_model` with
+  `_meta.reasoningEffort`, confirmed by `session/resume`.
+* P1's `x.ai/sessionDetail` / `x.ai/sessionConfig` harvest at session/new and session/load is
+  `harvestSessionMeta`, behind `HarvestSessionMeta`.
+
+Each runs only for a grok that advertises no standard option for that setting. grok `1.0.50`
+advertises both `model` and `thought_level`, so on that release the standard path runs. Spawn-time
+`_meta.modelId` and `_meta.reasoningEffort` on session/new and session/load are unchanged. The
+decisions above are kept as written.

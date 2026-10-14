@@ -28,57 +28,53 @@ func sessionOpenNew(cwd string, mcp []acp.McpServer, meta map[string]any) acp.Ne
 	}
 }
 
-// applyHarvestedMeta overwrites currentModelID / thinkingLevel from grok's
-// session/new|load `_meta` when those keys are present. Caller holds s.mu.
-func applyHarvestedMeta(s *session, meta map[string]any) {
-	if model := appliedModelFromMeta(meta); model != "" {
+// applySessionState records what an agent reports at session/new or
+// session/load: its config options, and from them its current model and
+// thinking level. A standard `model` or `thought_level` config option wins;
+// only for a setting the agent offers no option for is its `_meta` read,
+// through the Spec's HarvestSessionMeta (MADR 0184 D6). Caller holds s.mu.
+func (p *Provider) applySessionState(s *session, meta map[string]any, opts []acp.SessionConfigOption) {
+	modelOK, effortOK := s.recordConfigOptions(opts)
+	if (modelOK && effortOK) || p.spec.HarvestSessionMeta == nil {
+		return
+	}
+	model, effort := p.spec.HarvestSessionMeta(meta)
+	if !modelOK && model != "" {
 		s.currentModelID = model
 	}
-	if effort := appliedEffortFromMeta(meta); effort != "" {
+	if !effortOK && effort != "" {
 		s.thinkingLevel = effort
 	}
 }
 
-func appliedModelFromMeta(meta map[string]any) string {
-	if det := nestedMap(meta, "x.ai/sessionDetail"); det != nil {
-		if id, _ := det["currentModelId"].(string); id != "" {
-			return id
+// recordConfigOptions stores the agent's full set of config options and takes
+// the current model and thinking level from its standard `model` and
+// `thought_level` options, reporting which of the two it found. Caller holds
+// s.mu.
+func (s *session) recordConfigOptions(opts []acp.SessionConfigOption) (model, effort bool) {
+	s.configOptions = opts
+	if _, v, ok := selectOption(opts, acp.SessionConfigOptionCategoryModel); ok {
+		model = true
+		if v != "" {
+			s.currentModelID = v
 		}
 	}
-	return selectedConfigID(meta, "model")
-}
-
-func appliedEffortFromMeta(meta map[string]any) string {
-	return selectedConfigID(meta, "mode")
-}
-
-func selectedConfigID(meta map[string]any, category string) string {
-	cfg := nestedMap(meta, "x.ai/sessionConfig")
-	if cfg == nil {
-		return ""
-	}
-	opts, _ := cfg["options"].([]any)
-	for _, raw := range opts {
-		o, _ := raw.(map[string]any)
-		if o == nil {
-			continue
-		}
-		cat, _ := o["category"].(string)
-		sel, _ := o["selected"].(bool)
-		if cat == category && sel {
-			id, _ := o["id"].(string)
-			if id != "" {
-				return id
-			}
+	if _, v, ok := selectOption(opts, acp.SessionConfigOptionCategoryThoughtLevel); ok {
+		effort = true
+		if v != "" {
+			s.thinkingLevel = v
 		}
 	}
-	return ""
+	return model, effort
 }
 
-func nestedMap(parent map[string]any, key string) map[string]any {
-	if parent == nil {
-		return nil
+// selectOption returns the id and current value of the first select config
+// option in category, and false when opts has none.
+func selectOption(opts []acp.SessionConfigOption, category acp.SessionConfigOptionCategory) (id, current string, ok bool) {
+	for _, o := range opts {
+		if o.Select != nil && o.Select.Category != nil && *o.Select.Category == category {
+			return string(o.Select.Id), string(o.Select.CurrentValue), true
+		}
 	}
-	m, _ := parent[key].(map[string]any)
-	return m
+	return "", "", false
 }
