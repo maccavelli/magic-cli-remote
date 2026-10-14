@@ -284,3 +284,24 @@ Under the chosen option:
   [0190-PLAN-show-agent-context-compaction-on-the-phone.md](0190-PLAN-show-agent-context-compaction-on-the-phone.md).
   ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
   accepted the recommended option and approved K1–K3 on 2026-10-14.
+
+## Amendment — 2026-10-14: D5's zero-token probe ran
+
+Magic advertises `session.compaction` since `898f8096` (PLAN K3). D4 rests on grok accepting that
+advertisement. D5 asked whether grok uses it. The zero-token half of the probe answered both for
+session start.
+
+* **Evidence.** `TestLiveGrokCompactionAtSessionStart`
+  (`internal/provider/grok/live_compaction_test.go`, `live_grok` tag) ran against
+  `grok 1.0.50 (c58f321264ba) [stable]` with wire capture.
+  * grok accepted the `initialize` carrying `session.compaction` and opened the session.
+  * In the 12 seconds after `session/new`, it sent 43 frames: no compaction update, and no error.
+* **Consequence.** The advertisement is safe for grok `1.0.50`: at session start it changes nothing
+  the user sees. The fixture remains the schema-built frames, as D5 allows, because grok sent none
+  to capture.
+* **Still open.** Two things wait for the half of the probe with model turns, after the owner's grok
+  quota resets:
+  * whether grok sends compaction updates when it compacts on its own, or through its own
+    `/compact`;
+  * whether it then also produces a daemon "Compacting the conversation…" line, the double report
+    named under Consequences.

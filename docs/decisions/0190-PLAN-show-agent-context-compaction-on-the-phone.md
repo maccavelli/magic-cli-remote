@@ -291,5 +291,40 @@ configures it. Before the advertisement it **failed**: the SDK refused the updat
 release that contains K3. An older phone ignores `compaction` events: it shows nothing, but does not
 break.
 
-**Not done.** K4, the probe, waits for approval by name. Its first step spends no model tokens; its
-second waits for the owner's quota.
+**Not done.** ~~K4, the probe, waits for approval by name.~~ Its first step spends no model tokens;
+its second waits for the owner's quota. K3 was committed as `898f8096`, and K4 step 1 followed
+(below).
+
+### K4 step 1, 2026-10-14: complete (staged, not committed)
+
+**Approval:** the owner on 2026-10-14, "committed, proceed", after K3. That is taken as K4 step 1
+only, because step 1 spends no model tokens. Step 2 sends prompts, and the owner's grok quota has
+been exhausted since 2026-10-13.
+
+**The test.** `TestLiveGrokCompactionAtSessionStart`
+(`internal/provider/grok/live_compaction_test.go`, `live_grok` tag) mirrors 0188's
+`TestLiveGrokNoticesAtSessionStart`. It opens a grok session the way production does, sends no
+prompt, and watches 12 seconds of session start. `go vet -tags live_grok` is clean.
+
+**The run**, against `grok 1.0.50 (c58f321264ba) [stable]`, with `MCREMOTE_WIRE_CAPTURE_DIR` set to
+a scratch directory:
+
+* grok accepted the `initialize` advertising `session.compaction`. That is the frame pinned at
+  `898f8096`: the capture records agent frames, not Magic's. grok authenticated with its cached
+  token and created the session. The test **passed** in 13.25 s.
+* `grok sent 0 compaction event(s) at session start`.
+* The capture holds 43 frames from grok:
+  * 12 `_x.ai/session/setup`, 6 `session/update` (all `available_commands_update`), and
+    5 `_x.ai/models/update`;
+  * 3 each of `_x.ai/settings/update` and `_x.ai/announcements/update`;
+  * the MCP start-up set (`init_progress` ×2, `servers_updated`, `mcp_initialized`,
+    `server_status`), and one `_x.ai/sessions/changed`.
+
+  None mentions `compaction`, and there are no errors.
+
+**The fixture.** grok sent no compaction frame, so the schema-built frames in
+`internal/provider/acpagent/compaction_test.go` stand as the wire fixture, as D5 allows. The capture
+was not committed, because this record states everything it shows.
+
+**Not done.** K4 step 2 waits for the owner's grok quota: a turn sequence long enough to make grok
+compact, or grok's own `/compact`. The PLAN stays `in-progress` until then.
