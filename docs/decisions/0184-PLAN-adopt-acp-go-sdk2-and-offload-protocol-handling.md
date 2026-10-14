@@ -492,7 +492,7 @@ gofmt -l <12 changed Go files>                   nothing listed
     `Go (windows/amd64)` and `Flutter (test on windows)` included;
   * `make preflight`, since A2 changes no Flutter code (see the deviation under steps 7 and 9).
 
-### A3, 2026-10-13: committed as `893a40cc`; one CI leg failed outside A3 (see "Not done")
+### A3, 2026-10-13: complete (committed as `893a40cc`, verified on macOS, Windows and CI)
 
 **Approval:** the owner on 2026-10-13, "committed and pushed, proceed", then "proceed". Step 6's
 quota was pre-approved (owner answer Q7).
@@ -669,10 +669,11 @@ go test -tags live_grok -run TestLiveGrokAdvertisesStandardConfigOptions   exit=
     an ordering race between a session broadcast and the auth reply. It did not reproduce
     locally: `go test -race -count=200 -run 'TestResumeReturnsOwnedSessionBounds$' ./internal/ws/`
     exit 0, and both full local race runs passed. It is recorded here and left for its own record.
-    A3 is not marked verified in CI until a clean run;
+    ~~A3 is not marked verified in CI until a clean run;~~ the next run on the same commit, run
+    38498739788, succeeded on every leg, so the failure was intermittent and A3 is verified in CI;
   * `make preflight`, since A3 changes no Flutter code.
 
-### A4, 2026-10-13: implemented and verified; not committed
+### A4, 2026-10-13: committed as `900178d3`; Go verified in CI, Flutter pending (see "Not done")
 
 **Approval:** the owner on 2026-10-13, "committed and pushed, proceed".
 
@@ -742,6 +743,98 @@ make lint                                                            exit=0
   tree, as a tarball of the 1842 files git lists. Result: exit 0, "ci-windows-local: ALL SELECTED
   CHECKS PASSED", with `internal/provider/acpagent` and `internal/provider/grok` both `ok`.
 * **Not done:**
-  * no commit: A4 is staged, and a commit needs the owner's word in its turn;
-  * CI on push;
+  * ~~no commit: A4 is staged, and a commit needs the owner's word in its turn;~~ the owner
+    committed `900178d3` and pushed it;
+  * ~~CI on push;~~ CI run 38499011580 on `900178d3`: `Go (test; build on tag)`,
+    `Go (linux/arm64)` and `Go (windows/amd64)` succeeded. The two Flutter jobs were still running
+    when this was written. A4 changes no Flutter code;
   * `make preflight`, since A4 changes no Flutter code.
+
+### A5, 2026-10-13: findings recorded; the SDK request is drafted, not filed
+
+**Approval:** the owner on 2026-10-13, "proceed to a5". This phase reads code and records. It
+changes no Go file.
+
+**Step 1. `v0.17.1` already validates typed messages beyond the path rules.** Read at the pinned
+tag (module cache, `github.com/maccavelli/acp-go-sdk2@v0.17.1`):
+
+* **Outbound params.** Every typed client call runs `c.gate`, the negotiated-capability check,
+  first. `sendRequest` then calls `prepareRequest`, which calls `validateOutbound(params)` before
+  marshalling (`connection.go:1256`). `validateOutbound` (`connection.go:102-119`) runs the
+  generated type's `validate`, with the portable absolute-path rule.
+* **Decoded results.** After unmarshalling, `sendRequest` calls `checkInbound` with
+  `c.resultGate` (`connection.go:1234`). `checkInbound` (`connection.go:1537-1562`) runs the
+  generated `validate` with the host's `filepath.IsAbs`, then the capability gate on the result.
+  Example: `SetSessionConfigOption` at `client_gen.go:482-488`.
+* **Decoding itself.** The generated `UnmarshalJSON` of 192 types refuses a missing required key
+  (`objectKeys`), before `validate` runs.
+* **What the 122 generated `validate` methods check.**
+
+  | Rule | Uses | Example |
+  | :--- | ---: | :--- |
+  | `RuleOneVariant` (a union sets exactly one variant) | 25 | |
+  | `RuleAbsolutePath` | 18 | `CreateTerminalRequest.cwd` |
+  | `RuleExcludedValue` | 6 | `CreateElicitationRequest.mode` |
+  | `RuleOneMember` | 4 | |
+  | `RuleMinLength` | 2 | `Notice.title` |
+
+* **Not checked: closed-enum membership.** `StopReason`, `ToolKind`, `ToolCallStatus`,
+  `NoticeSeverity` and `CompactionStatus` are plain string types, with no decoder or validator, so
+  an unknown value passes. That is forward-compatible, and Magic already treats unknown statuses
+  and kinds as text. It is not requested.
+
+So D11's first item needs no SDK request: the SDK checks what Magic would otherwise rebuild.
+
+**Step 2. The second-prompt question (gobble M10): drafted, not filed.**
+
+* **Confirmed at `v0.17.1`.** In `agent_gen.go:553-560`, a second `session/prompt` for a session
+  cancels the running turn with `ErrPromptCancelled` ("superseded by a new prompt"). This happens
+  inside the generated dispatch, before the agent's `Prompt` runs, so an agent cannot choose
+  otherwise.
+* **Magic never sends a second prompt mid-turn.** Its daemon queues it, which is risk R8 in
+  [0179-REPORT-gobble-native-acp-integration-assessment.md](../reports/0179-REPORT-gobble-native-acp-integration-assessment.md).
+  gobble, as the agent, is the side that cannot opt out.
+* **The SDK's records** (repository `maccavelli/acp-go-sdk2`):
+  * `0016-REPORT-acp-v1-conformance-audit.md` calls supersession "a safety decision, not a
+    violation", since the spec does not define concurrent prompts for one session, and asks for "a
+    sentence in whichever record next touches the prompt turn";
+  * `0017-MADR-remediate-acp-v1-conformance-violations.md` (P1) fixed the successor's lost cancel
+    and kept supersession.
+
+  Neither makes it the agent's choice.
+
+The draft, for the owner to file as an issue or as an SDK record:
+
+> **Make prompt supersession an agent-side choice.** At `v0.17.1` the generated `session/prompt`
+> case cancels a session's running turn when a second prompt arrives (`agent_gen.go:553-560`),
+> before the agent's `Prompt` is called. ACP v1 does not define concurrent prompts for one session
+> (`0016-REPORT-acp-v1-conformance-audit.md`). An agent that would rather queue a second prompt, or
+> refuse it, cannot. gobble-cli is such an agent: it carries its own steer and follow-up methods for
+> mid-turn input. Request: an agent-side option, `AgentSideConnection` construction or an optional
+> interface the agent implements. It chooses between supersede (today's default, unchanged),
+> refuse (answer the second request with an error and leave the turn running), and pass through
+> (call `Prompt` concurrently and let the agent decide). The `0017-MADR-remediate-acp-v1-conformance-violations.md`
+> bookkeeping applies unchanged to supersede.
+
+The PLAN asks for the request "cited by repository and number". It has no number until it is
+filed. Filing writes to another repository, an issue or a record under that repository's own
+process, so it waits for the owner.
+
+**Step 3. The joint bump rule for `v0.18.0`** (D12, as amended: gobble is already on `v0.17.1`).
+
+* **Today:** Magic pins `acp-go-sdk2 v0.17.1` (`go.mod:11`), and so does gobble-cli
+  (`go.mod:15`, at `5ebe723`). `v0.18.0` is not tagged: the published tags end at `v0.17.1`, and
+  the SDK's `main` is 15 commits past it.
+* **The rule:**
+  * Neither repository moves to `v0.18.0` alone.
+  * Magic's side is this PLAN's B1, and gobble's is a record in gobble-cli.
+  * The bump counts as done when both repositories pin the same tag, and each passes its own live
+    ACP suite against it: Magic's `make live-grok` under the quota rule, and gobble's own suite.
+  * If either suite fails, both stay on `v0.17.1` until the fix lands as the SDK's next tag.
+* This PLAN records the rule. The gobble side is gobble's to write.
+
+**Not done:**
+
+* filing the draft above: it needs the owner's choice of an issue or an SDK record, and the
+  owner's word to write to that repository;
+* gobble's half of the bump rule, which belongs to gobble-cli's records.
