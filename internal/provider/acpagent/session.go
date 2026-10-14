@@ -189,6 +189,13 @@ type session struct {
 	// SetModel and SetThinkingLevel look in it for a standard `model` or
 	// `thought_level` option (MADR 0184 D6). Guarded by s.mu.
 	configOptions []acp.SessionConfigOption
+	// declined is the set of session-update variants already logged as
+	// declined, so each is named once per session (MADR 0184 D7);
+	// unknownDeclined counts the Unknown names in it, which are capped.
+	// Guarded by declinedMu.
+	declinedMu      sync.Mutex
+	declined        map[string]bool
+	unknownDeclined int
 	// engineModelID is the model the agent reported at `initialize`
 	// (`_meta.modelState.currentModelId`). It is the fallback for
 	// CurrentModel: currentModelID above starts as what the *client asked
@@ -1847,6 +1854,10 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		})
 	case u.UsageUpdate != nil:
 		// Token/context report → advisory usage event (droppable telemetry).
+		// The cost is not mapped yet (MADR 0184 D7, D10).
+		if u.UsageUpdate.Cost != nil {
+			s.declineUpdate("usage_update.cost")
+		}
 		s.emit(event.Event{
 			Type:      event.TypeUsage,
 			SessionID: s.localID,
@@ -1878,10 +1889,72 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		s.recordConfigOptions(u.ConfigOptionUpdate.ConfigOptions)
 		s.mu.Unlock()
 		s.emitConfigOptions(u.ConfigOptionUpdate.ConfigOptions)
+
+	// Declined: schema 1.25 variants Magic does not map yet. Each is mapped by
+	// its own record (MADR 0184 D7, D10); until then it is named once per
+	// session at Debug, never dropped silently.
+	case u.PlanUpdate != nil:
+		s.declineUpdate("plan_update")
+	case u.SessionInfoUpdate != nil:
+		s.declineUpdate("session_info_update")
+	case u.Notice != nil:
+		s.declineUpdate("notice")
+	case u.CompactionUpdate != nil:
+		s.declineUpdate("compaction_update")
+	case u.CompactionSummaryChunk != nil:
+		s.declineUpdate("compaction_summary_chunk")
+	case u.SubagentUpdate != nil:
+		s.declineUpdate("subagent_update")
+	case u.SessionMessage != nil:
+		s.declineUpdate("session_message")
+	case u.SessionMessageChunk != nil:
+		s.declineUpdate("session_message_chunk")
+	case u.Unknown != nil:
+		// A variant this SDK does not know, named by its discriminator.
+		var d struct {
+			SessionUpdate string `json:"sessionUpdate"`
+		}
+		_ = json.Unmarshal(u.Unknown, &d)
+		s.declineUpdate("unknown:" + d.SessionUpdate)
 	default:
-		s.log.Debug("unhandled session update")
+		// No variant and no Unknown: an update object with no discriminator
+		// the SDK could place.
+		s.declineUpdate("empty")
 	}
 	return nil
+}
+
+// declinedUpdateMsg is the Debug message for a session update Magic does not
+// map (MADR 0184 D7).
+const declinedUpdateMsg = "declined session update"
+
+// maxUnknownUpdateNames caps how many distinct Unknown discriminators one
+// session remembers: the agent chooses them, so the set must be bounded.
+const maxUnknownUpdateNames = 16
+
+// declineUpdate logs a declined session-update variant at Debug, once per
+// session per variant.
+func (s *session) declineUpdate(variant string) {
+	s.declinedMu.Lock()
+	if s.declined == nil {
+		s.declined = make(map[string]bool)
+	}
+	if s.declined[variant] {
+		s.declinedMu.Unlock()
+		return
+	}
+	if strings.HasPrefix(variant, "unknown:") {
+		if s.unknownDeclined >= maxUnknownUpdateNames {
+			s.declinedMu.Unlock()
+			return
+		}
+		s.unknownDeclined++
+	}
+	s.declined[variant] = true
+	s.declinedMu.Unlock()
+	s.log.Debug(declinedUpdateMsg,
+		slog.String("variant", variant),
+		slog.String("session_id", s.localID))
 }
 
 // emitCapabilities forwards the agent's negotiated capabilities (from ACP

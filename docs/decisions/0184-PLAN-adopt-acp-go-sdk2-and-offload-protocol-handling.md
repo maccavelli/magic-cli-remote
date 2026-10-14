@@ -492,7 +492,7 @@ gofmt -l <12 changed Go files>                   nothing listed
     `Go (windows/amd64)` and `Flutter (test on windows)` included;
   * `make preflight`, since A2 changes no Flutter code (see the deviation under steps 7 and 9).
 
-### A3, 2026-10-13: implemented and verified; not committed
+### A3, 2026-10-13: committed as `893a40cc`; one CI leg failed outside A3 (see "Not done")
 
 **Approval:** the owner on 2026-10-13, "committed and pushed, proceed", then "proceed". Step 6's
 quota was pre-approved (owner answer Q7).
@@ -608,7 +608,8 @@ redaction:
 
 `meta.json` says both. This also departs from A1 step 4b's "Never edit a capture", so it awaits the
 owner's confirmation before commit. The alternative is the whole 1161-frame capture with the same
-redaction, after a full identifier review.
+redaction, after a full identifier review. **Resolved 2026-10-13:** the owner committed the subset
+as staged (`893a40cc`).
 
 **Fail first, on scratch copies.** Every plant failed its test:
 
@@ -651,7 +652,96 @@ go test -tags live_grok -run TestLiveGrokAdvertisesStandardConfigOptions   exit=
   CHECKS PASSED", with `internal/provider/acpagent` and `internal/provider/grok` both `ok`. The run
   predates the fixture, its two tests and four comment edits. Those ran on macOS only.
 * **Not done:**
-  * no commit: A3 is staged, a commit needs the owner's word in its turn, and the deviation above
-    needs the owner's confirmation first;
-  * CI on push;
+  * ~~no commit: A3 is staged, a commit needs the owner's word in its turn, and the deviation above
+    needs the owner's confirmation first;~~ the owner committed `893a40cc` and pushed it;
+  * ~~CI on push;~~ CI run 38498213971 on `893a40cc` failed one leg, outside A3. Six legs passed:
+    `Go (windows/amd64)`, `Go (linux/arm64)` and both Flutter jobs among them. `Go (test; build on
+    tag)` failed in `internal/ws`:
+
+    ```text
+    --- FAIL: TestResumeReturnsOwnedSessionBounds (0.01s)
+        resume_test.go:153: want auth_ok got event {"event":{"type":"session_status",...
+    FAIL	github.com/maccavelli/magic-cli-remote/internal/ws
+    ```
+
+    A3 changed nothing in `internal/ws`, and the test drives the fake provider, not ACP. The
+    resuming connection received the fake session's `session_status` before its `auth_ok`, which is
+    an ordering race between a session broadcast and the auth reply. It did not reproduce
+    locally: `go test -race -count=200 -run 'TestResumeReturnsOwnedSessionBounds$' ./internal/ws/`
+    exit 0, and both full local race runs passed. It is recorded here and left for its own record.
+    A3 is not marked verified in CI until a clean run;
   * `make preflight`, since A3 changes no Flutter code.
+
+### A4, 2026-10-13: implemented and verified; not committed
+
+**Approval:** the owner on 2026-10-13, "committed and pushed, proceed".
+
+**Step 1.** `sessionupdate_test.go`'s `TestEverySessionUpdateIsMappedOrDeclined` has one row per
+field of `acp.SessionUpdate`, keyed by the field's name. It walks the struct by reflection, so a
+variant a later SDK adds has no row and fails the test. It covers 19 variants plus `Unknown`.
+
+* Each row decodes a real payload with the SDK's own types. The test checks the payload landed in
+  that field.
+* It delivers the payload twice through `SessionUpdate`, then requires one of three outcomes:
+  * the mapped event;
+  * a deliberate drop (`user_message_chunk`, which Prompt already emitted);
+  * exactly one Debug record `declined session update` naming the variant.
+* No record may be the old `unhandled session update`.
+
+Run on a scratch copy of the code before this phase, it **failed**. That copy added only the two
+constants the test names, with no behavior change. Every declined variant fell to the silent
+default:
+
+```text
+sessionupdate_test.go:150: 2 update(s) fell to the silent default
+sessionupdate_test.go:153: declined [], want [plan_update] (once each)
+sessionupdate_test.go:153: declined [], want [notice] (once each)
+sessionupdate_test.go:153: declined [], want [unknown:future_update] (once each)
+```
+
+**Step 2.** The `default:` branch is replaced by one case per variant.
+
+* **Mapped, unchanged:** `agent_message_chunk`, `agent_thought_chunk`, `user_message_chunk`
+  (dropped as a duplicate of the prompt), `tool_call`, `tool_call_update`, `plan`, `plan_removed`,
+  `available_commands_update`, `usage_update` (`used` and `size`), `current_mode_update` and
+  `config_option_update`.
+* **Declined:**
+  * the variants `plan_update`, `session_info_update`, `notice`, `compaction_update`,
+    `compaction_summary_chunk`, `subagent_update`, `session_message` and `session_message_chunk`;
+  * `usage_update`'s `cost`, which is declined beside the mapped usage event.
+* **`Unknown`** is declined as `unknown:<discriminator>`. The agent chooses those names, so a
+  session remembers at most 16 (`maxUnknownUpdateNames`). `TestUnknownUpdateNamesAreBounded` pins
+  the cap.
+* **A final `default:`** names an update with no variant and no `Unknown` as `empty`. The SDK
+  produces that only for a `null` update.
+* `declineUpdate` logs at Debug, once per session per variant, with `variant` and `session_id`.
+  The set is per session, under its own mutex.
+
+The table's `tool_call_update` row has a terminal status. The tool lane
+(`chunkbuf.WithToolLane`) holds a running update for its coalesce window, and the test asks only
+whether the case maps.
+
+**Fail first, on scratch copies.** Every plant failed its test:
+
+* a declined case removed: the update falls to `empty`, and the row reports it;
+* the once-per-session check removed: each variant is logged twice;
+* the Unknown cap disabled: 26 names logged, against the cap of 16;
+* the `cost` decline removed;
+* a table row deleted: "acp.SessionUpdate.SessionMessage has no row";
+* the Unknown name dropped: `unknown:` without its discriminator.
+
+**Verification,** each exit status recorded before reading its output:
+
+```text
+go test -race -count=1 ./...                                         exit=0
+./scripts/go-precheck.sh session.go sessionupdate_test.go            exit=0 (gofmt, golint, govulncheck)
+make lint                                                            exit=0
+```
+
+* **Windows.** `make ci-windows` ran on the Windows test host, in Git Bash, against the A4 working
+  tree, as a tarball of the 1842 files git lists. Result: exit 0, "ci-windows-local: ALL SELECTED
+  CHECKS PASSED", with `internal/provider/acpagent` and `internal/provider/grok` both `ok`.
+* **Not done:**
+  * no commit: A4 is staged, and a commit needs the owner's word in its turn;
+  * CI on push;
+  * `make preflight`, since A4 changes no Flutter code.
