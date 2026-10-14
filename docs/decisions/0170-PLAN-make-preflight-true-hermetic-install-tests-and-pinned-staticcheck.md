@@ -1,6 +1,6 @@
 ---
-status: completed
-date: 2026-09-24
+status: in-progress
+date: 2026-10-13
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -231,3 +231,43 @@ the `vX.Y.Z` tags, is `0.20.0`, and `BASE_VERSION` matches it in three places:
 None printed a `sort` error. The check was seen failing: the unmodified line, from `HEAD` as a
 scratch copy, in the same fresh PowerShell environment, gave `BASE_VERSION=[]` and the error.
 `make -n ci-windows` from that environment still takes the Windows branch.
+
+## Amendment — 2026-10-13: P7, staticcheck `v0.8.2` (MADR D4 amended; closes F14)
+
+Found after the plan completed, when CI first reached the staticcheck step on Go 1.27.2 (MADR F14).
+The owner chose this plan for the fix, as its own change, separate from the ACP work staged beside
+it.
+
+### P7 — Pin staticcheck `v0.8.2` (D4; closes F14)
+
+**Scope:** the `Makefile`'s `STATICCHECK_VERSION` line, and the comment above it.
+
+1. Set `STATICCHECK_VERSION ?= v0.8.2`, and say in the comment why a rebuild alone did not help.
+
+**Verification.**
+
+* `make staticcheck` on the tree exits 0 for linux, darwin and windows, with no finding.
+* Fail-first: `v0.8.1` on Go 1.27.2 fails for all three GOOS, as F14 records (in CI and on a scratch
+  clone).
+* The same step passes in CI on the next push.
+
+| # | Criterion | MADR |
+| --- | --- | --- |
+| A6 | `make staticcheck` exits 0 for linux, darwin and windows on Go 1.27.2 | D4 |
+
+### Execution record — P7 (2026-10-13)
+
+Approved by the owner: "Bump to v0.8.2 under 0170".
+
+* **The change:** `Makefile` `STATICCHECK_VERSION ?= v0.8.2`, with two comment lines naming F14.
+  Nothing else in the Makefile changed.
+* **A6 is met.** `make staticcheck` on the tree exits 0. That tree includes the ACP change staged
+  beside it ([0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+  A2). The tool was built for darwin/arm64 with go1.27.2, and printed `staticcheck v0.8.2 GOOS=linux`,
+  `GOOS=darwin` and `GOOS=windows` with no finding. `bin/tools/` is ignored, so the build left no
+  file for git.
+* **Seen failing:** `v0.8.1` with Go 1.27.2 fails for all three GOOS. In CI that was run
+  38493595777; on a scratch clone of `54d15365`, the same six import errors appeared.
+* **Not staged.** The ACP change occupies the index, and this phase is a separate change. The owner
+  commits that first, then stages this: the `Makefile` and this pair.
+* **Not done:** the CI step on the next push. This PLAN stays `in-progress` until it passes there.

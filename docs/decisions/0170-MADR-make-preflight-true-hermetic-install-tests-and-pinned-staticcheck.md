@@ -313,3 +313,25 @@ the `Path` change: without `sh`, make ran `$(shell)` through `cmd.exe`, which fo
 version sort, so the pipeline no longer depends on which `sort` is first on `PATH`. The
 `grep -E` filter, `tail -1`, `sed` and the `|| echo 0.0.0` fallback are unchanged, so the
 selected tag is the same on every host where it was already right.
+
+## Amendment — 2026-10-13: D4's pin moves to staticcheck `v0.8.2`
+
+**F14 — staticcheck `v0.8.1` cannot read Go 1.27.2's export data.**
+
+- CI on `master` failed at "Staticcheck (pinned; GOOS linux, darwin, windows)" (run 38493595777,
+  on `54d15365`). For every GOOS, the tool's importer stopped at the standard library: "internal
+  error in importing "internal/byteorder" (cannot decode …, export data version 5 is greater than
+  maximum supported version 4)".
+- It predates that run. The toolchain moved to Go 1.27.2 in `9b75e5f3`, whose CI run failed earlier,
+  at `vulncheck`, on the `golang.org/x/net` advisories
+  ([0174-PLAN-keep-dependencies-free-of-known-advisories.md](0174-PLAN-keep-dependencies-free-of-known-advisories.md)
+  P5). So staticcheck never ran until P5 cleared that step.
+- Rebuilding the tool does not help, although the Makefile keys its cache on the Go that builds it
+  (PLAN 0169, Deviation 13). `v0.8.1` cannot decode version 5 export data, whichever Go builds it.
+- **Measured on a scratch clone of `54d15365`, never in the tree, with Go 1.27.2:** `v0.8.1`
+  reproduces the failure for linux, darwin and windows. `v0.8.2`, the newest release, exits 0
+  with no finding for each of the three.
+
+**D4, amended (owner's decision, 2026-10-13): `STATICCHECK_VERSION = v0.8.2`.** Everything else in
+D4 stands: built once for the host into `bin/tools/`, then run for each of linux, darwin and
+windows. D5 also stands: no finding is suppressed.

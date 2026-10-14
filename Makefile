@@ -566,7 +566,10 @@ lint:
 # platform only — a constant used solely by launch_windows.go was reported
 # unused on linux and darwin and never on windows. `go run pkg@v` cannot do the
 # per-GOOS pass: GOOS would cross-compile the tool itself.
-STATICCHECK_VERSION ?= v0.8.1
+#
+# v0.8.2, because v0.8.1 cannot decode the export data Go 1.27.2 writes (version 5),
+# however it is rebuilt (MADR 0170, amendment of 2026-10-13, F14).
+STATICCHECK_VERSION ?= v0.8.2
 # The cached build is keyed on the Go that builds it too: a staticcheck built by an
 # older Go cannot load code written for a newer one, so a toolchain upgrade must
 # rebuild it (magic-cli-remote PLAN 0169, Deviation 13). A rebuild clears older builds.
