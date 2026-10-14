@@ -1694,6 +1694,17 @@ class QuestionItem {
     this.custom = false,
     this.secret = false,
     this.options = const [],
+    this.kind = '',
+    this.optional = false,
+    this.defaults = const [],
+    this.min,
+    this.max,
+    this.minLength,
+    this.maxLength,
+    this.minItems,
+    this.maxItems,
+    this.format = '',
+    this.pattern = '',
   });
 
   final String id;
@@ -1703,6 +1714,32 @@ class QuestionItem {
   final bool custom;
   final bool secret;
   final List<PermissionOption> options;
+
+  /// Typed-form fields (MADR 0191 D4), all absent on a provider that sends
+  /// none: then every field is required free text or a choice, as before.
+  ///
+  /// [kind] is `number` or `integer` for a numeric field.
+  final String kind;
+
+  /// The field may be left empty.
+  final bool optional;
+
+  /// The prefilled value: one entry, or the selected option ids.
+  final List<String> defaults;
+  final double? min;
+  final double? max;
+  final int? minLength;
+  final int? maxLength;
+  final int? minItems;
+  final int? maxItems;
+
+  /// `email`, `uri`, `date` or `date-time`.
+  final String format;
+
+  /// A regular expression the text must match.
+  final String pattern;
+
+  bool get isNumeric => kind == 'number' || kind == 'integer';
 
   factory QuestionItem.fromJson(Map<String, dynamic> json) {
     final opts = <PermissionOption>[];
@@ -1724,9 +1761,27 @@ class QuestionItem {
       custom: json['custom'] == true,
       secret: json['secret'] == true,
       options: opts,
+      kind: json['kind'] as String? ?? '',
+      optional: json['optional'] == true,
+      defaults: [
+        for (final d in (json['default'] as List?) ?? const [])
+          if (d is String) d,
+      ],
+      min: _asDouble(json['min']),
+      max: _asDouble(json['max']),
+      minLength: _asInt(json['min_length']),
+      maxLength: _asInt(json['max_length']),
+      minItems: _asInt(json['min_items']),
+      maxItems: _asInt(json['max_items']),
+      format: json['format'] as String? ?? '',
+      pattern: json['pattern'] as String? ?? '',
     );
   }
 }
+
+int? _asInt(Object? v) => v is num && v.isFinite ? v.toInt() : null;
+
+double? _asDouble(Object? v) => v is num && v.isFinite ? v.toDouble() : null;
 
 class AvailableCommand {
   AvailableCommand({required this.name, this.description = '', this.hint = ''});
@@ -2621,6 +2676,7 @@ class SessionEvent {
     this.options = const [],
     this.questionId,
     this.questions = const [],
+    this.allowDecline = false,
     this.commands = const [],
     this.remoteCommands = const [],
     this.plan = const [],
@@ -2709,6 +2765,10 @@ class SessionEvent {
 
   /// Multi-question form body on `question_request`.
   final List<QuestionItem> questions;
+
+  /// The form's provider can return an explicit decline, so offer one beside
+  /// cancel (`question_request`, MADR 0191 D3).
+  final bool allowDecline;
   final List<AvailableCommand> commands;
 
   /// Canonical daemon commands on `remote_commands` events; empty otherwise.
@@ -2900,6 +2960,7 @@ class SessionEvent {
       options: opts,
       questionId: json['question_id'] as String?,
       questions: questions,
+      allowDecline: json['allow_decline'] == true,
       commands: cmds,
       remoteCommands: _mapList(json['remote_commands'], RemoteCommand.fromJson),
       plan: plan,

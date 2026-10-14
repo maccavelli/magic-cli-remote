@@ -1296,11 +1296,14 @@ type PermissionReceiptPayload struct {
 
 // QuestionRespondPayload answers a question_request event (MADR 0020 Sprint 1b).
 // answers[i] is the selected label list for questions[i]; cancelled rejects.
+// Declined is the user's explicit "no", distinct from cancel, on a form that
+// offered it with allow_decline (MADR 0191 D3).
 type QuestionRespondPayload struct {
 	SessionID  string                   `json:"session_id"`
 	QuestionID string                   `json:"question_id"`
 	Answers    provider.QuestionAnswers `json:"answers,omitempty"`
 	Cancelled  bool                     `json:"cancelled,omitempty"`
+	Declined   bool                     `json:"declined,omitempty"`
 }
 
 // UnmarshalJSON accepts both keyed answers and the pre-0109 ordered array.
@@ -1310,12 +1313,14 @@ func (p *QuestionRespondPayload) UnmarshalJSON(data []byte) error {
 		QuestionID string          `json:"question_id"`
 		Answers    json.RawMessage `json:"answers"`
 		Cancelled  bool            `json:"cancelled"`
+		Declined   bool            `json:"declined"`
 	}
 	var b base
 	if err := json.Unmarshal(data, &b); err != nil {
 		return err
 	}
 	p.SessionID, p.QuestionID, p.Cancelled = b.SessionID, b.QuestionID, b.Cancelled
+	p.Declined = b.Declined
 	if len(b.Answers) == 0 || string(b.Answers) == "null" {
 		p.Answers = nil
 		return nil
@@ -1340,6 +1345,7 @@ func (p QuestionRespondPayload) LogValue() slog.Value {
 		slog.String("session_id", p.SessionID),
 		slog.String("question_id", p.QuestionID),
 		slog.Bool("cancelled", p.Cancelled),
+		slog.Bool("declined", p.Declined),
 		slog.Int("answer_field_count", len(p.Answers)),
 	)
 }

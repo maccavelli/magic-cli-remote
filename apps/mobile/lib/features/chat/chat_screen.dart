@@ -2166,69 +2166,117 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _showQuestionSheet(SessionEvent ev) async {
-    _openSheetQuestionId = ev.questionId;
     final items = ev.questions;
-
-    final result = await showModalBottomSheet<Object?>(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      isScrollControlled: true,
-      builder: (ctx) {
-        _dismissSheet = () {
-          if (ctx.mounted) Navigator.pop(ctx, '__external__');
-        };
-        final title = (ev.text ?? '').trim().isEmpty
-            ? 'Agent question'
-            : ev.text!.trim();
-        return QuestionSheet(
-          title: title,
-          items: items,
-          onSubmit: (answers) => Navigator.pop(ctx, answers),
-          onCancel: () => Navigator.pop(ctx, '__cancel__'),
-        );
-      },
-    );
-    _dismissSheet = null;
-    _openSheetQuestionId = null;
-
     final questionId = ev.questionId;
-    if (result == null || questionId == null) return;
-    if (result == '__external__') {
-      if (mounted) {
-        showTopNotification(context, 'Request was resolved elsewhere');
-      }
-      return;
-    }
-    if (!mounted) return;
-    final client = ref.read(mcremoteClientProvider);
-    try {
-      if (result == '__cancel__') {
-        await client.respondQuestion(
-          sessionId: widget.sessionId,
-          questionId: questionId,
-          cancelled: true,
-        );
-      } else if (result is Map<String, List<String>>) {
-        await client.respondQuestion(
-          sessionId: widget.sessionId,
-          questionId: questionId,
-          answers: result,
-        );
+    // A refused answer reopens the form with the daemon's message and the
+    // answer the user gave, so they correct a field rather than start over
+    // (MADR 0191 D5). Secret values are never carried into the reopened form.
+    String? refusal;
+    Map<String, List<String>>? previous;
+    while (true) {
+      _openSheetQuestionId = questionId;
+      final errorText = refusal;
+      final initialAnswers = previous;
+      final result = await showModalBottomSheet<Object?>(
+        context: context,
+        isDismissible: false,
+        enableDrag: false,
+        isScrollControlled: true,
+        builder: (ctx) {
+          _dismissSheet = () {
+            if (ctx.mounted) Navigator.pop(ctx, '__external__');
+          };
+          final title = (ev.text ?? '').trim().isEmpty
+              ? 'Agent question'
+              : ev.text!.trim();
+          return QuestionSheet(
+            title: title,
+            items: items,
+            allowDecline: ev.allowDecline,
+            errorText: errorText,
+            initialAnswers: initialAnswers,
+            onSubmit: (answers) => Navigator.pop(ctx, answers),
+            onCancel: () => Navigator.pop(ctx, '__cancel__'),
+            onDecline: () => Navigator.pop(ctx, '__decline__'),
+          );
+        },
+      );
+      _dismissSheet = null;
+      _openSheetQuestionId = null;
+
+      if (result == null || questionId == null) return;
+      if (result == '__external__') {
+        if (mounted) {
+          showTopNotification(context, 'Request was resolved elsewhere');
+        }
+        return;
       }
       if (!mounted) return;
-      ref
-          .read(transcriptsProvider.notifier)
-          .clearPending(widget.sessionId, questionId: questionId);
-    } catch (e) {
-      if (mounted) {
-        showTopNotification(
-          context,
-          'Question respond failed: ${friendlyOpError(e)}',
-          severity: NoticeSeverity.error,
-        );
+      final client = ref.read(mcremoteClientProvider);
+      try {
+        if (result == '__cancel__') {
+          await client.respondQuestion(
+            sessionId: widget.sessionId,
+            questionId: questionId,
+            cancelled: true,
+          );
+        } else if (result == '__decline__') {
+          await client.respondQuestion(
+            sessionId: widget.sessionId,
+            questionId: questionId,
+            declined: true,
+          );
+        } else if (result is Map<String, List<String>>) {
+          await client.respondQuestion(
+            sessionId: widget.sessionId,
+            questionId: questionId,
+            answers: result,
+          );
+        }
+        if (!mounted) return;
+        ref
+            .read(transcriptsProvider.notifier)
+            .clearPending(widget.sessionId, questionId: questionId);
+        return;
+      } on McException catch (e) {
+        if (e.code == 'question_invalid' &&
+            result is Map<String, List<String>> &&
+            mounted) {
+          refusal = _refusalText(e.message);
+          previous = {
+            for (var i = 0; i < items.length; i++)
+              if (!items[i].secret)
+                (items[i].id.isEmpty ? '$i' : items[i].id):
+                    result[items[i].id.isEmpty ? '$i' : items[i].id] ??
+                    const [],
+          };
+          continue;
+        }
+        if (mounted) _questionRespondFailed(e);
+        return;
+      } catch (e) {
+        if (mounted) _questionRespondFailed(e);
+        return;
       }
     }
+  }
+
+  /// The daemon's refusal without its sentinel prefix: what to fix, in the
+  /// field's own words.
+  static String _refusalText(String message) {
+    const prefix = 'answer does not satisfy the form: ';
+    final m = message.startsWith(prefix)
+        ? message.substring(prefix.length)
+        : message;
+    return m.isEmpty ? m : '${m[0].toUpperCase()}${m.substring(1)}.';
+  }
+
+  void _questionRespondFailed(Object e) {
+    showTopNotification(
+      context,
+      'Question respond failed: ${friendlyOpError(e)}',
+      severity: NoticeSeverity.error,
+    );
   }
 
   /// Present outstanding permission requests one at a time, oldest first.

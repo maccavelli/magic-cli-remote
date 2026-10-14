@@ -1100,7 +1100,34 @@ a plan:
   refuses an accepted outcome that carries no answers.
 - On grok, a multi-select answer is joined with `", "` into the one string its
   shell echoes to the model.
-- Error codes: `bad_payload`, `session_forbidden`, `session_not_live`, `question_failed`.
+- `declined: true` (additive, MADR 0191) is the user's explicit "no", distinct
+  from `cancelled`. Send it only on a `question_request` that carries
+  `allow_decline: true`. A provider that has no decline treats it as a cancel.
+- Error codes: `bad_payload`, `session_forbidden`, `session_not_live`, `question_failed`,
+  `question_invalid`.
+- `question_invalid` (MADR 0191) refuses an answer that breaks the form's rules:
+  a required field left empty, a number out of range, a text of the wrong length
+  or format, or too few or too many choices. The message names the field and the
+  rule. **The question stays pending**: keep the form open, let the user correct
+  the field, and answer again.
+
+A `question_request` item may carry typed-form fields (additive, MADR 0191). A
+client that does not know them may ignore them: it then draws a required
+free-text or choice field as before, and the daemon still validates the answer.
+
+| Field | Meaning |
+|---|---|
+| `kind` | `number` or `integer` for a numeric field; absent for text or a choice |
+| `optional` | the field may be left empty; fields are required unless this is `true` |
+| `default` | the prefilled value: one entry, or the selected `option_id`s of a `multiple` field |
+| `min`, `max` | bounds of a numeric field |
+| `min_length`, `max_length` | length bounds of a text field, in characters |
+| `min_items`, `max_items` | selection bounds of a `multiple` field |
+| `format` | `email`, `uri`, `date` or `date-time` for a text field |
+| `pattern` | a regular expression a text field must match |
+
+The `question_request` event itself may carry `allow_decline: true`: the form's
+provider can return an explicit decline, so offer one beside cancel.
 
 Domain events (inside live `event` push / history):
 

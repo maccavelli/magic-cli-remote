@@ -187,6 +187,18 @@ func TestBytesCountsSessionCost(t *testing.T) {
 	}
 }
 
+// A typed form's strings are retained with the question, so the budget must
+// count them (MADR 0191 D4).
+func TestBytesCountsQuestionFormFields(t *testing.T) {
+	plain := Event{Type: TypeQuestion, Questions: []QuestionItem{{ID: "a"}}}
+	form := Event{Type: TypeQuestion, Questions: []QuestionItem{{ID: "a",
+		Kind: "integer", Default: []string{"12", "345"}, Format: "email", Pattern: "^x+$"}}}
+	want := len("integer") + len("12") + len("345") + len("email") + len("^x+$")
+	if got := Bytes(&form) - Bytes(&plain); got != want {
+		t.Fatalf("form fields add %d bytes, want %d", got, want)
+	}
+}
+
 func TestBytesDoesNotUnderReportRetainedSize(t *testing.T) {
 	// The budget's whole job is to bound memory, so under-reporting is the
 	// failure that matters. Compare the accounting against what the allocator

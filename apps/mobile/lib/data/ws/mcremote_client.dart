@@ -4187,6 +4187,7 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     required String questionId,
     Map<String, List<String>>? answers,
     bool cancelled = false,
+    bool declined = false,
   }) async {
     final res = await request(
       'question.respond',
@@ -4195,6 +4196,8 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
         'question_id': questionId,
         'answers': ?answers,
         if (cancelled) 'cancelled': true,
+        // The user's explicit "no", on a form that allowed one (MADR 0191).
+        if (declined) 'declined': true,
       },
       expectedType: 'ok',
     );

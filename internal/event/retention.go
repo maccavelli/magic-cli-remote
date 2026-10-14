@@ -146,6 +146,10 @@ func Bytes(ev *Event) int {
 	}
 	for i := range ev.Questions {
 		n += questionBytes + len(ev.Questions[i].ID) + len(ev.Questions[i].Header) + len(ev.Questions[i].Text)
+		n += len(ev.Questions[i].Kind) + len(ev.Questions[i].Format) + len(ev.Questions[i].Pattern)
+		for _, d := range ev.Questions[i].Default {
+			n += len(d)
+		}
 		for j := range ev.Questions[i].Options {
 			n += optionBytes + len(ev.Questions[i].Options[j].OptionID) + len(ev.Questions[i].Options[j].Name)
 		}

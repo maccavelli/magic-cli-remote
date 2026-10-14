@@ -1722,7 +1722,14 @@ func (s *Server) handleQuestionRespond(ctx context.Context, c *client, env proto
 	if p.SessionID == "" || p.QuestionID == "" {
 		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and question_id required")
 	}
-	if err := s.sessions.RespondQuestion(ctx, p.SessionID, p.QuestionID, p.Answers, p.Cancelled, deviceID); err != nil {
+	var err error
+	if p.Declined && !p.Cancelled {
+		// The user's explicit "no" (MADR 0191 D3). A cancel wins if both are set.
+		err = s.sessions.DeclineQuestion(ctx, p.SessionID, p.QuestionID, deviceID)
+	} else {
+		err = s.sessions.RespondQuestion(ctx, p.SessionID, p.QuestionID, p.Answers, p.Cancelled, deviceID)
+	}
+	if err != nil {
 		return s.writeSessionErr(ctx, c, env.ID, "question_failed", err)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
@@ -2050,6 +2057,10 @@ func (s *Server) writeSessionErr(ctx context.Context, c *client, id, fallbackCod
 		code = "turn_busy"
 	case errors.Is(err, provider.ErrInvalidAgent):
 		code = "bad_agent"
+	case errors.Is(err, provider.ErrQuestionInvalid):
+		// An answer that breaks the form's rules; the form stays pending
+		// (MADR 0191 D3).
+		code = protocol.ErrQuestionInvalid
 	case errors.Is(err, fs.ErrPermission):
 		// OS permission denial (EPERM/EACCES — file modes, sandbox policy,
 		// or macOS TCC). Stable code so the phone can render actionable

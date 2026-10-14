@@ -196,6 +196,20 @@ type QuestionSession interface {
 	RespondQuestion(ctx context.Context, questionID string, answers QuestionAnswers, cancelled bool) error
 }
 
+// QuestionDeclineSession is optionally implemented by a QuestionSession whose
+// protocol tells "the user said no" apart from "the form was dismissed", as
+// ACP elicitation does. The manager sends a decline to a session without it as
+// a cancel (MADR 0191 D4).
+type QuestionDeclineSession interface {
+	QuestionSession
+	DeclineQuestion(ctx context.Context, questionID string) error
+}
+
+// ErrQuestionInvalid wraps a RespondQuestion refusal of an answer that breaks
+// the form's rules. The question stays pending, so the client can correct the
+// field and answer again; it is never turned into a cancel (MADR 0191 D3).
+var ErrQuestionInvalid = errors.New("answer does not satisfy the form")
+
 // QuestionAnswers keys selected labels by the upstream question field id.
 // Numeric keys preserve compatibility with providers whose native protocol is
 // an ordered list rather than an object keyed by field id.

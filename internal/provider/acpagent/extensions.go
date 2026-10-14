@@ -273,7 +273,13 @@ func (s *session) handleAskUserQuestion(ctx context.Context, raw json.RawMessage
 // awaitAnswers is awaitDecision for question forms: emit the request, block for
 // the client's answer, and emit the terminal question_resolved on every path.
 func (s *session) awaitAnswers(ctx context.Context, qID string, req event.Event) questionResult {
-	w := &questionWaiter{ch: make(chan questionResult, 1)}
+	return s.awaitQuestion(ctx, qID, req, &questionWaiter{})
+}
+
+// awaitQuestion is awaitAnswers with the caller's waiter, so an elicitation
+// form can bring its own answer check and decline (MADR 0191 D3).
+func (s *session) awaitQuestion(ctx context.Context, qID string, req event.Event, w *questionWaiter) questionResult {
+	w.ch = make(chan questionResult, 1)
 	s.mu.Lock()
 	if s.closed {
 		s.emitLocked(s.questionResolvedEvent(qID, event.PermissionStatusCancelled))
@@ -311,6 +317,11 @@ func (s *session) awaitAnswers(ctx context.Context, qID string, req event.Event)
 		if res.cancelled {
 			s.emit(s.questionResolvedEvent(qID, event.PermissionStatusCancelled))
 			return questionResult{cancelled: true}
+		}
+		if res.declined {
+			// The user answered "no": the form is resolved, not abandoned.
+			s.emit(s.questionResolvedEvent(qID, event.PermissionStatusResolved))
+			return questionResult{declined: true}
 		}
 		s.emit(s.questionResolvedEvent(qID, event.PermissionStatusResolved))
 		return res
@@ -354,12 +365,45 @@ func (s *session) RespondQuestion(_ context.Context, questionID string, answers 
 		s.mu.Unlock()
 		return fmt.Errorf("unknown or expired question %q", questionID)
 	}
+	// An elicitation form checks the answer before anything is claimed: a
+	// refusal leaves the question pending, so the user can correct it
+	// (MADR 0191 D3).
+	var content map[string]acp.ElicitationContentValue
+	if !cancelled && w.form != nil {
+		var err error
+		if content, err = w.form(answers); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
 	w.resolved = true
 	delete(s.questions, questionID)
 	s.mu.Unlock()
-	w.ch <- questionResult{answers: provider.OrderedQuestionAnswers(answers), cancelled: cancelled}
+	w.ch <- questionResult{answers: provider.OrderedQuestionAnswers(answers), cancelled: cancelled, content: content}
 	// A question answered mid-turn can be the last thing blocking a queued
 	// prompt, exactly as for permissions.
+	s.tryDrainQueue()
+	return nil
+}
+
+// DeclineQuestion implements [provider.QuestionDeclineSession]: the user's
+// explicit "no". A form whose protocol has no decline, such as grok's
+// ask_user_question, gets a cancel instead (MADR 0191 D4).
+func (s *session) DeclineQuestion(_ context.Context, questionID string) error {
+	s.mu.Lock()
+	w, ok := s.questions[questionID]
+	if !ok || w.resolved {
+		s.mu.Unlock()
+		return fmt.Errorf("unknown or expired question %q", questionID)
+	}
+	w.resolved = true
+	delete(s.questions, questionID)
+	s.mu.Unlock()
+	if w.allowDecline {
+		w.ch <- questionResult{declined: true}
+	} else {
+		w.ch <- questionResult{cancelled: true}
+	}
 	s.tryDrainQueue()
 	return nil
 }

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-14
 decision-makers: Project Owner
 consulted: none
@@ -114,7 +114,8 @@ Magic advertise?
 Chosen option: "Map form elicitation onto the existing question flow, extended additively with
 typed, optional, defaulted fields and a decline". It covers the whole form contract while reusing
 the flow that already handles timeout, resolution and redaction for four providers. It also leaves
-one form contract that codex's MCP elicitation can later use.
+one form contract that codex's MCP elicitation can later use. The owner accepted it on 2026-10-14
+("accepted, approved to execute. proceed").
 
 Under the chosen option:
 
@@ -159,6 +160,9 @@ Under the chosen option:
     `pattern`.
   * `question_request` gains `allow_decline`, and `question.respond` gains `declined`.
   * `RespondQuestion` carries the decline through. A provider without a decline treats it as cancel.
+    *Note, 2026-10-14:* implemented as an optional `QuestionDeclineSession.DeclineQuestion`, plus
+    `Manager.DeclineQuestion`, rather than a new `RespondQuestion` parameter. A session without the
+    interface receives a cancel. The behavior is as stated; see the PLAN's deviation entry.
   * Every new field is omitted when unused, so the other three providers' forms are unchanged on the
     wire.
 * **D5. The phone honors the new fields.** Optional fields may be left empty. Number fields use a
@@ -256,4 +260,5 @@ Under the chosen option:
   waits for the owner's word.
 * The PLAN is
   [0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md](0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+  ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
+  accepted the recommended option and approved the PLAN on 2026-10-14.

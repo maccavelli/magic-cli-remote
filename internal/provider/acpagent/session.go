@@ -278,6 +278,14 @@ type permWaiter struct {
 type questionResult struct {
 	answers   [][]string
 	cancelled bool
+	// declined is the user's explicit "no" on a form that allowed one
+	// (MADR 0191 D3).
+	declined bool
+	// content is an elicitation form's answer, checked and typed by the
+	// waiter's form func before RespondQuestion returned. It is built there,
+	// not later, because question.respond clears the answer strings once the
+	// call returns.
+	content map[string]acp.ElicitationContentValue
 }
 
 // questionWaiter is one outstanding question form, with the same single-winner
@@ -285,6 +293,11 @@ type questionResult struct {
 type questionWaiter struct {
 	ch       chan questionResult
 	resolved bool
+	// form checks and types an answer for an elicitation form. A refusal
+	// leaves the question pending (MADR 0191 D3). Nil for other forms.
+	form func(provider.QuestionAnswers) (map[string]acp.ElicitationContentValue, error)
+	// allowDecline is set when the form's protocol can return a decline.
+	allowDecline bool
 }
 
 var _ provider.Session = (*session)(nil)
@@ -2572,19 +2585,6 @@ func (s *session) WriteTextFile(_ context.Context, params acp.WriteTextFileReque
 		return acp.WriteTextFileResponse{}, wrapFSPermission(err)
 	}
 	return acp.WriteTextFileResponse{}, nil
-}
-
-// CreateElicitation is part of acp.Client, but elicitation is not offered:
-// initialize does not advertise it, so a conforming agent cannot send one, and
-// the SDK refuses one that arrives anyway. Answering method-not-found keeps it
-// that way until elicitation has its own record (MADR 0184 D9, D10).
-func (s *session) CreateElicitation(_ context.Context, _ acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
-	return acp.CreateElicitationResponse{}, acp.NewMethodNotFound(acp.ClientMethodElicitationCreate)
-}
-
-// CompleteElicitation is part of acp.Client; see CreateElicitation.
-func (s *session) CompleteElicitation(_ context.Context, _ acp.CompleteElicitationNotification) error {
-	return acp.NewMethodNotFound(acp.ClientMethodElicitationComplete)
 }
 
 // wrapFSPermission annotates an OS permission denial from the daemon's own

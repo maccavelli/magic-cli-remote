@@ -123,6 +123,11 @@ const (
 	ErrCodexExecutionReadFailed     = "codex_execution_read_failed"
 	ErrCodexExecutionWriteFailed    = "codex_execution_write_failed"
 
+	// ErrQuestionInvalid refuses a question.respond answer that breaks the
+	// form's rules. The form stays pending: correct the field and answer
+	// again (MADR 0191 D3).
+	ErrQuestionInvalid = "question_invalid"
+
 	// Workspace validation codes (MADR 0112 A5). They are distinct so a client
 	// can explain the refusal instead of showing one generic failure.
 	ErrInvalidPath     = "invalid_path"
@@ -286,6 +291,7 @@ func ErrorCodes() []string {
 		ErrSessionDiagnosticsFailed,
 		ErrPermissionFailed,
 		ErrQuestionFailed,
+		ErrQuestionInvalid,
 		ErrReceiptsListFailed,
 		ErrDevicesListFailed,
 		ErrDiagnosticFailed,

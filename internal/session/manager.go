@@ -2835,6 +2835,27 @@ func (m *Manager) RespondQuestion(ctx context.Context, sessionID, questionID str
 	return qs.RespondQuestion(ctx, questionID, answers, cancelled)
 }
 
+// DeclineQuestion forwards the user's explicit "no" to a form that offered it
+// (MADR 0191 D3). A session whose protocol has no decline gets a cancel, the
+// closest answer it can give (D4).
+func (m *Manager) DeclineQuestion(ctx context.Context, sessionID, questionID, deviceID string) error {
+	if err := m.Authorize(sessionID, deviceID, true); err != nil {
+		return err
+	}
+	sess, err := m.liveSession(sessionID)
+	if err != nil {
+		return err
+	}
+	if ds, ok := sess.(provider.QuestionDeclineSession); ok {
+		return ds.DeclineQuestion(ctx, questionID)
+	}
+	qs, ok := sess.(provider.QuestionSession)
+	if !ok {
+		return fmt.Errorf("session %q does not support remote questions", sessionID)
+	}
+	return qs.RespondQuestion(ctx, questionID, nil, true)
+}
+
 // Fork branches the provider-native conversation into a new live session
 // (MADR 0020 Sprint 5). messageID is optional. The new session is owned by
 // the same device and resumes the forked agent id.

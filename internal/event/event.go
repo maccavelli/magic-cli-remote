@@ -330,7 +330,40 @@ type QuestionItem struct {
 	Custom   bool               `json:"custom,omitempty"`
 	Secret   bool               `json:"secret,omitempty"`
 	Options  []PermissionOption `json:"options,omitempty"`
+
+	// The fields below describe a typed form field (MADR 0191 D4). Every one
+	// is omitted when unused, so a provider that sets none of them sends the
+	// form it always did, and a client that does not know them draws a
+	// required free-text or choice field as before.
+	//
+	// Kind is QuestionKindNumber or QuestionKindInteger for a numeric field;
+	// empty is text or a choice.
+	Kind string `json:"kind,omitempty"`
+	// Optional marks a field the user may leave empty. Fields are required by
+	// default, which is what every form before this record assumed.
+	Optional bool `json:"optional,omitempty"`
+	// Default is the field's prefilled value: one entry, or the selected
+	// option ids of a multiple choice.
+	Default []string `json:"default,omitempty"`
+	// Min and Max bound a numeric field; MinLength and MaxLength a text
+	// field's length in characters; MinItems and MaxItems a multiple choice.
+	Min       *float64 `json:"min,omitempty"`
+	Max       *float64 `json:"max,omitempty"`
+	MinLength *int     `json:"min_length,omitempty"`
+	MaxLength *int     `json:"max_length,omitempty"`
+	MinItems  *int     `json:"min_items,omitempty"`
+	MaxItems  *int     `json:"max_items,omitempty"`
+	// Format is a text field's expected format: `email`, `uri`, `date` or
+	// `date-time`. Pattern is a regular expression the text must match.
+	Format  string `json:"format,omitempty"`
+	Pattern string `json:"pattern,omitempty"`
 }
+
+// The QuestionItem.Kind values for numeric fields (MADR 0191 D4).
+const (
+	QuestionKindNumber  = "number"
+	QuestionKindInteger = "integer"
+)
 
 // AvailableCommand is an agent slash command (ACP available_commands_update).
 // Clients invoke these by sending a normal prompt starting with "/name …".
@@ -676,6 +709,9 @@ type Event struct {
 	// QuestionID is the engine request id. Questions holds the multi-item form.
 	QuestionID string         `json:"question_id,omitempty"`
 	Questions  []QuestionItem `json:"questions,omitempty"`
+	// AllowDecline offers an explicit "decline", distinct from cancel, on a
+	// question_request whose provider can return one (MADR 0191 D3).
+	AllowDecline bool `json:"allow_decline,omitempty"`
 
 	// Commands is set on available_commands events.
 	Commands []AvailableCommand `json:"commands,omitempty"`
