@@ -1,6 +1,6 @@
 ---
 status: complete
-date: 2026-09-04
+date: 2026-10-14
 associated-madr: "0138-MADR-overhaul-provider-surfaces-and-turn-path.md"
 ---
 
@@ -2949,3 +2949,76 @@ tokens.
 *Status.* Criterion 4 is **still not met**. Pass 1 is real evidence that the
 paging path works on a device; the eviction-and-refill interaction above
 `kMaxTranscriptItems` remains unobserved.
+
+## Amendment, 2026-10-14: Phase 12 — keep 6.3's session totals across relaunch and restart
+
+**Finding.** 6.3 said the totals are "persisted with the rest of the record", and the Phase 6
+record repeated it. They were never persisted. Worse, every re-create of a session under its own id
+set them back to zero. The evidence and the rule are in the MADR's amendment of the same date:
+[0138-MADR-overhaul-provider-surfaces-and-turn-path.md](0138-MADR-overhaul-provider-surfaces-and-turn-path.md),
+"T3's session totals were never kept past a relaunch". Phase 6's fail-first evidence covered the
+thresholds and the accrual, never a restart, which is how the claim went unchecked.
+
+**Approval:** the owner, 2026-10-14, "address this now, amend docs. determine the best solution".
+
+**Scope.** `internal/session/store.go` (`Record`), `internal/session/manager.go` (`create`,
+`writePersist`, the list-from-disk path), `internal/session/tokencost.go`, a new test file,
+`docs/guides/protocol-v1.md` (the totals on `Meta`, which were never documented). No phone change:
+the phone does not read the totals.
+
+**Steps.**
+
+1. Write `TestSessionTotalsSurviveRelaunchAndRestart`. Two turns accrue totals. Then it requires
+   the same totals after each of these: a relaunch under the same id, a flush to disk, a listing
+   from disk by a second manager on the same store, and a resume in that second manager. A fork
+   must start at zero. Show it failing.
+2. Add the four fields to `Record`, `omitempty`, so an older `meta.json` still loads. Copy them in
+   `writePersist` and in the list-from-disk path.
+3. In `create`, carry the prior totals from the live entry, or else from the stored record, in the
+   same place the name source and the session cost are carried.
+4. Document `turns`, `input_tokens`, `output_tokens` and `cached_tokens` on `Meta` in
+   `protocol-v1.md`.
+5. Plant each break on a scratch copy: not persisted, not listed from disk, not carried on relaunch,
+   not carried on resume, and carried into a fork. Each must fail the test.
+
+**Verification.** `go test -race ./...`, `make pre-add-check` on the changed Go files, `make lint`,
+`make ci-windows` on the Windows test host, `python3 scripts/check_records.py --check-all`.
+
+**Rollback.** Revert the commit. Records written in the meantime keep four extra fields, which an
+older daemon ignores on read.
+
+### Phase 12 — executed 2026-10-14 (staged, not committed)
+
+* **Step 1.** `TestSessionTotalsSurviveRelaunchAndRestart` (`internal/session/sessiontotals_test.go`)
+  and `TestForkStartsWithZeroSessionTotals` (`sessiontotals_fork_test.go`).
+  * The first test could not compile until `Record` had the fields. With the bare fields added
+    (step 2's first half) it **failed** on the defect itself:
+    `after a relaunch: {turns:0 input:0 output:0 cached:0}, want {turns:2 input:3000 output:120 cached:1900}`.
+  * The fork test passed before the fix, because a fork already started at zero. Plant 5 below is
+    what shows it guards anything.
+* **Step 2.** `Record` gained `turns`, `input_tokens`, `output_tokens` and `cached_tokens`
+  (`omitempty`). `writePersist` and the list-from-disk path copy them.
+* **Step 3.** `sessionTotals` (`tokencost.go`) carries the four numbers. `create` takes them from
+  the live entry, or else from the stored record, beside the name source and the session cost, and
+  applies them to the new `Meta`. A fork has a new id and nothing prior, so it starts at zero.
+* **Step 4.** `protocol-v1.md` documents the four fields on `Meta`, and says that a record from
+  before this phase reads as zero.
+* **Step 5. Planted breaks, each on a scratch copy of the repository.** Every plant failed its test:
+
+| Plant | Failure |
+| --- | --- |
+| not persisted | `stored record: {turns:0 input:0 output:0 cached:0}, want {turns:2 …}` |
+| not listed from disk | `listed from disk: &{… Turns:0 InputTokens:0 OutputTokens:0 CachedTokens:0 …}` |
+| not carried on relaunch | `after a relaunch: {turns:0 …}, want {turns:2 …}` |
+| not carried on resume from disk | `resumed from disk: {turns:0 …}, want {turns:2 …}` |
+| a new session inherits a spend | `fork totals = 1 turns, 500/0/0 tokens; want zero` |
+
+**Verification.**
+
+* `go test -race ./...`: passed.
+* `make pre-add-check` on the five changed Go files: clean. `make lint`: clean.
+* `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with `internal/session` `ok`.
+
+**What this changes about earlier records.** 6.3's "persisted with the rest of the record", and
+acceptance criterion 7's `session.list` half, are true from this phase on. Totals lost before it are
+not recoverable, and records from before it read as zero.

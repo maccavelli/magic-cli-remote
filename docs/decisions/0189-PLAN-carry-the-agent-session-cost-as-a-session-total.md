@@ -191,5 +191,10 @@ agent's currency, shows it in `/context` and on the phone, and never writes it i
 record". They reset when the daemon restarts. `session_cost` is persisted. The token totals are left
 as they are, for the owner to decide.
 
+*Update, 2026-10-14:* the owner asked for it to be fixed under its own record. It is fixed as Phase 12
+of [0138-PLAN-overhaul-provider-surfaces-and-turn-path.md](0138-PLAN-overhaul-provider-surfaces-and-turn-path.md),
+with the rule recorded in the 0138 MADR's amendment of the same date. A relaunch reset them too, not
+only a restart.
+
 **Not done:** C3 (the phone) and C4 (the 0179 note, and the grok probe). They wait for approval by
 name. The grok probe also waits for the quota.

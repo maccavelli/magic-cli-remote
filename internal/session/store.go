@@ -53,9 +53,16 @@ type Record struct {
 	// SessionCost is Meta.SessionCost. Records written before MADR 0189 omit
 	// it, which reads as no cost reported.
 	SessionCost *event.SessionCost `json:"session_cost,omitempty"`
-	CreatedAt   time.Time          `json:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at"`
-	Status      string             `json:"status"`
+	// Turns and the token totals are Meta's, accrued at each turn end
+	// (PLAN 0138 6.3). Records written before PLAN 0138 Phase 12 omit them,
+	// which reads as zero: the spend from before then is not recoverable.
+	Turns        int       `json:"turns,omitempty"`
+	InputTokens  int64     `json:"input_tokens,omitempty"`
+	OutputTokens int64     `json:"output_tokens,omitempty"`
+	CachedTokens int64     `json:"cached_tokens,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Status       string    `json:"status"`
 }
 
 // Store persists session metadata under data_dir/sessions/<id>/meta.json.

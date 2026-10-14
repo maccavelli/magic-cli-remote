@@ -1127,3 +1127,42 @@ built with the fork's `OverflowDropNewest` policy (0167 D16–D17), and
 `TestACPConnectionSurvivesAStalledPump` asserts survival — 20/20 with the policy, 18/20
 failures without it, under `GOMAXPROCS=1` (PLAN 0167 P12). The promise now rests on that fork
 until upstream merges an equivalent (0167 D20).
+
+## Amendment — 2026-10-14: T3's session totals were never kept past a relaunch
+
+Step 5 of this record's 2026-09-03 decision asked for "per-session cumulative totals". The PLAN
+(6.3) said they would be "persisted with the rest of the record". They were not.
+
+* **Evidence**, read from the code on 2026-10-14 at `e6e95205`:
+  * `Meta` carries `Turns`, `InputTokens`, `OutputTokens` and `CachedTokens`
+    (`internal/session/manager.go`), and `accrueTurnCostLocked` adds to them at each turn end
+    (`internal/session/tokencost.go`).
+  * `Record` (`internal/session/store.go`) has none of the four, and `writePersist` does not copy
+    them, so they never reach `meta.json`.
+  * `create` builds a new `Meta` without them. A resume, a `/clear` or `/reset`, and a
+    model-recovery relaunch all re-create the session under the same id through `create`, so each
+    of them sets the totals back to zero, without any daemon restart.
+  * A session listed from disk, rather than live, has no totals at all.
+* **How it was found.** While implementing
+  [0189-PLAN-carry-the-agent-session-cost-as-a-session-total.md](0189-PLAN-carry-the-agent-session-cost-as-a-session-total.md)
+  C2, which persists a neighboring field the same way.
+* **Who saw it.** Only `session.list_result` carries the totals, and the phone does not read them
+  yet. So the gap misreported nothing that a user was shown. It did mean PLAN acceptance criterion 7
+  ("a `session.list` shows cumulative tokens per session") held only for a session that had not
+  been relaunched since it was created.
+
+**Decision (owner, 2026-10-14: "address this now, amend docs. determine the best solution").** The
+totals are what this Magic session has spent so far, across its whole life:
+
+* They are persisted on the record and listed from disk.
+* A resume, a relaunch, `/clear` and `/reset` keep them. `/clear` starts a fresh agent
+  conversation, but the tokens already spent were spent.
+* A fork starts at zero. It is a new session under a new id, and its own turns are its own.
+* A record written before this amendment has no totals, and reads as zero. Nothing can recover the
+  lost totals: the history is trimmed by retention class, and usage events are evicted first.
+
+Considered and rejected: rebuilding the totals from the stored history on load. Usage events are
+the first class evicted (F1, Phase 2), and the accrual reads the turn-end usage report rather than
+every report. So a rebuild would undercount silently, which is worse than an honest zero.
+
+The fix is the PLAN's amendment of the same date.

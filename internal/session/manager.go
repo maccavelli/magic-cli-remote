@@ -1054,10 +1054,12 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 	replacing := false
 	reserved := false
 	// The name this id already has, live or stored, and its source. Its
-	// session cost comes along: resume and relaunch keep the agent's last
-	// reported total (MADR 0189 D2).
+	// session cost and spend totals come along: resume and relaunch keep the
+	// agent's last reported total (MADR 0189 D2) and what the session has
+	// spent so far (PLAN 0138 Phase 12).
 	var priorName, priorSource string
 	var priorCost *event.SessionCost
+	var priorTotals sessionTotals
 	havePrior := false
 	m.mu.Lock()
 	if m.shuttingDown {
@@ -1068,6 +1070,7 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 		replacing = !e.dead
 		priorName, priorSource, havePrior = e.meta.Name, e.meta.NameSource, true
 		priorCost = e.meta.SessionCost
+		priorTotals = totalsOfMeta(e.meta)
 		if e.meta.OwnerDeviceID != "" && ownerDeviceID != "" && e.meta.OwnerDeviceID != ownerDeviceID {
 			m.mu.Unlock()
 			return Meta{}, fmt.Errorf("%w: %q", ErrForbidden, opts.LocalSessionID)
@@ -1109,6 +1112,7 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 			if !havePrior {
 				priorName, priorSource, havePrior = rec.Name, rec.NameSource, true
 				priorCost = rec.SessionCost
+				priorTotals = totalsOfRecord(rec)
 			}
 			if opts.ModeID == "" {
 				opts.ModeID = rec.ModeID
@@ -1184,6 +1188,7 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 		Status:              "idle",
 		Live:                true,
 	}
+	priorTotals.applyTo(&meta)
 	if opts.AgentSessionID != "" && opts.AgentSessionID != meta.AgentSessionID {
 		meta.AgentSessionAliases = []string{opts.AgentSessionID}
 	}
@@ -2275,6 +2280,10 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			PendingHandoffTo:    rec.PendingHandoffTo,
 			HandoffNonce:        rec.HandoffNonce,
 			SessionCost:         rec.SessionCost,
+			Turns:               rec.Turns,
+			InputTokens:         rec.InputTokens,
+			OutputTokens:        rec.OutputTokens,
+			CachedTokens:        rec.CachedTokens,
 			CreatedAt:           rec.CreatedAt,
 			UpdatedAt:           rec.UpdatedAt,
 			Status:              rec.Status,
@@ -3385,6 +3394,10 @@ func (m *Manager) writePersist(meta Meta) error {
 		PendingHandoffTo:    meta.PendingHandoffTo,
 		HandoffNonce:        meta.HandoffNonce,
 		SessionCost:         meta.SessionCost,
+		Turns:               meta.Turns,
+		InputTokens:         meta.InputTokens,
+		OutputTokens:        meta.OutputTokens,
+		CachedTokens:        meta.CachedTokens,
 		CreatedAt:           meta.CreatedAt,
 		Status:              meta.Status,
 	})

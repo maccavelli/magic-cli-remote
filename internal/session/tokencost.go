@@ -88,6 +88,27 @@ func (e *entry) accrueTurnCostLocked() *Meta {
 	return &meta
 }
 
+// sessionTotals is the accrued part of Meta. It is what this session has spent
+// so far, so a resume, a relaunch, /clear and a daemon restart carry it over,
+// and only a fork, which is a new session, starts at zero
+// (PLAN 0138 Phase 12).
+type sessionTotals struct {
+	turns                 int
+	input, output, cached int64
+}
+
+func totalsOfMeta(m Meta) sessionTotals {
+	return sessionTotals{m.Turns, m.InputTokens, m.OutputTokens, m.CachedTokens}
+}
+
+func totalsOfRecord(r Record) sessionTotals {
+	return sessionTotals{r.Turns, r.InputTokens, r.OutputTokens, r.CachedTokens}
+}
+
+func (t sessionTotals) applyTo(m *Meta) {
+	m.Turns, m.InputTokens, m.OutputTokens, m.CachedTokens = t.turns, t.input, t.output, t.cached
+}
+
 // humanCount renders a token count with thousands separators. A seven-digit
 // context figure is unreadable without them, and 1,526,598 is a real number
 // from a real session on the operator's host.

@@ -1168,6 +1168,15 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   do not. Resume keeps it; a fork starts without one. Absent when the agent never
   reported a cost.
 
+- `turns`, `input_tokens`, `output_tokens`, `cached_tokens` (optional, MADR 0138
+  T3): what this session has spent so far, counted by the daemon. Each turn the
+  daemon prompted adds its latest usage report's `input`, `output` and
+  `cache_read`. These are session totals, unlike the per-turn buckets on
+  `usage_update`. They persist across a daemon restart, and a resume, a relaunch
+  and `/clear` keep them. A fork starts at zero. Absent means zero: a provider that
+  reports no per-turn tokens, or a session recorded before the daemon persisted
+  them (PLAN 0138 Phase 12), which cannot be recovered.
+
 - `status`: last observed session status — `idle`, `running`, `error`, `cancelled`,
   `disconnected`.
 - `live`: whether the daemon currently holds a running provider process for this
