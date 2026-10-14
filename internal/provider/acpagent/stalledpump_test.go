@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
@@ -81,14 +81,24 @@ func stalledSession(t *testing.T, opts ...acp.ConnectionOption) (*session, *acp.
 	s.events <- event.Event{Type: event.TypeSessionStatus}
 
 	agentOut, agentIn := io.Pipe()
-	conn := acp.NewClientSideConnection(s, io.Discard, agentOut, opts...)
+	// The client's writes go to a responder that answers initialize and
+	// discards the rest: until initialize completes, acp-go-sdk2 drops every
+	// session/update, and the storm below would never reach the handler
+	// (PLAN 0184 A1, execution record).
+	clientWritesR, clientWritesW := io.Pipe()
+	go answerInitialize(clientWritesR, agentIn)
+	conn := acp.NewClientSideConnection(s, clientWritesW, agentOut, opts...)
 	s.conn = conn
+	initializeForTest(t, conn)
 	// Wire the containment path production wires (acpagent.go:655). Without it a
 	// dead transport produced no teardown here at all, so a test asserting
 	// containment would have been asserting something this fixture could not do
 	// (MADR 0166 F11, PLAN 0166 A10).
 	go s.watchConnClose(conn)
-	t.Cleanup(func() { _ = agentIn.Close() })
+	t.Cleanup(func() {
+		_ = agentIn.Close()
+		_ = clientWritesW.Close()
+	})
 	return s, conn, agentIn
 }
 
@@ -243,12 +253,13 @@ func waitForContainment(s *session, budget time.Duration) bool {
 // OverflowDropNewest the reader drops the arriving notification and keeps
 // reading, so the transport survives however far the consumer falls behind.
 //
-// Built from clientConnOptions(), the same options spawnAgent uses: removing the
+// Built from clientConnOptions, the same options spawnAgent uses: removing the
 // policy from production turns this test red, which is the point of sharing them.
 // Seen red before it was relied on: with the option removed it failed under
-// GOMAXPROCS=1 (PLAN 0167 P12, execution record).
+// GOMAXPROCS=1 (PLAN 0167 P12, execution record), and again on acp-go-sdk2
+// (PLAN 0184 A1 step 7, execution record).
 func TestACPConnectionSurvivesAStalledPump(t *testing.T) {
-	_, conn, agentIn := stalledSession(t, clientConnOptions()...)
+	_, conn, agentIn := stalledSession(t, clientConnOptions(nil)...)
 	const frames = sdkNotificationQueueDepth + 200
 
 	var written atomic.Int64

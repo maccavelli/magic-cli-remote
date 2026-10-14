@@ -3,7 +3,7 @@ package acpagent
 import (
 	"testing"
 
-	acp "github.com/coder/acp-go-sdk"
+	acp "github.com/maccavelli/acp-go-sdk2"
 )
 
 // TestEngineVersionPrefersAgentInfoAndFallsBackToVendorMeta pins the shape of

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -106,7 +106,7 @@ func (s *session) Purge(ctx context.Context) error {
 
 	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), extCallTimeout)
 	agentID := s.agentID
-	_, err := conn.UnstableDeleteSession(callCtx, acp.UnstableDeleteSessionRequest{
+	_, err := conn.DeleteSession(callCtx, acp.DeleteSessionRequest{
 		SessionId: acp.SessionId(agentID),
 	})
 	cancel()

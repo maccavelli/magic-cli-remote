@@ -17,10 +17,9 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
-	"unsafe"
 
-	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -1605,6 +1604,11 @@ func isHighFrequencyEvent(t event.Type) bool {
 
 // --- acp.Client implementation ---
 
+// SessionUpdate maps one agent notification onto Magic's events. It must never
+// send a request on the connection, directly or through a call that waits on
+// one: acp-go-sdk2 v0.17.1 holds a request sent from inside a notification
+// handler until that handler returns, which is a deadlock (the SDK's
+// 0019-MADR-remediate-debugging-pass-findings.md, B1; MADR 0186 D6).
 func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
 	u := params.Update
 	now := time.Now().UTC()
@@ -1760,7 +1764,10 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Type:      event.TypeUsage,
 			SessionID: s.localID,
 			Timestamp: now,
-			Usage:     &event.Usage{Used: u.UsageUpdate.Used, Size: u.UsageUpdate.Size},
+			Usage: &event.Usage{
+				Used: saturatingInt(u.UsageUpdate.Used),
+				Size: saturatingInt(u.UsageUpdate.Size),
+			},
 		})
 	case u.CurrentModeUpdate != nil:
 		// The active mode changed. Carry only the current id; the client keeps
@@ -2330,14 +2337,7 @@ func (s *session) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest
 	content := string(b)
 	if params.Line != nil || params.Limit != nil {
 		lines := strings.Split(content, "\n")
-		start := 0
-		if params.Line != nil && *params.Line > 0 {
-			start = min(max(*params.Line-1, 0), len(lines))
-		}
-		end := len(lines)
-		if params.Limit != nil && *params.Limit > 0 && start+*params.Limit < end {
-			end = start + *params.Limit
-		}
+		start, end := lineWindow(params.Line, params.Limit, len(lines))
 		content = strings.Join(lines[start:end], "\n")
 	}
 	return acp.ReadTextFileResponse{Content: content}, nil
@@ -2358,6 +2358,19 @@ func (s *session) WriteTextFile(_ context.Context, params acp.WriteTextFileReque
 		return acp.WriteTextFileResponse{}, wrapFSPermission(err)
 	}
 	return acp.WriteTextFileResponse{}, nil
+}
+
+// CreateElicitation is part of acp.Client, but elicitation is not offered:
+// initialize does not advertise it, so a conforming agent cannot send one, and
+// the SDK refuses one that arrives anyway. Answering method-not-found keeps it
+// that way until elicitation has its own record (MADR 0184 D9, D10).
+func (s *session) CreateElicitation(_ context.Context, _ acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	return acp.CreateElicitationResponse{}, acp.NewMethodNotFound(acp.ClientMethodElicitationCreate)
+}
+
+// CompleteElicitation is part of acp.Client; see CreateElicitation.
+func (s *session) CompleteElicitation(_ context.Context, _ acp.CompleteElicitationNotification) error {
+	return acp.NewMethodNotFound(acp.ClientMethodElicitationComplete)
 }
 
 // wrapFSPermission annotates an OS permission denial from the daemon's own
@@ -2552,8 +2565,9 @@ func sanitizeUserFacingErr(err error) string {
 }
 
 // summarizeToolContent builds a short human summary for chat tool cards.
-// Never dumps full RawOutput JSON trees into the event stream.
-func summarizeToolContent(content []acp.ToolCallContent, rawIn, rawOut any, maxLen int) string {
+// Never dumps full RawOutput JSON trees into the event stream. rawIn and rawOut
+// are the SDK's raw JSON values; see shortRaw.
+func summarizeToolContent(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage, maxLen int) string {
 	var parts []string
 	for _, c := range content {
 		switch {
@@ -2573,16 +2587,34 @@ func summarizeToolContent(content []acp.ToolCallContent, rawIn, rawOut any, maxL
 	}
 	// Prefer structured content. Only use raw fields as a short fallback.
 	if len(parts) == 0 {
-		if s := shortAny(rawIn, 120); s != "" {
+		if s := shortRaw(rawIn, 120); s != "" {
 			parts = append(parts, "in: "+s)
 		}
-		if s := shortAny(rawOut, 200); s != "" {
+		if s := shortRaw(rawOut, 200); s != "" {
 			parts = append(parts, s)
 		}
 	}
 	out := strings.Join(parts, " · ")
 	out = strings.Join(strings.Fields(out), " ")
 	return truncateRunes(out, maxLen)
+}
+
+// shortRaw summarizes one raw JSON value as shortAny does, after decoding it.
+//
+// The SDK types rawInput and rawOutput as json.RawMessage, where the Coder SDK
+// had decoded them to `any`. Handed to shortAny undecoded, an absent value
+// marshals as the text "null" and a string keeps its quotes. An empty value is
+// absent, as the SDK defines it, and JSON null is nothing to show
+// (MADR 0184 D5).
+func shortRaw(raw json.RawMessage, max int) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return ""
+	}
+	return shortAny(v, max)
 }
 
 func shortAny(v any, max int) string {
@@ -2619,32 +2651,29 @@ func shortAny(v any, max int) string {
 // which transport rawRequest uses below.
 func isExtensionMethod(method string) bool { return strings.HasPrefix(method, "_") }
 
-// rawConnOf reaches the SDK's underlying transport, for the standard methods
-// that have no public raw path.
+// standardConnOf reaches the SDK's underlying connection, for the standard
+// methods that rawRequest still sends untyped. It is the SDK's public
+// Connection(); the Coder fork had none, and this was an unsafe.Pointer cast
+// (MADR 0184 D2).
 //
 // A var rather than an inline expression because the routing in rawRequest is
 // otherwise unobservable: both transports emit byte-identical JSON-RPC, so no
 // test can tell them apart by watching the wire. It can tell them apart by
 // watching whether this is called (MADR 0138 Phase 9, M5).
-var rawConnOf = func(c *acp.ClientSideConnection) *acp.Connection {
-	// Sound only because `conn` is the first field of ClientSideConnection.
-	return *(**acp.Connection)(unsafe.Pointer(c))
+var standardConnOf = func(c *acp.ClientSideConnection) *acp.Connection {
+	return c.Connection()
 }
 
 // rawRequest sends a JSON-RPC request over the ACP connection and decodes the
-// result into out. Used for methods acp-go-sdk@v0.13.5 does not model
-// (session/set_model, session/resume, _x.ai/*).
+// result into out. Used for session/set_model, which schema 1.25 does not
+// define, for grok's session/resume read-back, and for _x.ai/* extensions.
 //
 // Two transports, chosen by the method name:
 //
-//   - Extension methods (`_`-prefixed) go through the SDK's public
-//     CallExtension.
-//   - Standard methods have no public raw path, so they reach the connection by
-//     casting through unsafe.Pointer. That works only because `conn` is the
-//     first field of acp.ClientSideConnection; a field reorder upstream would
-//     silently read the wrong pointer, which is why the extension methods — the
-//     ones that have a supported API — no longer take this route
-//     (MADR 0138 Phase 9).
+//   - Extension methods (`_`-prefixed) go through the SDK's CallExtension.
+//   - Standard methods go through the connection itself (standardConnOf). The
+//     SDK checks neither against what initialize agreed, so 0184 D6 moves them
+//     behind grok's spec as fallbacks (its PLAN's A3).
 func (s *session) rawRequest(ctx context.Context, method string, params any, out any) error {
 	if s.conn == nil {
 		return errors.New("no active connection")
@@ -2654,7 +2683,7 @@ func (s *session) rawRequest(ctx context.Context, method string, params any, out
 	if isExtensionMethod(method) {
 		rawResp, err = s.conn.CallExtension(ctx, method, params)
 	} else {
-		rawResp, err = acp.SendRequest[json.RawMessage](rawConnOf(s.conn), ctx, method, params)
+		rawResp, err = acp.SendRequest[json.RawMessage](standardConnOf(s.conn), ctx, method, params)
 	}
 	if err != nil {
 		return err

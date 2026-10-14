@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
@@ -96,7 +96,7 @@ func TestSessionUpdatePlanRemovedEmitsEmptyPlan(t *testing.T) {
 	}
 	err := s.SessionUpdate(t.Context(), acp.SessionNotification{
 		Update: acp.SessionUpdate{
-			PlanRemoved: &acp.SessionUpdatePlanRemoved{Id: "plan-1"},
+			PlanRemoved: &acp.SessionUpdatePlanRemoved{PlanId: "plan-1"},
 		},
 	})
 	if err != nil {

@@ -3,7 +3,7 @@ package acpagent
 import (
 	"log/slog"
 
-	acp "github.com/coder/acp-go-sdk"
+	acp "github.com/maccavelli/acp-go-sdk2"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )

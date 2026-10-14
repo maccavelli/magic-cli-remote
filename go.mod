@@ -4,11 +4,11 @@ go 1.27.2
 
 require (
 	github.com/caddyserver/certmagic v0.25.4
-	github.com/coder/acp-go-sdk v0.13.5
 	github.com/coder/websocket v1.8.15
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/libdns/route53 v1.6.2
+	github.com/maccavelli/acp-go-sdk2 v0.17.1
 	github.com/maccavelli/mcplib v1.4.1
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/spf13/cobra v1.10.2
@@ -16,7 +16,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	go.uber.org/zap v1.28.0
 	go.yaml.in/yaml/v3 v3.0.5
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
@@ -51,18 +51,12 @@ require (
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/term v0.46.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
-
-// acp-go-sdk is built from a fork carrying a notification overflow policy, until
-// upstream merges an equivalent (MADR 0167 D16-D20; upstream coder/acp-go-sdk PR).
-// v0.13.6-mcr.1 = v0.13.5 + PR #40's ConnectionOption commits + the policy. The tag
-// is immutable. Exit: delete this block and bump the require above, in one commit.
-replace github.com/coder/acp-go-sdk => github.com/maccavelli/acp-go-sdk v0.13.6-mcr.1

@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -336,17 +336,18 @@ func TestGrokImplementsUndoButNotRevert(t *testing.T) {
 	}
 }
 
-// TestExtensionMethodsDoNotTakeTheUnsafeTransport is M5.
+// TestExtensionMethodsDoNotTakeTheStandardTransport is M5.
 //
 // The two transports emit byte-identical JSON-RPC — CallExtension is a name
 // check followed by the same SendRequest — so the route cannot be observed on
-// the wire. It is observed here by counting calls to rawConnOf, which exists
-// only on the unsafe path.
+// the wire. It is observed here by counting calls to standardConnOf, which
+// exists only on the standard-method path.
 //
-// The unsafe path is sound only while `conn` is the first field of
-// acp.ClientSideConnection. An upstream field reorder would make it read some
-// other pointer, so every method that has a supported API must stay off it.
-func TestExtensionMethodsDoNotTakeTheUnsafeTransport(t *testing.T) {
+// That path sends untyped standard methods, which the SDK does not check
+// against what initialize agreed (MADR 0184 D6), so every method that has an
+// extension API must stay off it. Under the Coder fork it was also an
+// unsafe.Pointer cast; acp-go-sdk2's Connection() replaced that (0184 D2).
+func TestExtensionMethodsDoNotTakeTheStandardTransport(t *testing.T) {
 	s, agent := newScriptedSession(t, map[string]string{
 		"_x.ai/rewind/points":  pointsReply(4),
 		"_x.ai/rewind/execute": `{"success":true,"target_prompt_index":4,"reverted_files":[]}`,
@@ -354,17 +355,17 @@ func TestExtensionMethodsDoNotTakeTheUnsafeTransport(t *testing.T) {
 	})
 
 	var mu sync.Mutex
-	var unsafeCalls []string
+	var standardCalls []string
 	current := "unknown"
 
-	restore := rawConnOf
-	rawConnOf = func(c *acp.ClientSideConnection) *acp.Connection {
+	restore := standardConnOf
+	standardConnOf = func(c *acp.ClientSideConnection) *acp.Connection {
 		mu.Lock()
-		unsafeCalls = append(unsafeCalls, current)
+		standardCalls = append(standardCalls, current)
 		mu.Unlock()
 		return restore(c)
 	}
-	t.Cleanup(func() { rawConnOf = restore })
+	t.Cleanup(func() { standardConnOf = restore })
 
 	ctx := context.Background()
 
@@ -376,26 +377,26 @@ func TestExtensionMethodsDoNotTakeTheUnsafeTransport(t *testing.T) {
 	_ = s.rawRequest(ctx, "_x.ai/session/fork", map[string]any{"sessionId": s.agentID}, nil)
 
 	mu.Lock()
-	got := append([]string(nil), unsafeCalls...)
+	got := append([]string(nil), standardCalls...)
 	mu.Unlock()
 	if len(got) != 0 {
-		t.Errorf("extension methods went through the unsafe raw-connection cast: %v. "+
+		t.Errorf("extension methods went through the standard-method raw path: %v. "+
 			"They have a public API (ClientSideConnection.CallExtension) and must use it", got)
 	}
 	if !agent.sent("_x.ai/session/fork") {
 		t.Error("_x.ai/session/fork never reached the agent")
 	}
 
-	// The other half of the claim: standard methods have no public raw path,
-	// so they must still take it. Without this, deleting the unsafe branch
-	// outright would pass the assertion above.
+	// The other half of the claim: standard methods cannot go through
+	// CallExtension, so they must still take this path. Without this, deleting
+	// the standard branch outright would pass the assertion above.
 	current = "session/set_model"
 	_ = s.rawRequest(ctx, "session/set_model", map[string]any{"sessionId": s.agentID}, nil)
 	mu.Lock()
-	got = append([]string(nil), unsafeCalls...)
+	got = append([]string(nil), standardCalls...)
 	mu.Unlock()
 	if len(got) != 1 || got[0] != "session/set_model" {
-		t.Errorf("unsafe-path calls = %v, want exactly [session/set_model]", got)
+		t.Errorf("standard-path calls = %v, want exactly [session/set_model]", got)
 	}
 }
 
@@ -463,15 +464,15 @@ func TestUndoLastWithoutAnAgentSession(t *testing.T) {
 //
 // The mistake this catches is not the routing — M5 pins that — but a *new*
 // extension call added later and written as `x.ai/…` instead of `_x.ai/…`.
-// rawRequest would classify it as a standard method and put it on the unsafe
-// cast, which is precisely the path Phase 9 took extension methods off.
+// rawRequest would classify it as a standard method and put it on the standard
+// path, which is precisely the path Phase 9 took extension methods off.
 func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
-	// The standard methods whose payload acp-go-sdk@v0.13.5's typed API cannot
-	// carry: session/set_model is not modelled at all, and grok's session/resume
+	// The standard methods whose payload the SDK's typed API cannot carry:
+	// session/set_model is not in schema 1.25 at all, and grok's session/resume
 	// reply puts its model list in a top-level `models` object that
-	// ResumeSessionResponse has no field for. The SDK has no public raw path for
-	// standard methods, so the unsafe cast is the only way to reach them, and
-	// this set is the complete list of what may use it.
+	// ResumeSessionResponse has no field for. They reach the connection through
+	// standardConnOf, and this set is the complete list of what may use it, until
+	// 0184's A3 moves both behind grok's spec.
 	//
 	// initialize is deliberately absent: it goes through the typed Initialize,
 	// whose response keeps _meta (MADR 0167 F15, F17).
@@ -547,7 +548,7 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 				}
 				sites++
 				if !isExtensionMethod(method) && !standard[method] {
-					t.Errorf("%s: rawRequest(%q) takes the unsafe raw-connection cast, but %q is "+
+					t.Errorf("%s: rawRequest(%q) takes the standard-method raw path, but %q is "+
 						"not one of the two standard methods that need it. If it is a vendor "+
 						"extension it must be written with its leading underscore", where, method, method)
 				}

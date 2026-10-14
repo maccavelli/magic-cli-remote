@@ -11,8 +11,8 @@ import (
 	"sync"
 	"syscall"
 
-	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
@@ -85,17 +85,10 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 		cmd.Env = env
 	}
 
-	limit := 1024 * 1024
-	if params.OutputByteLimit != nil && *params.OutputByteLimit > 0 {
-		limit = *params.OutputByteLimit
-	}
-	// Clamp the agent-supplied limit: OutputByteLimit is attacker-influenced (a
-	// prompt-injected agent could request gigabytes), and limitedBuffer retains
-	// up to `limit` bytes per terminal.
-	if limit > maxTerminalBuffer {
-		limit = maxTerminalBuffer
-	}
-	buf := newLimitedBuffer(limit)
+	// Clamped: OutputByteLimit is attacker-influenced (a prompt-injected agent
+	// could request gigabytes), and limitedBuffer retains up to `limit` bytes per
+	// terminal.
+	buf := newLimitedBuffer(terminalBufferLimit(params.OutputByteLimit))
 	cmd.Stdout = buf
 	cmd.Stderr = buf
 
@@ -141,11 +134,11 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 	h.byID[id] = p
 	h.mu.Unlock()
 
-	return acp.CreateTerminalResponse{TerminalId: id}, nil
+	return acp.CreateTerminalResponse{TerminalId: acp.TerminalId(id)}, nil
 }
 
 func (h *terminalHost) Output(_ context.Context, params acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
-	p, err := h.get(params.TerminalId)
+	p, err := h.get(string(params.TerminalId))
 	if err != nil {
 		return acp.TerminalOutputResponse{}, err
 	}
@@ -172,7 +165,7 @@ func (h *terminalHost) Output(_ context.Context, params acp.TerminalOutputReques
 }
 
 func (h *terminalHost) WaitForExit(ctx context.Context, params acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
-	p, err := h.get(params.TerminalId)
+	p, err := h.get(string(params.TerminalId))
 	if err != nil {
 		return acp.WaitForTerminalExitResponse{}, err
 	}
@@ -185,7 +178,7 @@ func (h *terminalHost) WaitForExit(ctx context.Context, params acp.WaitForTermin
 }
 
 func (h *terminalHost) Kill(_ context.Context, params acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
-	p, err := h.get(params.TerminalId)
+	p, err := h.get(string(params.TerminalId))
 	if err != nil {
 		return acp.KillTerminalResponse{}, err
 	}
@@ -194,10 +187,11 @@ func (h *terminalHost) Kill(_ context.Context, params acp.KillTerminalRequest) (
 }
 
 func (h *terminalHost) Release(_ context.Context, params acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
+	id := string(params.TerminalId)
 	h.mu.Lock()
-	p, ok := h.byID[params.TerminalId]
+	p, ok := h.byID[id]
 	if ok {
-		delete(h.byID, params.TerminalId)
+		delete(h.byID, id)
 	}
 	h.mu.Unlock()
 	if ok {
@@ -238,8 +232,7 @@ func (p *terminalProc) reap() {
 			if ee, ok := err.(*exec.ExitError); ok {
 				if status, ok := ee.Sys().(syscall.WaitStatus); ok {
 					if status.Exited() {
-						code := status.ExitStatus()
-						exit.ExitCode = &code
+						exit.ExitCode = exitCode(status.ExitStatus())
 					} else if status.Signaled() {
 						sig := status.Signal().String()
 						exit.Signal = &sig
@@ -247,8 +240,7 @@ func (p *terminalProc) reap() {
 				}
 			}
 		} else {
-			code := 0
-			exit.ExitCode = &code
+			exit.ExitCode = exitCode(0)
 		}
 		p.exit = exit
 		close(p.done)
@@ -269,7 +261,7 @@ type limitedBuffer struct {
 
 func newLimitedBuffer(limit int) *limitedBuffer {
 	if limit <= 0 {
-		limit = 1024 * 1024
+		limit = defaultTerminalBuffer
 	}
 	return &limitedBuffer{limit: limit}
 }

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
@@ -74,6 +74,10 @@ func startFakeAgent(t *testing.T, s *session, failSet bool) *fakeAgent {
 			if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
 				continue
 			}
+			if req.Method == "initialize" {
+				_, _ = io.WriteString(agentOut, `{"jsonrpc":"2.0","id":`+string(req.ID)+`,"result":`+testInitializeResult+"}\n")
+				continue
+			}
 			if req.Method == "session/set_mode" {
 				f.mu.Lock()
 				f.setModes = append(f.setModes, req.Params.ModeID)
@@ -100,6 +104,7 @@ func startFakeAgent(t *testing.T, s *session, failSet bool) *fakeAgent {
 		_ = clientOut.Close()
 		_ = agentOut.Close()
 	})
+	initializeForTest(t, s.conn)
 	return f
 }
 

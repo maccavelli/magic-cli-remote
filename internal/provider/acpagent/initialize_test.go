@@ -9,7 +9,7 @@ import (
 	"slices"
 	"testing"
 
-	acp "github.com/coder/acp-go-sdk"
+	acp "github.com/maccavelli/acp-go-sdk2"
 )
 
 // grokInitializeResult returns the `result` of the initialize response in

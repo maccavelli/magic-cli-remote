@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
 	"github.com/google/uuid"
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
@@ -492,23 +492,10 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	// wirecap.For returns nil unless MCREMOTE_WIRE_CAPTURE_DIR is set, and a
 	// nil capture's TeeReader returns the reader unchanged.
 	s.wire = wirecap.For(string(p.spec.ID))
-	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout), clientConnOptions()...)
-	// conn.SetLogger is NOT called, and cannot be: the SDK's constructor starts
-	// `go c.receive()`, `go c.sendCancelRequests()` and a context watcher
-	// before it returns (acp-go-sdk@v0.13.5 connection.go:110-120), while
-	// SetLogger is a plain unsynchronised field write (connection.go:125) that
-	// those goroutines read through loggerOrDefault. Any call after
-	// construction races, and the SDK offers no way to supply a logger at
-	// construction time.
-	//
-	// A gate on the reader would not close it either — sendCancelRequests logs
-	// from its own goroutine without any read having happened.
-	//
-	// The cost is that the SDK's own protocol diagnostics ("failed to parse
-	// incoming message", "connection closed", cancel-request failures) go to
-	// slog.Default() rather than this session's logger, so they lose its
-	// structured fields. mcremote's own protocol logging is unaffected. A
-	// known race in a daemon that runs for days is not worth those fields.
+	// The logger is an option, applied before the SDK's goroutines start reading
+	// (acp-go-sdk2 WithLogger). A SetLogger call after construction would race
+	// them, which is why the fork's connections had none (MADR 0184 D2).
+	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout), clientConnOptions(log)...)
 	s.conn = conn
 
 	parent := ctx
@@ -554,7 +541,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			return nil, err
 		}
 		if id != "" {
-			if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{MethodId: id}); err != nil {
+			if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(id)}); err != nil {
 				killTree()
 				_ = cmd.Wait()
 				return nil, fmt.Errorf("acp authenticate (%s): %w", id, err)
@@ -565,7 +552,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		}
 	} else if len(advertised) > 0 && p.cfg.AuthMethodID != "" {
 		if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{
-			MethodId: p.cfg.AuthMethodID,
+			MethodId: acp.AuthMethodId(p.cfg.AuthMethodID),
 		}); err != nil {
 			killTree()
 			_ = cmd.Wait()
@@ -1019,11 +1006,25 @@ type grokInitializeMeta struct {
 // run on the SDK's reader goroutine. Loss is surfaced per turn from
 // DroppedNotifications instead (D18).
 //
+// The logger and the message bound are set here too (MADR 0184 D2). log goes
+// to WithLogger, which applies it before any message is read; nil keeps the
+// SDK's default. maxACPMessageSize is the SDK's own default, stated so the
+// bound is visible in this repository: a longer line is answered -32600 and
+// skipped, not fatal to the connection.
+//
 // One definition, shared with the stalled-pump tests, so they exercise what
-// production runs: removing the option here turns the survival test red (D19).
-func clientConnOptions() []acp.ConnectionOption {
-	return []acp.ConnectionOption{acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest)}
+// production runs: removing the overflow option here turns the survival test
+// red (D19).
+func clientConnOptions(log *slog.Logger) []acp.ConnectionOption {
+	return []acp.ConnectionOption{
+		acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest),
+		acp.WithLogger(log),
+		acp.WithMaxMessageSize(maxACPMessageSize),
+	}
 }
+
+// maxACPMessageSize bounds one inbound ACP line, in bytes.
+const maxACPMessageSize = 10 << 20
 
 // decodeGrokInitializeMeta reads grok's vendor block out of the _meta map the
 // SDK keeps on its typed InitializeResponse.
@@ -1213,7 +1214,7 @@ func (p *Provider) applyInitializeResponse(s *session, initResp acp.InitializeRe
 	advertised := make([]string, 0, len(initResp.AuthMethods))
 	for _, m := range initResp.AuthMethods {
 		if m.Agent != nil && m.Agent.Id != "" {
-			advertised = append(advertised, m.Agent.Id)
+			advertised = append(advertised, string(m.Agent.Id))
 		}
 	}
 	s.advertisedAuth = advertised

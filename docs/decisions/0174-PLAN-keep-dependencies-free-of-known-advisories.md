@@ -1,6 +1,6 @@
 ---
-status: complete
-date: 2026-09-29
+status: in-progress
+date: 2026-10-13
 associated-madr: "0174-MADR-keep-dependencies-free-of-known-advisories.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -231,6 +231,72 @@ cover `openpgp` being linked in.
 | A4 | yes | P3: CI run 36655321841, step log above |
 | A5 | yes | P4: preflight runs the step; exit 1 on `http` 0.13.2 |
 | A6 | yes | P1: `make race` 42 ok, `make ci-windows` 43 ok |
+
+## Amendment — 2026-10-13: P5, `golang.org/x/net`
+
+**Found by:**
+[0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+A1's pre-add gate.
+
+- `govulncheck` reports five advisories in the required module `golang.org/x/net v0.58.0`:
+  GO-2026-6603, GO-2026-6610, GO-2026-6611, GO-2026-6612 and GO-2026-6617.
+- All are fixed in `v0.60.0`, and none is imported or called.
+- The gate is right to fail. The advisories are new since P1, and `HEAD` already carries
+  `v0.58.0`, so `make pre-add-check` and CI's `make vulncheck` fail on `master` as it stands.
+
+**Owner's decision (2026-10-13):** bump `x/net` under this record first, in its own change, then
+stage the ACP migration on top.
+
+- This is D1 applied as written: a required module with a known advisory that a newer release
+  fixes moves to the newest release. The MADR is unchanged.
+- The scope rule "only what `go mod tidy` moves with x/crypto" is widened, for this phase only, to
+  what `go mod tidy` moves with `x/net`.
+
+### P5 — x/net v0.61.0, the newest release (D1)
+
+1. On a scratch clone of `HEAD`: `go get golang.org/x/net@v0.61.0`, then `go mod tidy`. Record the
+   exact `go.mod` diff, and check that a second `tidy` changes nothing.
+2. Run `./scripts/vulncheck.sh`. Only GO-2026-5932 may remain, at the required-module level.
+3. Run `go build ./...` and `go test -count=1 -race ./internal/...` on that clone.
+4. Stage that clone's `go.mod` and `go.sum` in this repository, with this PLAN.
+   - The working tree holds the ACP migration as well, so the index is written from the clone's
+     files and the working tree is left alone.
+   - The same bump is applied in the working tree, so the two agree after the owner commits.
+5. The owner commits, then 0184's A1 is staged on top.
+6. `make ci-windows` on the Windows host, as P1 did. It cannot run from this macOS host, so it is
+   listed as not done until it has run there.
+
+#### P5 execution (2026-10-13)
+
+Approved by the owner: "Bump x/net under 0174 first".
+
+The scratch clone of `HEAD` was at `68e348a1`. `go get golang.org/x/net@v0.61.0` reported:
+
+- `golang.org/x/crypto v0.57.0 => v0.58.0`
+- `golang.org/x/net v0.58.0 => v0.61.0`
+- `golang.org/x/sync v0.23.0 => v0.24.0`
+- `golang.org/x/sys v0.48.0 => v0.49.0`
+- `golang.org/x/term v0.46.0 => v0.47.0`
+- `golang.org/x/text v0.42.0 => v0.43.0`
+- `golang.org/x/tools v0.49.0 => v0.51.0`
+
+`go mod tidy` added nothing: `go.mod` changed 7 lines and `go.sum` 14. A second `tidy` changed
+nothing.
+
+| Gate (scratch clone) | Result |
+| --- | --- |
+| `./scripts/vulncheck.sh` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `go build ./...` | exit 0 |
+| `go test -count=1 -race ./internal/...` | exit 0, 43 ok |
+
+- **The working tree** got the same bump, on top of 0184 A1. Its `go.mod` and `go.sum` differ from
+  the clone's only by A1's ACP lines: 8 in `go.mod`, 4 in `go.sum`.
+- **What was staged,** for this phase's own commit:
+  - the clone's `go.mod` and `go.sum`, written into the index with `git hash-object -w` and
+    `git update-index --cacheinfo`, so the ACP lines in the working tree are not staged;
+  - this PLAN.
+- **Not done:** `make ci-windows` on the Windows host. This PLAN stays `in-progress` until it has
+  run.
 
 ## Rollout and Rollback
 

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-13
 associated-madr: "0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md"
 ---
@@ -9,8 +9,9 @@ associated-madr: "0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md"
 
 Associated MADR: [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
 
-**Not approved for execution.** The MADR is `proposed`. A phase starts only after the MADR is
-accepted **and** the owner approves that phase by name ("do A1"). Each phase ends with
+~~**Not approved for execution.** The MADR is `proposed`.~~ On 2026-10-13 the owner accepted the
+MADR, and approved A1 ("Accept 0184 + 0186, do A1"). A phase starts only after the owner approves
+that phase by name ("do A1"). Each phase ends with
 `make pre-add-check` on its staged Go files, `go test -race ./...` and `make preflight`, plus the
 0145 gates on a Windows host. The owner commits (`git commit --no-edit`). An agent stages only.
 
@@ -203,3 +204,133 @@ MADR is still `proposed`, and each phase still needs approval by name.
      received before `initialize`.
   4. Verify as A1 and A2, with `make live-grok` under the MADR's quota rule.
   5. Coordinate the bump with gobble (D12).
+
+## Execution record
+
+### A1, 2026-10-13: implemented and verified on macOS; not staged
+
+**Approval:** the owner on 2026-10-13, "Accept 0184 + 0186, do A1".
+
+**Step 1.** `git ls-remote https://github.com/maccavelli/acp-go-sdk2 'refs/tags/v0.17.1^{}'` gives
+`c77f25a45e3345c40f954dd80add9f09a1fd5ae1`, as recorded. No later tag exists.
+
+**Step 2.** `internal/modguard_test.go` was rewritten first.
+
+* `TestGoModRequiresTaggedACPDirectly` rejects:
+  * any `replace` of an ACP module;
+  * any requirement of the Coder module;
+  * any requirement of `acp-go-sdk2` that is not `vX.Y.Z`;
+  * a `go.mod` with no `acp-go-sdk2` requirement;
+  * any Go file importing the Coder path.
+* `TestGoModProblemsRejectsWhatItMust` has 13 fixtures, and `TestImportProblemsFindsTheCoderImport`
+  covers the import scan.
+* **Seen failing on the unchanged tree.** Four problems on `go.mod`: the Coder requirement, the
+  fork `replace`, no `acp-go-sdk2`, and 28 importing files.
+* **Seen failing on scratch copies of the migrated tree:**
+  * with `replace github.com/maccavelli/acp-go-sdk2 => … v0.17.0` added: "an ACP SDK must not be
+    replaced";
+  * with `v0.17.2-0.20261013232958-e91d1b8465a1` required: "must be required at a release tag
+    vX.Y.Z".
+
+**Step 3.**
+
+* `go.mod` loses the Coder requirement, the fork `replace` and its comment block, and gains
+  `github.com/maccavelli/acp-go-sdk2 v0.17.1`. `go.sum` changes 4 lines. No other module moves.
+* 28 files' imports were rewritten by a script that asserted none remained. The PLAN said 29; the
+  29th was modguard's string literal, now rewritten by hand.
+
+**Step 4.** The 21 production diagnostics are fixed by D3's rules:
+
+* `convert.go` (new) holds `saturatingInt`, `terminalBufferLimit`, `lineWindow` and `exitCode`.
+* `AuthMethodId` and `TerminalId` convert at the boundary.
+* `DeleteSession` replaces `UnstableDeleteSession`, and `PlanId` replaces `Id` (in a test).
+* `convert_test.go` has boundary tests at each type's maximum. Each was seen failing on a scratch
+  copy with a bare cast:
+  * `saturatingInt(MaxUint64)` gave `-1`;
+  * the terminal limit at `MaxUint64` gave `-1`;
+  * a line past the end gave the window `[9, 3)`;
+  * `exitCode(-1)` gave `4294967295`.
+
+**Steps 4a and 4b (0186 D5).** A scan of the ACP tests found no fixture that feeds the client a
+path through a connection's receive side. The two tests that read grok's `1.0.13` capture decode it
+directly, so the host path rule does not reach them. No fixture was changed for it. The Windows leg
+is the confirmation, and it has not run (see "Not done").
+
+**Step 4c.** `SessionUpdate` carries the comment that it must not send a request (SDK B1).
+
+**Step 5.** `CreateElicitation` and `CompleteElicitation` answer `NewMethodNotFound` (D9).
+
+**Step 6.**
+
+* `clientConnOptions(log)` passes `WithNotificationOverflowPolicy(OverflowDropNewest)`,
+  `WithLogger(log)` and `WithMaxMessageSize(10 << 20)`.
+* `spawnAgent` passes the provider logger at construction. The comment explaining why `SetLogger`
+  was never called is replaced.
+* The `unsafe` cast is gone. The seam the M5 routing test observes is kept, as `standardConnOf`
+  over `ClientSideConnection.Connection()`, and the tests' wording is updated with their assertions
+  unchanged.
+
+**Step 7.** 0167 D19's survival test fails with the overflow option removed, on a scratch copy at
+`GOMAXPROCS=1`, `-count=3`: "only 1085 of 1224 frames were read: the connection stopped reading
+(closed=true)". It passes with the option.
+
+**Step 8.** `TestSummarizeToolContentRawValues` covers absent, empty, `null`, string, blank string,
+number, boolean, object, array, large string and malformed values.
+
+* **Seen failing** with the raw value handed to `shortAny` undecoded: summaries such as
+  `in: null · null` and `in: "ls -la" · null`.
+* **The defect it pins compiles silently.** acp-go-sdk2 types `rawInput` and `rawOutput` as
+  `json.RawMessage` where the Coder SDK had `any`. `shortRaw` now decodes them.
+
+**Deviation — 2026-10-13, found while running A1: the fixtures never ran `initialize`.**
+
+* acp-go-sdk2 refuses every typed request before `initialize`, and drops every typed notification.
+* So, on the migrated tree:
+  * six auto-mode tests failed ("acp: initialize has not completed");
+  * `TestAStalledPumpIsContainedNotHung` failed, because nothing was parked: its updates never
+    reached the handler;
+  * `TestACPConnectionSurvivesAStalledPump` **passed vacuously,** for the same reason.
+* **Fix:** `initfixture_test.go` (new) adds `initializeForTest` and `answerInitialize`, and the
+  auto-mode and stalled-pump fixtures complete `initialize` as `spawnAgent` does.
+* The scripted rewind fixture uses only the ungated raw paths, and its tests assert exact method
+  lists, so it is unchanged.
+* **Scope:** this is within A1. It is test fixtures of the changed package, made necessary by the
+  migration.
+
+**Verification,** each exit status recorded before reading its output:
+
+```text
+go build ./...                                  exit=0
+go vet ./...   (darwin/arm64, linux/amd64, windows/amd64, CGO_ENABLED=0 off darwin)   exit=0 each
+go test -count=1 -race ./internal/...           exit=0   43 packages ok
+gofmt -l <32 changed Go files>                  4 listed (import order), gofmt -w applied, then clean
+Python scan of 821 .go files, go.mod, go.sum for the Coder path   exit=0, 0 hits
+  (the same scan on a planted directory: exit=1, 1 hit)
+```
+
+**Deviation — 2026-10-13, open: the pre-add gate fails on `master`.**
+
+* `./scripts/go-precheck.sh` on the 32 changed Go files exits 1 in its `govulncheck` step. Five
+  advisories are found in `golang.org/x/net v0.58.0`, all fixed in `v0.60.0`, none called or
+  imported: GO-2026-6603, GO-2026-6610, GO-2026-6611, GO-2026-6612 and GO-2026-6617.
+* This is pre-existing. `HEAD`'s `go.mod` already requires `golang.org/x/net v0.58.0`, and A1 does
+  not change it.
+* `gofmt` and `golint` reported nothing.
+* Until it is resolved, no A1 Go file is staged (AGENTS.md, the pre-add rule).
+* **Resolved by the owner, 2026-10-13: "Bump x/net under 0174 first".** The bump is
+  [0174-PLAN-keep-dependencies-free-of-known-advisories.md](0174-PLAN-keep-dependencies-free-of-known-advisories.md)
+  P5, staged and committed on its own, ahead of A1. A1 is then staged on top, and its `go.mod` and
+  `go.sum` carry the bump unchanged.
+* **After the bump,** in the working tree with A1 and P5 together:
+  * `go test -count=1 -race ./internal/...` exits 0, 43 ok;
+  * `./scripts/go-precheck.sh` on the 32 changed Go files exits 0: "32 file(s) clean (gofmt,
+    golint, govulncheck)";
+  * the tree's `go.mod` and `go.sum` differ from P5's staged copies only by A1's ACP lines (8 and
+    4).
+
+**Not done:**
+
+* nothing is staged;
+* the `go-native` `windows/amd64` CI leg and `make ci-windows` on the Windows host have not run,
+  and A1 is not complete until both pass;
+* `make preflight` has not run, since A1 changes no Flutter code.
