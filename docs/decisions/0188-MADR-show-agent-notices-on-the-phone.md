@@ -182,5 +182,22 @@ Under the chosen option:
 * The PLAN is [0188-PLAN-show-agent-notices-on-the-phone.md](0188-PLAN-show-agent-notices-on-the-phone.md).
   ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
   accepted the recommended option and approved N1 and N2 on 2026-10-13.
+
+## Amendment — 2026-10-13: D5's zero-token probe ran
+
+Magic advertises `session.notices` since `769a38f2` (PLAN N3). D4 rests on grok accepting that
+advertisement. D5 asked whether grok uses it. The zero-token half of the probe answered both for
+session start.
+
+* **Evidence.** `TestLiveGrokNoticesAtSessionStart` (`internal/provider/grok/live_notices_test.go`,
+  `live_grok` tag) ran against `grok 1.0.50 (c58f321264ba) [stable]` with wire capture.
+  * grok accepted the `initialize` carrying `session.notices` and opened the session.
+  * In the 12 seconds after `session/new`, it sent 39 frames: no `notice`, and no error.
+  * MCP status still arrived only on grok's own `_x.ai/mcp/server_status`.
+* **Consequence.** The advertisement is safe for grok `1.0.50`. At session start it changes nothing
+  the user sees, so the duplicate-news risk named under Consequences does not arise there.
+* **Still open.** Whether grok sends notices during a turn is unmeasured until the half of the probe
+  with model turns runs, after the owner's grok quota resets. The fixture is built from the schema,
+  as D5 allows, because grok sent no notice to capture.
 * grok's quota was exhausted on 2026-10-13. D5's zero-token run spends no model tokens; anything
   more waits for the reset.

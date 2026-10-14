@@ -217,7 +217,7 @@ make preflight                                       exit=0: check-records, mark
   committed `fc737d36`. It was not yet pushed when N3 started;
 * CI on push.
 
-### N3, 2026-10-13: implemented and verified; not committed
+### N3, 2026-10-13: complete (committed as `769a38f2`)
 
 **Approval:** the owner on 2026-10-13, "committed, proceed", after N1 and N2 were committed as the
 step requires.
@@ -273,7 +273,57 @@ N2.
 
 **Not done:**
 
-* N4 (the probe): not approved. Its zero-token half is now possible, since the advertisement
-  exists. The half with model turns waits for the owner's grok quota to reset;
-* no commit: N3 is staged, and a commit needs the owner's word in its turn;
+* ~~N4 (the probe): not approved. Its zero-token half is now possible, since the advertisement
+  exists. The half with model turns waits for the owner's grok quota to reset;~~ N4 is below;
+* ~~no commit: N3 is staged, and a commit needs the owner's word in its turn;~~ the owner committed
+  `769a38f2` and pushed it, with `fc737d36`;
 * CI on push.
+
+### N4, 2026-10-13: zero-token half done; the half with model turns is deferred
+
+**Approval:** the owner on 2026-10-13, "committed and pushed, do N4". The owner's grok quota was
+exhausted that day (0187's T4 deferral), so only the zero-token half ran.
+
+**Step 1, zero-token.** `TestLiveGrokNoticesAtSessionStart` (`live_notices_test.go`,
+`live_grok` tag) opens a grok session through `grok.New(...).Start` with `MCREMOTE_WIRE_CAPTURE_DIR`
+set. That sends Magic's own `initialize`, `session.notices` included, then `session/new`. It sends
+no prompt and watches the session start for 12 seconds. The test fails if grok refuses the
+advertisement, and logs every `agent_notice`.
+
+```text
+go test -tags live_grok -run 'TestLiveGrokNoticesAtSessionStart$' -count=1 -v ./internal/provider/grok/
+  engine version: grok 1.0.50
+  live_notices_test.go:48: grok sent 0 agent_notice event(s) at session start
+  --- PASS: TestLiveGrokNoticesAtSessionStart (13.07s)
+```
+
+* **grok `1.0.50` accepts the advertisement.** The session opened normally.
+* **It sent no notice at session start.** The wire capture holds 39 agent frames:
+  * 12 `_x.ai/session/setup`;
+  * 7 `session/update`, all `available_commands_update`;
+  * MCP progress, status and initialization on grok's own `_x.ai/mcp/*` notifications;
+  * no `notice` frame and no error.
+* **No duplicated news at session start.** MCP status still arrives only on grok's own
+  notifications.
+* **The fixture.** With no notice frames to commit, it is built from the schema, as step 1 allows:
+  the notice payloads in `internal/provider/acpagent/agentnotice_test.go`
+  (`TestNoticeBecomesAnAgentNotice` and `TestANoticeArrivesOverTheWire`). The capture is not
+  committed, because it carries nothing this record relies on that the frame counts above do not
+  state.
+
+**Step 2, with model turns: deferred** until the owner's grok quota resets. It checks whether grok
+sends notices during a turn, and whether any duplicate news it already reports through
+`_x.ai/mcp/server_status`. Until it runs, grok's notice behavior during turns is unmeasured, and this
+PLAN stays `in-progress`.
+
+**Verification:**
+
+```text
+go vet -tags live_grok ./internal/provider/grok/                 exit=0
+./scripts/go-precheck.sh internal/provider/grok/live_notices_test.go   exit=0
+```
+
+**Not done:**
+
+* step 2, as above;
+* no commit: N4's test and records are staged, and a commit needs the owner's word in its turn.
