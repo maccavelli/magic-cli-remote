@@ -122,7 +122,7 @@ are recorded in the MADR's amendment of the same date. Without them D3 does not 
 * **An unflagged title marks the name `user`.** It follows a rename the user made in the engine
   (codex).
 
-### T1 and T2, 2026-10-13: implemented and verified; not committed
+### T1 and T2, 2026-10-13: complete (committed as `145713d7`)
 
 **Approval:** the owner on 2026-10-13, "accept option 1, do T1 and T2".
 
@@ -188,7 +188,51 @@ make lint                                            exit=0
   Result: exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", with `internal/event`,
   `internal/provider/acpagent`, `internal/provider/grok` and `internal/session` all `ok`.
 * **Not done:**
-  * T3 (`docs/guides/protocol-v1.md`) and T4 (the live probe): not approved;
-  * no commit: T1 and T2 are staged, and a commit needs the owner's word in its turn;
+  * ~~T3 (`docs/guides/protocol-v1.md`) and~~ T4 (the live probe): not approved. T3 is below;
+  * ~~no commit: T1 and T2 are staged, and a commit needs the owner's word in its turn;~~ the owner
+    committed `145713d7` and pushed it;
   * CI on push;
   * no Flutter change, as the PLAN says: the phone already handles `session_title`.
+
+### T3, 2026-10-13: implemented and verified; not committed
+
+**Approval:** the owner on 2026-10-13, "committed and pushed, do T3".
+
+`docs/guides/protocol-v1.md`:
+
+* **Session `Meta`:** the example carries `"name_source": "user"`. A new bullet gives its values,
+  where each comes from, and the rule for records persisted before the field. It also says a client
+  may ignore the field.
+* **Domain event fields:** a `title_generated` bullet beside `title`, which a client may ignore.
+* **`session_title` event:** the two sources (an ACP agent's own title, and a rename inside the
+  engine), with `title_generated` in the example.
+* **Correction.** The section said a client rename and an agent title "either may win — the last one
+  applied is the title". That has been false since T2. It now says a generated title never replaces
+  a `user` name, and is dropped before history and push. An unflagged title is applied as before.
+* **`session.rename`:** a successful rename sets `name_source` to `user`.
+
+**Verification,** each exit status recorded before reading its output:
+
+```text
+make markdownlint-docs                          exit=0, "Summary: 0 issues in 0 files" (51 files)
+go test -count=1 ./internal/protocol/ ./internal/event/   exit=0 (the event-type and error-code guards)
+```
+
+The new in-page link, `#session_title-event-session-title-update`, is checked by markdownlint's
+MD051. That rule was seen catching a broken fragment on a scratch copy of the guide (the repo's
+`.markdownlint-cli2.jsonc` beside it):
+
+```text
+broken.md:1163:5 error MD051/link-fragments Link fragments should be valid
+  [Context: "[`session_title`](#session_title-event-no-such-heading)"]
+```
+
+The intact copy, linted in the same run, reported nothing.
+
+**Not done:**
+
+* T4 (the live probe): **deferred by the owner, 2026-10-13** ("we will run the grok live test when
+  my account resets, i used all my quota"). It runs once the grok account's quota resets. Until
+  then, grok's title behavior is known only from the two committed captures, and this PLAN stays
+  `in-progress`;
+* no commit: T3 is staged, and a commit needs the owner's word in its turn.

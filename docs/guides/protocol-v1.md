@@ -764,6 +764,8 @@ event.
 `name` is trimmed, required, and capped at 256 bytes. The daemon updates its
 durable name only after the provider-native rename succeeds. Unsupported
 providers return `session_rename_failed` or `session_diagnostics_failed`.
+A successful rename sets the session's `name_source` to `user`, so the agent's
+generated titles no longer replace it (MADR 0187).
 
 `diagnostics` is intentionally bounded and redacted:
 
@@ -1139,6 +1141,7 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   "id": "mcremote session id",
   "provider": "grok",
   "name": "my task",
+  "name_source": "user",
   "model": "optional model id",
   "cwd": "/absolute/path",
   "agent_session_id": "provider-native session id",
@@ -1148,6 +1151,16 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   "live": true
 }
 ```
+
+- `name_source` (optional, MADR 0187): where `name` came from.
+  - `user`: a name the user set, at `session.create`, by `/new`, by `session.rename`, or by a
+    rename inside the engine.
+  - `generated`: the agent's own title, from a `session_title` event with
+    `title_generated: true`.
+  - Absent when the session has no name. A session the daemon persisted before this field existed
+    reads as `user` when it has a name.
+  - A client may ignore it. It is informational: the daemon enforces the rule it describes (see
+    [`session_title`](#session_title-event-session-title-update)).
 
 - `status`: last observed session status — `idle`, `running`, `error`, `cancelled`,
   `disconnected`.
@@ -1310,6 +1323,9 @@ replace the card detail with non-empty incoming text snapshots.
   and MIME type only; the bytes are never echoed back. Clients render a
   placeholder chip so an image-only prompt still shows as a turn.
 - `title`: on `session_title` events, the session's new display title.
+- `title_generated` (optional, MADR 0187): on `session_title` events, `true` when the agent wrote
+  the title itself (ACP `session_info_update`). Absent when the title follows a user's rename in the
+  engine (codex). A client may ignore it.
 
 - `native_message_id` / `native_part_id`: the agent's own identity for a
   transcript-bearing event. Empty when the provider supplies none; such rows
@@ -1746,20 +1762,29 @@ Clients render a settings surface from it and write back with
 
 ### `session_title` event (session title update)
 
-The agent renamed the session (ACP `sessionInfoUpdate`) — for example after
-generating a title from the first prompt.
+The session's title changed in the engine. There are two sources:
+
+- an ACP agent (grok, gobble) wrote a title itself, for example from the first prompt. It is sent
+  with `title_generated: true`;
+- a rename the user made inside the engine (codex `thread/name/updated`). It is sent without
+  `title_generated`.
 
 ```json
 {
   "type": "session_title",
   "session_id": "...",
-  "title": "Fix the migration script"
+  "title": "Fix the migration script",
+  "title_generated": true
 }
 ```
 
-Clients should update their session-list label. This is distinct from
-`session.rename`, which is the *client* setting a title; this event is the agent
-doing so, and either may win — the last one applied is the title.
+Clients should update their session-list label and chat title.
+
+This is distinct from `session.rename`, which is the *client* setting a name. Since MADR 0187, a
+generated title never replaces a name the user set (`name_source: "user"` on the session's `Meta`).
+The daemon drops such a title before history and push, so a client never receives it. A generated
+title is delivered only to a session that is unnamed or already carries a generated name. A title
+without `title_generated` is applied as before, and the last one applied is the name.
 
 ### `question_request` / `question_resolved` events
 
