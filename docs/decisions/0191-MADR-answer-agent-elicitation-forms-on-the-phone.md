@@ -49,7 +49,9 @@ This record decides form mode. URL mode is left for a record of its own.
   (`types_gen.go:19854-19860`, `:19938-19954`). `Other` modes are not gated.
 * **The SDK loses the field order.** `Properties` is a Go map (`:4971`), so the order the agent
   wrote its fields in does not survive decoding. The patch-semantics gap filed as
-  https://github.com/maccavelli/acp-go-sdk2/issues/5 is a different defect; this one is not filed.
+  https://github.com/maccavelli/acp-go-sdk2/issues/5 is a different defect. ~~This one is not
+  filed.~~ It was filed on 2026-10-14 as https://github.com/maccavelli/acp-go-sdk2/issues/6 (see
+  More Information).
 
 **What Magic does today.**
 
@@ -255,9 +257,14 @@ Under the chosen option:
 
 * The facts above were read from the code on 2026-10-14, at `13c04fc6`, from
   `acp-go-sdk2@v0.17.1`, and from gobble-cli.
-* **A possible ask for `acp-go-sdk2`, not filed.** Keep `ElicitationSchema.Properties` in the order
-  the agent sent, for example as an ordered list beside the map. Filing it is outward-facing and
-  waits for the owner's word.
+* **An ask for `acp-go-sdk2`.** Keep `ElicitationSchema.Properties` in the order the agent sent,
+  for example as an ordered list beside the map. ~~Filing it is outward-facing and waits for the
+  owner's word.~~ Filed on 2026-10-14 at the owner's request as
+  https://github.com/maccavelli/acp-go-sdk2/issues/6, "ElicitationSchema loses the order of its
+  properties: the agent's field order cannot be read or sent".
+  * Before filing, its reproduction was run against `v0.17.1`. Re-encoding a schema sent as name,
+    email, age wrote age, email, name, and the map's iteration order varied between runs.
+  * `v1.14.0`, read from source, still holds `Properties` as a map and keeps no key order.
 * The PLAN is
   [0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md](0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md).
   ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner

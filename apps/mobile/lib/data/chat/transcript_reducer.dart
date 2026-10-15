@@ -44,7 +44,28 @@ SessionTranscript applySessionEvent(
     // bubble. Return the identical instance when unchanged so the notifier's
     // `identical()` check suppresses a rebuild.
     if (_samePlan(current.plan, ev.plan)) return current;
-    return current.copyWith(plan: List<PlanEntry>.from(ev.plan));
+    // The stable plan takes its place among the identified plans under the
+    // empty ID: where it first appeared, and out of the order once cleared
+    // (MADR 0192 D4).
+    final listed = current.planOrder.contains('');
+    final List<String>? order = ev.plan.isEmpty
+        ? (listed
+              ? [
+                  for (final k in current.planOrder)
+                    if (k != '') k,
+                ]
+              : null)
+        : (listed ? null : [...current.planOrder, '']);
+    return current.copyWith(
+      plan: List<PlanEntry>.from(ev.plan),
+      planOrder: order,
+    );
+  }
+
+  if (ev.type == 'identified_plan') {
+    // One identified plan, restated whole, or its removal. No chat bubble:
+    // like `plan`, it is drawn above the composer (MADR 0192 D4).
+    return _applyIdentifiedPlan(current, ev);
   }
 
   if (ev.type == 'subagents') {
@@ -1034,6 +1055,45 @@ bool _samePlan(List<PlanEntry> a, List<PlanEntry> b) {
   }
   return true;
 }
+
+/// Applies one `identified_plan` event: a removal drops only its own ID, and
+/// an update replaces only its own plan, keeping the place it first appeared
+/// (MADR 0192 D4). An event without an ID names no plan and is ignored.
+SessionTranscript _applyIdentifiedPlan(SessionTranscript t, SessionEvent ev) {
+  final id = ev.planId ?? '';
+  if (id.isEmpty) return t;
+  if (ev.planRemoved) {
+    if (!t.identifiedPlans.containsKey(id)) return t;
+    return t.copyWith(
+      identifiedPlans: Map.of(t.identifiedPlans)..remove(id),
+      planOrder: [
+        for (final k in t.planOrder)
+          if (k != id) k,
+      ],
+    );
+  }
+  final next = IdentifiedPlan(
+    id: id,
+    kind: ev.planKind ?? '',
+    entries: List<PlanEntry>.unmodifiable(ev.plan),
+    content: ev.planContent ?? '',
+    truncated: ev.planTruncated,
+    uri: ev.planUri ?? '',
+  );
+  final prev = t.identifiedPlans[id];
+  if (prev != null && _sameIdentifiedPlan(prev, next)) return t;
+  return t.copyWith(
+    identifiedPlans: Map.of(t.identifiedPlans)..[id] = next,
+    planOrder: prev == null ? [...t.planOrder, id] : null,
+  );
+}
+
+bool _sameIdentifiedPlan(IdentifiedPlan a, IdentifiedPlan b) =>
+    a.kind == b.kind &&
+    a.content == b.content &&
+    a.truncated == b.truncated &&
+    a.uri == b.uri &&
+    _samePlan(a.entries, b.entries);
 
 bool _sameSubagents(List<SubagentInfo> a, List<SubagentInfo> b) {
   if (a.length != b.length) return false;

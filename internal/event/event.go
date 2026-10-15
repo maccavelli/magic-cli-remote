@@ -36,6 +36,12 @@ const (
 	TypeAvailableCommands Type = "available_commands"
 	// TypePlan carries an ACP plan update.
 	TypePlan Type = "plan"
+	// TypeIdentifiedPlan carries one of an ACP agent's identified plans
+	// (PlanID, PlanKind, and Entries, PlanContent or PlanURI), or its removal
+	// (PlanRemoved). It is separate from TypePlan because a phone that does not
+	// know it must leave the stable plan alone; a plan event without entries
+	// means "clear" (MADR 0192 D1, D2, Amendment 1).
+	TypeIdentifiedPlan Type = "identified_plan"
 	// TypeNotice is a daemon-originated informational line (e.g. the output of a
 	// built-in slash command like /model or /help). Rendered as a system message,
 	// distinct from TypeError so it is not styled as a failure.
@@ -147,6 +153,7 @@ func Types() []Type {
 		TypeError,
 		TypeAvailableCommands,
 		TypePlan,
+		TypeIdentifiedPlan,
 		TypeNotice,
 		TypeAgentNotice,
 		TypeCompaction,
@@ -219,6 +226,9 @@ func IsControl(t Type) bool {
 		// Plan/todo strips are low-rate replace snapshots; dropping one leaves
 		// multi-step work looking stuck or incomplete (MADR 0020 Sprint 2).
 		TypePlan,
+		// An identified plan is the same kind of snapshot, one per plan ID, and a
+		// dropped removal would leave a withdrawn plan on screen (MADR 0192 D3).
+		TypeIdentifiedPlan,
 		// An artifact creates a transcript row; dropping one loses a file the
 		// agent produced, with nothing later to re-announce it. Their rate is
 		// bounded by actual file output.
@@ -301,6 +311,13 @@ const (
 	PlanPriorityHigh   = "high"
 	PlanPriorityMedium = "medium"
 	PlanPriorityLow    = "low"
+)
+
+// Plan shapes carried on identified_plan events (ACP PlanUpdateContent types).
+const (
+	PlanKindItems    = "items"
+	PlanKindMarkdown = "markdown"
+	PlanKindFile     = "file"
 )
 
 // Permission resolution statuses carried on permission_resolved events.
@@ -723,6 +740,19 @@ type Event struct {
 	// as "clear the plan", which is the opposite of the merge rule
 	// session_mode uses for its absent lists (MADR 0046 I-1).
 	Entries []PlanEntry `json:"entries,omitempty"`
+
+	// The Plan fields are set on identified_plan events: the agent's ID for the
+	// plan, its shape (PlanKindItems, PlanKindMarkdown or PlanKindFile), a
+	// Markdown plan's text and whether it was cut at the daemon's bound, a file
+	// plan's URI as sent (never read), and whether the agent removed the plan.
+	// An items plan carries Entries, replaced whole, as a plan event does
+	// (MADR 0192 D1, D2).
+	PlanID        string `json:"plan_id,omitempty"`
+	PlanKind      string `json:"plan_kind,omitempty"`
+	PlanContent   string `json:"plan_content,omitempty"`
+	PlanTruncated bool   `json:"plan_truncated,omitempty"`
+	PlanURI       string `json:"plan_uri,omitempty"`
+	PlanRemoved   bool   `json:"plan_removed,omitempty"`
 
 	// ApprovalGroupID is the stable client-side upsert key for approval_summary
 	// events: events sharing a group id replace one another. The key carries the

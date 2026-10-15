@@ -145,6 +145,14 @@ func TestAgentNoticeIsContent(t *testing.T) {
 	}
 }
 
+// An identified plan is retained as the stable plan is: progress, restated
+// whole by the agent's next update (MADR 0192 D3).
+func TestIdentifiedPlanIsProgress(t *testing.T) {
+	if got, want := ClassOf(TypeIdentifiedPlan), ClassOf(TypePlan); got != want || got != ClassProgress {
+		t.Fatalf("identified_plan is %s, plan is %s; want both progress", got, want)
+	}
+}
+
 func TestBytesTracksStructGrowth(t *testing.T) {
 	// A 45th field the budget does not count is how a budget silently stops
 	// bounding anything. eventHeaderBytes is derived from the type, so this

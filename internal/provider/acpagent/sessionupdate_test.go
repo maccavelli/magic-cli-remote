@@ -73,8 +73,8 @@ var sessionUpdateRows = map[string]updateRow{
 	"ToolCallUpdate": {update: `{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}`, emits: event.TypeToolUpdate},
 	"Plan":           {update: `{"sessionUpdate":"plan","entries":[]}`, emits: event.TypePlan},
 	"PlanUpdate": {update: `{"sessionUpdate":"plan_update","plan":{"type":"markdown","planId":"p1","content":"x"}}`,
-		declines: []string{"plan_update"}},
-	"PlanRemoved": {update: `{"sessionUpdate":"plan_removed","planId":"p1"}`, emits: event.TypePlan},
+		emits: event.TypeIdentifiedPlan}, // MADR 0192 D1
+	"PlanRemoved": {update: `{"sessionUpdate":"plan_removed","planId":"p1"}`, emits: event.TypeIdentifiedPlan}, // MADR 0192 D2
 	"AvailableCommandsUpdate": {update: `{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"web","description":"search"}]}`,
 		emits: event.TypeAvailableCommands},
 	"CurrentModeUpdate": {update: `{"sessionUpdate":"current_mode_update","currentModeId":"plan"}`, emits: event.TypeMode},

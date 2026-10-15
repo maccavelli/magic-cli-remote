@@ -2665,6 +2665,12 @@ class SessionEvent {
     this.compactionSummary,
     this.compactionError,
     this.compactionTruncated = false,
+    this.planId,
+    this.planKind,
+    this.planContent,
+    this.planTruncated = false,
+    this.planUri,
+    this.planRemoved = false,
     this.text,
     this.toolId,
     this.toolName,
@@ -2741,6 +2747,18 @@ class SessionEvent {
   final String? compactionSummary;
   final String? compactionError;
   final bool compactionTruncated;
+
+  /// One of an agent's identified plans, on `identified_plan` events (MADR
+  /// 0192): its ID, its shape (`items`, `markdown` or `file`), a Markdown
+  /// plan's text and whether the daemon cut it, a file plan's URI (shown, never
+  /// fetched), and whether the agent removed the plan. An items plan's tasks
+  /// arrive in [plan].
+  final String? planId;
+  final String? planKind;
+  final String? planContent;
+  final bool planTruncated;
+  final String? planUri;
+  final bool planRemoved;
   final String? text;
   final String? toolId;
   final String? toolName;
@@ -2949,6 +2967,12 @@ class SessionEvent {
       compactionSummary: json['compaction_summary'] as String?,
       compactionError: json['compaction_error'] as String?,
       compactionTruncated: json['compaction_truncated'] == true,
+      planId: json['plan_id'] as String?,
+      planKind: json['plan_kind'] as String?,
+      planContent: json['plan_content'] as String?,
+      planTruncated: json['plan_truncated'] == true,
+      planUri: json['plan_uri'] as String?,
+      planRemoved: json['plan_removed'] == true,
       text: json['text'] as String?,
       toolId: json['tool_id'] as String?,
       toolName: json['tool_name'] as String?,

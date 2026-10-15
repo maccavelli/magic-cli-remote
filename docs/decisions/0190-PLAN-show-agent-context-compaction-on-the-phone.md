@@ -148,6 +148,10 @@ gate, for K1 and K2 to be committed.
   (`omitempty`). So a Go agent on `acp-go-sdk2` cannot send the `summary: []` that clears, any more
   than it can send `null`. The test sends that frame as raw JSON, as a non-Go agent would. The
   issue was not amended; that is an outward-facing step for the owner.
+  * **2026-10-14: not filed, because it is already fixed.** The owner asked for it to be filed. By
+    then `acp-go-sdk2@v1.14.0` had shipped (2026-10-15 UTC). Read from its source, `Summary` is a
+    `Patch[[]ContentBlock]` tagged `omitzero`, and `PatchValue([]acp.ContentBlock{})` encodes as
+    `[]`. Magic is still on `v0.17.1`, so the test keeps its raw frame until an SDK bump.
 
 **K1 step 4, the manager.**
 

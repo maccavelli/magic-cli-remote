@@ -88,6 +88,7 @@ func ClassOf(t Type) Class {
 	case TypeThoughtChunk,
 		TypeToolUpdate,
 		TypePlan,
+		TypeIdentifiedPlan,
 		TypeSessionStatus,
 		TypeSubagents,
 		TypeCodexProgress,
@@ -140,6 +141,7 @@ func Bytes(ev *Event) int {
 	n += len(ev.NativeMessageID) + len(ev.NativePartID)
 	n += len(ev.NoticeSeverity) + len(ev.NoticeTitle) + len(ev.NoticeDescription)
 	n += len(ev.CompactionID) + len(ev.CompactionStatus) + len(ev.CompactionSummary) + len(ev.CompactionError)
+	n += len(ev.PlanID) + len(ev.PlanKind) + len(ev.PlanContent) + len(ev.PlanURI)
 
 	for i := range ev.Options {
 		n += optionBytes + len(ev.Options[i].OptionID) + len(ev.Options[i].Name) + len(ev.Options[i].Kind)

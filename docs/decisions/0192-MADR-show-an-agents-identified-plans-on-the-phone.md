@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-14
 decision-makers: Project Owner
 consulted: none
@@ -90,21 +90,24 @@ reports, without merging separate plans into one.
 
 Under the chosen option:
 
-* **D1. acpagent maps `plan_update` onto the plan event, with an identity and a shape.**
-  * `event.TypePlan` gains:
-    * `plan_id`, absent for the stable plan;
+* **D1. acpagent maps `plan_update` onto ~~the plan event~~ a new `identified_plan` event, with an
+  identity and a shape** (amended 2026-10-14, see "Amendment 1" below).
+  * ~~`event.TypePlan` gains:~~ `event.TypeIdentifiedPlan` (`identified_plan`) carries:
+    * `plan_id`, ~~absent for the stable plan~~ always set;
     * `plan_kind` (`items`, `markdown` or `file`);
     * `plan_content`, the Markdown, capped at 32 KiB with `plan_truncated`;
     * `plan_uri`, the file plan's URI as sent.
   * `items` carry `entries` as the stable plan does.
   * An `Unknown` content type is declined as `plan_update.<type>`, and `_meta` as
     `plan_update._meta`.
-* **D2. `plan_removed` removes only the plan it names.** It becomes a plan event with that
-  `plan_id` and `plan_removed: true`. The stable plan is never cleared by it. That corrects the
-  2026-07-21 mapping, and `TestSessionUpdatePlanRemovedEmitsEmptyPlan` is replaced.
-* **D3. The plan event keeps its delivery and retention.** It stays must-deliver and in the progress
-  class, as `plan` is today. Each event restates one plan whole, so a later one supersedes an
-  earlier one.
+* **D2. `plan_removed` removes only the plan it names.** It becomes ~~a plan event~~ an
+  `identified_plan` event with that `plan_id` and `plan_removed: true`. The stable plan is never
+  cleared by it. That corrects the 2026-07-21 mapping, and
+  `TestSessionUpdatePlanRemovedEmitsEmptyPlan` is replaced.
+* **D3. ~~The plan event keeps its delivery and retention.~~ The `identified_plan` event takes the
+  plan event's delivery and retention.** It is must-deliver and in the progress class, as `plan` is.
+  Each event restates one plan whole, so a later one for the same ID supersedes an earlier one.
+  `plan` itself is unchanged.
 * **D4. The phone keeps plans keyed by ID, the stable plan under the empty ID.**
   * Each plan shows in the panel above the composer, in the order it first appeared:
     * `items` as the existing task list (`WorkItemsPanel`);
@@ -112,8 +115,10 @@ Under the chosen option:
     * `file` as its file name and full path, with a copy action. It is **never fetched**, neither by
       the phone nor by the daemon.
   * A removal drops only that ID.
-  * A phone without D4 ignores the new fields, and so treats an identified items plan as the stable
-    plan. That is the behavior it has today, so nothing gets worse.
+  * ~~A phone without D4 ignores the new fields, and so treats an identified items plan as the stable
+    plan. That is the behavior it has today, so nothing gets worse.~~ A phone without D4 ignores the
+    `identified_plan` event, as it ignores every event type it does not know. Its stable plan is
+    untouched, including by a removal. (Amendment 1: the struck sentence was false.)
 * **D5. Magic advertises `plan` (`{}`)** in `defaultClientCapabilities`, and adds it to
   `implementedClientCapabilities`, only when D1–D4 ship. The honesty test keeps `elicitation.url` and
   `auth.terminal` as its dishonest examples.
@@ -161,7 +166,8 @@ Under the chosen option:
 ### Carry identified plans beside the stable one, keyed by plan ID, in all three content shapes
 
 * Good, because nothing the agent reports is merged, dropped or misattributed.
-* Neutral, because the plan event gains five optional fields.
+* Neutral, because ~~the plan event gains five optional fields~~ the event package gains one type
+  and six optional fields (Amendment 1).
 * Bad, because it is the largest phone change of the options.
 
 ### Fold identified item plans into the single stable plan, and decline Markdown and file plans
@@ -186,8 +192,22 @@ Under the chosen option:
 
 ## More Information
 
+* **Amendment 1, 2026-10-14: identified plans travel as their own event type.** Found at the start
+  of P1, before any code was written.
+  * `internal/event/event.go` says a `plan` event without `entries` means "clear the plan". The
+    phone replaces its one plan with every `plan` event's entries
+    (`apps/mobile/lib/data/chat/transcript_reducer.dart`), and reads nothing else from it.
+  * So under D1 as first written, a phone without D4 would have wiped its stable plan on every
+    Markdown plan, file plan and removal, and replaced it with any identified item plan. D4's "nothing
+    gets worse" was false. The daemon and the phone update separately, so a newer daemon with an
+    older phone is a normal case.
+  * The phone's event switch ignores a type it does not know (`default: break`), and there is no
+    client feature negotiation that could gate new fields instead.
+  * The owner chose a new event type, `identified_plan`, over gating the new fields by a new
+    handshake field. `plan` is unchanged. D1–D4 are amended in place, with the old text struck.
 * The facts above were read from the code on 2026-10-14, at `5a5d2eed`, from
   `acp-go-sdk2@v0.17.1`, and from gobble-cli.
 * The PLAN is
   [0192-PLAN-show-an-agents-identified-plans-on-the-phone.md](0192-PLAN-show-an-agents-identified-plans-on-the-phone.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+  ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ On 2026-10-14
+  the owner accepted the recommended option and approved P1 and P2.

@@ -489,6 +489,27 @@ class ChatItem {
   }
 }
 
+/// One of an ACP agent's identified plans (`identified_plan`, MADR 0192 D4).
+/// [kind] is `items` (tasks in [entries]), `markdown` ([content], cut at the
+/// daemon's bound when [truncated]) or `file` ([uri], shown and never fetched).
+class IdentifiedPlan {
+  const IdentifiedPlan({
+    required this.id,
+    required this.kind,
+    this.entries = const [],
+    this.content = '',
+    this.truncated = false,
+    this.uri = '',
+  });
+
+  final String id;
+  final String kind;
+  final List<PlanEntry> entries;
+  final String content;
+  final bool truncated;
+  final String uri;
+}
+
 /// In-memory transcript for one session (survives chat route disposal).
 class SessionTranscript {
   const SessionTranscript({
@@ -502,6 +523,8 @@ class SessionTranscript {
     this.commands = const [],
     this.remoteCommands = const [],
     this.plan = const [],
+    this.identifiedPlans = const {},
+    this.planOrder = const [],
     this.subagents = const [],
     this.usage,
     this.capabilities,
@@ -558,6 +581,15 @@ class SessionTranscript {
   /// Current agent plan (ACP `Plan`), replaced wholesale by each `plan` event.
   /// Rendered outside the scrolling transcript, so it is not a [ChatItem].
   final List<PlanEntry> plan;
+
+  /// The agent's identified plans (`identified_plan`), keyed by plan ID. Each
+  /// event replaces its own plan only; a removal drops only its own ID
+  /// (MADR 0192 D4).
+  final Map<String, IdentifiedPlan> identifiedPlans;
+
+  /// The order the plans first appeared in: identified plan IDs, and the empty
+  /// ID for [plan]. The panels above the composer are drawn in this order.
+  final List<String> planOrder;
 
   /// Background sub-agents this session currently knows about, replaced
   /// wholesale by each `subagents` event. Like [plan], it lives outside the
@@ -632,6 +664,8 @@ class SessionTranscript {
     List<AvailableCommand>? commands,
     List<RemoteCommand>? remoteCommands,
     List<PlanEntry>? plan,
+    Map<String, IdentifiedPlan>? identifiedPlans,
+    List<String>? planOrder,
     List<SubagentInfo>? subagents,
     Usage? usage,
     SessionCapabilities? capabilities,
@@ -656,6 +690,8 @@ class SessionTranscript {
       commands: commands ?? this.commands,
       remoteCommands: remoteCommands ?? this.remoteCommands,
       plan: plan ?? this.plan,
+      identifiedPlans: identifiedPlans ?? this.identifiedPlans,
+      planOrder: planOrder ?? this.planOrder,
       subagents: subagents ?? this.subagents,
       usage: usage ?? this.usage,
       capabilities: capabilities ?? this.capabilities,

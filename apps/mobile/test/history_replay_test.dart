@@ -389,6 +389,49 @@ void main() {
         expect(t.remoteCommands.first.available, isTrue);
       },
     );
+
+    // Identified plans are live state the cache does not store, like the
+    // stable plan, so a snapshot landing after them must keep them and their
+    // order (MADR 0192 D4).
+    test('hydrate keeps identified plans the cache cannot carry', () async {
+      final cache = TranscriptCache();
+      await cache.save(
+        's1',
+        SessionTranscript(
+          sessionId: 's1',
+          items: [ChatItem.user('old').copyWith(seq: 1)],
+          nextSeq: 2,
+        ),
+      );
+      final c = makeContainer(cache: cache);
+      final n = c.read(transcriptsProvider.notifier);
+      n.debugOnEvent(
+        SessionEvent.fromJson({
+          'type': 'identified_plan',
+          'session_id': 's1',
+          'seq': 2,
+          'plan_id': 'a',
+          'plan_kind': 'markdown',
+          'plan_content': '# A',
+        }),
+      );
+      n.debugOnEvent(
+        SessionEvent.fromJson({
+          'type': 'plan',
+          'session_id': 's1',
+          'seq': 3,
+          'entries': [
+            {'content': 'Stable task', 'status': 'pending'},
+          ],
+        }),
+      );
+      expect(await n.hydrateFromCache('s1'), isTrue);
+      final t = c.read(transcriptsProvider).forSession('s1');
+      expect(t.items.single.text, 'old');
+      expect(t.identifiedPlans.keys, ['a']);
+      expect(t.planOrder, ['a', '']);
+      expect(t.plan.map((e) => e.content), ['Stable task']);
+    });
   });
 
   group('prunePresentedPermissionIds', () {

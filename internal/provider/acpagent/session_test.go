@@ -85,35 +85,6 @@ func TestSessionUpdatePlanEmitsMappedEntries(t *testing.T) {
 	}
 }
 
-// PlanRemoved must emit a plan event whose entries are an empty (non-nil) list:
-// the client interprets this as clearing the current plan (replace-semantics).
-func TestSessionUpdatePlanRemovedEmitsEmptyPlan(t *testing.T) {
-	s := &session{
-		localID: "local-1",
-		agentID: "agent-1",
-		events:  make(chan event.Event, 8),
-		log:     slog.Default(),
-	}
-	err := s.SessionUpdate(t.Context(), acp.SessionNotification{
-		Update: acp.SessionUpdate{
-			PlanRemoved: &acp.SessionUpdatePlanRemoved{PlanId: "plan-1"},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ev := recvEvent(t, s.events)
-	if ev.Type != event.TypePlan {
-		t.Fatalf("want plan event, got %s", ev.Type)
-	}
-	if ev.Entries == nil {
-		t.Fatal("expected non-nil empty entries")
-	}
-	if len(ev.Entries) != 0 {
-		t.Fatalf("expected empty entries, got %+v", ev.Entries)
-	}
-}
-
 func recvEvent(t *testing.T, ch <-chan event.Event) event.Event {
 	t.Helper()
 	select {

@@ -280,6 +280,9 @@ Under the chosen option:
     which D10's item 7 will meet.
   * Like https://github.com/maccavelli/acp-go-sdk2/issues/4, it belongs to that repository's
     records, not this one.
+  * **Closed 2026-10-15 UTC as fixed in `v1.14.0`** (`25eedff`): "the 24 patch fields are
+    `Patch[T]`, which keeps absent, null and a value apart in both directions". Magic is still on
+    `v0.17.1`, so D1's omission-only reading stands until a record adopts `v1.14.0`.
 * The PLAN is
   [0190-PLAN-show-agent-context-compaction-on-the-phone.md](0190-PLAN-show-agent-context-compaction-on-the-phone.md).
   ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner

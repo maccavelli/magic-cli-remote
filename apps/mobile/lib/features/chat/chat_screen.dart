@@ -37,6 +37,7 @@ import '../../theme/starfield.dart';
 import '../../theme/top_notification.dart';
 import '../../theme/widgets.dart';
 import '../widgets/option_picker_sheet.dart';
+import '../widgets/plan_document_panel.dart';
 import '../widgets/subagents_panel.dart';
 import '../widgets/work_items_panel.dart';
 import 'chat_helpers.dart';
@@ -194,6 +195,31 @@ String audioMimeForPath(String path, [String? given]) {
     if (lower.endsWith(entry.key)) return entry.value;
   }
   return '';
+}
+
+/// The panels for the stable plan and the agent's identified plans, in the
+/// order they first appeared (MADR 0192 D4). A stable plan the order does not
+/// list, such as one set before the order was kept, is drawn first.
+List<Widget> _planPanels(
+  List<PlanEntry> plan,
+  Map<String, IdentifiedPlan> identified,
+  List<String> order,
+) {
+  final keys = [
+    if (plan.isNotEmpty && !order.contains('')) '',
+    for (final key in order)
+      if (key.isNotEmpty || plan.isNotEmpty) key,
+  ];
+  return [
+    for (final key in keys)
+      if (key.isEmpty)
+        WorkItemsPanel(entries: plan)
+      else if (identified[key] case final p?)
+        if (p.kind == 'items')
+          WorkItemsPanel(entries: p.entries, title: identifiedPlanTitle(p))
+        else if (p.kind == 'markdown' || p.kind == 'file')
+          PlanDocumentPanel(plan: p),
+  ];
 }
 
 /// Reduces a picked path to a bare basename the daemon will accept.
@@ -2360,6 +2386,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final plan = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.plan),
     );
+    final identifiedPlans = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.identifiedPlans),
+    );
+    final planOrder = ref.watch(
+      sessionTranscriptProvider(sid).select((t) => t.planOrder),
+    );
     final subagents = ref.watch(
       sessionTranscriptProvider(sid).select((t) => t.subagents),
     );
@@ -2912,7 +2944,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // two, and their output is deliberately absent from chat, so this is
           // the only place the user learns work is happening off-screen.
           if (subagents.isNotEmpty) SubagentsPanel(entries: subagents),
-          if (plan.isNotEmpty) WorkItemsPanel(entries: plan),
+          // The stable plan and the agent's identified plans, in the order
+          // they first appeared (MADR 0192 D4).
+          ..._planPanels(plan, identifiedPlans, planOrder),
           if (goal != null)
             Material(
               color: Theme.of(context).colorScheme.surfaceContainerHighest,

@@ -62,6 +62,7 @@ func TestTypeConstants(t *testing.T) {
 		{"TypeError", event.TypeError, "error"},
 		{"TypeAvailableCommands", event.TypeAvailableCommands, "available_commands"},
 		{"TypePlan", event.TypePlan, "plan"},
+		{"TypeIdentifiedPlan", event.TypeIdentifiedPlan, "identified_plan"},
 		{"TypeNotice", event.TypeNotice, "notice"},
 		{"TypeAgentNotice", event.TypeAgentNotice, "agent_notice"},
 		{"TypeCompaction", event.TypeCompaction, "compaction"},
@@ -102,6 +103,7 @@ func TestControlTypesComplete(t *testing.T) {
 		event.TypeSessionConfig,
 		event.TypeSessionCapabilities,
 		event.TypePlan,
+		event.TypeIdentifiedPlan,
 	}
 	for _, tc := range control {
 		t.Run(string(tc), func(t *testing.T) {
@@ -155,6 +157,51 @@ func TestPlanConstants(t *testing.T) {
 	}
 	if event.PlanPriorityLow != "low" {
 		t.Fatalf("PlanPriorityLow = %q, want %q", event.PlanPriorityLow, "low")
+	}
+}
+
+// Identified plans travel as their own event type, so the stable plan's event
+// must encode exactly as it did before them: a phone that predates them reads
+// a plan event without entries as "clear" (MADR 0192, Amendment 1).
+func TestPlanEventsEncoding(t *testing.T) {
+	ts := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		ev   event.Event
+		want string
+	}{
+		{"stable plan", event.Event{Type: event.TypePlan, SessionID: "s1", Timestamp: ts,
+			Entries: []event.PlanEntry{{Content: "Write tests", Status: event.PlanStatusPending, Priority: event.PlanPriorityHigh}}},
+			`{"type":"plan","session_id":"s1","timestamp":"2026-10-14T12:00:00Z","entries":[{"content":"Write tests","status":"pending","priority":"high"}]}`},
+		{"stable plan cleared", event.Event{Type: event.TypePlan, SessionID: "s1", Timestamp: ts, Entries: []event.PlanEntry{}},
+			`{"type":"plan","session_id":"s1","timestamp":"2026-10-14T12:00:00Z"}`},
+		{"items plan", event.Event{Type: event.TypeIdentifiedPlan, SessionID: "s1", Timestamp: ts,
+			PlanID: "p1", PlanKind: event.PlanKindItems,
+			Entries: []event.PlanEntry{{Content: "Ship", Status: event.PlanStatusCompleted, Priority: event.PlanPriorityLow}}},
+			`{"type":"identified_plan","session_id":"s1","timestamp":"2026-10-14T12:00:00Z","entries":[{"content":"Ship","status":"completed","priority":"low"}],"plan_id":"p1","plan_kind":"items"}`},
+		{"markdown plan", event.Event{Type: event.TypeIdentifiedPlan, SessionID: "s1", Timestamp: ts,
+			PlanID: "p2", PlanKind: event.PlanKindMarkdown, PlanContent: "# Plan", PlanTruncated: true},
+			`{"type":"identified_plan","session_id":"s1","timestamp":"2026-10-14T12:00:00Z","plan_id":"p2","plan_kind":"markdown","plan_content":"# Plan","plan_truncated":true}`},
+		{"file plan", event.Event{Type: event.TypeIdentifiedPlan, SessionID: "s1", Timestamp: ts,
+			PlanID: "p3", PlanKind: event.PlanKindFile, PlanURI: "file:///tmp/plan.md"},
+			`{"type":"identified_plan","session_id":"s1","timestamp":"2026-10-14T12:00:00Z","plan_id":"p3","plan_kind":"file","plan_uri":"file:///tmp/plan.md"}`},
+		{"removed plan", event.Event{Type: event.TypeIdentifiedPlan, SessionID: "s1", Timestamp: ts,
+			PlanID: "p1", PlanRemoved: true},
+			`{"type":"identified_plan","session_id":"s1","timestamp":"2026-10-14T12:00:00Z","plan_id":"p1","plan_removed":true}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := json.Marshal(tc.ev)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(b) != tc.want {
+				t.Fatalf("encoded\n got %s\nwant %s", b, tc.want)
+			}
+		})
+	}
+	if event.PlanKindItems != "items" || event.PlanKindMarkdown != "markdown" || event.PlanKindFile != "file" {
+		t.Fatalf("plan kinds = %q %q %q, want ACP's items, markdown, file",
+			event.PlanKindItems, event.PlanKindMarkdown, event.PlanKindFile)
 	}
 }
 

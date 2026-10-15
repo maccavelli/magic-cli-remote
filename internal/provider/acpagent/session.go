@@ -1860,14 +1860,11 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Timestamp: now,
 			Entries:   acpcommon.PlanEntries(u.Plan.Entries),
 		})
+	case u.PlanUpdate != nil:
+		s.onPlanUpdate(u.PlanUpdate, now)
 	case u.PlanRemoved != nil:
-		// Clear: a plan event with an empty (non-nil) entries list.
-		s.emit(event.Event{
-			Type:      event.TypePlan,
-			SessionID: s.localID,
-			Timestamp: now,
-			Entries:   []event.PlanEntry{},
-		})
+		// Removes one identified plan, never the stable plan (MADR 0192 D2).
+		s.onPlanRemoved(u.PlanRemoved, now)
 	case u.UsageUpdate != nil:
 		// Token/context report → advisory usage event (droppable telemetry).
 		// ACP's cost is the session's running total, so it travels as
@@ -1916,8 +1913,6 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	// Declined: schema 1.25 variants Magic does not map yet. Each is mapped by
 	// its own record (MADR 0184 D7, D10); until then it is named once per
 	// session at Debug, never dropped silently.
-	case u.PlanUpdate != nil:
-		s.declineUpdate("plan_update")
 	case u.SessionInfoUpdate != nil:
 		// The agent's own title for the session. It is generated, so the
 		// manager never lets it replace a name the user set (MADR 0187 D1).

@@ -10,9 +10,17 @@ import '../../theme/celestial.dart';
 /// particular chat implementation makes the same work-item affordance
 /// available to every provider-backed chat surface.
 class WorkItemsPanel extends StatelessWidget {
-  const WorkItemsPanel({super.key, required this.entries});
+  const WorkItemsPanel({
+    super.key,
+    required this.entries,
+    this.title = 'Todos',
+  });
 
   final List<PlanEntry> entries;
+
+  /// The panel's heading: `Todos` for the stable plan, the plan's name for an
+  /// identified task list (MADR 0192 D4).
+  final String title;
 
   IconData _iconFor(String status) {
     switch (status) {
@@ -71,7 +79,9 @@ class WorkItemsPanel extends StatelessWidget {
               tilePadding: const EdgeInsets.symmetric(horizontal: 12),
               leading: const Icon(Icons.checklist, size: 20),
               title: Text(
-                'Todos',
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               subtitle: Text(

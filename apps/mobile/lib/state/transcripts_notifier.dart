@@ -61,6 +61,7 @@ bool _isBatchableEvent(SessionEvent ev) {
     case 'tool_call_update':
     case 'usage_update':
     case 'plan':
+    case 'identified_plan':
     case 'available_commands':
     case 'remote_commands':
       return true;
@@ -362,6 +363,10 @@ class TranscriptsNotifier extends Notifier<TranscriptsState> {
             ? null
             : again.remoteCommands,
         plan: again.plan.isEmpty ? null : again.plan,
+        identifiedPlans: again.identifiedPlans.isEmpty
+            ? null
+            : again.identifiedPlans,
+        planOrder: again.planOrder.isEmpty ? null : again.planOrder,
         modes: again.modes.isEmpty ? null : again.modes,
         currentModeId: again.currentModeId,
         collaborationModes: again.collaborationModes.isEmpty

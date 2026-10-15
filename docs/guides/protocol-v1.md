@@ -1379,6 +1379,9 @@ replace the card detail with non-empty incoming text snapshots.
 - `compaction_id`, `compaction_status`, `compaction_summary`, `compaction_error`,
   `compaction_truncated` (MADR 0190): on `compaction` events. See
   [`compaction`](#compaction-event-an-agent-compacted-its-context).
+- `plan_id`, `plan_kind`, `plan_content`, `plan_truncated`, `plan_uri`, `plan_removed`
+  (MADR 0192): on `identified_plan` events. See
+  [`identified_plan`](#identified_plan-event-an-agents-identified-plans).
 
 - `native_message_id` / `native_part_id`: the agent's own identity for a
   transcript-bearing event. Empty when the provider supplies none; such rows
@@ -1729,7 +1732,7 @@ mid-session without a restart. Attachment bytes and data URLs never appear in
 daemon logs, and `user_message` echoes carry descriptors only.
 
 Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`,
-`question_resolved`, `turn_complete`, `error`, `notice`, `agent_notice`, `compaction`, `available_commands`, `remote_commands`, `plan`, `usage_update`,
+`question_resolved`, `turn_complete`, `error`, `notice`, `agent_notice`, `compaction`, `available_commands`, `remote_commands`, `plan`, `identified_plan`, `usage_update`,
 `session_mode`, `collaboration_mode`, `session_goal`, `session_config`,
 `session_capabilities`, `session_title`, `artifact`, `diagnostics_changed`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`,
 `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
@@ -2064,7 +2067,8 @@ affect the turn result. Other unknown items are counted and ignored fail-closed.
 
 ### `plan` event (agent task list)
 
-Carries the agent's execution plan (ACP `plan` / `plan_removed` updates). **Each
+Carries the agent's execution plan (ACP `plan` updates, and the other providers'
+task lists). **Each
 `plan` event is the full current plan (replace-semantics), not a delta** — the
 client replaces its stored plan with `entries` on every event.
 
@@ -2081,13 +2085,45 @@ client replaces its stored plan with `entries` on every event.
 
 - `status` ∈ `pending`, `in_progress`, `completed`.
 - `priority` ∈ `high`, `medium`, `low`. Unknown/absent priorities map to `medium`.
-- A **plan clear** (ACP `plan_removed`) is a `plan` event with an empty `entries`
-  list; since empty slices are omitted on the wire, a `plan` event with no
-  `entries` key means "clear the plan".
+- A **plan clear** is a `plan` event with an empty `entries` list; since empty
+  slices are omitted on the wire, a `plan` event with no `entries` key means
+  "clear the plan". ACP's `plan_removed` does **not** clear it: it removes one
+  identified plan, and arrives as an `identified_plan` event (MADR 0192 D2).
 - Note the asymmetry with `session_mode`, where an absent `modes` list means
   "keep what you have". Absence is a *replace* on `plan` and a *merge* on
   `session_mode`; a client that applies one rule to both either cannot clear a
   plan or silently drops its mode list.
+
+### `identified_plan` event (an agent's identified plans)
+
+Carries one of an ACP agent's identified plans (ACP `plan_update`), or its
+removal (ACP `plan_removed`). Both are **unstable** in ACP. An agent may keep
+several identified plans beside the `plan` event's plan, so a client keys them
+by `plan_id` and never lets one replace another (MADR 0192).
+
+```json
+{
+  "type": "identified_plan",
+  "session_id": "...",
+  "plan_id": "refactor",
+  "plan_kind": "markdown",
+  "plan_content": "# Refactor\n\n1. Extract the parser\n2. Add tests"
+}
+```
+
+- `plan_id` names the plan. Each event restates that plan whole, so a later
+  event for the same ID replaces the earlier one.
+- `plan_kind` is the plan's shape:
+  - `items`: a task list in `entries`, as on `plan`. An items plan with no
+    `entries` key is an empty list, **not** a removal.
+  - `markdown`: Markdown text in `plan_content`, capped at 32 KiB on a UTF-8
+    boundary. `plan_truncated: true` means the daemon cut it.
+  - `file`: `plan_uri`, the URI the agent sent, pointing at a file on the
+    daemon's host. Neither the daemon nor a client should fetch it.
+- `plan_removed: true`, with `plan_id` and no `plan_kind`, removes that plan
+  only. It never affects the `plan` event's plan or any other ID.
+- A client that does not know this event type ignores it, which leaves its
+  `plan` untouched. That is why identified plans do not travel on `plan`.
 
 ### `subagents` event (background agent set)
 
