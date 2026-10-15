@@ -371,6 +371,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0191 | PLAN | Implement answering agent elicitation forms on the phone | [0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md](decisions/0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md) |
 | 0192 | MADR | Show an ACP agent's identified plans on the phone, and advertise the unstable `plan` capability | [0192-MADR-show-an-agents-identified-plans-on-the-phone.md](decisions/0192-MADR-show-an-agents-identified-plans-on-the-phone.md) |
 | 0192 | PLAN | Implement showing an agent's identified plans on the phone | [0192-PLAN-show-an-agents-identified-plans-on-the-phone.md](decisions/0192-PLAN-show-an-agents-identified-plans-on-the-phone.md) |
+| 0193 | MADR | Warm a test's fresh executables before timing them, because macOS holds their first run | [0193-MADR-warm-fresh-test-executables-before-timing-them.md](decisions/0193-MADR-warm-fresh-test-executables-before-timing-them.md) |
+| 0193 | PLAN | Implement warming a test's fresh executables before timing them | [0193-PLAN-warm-fresh-test-executables-before-timing-them.md](decisions/0193-PLAN-warm-fresh-test-executables-before-timing-them.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

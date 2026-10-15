@@ -1081,6 +1081,11 @@ const clientName = "mcremote"
 //     question flow, checks the answer against the schema and returns typed
 //     content, a decline or a cancel. URL mode is not advertised, so the SDK
 //     refuses it (MADR 0191 D1, D6).
+//   - plan: SessionUpdate maps plan_update and plan_removed onto
+//     identified_plan events, keyed by plan ID, which the phone draws beside
+//     the stable plan and removes one at a time. The capability is UNSTABLE
+//     in ACP; TestPlanUpdateContentVariantsArePinned fails if the SDK changes
+//     its shapes (MADR 0192 D1–D6).
 //
 // Nothing else is advertised until its behavior exists; the
 // capability-honesty test holds each Spec to that.
@@ -1094,6 +1099,8 @@ func defaultClientCapabilities() acp.ClientCapabilities {
 			Compaction:    &acp.CompactionCapabilities{},
 		},
 		Elicitation: &acp.ElicitationCapabilities{Form: &acp.ElicitationFormCapabilities{}},
+		// UNSTABLE in ACP: may change in an SDK bump, which the plan tests pin.
+		Plan: &acp.PlanCapabilities{},
 	}
 }
 
@@ -1117,6 +1124,7 @@ var implementedClientCapabilities = map[string]bool{
 	"session.notices":               true,
 	"session.compaction":            true,
 	"elicitation.form":              true,
+	"plan":                          true,
 }
 
 // capabilityContainers are the objects of the clientCapabilities block that

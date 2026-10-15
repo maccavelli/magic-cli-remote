@@ -231,6 +231,63 @@ plan panel does not do this.
 
 **Not done.**
 
-* **P3** waits until P1 and P2 are committed.
+* ~~**P3** waits until P1 and P2 are committed.~~ P1 and P2 were committed as `8c5cf0f0`, and P3
+  followed (below).
 * **P4**: its first step follows P3. Its second step waits for the owner's quota.
+* The PLAN stays `in-progress`.
+
+### P3 and P4 step 1, 2026-10-14: complete (staged, not committed)
+
+**Approval:** the owner on 2026-10-14, "do P3 and P4 step 1", after `8c5cf0f0`.
+
+**P3 step 1.**
+
+* On a scratch copy, `plan` was advertised without being marked implemented. The honesty test
+  **failed**: `the default advertisement is dishonest: [plan is advertised but not implemented]`.
+* Then, in the tree, `plan` was added to `implementedClientCapabilities`. It left the honesty test's
+  dishonest examples, which keep `elicitation.url` and `auth.terminal`.
+
+**P3 step 2.**
+
+* `Plan: &acp.PlanCapabilities{}` is in `defaultClientCapabilities`, with a comment that it is
+  unstable. The doc comment names what implements it.
+* The pinned frame **failed** first, with `"plan":{}` in the new frame. It now reads
+  `…"fs":{"readTextFile":true,"writeTextFile":true},"plan":{},"session":{…`.
+* `protocol-v1.md` says the daemon advertises `plan`.
+
+**P3, verification.**
+
+* `go test -race ./...`: the first run **failed**, in two tests this PLAN did not touch,
+  `TestSpareIsRearmedAtTurnEndNotTurnStart` and `TestAFailedTurnStillRearmsTheSpare`
+  (`prewarm_rearm_test.go`): `wanted 1 "prewarm failed", got 0`.
+  * Each waits up to 3 s for a log line.
+  * Run alone five times with `-race`, both passed every time, in the tree and on a scratch copy at
+    `HEAD`.
+  * A second full run passed.
+  * It is a timing flake under full-suite load, and it predates this PLAN. It is not fixed here.
+* `make pre-add-check` on the two changed Go files: clean. `make lint` and `make markdownlint-docs`:
+  clean.
+* `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with `internal/provider/acpagent`
+  and `internal/provider/grok` both `ok`.
+
+**P4 step 1, the zero-token probe.**
+
+* `TestLiveGrokPlanAtSessionStart` (`internal/provider/grok/live_plan_test.go`, `live_grok` tag)
+  ran against `grok 1.0.50 (c58f321264ba) [stable]`, with wire capture. It sent no prompt and spent
+  no model tokens.
+* grok accepted the `initialize` advertising `plan`, and opened the session. The test **passed** in
+  13.01 s: `grok sent 0 plan and 0 identified plan event(s) at session start`.
+* The capture holds the frames grok sent:
+  * the `initialize` result, and no error frames;
+  * 12 `_x.ai/session/setup`, 5 `_x.ai/models/update`, 3 each of `_x.ai/announcements/update` and
+    `_x.ai/settings/update`, and 2 `_x.ai/mcp/init_progress`;
+  * one each of `servers_updated`, `server_status`, `mcp_initialized` and `sessions/changed`;
+  * 3 `session/update`, all `available_commands_update`.
+* No `plan`, `plan_update` or `plan_removed` was sent. The schema-built frames in `plans_test.go`
+  stand as the fixture, as D7 allows. The capture was not committed.
+
+**Not done.**
+
+* **P4 step 2** waits for the owner's grok quota: a turn that leads grok to plan, to see whether it
+  sends `plan`, `plan_update` or `plan_removed` now that `plan` is offered.
 * The PLAN stays `in-progress`.

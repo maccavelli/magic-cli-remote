@@ -2099,7 +2099,9 @@ client replaces its stored plan with `entries` on every event.
 Carries one of an ACP agent's identified plans (ACP `plan_update`), or its
 removal (ACP `plan_removed`). Both are **unstable** in ACP. An agent may keep
 several identified plans beside the `plan` event's plan, so a client keys them
-by `plan_id` and never lets one replace another (MADR 0192).
+by `plan_id` and never lets one replace another (MADR 0192). The daemon
+advertises ACP's `plan` client capability to every ACP agent that uses its
+default client capabilities, so agents know they may send them.
 
 ```json
 {
