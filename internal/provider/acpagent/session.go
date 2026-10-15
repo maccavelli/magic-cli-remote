@@ -492,6 +492,17 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 				s.emitClassifiedTurnErrorConfirmed(limitRaw)
 				return
 			}
+			// The connection ended under the turn: the agent died or closed
+			// its pipes. Announce it once, through the latch the exit watcher
+			// and watchConnClose share; as a turn error it was a second error
+			// for one death, classified as a provider outage
+			// (TestAgentDeathMidTurnShowsOneError; MADR 0184 amendment of
+			// 2026-10-15, E5). After Magic's own Close the latch is already
+			// shut, so a normal close adds nothing.
+			if errors.Is(err, acp.ErrPeerDisconnected) || errors.Is(err, acp.ErrConnectionClosed) {
+				s.signalDisconnected(fmt.Sprintf("%s agent connection lost", s.providerID))
+				return
+			}
 			// Cancel/close should not flood the chat with scary error bubbles.
 			if isBenignPromptErr(err) {
 				s.emit(event.Event{
@@ -580,9 +591,11 @@ func (s *session) submitPrompt(ctx context.Context, blocks []acp.ContentBlock) (
 	if s.testSubmit != nil {
 		return s.testSubmit(ctx, blocks)
 	}
-	// acp-go-sdk2 v0.17.1 writes a typed request even when its context has
-	// already ended, then cancels it (its B9), so an abandoned turn could still
-	// reach the agent. Checked here instead (MADR 0186 D6).
+	// acp-go-sdk2 v1.14.0 no longer writes a prompt whose context has already
+	// ended, but its Prompt then still sends session/cancel for the session,
+	// for a turn the agent never received (client_gen.go, Prompt). Checking
+	// first keeps the wire silent (TestPromptSendsNothingWithAnEndedContext;
+	// MADR 0184 amendment of 2026-10-15, E5 as amended).
 	if err := ctx.Err(); err != nil {
 		return acp.PromptResponse{}, err
 	}
@@ -1235,19 +1248,17 @@ const closeTimeout = 2 * time.Second
 
 // closeAgentSession sends session/close and waits at most closeTimeout for it.
 //
-// The bound is a timer around the call, not only the call's context:
-// acp-go-sdk2 v0.17.1 holds a write across a blocking pipe and ignores the
-// write's context (the SDK's 0019-MADR-remediate-debugging-pass-findings.md,
-// B16), so against an agent that has stopped reading, a context deadline
-// alone never fires (TestCloseIsBoundedWhenTheAgentStopsReading). A call left
-// blocked here ends when Close's process kill closes the pipe.
+// The call's context is the whole bound. acp-go-sdk2 v1.14.0 returns a send
+// when its context ends, even against an agent that has stopped reading
+// (TestCloseIsBoundedWhenTheAgentStopsReading), and writes nothing for a
+// context that has already ended (TestCloseSendsNothingWithAnEndedContext).
+// v0.17.1 did neither, so a timer and a context check stood here (MADR 0186
+// D6); MADR 0184's amendment of 2026-10-15 (E5) removed them.
 //
-// Nothing is sent when the caller's context has already ended, since the SDK
-// would write the request and then cancel it (its B9), or when the agent did
-// not advertise close, which the SDK would refuse locally anyway. Both are
-// MADR 0186 D6 mitigations, removed once acp-go-sdk2 v0.18.0 is pinned.
+// Nothing is sent when the agent did not advertise close, which the SDK would
+// refuse locally anyway.
 func (s *session) closeAgentSession(ctx context.Context) {
-	if s.conn == nil || ctx.Err() != nil {
+	if s.conn == nil {
 		return
 	}
 	if n, ok := s.conn.Negotiated(); !ok || n.Allows(acp.AgentMethodSessionClose) != nil {
@@ -1255,16 +1266,7 @@ func (s *session) closeAgentSession(ctx context.Context) {
 	}
 	closeCtx, cancel := context.WithTimeout(ctx, closeTimeout)
 	defer cancel()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.agentID)})
-	}()
-	timer := time.NewTimer(closeTimeout)
-	defer timer.Stop()
-	select {
-	case <-done:
-	case <-timer.C:
+	if _, err := s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.agentID)}); err != nil && closeCtx.Err() != nil {
 		s.log.Debug("session/close did not complete in time; tearing down regardless",
 			slog.String("session_id", s.localID))
 	}
@@ -1343,6 +1345,12 @@ func (s *session) Close(ctx context.Context) error {
 	// Best-effort ACP close, bounded: a wedged agent that stops reading stdin
 	// must not pin the caller — the process kill below is the real teardown.
 	s.closeAgentSession(ctx)
+	// End the connection before the kill: the SDK's reader and writer stop and
+	// stdin closes now, rather than whenever the dying process's pipes do
+	// (acp-go-sdk2 v1.14.0 Close; MADR 0184 amendment of 2026-10-15, E5).
+	if s.conn != nil {
+		_ = s.conn.Close()
+	}
 
 	if s.terms != nil {
 		s.terms.CloseAll()
@@ -1714,11 +1722,11 @@ func isHighFrequencyEvent(t event.Type) bool {
 
 // --- acp.Client implementation ---
 
-// SessionUpdate maps one agent notification onto Magic's events. It must never
-// send a request on the connection, directly or through a call that waits on
-// one: acp-go-sdk2 v0.17.1 holds a request sent from inside a notification
-// handler until that handler returns, which is a deadlock (the SDK's
-// 0019-MADR-remediate-debugging-pass-findings.md, B1; MADR 0186 D6).
+// SessionUpdate maps one agent notification onto Magic's events. It sends no
+// request on the connection. acp-go-sdk2 v0.17.1 deadlocked on a request sent
+// from inside a notification handler (the SDK's B1; MADR 0186 D6); v1.14.0
+// fixed that, and the rule stays because nothing here needs to send one (MADR
+// 0184 amendment of 2026-10-15, E5).
 func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
 	u := params.Update
 	now := time.Now().UTC()
@@ -1916,18 +1924,26 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	case u.SessionInfoUpdate != nil:
 		// The agent's own title for the session. It is generated, so the
 		// manager never lets it replace a name the user set (MADR 0187 D1).
-		// updatedAt and _meta are not used.
+		// updatedAt and _meta are not used, whether a value or a null.
 		info := u.SessionInfoUpdate
-		if info.UpdatedAt != nil {
+		if !info.UpdatedAt.IsZero() {
 			s.declineUpdate("session_info_update.updated_at")
 		}
 		if len(info.Meta) > 0 {
 			s.declineUpdate("session_info_update._meta")
 		}
-		if info.Title == nil {
+		raw, ok := info.Title.Value()
+		if !ok {
+			// A null title clears the agent's title. Magic has no rule for
+			// what an untitled session is then called, so the session keeps
+			// its title and the null is named (MADR 0184 amendment of
+			// 2026-10-15, E3).
+			if info.Title.IsNull() {
+				s.declineUpdate("session_info_update.title_null")
+			}
 			return nil
 		}
-		title := strings.TrimSpace(*info.Title)
+		title := strings.TrimSpace(raw)
 		if title == "" {
 			return nil
 		}
@@ -2732,8 +2748,10 @@ func isBenignPromptErr(err error) bool {
 		return false
 	}
 	// The SDK maps a cancelled request to *RequestError{Code: -32800}
-	// (JSON-RPC "request cancelled") rather than wrapping context.Canceled, so
-	// inspect the structured error first; string matching is only a fallback.
+	// (JSON-RPC "request cancelled"). Since acp-go-sdk2 v1.14.0 a local
+	// failure's RequestError also unwraps to its cause, so errors.Is below
+	// finds context.Canceled through it (MADR 0184 amendment of 2026-10-15,
+	// E5). String matching is only a fallback.
 	// An acp-go-sdk2 agent answers a cancelled turn with stopReason "cancelled"
 	// instead, which needs nothing here: it is a successful answer, and its stop
 	// reason reaches turn_complete unchanged (MADR 0184 D8).

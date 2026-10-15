@@ -128,6 +128,10 @@ Under the chosen option:
       `error` replaces the stored one.
     * A `nil` field, whether it was omitted or `null`, leaves the stored value unchanged. That is
       ACP's omission rule; ACP's `null`-clears rule is out of reach (see the Context).
+    * **Amended 2026-10-15:** with `acp-go-sdk2 v1.14.0`, an omitted field leaves the value and a
+      `null` clears it, so both of ACP's rules are followed. See
+      [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md),
+      amendment of 2026-10-15, E2.
     * A chunk appends to the summary. A chunk for an ID not seen before creates an `in_progress`
       compaction.
   * It **emits** the full current state:
@@ -198,7 +202,8 @@ Under the chosen option:
   with four states, and an expanding summary. It needs widget tests and `make preflight`.
 * Bad, because an agent that clears a summary with `null` leaves the old summary on screen. The SDK
   decodes the `null` as an omission. Clearing with `[]` works, and a stale error is hidden by D3.
-  Exposing the difference is an SDK change (More Information).
+  Exposing the difference is an SDK change (More Information). (Resolved 2026-10-15 by
+  `acp-go-sdk2 v1.14.0` and 0184's amendment of that date, E2.)
 * Bad, because once compaction is advertised, a provider that also implements `CompactSession` can
   show both the daemon's "Compacting the conversation…" line and an agent's `in_progress` row for
   the same compaction. Today no provider can: grok's `/compact` resolves to `KindNone`. The probe

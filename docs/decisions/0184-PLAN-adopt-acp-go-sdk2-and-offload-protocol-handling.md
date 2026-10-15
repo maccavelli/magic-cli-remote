@@ -205,6 +205,67 @@ MADR is still `proposed`, and each phase still needs approval by name.
   4. Verify as A1 and A2, with `make live-grok` under the MADR's quota rule.
   5. Coordinate the bump with gobble (D12).
 
+## Amendment — 2026-10-15: B1 for `v1.14.0`
+
+~~**Not approved.**~~ **Approved 2026-10-15** ("Approve, do B1"; E3 declined; quota approved for
+`make live-grok` in this phase). This rewrites B1 for the release that shipped (MADR amendment of
+2026-10-15, E1–E7). B1 as written above is struck where this replaces it.
+
+* ~~New phase B1 — move to `acp-go-sdk2 v0.18.0`, once it is tagged.~~ **B1 — move to `acp-go-sdk2
+  v1.14.0`.**
+
+1. **The release notes are read** (MADR amendment, "What it changes for Magic"). Done.
+2. **Pin it.**
+   * `go get github.com/maccavelli/acp-go-sdk2@v1.14.0` and `go mod tidy`.
+   * `go.mod` names `v1.14.0`, and `go.sum` changes only its lines.
+   * `TestGoModRequiresTaggedACPDirectly` passes, and `govulncheck` is clean.
+3. **The patch fields (E2–E4). Tests first.**
+   * Translate `compaction.go`, `session.go` and `compaction_test.go` to `Patch[T]`, keeping
+     today's behaviour.
+   * Then write the new tests, and show each failing against that translation:
+     * a compaction whose `summary` arrives as `null` clears the summary, where an omitted one keeps
+       it;
+     * the same for `error`;
+     * `_meta: null` is not declined, and a `_meta` value still is;
+     * a session-info `title: null` is declined as `session_info_update.title_null` and emits no
+       title;
+     * `updatedAt` as a value and as `null` are both declined.
+   * The frames are raw JSON, so `null` reaches the decoder as an agent sends it.
+   * Implement E2–E4.
+4. **The mitigations (E5). Tests first where behaviour changes.**
+   * **B9:** remove `submitPrompt`'s context check, and `closeAgentSession`'s. The existing
+     `TestPromptSendsNothingWithAnEndedContext` and `TestCloseSendsNothingWithAnEndedContext`
+     (`lifecycle_test.go:68`, `:46`) must still pass, now on the SDK's behaviour alone. Their
+     comments say so.
+   * **B16:** remove `closeAgentSession`'s timer, and keep the context deadline. Call the
+     connection's `Close()` in `Close` before the process kill.
+     `TestCloseIsBoundedWhenTheAgentStopsReading` must still pass, and on a scratch copy it must
+     fail with the deadline removed.
+   * **B19:**
+     * First, a test of what a turn shows today when the agent process dies mid-turn: how many
+       error events, and their text.
+     * If it shows two, make the turn path leave the error to the exit watcher when
+       `errors.Is(err, acp.ErrPeerDisconnected)`, and show the test failing before the change.
+     * `isBenignPromptErr` gains `errors.Is(err, context.Canceled)` through unwrapping. It keeps its
+       `-32800` check.
+   * **B4, B1:** comments only.
+5. **Docs.**
+   * `protocol-v1.md`'s compaction section: a cleared summary or error now follows the agent's
+     `null`.
+   * 0190's MADR and PLAN: D1's limitation lifted, citing this amendment.
+   * 0187's MADR: `title: null` is declined (E3).
+6. **Verify.**
+   * `go test -race ./...`, `make pre-add-check`, `make lint`, `make preflight`.
+   * `make ci-windows` on the Windows test host.
+   * The quota-free probes: `TestLiveGrokPlanAtSessionStart` and
+     `TestLiveGrokElicitationAtSessionStart`, with `MCREMOTE_WIRE_CAPTURE_DIR`. Record that grok's
+     first frames are the `initialize` and `session/new` answers, and that no extension message was
+     refused.
+   * **`make live-grok` waits for the owner's quota.** Until it passes, B1 is not done (D12). If it
+     fails, `go.mod` returns to `v0.17.1` until the SDK's next tag.
+7. **gobble (D12).** gobble pins `v1.14.0` at `794f7da`. Record that both repositories pin the same
+   tag. gobble's live suite is gobble's.
+
 ## Execution record
 
 ### A1, 2026-10-13: complete (committed as `db717ed3`, verified on macOS and Windows)
@@ -841,3 +902,117 @@ the citations.
 * ~~filing the draft above: it needs the owner's choice of an issue or an SDK record, and the
   owner's word to write to that repository;~~ filed as `maccavelli/acp-go-sdk2#4`;
 * gobble's half of the bump rule, which belongs to gobble-cli's records.
+
+### B1, 2026-10-15: `acp-go-sdk2 v1.14.0` (staged, not committed)
+
+**Approval:** the owner on 2026-10-15, "implement the latest release of acp-go-sdk2", then
+"Approve, do B1" for the amendment of that date. E3: decline. Quota approved for `make live-grok`.
+
+**Step 1.** The release notes were read against the code (MADR amendment, "What it changes for
+Magic"). A scratch build found 8 compile errors, all from `Patch[T]`. With a behaviour-preserving
+translation, the full race suite passed on the scratch copy.
+
+**Step 2, the pin.**
+
+* `go.mod` names `v1.14.0`, and `go.sum` changes only the SDK's two lines.
+* `TestGoModRequiresTaggedACPDirectly` passes. `govulncheck` (in the pre-add check) is clean.
+
+**Step 3, the patch fields.**
+
+* `compaction.go`, `session.go` and `compaction_test.go` were translated to `Patch[T]`, keeping
+  today's behaviour. The `acpagent` suite passed.
+* `patchfields_test.go` sends raw JSON frames. Against that translation three tests **failed**:
+  * `summary null clears only the summary: summary "Kept" error "boom"; want "" and "boom"`;
+  * `title: null declined []; want [session_info_update.title_null]`;
+  * `{"sessionUpdate":"session_info_update","updatedAt":null} declined []; want
+    [session_info_update.updated_at]`.
+
+  `TestCompactionMetaNullIsNotDeclined` passed: the translation already ignored a null `_meta`, so
+  that test pins unchanged behaviour.
+* E2–E4 were then implemented:
+  * `onCompactionUpdate` clears on `IsNull()`;
+  * `session_info_update` declines `title_null`, and `updatedAt` whenever it is present
+    (`!IsZero()`).
+* `strp`, unused after the translation, was removed from `compaction_test.go` (`staticcheck`
+  U1000).
+
+**Step 4, the mitigations.**
+
+* **B16:** `closeAgentSession`'s timer and goroutine went; `closeTimeout`'s context deadline is the
+  bound. `Close` calls the connection's `Close()` after session/close and before the kill.
+  `TestCloseIsBoundedWhenTheAgentStopsReading` passes.
+* **B9, deviation:** `closeAgentSession`'s context check went, and
+  `TestCloseSendsNothingWithAnEndedContext` passes on the SDK alone. Removing `submitPrompt`'s check
+  **failed** `TestPromptSendsNothingWithAnEndedContext`: `a prompt with an ended context put
+  "session/cancel" on the wire`.
+  * `v1.14.0`'s `Prompt` (`client_gen.go`) sends `session/cancel` whenever the call fails with an
+    ended context, even though it wrote no prompt.
+  * The owner chose to keep `submitPrompt`'s check, with that reason in its comment, and to report
+    it. Filed as [maccavelli/acp-go-sdk2#7](https://github.com/maccavelli/acp-go-sdk2/issues/7),
+    with a standalone reproduction (`the agent received: [session/cancel]`). The published body
+    matches the draft. The MADR's E5 is amended.
+* **B19, found:**
+  * `TestAgentDeathMidTurnShowsOneError` **failed** in both orders: `one agent death gave 2 error
+    events ["the agent process exited" "The model provider had a server error. This is usually
+    temporary — try again in a moment, or switch models."]`.
+  * The turn path now routes `errors.Is(err, acp.ErrPeerDisconnected)` or `ErrConnectionClosed`
+    to `signalDisconnected`, after the provider-limit check. It then passed 5 of 5 in both orders,
+    with `-race`. The test also refuses a "model provider" message.
+  * `isBenignPromptErr`'s comment now says `errors.Is` finds `context.Canceled` through the SDK's
+    unwrapping. Its code is unchanged.
+* **B4, B1:** comments updated. There is no code change.
+* `TestCloseEndsTheConnection`: Close leaves the ACP connection done.
+
+**Planted breaks, each on a fresh scratch copy.** All eight failed:
+
+| Plant | Failure |
+| --- | --- |
+| a summary null ignored | `summary "Kept" … want ""` |
+| an error null ignored | `error "boom"; want … ""` |
+| a title null not declined | `declined []; want [session_info_update.title_null]` |
+| an `updatedAt` null not declined | `declined []; want [session_info_update.updated_at]` |
+| the close deadline removed (B16) | `Close did not return within 7s of an agent that stopped reading` |
+| `submitPrompt`'s check removed | `put "session/cancel" on the wire` |
+| a connection-ended turn classified as a turn error | two error events, one of them "The model provider had a server error" |
+| the connection not closed in `Close` | `the ACP connection was still open after Close returned` |
+
+**Step 5, docs.**
+
+* `protocol-v1.md`: a compaction's summary or error is absent once the agent clears it.
+* 0190's MADR: D1 and its Bad consequence are amended.
+* 0187's MADR: D1 is amended for `title: null` and `updatedAt`.
+
+**Step 6, verification.**
+
+* `go test -race ./...`: passed. `go vet ./...`: clean. `make pre-add-check` on the 6 changed Go
+  files: clean. `make lint`: clean.
+* `make preflight`:
+  * the first run **failed** in `staticcheck` (`func strp is unused`). It was fixed, as above.
+  * The second run passed: markdownlint 0 issues; `Formatted 219 files (0 changed)`; `No issues
+    found!`; `+1473 ~3: All tests passed!`.
+* `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with A2–A6 passing.
+* **Quota-free probes**, against `grok 1.0.50 (c58f321264ba) [stable]`, with wire capture:
+  * `TestLiveGrokElicitationAtSessionStart` and `TestLiveGrokPlanAtSessionStart` passed.
+  * grok's first frames were `result id=1` (`initialize`), `result id=2` (`session/new`), then
+    `_x.ai/session/setup`.
+  * There were no error frames and no prompt. So `v1.14.0`'s gate on extension messages before
+    `initialize` does not touch grok.
+* **`make live-grok`:** 144 passed, 1 failed, in 485.9 s.
+  * The failure is `TestLiveGrokColdCatalog`: `cold catalog has 4 options; the live list is being
+    merged with the static floor`.
+  * It **predates the bump**. The MADR's A3 amendment records it on 2026-10-13. Run again on
+    2026-10-15 from a scratch export of `HEAD` (`v0.17.1`), it fails identically (`n=4`, the same
+    message).
+  * The prompt-turn tests passed, including `TestLiveGrokPrompt`,
+    `TestLiveGrokPlanApprovalHandOff` and `TestLiveGrokSubagentSuppressedAndPromoted`. So grok's
+    quota works again.
+
+**Step 7, gobble.** gobble-cli pins `v1.14.0` at `794f7da`, so both repositories pin the same tag.
+gobble's live suite is gobble's.
+
+**Not done:**
+
+* **D12's "passes its own live suite"** is met for every failure the bump could cause, but not
+  literally: `TestLiveGrokColdCatalog` fails on `v0.17.1` and `v1.14.0` alike. Whether B1 counts as
+  done with that pre-existing failure is the owner's call.
+* `maccavelli/acp-go-sdk2#7` is open. `submitPrompt`'s check stays until it is fixed.

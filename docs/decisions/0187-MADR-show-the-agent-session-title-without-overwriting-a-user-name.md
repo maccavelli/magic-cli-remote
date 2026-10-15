@@ -94,6 +94,11 @@ Under the chosen option:
   `event.Event` gains `TitleGenerated bool`, set only by acpagent. A title that is empty after
   trimming is ignored. `updatedAt` and `_meta` are not used, and are declined by name, once per
   session, as 0184's D7 declines `usage_update`'s `cost`.
+  * **Amended 2026-10-15:** with `acp-go-sdk2 v1.14.0`, a `title: null` (the agent clearing its
+    title) can be seen. It is declined as `session_info_update.title_null`, and the session keeps
+    its title. `updatedAt` is declined whether it is a value or `null`. See
+    [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md),
+    amendment of 2026-10-15, E3 and E4.
 * **D2 — the manager records where a session's name came from.** `Meta` and the on-disk `Record`
   gain `name_source`: `user` or `generated`.
   * A non-empty name at create, a Rename, and a fork of a `user`-named session set `user`.

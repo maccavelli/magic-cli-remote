@@ -1904,9 +1904,10 @@ state wins, and the compaction keeps the position of its first event.
 - `compaction_status`: `in_progress`, `completed`, `failed` or `cancelled`, passed through from the
   agent. A client should treat any other value as `in_progress`.
 - `compaction_summary`: optional. The text of what the agent kept, so far. Non-text content in the
-  agent's summary is omitted.
-- `compaction_error`: optional. The agent's error text. Show it only while the status is `failed`:
-  an agent cannot be seen clearing it (MADR 0190 D3).
+  agent's summary is omitted. Absent when the agent cleared the summary with `null` or `[]`.
+- `compaction_error`: optional. The agent's error text, absent once the agent clears it with
+  `null` (MADR 0184 amendment of 2026-10-15, E2). Show it only while the status is `failed`
+  (MADR 0190 D3): an agent that never clears its error still leaves it on the event.
 - `compaction_truncated`: true when the summary was cut at the daemon's 32 KiB bound.
 
 The event is must-deliver and is kept in the session's history. A state identical to the previous

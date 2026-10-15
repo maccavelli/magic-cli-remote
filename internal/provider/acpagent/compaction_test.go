@@ -56,8 +56,6 @@ func drainCompactions(s *session) []compactionState {
 	return out
 }
 
-func strp(s string) *string { return &s }
-
 // lastCompaction returns the final compaction event, failing when there is none.
 func lastCompaction(t *testing.T, s *session) compactionState {
 	t.Helper()
@@ -76,7 +74,7 @@ func TestCompactionUpdatesFoldByID(t *testing.T) {
 		s, _ := newUpdateSession()
 		deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{CompactionId: "c1", Status: acp.CompactionStatusInProgress}))
 		deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{CompactionId: "c1", Status: acp.CompactionStatusCompleted,
-			Summary: []acp.ContentBlock{textBlock("Kept the failing test.")}}))
+			Summary: acp.PatchValue([]acp.ContentBlock{textBlock("Kept the failing test.")})}))
 		want := []compactionState{
 			{ID: "c1", Status: "in_progress"},
 			{ID: "c1", Status: "completed", Summary: "Kept the failing test."},
@@ -104,7 +102,7 @@ func TestCompactionUpdatesFoldByID(t *testing.T) {
 		s, _ := newUpdateSession()
 		deliver(t, s, chunkFrame(t, "c3", textBlock("draft"), nil))
 		deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{CompactionId: "c3", Status: acp.CompactionStatusCompleted,
-			Summary: []acp.ContentBlock{textBlock("final")}}))
+			Summary: acp.PatchValue([]acp.ContentBlock{textBlock("final")})}))
 		got := drainCompactions(s)
 		if len(got) != 2 || got[1].Summary != "final" {
 			t.Fatalf("events = %+v, want the summary replaced by \"final\"", got)
@@ -114,7 +112,7 @@ func TestCompactionUpdatesFoldByID(t *testing.T) {
 	t.Run("an omitted field is unchanged and an empty summary clears", func(t *testing.T) {
 		s, _ := newUpdateSession()
 		deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{CompactionId: "c4", Status: acp.CompactionStatusFailed,
-			Error: strp("context store unavailable"), Summary: []acp.ContentBlock{textBlock("partial")}}))
+			Error: acp.PatchValue("context store unavailable"), Summary: acp.PatchValue([]acp.ContentBlock{textBlock("partial")})}))
 		deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{CompactionId: "c4", Status: acp.CompactionStatusCancelled}))
 		// Raw JSON: the SDK's encoder drops an empty Summary (omitempty), so a
 		// Go agent cannot send this frame, but an agent in another language can.
@@ -169,7 +167,7 @@ func TestCompactionIsBounded(t *testing.T) {
 	t.Run("IDs", func(t *testing.T) {
 		s, _ := newUpdateSession()
 		deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{CompactionId: "id-0", Status: acp.CompactionStatusInProgress,
-			Summary: []acp.ContentBlock{textBlock("old")}}))
+			Summary: acp.PatchValue([]acp.ContentBlock{textBlock("old")})}))
 		for i := 1; i <= maxCompactions; i++ {
 			deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{
 				CompactionId: acp.CompactionId("id-" + string(rune('a'+i))), Status: acp.CompactionStatusCompleted}))
@@ -198,9 +196,9 @@ func TestCompactionDeclinesWhatItCannotShow(t *testing.T) {
 	deliver(t, s, chunkFrame(t, "c6", image, nil))
 	deliver(t, s, chunkFrame(t, "c6", image, nil))
 	deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{CompactionId: "c6", Status: acp.CompactionStatusCompleted,
-		Meta: map[string]any{"y": 2}}))
+		Meta: acp.PatchValue(map[string]any{"y": 2})}))
 	deliver(t, s, compactionFrame(t, acp.SessionCompactionUpdate{CompactionId: "c7", Status: acp.CompactionStatusCompleted,
-		Summary: []acp.ContentBlock{textBlock("a"), image, textBlock("b")}}))
+		Summary: acp.PatchValue([]acp.ContentBlock{textBlock("a"), image, textBlock("b")})}))
 
 	got := drainCompactions(s)
 	if len(got) != 3 || got[1].Summary != "Kept " || got[2].Summary != "ab" {

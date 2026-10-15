@@ -102,21 +102,26 @@ func blockKind(b acp.ContentBlock) string {
 }
 
 // onCompactionUpdate applies a compaction_update and emits the compaction's
-// state. ACP gives summary and error patch semantics; the SDK decodes an
-// omitted field and a null alike, so nil means unchanged and Magic cannot
-// follow a null that clears (MADR 0190 D1). An empty summary clears.
+// state. ACP gives summary and error patch semantics: an omitted field leaves
+// the value, a null clears it, and a value replaces it. acp-go-sdk2 v1.14.0
+// keeps the three apart (Patch[T]), so Magic follows all three (MADR 0190 D1,
+// MADR 0184 amendment of 2026-10-15, E2). An empty summary also clears.
 func (s *session) onCompactionUpdate(u *acp.SessionCompactionUpdate, now time.Time) {
-	if len(u.Meta) > 0 {
+	if m, ok := u.Meta.Value(); ok && len(m) > 0 {
 		s.declineUpdate("compaction_update._meta")
 	}
 	e, _ := s.compactions.entry(u.CompactionId)
 	e.status = string(u.Status)
-	if u.Summary != nil {
+	if blocks, ok := u.Summary.Value(); ok {
 		e.summary, e.truncated = e.summary[:0], false
-		s.appendCompactionBlocks(e, u.Summary)
+		s.appendCompactionBlocks(e, blocks)
+	} else if u.Summary.IsNull() {
+		e.summary, e.truncated = e.summary[:0], false
 	}
-	if u.Error != nil {
-		e.err = strings.TrimSpace(*u.Error)
+	if errText, ok := u.Error.Value(); ok {
+		e.err = strings.TrimSpace(errText)
+	} else if u.Error.IsNull() {
+		e.err = ""
 	}
 	s.emitCompaction(u.CompactionId, e, now)
 }

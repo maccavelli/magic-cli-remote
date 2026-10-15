@@ -13,12 +13,12 @@ import (
 // agentWithClose advertises session/close, as grok 1.0.13 does.
 const agentWithClose = `{"sessionCapabilities":{"close":{}}}`
 
-// TestCloseIsBoundedWhenTheAgentStopsReading is PLAN 0184 A2 step 8. In
-// acp-go-sdk2 v0.17.1 a write holds the connection's write lock across a
-// blocking Write and ignores its context (the SDK's
-// 0019-MADR-remediate-debugging-pass-findings.md, B16), so a context deadline
-// cannot bound session/close against an agent that has stopped reading. Close
-// must still return, and go on to the process kill.
+// TestCloseIsBoundedWhenTheAgentStopsReading is PLAN 0184 A2 step 8. Against
+// an agent that has stopped reading, Close must still return, and go on to
+// the process kill. v0.17.1 ignored a write's context (the SDK's B16), so
+// Magic bounded session/close with its own timer; since acp-go-sdk2 v1.14.0 a
+// send returns when its context ends, and closeTimeout's deadline alone is the
+// bound this test holds (MADR 0184 amendment of 2026-10-15, E5).
 func TestCloseIsBoundedWhenTheAgentStopsReading(t *testing.T) {
 	s, a := newWireSession(t, agentWithClose)
 	a.stopReading()
@@ -39,10 +39,11 @@ func TestCloseIsBoundedWhenTheAgentStopsReading(t *testing.T) {
 	}
 }
 
-// TestCloseSendsNothingWithAnEndedContext is PLAN 0184 A2 step 10. The SDK
-// writes a typed request even when its context has already ended, then
-// cancels it (its B9), so the agent could act on a close the caller had
-// abandoned. Close checks first.
+// TestCloseSendsNothingWithAnEndedContext is PLAN 0184 A2 step 10. A close the
+// caller abandoned must not reach the agent. v0.17.1 wrote the request anyway
+// (its B9), so Close checked first; since acp-go-sdk2 v1.14.0 the SDK writes
+// nothing for an ended context, and this test holds it to that (MADR 0184
+// amendment of 2026-10-15, E5).
 func TestCloseSendsNothingWithAnEndedContext(t *testing.T) {
 	s, a := newWireSession(t, agentWithClose)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -140,9 +141,11 @@ func TestCancelClosesAPendingPermissionCard(t *testing.T) {
 	assertCardClosedAndAnswered(t, s, a, permID)
 }
 
-// TestCloseClosesAPendingPermissionCard is PLAN 0184 A2 step 9. acp-go-sdk2
-// v0.17.1's CloseSession does not end pending permission requests (its B4);
-// Magic's Close does.
+// TestCloseClosesAPendingPermissionCard is PLAN 0184 A2 step 9. Magic's Close
+// ends its pending permission requests and closes their phone cards. Since
+// acp-go-sdk2 v1.14.0 the SDK also answers such a request "cancelled" on the
+// wire (its B4), but the waiter and the card are Magic's own state, so this
+// stays (MADR 0184 amendment of 2026-10-15, E5).
 func TestCloseClosesAPendingPermissionCard(t *testing.T) {
 	s, a := newWireSession(t, agentWithClose)
 	a.sendRaw(permissionRequestLine)

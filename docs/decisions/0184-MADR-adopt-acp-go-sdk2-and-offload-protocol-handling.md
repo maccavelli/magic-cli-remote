@@ -420,3 +420,103 @@ What changes is the fact D6 rested on.
   Details are in
   [0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md),
   under A3.
+
+## Amendment — 2026-10-15: the bump B1 planned shipped as `v1.14.0`
+
+~~**Status: proposed.**~~ **Accepted 2026-10-15.** The owner asked to "implement the latest release
+of acp-go-sdk2", then approved this amendment and B1. For E3 they chose to decline, and they
+approved the quota for `make live-grok` in this phase. This amendment brings phase B1 up to the
+release that shipped, and adds the decisions B1 did not cover.
+
+### What shipped
+
+* The release the amendment of 2026-10-13 called `v0.18.0` shipped as **`v1.14.0`**
+  (2026-10-15 UTC), the SDK's first `v1`.
+  * A `v1.13.0` tag, pushed by accident at an unfinished commit, is retracted by `v1.14.0`'s
+    `go.mod`.
+  * The ACP schema is unchanged at `1.25.0`.
+  * It resolves both issues Magic filed: #5 (patch fields) and #4 (prompt overlap).
+* **gobble pins `v1.14.0`** (gobble-cli `794f7da`, "upgrade SDK and handle concurrent prompt
+  closure"). D12's joint rule asks that Magic move to the same tag. gobble's live suite is gobble's
+  to run.
+
+### What it changes for Magic
+
+All of this was measured on 2026-10-15 on a scratch copy, with Go's module and build caches in the
+session scratch directory.
+
+* **Compile:** 8 errors, all from the `Patch[T]` fields:
+  * `compaction.go:109`, `:114`, `:116`, `:118`, `:119` (a compaction's `Meta`, `Summary` and
+    `Error`);
+  * `session.go:1921`, `:1927`, `:1930` (a session-info update's `UpdatedAt` and `Title`);
+  * plus 7 literals in `compaction_test.go`.
+* **With a translation that keeps today's behaviour** (a `null` read as absent):
+  * `go build ./...` and `go vet ./...` are clean;
+  * the full `go test -race ./...` passes;
+  * the pinned `initialize` frame is byte-identical, so the removed `MarshalJSON` methods change
+    nothing;
+  * the A4 variant table and 0192's plan-shape pin pass.
+* **The release's breaking changes, against Magic's code:**
+
+  | Change | Magic | Action |
+  | --- | --- | --- |
+  | 24 patch fields are `Patch[T]` | compaction (0190) and session titles (0187) read them | E2–E4 |
+  | extension messages before `initialize` are refused | grok sends `_x.ai/*` | none; grok's capture (0192 P4) sends them only after the `initialize` and `session/new` answers. A zero-token probe confirms (E7) |
+  | elicitation in an unlisted mode is refused | Magic's handler already refuses it | none; the SDK now refuses first |
+  | `session/close` cancels the agent's turn | Magic is the client | none |
+  | `session/fork`'s MCP servers checked | Magic never sends `session/fork` | none |
+  | wrong-kind methods refused; nothing written after the connection ends; params never `null` | protocol hygiene | none |
+  | the default overflow policy closes the transport | Magic sets `OverflowDropNewest` | none |
+  | constructors call `SetClientConnection` | Magic's client has no such method | none |
+  | seven `MarshalJSON` methods removed | not called | none |
+  | an ended connection's error reads "connection ended before response" | no Magic code matches the text | E5 (B19) |
+
+### Decisions
+
+* **E1. Magic pins `v1.14.0`.** It replaces `v0.18.0` in B1. `modguard_test.go` already accepts a
+  `vX.Y.Z` tag.
+* **E2. A compaction follows ACP's `null`.** That lifts 0190 D1's stated limitation.
+  * `summary: null` clears the summary; `error: null` clears the error.
+  * An omitted field leaves its value, as today.
+  * A `_meta` value is still declined; `_meta: null` is nothing to decline.
+  * The phone needs no change: each compaction event restates the whole state, so a cleared field
+    is an empty one.
+* **E3. A session-info `title: null` is declined by name** (`session_info_update.title_null`), and
+  the session keeps its title.
+  * Magic has no "unset the generated title" behaviour, and 0187 D1 lets a generated title never
+    replace a user's name.
+  * Clearing the title would need a manager rule for what the session is then called. That is a
+    0187 decision, not a bump.
+* **E4. `updatedAt` stays declined,** whether it is a value or `null`.
+* **E5. The `v0.17.1` mitigations** (amendment of 2026-10-13):
+  * ~~**B9 is removed.** `submitPrompt`'s context check goes: `v1.14.0` writes nothing for a context
+    that has ended.~~ **B9 is removed from the close path only** (amended during B1, 2026-10-15):
+    * `v1.14.0` writes no request for an ended context, and `closeAgentSession`'s check went.
+    * But `Prompt` then still sends `session/cancel` for the prompt it never wrote. So
+      `submitPrompt` keeps its check, with that reason
+      (`TestPromptSendsNothingWithAnEndedContext`).
+    * Reported as [maccavelli/acp-go-sdk2#7](https://github.com/maccavelli/acp-go-sdk2/issues/7), at
+      the owner's request.
+  * **B16 is removed.** `closeAgentSession`'s timer goes: a send returns when its context ends.
+    `Close` also calls the connection's new `Close()` before the process kill.
+    `TestCloseIsBoundedWhenTheAgentStopsReading` stays as the proof.
+  * **B4's Magic side stays.** Closing a session cancels Magic's own permission waiters and phone
+    cards. The SDK's fix answers the request on the wire; Magic's UI state is still Magic's. Only
+    its comment changes.
+  * **B19 moves to `errors.Is`.** `isBenignPromptErr` keeps its code check for `-32800`, and gains
+    `errors.Is` for `context.Canceled` through the SDK's new unwrapping. A turn that ends because
+    the connection ended (`acp.ErrPeerDisconnected`) is the exit watcher's to announce: the turn
+    adds no second error. That last point is applied only if a test first shows two errors today.
+    * **Found during B1:** it did. One agent death gave two errors, and the turn's error was
+      misclassified as "The model provider had a server error". A user saw a crashed agent as a
+      provider outage. The turn path now announces a connection that ended through
+      `signalDisconnected`, the latch the exit watcher and `watchConnClose` share.
+  * **B1's rule stays,** with its comment updated. The SDK no longer deadlocks, but nothing in
+    `SessionUpdate` needs to send a request.
+* **E6. Not adopted now:** `WithMaxConcurrentRequests` (a bound on an agent's concurrent requests
+  to Magic) and `WithPromptOverlapPolicy`, which is agent-side. Each would be its own decision.
+* **E7. Verification** is B1's, plus quota-free probes against grok:
+  * `TestLiveGrokPlanAtSessionStart` and `TestLiveGrokElicitationAtSessionStart`, with wire
+    capture, showing a session starts and extension messages are accepted.
+  * `make live-grok` spends quota, and waits for the owner's word. Under D12, the bump counts as
+    done only when it passes. If it fails, Magic returns to `v0.17.1` until the SDK's next tag.
