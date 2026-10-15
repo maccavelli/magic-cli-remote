@@ -25,12 +25,9 @@ func fakeDoctorBin(t *testing.T, fixture string) (bin, control string) {
 	control = filepath.Join(dir, "which-fixture")
 	setDoctorFixture(t, control, fixture)
 	bin = filepath.Join(dir, "codex")
-	body := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"doctor\" ]; then cat \"$(cat " + control + ")\"; exit 1; fi\n" +
+	body := "if [ \"$1\" = \"doctor\" ]; then cat \"$(cat " + control + ")\"; exit 1; fi\n" +
 		"exit 0\n"
-	if err := os.WriteFile(bin, []byte(body), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, bin, body)
 	return bin, control
 }
 
@@ -54,10 +51,8 @@ func fakeGarbageDoctorBin(t *testing.T) string {
 	t.Helper()
 	testexec.SkipIfNoPOSIXShell(t)
 	bin := filepath.Join(t.TempDir(), "codex")
-	body := "#!/bin/sh\nif [ \"$1\" = \"doctor\" ]; then echo 'not json'; exit 1; fi\nexit 0\n"
-	if err := os.WriteFile(bin, []byte(body), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	body := "if [ \"$1\" = \"doctor\" ]; then echo 'not json'; exit 1; fi\nexit 0\n"
+	testexec.WriteShellStub(t, bin, body)
 	return bin
 }
 

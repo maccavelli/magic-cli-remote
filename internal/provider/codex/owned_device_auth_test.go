@@ -20,8 +20,7 @@ func fakeCodexLogin(t *testing.T, loginBody string) string {
 	t.Helper()
 	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "codex")
-	script := `#!/bin/sh
-if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+	script := `if [ "$1" = "login" ] && [ "$2" = "status" ]; then
   [ -f "$CODEX_HOME/auth.json" ] || exit 1
   echo "Logged in"
   exit 0
@@ -32,9 +31,7 @@ if [ "$1" = "login" ] && [ "$2" = "--device-auth" ]; then
 fi
 exit 0
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, path, script)
 	return path
 }
 

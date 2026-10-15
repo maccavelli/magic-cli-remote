@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-14
+status: accepted
+date: 2026-10-15
 decision-makers: Project Owner
 consulted: none
 informed: contributors who run the Go suite on macOS
@@ -189,7 +189,7 @@ site that is run, the bound around the run is:
 | `providerauth/ownedflow_test.go` (seven tests) | 10 s `ScanTimeout` | 10 s; observed once, not reproduced on demand |
 | `providerauth/cli_test.go`, the 10 s tests, and `TestScanTimeout` | 10 s; a 15 s stopwatch | 10 s; about 13 s |
 | `ws/receipt_e2e_test.go`, `TestReceiptEndToEndOverRealWS` | a freshly built `mcremote` run under a 15 s context | about 15 s, from the bound; not observed |
-| `codex/status_truth_test.go`, `TestStatusDoesNotSpawnAProcessPerCall` | none: it counts probes without waiting (`:101`) | never fails; its "at most 1" check passes falsely while probes are still running |
+| `codex/status_truth_test.go`, `TestStatusDoesNotSpawnAProcessPerCall` | none: it counts probes without waiting (`:101`) | ~~never fails; its "at most 1" check passes falsely while probes are still running~~ never fails. Its immediate count catches a probe per call today only because of the 0137 F1 lock bug, and goes blind once that is fixed (Amendment 1) |
 
 The other run sites have only production bounds of 30 s or more:
 `codex/{auth,device_auth,apikey,logout,store_reality,owned_device_auth}_test.go`,
@@ -263,7 +263,8 @@ cannot choose, without changing Magic.
 * **D4. Negative checks wait for what they watch.**
   * The prewarm window stays at 250 ms. With the stub warmed, a stray arm logs within it (E8).
   * `TestStatusDoesNotSpawnAProcessPerCall` waits, with a bound, for any background probe to finish
-    before it counts.
+    before it counts. (Amended 2026-10-15: today this guards against the 0137 F1 fix, not against
+    the scan. See Amendment 1.)
 * **D5. A guard test keeps it that way.** It fails when a `_test.go` file under `internal/` or `cmd/`
   contains a `#!/bin/sh` literal outside `internal/testexec`, unless the file is in its allowlist of
   never-run fixtures, each with its reason.
@@ -342,6 +343,28 @@ Point `DefaultCWD` at a missing directory, so `EnsureWarm` logs "prewarm failed"
 
 ## More Information
 
+* **Amendment 1, 2026-10-15: what the status test's wait protects against.** Found while executing
+  PLAN W4, and measured on scratch copies under 12-worker load, 10 runs each:
+
+  | Planted break | Today's test (immediate count) | With D4's wait |
+  | --- | --- | --- |
+  | the coalescing flag bypassed | passes 10/10 | passes 10/10 |
+  | a forced background probe on every call | caught 10/10 | caught 10/10 |
+  | a spawn on every call that bypasses the cache | caught 10/10, seeing 2–3 of 6 | caught 10/10, seeing 6 |
+  | the same, with the 0137 F1 lock fixed (simulated) | **passes 10/10, falsely** | **caught 10/10** |
+
+  * The table row's original claim was wrong for today's code. The immediate count works today only
+    because the F1 lock makes each status call wait behind the running probe. With that bug fixed,
+    the count is read before the spawns finish.
+  * The coalescing-flag break does not exercise this test. With a warm stub, the first probe finishes
+    before the second call, so the cache answers the rest either way. That case is
+    `TestNonBlockingProbeCoalescesConcurrentCallers`'s (0137 S2).
+  * The owner chose to keep the wait in 0193, so that it is already in place when the F1 fix lands.
+* **Note, 2026-10-15: `testexec` is allowlisted in the A17 spawn guard.** D1 and D2 spawn with
+  `exec.Command`. `testexec` cannot use `procutil.Command`, because `procutil` imports `fsutil`,
+  whose in-package tests import `testexec`. So `internal/testexec/testexec.go` is in
+  `spawnAllowlist`, with that reason and the fact that it is test-only (PLAN Deviations 2 and 3).
+  No decision changes.
 * **Not proven.**
   * `TestOwnedFlowStartsWithAnEmptyHome` was not reproduced on demand: it passed in six package runs
     under 12 and 40 workers and in two loaded full suites. It needs a hold over 10 s. It shares the
@@ -374,4 +397,6 @@ Point `DefaultCWD` at a missing directory, so `EnsureWarm` logs "prewarm failed"
     is the precedent for a record about flakes.
 * The PLAN is
   [0193-PLAN-warm-fresh-test-executables-before-timing-them.md](0193-PLAN-warm-fresh-test-executables-before-timing-them.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+  ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ On 2026-10-15
+  the owner accepted the recommended option and approved the PLAN ("accept recommendations and
+  proceed").

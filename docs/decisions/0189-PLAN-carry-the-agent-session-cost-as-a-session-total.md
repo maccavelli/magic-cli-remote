@@ -183,6 +183,10 @@ agent's currency, shows it in `/context` and on the phone, and never writes it i
     a background spawn and touches no usage code.
   * Alone it passed ten runs with `-race`, and the acpagent package passed three.
   * The second full run passed.
+  * 2026-10-15: the cause was found and fixed in
+    [0193-MADR-warm-fresh-test-executables-before-timing-them.md](0193-MADR-warm-fresh-test-executables-before-timing-them.md).
+    macOS holds a new stub's first run for a Gatekeeper scan, and that hold fell inside the test's
+    3 s wait.
 * `make pre-add-check` on the 13 changed Go files: clean. `make lint`: clean.
 * `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with `internal/event`,
   `internal/provider/acpagent` and `internal/session` all `ok`.

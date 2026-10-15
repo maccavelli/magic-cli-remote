@@ -19,6 +19,7 @@ package testexec
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"syscall"
@@ -43,18 +44,65 @@ func SkipIfNoPOSIXShell(t *testing.T) {
 	}
 }
 
-// WriteShellStub writes body as an executable POSIX shell script at path and
-// returns it. It skips the test on platforms that cannot run one.
+// WriteShellStub writes body as an executable POSIX shell script at path, runs
+// it once without reaching body (see writeAndWarm), and returns it. It skips
+// the test on platforms that cannot run one.
 func WriteShellStub(t *testing.T, path, body string) string {
 	t.Helper()
 	SkipIfNoPOSIXShell(t)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	writeAndWarm(t, path, "#!/bin/sh\n"+warmGuard+body+"\n")
 	return path
+}
+
+// warmEnv names the file a stub's warm-up run creates. Only writeAndWarm sets
+// it, and only on the warm-up command; nothing in Magic reads it.
+const warmEnv = "MCREMOTE_STUB_WARM"
+
+// warmGuard is a stub's first line after the shebang: during the warm-up it
+// creates the named file and exits, so the body never runs.
+const warmGuard = `[ -n "$` + warmEnv + `" ] && { : > "$` + warmEnv + `"; exit 0; }` + "\n"
+
+// writeAndWarm writes script and runs it once, before any test can time it.
+//
+// macOS holds the first run of a newly written executable while Gatekeeper
+// scans it: about 150 ms on an idle host, and seconds when other new files
+// (go test's own binaries among them) are queued. The hold falls after
+// exec.Cmd.Start returns, so every bound around the run counts it, and a test
+// that waited 3 s for a stub's effect failed, while one that watched a 250 ms
+// window saw nothing and passed when it should not have (MADR 0193 E1–E8). A
+// second run takes about 16 ms.
+//
+// The run must reach the guard, and the guard must create its file; anything
+// else fails the test, so a warm-up that did not happen cannot pass silently.
+func writeAndWarm(tb testing.TB, path, script string) {
+	tb.Helper()
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		tb.Fatalf("write %s: %v", path, err)
+		return
+	}
+	marker := filepath.Join(tb.TempDir(), "warmed")
+	cmd := exec.Command(path)
+	cmd.Env = append(os.Environ(), warmEnv+"="+marker)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		tb.Fatalf("warm %s: %v\n%s", path, err, out)
+		return
+	}
+	if _, err := os.Stat(marker); err != nil {
+		tb.Fatalf("warm %s: the run did not create %s, so it did not reach the warm-up guard", path, marker)
+	}
+}
+
+// WarmExecutable runs a freshly built binary once with args, which the caller
+// names as harmless, so its first-run scan is not inside the bound of the run
+// the test times (MADR 0193 D2). It fails the test if the run fails.
+func WarmExecutable(tb testing.TB, path string, args ...string) {
+	tb.Helper()
+	if out, err := exec.Command(path, args...).CombinedOutput(); err != nil {
+		tb.Fatalf("warm %s %v: %v\n%s", path, args, err, out)
+	}
 }
 
 // SkipIfNoPOSIXModes skips t where filesystem permission bits carry no access

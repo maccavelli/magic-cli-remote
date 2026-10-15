@@ -2,7 +2,6 @@ package codex
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,15 +107,12 @@ func TestProbeSandboxHealth_FakeBinOK(t *testing.T) {
 	bin := filepath.Join(dir, "codex-stub")
 	// Stub: when invoked as sandbox, write ok to the last arg (probe path).
 	// POSIX sh only — CI Linux uses dash as /bin/sh (no ${@: -1}).
-	script := `#!/bin/sh
-set -e
+	script := `set -e
 # args: sandbox -c … -- /bin/sh -c 'echo ok > "$1"' _ PROBEFILE
 for a in "$@"; do probe=$a; done
 echo ok > "$probe"
 `
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, bin, script)
 	// Force linux path so CI on macOS still exercises the real probe.
 	h := probeSandboxHealthGOOS(context.Background(), bin, "linux")
 	if !h.OK || h.Reason != sandboxOK {
@@ -128,13 +124,10 @@ func TestProbeSandboxHealth_FakeBinDenied(t *testing.T) {
 	testexec.SkipIfNoPOSIXShell(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex-stub")
-	script := `#!/bin/sh
-echo "No permissions to create a new namespace" >&2
+	script := `echo "No permissions to create a new namespace" >&2
 exit 1
 `
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, bin, script)
 	h := probeSandboxHealthGOOS(context.Background(), bin, "linux")
 	if h.OK || h.Reason != sandboxUsernsDenied {
 		t.Fatalf("probe = %+v, want userns_denied", h)

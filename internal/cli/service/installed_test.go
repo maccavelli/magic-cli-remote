@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func updateRefresh(path, backup string) UnitRefresh {
@@ -102,10 +104,8 @@ func TestIsInstalledDarwinPlistPresent(t *testing.T) {
 func stubBinary(t *testing.T, script string, code int) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "mcremote")
-	body := "#!/bin/sh\ncat <<'JSON'\n" + script + "\nJSON\nexit " + itoa(code) + "\n"
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	body := "cat <<'JSON'\n" + script + "\nJSON\nexit " + itoa(code) + "\n"
+	testexec.WriteShellStub(t, path, body)
 	return path
 }
 

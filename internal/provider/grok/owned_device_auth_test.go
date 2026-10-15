@@ -19,16 +19,13 @@ func fakeGrokLogin(t *testing.T, body string) string {
 	t.Helper()
 	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "grok")
-	script := `#!/bin/sh
-if [ "$1" = "login" ] && [ "$2" = "--device-auth" ]; then
+	script := `if [ "$1" = "login" ] && [ "$2" = "--device-auth" ]; then
   echo "Visit https://x.ai/device and enter code ABCD-1234"
 ` + body + `
 fi
 exit 0
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, path, script)
 	return path
 }
 

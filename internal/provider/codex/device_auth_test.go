@@ -26,15 +26,12 @@ func fakeDeviceCodex(t *testing.T, authPath string, writeBack bool, sleepSeconds
 	if writeBack {
 		after = "printf '{\"tokens\":{\"access\":\"fresh\"}}' > " + authPath + "\n"
 	}
-	script := "#!/bin/sh\n" +
-		"rm -f " + authPath + "\n" +
+	script := "rm -f " + authPath + "\n" +
 		"printf '1. Open this link\\n   https://auth.openai.com/codex/device\\n'\n" +
 		"printf '2. Enter this one-time code\\n   K5GK-PUGKG\\n'\n" +
 		"sleep " + sleepSeconds + "\n" +
 		after
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, bin, script)
 	return bin
 }
 

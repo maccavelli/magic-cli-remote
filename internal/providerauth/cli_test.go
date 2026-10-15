@@ -3,7 +3,6 @@ package providerauth_test
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,11 +19,9 @@ func fakeCLI(t *testing.T, output string, sleepSeconds int) string {
 	testexec.SkipIfNoPOSIXShell(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake-cli")
-	script := "#!/bin/sh\ncat <<'MCEOF'\n" + output + "\nMCEOF\nsleep " +
+	script := "cat <<'MCEOF'\n" + output + "\nMCEOF\nsleep " +
 		itoa(sleepSeconds) + "\n"
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, bin, script)
 	return bin
 }
 

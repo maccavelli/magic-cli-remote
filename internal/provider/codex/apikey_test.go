@@ -19,8 +19,7 @@ func fakeCodexAPIKey(t *testing.T, journal string, exitCode int) string {
 	t.Helper()
 	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "codex")
-	script := `#!/bin/sh
-{ echo "argv:$*"; env; } >> "` + journal + `"
+	script := `{ echo "argv:$*"; env; } >> "` + journal + `"
 if [ "$1" = "login" ] && [ "$2" = "status" ]; then
   [ -f "$CODEX_HOME/auth.json" ] || exit 1
   exit 0
@@ -35,9 +34,7 @@ if [ "$1" = "login" ] && [ "$2" = "--with-api-key" ]; then
 fi
 exit 0
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, path, script)
 	return path
 }
 

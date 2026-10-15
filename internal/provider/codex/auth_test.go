@@ -42,17 +42,14 @@ func fakeCodex(t *testing.T, exitCode int) (bin, argvFile, stdinFile string) {
 	argvFile = filepath.Join(dir, "argv")
 	stdinFile = filepath.Join(dir, "stdin")
 	bin = filepath.Join(dir, "codex-stub")
-	script := "#!/bin/sh\n" +
-		"printf '%s\\n' \"$@\" > " + argvFile + "\n" +
+	script := "printf '%s\\n' \"$@\" > " + argvFile + "\n" +
 		"cat > " + stdinFile + "\n" +
 		"if [ " + strconv.Itoa(exitCode) + " -eq 0 ]; then\n" +
 		"  mkdir -p \"" + codexHome + "\"\n" +
 		"  printf '{}\\n' > \"" + codexHome + "/auth.json\"\n" +
 		"fi\n" +
 		"exit " + strconv.Itoa(exitCode) + "\n"
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, bin, script)
 	return bin, argvFile, stdinFile
 }
 

@@ -265,6 +265,10 @@ plan panel does not do this.
     `HEAD`.
   * A second full run passed.
   * It is a timing flake under full-suite load, and it predates this PLAN. It is not fixed here.
+  * 2026-10-15: the cause was found and fixed in
+    [0193-MADR-warm-fresh-test-executables-before-timing-them.md](0193-MADR-warm-fresh-test-executables-before-timing-them.md).
+    It was not load as such: macOS holds a new stub's first run for a Gatekeeper scan, and that hold
+    fell inside the test's 3 s wait.
 * `make pre-add-check` on the two changed Go files: clean. `make lint` and `make markdownlint-docs`:
   clean.
 * `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with `internal/provider/acpagent`

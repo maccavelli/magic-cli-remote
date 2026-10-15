@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,10 +77,8 @@ func TestStatusDoesNotSpawnAProcessPerCall(t *testing.T) {
 	// A binary that records every invocation.
 	counter := filepath.Join(t.TempDir(), "calls")
 	bin := filepath.Join(t.TempDir(), "codex")
-	script := "#!/bin/sh\necho x >> \"" + counter + "\"\nexit 0\n"
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	script := "echo x >> \"" + counter + "\"\nexit 0\n"
+	testexec.WriteShellStub(t, bin, script)
 
 	coord := newTestCoordinator(t, bin)
 	p := NewCoordinated(Config{Bin: bin}, nil, coord, nil)
@@ -90,16 +89,44 @@ func TestStatusDoesNotSpawnAProcessPerCall(t *testing.T) {
 		}
 	}
 
-	calls := 0
-	if b, err := os.ReadFile(counter); err == nil {
-		for _, c := range b {
-			if c == '\n' {
-				calls++
-			}
-		}
-	}
-	if calls > 1 {
+	// The probes run in the background. Read at once, a probe per call would
+	// still be starting and the check below would pass, so count only once no
+	// refresh is in flight and the count has held still (MADR 0193 D4). The
+	// stub is warm, so each probe takes milliseconds and the settle window is
+	// long against it.
+	if calls := settledCallCount(t, counter, 300*time.Millisecond); calls > 1 {
 		t.Fatalf("the CLI was probed %d times across 5 status calls; want at most 1", calls)
+	}
+}
+
+// settledCallCount returns the number of lines in counter once no background
+// reality refresh is in flight and the number has not changed for settle. It
+// fails the test if that does not happen within 30 s.
+func settledCallCount(t *testing.T, counter string, settle time.Duration) int {
+	t.Helper()
+	count := func() int {
+		b, err := os.ReadFile(counter)
+		if err != nil {
+			return 0
+		}
+		return strings.Count(string(b), "\n")
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	last, since := count(), time.Now()
+	for {
+		realityCache.mu.Lock()
+		busy := realityCache.refreshing
+		realityCache.mu.Unlock()
+		n := count()
+		if n != last || busy {
+			last, since = n, time.Now()
+		} else if time.Since(since) >= settle {
+			return n
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("a background probe never finished: %d call(s) so far", n)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

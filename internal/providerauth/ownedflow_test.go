@@ -19,12 +19,9 @@ func fakeLoginScript(t *testing.T, body string) string {
 	t.Helper()
 	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "fakelogin.sh")
-	script := "#!/bin/sh\n" +
-		"echo 'To sign in, visit https://example.test/device and enter CODE-1234'\n" +
+	script := "echo 'To sign in, visit https://example.test/device and enter CODE-1234'\n" +
 		body + "\n"
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, path, script)
 	return path
 }
 

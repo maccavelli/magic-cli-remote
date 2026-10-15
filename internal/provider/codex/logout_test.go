@@ -19,17 +19,14 @@ func fakeCodexLogout(t *testing.T, journal string, exitCode int) string {
 	t.Helper()
 	testexec.SkipIfNoPOSIXShell(t)
 	path := filepath.Join(t.TempDir(), "codex")
-	script := `#!/bin/sh
-if [ "$1" = "logout" ]; then
+	script := `if [ "$1" = "logout" ]; then
   echo "logout:$CODEX_HOME" >> "` + journal + `"
   rm -f "$CODEX_HOME/auth.json"
   exit ` + strconv.Itoa(exitCode) + `
 fi
 exit 0
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	testexec.WriteShellStub(t, path, script)
 	return path
 }
 

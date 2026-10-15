@@ -1067,6 +1067,13 @@ T. the deduper aliases the caller's slice
 Breakage O is the one that matters for 4.1: it is the behaviour that shipped,
 and it arms the spare while the user's first turn is still running.
 
+2026-10-15: on macOS under load, breakage O **passed** 8 of 10 runs until
+[0193-MADR-warm-fresh-test-executables-before-timing-them.md](0193-MADR-warm-fresh-test-executables-before-timing-them.md).
+The test watches for a stray arm for 250 ms, and the stub's first run, held for
+a Gatekeeper scan, took longer than that to fail, so nothing showed in time.
+0193 warms the stub, and re-runs O, M, N, S and S2 under load; its PLAN's
+execution record has the results.
+
 ```text
 go build ./...                            -> ok
 go test ./internal/... ./cmd/... -count=1 -> ok

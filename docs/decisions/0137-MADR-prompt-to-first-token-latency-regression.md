@@ -971,6 +971,70 @@ was itself reporting a value it could not observe — and it was believed for tw
 phases, because it was plausible and consistent. A instrument that agrees with
 the hypothesis is the one that most needs checking against the wire.
 
+## Amendment, 2026-10-15 (proposed): the non-blocking probe waits for a running probe
+
+**Status: proposed.** Found during
+[0193-MADR-warm-fresh-test-executables-before-timing-them.md](0193-MADR-warm-fresh-test-executables-before-timing-them.md).
+Nothing is implemented until the owner approves this amendment and a PLAN step for it.
+
+### The defect
+
+F1's fix made `ObserveCredentialStoreCachedNonBlocking`
+(`internal/provider/codex/store_reality.go:226`) answer from the cache and start
+at most one background refresh. Its doc comment says it "never waits for a
+probe". It does wait, for any probe already running:
+
+* `ObserveCredentialStoreCached` (`:188`) takes `realityCache.mu` and holds it
+  across `ObserveCredentialStore`, which runs `codex doctor --json`
+  (`:194-207`).
+* The background refresh calls `ObserveCredentialStoreCached`, so it holds the
+  lock for the whole probe.
+* `ObserveCredentialStoreCachedNonBlocking` takes the same lock first (`:232`),
+  to read the cache and the `refreshing` flag. A caller that arrives while a
+  refresh runs therefore blocks until the probe finishes.
+
+`providers.list` reaches it on every phone connect, through `AuthStatus` →
+`backupProjection` (`logout.go:245`). F1 measured the probe at about 1.4 s, and
+it is bounded at 30 s (`realityProbeTimeout`). A phone that reconnects while a
+refresh runs waits for it, which is what F1 set out to stop.
+
+### Evidence
+
+On a scratch copy, a test made a non-blocking call that started a refresh,
+waited 300 ms, then timed a second non-blocking call. The stub's probe took 2 s.
+The second call **waited 1.73 s**, in 3 of 3 runs (`go test`, macOS, 2026-10-14).
+
+The existing tests do not see it.
+
+* `TestNonBlockingProbeCoalescesConcurrentCallers` makes its 20 calls within
+  microseconds, before the background goroutine takes the lock.
+* `TestStatusDoesNotSpawnAProcessPerCall` read its count immediately, and that
+  worked only because of this lock: each status call waited behind the probe.
+  0193 (Amendment 1, D4) made it wait for background probes before counting.
+  With this defect fixed, the immediate read would have passed a probe per
+  call, falsely, 10 of 10.
+
+### Proposed fix
+
+Hold the lock only around the cache, never across the probe.
+
+* In `ObserveCredentialStoreCached`, read the cache under the lock, release it,
+  run the probe, and take the lock again to store the result.
+* Keep one probe at a time for the blocking path, which recovery and
+  `CheckBackend` use, so concurrent blocking callers share one probe instead of
+  starting several. For example, an in-flight marker per home, with blocking
+  callers waiting on its completion and the non-blocking path never waiting.
+* `refreshing` keeps its meaning for the non-blocking path.
+
+### Proposed confirmation
+
+* A test like the scratch proof: a non-blocking call made while a 2 s refresh
+  runs returns within 100 ms. It is seen failing on today's code first.
+* Concurrent blocking callers start one probe, not one each.
+* 0137 breakages S and S2 still fail, and
+  `TestStatusDoesNotSpawnAProcessPerCall` (with 0193's wait) still catches a
+  probe per call.
+
 ## Decision Drivers
 
 * The number the user feels — prompt to first token — must be measured by the

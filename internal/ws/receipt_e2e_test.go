@@ -24,6 +24,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/receipt"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 )
 
@@ -373,6 +374,9 @@ func runMcremoteReceiptsVerify(t *testing.T, dataDir, deviceID string) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("go build ./cmd/mcremote: %v\n%s", err, buildOut.String())
 	}
+	// The binary is new, so its first run on macOS waits for a Gatekeeper
+	// scan; pay that here, outside the 15 s bound below (MADR 0193 D2).
+	testexec.WarmExecutable(t, binPath, "version")
 
 	runCtx, runCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer runCancel()
