@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -365,6 +366,29 @@ func TestCloseUnblocksPendingQuestion(t *testing.T) {
 	}
 	if ev.TimedOut {
 		t.Fatal("a close-path cancellation must not carry TimedOut (MADR 0101 B)")
+	}
+}
+
+// question.respond clears the answers once RespondQuestion returns, but the
+// waiting handler reads them later on the agent's goroutine. The result must
+// not share the caller's slices, or grok can receive blank answers (MADR 0191,
+// PLAN L6).
+func TestRespondQuestionOwnsTheAnswers(t *testing.T) {
+	s := newExtSession(0)
+	w := &questionWaiter{ch: make(chan questionResult, 1)}
+	s.mu.Lock()
+	s.questions = map[string]*questionWaiter{"q1": w}
+	s.mu.Unlock()
+
+	answers := provider.QuestionAnswers{"0": {"Hello", "Hi"}}
+	if err := s.RespondQuestion(context.Background(), "q1", answers, false); err != nil {
+		t.Fatal(err)
+	}
+	answers.Clear()
+
+	res := <-w.ch
+	if len(res.answers) != 1 || !slices.Equal(res.answers[0], []string{"Hello", "Hi"}) {
+		t.Fatalf("answers after the caller cleared its copy = %q, want [[Hello Hi]]", res.answers)
 	}
 }
 

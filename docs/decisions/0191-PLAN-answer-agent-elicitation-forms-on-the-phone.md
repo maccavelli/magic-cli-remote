@@ -38,6 +38,8 @@ defaulted fields. The answer is checked and returned as a typed `accept`, a `dec
   coercion, and `CreateElicitation` (D1–D3).
 * `apps/mobile`: the question model, the sheet, and the respond call (D5).
 * `docs/guides/protocol-v1.md`: the new fields, `allow_decline`, `declined`, and the refusal.
+* `internal/provider/acpagent/extensions.go`: `RespondQuestion` hands the waiter its own copy of the
+  answers (L6, added 2026-10-14 by deviation).
 * **Out of scope:**
   * URL mode and `elicitation/complete`;
   * moving codex's MCP elicitation onto the form;
@@ -92,6 +94,12 @@ Taken only after L1–L3 are committed.
 2. With the owner's quota: a turn that leads grok to ask the user something. Record whether it uses
    `elicitation/create` or `_x.ai/ask_user_question`, and commit any elicitation frames, redacted,
    as the fixture.
+
+### L6. The answers race (added 2026-10-14 by deviation)
+
+1. Write a test that answers a pending question, clears the caller's answers as `question.respond`
+   does, and requires the waiter's answers intact. Show it failing.
+2. In `RespondQuestion`, give the waiter its own copy of each answer list.
 
 ## Verification
 
@@ -330,5 +338,48 @@ first step spends no model tokens, so it ran too. Its second step waits for the 
 * **L5 step 2** waits for the owner's grok quota: a turn that leads grok to ask the user something,
   to see whether it uses `elicitation/create` or `_x.ai/ask_user_question` now that both are
   offered.
-* **The grok `ask_user_question` race** reported under L1–L3 still waits for the owner's word.
+* ~~**The grok `ask_user_question` race** reported under L1–L3 still waits for the owner's word.~~
+  Fixed under L6, below.
 * The PLAN stays `in-progress`.
+
+### L6, 2026-10-14: complete (staged, not committed)
+
+**Deviation.** The race reported under L1–L3 was out of this PLAN's scope. On 2026-10-14 the owner
+said "Yes I want it fixed now". It is fixed here, as L6, because it lies in the question flow that
+this PLAN extended. The MADR is unchanged: no decision or asserted fact moves. One file joins the
+scope, `internal/provider/acpagent/extensions.go`, with its test file.
+
+**The race, confirmed.**
+
+* `provider.OrderedQuestionAnswers` places the caller's own slices in its result. It does not copy
+  them.
+* acpagent's `RespondQuestion` sends that result to the waiter and returns.
+* `handleQuestionRespond` in `internal/ws/server.go` then runs `defer p.ClearAnswers()`, which
+  writes `""` into those same slices.
+* The waiting handler, `handleAskUserQuestion`, reads `res.answers` afterwards on the agent's
+  goroutine. If the clear lands first, grok receives blank answers, or a cancel when every answer
+  is blank.
+* Elicitation forms were not affected: their content is built inside `RespondQuestion`, from fresh
+  slices. The other providers' `RespondQuestion` finish with the answers before they return.
+
+**L6 steps 1 and 2.**
+
+* `TestRespondQuestionOwnsTheAnswers` (`extensions_test.go`) registers a pending question, answers
+  it, clears the caller's answers, and reads the waiter's result. It is deterministic and needs no
+  race detector. Before the fix it **failed**:
+  `answers after the caller cleared its copy = [["" ""]], want [[Hello Hi]]`.
+* `RespondQuestion` now clones each answer list before sending, with a comment saying why. The test
+  passes.
+
+**Planted break, on a scratch copy.** A shallow copy, which clones the outer list but still shares
+each answer list, **failed** the same way: `[["" ""]], want [[Hello Hi]]`.
+
+**Verification.**
+
+* `go test -race ./...`: passed.
+* `make pre-add-check` on the two changed Go files: clean. `make lint`: clean.
+* `make ci-windows` on the Windows test host: `ci-windows-exit=0`, with `internal/provider/acpagent`
+  `ok`.
+
+**Staged, not committed.** L6 was staged only after the 0192 records were committed as `0ee84edf`,
+so that it lands in its own commit.

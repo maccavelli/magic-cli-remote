@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -379,7 +380,14 @@ func (s *session) RespondQuestion(_ context.Context, questionID string, answers 
 	w.resolved = true
 	delete(s.questions, questionID)
 	s.mu.Unlock()
-	w.ch <- questionResult{answers: provider.OrderedQuestionAnswers(answers), cancelled: cancelled, content: content}
+	// The caller clears its answers once this returns, while the waiter reads
+	// them later on the agent's goroutine, so the waiter gets its own copy
+	// (MADR 0191, PLAN L6).
+	ordered := provider.OrderedQuestionAnswers(answers)
+	for i := range ordered {
+		ordered[i] = slices.Clone(ordered[i])
+	}
+	w.ch <- questionResult{answers: ordered, cancelled: cancelled, content: content}
 	// A question answered mid-turn can be the last thing blocking a queued
 	// prompt, exactly as for permissions.
 	s.tryDrainQueue()
