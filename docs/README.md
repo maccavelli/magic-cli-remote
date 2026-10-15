@@ -369,6 +369,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0190 | PLAN | Implement showing agent context compaction on the phone | [0190-PLAN-show-agent-context-compaction-on-the-phone.md](decisions/0190-PLAN-show-agent-context-compaction-on-the-phone.md) |
 | 0191 | MADR | Answer an ACP agent's elicitation forms on the phone, and advertise `elicitation.form` | [0191-MADR-answer-agent-elicitation-forms-on-the-phone.md](decisions/0191-MADR-answer-agent-elicitation-forms-on-the-phone.md) |
 | 0191 | PLAN | Implement answering agent elicitation forms on the phone | [0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md](decisions/0191-PLAN-answer-agent-elicitation-forms-on-the-phone.md) |
+| 0192 | MADR | Show an ACP agent's identified plans on the phone, and advertise the unstable `plan` capability | [0192-MADR-show-an-agents-identified-plans-on-the-phone.md](decisions/0192-MADR-show-an-agents-identified-plans-on-the-phone.md) |
+| 0192 | PLAN | Implement showing an agent's identified plans on the phone | [0192-PLAN-show-an-agents-identified-plans-on-the-phone.md](decisions/0192-PLAN-show-an-agents-identified-plans-on-the-phone.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
