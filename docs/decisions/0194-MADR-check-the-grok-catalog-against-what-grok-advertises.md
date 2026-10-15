@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-15
 decision-makers: Project Owner
 consulted: none
@@ -150,4 +150,20 @@ the real agent.
 * The test's history: added in `d315e613` (MADR 0043 D7); failing since at least 2026-10-13.
 * The PLAN is
   [0194-PLAN-check-the-grok-catalog-against-what-grok-advertises.md](0194-PLAN-check-the-grok-catalog-against-what-grok-advertises.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+* **Accepted 2026-10-15.** The owner accepted the chosen option and approved the PLAN ("committed
+  proceed", after the records were committed as `ff34eb23`).
+* **D2's premise, probed 2026-10-15** (PLAN G2 step 1, no prompt, no tokens). A session started
+  through Magic against `grok 1.0.50 (c58f321264ba) [stable]` sends a `session_config` event whose
+  options are:
+
+  ```text
+  id="model" kind="select" current="grok-4.6" values=[grok-4.7 grok-4.7-build-fast grok-4.6 grok-4.5]
+  id="reasoning_effort" kind="select" current="high" values=[xhigh high medium low]
+  ```
+
+  The `model` option's values are the cold catalog's four IDs. `TestLiveGrokColdCatalog` now pins
+  that, and `TestLiveGrokAdvertisesStandardConfigOptions` already pins the option's presence at the
+  wire.
+* **What D2 cannot see.** A merge adds nothing while every floor ID is one grok lists, so the live
+  comparison catches padding only when the floor holds a model grok does not list. D1 catches it
+  in every case, which is why both exist.

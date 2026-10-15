@@ -4,10 +4,13 @@ package grok_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 )
 
@@ -51,11 +54,23 @@ func TestLiveGrokColdCatalog(t *testing.T) {
 		t.Error("allow_custom must stay on so an older install's ids remain typeable")
 	}
 
-	// The live catalog must not be padded with the static floor: grok's own
-	// availableModels is short, and the floor names models it no longer accepts.
-	if len(cat.Options) > 3 {
-		t.Errorf("cold catalog has %d options; the live list is being merged with "+
-			"the static floor, which offers models the agent refuses", len(cat.Options))
+	// The live catalog must be grok's own list, not padded with the static
+	// floor. A count could not tell once the floor fell inside grok's list, so
+	// compare with what a session advertises, as sets
+	// (0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md, D2).
+	// The unit test TestLiveCatalogIsNotPaddedWithTheFloor guards the rule
+	// without an agent.
+	catalogIDs := make([]string, 0, len(cat.Options))
+	for _, o := range cat.Options {
+		catalogIDs = append(catalogIDs, o.ID)
+	}
+	if sessionIDs, ok := sessionModelValues(ctx, t, p); ok {
+		slices.Sort(catalogIDs)
+		slices.Sort(sessionIDs)
+		if !slices.Equal(catalogIDs, sessionIDs) {
+			t.Errorf("cold catalog %v differs from the session's model option %v: "+
+				"the catalog is not grok's own list", catalogIDs, sessionIDs)
+		}
 	}
 
 	// Second call is cached.
@@ -67,5 +82,44 @@ func TestLiveGrokColdCatalog(t *testing.T) {
 	t.Logf("second open: %s (cached)", second.Round(time.Microsecond))
 	if second > 100*time.Millisecond {
 		t.Errorf("second open took %s: the catalog cache is not engaging", second)
+	}
+}
+
+// sessionModelValues starts a session without a prompt, so it spends no
+// tokens, and returns the values of the `model` config option its
+// session_config event advertises. grok 1.0.50 sends one at session start; an
+// older grok without config options reports false, and the caller skips the
+// comparison.
+func sessionModelValues(ctx context.Context, t *testing.T, p *grok.Provider) ([]string, bool) {
+	t.Helper()
+	s, err := p.Start(ctx, provider.StartOptions{Name: "catalog-live", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start a session to read its model option: %v", err)
+	}
+	defer s.Close(context.Background())
+
+	wait := time.After(30 * time.Second)
+	for {
+		select {
+		case ev := <-s.Events():
+			if ev.Type != event.TypeSessionConfig {
+				continue
+			}
+			for _, o := range ev.ConfigOptions {
+				if o.ID != "model" {
+					continue
+				}
+				ids := make([]string, 0, len(o.Values))
+				for _, v := range o.Values {
+					ids = append(ids, v.ID)
+				}
+				t.Logf("session model option: %v", ids)
+				return ids, true
+			}
+		case <-wait:
+			t.Log("no session_config event with a model option within 30s; " +
+				"skipping the comparison with the session's model list")
+			return nil, false
+		}
 	}
 }
