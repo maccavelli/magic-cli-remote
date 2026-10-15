@@ -373,6 +373,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0192 | PLAN | Implement showing an agent's identified plans on the phone | [0192-PLAN-show-an-agents-identified-plans-on-the-phone.md](decisions/0192-PLAN-show-an-agents-identified-plans-on-the-phone.md) |
 | 0193 | MADR | Warm a test's fresh executables before timing them, because macOS holds their first run | [0193-MADR-warm-fresh-test-executables-before-timing-them.md](decisions/0193-MADR-warm-fresh-test-executables-before-timing-them.md) |
 | 0193 | PLAN | Implement warming a test's fresh executables before timing them | [0193-PLAN-warm-fresh-test-executables-before-timing-them.md](decisions/0193-PLAN-warm-fresh-test-executables-before-timing-them.md) |
+| 0194 | MADR | Check the grok model catalog against what grok advertises, not against a count | [0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md](decisions/0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md) |
+| 0194 | PLAN | Implement checking the grok model catalog against what grok advertises | [0194-PLAN-check-the-grok-catalog-against-what-grok-advertises.md](decisions/0194-PLAN-check-the-grok-catalog-against-what-grok-advertises.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

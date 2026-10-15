@@ -903,7 +903,7 @@ the citations.
   owner's word to write to that repository;~~ filed as `maccavelli/acp-go-sdk2#4`;
 * gobble's half of the bump rule, which belongs to gobble-cli's records.
 
-### B1, 2026-10-15: `acp-go-sdk2 v1.14.0` (staged, not committed)
+### B1, 2026-10-15: `acp-go-sdk2 v1.14.0` — complete (committed as `197071e6`)
 
 **Approval:** the owner on 2026-10-15, "implement the latest release of acp-go-sdk2", then
 "Approve, do B1" for the amendment of that date. E3: decline. Quota approved for `make live-grok`.
@@ -1012,7 +1012,9 @@ gobble's live suite is gobble's.
 
 **Not done:**
 
-* **D12's "passes its own live suite"** is met for every failure the bump could cause, but not
+* ~~**D12's "passes its own live suite"** is met for every failure the bump could cause, but not
   literally: `TestLiveGrokColdCatalog` fails on `v0.17.1` and `v1.14.0` alike. Whether B1 counts as
-  done with that pre-existing failure is the owner's call.
+  done with that pre-existing failure is the owner's call.~~ On 2026-10-15 the owner counted B1
+  done ("count B1 done, fix the catalog test separately"). The catalog test is fixed under
+  [0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md](0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md).
 * `maccavelli/acp-go-sdk2#7` is open. `submitPrompt`'s check stays until it is fixed.
