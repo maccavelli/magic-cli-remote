@@ -975,7 +975,7 @@ the hypothesis is the one that most needs checking against the wire.
 
 **Status: accepted 2026-10-15** (owner: "approved proceed"). Found during
 [0193-MADR-warm-fresh-test-executables-before-timing-them.md](0193-MADR-warm-fresh-test-executables-before-timing-them.md).
-The PLAN's Phase 8 implements it, and is presented for approval before any code changes.
+The PLAN's Phase 8 implements it, and was executed on 2026-10-16.
 
 One rule is added to the proposed fix, because releasing the lock makes it necessary:
 
@@ -985,7 +985,10 @@ One rule is added to the proposed fix, because releasing the lock makes it neces
   invalidation. Without the lock, it could, and the cache would then hold the
   pre-sign-in answer for the whole window. Each probe therefore carries a
   sequence number, and invalidation raises the floor below which a finishing
-  probe's answer is dropped and no caller may join it.
+  probe's answer is dropped. Invalidation also forgets the running probe, so
+  no later caller joins it. (Wording adjusted 2026-10-16, PLAN Phase 8
+  Deviation 1: the join's own sequence check could never fail, so it was
+  dropped.)
 
 ### The defect
 

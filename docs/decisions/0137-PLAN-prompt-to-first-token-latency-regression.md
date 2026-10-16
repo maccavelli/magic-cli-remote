@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-15
+status: complete
+date: 2026-10-16
 associated-madr: "0137-MADR-prompt-to-first-token-latency-regression.md"
 ---
 
@@ -418,8 +418,8 @@ written decision rather than an oversight.
 
 Implements the MADR's amendment of 2026-10-15 (accepted). Codex only; one file
 of product code, `internal/provider/codex/store_reality.go`, and one new test
-file, `internal/provider/codex/reality_lock_test.go`. **Not approved for
-execution until the owner approves this phase by name.**
+file, `internal/provider/codex/reality_lock_test.go`. Approved 2026-10-16
+and executed; see the execution record.
 
 **8.1 Tests first, each seen against today's code.** In
 `reality_lock_test.go`, all with `testexec.WriteShellStub` stubs (warmed, per
@@ -453,9 +453,11 @@ execution until the owner approves this phase by name.**
   to a `realityProbe` with `home`, `seq`, a `done` channel and its result.
 * `ObserveCredentialStoreCached`:
   1. Under the lock: answer from a fresh cache, as today, when `window > 0`.
-  2. Under the lock, when `window > 0`: if `inflight` is for this home and
-     `seq >= minSeq`, release the lock and wait for its `done`, or for `ctx`.
-     A cancelled wait returns `RealityUnknown` with `ctx.Err()`.
+  2. Under the lock, when `window > 0`: if `inflight` is for this home
+     ~~and `seq >= minSeq`~~, release the lock and wait for its `done`, or for
+     `ctx`. A cancelled wait returns `RealityUnknown` with `ctx.Err()`.
+     (Struck 2026-10-16, Deviation 1: invalidation clearing `inflight` is the
+     one guard.)
   3. Otherwise issue a new number, make the probe `inflight`, and release the
      lock. A `window == 0` caller always takes this branch, since it asked for
      a fresh look.
@@ -1757,10 +1759,113 @@ make pre-add-check                               -> 755 file(s) clean
 detector fails a test on any race in its goroutines, which turned a silent
 swallow into a visible failure.
 
+### Phase 8 — 2026-10-16
+
+The owner approved Phase 8 ("committed, proceed") and committed the work in
+progress as `9bf3dc74`, with the fix as first written. Deviation 1's change
+and this record come after it.
+
+#### 8.1 Tests
+
+`internal/provider/codex/reality_lock_test.go` holds the three tests as
+specified. `TestInvalidationDiscardsAProbeStartedBeforeIt` runs its two cases
+as subtests ("its answer is not cached", "a later caller does not wait on it"),
+because one sequence cannot show both. Once the stale probe has finished, a
+later caller could not join it, and while it runs, its answer is not yet
+cached. A helper, `slowDoctorBin`, reads the fixture before it sleeps, so a
+probe answers with the credential as it was when it started.
+
+On the code before the fix, run on the tree before any product edit:
+
+```text
+--- FAIL: TestNonBlockingProbeDoesNotWaitForARunningProbe (2.40s)
+    reality_lock_test.go:79: the non-blocking call waited 2.162s for a running probe; it must return at once
+--- PASS: TestBlockingCallersShareOneProbe (1.30s)
+--- PASS: TestInvalidationDiscardsAProbeStartedBeforeIt (8.78s)
+```
+
+The two that pass do so because the lock serialised everything. Plants (b) to
+(d) are their fail-first proofs.
+
+#### 8.2 The fix
+
+`internal/provider/codex/store_reality.go`, as specified, less the join's
+sequence check (Deviation 1). Two details the step did not spell out:
+
+* A probe that panics is shared with its waiters as an error, and is never
+  cached. A `completed` flag, set only after `ObserveCredentialStore`
+  returns, decides that.
+* The doc comments on `ObserveCredentialStoreCached`,
+  `ObserveCredentialStoreCachedNonBlocking`, `InvalidateRealityCache` and
+  `realityCache` say what each holds and waits for.
+
+#### 8.3 Plants
+
+Each plant ran on a fresh copy of the working tree, `-count=3`:
+
+```text
+(a) the code before the fix (9bf3dc74~1's store_reality.go)
+    FAIL 3/3  the non-blocking call waited 2.006s / 2.007s / 2.01s for a running probe
+(b) the join removed
+    FAIL 3/3  5 concurrent blocking callers started 5 probes; want 1
+(c) the minSeq check on storing removed
+    FAIL 3/3  reality = "broken" after the sign-in, want "file_protected": a probe started
+              before the invalidation cached its answer
+(d) InvalidateRealityCache no longer clears inflight (after Deviation 1)
+    FAIL 3/3  reality = "broken" after the sign-in, want "file_protected": the caller shared
+              a probe started before the invalidation
+(e) 0137 S, the non-blocking probe made synchronous
+    FAIL 3/3  the binary ran before the call returned
+    0137 S2, the coalescing flag removed
+    FAIL 3/3  20 concurrent callers started 20 probes; they must coalesce
+    0193's plants on TestStatusDoesNotSpawnAProcessPerCall, a probe per status call
+    through the cache, and a lock-free spawn per call
+    FAIL 3/3 each  the CLI was probed 6 times across 5 status calls; want at most 1
+```
+
+Plant (a) was first run with HEAD as "the code before the fix". By then HEAD
+was `9bf3dc74`, which holds the fix, so the run passed 3 of 3 and proved
+nothing. It was re-run against `9bf3dc74~1`, with the output above.
+
+#### 8.4 Gates
+
+```text
+go test -race -count=10 ./internal/provider/codex/  -> ok (284.662s)
+go test -race -count=1 ./...                         -> exit 0, 42 packages ok
+make pre-add-check (store_reality.go, reality_lock_test.go)
+                                                     -> 2 file(s) clean (gofmt, golint, govulncheck)
+make lint                                            -> exit 0
+make staticcheck                                     -> exit 0 (v0.8.2; linux, darwin, windows)
+make ci-windows (the Windows test host, working tree)
+                                                     -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED
+check_records.py --check-all, make markdownlint-docs -> exit 0
+```
+
+Phase 8 is complete: 8.1's tests pass on the fixed code, every plant in 8.3
+fails as stated, and the gates pass.
+
+#### Deviation 1, 2026-10-16: two guards against joining a stale probe
+
+* **Found** in 8.3. Plant (d), `InvalidateRealityCache` no longer clearing
+  `inflight`, passed 3 of 3 runs. Step 2's join also required
+  `seq >= minSeq`, which excludes a stale probe on its own. Removing only
+  that check also passed 3 of 3. Removing both failed 3 of 3:
+  `reality = "broken" after the sign-in, want "file_protected": the caller
+  shared a probe started before the invalidation`.
+* **Why the check could not matter.** `inflight` is only ever the newest
+  probe, set when it starts with a number at or above `minSeq`, and
+  invalidation clears it. So while `inflight` is set, `seq >= minSeq` is
+  always true.
+* **Decision.** The owner chose to drop the join's `seq >= minSeq` check and
+  keep invalidation clearing `inflight` as the one guard. Step 2 is struck
+  through above. The MADR amendment's wording is adjusted to match. Plant (d)
+  stands as written.
+* **Scope.** No file joins the phase.
+
 ## Plan complete
 
-**Reopened 2026-10-15** for Phase 8, the MADR's amendment of that date. The
-status is `proposed` until the owner approves Phase 8.
+**Reopened 2026-10-15** for Phase 8, the MADR's amendment of that date, and
+**complete again 2026-10-16** with Phase 8 executed.
 
 All seven phases are executed. The record's own conclusions were corrected
 twice along the way — once when the A/B found a worse failure than prompt

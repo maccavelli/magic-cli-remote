@@ -185,7 +185,7 @@ var realityCache struct {
 	refreshing bool
 
 	// seq numbers each probe as it starts. minSeq is the oldest probe whose
-	// answer may still be cached or shared: InvalidateRealityCache raises it,
+	// answer may still be cached: InvalidateRealityCache raises it,
 	// because a probe that started before a sign-in or logout saw the old
 	// credential. storedSeq is the probe whose answer the cache holds, so an
 	// older probe that finishes late never overwrites a newer answer.
@@ -228,8 +228,9 @@ func ObserveCredentialStoreCached(ctx context.Context, bin string, window time.D
 		realityCache.mu.Unlock()
 		return reality, cachedErr
 	}
-	if p := realityCache.inflight; window > 0 && p != nil && p.home == home &&
-		p.seq >= realityCache.minSeq {
+	// InvalidateRealityCache clears inflight, so a probe found here started
+	// after the last credential change.
+	if p := realityCache.inflight; window > 0 && p != nil && p.home == home {
 		realityCache.mu.Unlock()
 		select {
 		case <-p.done:
