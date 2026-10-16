@@ -971,11 +971,21 @@ was itself reporting a value it could not observe — and it was believed for tw
 phases, because it was plausible and consistent. A instrument that agrees with
 the hypothesis is the one that most needs checking against the wire.
 
-## Amendment, 2026-10-15 (proposed): the non-blocking probe waits for a running probe
+## Amendment, 2026-10-15 (accepted): the non-blocking probe waits for a running probe
 
-**Status: proposed.** Found during
+**Status: accepted 2026-10-15** (owner: "approved proceed"). Found during
 [0193-MADR-warm-fresh-test-executables-before-timing-them.md](0193-MADR-warm-fresh-test-executables-before-timing-them.md).
-Nothing is implemented until the owner approves this amendment and a PLAN step for it.
+The PLAN's Phase 8 implements it, and is presented for approval before any code changes.
+
+One rule is added to the proposed fix, because releasing the lock makes it necessary:
+
+* **A credential change discards a probe started before it.** Today
+  `InvalidateRealityCache` cannot run while a probe holds the lock, so a probe
+  that began before a sign-in can never write its answer after the
+  invalidation. Without the lock, it could, and the cache would then hold the
+  pre-sign-in answer for the whole window. Each probe therefore carries a
+  sequence number, and invalidation raises the floor below which a finishing
+  probe's answer is dropped and no caller may join it.
 
 ### The defect
 

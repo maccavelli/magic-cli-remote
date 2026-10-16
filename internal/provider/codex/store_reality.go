@@ -3,6 +3,7 @@ package codex
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -169,6 +170,10 @@ func DescribeReality(r StoreReality) string {
 // cost: the states it distinguishes change only when someone signs in or out.
 const realityWindow = 30 * time.Second
 
+// realityCache.mu guards the cache and the probe bookkeeping only. It is never
+// held across a probe: a lock held across `codex doctor` made every caller,
+// the non-blocking one included, wait for a running probe (MADR 0137,
+// amendment of 2026-10-15).
 var realityCache struct {
 	mu      sync.Mutex
 	at      time.Time
@@ -178,6 +183,26 @@ var realityCache struct {
 	// refreshing is set while a non-blocking caller has a background probe in
 	// flight, so a burst of providers.list calls spawns one, not one each.
 	refreshing bool
+
+	// seq numbers each probe as it starts. minSeq is the oldest probe whose
+	// answer may still be cached or shared: InvalidateRealityCache raises it,
+	// because a probe that started before a sign-in or logout saw the old
+	// credential. storedSeq is the probe whose answer the cache holds, so an
+	// older probe that finishes late never overwrites a newer answer.
+	seq, minSeq, storedSeq uint64
+	// inflight is the newest probe still running, which blocking callers share
+	// instead of each starting `codex doctor`.
+	inflight *realityProbe
+}
+
+// realityProbe is one running `codex doctor` observation. done is closed once
+// reality and err are set.
+type realityProbe struct {
+	home    string
+	seq     uint64
+	done    chan struct{}
+	reality StoreReality
+	err     error
 }
 
 // ObserveCredentialStoreCached is ObserveCredentialStore with a bounded cache.
@@ -185,6 +210,11 @@ var realityCache struct {
 // The cache is keyed on the effective home as well as time, so a test or a
 // reconfigured host never reads another home's answer. Pass window 0 to force
 // a fresh observation.
+//
+// A caller with a window that finds a probe already running for the same home
+// waits for that probe's answer rather than starting another, so concurrent
+// blocking callers share one `codex doctor`. The wait ends early if ctx does.
+// No lock is held while the probe runs.
 func ObserveCredentialStoreCached(ctx context.Context, bin string, window time.Duration) (StoreReality, error) {
 	home, err := credstore.CodexHome()
 	if err != nil {
@@ -192,18 +222,50 @@ func ObserveCredentialStoreCached(ctx context.Context, bin string, window time.D
 	}
 
 	realityCache.mu.Lock()
-	defer realityCache.mu.Unlock()
 	if window > 0 && realityCache.home == home && !realityCache.at.IsZero() &&
 		time.Since(realityCache.at) < window {
-		return realityCache.reality, realityCache.err
+		reality, cachedErr := realityCache.reality, realityCache.err
+		realityCache.mu.Unlock()
+		return reality, cachedErr
 	}
+	if p := realityCache.inflight; window > 0 && p != nil && p.home == home &&
+		p.seq >= realityCache.minSeq {
+		realityCache.mu.Unlock()
+		select {
+		case <-p.done:
+			return p.reality, p.err
+		case <-ctx.Done():
+			return RealityUnknown, ctx.Err()
+		}
+	}
+	realityCache.seq++
+	p := &realityProbe{home: home, seq: realityCache.seq, done: make(chan struct{})}
+	realityCache.inflight = p
+	realityCache.mu.Unlock()
 
-	reality, obsErr := ObserveCredentialStore(ctx, bin)
-	realityCache.at = time.Now()
-	realityCache.home = home
-	realityCache.reality = reality
-	realityCache.err = obsErr
-	return reality, obsErr
+	// Settle even if the probe panics, so no sharer waits forever. A probe
+	// that did not complete is shared as an error and never cached.
+	p.reality, p.err = RealityUnknown, errors.New("codex reality probe did not complete")
+	completed := false
+	defer func() {
+		realityCache.mu.Lock()
+		defer realityCache.mu.Unlock()
+		if realityCache.inflight == p {
+			realityCache.inflight = nil
+		}
+		if completed && p.seq >= realityCache.minSeq && p.seq > realityCache.storedSeq {
+			realityCache.at = time.Now()
+			realityCache.home = home
+			realityCache.reality = p.reality
+			realityCache.err = p.err
+			realityCache.storedSeq = p.seq
+		}
+		close(p.done)
+	}()
+
+	p.reality, p.err = ObserveCredentialStore(ctx, bin)
+	completed = true
+	return p.reality, p.err
 }
 
 // ObserveCredentialStoreCachedNonBlocking answers from the cache and never
@@ -219,6 +281,10 @@ func ObserveCredentialStoreCached(ctx context.Context, bin string, window time.D
 // on this one. RealityUnknown is the correct conservative value: every caller
 // already treats it as "no reality override", which is exactly the pre-MADR
 // 0134 behaviour.
+//
+// It takes realityCache.mu only to read the cache and the refreshing flag. No
+// probe holds that lock, so a call made while a refresh runs also returns at
+// once; until MADR 0137's amendment of 2026-10-15 it waited for the refresh.
 //
 // This is deliberately NOT used on the recovery or CheckBackend paths. Those
 // are not phone-triggered, they must not act on a stale or unknown answer, and
@@ -269,8 +335,14 @@ const realityProbeTimeout = 30 * time.Second
 // InvalidateRealityCache forces the next observation to re-probe. Every managed
 // credential mutation calls it, so a sign-in or logout is reflected at once
 // rather than after the window.
+//
+// A probe already running saw the credential as it was, so its answer is not
+// cached and no new caller shares it. Callers already waiting on it still get
+// its answer: they asked before the change.
 func InvalidateRealityCache() {
 	realityCache.mu.Lock()
 	defer realityCache.mu.Unlock()
 	realityCache.at = time.Time{}
+	realityCache.minSeq = realityCache.seq + 1
+	realityCache.inflight = nil
 }

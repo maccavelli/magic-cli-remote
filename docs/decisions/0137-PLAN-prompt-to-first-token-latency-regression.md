@@ -1,6 +1,6 @@
 ---
-status: complete
-date: 2026-09-03
+status: proposed
+date: 2026-10-15
 associated-madr: "0137-MADR-prompt-to-first-token-latency-regression.md"
 ---
 
@@ -413,6 +413,88 @@ verified at zero occurrences on the re-recorded fixture.
 
 **Done when:** 7.1-7.6, 7.8 and 7.9 land with tests, and 7.7 is confirmed as a
 written decision rather than an oversight.
+
+### Phase 8 — the non-blocking probe never waits for a running probe (added 2026-10-15)
+
+Implements the MADR's amendment of 2026-10-15 (accepted). Codex only; one file
+of product code, `internal/provider/codex/store_reality.go`, and one new test
+file, `internal/provider/codex/reality_lock_test.go`. **Not approved for
+execution until the owner approves this phase by name.**
+
+**8.1 Tests first, each seen against today's code.** In
+`reality_lock_test.go`, all with `testexec.WriteShellStub` stubs (warmed, per
+0193):
+
+* `TestNonBlockingProbeDoesNotWaitForARunningProbe`. A first non-blocking call
+  starts a refresh whose stub writes a marker file and then sleeps 2 s. Once
+  the marker exists, the probe is running, and today it holds the lock. A
+  second non-blocking call is timed and must return within 100 ms. Waiting on
+  the marker, not on a fixed sleep, makes the moment deterministic. **Must fail
+  today** with about 2 s.
+* `TestBlockingCallersShareOneProbe`. Five concurrent
+  `ObserveCredentialStoreCached` calls with a one-minute window, against a stub
+  that logs each run and sleeps 1 s. Exactly one probe runs, and every caller
+  gets its answer. It passes today, because the lock serialises the callers
+  and the second finds the cache filled. Its fail-first proof is plant 8.3(b).
+* `TestInvalidationDiscardsAProbeStartedBeforeIt`. A blocking call starts a
+  probe against `fakeDoctorBin`, with a sleep added, serving
+  `incomplete-file.json` (broken). Once its marker exists, the fixture is
+  switched to `file-protected.json` and `InvalidateRealityCache` runs, as a
+  sign-in does. A blocking call with a one-minute window made after that must
+  return `file_protected`, not the pre-sign-in `broken`. It passes today,
+  because invalidation waits for the lock. Its fail-first proofs are plants
+  8.3(c) and 8.3(d).
+
+**8.2 The fix**, in `store_reality.go`:
+
+* `realityCache` gains `seq` (the last probe number issued), `minSeq` (the
+  oldest probe number whose answer may still be stored or joined), `storedSeq`
+  (the number of the probe whose answer is cached) and `inflight`, a pointer
+  to a `realityProbe` with `home`, `seq`, a `done` channel and its result.
+* `ObserveCredentialStoreCached`:
+  1. Under the lock: answer from a fresh cache, as today, when `window > 0`.
+  2. Under the lock, when `window > 0`: if `inflight` is for this home and
+     `seq >= minSeq`, release the lock and wait for its `done`, or for `ctx`.
+     A cancelled wait returns `RealityUnknown` with `ctx.Err()`.
+  3. Otherwise issue a new number, make the probe `inflight`, and release the
+     lock. A `window == 0` caller always takes this branch, since it asked for
+     a fresh look.
+  4. Run `ObserveCredentialStore` with no lock held.
+  5. Under the lock: store the answer only if its number is at least `minSeq`
+     and greater than `storedSeq`, so an older probe never overwrites a newer
+     one. Clear `inflight` if it is still this probe, record the result, and
+     close `done`. A deferred block does this, so a panic in the probe cannot
+     leave waiters stuck.
+* `InvalidateRealityCache` zeroes `at`, as today, sets `minSeq = seq + 1`, and
+  clears `inflight`. Callers already waiting on a stale probe still receive
+  its answer, since they asked before the change, but nothing new joins it and
+  its answer is not cached.
+* `ObserveCredentialStoreCachedNonBlocking` is unchanged. Its `refreshing`
+  flag keeps its meaning. With the lock now brief, it no longer waits.
+* The doc comments on both functions are updated to say what each now holds
+  and waits for.
+
+**8.3 Plants, each on a scratch export with the new tests copied in:**
+
+* (a) Today's code, unmodified: `TestNonBlockingProbeDoesNotWaitForARunningProbe`
+  fails, with the measured wait.
+* (b) Step 2's join removed, so every blocking caller probes:
+  `TestBlockingCallersShareOneProbe` fails with 5 probes.
+* (c) The `minSeq` check on storing removed:
+  `TestInvalidationDiscardsAProbeStartedBeforeIt` returns `broken`.
+* (d) `InvalidateRealityCache` no longer clears `inflight`: the same test
+  returns `broken`, because the later caller joins the stale probe.
+* (e) Re-run the 0137 breakages S and S2 and 0193's
+  `TestStatusDoesNotSpawnAProcessPerCall` plant (a probe per status call)
+  against the fixed code. Each must still fail.
+
+**8.4 Gates:** `go test -race -count=1 ./internal/provider/codex/` run 10
+times, the full `go test -race ./...`, `make pre-add-check`, `make lint`,
+`make staticcheck`, and `make ci-windows` on the Windows test host. The new
+tests need POSIX shell stubs, so they skip on Windows as their neighbours do.
+
+**Done when:** 8.1's tests pass on the fixed code, every plant in 8.3 fails as
+stated, and the gates pass.
 
 ## Verification
 
@@ -1676,6 +1758,9 @@ detector fails a test on any race in its goroutines, which turned a silent
 swallow into a visible failure.
 
 ## Plan complete
+
+**Reopened 2026-10-15** for Phase 8, the MADR's amendment of that date. The
+status is `proposed` until the owner approves Phase 8.
 
 All seven phases are executed. The record's own conclusions were corrected
 twice along the way — once when the A/B found a worse failure than prompt
