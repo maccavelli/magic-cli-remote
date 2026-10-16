@@ -520,3 +520,18 @@ session scratch directory.
     capture, showing a session starts and extension messages are accepted.
   * `make live-grok` spends quota, and waits for the owner's word. Under D12, the bump counts as
     done only when it passes. If it fails, Magic returns to `v0.17.1` until the SDK's next tag.
+
+## Amendment — 2026-10-16: D10 item 7 is deferred
+
+D10's last item, "the unstable subagent variants, mapped onto Magic's own subagent model", is
+deferred by
+[0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md).
+No engine Magic runs contains `subagent_update`, so D10's own rule, a live probe before
+advertising, cannot be met.
+
+* `subagents` stays unadvertised, and the three variants stay declined.
+* `TestLiveGrokShipsNoSubagentSessions` fails when an installed grok contains the string. That,
+  or gobble being registered with support, reopens 0195.
+* 0195 lists what the adopting record must decide.
+
+With this, every D10 item has its own record: items 1–6 are 0187–0192, and item 7 is 0195.

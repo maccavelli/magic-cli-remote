@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: complete
 date: 2026-10-16
 associated-madr: "0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md"
 ---
@@ -9,8 +9,8 @@ associated-madr: "0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-th
 
 Associated MADR: [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md)
 
-**Not approved for execution.** The MADR is `proposed`. This PLAN implements its recommended option
-(S1–S5).
+**Approved 2026-10-16** ("committed, proceed", after `1c42f09a`). This PLAN implements the MADR's
+chosen option (S1–S5). U1 and U2 are executed; see the execution record.
 
 * The owner approves the PLAN by name.
 * Each phase ends with `make pre-add-check` on its staged Go files.
@@ -69,3 +69,53 @@ list records item 7 as deferred.
 ## Rollout and Rollback
 
 * A test and records only. Rollback is reverting the commit.
+
+## Execution record
+
+Executed 2026-10-16. No product code changed, and no deviation from the steps as written.
+
+### U1. Tests
+
+* `internal/provider/grok/live_subagentsessions_test.go`: `TestLiveGrokShipsNoSubagentSessions`, as
+  steps 1.1–1.3 describe. Against the installed grok:
+
+  ```text
+  live_subagentsessions_test.go:39: grok-1.0.50: 160 MiB, subagent_update appears 0 time(s)
+  --- PASS: TestLiveGrokShipsNoSubagentSessions (0.05s)
+  ```
+
+* `TestCapabilityHonesty` gained the `subagents` example, with a comment naming S1. It passes on
+  the tree, as do `TestEverySessionUpdateIsMappedOrDeclined` and `TestInitializeFrameIsPinned`.
+* Planted breaks on a scratch copy of the working tree:
+  * A `grok` file holding the bytes `{"sessionUpdate":"subagent_update"}`, first on `PATH`:
+
+    ```text
+    live_subagentsessions_test.go:39: grok: 0 MiB, subagent_update appears 1 time(s)
+    live_subagentsessions_test.go:41: <scratch>/u1fakebin/grok contains subagent_update 1 time(s): grok may now send ACP subagent sessions. Reopen 0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md (S3)
+    --- FAIL: TestLiveGrokShipsNoSubagentSessions (0.00s)
+    ```
+
+  * `"subagents": true` added to `implementedClientCapabilities`:
+
+    ```text
+    --- FAIL: TestCapabilityHonesty (0.00s)
+        advertise_test.go:72: subagents: advertised without behavior, and the check accepted it
+    ```
+
+### U2. Records
+
+* 0184's MADR gained the amendment "D10 item 7 is deferred". Its PLAN's "A6 and later" section
+  names 0187–0192 and this record.
+* The MADR is `accepted`.
+
+### Verification
+
+```text
+go vet -tags live_grok ./internal/provider/grok/ ./internal/provider/acpagent/   -> exit 0
+staticcheck v0.8.2 -tags live_grok (same packages)                               -> exit 0
+go test -race -count=1 ./internal/provider/acpagent/                             -> ok
+make pre-add-check (advertise_test.go, live_subagentsessions_test.go)            -> 2 file(s) clean
+make lint, make staticcheck                                                      -> exit 0
+make ci-windows (the Windows test host, working tree)                            -> ci-windows-exit=0
+check_records.py --check-all, make markdownlint-docs                             -> exit 0
+```

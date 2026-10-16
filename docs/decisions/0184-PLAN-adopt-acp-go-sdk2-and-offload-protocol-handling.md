@@ -145,6 +145,11 @@ Dart files.
 One MADR and PLAN per capability, in the MADR's order, each written when its phone behavior is
 designed. Nothing in A1–A5 advertises a capability beyond D4's.
 
+Items 1–6 are 0187–0192. Item 7, the subagent variants, is deferred by
+[0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md)
+(2026-10-16), because no engine Magic runs sends them. Its live test,
+`TestLiveGrokShipsNoSubagentSessions`, is the trigger to reopen it.
+
 ## Verification
 
 Whole-plan acceptance is the MADR's Confirmation section. In addition:

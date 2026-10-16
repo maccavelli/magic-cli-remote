@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-16
 decision-makers: Project Owner
 consulted: none
@@ -220,4 +220,5 @@ test, and the live test turns the trigger into a failing check instead of a memo
   `acp-go-sdk2` issue, as #7 was. That is the owner's call.
 * The PLAN is
   [0195-PLAN-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-PLAN-defer-acp-subagent-sessions-until-an-engine-sends-them.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+* **Accepted 2026-10-16.** The owner accepted the chosen option and approved the PLAN ("committed,
+  proceed", after the records were committed as `1c42f09a`).

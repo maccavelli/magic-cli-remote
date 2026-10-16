@@ -64,6 +64,8 @@ func TestCapabilityHonesty(t *testing.T) {
 		// plan was an example until MADR 0192 implemented it.
 		"elicitation.url": {Elicitation: &acp.ElicitationCapabilities{Url: &acp.ElicitationUrlCapabilities{}}},
 		"auth.terminal":   {Auth: acp.AuthCapabilities{Terminal: true}},
+		// Deferred until an engine Magic runs sends it (MADR 0195 S1).
+		"subagents": {Subagents: &acp.SubagentCapabilities{}},
 	}
 	for name, c := range dishonest {
 		if problems := CheckClientCapabilities(c); len(problems) == 0 {
