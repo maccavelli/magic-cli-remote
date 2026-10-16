@@ -375,6 +375,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0193 | PLAN | Implement warming a test's fresh executables before timing them | [0193-PLAN-warm-fresh-test-executables-before-timing-them.md](decisions/0193-PLAN-warm-fresh-test-executables-before-timing-them.md) |
 | 0194 | MADR | Check the grok model catalog against what grok advertises, not against a count | [0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md](decisions/0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md) |
 | 0194 | PLAN | Implement checking the grok model catalog against what grok advertises | [0194-PLAN-check-the-grok-catalog-against-what-grok-advertises.md](decisions/0194-PLAN-check-the-grok-catalog-against-what-grok-advertises.md) |
+| 0195 | MADR | Defer ACP subagent sessions until an engine Magic runs sends them, and pin that with a live test | [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](decisions/0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md) |
+| 0195 | PLAN | Implement deferring ACP subagent sessions, with a live test that pins the premise | [0195-PLAN-defer-acp-subagent-sessions-until-an-engine-sends-them.md](decisions/0195-PLAN-defer-acp-subagent-sessions-until-an-engine-sends-them.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
