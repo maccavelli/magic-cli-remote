@@ -538,7 +538,9 @@ With this, every D10 item has its own record: items 1–6 are 0187–0192, and i
 
 ## Amendment — 2026-10-16: move to `v1.15.0` (B2)
 
-**Status: proposed.** Nothing is implemented until the owner approves this amendment and B2.
+~~**Status: proposed.**~~ **Accepted 2026-10-16.** The owner approved the recommendation ("committed
+and pushed, proceed to next recommended", after `a17eef11`): this amendment, B2, and 0191's G1 with
+L7. `make live-grok` still waits for the owner's quota (F5).
 
 ### What shipped
 

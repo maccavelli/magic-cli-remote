@@ -2,6 +2,7 @@ package acpagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"reflect"
@@ -122,6 +123,9 @@ func TestElicitationFormBecomesAQuestion(t *testing.T) {
 		order = append(order, it.ID)
 	}
 	// Required first, in the required list's order, then the rest by name.
+	// This form is built in Go, so it carries no PropertyOrder and takes the
+	// fallback; a form from the wire keeps its agent's order
+	// (TestFormFieldsFollowTheAgentsOrder).
 	want := []string{"age", "name", "code", "color", "email", "ok", "ratio", "size", "tags"}
 	if !reflect.DeepEqual(order, want) {
 		t.Errorf("order = %v, want %v", order, want)
@@ -406,4 +410,57 @@ func sortedCopy(in []string) []string {
 		}
 	}
 	return out
+}
+
+// questionOrder asks s with req, returns the question items' IDs in the order
+// the phone would draw them, and cancels the form.
+func questionOrder(t *testing.T, s *session, req acp.CreateElicitationRequest) []string {
+	t.Helper()
+	out := elicit(s, req)
+	q := waitEvent(t, s, event.TypeQuestion)
+	var order []string
+	for _, it := range q.Questions {
+		order = append(order, it.ID)
+	}
+	if err := s.RespondQuestion(context.Background(), q.QuestionID, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	waitElicit(t, out)
+	return order
+}
+
+// TestFormFieldsFollowTheAgentsOrder is MADR 0191's amendment of 2026-10-16
+// (G1): a form decoded from the wire keeps the order its agent wrote, which
+// acp-go-sdk2 v1.15.0 records in PropertyOrder. Required fields are not moved
+// to the top; each item already says whether it is optional.
+func TestFormFieldsFollowTheAgentsOrder(t *testing.T) {
+	var schema acp.ElicitationSchema
+	if err := json.Unmarshal([]byte(`{"type":"object","required":["mid"],"properties":{`+
+		`"zeta":{"type":"string"},"alpha":{"type":"string"},"mid":{"type":"string"}}}`), &schema); err != nil {
+		t.Fatal(err)
+	}
+	req := formRequest(nil)
+	req.Form.RequestedSchema = schema
+
+	s, _ := newFormSession(0)
+	if got, want := questionOrder(t, s, req), []string{"zeta", "alpha", "mid"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("order = %v, want the agent's order %v", got, want)
+	}
+}
+
+// TestFormFieldOrderSkipsRepeatsAndUnknownNames: PropertyOrder is the agent's
+// word, so a name it repeats is drawn once, a name with no property is
+// skipped, and a property it leaves out still appears, after the ones it names.
+func TestFormFieldOrderSkipsRepeatsAndUnknownNames(t *testing.T) {
+	req := formRequest(map[string]acp.ElicitationPropertySchema{
+		"a": strProp(acp.ElicitationPropertySchemaString{}),
+		"b": strProp(acp.ElicitationPropertySchemaString{}),
+		"c": strProp(acp.ElicitationPropertySchemaString{}),
+	})
+	req.Form.RequestedSchema.PropertyOrder = []string{"b", "ghost", "b", "a"}
+
+	s, _ := newFormSession(0)
+	if got, want := questionOrder(t, s, req), []string{"b", "a", "c"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
 }

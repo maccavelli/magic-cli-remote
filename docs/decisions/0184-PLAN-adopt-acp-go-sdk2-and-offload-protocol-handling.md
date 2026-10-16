@@ -273,7 +273,8 @@ MADR is still `proposed`, and each phase still needs approval by name.
 
 ## Amendment — 2026-10-16: B2 for `v1.15.0`
 
-**Not approved.** This implements the MADR amendment of 2026-10-16 (F1–F5). The form-order change
+~~**Not approved.**~~ **Approved 2026-10-16** ("proceed to next recommended", after `a17eef11`;
+quota not included). This implements the MADR amendment of 2026-10-16 (F1–F5). The form-order change
 is 0191's PLAN L7, done in the same change, because the new field arrives with the bump.
 
 **B2 — move to `acp-go-sdk2 v1.15.0`.**
@@ -1046,3 +1047,36 @@ gobble's live suite is gobble's.
   done ("count B1 done, fix the catalog test separately"). The catalog test is fixed under
   [0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md](0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md).
 * `maccavelli/acp-go-sdk2#7` is open. `submitPrompt`'s check stays until it is fixed.
+
+### B2, 2026-10-16: `acp-go-sdk2 v1.15.0` — executed; `make live-grok` waits for quota
+
+Approved 2026-10-16 ("proceed to next recommended"). No deviation from the steps as written.
+
+**Step 2, the pin.** `go get github.com/maccavelli/acp-go-sdk2@v1.15.0` and `go mod tidy`:
+`upgraded github.com/maccavelli/acp-go-sdk2 v1.14.0 => v1.15.0`. `go.mod` changes one line, and
+`go.sum` changes the SDK's two lines only. On the bump alone, before L7: `go build ./...` ok,
+`go test -count=1 ./...` exit 0 with 42 packages `ok`, and `TestGoModRequiresTaggedACPDirectly`
+passes. The bump alone changes nothing Magic tests.
+
+**Step 3, form order.** 0191's PLAN L7, recorded there.
+
+**Step 4, verification.**
+
+```text
+go test -race -count=1 ./...                         -> exit 0, 42 packages ok
+make pre-add-check (elicitation.go, elicitation_test.go, elicitation_wire_test.go)
+                                                     -> 3 file(s) clean (gofmt, golint, govulncheck)
+make lint, make staticcheck                          -> exit 0
+make ci-windows (the Windows test host, working tree)
+                                                     -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED
+TestLiveGrokElicitationAtSessionStart (grok 1.0.50)  -> PASS, "grok sent 0 form(s) at session start"
+TestLiveGrokPlanAtSessionStart (grok 1.0.50)         -> PASS, "0 plan and 0 identified plan event(s)"
+```
+
+Both probes are quota-free: they open a session and send no prompt.
+
+**Not done:**
+
+* **`make live-grok`** spends quota and waits for the owner's word. Under D12, B2 counts as done
+  only when it passes.
+* **gobble** still pins `v1.14.0`. Its move is gobble's own record (MADR amendment F4).

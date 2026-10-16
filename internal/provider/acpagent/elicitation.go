@@ -138,22 +138,38 @@ type formField struct {
 var knownFormats = map[string]bool{"email": true, "uri": true, "date": true, "date-time": true}
 
 // formFields maps a schema's properties onto question items (MADR 0191 D2).
-// Required fields come first, in the order the schema lists them, then the
-// rest by name: the SDK decodes properties into a map, so the agent's own
-// order is gone. It returns the name of a required field Magic cannot draw,
-// if there is one, in which case the form cannot be completed.
+//
+// Fields follow the agent's order, which the SDK records in PropertyOrder for
+// every decoded form (MADR 0191, amendment of 2026-10-16): a repeated name is
+// drawn once, a name with no property is skipped, and a property the order
+// leaves out follows, by name. A schema with no order, as one built in Go is,
+// keeps D2's original rule: required fields first, in the order the schema
+// lists them, then the rest by name.
+//
+// It returns the name of a required field Magic cannot draw, if there is one,
+// in which case the form cannot be completed.
 func (s *session) formFields(schema acp.ElicitationSchema) ([]formField, string) {
 	required := make(map[string]bool, len(schema.Required))
-	var order []string
 	for _, name := range schema.Required {
-		if _, ok := schema.Properties[name]; ok && !required[name] {
+		if _, ok := schema.Properties[name]; ok {
 			required[name] = true
+		}
+	}
+	first := schema.PropertyOrder
+	if len(first) == 0 {
+		first = schema.Required
+	}
+	placed := make(map[string]bool, len(schema.Properties))
+	var order []string
+	for _, name := range first {
+		if _, ok := schema.Properties[name]; ok && !placed[name] {
+			placed[name] = true
 			order = append(order, name)
 		}
 	}
 	var rest []string
 	for name := range schema.Properties {
-		if !required[name] {
+		if !placed[name] {
 			rest = append(rest, name)
 		}
 	}

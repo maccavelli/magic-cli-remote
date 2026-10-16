@@ -288,7 +288,8 @@ asked whether grok uses it. The zero-token half of the probe answered both for s
 
 ## Amendment — 2026-10-16: show a form's fields in the agent's order
 
-**Status: proposed.** Nothing is implemented until the owner approves this amendment and PLAN L7.
+~~**Status: proposed.**~~ **Accepted 2026-10-16, G1** (owner: "proceed to next recommended", the
+recommendation being G1 with 0184's B2 and PLAN L7).
 
 ### What changed
 
@@ -311,7 +312,7 @@ SDK lost. The Consequences said so: "An SDK change could restore the order".
 
 ### Decision
 
-**Proposed: G1.** The agent chose the order, and a form often reads in that order: a name before
+**G1.** The agent chose the order, and a form often reads in that order: a name before
 an email, a start date before an end date. Each field already says whether it is optional (D2's
 "marked optional unless `required` names it", drawn by the phone under D5), so position is not
 what tells a user which fields to fill. G2 would still reorder a

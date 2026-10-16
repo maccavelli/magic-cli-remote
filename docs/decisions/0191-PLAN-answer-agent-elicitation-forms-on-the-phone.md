@@ -103,8 +103,8 @@ Taken only after L1–L3 are committed.
 
 ### L7. The agent's field order (added 2026-10-16, MADR amendment of that date)
 
-**Not approved.** Runs inside 0184's PLAN B2, after the bump to `v1.15.0` (B2 step 2), because
-`PropertyOrder` arrives with it.
+~~**Not approved.**~~ **Approved 2026-10-16.** Runs inside 0184's PLAN B2, after the bump to
+`v1.15.0` (B2 step 2), because `PropertyOrder` arrives with it.
 
 1. **Tests first**, in `internal/provider/acpagent/elicitation_test.go` and
    `elicitation_wire_test.go`, each seen failing before `formFields` changes:
@@ -404,3 +404,40 @@ each answer list, **failed** the same way: `[["" ""]], want [[Hello Hi]]`.
 
 **Staged, not committed.** L6 was staged only after the 0192 records were committed as `0ee84edf`,
 so that it lands in its own commit.
+
+### L7, 2026-10-16: complete (inside 0184's B2)
+
+Approved 2026-10-16 ("proceed to next recommended"). No deviation from the steps as written.
+
+**Tests first.** The three tests, run on `v1.15.0` against the old `formFields`:
+
+```text
+elicitation_test.go:447: order = [mid alpha zeta], want the agent's order [zeta alpha mid]
+--- FAIL: TestFormFieldsFollowTheAgentsOrder
+elicitation_test.go:464: order = [a b c], want [b a c]
+--- FAIL: TestFormFieldOrderSkipsRepeatsAndUnknownNames
+elicitation_wire_test.go:94: order = [mid alpha zeta], want the wire order [zeta alpha mid]
+--- FAIL: TestWireElicitationFormKeepsTheAgentsOrder
+--- PASS: TestElicitationFormBecomesAQuestion
+```
+
+The wire test's params are raw JSON, so the order on the wire is the test's own.
+
+**The change.** `formFields` (`internal/provider/acpagent/elicitation.go`) follows `PropertyOrder`
+when it is set, and the `required` list otherwise. In both cases a repeated name is placed once, a
+name with no property is skipped, and the remaining properties follow, by name. With no
+`PropertyOrder` the result is exactly D2's original rule. `TestElicitationFormBecomesAQuestion` is
+unchanged, and its comment now says its Go-built form takes that fallback. Afterwards,
+`go test -race` passes all 11 elicitation tests.
+
+**Planted breaks**, each on a fresh copy of the working tree:
+
+```text
+order ignored (today's rule)  -> all three new tests FAIL, with the outputs above
+repeats not skipped           -> FAIL TestFormFieldOrderSkipsRepeatsAndUnknownNames: order = [b b a c], want [b a c]
+left-out names dropped        -> FAIL TestFormFieldOrderSkipsRepeatsAndUnknownNames: order = [b a], want [b a c]
+```
+
+**Verification** is 0184's B2 step 4, recorded there: the race suite, the lint gates, Windows,
+and the quota-free grok probes all pass. The phone is unchanged. It draws items in the order the
+event lists them.
