@@ -216,8 +216,11 @@ test, and the live test turns the trigger into a failing check instead of a memo
   client duties S4 summarises.
 * MADR 0051 is the roster's origin and the rule that subagent content stays out of the
   transcript. 0187–0192 are D10's items 1–6.
-* The SDK gap (no gate on `subagent_update` or `session_message*`) could be filed as an
-  `acp-go-sdk2` issue, as #7 was. That is the owner's call.
+* The SDK gap (no gate on `subagent_update` or `session_message*`) is reported as
+  [maccavelli/acp-go-sdk2#9](https://github.com/maccavelli/acp-go-sdk2/issues/9), filed
+  2026-10-16 at the owner's request. It holds on `v1.15.0` too. The SDK's own record
+  `0017-MADR-remediate-acp-v1-conformance-violations.md` left `subagents` ungated because no gate
+  was stated then. The schema (`1.25.0`) now states one, on `SubagentCapabilities`.
 * The PLAN is
   [0195-PLAN-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-PLAN-defer-acp-subagent-sessions-until-an-engine-sends-them.md).
 * **Accepted 2026-10-16.** The owner accepted the chosen option and approved the PLAN ("committed,
