@@ -535,3 +535,43 @@ advertising, cannot be met.
 * 0195 lists what the adopting record must decide.
 
 With this, every D10 item has its own record: items 1–6 are 0187–0192, and item 7 is 0195.
+
+## Amendment — 2026-10-16: move to `v1.15.0` (B2)
+
+**Status: proposed.** Nothing is implemented until the owner approves this amendment and B2.
+
+### What shipped
+
+`acp-go-sdk2 v1.15.0` is tagged. It is the latest version (`go list -m -versions`). Its release
+notes are `docs/reports/0019-REPORT-release-notes-v1-15-0.md` in the module, read 2026-10-16 from the
+module proxy's source zip.
+
+* The ACP schema is unchanged at `1.25.0`.
+* Most of the release hardens the SDK's code generator. The generated SDK changes in two types
+  only, and the exported API gains three entries and loses none.
+  * **`ElicitationSchema.PropertyOrder []string`** fixes #6, which Magic filed. A decoded form now
+    keeps the order its agent wrote the fields in.
+  * **`UnstableMcpError`** keeps an explicit `null` in `Data`, and keeps undeclared keys in a new
+    `Extra`. Magic does not use the type: no file in `internal/` or `cmd/` names it.
+
+### What it changes for Magic
+
+* **F1. The pin moves** to `v1.15.0`. Nothing else in `go.mod` changes.
+* **F2. Elicitation forms show the agent's order.** 0191 put required fields first, then the rest
+  by name, only because the order was lost (0191's Consequences: "An SDK change could restore the
+  order"). That decision is 0191's, so it is amended there:
+  [0191-MADR-answer-agent-elicitation-forms-on-the-phone.md](0191-MADR-answer-agent-elicitation-forms-on-the-phone.md),
+  amendment of 2026-10-16.
+* **F3. Nothing else changes.** The open issues stand as they were:
+  * #7 (`Prompt` sends `session/cancel` for a prompt it never wrote) is still open, so
+    `submitPrompt`'s context check stays.
+  * #9 (no gate on the subagent variants) is still open. Magic declines them itself (0195).
+  * #8 ("An agent never answers a request received just before its input's end of file") is about
+    the agent side. Magic is a client, so it is not Magic's to work around.
+* **F4. gobble.** D12 has both repositories pin the same tag. gobble-cli pins `v1.14.0` (`go.mod`
+  line 15, at `c2a2684`). Its move is gobble's own record. Until it lands, the two repositories
+  differ by one minor version, whose only Go change gobble would feel is `PropertyOrder`.
+* **F5. Verification.** As in B1 (E7): the quota-free probes against grok,
+  `TestLiveGrokElicitationAtSessionStart` and `TestLiveGrokPlanAtSessionStart`, plus the unit and
+  wire suites. D12's `make live-grok` spends quota, and waits for the owner's word. Under D12, B2
+  is done only when it passes.

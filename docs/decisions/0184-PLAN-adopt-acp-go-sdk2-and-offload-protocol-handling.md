@@ -271,6 +271,29 @@ MADR is still `proposed`, and each phase still needs approval by name.
 7. **gobble (D12).** gobble pins `v1.14.0` at `794f7da`. Record that both repositories pin the same
    tag. gobble's live suite is gobble's.
 
+## Amendment — 2026-10-16: B2 for `v1.15.0`
+
+**Not approved.** This implements the MADR amendment of 2026-10-16 (F1–F5). The form-order change
+is 0191's PLAN L7, done in the same change, because the new field arrives with the bump.
+
+**B2 — move to `acp-go-sdk2 v1.15.0`.**
+
+1. **The release notes are read** (MADR amendment, "What shipped"). Done.
+2. **Pin it.**
+   * `go get github.com/maccavelli/acp-go-sdk2@v1.15.0` and `go mod tidy`.
+   * `go.mod` names `v1.15.0`, and `go.sum` changes only its lines.
+   * `TestGoModRequiresTaggedACPDirectly` passes, and `govulncheck` is clean.
+   * `go build ./...` and `go test ./...` pass before L7 changes anything. That shows the bump
+     alone changes no behaviour Magic tests.
+3. **Form order:** 0191's PLAN L7.
+4. **Verification.**
+   * `go test -race ./...`, `make pre-add-check`, `make lint`, `make staticcheck`.
+   * `make ci-windows` on the Windows test host.
+   * Quota-free against grok: `TestLiveGrokElicitationAtSessionStart` and
+     `TestLiveGrokPlanAtSessionStart`.
+   * `make live-grok` waits for the owner's quota. Until it passes, B2 is not done (D12).
+5. **Records.** An execution record here. gobble's move is noted as gobble's (F4).
+
 ## Execution record
 
 ### A1, 2026-10-13: complete (committed as `db717ed3`, verified on macOS and Windows)

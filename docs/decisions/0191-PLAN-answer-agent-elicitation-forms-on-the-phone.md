@@ -101,6 +101,27 @@ Taken only after L1–L3 are committed.
    does, and requires the waiter's answers intact. Show it failing.
 2. In `RespondQuestion`, give the waiter its own copy of each answer list.
 
+### L7. The agent's field order (added 2026-10-16, MADR amendment of that date)
+
+**Not approved.** Runs inside 0184's PLAN B2, after the bump to `v1.15.0` (B2 step 2), because
+`PropertyOrder` arrives with it.
+
+1. **Tests first**, in `internal/provider/acpagent/elicitation_test.go` and
+   `elicitation_wire_test.go`, each seen failing before `formFields` changes:
+   * `TestFormFieldsFollowTheAgentsOrder`: a schema decoded from JSON with properties `zeta`,
+     `alpha`, `mid` and `required: ["mid"]` gives items `zeta`, `alpha`, `mid`.
+   * `TestFormFieldOrderSkipsRepeatsAndUnknownNames`: a Go-built schema with `PropertyOrder`
+     `["b", "ghost", "b", "a"]` over properties `a`, `b`, `c` gives `b`, `a`, `c`.
+   * `TestWireElicitationFormKeepsTheAgentsOrder`: raw-JSON `elicitation/create` with properties
+     `zeta`, `alpha`, `mid` reaches the phone as `zeta`, `alpha`, `mid`.
+2. **`formFields`** follows G1. Its doc comment states the rule and cites the amendment.
+3. **Unchanged:** `TestElicitationFormBecomesAQuestion` (no order, fallback). Its comment gains
+   that its form is built in Go, so it exercises the fallback.
+4. **Planted breaks**, on a scratch copy:
+   * `PropertyOrder` ignored, which is today's rule;
+   * repeats not skipped;
+   * names `PropertyOrder` leaves out dropped instead of appended.
+
 ## Verification
 
 * Every new test is seen failing first, and planted breaks are shown failing on a scratch copy.

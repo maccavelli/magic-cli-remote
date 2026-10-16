@@ -285,3 +285,51 @@ asked whether grok uses it. The zero-token half of the probe answered both for s
 * **Still open.** Whether grok asks the user through `elicitation/create` rather than its own
   `_x.ai/ask_user_question`, now that both are offered. That needs model turns, so it waits for the
   owner's quota.
+
+## Amendment — 2026-10-16: show a form's fields in the agent's order
+
+**Status: proposed.** Nothing is implemented until the owner approves this amendment and PLAN L7.
+
+### What changed
+
+`acp-go-sdk2 v1.15.0` fixes #6. `ElicitationSchema.PropertyOrder` holds the keys of `Properties` in
+the order the agent wrote them. The SDK fills it on every decode, so a form received over the wire
+always carries it. A schema built in Go code leaves it nil. Magic moves to `v1.15.0` under
+[0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md),
+amendment of 2026-10-16 (F2).
+
+D2's order rule, required fields first and then the rest by name, was a stand-in for an order the
+SDK lost. The Consequences said so: "An SDK change could restore the order".
+
+### Options
+
+* **G1. The agent's order.** Fields follow `PropertyOrder`. A name it gives twice, or for which
+  there is no property, is skipped. Properties it does not name follow, by name. With no
+  `PropertyOrder`, today's rule applies.
+* **G2. Required first, each group in the agent's order.** This keeps D2's grouping, but sorts
+  within each group by `PropertyOrder`, not by name.
+
+### Decision
+
+**Proposed: G1.** The agent chose the order, and a form often reads in that order: a name before
+an email, a start date before an end date. Each field already says whether it is optional (D2's
+"marked optional unless `required` names it", drawn by the phone under D5), so position is not
+what tells a user which fields to fill. G2 would still reorder a
+form the agent laid out deliberately.
+
+* **D2's order rule** becomes: the agent's order when the form carries one; otherwise the
+  `required` list's order, then the remaining names sorted, as before.
+* **The phone is unchanged.** It draws fields in the order the question event lists them.
+
+### Confirmation
+
+* A unit test decodes a form whose properties are written `zeta`, `alpha`, `mid`, with `required`
+  naming only `mid`. It requires the question items in that order. On today's code the order is
+  `mid`, `alpha`, `zeta`, so it fails first.
+* A unit test with a `PropertyOrder` that names one field twice, names a field that does not
+  exist, and leaves one out requires each listed field once, in order, with the left-out field
+  last.
+* A wire test sends `elicitation/create` as raw JSON, with properties out of name order, and
+  requires the phone's question in the wire order.
+* `TestElicitationFormBecomesAQuestion`, whose form is built in Go with no order, keeps its
+  expected order unchanged.
