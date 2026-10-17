@@ -377,6 +377,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0194 | PLAN | Implement checking the grok model catalog against what grok advertises | [0194-PLAN-check-the-grok-catalog-against-what-grok-advertises.md](decisions/0194-PLAN-check-the-grok-catalog-against-what-grok-advertises.md) |
 | 0195 | MADR | Defer ACP subagent sessions until an engine Magic runs sends them, and pin that with a live test | [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](decisions/0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md) |
 | 0195 | PLAN | Implement deferring ACP subagent sessions, with a live test that pins the premise | [0195-PLAN-defer-acp-subagent-sessions-until-an-engine-sends-them.md](decisions/0195-PLAN-defer-acp-subagent-sessions-until-an-engine-sends-them.md) |
+| 0196 | MADR | Remove the development account name from committed files, and guard every tracked file's home paths | [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md) |
+| 0196 | PLAN | Implement removing the development account name and guarding home paths | [0196-PLAN-remove-the-development-account-name-and-guard-home-paths.md](decisions/0196-PLAN-remove-the-development-account-name-and-guard-home-paths.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
