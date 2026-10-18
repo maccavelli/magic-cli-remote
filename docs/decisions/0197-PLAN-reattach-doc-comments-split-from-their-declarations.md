@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: complete
 date: 2026-10-18
 associated-madr: "0197-MADR-reattach-doc-comments-split-from-their-declarations.md"
 ---
@@ -84,4 +84,69 @@ Recorded so it can be repeated (F3). Both scripts lived in the session scratchpa
 
 ## Execution record
 
-Not started.
+Approved 2026-10-18 ("committed, proceed. approved", after the records were committed as
+`cafded90`). There were no deviations.
+
+### D1, 2026-10-18: the moves
+
+The script's first run stopped before writing anything. Its own expectation for the second
+`sessions_screen.dart` site was wrong: once the lower orphan is removed, `ProjectPickerList`'s doc
+follows the upper one. The expectation was corrected and the script re-run on the unchanged tree:
+
+```text
+features/chat/chat_bubble.dart: lines 468-470 (3) -> above 'class _LimitNotice extends StatefulWidget {'
+data/chat/chat_models.dart: lines 5-8 (4) -> above 'class ChatAttachment {'
+data/protocol/models.dart: lines 2475-2476 (2) -> above 'class CollaborationMode {'
+data/protocol/models.dart: lines 1955-1956 (2) -> above 'class Usage {'
+features/sessions/sessions_screen.dart: lines 41-45 (5) -> above 'String sessionUsageLabel(AgentSessionUsage usage) {'
+features/sessions/sessions_screen.dart: lines 32-40 (9) -> above 'String _humanTimestamp(BuildContext context, DateTime at) {'
+features/chat/chat_screen.dart: lines 3466-3466 (1) -> above 'class _AttachmentThumb extends StatelessWidget {'
+features/settings/provider_detail_screen.dart: lines 666-673 (8) -> above 'Future<void> _clearCredential(UpstreamAuth up, {AuthMethod? '
+theme/starfield.dart: lines 7-10 (4) -> above 'class StarfieldPainter extends CustomPainter {'
+theme/widgets.dart: lines 137-138 (2) -> above 'class ConnBanner extends StatelessWidget {'
+wrote 8 files
+```
+
+F2 was done by hand. The stale three lines above `_AssistantMarkdown` were removed. Its doc gained
+one paragraph: "The reply is selectable once it has finished, and is sized to the surrounding body
+text."
+
+### D2, 2026-10-18: only comments moved
+
+```text
+ok   apps/mobile/lib/data/chat/chat_models.dart (file changed: True)
+ok   apps/mobile/lib/data/protocol/models.dart (file changed: True)
+ok   apps/mobile/lib/features/chat/chat_bubble.dart (file changed: True)
+ok   apps/mobile/lib/features/chat/chat_screen.dart (file changed: True)
+ok   apps/mobile/lib/features/sessions/sessions_screen.dart (file changed: True)
+ok   apps/mobile/lib/features/settings/provider_detail_screen.dart (file changed: True)
+ok   apps/mobile/lib/theme/starfield.dart (file changed: True)
+ok   apps/mobile/lib/theme/widgets.dart (file changed: True)
+exit 0
+```
+
+The planted run changed `_darkMaxOpacity` from `0.66` to `0.67` in a scratch copy of
+`starfield.dart`. The check failed as it should:
+
+```text
+DIFF apps/mobile/lib/theme/starfield.dart (file changed: True)
+exit 1
+```
+
+The rescan gives 58 candidates, down from 69. The 11 lines that went are exactly the MADR's eleven,
+and no new candidate appeared.
+
+### D3, 2026-10-18: records
+
+The 0190 PLAN's note strikes through "It was introduced by 0188 N2 (`fc737d36`)". The correction
+beside it names `0c55297e` and links the 0197 MADR.
+
+### D4, 2026-10-18: gates
+
+```text
+dart format (8 files)         -> exit 0, "Formatted 8 files (0 changed)"
+make preflight                -> exit 0: dart format 219 files (0 changed),
+                                 flutter analyze "No issues found!",
+                                 flutter test "+1473 ~3: All tests passed!"
+check_records.py --check-all  -> exit 0
+```

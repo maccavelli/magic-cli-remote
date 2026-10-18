@@ -29,20 +29,6 @@ const _newSessionFieldGap = SizedBox(height: 20);
 /// Measured, not assumed — see the "new-session dialog layout" tests.
 const _inputContentInset = 16.0;
 
-/// A past timestamp, phrased for a picker row: "3:45 PM" today,
-/// "Yesterday 3:45 PM", else "Jul 25, 3:45 PM".
-///
-/// Deliberately absolute rather than relative ("2 hours ago"): the reader is
-/// choosing between sessions, and a date reads unambiguously in a list. Not
-/// shared with `limitResetPhrase` in the chat screen — that one is
-/// future-facing ("in about 2 h") and lives behind a `part of chat_screen.dart`
-/// — but it uses the same `MaterialLocalizations` + calendar-day approach so
-/// the two stay consistent in style.
-/// One-line summary of a native session's whole-session accounting.
-///
-/// A null aggregate never reaches here: the caller omits the line entirely,
-/// because "no accounting reported" and "this session was free" are different
-/// facts and must not render the same way (MADR 0112 A1).
 /// The body of the project-selection dialog.
 ///
 /// Extracted from the dialog so it can be rendered and asserted on directly: a
@@ -102,6 +88,11 @@ class ProjectPickerList extends StatelessWidget {
 @visibleForTesting
 Future<String?> Function(List<ProjectMeta>)? debugChooseProject;
 
+/// One-line summary of a native session's whole-session accounting.
+///
+/// A null aggregate never reaches here: the caller omits the line entirely,
+/// because "no accounting reported" and "this session was free" are different
+/// facts and must not render the same way (MADR 0112 A1).
 @visibleForTesting
 String sessionUsageLabel(AgentSessionUsage usage) {
   final parts = <String>[];
@@ -115,6 +106,15 @@ String sessionUsageLabel(AgentSessionUsage usage) {
   return parts.isEmpty ? 'No usage recorded' : parts.join(' · ');
 }
 
+/// A past timestamp, phrased for a picker row: "3:45 PM" today,
+/// "Yesterday 3:45 PM", else "Jul 25, 3:45 PM".
+///
+/// Deliberately absolute rather than relative ("2 hours ago"): the reader is
+/// choosing between sessions, and a date reads unambiguously in a list. Not
+/// shared with `limitResetPhrase` in the chat screen — that one is
+/// future-facing ("in about 2 h") and lives behind a `part of chat_screen.dart`
+/// — but it uses the same `MaterialLocalizations` + calendar-day approach so
+/// the two stay consistent in style.
 String _humanTimestamp(BuildContext context, DateTime at) {
   final local = at.toLocal();
   final clock = TimeOfDay.fromDateTime(local).format(context);

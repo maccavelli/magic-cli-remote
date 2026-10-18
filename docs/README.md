@@ -381,6 +381,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0196 | PLAN | Implement removing the development account name and guarding home paths | [0196-PLAN-remove-the-development-account-name-and-guard-home-paths.md](decisions/0196-PLAN-remove-the-development-account-name-and-guard-home-paths.md) |
 | 0197 | MADR | Reattach the Flutter app's doc comments that were split from their declarations | [0197-MADR-reattach-doc-comments-split-from-their-declarations.md](decisions/0197-MADR-reattach-doc-comments-split-from-their-declarations.md) |
 | 0197 | PLAN | Implement reattaching the Flutter app's doc comments that were split from their declarations | [0197-PLAN-reattach-doc-comments-split-from-their-declarations.md](decisions/0197-PLAN-reattach-doc-comments-split-from-their-declarations.md) |
+| 0198 | MADR | Prove grok's auto mode by any write in the workspace, not by one filename | [0198-MADR-prove-grok-auto-mode-by-any-write-not-one-filename.md](decisions/0198-MADR-prove-grok-auto-mode-by-any-write-not-one-filename.md) |
+| 0198 | PLAN | Implement proving grok's auto mode by any write in the workspace | [0198-PLAN-prove-grok-auto-mode-by-any-write-not-one-filename.md](decisions/0198-PLAN-prove-grok-auto-mode-by-any-write-not-one-filename.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

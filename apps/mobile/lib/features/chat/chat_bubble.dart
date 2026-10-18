@@ -465,9 +465,6 @@ String limitResetPhrase(
   return '$day$clock (in $rel)';
 }
 
-/// Card shown when the agent hits a usage quota or rate limit. Leads with
-/// what happened and when it resets (when the provider said), keeps the raw
-/// provider message as fine print, and points at the practical outs.
 /// Row for an ACP agent's own `notice` (MADR 0188 D3): the transcript's
 /// left-rail idiom, with the rail and icon carrying the severity, the title as
 /// the row's text and any detail under it, clipped. An unknown severity draws
@@ -649,6 +646,9 @@ class _AuthNotice extends StatelessWidget {
   }
 }
 
+/// Card shown when the agent hits a usage quota or rate limit. Leads with
+/// what happened and when it resets (when the provider said), keeps the raw
+/// provider message as fine print, and points at the practical outs.
 class _LimitNotice extends StatefulWidget {
   const _LimitNotice({required this.item});
 
@@ -784,9 +784,6 @@ class _LimitNoticeState extends State<_LimitNotice> {
 @visibleForTesting
 int debugMarkdownParseCount = 0;
 
-/// Assistant text rendered as markdown so headers, emphasis, lists, and fenced
-/// code read as intended instead of leaking raw `**`, `#`, and backticks into
-/// the chat. Selectable, and sized to the surrounding body text.
 /// Assistant reply rendered as markdown, with two optimisations that keep large
 /// streaming replies smooth on a phone:
 ///
@@ -796,6 +793,9 @@ int debugMarkdownParseCount = 0;
 ///    which is the flicker on large outputs.
 ///  * While the reply is still streaming, shown-text updates are **throttled**
 ///    to a few times a second rather than once per chunk.
+///
+/// The reply is selectable once it has finished, and is sized to the
+/// surrounding body text.
 ///
 /// The State survives per-chunk rebuilds because the enclosing [_ChatBubble]
 /// carries a stable `ValueKey(seq)`.

@@ -134,8 +134,6 @@ class _PulsingDotState extends State<_PulsingDot>
   }
 }
 
-/// The connection banner variants, unified: reconnect/connect strips glide in
-/// and out instead of popping.
 /// Which story the connection strip is telling.
 ///
 /// [degraded] is not a failure: nothing has closed, we simply cannot claim the
@@ -143,6 +141,8 @@ class _PulsingDotState extends State<_PulsingDot>
 /// error so a 15 s silence does not look like an outage.
 enum ConnBannerKind { linking, degraded, offline }
 
+/// The connection banner variants, unified: reconnect/connect strips glide in
+/// and out instead of popping.
 class ConnBanner extends StatelessWidget {
   const ConnBanner({
     super.key,

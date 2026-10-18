@@ -663,14 +663,6 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     await _load();
   }
 
-  /// Removes one auth method's credential, or the whole upstream when the
-  /// daemon reports no per-method state (MADR 0074 P21 step 3).
-  ///
-  /// The distinction is real, not cosmetic: Grok keeps an API key and an OAuth
-  /// session in different files that clear independently, so an aggregate
-  /// removal would sign the user out of a browser login they never asked to
-  /// touch. Codex keeps one native credential, so both of its methods name the
-  /// same thing and the copy says so.
   /// The removal affordance for one upstream.
   ///
   /// An older daemon sends no per-method state, so the aggregate action is
@@ -718,6 +710,14 @@ class _ProviderDetailScreenState extends ConsumerState<ProviderDetailScreen> {
     );
   }
 
+  /// Removes one auth method's credential, or the whole upstream when the
+  /// daemon reports no per-method state (MADR 0074 P21 step 3).
+  ///
+  /// The distinction is real, not cosmetic: Grok keeps an API key and an OAuth
+  /// session in different files that clear independently, so an aggregate
+  /// removal would sign the user out of a browser login they never asked to
+  /// touch. Codex keeps one native credential, so both of its methods name the
+  /// same thing and the copy says so.
   Future<void> _clearCredential(UpstreamAuth up, {AuthMethod? method}) async {
     final providerId = widget.providerId;
     final what = method?.label ?? '${up.display} credential';

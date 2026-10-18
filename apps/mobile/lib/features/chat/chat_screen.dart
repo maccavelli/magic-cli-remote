@@ -3463,7 +3463,6 @@ class _ContextUsageChip extends ConsumerWidget {
   }
 }
 
-/// Thumbnail for a staged image attachment with a remove affordance.
 /// A staged audio file in the composer strip. Audio has no thumbnail, so it
 /// shows its name and size instead, with the same removal affordance as an
 /// image (MADR 0112 A2).
@@ -3551,6 +3550,7 @@ class _AudioAttachmentChip extends StatelessWidget {
   }
 }
 
+/// Thumbnail for a staged image attachment with a remove affordance.
 class _AttachmentThumb extends StatelessWidget {
   const _AttachmentThumb({required this.bytes, required this.onRemove});
 

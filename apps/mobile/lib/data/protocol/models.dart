@@ -1952,8 +1952,6 @@ class ApprovalItem {
   };
 }
 
-/// Token/context report carried on `usage_update` events (ACP usage_update):
-/// [used] tokens currently in context out of a [size]-token window.
 /// One row of a workspace directory listing (MADR 0112 A5).
 ///
 /// [path] is always relative to the session's working directory; the daemon
@@ -2111,6 +2109,8 @@ class ArtifactInfo {
   };
 }
 
+/// Token/context report carried on `usage_update` events (ACP usage_update):
+/// [used] tokens currently in context out of a [size]-token window.
 class Usage {
   const Usage({
     required this.used,
@@ -2472,8 +2472,6 @@ class SessionMode {
   int get hashCode => Object.hash(id, name, description, dangerous);
 }
 
-/// One Codex (or compatible) collaboration preset on `collaboration_mode`.
-/// Distinct from [SessionMode]: Plan is not an autonomy/permission mode.
 /// Bounded Codex thread-goal snapshot on `session_goal` (MADR 0080 D16).
 class SessionGoal {
   const SessionGoal({
@@ -2509,6 +2507,8 @@ class SessionGoal {
   }
 }
 
+/// One Codex (or compatible) collaboration preset on `collaboration_mode`.
+/// Distinct from [SessionMode]: Plan is not an autonomy/permission mode.
 class CollaborationMode {
   const CollaborationMode({
     required this.id,

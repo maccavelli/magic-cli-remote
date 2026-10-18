@@ -2,10 +2,6 @@ import 'dart:typed_data';
 
 import '../protocol/models.dart';
 
-/// An attachment shown on a user chat bubble. [bytes] is present only on the
-/// device that sent the image (correlated from the local send buffer) and is
-/// never persisted; [mimeType]/[kind] come from the user_message descriptor and
-/// survive, so other devices / a cache reload render a labeled placeholder.
 /// One native component of a user message (MADR 0112 A3).
 ///
 /// A user turn can arrive as several native parts. They render as a single
@@ -39,6 +35,10 @@ class UserPart {
   );
 }
 
+/// An attachment shown on a user chat bubble. [bytes] is present only on the
+/// device that sent the image (correlated from the local send buffer) and is
+/// never persisted; [mimeType]/[kind] come from the user_message descriptor and
+/// survive, so other devices / a cache reload render a labeled placeholder.
 class ChatAttachment {
   const ChatAttachment({required this.kind, this.mimeType = '', this.bytes});
 

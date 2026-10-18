@@ -245,7 +245,10 @@ gate, for K1 and K2 to be committed.
   `575f02e1`, and K3 followed (below).
 * **K4** waits for approval by name, and its second step for the quota.
 * **Noticed, not changed.** In `chat_bubble.dart`, `_LimitNotice`'s doc comment sits above
-  `_AgentNotice`'s, so the two read as one. It was introduced by 0188 N2 (`fc737d36`) and is
+  `_AgentNotice`'s, so the two read as one. ~~It was introduced by 0188 N2 (`fc737d36`)~~ It was
+  split from `_LimitNotice` by `0c55297e` (MADR 0069), and 0188 N2 (`fc737d36`) put
+  `_AgentNotice`'s doc directly below it (corrected 2026-10-18, and fixed with ten others like it,
+  by [0197-MADR-reattach-doc-comments-split-from-their-declarations.md](0197-MADR-reattach-doc-comments-split-from-their-declarations.md)). It is
   outside this PLAN.
 
 ### K3, 2026-10-14: complete (staged, not committed)

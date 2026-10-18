@@ -4,10 +4,6 @@ import 'package:flutter/material.dart';
 
 import 'celestial.dart';
 
-/// Static starfield + vertical space gradient used behind the connect screen
-/// and empty states. Purely decorative: fixed seed so the sky never twinkles
-/// into a rebuild, wrapped in RepaintBoundary + IgnorePointer by
-/// [CelestialBackdrop].
 /// Opacity ceiling for the brightest ordinary star, per mode.
 const _darkMaxOpacity = 0.66;
 const _lightMaxOpacity = 0.15;
@@ -16,6 +12,10 @@ const _lightMaxOpacity = 0.15;
 /// stops reading as a star against the gradient and just looks like noise.
 const _minStarOpacity = 0.12;
 
+/// Static starfield + vertical space gradient used behind the connect screen
+/// and empty states. Purely decorative: fixed seed so the sky never twinkles
+/// into a rebuild, wrapped in RepaintBoundary + IgnorePointer by
+/// [CelestialBackdrop].
 class StarfieldPainter extends CustomPainter {
   StarfieldPainter({
     required this.starColor,
