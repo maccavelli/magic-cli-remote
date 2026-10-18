@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-15
+status: complete
+date: 2026-10-18
 associated-madr: "0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -148,7 +148,32 @@ deviation from the steps as written.
 
 ### Not done
 
-* **A full `make live-grok`.** The MADR's Confirmation names it. It sends model turns, which spend
+* ~~**A full `make live-grok`.** The MADR's Confirmation names it. It sends model turns, which spend
   quota, and the owner has not approved a run for this record. The PLAN's own live check, the
   targeted `TestLiveGrokColdCatalog`, passed without spending any. This PLAN stays `in-progress`
-  until a full run is approved and passes.
+  until a full run is approved and passes.~~ Done on 2026-10-18 (below).
+
+### The full live run, 2026-10-18: complete
+
+The owner approved a full `make live-grok` on 2026-10-18. It ran on grok `1.0.50`: 103 top-level
+tests ran, 102 passed and 1 failed. This record's tests passed:
+
+```text
+live_model_test.go:37: cold catalog: source=live n=4 defaults=[grok-4.6] took=273ms
+live_model_test.go:67: session model option: [grok-4.7 grok-4.7-build-fast grok-4.6 grok-4.5]
+--- PASS: TestLiveGrokColdCatalog (0.87s)
+```
+
+The one failure was the armed half of `TestLiveGrokAutoDiscriminationPair`. In that run the agent
+followed the host's own agent rules and wrote a decision record instead of `probe.txt`, so the
+test's check on the filename failed. Auto mode itself worked: there were no prompts for those writes.
+[0198-MADR-prove-grok-auto-mode-by-any-write-not-one-filename.md](0198-MADR-prove-grok-auto-mode-by-any-write-not-one-filename.md)
+changed the check to accept any file the agent writes. That test, run alone afterwards, passed:
+
+```text
+live_automode_test.go:88: arm=false prompts=1 files=[] turnDone=false
+live_automode_test.go:88: arm=true  prompts=0 files=["docs/decisions/0001-MADR-create-probe-txt.md" "docs/decisions/0001-PLAN-create-probe-txt.md"] turnDone=true
+--- PASS: TestLiveGrokAutoDiscriminationPair (157.46s)
+```
+
+The MADR's last confirmation item is met, and this PLAN is `complete`.

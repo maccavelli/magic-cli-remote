@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-13
+date: 2026-10-18
 associated-madr: "0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -1048,7 +1048,7 @@ gobble's live suite is gobble's.
   [0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md](0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md).
 * `maccavelli/acp-go-sdk2#7` is open. `submitPrompt`'s check stays until it is fixed.
 
-### B2, 2026-10-16: `acp-go-sdk2 v1.15.0` — executed; `make live-grok` waits for quota
+### B2, 2026-10-16: `acp-go-sdk2 v1.15.0` — executed; ~~`make live-grok` waits for quota~~ passed 2026-10-18 (below)
 
 Approved 2026-10-16 ("proceed to next recommended"). No deviation from the steps as written.
 
@@ -1077,6 +1077,28 @@ Both probes are quota-free: they open a session and send no prompt.
 
 **Not done:**
 
-* **`make live-grok`** spends quota and waits for the owner's word. Under D12, B2 counts as done
-  only when it passes.
+* ~~**`make live-grok`** spends quota and waits for the owner's word. Under D12, B2 counts as done
+  only when it passes.~~ Passed on 2026-10-18 (below).
 * **gobble** still pins `v1.14.0`. Its move is gobble's own record (MADR amendment F4).
+
+### B2, 2026-10-18: `make live-grok` — complete
+
+The owner approved a full `make live-grok` on 2026-10-18. It ran on grok `1.0.50`, with
+`acp-go-sdk2 v1.15.0`: 103 top-level tests ran, 102 passed and 1 failed. All of B2's tests passed:
+
+```text
+--- PASS: TestLiveGrokElicitationAtSessionStart (12.53s)
+--- PASS: TestLiveGrokPlanAtSessionStart (12.52s)
+--- PASS: TestLiveGrokShipsNoSubagentSessions (0.08s)
+```
+
+The three tests that failed on 2026-10-13 because the account's balance was used up (402) passed:
+`TestLiveGrokLoopSchedules`, `TestLiveGrokPlanApprovalHandOff`, and `TestLiveGrokColdCatalog`.
+
+The one failure was the armed half of `TestLiveGrokAutoDiscriminationPair`. The agent followed the
+host's own agent rules and wrote a decision record instead of `probe.txt`. Auto mode itself worked:
+there were no prompts for those writes.
+[0198-MADR-prove-grok-auto-mode-by-any-write-not-one-filename.md](0198-MADR-prove-grok-auto-mode-by-any-write-not-one-filename.md)
+changed the check to accept any file the agent writes. That test, run alone afterwards, passed: the
+unarmed half had 1 prompt and no files, and the armed half had 0 prompts and 2 files. Under D12, B2
+is done.

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: complete
 date: 2026-10-18
 associated-madr: "0198-MADR-prove-grok-auto-mode-by-any-write-not-one-filename.md"
 ---
@@ -84,4 +84,62 @@ The MADR's Confirmation: T3's planted failures, and the live pass.
 
 ## Execution record
 
-Not started.
+Executed 2026-10-18, after the owner committed the records (`049b2352`). There were no deviations.
+
+### T1, 2026-10-18: the helper
+
+`TestWorkspaceFilesSkipsHiddenEntries` was written first. Its first run failed to build:
+
+```text
+internal/provider/grok/workspace_files_test.go:16:17: undefined: workspaceFiles
+FAIL	github.com/maccavelli/magic-cli-remote/internal/provider/grok [build failed]
+```
+
+With `workspaceFiles` in place it passes. The test also covers a hidden directory below a visible one
+(`docs/.cache/y`), which the step did not list.
+
+### T2, 2026-10-18: the live test
+
+The armed half requires `prompts == 0` and at least one file. The log prints `files=`, and the doc
+comment says why. The unused `os` and `path/filepath` imports were removed, which `go vet -tags
+live_grok` caught.
+
+### T3, 2026-10-18: proof
+
+Each break was planted on a scratch copy of the tree, which was then deleted:
+
+```text
+## hidden entries counted: exit=1
+   workspace_files_test.go:79: workspaceFiles = [".grok/state.json" ".hidden" "docs/.cache/y" "docs/decisions/0001-MADR-x.md" "probe.txt"], want ["docs/decisions/0001-MADR-x.md" "probe.txt"]
+## returns nothing: exit=1
+   workspace_files_test.go:79: workspaceFiles = [], want ["docs/decisions/0001-MADR-x.md" "probe.txt"]
+```
+
+The live run of the one test, on grok `1.0.50`:
+
+```text
+live_automode_test.go:88: arm=false prompts=1 files=[] turnDone=false
+live_automode_test.go:88: arm=true  prompts=0 files=["docs/decisions/0001-MADR-create-probe-txt.md" "docs/decisions/0001-PLAN-create-probe-txt.md"] turnDone=true
+--- PASS: TestLiveGrokAutoDiscriminationPair (157.46s)
+    --- PASS: TestLiveGrokAutoDiscriminationPair/unarmed (91.06s)
+    --- PASS: TestLiveGrokAutoDiscriminationPair/armed (66.41s)
+```
+
+The armed half again wrote a decision record and no `probe.txt`. The old check would have failed a
+second time, so the first failure was not a one-off.
+
+### T4, 2026-10-18: gates
+
+```text
+make pre-add-check (workspace_files_test.go, live_automode_test.go) -> 2 file(s) clean (gofmt, golint, govulncheck)
+go vet ./internal/provider/grok/, and with -tags live_grok      -> exit 0
+make lint, make staticcheck                                   -> exit 0
+staticcheck v0.8.2 -tags live_grok ./internal/provider/grok/  -> exit 0
+go test -race -count=1 ./...                                  -> exit 0, 42 packages ok
+check_records.py --check-all                                  -> exit 0
+```
+
+### T5, 2026-10-18: records
+
+The 0184 PLAN's B2 and the 0194 PLAN each have a dated entry. B2 is done, and the 0194 PLAN is
+`complete`.

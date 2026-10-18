@@ -4,8 +4,6 @@ package grok_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -24,6 +22,12 @@ import (
 //	         and must still write — a session that is silently blocked also
 //	                                emits no prompt, and would pass a
 //	                                one-sided check for the wrong reason
+//
+// "Write" means any file in the workspace, not probe.txt by name. Under a
+// host's own agent rules the model may write something else first, such as
+// a decision record it thinks the request needs, and stop there. That is
+// still a write that auto let through without a prompt
+// (0198-MADR-prove-grok-auto-mode-by-any-write-not-one-filename.md).
 //
 // `permission_mode: default` is required: grok only routes approvals through
 // ACP session/request_permission in a prompting mode. This test was impossible
@@ -77,17 +81,18 @@ func TestLiveGrokAutoDiscriminationPair(t *testing.T) {
 				case <-time.After(300 * time.Millisecond):
 				}
 			}
-			wrote := false
-			if _, err := os.Stat(filepath.Join(dir, "probe.txt")); err == nil {
-				wrote = true
+			files, err := workspaceFiles(dir)
+			if err != nil {
+				t.Fatalf("list workspace: %v", err)
 			}
-			t.Logf("arm=%-5v prompts=%d wrote=%v turnDone=%v", arm, prompts, wrote, done)
+			t.Logf("arm=%-5v prompts=%d files=%q turnDone=%v", arm, prompts, files, done)
 			if arm {
 				if prompts != 0 {
 					t.Errorf("armed auto must not prompt; got %d", prompts)
 				}
-				if !wrote {
-					t.Error("armed auto must let the agent complete the write")
+				if len(files) == 0 {
+					t.Error("armed auto must let the agent's write complete: no prompt and no " +
+						"file means the session was silently blocked")
 				}
 			} else if prompts == 0 {
 				t.Error("unarmed must prompt, else the pair proves nothing")
