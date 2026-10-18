@@ -2,6 +2,8 @@
 
 > **Superseded by [MADR 0160](0160-MADR-remove-goose-cli-support.md) (2026-09-18):** the Goose provider was removed from the product. This record is kept as history.
 
+> **Status, corrected 2026-10-18:** this PLAN ran, so "Implementation-ready" below is out of date. The provider was implemented in `ae280566` (2026-07-26), then removed by 0160. 0160's amendment of 2026-10-18 allows this one line. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 **Status**: Implementation-ready (spike complete)
 **Date**: 2026-07-26
 **Target files**: 13 new, 7 modified

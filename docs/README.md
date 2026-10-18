@@ -134,6 +134,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0072 | MADR | MADR 0072: Phone reconnect failure, hung agent sessions, host config audit | [0072-MADR-phone-reconnect-and-provider-timeout-incident.md](decisions/0072-MADR-phone-reconnect-and-provider-timeout-incident.md) |
 | 0072 | PLAN | MADR 0072 — Implementation plan: reconnect, hang UX, host config, service heal | [0072-PLAN-phone-reconnect-and-provider-timeout-remediation.md](decisions/0072-PLAN-phone-reconnect-and-provider-timeout-remediation.md) |
 | 0073 | MADR | MADR 0073: Goose prompt hang (silent 3600 s provider backoff) + codebase debug pass | [0073-MADR-goose-prompt-hang-and-debug-pass.md](decisions/0073-MADR-goose-prompt-hang-and-debug-pass.md) |
+| 0073 | REPORT | Triage of 0073's non-Goose findings against today's code | [0073-REPORT-triage-of-the-non-goose-findings.md](../docs/reports/0073-REPORT-triage-of-the-non-goose-findings.md) |
 | 0074 | MADR | MADR 0074 — Remote Provider Authentication from Phone | [0074-MADR-remote-provider-auth-from-phone.md](decisions/0074-MADR-remote-provider-auth-from-phone.md) |
 | 0074 | PLAN | Implement MADR 0074 — Remote provider auth from phone (W1 + W2 + W4 + W5) | [0074-PLAN-remote-provider-auth-from-phone.md](decisions/0074-PLAN-remote-provider-auth-from-phone.md) |
 | 0075 | MADR | MADR 0075 — Kilo CLI as a session provider | [0075-MADR-kilo-cli-provider.md](decisions/0075-MADR-kilo-cli-provider.md) |
@@ -386,6 +387,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0199 | MADR | Total grok's per-turn costs into the session cost | [0199-MADR-total-grok-per-turn-costs-into-the-session-cost.md](decisions/0199-MADR-total-grok-per-turn-costs-into-the-session-cost.md) |
 | 0199 | PLAN | Implement totalling grok's per-turn costs into the session cost | [0199-PLAN-total-grok-per-turn-costs-into-the-session-cost.md](decisions/0199-PLAN-total-grok-per-turn-costs-into-the-session-cost.md) |
 | 0200 | REPORT | Record status audit, 2026-10-18 | [0200-REPORT-record-status-audit.md](../docs/reports/0200-REPORT-record-status-audit.md) |
+| 0201 | MADR | Fix every open finding from 0073's debug pass | [0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md](decisions/0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md) |
+| 0201 | PLAN | Implement fixing every open finding from 0073's debug pass | [0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md](decisions/0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

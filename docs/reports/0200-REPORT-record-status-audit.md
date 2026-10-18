@@ -161,3 +161,19 @@ Each of these reads accurately against the tree:
   manifest's `schema_version`. 0135 is about the credential manifest, and it is not implemented.
 - **Records with no status at all** were given one only where this audit changed them. Other
   closed old-format records were not normalised.
+
+### Resolved the same day
+
+The owner decided all three on 2026-10-18:
+
+- **0025-PLAN.** [0160-MADR-remove-goose-cli-support.md](../decisions/0160-MADR-remove-goose-cli-support.md)
+  was amended, so D9's freeze no longer covers this one PLAN. The PLAN gained a correction line
+  saying it ran (`ae280566`).
+- **0073.** The same amendment allows a "superseded in part" line, for the Goose root cause and F2,
+  and the record now carries one. Its other findings are triaged in
+  [0073-REPORT-triage-of-the-non-goose-findings.md](0073-REPORT-triage-of-the-non-goose-findings.md):
+  7 fixed, 36 still present, 2 obsolete and 1 unclear.
+- **0135's citation.**
+  [0163-PLAN-codex-jank-is-stale-pins-not-upstream-churn.md](../decisions/0163-PLAN-codex-jank-is-stale-pins-not-upstream-churn.md)
+  P15 rewords the comment. It now cites `ContractManifest.Validate`, the rule the code enforces,
+  and 0135 is cited by no Go file.

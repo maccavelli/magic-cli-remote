@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-18
 associated-madr: "0199-MADR-total-grok-per-turn-costs-into-the-session-cost.md"
 ---
@@ -207,5 +207,38 @@ directory did not exist. It was rerun after creating the directory.
 
 The same day's capture, on grok `1.0.50`, holds the three replayed costs. G1 commits those frames.
 
-**Not done.** G4 steps 2 and 3 send turns, and wait for the owner's quota. The PLAN stays
-`in-progress`.
+~~**Not done.** G4 steps 2 and 3 send turns, and wait for the owner's quota. The PLAN stays `in-progress`.~~ Both ran on 2026-10-18 (below).
+
+### G4 steps 2 and 3, 2026-10-18: complete
+
+The owner approved the quota on 2026-10-18 ("0199 is approved to proceed with quota usage"). A
+`live_grok` test ran both steps on grok `1.0.50`, from a scratch copy of the tree. The test was not
+committed.
+
+**Step 2.** The 0187 phone-check session was loaded in a fresh grok, and one turn was sent.
+
+```text
+usage.json before:  costUsdTicks 181628000, turnCount 3
+usage replay=false used=17999 session_cost=0.0300988400 USD
+usage.json after:   costUsdTicks 300988400, turnCount 4  -> $0.0300988400
+```
+
+The reported total equals grok's own total exactly. It covers the three replayed turns and the
+live one.
+
+**Step 3.** A new session was asked to delegate a sum to one subagent. grok called
+`spawn_subagent`, and Magic published `subagents` events.
+
+```text
+usage replay=false used=48338 session_cost=0.0233253600 USD
+ledger: "Usage: 48156 input + 182 output tokens (19200 cached) · 116 reasoning · 2 turns · $0.0233"
+parent usage.json: costUsdTicks 233253600, turns 1
+child  usage.json: costUsdTicks  81124000, turns 1
+```
+
+The ledger folds the subagent's turn in ("2 turns"), and its cost equals the parent's own total
+and Magic's sum. So a parent turn's `costUsdTicks` includes the spend of the subagents it ran:
+about $0.0081 of the $0.0233 here. The MADR's E5 question is answered, and nothing is
+under-counted.
+
+Every criterion is met, so this PLAN is `complete`.

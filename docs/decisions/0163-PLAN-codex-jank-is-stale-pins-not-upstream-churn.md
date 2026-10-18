@@ -1492,3 +1492,47 @@ ever appears in this file, that is the moment to revisit them, with evidence.
 `ci-flakes.tsv` keeps both historical rows. They are the evidence that the flake was
 real and recurring, and deleting them to make the ledger look clean would destroy
 the only record that this was ever a problem.
+
+## Follow-up P15 — 2026-10-18: the contract test cites the wrong record
+
+**Approved 2026-10-18** (owner: "Approve the 0163 follow-up"). Found by the
+record audit in
+[0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+The comment under this record's D4 in
+`internal/provider/codex/contract_generate_test.go` says "MADR 0135 requires a
+schema change to bump the manifest version". That is the wrong record:
+
+- **0135 is about another manifest.** It covers the credential manifest
+  (`internal/providerauth`), not the codex contract manifest.
+- **0135 is not in force.** It is `proposed` and not implemented.
+
+The rule the comment needs is the one the code enforces.
+`(*ContractManifest).Validate` (`internal/provider/codex/contract.go`) rejects any
+`schema_version` other than 1. So a new field is a schema change, and the
+manifest's version has to move with it.
+
+1. Reword that sentence to cite `Validate` and D4, and drop 0135. The change is
+   to a comment only.
+2. Checks:
+   - `make pre-add-check FILES=internal/provider/codex/contract_generate_test.go`;
+   - `go vet ./internal/provider/codex/`;
+   - `go test -count=1 ./internal/provider/codex/`.
+
+   P15 adds no check, so nothing needs a planted failure.
+
+The PLAN's status stays `in-progress`, for the manual phone pass in its Rollout.
+
+### Execution record — P15 (2026-10-18)
+
+The comment now reads: "ContractManifest.Validate (contract.go) accepts only
+schema_version 1, so a new field means a new schema version." The paragraph
+around it was reflowed to the file's line width. No code changed, and no Go
+file cites 0135 any longer.
+
+```text
+make pre-add-check FILES=internal/provider/codex/contract_generate_test.go -> 1 file(s) clean (gofmt, golint, govulncheck)
+go vet ./internal/provider/codex/                                          -> exit 0
+go test -count=1 ./internal/provider/codex/                                -> ok (27.4 s, before the reflow)
+go test -count=1 -run Contract ./internal/provider/codex/                  -> ok (after the reflow)
+```

@@ -198,3 +198,17 @@ fixture.
 Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
 
 ~~`proposed`~~ `accepted`. The owner chose the replay-only handler on 2026-10-18, as the amendment records, and approved the PLAN ("committed, proceed"). G1–G3 are committed as `67392ed8`. The PLAN stays `in-progress` until G4's live turn, which waits for the owner's quota.
+
+## Amendment — 2026-10-18: E5 answered — a turn's cost includes its subagents
+
+The PLAN's G4 step 3 ran a turn that spawned one subagent:
+
+- **The child session** recorded 81,124,000 ticks of its own.
+- **The parent's turn** reported 233,253,600 ticks. That equals grok's ledger for the session, which
+  counts "2 turns", the subagent's included.
+- **Magic's `session_cost`** was the same 233,253,600 ticks.
+
+So `turn_completed`'s `costUsdTicks` already includes subagent spend. The Consequences' "Bad,
+because if parent turns exclude subagent spend…" does not apply, and nothing changes in the
+decision.
+

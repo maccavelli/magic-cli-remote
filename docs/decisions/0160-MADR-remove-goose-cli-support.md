@@ -983,3 +983,31 @@ approval before the affected edit:
 
 In short, the plan's word inventory (F22) was complete for the word "goose" but
 not for things that merely count Goose, and not for its own later additions.
+
+## Amendment — 2026-10-18: D9 is corrected for 0025-PLAN and for 0073
+
+**Status: accepted** (owner, 2026-10-18). Found by the record audit in
+[0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+- **0025-PLAN.** D9 froze the status lines of the Goose-only PLANs, because "a
+  PLAN's status records whether it ran, and these did". That premise is true
+  for three of them:
+  - 0030's says which phases were implemented;
+  - 0122's says `completed`;
+  - 0110's has no status line.
+
+  It is false for 0025-PLAN. Its line says "Implementation-ready (spike
+  complete)", but the PLAN ran (`ae280566`, 2026-07-26). 0025-PLAN therefore
+  gains one correction line under its Superseded banner. Its status line stays
+  as written, and the other three PLANs keep D9's rule.
+- **0073.** "Do not mark 0073" stands against marking the whole record
+  superseded: it is mixed, and live code cites it (F20). What it lacked was a way
+  to say which part went with Goose. It now carries one "Superseded in part" line
+  under its title:
+  - **Went with Goose:** the Goose root-cause chain (§1–§2), and F2, a missing log
+    line in `acphttp`, which no longer exists.
+  - **Stands:** F1's fix, F3, and the findings in §4–§7.
+
+  Those findings are triaged against today's code in
+  [0073-REPORT-triage-of-the-non-goose-findings.md](../reports/0073-REPORT-triage-of-the-non-goose-findings.md).
+- Nothing else in D9 changes.

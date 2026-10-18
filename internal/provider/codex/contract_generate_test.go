@@ -29,10 +29,10 @@ func TestGenerateContractManifest(t *testing.T) {
 	// Codex's exporter never prunes experimental notifications, so both bundles
 	// list all 82 while the runtime suppresses 22 of them. The honest fix is to
 	// record the split as its own field, and that is a manifest SCHEMA change:
-	// Validate pins schema_version to 1, and MADR 0135 requires a schema change to
-	// bump the manifest version. Filtering the stable surface in place instead
-	// makes the manifest disagree with the exporter it claims to mirror, which
-	// breaks the drift gate's exact mode — measured, not theorised.
+	// ContractManifest.Validate (contract.go) accepts only schema_version 1, so
+	// a new field means a new schema version. Filtering the stable surface in
+	// place instead makes the manifest disagree with the exporter it claims to
+	// mirror, which breaks the drift gate's exact mode — measured, not theorised.
 	//
 	// So the capture stays faithful to the exporter, the split is reported here and
 	// documented in the README, and persisting it waits for schema_version 2.

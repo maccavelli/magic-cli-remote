@@ -1,6 +1,8 @@
 # MADR 0073: Goose prompt hang (silent 3600 s provider backoff) + codebase debug pass
 
-> **Status, corrected 2026-10-18:** remediation started, not "not started". §10 records the F1/F2 error-surfacing fix as executed (`8719682f`, `a62a18ff`), and the code cites it. Its other findings are untracked. This note does not mark the record superseded, which [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md) D9 forbids for this mixed record. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+> **Status, corrected 2026-10-18:** remediation started, not "not started". §10 records the F1/F2 error-surfacing fix as executed (`8719682f`, `a62a18ff`), and the code cites it. ~~Its other findings are untracked. This note does not mark the record superseded, which [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md) D9 forbids for this mixed record.~~ Its other findings are triaged in [0073-REPORT-triage-of-the-non-goose-findings.md](../reports/0073-REPORT-triage-of-the-non-goose-findings.md). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+> **Superseded in part by [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md) (2026-09-18; marked 2026-10-18 under its D9 amendment):** the Goose root-cause chain (§1–§2) and F2, a missing log line in `acphttp`, went with Goose. F1's fix, F3, and the findings in §4–§7 stand.
 
 <!-- markdownlint-disable MD013 MD024 -->
 
