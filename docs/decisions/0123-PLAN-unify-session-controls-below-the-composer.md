@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-08-29
+date: 2026-10-18
 associated-madr: "0123-MADR-unify-session-controls-below-the-composer.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -634,3 +634,9 @@ and the tenth-slot framing in A14 was never the real risk.
 **Worth watching instead:** an icon appearing where the provider does not
 support it — a collaboration icon on grok, or a thinking icon on goose — is a
 real defect. That, not the count, is the thing a device pass should check.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `in-progress`. P9 and P10 landed (`59e9f690`, 2026-08-29, the Lucide SVG icons), though no execution record says so. The one item left is the device pass: the owner confirming on a real screen that the icons read apart and are legible (open question 4).

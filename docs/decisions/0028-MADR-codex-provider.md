@@ -1,5 +1,7 @@
 # MADR 0028: Codex CLI provider — surfaces, protocol, and implementation specifications
 
+> **Status, corrected 2026-10-18:** accepted and implemented. The parenthetical "provider package not started" is out of date: `internal/provider/codex/` exists, built by its PLAN's phases 1–5. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 - **Status**: **Accepted for implementation** (Milestone 0 spike complete on host;
   provider package not started).
 - **Date**: 2026-07-26

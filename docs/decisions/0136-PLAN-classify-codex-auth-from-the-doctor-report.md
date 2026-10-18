@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-03
+status: in-progress
+date: 2026-10-18
 associated-madr: "0136-MADR-classify-codex-auth-from-the-doctor-report.md"
 ---
 
@@ -411,3 +411,9 @@ ones were added alongside. Steps 11-14 are covered by the rewritten
 `store_reality_test.go` and step 15 by the two `internal/daemon` guard tests.
 Still outstanding: running them against the previous commit to record the
 fail-first output, and all of Phase 5 (verify on the reporting host).
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `in-progress`. Steps 1–15 landed (`f451d5bc`, `36b6af84`, `3456f534`; tests in `store_reality_test.go` and `internal/daemon/credentials_test.go`). Remaining, as the PLAN's own "Phases 4-5 — remaining" says: recording the fail-first runs, and Phase 5, the check on the host that reported the defect. That host check is also outstanding in [0137-PLAN-prompt-to-first-token-latency-regression.md](0137-PLAN-prompt-to-first-token-latency-regression.md).

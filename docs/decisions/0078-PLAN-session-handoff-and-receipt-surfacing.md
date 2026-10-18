@@ -2,6 +2,8 @@
 
 # Implement MADR 0078 — Session handoff + handoff receipts + phone receipt surfacing
 
+> **Status, corrected 2026-10-18:** complete, not "proposed — not yet implemented". P1–P7 landed (`11a10e6e` through `1cfcf8b6`): `session.release`/`session.claim` and `receipts.list` in `internal/protocol/messages.go`, `receipts_screen.dart`, and `internal/ws/handoff_receipt_e2e_test.go`. P6 step 4, the chat glyph, is recorded in the file as deferred. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0078-MADR-session-handoff-and-receipt-surfacing.md](0078-MADR-session-handoff-and-receipt-surfacing.md)
 
 - **Status**: proposed — not yet implemented.

@@ -1,5 +1,7 @@
 # MADR 0045: Mobile App Hardening Audit — Findings and Remediation Decisions
 
+> **Status, corrected 2026-10-18:** accepted. Its PLAN was executed (B2–V are ticked, and A-phase work is in the tree), though the PLAN's checklist is not fully reconciled. Found by the record audit in [0200-REPORT-record-status-audit.md](../../../../docs/reports/0200-REPORT-record-status-audit.md).
+
 > Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../../../../docs/decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
 
 <!-- markdownlint-disable MD013 MD060 -->

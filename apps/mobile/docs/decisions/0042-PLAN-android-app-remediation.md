@@ -1,5 +1,7 @@
 # Android app remediation: implementation plan
 
+> **Status, corrected 2026-10-18:** in progress, not "Proposed". Phases 1–7 landed. Phase 7 step 3, the on-device pass (predictive back, TalkBack), has not been recorded. See the MADR's §6. Found by the record audit in [0200-REPORT-record-status-audit.md](../../../../docs/reports/0200-REPORT-record-status-audit.md).
+
 **Status:** Proposed
 **Date:** 2026-07-27
 **Decision:** [MADR 0042](./0042-MADR-android-app-remediation.md)

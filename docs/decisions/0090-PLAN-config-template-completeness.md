@@ -1,6 +1,6 @@
 ---
-status: in_progress
-date: 2026-08-15
+status: in-progress
+date: 2026-10-18
 associated-madr: "0090-MADR-config-template-completeness.md"
 owner: [Implementer]
 target-milestone: [Template sync + fitness test with the MADR; SetDefault follow-up after review]
@@ -176,3 +176,9 @@ Omitted on purpose (MADR D3): `providers.opencode.transport`,
 - [ ] **Phase 4: leftover comments**
   - [ ] Task 4.1: README kilo 7.4.22
   - [ ] Task 4.2: `KiloProviderConfig` comment
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+`in-progress`, now spelled as the other records spell it. Accurate: Phases 1–2 landed (`internal/cli/service/template_parity_test.go`). Phase 3 waits for the MADR's review, as its own text says.

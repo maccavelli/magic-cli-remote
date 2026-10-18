@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-08
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -259,3 +259,9 @@ go test ./internal/relay/ -count=1
 2. **Do the other `paths`-style commands share this shape?** `mcremote paths`
    does not, because its validation has defaults everywhere. Whether a future
    mandatory field would reintroduce the same bug there is **[unverified]**.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (`84c3cd09`, `b383dd6c`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.

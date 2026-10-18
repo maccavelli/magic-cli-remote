@@ -1,5 +1,7 @@
 # OpenCode tool-stream fidelity: implementation plan
 
+> **Status, corrected 2026-10-18:** complete, not "Proposed". The MADR's implementation record (§7) lists phases 0–5. Phase 6's re-measure is in [0042-MADR-android-app-remediation.md](../../apps/mobile/docs/decisions/0042-MADR-android-app-remediation.md) ("16 raw frames -> 3 emitted events"), which takes the plan's stop branch. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 **Status:** Proposed
 **Date:** 2026-07-27
 **Decision:** [MADR 0034](./0034-MADR-opencode-tool-stream-fidelity.md)

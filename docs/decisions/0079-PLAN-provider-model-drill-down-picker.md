@@ -1,5 +1,7 @@
 # Implement MADR 0079 — Provider/model drill-down picker
 
+> **Status, corrected 2026-10-18:** in progress. P1–P4 are executed, and the manual Android acceptance it names has not been run. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD004 MD013 MD024 MD029 MD033 MD036 -->
 
 Associated MADR: [0079-MADR-provider-model-drill-down-picker.md](0079-MADR-provider-model-drill-down-picker.md)

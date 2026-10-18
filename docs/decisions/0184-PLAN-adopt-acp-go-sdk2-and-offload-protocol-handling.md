@@ -1102,3 +1102,24 @@ there were no prompts for those writes.
 changed the check to accept any file the agent writes. That test, run alone afterwards, passed: the
 unarmed half had 1 prompt and no files, and the armed half had 0 prompts and 2 files. Under D12, B2
 is done.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `in-progress`, and this is what remains, checked against the tree and CI:
+
+* **A1–A5, B1 and B2 are complete.** A4's heading says "Flutter pending". That is resolved:
+  the next full CI run on `master`, `38925756161` (at `a17eef11`), passed every job,
+  `Flutter (test on windows)` included. A4's own run, `38499011580`, had that job cancelled.
+* **A6, the capability records, are done or deferred.** Items 1–6 are 0187–0192, all
+  `complete` on 2026-10-18. Item 7 is deferred by
+  [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md).
+* **One confirmation item is open.** The MADR asks for wire captures of initialize, new,
+  load, resume, prompt, permission, cancel, terminal, filesystem and delete. The committed
+  captures, `internal/provider/grok/testdata/wire/1.0.13/` and `1.0.50/`, hold new, load,
+  prompt turns, config options, titles and replayed turns. They hold no permission request,
+  cancel, terminal, filesystem or delete frames. `make live-grok` itself passed on
+  2026-10-18 (B2).
+* **Not this PLAN's to close.** `maccavelli/acp-go-sdk2#7`, for which `submitPrompt` keeps
+  its check, and gobble's own pin of the SDK.

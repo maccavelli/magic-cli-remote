@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-03
+status: accepted
+date: 2026-10-18
 decision-makers: maccavelli
 consulted: —
 informed: —
@@ -259,3 +259,9 @@ changes.
   behaviour.
 * Implementation:
   [0136-PLAN-classify-codex-auth-from-the-doctor-report.md](0136-PLAN-classify-codex-auth-from-the-doctor-report.md).
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The chosen option shipped: `internal/provider/codex/store_reality.go` runs `codex doctor --json` and reads `checks["auth.credentials"]` (fixtures `f451d5bc`, parser `36b6af84`, classification `3456f534`). `RealityExternal` is gone from the Go code. The acceptance itself was never written down. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change.

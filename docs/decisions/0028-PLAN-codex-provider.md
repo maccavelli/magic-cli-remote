@@ -1,5 +1,7 @@
 # Codex CLI provider: implementation plan
 
+> **Status, corrected 2026-10-18:** complete, not "Proposed for review". Phases 1–5 landed in `19fe2405`, `ec4339b3`, `7422e99d` and `e014cf27`. Phase 4 took the 4A fallback (`internal/provider/codex/items.go`). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 **Status:** Proposed for review  
 **Date:** 2026-07-26  
 **Decision:** [MADR 0028](./0028-MADR-codex-provider.md)  

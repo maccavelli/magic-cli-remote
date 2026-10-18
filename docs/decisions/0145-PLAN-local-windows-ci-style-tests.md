@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-09-06
+date: 2026-10-18
 associated-madr: "0145-MADR-local-windows-ci-style-tests.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
@@ -234,3 +234,22 @@ becomes `unknown`, and the guard would skip **on Windows itself**, reporting
 property of `Makefile`, outside this plan's scope, and is recorded so a later
 phase can decide whether A0 needs a positive assertion that the host was
 identified, rather than merely found not-Windows.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `in-progress`. "A1–A9 still need the real host" above is out of date:
+
+* **Done since:**
+  * `make ci-windows` has passed on the Windows test host many times, recorded in
+    [0162-MADR-config-tests-read-the-live-config.md](0162-MADR-config-tests-read-the-live-config.md),
+    0169, 0173 and 0174, and in this session's 0196–0199 gates.
+  * The smoke target passed, per
+    [0159-PLAN-the-windows-service-path-is-half-wired.md](0159-PLAN-the-windows-service-path-is-half-wired.md).
+* **Still open:**
+  * the A10/A11 confirmation runs, which are not recorded anywhere;
+  * C1#8 (`log_dir`), which waits on
+    [0157-MADR-daemon-owned-rolling-logs.md](0157-MADR-daemon-owned-rolling-logs.md) P1,
+    still `proposed`;
+  * the closeout.

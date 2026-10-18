@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-09-19
+date: 2026-10-18
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -1758,3 +1758,9 @@ reporting upstream.
 * P12 (`--env` through a private file) follows in a later release, unchanged.
 * Codex sessions on this host stay broken until the owner restores the ACL on
   `~/.codex/config.toml`. Nothing in this plan is waiting on it.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `in-progress`. The "Not yet done" bullet saying codex stays broken until the ACL is restored is superseded by the same record's "Resolved 2026-09-20 by the owner". What remains is P12 (`--env-file`): `internal/cli/envfile.go` does not exist.

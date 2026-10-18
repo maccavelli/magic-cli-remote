@@ -385,6 +385,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0198 | PLAN | Implement proving grok's auto mode by any write in the workspace | [0198-PLAN-prove-grok-auto-mode-by-any-write-not-one-filename.md](decisions/0198-PLAN-prove-grok-auto-mode-by-any-write-not-one-filename.md) |
 | 0199 | MADR | Total grok's per-turn costs into the session cost | [0199-MADR-total-grok-per-turn-costs-into-the-session-cost.md](decisions/0199-MADR-total-grok-per-turn-costs-into-the-session-cost.md) |
 | 0199 | PLAN | Implement totalling grok's per-turn costs into the session cost | [0199-PLAN-total-grok-per-turn-costs-into-the-session-cost.md](decisions/0199-PLAN-total-grok-per-turn-costs-into-the-session-cost.md) |
+| 0200 | REPORT | Record status audit, 2026-10-18 | [0200-REPORT-record-status-audit.md](../docs/reports/0200-REPORT-record-status-audit.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-08
+date: 2026-10-18
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -1460,3 +1460,19 @@ not a reinstall.
 - **The `mcremote` drop-in as a literal PATH snapshot** (MADR amendment, Consequences): a
   generated or included PATH would remove the re-derive step. That is a change to how
   `mcremote setup-service` writes the unit, so it belongs in its own record.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `in-progress`. The "Remaining as of 2026-10-08" list above is partly out of date:
+
+* **Done since:**
+  * P11, in `9b75e5f3`.
+  * A6/A7 in CI. The v0.20.1 tag run, `36773126955`, passed all ten jobs on Flutter 3.47.5 and
+    Java 25, Android APK included.
+* **Still open:**
+  * P12 on the other hosts;
+  * P6b, Node 26 (due 2026-10-28);
+  * Linux git 2.56;
+  * Python 3.14.8.

@@ -1,5 +1,7 @@
 # Implement "Ending the only session from inside chat must return to a populated sessions list"
 
+> **Status, corrected 2026-10-18:** complete. The "Execution state" section below says Steps 7–13 were not yet done. They ran: Step 11's deviation is committed (`d2ba813`), and Step 13c, which follows the C5 device check, accepted the MADR (`f047456c`). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0094-MADR-end-session-return-black-screen.md](0094-MADR-end-session-return-black-screen.md)
 
 ## Requirement (verbatim)

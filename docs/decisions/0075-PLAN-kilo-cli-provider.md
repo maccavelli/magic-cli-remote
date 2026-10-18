@@ -1,5 +1,7 @@
 # Implement MADR 0075 — Kilo CLI as a session provider
 
+> **Status, corrected 2026-10-18:** complete. The status line says "accepted", but its own text says "Plan complete". Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 -->
 
 Associated MADR: [0075-MADR-kilo-cli-provider.md](0075-MADR-kilo-cli-provider.md)

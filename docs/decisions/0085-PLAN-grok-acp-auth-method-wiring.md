@@ -2,6 +2,8 @@
 
 # Implement grok ACP auth-method wiring
 
+> **Status, corrected 2026-10-18:** complete, not "proposed". P1–P6 landed (`a81ed490`, `989d099c`, `ec241cf2`, `2b4c46cf`, `e471d1af`): `internal/provider/acpagent/authselect.go` (D2) and the `xai:browser` tests in `internal/provider/grok/auth_test.go`. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0085-MADR-grok-acp-auth-method-wiring.md](0085-MADR-grok-acp-auth-method-wiring.md)
 
 | field | value |

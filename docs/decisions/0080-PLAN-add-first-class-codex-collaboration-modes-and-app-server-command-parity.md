@@ -1,5 +1,7 @@
 # Implement MADR 0080 — First-class Codex collaboration modes and app-server command parity
 
+> **Status, corrected 2026-10-18:** complete. The implementation log records P0–P9 with commits, and the live acceptance passed. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD004 MD013 MD024 MD029 MD033 MD036 -->
 
 Associated MADR: [0080-MADR-add-first-class-codex-collaboration-modes-and-app-server-command-parity.md](0080-MADR-add-first-class-codex-collaboration-modes-and-app-server-command-parity.md)

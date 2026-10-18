@@ -2,6 +2,8 @@
 
 # Implement scoping the model catalog to the session's model provider, and ordering it deterministically
 
+> **Status, corrected 2026-10-18:** complete. Every step is in `f0ecf40b`: `internal/picker/order.go`, `Truncated` in `internal/picker/picker.go`, and the `live-kilo` target in the `Makefile`. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0096-MADR-kilo-model-catalog-scope-and-order.md](./0096-MADR-kilo-model-catalog-scope-and-order.md)
 
 ## Goal

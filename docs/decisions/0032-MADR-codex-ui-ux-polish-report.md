@@ -1,5 +1,7 @@
 # Report 0032: Codex Chat UI/UX — Noise, Correctness, and Hardening
 
+> **Status, corrected 2026-10-18:** complete. Its recommendations were decided by [0035-MADR-codex-ui-ux-remediation.md](0035-MADR-codex-ui-ux-remediation.md), which cites this report as its evidence. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 - **Date**: 2026-07-27 (revision 2 — re-grounded against the codebase)
 - **Status**: Analysis complete and verified; recommendations for review
 - **Related**: [MADR 0028](./0028-MADR-codex-provider.md), [MADR 0023](./0023-MADR-canonical-slash-commands.md),

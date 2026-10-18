@@ -1,5 +1,7 @@
 # Report 0033: OpenCode Chat UI/UX — Tool Streaming and Coalescing
 
+> **Status, corrected 2026-10-18:** complete. Its recommendations were decided by [0034-MADR-opencode-tool-stream-fidelity.md](0034-MADR-opencode-tool-stream-fidelity.md). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 - **Date**: 2026-07-27 (revision 2 — re-grounded against the codebase)
 - **Status**: Analysis complete and verified; recommendations for review
 - **Related**: [MADR 0024](./0024-MADR-stream-coalescing.md), [MADR 0020](./0020-MADR-opencode-session-tree.md),

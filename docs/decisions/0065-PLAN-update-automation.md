@@ -1,5 +1,7 @@
 # MADR 0065 — Implementation plan: update automation
 
+> **Status, corrected 2026-10-18:** implemented, then superseded for the host update path by MADR 0005 in mcplib (`45f82032`, 2026-09-02), which replaced the `internal/update` package this PLAN built. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD013 MD024 -->
 
 - **Status**: **Implemented** (software P0–P6, 2026-08-05). Host:

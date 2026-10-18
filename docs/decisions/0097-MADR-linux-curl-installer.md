@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-08-17
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner (scope and acceptance)
 consulted: none
 ---
@@ -519,3 +519,9 @@ silent profile edits are a common source of surprise.
 * [ollama/scripts/install.sh](https://github.com/ollama/ollama/blob/main/scripts/install.sh) — reference installer
 * [The rustup book — Installation](https://rust-lang.github.io/rustup/installation/index.html) — one-liner and PATH conventions
 * [Curl to shell isn't so bad](https://www.arp242.net/curl-to-sh.html) — threat-model discussion for piped installers
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The installer shipped and its acceptance rows were executed (the PLAN). Its platform scope was later reversed by [0104-MADR-installer-linux-and-macos.md](0104-MADR-installer-linux-and-macos.md), which says it "reverses only the platform scope of 0097". On 2026-10-18 the owner chose to mark such records accepted with this note.

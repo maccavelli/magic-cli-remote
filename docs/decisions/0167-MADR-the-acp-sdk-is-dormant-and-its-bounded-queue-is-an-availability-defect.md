@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-13
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -1235,3 +1235,9 @@ record rather than in this one:
 lands, it supersedes D16 for this repository's build, executes D20, keeps D17–D19, and applies D23.
 D22's prerequisite is met: `acp-go-sdk2` has published tags `v0.15.0` to `v0.17.1` since the
 report, and 0184 pins `v0.17.1`.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `accepted`, but **D16 is superseded** for this repository by [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md) D1. The 2026-10-13 amendment made that conditional on 0184 being accepted and its first phase landing. Both happened: 0184 is accepted, and A1 landed as `db717ed3`. `go.mod` requires `acp-go-sdk2 v1.15.0`, with no ACP `replace`. D17–D19 and D23 stand, as the amendment says.

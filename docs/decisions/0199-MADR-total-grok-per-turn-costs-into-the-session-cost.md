@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
@@ -192,3 +192,9 @@ fixture.
   replayed subagent and token frames, which is outside this record. Counting live turns only would
   make a relaunched session report a total smaller than the one it had stored.
 * E2–E5 are unchanged.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The owner chose the replay-only handler on 2026-10-18, as the amendment records, and approved the PLAN ("committed, proceed"). G1–G3 are committed as `67392ed8`. The PLAN stays `in-progress` until G4's live turn, which waits for the owner's quota.

@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-13
+date: 2026-10-18
 associated-madr: "0186-MADR-integrate-current-library-releases-and-prepare-gobble.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -144,3 +144,21 @@ against this repository showed on 2026-10-13.
   * no source change;
   * P1 and P2 wait for the MADR's acceptance and a named approval;
   * nothing was committed (the owner commits).
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `in-progress`. R1 is done, and P1 and P2 have not started. The code agrees:
+
+* **P1 (`make check-libs`).** There is no `check_libs.json` and no `check-libs` target in the
+  `Makefile`. Its precondition is half met: `go.mod` requires `acp-go-sdk2` (v1.15.0), but
+  not `go-selfupdate-lib`, because
+  [0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)'s
+  S1 has not landed.
+* **P2 (full-SemVer pins).** The defect is still present. `provider.SameVersion`
+  (`internal/provider/version.go:18`) cuts the version at the first `-` or `+`, so
+  `1.3.0-rc.1` matches a `1.3.0` pin. opencode keeps its own `parseSemver`
+  (`internal/provider/opencode/version.go:44`). `golang.org/x/mod` is only an indirect
+  dependency.
+* Each phase still needs the owner's approval by name.

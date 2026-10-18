@@ -2,6 +2,8 @@
 
 # Implement MADR 0074 — Remote provider auth from phone (W1 + W2 + W4 + W5)
 
+> **Status, corrected 2026-10-18:** in progress. The status bullet says both that P17–P22 "have not begun" and that they are "implemented as of 2026-08-21". The implementation log (§17.6) confirms the second. Only P22 steps 5–6, the live acceptance run that spends tokens, remain. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0074-MADR-remote-provider-auth-from-phone.md](0074-MADR-remote-provider-auth-from-phone.md)
 
 - **Status**: **implemented** — P1–P11 landed 2026-08-11/12 (commits `a5c408b`,

@@ -1,5 +1,7 @@
 # Implement mutating-work MADR/PLAN gate
 
+> **Status, corrected 2026-10-18:** complete. Every acceptance criterion is ticked, and the rule is in `AGENTS.md`. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0105-MADR-mutating-work-requires-madr-and-plan.md](0105-MADR-mutating-work-requires-madr-and-plan.md)
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->

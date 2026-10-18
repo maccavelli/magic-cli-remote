@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-08
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -683,3 +683,9 @@ Sources: [go.dev release history](https://go.dev/doc/devel/release#go1.27.2),
 [golang-announce 2026-10-08](https://seclists.org/oss-sec/2026/q4/101),
 OSV `POST /v1/query` for `stdlib`/`toolchain` at 1.27.1, 1.27.2, 1.26.8 and 1.26.9,
 and `GET /v1/vulns/<id>` for the aliases above.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. P0–P11 were executed: `go.mod` is on `go 1.27.2` (`9b75e5f3`), and [0114-MADR-manage-markdownlint-cli2-with-mise.md](0114-MADR-manage-markdownlint-cli2-with-mise.md) is superseded by this record's D15. The acceptance itself was never written down. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change.

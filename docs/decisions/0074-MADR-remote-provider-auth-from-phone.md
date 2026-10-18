@@ -1,5 +1,7 @@
 # MADR 0074 — Remote Provider Authentication from Phone
 
+> **Status, corrected 2026-10-18:** accepted. D20–D29 are implemented (P17–P22, see the PLAN's §17.6), not pending. Only P22's live acceptance run remains. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 -->
 
 | field | value |

@@ -1,5 +1,7 @@
 # Implement the Linux `curl | sh` bootstrap installer and `linux/arm64` releases
 
+> **Status, corrected 2026-10-18:** complete. Its acceptance record says all 12 outstanding rows were executed on real hosts. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0097-MADR-linux-curl-installer.md](0097-MADR-linux-curl-installer.md)
 
 ## Goal

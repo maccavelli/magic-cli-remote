@@ -1,5 +1,7 @@
 # MADR 0045 — Implementation plan: mobile app hardening audit
 
+> **Status, corrected 2026-10-18:** in progress, not "implementation-ready". The task checklist ticks B2–B8, C and V. Phase 0, A1–A11 and B1 are unticked, though some of that work is in the tree (`session.pending_asks`, A8, `a727fd91`). The unticked boxes have not been reconciled. Found by the record audit in [0200-REPORT-record-status-audit.md](../../../../docs/reports/0200-REPORT-record-status-audit.md).
+
 > Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../../../../docs/decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->

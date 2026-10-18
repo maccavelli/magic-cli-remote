@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-08
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -310,3 +310,9 @@ go test ./... && go test -race ./...
 2. **Should the give-up path log?** The error already reaches the caller. A log
    line would make contention visible rather than merely survivable, which the
    Consequences section notes is otherwise lost.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (`cf7f427c`, `8d39a6d4`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.

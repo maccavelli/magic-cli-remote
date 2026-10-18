@@ -1,5 +1,7 @@
 # Implement host display name configuration
 
+> **Status, corrected 2026-10-18:** in progress. Phases 1–3 landed (`822f4ba8`, `da8e9e59`, `82a6c1f8`). Phase 4's manual acceptance has not been recorded. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0102-MADR-host-display-name-config.md](./0102-MADR-host-display-name-config.md)
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->

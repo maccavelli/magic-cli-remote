@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-04
+status: complete
+date: 2026-10-18
 associated-madr: "0180-MADR-check-records-is-a-preflight-and-ci-gate.md"
 ---
 
@@ -327,3 +327,9 @@ Zero `FAIL` lines in the preflight log. The three files are staged on `master`. 
 | A14 | met — plants (a), (b), (c) each exit 1 with the expected message; control exit 0 |
 | A15 | met — `make preflight` exit 0 on the staged P9 tree |
 | A16 | pending — owner commits and pushes; then the CI Go jobs must be green |
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`in-progress`~~ `complete`. A16, the last open row, is met. The P9 commit `27956ea5` (`internal/protocol/doc_coverage_test.go`) was pushed, and CI run `37220832490` on it passed `Go (test; build on tag)`, `Go (windows/amd64)` and `Go (linux/arm64)`. Its step 5 says to set `complete` once A16 holds.

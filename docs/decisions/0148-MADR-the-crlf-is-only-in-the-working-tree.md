@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-07
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -320,3 +320,9 @@ go test ./internal/ws/ -run TestSourceScansSurviveCRLF -count=1
 3. **Should the count be asserted, or just observed?** A post-refresh CRLF count
    of zero is the clearest confirmation, but it is a shell census rather than a
    test. **[unverified]** whether it is worth a permanent check anywhere.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (P1 is a working-tree refresh that produces no commit by design, and P2 is the docs commit `304b90c6`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.

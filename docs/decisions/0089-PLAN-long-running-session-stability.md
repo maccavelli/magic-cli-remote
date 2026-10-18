@@ -1,6 +1,6 @@
 ---
-status: draft
-date: 2026-08-15
+status: in-progress
+date: 2026-10-18
 associated-madr: "0089-MADR-long-running-session-stability.md"
 owner: [Implementer]
 target-milestone: [P0 prewarm defaults + phone toggle first; then D1–D4]
@@ -610,3 +610,9 @@ acceptance only (T5.2/T5.3).
   - [ ] T5.3 restart-mid-job
   - [ ] T5.4 errata pointers
   - [ ] T5.5 ops notes
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`draft`~~ `in-progress`. Phases 1–2 landed in `e98845f1` (`TestDefaultsAllPrewarmFalse`, `internal/config/config_test.go`), though the checklist is unticked. Phase 0, and Phases 3–5 (the Android keep-alive, rehydrate on boot, and soak), are not started: `AndroidManifest.xml` still removes `WAKE_LOCK`. The MADR stays `proposed`, because only two of its seven decisions have run.

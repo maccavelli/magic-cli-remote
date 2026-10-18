@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-08-14
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner (scope and acceptance); Implementer (measurement)
 consulted: none
 ---
@@ -506,3 +506,9 @@ Sources that shaped D13, besides the live engine probe:
 * [0085](./0085-MADR-grok-acp-auth-method-wiring.md) — grok ACP handshake
   and quoted-table write
 * [0075](./0075-MADR-kilo-cli-provider.md) — kilo engine as lead target
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN is implemented (P0–P9, `b7c4fa1e`, `76ad271b`), and accepted 0074 §15 calls it "this completed plan". The acceptance itself was never written down. On 2026-10-18 the owner chose to mark such records accepted with this note.

@@ -1,5 +1,7 @@
 # MADR 0056: mcremote ↔ Android protocol-stack audit
 
+> **Status, corrected 2026-10-18:** accepted, as stated. "Plans 0054/0055" below means the old server-hardening plans. That 0054 plan is now `docs/decisions/0004-PLAN-hardening-implementation.md`, and 0054 now names the self-update record. Found by the record audit in [0200-REPORT-record-status-audit.md](../../../../docs/reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 - **Date:** 2026-07-30

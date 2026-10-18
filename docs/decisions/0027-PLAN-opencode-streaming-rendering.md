@@ -1,5 +1,7 @@
 # OpenCode Streaming & Rendering — Phase 1 Implementation Plan
 
+> **Status, corrected 2026-10-18:** superseded by [0057-MADR-chat-markdown-stream-hardening.md](0057-MADR-chat-markdown-stream-hardening.md). Its phase 1 landed (`e1f685e3`), but its centrepiece, the isolate markdown parse (C), was removed by 0056 phase 7 (`chat_bubble.dart`'s single `MarkdownBody` path), and 0057 D5/D8 rule out reviving it. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 **Date**: 2026-07-26  
 **MADR**: [0027-MADR-opencode-streaming-rendering.md](./0027-MADR-opencode-streaming-rendering.md)  
 **Proposals implemented**: F (frame-aligned throttle), I (scroll suppression), C (isolate markdown parse), L (append fast-path)

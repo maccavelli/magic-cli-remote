@@ -1,5 +1,7 @@
 # Android app: deep-dive debug audit
 
+> **Status, corrected 2026-10-18:** complete. Every finding was closed by [0042-MADR-android-app-remediation.md](0042-MADR-android-app-remediation.md). Found by the record audit in [0200-REPORT-record-status-audit.md](../../../../docs/reports/0200-REPORT-record-status-audit.md).
+
 **Status:** For review
 **Date:** 2026-07-27
 **Scope:** `apps/mobile/` — Dart sources (`lib/`, 16 212 lines across 40 files),

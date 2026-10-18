@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-04
+status: accepted
+date: 2026-10-18
 decision-makers: maccavelli
 consulted: —
 informed: —
@@ -448,3 +448,9 @@ Concretely:
   option small — but it corrects the impression that F17 is closed.
 * No implementation plan is paired with this record yet. Per `AGENTS.md`, none
   of the above is implemented until a plan exists and is approved.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (`dfead9c4`, `546390b0`; the PLAN is `complete`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.

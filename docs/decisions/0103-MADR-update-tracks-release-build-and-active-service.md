@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-08-19
+status: accepted; superseded in part by MADR 0005 in mcplib
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: operators running mcremote update / mcrelay update / curl|sh install.sh
@@ -457,3 +457,9 @@ rejected: a crashed daemon with a unit file must come back.
 * Pre-approval status: this record proposes. An implementation plan
   (`0103-PLAN-update-tracks-release-build-and-active-service.md`) is
   written and approved before any code changes begin.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ accepted, and superseded in part. It was implemented (`bf95d751`, `63f1c0c5`, `754294e5`, `b5114d44`). On 2026-09-02, `45f82032` replaced `internal/update` with `mcplib/selfupdate`, under MADR 0005 in the mcplib repository (`docs/guides/config.md`, "`mcremote update` / `mcrelay update`"). The BASE.N tracking went with it, and `internal/updateclient/legacy.go` now calls BASE.N a legacy format. The per-product service restart survives (`internal/updateclient/lifecycle.go`).

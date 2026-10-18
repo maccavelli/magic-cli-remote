@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-10
+status: complete
+date: 2026-10-18
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -1323,3 +1323,9 @@ tree incorrect.
 
 P14's remaining verification (index regeneration and Markdown lint) is therefore now satisfied
 together with P15's.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`in-progress`~~ `complete`. The "Plan outcome" table records P1–P13 done. Of what it lists as "outside this plan by design", deleting the `unsafe.Pointer` cast is done: [0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md) A1 (`db717ed3`) removed `rawConnOf`, and `internal/provider/acpagent` no longer imports `unsafe`. Upstream review of #60 and #61, and the Deferred list, stay outside this plan.

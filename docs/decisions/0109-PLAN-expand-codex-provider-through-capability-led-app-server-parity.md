@@ -1,6 +1,6 @@
 ---
-status: "in_progress"
-date: 2026-08-25
+status: in-progress
+date: 2026-10-18
 associated-madr: "0109-MADR-expand-codex-provider-through-capability-led-app-server-parity.md"
 owner: [Project Owner, Phase implementers]
 target-milestone: "Phase P17 rollout readiness"
@@ -2151,3 +2151,9 @@ Approve this plan only if every answer is yes:
 * Is live testing split so ordinary contract validation cannot spend tokens or
   mutate real account/config/plugin/import/feedback state?
 * Is publishing excluded until the user asks separately?
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+`in-progress`, now spelled as the other records spell it. Accurate: P8–P17 have not started. The app-server methods they cover (`skills/list`, `plugin/list`, `fs/watch`, `account/logout`, `feedback/upload`) are not in the code.

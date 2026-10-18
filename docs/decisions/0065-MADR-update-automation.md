@@ -1,5 +1,7 @@
 # MADR 0065: Update automation — `mcremote update`, `mcrelay update`, phone "Restart to update"
 
+> **Status, corrected 2026-10-18:** implemented, then superseded for the host update path. `45f82032` (2026-09-02) deleted `internal/update` and adopted `mcplib/selfupdate`, under MADR 0005 in the mcplib repository (`docs/guides/config.md`). The phone's in-app update is unaffected. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD013 MD024 -->
 
 - **Status**: **Implemented** (software 2026-08-05; plan P0–P6). Host CLI

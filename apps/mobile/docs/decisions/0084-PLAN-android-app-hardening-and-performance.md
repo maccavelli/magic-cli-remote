@@ -2,6 +2,8 @@
 
 # Implement Android app hardening: crash visibility, cache storage, and build gates
 
+> **Status, corrected 2026-10-18:** complete, not "in progress". P1–P4 and P6 are done, and P5 was deferred by judgment after an implementation attempt, as the phases row records. The MADR says accepted and implemented. Found by the record audit in [0200-REPORT-record-status-audit.md](../../../../docs/reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0084-MADR-android-app-hardening-and-performance.md](0084-MADR-android-app-hardening-and-performance.md)
 
 | field | value |

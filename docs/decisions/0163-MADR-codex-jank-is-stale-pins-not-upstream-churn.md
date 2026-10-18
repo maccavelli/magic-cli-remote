@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-21
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -903,3 +903,9 @@ would attribute one thread's warning to another.
 This does not change **D7**; the migration itself was correct, as the captured
 frame confirms — with `excludeTurns` sent, the engine emits nothing. What changes
 is that A13's evidence was worthless until now.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. Its PLAN's "Execution record — release 3 acceptance (2026-09-21)" records P1–P13 run and the acceptance rows met, at the owner's instruction. The acceptance itself was never written down. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change.

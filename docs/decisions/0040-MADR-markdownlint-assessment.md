@@ -1,5 +1,7 @@
 # Markdownlint assessment and recommendation
 
+> **Status, corrected 2026-10-18:** accepted (this record had no status). markdownlint-cli2 was adopted: `.markdownlint-cli2.jsonc` is committed, and the `markdownlint-docs` gate in the `Makefile` runs it in the narrower scope that [0180-MADR-check-records-is-a-preflight-and-ci-gate.md](0180-MADR-check-records-is-a-preflight-and-ci-gate.md) D6 set. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Evaluated: 2026-07-27
 
 ## Decision

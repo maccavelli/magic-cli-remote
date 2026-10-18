@@ -1,5 +1,7 @@
 # MADR 0039: Grok ACP parity — mid-session model switch, live catalog, and CLI policy surfaces
 
+> **Status, corrected 2026-10-18:** accepted and implemented. The "not done" rows below are out of date. Its own implementation record lists phases 0–6. The model switch is in `internal/provider/grok/commandtable.go`, and MCP status is `MCPStatusSession` in `internal/provider/acpagent/session.go`. D1's mechanism was amended for [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 - **Status**: **Partially implemented** (re-grounded 2026-08-05, 0070 P2).
   Slices vs HEAD:
 

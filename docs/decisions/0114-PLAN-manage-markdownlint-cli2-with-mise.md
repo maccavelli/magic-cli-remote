@@ -1,6 +1,6 @@
 ---
-status: "draft"
-date: 2026-08-24
+status: "superseded by 0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases"
+date: 2026-10-18
 associated-madr: "0114-MADR-manage-markdownlint-cli2-with-mise.md"
 owner: [Project Owner, Codex]
 target-milestone: "Immediate user-environment setup"
@@ -184,3 +184,9 @@ Executed on 2026-08-24 after explicit owner approval.
 | Repository isolation | `git status --short` shows only the pre-existing `docs/0109` modification and the untracked 0114 pair; `git diff --check` exits `0`; no `mise.toml`, `package.json`, lockfile, or `node_modules` introduced. `.markdownlint-cli2.jsonc` unchanged; its MADR/PLAN exclusions appeared verbatim in the lint `Finding:` line. |
 
 All success criteria met. No Go/Dart/Flutter tests required per the plan. Nothing staged, committed, pushed, or tagged.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`draft`~~ superseded. The PLAN was executed on 2026-08-24, as its Execution Log records. Its MADR was superseded on 2026-09-24 by [0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md](0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md) D15, when mise was retired on every host, and this PLAN goes with it.

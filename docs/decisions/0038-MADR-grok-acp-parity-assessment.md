@@ -1,5 +1,7 @@
 # Grok Build ACP parity assessment (grok 0.2.112)
 
+> **Status, corrected 2026-10-18:** superseded by [0039-MADR-grok-acp-parity.md](0039-MADR-grok-acp-parity.md), which turns these findings into decisions. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 - **Status**: Assessment (proposal, not yet a committed MADR)
 - **Date**: 2026-07-27
 - **Probe target**: `grok 0.2.112 (9bbd559437) [stable]`, `~/.grok/bin/grok`

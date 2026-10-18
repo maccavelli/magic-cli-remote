@@ -1,5 +1,7 @@
 # MADR 0070 — Implementation plan: deep-dive remediation
 
+> **Status, corrected 2026-10-18:** the phone install UI listed as deferred did ship (`089950fe`, under 0065). Only the hardware gates remain. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 - **Status**: **Software complete for owned phases** (2026-08-05).

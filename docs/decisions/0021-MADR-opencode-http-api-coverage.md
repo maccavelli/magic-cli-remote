@@ -1,5 +1,7 @@
 # OpenCode HTTP API coverage matrix (mcremote)
 
+> **Status, corrected 2026-10-18:** still a living inventory, but the pin it states is out of date. The code pins OpenCode `1.18.26`, not `1.18.21` (`internal/provider/opencode/version.go`). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 - **Status**: Living inventory
 - **Date**: 2026-08-22 (last refreshed by MADR 0112 P1)
 - **OpenCode verified**: **1.18.21** — the known-good release pinned by

@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-08-19
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: operators editing mcremote config.yaml
@@ -352,3 +352,9 @@ request — one setting in config.yaml that every paired phone picks up.
 * Pre-approval status: per the MADR/plan workflow, this record proposes;
   the implementation plan (`0102-PLAN-host-display-name-config.md`) is
   written and approved before any code changes begin.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The owner resolved its review questions on 2026-08-18 (More Information), and Phases 1–3 shipped (`822f4ba8`, `da8e9e59`, `82a6c1f8`). Only the PLAN's manual Phase 4 acceptance remains.

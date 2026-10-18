@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-07
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -392,3 +392,9 @@ inline handlers run under the read loop's context and get no
 `context.WithTimeout` at all, so a table value for one would assert an
 enforcement the daemon does not perform. Listing a false deadline is worse than
 listing none.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (`82d28fa3`, `a52a92ad`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.

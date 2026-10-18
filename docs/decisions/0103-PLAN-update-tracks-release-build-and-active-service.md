@@ -1,5 +1,7 @@
 # Implement update tracking of published `BASE.N` and per-product service recycle
 
+> **Status, corrected 2026-10-18:** complete, then superseded in part. Phases 1–4 ran (`bf95d751`, `63f1c0c5`, `754294e5`, `b5114d44`). The update path was replaced on 2026-09-02 (`45f82032`) under MADR 0005 in mcplib, so the BASE.N half no longer exists. Phase 5's manual matrix was not recorded, and is moot for that half. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0103-MADR-update-tracks-release-build-and-active-service.md](./0103-MADR-update-tracks-release-build-and-active-service.md)
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->

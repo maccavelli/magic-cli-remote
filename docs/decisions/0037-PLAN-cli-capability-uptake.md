@@ -1,5 +1,7 @@
 # CLI capability uptake: implementation plan
 
+> **Status, corrected 2026-10-18:** complete, not "Proposed". P1 `328a424b`, P2 `50c885c0`, P3 `8de98732` and P4 all landed. P3's goose work was later removed with goose by [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 **Status:** Proposed
 **Date:** 2026-07-27
 **Decision:** [MADR 0037](./0037-MADR-cli-capability-uptake.md)

@@ -1,5 +1,7 @@
 # MADR 0075 — Kilo CLI as a session provider
 
+> **Status, corrected 2026-10-18:** accepted, as stated, but the known-good kilo version is now `7.5.6`, not `7.4.22` (`internal/provider/kilo/version.go`). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 -->
 
 | field | value |

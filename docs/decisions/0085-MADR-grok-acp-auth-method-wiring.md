@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-08-13
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner (scope and acceptance); Implementer (measurement)
 consulted: none
 ---
@@ -500,3 +500,9 @@ can live in `acpagent` without affecting other agents.
   not re-probe authMethods
 * [0083](./0083-MADR-provider-auth-activation-and-layout-gaps.md) D2/D4
   — method honesty; grok key-write claim to correct
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed (`a81ed490`, `989d099c`, `ec241cf2`, `2b4c46cf`, `e471d1af`). Accepted 0074 §15 also says to preserve these decisions. The acceptance itself was never written down. On 2026-10-18 the owner chose to mark such records accepted with this note.

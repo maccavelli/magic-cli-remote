@@ -1,5 +1,7 @@
 # MADR 0073: Goose prompt hang (silent 3600 s provider backoff) + codebase debug pass
 
+> **Status, corrected 2026-10-18:** remediation started, not "not started". §10 records the F1/F2 error-surfacing fix as executed (`8719682f`, `a62a18ff`), and the code cites it. Its other findings are untracked. This note does not mark the record superseded, which [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md) D9 forbids for this mixed record. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 <!-- markdownlint-disable MD013 MD024 -->
 
 - **Status**: **Findings recorded 2026-08-05; remediation not started.**

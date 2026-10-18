@@ -1,6 +1,6 @@
 ---
-status: approved
-date: 2026-08-22
+status: complete
+date: 2026-10-18
 decision: 0112-MADR-opencode-1.18.21-surface-parity.md
 ---
 
@@ -2008,3 +2008,9 @@ ten and twelve icons, and the glyphs are Lucide rather than Material.
 Per-provider counts, measured, are in
 [0123's 2026-08-29 amendment](0123-MADR-unify-session-controls-below-the-composer.md):
 1 to 6 depending on provider and operator policy, not five.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`approved`~~ `complete`. P0–P11 were implemented and committed, as the MADR's "Implementation note — rollout observed 2026-08-25" records phase by phase (`21e419d3`). P12, added by amendment, landed as `d677d68e` and was verified on a device (`766f9803`, `b37f363e`). The 2026-08-29 amendment's shared action row is [0123-PLAN-unify-session-controls-below-the-composer.md](0123-PLAN-unify-session-controls-below-the-composer.md)'s work, and is tracked there.

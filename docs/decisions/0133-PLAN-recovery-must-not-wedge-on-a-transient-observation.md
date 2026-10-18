@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-09-05
+date: 2026-10-18
 associated-madr: "0133-MADR-recovery-must-not-wedge-on-a-transient-observation.md"
 ---
 
@@ -638,3 +638,9 @@ ambiguity" is a new architectural decision — it changes what
 `recovery_required` means and adds a CLI probe to a path that deliberately has
 none. It is **not** in this plan's Scope and is not being implemented here. It
 needs its own MADR and plan.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `in-progress`. The "Outstanding" section's `RealityExternal` no longer exists: [0136-MADR-classify-codex-auth-from-the-doctor-report.md](0136-MADR-classify-codex-auth-from-the-doctor-report.md) replaced that probe. The probe MADR this PLAN asked for is 0136. Phase 6's host verification is now the same check as 0136's Phase 5.

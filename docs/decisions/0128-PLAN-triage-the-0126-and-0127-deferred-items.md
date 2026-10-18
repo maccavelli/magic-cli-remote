@@ -1,6 +1,6 @@
 ---
 status: complete
-date: 2026-09-01
+date: 2026-10-18
 associated-madr: "0128-MADR-triage-the-0126-and-0127-deferred-items.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD060 -->
@@ -552,3 +552,9 @@ running Android emulators for several hours, not a regression from this bump.
 **Left open deliberately:** that timeout is not investigated here. It is
 someone else's finding, it is not caused by this change, and folding it into a
 dependency bump would bury it.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `complete`: it ran. Its `parseBase` four-part tag work lived in `internal/update`, which `45f82032` (2026-09-02) replaced with `mcplib/selfupdate`, under MADR 0005 in mcplib. That code no longer exists.

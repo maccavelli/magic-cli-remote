@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-11
+date: 2026-10-18
 associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -142,3 +142,16 @@ and source phases are planned.
   what the file was called then, not a link.
 - **Still to do:** the MADR's content rewrite, and this PLAN's source phases, follow 0184's A2
   (0186 D9). They are planned by an amendment of this PLAN.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+Still `in-progress`. What the rename entry left to do is still to do:
+
+* **The file rename is done** (`68e348a1`, 2026-10-13).
+* **The MADR's content rewrite is not.** Its title still reads "Drive pigo as a first-class
+  ACP provider". The old name is on 79 lines of the MADR, on 2 lines of this PLAN before
+  this note, and on 4 lines of `docs/reports/0179-REPORT-gobble-native-acp-integration-assessment.md`.
+* **The source phases are not planned,** and there is no gobble provider under
+  `internal/provider/`. The MADR stays `proposed`.

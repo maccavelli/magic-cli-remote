@@ -2,6 +2,8 @@
 
 # MADR 0083 — Make phone-driven provider auth actually complete: activation gaps and bottom-inset layout defects
 
+> **Status, corrected 2026-10-18:** D6, the goose-keyring follow-up, no longer applies, because goose was removed by [0160-MADR-remove-goose-cli-support.md](0160-MADR-remove-goose-cli-support.md). D1–D5 are implemented, as stated. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 | field | value |
 | --- | --- |
 | status | **accepted** 2026-08-13, **implemented** 2026-08-13 (D1–D5; D6 remains the named goose-keyring follow-up). |

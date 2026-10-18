@@ -1,5 +1,7 @@
 # Implement Linux + macOS curl bootstrap installer
 
+> **Status, corrected 2026-10-18:** complete. Every acceptance box is ticked except "next tag will publish four Darwin aliases". That is met: the latest release, v0.20.1, carries `mcremote-darwin-arm64` and `mcrelay-darwin-arm64`. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0104-MADR-installer-linux-and-macos.md](0104-MADR-installer-linux-and-macos.md)
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->

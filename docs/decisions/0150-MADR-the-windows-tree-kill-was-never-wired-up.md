@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-07
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -401,3 +401,9 @@ fails the test on the stored-release assertion, and sabotaging it to store an
 inert one fails the test on the surviving grandchild. Without the second, the
 test would have passed against unsupervised code — it did, at first, and that
 is how F10 was found.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (`c6db1246`, `f4aabbb2`, `aa30bbf8`, `def36a61`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.

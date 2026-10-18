@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-09-13
+status: complete
+date: 2026-10-18
 associated-madr: "0116-MADR-windows-and-linux-arm64-build-targets.md"
 owner: [Project Owner]
 target-milestone: "Windows amd64/arm64 + linux/arm64 build targets"
@@ -2335,3 +2335,13 @@ vet and test compilation, all cgo-free; the Linux (WSL) whole-module run passes.
    against tests that stub the one external program the feature depends on,
    plus a manual step nobody recorded running. Rows 15 and 18 exist so that
    cannot recur for this path.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`in-progress`~~ `complete`. The two rows left open in P12's acceptance are met:
+
+* **Row 15**, real `schtasks /create` on `windows-latest`. The `Go (windows/amd64)` CI job has
+  passed on every full run since. Run `38925756161`, at `a17eef11`, is one.
+* **Row 18**, the owner's `setup-service` from a release carrying P12. [0159-MADR-the-windows-service-path-is-half-wired.md](0159-MADR-the-windows-service-path-is-half-wired.md) records the live task registered by the installed v0.17.4, which carries P12.

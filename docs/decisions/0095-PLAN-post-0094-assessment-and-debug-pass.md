@@ -1,5 +1,7 @@
 # Implement "Close the residual end-session defects 0094 left reachable, and fix the request-timeout and idempotency gaps behind them"
 
+> **Status, corrected 2026-10-18:** in progress. By its own execution state, Steps 1–21 are done. Step 22 (C5 on a device) is outstanding, and Step 23, the MADR's acceptance, is held until then. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 Associated MADR: [0095-MADR-post-0094-assessment-and-debug-pass.md](0095-MADR-post-0094-assessment-and-debug-pass.md)
 
 <!-- markdownlint-disable MD013 MD024 MD060 -->

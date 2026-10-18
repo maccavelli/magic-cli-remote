@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-07
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -327,3 +327,9 @@ go test ./internal/wirecap/ -count=1
    one-line reversal.
 3. **Do the other four fixtures carry anything the keyword guard will not
    name?** They were read only by key name, not line by line. **[unverified]**
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (`12bebe69`, `5f863a84`, `79d1de6d`, `6b78e3f1`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.

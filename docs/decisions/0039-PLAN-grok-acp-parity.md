@@ -1,5 +1,7 @@
 # Grok ACP parity: implementation plan
 
+> **Status, corrected 2026-10-18:** complete, not "Proposed". The MADR's implementation record lists phases 0–6, landed 2026-07-27. Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 **Status:** Proposed
 **Date:** 2026-07-27
 **Decision:** [MADR 0039](./0039-MADR-grok-acp-parity.md)

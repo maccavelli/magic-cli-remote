@@ -1,6 +1,6 @@
 ---
-status: draft
-date: 2026-08-18
+status: complete
+date: 2026-10-18
 madr: "0099-MADR-installer-service-state-verification.md"
 owner: Project Owner
 target: v0.13.5
@@ -562,3 +562,9 @@ running a relay keep their config; only a fresh `setup-service` sees loopback.
 - [ ] 0097-PLAN rows moved ⚠️/❌ → ✅ with measured output
 - [ ] Teardown assertions empty; evidence collected before every terminate
 - [ ] MADR 0099 → `accepted`
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`draft`~~ `complete`. Phase 7's re-verification is `docs/reports/0099-REPORT-reverification.md`, with F1–F6 all passing. The fixes are in the tree: `scripts/install.sh` checks `s6-svstat` and settles the service before reporting. The task checklist was never ticked.

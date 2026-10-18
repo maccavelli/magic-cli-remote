@@ -1,5 +1,7 @@
 # Codex chat UI/UX remediation: implementation plan
 
+> **Status, corrected 2026-10-18:** complete, not "Proposed". The MADR records "Phases 0–9 landed on 2026-07-27". Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 **Status:** Proposed
 **Date:** 2026-07-27
 **Decision:** [MADR 0035](./0035-MADR-codex-ui-ux-remediation.md)

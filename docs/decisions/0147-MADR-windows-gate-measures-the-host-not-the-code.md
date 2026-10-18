@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-09-07
+status: accepted
+date: 2026-10-18
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -580,3 +580,9 @@ reaches that sentence learns not to rely on it.
 deliberately: it protects any contributor whose checkout is stale the way this
 one was, and a locally-clean tree is not a reason to remove it. See 0148 C2,
 which names that removal as the contract most at risk.
+
+## Status note — 2026-10-18
+
+Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
+~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (P1–P8, `52ecc0af` through `f0f5e013`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.

@@ -2,6 +2,8 @@
 
 # MADR 0078 — Device-to-device session handoff, with signed handoff receipts and phone-side receipt surfacing
 
+> **Status, corrected 2026-10-18:** accepted. D1–D9 were locked with the owner, and the PLAN was executed (`11a10e6e` through `1cfcf8b6`). Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
+
 | | |
 | --- | --- |
 | status | **Proposed 2026-08-10.** Decisions D1–D9 locked with the owner (§4). Two threads, deliberately in one MADR because they share the receipt substrate: (A) device-to-device **session handoff** — the feature MADR 0077 §5.2/D1 scoped out as "not feasible as scoped; own follow-up MADR"; (B) **phone-side receipt surfacing** — receipts (0077) are today CLI-only; the phone signs them silently and can never see them. Handoff produces the first new receipt kinds since 0077 shipped, so surfacing and handoff are designed together. |
