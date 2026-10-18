@@ -102,6 +102,12 @@ var spec = acpagent.Spec{
 		// every sub-agent grok ran was invisible while its output filled the
 		// transcript.
 		"_x.ai/session_notification": acpagent.HandleXAISessionNotification,
+		// session/load replays grok's own turn records here, each with its
+		// original cost; live turns use _x.ai/session_notification above. Read
+		// for those costs only, so a relaunched session's total rebuilds from
+		// its history (MADR 0199, amendment). It emits nothing, and declines
+		// every other variant by name.
+		"_x.ai/session/update": acpagent.HandleXAISessionUpdate,
 		// MADR 0137 F11. Measured live: grok emits ten `_x.ai/*` methods and
 		// mcremote handled three, leaving 52 of 247 frames in one `hi` turn
 		// unread. These two bear on first-token latency directly — MCP startup

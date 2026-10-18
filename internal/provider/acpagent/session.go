@@ -209,7 +209,14 @@ type session struct {
 	// must be marked Replay so the manager keeps them out of live broadcast.
 	loading   bool
 	prompting bool
-	pending   map[string]*permWaiter // permissionID -> waiter
+	// costTicks is grok's session cost so far, summed from every turn's
+	// `costUsdTicks`, replayed or live; costPrompts holds the prompt_ids
+	// already counted, and costUnknown is set once a turn's cost is missing
+	// or partial, after which no total is reported (MADR 0199 E1, E3).
+	costTicks   int64
+	costPrompts map[string]bool
+	costUnknown bool
+	pending     map[string]*permWaiter // permissionID -> waiter
 	// questions holds outstanding multi-question forms (grok's
 	// _x.ai/ask_user_question). Kept separate from pending because the answer is
 	// a label list per question rather than one option id; released on the same

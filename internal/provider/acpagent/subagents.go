@@ -61,7 +61,13 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 			// vendor channel is the ONLY place grok's cold/warm signal exists
 			// (MADR 0137, second correction).
 			Usage *xaiUsage `json:"usage"`
+			// PromptID names the turn, so its cost is counted once (MADR 0199 E1).
+			PromptID string `json:"prompt_id"`
 		} `json:"update"`
+		Meta struct {
+			// IsReplay marks a turn grok re-sends from history (MADR 0199 E2).
+			IsReplay bool `json:"isReplay"`
+		} `json:"_meta"`
 	}
 	if err := json.Unmarshal(params, &env); err != nil {
 		if s.log != nil {
@@ -88,7 +94,8 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 	// limit-abort machinery as stderr scraping, which dedupes via
 	// limitNotified and only ever acts on classified limit text.
 	if u.SessionUpdate == "turn_completed" && u.Usage != nil {
-		s.emitXAIUsage(u.Usage)
+		s.addTurnCost(u.PromptID, u.Usage)
+		s.emitXAIUsage(u.Usage, env.Meta.IsReplay)
 		return
 	}
 	if u.SessionUpdate == "retry_state" {

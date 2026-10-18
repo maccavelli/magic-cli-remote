@@ -170,3 +170,25 @@ the stored total, and it changes only acpagent.
   except the three replayed frames the PLAN adds to the 1.0.50 capture.
 * The PLAN is
   [0199-PLAN-total-grok-per-turn-costs-into-the-session-cost.md](0199-PLAN-total-grok-per-turn-costs-into-the-session-cost.md).
+
+## Amendment — 2026-10-18: replays arrive on a channel acpagent does not read
+
+**Status: accepted** (owner: "Add a replay-only handler"). Found in PLAN G1, while preparing the
+fixture.
+
+* **The corrected fact.** The three replayed `turn_completed` frames arrive on
+  `_x.ai/session/update`, not on `_x.ai/session_notification`. Live turns do use
+  `_x.ai/session_notification`. grok's table in `internal/provider/grok/grok.go` has no entry for
+  `_x.ai/session/update`, neither a handler nor a named decline, so acpagent drops replays today.
+  E1's "every `turn_completed` it sees, replays included" assumed a channel it does not read.
+* **What the load capture holds on that channel.** It holds only replays, all marked
+  `_meta.isReplay: true`: 3 `turn_completed` and 1 `background_tasks`. The standard replays (user
+  and agent message chunks) come on `session/update` as before.
+* **Decision.** E1 gains a step:
+  * `_x.ai/session/update` is registered in grok's table, with a handler of its own.
+  * The handler reads `turn_completed` costs into E1's sum, and never emits an event.
+  * Every other variant on it is declined by name, once per session, through `declineUpdate`.
+* **Not chosen.** Routing it to the existing `HandleXAISessionNotification` would start publishing
+  replayed subagent and token frames, which is outside this record. Counting live turns only would
+  make a relaunched session report a total smaller than the one it had stored.
+* E2–E5 are unchanged.
