@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-13
+status: complete
+date: 2026-10-18
 associated-madr: "0187-MADR-show-the-agent-session-title-without-overwriting-a-user-name.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -236,3 +236,128 @@ The intact copy, linted in the same run, reported nothing.
   then, grok's title behavior is known only from the two committed captures, and this PLAN stays
   `in-progress`;
 * no commit: T3 is staged, and a commit needs the owner's word in its turn.
+
+### T4, 2026-10-18: steps 1 to 3 on the wire; the phone check is not done
+
+The owner approved the quota on 2026-10-18 ("OK to proceed with quota"). Four probes ran on
+grok `1.0.50 (c58f321264ba)`, each in its own session with `AlwaysApprove` and
+`MCREMOTE_WIRE_CAPTURE_DIR` set. They came from a `live_grok` test in a scratch copy of the tree,
+which was not committed:
+
+* **titles:** two one-word turns, `x.ai/session/rename`, and a third turn;
+* **plan:** a turn asking grok to plan with its todo tool first;
+* **ask:** a turn asking grok to ask the user a question, which the probe cancelled;
+* **compact:** two turns, then `CompactSession.Compact`.
+
+None of the four captures holds a standard `notice`, `usage_update`, `compaction_update`,
+`compaction_summary_chunk`, `plan_update`, `plan_removed` or `elicitation/create`.
+
+**Step 1.** The titles session ran two turns. grok sent one `session_info_update`, about 2 s after
+the second turn ended, with nothing after the first turn:
+
+```text
+{"sessionUpdate":"session_info_update","title":"Sequential one-two exact-word replies"}
+```
+
+Magic emitted it as `session_title` with `title_generated: true` (D1). Each of the other three
+sessions also got exactly one title:
+
+* the compact session, which also ran two turns, got it 2 s after its second turn;
+* the plan and ask sessions, which ran one turn each, got it during or just after that turn.
+
+These turns took about 2 s each, so a title written from the first turn may simply arrive after
+the second. The probe does not tell those two cases apart.
+
+**Step 2.** `x.ai/session/rename` to "probe user name" returned no error. grok echoed the name at
+once, and marked it as manual:
+
+```text
+{"sessionUpdate":"session_info_update","title":"probe user name"},"_meta":{"x.ai/titleIsManual":true}
+```
+
+Magic emitted the echo as `session_title` with `title_generated: true`, because acpagent does not
+read `_meta`. A third turn brought no further title.
+
+* When the rename came from the phone, this is harmless. The manager already holds the name as a
+  `user` name, and D3 keeps a generated title from replacing it. The echo is also the same text.
+* A name the user sets inside grok itself arrives marked as generated, so Magic would treat it as
+  replaceable. Reading `x.ai/titleIsManual` is a new decision, not this PLAN's.
+
+**Step 3.** Both frames are appended verbatim to
+`internal/provider/grok/testdata/wire/1.0.50/frames.jsonl`, and its `meta.json` says so (14 to 16
+frames). Neither carries a path or an account. `TestGrok1050FramesDecodeAsStandardConfigOptions`
+and the `wirecap` fixture guard still pass.
+
+**Not done.**
+
+* **Showing on the phone.** Steps 1 and 2 ask for a check that the phone shows the titles and
+  keeps the user's name. The probe ran at the provider, not through the daemon and a paired phone.
+  The manager's half is covered by the D2 and D3 unit tests, but not live. ~~The check waits for
+  the owner's decision. The PLAN stays `in-progress`.~~ Done the same day; see the phone check
+  below.
+
+### Deviation, 2026-10-18: the phone check needs a scratch daemon and one manual step
+
+The owner chose to run the phone check on the Android emulator. Two facts stood in the way:
+
+* The emulator is paired only with the host's installed daemon. That build is 0.20.1, from
+  2026-09-30, which predates this record (2026-10-13), so it cannot show 0187's behaviour.
+* Pairing with a daemon built from this tree needs a QR code read by the emulator's virtual
+  camera, and the camera can only be turned toward it by hand
+  (`apps/mobile/docs/guides/ops-android-emulator.md`). A typed code is refused by design, because
+  it carries no certificate fingerprint (MADR 0046/0074).
+
+**Decision (owner, 2026-10-18): "Scratch daemon + you aim".**
+
+* The tree's daemon runs with a scratch config, on its own port and with its own state. The
+  installed daemon and its store are not touched.
+* The tree's app is installed on the emulator.
+* The owner turns the camera toward the pairing QR once. Everything after that is driven over adb.
+* The stock poster is restored afterwards.
+
+**Amended the same day: no manual step was needed.** The connect screen's "Paste URI / code /
+token" accepts the whole pair URI. That URI carries the certificate fingerprint (`fp=`), which a
+typed short code does not. The URI was typed into a text field inside the emulator, copied with
+the field's own Copy, and pasted. The scratch daemon logged `device paired via short code`. The
+host's clipboard was not used. The emulator guide says the QR is the only way in, which is no
+longer right; that guide is not this PLAN's to change.
+
+**The emulator's existing pairing was protected.** The app keeps one host and one device token,
+so pairing would have overwritten the pairing with the installed daemon. The owner chose a
+backup. The app's private data was copied out with `run-as` before pairing, and copied back
+afterwards:
+
+* All 20 files in `shared_prefs`, `databases` and `files` matched the backup by checksum.
+* No file was added or removed.
+* The app came back "Connected to" the installed daemon's host, with its three earlier sessions.
+* The first restore attempt left `shared_prefs` and `databases` out. It was redone from a smaller
+  archive before the check above.
+* The backup was deleted afterwards. It held the device token only as ciphertext, under a key
+  kept in the emulator's keystore.
+
+### T4, 2026-10-18: the phone check — complete
+
+The tree's daemon and debug app were used. The installed daemon was not touched, and the app
+build installed on the emulator is now this tree's debug build.
+
+1. A grok session was created from the phone with no name. It showed as "Session db5c01c5".
+2. Two turns were sent from the phone, "Reply with exactly the word: one", then "… two". The chat
+   header then showed grok's generated title, "Exact One-Word The…". The sessions list showed
+   "Exact One-Word Then …". **Step 1 passes on the phone.**
+3. The session was renamed from the sessions list's Rename to "my phone name". The dialog was
+   prefilled with the generated title, 36 characters. The list showed the new name at once.
+4. A third turn was sent. Afterwards the chat header still read "my phone name". The daemon's
+   record held `{'name': 'my phone name', 'name_source': 'user'}`. **Step 2 passes on the
+   phone:** the user's name is kept (D2, D3).
+
+Screenshots stayed in the session scratch directory. They show host paths and are not committed.
+
+**Cleanup.**
+
+* The emulator, which was not running before, was shut down.
+* The scratch daemon was stopped, and no grok agent was left running.
+* The scratch daemon's runtime directory, data, state, pair code and QR were deleted.
+* The stock poster was restored and checked with `cmp`.
+* The installed daemon was still running afterwards.
+
+T4 is complete, so this PLAN is `complete`.

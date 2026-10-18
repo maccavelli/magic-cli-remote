@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-14
+status: complete
+date: 2026-10-18
 associated-madr: "0192-MADR-show-an-agents-identified-plans-on-the-phone.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -295,3 +295,23 @@ plan panel does not do this.
 * **P4 step 2** waits for the owner's grok quota: a turn that leads grok to plan, to see whether it
   sends `plan`, `plan_update` or `plan_removed` now that `plan` is offered.
 * The PLAN stays `in-progress`.
+
+### P4 step 2, 2026-10-18: complete
+
+The owner approved the quota on 2026-10-18 ("OK to proceed with quota"). Four probes ran on
+grok `1.0.50 (c58f321264ba)`, each in its own session with `AlwaysApprove` and
+`MCREMOTE_WIRE_CAPTURE_DIR` set. They came from a `live_grok` test in a scratch copy of the tree,
+which was not committed:
+
+* **titles:** two one-word turns, `x.ai/session/rename`, and a third turn;
+* **plan:** a turn asking grok to plan with its todo tool first;
+* **ask:** a turn asking grok to ask the user a question, which the probe cancelled;
+* **compact:** two turns, then `CompactSession.Compact`.
+
+None of the four captures holds a standard `notice`, `usage_update`, `compaction_update`,
+`compaction_summary_chunk`, `plan_update`, `plan_removed` or `elicitation/create`.
+
+**Result.** grok called `todo_write` twice and sent two standard `plan` updates, each a full list
+of three entries. The first was `in_progress`, `pending`, `pending`, and the second was all
+`completed`. It sent no `plan_update` or `plan_removed`, so grok does not use identified plans
+although `plan` was offered. Magic emitted both as `plan` events. The schema-built fixture stands.

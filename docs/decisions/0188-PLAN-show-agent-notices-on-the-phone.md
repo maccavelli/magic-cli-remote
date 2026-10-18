@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-13
+status: complete
+date: 2026-10-18
 associated-madr: "0188-MADR-show-agent-notices-on-the-phone.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -327,3 +327,31 @@ go vet -tags live_grok ./internal/provider/grok/                 exit=0
 
 * step 2, as above;
 * no commit: N4's test and records are staged, and a commit needs the owner's word in its turn.
+
+### N4 step 2, 2026-10-18: complete
+
+The owner approved the quota on 2026-10-18 ("OK to proceed with quota"). Four probes ran on
+grok `1.0.50 (c58f321264ba)`, each in its own session with `AlwaysApprove` and
+`MCREMOTE_WIRE_CAPTURE_DIR` set. They came from a `live_grok` test in a scratch copy of the tree,
+which was not committed:
+
+* **titles:** two one-word turns, `x.ai/session/rename`, and a third turn;
+* **plan:** a turn asking grok to plan with its todo tool first;
+* **ask:** a turn asking grok to ask the user a question, which the probe cancelled;
+* **compact:** two turns, then `CompactSession.Compact`.
+
+None of the four captures holds a standard `notice`, `usage_update`, `compaction_update`,
+`compaction_summary_chunk`, `plan_update`, `plan_removed` or `elicitation/create`.
+
+**Result.** Each session got exactly one `_x.ai/mcp/server_status` at start, and no `notice`. The
+only server was `ready`, with `reason: "initialized"`:
+
+```text
+{"method":"_x.ai/mcp/server_status","params":{"name":"magictools","source":"local","status":"ready","reason":"initialized","tools":null}}
+```
+
+Nothing arrived twice. The schema-built fixture stands.
+
+**Limit.** No session created an MCP failure. That would mean configuring a broken server in the
+host's grok settings, which the probe did not change. Whether grok reports a failure both as a
+`notice` and through `server_status` is not known.

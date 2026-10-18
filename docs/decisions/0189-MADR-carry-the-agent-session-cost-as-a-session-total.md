@@ -59,12 +59,14 @@ is present, it declines it by name as `usage_update.cost`, once per session
   report is replaced by every usage event. grok emits two kinds, the standard one and its own from
   `_x.ai` `turn_completed` (`internal/provider/acpagent/xaiusage.go`), and neither carries a cost.
 
-**Who sends a cost.** No agent Magic runs is known to.
+**Who sends a cost.** ~~No agent Magic runs is known to.~~ None sends one in a standard
+`usage_update`. grok sends a per-turn cost on its own notification (Amendment, 2026-10-18).
 
 * grok sends no standard `usage_update` at all. MADR 0023 recorded this, and its local session logs
   on the owner's Mac contain none (checked 2026-10-14). Its token accounting arrives on `_x.ai`
-  `turn_completed`, which has no cost field. The 1.0.50 capture behind 0188's N4 has no
-  `usage_update` in its first 12 seconds.
+  `turn_completed`, ~~which has no cost field~~ which does carry `costUsdTicks` on grok `1.0.50`
+  (Amendment, 2026-10-18). The 1.0.50 capture behind 0188's N4 has no `usage_update` in its first
+  12 seconds.
 * gobble-cli's agent sends `usage_update` with `used` only, and no `size` or `cost`
   (gobble-cli `acpserver/prompt.go:307`). Its own ACP client does model a `cost`, so gobble is
   aware of the field.
@@ -211,3 +213,20 @@ Under the chosen option:
   [0189-PLAN-carry-the-agent-session-cost-as-a-session-total.md](0189-PLAN-carry-the-agent-session-cost-as-a-session-total.md).
   ~~Nothing is implemented until the owner accepts an option and approves the PLAN.~~ The owner
   accepted the recommended option and approved C1 and C2 on 2026-10-14.
+
+## Amendment — 2026-10-18: grok's `turn_completed` carries a cost
+
+Found by the PLAN's C4 step 2, the live grok probe, on grok `1.0.50`.
+
+* **The corrected fact.** grok still sends no standard `usage_update`. Its `_x.ai/session_notification`
+  `turn_completed`, which the Context said has no cost field, carries `usage.costUsdTicks` for the
+  turn, and the same per model under `modelUsage`. The unit is grok's 1e10 ticks to the dollar,
+  the one `runtime.go` already formats for `/usage`. Two turns showed `120570800` and `31286800`,
+  about $0.0121 and $0.0031.
+* **What does not change.** The decision is about a cumulative session total, sent in a standard
+  `usage_update.cost`. That still stands, and no agent Magic runs sends one. grok's figure is a
+  per-turn delta on a vendor notification. The Context explains why a per-turn delta is not
+  acceptable as droppable telemetry.
+* **Not decided here.** Whether Magic should total grok's per-turn costs into the session total is
+  a new decision. It would need its own record, and nothing is implemented.
+

@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-14
+status: complete
+date: 2026-10-18
 associated-madr: "0190-MADR-show-agent-context-compaction-on-the-phone.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -335,3 +335,38 @@ was not committed, because this record states everything it shows.
 
 **Not done.** K4 step 2 waits for the owner's grok quota: a turn sequence long enough to make grok
 compact, or grok's own `/compact`. The PLAN stays `in-progress` until then.
+
+### K4 step 2, 2026-10-18: complete
+
+The owner approved the quota on 2026-10-18 ("OK to proceed with quota"). Four probes ran on
+grok `1.0.50 (c58f321264ba)`, each in its own session with `AlwaysApprove` and
+`MCREMOTE_WIRE_CAPTURE_DIR` set. They came from a `live_grok` test in a scratch copy of the tree,
+which was not committed:
+
+* **titles:** two one-word turns, `x.ai/session/rename`, and a third turn;
+* **plan:** a turn asking grok to plan with its todo tool first;
+* **ask:** a turn asking grok to ask the user a question, which the probe cancelled;
+* **compact:** two turns, then `CompactSession.Compact`.
+
+None of the four captures holds a standard `notice`, `usage_update`, `compaction_update`,
+`compaction_summary_chunk`, `plan_update`, `plan_removed` or `elicitation/create`.
+
+**Result.** After two turns, `Compact` sent `x.ai/compact_conversation`, and grok answered `{}`
+at once. grok compacted: its own session log shows `compaction_checkpoint`, then
+`auto_compact_completed`. On the wire it sent only its own notification:
+
+```text
+{"method":"_x.ai/session_notification","params":{"update":{"sessionUpdate":"auto_compact_completed","tokens_before":17914,"tokens_after":17914,"summary_preview":null}}}
+```
+
+The session was small, so the count did not change. grok sent no `compaction_update` or
+`compaction_summary_chunk`. Magic emitted no compaction event, so the phone shows nothing. The
+schema-built fixture stands.
+
+**For other records.**
+
+* Showing grok's `auto_compact_completed` is a new decision, not this PLAN's.
+* On grok `1.0.50`, `x.ai/compact_conversation` returns at once and does compact. Earlier probes
+  had it not returning within 12 s (the MADR's context). This bears on the `/compact` mismatch that
+  [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md) F9 records.
+  grok's command table still says grok compacts only in its own terminal UI.

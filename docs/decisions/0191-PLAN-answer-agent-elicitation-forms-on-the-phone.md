@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-14
+status: complete
+date: 2026-10-18
 associated-madr: "0191-MADR-answer-agent-elicitation-forms-on-the-phone.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -441,3 +441,30 @@ left-out names dropped        -> FAIL TestFormFieldOrderSkipsRepeatsAndUnknownNa
 **Verification** is 0184's B2 step 4, recorded there: the race suite, the lint gates, Windows,
 and the quota-free grok probes all pass. The phone is unchanged. It draws items in the order the
 event lists them.
+
+### L5 step 2, 2026-10-18: complete
+
+The owner approved the quota on 2026-10-18 ("OK to proceed with quota"). Four probes ran on
+grok `1.0.50 (c58f321264ba)`, each in its own session with `AlwaysApprove` and
+`MCREMOTE_WIRE_CAPTURE_DIR` set. They came from a `live_grok` test in a scratch copy of the tree,
+which was not committed:
+
+* **titles:** two one-word turns, `x.ai/session/rename`, and a third turn;
+* **plan:** a turn asking grok to plan with its todo tool first;
+* **ask:** a turn asking grok to ask the user a question, which the probe cancelled;
+* **compact:** two turns, then `CompactSession.Compact`.
+
+None of the four captures holds a standard `notice`, `usage_update`, `compaction_update`,
+`compaction_summary_chunk`, `plan_update`, `plan_removed` or `elicitation/create`.
+
+**Result.** grok asked through its own `_x.ai/ask_user_question`, not `elicitation/create`,
+although `elicitation.form` was advertised:
+
+```text
+{"id":0,"method":"_x.ai/ask_user_question","params":{"toolCallId":"call-…-0","questions":[{"question":"Do you prefer tea or coffee?","options":[{"label":"Tea","description":"You prefer tea."},{"label":"Coffee","description":"You prefer coffee."}],"multiSelect":null}],"mode":"default"}}
+```
+
+* Magic showed it as a `question_request` with both options.
+* The probe cancelled it. Magic sent the cancel, and grok's tool returned "User declined to answer
+  the questions. Continue with the task using your best judgment, or ask different questions."
+* The schema-built `elicitation/create` requests stand as the fixture.

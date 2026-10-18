@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-14
+status: complete
+date: 2026-10-18
 associated-madr: "0189-MADR-carry-the-agent-session-cost-as-a-session-total.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -277,3 +277,34 @@ No Go file changed in this step.
 
 **Not done.** C4 step 2, the grok turn, waits for the owner's quota. Until then, the fixture stays
 built from the schema. The PLAN stays `in-progress`.
+
+### C4 step 2, 2026-10-18: complete, and a correction to the MADR
+
+The owner approved the quota on 2026-10-18 ("OK to proceed with quota"). Four probes ran on
+grok `1.0.50 (c58f321264ba)`, each in its own session with `AlwaysApprove` and
+`MCREMOTE_WIRE_CAPTURE_DIR` set. They came from a `live_grok` test in a scratch copy of the tree,
+which was not committed:
+
+* **titles:** two one-word turns, `x.ai/session/rename`, and a third turn;
+* **plan:** a turn asking grok to plan with its todo tool first;
+* **ask:** a turn asking grok to ask the user a question, which the probe cancelled;
+* **compact:** two turns, then `CompactSession.Compact`.
+
+None of the four captures holds a standard `notice`, `usage_update`, `compaction_update`,
+`compaction_summary_chunk`, `plan_update`, `plan_removed` or `elicitation/create`.
+
+**Result.** grok sent no standard `usage_update` in any session. Magic's `usage_update` events all
+came from `_x.ai/session_notification` `turn_completed`, through `xaiusage.go`. The schema-built
+fixture stands.
+
+**Correction.** That notification now carries a cost. The MADR said it has no cost field, and on
+grok `1.0.50` it does: `usage.costUsdTicks`, per turn and per model, in grok's 1e10 ticks to the
+dollar. The titles session's first two turns:
+
+```text
+"turn_completed" ... "usage":{"inputTokens":17740,...,"modelCalls":1,"costUsdTicks":120570800,"modelUsage":{"grok-4.6-build":{...}}}
+"turn_completed" ... "usage":{"inputTokens":17798,...,"modelCalls":1,"costUsdTicks":31286800,...}
+```
+
+These are about $0.0121 and $0.0031. The MADR's amendment of 2026-10-18 records the corrected fact.
+Mapping grok's per-turn cost is a new decision, not this PLAN's, so nothing in the code changes.
