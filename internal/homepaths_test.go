@@ -15,7 +15,8 @@ import (
 
 // This repository is public, and no committed file may carry a real account
 // name (AGENTS.md, "Host identifiers never appear in records"). One account
-// name reached 28 files before anything checked
+// name reached 37 files, and a test machine's account 2 more, before anything
+// checked
 // (0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
 //
 // The guard is an allowlist on purpose: a list of the names to keep out

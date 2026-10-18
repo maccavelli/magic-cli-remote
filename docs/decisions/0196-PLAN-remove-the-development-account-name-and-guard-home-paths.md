@@ -1,6 +1,6 @@
 ---
 status: complete
-date: 2026-10-17
+date: 2026-10-18
 associated-madr: "0196-MADR-remove-the-development-account-name-and-guard-home-paths.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -48,7 +48,7 @@ gains a home path whose account segment is not a known placeholder.
    `a&b`, `Zoë`, `RUNNER~1`, `...` and `%3Cuser%3E`. Any `<…>` segment is also a placeholder.
    * Each entry is checked against its survey line before it goes in. An entry that turns out to
      be a real account is not added. It is replaced in H2 instead.
-3. Run it on today's tree. It must fail, naming `<dev-account>` at the survey's locations: 104 hits in 28
+3. Run it on today's tree. It must fail, naming `<dev-account>` at the survey's locations: 104 hits in ~~28~~ 37
    files. That is the fail-first proof against real data.
 
 ### H2. Replace (R1, R2)
@@ -83,6 +83,23 @@ gains a home path whose account segment is not a known placeholder.
 * `make preflight`, for the two Dart files.
 * `make ci-windows` on the Windows test host.
 * `check_records.py --check-all`, `make markdownlint-docs`.
+
+### H5. Correct the guard's comment (follow-up, approved 2026-10-18)
+
+Found on 2026-10-18, after the phase was committed as `2849318a`. The guard's comment
+(`internal/homepaths_test.go:18`) says "One account name reached 28 files before anything
+checked". 28 is the survey's undercount. The MADR's amendment of 2026-10-17 corrects it to 37,
+and `alpine` was in 2 more. H1.3 above repeated the 28 and is annotated in this amendment.
+
+1. The comment reads: "One account name reached 37 files, and a test machine's account 2 more,
+   before anything checked". It changes a comment only, so behaviour doesn't change.
+2. Checks:
+   * `make pre-add-check FILES=internal/homepaths_test.go` and `go vet ./internal/`;
+   * `go test -count=1 -run 'TestTrackedFilesUseOnlyPlaceholderHomes|TestIndexPathsReadsEveryVersion' ./internal/`;
+   * `check_records.py --check-all` and `make markdownlint-docs`.
+
+   H5 adds no check, so nothing needs a planted failure.
+3. The PLAN returns to `complete` when H5's execution record is written.
 
 ## Verification
 
@@ -233,3 +250,17 @@ check_records.py --check-all, make markdownlint-docs -> exit 0
 
 **Not done.** History is not rewritten (R4). The account name stays in published commits, and
 rewriting them is the owner's decision alone.
+
+### H5, 2026-10-18: the guard's comment
+
+Approved 2026-10-18 ("approved to follow recomendations, proceed"). The comment at
+`internal/homepaths_test.go:17` now says the name reached 37 files, and a test machine's account
+2 more. That matches the MADR's amendment. No code changed.
+
+```text
+make pre-add-check FILES=internal/homepaths_test.go -> exit 0, 1 file(s) clean (gofmt, golint, govulncheck)
+go vet ./internal/                                  -> exit 0
+go test -count=1 -v -run 'TestTrackedFilesUseOnlyPlaceholderHomes|TestIndexPathsReadsEveryVersion' ./internal/
+                                                    -> exit 0; both PASS
+check_records.py --check-all                        -> exit 0
+```
