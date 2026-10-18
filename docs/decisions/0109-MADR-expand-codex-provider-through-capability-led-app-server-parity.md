@@ -9,6 +9,8 @@ informed: Implementers of the daemon, Codex provider, protocol, and mobile clien
 
 # Expand the Codex provider through capability-led app-server parity
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 ## Context and Problem Statement
 
 magic-cli-remote has a substantial Codex integration, not a thin command
@@ -605,7 +607,7 @@ expression of the D7 reviewer axis and must be encoded rather than dropped.
 P0 execution began on repository commit
 `3ad5533ceeb3c15568092bb026e9569e51ddde86` and found that the active managed
 binary had advanced from the research baseline to `codex-cli 0.149.0` at
-`/home/mac/.codex/packages/standalone/current/bin/codex`, with SHA-256
+`/home/<user>/.codex/packages/standalone/current/bin/codex`, with SHA-256
 `bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827`.
 The local Codex source checkout was clean at
 `1f41cc5d92722748e45cae9cecc6d883a4e7cbb1` on `main`.
@@ -659,7 +661,7 @@ version and counts become P1's exact fixture directory and manifest
 expectations. The full required-method presence check must pass again.
 
 The updater requires network access and write access to the standalone Codex
-installation beneath `/home/mac/.codex/packages/standalone`. If updating fails,
+installation beneath `/home/<user>/.codex/packages/standalone`. If updating fails,
 P0 verifies that the retained 0.149.0 release remains intact and stops without
 deleting it or advancing P1. If the updated schema removes a required stable
 method, changes a stable server-request response contract, or invalidates a
@@ -686,8 +688,8 @@ The active standalone installation now resolves to `codex-cli 0.149.1`:
 
 | Evidence | Observed 2026-08-24 |
 | --- | --- |
-| Command path | `/home/mac/.codex/packages/standalone/current/bin/codex` |
-| Resolved binary | `/home/mac/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex` |
+| Command path | `/home/<user>/.codex/packages/standalone/current/bin/codex` |
+| Resolved binary | `/home/<user>/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex` |
 | SHA-256 | `73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba` |
 | Official release | [`rust-v0.149.1`](https://github.com/openai/codex/releases/tag/rust-v0.149.1), published 2026-08-24 at tag commit `ff29a44391deccde0aba0f8390337d7f3c319ea4` |
 | Update status | `codex doctor --json` reported `latest version: 0.149.1` and `current version is not older` |

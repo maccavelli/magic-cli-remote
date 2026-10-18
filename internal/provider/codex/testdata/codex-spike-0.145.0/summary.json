@@ -4,7 +4,7 @@
     "id": 1,
     "result": {
       "userAgent": "mcremote_spike/0.145.0 (Ubuntu 26.4.0; x86_64) xterm-256color (mcremote_spike; 0.0.0)",
-      "codexHome": "/home/mac/.codex",
+      "codexHome": "/home/<user>/.codex",
       "platformFamily": "unix",
       "platformOs": "linux"
     }
@@ -99,8 +99,8 @@
         "status": {
           "type": "idle"
         },
-        "path": "/home/mac/.codex/sessions/2026/07/26/rollout-2026-07-26T18-18-38-019f9fa6-857a-7c60-92c0-a97b7ffc76f6.jsonl",
-        "cwd": "/home/mac/gitrepos/magic-cli-remote",
+        "path": "/home/<user>/.codex/sessions/2026/07/26/rollout-2026-07-26T18-18-38-019f9fa6-857a-7c60-92c0-a97b7ffc76f6.jsonl",
+        "cwd": "/home/<user>/gitrepos/magic-cli-remote",
         "cliVersion": "0.145.0",
         "source": "vscode",
         "canAcceptDirectInput": true,
@@ -114,12 +114,12 @@
       "model": "gpt-5.6-terra",
       "modelProvider": "openai",
       "serviceTier": null,
-      "cwd": "/home/mac/gitrepos/magic-cli-remote",
+      "cwd": "/home/<user>/gitrepos/magic-cli-remote",
       "runtimeWorkspaceRoots": [
-        "/home/mac/gitrepos/magic-cli-remote"
+        "/home/<user>/gitrepos/magic-cli-remote"
       ],
       "instructionSources": [
-        "/home/mac/gitrepos/magic-cli-remote/AGENTS.md"
+        "/home/<user>/gitrepos/magic-cli-remote/AGENTS.md"
       ],
       "approvalPolicy": "never",
       "approvalsReviewer": "user",
@@ -234,8 +234,8 @@
           "type": "active",
           "activeFlags": []
         },
-        "path": "/home/mac/.codex/sessions/2026/07/26/rollout-2026-07-26T18-18-38-019f9fa6-857a-7c60-92c0-a97b7ffc76f6.jsonl",
-        "cwd": "/home/mac/gitrepos/magic-cli-remote",
+        "path": "/home/<user>/.codex/sessions/2026/07/26/rollout-2026-07-26T18-18-38-019f9fa6-857a-7c60-92c0-a97b7ffc76f6.jsonl",
+        "cwd": "/home/<user>/gitrepos/magic-cli-remote",
         "cliVersion": "0.145.0",
         "source": "vscode",
         "canAcceptDirectInput": true,

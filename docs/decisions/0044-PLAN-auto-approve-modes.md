@@ -1,5 +1,7 @@
 # MADR 0044 — Implementation plan: auto-approve session modes
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 Companion to [MADR 0044](./0044-MADR-auto-approve-modes.md). Read that first: it
 carries the live-probe evidence and the reasoning. This document is the build
 order.
@@ -982,7 +984,7 @@ byte-for-byte unchanged** — no dialog, no restyle.
 
 ## Standards conformance
 
-Checked against `/home/mac/standards` (`go` v1.26.5-v3, `mobile` v3.12.2-v3,
+Checked against `/home/<user>/standards` (`go` v1.26.5-v3, `mobile` v3.12.2-v3,
 both dated 2026-07-28). Points that change what gets written, not generic
 restatements:
 

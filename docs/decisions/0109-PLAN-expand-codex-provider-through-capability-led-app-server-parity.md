@@ -10,6 +10,8 @@ target-milestone: "Phase P17 rollout readiness"
 
 # Plan: Implement capability-led Codex app-server parity
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 ## Executive Summary & Goal
 
 * **Associated Decision Record:**
@@ -153,7 +155,7 @@ writes.
 ### Resolved post-update binary — 2026-08-24
 
 The active standalone binary now resolves to `codex-cli 0.149.1` at
-`/home/mac/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex`
+`/home/<user>/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex`
 with SHA-256
 `73dc5888888f411c1f0fa7b81d866e721dcc86b527ce8e3b2cf4708661e823ba`.
 `codex doctor --json` reports `latest version: 0.149.1` and that the current
@@ -2068,7 +2070,7 @@ Codex CLI first. Local 0.149.0 help confirms the supported command is
 provisional. P0 records pre/post version, path, digest, updater result, fresh
 schema counts, and required-method presence; P1 uses only the post-update exact
 contract. This requires network access and write access beneath
-`/home/mac/.codex/packages/standalone` in addition to the existing loopback and
+`/home/<user>/.codex/packages/standalone` in addition to the existing loopback and
 Flutter-cache requirements.
 
 ### 2026-08-24 — Codex 0.149.1 resolved baseline and proposed parity delta

@@ -1,5 +1,7 @@
 # MADR 0049 — Implementation plan: grok auto mode
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 Companion to [MADR 0049](./0049-MADR-grok-auto-mode.md). Read that first: it
@@ -16,7 +18,7 @@ source as of `5831bd9` (2026-07-29).
 - **Scope**: `internal/provider/acpagent` (synthetic auto + per-session
   interception), `internal/provider/grok` (opt in), `docs/`. **No** protocol
   change, **no** mobile change, **no** change to goose/opencode/codex.
-- **Standards**: `/home/mac/standards/go` — `concurrency.md`, `testing.md`
+- **Standards**: `/home/<user>/standards/go` — `concurrency.md`, `testing.md`
   (read before touching `session.go`: the mode/permission state is mutex-guarded
   and the tests are table-driven)
 

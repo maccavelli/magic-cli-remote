@@ -1,5 +1,7 @@
 # MADR 0044: Auto-approve as a session mode (OpenCode, Codex)
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 - **Status**: **Implemented** (2026-07-28) on `feat/auto-approve-modes`, all
   eight decisions, across six phases with the build order and per-phase
   verification recorded in the [plan](./0044-PLAN-auto-approve-modes.md).
@@ -30,7 +32,7 @@
 **codex-cli 0.145.0** (`app-server --listen stdio://`, driven directly over
 JSON-RPC).
 
-**Standards**: reviewed against `/home/mac/standards` `go` v1.26.5-v3 and
+**Standards**: reviewed against `/home/<user>/standards` `go` v1.26.5-v3 and
 `mobile` v3.12.2-v3 (both 2026-07-28). The obligations that change what gets
 built are tabulated in the plan's *Standards conformance* section; the two that
 changed the **design** rather than the style are recorded in D4.1 (errors must
@@ -71,7 +73,7 @@ considered and rejected under "Options considered" below.
 `opencode serve` or `opencode acp` — the two headless entry points — which is
 already fatal for the flag approach.
 
-More decisively, reading the shipped bundle (`/home/mac/.opencode/bin/opencode`
+More decisively, reading the shipped bundle (`/home/<user>/.opencode/bin/opencode`
 is a non-stripped bun binary; the CLI source is recoverable verbatim) shows what
 the flag actually does. In the `run` handler's event loop:
 

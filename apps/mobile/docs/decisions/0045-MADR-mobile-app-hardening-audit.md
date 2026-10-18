@@ -1,5 +1,7 @@
 # MADR 0045: Mobile App Hardening Audit — Findings and Remediation Decisions
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../../../../docs/decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD060 -->
 
 - **Date**: 2026-07-28
@@ -15,7 +17,7 @@
   [Report 0033](../../../../docs/decisions/0033-MADR-opencode-ui-ux-polish-report.md),
   [MADR 0042](./0042-MADR-android-app-remediation.md),
   [MADR 0044](../../../../docs/decisions/0044-MADR-auto-approve-modes.md)
-- **Standards applied**: `/home/mac/standards/mobile` v3.12.2-v3
+- **Standards applied**: `/home/<user>/standards/mobile` v3.12.2-v3
   (2026-07-28) — `networking.md`, `architecture.md`, `dart.md`, `flutter.md`,
   `android.md`
 
@@ -776,7 +778,7 @@ L-w4) are documentation corrections to `protocol-v1.md`, not code.
 - **Both sides cited**: every protocol finding (H4, H5, W1–W3, L-w1, L-w2,
   L-w4, and L-w5)
   carries the daemon emit site and the app consume site.
-- **Standards**: `/home/mac/standards/mobile` v3.12.2-v3 (2026-07-28), applied
+- **Standards**: `/home/<user>/standards/mobile` v3.12.2-v3 (2026-07-28), applied
   per the development-standards workflow — `networking.md`, `architecture.md`,
   `dart.md`, `flutter.md`, `android.md`.
 

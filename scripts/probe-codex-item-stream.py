@@ -17,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path("/home/mac/gitrepos/magic-cli-remote")
+REPO = Path(__file__).resolve().parents[1]
 OUT_DIR = REPO / "internal" / "provider" / "codex" / "testdata" / "codex-spike-0.145.0"
 OUT_PATH = OUT_DIR / "item-stream.json"
 CODEX_BIN = os.environ.get("CODEX_BIN", "codex")

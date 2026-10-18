@@ -10,6 +10,8 @@ informed: [Operators of 8 GiB mesh hosts, Android phone clients]
 
 # Keep long-running agent work alive across screen lock, transport blips, and host pressure
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 ## Context and Problem Statement
 
 Overnight on 2026-08-15 the Android phone left a **kilo** session running a
@@ -300,7 +302,7 @@ Implication, one sentence: **the only official levers that see kilo / flutter / 
 
 Source: `journalctl --user -u mcremote`, kilo engine logs under
 `~/.local/share/kilo/log/`, session
-`18464783-7ccd-4534-bec6-d5941f1daa8f` (kilo, cwd=`/home/mac`,
+`18464783-7ccd-4534-bec6-d5941f1daa8f` (kilo, cwd=`/home/<user>`,
 `agent_session_id=ses_ffca69fbaffeZCC2mGKG8MMiMq`, owner phone
 `a4d0b5ac-4081-4adc-a7e3-4ab0f83f68c3`).
 
@@ -330,7 +332,7 @@ Host at assessment time (same failure mode still live):
 | `mcremote.service` `MemoryCurrent` / `memory.peak` | **5.8 GiB / 6.4 GiB** |
 | `MemoryHigh` / `MemoryMax` | infinity / infinity |
 | Top RSS in the unit | kilo serve 652 MiB, flutter frontend_server 624 MiB (kilo grandchild), opencode 418 MiB, flutter_tester 278 MiB, grok ×2, goose serve |
-| kilo session meta | still `status: running`, cwd `/home/mac` |
+| kilo session meta | still `status: running`, cwd `/home/<user>` |
 | `background_process` in mcremote | **zero references** in Go or Dart |
 
 ### Why each symptom happened

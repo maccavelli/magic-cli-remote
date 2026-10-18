@@ -1,5 +1,7 @@
 # MADR 0058 — Implementation plan: macOS launchd service (user LaunchAgent)
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 Companion to [MADR 0058](./0058-MADR-macos-launchd-service-hardening.md).
@@ -149,14 +151,14 @@ macOS:   LaunchAgent in gui/$UID              → runs while user GUI session ex
 ### 1.3 Success output (macOS)
 
 ```text
-ExecStart binary:  /Users/mac/.local/bin/mcremote
-Plist:             /Users/mac/Library/LaunchAgents/com.magiccliremote.mcremote.plist
+ExecStart binary:  /Users/<user>/.local/bin/mcremote
+Plist:             /Users/<user>/Library/LaunchAgents/com.magiccliremote.mcremote.plist
 Label:             com.magiccliremote.mcremote
 Scope:             launchd-agent (session — stops on logout)
 Enabled:           yes (launchctl enable gui/501/…)
 Started:           yes (bootstrap + kickstart)
-Config:            /Users/mac/.config/mcremote/config.yaml
-Logs:              /Users/mac/Library/Logs/mcremote/
+Config:            /Users/<user>/.config/mcremote/config.yaml
+Logs:              /Users/<user>/Library/Logs/mcremote/
 Linger:            n/a on macOS (LaunchAgent is session-bound; no sudo system daemon)
 
 Note: setup-service does not install the binary.

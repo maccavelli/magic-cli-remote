@@ -1,5 +1,7 @@
 # MADR 0050 — Implementation plan: grok CLI surface drift
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 Companion to [MADR 0050](./0050-MADR-grok-cli-surface-drift.md). Read that
@@ -18,7 +20,7 @@ D1–D5. This is the build order, keyed to source as of `4e8e7e3` and to grok
 - **Date**: 2026-07-29
 - **Scope**: `internal/provider/grok`, `internal/provider/acpagent/config.go`,
   `internal/config`, `docs/guides/config.md`. No protocol change, no mobile change.
-- **Standards**: `/home/mac/standards/go` — `testing.md` (read first: D2 turns
+- **Standards**: `/home/<user>/standards/go` — `testing.md` (read first: D2 turns
   on the difference between asserting our own argv and executing the binary)
 
 ---

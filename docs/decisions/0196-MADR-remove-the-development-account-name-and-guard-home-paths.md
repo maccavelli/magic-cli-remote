@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-17
 decision-makers: Project Owner
 consulted: none
@@ -20,7 +20,8 @@ A read-only survey on 2026-10-17 found a real account name in tracked files. The
 user segment of every home-directory path (`/home/<seg>`, `/Users/<seg>`, `C:\Users\<seg>`) in
 `git ls-files`.
 
-* **One account name appears 104 times, in 28 files.** It is the account on a development host,
+* **One account name appears 104 times, in ~~28~~ 37 files** (corrected 2026-10-17; see the
+  amendment of that date). It is the account on a development host,
   written here as `<dev-account>`. 0109's probe
   evidence shows it as the Linux test host's codex install path, for example. Where it appears:
   * Go tests (`internal/cli/service/setup_test.go`, `plist_render_test.go`) and Dart tests
@@ -32,7 +33,8 @@ user segment of every home-directory path (`/home/<seg>`, `/Users/<seg>`, `C:\Us
     any other checkout.
   * Nineteen records (15 under `docs/`, 4 under `apps/mobile/docs/`), in probe evidence and as a
     "standards" path (`/home/<dev-account>/standards/...`).
-* **No other real identifier was found.** The other accounts and host names known to the owner do
+* ~~**No other real identifier was found.**~~ (Corrected 2026-10-17: a test machine's account,
+  `alpine`, is in two reports. See the amendment of that date.) The other accounts and host names known to the owner do
   not appear in tracked files. Every other segment in the survey is a placeholder: `user` (642),
   `alice` (36), `REPLACE_ME` (27), `dev` (22), `me` (15), and a tail of test values (`x`, `proj`,
   `sentinel`, `testuser`, `Zoë` and others).
@@ -85,8 +87,11 @@ it.
   checkout.
 * **R3. A guard over every tracked file.** `TestTrackedFilesUseOnlyPlaceholderHomes`, in the
   `internal` package beside `TestGoModRequiresTaggedACPDirectly`:
-  * It lists tracked files with `git ls-files`, and fails if `git` is missing or lists nothing, so
-    it cannot pass by reading nothing.
+  * ~~It lists tracked files with `git ls-files`, and fails if `git` is missing or lists nothing,
+    so it cannot pass by reading nothing.~~ It reads the tracked-file list from the git index
+    (`.git/index`, versions 2–4) and spawns no process, because MADR 0147 D11 forbids a test
+    resolving `git` from `PATH`. It fails if the index is missing, malformed or empty, so it
+    cannot pass by reading nothing. (Amended 2026-10-17, PLAN Deviation 2.)
   * It reads each UTF-8 text file. It extracts the user segment of every `/home/<seg>`,
     `/Users/<seg>` and `C:\Users\<seg>` path, raw or JSON-escaped. The segment ends at a
     separator, whitespace, quote, bracket or `.`.
@@ -121,9 +126,11 @@ it.
 * The guard passes on the tree. On a scratch copy it fails for each of:
   * a tracked file with a non-placeholder segment, naming the file, line and segment;
   * a JSON-escaped `C:\\Users\\<seg>` form;
-  * a `git ls-files` that lists nothing.
+  * ~~a `git ls-files` that lists nothing~~ an index with no entries, and a missing index
+    (Deviation 2).
 * Every test that used `<dev-account>` passes with `user`, including `make preflight` for the Dart files.
-* `make ci-windows` passes, so the guard's `git` use and path handling work on Windows.
+* `make ci-windows` passes, so the guard's ~~`git` use~~ index reading and path handling work on
+  Windows.
 
 ## Pros and Cons of the Options
 
@@ -160,4 +167,32 @@ it.
   paths in the wire fixtures, which R3 does not.
 * The PLAN is
   [0196-PLAN-remove-the-development-account-name-and-guard-home-paths.md](0196-PLAN-remove-the-development-account-name-and-guard-home-paths.md).
-  Nothing is implemented until the owner accepts an option and approves the PLAN.
+* **Accepted 2026-10-17.** The owner accepted the chosen option and approved the PLAN ("committed,
+  proceed", after the records were committed as `08470799`).
+
+## Amendment — 2026-10-17: the survey under-counted the files
+
+**Status: accepted** (owner: "Extend to all flagged"). Found in PLAN H1, when the guard ran on the
+tree.
+
+* **The count.** The guard reports 108 hits in 40 files.
+  * 104 are on the development account, in **37 files**, not 28. The 104 was right. The file list
+    came from a `git grep -E '…(/|\b)'`, and this host's `git grep` does not support `\b`. So it
+    missed every path that ends just after the account name, such as a `cwd` value in quotes.
+  * The 9 files it missed:
+    * one product file, a comment in `apps/mobile/lib/features/chat/chat_screen.dart`;
+    * seven more Dart tests;
+    * one record, `0089-MADR-long-running-session-stability.md`.
+  * The guard's other 4 hits were `alpine` (2) and this record's PLAN (2), below.
+  * The question put to the owner said 39 and 42 files. The replacement script's per-file totals
+    showed 37 and 40, and these are the corrected numbers. The decision does not depend on them.
+* **A second account.** `alpine` is in `0098-REPORT-install-verification-sweep.md` and
+  `0099-REPORT-reverification.md`, as the home of `.local/bin/mcremote`. It was a test machine's
+  account. The PLAN's own rule (H1.2) replaces a real account rather than allowlisting it, and the
+  owner confirmed that. The survey listed it as a placeholder by mistake.
+* **The guard's own record.** 0196's PLAN wrote H3's planted inputs with a non-placeholder name,
+  which the guard reports like any other. Those examples now use an angle-bracket name.
+* **Decision.** R1 covers every file the guard flags. The guard is the authority on scope, not the
+  survey. Nothing else in R1–R5 changes.
+* **The lesson.** A file list from one regex was trusted without a check that could have failed.
+  The guard, written first and run on the real tree, was that check, and it found the gap.

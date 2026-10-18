@@ -18,9 +18,9 @@ import (
 func TestRenderUnit(t *testing.T) {
 	body, err := service.RenderUnit(service.Options{
 		UnitName:   "mcremote",
-		Binary:     "/home/mac/.local/bin/mcremote",
-		ConfigPath: "/home/mac/.config/mcremote/config.yaml",
-		DataDir:    "/home/mac/.local/share/mcremote",
+		Binary:     "/home/user/.local/bin/mcremote",
+		ConfigPath: "/home/user/.config/mcremote/config.yaml",
+		DataDir:    "/home/user/.local/share/mcremote",
 		ListenHost: "0.0.0.0",
 		ListenPort: 7531,
 		LogLevel:   "info",
@@ -34,9 +34,9 @@ func TestRenderUnit(t *testing.T) {
 		"[Unit]",
 		"[Service]",
 		"[Install]",
-		"ExecStart=/home/mac/.local/bin/mcremote serve",
-		"--config /home/mac/.config/mcremote/config.yaml",
-		"--data-dir /home/mac/.local/share/mcremote",
+		"ExecStart=/home/user/.local/bin/mcremote serve",
+		"--config /home/user/.config/mcremote/config.yaml",
+		"--data-dir /home/user/.local/share/mcremote",
 		"--listen-host 0.0.0.0",
 		"--listen-port 7531",
 		"WantedBy=default.target",
@@ -78,16 +78,16 @@ func TestRenderUnitMcrelay(t *testing.T) {
 	body, err := service.RenderUnit(service.Options{
 		Product:    "mcrelay",
 		UnitName:   "mcrelay",
-		Binary:     "/home/mac/.local/bin/mcrelay",
-		ConfigPath: "/home/mac/.config/mcrelay/config.yaml",
+		Binary:     "/home/user/.local/bin/mcrelay",
+		ConfigPath: "/home/user/.config/mcrelay/config.yaml",
 		PrintOnly:  true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"ExecStart=/home/mac/.local/bin/mcrelay serve",
-		"--config /home/mac/.config/mcrelay/config.yaml",
+		"ExecStart=/home/user/.local/bin/mcrelay serve",
+		"--config /home/user/.config/mcrelay/config.yaml",
 		"KillMode=mixed",
 		"Restart=always",
 		"RestartSec=5",

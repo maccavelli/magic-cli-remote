@@ -31,7 +31,7 @@ class _ModelClient extends McremoteClient {
   Future<SessionListSnapshot> listSessionSnapshot() async =>
       SessionListSnapshot(
         sessions: [
-          SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/mac'),
+          SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/user'),
         ],
         complete: true,
       );

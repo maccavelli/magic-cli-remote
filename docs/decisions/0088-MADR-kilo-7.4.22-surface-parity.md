@@ -8,6 +8,8 @@ consulted: none
 
 # Pin Kilo known-good to 7.4.22 and close the session-loop gaps that release added
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 ## Context and Problem Statement
 
 [0075](./0075-MADR-kilo-cli-provider.md) shipped the Kilo provider against
@@ -16,7 +18,7 @@ fixed three live regressions on **7.4.22** but its D6 left
 `KnownGoodVersion = "7.4.20"`. That pin is the contract for “every wire
 shape in `internal/provider/kilo` was live-probed.” Leaving it on a
 release the host no longer runs is not acceptable: the engine on PATH
-is 7.4.22 (`/home/mac/.local/bin/kilo`), npm `@kilocode/cli@7.4.22`
+is 7.4.22 (`/home/<user>/.local/bin/kilo`), npm `@kilocode/cli@7.4.22`
 published 2026-08-13, and JetBrains already pins Core 7.4.22.
 
 This record asks: **what is the full 7.4.22 surface (CLI, HTTP, SSE,
@@ -166,7 +168,7 @@ Explicitly not in this pin: D7, D8, D10, D11.
 
 | Item | Result |
 | --- | --- |
-| Binary | `/home/mac/.local/bin/kilo` → 7.4.22 |
+| Binary | `/home/<user>/.local/bin/kilo` → 7.4.22 |
 | Health | `GET /global/health` → `{"healthy":true,"version":"7.4.22"}` |
 | OpenAPI | `GET /doc` OpenAPI 3.1.0 title `kilo`, **256** paths (**+13** vs 7.4.20 spike 243), **681** schemas (spike 453) |
 | Paths removed | **0** |

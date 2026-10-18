@@ -9,6 +9,8 @@ informed: none
 
 # Filter Kilo session chrome on the live wire and decode durable permission frames
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 ## Context and Problem Statement
 
 The Kilo CLI provider shipped in
@@ -184,7 +186,7 @@ Map SSE `session.diff` onto a new protocol event or a tool card.
 
 | Item | Result |
 | --- | --- |
-| Binary | `/home/mac/.local/bin/kilo` → 7.4.22 |
+| Binary | `/home/<user>/.local/bin/kilo` → 7.4.22 |
 | 0075 pin | `KnownGoodVersion = "7.4.20"` |
 | 7.4.20 spike (still authoritative for the spinner) | `internal/provider/kilo/testdata/kilo-spike-7.4.20/sse-or.raw` lines 31–45: `text` is `⠋/⠙/⠹ Initializing snapshot…`, `synthetic: true`, `metadata: {"kilocode.lifecycle":"transient"}` |
 | 0075 filter as shipped | nested `metadata.kilocode.lifecycle` only — **does not match** the spike |

@@ -1,5 +1,7 @@
 # MADR 0050: Grok CLI surface drift — seven dead config options
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD060 -->
 
 - **Status**: **Implemented** (2026-07-29), commits `901923c` (argv), `4ee9c72`
@@ -12,7 +14,7 @@
   surface), `internal/config`, `docs/guides/config.md`. No protocol change; no mobile
   change.
 - **Measured against**: grok **0.2.114** (`0c78503879`, stable), installed at
-  `/home/mac/.grok/bin/grok`, on this development host
+  `/home/<user>/.grok/bin/grok`, on this development host
 - **Related**:
   - [MADR 0038](./0038-MADR-grok-acp-parity-assessment.md) /
     [MADR 0039](./0039-MADR-grok-acp-parity.md) — the parity work that added

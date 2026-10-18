@@ -1,5 +1,7 @@
 # Findings — sweep 0098, Session A (Alpine amd64, 2026-08-18)
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 ## F1 — `--uninstall` and upgrade leave an orphaned daemon on s6 hosts (HIGH)
 
 `scripts/install.sh:svc_is_active()` probes an s6 service with:
@@ -24,7 +26,7 @@ $ sh install.sh --uninstall      -> exit 0, "stopping any running service…"
 $ ls ~/.local/bin/               -> empty (binaries removed)
 $ ps aux | grep mcremote         -> 2515 still running
 $ ls -l /proc/2515/exe
-  /proc/2515/exe -> /home/alpine/.local/bin/mcremote (deleted)
+  /proc/2515/exe -> /home/<user>/.local/bin/mcremote (deleted)
 ```
 
 The `(deleted)` inode is exactly the failure the code comments say the

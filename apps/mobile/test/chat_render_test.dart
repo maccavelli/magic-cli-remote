@@ -38,7 +38,7 @@ class _MetaClient extends _FakeClient {
   @override
   Future<SessionListSnapshot> listSessionSnapshot() async =>
       SessionListSnapshot(
-        sessions: [SessionMeta(id: 's1', provider: 'grok', cwd: '/home/mac')],
+        sessions: [SessionMeta(id: 's1', provider: 'grok', cwd: '/home/user')],
         complete: true,
       );
 }
@@ -52,7 +52,7 @@ class _ClosedMetaClient extends _FakeClient {
           SessionMeta(
             id: 's1',
             provider: 'grok',
-            cwd: '/home/mac',
+            cwd: '/home/user',
             live: false,
             status: 'closed',
           ),
@@ -86,7 +86,7 @@ class _OpencodeMetaClient extends _FakeClient {
   Future<SessionListSnapshot> listSessionSnapshot() async =>
       SessionListSnapshot(
         sessions: [
-          SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/mac'),
+          SessionMeta(id: 's1', provider: 'opencode', cwd: '/home/user'),
         ],
         complete: true,
       );
@@ -99,7 +99,7 @@ class _KiloMetaClient extends _FakeClient {
   @override
   Future<SessionListSnapshot> listSessionSnapshot() async =>
       SessionListSnapshot(
-        sessions: [SessionMeta(id: 's1', provider: 'kilo', cwd: '/home/mac')],
+        sessions: [SessionMeta(id: 's1', provider: 'kilo', cwd: '/home/user')],
         complete: true,
       );
 }
@@ -811,9 +811,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // "grok /home/mac" — provider label first, then the working directory.
+    // "grok /home/user" — provider label first, then the working directory.
     expect(
-      find.textContaining('grok /home/mac', findRichText: true),
+      find.textContaining('grok /home/user', findRichText: true),
       findsOneWidget,
     );
   });

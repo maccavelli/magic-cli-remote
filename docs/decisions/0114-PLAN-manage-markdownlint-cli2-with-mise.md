@@ -10,6 +10,8 @@ target-milestone: "Immediate user-environment setup"
 
 # Plan: Install and pin markdownlint-cli2 with mise
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 ## Executive Summary & Goal
 
 * **Associated Decision Record:**
@@ -168,16 +170,16 @@ Executed on 2026-08-24 after explicit owner approval.
 
 * `mise use --global --pin --yes markdownlint-cli2@latest`: installed `markdownlint-cli2@0.23.2` (86 npm packages), wrote `mise ~/.config/mise/config.toml tools: markdownlint-cli2@0.23.2`.
 * Config entry (`~/.config/mise/config.toml` line 12): `markdownlint-cli2 = "0.23.2"` — concrete version, not `latest`. Not hand-edited.
-* Executable path: `/home/mac/.local/share/mise/installs/markdownlint-cli2/0.23.2/node_modules/.bin/markdownlint-cli2`.
+* Executable path: `/home/<user>/.local/share/mise/installs/markdownlint-cli2/0.23.2/node_modules/.bin/markdownlint-cli2`.
 
 **Phase 3 — Verification**
 
 | Check | Result |
 | --- | --- |
 | `mise ls markdownlint-cli2` | `markdownlint-cli2  0.23.2  ~/.config/mise/config.toml  0.23.2` — one active installed version. |
-| `mise which markdownlint-cli2` | `/home/mac/.local/share/mise/installs/markdownlint-cli2/0.23.2/node_modules/.bin/markdownlint-cli2` — beneath mise-managed user data. |
+| `mise which markdownlint-cli2` | `/home/<user>/.local/share/mise/installs/markdownlint-cli2/0.23.2/node_modules/.bin/markdownlint-cli2` — beneath mise-managed user data. |
 | `markdownlint-cli2 --version` | Prints `markdownlint-cli2 v0.23.2 (markdownlint v0.41.1)`; exit code `0`. Observed quirk: v0.23.2 prints the banner and then continues as a normal run, treating `--version` as an extra glob — in the repo root this lints 79 files (574 pre-existing issues across 39 files) and still exits `0`; in an empty directory it reports `0 issues in 0 files` and exits `0`. |
-| `bash -lc 'command -v markdownlint-cli2'` | `/home/mac/.local/share/mise/shims/markdownlint-cli2` — resolves through a mise shim with no manual PATH modification. |
+| `bash -lc 'command -v markdownlint-cli2'` | `/home/<user>/.local/share/mise/shims/markdownlint-cli2` — resolves through a mise shim with no manual PATH modification. |
 | Config pin | `~/.config/mise/config.toml` contains `markdownlint-cli2 = "0.23.2"`. |
 | Repository isolation | `git status --short` shows only the pre-existing `docs/0109` modification and the untracked 0114 pair; `git diff --check` exits `0`; no `mise.toml`, `package.json`, lockfile, or `node_modules` introduced. `.markdownlint-cli2.jsonc` unchanged; its MADR/PLAN exclusions appeared verbatim in the lint `Finding:` line. |
 

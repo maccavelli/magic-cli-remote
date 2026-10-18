@@ -33,7 +33,7 @@ class _ThinkingClient extends McremoteClient {
           SessionMeta(
             id: 's1',
             provider: provider,
-            cwd: '/home/mac',
+            cwd: '/home/user',
             thinkingLevel: 'medium',
             thinkingMutability: mutability,
           ),

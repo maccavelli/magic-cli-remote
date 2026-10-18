@@ -1,5 +1,7 @@
 # MADR 0046: Post-Remediation Mobile Debug Pass — Findings and Fix Decisions
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../../../../docs/decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD060 -->
 
 - **Date**: 2026-07-28
@@ -15,7 +17,7 @@
   [plan](./0045-PLAN-mobile-app-hardening-audit.md),
   [MADR 0014](../../../../docs/decisions/0014-MADR-sse-reconnect-resync-decision.md),
   [MADR 0044](../../../../docs/decisions/0044-MADR-auto-approve-modes.md)
-- **Standards applied**: `/home/mac/standards/mobile` v3.12.2-v3 (2026-07-28) —
+- **Standards applied**: `/home/<user>/standards/mobile` v3.12.2-v3 (2026-07-28) —
   `networking.md`, `architecture.md`, `dart.md`, `flutter.md`, `android.md`
 - **Companion plan**: [0046-PLAN-mobile-debug-pass.md](./0046-PLAN-mobile-debug-pass.md)
 

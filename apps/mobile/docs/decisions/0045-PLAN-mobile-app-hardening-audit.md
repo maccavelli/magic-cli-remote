@@ -1,5 +1,7 @@
 # MADR 0045 — Implementation plan: mobile app hardening audit
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../../../../docs/decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 Companion to [MADR 0045](./0045-MADR-mobile-app-hardening-audit.md). Read that
@@ -12,7 +14,7 @@ current source locations as of 2026-07-28 (`ff4b2c1`).
 - **Scope**: `apps/mobile` (41 production Dart files, 33 tests,
   Flutter/Android/Linux scaffolding) + daemon work for H5 title persistence and
   H8 authoritative pending-ask reconciliation + protocol docs
-- **Standards**: `/home/mac/standards/mobile` v3.12.2-v3 — `networking.md`,
+- **Standards**: `/home/<user>/standards/mobile` v3.12.2-v3 — `networking.md`,
   `architecture.md`, `dart.md`, `flutter.md`, `android.md`
 - **Related**: [MADR 0014](../../../../docs/decisions/0014-MADR-sse-reconnect-resync-decision.md),
   [MADR 0015](../../../../docs/decisions/0015-MADR-mcrelay-transport-security.md),

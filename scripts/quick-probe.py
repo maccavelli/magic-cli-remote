@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path("/home/mac/gitrepos/magic-cli-remote")
+REPO = Path(__file__).resolve().parents[1]
 CODEX_BIN = os.environ.get("CODEX_BIN", "codex")
 APP_SERVER = [CODEX_BIN, "app-server", "--listen", "stdio://",
               "-c", 'approval_policy="never"', "-c", 'sandbox_mode="read-only"']

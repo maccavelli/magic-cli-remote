@@ -9,6 +9,8 @@ informed: none
 
 # Atomic writes fail on Windows whenever anything holds the destination open
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 ## Context and Problem Statement
 
 `fsutil.WriteFileAtomic` ends in `os.Rename(tmp, path)`. On POSIX that
@@ -81,7 +83,7 @@ internal/fsutil/atomic.go:50            the function itself
 
 **W3 does not reproduce.** `pathWithinAny`
 (`internal/provider/codex/execution.go:586`) was probed against every Windows
-path form that could plausibly evade it, with root `C:\Users\mac\proj`:
+path form that could plausibly evade it, with root `C:\Users\<user>\proj`:
 
 | Case | `IsAbs` | within |
 | --- | --- | --- |
@@ -102,8 +104,8 @@ path form that could plausibly evade it, with root `C:\Users\mac\proj`:
 No form is accepted that should be rejected. The prefix case (`projX`) is
 correct, so there is no string-prefix bug; case-insensitivity works, so a
 Windows path is not rejected for its casing; and `filepath.Clean` collapses
-`..` even under a `\\?\` prefix (`\\?\C:\Users\mac\proj\..\secret` →
-`\\?\C:\Users\mac\secret`), so the extended-length form cannot smuggle an
+`..` even under a `\\?\` prefix (`\\?\C:\Users\<user>\proj\..\secret` →
+`\\?\C:\Users\<user>\secret`), so the extended-length form cannot smuggle an
 escape.
 
 ### Findings

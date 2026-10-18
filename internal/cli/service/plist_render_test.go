@@ -16,7 +16,7 @@ import (
 func TestRenderPlistMinimal(t *testing.T) {
 	body, err := service.RenderPlist(service.Options{
 		UnitName: "mcremote",
-		Binary:   "/Users/mac/.local/bin/mcremote",
+		Binary:   "/Users/user/.local/bin/mcremote",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestRenderPlistMinimal(t *testing.T) {
 	for _, want := range []string{
 		"<key>Label</key>",
 		"<string>com.magiccliremote.mcremote</string>",
-		"<string>/Users/mac/.local/bin/mcremote</string>",
+		"<string>/Users/user/.local/bin/mcremote</string>",
 		"<string>serve</string>",
 		"<key>RunAtLoad</key>",
 		"<true/>",
@@ -151,7 +151,7 @@ func TestRenderPlistMcrelayPATH(t *testing.T) {
 func TestRenderPlistConfigArg(t *testing.T) {
 	body, err := service.RenderPlist(service.Options{
 		Binary:     "/usr/local/bin/mcremote",
-		ConfigPath: "/Users/mac/.config/mcremote/config.yaml",
+		ConfigPath: "/Users/user/.config/mcremote/config.yaml",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestRenderPlistConfigArg(t *testing.T) {
 	if !strings.Contains(body, "<string>--config</string>") {
 		t.Errorf("missing --config arg:\n%s", body)
 	}
-	if !strings.Contains(body, "<string>/Users/mac/.config/mcremote/config.yaml</string>") {
+	if !strings.Contains(body, "<string>/Users/user/.config/mcremote/config.yaml</string>") {
 		t.Errorf("missing config path:\n%s", body)
 	}
 }
@@ -238,7 +238,7 @@ func TestLaunchdLabelMapping(t *testing.T) {
 func TestRenderPlistMcrelayLabel(t *testing.T) {
 	body, err := service.RenderPlist(service.Options{
 		Product: "mcrelay",
-		Binary:  "/Users/mac/.local/bin/mcrelay",
+		Binary:  "/Users/user/.local/bin/mcrelay",
 	})
 	if err != nil {
 		t.Fatal(err)

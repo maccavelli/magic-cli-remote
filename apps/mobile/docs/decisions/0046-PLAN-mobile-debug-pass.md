@@ -1,5 +1,7 @@
 # MADR 0046 — Implementation plan: post-remediation mobile debug pass
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../../../../docs/decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 Companion to [MADR 0046](./0046-MADR-mobile-debug-pass.md). Read that first:
@@ -13,7 +15,7 @@ locations as of 2026-07-28 (`5322e63`).
 - **Date**: 2026-07-28
 - **Scope**: `apps/mobile` Dart sources and tests; small Go changes for
   L-13/I-2 and a protocol-doc change for I-1. No daemon protocol changes.
-- **Standards**: `/home/mac/standards/mobile` v3.12.2-v3 — `networking.md`,
+- **Standards**: `/home/<user>/standards/mobile` v3.12.2-v3 — `networking.md`,
   `architecture.md`, `dart.md`, `flutter.md`, `android.md`
 - **Related**: [MADR 0045](./0045-MADR-mobile-app-hardening-audit.md) /
   [plan](./0045-PLAN-mobile-app-hardening-audit.md),

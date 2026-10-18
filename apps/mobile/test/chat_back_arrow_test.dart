@@ -51,7 +51,7 @@ class _CodexClient extends McremoteClient {
           SessionMeta(
             id: 's1',
             provider: 'codex',
-            cwd: '/home/mac/some/deep/working/directory',
+            cwd: '/home/user/some/deep/working/directory',
             thinkingLevel: 'medium',
           ),
         ],

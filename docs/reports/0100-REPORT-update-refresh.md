@@ -2,6 +2,8 @@
 
 # 0100 Phase 0 — host confirmation of the update-refresh findings
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 Executed 2026-08-18 on **wonder** (Ubuntu 26.04 LTS, x86_64, systemd 259,
 `mcremote` 0.13.7.1 / `6b7b470`), per
 [0100-PLAN-update-unit-refresh-and-daemon-reload.md](../decisions/0100-PLAN-update-unit-refresh-and-daemon-reload.md) Phase 0.
@@ -120,7 +122,7 @@ caller PATH=/usr/bin:/bin -> Environment=PATH=/usr/local/bin:/opt/homebrew/bin:�
   `mcrelay` is immune — its PATH is a fixed closed set (MADR 0091 D1):
 
 ```text
-Environment=PATH=/home/mac/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/<user>/.local/bin:/usr/local/bin:/usr/bin:/bin
 ```
 
   identical under both callers.
@@ -199,11 +201,11 @@ template shape, then cleared by `--refresh`:
 == 2. inject the 0099 F4a directives ==
    ActiveState=activating SubState=auto-restart NRestarts=0
 Failed to drop capabilities: Operation not permitted
-Failed at step CAPABILITIES spawning /home/mac/.local/bin/mcrelay: Operation not permitted
+Failed at step CAPABILITIES spawning /home/<user>/.local/bin/mcrelay: Operation not permitted
 
 == 3. setup-service --refresh ==
 service definition refreshed: …/mcrelay.service (previous kept at …mcrelay.service.prev)
-warning: the definition runs /home/mac/.local/bin/mcrelay, not this binary (…)
+warning: the definition runs /home/<user>/.local/bin/mcrelay, not this binary (…)
    directive lines in the new unit : 0
    directive lines in .prev        : 2
 

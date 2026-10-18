@@ -1,7 +1,7 @@
 {
   "init": {
     "userAgent": "mcremote_spike/0.145.0 (Ubuntu 26.4.0; x86_64) xterm-256color (mcremote_spike; 0.0.1)",
-    "codexHome": "/home/mac/.codex",
+    "codexHome": "/home/<user>/.codex",
     "platformFamily": "unix",
     "platformOs": "linux"
   },
@@ -102,8 +102,8 @@
         "status": {
           "type": "idle"
         },
-        "path": "/home/mac/.codex/sessions/2026/07/26/rollout-2026-07-26T18-21-49-019f9fa9-6fd1-7633-b2a3-1265c9f50669.jsonl",
-        "cwd": "/home/mac/gitrepos/magic-cli-remote",
+        "path": "/home/<user>/.codex/sessions/2026/07/26/rollout-2026-07-26T18-21-49-019f9fa9-6fd1-7633-b2a3-1265c9f50669.jsonl",
+        "cwd": "/home/<user>/gitrepos/magic-cli-remote",
         "cliVersion": "0.145.0",
         "source": "vscode",
         "canAcceptDirectInput": true,
@@ -132,12 +132,12 @@
       "model": "gpt-5.6-terra",
       "modelProvider": "openai",
       "serviceTier": null,
-      "cwd": "/home/mac/gitrepos/magic-cli-remote",
+      "cwd": "/home/<user>/gitrepos/magic-cli-remote",
       "runtimeWorkspaceRoots": [
-        "/home/mac/gitrepos/magic-cli-remote"
+        "/home/<user>/gitrepos/magic-cli-remote"
       ],
       "instructionSources": [
-        "/home/mac/gitrepos/magic-cli-remote/AGENTS.md"
+        "/home/<user>/gitrepos/magic-cli-remote/AGENTS.md"
       ],
       "approvalPolicy": "on-request",
       "approvalsReviewer": "user",
@@ -174,8 +174,8 @@
           "type": "active",
           "activeFlags": []
         },
-        "path": "/home/mac/.codex/sessions/2026/07/26/rollout-2026-07-26T18-21-34-019f9fa9-363a-7973-bee2-b1a3662dd936.jsonl",
-        "cwd": "/home/mac/gitrepos/magic-cli-remote",
+        "path": "/home/<user>/.codex/sessions/2026/07/26/rollout-2026-07-26T18-21-34-019f9fa9-363a-7973-bee2-b1a3662dd936.jsonl",
+        "cwd": "/home/<user>/gitrepos/magic-cli-remote",
         "cliVersion": "0.145.0",
         "source": "vscode",
         "canAcceptDirectInput": true,
@@ -214,12 +214,12 @@
       "model": "gpt-5.6-terra",
       "modelProvider": "openai",
       "serviceTier": null,
-      "cwd": "/home/mac/gitrepos/magic-cli-remote",
+      "cwd": "/home/<user>/gitrepos/magic-cli-remote",
       "runtimeWorkspaceRoots": [
-        "/home/mac/gitrepos/magic-cli-remote"
+        "/home/<user>/gitrepos/magic-cli-remote"
       ],
       "instructionSources": [
-        "/home/mac/gitrepos/magic-cli-remote/AGENTS.md"
+        "/home/<user>/gitrepos/magic-cli-remote/AGENTS.md"
       ],
       "approvalPolicy": "on-request",
       "approvalsReviewer": "user",
@@ -339,7 +339,7 @@
     "result": {
       "data": [
         {
-          "cwd": "/home/mac/gitrepos/magic-cli-remote",
+          "cwd": "/home/<user>/gitrepos/magic-cli-remote",
           "skills": [
             {
               "name": "...",

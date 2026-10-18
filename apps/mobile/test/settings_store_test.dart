@@ -596,7 +596,7 @@ void main() {
 
     test('seeds from the legacy single last-cwd key', () async {
       SharedPreferences.setMockInitialValues({
-        'last_session_cwd': '/home/mac/old',
+        'last_session_cwd': '/home/user/old',
       });
       final prefs = await SharedPreferences.getInstance();
       final store = SettingsStore(
@@ -605,9 +605,9 @@ void main() {
         allowPlaintextFallback: false,
       );
 
-      expect(await store.getRecentCwds(), ['/home/mac/old']);
-      await store.addRecentCwd('/home/mac/new');
-      expect(await store.getRecentCwds(), ['/home/mac/new', '/home/mac/old']);
+      expect(await store.getRecentCwds(), ['/home/user/old']);
+      await store.addRecentCwd('/home/user/new');
+      expect(await store.getRecentCwds(), ['/home/user/new', '/home/user/old']);
     });
   });
 

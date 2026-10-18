@@ -21,7 +21,7 @@ class _QuietClient extends McremoteClient {
   @override
   Future<SessionListSnapshot> listSessionSnapshot() async =>
       SessionListSnapshot(
-        sessions: [SessionMeta(id: 's1', provider: 'codex', cwd: '/home/mac')],
+        sessions: [SessionMeta(id: 's1', provider: 'codex', cwd: '/home/user')],
         complete: true,
       );
 }

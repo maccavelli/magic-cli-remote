@@ -1,5 +1,7 @@
 # MADR 0053 — Implementation plan: grok auto silent arm and mode-path gaps
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 <!-- markdownlint-disable MD013 MD024 MD060 -->
 
 Companion to [MADR 0053](./0053-MADR-grok-auto-mode-silent-arm.md). Read that
@@ -15,7 +17,7 @@ the root-cause analysis, and the finding table F1–F8. This document is the
 - **Scope**: `internal/provider/acpagent` (production + unit tests),
   `internal/provider/grok` (live test only). **No** protocol change, **no**
   mobile change, **no** codex/opencode/goose change.
-- **Standards**: `/home/mac/standards/go` — `concurrency.md` (mutex + channel
+- **Standards**: `/home/<user>/standards/go` — `concurrency.md` (mutex + channel
   claim discipline on `permWaiter`), `testing.md` (table-driven; fail-without
   production change), `logging.md` (structured slog).
 - **Related plans / MADRs**:

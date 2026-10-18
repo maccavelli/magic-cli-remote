@@ -1,5 +1,7 @@
 # 0099 re-verification results (v0.13.5 / v0.13.6)
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](../decisions/0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 Executed 2026-08-18 against **published release artifacts**, one host at a time,
 per [0099-PLAN-installer-service-state-verification.md](../decisions/0099-PLAN-installer-service-state-verification.md) Phase 7.
 All resources torn down; every teardown assertion returned empty.
@@ -26,7 +28,7 @@ running the test — a false positive that cost two attempts):
 
 ```text
 fresh install  -> s6-svstat: up (pid 2975 pgid 2975)
-                  /proc/2975/exe -> /home/alpine/.local/bin/mcremote
+                  /proc/2975/exe -> /home/<user>/.local/bin/mcremote
 --uninstall    -> exit 0, no process with that exe, no (deleted) inode
 ```
 

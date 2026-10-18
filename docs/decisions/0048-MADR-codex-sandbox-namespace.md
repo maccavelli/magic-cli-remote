@@ -1,5 +1,7 @@
 # MADR 0048: Codex sandbox user-namespace failure — auto cannot write
 
+> Account names in paths redacted on 2026-10-17 by [0196-MADR-remove-the-development-account-name-and-guard-home-paths.md](0196-MADR-remove-the-development-account-name-and-guard-home-paths.md).
+
 - **Status**: **Implemented** (software 2026-08-05 via 0070 P3). Probe +
   notices + `sandbox_broken_policy` + mid-turn promotion landed in
   `internal/provider/codex`. Hardware/ops fix remains operator-side
@@ -98,7 +100,7 @@ The chain is: an **unprofiled** process creates a user namespace → AppArmor
 transitions it into the `unprivileged_userns` profile → that profile denies
 `CAP_SYS_ADMIN` → bwrap cannot set up its mounts. The daemon itself runs under
 that profile (`aa-status | grep unprivileged_userns` lists
-`/home/mac/.local/bin/mcremote` and its grok child), and codex reaches bwrap
+`/home/<user>/.local/bin/mcremote` and its grok child), and codex reaches bwrap
 through **node**, which is unprofiled and so transitions.
 
 Two probes look right and are useless — both were tried during this work:
@@ -164,7 +166,7 @@ From a real codex rollout on this repo (2026-07-29), turn context after auto:
 ```text
 approval_policy: never
 sandbox_policy: { type: workspace-write, network_access: false, … }
-workspace_roots: [/home/mac/gitrepos/magic-cli-remote]
+workspace_roots: [/home/<user>/gitrepos/magic-cli-remote]
 permission_profile: write access to the workspace root
 ```
 

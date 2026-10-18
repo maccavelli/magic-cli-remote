@@ -2559,7 +2559,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(title, overflow: TextOverflow.ellipsis),
-                  // "grok /home/mac" — which CLI this session drives, then
+                  // "grok /home/<user>" — which CLI this session drives, then
                   // where. The provider is tinted so it reads as a label,
                   // not part of the path.
                   Text.rich(
