@@ -457,18 +457,7 @@ func Run(ctx context.Context, opts Options) error {
 		adminErrCh <- nil
 	}()
 
-	// WriteTimeout is intentionally unset (0): a global write deadline kills
-	// long-lived WebSocket connections. Per-frame deadlines live in ws.BroadcastEvent.
-	httpServer := &http.Server{
-		Addr:              cfg.Addr(),
-		Handler:           wsServer.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-		// Route net/http's own error lines (TLS handshake failures, accept
-		// errors) through slog so json-log deployments stay parseable.
-		ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-	}
+	httpServer := newHTTPServer(cfg.Addr(), wsServer.Handler(), log)
 
 	identity, err := EnsureTLS(ctx, cfg, log)
 	if err != nil {
@@ -754,5 +743,29 @@ func acpAgentConfig(c config.ACPProviderConfig) acpagent.Config {
 		FSRoots:           c.FSRoots,
 		McpServers:        mcp,
 		AuthMethodID:      c.AuthMethodID,
+	}
+}
+
+// newHTTPServer builds the daemon's HTTP server.
+//
+// WriteTimeout is intentionally unset (0): a global write deadline kills
+// long-lived WebSocket connections. Per-frame deadlines live in
+// ws.BroadcastEvent.
+func newHTTPServer(addr string, handler http.Handler, log *slog.Logger) *http.Server {
+	// HTTP/1.1 only, in every TLS mode: the daemon serves WebSocket upgrades
+	// and small GETs, and a nil Protocols with a nil TLSNextProto made
+	// ServeTLS offer h2 as well (MADR 0201 D8, 0073 F-T8).
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	return &http.Server{
+		Protocols:         protocols,
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+		// Route net/http's own error lines (TLS handshake failures, accept
+		// errors) through slog so json-log deployments stay parseable.
+		ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
 }

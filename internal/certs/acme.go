@@ -174,7 +174,16 @@ func EnsureACME(ctx context.Context, opts ACMEOptions) (*ACMEBundle, error) {
 func (a *ACMEBundle) TLSConfig() *tls.Config {
 	cfg := a.magic.TLSConfig()
 	cfg.MinVersion = tls.VersionTLS12
-	cfg.NextProtos = append([]string{"h2", "http/1.1"}, cfg.NextProtos...)
+	// HTTP/1.1 only, first; whatever certmagic adds follows, minus any HTTP/2
+	// (MADR 0201 D8, 0073 F-T8). The daemon serves WebSocket upgrades and small
+	// GETs, and the relay strips h2 itself (0091 D10).
+	protos := []string{"http/1.1"}
+	for _, p := range cfg.NextProtos {
+		if p != "h2" && p != "h2c" && p != "http/1.1" {
+			protos = append(protos, p)
+		}
+	}
+	cfg.NextProtos = protos
 	return cfg
 }
 

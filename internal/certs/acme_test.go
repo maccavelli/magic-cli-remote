@@ -115,8 +115,15 @@ func TestACMEBundleTLSConfig(t *testing.T) {
 	if cfg.MinVersion != tls.VersionTLS12 {
 		t.Fatalf("MinVersion = %v, want %v", cfg.MinVersion, tls.VersionTLS12)
 	}
-	if len(cfg.NextProtos) == 0 || cfg.NextProtos[0] != "h2" {
-		t.Fatalf("NextProtos = %v, want h2 first", cfg.NextProtos)
+	// The daemon serves HTTP/1.1 only (MADR 0201 D8): http/1.1 first, and
+	// no h2 anywhere in the list.
+	if len(cfg.NextProtos) == 0 || cfg.NextProtos[0] != "http/1.1" {
+		t.Fatalf("NextProtos = %v, want http/1.1 first", cfg.NextProtos)
+	}
+	for _, p := range cfg.NextProtos {
+		if p == "h2" || p == "h2c" {
+			t.Fatalf("NextProtos = %v offers HTTP/2", cfg.NextProtos)
+		}
 	}
 }
 

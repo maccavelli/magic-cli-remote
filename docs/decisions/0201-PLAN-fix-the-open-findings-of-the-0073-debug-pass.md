@@ -569,3 +569,58 @@ check_records.py --check-all, make markdownlint-docs -> exit 0
 The triage report's rows for F3(b), F-T1 (first half), F-T4, F-T5, F-T9 and the F-T3 residual are
 marked when this phase's commit exists (P8).
 
+### P2, 2026-10-18: relay and daemon TLS — complete
+
+Starting commit `589ba066` (P1).
+
+**Each test seen failing first:**
+
+```text
+D7  hub_control_deadline_test.go:78: join 1 never returned: writeControl has no deadline
+D8  tls_alpn_test.go:59: negotiated "h2" with a client offering h2 first, want http/1.1
+D8  acme_test.go:121: NextProtos = [h2 http/1.1 acme-tls/1], want http/1.1 first
+```
+
+D8's first line reproduces, as a unit test, the MADR's measurement on a scratch daemon: a
+self-signed daemon picked `h2`.
+
+**What changed.**
+
+- **D7.** `writeControl` (`internal/relay/hub.go`) writes under `controlWriteTimeout` (10 s, the
+  control ping's bound). A timeout reads as `errHostOffline`, so the join fails with
+  `host_offline`, as any write failure did.
+  - The test wedges a real connection: a writer floods a peer that never reads, until the
+    connection's own write lock is held.
+  - It then requires two joins to return within a second each.
+- **D8.**
+  - The daemon's `http.Server` is built by a new `newHTTPServer` (`internal/daemon/daemon.go`,
+    extracted unchanged first). It sets `Protocols` to HTTP/1 only, so `ServeTLS` no longer adds
+    HTTP/2 in any mode.
+  - `ACMEBundle.TLSConfig` (`internal/certs/acme.go`) offers `http/1.1` first, then whatever
+    certmagic adds, minus any `h2`/`h2c`.
+
+**Deviation in naming only.** The PLAN named a new `TestACMEConfigOffersNoH2`. The existing
+`TestACMEBundleTLSConfig` already asserted `h2` first, which is the very behaviour D8 reverses. So
+that assertion was changed to the decided one: `http/1.1` first, and no HTTP/2 anywhere. It fails
+on the old code (above), rather than a second test sitting beside a contradicting one.
+
+**Planted breaks**, each on a fresh scratch copy. All three failed their test with an assertion:
+
+```text
+D7 no control-write deadline   hub_control_deadline_test.go:78: join 1 never returned
+D8 Protocols left nil          tls_alpn_test.go:59: negotiated "h2" with a client offering h2 first
+D8 ACME offers h2 again        acme_test.go:121: NextProtos = [h2 http/1.1 acme-tls/1], want http/1.1 first
+```
+
+**Gates.**
+
+```text
+make pre-add-check (6 Go files)        -> clean (gofmt, golint, govulncheck)
+go vet ./..., make lint, make staticcheck -> exit 0
+go test -race -count=1 ./...           -> exit 0, 42 packages ok
+make ci-windows (the Windows test host) -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED (certs, daemon, relay ok)
+check_records.py --check-all           -> exit 0
+```
+
+The real-host ALPN check (`openssl s_client`) is P10.
+

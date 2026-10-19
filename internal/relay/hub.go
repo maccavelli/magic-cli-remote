@@ -144,6 +144,11 @@ func (h *hub) register(hostID string, control *websocket.Conn, cancel func()) er
 	return err
 }
 
+// controlWriteTimeout bounds one write on a host's control connection — the
+// same bound as the control ping (MADR 0201 D7). A variable so tests can
+// shorten it.
+var controlWriteTimeout = 10 * time.Second
+
 // writeControl sends a join-plane envelope on the host control connection.
 func (h *hub) writeControl(ctx context.Context, hostID string, env Envelope) error {
 	h.mu.Lock()
@@ -154,7 +159,18 @@ func (h *hub) writeControl(ctx context.Context, hostID string, env Envelope) err
 	}
 	slot.writeMu.Lock()
 	defer slot.writeMu.Unlock()
-	return WriteEnvelope(ctx, slot.control, env)
+	// A stalled control connection must not hold writeMu, and with it every
+	// join for this host, for as long as the phone's request lives (MADR 0201
+	// D7, 0073 F-T7). A timeout reads as the host being offline.
+	wctx, cancel := context.WithTimeout(ctx, controlWriteTimeout)
+	defer cancel()
+	if err := WriteEnvelope(wctx, slot.control, env); err != nil {
+		if wctx.Err() != nil && ctx.Err() == nil {
+			return errHostOffline
+		}
+		return err
+	}
+	return nil
 }
 
 func (h *hub) unregister(hostID string, control *websocket.Conn) {
