@@ -37,8 +37,6 @@ func TestUnsupervisedAdviceIsInstallShs(t *testing.T) {
 		{"system OpenRC", KindOpenRCSystem, envNative, "init",
 			[]string{"OpenRC here runs system services only", "/etc/init.d/mcremote", `command="/b/mcremote"`, "rc-update add mcremote default"},
 			[]string{"user bus"}},
-		{"runit, before S5b", KindRunit, envNative, "runit",
-			[]string{"does not manage runit services yet"}, []string{"user bus"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

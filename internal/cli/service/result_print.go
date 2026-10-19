@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 )
 
 // PrintRefreshResult writes the outcome of a --refresh. Every verdict is a
@@ -48,6 +49,10 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		for _, line := range res.Advice {
 			fmt.Fprintln(out, line)
 		}
+		return
+	}
+	if Kind(res.Scope).isScriptKind() {
+		printScriptResult(out, res, product)
 		return
 	}
 	fmt.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
@@ -163,4 +168,68 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		fmt.Fprintf(out, "Stop:    systemctl --user stop %s\n", res.UnitName)
 		fmt.Fprintf(out, "Disable: systemctl --user disable --now %s\n", res.UnitName)
 	}
+}
+
+// printScriptResult is PrintSetupResult for a runit, s6 or OpenRC user service
+// (MADR 0054 PLAN S5b). Its boot and session wording is install.sh's summary
+// (scripts/install.sh:916-958).
+func printScriptResult(out io.Writer, res Result, product string) {
+	kind := Kind(res.Scope)
+	def := scriptDefFor(kind, res.UnitName, filepath.Dir(filepath.Dir(res.UnitPath)))
+	if kind == KindOpenRCUser {
+		def = scriptDefFor(kind, res.UnitName, filepath.Dir(res.UnitPath))
+	}
+	fmt.Fprintf(out, "Serve binary:      %s\n", res.Binary)
+	fmt.Fprintf(out, "Definition:        %s\n", res.UnitPath)
+	fmt.Fprintf(out, "Scope:             %s (user service)\n", kind)
+	if res.ConfigPath != "" {
+		if res.ConfigCreated {
+			fmt.Fprintf(out, "Config:            %s (default written)\n", res.ConfigPath)
+		} else {
+			fmt.Fprintf(out, "Config:            %s\n", res.ConfigPath)
+		}
+	}
+	if res.Enabled {
+		fmt.Fprintln(out, "Enabled:           yes")
+	} else {
+		fmt.Fprintln(out, "Enabled:           skipped")
+	}
+	if res.Started {
+		fmt.Fprintln(out, "Started:           yes")
+	} else {
+		fmt.Fprintln(out, "Started:           skipped")
+	}
+	switch {
+	case res.SupervisorStarted && kind == KindOpenRCUser:
+		fmt.Fprintln(out, "Supervisor:        started your OpenRC user session for this login")
+		fmt.Fprintln(out, "At boot:           NOT configured unless pam_openrc starts user sessions at login")
+	case res.SupervisorStarted:
+		scanner := "runsvdir"
+		if kind == KindS6 {
+			scanner = "s6-svscan"
+		}
+		fmt.Fprintf(out, "Supervisor:        started %s for this login session (pid %d)\n", scanner, res.SupervisorPID)
+		fmt.Fprintln(out, "At boot:           NOT configured — arrange for your supervisor to start at boot")
+	case kind == KindOpenRCUser:
+		fmt.Fprintln(out, "At boot:           in the user default runlevel (rc-update --user)")
+	default:
+		fmt.Fprintln(out, "Supervisor:        your own, already watching "+def.ScanDir)
+		fmt.Fprintln(out, "At boot:           as your supervisor is started at boot")
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Note: setup-service does not install the binary.")
+	fmt.Fprintln(out, "      Install/update it with: make install")
+	fmt.Fprintln(out)
+	switch kind {
+	case KindRunit:
+		fmt.Fprintf(out, "Status:  sv status %s\n", def.Dir)
+		fmt.Fprintf(out, "Stop:    sv down %s\n", def.Dir)
+	case KindS6:
+		fmt.Fprintf(out, "Status:  s6-svstat %s\n", def.Dir)
+		fmt.Fprintf(out, "Stop:    s6-svc -d %s\n", def.Dir)
+	case KindOpenRCUser:
+		fmt.Fprintf(out, "Status:  rc-service --user %s status\n", res.UnitName)
+		fmt.Fprintf(out, "Stop:    rc-service --user %s stop\n", res.UnitName)
+	}
+	fmt.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
 }

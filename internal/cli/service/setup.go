@@ -121,6 +121,13 @@ type Result struct {
 	NotConfigured bool
 	// Advice is printed when NotConfigured.
 	Advice []string
+	// SupervisorStarted is set when setup started runsvdir or s6-svscan
+	// itself, for this session only; SupervisorPID is its pid.
+	SupervisorStarted bool
+	SupervisorPID     int
+	// written is set once the definition is on disk, so a setup that fails
+	// afterwards still records it and --remove can find it.
+	written bool
 }
 
 type templateData struct {
@@ -293,7 +300,13 @@ func Setup(opts Options) (Result, error) {
 	// and success, and nothing is written: not the definition, not a default
 	// config, not a record (MADR 0054 amendment 4, PLAN S5a).
 	kind := osDefaultKind(installOS)
-	if !opts.PrintOnly {
+	if opts.PrintOnly {
+		// Preview what this host would get; a host with nothing to supervise
+		// previews the OS default.
+		if k := detectKind(); k.installable() {
+			kind = k
+		}
+	} else {
 		kind = detectKind()
 		if !kind.installable() {
 			res.Scope = string(kind)
@@ -333,8 +346,12 @@ func Setup(opts Options) (Result, error) {
 			res.Label = label
 		}
 	case "linux":
-		body, err = render(opts)
-		res.Scope = "systemd-user"
+		if kind.isScriptKind() {
+			body, err = renderScript(kind, opts, nil)
+		} else {
+			body, err = render(opts)
+		}
+		res.Scope = string(kind)
 		res.Label = opts.UnitName
 	case "windows":
 		body, err = renderTaskXML(opts, currentTaskUser())
@@ -365,7 +382,11 @@ func Setup(opts Options) (Result, error) {
 	recorded := opts.UnitName
 	switch installOS {
 	case "linux":
-		res, err = setupSystemd(opts, body, res)
+		if kind.isScriptKind() {
+			res, err = setupScript(kind, opts, body, res)
+		} else {
+			res, err = setupSystemd(opts, body, res)
+		}
 	case "darwin":
 		res, err = setupLaunchdAgent(opts, body, res)
 	case "windows":
@@ -375,6 +396,12 @@ func Setup(opts Options) (Result, error) {
 		return res, fmt.Errorf("setup-service install is only supported on Linux, macOS and Windows (running on %s)", installOS)
 	}
 	if err != nil {
+		if res.written {
+			// The definition exists: record it, so --remove and --refresh
+			// find it after this failure (MADR 0054 PLAN S5b, Deviation 3).
+			_ = recordUnitName(opts.Product, recorded)
+			_ = recordBackend(opts.Product, kind)
+		}
 		return res, err
 	}
 	if err := recordUnitName(opts.Product, recorded); err != nil {
@@ -671,7 +698,15 @@ func Remove(opts Options) (Result, error) {
 	recorded := opts.UnitName
 	switch installOS {
 	case "linux":
-		res, err = removeSystemd(opts)
+		kind, kerr := ResolveBackend(opts.Product)
+		if kerr != nil {
+			return Result{}, kerr
+		}
+		if kind.isScriptKind() {
+			res, err = removeScript(kind, opts)
+		} else {
+			res, err = removeSystemd(opts)
+		}
 	case "darwin":
 		res, err = removeLaunchdAgent(opts)
 	case "windows":
@@ -1308,6 +1343,26 @@ func runCmd(name string, args ...string) error {
 
 // runCmdOutput runs a command capturing combined stdout+stderr (no terminal
 // stream). Used by service control queries (is-active / launchctl print).
+// runCmdEnv is runCmd with extra KEY=VALUE entries, which win over the
+// inherited ones.
+func runCmdEnv(extra []string, name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	var stderr bytes.Buffer
+	cmd := procutil.Command(ctx, name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
+	cmd.Env = append(withUserRuntimeEnv(os.Environ()), extra...)
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return fmt.Errorf("%s %s: %w (%s)", name, strings.Join(args, " "), err, msg)
+		}
+		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return nil
+}
+
 func runCmdOutput(name string, args ...string) (string, error) {
 	return runCmdOutputEnv(nil, name, args...)
 }

@@ -36,11 +36,10 @@ const (
 )
 
 // installable reports whether setup-service writes a definition for k. Every
-// other kind gets advice and exit 0 (MADR 0054 amendment 4). runit, s6 and
-// OpenRC user services join this list in S5b.
+// other kind gets advice and exit 0 (MADR 0054 amendment 4).
 func (k Kind) installable() bool {
 	switch k {
-	case KindSystemdUser, KindLaunchdAgent, KindWindowsTask:
+	case KindSystemdUser, KindLaunchdAgent, KindWindowsTask, KindRunit, KindS6, KindOpenRCUser:
 		return true
 	}
 	return false
@@ -216,10 +215,6 @@ func unsupervisedAdvice(kind Kind, env hostEnvironment, pid1, product, binary, n
 	add := func(s ...string) { lines = append(lines, s...) }
 
 	add("service:  not configured (no supported service manager detected: " + string(kind) + ")")
-	switch kind {
-	case KindRunit, KindS6, KindOpenRCUser:
-		add("          setup-service does not manage " + string(kind) + " services yet")
-	}
 	add("run it:   "+binary+" serve",
 		"background:",
 		"          nohup "+binary+" serve >$HOME/"+product+".log 2>&1 &")

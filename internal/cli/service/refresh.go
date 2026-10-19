@@ -121,6 +121,13 @@ func RefreshUnit(opts Options, ro RefreshOptions) (RefreshResult, error) {
 	}
 	switch osName {
 	case "linux":
+		kind, err := ResolveBackend(opts.Product)
+		if err != nil {
+			return res, err
+		}
+		if kind.isScriptKind() {
+			return refreshScript(kind, opts, ro)
+		}
 		return refreshSystemd(opts, ro)
 	case "darwin":
 		return refreshLaunchd(opts, ro)
@@ -152,7 +159,9 @@ func RestoreUnitBackup(path, backup string) error {
 	if osName == "" {
 		osName = runtime.GOOS
 	}
-	if osName == "linux" {
+	// Only a systemd unit has a manager to reload; a runit, s6 or OpenRC
+	// script is read on its next start.
+	if osName == "linux" && strings.HasSuffix(path, ".service") {
 		if err := runSystemctl("--user", "daemon-reload"); err != nil {
 			return fmt.Errorf("restored %s, but systemctl daemon-reload failed: %w", path, err)
 		}
@@ -423,14 +432,24 @@ func applyExecStart(opts *Options, val string) (string, bool) {
 	if strings.ContainsAny(toks[0][:1], "-@:!+") {
 		return "has an ExecStart= prefix (" + toks[0][:1] + ") that setup-service never writes", false
 	}
+	return applyServeArgv(opts, toks, "ExecStart=")
+}
+
+// applyServeArgv reads a rendered `<binary> serve [flags]` argument list into
+// opts. what names the line it came from, for the reason it gives when it
+// cannot.
+func applyServeArgv(opts *Options, toks []string, what string) (string, bool) {
+	if len(toks) < 2 {
+		return "has an " + what + " too short to be ours", false
+	}
 	opts.Binary = toks[0]
 	if toks[1] != "serve" {
-		return fmt.Sprintf("has an ExecStart= that does not run `serve` (found %q)", toks[1]), false
+		return fmt.Sprintf("has an %s that does not run `serve` (found %q)", what, toks[1]), false
 	}
 	for i := 2; i < len(toks); i++ {
 		flag := toks[i]
 		if i+1 >= len(toks) {
-			return fmt.Sprintf("has an ExecStart= flag %s with no value", flag), false
+			return fmt.Sprintf("has an %s flag %s with no value", what, flag), false
 		}
 		v := toks[i+1]
 		i++
@@ -444,7 +463,7 @@ func applyExecStart(opts *Options, val string) (string, bool) {
 		case "--listen-port":
 			n, err := strconv.Atoi(v)
 			if err != nil || n <= 0 {
-				return fmt.Sprintf("has an ExecStart= --listen-port %q that is not a port", v), false
+				return fmt.Sprintf("has an %s --listen-port %q that is not a port", what, v), false
 			}
 			opts.ListenPort = n
 		case "--log-level":
@@ -452,7 +471,7 @@ func applyExecStart(opts *Options, val string) (string, bool) {
 		case "--log-format":
 			opts.LogFormat = v
 		default:
-			return fmt.Sprintf("has an unrecognised ExecStart= argument %q", flag), false
+			return fmt.Sprintf("has an unrecognised %s argument %q", what, flag), false
 		}
 	}
 	return "", true

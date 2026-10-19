@@ -15,16 +15,31 @@ import (
 )
 
 // fakeStub is one shell stub that stands in for every service-manager binary.
-// It exits with the status in "$FAKE_CFG/<name> <args>", or 0, using shell
-// builtins only, since PATH holds nothing else. It is written and warmed once
-// per test, and each name is a symlink to it, so macOS scans one new file
-// rather than one per probe (MADR 0193).
+// It appends "<name> <args>" to "$FAKE_CFG/calls", then exits with the status
+// in "$FAKE_CFG/<name> <args>", or 0, using shell builtins only, since PATH
+// holds nothing else. It is written and warmed once per test, and each name is
+// a symlink to it, so macOS scans one new file rather than one per probe (MADR
+// 0193).
 func fakeStub(t *testing.T) string {
 	t.Helper()
 	return testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "stub"),
-		`f="$FAKE_CFG/${0##*/} $*"
+		`echo "${0##*/} $*" >> "$FAKE_CFG/calls"
+f="$FAKE_CFG/${0##*/} $*"
 if [ -f "$f" ]; then read code < "$f"; exit "$code"; fi
 exit 0`)
+}
+
+// fakeCalls returns the calls the fakes recorded, in order.
+func fakeCalls(t *testing.T) []string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(os.Getenv("FAKE_CFG"), "calls"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimRight(string(b), "\n"), "\n")
 }
 
 // fakeHost puts the named fakes on an otherwise empty PATH. Each exits with
@@ -154,7 +169,7 @@ func TestDetectEnvironment(t *testing.T) {
 func TestSetupOnAHostWithNothingToSuperviseWritesNothing(t *testing.T) {
 	// Setup checks only the executable bit; the stub is never run here.
 	bin := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "mcremote"), "")
-	for _, kind := range []Kind{KindSystemdBroken, KindOpenRCSystem, KindNone, KindRunit, KindS6, KindOpenRCUser} {
+	for _, kind := range []Kind{KindSystemdBroken, KindOpenRCSystem, KindNone} {
 		t.Run(string(kind), func(t *testing.T) {
 			defer OverrideInstallOS("linux")()
 			defer OverrideDetectedKind(kind)()

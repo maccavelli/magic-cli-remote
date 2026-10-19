@@ -1812,3 +1812,242 @@ Both remote copies were removed, checked with `test -e`.
 - `internal/cli/setup_service_test.go`;
 - this PLAN.
 
+### S5b, 2026-10-19 — staged for the owner's commit; Deviations 1–3 accepted
+
+**Starting point.** The owner committed S5a as `0b13cb1b` and said "proceed".
+
+**What S5b changed:**
+
+- **`internal/cli/service/supervisor.go` (new).**
+  - **Paths.** `scriptDefFor` locates each definition: `$XDG_DATA_HOME/runit/service/<name>/run`,
+    `$XDG_DATA_HOME/s6/service/<name>/run`, or `$XDG_CONFIG_HOME/rc/init.d/<name>`.
+  - **Backup.** An OpenRC backup goes to `rc/<name>.prev`, outside `init.d`.
+  - **Rendering.** `renderScript` builds each definition from the same options and environment as
+    the systemd unit. Values are quoted with `shq`.
+  - **Recovery.** `recoverScript` reads the options back, and refuses any line it does not write.
+    `refreshScript` is the systemd refresh's counterpart.
+  - **Setup.** `setupScript` follows the unit's rules for a no-op, `--force` and a private mode
+    (`0755`, or `0700` with `--env`). `startScript` and `startOpenRC` enable and start the service.
+  - **Removal.** `removeScript` stops and deletes. `removeAllRetry` retries while a supervisor
+    exits.
+- **`supervisor_unix.go` and `supervisor_windows.go` (new).**
+  - `supervisorWatching` reads `/proc` for this user's `runsvdir` or `s6-svscan` on the
+    directory: `install.sh`'s `pgrep -f`, matched on the argument.
+  - `startSessionSupervisor` starts one through `procutil.Command`, in a new session (`Setsid`).
+  - On Windows both are stubs, never reached.
+- **`detect.go`:**
+  - `installable` adds runit, s6 and `openrc-user`.
+  - S5a Deviation 2's interim "does not manage … yet" line is removed.
+- **`setup.go`:**
+  - `Setup` renders and installs the script kinds.
+  - `--print-only` previews the detected kind when setup installs under it.
+  - `Remove` dispatches on `ResolveBackend`.
+  - A definition already written is recorded even when a later step fails (Deviation 3).
+  - New: `runCmdEnv`.
+- **`refresh.go`:**
+  - `RefreshUnit` dispatches on `ResolveBackend`.
+  - `RestoreUnitBackup` reloads systemd only for a `.service` path.
+  - `applyExecStart`'s argument parsing is factored into `applyServeArgv`, which the script
+    recovery shares.
+- **`backendrecord.go`:** with no record, `ResolveBackend` returns the detected kind when setup
+  installs under it (Deviation 3).
+- **`result_print.go`:** `printScriptResult` says when the supervisor or the OpenRC session runs
+  for this login only, as `install.sh`'s summary did, and gives the control commands.
+
+**The live probes, 2026-10-19.** These were throwaway containers on this Mac's Podman machine,
+which was stopped afterwards. Each was a Linux arm64 build of the working tree, run as a non-root
+`tester` user:
+
+- runit on Void Linux (`ghcr.io/void-linux/void-musl`, with `runit` installed);
+- s6 on Alpine 3.22 (`apk add s6`);
+- OpenRC 0.62.6 on Alpine 3.22, booted with busybox init as PID 1 and no user session.
+
+Each probe ran `setup-service`, then a status check after 8 s, a second `setup-service`, a
+refresh and a removal.
+
+**The first run found three defects:**
+
+1. **runit `--remove`** failed with `unlinkat …/supervise: directory not empty`. `runsv` was
+   still writing into it.
+2. **OpenRC:**
+   - `rc-update --user add` failed: "`default` is not a valid runlevel".
+   - `rc-service --user` failed in `openrc-run.sh` with `ebegin: not found`, `eend: not found` and
+     `service_started: not found`, and in its dependency scan with `shell_var: not found`.
+   - The cause was the init script's top-level `export PATH=…`. `openrc-run` sources the script,
+     so the export replaced the `PATH` OpenRC finds its own helpers on. The daemon started, but
+     OpenRC recorded the start as failed.
+   - A separate exploration container showed that OpenRC user services run only inside a user
+     session. `openrc-user.sh start`, which `pam_openrc` runs at login, creates
+     `~/.config/rc/runlevels/{boot,default,shutdown}` and runs `openrc --user boot` and
+     `openrc --user default`.
+3. **The record.** The OpenRC setup failed after writing its script, so nothing was recorded.
+   `--remove` then fell back to systemd: "systemctl not found in PATH".
+
+**After the fixes** (Deviations 1–3 below), the same probe on all three:
+
+```text
+runit   setup-exit=0  "started runsvdir for this login session"   run: …/runit/service/mcremote: (pid 87) 7s
+        second setup restarted it (pid 117)   refresh: unchanged   remove-exit=0   no serve process   record gone
+s6      setup-exit=0  "started s6-svscan for this login session"   up (pid 45 pgid 45) 8 seconds
+        second setup restarted it (pid 75)    refresh: unchanged   remove-exit=0   no serve process   record gone
+OpenRC  setup-exit=0  "started your OpenRC user session for this login"   * status: started
+        serving: mcremote serve --config …    refresh: unchanged   remove-exit=0   no serve process   record gone
+        0 "not found" lines in the log
+```
+
+- **runit and s6.** In both, the service ran
+  `…/mcremote serve --config /home/tester/.config/mcremote/config.yaml`, which the default config
+  setup wrote.
+- **OpenRC.** The script's `start()` ran `start-stop-daemon … --chdir '/home/tester' --env
+  'HOME=/home/tester' --env 'USER=tester' … --exec '…/mcremote' -- 'serve' '--config' …`.
+- **Exit status.** Each container exited 1 because the probe's last command reads the backend
+  record that `--remove` had just deleted.
+
+**Deviation 1, 2026-10-19 — the OpenRC script passes its environment through
+`start-stop-daemon`. The owner accepted it: "Accept".**
+
+- **What the PLAN said.** S5b step 1 gives the OpenRC script "the same … exported environment".
+- **What was found.** Exporting at the top level of an `openrc-run` script breaks every OpenRC
+  command on it (defect 2 above).
+- **What was done.**
+  - The script exports nothing and changes no directory.
+  - Its `start()` passes each value to `start-stop-daemon --env 'KEY=VALUE'`, and the working
+    directory to `--chdir`. Both options are in OpenRC 0.62.6's `start-stop-daemon --help`.
+  - Recovery reads them back from there.
+  - `TestScriptMatchesTheSystemdUnit` still requires the same environment, directory and command
+    as the systemd unit. It also requires no top-level `export` or `cd` in the OpenRC script.
+  - runit and s6 still export, because their `run` script is executed, not sourced.
+
+**Deviation 2, 2026-10-19 — setup starts the OpenRC user session when none runs. The owner
+decided: "Start the session".**
+
+- **What the PLAN said.** S5b step 3 assumed a running user session.
+- **What was done.** `startOpenRC` does what OpenRC's own `openrc-user.sh start` does at login:
+  - It creates the user's `boot`, `default` and `shutdown` runlevels.
+  - It adds the service to `default`, unless `--no-enable`.
+  - If `$XDG_RUNTIME_DIR/openrc/softlevel` is absent, it runs `openrc --user boot` and
+    `openrc --user default`, and that runlevel starts the service.
+  - In a running session, it runs `rc-service --user <name> restart` instead.
+- **The result line.** "started your OpenRC user session for this login", and "At boot: NOT
+  configured unless pam_openrc starts user sessions at login".
+- **No runtime directory.** If `XDG_RUNTIME_DIR` is unset and cannot be derived, setup fails and
+  names it, because `openrc-user.sh` requires it too.
+
+**Deviation 3, 2026-10-19 — a written definition is recorded even when setup then fails, and
+with no record the backend is the detected one. The owner accepted it: "Accept".**
+
+- **What the PLAN said.** S5a's record was written only after a successful setup. With no record,
+  `ResolveBackend` returned the OS default.
+- **What was found.** Defect 3 above: a failed setup on OpenRC left a definition that `--remove`
+  could not find.
+- **What was done.**
+  - **The record.** `Setup` records the unit name and backend once the definition is on disk,
+    even when a later step fails. This is the `written` flag, set by `setupScript`.
+  - **The fallback.** With no record, `ResolveBackend` returns the detected kind when setup
+    installs under it, and otherwise the OS default.
+  - **Unchanged elsewhere.** On a systemd host the answer is the same either way, and so is the
+    behavior of every install made before S5a.
+- **Tests:** `TestSetupRecordsADefinitionItCouldNotStart` and
+  `TestResolveBackendFallsBackToDetection`.
+
+**Also from the probes, within the PLAN's step 4.**
+
+- **The removal order.** runit and s6 removal now writes a `down` file first, so the scanner
+  cannot restart the service. Then it runs `sv down` and `sv exit` (s6: `s6-svc -d` and
+  `s6-svc -x`), and deletes the directory with `removeAllRetry`, which retries for up to 10 s.
+- **The s6 scanner.** It is told to reap with `s6-svscanctl -an` when one watches.
+
+**Tests, all in `supervisor_unix_test.go` (new):**
+
+- **Rendering:**
+  - `TestScriptMatchesTheSystemdUnit`: the environment, directory and command match the
+    systemd unit, for all three kinds.
+  - `TestScriptRoundTrips`: a binary path with a space and a `'`, and an `--env` value with
+    `'` and `$`, round-trip byte for byte.
+  - `TestRecoverScriptRefusesWhatItDidNotWrite`.
+- **runit and s6 setup:**
+  - `TestSetupRunitStartsASessionSupervisor`, `TestSetupRunitRestartsThroughTheUsersSupervisor`
+    and `TestSetupRunitNoEnableAndNoStart`;
+  - `TestSetupS6RescansAndRestarts` and `TestSetupS6StartsASessionSupervisor`.
+- **OpenRC setup:** `TestSetupOpenRCStartsTheUserSession`,
+  `TestSetupOpenRCRestartsInARunningSession` and `TestSetupOpenRCNoEnable`.
+- **The definition's rules:** `TestSetupScriptFollowsTheUnitsRules` (no-op, `--force`,
+  `0700`).
+- **Refresh, removal and restore:**
+  - `TestRefreshScript`: unchanged; an older script without `XDG_CACHE_HOME` is rewritten with a
+    warning and a backup; a hand edit is kept.
+  - `TestRemoveScript`, with the exact supervisor calls; `TestRemoveAllRetryWaitsForTheSupervisor`;
+    `TestRestoreScriptBackupRunsNoSystemctl`.
+- **The supervisor helpers:** `TestSupervisorWatching`, and
+  `TestStartSessionSupervisorRunsTheScanner`, which runs the real detached start against a fake
+  scanner.
+- **The rest:**
+  - `TestPrintScriptResult` and `TestSetupMcrelayOnRunit`;
+  - `TestSetupRecordsADefinitionItCouldNotStart` and `TestResolveBackendFallsBackToDetection`.
+- **The fakes.** S5a's fake stub also appends each call to `$FAKE_CFG/calls`, so tests assert the
+  exact commands. `/proc` is faked by `fakeProc`, and the detached start by
+  `recordSessionStarts`.
+- **Not covered by a unit test.** That the detached scanner is in a new session (`Setsid`). The
+  live probes showed the scanner outliving `setup-service` and supervising the service.
+
+**Planted breaks, each on its own fresh scratch copy** (`s5b_plants.py`, 21). Each failed a test
+assertion:
+
+```text
+the scripts drop --env                         supervisor_unix_test.go:131: exports map[…] want the unit's Environment= …
+shq does not escape a single quote             supervisor_unix_test.go:129: exec '/opt/my apps/it's/mcremote' 'serve' … (the line the test could not split)
+recovery accepts any line                      supervisor_unix_test.go:190: recoverScript accepted an added line
+a session scanner is started even when one watches   supervisor_unix_test.go:305: started a session runsvdir … although one watches
+--no-enable writes no down file                supervisor_unix_test.go:321: --no-enable wrote no down file
+s6 is not rescanned                            supervisor_unix_test.go:341: calls [s6-svc -r … s6-svc -u …], want [s6-svscanctl -a …]
+OpenRC is not added to the runlevel            supervisor_unix_test.go:401: calls [openrc --user boot openrc --user default] …
+the OpenRC script exports at the top level     supervisor_unix_test.go:127: the OpenRC script exports or changes directory at the top level
+no OpenRC session is started                   supervisor_unix_test.go:401: calls [rc-update … rc-service --user mcremote restart] …
+runit removal neither downs nor exits          supervisor_unix_test.go:621: calls [sv down …], want [sv down … sv exit …]
+removal does not retry                         supervisor_unix_test.go:489: removeAllRetry: file already exists with 1 failures left
+no detection fallback without a record         supervisor_unix_test.go:469: detected runit: ResolveBackend = systemd-user; want runit
+a failed setup records nothing                 supervisor_unix_test.go:446: after the failed setup the backend is systemd-user
+the OpenRC backup sits in init.d               supervisor_unix_test.go:572: the OpenRC backup …/init.d/mcremote.prev is in init.d
+--env leaves the script world-readable         supervisor_unix_test.go:523: a script with --env: mode -rwxr-xr-x; want 0700
+setup writes a systemd unit on runit           supervisor_unix_test.go:262: unit installed at …/mcremote.service, but systemctl daemon-reload failed
+remove ignores the recorded backend            supervisor_unix_test.go:615: Remove: {UnitPath:…/mcremote.service …}
+refresh ignores the recorded backend           supervisor_unix_test.go:543: fresh refresh: {Verdict:none Path:…/mcremote.service …}
+restoring a script reloads systemd             supervisor_unix_test.go:742: restored "old" with 1 systemctl calls; want old and none
+watching ignores the directory                 supervisor_unix_test.go:653: supervisorWatching(runsvdir, …/s6/service) = true, want false
+the session scanner gets no directory          supervisor_unix_test.go:673: the scanner did not run with the scan directory: calls [runsvdir ]
+```
+
+The first version of the "watching" plant left a variable unused. That is a build failure, not a
+failing test, so it was rewritten to compile. `TestSetupScriptFollowsTheUnitsRules` first failed
+on its own setup, which used a different config path. The test was corrected; the code was right.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (11 Go files)                       exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` gave `ci-windows-exit=0`, "ALL SELECTED CHECKS
+  PASSED", 43 `ok`.
+- **The Linux test host:**
+  - The race tests of `internal/cli/...`, `internal/relay` and `internal/updateclient` passed.
+  - The probe logged `detectInit=systemd-user`.
+  - The five unpinned `setup_test.go` tests passed.
+
+Both remote copies were removed.
+
+**Files staged for S5b:**
+
+- `internal/cli/service/`:
+  - `supervisor.go`, `supervisor_unix.go`, `supervisor_windows.go` and `supervisor_unix_test.go`
+    (new);
+  - `setup.go`, `refresh.go`, `result_print.go`, `detect.go` and `backendrecord.go`;
+  - `detect_test.go` and `detect_unix_test.go`;
+- this PLAN.
+

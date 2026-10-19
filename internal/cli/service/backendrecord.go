@@ -30,8 +30,12 @@ func backendRecordPath(product string) (string, error) {
 	return filepath.Join(dir, backendRecordName), nil
 }
 
-// ResolveBackend returns the kind setup-service recorded for product, or this
-// OS's default kind when nothing is recorded.
+// ResolveBackend returns the kind setup-service recorded for product. With no
+// record it returns the kind detected on this host when setup-service installs
+// under it, and otherwise this OS's default. On a systemd host that is the
+// default either way; on a runit, s6 or OpenRC host it is that supervisor,
+// which a setup that failed before recording may have written (MADR 0054 PLAN
+// S5b, Deviation 3).
 func ResolveBackend(product string) (Kind, error) {
 	if product == "" {
 		product = "mcremote"
@@ -46,6 +50,9 @@ func ResolveBackend(product string) (Kind, error) {
 	}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
+		if k := detectKind(); k.installable() {
+			return k, nil
+		}
 		return osDefaultKind(osName), nil
 	}
 	if err != nil {
