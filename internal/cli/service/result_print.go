@@ -44,6 +44,12 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 			product = "mcremote"
 		}
 	}
+	if res.NotConfigured {
+		for _, line := range res.Advice {
+			fmt.Fprintln(out, line)
+		}
+		return
+	}
 	fmt.Fprintf(out, "ExecStart binary:  %s\n", res.Binary)
 	switch res.Scope {
 	case "launchd-agent":

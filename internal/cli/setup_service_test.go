@@ -9,10 +9,12 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 func TestSetupServiceFlagsToOptionsDefaults(t *testing.T) {
@@ -85,6 +87,31 @@ func TestNewSetupServiceCmdProperties(t *testing.T) {
 	}
 	if cmd.Args == nil {
 		t.Fatal("Args must not be nil")
+	}
+}
+
+// TestRunSetupServiceWithNothingToSuperviseSucceeds: setup-service on a host
+// with no service manager it installs under exits 0 and prints the advice, so
+// the installer's after_install hook does not fail a working install (MADR
+// 0054 amendment 4, PLAN S5a).
+func TestRunSetupServiceWithNothingToSuperviseSucceeds(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideDetectedKind(service.KindNone)()
+	t.Setenv("HOME", t.TempDir())
+	// Setup checks only the executable bit; the stub is never run here.
+	bin := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "mcremote"), "")
+	cfgFile = ""
+	f := setupServiceFlags{binary: bin}
+	var buf bytes.Buffer
+	cmd := newSetupServiceCmd()
+	cmd.SetOut(&buf)
+	if err := runSetupService(cmd, f); err != nil {
+		t.Fatalf("setup-service with nothing to supervise: %v, want success", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "service:  not configured (no supported service manager detected: none)") ||
+		!strings.Contains(out, "run it:   "+bin+" serve") {
+		t.Fatalf("output lacks the advice:\n%s", out)
 	}
 }
 

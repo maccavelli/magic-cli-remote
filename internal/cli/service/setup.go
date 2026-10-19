@@ -112,8 +112,15 @@ type Result struct {
 	Domain string
 	// LogDir is the macOS log directory; empty on Linux (journald).
 	LogDir string
-	// Scope is "systemd-user" or "launchd-agent".
+	// Scope is "systemd-user", "launchd-agent" or "windows-task", or, when
+	// NotConfigured, the Kind detected.
 	Scope string
+	// NotConfigured is set when the host has no service manager setup-service
+	// installs under: nothing was written, and Advice says what to do instead.
+	// It is a success (MADR 0054 amendment 4).
+	NotConfigured bool
+	// Advice is printed when NotConfigured.
+	Advice []string
 }
 
 type templateData struct {
@@ -200,10 +207,15 @@ var runLaunchctl = func(args ...string) error {
 }
 
 // OverrideInstallOS sets the OS used by Setup/Remove for tests. Restore with the returned func.
+//
+// It also pins the detected kind to that OS's default (systemd-user on linux),
+// so a test that pins the OS never probes the host's service manager. Use
+// OverrideDetectedKind after it for another kind.
 func OverrideInstallOS(osName string) (restore func()) {
-	prev := installOS
+	prev, prevDetect := installOS, detectKind
 	installOS = osName
-	return func() { installOS = prev }
+	detectKind = func() Kind { return osDefaultKind(osName) }
+	return func() { installOS, detectKind = prev, prevDetect }
 }
 
 // OverrideRunLaunchctl replaces the launchctl runner for tests. Restore with the returned func.
@@ -275,6 +287,20 @@ func Setup(opts Options) (Result, error) {
 	res := Result{
 		Binary:   opts.Binary,
 		UnitName: opts.UnitName,
+	}
+
+	// A host with no service manager setup-service installs under gets advice
+	// and success, and nothing is written: not the definition, not a default
+	// config, not a record (MADR 0054 amendment 4, PLAN S5a).
+	kind := osDefaultKind(installOS)
+	if !opts.PrintOnly {
+		kind = detectKind()
+		if !kind.installable() {
+			res.Scope = string(kind)
+			res.NotConfigured = true
+			res.Advice = unsupervisedAdvice(kind, detectEnvironment(), pid1Comm(), opts.Product, opts.Binary, opts.UnitName)
+			return res, nil
+		}
 	}
 
 	// Ensure default config before rendering so argv can include
@@ -353,6 +379,9 @@ func Setup(opts Options) (Result, error) {
 	}
 	if err := recordUnitName(opts.Product, recorded); err != nil {
 		return res, fmt.Errorf("the service is set up, but its unit name was not recorded: %w", err)
+	}
+	if err := recordBackend(opts.Product, kind); err != nil {
+		return res, fmt.Errorf("the service is set up, but its backend was not recorded: %w", err)
 	}
 	return res, nil
 }
@@ -654,9 +683,19 @@ func Remove(opts Options) (Result, error) {
 	if err != nil {
 		return res, err
 	}
-	// Removing the service removes its record (MADR 0201 D30).
+	// Removing the service removes its records (MADR 0201 D30, 0054 PLAN
+	// S5a); removing another instance leaves them.
+	owned, err := ResolveUnitName(opts.Product)
+	if err != nil {
+		return res, err
+	}
 	if err := forgetUnitName(opts.Product, recorded); err != nil {
 		return res, fmt.Errorf("the service is removed, but its unit name record was not: %w", err)
+	}
+	if owned == recorded {
+		if err := forgetBackend(opts.Product); err != nil {
+			return res, fmt.Errorf("the service is removed, but its backend record was not: %w", err)
+		}
 	}
 	return res, nil
 }
@@ -1270,13 +1309,19 @@ func runCmd(name string, args ...string) error {
 // runCmdOutput runs a command capturing combined stdout+stderr (no terminal
 // stream). Used by service control queries (is-active / launchctl print).
 func runCmdOutput(name string, args ...string) (string, error) {
+	return runCmdOutputEnv(nil, name, args...)
+}
+
+// runCmdOutputEnv is runCmdOutput with extra KEY=VALUE entries, which win over
+// the inherited ones (os/exec uses the last value of a duplicated key).
+func runCmdOutputEnv(extra []string, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	var buf bytes.Buffer
 	cmd := procutil.Command(ctx, name, args...)
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
-	cmd.Env = withUserRuntimeEnv(os.Environ())
+	cmd.Env = append(withUserRuntimeEnv(os.Environ()), extra...)
 	err := cmd.Run()
 	return buf.String(), err
 }

@@ -1677,3 +1677,138 @@ skipped  Publish self-update release
 
 **S4 is complete.** Every step and verification item is met, with Deviations 1–4 recorded above.
 
+### S5a, 2026-10-19 — staged for the owner's commit; Deviations 1 and 2 accepted
+
+**Starting point.** The owner committed the S5 records as `c08b0e5a` and said "proceed".
+
+**What S5a changed:**
+
+- **`internal/cli/service/detect.go` (new).**
+  - `Kind`, with `install.sh`'s `detect_init` values plus `windows-task`.
+  - `detectInit` and `detectLinux` port `install.sh:132-174`: systemctl decides alone when
+    present; then runit; s6 only with `s6-svstat`; OpenRC user or system by
+    `rc-service --user --help`.
+  - `detectEnvironment` ports `:102-123`, and `pid1Comm` reads PID 1's name. The files they read
+    are package variables, for tests.
+  - `unsupervisedAdvice` ports the `advisories` (`:854-893`) and the "not configured" summary
+    (`:952-956`), and adds the root steps for a system-only OpenRC.
+- **`internal/cli/service/backendrecord.go` (new).**
+  - `ResolveBackend` reads `<state_dir>/service-backend`, beside `service-unit`. With no record it
+    returns the OS default, and it refuses a record of a kind setup does not install.
+  - `recordBackend` and `forgetBackend` write and remove it.
+- **`internal/cli/service/setup.go`:**
+  - `Setup` detects the kind before anything is written. A kind it does not install returns
+    `Result{NotConfigured: true, Advice: …}` and no error. It writes no definition, no default
+    config and no record, and runs no `systemctl`.
+  - After a successful setup it records the backend.
+  - `Remove` forgets the backend record when it removes the recorded instance, as it does the
+    unit-name record.
+  - `runCmdOutputEnv` is `runCmdOutput` with extra environment entries.
+  - `OverrideInstallOS` also pins detection to that OS's default kind, so a test that pins the OS
+    never probes the host. `OverrideDetectedKind` sets another kind.
+- **`internal/cli/service/result_print.go`:** a not-configured result prints only the advice.
+- **Tests:**
+  - **`detect_unix_test.go`:**
+    - the detection table against fakes on a `PATH` that holds nothing else, 12 cases;
+    - the derived runtime directory;
+    - the environment table;
+    - setup on six unsupervised kinds writing nothing and printing the advice;
+    - setup recording the backend, and remove forgetting it only for the recorded instance.
+  - **`detect_test.go`:** the advice table, 8 cases, and the backend record.
+  - **`internal/cli/setup_service_test.go`:** `setup-service` exits 0 with the advice.
+  - **The fakes.** All fakes are one shell stub, written and warmed once with
+    `testexec.WriteShellStub` and symlinked under each name. They read their exit codes with shell
+    builtins, since `PATH` holds nothing else. The first version wrote fresh fakes per subtest, and
+    macOS's first-run scan (MADR 0193) made that one test take 13.6 s. It now takes 0.35 s.
+
+**Deviation 1, 2026-10-19 — detection derives the runtime directory. The owner accepted it:
+"Keep it".**
+
+- **What the PLAN says.** S5a step 1 says the probes are `install.sh`'s. `install.sh` calls a
+  host `systemd-user` only when `XDG_RUNTIME_DIR` is set (`:149-152`).
+- **What was done.** With it unset, detection derives `/run/user/<uid>`, as every `systemctl`
+  call in `setup-service` already does (`withUserRuntimeEnv`), and the update path does too
+  (S1 Deviation 1).
+- **Why.** A strict port would turn a cron or `su -` session, which `setup-service` serves today,
+  into `systemd-broken`, with nothing written.
+- **Tested.** `TestDetectLinuxDerivesTheRuntimeDir`, and its plant below.
+
+**Deviation 2, 2026-10-19 — runit, s6 and user OpenRC get the advice until S5b. The owner
+accepted it: "Accept".**
+
+- **What the PLAN says.** S5a step 3 names only `systemd-broken`, `openrc-system` and `none`.
+- **What was done.** Until S5b writes their definitions, the three supervisors S5b adds also get
+  the advice and exit 0. The advice adds "setup-service does not manage <kind> services yet".
+- **What happened before.** On those hosts `setup-service` failed with "systemctl not found in
+  PATH".
+- **When it ends.** S5b replaces it, and no release is cut between S5a and S5b.
+
+**Planted breaks, each on its own fresh scratch copy** (`s5a_plants.py`). Each failed a test
+assertion. Run on the final test layout:
+
+```text
+a broken systemd falls through to runit        detect_unix_test.go:80: detectLinux() = runit, want systemd-broken
+s6 without s6-svstat counts                    detect_unix_test.go:80: detectLinux() = s6, want none
+the runtime dir is not derived                 detect_unix_test.go:109: with a derivable runtime dir, detectLinux() = systemd-broken, want systemd-user
+no show-environment fallback                   detect_unix_test.go:80: detectLinux() = systemd-broken, want systemd-user
+the su story is shown on WSL                   detect_test.go:53: advice has "user bus is unreachable"
+lower-case microsoft reads as WSL1             detect_unix_test.go:145: detectEnvironment() = wsl1, want wsl2
+a host with nothing to supervise fails setup   detect_unix_test.go:169: Setup on systemd-broken: no supported service manager, want success with advice
+setup writes the default config before the check   detect_unix_test.go:176: …/config.yaml exists after a not-configured setup
+setup does not record the backend              detect_unix_test.go:212: backend record = "", open …/service-backend: no such file or directory
+removing another instance forgets the backend  detect_unix_test.go:218: removing another instance removed the backend record
+any recorded backend is accepted               detect_test.go:78: ResolveBackend accepted a record of a kind it does not install: <nil>
+```
+
+The first version of the third plant left a variable unused. That is a build failure, not a
+failing test, so it was rewritten to compile.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (7 Go files)                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**The first gate run failed in `internal/testexec`.**
+
+- **The failure.** `TestRunFixturesAreWarmed` (MADR 0193) found three placeholder binaries
+  written by hand with `#!/bin/sh`.
+- **The fix.** They now come from `testexec.WriteShellStub`. That is the guard's first remedy,
+  and it keeps the fix inside S5a's own test files rather than adding to the guard's allowlist.
+- **What moved.** That stub needs a POSIX shell, so the two `Setup` tests moved from
+  `detect_test.go` into `detect_unix_test.go`.
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host: `make ci-windows` passed**, with "ALL SELECTED CHECKS PASSED" and 43
+  `ok` lines.
+  - The first run, on the tree before that fix, failed for the same two reasons. The `Setup`
+    tests' hand-written binary was "not found or not executable" on Windows, and the guard
+    failed too.
+- **The Linux test host.**
+  - **The race tests** of `internal/cli/...`, `internal/relay` and `internal/updateclient`
+    passed (`linux-tests-exit=0`).
+  - **A scratch probe test, never in the tree,** logged
+    `detectInit=systemd-user detectEnvironment=native pid1Comm=systemd`.
+  - **So the five `setup_test.go` tests that call `Setup` without pinning the OS** detect
+    systemd there, and pass:
+    - `TestSetupWritesUnitWithoutCopyingBinary`, `TestSetupSecretEnvTightensMode` and
+      `TestRemove` were run by name;
+    - `TestSetupRejectsMissingBinary` and `TestSetupRejectsGoRunBinary` passed in the
+      package's race run.
+
+Both remote copies were removed, checked with `test -e`.
+
+**Files staged for S5a:**
+
+- `internal/cli/service/`:
+  - `detect.go` and `backendrecord.go` (new);
+  - `setup.go`, `result_print.go`;
+  - `detect_test.go` and `detect_unix_test.go` (new);
+- `internal/cli/setup_service_test.go`;
+- this PLAN.
+
