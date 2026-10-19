@@ -1701,6 +1701,34 @@ func (m *Manager) OwnerOf(sessionID string) (owner string, found bool) {
 	return rec.OwnerDeviceID, true
 }
 
+// OwnerState says whether a session's owner is known, and if not, why.
+type OwnerState int
+
+const (
+	// OwnerKnown means the session is live or stored; owner is its owner
+	// (empty for an unowned session).
+	OwnerKnown OwnerState = iota
+	// OwnerPurged means the session was deleted on purpose; dropping its late
+	// events is correct.
+	OwnerPurged
+	// OwnerUnknown means there is no live entry, no record, and no delete
+	// tombstone.
+	OwnerUnknown
+)
+
+// OwnerState is [Manager.OwnerOf] with the reason for a miss, so the
+// transport can tell an expected drop (a purged session's stragglers) from an
+// unexplained one (MADR 0201 D3, 0073 F-T1).
+func (m *Manager) OwnerState(sessionID string) (string, OwnerState) {
+	if owner, ok := m.OwnerOf(sessionID); ok {
+		return owner, OwnerKnown
+	}
+	if m.isPurged(sessionID) {
+		return "", OwnerPurged
+	}
+	return "", OwnerUnknown
+}
+
 // visibleTo reports whether deviceID may see a session with the given owner
 // and pending-handoff target. An owned session is visible only to its owner.
 // An unowned session is visible to every device (legacy / open release),

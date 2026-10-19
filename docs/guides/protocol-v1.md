@@ -239,7 +239,9 @@ already authenticated), `unavailable` (pairing not configured on this daemon),
 `client_key_required` (enforcement is on but the socket presented no client
 certificate — see [Client identity](#client-identity-client-key-allowlist)).
 
-Optional: `Authorization: Bearer <token>` on the HTTP Upgrade request.
+Optional: `Authorization: Bearer <token>` on the HTTP Upgrade request. On success the daemon
+sends an `auth_ok` for protocol 1 straight away, because the upgrade carries no `protocols`
+list; a client that wants v2 sends `auth` instead (MADR 0201 D9).
 
 Unauthenticated clients may only use HTTP `GET /healthz` (liveness only — `{"ok":true}`), plus WS `auth` / `pair.claim`. `GET /v1/hello` requires a device token.
 
@@ -959,6 +961,9 @@ human-readable and may change.
 | `deadline_exceeded` | An async handler hit its per-op server deadline (MADR 0056 H-2a). The client may retry mutating ops **with the same request id**. |
 | `retry_no_result` | A retry carrying an already-seen request id matched a completed idempotency entry that captured no response frame, so the daemon cannot replay the original answer (MADR 0095 D6). The operation is **not** known to have failed: reconcile via `session.list` / history rather than assuming either outcome. |
 
+An error frame is never replayed to a retry: a retry with the same request id after any error
+runs the request again (MADR 0201 D5). Only a success frame is replayed.
+
 **Provider and catalog lookups** — `models.list`, `agents.list`,
 `agent_sessions.list`, `commands.list`:
 
@@ -980,6 +985,7 @@ below on any session-scoped request:
 | `session_not_released` | `session.claim` on a session whose owner has not released it (MADR 0078). Not claimable until released. |
 | `session_limit` | The daemon's live-session cap is reached. |
 | `shutting_down` | The daemon is stopping and accepted no new work. |
+| `session_cancel_timeout` | `session.cancel` did not finish within the daemon's bound (10 s). The cancel was issued and may still complete; the connection keeps serving. Re-read the session's state rather than assuming either outcome (MADR 0201 D10). |
 | `turn_busy` | A turn is already active — see the table above. Not a generic failure; do not retry blindly. |
 | `bad_agent` | The agent name is unknown, hidden, or a subagent that cannot be started top-level. |
 | `permission_denied` | An OS-level permission denial (EPERM/EACCES): file modes, a provider sandbox policy, or macOS privacy protection (TCC) blocked the daemon or an agent process (MADR 0069). Not retryable without operator action — a mode change, chmod, or a privacy grant. |

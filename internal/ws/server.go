@@ -32,6 +32,12 @@ import (
 
 // Server hosts WebSocket clients and HTTP health endpoints.
 type Server struct {
+	// now is the clock the auth-rejection log throttles by; tests replace it
+	// (MADR 0201 D1).
+	now     func() time.Time
+	authLog authLogLimiter
+	// unowned logs events dropped for want of an owner (MADR 0201 D3).
+	unowned   unownedLog
 	store     *auth.Store
 	pairCodes *auth.PairCodeStore
 	sessions  *session.Manager
@@ -115,6 +121,9 @@ func (s *Server) SetTLSStatus(mode string, fellBack bool) {
 
 type client struct {
 	conn *websocket.Conn
+	// remoteAddr is the peer's address at accept, for the auth-rejection log
+	// (MADR 0201 D1).
+	remoteAddr string
 	// deviceID and authed are written only under Server.mu (setAuthed) and
 	// read under Server.mu by BroadcastEvent/DisconnectDevices. Async handlers
 	// never read these fields: dispatchAsync snapshots deviceID under the lock
@@ -267,6 +276,7 @@ func New(opts Options) *Server {
 		headscaleURL:             opts.HeadscaleURL,
 		displayName:              opts.DisplayName,
 		log:                      log.With(slog.String("component", "ws")),
+		now:                      time.Now,
 		maxClients:               opts.MaxClients,
 		readDeadline:             opts.ReadDeadline,
 		resume:                   newResumeStore(opts.ResumeWindow),
@@ -334,10 +344,11 @@ func (s *Server) BroadcastEvent(ev event.Event) {
 	}
 
 	var owner string
-	var ownerKnown bool
 	if ev.SessionID != "" && s.sessions != nil {
-		owner, ownerKnown = s.sessions.OwnerOf(ev.SessionID)
-		if !ownerKnown {
+		var state session.OwnerState
+		owner, state = s.sessions.OwnerState(ev.SessionID)
+		if state != session.OwnerKnown {
+			s.unowned.note(s.log, ev.SessionID, string(ev.Type), state == session.OwnerPurged)
 			return
 		}
 	}
@@ -486,17 +497,17 @@ func bearerToken(r *http.Request) string {
 
 // authorizeHTTP reports whether an HTTP request carries a valid device token,
 // using the same store as the WebSocket auth path.
-func (s *Server) authorizeHTTP(r *http.Request) bool {
+func (s *Server) authorizeHTTP(r *http.Request) (bool, string, string) {
 	if !s.requireDeviceToken {
-		return true
+		return true, "", ""
 	}
 	token := bearerToken(r)
 	if token == "" || s.store == nil {
-		return false
+		return false, "missing_token", ""
 	}
 	dev, err := s.store.Validate(token)
 	if err != nil {
-		return false
+		return false, "invalid_token", ""
 	}
 	// Enforce the client key here too, or a stolen token alone would still be
 	// a live bearer credential for this recon endpoint (it discloses the
@@ -504,17 +515,18 @@ func (s *Server) authorizeHTTP(r *http.Request) bool {
 	// everywhere else. Mirror the WS capture at handleWS.
 	if s.requireClientKey {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
-			return false
+			return false, "client_key_required", dev.ID
 		}
 		if certs.SPKIFingerprint(r.TLS.PeerCertificates[0]) != dev.ClientKeyFP {
-			return false
+			return false, "client_key_mismatch", dev.ID
 		}
 	}
-	return true
+	return true, "", ""
 }
 
 func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeHTTP(r) {
+	if ok, code, deviceID := s.authorizeHTTP(r); !ok {
+		s.logAuthRejection(code, r.RemoteAddr, deviceID)
 		w.Header().Set("WWW-Authenticate", `Bearer realm="mcremote"`)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -559,9 +571,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(maxWSMessageBytes)
 
 	c := &client{
-		conn:   conn,
-		out:    make(chan []byte, outboundQueueLen),
-		closed: make(chan struct{}),
+		conn:       conn,
+		remoteAddr: r.RemoteAddr,
+		out:        make(chan []byte, outboundQueueLen),
+		closed:     make(chan struct{}),
 	}
 	// Per-connection lifecycle: cancelled on disconnect so async ops stop.
 	if s.lifeCtx != nil {
@@ -642,10 +655,25 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	ctx := r.Context()
-	// Optional Bearer on upgrade.
+	// Optional Bearer on upgrade. It offers no protocols list, so it settles
+	// on v1 and says so with a v1 auth_ok; a client wanting v2 sends `auth`
+	// instead (MADR 0201 D9, 0073 F-T9).
 	if token := bearerToken(r); token != "" {
-		if _, err := s.authenticate(c, token); err != nil {
+		dev, err := s.authenticate(c, token)
+		if err != nil {
 			_ = s.writeAuthError(ctx, c, "", err)
+		} else {
+			s.mu.Lock()
+			c.negotiated = protocol.V1
+			s.mu.Unlock()
+			home, _ := os.UserHomeDir()
+			ok, _ := protocol.NewEnvelope(protocol.TypeAuthOK, "", protocol.AuthOKPayload{
+				DeviceID:    dev.ID,
+				DeviceName:  dev.Name,
+				HomeDir:     home,
+				DisplayName: s.displayName,
+			})
+			_ = s.writeJSON(ctx, c, ok)
 		}
 	}
 
@@ -957,6 +985,30 @@ func (s *Server) dispatchAsync(
 	*inFlight++
 	s.mu.Unlock()
 
+	// The slot comes back exactly once: when the handler returns, or when its
+	// deadline plus asyncSlotGrace passes, whichever is first. A handler that
+	// ignores its context can no longer keep its slot for good — eight such
+	// handlers made every later op on the connection rate_limited (MADR 0201
+	// D6, 0073 F-T5). The overrunning goroutine still finishes on its own.
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			s.mu.Lock()
+			*inFlight--
+			s.mu.Unlock()
+		})
+	}
+	timeout := asyncOpTimeoutFor(env.Type)
+	started := time.Now()
+	overrun := time.AfterFunc(timeout+asyncSlotGrace, func() {
+		s.log.Warn("ws async handler overran its deadline; its slot is returned",
+			slog.String("type", env.Type),
+			slog.Duration("elapsed", time.Since(started)),
+			slog.Bool("shell_lane", shell),
+		)
+		release()
+	})
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -964,9 +1016,8 @@ func (s *Server) dispatchAsync(
 			}
 		}()
 		defer func() {
-			s.mu.Lock()
-			*inFlight--
-			s.mu.Unlock()
+			overrun.Stop()
+			release()
 		}()
 		// Bound work to connection lifecycle + per-op deadline (MADR 0056 H-2).
 		// Detach from the read-loop deadline only: c.lifeCtx still cancels on
@@ -975,7 +1026,7 @@ func (s *Server) dispatchAsync(
 		if base == nil {
 			base = context.Background()
 		}
-		opCtx, cancel := context.WithTimeout(base, asyncOpTimeout(env.Type))
+		opCtx, cancel := context.WithTimeout(base, timeout)
 		defer cancel()
 
 		// Idempotent replay for mutating ops with a client request id.
@@ -1037,6 +1088,14 @@ func (s *Server) dispatchAsync(
 	}()
 	return nil
 }
+
+// asyncOpTimeoutFor is how dispatchAsync reads asyncOpTimeout; a variable so
+// tests can shorten the deadline (MADR 0201 D6).
+var asyncOpTimeoutFor = asyncOpTimeout
+
+// asyncSlotGrace is how long past its deadline an async handler may keep its
+// slot before the slot is returned anyway (MADR 0201 D6, 0073 F-T5).
+var asyncSlotGrace = 5 * time.Second
 
 // asyncOpTimeout is the server-side deadline for an async-dispatched op.
 //
@@ -1341,7 +1400,21 @@ func (s *Server) writePairError(ctx context.Context, c *client, id, code, msg st
 var (
 	errClientKeyRequired = errors.New("a client key is required to connect")
 	errClientKeyMismatch = errors.New("client key does not match the enrolled key")
-	errAlreadyAuthed     = errors.New("connection already authenticated as another device")
+)
+
+// deviceAuthError carries the device a rejected authentication belonged to,
+// when the token was valid and the key was not, so the rejection log can name
+// it (MADR 0201 D1). errors.Is still sees the wrapped cause.
+type deviceAuthError struct {
+	deviceID string
+	err      error
+}
+
+func (e *deviceAuthError) Error() string { return e.err.Error() }
+func (e *deviceAuthError) Unwrap() error { return e.err }
+
+var (
+	errAlreadyAuthed = errors.New("connection already authenticated as another device")
 )
 
 func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
@@ -1356,7 +1429,7 @@ func (s *Server) authenticate(c *client, token string) (auth.Device, error) {
 		return auth.Device{}, err
 	}
 	if err := s.verifyClientKey(c, dev); err != nil {
-		return auth.Device{}, err
+		return auth.Device{}, &deviceAuthError{deviceID: dev.ID, err: err}
 	}
 	if err := s.setAuthed(c, dev.ID); err != nil {
 		return auth.Device{}, err
@@ -2020,6 +2093,10 @@ func (s *Server) handleSessionSetConfig(ctx context.Context, c *client, env prot
 	return s.writeJSON(ctx, c, out)
 }
 
+// cancelBound is how long session.cancel may hold the read loop (MADR 0201
+// D10). A variable so tests can shorten it.
+var cancelBound = 10 * time.Second
+
 func (s *Server) handleSessionCancel(ctx context.Context, c *client, env protocol.Envelope) error {
 	var p protocol.SessionIDPayload
 	if err := protocol.DecodePayload(env, &p); err != nil {
@@ -2028,8 +2105,24 @@ func (s *Server) handleSessionCancel(ctx context.Context, c *client, env protoco
 	s.mu.Lock()
 	deviceID := c.deviceID
 	s.mu.Unlock()
-	if err := s.sessions.Cancel(ctx, p.SessionID, deviceID); err != nil {
-		return s.writeSessionErr(ctx, c, env.ID, "session_cancel_failed", err)
+	// Cancel stays on the read loop (see dispatch), but a provider whose
+	// Cancel hangs must not stall every frame behind it: wait at most
+	// cancelBound, then answer and move on. The call finishes, or fails, on
+	// its own (MADR 0201 D10, the 0073 F-T3 residual).
+	done := make(chan error, 1)
+	go func() { done <- s.sessions.Cancel(ctx, p.SessionID, deviceID) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			return s.writeSessionErr(ctx, c, env.ID, "session_cancel_failed", err)
+		}
+	case <-time.After(cancelBound):
+		s.log.Warn("session.cancel exceeded its bound; the read loop moves on",
+			slog.String("session_id", p.SessionID),
+			slog.Duration("bound", cancelBound),
+		)
+		return s.writeError(ctx, c, env.ID, protocol.ErrSessionCancelTimeout,
+			"the cancel did not finish in time; it may still complete")
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeOK, env.ID, nil)
 	return s.writeJSON(ctx, c, out)
@@ -3446,6 +3539,11 @@ func (s *Server) writeAuthError(ctx context.Context, c *client, id string, err e
 	// unmapped is likely an internal/store error whose text can leak the
 	// data-dir path or username, so it is logged and reported generically.
 	code, msg := "auth_failed", "authentication failed"
+	var devErr *deviceAuthError
+	deviceID := ""
+	if errors.As(err, &devErr) {
+		deviceID = devErr.deviceID
+	}
 	switch {
 	case errors.Is(err, auth.ErrInvalidToken):
 		code, msg = "invalid_token", "invalid or revoked token"
@@ -3457,6 +3555,9 @@ func (s *Server) writeAuthError(ctx context.Context, c *client, id string, err e
 		code, msg = "already_authed", "already authenticated"
 	default:
 		s.log.Warn("authentication error", slog.String("err", err.Error()))
+	}
+	if code != "auth_failed" {
+		s.logAuthRejection(code, c.remoteAddr, deviceID)
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeAuthError, id, protocol.ErrorPayload{
 		Message: msg,
@@ -3529,7 +3630,11 @@ func (s *Server) writeJSON(_ context.Context, c *client, env protocol.Envelope) 
 		deviceID := c.deviceID
 		s.mu.Unlock()
 		if deviceID != "" {
-			s.idem.capture(deviceID, env.ID, b)
+			if env.Type == protocol.TypeError {
+				s.idem.failFrame(deviceID, env.ID)
+			} else {
+				s.idem.capture(deviceID, env.ID, b)
+			}
 		}
 	}
 	return s.writeBytes(c, b)

@@ -43,6 +43,10 @@ const (
 	// failed — the client must re-read state rather than assume either
 	// outcome (MADR 0095 D6).
 	ErrRetryNoResult = "retry_no_result"
+	// ErrSessionCancelTimeout means session.cancel did not finish within the
+	// read loop's bound. The cancel was issued and may still complete; the
+	// connection keeps serving (MADR 0201 D10).
+	ErrSessionCancelTimeout = "session_cancel_timeout"
 
 	// --- provider / catalog lookups ---
 

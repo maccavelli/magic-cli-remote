@@ -63,7 +63,13 @@ func (l *idempotencyLedger) begin(deviceID, requestID string) (frame []byte, wai
 	if e, ok := l.entries[key]; ok {
 		if e.finished {
 			if e.failed {
-				// Allow a fresh execute after a failed attempt.
+				// Allow a fresh execute after a failed attempt. The failed
+				// entry is replaced, so this attempt's frame is captured and
+				// replayed like any other (MADR 0201 D5).
+				l.entries[key] = &idemEntry{
+					done: make(chan struct{}),
+					at:   time.Now(),
+				}
 				return nil, nil, idemExecute
 			}
 			// Copy so the caller cannot mutate the map entry.
@@ -151,6 +157,29 @@ func (l *idempotencyLedger) capture(deviceID, requestID string, frame []byte) {
 	e.at = time.Now()
 	close(e.done)
 	l.purgeLocked()
+}
+
+// failFrame records that a request was answered with an error envelope. The
+// entry stays, finished and failed, so the success path dispatchAsync runs
+// after a handler that wrote an error and returned nil cannot turn it into a
+// replayable result; begin hands the next attempt fresh work. An error is
+// never replayed to a retry — a stale turn_busy or timeout would otherwise
+// answer it for the ledger's whole TTL (MADR 0201 D5, 0073 F-T4).
+func (l *idempotencyLedger) failFrame(deviceID, requestID string) {
+	if l == nil || deviceID == "" || requestID == "" {
+		return
+	}
+	key := idemKey(deviceID, requestID)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e, ok := l.entries[key]
+	if !ok || e.finished {
+		return
+	}
+	e.failed = true
+	e.finished = true
+	e.at = time.Now()
+	close(e.done)
 }
 
 func (l *idempotencyLedger) fail(deviceID, requestID string) {

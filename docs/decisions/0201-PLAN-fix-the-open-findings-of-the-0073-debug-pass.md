@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-18
 associated-madr: "0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md"
 ---
@@ -455,4 +455,117 @@ and P10 are done.
 
 ## Execution record
 
-Not started.
+Approved 2026-10-18: the owner committed the records (`98e19ddc`) and said "committed, proceed".
+
+### P0, 2026-10-18: baseline, and F3(a) reproduced
+
+Starting commit `98e19ddc`.
+
+**Step 1.** `go test -race -count=1 ./...` gave exit 0, with 42 packages `ok`.
+
+**Step 2, F3(a).** A scratch daemon was built from `98e19ddc` and run on `127.0.0.1:7542`, in
+`selfsigned` mode, with `auth.require_client_key: false`, only the `fake` provider enabled, and
+every `XDG_*` directory in the session scratch directory (data directory A). The script asserted
+nothing on the tree. It built `mcremote` and `scripts/smoke-protocol`, then:
+
+```text
+## token written to data dir B, daemon on A: exit=1
+     ✗ hello: authenticated GET returned HTTP 401
+## token written to data dir A (the daemon's): exit=0
+     ✓ smoke complete (--skip-prompt)
+```
+
+- **The cause is confirmed.** F3(a) is the data-directory split, as D2 assumes. A token written to
+  any other data directory is rejected, and one written to the daemon's own is accepted.
+- **F3(b)'s silence was seen too.** The daemon's log holds a line for the accepted device, and
+  nothing at all for the rejected one.
+- **Teardown.** The scratch daemon was stopped, and its data, state, cache and the second data
+  directory were removed.
+
+### Deviation 1, 2026-10-18 (P1): D5 needs a tombstone, not `fail()`
+
+**Found.** P1's D5 step says `writeJSON` calls `s.idem.fail(...)` for an error envelope. A handler
+that writes an error frame almost always returns nil, and then `dispatchAsync`'s success path calls
+`complete(nil)`. `fail()` deletes the entry, so that `complete(nil)` would re-create it as a
+finished success with no frame, and the retry would get `retry_no_result` instead of running
+again.
+
+**Done instead.** There was no change to D5's decision, or to its behaviour.
+
+- An error envelope marks the entry failed and keeps it (`failFrame`), so the later
+  `complete(nil)` finds it finished and does nothing.
+- `begin` replaces a failed entry with a fresh in-progress one before handing out the work, so the
+  new attempt's success frame is captured and replayed like any other.
+
+The test (`TestErrorFramesAreNotReplayedToARetry`) drives exactly that sequence: begin, an error
+frame, then `complete(nil)`.
+
+### P1, 2026-10-18: transport and authentication — complete
+
+Starting commit `98e19ddc`. The tree's production changes are:
+
+- **`internal/ws`:** `server.go`, `idempotency.go`, and the new `authlog.go` and `unowned.go`;
+- **`internal/protocol/errors.go`:** `ErrSessionCancelTimeout`;
+- **`internal/session/manager.go`:** `OwnerState`;
+- **`docs/guides/protocol-v1.md`:** D9's sentence, D10's code, and D5's rule, placed after the
+  error table.
+
+**Each test seen failing first.** Where a test needed a type or variable to compile, the stub was
+added alone first, so each failure below is an assertion, not a build error.
+
+```text
+D5  idem_errorframe_test.go:31: retry after an error frame: action 1 (frame "{...\"code\":\"turn_busy\"}}"), want execute
+D9  bearer_upgrade_test.go:63: no frame after a Bearer upgrade: failed to get reader: context deadline exceeded
+D10 cancel_bound_test.go:110: failed to get reader: context deadline exceeded        (10.03 s: the read loop was held)
+D1  authlog_test.go:86: got 0 rejection records, want 5
+D3  unowned_drop_test.go:73: after reset: 0 drop records, want 2 (ghost-3, and the purged session)
+D6  slot_deadline_test.go:62: a ninth operation was refused after the deadline passed: {...rate_limited...}
+```
+
+**What changed.**
+
+- **D1.** A per-(code, host) limiter (`authlog.go`) logs each rejection at `warn`, with `code`,
+  `remote_addr` and, on a client-key failure, `device_id`, carried by a wrapping `deviceAuthError`
+  that keeps `errors.Is` working. `authorizeHTTP` now returns its reason, and `/v1/hello` logs it.
+  No token reaches the log; the test checks for any `mcr_`.
+- **D3.** `Manager.OwnerState` distinguishes known, purged and unknown. `BroadcastEvent` logs a
+  drop once per id (256 remembered), at `info`, or at `debug` for a purged session.
+- **D5.** As in Deviation 1.
+- **D6.** The slot is released once (`sync.Once`), at handler return or at the deadline plus
+  `asyncSlotGrace` (5 s), and an overrun logs `warn`.
+  - The deadline is now read once, before the goroutine starts. The first `-race` run caught the
+    goroutine reading `asyncOpTimeoutFor` while the test restored it.
+  - That is a real ordering fix: the context and the slot timer now share one value.
+- **D9.** A successful Bearer upgrade sends a v1 `auth_ok`, and sets the connection to v1.
+- **D10.** `session.cancel` waits at most `cancelBound` (10 s). Past it, the answer is
+  `session_cancel_timeout` and a `warn`, and the call finishes on its own.
+
+**A test fix of my own.** The throttle test first panicked because its client's 8-frame queue
+filled up. The test client was given 64 frames; the code was not at fault.
+
+**Planted breaks**, each on a fresh scratch copy. All six failed their test with an assertion:
+
+```text
+D1 limiter keyed without the address   authlog_test.go:86: got 4 rejection records, want 5
+D3 drop not logged                     unowned_drop_test.go:73: after reset: 0 drop records, want 2
+D5 error frames captured again         idem_errorframe_test.go:31: retry after an error frame: action 1 (...turn_busy...)
+D6 no deadline release                 slot_deadline_test.go:62: a ninth operation was refused after the deadline passed
+D9 no auth_ok on a Bearer upgrade      bearer_upgrade_test.go:63: no frame after a Bearer upgrade
+D10 a plain blocking cancel            cancel_bound_test.go:110: failed to get reader: context deadline exceeded
+```
+
+**Gates.**
+
+```text
+make pre-add-check (every P1 Go file)   -> 21 file(s) clean (gofmt, golint, govulncheck), after golint's
+                                           const-comment form was fixed on OwnerKnown/Purged/Unknown
+go vet ./...                            -> exit 0
+go test -race -count=1 ./...            -> exit 0, 42 packages ok
+make lint, make staticcheck             -> exit 0
+make ci-windows (the Windows test host) -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED (ws, session, protocol ok)
+check_records.py --check-all, make markdownlint-docs -> exit 0
+```
+
+The triage report's rows for F3(b), F-T1 (first half), F-T4, F-T5, F-T9 and the F-T3 residual are
+marked when this phase's commit exists (P8).
+
