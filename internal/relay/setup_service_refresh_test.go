@@ -73,6 +73,20 @@ func TestRelaySetupServiceRefreshConflictsWithRemove(t *testing.T) {
 	}
 }
 
+// TestRelaySetupServiceUninstallConflicts: mcrelay's --uninstall cannot be
+// combined with --refresh or --remove (MADR 0054 PLAN S5e).
+func TestRelaySetupServiceUninstallConflicts(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	for _, f := range []setupServiceFlags{{uninstall: true, refresh: true}, {uninstall: true, remove: true}} {
+		cfg, lvl, fmtv := "", "", ""
+		cmd := newSetupServiceCmd(&cfg, &lvl, &fmtv)
+		cmd.SetOut(&bytes.Buffer{})
+		if err := runSetupService(cmd, f, cfg, lvl, fmtv); err == nil || !strings.Contains(err.Error(), "--uninstall cannot be combined") {
+			t.Errorf("%+v: %v, want a refusal", f, err)
+		}
+	}
+}
+
 // TestRelaySetupServiceRefusesABadInstallerVariable: mcrelay's setup-service
 // reads the linger and force variables before it sets anything up, and
 // refuses a value that is not 1 or 0 (MADR 0054 PLAN S5d).

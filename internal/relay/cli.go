@@ -333,6 +333,7 @@ type setupServiceFlags struct {
 	noStart    bool
 	noLinger   bool
 	remove     bool
+	uninstall  bool
 	refresh    bool
 	jsonOut    bool
 	envPairs   []string
@@ -362,6 +363,8 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	fs.BoolVar(&f.noStart, "no-start", false, "do not start/restart the service")
 	fs.BoolVar(&f.noLinger, "no-linger", false, "Linux: skip loginctl enable-linger. macOS: no effect (LaunchAgents are session-bound)")
 	fs.BoolVar(&f.remove, "remove", false, "stop, disable, and delete the service definition (inverse of setup)")
+	fs.BoolVar(&f.uninstall, "uninstall", false,
+		"stop and remove every mcremote and mcrelay service definition that runs a program from this binary's folder, on every service manager; run it before the installer's --uninstall")
 	fs.BoolVar(&f.refresh, "refresh", false,
 		"re-render the installed unit/plist from this binary's template, preserving the options baked into it; rewrites only what this binary wrote, and reloads the systemd user manager")
 	fs.BoolVar(&f.jsonOut, "json", false, "with --refresh, print the result as one JSON object")
@@ -423,6 +426,15 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		NoEnable:         f.noEnable,
 		NoStart:          f.noStart,
 		NoLinger:         f.noLinger,
+	}
+
+	if f.uninstall {
+		if f.refresh || f.remove {
+			return fmt.Errorf("--uninstall cannot be combined with --refresh or --remove")
+		}
+		res, err := service.Uninstall()
+		service.PrintUninstallResult(out, res)
+		return err
 	}
 
 	if f.refresh {

@@ -200,6 +200,34 @@ func TestRunSetupServiceReadsTheInstallerVariables(t *testing.T) {
 	}
 }
 
+// TestRunSetupServiceUninstall: --uninstall cannot be combined with --refresh
+// or --remove, and on a host with nothing installed it says so and succeeds
+// (MADR 0054 PLAN S5e).
+func TestRunSetupServiceUninstall(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(k, filepath.Join(home, k))
+	}
+	for _, f := range []setupServiceFlags{{uninstall: true, refresh: true}, {uninstall: true, remove: true}} {
+		cmd := newSetupServiceCmd()
+		cmd.SetOut(&bytes.Buffer{})
+		if err := runSetupService(cmd, f); err == nil || !strings.Contains(err.Error(), "--uninstall cannot be combined") {
+			t.Errorf("%+v: %v, want a refusal", f, err)
+		}
+	}
+	var buf bytes.Buffer
+	cmd := newSetupServiceCmd()
+	cmd.SetOut(&buf)
+	if err := runSetupService(cmd, setupServiceFlags{uninstall: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "no service definition of mcremote or mcrelay was found") {
+		t.Fatalf("output:\n%s", buf.String())
+	}
+}
+
 func TestRunSetupServicePrintOnly(t *testing.T) {
 	// This test asserts systemd unit text, so pin the install OS instead of
 	// inheriting the host's. On macOS the renderer correctly emits a launchd

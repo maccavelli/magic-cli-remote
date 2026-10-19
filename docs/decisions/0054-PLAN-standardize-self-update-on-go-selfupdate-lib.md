@@ -2344,3 +2344,125 @@ Both remote copies were removed.
 - `internal/relay/cli.go`, `internal/relay/setup_service_refresh_test.go`;
 - this PLAN.
 
+### S5e, 2026-10-19 — staged for the owner's commit
+
+**Starting point.** The owner committed S5d and said "proceed".
+
+**What S5e changed:**
+
+- **`internal/cli/service/uninstall.go` (new).** `Uninstall` is `install.sh`'s `do_uninstall`
+  (`:960-997`), with its ownership rule:
+  - **What it looks at.** For `mcremote` and `mcrelay`, it looks under the recorded unit name and
+    the product name. It does this on every service manager the OS has: systemd, runit, s6 and
+    OpenRC user services on Linux; the LaunchAgent on macOS; the task, by product name, on Windows.
+  - **What it removes.** A definition whose program is in the folder of the binary running the
+    command, symlinks resolved, is stopped, disabled and deleted through the existing
+    `removeSystemd`, `removeScript`, `removeLaunchdAgent` and `removeSchtasks`. Its unit-name and
+    backend records go with it when its name is the recorded one.
+  - **What it leaves.** A definition that runs another folder's program is reported and left, so
+    two installs do not remove each other. So is one whose program cannot be read, such as a
+    hand-written one.
+  - **Where the program is read from.** systemd's `ExecStart`, the recovered script or plist, or
+    the task's exported `Command`.
+  - **Failures.** A removal that fails is reported, the rest still run, and the command fails.
+  - **Output.** `PrintUninstallResult` prints `removed:`, `left:` and `failed:` lines; with
+    nothing found, it says "no service definition of mcremote or mcrelay was found".
+- **`internal/cli/setup_service.go` and `internal/relay/cli.go`:** `--uninstall` on both commands,
+  refused with `--refresh` or `--remove`.
+
+**A decision inside the PLAN's words.** `install.sh` removed a definition whose program it could
+not read, treating it as its own (`svc_targets_install_dir`, `:387-392`). The PLAN's step says
+"if the definition's program is in the same folder", and an unreadable one is not known to be.
+So it is left and reported.
+
+**Tests:**
+
+- **`uninstall_unix_test.go`:**
+  - **`TestUninstallRemovesWhatThisFolderRuns`,** on a scratch Linux host:
+    - removed: two `mcremote` systemd units (the product name, and the recorded custom one, with
+      both records) and a runit `mcrelay`;
+    - left: an s6 `mcrelay` running another folder's binary, and a hand-written OpenRC script.
+  - `TestUninstallWithNothingInstalled`.
+  - `TestUninstallKeepsGoingPastAFailure`: the unit's reload fails, and runit is still removed.
+  - `TestUninstallOnMacOS`.
+- **`uninstall_test.go`:** `TestUninstallOnWindows`. The task is read from its export and deleted.
+- **Command level:** `TestRunSetupServiceUninstall` in `internal/cli` (refusals, and nothing
+  found), and `TestRelaySetupServiceUninstallConflicts` in `internal/relay`.
+
+**Planted breaks, each on its own fresh scratch copy** (`s5e_plants.py`, 11). Each failed a test
+assertion:
+
+```text
+another folder's definition is removed         uninstall_unix_test.go:112: removed [… mcrelay s6 run …], want [mcrelay runit run …]
+an unreadable definition is removed            uninstall_unix_test.go:112: removed [… mcremote openrc-user mcremote …], want […]
+mcrelay is not looked for                      uninstall_unix_test.go:112: removed [mcremote … mcremote …], want [mcrelay runit run …]
+the recorded name is not looked for            uninstall_unix_test.go:124: …/custom.service survived --uninstall
+the records are not forgotten                  uninstall_unix_test.go:134: mcremote's service-unit record survived
+the first failure stops the rest               uninstall_unix_test.go:176: the runit definition was not removed after the unit failed
+Linux looks only at systemd                    uninstall_unix_test.go:112: removed [mcremote … mcremote …], want [mcrelay runit run …]
+a Windows task is not deleted                  uninstall_test.go:41: schtasks calls [/query /tn mcremote /xml ONE], want the task deleted
+--uninstall combines with --remove             setup_service_test.go:217: {… remove:true uninstall:true …}: <nil>, want a refusal
+mcrelay's --uninstall combines with --refresh  setup_service_refresh_test.go:85: {… refresh:true … uninstall:true …}: <nil>, want a refusal
+nothing found says nothing                     setup_service_test.go:227: output:
+```
+
+**The live check,** in containers (`live_containers.py`). After S5b's and S5c's cases, each probe
+set the service up again, then ran `setup-service --uninstall` twice:
+
+```text
+runit   serving pid 200 → "removed: mcremote runit service …/runit/service/mcremote/run"   uninstall-exit=0
+        no serve process after; definition gone; no records; second run "no service definition … was found", exit 0
+s6      serving pid 154 → "removed: mcremote s6 service …/s6/service/mcremote/run"         uninstall-exit=0
+        no serve process after; definition gone; no records; second run "no service definition … was found", exit 0
+OpenRC  serving pid 507 → " * Stopping mcremote ... [ ok ]", " * service mcremote deleted from runlevel default",
+        "removed: mcremote openrc-user service …/rc/init.d/mcremote"
+        no serve process after; definition gone; no records; second run "no service definition … was found", exit 0
+```
+
+**A disclosure about S5c's systemd live run.**
+
+- **What that run did.** It ran `setup-service --unit-name s5-live` on the Linux test host, in the
+  account's own state directory. Setup records the unit name it installed under (MADR 0201 D30),
+  so that run replaced any `service-unit` record there with `s5-live`, and its `--remove` then
+  deleted the record.
+- **What a read-only check found on 2026-10-19:**
+  - the account runs a real `mcremote.service`, loaded and running, untouched;
+  - its state directory holds no `service-unit` or `service-backend` record.
+- **The effect.** Whether a record existed before S5c cannot now be told. If one did, it named the
+  default `mcremote`, and with no record the name and the backend fall back to exactly that, so the
+  real service is managed as before.
+- **Two lessons:**
+  - **Isolate the state directory.** Live runs on that host now set a scratch `XDG_STATE_HOME`.
+    S5e ran live only in the containers.
+  - **One record per product.** Setting up a second, custom-named instance replaces the record of
+    the first. That is existing behavior from MADR 0201 D30, outside S5e. It is recorded here for
+    the owner.
+
+**Gates, exit status captured before reading output.** The files were staged first:
+
+```text
+make pre-add-check (7 Go files)                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` passed, with "ALL SELECTED CHECKS PASSED" and 43
+  `ok`.
+- **The Linux test host:** the race tests of `internal/cli/...`, `internal/relay` and
+  `internal/updateclient` passed, and the probe logged `detectInit=systemd-user`.
+- **Isolation.** These tests write no record into the account. `TestMain` points the records at
+  a scratch directory, and the command-level tests set scratch `HOME` and `XDG_*`.
+
+Both remote copies were removed.
+
+**Files staged for S5e:**
+
+- `internal/cli/service/`: `uninstall.go`, `uninstall_test.go` and `uninstall_unix_test.go` (new);
+- `internal/cli/setup_service.go`, `internal/cli/setup_service_test.go`;
+- `internal/relay/cli.go`, `internal/relay/setup_service_refresh_test.go`;
+- this PLAN.
+
