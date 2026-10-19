@@ -15,7 +15,9 @@ import (
 )
 
 // fakeStub is one shell stub that stands in for every service-manager binary.
-// It appends "<name> <args>" to "$FAKE_CFG/calls", then exits with the status
+// It appends "<name> <args>" to "$FAKE_CFG/calls", prints
+// "$FAKE_CFG/<name>.out" when there is one (keyed by name, since arguments can
+// hold a path), then exits with the status
 // in "$FAKE_CFG/<name> <args>", or 0, using shell builtins only, since PATH
 // holds nothing else. It is written and warmed once per test, and each name is
 // a symlink to it, so macOS scans one new file rather than one per probe (MADR
@@ -25,6 +27,8 @@ func fakeStub(t *testing.T) string {
 	return testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "stub"),
 		`echo "${0##*/} $*" >> "$FAKE_CFG/calls"
 f="$FAKE_CFG/${0##*/} $*"
+o="$FAKE_CFG/${0##*/}.out"
+if [ -f "$o" ]; then while IFS= read -r l || [ -n "$l" ]; do echo "$l"; done < "$o"; fi
 if [ -f "$f" ]; then read code < "$f"; exit "$code"; fi
 exit 0`)
 }

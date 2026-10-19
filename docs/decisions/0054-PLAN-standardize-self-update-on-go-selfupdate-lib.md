@@ -1896,10 +1896,10 @@ OpenRC  setup-exit=0  "started your OpenRC user session for this login"   * stat
 ```
 
 - **runit and s6.** In both, the service ran
-  `…/mcremote serve --config /home/tester/.config/mcremote/config.yaml`, which the default config
+  `…/mcremote serve --config /home/<user>/.config/mcremote/config.yaml`, which the default config
   setup wrote.
-- **OpenRC.** The script's `start()` ran `start-stop-daemon … --chdir '/home/tester' --env
-  'HOME=/home/tester' --env 'USER=tester' … --exec '…/mcremote' -- 'serve' '--config' …`.
+- **OpenRC.** The script's `start()` ran `start-stop-daemon … --chdir '/home/<user>' --env
+  'HOME=/home/<user>' --env 'USER=<user>' … --exec '…/mcremote' -- 'serve' '--config' …`.
 - **Exit status.** Each container exited 1 because the probe's last command reads the backend
   record that `--remove` had just deleted.
 
@@ -2050,4 +2050,191 @@ Both remote copies were removed.
   - `setup.go`, `refresh.go`, `result_print.go`, `detect.go` and `backendrecord.go`;
   - `detect_test.go` and `detect_unix_test.go`;
 - this PLAN.
+
+### S5c, 2026-10-19 — staged for the owner's commit; Deviation 1 accepted
+
+**Starting point.** The owner committed S5b and said "proceed".
+
+**What S5c changed:**
+
+- **`internal/cli/service/settle.go` (new):**
+  - **`waitSeconds`** reads `MCREMOTE_SVC_WAIT_SECS`. Unset means 15. Anything but a positive whole
+    number is refused, naming the variable and the value.
+  - **`settleSystemd`** is `install.sh`'s `svc_settle` for a unit:
+    - `NRestarts` is taken as a baseline, and a rise while watched means not running;
+    - so do `auto-restart` with two or more restarts, and `failed`;
+    - running needs `active` on three samples in a row.
+  - **`settle`** handles every other kind (Deviation 1).
+  - **The samplers.**
+    - runit and s6 read `sv status` or `s6-svstat`: up, pid, uptime, and "down, want up".
+    - OpenRC reads `rc-service --user status`, with `status: crashed` meaning failed.
+    - launchd reads `launchctl print`. Only `state = running` is up.
+    - Task Scheduler uses the library backend's `Running`, as `doctor` does.
+  - **`diagnose`** is `svc_diagnose`: the command that shows why, and for systemd the journal's last
+    8 lines.
+  - **`verifyStart`** puts it together:
+    - running sets `Result.Health`;
+    - still starting adds a warning, and is exit 0;
+    - not running is an error that says the definition is installed and how to see why.
+- **`setup.go`:**
+  - `Setup` refuses a bad wait before anything is written.
+  - After a successful start and the records, it calls `verifyStart`.
+  - New fields: `Result.Health`, `Result.Warnings` and the unexported `replacedPid`.
+  - `--no-start` watches nothing.
+- **`supervisor.go`:** before restarting through the user's own runit or s6 supervisor, setup notes
+  the pid the supervisor reports, as `replacedPid`.
+- **`result_print.go`:** `printHealth` closes every result with "Running: yes, confirmed after the
+  start", or "not yet confirmed — still starting", and the warnings.
+- **`unitrecord_test.go`.** The test binary's `TestMain` replaces `verifyStart` with a stub that
+  reports running. Otherwise every test that starts a service would watch a real service manager
+  for up to 15 s. Tests of the real one use `realVerifyStart`.
+
+**Deviation 1, 2026-10-19 — the kinds other than systemd are watched more strictly than the PLAN
+and `install.sh`. The owner accepted it: "Accept".**
+
+- **What the PLAN said.** S5c step 1 says the other kinds "need two consecutive seconds of their
+  running probe", which is `install.sh`'s rule (`:507-514`). `install.sh` also took launchd's
+  `waiting` as active (`:444`).
+- **What was done**, each part found or confirmed by the live probes below:
+  - **What counts as running.** A service is running when it is seen up twice in a row by the
+    same process, or when its supervisor reports it up for 2 s.
+  - **A process that changes while watched** is restarting: failed. This is the counterpart of
+    systemd's `NRestarts`.
+  - **"down, want up"** from runit or s6 is an exit while the supervisor keeps the service up.
+    Seen after the service was up, or seen twice, it is failed. s6 restarts a daemon that dies at
+    once every second, and the probe's samples caught it down, almost never up twice.
+  - **The process a restart replaces.** Before restarting through the user's own supervisor, setup
+    notes the running pid, and samples of that pid are not the restarted service. `s6-svc -r`
+    returns at once while the old daemon drains after SIGTERM. The first version therefore took
+    the old process, up 40 s, for a crash-looping definition and confirmed it running.
+  - **OpenRC `status: crashed`** is failed. `start-stop-daemon` restarts nothing, so the first
+    version reported a dead daemon as "still starting", with exit 0.
+  - **launchd's `state = waiting`** is not running. It is a KeepAlive job held back after exiting,
+    which is a crash loop.
+- **Why.** A crash loop on these supervisors would otherwise pass setup, which is the failure G2
+  exists to stop.
+
+**The live checks, 2026-10-19.**
+
+**systemd**, on the Linux test host, under the scratch unit `s5-live` (`s5c_live_linux.py`).
+Scratch config and data directories and port 39517 were used, and the unit and the remote tree
+were removed afterwards:
+
+```text
+healthy (--listen-host 127.0.0.1)      setup-service exit=0   "Running: yes, confirmed after the start"
+                                       ActiveState=active SubState=running NRestarts=0
+crash loop (--listen-host 203.0.113.1) setup-service exit=1
+  error: s5-live is not running after setup: it restarted 1 times while watched. The definition is installed; see why with:
+    journalctl --user -u s5-live -n 20 --no-pager
+    | <host> s5-live[…]: error: daemon: listen 203.0.113.1:39517: listen tcp 203.0.113.1:39517: bind: cannot assign requested address
+    | <host> systemd[…]: s5-live.service: Main process exited, code=exited, status=1/FAILURE
+                                       ActiveState=activating SubState=auto-restart NRestarts=1
+cleanup: ls …/systemd/user/s5-live.service: No such file or directory; remote tree removed
+```
+
+**runit, s6 and OpenRC**, in containers (`live_containers.py`, S5b's probe plus a crash case,
+`MCREMOTE_SVC_WAIT_SECS=10`). The third run, with every fix:
+
+```text
+runit   setup-exit=0 "Running: yes"   crash-exit=1 "it keeps exiting while its supervisor restarts it"   remove-exit=0
+s6      setup-exit=0 "Running: yes"   crash-exit=1 "it keeps exiting while its supervisor restarts it"   remove-exit=0
+OpenRC  setup-exit=0 "Running: yes"   crash-exit=1 "the service manager reports it failed"               remove-exit=0
+```
+
+The two earlier runs are the evidence for Deviation 1:
+
+- **First run.**
+  - runit's crash case failed: "it restarted while watched (pid 156, then 197)".
+  - s6 confirmed it running, taking the old process (`up (pid 81 pgid 81) 5 seconds` after the
+    setup).
+  - OpenRC said "still starting", with exit 0, and `status: crashed` after.
+- **Second run,** with the replaced-pid baseline and `crashed`.
+  - OpenRC failed, as it should.
+  - s6 said "still starting", with exit 0: `down (exitcode 1) 0 seconds, normally up, want up`.
+
+**Tests:**
+
+- **`settle_test.go` (new):**
+  - `TestWaitSeconds`: unset, `7`, and `0`, `-1`, `abc`, empty and `1.5` refused.
+  - `TestSettleSystemd`, six cases.
+  - `TestSettleOtherKinds`, nine cases, including exits and a reported failure.
+  - `TestSettleIgnoresTheReplacedProcess`.
+  - `TestSamplersReadTheirManagers`: the live probes' own status lines, and launchd's running
+    and waiting.
+  - `TestVerifyStart` and `TestPrintSetupResultReportsTheHealth`.
+- **`settle_unix_test.go` (new): `TestSetupVerifiesTheStart`.**
+  - A running service.
+  - A failed one: setup fails, and the unit and its record stay.
+  - `--no-start` watches nothing.
+  - A bad wait writes nothing.
+- **`supervisor_unix_test.go`:** `TestSetupNotesTheProcessARestartReplaces` and
+  `TestOpenRCCrashedIsFailed`. The runit and s6 restart tests expect the status call first.
+- **The fakes.** S5a's fake stub also prints `$FAKE_CFG/<name>.out`. It is keyed by name, because
+  arguments can hold a path.
+
+**Planted breaks, each on its own fresh scratch copy** (`s5c_plants.py`, 15). Each failed a test
+assertion:
+
+```text
+systemd ignores a rising restart count        settle_test.go:88: settleSystemd = starting (), want failed
+systemd takes one active sample as running     settle_test.go:88: settleSystemd = running (), want starting
+a changed pid is not a restart                 settle_test.go:133: settle = running (), want failed
+never up is only starting                      settle_test.go:133: settle = starting (), want failed
+a zero wait is accepted                        settle_test.go:40: "0": <nil>, want a refusal naming MCREMOTE_SVC_WAIT_SECS and the value
+launchd waiting counts as running              settle_test.go:159: parsed {up:true …}, want {up:false …}
+a failure gives no way to see why              settle_test.go:191: failed: … want an error with the journal command
+setup does not check the wait first            settle_unix_test.go:64: a refused wait wrote …/bad
+setup does not verify the start                settle_unix_test.go:36: a running service: {… Health: …}
+the result does not report the health          settle_test.go:203: systemd-user running result:
+down while wanted up is not an exit            settle_test.go:159: parsed {… exited:false}, want {… exited:true}
+exits never fail the start                     settle_test.go:133: settle = starting (), want failed
+the replaced process counts as restarted       settle_test.go:221: only the replaced process up: running (), want failed
+OpenRC crashed is not failed                   supervisor_unix_test.go:782: sample {up:false … failed:false}, want failed and not up
+setup notes no replaced process                supervisor_unix_test.go:768: replacedPid = 0, want the 81 s6-svstat reported before the restart
+```
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (9 Go files)                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok (second run, below)
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**Two placeholder-home failures, and a fix to S5b's committed record.**
+
+- **The first gate run failed in `internal`.** `TestTrackedFilesUseOnlyPlaceholderHomes` found
+  a home path of the probe containers' scratch account three times in this PLAN. They were in
+  S5b's record, which is already committed
+  (unpushed): the probe containers' scratch account.
+  - **Why S5b's checks missed it.** S5b's gates ran before its record was written, and its
+    identifier scan did not cover the pattern.
+  - **The fix.** The three paths and one `USER=tester` now read `<user>`. The record check now
+    runs this guard after the records are written.
+  - **History.** The S5b commit alone still fails the guard. This change fixes it at the tip.
+- **The first Windows run failed on the same guard.** `settle_test.go` quoted the live status
+  lines with that account's home path.
+  - The local run could not see it, because the guard reads the git index and the new file was
+    not yet staged. The remote copy stages everything.
+  - The test now uses `/home/user`, and the files are staged before the guard runs.
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` passed, with "ALL SELECTED CHECKS PASSED" and 43
+  `ok`. This was the second run, after the fix above.
+- **The Linux test host:**
+  - The race tests of `internal/cli/...`, `internal/relay` and `internal/updateclient` passed.
+  - The probe logged `detectInit=systemd-user`, and the unpinned `setup_test.go` tests passed.
+
+Both remote copies were removed.
+
+**Files staged for S5c:**
+
+- `internal/cli/service/`:
+  - `settle.go`, `settle_test.go` and `settle_unix_test.go` (new);
+  - `setup.go`, `supervisor.go`, `result_print.go`;
+  - `detect_unix_test.go`, `supervisor_unix_test.go` and `unitrecord_test.go`;
+- this PLAN, including the redaction in S5b's record.
 

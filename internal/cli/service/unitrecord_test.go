@@ -19,10 +19,21 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	unitRecordDir = func(product string) (string, error) { return filepath.Join(dir, product), nil }
+	// The verified start (MADR 0054 PLAN S5c) would watch a real service
+	// manager for up to 15 seconds after every test that starts one. Tests of
+	// it put realVerifyStart back.
+	realVerifyStart = verifyStart
+	verifyStart = func(_ Kind, res Result) (Result, error) {
+		res.Health = HealthRunning
+		return res, nil
+	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
+
+// realVerifyStart is the verified start TestMain replaced.
+var realVerifyStart func(Kind, Result) (Result, error)
 
 // withUnitRecord gives the test its own record directory, holding name for
 // product when name is not empty.

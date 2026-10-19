@@ -431,6 +431,13 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 			}
 		}
 		if _, err := os.Stat(supervised); err == nil {
+			// s6-svc -r returns at once, and the old daemon drains after
+			// SIGTERM, so a sample taken then sees it still up: the 2026-10-19
+			// live probe confirmed a crash-looping definition that way. Note
+			// the process the restart replaces (MADR 0054 PLAN S5c).
+			if s, err := sampler(def.Kind, res)(); err == nil && s.up {
+				res.replacedPid = s.pid
+			}
 			if err := runCmd(ctl[0], ctl[1:]...); err != nil {
 				return res, fmt.Errorf("definition installed at %s, but %s failed: %w", def.Path, strings.Join(ctl, " "), err)
 			}

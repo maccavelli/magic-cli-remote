@@ -125,9 +125,17 @@ type Result struct {
 	// itself, for this session only; SupervisorPID is its pid.
 	SupervisorStarted bool
 	SupervisorPID     int
+	// Health is the verified start's outcome (HealthRunning or
+	// HealthStarting); empty when nothing was started (MADR 0054 PLAN S5c).
+	Health string
+	// Warnings are printed after the result, without failing it.
+	Warnings []string
 	// written is set once the definition is on disk, so a setup that fails
 	// afterwards still records it and --remove can find it.
 	written bool
+	// replacedPid is the process a restart replaces, when known: the
+	// verified start does not take it for the restarted service.
+	replacedPid int
 }
 
 type templateData struct {
@@ -296,6 +304,14 @@ func Setup(opts Options) (Result, error) {
 		UnitName: opts.UnitName,
 	}
 
+	// A wait the verified start cannot use is refused before anything is
+	// written (MADR 0054 PLAN S5c, answer A3).
+	if !opts.PrintOnly && !opts.NoStart {
+		if _, err := waitSeconds(); err != nil {
+			return res, err
+		}
+	}
+
 	// A host with no service manager setup-service installs under gets advice
 	// and success, and nothing is written: not the definition, not a default
 	// config, not a record (MADR 0054 amendment 4, PLAN S5a).
@@ -409,6 +425,9 @@ func Setup(opts Options) (Result, error) {
 	}
 	if err := recordBackend(opts.Product, kind); err != nil {
 		return res, fmt.Errorf("the service is set up, but its backend was not recorded: %w", err)
+	}
+	if res.Started && !opts.NoStart {
+		return verifyStart(kind, res)
 	}
 	return res, nil
 }

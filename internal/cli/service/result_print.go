@@ -51,6 +51,7 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		}
 		return
 	}
+	defer printHealth(out, res)
 	if Kind(res.Scope).isScriptKind() {
 		printScriptResult(out, res, product)
 		return
@@ -232,4 +233,20 @@ func printScriptResult(out io.Writer, res Result, product string) {
 		fmt.Fprintf(out, "Stop:    rc-service --user %s stop\n", res.UnitName)
 	}
 	fmt.Fprintf(out, "Remove:  %s setup-service --remove\n", product)
+}
+
+// printHealth closes a setup result with the verified start's outcome and any
+// warnings (MADR 0054 PLAN S5c).
+func printHealth(out io.Writer, res Result) {
+	switch res.Health {
+	case HealthRunning:
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Running:           yes, confirmed after the start")
+	case HealthStarting:
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Running:           not yet confirmed — still starting when the wait ended")
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(out, "warning: %s\n", w)
+	}
 }

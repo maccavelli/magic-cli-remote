@@ -205,7 +205,7 @@ func supervisorHost(t *testing.T, kind Kind) (string, string) {
 	t.Cleanup(OverrideDetectedKind(kind))
 	withUnitRecord(t, "mcremote", "")
 	fakeHost(t, fakeStub(t), map[string]map[string]int{
-		"sv": {}, "s6-svc": {}, "s6-svscanctl": {}, "rc-service": {}, "rc-update": {}, "openrc": {},
+		"sv": {}, "s6-svc": {}, "s6-svscanctl": {}, "s6-svstat": {}, "rc-service": {}, "rc-update": {}, "openrc": {},
 	})
 	fakeProc(t)
 	// Setup checks only the executable bit; the stub is never run here.
@@ -304,8 +304,9 @@ func TestSetupRunitRestartsThroughTheUsersSupervisor(t *testing.T) {
 	if len(*starts) != 0 || res.SupervisorStarted {
 		t.Fatalf("started a session runsvdir %v although one watches %s", *starts, root)
 	}
-	if calls := fakeCalls(t); !slices.Equal(calls, []string{"sv restart " + def.Dir}) || !res.Started {
-		t.Fatalf("calls %v, started %v; want sv restart %s", calls, res.Started, def.Dir)
+	// The status first notes the process the restart replaces (PLAN S5c).
+	if calls := fakeCalls(t); !slices.Equal(calls, []string{"sv status " + def.Dir, "sv restart " + def.Dir}) || !res.Started {
+		t.Fatalf("calls %v, started %v; want sv status then sv restart %s", calls, res.Started, def.Dir)
 	}
 }
 
@@ -336,7 +337,7 @@ func TestSetupS6RescansAndRestarts(t *testing.T) {
 	if _, err := scriptSetup(t, root, bin, nil); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"s6-svscanctl -a " + root, "s6-svc -r " + def.Dir, "s6-svc -u " + def.Dir}
+	want := []string{"s6-svscanctl -a " + root, "s6-svstat " + def.Dir, "s6-svc -r " + def.Dir, "s6-svc -u " + def.Dir}
 	if calls := fakeCalls(t); !slices.Equal(calls, want) || len(*starts) != 0 {
 		t.Fatalf("calls %v, starts %v; want %v", calls, *starts, want)
 	}
@@ -740,5 +741,44 @@ func TestRestoreScriptBackupRunsNoSystemctl(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(run); string(b) != "old" || calls != 0 {
 		t.Fatalf("restored %q with %d systemctl calls; want old and none", b, calls)
+	}
+}
+
+// TestSetupNotesTheProcessARestartReplaces: the pid the user's supervisor
+// reports before the restart is kept, so the verified start cannot take the
+// old daemon, still draining, for the restarted one (PLAN S5c; the live
+// probe's s6 crash loop was confirmed running that way).
+func TestSetupNotesTheProcessARestartReplaces(t *testing.T) {
+	root, bin := supervisorHost(t, KindS6)
+	recordSessionStarts(t)
+	fakeProc(t, []string{"s6-svscan", root})
+	def := scriptDefFor(KindS6, "mcremote", root)
+	if err := os.MkdirAll(filepath.Join(def.Dir, "supervise"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "s6-svstat.out"),
+		[]byte("up (pid 81 pgid 81) 40 seconds\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := scriptSetup(t, root, bin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.replacedPid != 81 {
+		t.Fatalf("replacedPid = %d, want the 81 s6-svstat reported before the restart", res.replacedPid)
+	}
+}
+
+// TestOpenRCCrashedIsFailed: OpenRC restarts nothing, so "status: crashed" is
+// the only sign of a daemon that died, and it is a failure.
+func TestOpenRCCrashedIsFailed(t *testing.T) {
+	fakeHost(t, fakeStub(t), map[string]map[string]int{"rc-service": {"--user mcremote status": 32}})
+	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "rc-service.out"),
+		[]byte(" * status: crashed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := sampler(KindOpenRCUser, Result{UnitName: "mcremote"})()
+	if s.up || !s.failed {
+		t.Fatalf("sample %+v, want failed and not up", s)
 	}
 }
