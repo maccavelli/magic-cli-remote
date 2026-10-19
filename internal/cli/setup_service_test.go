@@ -228,6 +228,42 @@ func TestRunSetupServiceUninstall(t *testing.T) {
 	}
 }
 
+// TestRunSetupServiceFromInstaller: --from-installer refuses the other modes,
+// and with nothing installed it is a first install, which runs as plain
+// setup-service does: here, on a host with nothing to supervise, the advice
+// (MADR 0054 PLAN S7a).
+func TestRunSetupServiceFromInstaller(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideDetectedKind(service.KindNone)()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(k, filepath.Join(home, k))
+	}
+	for _, f := range []setupServiceFlags{
+		{fromInstaller: true, refresh: true}, {fromInstaller: true, remove: true},
+		{fromInstaller: true, uninstall: true}, {fromInstaller: true, printOnly: true},
+	} {
+		cmd := newSetupServiceCmd()
+		cmd.SetOut(&bytes.Buffer{})
+		if err := runSetupService(cmd, f); err == nil || !strings.Contains(err.Error(), "--from-installer cannot be combined") {
+			t.Errorf("%+v: %v, want a refusal", f, err)
+		}
+	}
+	// Setup checks only the executable bit; the stub is never run here.
+	bin := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "mcremote"), "")
+	cfgFile = ""
+	var buf bytes.Buffer
+	cmd := newSetupServiceCmd()
+	cmd.SetOut(&buf)
+	if err := runSetupService(cmd, setupServiceFlags{fromInstaller: true, binary: bin}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "service:  not configured") {
+		t.Fatalf("a first install did not run as setup-service:\n%s", buf.String())
+	}
+}
+
 func TestRunSetupServicePrintOnly(t *testing.T) {
 	// This test asserts systemd unit text, so pin the install OS instead of
 	// inheriting the host's. On macOS the renderer correctly emits a launchd

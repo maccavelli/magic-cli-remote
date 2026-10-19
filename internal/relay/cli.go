@@ -336,7 +336,9 @@ type setupServiceFlags struct {
 	uninstall  bool
 	refresh    bool
 	jsonOut    bool
-	envPairs   []string
+	// fromInstaller is --from-installer, the installer's hook.
+	fromInstaller bool
+	envPairs      []string
 }
 
 func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
@@ -368,6 +370,9 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	fs.BoolVar(&f.refresh, "refresh", false,
 		"re-render the installed unit/plist from this binary's template, preserving the options baked into it; rewrites only what this binary wrote, and reloads the systemd user manager")
 	fs.BoolVar(&f.jsonOut, "json", false, "with --refresh, print the result as one JSON object")
+	fs.BoolVar(&f.fromInstaller, "from-installer", false,
+		"run by the release installer after every install: refresh and restart a relay service this binary's folder owns, "+
+			"keeping its options; leave another install's alone; set none up (mcremote's MCREMOTE_WITH_RELAY_SERVICE=1 does)")
 	fs.StringArrayVar(&f.envPairs, "env", nil, "extra environment entries (KEY=VALUE); repeatable")
 }
 
@@ -426,6 +431,17 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		NoEnable:         f.noEnable,
 		NoStart:          f.noStart,
 		NoLinger:         f.noLinger,
+	}
+
+	// The installer's hook (MADR 0054 amendment S7, PLAN S7a). For mcrelay
+	// only MCREMOTE_FORCE_SERVICE=1 falls through to a setup.
+	if f.fromInstaller {
+		if err := service.CheckFromInstaller(f.refresh, f.remove, f.uninstall, f.printOnly); err != nil {
+			return err
+		}
+		if handled, err := service.RunInstallerHook(out, opts); handled {
+			return err
+		}
 	}
 
 	if f.uninstall {

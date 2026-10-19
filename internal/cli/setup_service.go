@@ -27,7 +27,9 @@ type setupServiceFlags struct {
 	uninstall  bool
 	refresh    bool
 	jsonOut    bool
-	envPairs   []string
+	// fromInstaller is --from-installer, the installer's hook.
+	fromInstaller bool
+	envPairs      []string
 }
 
 func (f *setupServiceFlags) toOptions() service.Options {
@@ -92,12 +94,28 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	fs.BoolVar(&f.refresh, "refresh", false,
 		"re-render the installed unit/plist from this binary's template, preserving the options baked into it; rewrites only what this binary wrote, and reloads the systemd user manager")
 	fs.BoolVar(&f.jsonOut, "json", false, "with --refresh, print the result as one JSON object")
+	fs.BoolVar(&f.fromInstaller, "from-installer", false, fromInstallerUsage)
 	fs.StringArrayVar(&f.envPairs, "env", nil, "extra environment entries (KEY=VALUE); repeatable")
 }
+
+// fromInstallerUsage is --from-installer's help text.
+const fromInstallerUsage = "run by the release installer after every install: set the service up on a first install; " +
+	"on a later one, refresh a definition this binary's folder owns, keeping its options, and restart it; leave another install's alone"
 
 func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 	out := cmd.OutOrStdout()
 	opts := f.toOptions()
+
+	// The installer's hook (MADR 0054 amendment S7, PLAN S7a). A first
+	// install falls through to plain setup-service below.
+	if f.fromInstaller {
+		if err := service.CheckFromInstaller(f.refresh, f.remove, f.uninstall, f.printOnly); err != nil {
+			return err
+		}
+		if handled, err := service.RunInstallerHook(out, opts); handled {
+			return err
+		}
+	}
 
 	if f.uninstall {
 		if f.refresh || f.remove {

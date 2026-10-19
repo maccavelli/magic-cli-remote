@@ -87,6 +87,40 @@ func TestRelaySetupServiceUninstallConflicts(t *testing.T) {
 	}
 }
 
+// TestRelaySetupServiceFromInstaller: mcrelay's --from-installer refuses the
+// other modes, and with no relay service it sets none up (MADR 0054 PLAN
+// S7a).
+func TestRelaySetupServiceFromInstaller(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideDetectedKind(service.KindNone)()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(k, home+"/"+k)
+	}
+	for _, f := range []setupServiceFlags{
+		{fromInstaller: true, refresh: true}, {fromInstaller: true, remove: true},
+		{fromInstaller: true, uninstall: true}, {fromInstaller: true, printOnly: true},
+	} {
+		cfg, lvl, fmtv := "", "", ""
+		cmd := newSetupServiceCmd(&cfg, &lvl, &fmtv)
+		cmd.SetOut(&bytes.Buffer{})
+		if err := runSetupService(cmd, f, cfg, lvl, fmtv); err == nil || !strings.Contains(err.Error(), "--from-installer cannot be combined") {
+			t.Errorf("%+v: %v, want a refusal", f, err)
+		}
+	}
+	var out bytes.Buffer
+	cfg, lvl, fmtv := "", "", ""
+	cmd := newSetupServiceCmd(&cfg, &lvl, &fmtv)
+	cmd.SetOut(&out)
+	if err := runSetupService(cmd, setupServiceFlags{fromInstaller: true}, cfg, lvl, fmtv); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "no mcrelay service is set up") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+}
+
 // TestRelaySetupServiceRefusesABadInstallerVariable: mcrelay's setup-service
 // reads the linger and force variables before it sets anything up, and
 // refuses a value that is not 1 or 0 (MADR 0054 PLAN S5d).

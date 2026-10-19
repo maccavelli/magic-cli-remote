@@ -229,6 +229,11 @@ func TestRefreshDoesNotMoveWhenACopyFails(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(oldWindowsDir("mcremote"), "mcremote.exe")); err != nil {
 		t.Fatalf("the old copy is gone after a failed move: %v", err)
 	}
+	// A copy that failed its check is not left for a later move to keep
+	// (MADR 0054 amendment S7, M1).
+	if _, err := os.Stat(filepath.Join(newWindowsDir(), "mcremote.exe")); !os.IsNotExist(err) {
+		t.Fatalf("the copy that failed its check is still in the new folder: %v", err)
+	}
 }
 
 // TestRefreshAfterTheMoveOnlyCleansUp: a task already in the new folder is

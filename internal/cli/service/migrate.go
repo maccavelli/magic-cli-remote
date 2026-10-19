@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -127,49 +126,62 @@ type migration struct {
 }
 
 // copyChecked copies src to dst, and checks the copy reports the identity
-// src does. An identical dst is kept.
+// src does. A copy that fails the check is removed, so a later move never
+// takes it for one the installer put there.
 func copyChecked(src, dst string) error {
 	want, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	if have, err := os.ReadFile(dst); err != nil || !bytes.Equal(have, want) {
-		tmp := dst + ".migrating"
-		if err := os.WriteFile(tmp, want, 0o755); err != nil {
-			return err
-		}
-		if err := os.Rename(tmp, dst); err != nil {
-			_ = os.Remove(tmp)
-			return err
-		}
+	tmp := dst + ".migrating"
+	if err := os.WriteFile(tmp, want, 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
 	}
 	a, err := binaryIdentity(src)
 	if err != nil {
+		_ = os.Remove(dst)
 		return err
 	}
 	b, err := binaryIdentity(dst)
 	if err != nil {
+		_ = os.Remove(dst)
 		return err
 	}
 	if a != b {
+		_ = os.Remove(dst)
 		return fmt.Errorf("the copy at %s reports %q, its source %q", dst, b, a)
 	}
 	return nil
 }
 
-// copyToNewFolder copies every product's binary that install.ps1 left into
-// the new folder and checks each copy. Any failure stops the move: the task
-// is then not switched (MADR 0054 amendment S5-4).
+// copyToNewFolder copies every product's binary that install.ps1 left, and
+// that the new folder does not already hold, into the new folder and checks
+// each copy. Any failure stops the move: the task is then not switched (MADR
+// 0054 amendment S5-4).
 func copyToNewFolder() error {
 	if err := os.MkdirAll(newWindowsDir(), 0o755); err != nil {
 		return err
 	}
 	for _, p := range windowsProducts {
+		dst := filepath.Join(newWindowsDir(), p+".exe")
+		if _, err := os.Stat(dst); err == nil {
+			// The library's installer put it there, or an earlier move did:
+			// it is the release to keep, never to overwrite with the old
+			// folder's copy (MADR 0054 amendment S7, M1). It must still run.
+			if _, err := binaryIdentity(dst); err != nil {
+				return fmt.Errorf("%s is in the new folder but does not run: %w", dst, err)
+			}
+			continue
+		}
 		src := filepath.Join(oldWindowsDir(p), p+".exe")
 		if _, err := os.Stat(src); errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
-		if err := copyChecked(src, filepath.Join(newWindowsDir(), p+".exe")); err != nil {
+		if err := copyChecked(src, dst); err != nil {
 			return fmt.Errorf("copy %s: %w", p, err)
 		}
 	}
@@ -198,6 +210,10 @@ func movePathEntries(store pathStore) (bool, error) {
 	return true, nil
 }
 
+// removeOldCopy deletes an old copy. It is a variable for tests, which stand
+// in for Windows refusing to delete a running program.
+var removeOldCopy = os.Remove
+
 // cleanOldFolders deletes each old copy that has a copy in the new folder and
 // that no task still runs, with its .prev and the library's own files for it,
 // and the folder when nothing else is left. A copy in use cannot be deleted on
@@ -214,7 +230,7 @@ func cleanOldFolders() []string {
 				notes = append(notes, fmt.Sprintf("%s is kept: the %s task still runs it", old, p))
 				continue
 			}
-			if err := os.Remove(old); err != nil {
+			if err := removeOldCopy(old); err != nil {
 				notes = append(notes, fmt.Sprintf("%s is in use and was kept; a later refresh removes it", old))
 				continue
 			}
