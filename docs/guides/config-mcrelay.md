@@ -363,7 +363,7 @@ Linux: systemd `--user` unit. macOS: launchd user LaunchAgent
 
 | Flag | Description |
 |------|-------------|
-| `--unit-name` | Linux unit name / macOS Label mapping (default `mcrelay`) |
+| `--unit-name` | Linux unit name / macOS Label mapping. Setup defaults to `mcrelay` and records the name it used; `--refresh` and `--remove` default to the recorded name (MADR 0201 D30) |
 | `--binary` | Serve path (default `~/.local/bin/mcrelay` if present) |
 | `--service-config` | Config path baked into the service (else `--config`) |
 | `--data-dir` | Baked `--data-dir` |

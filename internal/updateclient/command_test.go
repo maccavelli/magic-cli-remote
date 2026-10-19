@@ -14,6 +14,9 @@ import (
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
+
+	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
 
 // commandRun is one run of the update command: its streams and exit status.
@@ -37,11 +40,19 @@ func lastLine(s string) string {
 // terminal.
 func runCommand(t *testing.T, current string, stdin string, args ...string) commandRun {
 	t.Helper()
-	return runCommandContext(context.Background(), t, current, stdin, args...)
+	return runCommandContext(context.Background(), t, false, current, stdin, args...)
 }
 
-// runCommandContext is runCommand under the caller's context ctx.
-func runCommandContext(ctx context.Context, t *testing.T, current string, stdin string, args ...string) commandRun {
+// runManagedCommand is runCommand with the service path on: the update asks
+// the backend and the reconciler that withBackend and withChild set.
+func runManagedCommand(t *testing.T, current string, args ...string) commandRun {
+	t.Helper()
+	return runCommandContext(context.Background(), t, true, current, "", args...)
+}
+
+// runCommandContext is runCommand under the caller's context ctx, managed or
+// not.
+func runCommandContext(ctx context.Context, t *testing.T, managed bool, current string, stdin string, args ...string) commandRun {
 	t.Helper()
 	spec, err := releaseSpec()
 	if err != nil {
@@ -65,7 +76,7 @@ func runCommandContext(ctx context.Context, t *testing.T, current string, stdin 
 	prevID, prevNew := commandIdentity, newCommandUpdater
 	commandIdentity = func() buildinfo.Info { return id }
 	newCommandUpdater = func(product string, id buildinfo.Info) (*selfupdate.Updater, error) {
-		return New(Options{Product: product, Identity: id, HTTPClient: gh.Client, APIBaseURL: gh.APIBase.String(), TargetPath: exe})
+		return New(Options{Product: product, Identity: id, HTTPClient: gh.Client, APIBaseURL: gh.APIBase.String(), TargetPath: exe, Managed: managed})
 	}
 	t.Cleanup(func() { commandIdentity, newCommandUpdater = prevID, prevNew })
 
@@ -194,11 +205,55 @@ func TestUpdateCommandDeclinesAtEndOfInput(t *testing.T) {
 func TestNewCommandUsesCallerContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	run := runCommandContext(ctx, t, "v0.1.0", "", "--check")
+	run := runCommandContext(ctx, t, false, "v0.1.0", "", "--check")
 	if run.code != 1 || !strings.Contains(run.stderr, "context canceled") {
 		t.Errorf("exit status %d, stderr %q; want 1 and the cancellation", run.code, run.stderr)
 	}
 	if run.requests != 0 {
 		t.Errorf("a cancelled update sent %d requests to GitHub", run.requests)
+	}
+}
+
+// TestUpdateWarnsWhenTheServiceRunsAnotherBinary is MADR 0201 D26 (0073 §6.6):
+// when the service's definition runs a different binary than the one the
+// update replaced, the refresh child says so in its receipt's warnings, and
+// the update prints each as `warning: …` on stderr and still exits 0. On the
+// mcplib path the receipt's detail was dropped and nothing was printed.
+func TestUpdateWarnsWhenTheServiceRunsAnotherBinary(t *testing.T) {
+	warning := "the definition runs /x, not this binary (/y)"
+	withBackend(t, &fakeService{installed: true, enabled: true, running: true}, nil)
+	withChild(t, libservice.Output{Stdout: refreshStdout(t, service.RefreshResult{
+		Verdict: service.VerdictUnchanged, Path: "/u/mcremote.service", Reloaded: true, Warnings: []string{warning},
+	})})
+	run := runManagedCommand(t, "v0.1.0", "--yes")
+	if run.code != 0 {
+		t.Fatalf("exit status %d, want 0\nstderr:\n%s", run.code, run.stderr)
+	}
+	if !strings.Contains(run.stderr, "warning: "+warning+"\n") {
+		t.Errorf("stderr does not carry the refresh's warning:\n%s", run.stderr)
+	}
+	if got := lastLine(run.stderr); got != "mcremote: updated v0.1.0 -> v0.2.0" {
+		t.Errorf("stderr's last line = %q, want the update", got)
+	}
+}
+
+// TestUpdateOnAHostWithNoServiceInstallsStandalone is 0073 §6.1, fixed before
+// MADR 0054 moved the update to go-selfupdate-lib, and kept by that move
+// (MADR 0201): a host with no service definition gets the binary alone, with
+// no stop, no start, no refresh child and no rollback.
+func TestUpdateOnAHostWithNoServiceInstallsStandalone(t *testing.T) {
+	svc := &fakeService{}
+	withBackend(t, svc, nil)
+	runs := withChild(t, libservice.Output{})
+	run := runManagedCommand(t, "v0.1.0", "--yes")
+	if run.code != 0 {
+		t.Fatalf("exit status %d, want 0\nstderr:\n%s", run.code, run.stderr)
+	}
+	requireReplaced(t, run.exe)
+	if svc.stops != 0 || svc.starts != 0 || len(*runs) != 0 {
+		t.Errorf("stops=%d starts=%d refresh runs=%d, want none", svc.stops, svc.starts, len(*runs))
+	}
+	if strings.Contains(run.stderr, "rolled back") || strings.Contains(run.stderr, "rollback") {
+		t.Errorf("the update rolled back:\n%s", run.stderr)
 	}
 }

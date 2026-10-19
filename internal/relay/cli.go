@@ -343,7 +343,7 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	if fs.Lookup("unit-name") != nil {
 		return
 	}
-	fs.StringVar(&f.unitName, "unit-name", "mcrelay", "service name (Linux unit without .service; macOS maps to a launchd Label)")
+	fs.StringVar(&f.unitName, "unit-name", "", "service name (Linux unit without .service; macOS maps to a launchd Label); setup default mcrelay, --refresh and --remove default to the name setup recorded")
 	fs.StringVar(&f.binary, "binary", "", "serve binary path (default: ~/.local/bin/mcrelay if present, else this executable)")
 	fs.StringVar(&f.configPath, "service-config", "", "config file path written into the service (falls back to --config)")
 	if fs.Lookup("data-dir") == nil {

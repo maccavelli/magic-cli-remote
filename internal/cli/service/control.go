@@ -25,17 +25,21 @@ func IsInstalled(product string) (bool, error) {
 	if osName == "" {
 		osName = runtime.GOOS
 	}
+	names, err := namesFor(product, "")
+	if err != nil {
+		return false, err
+	}
 	switch osName {
 	case "darwin":
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return false, fmt.Errorf("home dir: %w", err)
 		}
-		plist := filepath.Join(home, "Library", "LaunchAgents", launchdLabel(product)+".plist")
+		plist := filepath.Join(home, "Library", "LaunchAgents", names.Label+".plist")
 		fi, err := os.Stat(plist)
 		return err == nil && !fi.IsDir(), nil
 	case "linux":
-		unit := product + ".service"
+		unit := names.Unit
 		if out, err := runSystemctlCapture("--user", "show", "-p", "LoadState", "--value", unit); err == nil {
 			switch strings.TrimSpace(out) {
 			case "loaded":
@@ -48,7 +52,7 @@ func IsInstalled(product string) (bool, error) {
 		fi, err := os.Stat(unitPath)
 		return err == nil && !fi.IsDir(), nil
 	case "windows":
-		return isInstalledWindows(product)
+		return isInstalledWindows(names.Task)
 	default:
 		return false, fmt.Errorf("service control unsupported on %s", osName)
 	}
@@ -95,19 +99,24 @@ func ProbeStatus(product string) Status {
 		osName = runtime.GOOS
 	}
 	st := Status{OS: osName}
+	names, err := namesFor(product, "")
+	if err != nil {
+		st.Hint = err.Error()
+		return st
+	}
 	switch osName {
 	case "darwin":
-		st.PlistOrUnit = fmt.Sprintf("%s/Library/LaunchAgents/%s.plist", os.Getenv("HOME"), launchdLabel(product))
+		st.PlistOrUnit = fmt.Sprintf("%s/Library/LaunchAgents/%s.plist", os.Getenv("HOME"), names.Label)
 	case "linux":
-		st.PlistOrUnit = product + ".service"
+		st.PlistOrUnit = names.Unit
 	case "windows":
-		st.PlistOrUnit = `Task Scheduler\` + taskNameFor(product)
+		st.PlistOrUnit = `Task Scheduler\` + names.Task
 	default:
 		st.Hint = "service status unsupported on " + osName
 		return st
 	}
 
-	b, err := newProbeBackend(product, product)
+	b, err := newProbeBackend(product, "")
 	if err != nil {
 		st.Hint = "cannot reach the service manager: " + err.Error()
 		return st
@@ -129,7 +138,7 @@ func ProbeStatus(product string) Status {
 		keep(err)
 	}
 	st.Loaded = st.PlistPresent
-	svc := launchdServiceTarget(product)
+	svc := launchdServiceTarget(names.Label)
 	if osName == "darwin" {
 		_, err := runLaunchctlCapture("print", svc)
 		st.Loaded = err == nil
@@ -156,16 +165,12 @@ func ProbeStatus(product string) Status {
 		case "darwin":
 			st.Hint = "loaded but not running — run: launchctl kickstart -k " + svc
 		case "windows":
-			st.Hint = "registered but not running — run: schtasks /run /tn " + taskNameFor(product)
+			st.Hint = "registered but not running — run: schtasks /run /tn " + names.Task
 		default:
 			st.Hint = "run: systemctl --user start " + st.PlistOrUnit + " (or mcremote setup-service --force)"
 		}
 	}
 	return st
-}
-
-func launchdLabel(product string) string {
-	return "com.magiccliremote." + product
 }
 
 // Capture helpers — fall back to run* when only error matters.

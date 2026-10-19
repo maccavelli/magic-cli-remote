@@ -43,9 +43,9 @@ var taskState = func(name string) (state int, found bool, err error) {
 	return n, true, nil
 }
 
-// isInstalledWindows reports whether the task is registered at all.
-func isInstalledWindows(product string) (bool, error) {
-	_, found, err := taskState(taskName(product))
+// isInstalledWindows reports whether the task named name is registered at all.
+func isInstalledWindows(name string) (bool, error) {
+	_, found, err := taskState(name)
 	if err != nil {
 		return false, err
 	}

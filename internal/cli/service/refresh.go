@@ -104,7 +104,12 @@ func RefreshUnit(opts Options, ro RefreshOptions) (RefreshResult, error) {
 		return res, fmt.Errorf("product must be mcremote or mcrelay (got %q)", opts.Product)
 	}
 	if opts.UnitName == "" {
-		opts.UnitName = opts.Product
+		// The name setup-service recorded, else the product (MADR 0201 D30).
+		name, err := ResolveUnitName(opts.Product)
+		if err != nil {
+			return res, err
+		}
+		opts.UnitName = name
 	}
 	if !unitNameRe.MatchString(opts.UnitName) || strings.HasSuffix(opts.UnitName, ".service") {
 		return res, fmt.Errorf("unit name must be a bare systemd name (got %q)", opts.UnitName)

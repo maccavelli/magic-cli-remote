@@ -333,16 +333,28 @@ func Setup(opts Options) (Result, error) {
 		return res, nil
 	}
 
+	// The name the definition is installed under is recorded, so every later
+	// control and refresh path finds it (MADR 0201 D30). Windows registers the
+	// task under the product's name whatever --unit-name says.
+	recorded := opts.UnitName
 	switch installOS {
 	case "linux":
-		return setupSystemd(opts, body, res)
+		res, err = setupSystemd(opts, body, res)
 	case "darwin":
-		return setupLaunchdAgent(opts, body, res)
+		res, err = setupLaunchdAgent(opts, body, res)
 	case "windows":
-		return setupSchtasks(opts, body, res)
+		recorded = taskNameFor(opts.Product)
+		res, err = setupSchtasks(opts, body, res)
 	default:
 		return res, fmt.Errorf("setup-service install is only supported on Linux, macOS and Windows (running on %s)", installOS)
 	}
+	if err != nil {
+		return res, err
+	}
+	if err := recordUnitName(opts.Product, recorded); err != nil {
+		return res, fmt.Errorf("the service is set up, but its unit name was not recorded: %w", err)
+	}
+	return res, nil
 }
 
 func setupSystemd(opts Options, body string, res Result) (Result, error) {
@@ -612,22 +624,41 @@ func Remove(opts Options) (Result, error) {
 		opts.Product = "mcremote"
 	}
 	if opts.UnitName == "" {
-		opts.UnitName = opts.Product
+		// The name setup-service recorded, else the product (MADR 0201 D30).
+		name, err := ResolveUnitName(opts.Product)
+		if err != nil {
+			return Result{}, err
+		}
+		opts.UnitName = name
 	}
 	if !unitNameRe.MatchString(opts.UnitName) || strings.HasSuffix(opts.UnitName, ".service") {
 		return Result{}, fmt.Errorf("unit name must be a bare name (got %q)", opts.UnitName)
 	}
 
+	var (
+		res Result
+		err error
+	)
+	recorded := opts.UnitName
 	switch installOS {
 	case "linux":
-		return removeSystemd(opts)
+		res, err = removeSystemd(opts)
 	case "darwin":
-		return removeLaunchdAgent(opts)
+		res, err = removeLaunchdAgent(opts)
 	case "windows":
-		return removeSchtasks(opts)
+		recorded = taskNameFor(opts.Product)
+		res, err = removeSchtasks(opts)
 	default:
 		return Result{}, fmt.Errorf("setup-service --remove is only supported on Linux, macOS and Windows (running on %s)", installOS)
 	}
+	if err != nil {
+		return res, err
+	}
+	// Removing the service removes its record (MADR 0201 D30).
+	if err := forgetUnitName(opts.Product, recorded); err != nil {
+		return res, fmt.Errorf("the service is removed, but its unit name record was not: %w", err)
+	}
+	return res, nil
 }
 
 func removeSystemd(opts Options) (Result, error) {

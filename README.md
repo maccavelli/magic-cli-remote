@@ -643,7 +643,7 @@ works without a subcommand.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--unit-name` | `mcremote` | Linux unit name; macOS maps to `com.magiccliremote.<name>` Label |
+| `--unit-name` | `mcremote` (setup); the recorded name (`--refresh`, `--remove`) | Linux unit name; macOS maps to `com.magiccliremote.<name>` Label. Setup records the name it used, so later commands find a custom-named service without the flag (MADR 0201 D30). Refused on Windows |
 | `--binary` | `~/.local/bin/mcremote` if present, else this executable | Path used for serve (not copied) |
 | `--service-config` | | Config path embedded in service (else `--config`) |
 | `--data-dir` | | Passed through to `serve` |

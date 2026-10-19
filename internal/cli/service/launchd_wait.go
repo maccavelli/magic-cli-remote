@@ -92,9 +92,10 @@ func stopAndWaitDarwin(svc string) error {
 	}
 }
 
-// launchdServiceTarget returns the gui/<uid>/<label> target for a product.
-func launchdServiceTarget(product string) string {
-	return fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel(product))
+// launchdServiceTarget is the service target of the LaunchAgent labelled
+// label in this user's GUI domain.
+func launchdServiceTarget(label string) string {
+	return fmt.Sprintf("gui/%d/%s", os.Getuid(), label)
 }
 
 // launchdJobRunning reports whether the job is loaded *and* running, using the

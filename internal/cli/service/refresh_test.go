@@ -558,3 +558,37 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
+
+// TestRefreshWarnsWhenTheDefinitionRunsAnotherBinary is MADR 0201 D26's first
+// link: a refresh whose definition names another binary than the one running
+// it says so in its receipt's warnings, which the update prints.
+func TestRefreshWarnsWhenTheDefinitionRunsAnotherBinary(t *testing.T) {
+	linuxRefresh(t)
+	recordSystemctl(t)
+	dir := t.TempDir()
+	unitDir := filepath.Join(dir, "units")
+	other := filepath.Join(dir, "elsewhere", "mcremote")
+	writeUnit(t, unitDir, Options{
+		Product: "mcremote", UnitName: "mcremote", Description: "d",
+		Binary: other, WorkingDirectory: dir,
+	}, nil)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	got, err := RefreshUnit(Options{Product: "mcremote", UnitName: "mcremote", UnitDir: unitDir}, RefreshOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "the definition runs " + other + ", not this binary (" + exe + ")"
+	found := false
+	for _, w := range got.Warnings {
+		found = found || w == want
+	}
+	if !found {
+		t.Errorf("warnings = %q, want %q", got.Warnings, want)
+	}
+}

@@ -1416,3 +1416,138 @@ this commit, Deviation 8's fix, when P9's records are written.
 **State of the PLAN:** P0–P8 and P10 are done. P9 (D26, D30, and the §6.1 check) waits for
 0054's acceptance and its S1/S3, so the PLAN stays `in-progress`.
 
+### P9, 2026-10-19 — complete, staged for the owner's commit; the records pass follows the commit
+
+**Starting point.** 0054 was accepted on 2026-10-19, and its S1 (`9a443153`) and S3 (`8c80bb96`)
+are committed. The owner chose "P9, then S4". P9 started from `8c80bb96`.
+
+**1. D26 (§6.6).**
+
+- **The refresh's link: `TestRefreshWarnsWhenTheDefinitionRunsAnotherBinary`.**
+  - The test installs a unit whose `ExecStart` names a binary in another directory.
+  - `RefreshUnit`'s warnings must then hold `binaryWarning`'s exact text: `the definition runs
+    <other>, not this binary (<exe>)`.
+- **The update's link: `TestUpdateWarnsWhenTheServiceRunsAnotherBinary`.**
+  - A managed `update --yes` runs through the library command, against `selfupdatetest`.
+  - Its refresh child's receipt carries `the definition runs /x, not this binary (/y)`.
+  - The update writes `warning: the definition runs /x, not this binary (/y)` to stderr, ends in
+    `mcremote: updated v0.1.0 -> v0.2.0`, and exits 0.
+- **The `mcplib` path: nothing was printed.** The same scenario ran on a scratch copy of
+  `608077d9`, the commit before 0054's S1:
+  - The update was composed with `mcplib v1.4.1` and the old `Lifecycle` and `Reconciler`.
+  - The `selfupdatetest` server, added to the copy only, served the releases.
+  - The old `Reconciler` put the warning in `ReconcileResult.Detail`, and nothing printed it:
+
+  ```text
+  selfupdate: installing product=mcremote target=v0.2.0 asset=mcremote-darwin-arm64
+  selfupdate: complete product=mcremote current=v0.1.0 target=v0.2.0 asset=mcremote-darwin-arm64 release asset integrity verified
+  d26_old_test.go:90: the old update did not print the refresh's warning
+  ```
+
+  - **Why, in the code.** `mcplib`'s managed installer keeps the reconcile result only for
+    rollback (`selfupdate/managed.go:88`, `:113-115`). The only detail the updater reports at
+    completion is "release asset integrity verified" (`updater.go:244-251`).
+
+**2. D30 (§6.10(d)).**
+
+- **The record.** `internal/cli/service/unitrecord.go` keeps the record at
+  `<state_dir>/service-unit`. It is the product's state directory, which no `--data-dir` changes,
+  so `update` and `doctor` find what setup wrote.
+- **The one resolver,** `ResolveUnitName`, returns the recorded name or the product's, and refuses
+  a record that is not a unit name. `namesFor` turns that name into the systemd unit, the launchd
+  label and the task name.
+- **Who reads it:** `NewBackend`, so every library backend; `IsInstalled`; `ProbeStatus`; and
+  `RefreshUnit` and `Remove` when no `--unit-name` is given.
+- **Who writes it.** `Setup` writes the record after a successful install. `Remove` deletes it
+  when it names the removed unit.
+- **On Windows** the record is always the product name: `normalize` refuses any other
+  `--unit-name` there (`setup.go:795-796`, MADR 0159 D13).
+- **The flag.** `--unit-name` (`internal/cli/setup_service.go`, `internal/relay/cli.go`) now
+  defaults to empty:
+  - setup still installs under the product name;
+  - `--refresh` and `--remove` then use the recorded name.
+
+  `--refresh` without the flag is how `update` reconciles, so a custom-named service is now
+  updated.
+- **Docs.** The `--unit-name` rows of `README.md`, `docs/guides/config.md` and
+  `docs/guides/config-mcrelay.md` state the new defaults.
+- **Isolation.** A `TestMain` in `unitrecord_test.go` points the record at a scratch directory
+  for the whole service test binary, the external `service_test` files included. No test can
+  write it into the developer's real state directory.
+- **Removed:** `launchdLabel`, which staticcheck reported unused (U1000) once `namesFor` replaced
+  its callers. `launchdServiceTarget` now takes the label.
+- **Tests:**
+  - `TestControlUsesTheRecordedUnitName`, six cases:
+    - with `custom` recorded, `namesFor` gives `custom.service`, `com.magiccliremote.custom` and
+      the task `custom`;
+    - with nothing recorded, the product's names;
+    - an explicit name wins;
+    - a damaged record is refused;
+    - `IsInstalled` asks systemd for `custom.service`;
+    - `doctor` probes and names `custom.service`.
+  - `TestSetupRecordsAndRemoveDeletesTheUnitName`: setup with `--unit-name custom` records it;
+    refresh with no name finds `custom.service`; remove with no name removes it and deletes the
+    record. The test is unix-only, as the other refresh tests are.
+
+**3. §6.1.** `TestUpdateOnAHostWithNoServiceInstallsStandalone`: the backend reports no service,
+and the managed update installs the binary with no stop, no start, no refresh child and no
+rollback. It holds after the move.
+
+**4. Planted breaks, each on its own fresh scratch copy.** Each fails a test assertion, not the
+build.
+
+```text
+D30: the resolver returns the product name only (step 4)
+   unitrecord_test.go:54: namesFor = {Unit:mcremote.service …}, want {Unit:custom.service …}
+   unitrecord_test.go:76: ResolveUnitName = <nil>, want a refusal
+   unitrecord_test.go:93: systemctl was asked ["--user show -p LoadState --value mcremote.service"], want the custom unit
+   unitrecord_test.go:109: status names "mcremote.service", backend built for ["mcremote.service"]; want custom.service
+   unitrecord_setup_test.go:44: refresh found "…/mcremote.service" … want the recorded custom.service
+D30: setup does not record the name     unitrecord_setup_test.go:36: record = "", … no such file or directory; want custom
+D30: removal keeps the record           unitrecord_setup_test.go:55: the record survived the removal
+D26: refresh drops the binary warning   refresh_test.go:592: warnings = [], want "the definition runs … not this binary (…)"
+D26: the update drops the warnings      command_test.go:233: stderr does not carry the refresh's warning
+§6.1: every host has a service          command_test.go:250: exit status 1, want 0
+```
+
+My first version of the second and third plants removed a call outright. That left `recorded`
+unused, which is a build failure, not a failing test. They were rewritten to keep the code
+compiling.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (13 Go files)                       exit=0   gofmt, golint, govulncheck clean
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0 (after removing the unused launchdLabel)
+go test -race -count=1 ./...                           exit=0, 42 packages ok
+```
+
+**Other hosts.**
+
+- **The Windows test host:** `make ci-windows` gave `ci-windows-exit=0`, "ALL SELECTED CHECKS
+  PASSED", 43 `ok` lines.
+- **The Linux test host:** `go test -race` of `internal/updateclient`, `internal/cli`,
+  `internal/cli/service` and `internal/relay` is `ok`. All of P9's named tests pass:
+  - `TestControlUsesTheRecordedUnitName`;
+  - `TestSetupRecordsAndRemoveDeletesTheUnitName`;
+  - `TestRefreshWarnsWhenTheDefinitionRunsAnotherBinary`;
+  - `TestNewBackendIsTheLibrarysForThisOS`;
+  - `TestUpdateWarnsWhenTheServiceRunsAnotherBinary`;
+  - `TestUpdateOnAHostWithNoServiceInstallsStandalone`.
+
+  The scratch directory was removed. My first Linux runner ran S3's tests by mistake, because a
+  `sed` rewrite of its test list did not match. It was rewritten and rerun.
+
+**Left for the records pass, after the owner commits P9.** Those records cite P9's commit, which
+does not exist yet:
+
+- `docs/reports/0073-REPORT-triage-of-the-non-goose-findings.md`:
+  - §6.2 gains P10's `da95b793`;
+  - §6.6 becomes FIXED by 0054 S1 `9a443153` and S3 `8c80bb96`, with this phase's regression
+    tests;
+  - §6.10(d) becomes FIXED by P9's commit;
+  - the §6.1 row records the check;
+  - the "Status after 0201" counts move.
+- This PLAN's status becomes `complete`. P9 and P10 are then done, and every row it covers is
+  FIXED.

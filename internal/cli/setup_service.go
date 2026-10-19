@@ -62,7 +62,7 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 		// Already bound (shared root + subcommand careful call).
 		return
 	}
-	fs.StringVar(&f.unitName, "unit-name", "mcremote", "service name (Linux unit without .service; macOS maps to a launchd Label)")
+	fs.StringVar(&f.unitName, "unit-name", "", "service name (Linux unit without .service; macOS maps to a launchd Label); setup default mcremote, --refresh and --remove default to the name setup recorded")
 	fs.StringVar(&f.binary, "binary", "", "serve binary path (default: ~/.local/bin/mcremote if present, else this executable)")
 	fs.StringVar(&f.configPath, "service-config", "", "config file path written into the service (falls back to --config)")
 	// data-dir / listen-host / listen-port may already exist on serve; on root/setup they are setup-specific.

@@ -23,40 +23,38 @@ type Backend interface {
 
 // NewBackend returns the library backend for this OS's service manager.
 // unitName is the name setup-service registered the definition under; empty
-// means the product. Each OS turns it into the definition's name exactly as
-// setup does, so the backend manages the definition setup wrote.
+// means the name it recorded, else the product (MADR 0201 D30). Each OS turns
+// it into the definition's name exactly as setup does, so the backend manages
+// the definition setup wrote.
 func NewBackend(product, unitName string) (Backend, error) {
-	if unitName == "" {
-		unitName = product
+	names, err := namesFor(product, unitName)
+	if err != nil {
+		return nil, err
 	}
 	switch runtime.GOOS {
 	case "linux":
 		ensureUserRuntimeDir()
-		u, err := systemd.New(systemd.Options{Unit: unitName + ".service", Scope: systemd.User})
+		u, err := systemd.New(systemd.Options{Unit: names.Unit, Scope: systemd.User})
 		if err != nil {
 			return nil, err
 		}
 		return u, nil
 	case "darwin":
-		label, err := LaunchdLabel(product, unitName)
-		if err != nil {
-			return nil, err
-		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("home dir: %w", err)
 		}
 		j, err := launchd.New(launchd.Options{
-			Label:  label,
+			Label:  names.Label,
 			Domain: launchd.GUI(os.Getuid()),
-			Plist:  filepath.Join(home, "Library", "LaunchAgents", label+".plist"),
+			Plist:  filepath.Join(home, "Library", "LaunchAgents", names.Label+".plist"),
 		})
 		if err != nil {
 			return nil, err
 		}
 		return j, nil
 	case "windows":
-		t, err := taskscheduler.New(taskscheduler.Options{Name: taskNameFor(product)})
+		t, err := taskscheduler.New(taskscheduler.Options{Name: names.Task})
 		if err != nil {
 			return nil, err
 		}
