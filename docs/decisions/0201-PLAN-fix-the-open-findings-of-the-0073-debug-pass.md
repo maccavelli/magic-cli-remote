@@ -1237,3 +1237,40 @@ make ci-windows (the Windows test host)               -> ci-windows-exit=0 (Go o
 check_records.py --check-all, markdownlint-docs       -> exit 0
 ```
 
+### P8, 2026-10-18: records — complete
+
+Starting commit `66a2edbf` (P7).
+
+1. **The triage report** (`0073-REPORT-triage-of-the-non-goose-findings.md`).
+   - **Rows marked fixed:** 36, each with its commit and decision. They are the 34 rows that
+     were STILL PRESENT, F3(a) (D2 and D25), and the F-T3 residual (D10). Each State keeps what
+     the report observed at `56ea5621`, and an arrow adds the fix.
+   - **Later record:** every touched row's column now cites the 0201 MADR.
+   - **New section:** "Status after 0201" gives the new totals (42 FIXED, 2 STILL PRESENT, 2
+     OBSOLETE, 0 UNCLEAR) and a phase-to-commit table. The old summary is relabelled
+     "as observed at `56ea5621`".
+   - **The two still present:** §6.6 (D26) and §6.10(d) (D30). Their rows say "deferred to 0201
+     PLAN P9, after 0054 S1/S3".
+2. **0090-PLAN Phase 3 Task 3.1** gets a dated note: done by 0201 D23 (`84011354`). The note
+   adds that 0201's test covers what Task 3.2 asks, and that Task 3.3, the `config.md`
+   environment table, is not done. 0090's checkboxes are left to that plan's own execution
+   record.
+3. **The protocol guides.** P1 already added D9's sentence and D10's error code to
+   `protocol-v1.md`, and Deviation 3 (P4) added `last_seq` and the turn-end `cancelled`.
+   `protocol-v2.md` repeats neither passage: it says v1's error codes are unchanged, and has no
+   `Authorization: Bearer` text. So it needs no change.
+
+**Gates.**
+
+```text
+check_records.py --check-all   -> exit 0
+make markdownlint-docs         -> exit 0 (covers docs/reports)
+```
+
+**Still open in this PLAN:**
+
+- **P9** (D26, D30, and the §6.1 check) waits for 0054's acceptance and its S1/S3.
+- **P10** (real-host checks) has not run.
+
+The PLAN stays `in-progress`.
+

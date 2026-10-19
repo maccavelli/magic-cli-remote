@@ -116,6 +116,14 @@ Omitted on purpose (MADR D3): `providers.opencode.transport`,
         `limits.tcp_keepalive.disable` / `idle_seconds` /
         `interval_seconds` / `count`,
         `providers.codex.sandbox_broken_policy`.
+        *2026-10-18: done by 0201 D23 (`84011354`). The seven defaults are in
+        `setDefaults`. `TestEnvOverridesTheLimitsAndSandboxKeys`
+        (`internal/config/env_limits_test.go`) covers what Task 3.2 asks,
+        and `TestEveryConfigKeyHasAViperDefault` fails on any key added
+        without a default. Task 3.3 (the `config.md` environment table) is
+        not done; see
+        [0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md](0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md)
+        Deviation 5 for the keys deliberately left without a default.*
   - [ ] **Task 3.2**: Tests in `internal/config/config_test.go`
         (`MCREMOTE_LIMITS_WS_READ_DEADLINE_SECONDS=90` etc.), same
         shape as `TestReceiptsEnvOverride`.
