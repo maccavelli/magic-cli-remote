@@ -9,45 +9,28 @@ import (
 	"os/signal"
 	"runtime/debug"
 
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
 	"github.com/maccavelli/magic-cli-remote/internal/logging"
 	"github.com/spf13/cobra"
 )
 
-// Set via Execute / main.
-var (
-	cliVersion = "dev"
-	cliCommit  = "none"
-	cliDate    = "unknown"
-	// cliBuildKind is stamped to "release" only by the tag build (MADR 0005).
-	cliBuildKind = "local"
-)
-
 // Execute runs the mcrelay command tree.
-func Execute(version, commit, date string) error {
-	if version != "" {
-		cliVersion = version
-	}
-	if commit != "" {
-		cliCommit = commit
-	}
-	if date != "" {
-		cliDate = date
-	}
+func Execute() error {
 	return newRootCmd().Execute()
 }
 
-// SetBuildKind injects the linker-stamped build kind.
-func SetBuildKind(k string) {
-	if k != "" {
-		cliBuildKind = k
-	}
+// VersionString returns this build's identity line, buildinfo.Identity(),
+// which `version` and `--version` print first (MADR 0054 S2).
+func VersionString() string {
+	return buildinfo.Identity().String()
 }
 
-// VersionString returns the human-readable mcrelay version line.
-func VersionString() string {
-	return fmt.Sprintf("mcrelay %s (%s) %s", cliVersion, cliCommit, cliDate)
+// runningVersion is the stamped version, verbatim, as the start-up log
+// reports it (MADR 0054 D13).
+func runningVersion() string {
+	return buildinfo.Identity().Current()
 }
 
 func newRootCmd() *cobra.Command {
@@ -294,7 +277,7 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			// (0068 P6, goroutine-leak triage — docs/guides/ops-mcrelay.md).
 			debugserve.Start(ctx, log)
 			log.Info("mcrelay starting",
-				slog.String("version", cliVersion),
+				slog.String("version", runningVersion()),
 				slog.String("listen", srvCfg.ListenAddr),
 				slog.String("tls", fc.TLS.Mode),
 				slog.Int("hosts_allowed", len(srvCfg.Allow)),

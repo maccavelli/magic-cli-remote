@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +20,7 @@ func TestNewRequiresProduct(t *testing.T) {
 
 func TestNewBuildsStandaloneAndManaged(t *testing.T) {
 	for _, managed := range []bool{false, true} {
-		up, err := New(Options{Product: "mcremote", RawVersion: "v0.15.3", RawBuildKind: "release", Managed: managed})
+		up, err := New(Options{Product: "mcremote", Identity: buildinfo.Info{Version: "v0.15.3", Kind: buildinfo.KindRelease}, Managed: managed})
 		if err != nil {
 			t.Fatalf("managed=%v: New = %v", managed, err)
 		}
@@ -29,10 +30,11 @@ func TestNewBuildsStandaloneAndManaged(t *testing.T) {
 	}
 }
 
-// TestRequestNormalizesLegacyIdentity proves the BASE.N bridge is applied at
-// the one place it belongs, on the way into the shared request.
-func TestRequestNormalizesLegacyIdentity(t *testing.T) {
-	opts := Options{Product: "mcremote", RawVersion: "0.15.3.7", RawBuildKind: "release"}
+// TestRequestIsTheBuildIdentity: the request carries buildinfo's version
+// verbatim, and a release build only when buildinfo says release (MADR 0054
+// S2).
+func TestRequestIsTheBuildIdentity(t *testing.T) {
+	opts := Options{Product: "mcremote", Identity: buildinfo.Info{Version: "v0.15.3", Kind: buildinfo.KindRelease}}
 	req := opts.Request("", true, false, false)
 	if req.CurrentVersion != "v0.15.3" {
 		t.Errorf("CurrentVersion = %q, want v0.15.3", req.CurrentVersion)
@@ -45,9 +47,16 @@ func TestRequestNormalizesLegacyIdentity(t *testing.T) {
 	}
 }
 
+// TestRequestLocalBuild: anything buildinfo does not call a release is a
+// local build, which the updater replaces only with --force. That includes a
+// "release" stamp on a version that is not a release tag, which buildinfo
+// reports as local with a reason.
 func TestRequestLocalBuild(t *testing.T) {
-	opts := Options{Product: "mcrelay", RawVersion: "0.15.3.g1234567", RawBuildKind: "local"}
+	opts := Options{Product: "mcrelay", Identity: buildinfo.Info{Version: "0.15.3.g1234567", Kind: buildinfo.KindLocal}}
 	req := opts.Request("v0.16.0", false, true, true)
+	if req.CurrentVersion != "0.15.3.g1234567" {
+		t.Errorf("CurrentVersion = %q, want the stamp verbatim", req.CurrentVersion)
+	}
 	if req.CurrentBuild != selfupdate.LocalBuild {
 		t.Errorf("CurrentBuild = %v, want LocalBuild", req.CurrentBuild)
 	}
@@ -86,7 +95,7 @@ func TestContextDerivesFromCaller(t *testing.T) {
 }
 
 func TestNewCommandFlagSurface(t *testing.T) {
-	cmd := NewCommand("mcremote", func() (string, string) { return "v0.15.3", "release" })
+	cmd := NewCommand("mcremote")
 	for _, name := range []string{"check", "yes", "force", "version"} {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Errorf("missing --%s", name)
@@ -100,7 +109,7 @@ func TestNewCommandFlagSurface(t *testing.T) {
 // TestNewCommandRejectsPositionalArgs keeps a typo from being read as an
 // argument the command silently ignores.
 func TestNewCommandRejectsPositionalArgs(t *testing.T) {
-	cmd := NewCommand("mcremote", func() (string, string) { return "v0.15.3", "release" })
+	cmd := NewCommand("mcremote")
 	if err := cmd.Args(cmd, []string{"stray"}); err == nil {
 		t.Fatal("expected positional arguments to be rejected")
 	}
@@ -115,7 +124,7 @@ func TestNewCommandRejectsContradictoryFlags(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := NewCommand("mcremote", func() (string, string) { return "v0.15.3", "release" })
+			cmd := NewCommand("mcremote")
 			var out, errBuf bytes.Buffer
 			cmd.SetOut(&out)
 			cmd.SetErr(&errBuf)
@@ -135,7 +144,7 @@ func TestNewCommandRejectsContradictoryFlags(t *testing.T) {
 // TestNewCommandUsesCallerContext guards against a reintroduced
 // context.Background: a cancelled caller must abort before any network work.
 func TestNewCommandUsesCallerContext(t *testing.T) {
-	cmd := NewCommand("mcremote", func() (string, string) { return "v0.15.3", "release" })
+	cmd := NewCommand("mcremote")
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)

@@ -730,3 +730,222 @@ make check-records                                    exit=0
 - `apps/mobile/lib/data/update/app_update.dart`;
 - `docs/guides/config.md` (Deviation 3);
 - this PLAN.
+
+### S2, 2026-10-19 — complete, staged for the owner's commit
+
+**Approval:** S1 was committed as `9a443153`. The owner then chose "Both S2 then S3", when asked
+which phase "proceed" meant.
+
+**Deviations, each decided by the owner on 2026-10-19 before any code changed:**
+
+- **Deviation 1 — the shipped installers' version check joins S2's scope.**
+  - **Found.** Both installers compare the second word of `mcremote version` with the version
+    they installed, and warn on a mismatch: `scripts/install.sh:265` with `awk '{print $2}'`,
+    and `scripts/install.ps1:341`.
+  - **The problem.** S2 makes that word `(release)`, so every install would warn falsely until S7
+    deletes the scripts.
+  - **Decision.** Each installer reads the first field of the first line and drops a leading
+    `v`, so it compares the identity line's version. The suites' `version` stubs print the new
+    shape, and a mismatch case keeps the warning tested.
+  - **Scope added:** `scripts/install.sh`, `scripts/install.ps1`, `scripts/install_test.sh`, and
+    the PowerShell suites where they stub `version`.
+- **Deviation 2 — the version-output line of `docs/guides/config-mcrelay.md` joins S2's scope.**
+  - **Found.** `config-mcrelay.md:411` says `mcrelay version` prints `mcrelay <version> (<commit>)
+    <date>`, which S2 makes untrue.
+  - **Decision.** That line states the identity line's shape. `docs/guides/config.md:518`, which
+    names only the commands, was checked and needs no change.
+
+- **Deviation 3 — `make` becomes the PATH guard's second allowed name.**
+  - **Found.** S2's identity test runs the real Makefile. The owner directed that it drive `make`,
+    which every test host has, rather than match the Makefile's text.
+  - **The conflict.** `internal/testexec/pathbinaries_test.go:114` then refused
+    `internal/identity_test.go:29: exec.Command("make") resolves a bare binary name from PATH`.
+    That is MADR 0147 D11's guard, whose only allowed name was `go`.
+  - **Decision.** `make` is added to `allowedBareNames`, recorded as the 0147 MADR's amendment
+    of 2026-10-19. The guard stays otherwise unchanged, and D11's falsification is at a third
+    name.
+  - **Scope added:** `internal/testexec/pathbinaries_test.go` and
+    `docs/decisions/0147-MADR-windows-gate-measures-the-host-not-the-code.md`.
+
+**The design, as executed:**
+
+- **One source.** Each product reports `buildinfo.Identity()`.
+  - `version` and `--version` print `Identity().String()`.
+  - Everything that carried the version string carries `Identity().Current()`: the daemon's
+    `Options.Version` (so `/v1/hello` and ACP `clientInfo.version`), the update's request and
+    `User-Agent`, `doctor`'s engine inspection, and both start-up log lines.
+- **Removed:** the `main.version`, `main.commit`, `main.date` and `main.buildKind` stamps, and
+  the setters and variables they fed (`cli.SetVersionInfo`, `SetBuildKind`, and the relay's
+  `cli*` variables). Also `legacy.go` and `NormalizeInstalled`, with their two tests.
+  `legacy_test.go`'s frozen v0.15.3 fixture stays.
+- **The Makefile stamps the library's variables.** The release stamp is the string
+  `buildinfo.LDFlags` renders, written in Make, because Make cannot call Go. A test pins it to
+  `LDFlags`'s own output. Local builds stamp `<base>.g<commit>` as a local build, as before.
+- **CI.**
+  - The release lane passes `VERSION=v<tag>`. It still builds through the Makefile until S4.
+  - Its job output stays without the `v`, for the APK's `--build-name`.
+  - The three version smokes check the identity line's first line instead of the second word.
+
+**Step 1, the failing test first.** `internal/identity_test.go` drives the real Makefile:
+
+- `make build-remote` / `build-relay`, with `VERSION=v9.9.9 BUILD_KIND=release`, or with no
+  stamp;
+- each product built into a temporary directory;
+- then `version` and `--version`, each of whose first lines must be `buildinfo.Identity()`.
+
+Against the tree before S2:
+
+```text
+--- FAIL: TestReleaseBuildReportsTheTag
+    mcremote version first line = "mcremote v9.9.9 (9a443153-dirty) 2026-10-19T14:34:19Z", want ^v9\.9\.9 \(release\)( [0-9a-f]{12}(-dirty)?)?$
+--- FAIL: TestLocalBuildReportsLocal
+    mcremote version first line = "mcremote 0.20.2.g9a443153-dirty (9a443153-dirty) 2026-10-19T14:34:19Z", want ^\S+ \(local\)( [0-9a-f]{12}(-dirty)?)?$
+```
+
+The first draft also read the binary's `-ldflags` back with `go version -m`. A `-trimpath` build,
+as every Makefile build is, records no `-ldflags`, so that check was removed. The `version` line is
+the proof instead: `buildinfo` reports `<tag> (release)` only when the version stamp is the tag
+and the kind stamp is exactly `release`, the two values `buildinfo.LDFlags` sets.
+
+**Steps 2–4, what changed.**
+
+- **The mains.**
+  - `cmd/mcremote/main.go` and `cmd/mcrelay/main.go` lose their stamp variables.
+  - `internal/cli/root.go` loses `version`, `commit`, `date`, `buildKind`, `SetVersionInfo` and
+    `SetBuildKind`. It gains `VersionString` (`Identity().String()`) and `runningVersion`
+    (`Identity().Current()`).
+  - `internal/relay/cli.go` matches it, and its `Execute` takes no arguments.
+- **The readers.** `serve`'s log line and `daemon.Options.Version`, `doctor`'s
+  `InspectProviders`, and the relay's start-up log read `runningVersion()`.
+  `daemon.Options.Version` reaches `/v1/hello` and ACP `clientInfo.version`.
+- **The update command.**
+  - `updateclient.Options` replaces `RawVersion` and `RawBuildKind` with `Identity
+    buildinfo.Info`.
+  - `Request` builds the request as the library's `cli.Flags.Request` does: `Identity.Current()`,
+    and `ReleaseBuild` only for `KindRelease`. The `User-Agent` uses `Identity.Current()`.
+  - `NewCommand(product)` sets `buildinfo.Identity()`.
+- **Deleted:** `legacy.go`, `NormalizeInstalled` and its two tests. The package comment moved to
+  `client.go`, and the frozen v0.15.3 selector fixture stays.
+- **The Makefile.**
+  - `build`, `build-relay`, `build-remote` and `run` stamp `-X $(BUILDINFO).version=$$VER -X
+    $(BUILDINFO).kind=$(BUILD_KIND)`. `debug` stamps `-X $(BUILDINFO).version=debug`.
+  - `DATE` and its `SOURCE_DATE_EPOCH` branch are gone. The commit time is the binary's
+    `vcs.time`, so MADR 0060 D3's reproducibility holds.
+  - The resulting identity lines:
+
+    ```text
+    make build-relay VERSION=v9.9.9 BUILD_KIND=release   ->  v9.9.9 (release) 9a443153aa3c-dirty
+    make build-remote                                     ->  0.20.2.g9a443153-dirty (local) 9a443153aa3c-dirty
+    make -n debug                                         ->  -ldflags "-X github.com/maccavelli/go-selfupdate-lib/buildinfo.version=debug"
+    ```
+
+- **CI.**
+  - The release lane runs `make … VERSION="v$ver" BUILD_KIND=release`. The step summary shows
+    `v$ver`, and the job output stays without the `v`, for the APK.
+  - The three version smokes (`ci.yml`, the build job, the go-native matrix and the release job)
+    read the first line with `sed -n 1p`. Each requires `v$VER (release)`, alone or followed by
+    the commit.
+- **Deviation 1.**
+  - `install.sh` reads `awk 'NR == 1 { sub(/^v/, "", $1); print $1 }'`.
+  - `install.ps1` gains `Get-ReportedVersion`, which `install_ps1_unit_test.ps1` loads from the
+    script's AST.
+  - The `install_test.sh` stubs print `v<ver> (release) 0123456789ab`, and a new case makes the
+    binary report another version.
+- **Deviation 2.** `config-mcrelay.md`'s `mcrelay version` section states the identity line.
+- **Deviation 3.** `make` is in `allowedBareNames`, with the 0147 MADR amendment.
+- **Tests that pinned the old API, rewritten.**
+  - `internal/cli/version_test.go`;
+  - `TestCLIVersionCommand`, with `TestSetBuildKind` deleted;
+  - the `client_test.go` request tests;
+  - `managed_test.go`'s `runUpdate`;
+  - the `/v1/hello` test, whose fixture is now `v0.17.1`.
+  - The ACP `clientInfo` test already covered `v0.21.0` (`advertise_test.go:34`).
+- **A Windows finding of my own.** The identity test's first Windows run failed: `fork/exec
+  …\mcremote.exe: The system cannot find the file specified`. The recipe hands `-o $(BIN)` to the
+  shell unquoted, and a shell drops a Windows path's backslashes. The test now passes the path
+  with forward slashes. The rerun passed, which confirms the cause.
+
+**Each new or changed assertion, seen failing on a planted break.** Each break ran on its own fresh
+scratch copy:
+
+```text
+version prints the old shape           identity_test.go:67: mcremote version first line = "mcremote v9.9.9", want ^v9\.9\.9 \(release\)…
+                                       version_test.go:17: VersionString() = "mcremote dev", want buildinfo.Identity() "dev (local)"
+Makefile stamps build-remote local     identity_test.go:67: mcremote version first line = "v9.9.9 (local) 9a443153aa3c-dirty", want …(release)…
+the request is always a release        client_test.go:61: CurrentBuild = release, want LocalBuild
+runningVersion reports the whole line  version_test.go:20: runningVersion() = "dev (local)", want buildinfo's version "dev"
+mcrelay version prints the old shape   identity_test.go:78: mcrelay version first line = "mcrelay 0.20.2.g9a443153-dirty", want …(local)…
+mcremote version prints "x"            version_test.go:32: version output = "x", want "dev (local)"
+mcrelay version prints "x"             cli_test.go:52: version output "x\n", want the identity line "dev (local)"
+install.sh reads the second field      install_test.sh: FAIL the identity line's version matches the manifest's: no warning;
+                                       FAIL warns with the reported version (140 passed, 2 failed)
+Get-ReportedVersion reads field 2      install_ps1_unit_test.ps1 (pwsh 7, Windows): FAIL U-S2a, U-S2b, U-S2c, U-S2e (62 passed, 4 failed)
+a bare name other than go and make     pathbinaries_test.go:117: internal/updateclient/client_test.go:17: exec.Command("bash") resolves a bare binary name …
+```
+
+- **A weakness found by the plants.** With `mcrelay`'s `VersionString` broken,
+  `TestCLIVersionCommand` passed. It only checks that the command prints `VersionString()`, so a
+  broken `VersionString` passes it trivially. The real-build `TestLocalBuildReportsLocal` caught
+  that break, and the two command tests were then shown failing on broken wiring.
+- **The empty-output case.** U-S2d passes on the planted break as well: both versions return
+  nothing for no output.
+- **The three CI smokes,** extracted verbatim from `ci.yml`, were run with bash against stub
+  binaries. All 18 cases behaved as intended:
+  - `v0.17.1 (release) 0123456789ab` and `v0.17.1 (release)` pass;
+  - the old shape, `(local)`, `v0.17.10` and a tag without its `v` each fail, naming what they
+    got.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (17 Go files)                      exit=0   gofmt, golint, govulncheck clean
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck (linux, darwin, windows)  exit=0 / exit=0
+go test -race -count=1 ./...                          exit=0, 42 packages ok
+sh scripts/install_test.sh                            exit=0, 142 passed, 0 failed
+mcplib scan (Deviation 4 of S1)                       0 findings in 1942 files
+make check-records / make markdownlint-docs           exit=0 / exit=0
+```
+
+**Other hosts.**
+
+- **The Windows test host.**
+  - `make ci-windows`: `ci-windows-exit=0`, "ALL SELECTED CHECKS PASSED", 43 `ok` lines. It
+    includes `internal`, whose identity tests ran `make` under Git Bash.
+  - `install_ps1_unit_test.ps1`: 66 passed, 0 failed, under both Windows PowerShell 5.1 and
+    PowerShell 7.
+  - `install_ps1_test.ps1`: 44 passed, 0 failed, under both shells.
+  - Every remote copy was removed.
+- **The Linux test host.** `go test -race -v` of `internal`, `internal/updateclient`,
+  `internal/cli`, `internal/relay` and `internal/ws`:
+  - both identity tests passed through `make`, and the other four packages are `ok`;
+  - `internal`'s `TestTrackedFilesUseOnlyPlaceholderHomes` failed only because the copy had no
+    `.git` ("no git index … the guard cannot read the tracked files"). It passes on the working
+    tree.
+  - The scratch directory was removed.
+
+**Not done, and why:**
+
+- **The release lane on a tag.** It runs only on a tag, and the next tag is S8's acceptance. Its
+  smokes were exercised as described above.
+- **A `-dirty` release.** The smokes accept a commit followed by `-dirty`. Refusing a dirty
+  release build is the library build workflow's check, which arrives in S4.
+- **`install.sh`'s pinned-version path.** It compares the same parsed field. Its pin cases run in
+  `--dry-run` and install nothing.
+
+**Files staged for S2:**
+
+- `cmd/mcremote/main.go`, `cmd/mcrelay/main.go`;
+- `internal/cli/`: `root.go`, `serve.go`, `doctor.go`, `update.go`, `version_test.go`;
+- `internal/relay/`: `cli.go`, `update.go`, `cli_test.go`;
+- `internal/updateclient/`: `client.go`, `client_test.go`, `legacy_test.go`, `managed_test.go`.
+  `legacy.go` is staged as a deletion.
+- `internal/identity_test.go` (new);
+- `internal/ws/server_test.go`;
+- `internal/testexec/pathbinaries_test.go` (Deviation 3);
+- `Makefile`, `.github/workflows/ci.yml`;
+- `scripts/install.sh`, `scripts/install.ps1`, `scripts/install_test.sh`,
+  `scripts/install_ps1_unit_test.ps1` (Deviation 1);
+- `docs/guides/config-mcrelay.md` (Deviation 2);
+- `docs/decisions/0147-MADR-windows-gate-measures-the-host-not-the-code.md` (Deviation 3);
+- this PLAN.

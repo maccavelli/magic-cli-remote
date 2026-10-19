@@ -47,7 +47,7 @@ func newDoctorCmd() *cobra.Command {
 				return nil
 			}
 			log := slog.New(slog.DiscardHandler)
-			renderEngineDoctor(w, daemon.InspectProviders(cfg, version, log), engineBins(cfg))
+			renderEngineDoctor(w, daemon.InspectProviders(cfg, runningVersion(), log), engineBins(cfg))
 			return nil
 		},
 	}

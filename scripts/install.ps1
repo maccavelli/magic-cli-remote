@@ -172,6 +172,16 @@ Nothing was installed.
 # Resolve-Product verifies a downloaded binary against the manifest by hash
 # value and returns the version recorded for it. The choice of manifest line
 # is Select-ManifestEntry's; this function owns only the file hash.
+# Get-ReportedVersion is the version an installed binary reports: `version`
+# prints the build identity first, "v0.17.1 (release) <commit>" (MADR 0054 S2),
+# and its first field, without the v, is the version. No output reports none.
+function Get-ReportedVersion {
+    param([AllowNull()][AllowEmptyCollection()][string[]]$Lines)
+    if (-not $Lines -or $Lines.Count -eq 0) { return '' }
+    $field = ((([string]$Lines[0]).Trim()) -split '\s+')[0]
+    return ($field -replace '^v', '')
+}
+
 function Resolve-Product {
     param(
         [string]$Product,
@@ -338,7 +348,7 @@ unversioned alias assets (releases before MADR 0116 do not, for Windows).
 
     $mcremote = Join-Path (Join-Path $InstallDir 'mcremote') 'mcremote.exe'
     if (Test-Path $mcremote) {
-        $reported = (& $mcremote version) -split '\s+' | Select-Object -Skip 1 -First 1
+        $reported = Get-ReportedVersion -Lines @(& $mcremote version)
         if ($resolvedVersion -and $reported -and ($reported -ne $resolvedVersion)) {
             Write-Warn "installed binary reports '$reported' but the manifest said '$resolvedVersion'"
         }

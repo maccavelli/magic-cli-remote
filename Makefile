@@ -1,27 +1,26 @@
 MODULE  := github.com/maccavelli/magic-cli-remote
-# Version stamping (MADR 0005).
-#   A release is an immutable strict tag: the tag build passes it directly as
-#   VERSION= and stamps BUILD_KIND=release. There is no BASE.N build serial and
-#   no build/<BASE>.N ledger tag any more — a rebuilt fix gets a new patch tag.
-#   A local build stamps <base>.g<commit> and BUILD_KIND=local, which the
-#   updater refuses to replace without --force.
-# Override: make build VERSION=1.2.3
+# Version stamping (MADR 0005, 0054 S2).
+#   Every build stamps go-selfupdate-lib's buildinfo variables, and each
+#   product reports buildinfo.Identity(). A release is an immutable strict
+#   tag: the tag build passes it, with its v, as VERSION= and stamps
+#   BUILD_KIND=release, exactly the -X pair buildinfo.LDFlags renders. There is
+#   no BASE.N build serial and no build/<BASE>.N ledger tag any more — a
+#   rebuilt fix gets a new patch tag. A local build stamps <base>.g<commit>
+#   and BUILD_KIND=local, which the updater refuses to replace without --force.
+# Override: make build VERSION=v1.2.3 BUILD_KIND=release
 BASE_VERSION ?= $(shell git tag -l --sort=v:refname 'v*.*.*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$$' | tail -1 | sed 's/^v//' || echo 0.0.0)
 # -dirty marks binaries built from a modified tree (tracked changes, same rule
 # as `git describe --dirty`) — otherwise a dirty build is indistinguishable
 # from a clean build of HEAD when debugging from the version string.
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)$(shell git diff-index --quiet HEAD -- 2>/dev/null || echo -dirty)
-# DATE is the commit timestamp, not wall-clock time, so the same source builds
-# byte-identically every time (MADR 0060 D3). A wall-clock stamp made every
-# build unique, which churns the binary's code identity — on macOS that means
-# firewall and TCC decisions keyed to the old CDHash are re-prompted after each
-# `make install`. SOURCE_DATE_EPOCH wins when set, for reproducible-build
-# tooling; a tree with no git falls back to wall-clock.
-ifdef SOURCE_DATE_EPOCH
-  DATE  ?= $(shell date -u -r $(SOURCE_DATE_EPOCH) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d @$(SOURCE_DATE_EPOCH) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
-else
-  DATE  ?= $(shell TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
-endif
+# No build date is stamped. buildinfo reports the commit and its time from the
+# binary's own VCS build settings (vcs.revision, vcs.time), so the same source
+# still builds byte-identically every time (MADR 0060 D3): a wall-clock stamp
+# made every build unique, which churns the binary's code identity, and on
+# macOS re-prompts firewall and TCC decisions keyed to the old CDHash.
+
+# buildinfo's package, whose version and kind every build stamps (MADR 0054 S2).
+BUILDINFO := github.com/maccavelli/go-selfupdate-lib/buildinfo
 
 # Release-grade build settings — shared by build, build-remote, build-relay so
 # every mcremote/mcrelay artifact is identical in flags for a given GOOS.
@@ -42,10 +41,10 @@ CGO_ENABLED   ?= 0
 # Tags are computed after GOOS is known (see below).
 GO_LDFLAGS    := -s -w
 
-# LOCAL_VERSION is the identity of a build that is not a published release.
-# The .g<commit> suffix is the historical local shape and is what
-# internal/updateclient normalizes; BUILD_KIND is what actually decides, since
-# a bool cannot be set with the linker's -X flag.
+# LOCAL_VERSION is the version of a build that is not a published release.
+# buildinfo reports it verbatim, as a local build: only BUILD_KIND=release on a
+# vMAJOR.MINOR.PATCH tag makes a release, since a bool cannot be set with the
+# linker's -X flag.
 LOCAL_VERSION := $(BASE_VERSION).g$(COMMIT)
 BUILD_KIND ?= local
 
@@ -170,11 +169,11 @@ build: check-cgo-off
 	fi; \
 	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH), cgo=$(CGO_ENABLED), tags=$(GO_TAGS))…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
-		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
+		-ldflags "$(GO_LDFLAGS) -X $(BUILDINFO).version=$$VER -X $(BUILDINFO).kind=$(BUILD_KIND)" \
 		-o $(BIN) ./cmd/mcremote; \
 	echo "Building mcrelay $${VER}…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
-		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
+		-ldflags "$(GO_LDFLAGS) -X $(BUILDINFO).version=$$VER -X $(BUILDINFO).kind=$(BUILD_KIND)" \
 		-o $(BIN_RELAY) ./cmd/mcrelay; \
 	$(MAKE) --no-print-directory codesign-maybe
 
@@ -187,10 +186,10 @@ debug:
 	@mkdir -p bin
 	@echo "Building DEBUG mcremote + mcrelay (tags=debugpprof, GOEXPERIMENT=goroutineleakprofile)…"
 	@GOEXPERIMENT=goroutineleakprofile CGO_ENABLED=$(CGO_ENABLED) go build -tags debugpprof \
-		-ldflags "-X main.version=debug -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-ldflags "-X $(BUILDINFO).version=debug" \
 		-o $(BIN) ./cmd/mcremote
 	@GOEXPERIMENT=goroutineleakprofile CGO_ENABLED=$(CGO_ENABLED) go build -tags debugpprof \
-		-ldflags "-X main.version=debug -X main.commit=$(COMMIT) -X main.date=$(DATE)" \
+		-ldflags "-X $(BUILDINFO).version=debug" \
 		-o $(BIN_RELAY) ./cmd/mcrelay
 
 # Optional macOS code signing (MADR 0069 D6). With MC_CODESIGN_IDENTITY set
@@ -219,7 +218,7 @@ build-relay: check-cgo-off
 	fi; \
 	echo "Building mcrelay $$VER ($(GOOS)/$(GOARCH))…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
-		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
+		-ldflags "$(GO_LDFLAGS) -X $(BUILDINFO).version=$$VER -X $(BUILDINFO).kind=$(BUILD_KIND)" \
 		-o $(BIN_RELAY) ./cmd/mcrelay
 
 # Build ONLY mcremote for one GOOS/GOARCH (mirror of build-relay). Lets the
@@ -236,7 +235,7 @@ build-remote: check-cgo-off
 	fi; \
 	echo "Building mcremote $$VER ($(GOOS)/$(GOARCH))…"; \
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GO_BUILDFLAGS) \
-		-ldflags "$(GO_LDFLAGS) -X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
+		-ldflags "$(GO_LDFLAGS) -X $(BUILDINFO).version=$$VER -X $(BUILDINFO).kind=$(BUILD_KIND)" \
 		-o $(BIN) ./cmd/mcremote
 
 # Build for this host OS/arch and install BOTH mcremote and mcrelay into the
@@ -550,7 +549,7 @@ run:
 	fi; \
 	echo "Running mcremote $${VER}…"; \
 	CGO_ENABLED=$(CGO_ENABLED) go run \
-		-ldflags "-X main.version=$$VER -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildKind=$(BUILD_KIND)" \
+		-ldflags "-X $(BUILDINFO).version=$$VER -X $(BUILDINFO).kind=$(BUILD_KIND)" \
 		./cmd/mcremote serve
 
 fmt:

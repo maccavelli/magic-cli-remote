@@ -826,9 +826,11 @@ func TestHTTPEndpointAuth(t *testing.T) {
 		Sessions:           session.NewManager(provider.NewRegistry(), nil, nil, nil),
 		Registry:           provider.NewRegistry(),
 		RequireDeviceToken: true,
-		Version:            "test",
-		ListenAddr:         "100.64.0.1:7531",
-		HeadscaleURL:       "https://headscale.example",
+		// A release reports buildinfo's version verbatim, tag and v included
+		// (MADR 0054 S2, D13).
+		Version:      "v0.17.1",
+		ListenAddr:   "100.64.0.1:7531",
+		HeadscaleURL: "https://headscale.example",
 	})
 	srv.SetTLSStatus("letsencrypt", true)
 	ts := httptest.NewServer(srv.Handler())
@@ -875,7 +877,7 @@ func TestHTTPEndpointAuth(t *testing.T) {
 		if body["headscale_control_url"] != "https://headscale.example" {
 			t.Fatalf("body=%v", body)
 		}
-		if body["listen"] != "100.64.0.1:7531" || body["version"] != "test" {
+		if body["listen"] != "100.64.0.1:7531" || body["version"] != "v0.17.1" {
 			t.Fatalf("body=%v", body)
 		}
 		if body["tls_mode"] != "letsencrypt" || body["tls_fell_back"] != true {

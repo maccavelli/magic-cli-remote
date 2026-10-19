@@ -61,7 +61,7 @@ For a managed background process on Linux, prefer:
 			memLimit, memLimitSource := applyMemoryLimit()
 
 			logger.Info("starting mcremote",
-				"version", version,
+				"version", runningVersion(),
 				"listen", cfg.Addr(),
 				"scheme", cfg.TLS.Scheme(),
 				"data_dir", cfg.DataDir,
@@ -71,7 +71,7 @@ For a managed background process on Linux, prefer:
 
 			if err := daemon.Run(ctx, daemon.Options{
 				Config:  cfg,
-				Version: version,
+				Version: runningVersion(),
 				Log:     logger,
 			}); err != nil {
 				return fmt.Errorf("daemon: %w", err)

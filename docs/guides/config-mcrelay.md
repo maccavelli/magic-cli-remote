@@ -408,7 +408,9 @@ tail -f ~/Library/Logs/mcrelay/mcrelay.err.log
 
 ### `mcrelay version`
 
-Prints `mcrelay <version> (<commit>) <date>`.
+Prints the build identity: `<version> (<release|local>) <commit>`, such as
+`v0.17.1 (release) 0123456789ab`. A release reports its tag, with the `v`, and a
+build from a modified tree adds `-dirty` to the commit.
 
 ## Join plane (runtime)
 

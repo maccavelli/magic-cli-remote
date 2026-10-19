@@ -7,9 +7,8 @@ import (
 )
 
 // newUpdateCmd builds `mcremote update` (MADR 0065, canonicalized by 0005).
-// The command body is shared with mcrelay; only the stamped identity differs.
+// The command body is shared with mcrelay; each reports its own build
+// identity (MADR 0054 S2).
 func newUpdateCmd() *cobra.Command {
-	return updateclient.NewCommand("mcremote", func() (string, string) {
-		return version, buildKind
-	})
+	return updateclient.NewCommand("mcremote")
 }

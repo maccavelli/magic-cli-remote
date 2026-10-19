@@ -262,7 +262,9 @@ install_binaries() {
         log "installed $INSTALL_DIR/$p"
     done
 
-    _reported=$("$INSTALL_DIR/mcremote" version 2>/dev/null | awk '{print $2}') || _reported=""
+    # `version` prints the build identity first, "v0.17.1 (release) <commit>"
+    # (MADR 0054 S2): its first field, without the v, is the version.
+    _reported=$("$INSTALL_DIR/mcremote" version 2>/dev/null | awk 'NR == 1 { sub(/^v/, "", $1); print $1 }') || _reported=""
     if [ -n "$_reported" ] && [ -n "${RESOLVED_VER:-}" ] && [ "$_reported" != "$RESOLVED_VER" ]; then
         warn "installed binary reports '$_reported' but the manifest said '$RESOLVED_VER'"
     fi

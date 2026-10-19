@@ -30,7 +30,10 @@ import (
 //   - files carrying a live_* build constraint resolve the real CLI on
 //     purpose, and a new live test file carries the tag by construction;
 //   - files with a platform filename suffix only build on that platform;
-//   - "go" is allowed, because `go test` cannot have started without it.
+//   - "go" is allowed, because `go test` cannot have started without it;
+//   - "make" is allowed, because every test host has it and AGENTS.md already
+//     requires it on Windows from Git Bash or with Git's usr/bin on PATH
+//     (MADR 0147, amendment of 2026-10-19).
 //
 // D11 carries its own falsification: if this guard ever needs a third
 // hand-maintained name in allowedBareNames, D8's objection has won and the
@@ -123,7 +126,8 @@ func TestNoTestResolvesABareBinaryName(t *testing.T) {
 // allowedBareNames is the exemption list, and it is meant to stay this short.
 // See the falsification note above before adding to it.
 var allowedBareNames = map[string]bool{
-	"go": true, // the toolchain running this very test
+	"go":   true, // the toolchain running this very test
+	"make": true, // on every test host (MADR 0147, amendment of 2026-10-19)
 }
 
 // execCallName reports the exec function being called, if it is one of the

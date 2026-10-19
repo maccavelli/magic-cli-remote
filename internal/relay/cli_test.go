@@ -48,24 +48,11 @@ func TestCLIVersionCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(out, "mcrelay ") {
-		t.Fatalf("version output %q", out)
+	if first, _, _ := strings.Cut(out, "\n"); first != VersionString() {
+		t.Fatalf("version output %q, want the identity line %q", out, VersionString())
 	}
 	if VersionString() == "" {
 		t.Fatal("VersionString empty")
-	}
-}
-
-func TestSetBuildKind(t *testing.T) {
-	prev := cliBuildKind
-	t.Cleanup(func() { cliBuildKind = prev })
-	SetBuildKind("")
-	if cliBuildKind != prev {
-		t.Fatal("empty kind must not overwrite")
-	}
-	SetBuildKind("release")
-	if cliBuildKind != "release" {
-		t.Fatalf("got %q", cliBuildKind)
 	}
 }
 

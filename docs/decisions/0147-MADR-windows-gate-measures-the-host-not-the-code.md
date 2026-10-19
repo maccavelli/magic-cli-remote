@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-18
+date: 2026-10-19
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -586,3 +586,21 @@ which names that removal as the contract most at risk.
 Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
 
 ~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (P1–P8, `52ecc0af` through `f0f5e013`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.
+
+## Amendment — 2026-10-19: `make` is D11's second allowed name
+
+**Found** by [0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)
+S2 (its Deviation 3). S2's identity test drives the real Makefile. It runs
+`make build-remote` and `make build-relay` with a release stamp, then reads each binary's `version`
+line. D11's guard refused the call: `exec.Command("make")` names a bare binary.
+
+**Decided by the owner on 2026-10-19:** `make` joins `go` in `allowedBareNames`.
+
+- **Why it is safe on every host.** Every host used for testing has `make`, by the owner's
+  statement. On Windows, AGENTS.md already requires it from Git Bash, or from PowerShell with
+  `C:\Program Files\Git\usr\bin` on `PATH`. So the shell difference D11 guards against is
+  already a stated requirement for `make`, not an accident of one shell.
+- **What does not change.** The guard's rule about the *shape* of a call and its structural
+  exemptions are unchanged. Every other bare name still fails it.
+- **D11's falsification still holds.** It fires at a third hand-maintained name, and this is the
+  second. A third means the guard is deleted rather than extended.

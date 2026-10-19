@@ -1,3 +1,12 @@
+// Package updateclient adapts go-selfupdate-lib's selfupdate package to
+// mcremote and mcrelay.
+//
+// It is the only place this repository knows about GitHub releases, version
+// comparison, download, verification, or executable replacement: that logic
+// lives once in github.com/maccavelli/go-selfupdate-lib/selfupdate (MADR 0005,
+// 0054). What stays here is product-specific: the composition of the
+// library's service backend, reconciler and codesign signer, and the frozen
+// v0.15.3 selector fixture that proves the published v0.16.0 bridge.
 package updateclient
 
 import (
@@ -13,6 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
@@ -37,9 +47,9 @@ const OperationTimeout = 15 * time.Minute
 type Options struct {
 	// Product is the executable basename, "mcremote" or "mcrelay".
 	Product string
-	// RawVersion and RawBuildKind are the linker-stamped identity.
-	RawVersion   string
-	RawBuildKind string
+	// Identity is the running binary's build identity. NewCommand sets
+	// buildinfo.Identity(); tests set their own.
+	Identity buildinfo.Info
 	// Out receives human progress; Err receives prompts and diagnostics.
 	Out io.Writer
 	Err io.Writer
@@ -133,7 +143,7 @@ func newSource(opts Options, client *http.Client, limits selfupdate.Limits) (sel
 	gh := selfupdate.GitHubOptions{
 		Repository: Repository,
 		Client:     client,
-		UserAgent:  opts.Product + "/" + opts.RawVersion,
+		UserAgent:  opts.Product + "/" + opts.Identity.Current(),
 		Limits:     limits,
 	}
 	if opts.APIBaseURL != "" {
@@ -150,15 +160,19 @@ func newSource(opts Options, client *http.Client, limits selfupdate.Limits) (sel
 	return source, nil
 }
 
-// Request builds the shared request from this product's stamped identity and
-// the command's flags. The legacy BASE.N normalization happens here and
-// nowhere else.
+// Request builds the shared request from this binary's build identity and
+// the command's flags, as the library's own command does: a release only when
+// buildinfo says so, a stamped "release" kind with a release tag (MADR 0054
+// S2).
 func (o Options) Request(targetVersion string, check, force, yes bool) selfupdate.Request {
-	version, kind := NormalizeInstalled(o.RawVersion, o.RawBuildKind)
+	build := selfupdate.LocalBuild
+	if o.Identity.Kind == buildinfo.KindRelease {
+		build = selfupdate.ReleaseBuild
+	}
 	return selfupdate.Request{
 		Product:        o.Product,
-		CurrentVersion: version,
-		CurrentBuild:   kind,
+		CurrentVersion: o.Identity.Current(),
+		CurrentBuild:   build,
 		TargetVersion:  targetVersion,
 		CheckOnly:      check,
 		Force:          force,
@@ -188,7 +202,7 @@ func parseBase(raw string) (*url.URL, error) {
 // The command owns flag parsing and stream selection and nothing else.
 // Discovery, verification, staging, replacement, rollback and exit semantics
 // all live in go-selfupdate-lib's selfupdate package.
-func NewCommand(product string, identity func() (rawVersion, rawBuildKind string)) *cobra.Command {
+func NewCommand(product string) *cobra.Command {
 	var (
 		check, yes, force bool
 		targetVersion     string
@@ -205,11 +219,9 @@ target, 1 = error. Set GH_TOKEN or GITHUB_TOKEN to raise API rate limits. Set
 MC_CODESIGN_IDENTITY on macOS to re-sign the verified binary before install,
 which preserves TCC grants (MADR 0069).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			rawVersion, rawBuildKind := identity()
 			opts := Options{
 				Product:          product,
-				RawVersion:       rawVersion,
-				RawBuildKind:     rawBuildKind,
+				Identity:         buildinfo.Identity(),
 				Out:              cmd.OutOrStdout(),
 				Err:              cmd.ErrOrStderr(),
 				In:               stdinFile(cmd),

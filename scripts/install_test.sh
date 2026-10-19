@@ -35,6 +35,9 @@ sha_of() {
 # ---------------------------------------------------------- fake release dir
 
 VER=9.9.9.1
+# The version the fake binaries report. A case that sets it to something else
+# checks the installer's mismatch warning, and resets it.
+STUB_VER=$VER
 mk_release() { # $1 = dir, $2 = arch, $3 = os (default linux), $4 = "corrupt"
     _os=${3:-linux}
     _corrupt=${4:-}
@@ -42,7 +45,8 @@ mk_release() { # $1 = dir, $2 = arch, $3 = os (default linux), $4 = "corrupt"
     case "${3:-}" in corrupt) _os=linux; _corrupt=corrupt ;; esac
     rel="$1/latest/download"; mkdir -p "$rel"
     for p in mcremote mcrelay; do
-        printf '#!/bin/sh\necho "%s %s"\n' "$p" "$VER" > "$rel/$p-$_os-$2"
+        # `version` prints the build identity line (MADR 0054 S2).
+        printf '#!/bin/sh\necho "v%s (release) 0123456789ab"\n' "$STUB_VER" > "$rel/$p-$_os-$2"
         chmod 0755 "$rel/$p-$_os-$2"
     done
     : > "$rel/SHA256SUMS"
@@ -203,6 +207,19 @@ check "valid digest installs (exit 0)" "$RC" 0
 check "  mcremote installed executable" "$( [ -x "$D/mcremote" ] && echo yes || echo no )" yes
 check "  mcrelay installed executable"  "$( [ -x "$D/mcrelay" ]  && echo yes || echo no )" yes
 contains "  resolved version reported" "$OUT" "$VER"
+case "$OUT" in
+    *"manifest said"*) bad "  the identity line's version matches the manifest's: no warning" "$OUT" ;;
+    *) ok "  the identity line's version matches the manifest's: no warning" ;;
+esac
+
+# The binary reports a different version than the manifest named: the install
+# succeeds and says so (MADR 0054 S2: the identity line's first field).
+STUB_VER=9.9.9.2
+R="$WORK/rel-mismatch"; mk_release "$R" "$ARCH"; D="$WORK/bin-mismatch"
+STUB_VER=$VER
+run_installer "$BASE" "$R" "$D" --no-service
+check "mismatched reported version still installs (exit 0)" "$RC" 0
+contains "  warns with the reported version" "$OUT" "installed binary reports '9.9.9.2' but the manifest said '$VER'"
 case "$OUT" in
     *"Full Disk Access"*) bad "Linux install must not print the FDA advisory" "$OUT" ;;
     *) ok "Linux install does not print the FDA advisory" ;;
@@ -768,7 +785,7 @@ stamp_darwin_svc_bins() { # $1 = release dir, $2 = arch
 #!/bin/sh
 echo "$p \$*" >> "\${MC_ARGS_LOG:-/dev/null}"
 case "\$1" in
-  version) echo "$p $VER"; exit 0 ;;
+  version) echo "v$VER (release) 0123456789ab"; exit 0 ;;
   setup-service)
     mkdir -p "\$HOME/Library/LaunchAgents"
     : > "\$HOME/Library/LaunchAgents/com.magiccliremote.$p.plist"

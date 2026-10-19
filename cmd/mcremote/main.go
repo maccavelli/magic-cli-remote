@@ -8,17 +8,9 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/cli"
 )
 
-// Set via -ldflags at build time. buildKind is "release" only for a tag build.
-var (
-	version   = "dev"
-	commit    = "none"
-	date      = "unknown"
-	buildKind = "local"
-)
-
+// The build identity is go-selfupdate-lib's buildinfo, which the linker
+// stamps and the commands read where they report it (MADR 0054 S2).
 func main() {
-	cli.SetVersionInfo(version, commit, date)
-	cli.SetBuildKind(buildKind)
 	err := cli.Execute()
 	if err == nil {
 		return

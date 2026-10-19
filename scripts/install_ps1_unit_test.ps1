@@ -51,7 +51,7 @@ $defined = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Languag
 
 # By name, and loudly: C7 means Select-ManifestEntry calls no helper, so loading
 # every function would only hide a C7 violation (PLAN P1, MADR 0156 OQ3).
-foreach ($want in @('Select-ManifestEntry')) {
+foreach ($want in @('Select-ManifestEntry', 'Get-ReportedVersion')) {
     $fn = @($defined | Where-Object { $_.Name -ceq $want })
     if ($fn.Count -ne 1) {
         Write-Host "install_ps1_unit_test: expected exactly one function '$want' in $installer, found $($fn.Count)"
@@ -328,6 +328,16 @@ if ($calls.Count -eq 1) {
 }
 $optOut = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$pathOptOut' }, $true))
 check 'U14g the opt-out reads the switch and the variable' ($optOut.Count -eq 1 -and $optOut[0].Right.Extent.Text.Contains('$NoPathUpdate') -and $optOut[0].Right.Extent.Text.Contains("`$env:MCREMOTE_INSTALL_NO_PATH_UPDATE -eq '1'")) $true
+
+# ------------------------------------------- the reported version (0054 S2)
+
+Write-Host ''
+Write-Host 'U-S2. Get-ReportedVersion reads the identity line'
+check 'U-S2a a release identity line' (Get-ReportedVersion -Lines @('v0.17.1 (release) 0123456789ab')) '0.17.1'
+check 'U-S2b only the first line counts' (Get-ReportedVersion -Lines @('v0.17.1 (release)', 'v9.9.9 (release)')) '0.17.1'
+check 'U-S2c a local build reports its stamp' (Get-ReportedVersion -Lines @('0.20.2.g9a443153 (local) 9a443153aa3c')) '0.20.2.g9a443153'
+check 'U-S2d no output reports nothing' (Get-ReportedVersion -Lines @()) ''
+check 'U-S2e the old shape is not read as a version' (Get-ReportedVersion -Lines @('mcremote 0.17.1 (abc) 2026-10-19')) 'mcremote'
 
 # ------------------------------------------------------------------ summary
 

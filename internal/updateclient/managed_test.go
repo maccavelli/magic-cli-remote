@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
@@ -110,7 +111,7 @@ func runUpdate(t *testing.T) (string, error) {
 		t.Fatal(err)
 	}
 	opts := Options{
-		Product: "mcremote", RawVersion: "0.1.0", RawBuildKind: "release", Managed: true,
+		Product: "mcremote", Identity: buildinfo.Info{Version: "v0.1.0", Kind: buildinfo.KindRelease}, Managed: true,
 		HTTPClient: gh.Client, APIBaseURL: gh.APIBase.String(), TargetPath: exe,
 	}
 	up, err := New(opts)

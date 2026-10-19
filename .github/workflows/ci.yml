@@ -215,8 +215,10 @@ jobs:
           # windows-11-arm go-native matrix leg.
 
           # The immutable tag IS the version (MADR 0005). Every per-platform
-          # build passes VERSION= and BUILD_KIND=release, so the release
-          # binaries carry the tag and nothing allocates or pushes anything.
+          # build passes the tag, with its v, as VERSION= and BUILD_KIND=release,
+          # so the release binaries report it through buildinfo (MADR 0054 S2)
+          # and nothing allocates or pushes anything. The job's version output
+          # stays without the v: the APK's --build-name takes it.
           ver="$BASE"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
@@ -227,7 +229,7 @@ jobs:
               os="${p%/*}"; arch="${p#*/}"
               ext=""; [ "$os" = "windows" ] && ext=".exe"
               echo "==> $name $os/$arch"
-              make "$mk" VERSION="$ver" BUILD_KIND=release GOOS="$os" GOARCH="$arch" >/dev/null
+              make "$mk" VERSION="v$ver" BUILD_KIND=release GOOS="$os" GOARCH="$arch" >/dev/null
               cp -f "bin/${name}${ext}" "dist/${name}-${os}-${arch}${ext}"
             done
           }
@@ -235,13 +237,17 @@ jobs:
           build_matrix build-relay  mcrelay  "$PLATFORMS"
 
           # Smoke the host-native build of each binary — the only platform this
-          # runner can execute — to prove ldflags stamping still works. Skips a
-          # binary that does not target linux/amd64.
+          # runner can execute — to prove the stamp took. `version` prints the
+          # identity line first, "v<tag> (release)" then the commit (MADR 0054
+          # S2). Skips a binary that does not target linux/amd64.
           for bin in mcremote mcrelay; do
             f="dist/${bin}-linux-amd64"
             [ -f "$f" ] || continue
-            got="$("./$f" version | awk '{print $2}')"
-            test "$got" = "$ver" || { echo "error: ${bin}-linux-amd64 reports '$got', expected '$ver'" >&2; exit 1; }
+            got="$("./$f" version | sed -n 1p)"
+            case "$got" in
+              "v$ver (release)" | "v$ver (release) "*) ;;
+              *) echo "error: ${bin}-linux-amd64 reports '$got', expected 'v$ver (release)'" >&2; exit 1 ;;
+            esac
           done
 
           # MADR 0116 D21. Every published binary must be pure-Go. Asserted on
@@ -266,7 +272,7 @@ jobs:
           active="$(echo $PLATFORMS | tr ' ' ',')"
           {
             echo "### Go binaries"
-            echo "Stamped: \`$ver\` (base \`$BASE\` from tag \`$GITHUB_REF_NAME\`)"
+            echo "Stamped: \`v$ver\` (base \`$BASE\` from tag \`$GITHUB_REF_NAME\`)"
             echo "Platforms (mcremote + mcrelay): \`${active}\`"
             echo "Ledger: git tags \`build/<BASE>.<N>\` (global, race-safe)"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -508,9 +514,12 @@ jobs:
             f="dist/${bin}-${SUFFIX}${EXT}"
             test -f "$f" || { echo "error: $f missing from the artifact" >&2; exit 1; }
             chmod +x "$f" || true
-            got="$("./$f" version | awk '{print $2}')"
-            test "$got" = "$VER" || {
-              echo "error: $f reports '$got', expected '$VER'" >&2; exit 1; }
+            # The identity line, as the build job's smoke checks it (MADR 0054 S2).
+            got="$("./$f" version | sed -n 1p)"
+            case "$got" in
+              "v$VER (release)" | "v$VER (release) "*) ;;
+              *) echo "error: $f reports '$got', expected 'v$VER (release)'" >&2; exit 1 ;;
+            esac
             echo "ok: $f $got"
           done
 
@@ -964,11 +973,12 @@ jobs:
           for bin in mcremote mcrelay; do
             f="go-bin/${bin}-linux-amd64"
             [ -f "$f" ] || continue
-            got="$("./$f" version | awk '{print $2}')"
-            if [ "$got" != "$VER" ]; then
-              echo "error: ${bin}-linux-amd64 reports version '$got', expected '$VER'" >&2
-              exit 1
-            fi
+            # The identity line, as the build job's smoke checks it (MADR 0054 S2).
+            got="$("./$f" version | sed -n 1p)"
+            case "$got" in
+              "v$VER (release)" | "v$VER (release) "*) ;;
+              *) echo "error: ${bin}-linux-amd64 reports '$got', expected 'v$VER (release)'" >&2; exit 1 ;;
+            esac
             echo "ok: ${bin}-linux-amd64 $got"
           done
 

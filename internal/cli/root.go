@@ -2,49 +2,31 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/spf13/cobra"
 )
 
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
-	// buildKind is stamped to "release" only by the tag build. A bool cannot
-	// be set with the linker's -X flag, so this is a string and only that one
-	// exact value marks a release (MADR 0005).
-	buildKind = "local"
-
 	cfgFile   string
 	logLevel  string
 	logFormat string
 )
 
-// SetVersionInfo injects build-time version metadata.
-func SetVersionInfo(v, c, d string) {
-	if v != "" {
-		version = v
-	}
-	if c != "" {
-		commit = c
-	}
-	if d != "" {
-		date = d
-	}
-}
-
-// SetBuildKind injects the linker-stamped build kind.
-func SetBuildKind(k string) {
-	if k != "" {
-		buildKind = k
-	}
-}
-
-// VersionString returns a human-readable version line.
+// VersionString returns this build's identity line, buildinfo.Identity():
+// "v1.2.3 (release) 0123456789ab" for a release, "<stamp> (local) …"
+// otherwise. `version` and `--version` print it first, because the library's
+// build workflow and installers run them for it (MADR 0054 S2).
 func VersionString() string {
-	return fmt.Sprintf("mcremote %s (%s) %s", version, commit, date)
+	return buildinfo.Identity().String()
+}
+
+// runningVersion is the version this build reports to clients and in logs:
+// the stamped version, verbatim, so a release reports its tag with its v
+// (MADR 0054 D13).
+func runningVersion() string {
+	return buildinfo.Identity().Current()
 }
 
 // Execute runs the root command.
