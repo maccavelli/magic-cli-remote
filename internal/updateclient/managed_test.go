@@ -95,9 +95,13 @@ func releaseBody(tag string) func(selfupdate.Platform) []byte {
 // executable's path.
 func runUpdate(t *testing.T) (string, error) {
 	t.Helper()
+	spec, err := releaseSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
 	gh := selfupdatetest.NewGitHubServer(t, Repository.Owner, Repository.Name,
-		selfupdatetest.NewRelease("mcremote", "v0.1.0", Platforms, releaseBody("v0.1.0")),
-		selfupdatetest.NewRelease("mcremote", "v0.2.0", Platforms, releaseBody("v0.2.0")))
+		selfupdatetest.NewRelease("mcremote", "v0.1.0", spec.Targets(), releaseBody("v0.1.0")),
+		selfupdatetest.NewRelease("mcremote", "v0.2.0", spec.Targets(), releaseBody("v0.2.0")))
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +122,9 @@ func runUpdate(t *testing.T) (string, error) {
 	if err != nil {
 		return exe, err
 	}
-	res, err := up.Run(context.Background(), opts.Request("", false, false, true))
+	res, err := up.Run(context.Background(), selfupdate.Request{
+		Product: "mcremote", CurrentVersion: "v0.1.0", CurrentBuild: selfupdate.ReleaseBuild, Yes: true,
+	})
 	if err == nil && !res.Applied {
 		err = fmt.Errorf("the update applied nothing: %+v", res)
 	}

@@ -949,3 +949,183 @@ make check-records / make markdownlint-docs           exit=0 / exit=0
 - `docs/guides/config-mcrelay.md` (Deviation 2);
 - `docs/decisions/0147-MADR-windows-gate-measures-the-host-not-the-code.md` (Deviation 3);
 - this PLAN.
+
+### S3, 2026-10-19 — complete, staged for the owner's commit
+
+**Approval:** "Both S2 then S3", given before S2. S2 was committed as `224f17fc` and pushed, and
+its CI run, `39276990955`, completed successfully. S3 began from that commit.
+
+**Deviation 1, decided by the owner on 2026-10-19 before any code changed: the update command
+returns its exit code, and both mains exit with it.**
+
+- **Found.**
+  - The library's cobra recipe (migration guide §5, "With cobra") calls `os.Exit` inside `RunE`,
+    after `cli.Exit` has printed the one failure line, `update failed: …`.
+  - Magic's mains own exit mapping instead. They print `error: …` for any error and exit with
+    `selfupdate.ExitCode`.
+- **The conflict.**
+  - Kept as is, a failed update would print two lines.
+  - With an `os.Exit` in `RunE`, a test that runs the command would end the test process.
+  - S3's verification needs those tests: exit codes 0, 10 and 1.
+- **Decision.**
+  - The update command returns an `updateclient.ExitError` carrying `cli.Exit`'s code, and
+    returns nil for code 0.
+  - Both mains exit with that code and print nothing more, since the library has already
+    reported.
+  - Every other command's error keeps today's `error: …` line and exit 1.
+- **Scope added:** `cmd/mcremote/main.go` and `cmd/mcrelay/main.go`.
+
+**Step 1, the spec.** `internal/updateclient/selfupdate-release.json`, embedded by `spec.go`, holds:
+
+- schema 1, and the two products with `identity_args: ["version"]`;
+- the four platforms;
+- `packaging: binary`;
+- the APK extra, `magic-cli-remote-{tag}-arm64.apk`, with no `path`, since S4 feeds it from a build
+  artifact.
+
+It has no `installer` block (S7) and no build `tags`, which the library's guide says change nothing
+when cgo is off. `New` now takes the product, the asset selector and the unpacker from the spec.
+The `Platforms` variable is gone.
+
+**Step 2, the spec's tests, seen failing first:**
+
+- `TestReleaseSpecServesEachProduct` checks:
+  - `spec.Product` and the identity command for each product;
+  - `New` for each product, and that `New` refuses an unknown one;
+  - `AssetSelector`;
+  - `Targets` against the frozen matrix;
+  - the extras.
+- `TestReleaseSpecMatchesThePublishJob` checks that `ci.yml`'s `products-json` and
+  `platforms-json` equal the spec's own JSON. They are written out there until S4.
+- **Planted breaks:**
+
+  ```text
+  linux/arm64 dropped (JSON kept valid)   spec_test.go:48: spec.Targets() = [{linux amd64} {darwin arm64} {windows amd64}], want the frozen matrix …
+                                          spec_test.go:87: ci.yml platforms-json = […], but the spec gives […]
+  mcrelay dropped                         spec_test.go:35: spec.Product(mcrelay): releasespec: product "mcrelay" is not in the spec (products: mcremote)
+  ```
+
+- **A plant of my own that proved nothing.** My first platform plant removed the last entry and
+  left a trailing comma, so it tested a parse error rather than a missing platform. It was redone
+  on a middle entry.
+
+**Step 3, the command.** `NewCommand` is the library's cobra recipe (migration guide §5, "With
+cobra"):
+
+- `cli.Flags` bound on cobra's flag set, then `Flags.Request(product, buildinfo.Identity())`,
+  `cli.Run` and `cli.Exit`.
+- `cli.Run` supplies the reporter, the confirmer, the signals and the run timeout,
+  `OperationTimeout`.
+- The streams are cobra's. An input that is not the process's stdin cannot answer a prompt.
+- `exit` returns an `*ExitError` for a non-zero status (Deviation 1).
+- Both mains exit with it and print nothing more. Every other error keeps `error: …` and exit 1.
+- **Removed:** `Options.Request`, `Context`, the `Out`, `Err` and `In` options, and `stdinFile`.
+  The updater's own reporter and confirmer are now `DiscardReporter` and
+  `NonInteractiveConfirmer`, which `cli.Run` replaces.
+- The `User-Agent` is `selfupdate.UserAgent(product, version)`.
+
+**Step 4, the docs.** `docs/guides/config.md`'s update section was rewritten. Every behaviour it
+states was read in the library at `v1.15.2`:
+
+- **The streams and the outcome lines:** `Summary`, `run.go:265`.
+- **The exit statuses:** `flags.go:54`.
+- **The flags,** with `--check`'s contradictions (`flags.Request`) and the `--channel` refusal
+  (`version.go:219`).
+- **End of input declines,** and a missing `--yes` without a terminal is refused
+  (`confirmer.go:85`, `:164-165`).
+- **The journal and the kept backups:** `doc.go:126-130`.
+- **Warnings are not failures,** and are carried in the JSON result (`document.go:31`). The result
+  is schema 4.
+- **A lower tag is a rollback:** `OperationRollback`.
+- **Only the selected binary and the manifest are checked:** `checker.go:199`.
+
+The rewrite removed the section's two stale claims: "a crashed unit is restarted", from before
+S1, and the `BASE.N` comparison, which S2 removed. My first draft of the kept-backup line was wrong
+("a backup the update could not remove"); it was corrected from `doc.go`.
+
+**The command's tests (`command_test.go`).** They run against `selfupdatetest.GitHubServer` and a
+temporary executable:
+
+- **The stream and exit-code contract,** six cases. Each requires an empty stdout, the expected
+  last line on stderr, and at most one `update failed:` line:
+  - an update available: 10;
+  - up to date: 0;
+  - no release with that tag: 1;
+  - `--check --yes`: 1;
+  - `--channel rc`: 1;
+  - no `--yes` without a terminal: 1.
+- **The refusals' wording** (`TestUpdateCommandRefusals`).
+- **`--json`:** every line is JSON, and the last is the result object, with `exit_code` 10.
+- **`--dry-run`:** it verifies the release, and the executable is unchanged.
+- **End of input at a prompt:** the update declines and exits 0.
+- **A cancelled caller:** exit 1, with the cancellation reported and no request to GitHub.
+- **The main-level test, `internal/exit_test.go`,** builds both real binaries and runs `update
+  --check --yes`, which the library refuses before it builds an updater. It requires exit 1, an
+  empty stdout, exactly one `update failed:` line, and no `error:` line.
+
+```text
+the exit status is dropped               command_test.go:111: exit status 0, want 10 (and 0, want 1 ×2)
+stdout is the process's                  command_test.go:146: stdout line 1 is not JSON: ""
+any input may answer a prompt            command_test.go:117: stderr's last line = "mcremote: update declined", want "update failed: "
+the request ignores the identity         command_test.go:117: stderr's last line = "mcremote: update available: dev -> v0.2.0", want "…v0.1.0 -> v0.2.0"
+main adds its own error line             exit_test.go:42: main added its own error line
+```
+
+**Two test mistakes of mine, found by the gates:**
+
+- **The cancelled-caller test.** Its first form, outside the harness, failed for a reason
+  unrelated to cancellation: the test binary's own path is outside the update's allowed roots, and
+  the library resolves the target before it sees the context. It now runs in the harness, and also
+  requires that GitHub received no request.
+- **The main-level test.** Its first form ran `update --check` on the real binary. It relied on the
+  temporary directory lying outside the allowed roots, which holds on macOS and Linux. On the
+  Windows test host the temporary directory is under the user's home, so that run reached the real
+  GitHub, found an update, and exited 10 (`ci-windows-exit=2`). It now uses `--check --yes`, which
+  is refused offline on every host. The plant above was rerun against the revised test.
+- **Golint caught a parameter order.** `pre-add-check` refused `runCommandContext(t, ctx, …)`:
+  "context.Context should be the first parameter". It was reordered.
+
+**An observation of the real binary.** A local build in a scratch directory was run against the
+real GitHub:
+
+- `update --check` exited 1, with stdout empty and one `update failed: … outside allowed roots`
+  line on stderr;
+- `update --check --json` exited 1, ending in a result object with `exit_code` 1 and
+  `schema_version` 4;
+- `update --bogus` exited 1 with `error: unknown flag: --bogus`.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (9 Go files)                        exit=0   gofmt, golint, govulncheck clean
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck (linux, darwin, windows)   exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 packages ok
+mcplib scan (S1 Deviation 4)                           0 findings in 1947 files
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**Other hosts.**
+
+- **The Windows test host.** `make ci-windows` gave `ci-windows-exit=0`, "ALL SELECTED CHECKS
+  PASSED", 43 `ok` lines. This was the rerun after the main-level test's fix; the first run is
+  described above.
+- **The Linux test host.**
+  - `go test -race` of `internal/updateclient`, `internal/cli` and `internal/relay` is `ok`.
+  - `TestUpdateFailureIsReportedOnce`, `TestReleaseBuildReportsTheTag` and
+    `TestLocalBuildReportsLocal` pass.
+  - The scratch directory was removed.
+
+**What S3 unblocks:** 0201's PLAN P9 waited for S1 and S3. Both are now done, once the owner
+commits S3.
+
+**Files staged for S3:**
+
+- `cmd/mcremote/main.go`, `cmd/mcrelay/main.go` (Deviation 1);
+- `internal/updateclient/`:
+  - `selfupdate-release.json` and `spec.go` (new);
+  - `client.go`;
+  - `client_test.go`, `command_test.go` (new), `spec_test.go` (new), `managed_test.go`;
+- `internal/exit_test.go` (new);
+- `docs/guides/config.md`;
+- this PLAN.

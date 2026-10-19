@@ -1,11 +1,11 @@
 package main
 
 import (
+	"errors"
 	"os"
 
-	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
-
 	"github.com/maccavelli/magic-cli-remote/internal/cli"
+	"github.com/maccavelli/magic-cli-remote/internal/updateclient"
 )
 
 // The build identity is go-selfupdate-lib's buildinfo, which the linker
@@ -15,13 +15,14 @@ func main() {
 	if err == nil {
 		return
 	}
-	// The library never exits the process; this main owns exit mapping.
-	// selfupdate.ExitCode returns 10 for `update --check` finding an
-	// actionable target and 1 for every other failure (MADR 0005).
-	code := selfupdate.ExitCode(selfupdate.Result{}, err)
-	if code != 10 {
-		// Cobra SilenceErrors is set; print the error for operators.
-		_, _ = os.Stderr.WriteString("error: " + err.Error() + "\n")
+	// The update command has reported its own outcome on its streams, and
+	// carries its exit status: 10 when --check found an update, 1 otherwise
+	// (MADR 0054 PLAN S3, Deviation 1).
+	var update *updateclient.ExitError
+	if errors.As(err, &update) {
+		os.Exit(update.Code)
 	}
-	os.Exit(code)
+	// Cobra SilenceErrors is set; print the error for operators.
+	_, _ = os.Stderr.WriteString("error: " + err.Error() + "\n")
+	os.Exit(1)
 }

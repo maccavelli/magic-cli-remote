@@ -4,15 +4,15 @@
 // It is the only place this repository knows about GitHub releases, version
 // comparison, download, verification, or executable replacement: that logic
 // lives once in github.com/maccavelli/go-selfupdate-lib/selfupdate (MADR 0005,
-// 0054). What stays here is product-specific: the composition of the
-// library's service backend, reconciler and codesign signer, and the frozen
-// v0.15.3 selector fixture that proves the published v0.16.0 bridge.
+// 0054). What stays here is product-specific: the embedded release spec, the
+// composition of the library's service backend, reconciler and codesign
+// signer, and the frozen v0.15.3 selector fixture that proves the published
+// v0.16.0 bridge.
 package updateclient
 
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,38 +24,22 @@ import (
 
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/cli"
 )
 
 // Repository is the single GitHub repository both products are published from.
 var Repository = selfupdate.Repository{Owner: "maccavelli", Name: "magic-cli-remote"}
 
-// Platforms is this product's frozen release matrix. A platform outside this
-// set is rejected before any network call; the set is never interpolated from
-// runtime values.
-var Platforms = []selfupdate.Platform{
-	{OS: "linux", Arch: "amd64"},
-	{OS: "linux", Arch: "arm64"},
-	{OS: "darwin", Arch: "arm64"},
-	{OS: "windows", Arch: "amd64"},
-}
-
 // OperationTimeout bounds one whole update: discovery, download, install and
 // any managed recovery.
 const OperationTimeout = 15 * time.Minute
 
-// Options describe one product's update command.
+// Options describe one product's updater.
 type Options struct {
 	// Product is the executable basename, "mcremote" or "mcrelay".
 	Product string
-	// Identity is the running binary's build identity. NewCommand sets
-	// buildinfo.Identity(); tests set their own.
+	// Identity is the running binary's build identity, for the User-Agent.
 	Identity buildinfo.Info
-	// Out receives human progress; Err receives prompts and diagnostics.
-	Out io.Writer
-	Err io.Writer
-	// In is the confirmation source. A nil value disables interactive
-	// confirmation, which makes apply without --yes fail rather than hang.
-	In *os.File
 	// Managed enables service lifecycle handling. mcremote and mcrelay both
 	// set it; a product with no service definition leaves it false and can
 	// never accidentally start a daemon.
@@ -74,9 +58,26 @@ type Options struct {
 // New builds the updater for one product. Every security-relevant component is
 // composed explicitly here rather than hidden behind a convenience
 // constructor, so this file is the one place to audit what the update trusts.
+// The reporter and the confirmer are the command's: cli.Run supplies them on
+// the canonical streams.
 func New(opts Options) (*selfupdate.Updater, error) {
 	if opts.Product == "" {
 		return nil, fmt.Errorf("updateclient: product is required")
+	}
+	spec, err := releaseSpec()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := spec.Product(opts.Product); err != nil {
+		return nil, fmt.Errorf("updateclient: %w", err)
+	}
+	selector, err := spec.AssetSelector()
+	if err != nil {
+		return nil, fmt.Errorf("updateclient: asset selector: %w", err)
+	}
+	unpacker, err := spec.Unpacker()
+	if err != nil {
+		return nil, fmt.Errorf("updateclient: unpacker: %w", err)
 	}
 	limits := selfupdate.DefaultLimits()
 
@@ -87,11 +88,6 @@ func New(opts Options) (*selfupdate.Updater, error) {
 	source, err := newSource(opts, client, limits)
 	if err != nil {
 		return nil, err
-	}
-
-	selector, err := selfupdate.NewExactAssetSelector(Platforms)
-	if err != nil {
-		return nil, fmt.Errorf("updateclient: asset selector: %w", err)
 	}
 
 	var install selfupdate.InstallOptions
@@ -118,23 +114,15 @@ func New(opts Options) (*selfupdate.Updater, error) {
 		return nil, err
 	}
 
-	out := opts.Out
-	if out == nil {
-		out = io.Discard
-	}
-	errw := opts.Err
-	if errw == nil {
-		errw = io.Discard
-	}
-
 	return selfupdate.New(selfupdate.Config{
 		Source:      source,
 		Versions:    selfupdate.NewStrictVersionPolicy(),
 		Assets:      selector,
+		Unpacker:    unpacker,
 		Transformer: transformer,
 		Installer:   installer,
-		Reporter:    selfupdate.NewTextReporter(out),
-		Confirmer:   selfupdate.NewTerminalConfirmer(opts.In, errw),
+		Reporter:    selfupdate.DiscardReporter(),
+		Confirmer:   selfupdate.NonInteractiveConfirmer(),
 		Limits:      limits,
 	})
 }
@@ -143,7 +131,7 @@ func newSource(opts Options, client *http.Client, limits selfupdate.Limits) (sel
 	gh := selfupdate.GitHubOptions{
 		Repository: Repository,
 		Client:     client,
-		UserAgent:  opts.Product + "/" + opts.Identity.Current(),
+		UserAgent:  selfupdate.UserAgent(opts.Product, opts.Identity.Current()),
 		Limits:     limits,
 	}
 	if opts.APIBaseURL != "" {
@@ -160,33 +148,6 @@ func newSource(opts Options, client *http.Client, limits selfupdate.Limits) (sel
 	return source, nil
 }
 
-// Request builds the shared request from this binary's build identity and
-// the command's flags, as the library's own command does: a release only when
-// buildinfo says so, a stamped "release" kind with a release tag (MADR 0054
-// S2).
-func (o Options) Request(targetVersion string, check, force, yes bool) selfupdate.Request {
-	build := selfupdate.LocalBuild
-	if o.Identity.Kind == buildinfo.KindRelease {
-		build = selfupdate.ReleaseBuild
-	}
-	return selfupdate.Request{
-		Product:        o.Product,
-		CurrentVersion: o.Identity.Current(),
-		CurrentBuild:   build,
-		TargetVersion:  targetVersion,
-		CheckOnly:      check,
-		Force:          force,
-		Yes:            yes,
-	}
-}
-
-// Context derives the bounded operation context from the caller's context. It
-// never replaces the caller's context with a background one, so Ctrl-C during
-// an update actually cancels it.
-func Context(parent context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(parent, OperationTimeout)
-}
-
 func parseBase(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -195,65 +156,101 @@ func parseBase(raw string) (*url.URL, error) {
 	return u, nil
 }
 
+// The command's seams are variables for tests; production never changes them.
+var (
+	// commandIdentity is the running build's identity.
+	commandIdentity = buildinfo.Identity
+	// commandInteractive is whether an input that is not the process's own
+	// stdin can answer a prompt. It cannot; a test sets it to prompt.
+	commandInteractive = false
+	// newCommandUpdater builds the command's updater.
+	newCommandUpdater = func(product string, id buildinfo.Info) (*selfupdate.Updater, error) {
+		return New(Options{
+			Product:          product,
+			Identity:         id,
+			Managed:          true,
+			CodesignIdentity: strings.TrimSpace(os.Getenv("MC_CODESIGN_IDENTITY")),
+		})
+	}
+)
+
+// ExitError is the exit status of an update command that did not succeed.
+// The library has already reported the outcome on the command's streams, so
+// main exits with Code and prints nothing more (MADR 0054 PLAN S3,
+// Deviation 1).
+type ExitError struct {
+	// Code is 10 when --check found an update, and 1 for any failure.
+	Code int
+}
+
+func (e *ExitError) Error() string { return fmt.Sprintf("update: exit status %d", e.Code) }
+
 // NewCommand builds the `update` subcommand both products share. It lives
 // here, not in either product's package, so mcremote and mcrelay cannot drift
-// apart again; only the stamped identity differs between them.
+// apart again; only the product differs between them.
 //
-// The command owns flag parsing and stream selection and nothing else.
-// Discovery, verification, staging, replacement, rollback and exit semantics
-// all live in go-selfupdate-lib's selfupdate package.
+// It is go-selfupdate-lib's canonical command bound to cobra (MADR 0054 D8,
+// the library's migration guide §5 "With cobra"): the library's flags, its
+// request from buildinfo, and cli.Run and cli.Exit, which own the streams,
+// the signals, the run timeout and the exit status. Progress, prompts and
+// the outcome go to stderr; stdout carries only --json's JSON Lines.
 func NewCommand(product string) *cobra.Command {
-	var (
-		check, yes, force bool
-		targetVersion     string
-	)
+	var flags cli.Flags
 	cmd := &cobra.Command{
 		Use:   "update",
 		Args:  cobra.NoArgs,
 		Short: "Download and install a GitHub release for " + product,
 		Long: `Check GitHub releases for ` + product + `, verify the release checksum,
-and replace this executable, restarting the user service when one is installed.
+and replace this executable, restarting the user service when one is installed
+and enabled.
 
-Exit codes: 0 = up to date or declined, 10 = --check found an actionable
-target, 1 = error. Set GH_TOKEN or GITHUB_TOKEN to raise API rate limits. Set
-MC_CODESIGN_IDENTITY on macOS to re-sign the verified binary before install,
-which preserves TCC grants (MADR 0069).`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := Options{
-				Product:          product,
-				Identity:         buildinfo.Identity(),
-				Out:              cmd.OutOrStdout(),
-				Err:              cmd.ErrOrStderr(),
-				In:               stdinFile(cmd),
-				Managed:          true,
-				CodesignIdentity: strings.TrimSpace(os.Getenv("MC_CODESIGN_IDENTITY")),
+Progress, prompts and the outcome are written to stderr. Stdout is empty
+unless --json is given, which writes JSON Lines ending in one result object.
+
+Exit status: 0 up to date, declined or installed; 10 an update is available
+(with --check); 1 any error. Set GH_TOKEN or GITHUB_TOKEN to raise API rate
+limits. Set MC_CODESIGN_IDENTITY on macOS to re-sign the verified binary
+before install, which preserves TCC grants (MADR 0069).`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceErrors, cmd.SilenceUsage = true, true
+			o := cli.StdioOptions()
+			o.Stdout, o.Stderr = cmd.OutOrStdout(), cmd.ErrOrStderr()
+			if in := cmd.InOrStdin(); in != os.Stdin {
+				// A reader that is not the terminal cannot answer a prompt.
+				o.Stdin, o.Interactive = in, commandInteractive
 			}
-			updater, err := New(opts)
+			o.JSON = flags.JSON
+			o.Timeout = OperationTimeout
+
+			id := commandIdentity()
+			req, err := flags.Request(product, id)
 			if err != nil {
-				return err
+				return exit(o, selfupdate.Result{}, err)
+			}
+			u, err := newCommandUpdater(product, id)
+			if err != nil {
+				return exit(o, selfupdate.Result{}, err)
 			}
 			// The caller's context, never context.Background: Ctrl-C during a
-			// download must actually cancel it (MADR 0005 F2).
-			ctx, cancel := Context(cmd.Context())
-			defer cancel()
-			_, err = updater.Run(ctx, opts.Request(targetVersion, check, force, yes))
-			return err
+			// download must actually cancel it (MADR 0005 F2). cli.Run adds the
+			// signals and the timeout.
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			res, err := cli.Run(ctx, u, req, o)
+			return exit(o, res, err)
 		},
 	}
-	cmd.Flags().BoolVar(&check, "check", false, "report only; exit 0 up to date, 10 actionable, 1 error")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "approve the selected operation without prompting")
-	cmd.Flags().BoolVar(&force, "force", false, "replace a local build, or reinstall the selected version")
-	cmd.Flags().StringVar(&targetVersion, "version", "", "install this exact release tag (vX.Y.Z); a lower tag is an explicit rollback")
+	flags.Bind(cmd.Flags())
 	return cmd
 }
 
-// stdinFile returns the real terminal when the command reads it, and nil
-// otherwise. A nil confirmer source makes a non-interactive apply without
-// --yes fail with an actionable error instead of hanging or silently
-// replacing the binary.
-func stdinFile(cmd *cobra.Command) *os.File {
-	if f, ok := cmd.InOrStdin().(*os.File); ok {
-		return f
+// exit reports a run's outcome through cli.Exit, and returns its status as
+// an *ExitError, or nil for 0.
+func exit(o cli.Options, res selfupdate.Result, err error) error {
+	if code := cli.Exit(o.Stderr, res, err); code != 0 {
+		return &ExitError{Code: code}
 	}
 	return nil
 }

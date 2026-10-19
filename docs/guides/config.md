@@ -636,26 +636,60 @@ Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.servi
 
 ### `mcremote update` / `mcrelay update` (MADR 0065 and 0103, superseded by MADR 0005, and 0054)
 
-User-initiated upgrade from GitHub Releases, implemented once in
-`github.com/maccavelli/go-selfupdate-lib/selfupdate` and bound here by
-`internal/updateclient`: discover the release, select the exact
-`<product>-<goos>-<goarch>` asset and `SHA256SUMS`, verify the GitHub asset
-digest and the checksum entry, stage in the target directory, replace with a
-retained backup, and roll back on failure. Recycles the user service only when
-**this** product has a unit/plist; a crashed unit is restarted; no unit means
-binary-only. A definition reconcile, start, or health-check failure is fatal and
-rolls the binary and the definition back together.
+User-initiated upgrade from GitHub Releases. The update is
+[go-selfupdate-lib](https://github.com/maccavelli/go-selfupdate-lib)'s, bound here by
+`internal/updateclient`.
 
-Versions are strict `vMAJOR.MINOR.PATCH` tags. The superseded `BASE.N` build
-serial is no longer published; an already-installed `BASE.N` binary is compared
-on its three-part base only.
+- **Release.** The update discovers the release, selects the exact `<product>-<goos>-<goarch>`
+  asset and `SHA256SUMS`, and verifies the GitHub asset digest and the checksum entry. Only the
+  selected binary and `SHA256SUMS` are checked, so an unrelated asset never blocks an update. The
+  embedded release spec, `internal/updateclient/selfupdate-release.json`, names the products,
+  platforms and extras.
+- **Install.** It stages the binary in the target directory and replaces it, keeping a backup,
+  and rolls back on failure.
+- **The service.** It recycles a user service only when **this** product has one installed.
+  - A running service is restarted.
+  - A stopped service is started again only when it is enabled. A service the operator disabled
+    stays stopped.
+  - With no service, the update replaces the binary alone.
+- **Failure.** A definition reconcile, start, or health-check failure is fatal and rolls the
+  binary and the definition back together.
+
+Versions are strict `vMAJOR.MINOR.PATCH` tags. The running binary's version comes from its build
+identity, the first line of `version`: only a tagged release build counts as a release. A local
+build is replaced only with `--force`.
+
+**Streams.** Progress, prompts and the outcome go to stderr, and stdout is empty unless `--json`
+is given.
+
+- **The outcome** is one line, such as `mcremote: update available: v0.17.0 -> v0.17.1`,
+  `mcremote: up to date (v0.17.1)` or `mcremote: updated v0.17.0 -> v0.17.1`.
+- **A failure** is one line, `update failed: <message>`.
+- **`--json`** writes JSON Lines to stdout: the progress events, then one result object, `"kind":
+  "result"`, which carries `exit_code` and is schema version 4.
+
+**Exit status.** `0` means up to date, declined or installed. `10` means `--check` found an
+update. `1` means any error, including a usage error.
 
 | Flag | Description |
 |------|-------------|
-| `--check` | Report only. Exit `0` if up to date, `10` if an actionable target exists, `1` on error. Contradicts `--yes` and `--force` |
-| `--yes`, `-y` | Approve the selected operation without prompting. A non-interactive apply without it fails rather than hanging or replacing silently |
-| `--force` | Replace a local build, or reinstall the selected version. It never bypasses version, asset, size, integrity, target, or health rules |
-| `--version vX.Y.Z` | Install that exact release. A lower tag is reported as an explicit rollback before confirmation |
+| `--check` | Report whether an update is available, and install nothing. Contradicts `--yes`, `--force` and `--dry-run` |
+| `--yes`, `-y` | Install without asking. Without it, the update asks on a terminal, and refuses where there is none ("pass --yes …"). An input that ends before an answer declines |
+| `--force` | Replace a local build, or reinstall the same version. It never bypasses version, asset, size, integrity, target, or health rules |
+| `--dry-run` | Download and verify the release, and install nothing |
+| `--json` | Write JSON Lines to stdout, and everything else to stderr |
+| `--version vX.Y.Z` | Install exactly that release. A lower tag is reported as an explicit rollback before confirmation |
+| `--channel NAME` | Follow a prerelease channel. No channel is offered, so it is refused: `channel "NAME" is not offered by the version policy` |
+
+**After the update** the update can leave two kinds of file, and can end with a warning:
+
+- **The journal.** Before it replaces the binary, the update writes a journal,
+  `.<binary>.selfupdate.pending`, beside it. It removes the journal once the replacement is
+  committed or rolled back.
+- **Kept backups.** If an update is interrupted between those two points, its backup is kept as
+  `.<binary>.selfupdate-kept-<n>`, and not removed.
+- **Warnings.** An error after the update has done its work does not fail it. It is printed as
+  `warning: <text>`, and the update still exits 0. Under `--json` it is in the result object.
 
 Optional env: `GH_TOKEN` or `GITHUB_TOKEN` (API rate limits, sent only to the
 GitHub API origin), `MC_CODESIGN_IDENTITY` (macOS re-sign after verification so
