@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -1378,7 +1379,7 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlac
 		return m.setModelInPlace(ctx, id, arg)
 	}
 	m.emitNotice(id, fmt.Sprintf("Switching model to %s…", arg))
-	if err := m.relaunch(ctx, id, prov, cwd, name, arg, thinking, owner); err != nil {
+	if err := m.relaunch(ctx, id, prov, cwd, name, arg, thinking, owner, false); err != nil {
 		// Relaunch is destroy-then-create: the old agent is already gone. Try
 		// to bring the session back on the previous model rather than leaving
 		// the user with a dead id and a vague notice.
@@ -1386,7 +1387,7 @@ func (m *Manager) cmdModel(ctx context.Context, id, deviceID, arg string, inPlac
 		if prevLabel == "" {
 			prevLabel = "the provider default"
 		}
-		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner); rerr == nil {
+		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner, false); rerr == nil {
 			m.emitNotice(id, fmt.Sprintf(
 				"Model switch to %s failed: %v — the agent restarted on %s instead.",
 				arg, err, prevLabel))
@@ -1503,10 +1504,10 @@ func (m *Manager) cmdReset(ctx context.Context, id, deviceID string) error {
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	m.emitNotice(id, "Restarting the agent…")
-	if err := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner); err != nil {
+	if err := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner, true); err != nil {
 		// Relaunch is destroy-then-create: try once more (same as /model
 		// recovery) so a transient Start failure does not leave a dead id.
-		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner); rerr == nil {
+		if rerr := m.relaunch(ctx, id, prov, cwd, name, cur, thinking, owner, true); rerr == nil {
 			m.emitNotice(id, fmt.Sprintf(
 				"Reset failed once (%v) — agent restarted on retry with a fresh context.", err))
 			return nil
@@ -1556,16 +1557,18 @@ func (m *Manager) sessionRelaunchInfo(id string) (prov provider.ID, cwd, name, o
 }
 
 // relaunch replaces the live session id with a fresh agent process, reusing the
-// tested close-and-replace path in [Manager.Create]. The client keeps its own
-// transcript; the server-side history ring is reset with the new process.
-func (m *Manager) relaunch(ctx context.Context, id string, prov provider.ID, cwd, name, model, thinking, owner string) error {
-	_, err := m.Create(ctx, prov, provider.StartOptions{
+// tested close-and-replace path in [Manager.Create]. The transcript, in memory
+// and on disk, carries over to the new process unless reset is true (/clear),
+// when both start empty. Seq continues from the last one sent either way
+// (MADR 0201 D17).
+func (m *Manager) relaunch(ctx context.Context, id string, prov provider.ID, cwd, name, model, thinking, owner string, reset bool) error {
+	_, err := m.create(ctx, prov, provider.StartOptions{
 		LocalSessionID: id,
 		CWD:            cwd,
 		Name:           name,
 		Model:          model,
 		ThinkingLevel:  thinking,
-	}, owner)
+	}, owner, createOptions{resetHistory: reset})
 	return err
 }
 
@@ -1579,13 +1582,15 @@ func (m *Manager) emitEvent(id string, ev event.Event) {
 		m.mu.RLock()
 		e := m.sessions[id]
 		m.mu.RUnlock()
-		if e != nil {
-			e.deliverMu.Lock()
+		if e == nil {
+			if m.emitStoredEvent(id, ev) {
+				return
+			}
+			continue
 		}
+		e.deliverMu.Lock()
 		done := m.emitEventLocked(id, e, ev)
-		if e != nil {
-			e.deliverMu.Unlock()
-		}
+		e.deliverMu.Unlock()
 		if done {
 			return
 		}
@@ -1593,25 +1598,77 @@ func (m *Manager) emitEvent(id string, ev event.Event) {
 }
 
 // emitEventLocked is emitEvent for a caller holding e.deliverMu, where e is
-// id's entry (nil when id has none). It emits nothing and returns false when
-// id's entry is no longer e, so the caller can retry under the right lock.
+// id's entry. It emits nothing and returns false when id's entry is no longer
+// e, so the caller can retry under the right lock.
 func (m *Manager) emitEventLocked(id string, e *entry, ev event.Event) bool {
 	m.mu.Lock()
-	if m.sessions[id] != e {
+	if e == nil || m.sessions[id] != e {
 		m.mu.Unlock()
 		return false
 	}
-	if e != nil {
-		e.appendHistoryLocked(&ev)
-	}
+	e.appendHistoryLocked(&ev)
 	m.mu.Unlock()
 	// A daemon-origin event that landed in a session's ring must also be marked
 	// for durable persistence, exactly as [Manager.pump] does for provider
 	// events — otherwise a crash loses /help output, notices, and echoed
 	// commands from the on-disk transcript.
-	if e != nil {
-		m.scheduleHistoryPersist(id)
+	m.scheduleHistoryPersist(id)
+	if m.onEvent != nil {
+		m.onEvent(ev)
 	}
+	return true
+}
+
+// emitStoredEvent sends a daemon event for a session that is not live (MADR
+// 0201 D19), such as "Reset failed … this session is closed". With a stored
+// record, the event takes the seq after the last one sent, joins the durable
+// transcript, and is broadcast, so the phone keeps it. With none, no client
+// could own the session, and it is dropped. Returns false, sending nothing,
+// when id has become live, so the caller can take the live path.
+func (m *Manager) emitStoredEvent(id string, ev event.Event) bool {
+	m.historyWriteMu.Lock()
+	defer m.historyWriteMu.Unlock()
+	m.mu.RLock()
+	_, live := m.sessions[id]
+	m.mu.RUnlock()
+	if live {
+		return false
+	}
+	var rec Record
+	err := ErrNotLive
+	if m.store != nil && !m.isPurged(id) {
+		rec, err = m.store.Get(id)
+	}
+	if err != nil {
+		m.log.Debug("event for a session with no record dropped",
+			slog.String("session_id", id),
+			slog.String("type", string(ev.Type)),
+		)
+		return true
+	}
+	hist := m.store.LoadHistory(id)
+	last := rec.LastSeq
+	if n := len(hist); n > 0 {
+		last = max(last, hist[n-1].Seq)
+	}
+	ev.Seq = last + 1
+	if err := m.saveHistoryLocked(id, append(hist, ev), histGenSeq.Add(1)); err != nil {
+		m.log.Warn("persist session history failed",
+			slog.String("session_id", id),
+			slog.String("err", err.Error()),
+		)
+	}
+	// The record keeps the seq even if the transcript write failed, so the
+	// next one cannot reuse it (D14).
+	rec.LastSeq = ev.Seq
+	if err := m.store.Save(rec); err != nil {
+		m.log.Warn("persist session failed",
+			slog.String("session_id", id),
+			slog.String("err", err.Error()),
+		)
+	}
+	// Broadcast under the lock, so two such events reach clients in seq
+	// order, as live ones do (D11).
 	if m.onEvent != nil {
 		m.onEvent(ev)
 	}

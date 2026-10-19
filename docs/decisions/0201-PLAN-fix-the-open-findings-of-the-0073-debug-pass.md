@@ -37,7 +37,7 @@ The triage report then marks each finding FIXED, naming its commit.
 | P1 | D1, D3, D5, D6, D9, D10 | `internal/ws/server.go`, `internal/ws/idempotency.go`, `docs/guides/protocol-v1.md` |
 | P2 | D7, D8 | `internal/relay/hub.go`, `internal/daemon/daemon.go`, `internal/certs/acme.go` |
 | P3 | D4, D11, D12, D13 | `internal/session/manager.go`, `internal/session/commands.go` |
-| P4 | D14, D15, D16, D17, D18, D19, D20 | `internal/session/manager.go`, `internal/session/commands.go`, `internal/session/store.go` |
+| P4 | D14, D15, D16, D17, D18, D19, D20 | `internal/session/manager.go`, `internal/session/commands.go`, `internal/session/store.go`, `docs/guides/protocol-v1.md` (Deviation 3) |
 | P5 | D21 | `internal/agenterr/agenterr.go` |
 | P6 | D2, D22, D23, D24, D25, D27, D28, D29, D31, D32 | `internal/cli/pair.go`, `internal/cli/serve.go`, `internal/cli/paths.go`, `internal/cli/doctor.go`, `internal/cli/service/setup.go`, `internal/cli/service/setup_schtasks.go`, both `*.user.service.tmpl`, `internal/config/load.go`, `internal/config/config.go`, `internal/auth/store.go`, `internal/auth/paircode.go`, `internal/picker/cache.go`, `scripts/smoke-protocol/main.go` |
 | P7 | D33–D39 | `apps/mobile/lib/data/chat/transcript_cache.dart`, `apps/mobile/lib/features/connect/connect_screen.dart`, `apps/mobile/lib/features/chat/chat_bubble.dart`, `apps/mobile/lib/features/settings/settings_screen.dart`, `apps/mobile/lib/data/notifications/notification_service.dart`, `apps/mobile/lib/data/update/app_update.dart` |
@@ -727,5 +727,140 @@ P3 tests, -race -count=10                -> exit 0
 make ci-windows (the Windows test host)  -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED (session ok)
 check_records.py --check-all             -> exit 0
 make markdownlint-docs                   -> exit 0
+```
+
+### Deviation 3, 2026-10-18 (P4): the protocol guide documents `last_seq` and turn-end cancellation
+
+**Found.** P4 changes two things clients can see, and no phase documented either. P8 adds only
+D9's sentence and D10's error code to the guides.
+
+- D14 gives `Meta` a `last_seq` field, with the PLAN's tag `last_seq,omitempty`. `Meta` is also
+  the wire shape of a session row, so clients receive it. The guide's list of optional session
+  fields did not name it.
+- D20 sends `permission_resolved` and `question_resolved` with `cancelled` when a turn ends.
+  The guide's `cancelled` text gave the causes as an agent-side cancel, a session close, and a
+  timeout.
+
+**Owner's decision.** Document both in P4.
+
+**Done instead.** `docs/guides/protocol-v1.md` joins P4's scope (the table above is annotated).
+
+- It gains a `last_seq` bullet among the optional session fields.
+- Its `cancelled` text names the turn's end as a cause and describes the turn-end events.
+
+`protocol-v2.md` carries neither passage, so it is unchanged. No decision in the MADR changes.
+
+### P4, 2026-10-18: session persistence — complete
+
+Starting commit `6e2e30be` (P3). The guide changes are as in Deviation 3.
+
+**Test seams, added alone first, with no change in behaviour:**
+
+- `afterHistorySnapshotHook`, called in `FlushHistory` between a session's snapshot and its write.
+  It is an `atomic.Pointer`: the first green run showed a data race between a test restoring a
+  plain variable and a timer's flush still reading it.
+- `historyMaxLatency`, changed from a `const` to a `var`.
+
+**Each test seen failing first.** `TestModelSwitchKeepsTheTranscript` is a pin, and passed, as a
+pin should.
+
+```text
+D14  persistence_0201_test.go:138: first event after re-create has seq 1 (remote_commands); seqs up to 13 were already sent
+D15  persistence_0201_test.go:186: a stale flush overwrote the close transcript: disk has 6 events, the close wrote 10
+D15  persistence_0201_test.go:222: session directory after Delete and a late flush: stat err = <nil>, want not-exist
+D16  persistence_0201_test.go:277: second Create = <nil> after 1.001519542s; want context.DeadlineExceeded within 300ms
+D17  persistence_0201_test.go:306: cold history kept seq 1 (remote_commands "") from before /clear (last pre-clear seq 27)
+D18  persistence_0201_test.go:389: chunk 0 reached clients 2.044815875s after the provider sent it; want under 50ms
+D19  persistence_0201_test.go:412: notice for a closed session went out with seq 0; want 14
+D19  persistence_0201_test.go:429: a notice for an unknown session was broadcast: 1 deliveries
+D20  persistence_0201_test.go:475: p:p-open: 0 resolved events at turn end, want 1
+```
+
+**What changed.** The code is in `internal/session/manager.go`, `commands.go` and `store.go`.
+
+- **D14.** `Meta` and `Record` gain `LastSeq`.
+  - The close path sets it from the entry's seq and persists the meta whether the transcript
+    save succeeded or not.
+  - `Create` seeds seq from the higher of the transcript's last seq and the record's `LastSeq`,
+    and carries the result in the live meta.
+- **D15.** Every transcript write goes through `saveHistory` / `saveHistoryLocked`, under
+  `historyWriteMu`: flush, close, `/clear`, and D19's stored notices.
+  - It skips a purged session, and a snapshot whose generation is not above `savedHistGen[id]`.
+  - Record deletion takes the same mutex (`deleteStored`), including `writePersist`'s removal of
+    a record a racing save left behind.
+  - **The generation counter.** `entry.histGen` takes a fresh value from one package-wide counter,
+    `histGenSeq`, on each append and each trim or deletion (`reindexHistoryLocked`).
+  - The PLAN read as a counter per entry. That would restart at zero for a re-created entry, and
+    `savedHistGen`, keyed by id, would then skip the new entry's writes. So would the writes of
+    a stale snapshot taken from a replaced entry.
+- **D16.**
+  - `createLock` is a one-slot channel. `lockCreate(ctx, id)` returns `ctx.Err()` when the
+    caller's context ends first, and `Create` returns that error.
+  - `Authorize`, `Release` and `Claim` have no caller context. They pass
+    `context.Background()`, so their wait is bounded by the holder, whose `Start` runs under its
+    own caller's deadline. They still propagate the error.
+- **D17.**
+  - An internal `createOptions` carries `resetHistory`, and absorbs `create`'s existing
+    name-source argument (Fork's).
+  - `relaunch` takes `reset`. `cmdReset` passes `true`; the model switch passes `false`.
+  - With `reset`, `Create` seeds an empty ring and writes the empty transcript through D15's
+    helper. Seq still continues from D14's seeding.
+  - `relaunch`'s doc comment now says what happens.
+- **D18.** Past the latency bound, `scheduleHistoryPersist` fires the history timer at once:
+  `Reset(0)`, or `AfterFunc(0, …)` when there is no timer. The flush no longer runs on the
+  pump's goroutine.
+- **D19.** `emitEvent` for a session with no live entry goes to `emitStoredEvent`.
+  - **With a stored record:** the event takes `max(LastSeq, transcript tail) + 1`, joins the
+    transcript through D15's helper, and is broadcast under `historyWriteMu`, so two of them
+    keep seq order. The record's `LastSeq` is updated even if the transcript write fails.
+  - **With none:** the event is dropped with a `debug` log.
+  - `Create` holds `historyWriteMu` from its transcript load to its insert, so a stored notice
+    cannot land in between.
+- **D20.** At a live `turn_complete` or `error`, each ask still pending yields a
+  `permission_resolved` / `question_resolved` with status `cancelled`.
+  - The order is permissions then questions, each in id order.
+  - They are emitted after the event itself, under D11's delivery lock.
+  - A replayed turn end emits none.
+
+**Deviations in test detail only.**
+
+- **D14:** a real `Store` cannot be told to fail, so the test makes `history.json` a non-empty
+  directory. Every transcript write then fails, and every read finds nothing, on POSIX and on
+  Windows alike.
+- **D18:**
+  - **The PLAN said:** a store whose `SaveHistory` blocks.
+  - **What it does instead:** the snapshot hook sleeps 2 s, which blocks the flush at the same
+    point.
+
+**Planted breaks**, each on a fresh scratch copy. The PLAN's six, plus a second one for D15, one
+for each half of D19, and one that breaks the D17 pin. All ten failed their test with an
+assertion:
+
+```text
+D14 seeding from history only      :138 first event after re-create has seq 1 (remote_commands); seqs up to 13 were already sent
+D15 generation check removed       :184 a stale flush overwrote the close transcript: disk has 6 events, the close wrote 10
+D15 purge check removed            :220 session directory after Delete and a late flush: stat err = <nil>, want not-exist
+D16 select on ctx removed          :275 second Create = <nil> after 1.00269825s; want context.DeadlineExceeded within 300ms
+D17 resetHistory ignored           :304 cold history kept seq 1 (remote_commands "") from before /clear (last pre-clear seq 27)
+D17 every relaunch resets          :335 a model-switch relaunch dropped the transcript: 7 events, none the earlier turn
+D18 inline flush restored          :387 chunk 0 reached clients 2.019455542s after the provider sent it; want under 50ms
+D19 stored notice unsequenced      :410 notice for a closed session went out with seq 0; want 14
+D19 unknown session broadcast      :427 a notice for an unknown session was broadcast: 1 deliveries
+D20 no synthetic events            :473 p:p-open: 0 resolved events at turn end, want 1
+```
+
+(All in `persistence_0201_test.go`. Line numbers differ from the first-failure list because an
+unused leftover was removed from the D15 test in between.)
+
+**Gates.**
+
+```text
+make pre-add-check (4 Go files)          -> clean (gofmt, golint, govulncheck)
+go vet ./..., make lint, make staticcheck -> exit 0
+go test -race -count=1 ./...             -> exit 0, 42 packages ok
+P3 and P4 tests, -race -count=5          -> exit 0
+make ci-windows (the Windows test host)  -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED (session ok)
+check_records.py --check-all             -> exit 0
+make markdownlint-docs                   -> exit 0 (covers protocol-v1.md)
 ```
 

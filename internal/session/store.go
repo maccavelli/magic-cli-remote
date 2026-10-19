@@ -63,6 +63,9 @@ type Record struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	Status       string    `json:"status"`
+	// LastSeq is the highest seq the session sent before it was last
+	// persisted (MADR 0201 D14).
+	LastSeq uint64 `json:"last_seq,omitempty"`
 }
 
 // Store persists session metadata under data_dir/sessions/<id>/meta.json.

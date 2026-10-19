@@ -11,12 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -193,6 +195,10 @@ type Meta struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	Status    string    `json:"status"`
 	Live      bool      `json:"live"`
+	// LastSeq is the highest seq this session has sent. Create seeds from it
+	// as well as from the durable history, so a failed history save cannot
+	// make seq go backwards (MADR 0201 D14).
+	LastSeq uint64 `json:"last_seq,omitempty"`
 }
 
 type entry struct {
@@ -216,6 +222,9 @@ type entry struct {
 	// historyBytes is the running sum of event.Bytes over history. Maintained
 	// on append and recomputed by reindexHistoryLocked after any deletion.
 	historyBytes int
+	// histGen is the generation of the ring: a fresh histGenSeq value on
+	// every change to it (MADR 0201 D15).
+	histGen uint64
 	// lastEventAt is when this session last appended to its ring. The global
 	// budget evicts from the coldest session first, and that ordering needs a
 	// clock that tracks events rather than the metadata writes UpdatedAt tracks.
@@ -314,6 +323,7 @@ func (e *entry) appendHistoryLocked(ev *event.Event) {
 	if ev.Replay && e.hasReplayDuplicateLocked(ev) {
 		return
 	}
+	e.histGen = histGenSeq.Add(1)
 	switch {
 	case ev.Type == event.TypeTranscriptRemove && ev.NativeMessageID != "":
 		e.removeNativeLocked(ev.NativeMessageID, ev.NativePartID)
@@ -578,6 +588,7 @@ func (e *entry) trimToLocked(budget int) bool {
 // O(len(history)) and runs only on an eviction or a native-identity removal,
 // both rare next to appends.
 func (e *entry) reindexHistoryLocked() {
+	e.histGen = histGenSeq.Add(1)
 	if len(e.history) == 0 {
 		e.replayIndex = nil
 		e.historyBytes = 0
@@ -712,6 +723,11 @@ type Manager struct {
 	dirtyHistory      map[string]struct{}
 	historyDirtySince map[string]time.Time
 	historyTimer      *time.Timer
+	// historyWriteMu serializes every durable transcript write and delete.
+	// savedHistGen is the ring generation each session's file was last
+	// written from (MADR 0201 D15).
+	historyWriteMu sync.Mutex
+	savedHistGen   map[string]uint64
 
 	// runCtx is cancelled by CloseAll so session pumps deriving from it also
 	// exit when the manager shuts down.
@@ -831,27 +847,29 @@ const historyPersistDebounce = 1 * time.Second
 // historyMaxLatency is the longest a dirty transcript may wait for flush under
 // a continuous stream (MADR 0056 M-3 / Phase 5). Debounce may reset, but this
 // bound still forces a write.
-const historyMaxLatency = 5 * time.Second
+var historyMaxLatency = 5 * time.Second
 
 type createLock struct {
-	mu   sync.Mutex
+	// ch is the lock: a one-slot channel, so a waiter can give up when its
+	// context ends (MADR 0201 D16). refs counts holders and waiters.
+	ch   chan struct{}
 	refs int
 }
 
-// lockCreate acquires the per-id create lock, returning its release func.
-func (m *Manager) lockCreate(id string) func() {
+// lockCreate acquires the per-id create lock, returning its release func, or
+// returns ctx's error if ctx ends first. A holder may be inside a provider's
+// Start, so a waiter must not outlive its own deadline.
+func (m *Manager) lockCreate(ctx context.Context, id string) (func(), error) {
 	m.createMu.Lock()
 	l := m.createLocks[id]
 	if l == nil {
-		l = &createLock{}
+		l = &createLock{ch: make(chan struct{}, 1)}
 		m.createLocks[id] = l
 	}
 	l.refs++
 	m.createMu.Unlock()
 
-	l.mu.Lock()
-	return func() {
-		l.mu.Unlock()
+	drop := func() {
 		m.createMu.Lock()
 		l.refs--
 		if l.refs == 0 {
@@ -859,6 +877,16 @@ func (m *Manager) lockCreate(id string) func() {
 		}
 		m.createMu.Unlock()
 	}
+	select {
+	case l.ch <- struct{}{}:
+	case <-ctx.Done():
+		drop()
+		return nil, ctx.Err()
+	}
+	return func() {
+		<-l.ch
+		drop()
+	}, nil
 }
 
 // NewManager creates a session manager. store may be nil (no persistence).
@@ -1029,14 +1057,25 @@ func (m *Manager) LiveCount() int {
 // ownerDeviceID may be empty in tests; production WS paths pass the authed
 // device id (R4=B).
 func (m *Manager) Create(ctx context.Context, providerID provider.ID, opts provider.StartOptions, ownerDeviceID string) (Meta, error) {
-	return m.create(ctx, providerID, opts, ownerDeviceID, "")
+	return m.create(ctx, providerID, opts, ownerDeviceID, createOptions{})
 }
 
-// create is Create with the source of opts.Name, when the caller knows it
-// (Fork). Empty means: the stored source when this re-opens an existing id
-// under its stored name (phone resume, relaunch), else the user's when
-// opts.Name is set (MADR 0187 D2, D4).
-func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provider.StartOptions, ownerDeviceID, nameSource string) (Meta, error) {
+// createOptions are create's internal choices.
+type createOptions struct {
+	// nameSource is the source of opts.Name, when the caller knows it (Fork).
+	// Empty means: the stored source when this re-opens an existing id under
+	// its stored name (phone resume, relaunch), else the user's when opts.Name
+	// is set (MADR 0187 D2, D4).
+	nameSource string
+	// resetHistory starts the session with an empty transcript, on disk as
+	// well as in memory (/clear, MADR 0201 D17). Seq still continues from the
+	// last one sent.
+	resetHistory bool
+}
+
+// create is Create with the internal choices in co.
+func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provider.StartOptions, ownerDeviceID string, co createOptions) (Meta, error) {
+	nameSource := co.nameSource
 	p, err := m.reg.Get(providerID)
 	if err != nil {
 		return Meta{}, err
@@ -1064,7 +1103,10 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 		return Meta{}, fmt.Errorf("invalid session id %q", opts.LocalSessionID)
 	}
 
-	unlock := m.lockCreate(opts.LocalSessionID)
+	unlock, err := m.lockCreate(ctx, opts.LocalSessionID)
+	if err != nil {
+		return Meta{}, err
+	}
 	defer unlock()
 
 	// Close-and-replace only if the caller owns the existing session (R4=B).
@@ -1219,8 +1261,13 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 		meta.AgentSessionAliases = []string{opts.AgentSessionID}
 	}
 	// Prefer created_at from a prior disk record so resume does not look new.
+	var priorLastSeq uint64
 	if m.store != nil {
-		if rec, err := m.store.Get(sess.ID()); err == nil && !rec.CreatedAt.IsZero() {
+		rec, err := m.store.Get(sess.ID())
+		if err == nil {
+			priorLastSeq = rec.LastSeq
+		}
+		if err == nil && !rec.CreatedAt.IsZero() {
 			meta.CreatedAt = rec.CreatedAt
 			if meta.OwnerDeviceID == "" && rec.OwnerDeviceID != "" {
 				meta.OwnerDeviceID = rec.OwnerDeviceID
@@ -1237,16 +1284,41 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 	}
 	// Seed the live ring from durable history so seq continues and cold
 	// clients can replay across daemon restart / close-and-replace (Phase D).
+	// Seq also continues past the record's LastSeq, which a failed history
+	// save cannot shorten (MADR 0201 D14). From the load to the insert below,
+	// historyWriteMu keeps a notice for the not-yet-live id (D19) from
+	// landing in between.
+	m.historyWriteMu.Lock()
+	historyLocked := true
+	unlockHistory := func() {
+		if historyLocked {
+			historyLocked = false
+			m.historyWriteMu.Unlock()
+		}
+	}
+	defer unlockHistory()
 	var priorHist []event.Event
-	var priorSeq uint64
+	priorSeq := priorLastSeq
 	if m.store != nil {
 		priorHist = m.store.LoadHistory(sess.ID())
 		if n := len(priorHist); n > 0 {
-			priorSeq = priorHist[n-1].Seq
+			priorSeq = max(priorSeq, priorHist[n-1].Seq)
 			// Copy so later ring mutations never alias the store's slice.
 			priorHist = append([]event.Event(nil), priorHist...)
 		}
+		if co.resetHistory {
+			// /clear: the cleared conversation must not come back on a cold
+			// reload (D17).
+			priorHist = nil
+			if err := m.saveHistoryLocked(sess.ID(), nil, histGenSeq.Add(1)); err != nil {
+				m.log.Warn("clear session history failed",
+					slog.String("session_id", sess.ID()),
+					slog.String("err", err.Error()),
+				)
+			}
+		}
 	}
+	meta.LastSeq = priorSeq
 
 	m.mu.Lock()
 	// CloseAll may have flipped shuttingDown while Start ran — abandon the
@@ -1284,6 +1356,7 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 	seeded.reindexHistoryLocked()
 	m.sessions[sess.ID()] = seeded
 	m.mu.Unlock()
+	unlockHistory()
 	m.clearPurged(sess.ID())
 
 	go m.pump(runCtx, sess)
@@ -1357,6 +1430,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// Context-pressure text for this turn, or empty. Same deal: built
 			// under the lock, emitted after it.
 			var ctxPressure string
+			// Cancelled resolutions for asks still open when a turn ends
+			// (D20). Built under the lock, emitted after the event itself.
+			var abandoned []event.Event
 			// Held until this event and everything it triggers are delivered
 			// (D11); nil when sess no longer owns an entry.
 			delivering := m.lockPumpDelivery(sess)
@@ -1559,6 +1635,9 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				case event.TypeQuestionResolved:
 					delete(e.pendingQuestions, ev.QuestionID)
 				case event.TypeTurnComplete, event.TypeError:
+					if !ev.Replay {
+						abandoned = abandonedAsksLocked(e, sess.ID())
+					}
 					clear(e.pendingPermissions)
 					clear(e.pendingQuestions)
 				}
@@ -1606,6 +1685,11 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// append the whole conversation again.
 			if mine && !ev.Replay && m.onEvent != nil {
 				m.onEvent(ev)
+			}
+			// Asks still open when the turn ended are closed for every
+			// client, after the event that ended them (MADR 0201 D20).
+			for _, a := range abandoned {
+				m.emitEventLocked(sess.ID(), delivering, a)
 			}
 			if reresolve {
 				// Outside m.mu: resolution reads provider capabilities and
@@ -1691,6 +1775,34 @@ func (m *Manager) logWithheldReplays(id string, n int) {
 			slog.Int("count", n),
 		)
 	}
+}
+
+// abandonedAsksLocked returns a cancelled resolution for each ask still open
+// on e: permissions, then questions, each in id order. Asks the provider
+// already resolved have left the maps, so none is resolved twice. Caller
+// holds m.mu.
+func abandonedAsksLocked(e *entry, id string) []event.Event {
+	now := time.Now().UTC()
+	var out []event.Event
+	for _, pid := range slices.Sorted(maps.Keys(e.pendingPermissions)) {
+		out = append(out, event.Event{
+			Type:         event.TypePermissionResolved,
+			SessionID:    id,
+			Timestamp:    now,
+			PermissionID: pid,
+			Status:       event.PermissionStatusCancelled,
+		})
+	}
+	for _, qid := range slices.Sorted(maps.Keys(e.pendingQuestions)) {
+		out = append(out, event.Event{
+			Type:       event.TypeQuestionResolved,
+			SessionID:  id,
+			Timestamp:  now,
+			QuestionID: qid,
+			Status:     event.PermissionStatusCancelled,
+		})
+	}
+	return out
 }
 
 // lockPumpDelivery takes the delivery lock of the entry sess belongs to and
@@ -1872,7 +1984,12 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 	if !errors.Is(err, errClaimNeedsLock) {
 		return err
 	}
-	unlock := m.lockCreate(sessionID)
+	// No caller context: the wait is bounded by the holder, whose Start runs
+	// under its own caller's deadline (MADR 0201 D16).
+	unlock, err := m.lockCreate(context.Background(), sessionID)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	return m.authorize(sessionID, deviceID, claim, true)
 }
@@ -1960,7 +2077,10 @@ func (m *Manager) Release(sessionID, ownerDeviceID, toDeviceID string) (Meta, er
 	// Serialize per session id against concurrent create/release/claim, so
 	// the persist-then-stamp window below cannot interleave with another
 	// ownership mutation for the same session (same lock Create uses).
-	unlock := m.lockCreate(sessionID)
+	unlock, err := m.lockCreate(context.Background(), sessionID)
+	if err != nil {
+		return Meta{}, err
+	}
 	defer unlock()
 
 	m.mu.Lock()
@@ -2013,7 +2133,10 @@ func (m *Manager) Claim(sessionID, deviceID string) (Meta, error) {
 	// an open release are ordered here, so exactly one sees OwnerDeviceID
 	// empty and the other observes the winner's stamp — single-winner
 	// without holding m.mu across the disk write.
-	unlock := m.lockCreate(sessionID)
+	unlock, err := m.lockCreate(context.Background(), sessionID)
+	if err != nil {
+		return Meta{}, err
+	}
 	defer unlock()
 
 	m.mu.Lock()
@@ -2465,6 +2588,7 @@ func (m *Manager) ListSnapshot(deviceID string) (ListSnapshot, error) {
 			UpdatedAt:           rec.UpdatedAt,
 			Status:              rec.Status,
 			Live:                false,
+			LastSeq:             rec.LastSeq,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -3089,7 +3213,7 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 		ServiceTier:         meta.ServiceTier,
 		Personality:         meta.Personality,
 		AgentSessionID:      newAgentID,
-	}, deviceID, nameSource)
+	}, deviceID, createOptions{nameSource: nameSource})
 }
 
 // Revert undoes a message in the provider-native session (OpenCode).
@@ -3309,6 +3433,7 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 		return fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	var histSnap []event.Event
+	var histGen, lastSeq uint64
 	if ok {
 		// Snapshot history before dropping the entry so close can persist it
 		// without holding m.mu across disk I/O (Phase D).
@@ -3316,6 +3441,7 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 			histSnap = make([]event.Event, len(e.history))
 			copy(histSnap, e.history)
 		}
+		histGen, lastSeq = e.histGen, e.seq
 		delete(m.sessions, id)
 	}
 	m.mu.Unlock()
@@ -3349,6 +3475,8 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 		meta := e.meta
 		meta.Status = StatusDisconnected
 		meta.Live = false
+		// Persisted below whether or not the history save succeeds (D14).
+		meta.LastSeq = max(meta.LastSeq, lastSeq)
 		var err error
 		if purge {
 			if m.store != nil {
@@ -3357,13 +3485,13 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 				m.markPurged(id)
 				// The live session is gone either way, but a surviving disk
 				// record is not a success — report it.
-				err = m.store.Delete(id)
+				err = m.deleteStored(id)
 			}
 		} else {
 			// Durable transcript first, then meta — a restart must see history
 			// for listed non-live rows (Phase D).
 			if m.store != nil {
-				if werr := m.store.SaveHistory(id, histSnap); werr != nil {
+				if werr := m.saveHistory(id, histSnap, histGen); werr != nil {
 					m.log.Warn("persist session history failed",
 						slog.String("session_id", id),
 						slog.String("err", werr.Error()),
@@ -3382,7 +3510,7 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 
 	if purge && m.store != nil {
 		m.markPurged(id)
-		return m.store.Delete(id)
+		return m.deleteStored(id)
 	}
 	return fmt.Errorf("%w: %q", ErrNotLive, id)
 }
@@ -3599,6 +3727,7 @@ func (m *Manager) writePersist(meta Meta) error {
 		CachedTokens:        meta.CachedTokens,
 		CreatedAt:           meta.CreatedAt,
 		Status:              meta.Status,
+		LastSeq:             meta.LastSeq,
 	})
 	if err != nil {
 		// Always log; security-critical callers also return the error (H-4).
@@ -3611,7 +3740,7 @@ func (m *Manager) writePersist(meta Meta) error {
 	// A session.delete that landed during Save would otherwise leave the
 	// just-written file as a resumable ghost (kilo showing after End).
 	if m.isPurged(meta.ID) {
-		return m.store.Delete(meta.ID)
+		return m.deleteStored(meta.ID)
 	}
 	return nil
 }
@@ -3638,10 +3767,13 @@ func (m *Manager) scheduleHistoryPersist(id string) {
 	m.dirtyHistory[id] = struct{}{}
 	// Force flush when this id has been dirty longer than max latency.
 	if since, ok := m.historyDirtySince[id]; ok && time.Since(since) >= historyMaxLatency {
-		// Unlock before flush (FlushHistory takes historyMu).
-		m.historyMu.Unlock()
-		m.FlushHistory()
-		m.historyMu.Lock()
+		// Fire the timer now: the flush runs on the timer's goroutine, never
+		// on the caller's, which is usually the pump (MADR 0201 D18).
+		if m.historyTimer != nil {
+			m.historyTimer.Reset(0)
+		} else {
+			m.historyTimer = time.AfterFunc(0, m.FlushHistory)
+		}
 		return
 	}
 	if m.historyTimer != nil {
@@ -3659,6 +3791,51 @@ func (m *Manager) clearHistoryDirty(id string) {
 	}
 	m.historyMu.Unlock()
 }
+
+// histGenSeq numbers every change to any session's history ring. One counter
+// for the package, so a snapshot of a replaced entry never looks newer than
+// its replacement's (MADR 0201 D15).
+var histGenSeq atomic.Uint64
+
+// saveHistory is the only writer of durable transcripts (MADR 0201 D15).
+// Flush, close and /clear all write through it, under historyWriteMu. It
+// skips a purged session, so a late flush cannot recreate a deleted one, and
+// a snapshot no newer than the one last written, so a stale flush cannot
+// overwrite the close-time transcript.
+func (m *Manager) saveHistory(id string, snap []event.Event, gen uint64) error {
+	m.historyWriteMu.Lock()
+	defer m.historyWriteMu.Unlock()
+	return m.saveHistoryLocked(id, snap, gen)
+}
+
+// saveHistoryLocked is saveHistory for a caller holding historyWriteMu.
+func (m *Manager) saveHistoryLocked(id string, snap []event.Event, gen uint64) error {
+	if m.store == nil || m.isPurged(id) || gen <= m.savedHistGen[id] {
+		return nil
+	}
+	if err := m.store.SaveHistory(id, snap); err != nil {
+		return err
+	}
+	if m.savedHistGen == nil {
+		m.savedHistGen = make(map[string]uint64)
+	}
+	m.savedHistGen[id] = gen
+	return nil
+}
+
+// deleteStored removes id's record and transcript under historyWriteMu, so no
+// history write can land after it and recreate the directory (D15).
+func (m *Manager) deleteStored(id string) error {
+	m.historyWriteMu.Lock()
+	defer m.historyWriteMu.Unlock()
+	delete(m.savedHistGen, id)
+	return m.store.Delete(id)
+}
+
+// afterHistorySnapshotHook, when set by a test, runs in FlushHistory between
+// taking a session's snapshot and writing it, so a test can order a race.
+// Atomic because a timer's flush may still be running when a test restores it.
+var afterHistorySnapshotHook atomic.Pointer[func(id string)]
 
 // FlushHistory writes dirty durable transcripts. Safe to call repeatedly;
 // used on CloseAll and tests.
@@ -3688,19 +3865,24 @@ func (m *Manager) FlushHistory() {
 		m.mu.RLock()
 		e, ok := m.sessions[id]
 		var snap []event.Event
+		var gen uint64
 		if ok && !e.dead {
 			snap = make([]event.Event, len(e.history))
 			copy(snap, e.history)
+			gen = e.histGen
 		}
 		dead := ok && e.dead
 		m.mu.RUnlock()
+		if hook := afterHistorySnapshotHook.Load(); hook != nil {
+			(*hook)(id)
+		}
 		// A dead-but-not-yet-removed entry has a nil snapshot; writing it would
 		// clobber the full transcript the close path is about to flush. Skip it
 		// (and unknown ids) — the close path owns the final durable write.
 		if !ok || dead {
 			continue
 		}
-		if err := m.store.SaveHistory(id, snap); err != nil {
+		if err := m.saveHistory(id, snap, gen); err != nil {
 			m.log.Warn("persist session history failed",
 				slog.String("session_id", id),
 				slog.String("err", err.Error()),

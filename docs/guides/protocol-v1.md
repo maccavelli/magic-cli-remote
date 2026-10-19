@@ -1216,6 +1216,11 @@ wrapped in a `session` key). `session.list_result` carries an array of them.
   reports no per-turn tokens, or a session recorded before the daemon persisted
   them (PLAN 0138 Phase 12), which cannot be recovered.
 
+- `last_seq` (optional, MADR 0201 D14): the highest event `seq` the session had sent when its
+  record was last written. The daemon seeds a re-created session's `seq` from it as well as
+  from the stored transcript, so `seq` never goes backwards, even after a failed transcript
+  save. Absent means zero. Clients need not read it: event `seq` is still the authority.
+
 - `status`: last observed session status — `idle`, `running`, `error`, `cancelled`,
   `disconnected`.
 - `live`: whether the daemon currently holds a running provider process for this
@@ -2327,8 +2332,11 @@ up, turn cancelled, session closed) locks the composer forever.
   was delivered.
 - `cancelled` — the request was **abandoned** and no decision will ever be applied:
   the agent-side context was cancelled, the session closed while it was pending,
-  or it timed out. On session close, one such event is emitted for every
-  still-pending request.
+  the turn ended while it was pending, or it timed out. On session close, one such
+  event is emitted for every still-pending request. When a turn ends
+  (`turn_complete` or `error`), the daemon emits one for every request still pending,
+  after the event that ended the turn (MADR 0201 D20), so a second device or a cold
+  history replay drops the card too.
 
 `timed_out` is `true` when the `cancelled` above was specifically the
 `permission_timeout_seconds` expiry rather than an agent-side abandonment. It is
