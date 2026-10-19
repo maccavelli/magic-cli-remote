@@ -90,8 +90,7 @@ var quotaWords = []string{
 	"usage cap",
 	"billing hard limit",
 	"check your plan and billing",
-	"limit reached", // e.g. Claude "5-hour limit reached ∙ resets 3am"
-	"free usage",    // Zen "Free usage exceeded, add credits …"
+	"free usage", // Zen "Free usage exceeded, add credits …"
 	"freeusagelimiterror",
 	"gousagelimiterror", // OpenCode Go weekly/monthly hard block
 	"upgrade your plan",
@@ -211,22 +210,47 @@ var strongRateWords = []string{
 
 // Billing-ish words that force KindQuota even when rate-limit words are also
 // present (e.g. OpenAI's insufficient_quota errors mention "rate limit"
-// docs links).
+// docs links). The single words match as whole words, in reHardQuotaWord: as
+// substrings "plan" matched "explanation", "spend" "suspended" and "credit"
+// "accredited" (MADR 0201 D21). The phrases here stay substrings.
 var hardQuotaWords = []string{
 	"insufficient_quota",
-	"billing",
-	"credit",
-	"quota",
-	"spend",
-	"plan",
 	"gousagelimiterror",
 	"freeusagelimiterror",
 	"usage limit",
-	"weekly",
-	"monthly",
 	"daily limit",
 	"weekly limit",
 	"monthly limit",
+}
+
+var reHardQuotaWord = regexp.MustCompile(`\b(billing|credits?|quota|spend|spending|plan|plans|weekly|monthly)\b`)
+
+// reNotQuotaLimit names a limit that is not a usage quota: a context window, a
+// token count, a length. "limit reached" beside one of these is not a quota
+// block (D21).
+var reNotQuotaLimit = regexp.MustCompile(`\b(context|tokens?|length)\b`)
+
+// isHardQuota reports whether m carries billing vocabulary that settles a
+// message matching both quota and rate words.
+func isHardQuota(m string) bool {
+	return containsAny(m, hardQuotaWords) || reHardQuotaWord.MatchString(m)
+}
+
+// isQuota reports whether m names a usage quota. "limit reached" counts (e.g.
+// Claude "5-hour limit reached ∙ resets 3am") unless its sentence names a
+// context, token or length limit.
+func isQuota(m string) bool {
+	if containsAny(m, quotaWords) {
+		return true
+	}
+	for _, sentence := range strings.FieldsFunc(m, func(r rune) bool {
+		return r == '.' || r == '!' || r == '?' || r == '\n'
+	}) {
+		if strings.Contains(sentence, "limit reached") && !reNotQuotaLimit.MatchString(sentence) {
+			return true
+		}
+	}
+	return false
 }
 
 // Classify inspects an agent/provider error message. now anchors relative
@@ -235,12 +259,12 @@ var hardQuotaWords = []string{
 func Classify(msg string, now time.Time) Classification {
 	msg = ExtractText(msg)
 	m := strings.ToLower(msg)
-	quota := containsAny(m, quotaWords)
+	quota := isQuota(m)
 	rate := containsAny(m, rateWords) || reHTTPLimit.MatchString(m)
 	var kind Kind
 	switch {
 	case quota && rate:
-		if containsAny(m, hardQuotaWords) {
+		if isHardQuota(m) {
 			kind = KindQuota
 		} else {
 			kind = KindRateLimit

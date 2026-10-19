@@ -463,6 +463,29 @@ func TestPresentExplainsToolSchemaRejection(t *testing.T) {
 	}
 }
 
+// TestQuotaWordsMatchWholeWords is MADR 0201 D21 (0073 F-S8(d)). The words
+// that settle a message matching both quota and rate vocabulary were raw
+// substrings: "plan" matched "explanation", "spend" "suspended", "credit"
+// "accredited". And "limit reached" classed a context or token limit as a
+// hard quota block. Each case below was misclassified as quota.
+func TestQuotaWordsMatchWholeWords(t *testing.T) {
+	for _, tc := range []struct {
+		msg  string
+		want Kind
+	}{
+		{"rate limit reached; see the explanation in the docs", KindRateLimit},
+		{"rate limit reached: account suspended for 60s", KindRateLimit},
+		{"rate limit reached for accredited partner endpoints", KindRateLimit},
+		{"too many requests: limit reached during planned maintenance", KindRateLimit},
+		{"context length limit reached", KindNone},
+		{"maximum token limit reached", KindNone},
+	} {
+		if got := Classify(tc.msg, now).Kind; got != tc.want {
+			t.Errorf("Classify(%q) = %q, want %q", tc.msg, got, tc.want)
+		}
+	}
+}
+
 // A retryable limit must not be swallowed by the new arm, and ordinary text
 // must still come through cleaned rather than rewritten.
 func TestPresentToolSchemaArmIsNarrow(t *testing.T) {

@@ -277,7 +277,8 @@ All tests are in `internal/session`, using `internal/provider/fake` and the help
 ### P5 — Quota classification (D21)
 
 1. `TestQuotaWordsMatchWholeWords` (`internal/agenterr/agenterr_test.go`), as a table that must
-   classify as not quota:
+   classify as not quota. **Superseded by Deviation 4:** the first four rows below are replaced,
+   because they already classify correctly and cannot fail first.
    - "the explanation of rate limit 429";
    - "account suspended: rate limit";
    - "accredited endpoint: rate limit";
@@ -862,5 +863,85 @@ P3 and P4 tests, -race -count=5          -> exit 0
 make ci-windows (the Windows test host)  -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED (session ok)
 check_records.py --check-all             -> exit 0
 make markdownlint-docs                   -> exit 0 (covers protocol-v1.md)
+```
+
+### Deviation 4, 2026-10-18 (P5): D21's table uses cases that reach the hard-quota list
+
+**Found.** `Classify` consults `hardQuotaWords` only when a message matches both a quota phrase
+and a rate phrase (`internal/agenterr/agenterr.go`, the `quota && rate` case). Four of the PLAN's
+six cases have no quota phrase, so they never reach that list.
+
+A probe on a scratch copy at `d53c4f3b` showed this:
+
+```text
+"the explanation of rate limit 429"                            -> rate_limit
+"account suspended: rate limit"                                -> rate_limit
+"accredited endpoint: rate limit"                              -> rate_limit
+"planned maintenance: too many requests"                       -> rate_limit
+"context length limit reached"                                 -> quota
+"maximum token limit reached"                                  -> quota
+"rate limit reached; see the explanation in the docs"          -> quota
+"rate limit reached: account suspended for 60s"                -> quota
+"rate limit reached for accredited partner endpoints"          -> quota
+"too many requests: limit reached during planned maintenance"  -> quota
+```
+
+The first four are already right. They cannot fail first, and the planted break (the substring
+list restored) would pass them.
+
+**Owner's decision.** Swap in red cases.
+
+**Done instead.** The table keeps the two "limit reached" rows, which expect no class. It replaces
+the first four with the last four above, which expect `rate_limit`.
+
+- Each row asserts the exact kind, not only "not quota".
+- All six fail on the old code.
+
+The MADR's decision is unchanged.
+
+### P5, 2026-10-18: quota classification — complete
+
+Starting commit `d53c4f3b` (P4). CI run 39189165942 on that commit passed before P5 began. The
+test table is as in Deviation 4.
+
+**The test seen failing first.** All six rows failed:
+
+```text
+agenterr_test.go:484: Classify("rate limit reached; see the explanation in the docs") = "quota", want "rate_limit"
+agenterr_test.go:484: Classify("rate limit reached: account suspended for 60s") = "quota", want "rate_limit"
+agenterr_test.go:484: Classify("rate limit reached for accredited partner endpoints") = "quota", want "rate_limit"
+agenterr_test.go:484: Classify("too many requests: limit reached during planned maintenance") = "quota", want "rate_limit"
+agenterr_test.go:484: Classify("context length limit reached") = "quota", want ""
+agenterr_test.go:484: Classify("maximum token limit reached") = "quota", want ""
+```
+
+**What changed** (`internal/agenterr/agenterr.go`):
+
+- `hardQuotaWords` keeps only its phrases. The single words match through `reHardQuotaWord`,
+  `\b(billing|credits?|quota|spend|spending|plan|plans|weekly|monthly)\b`, compiled once.
+  `isHardQuota` checks both.
+- `limit reached` leaves `quotaWords`. `isQuota` counts it per sentence (split on `.`, `!`, `?`
+  and newlines), unless that sentence matches `\b(context|tokens?|length)\b`.
+- **The corpus.** Every existing classification test passed unchanged, with no edits. That
+  covers `internal/agenterr` and the `codex` and `acpagent` provider tests that classify through
+  it.
+
+**Planted breaks**, each on a fresh scratch copy. The PLAN's, plus one for the exemption. Both
+failed the table with assertions:
+
+```text
+D21 old substring list restored             the four rate_limit rows: = "quota", want "rate_limit"
+D21 context/token/length exemption removed  the two limit rows: = "quota", want ""
+```
+
+**Gates.**
+
+```text
+make pre-add-check (2 Go files)          -> clean (gofmt, golint, govulncheck)
+go vet ./..., make lint, make staticcheck -> exit 0
+go test -race -count=1 ./...             -> exit 0, 42 packages ok
+make ci-windows (the Windows test host)  -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED (agenterr ok)
+check_records.py --check-all             -> exit 0
+make markdownlint-docs                   -> exit 0
 ```
 
