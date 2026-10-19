@@ -799,6 +799,15 @@ int debugMarkdownParseCount = 0;
 ///
 /// The State survives per-chunk rebuilds because the enclosing [_ChatBubble]
 /// carries a stable `ValueKey(seq)`.
+/// The assistant-reply renderer on its own, so a test can drive its update
+/// logic frame by frame (MADR 0201 D36). Production builds it through
+/// [_ChatBubble].
+@visibleForTesting
+Widget debugAssistantMarkdown({
+  required String data,
+  required bool streaming,
+}) => _AssistantMarkdown(data: data, streaming: streaming);
+
 class _AssistantMarkdown extends StatefulWidget {
   const _AssistantMarkdown({required this.data, required this.streaming});
 
@@ -1036,7 +1045,11 @@ class _AssistantMarkdownState extends State<_AssistantMarkdown> {
         return;
       }
       _dirty = false;
-      if (_upToDate(true)) return;
+      // A reply that finished after this was scheduled has already been
+      // rendered final by didUpdateWidget. Rendering it as streaming here
+      // would bring the caret back, as the tier timer already knows
+      // (MADR 0201 D36).
+      if (!widget.streaming || _upToDate(true)) return;
       await _updateStreamingRender();
     });
   }

@@ -207,6 +207,24 @@ class _CapturingPlugin implements FlutterLocalNotificationsPlugin {
   }
 }
 
+/// Counts initialize calls, each of which takes a moment, so two callers can
+/// race one in flight (MADR 0201 D38).
+class _CountingPlugin extends _CapturingPlugin {
+  int initCalls = 0;
+
+  @override
+  Future<bool?> initialize({
+    required InitializationSettings settings,
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+    DidReceiveBackgroundNotificationResponseCallback?
+    onDidReceiveBackgroundNotificationResponse,
+  }) async {
+    initCalls++;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return super.initialize(settings: settings);
+  }
+}
+
 /// A client wedged in the parked state (fast reconnect loop exhausted) that
 /// records slow maintenance retries instead of dialling.
 class _ParkedClient extends McremoteClient {
@@ -365,6 +383,17 @@ void main() {
   // MADR 0067 D4 (U3/U4) — Darwin wiring. Before this, init passed only
   // Android settings and every show() only Android details, so iOS presented
   // nothing, silently.
+  // MADR 0201 D38 (0073 §7.5(b)): init checked _ready and then awaited the
+  // plugin, so callers racing it each initialised the plugin again.
+  test('concurrent init calls initialise the plugin once', () async {
+    final plugin = _CountingPlugin();
+    final s = NotificationService(plugin);
+    addTearDown(s.dispose);
+    await Future.wait([s.init(), s.init(), s.init()]);
+    expect(plugin.initCalls, 1);
+    expect(s.lastInitError, isNull);
+  });
+
   group('Darwin wiring', () {
     test('init registers Darwin settings with a foreground Allow/Deny '
         'category and requests permission explicitly', () async {

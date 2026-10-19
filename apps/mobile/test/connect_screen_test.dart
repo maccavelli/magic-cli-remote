@@ -1491,4 +1491,78 @@ void main() {
       expect(store.clearTokenCalled, isTrue);
     });
   });
+
+  // ---------------------------------------------------------------------
+  // MADR 0201 D34 and D35 (0073 §7.2, §7.3).
+  // ---------------------------------------------------------------------
+
+  testWidgets('editing Host drops the held pair code at once (D34)', (
+    tester,
+  ) async {
+    // _clearPendingPairHints ran outside setState on a host edit, so the
+    // button kept offering to claim a code for the old host until the 600 ms
+    // probe debounce happened to rebuild the screen.
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualCodeUri);
+    await tester.pumpWidget(
+      _wrap(
+        store: FakeSettingsStore(connectMode: 'select'),
+        client: FakeMcremoteClient(),
+        probes: FakeProbes(meshUp: true, relayUp: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+    expect(
+      find.widgetWithText(FilledButton, 'Claim & connect'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Host (mcremote)'),
+      'wss://100.64.0.9:7531',
+    );
+    await tester.pump();
+    expect(
+      find.widgetWithText(FilledButton, 'Claim & connect'),
+      findsNothing,
+      reason: 'the held code belonged to the old host',
+    );
+    expect(find.widgetWithText(FilledButton, 'Connect'), findsOneWidget);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a double tap on Paste claims a code once (D35)', (tester) async {
+    // _busy was released right after the clipboard read, so a second tap
+    // while the first awaited its probes started a second claim of the same
+    // one-shot code.
+    _useTallSurface(tester);
+    clipboardPairUri(tester, dualCodeUri);
+    final client = FakeMcremoteClient();
+    await tester.pumpWidget(
+      _wrap(store: FakeSettingsStore(), client: client, probes: _SlowProbes()),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.tap(find.text('Paste URI / code / token'));
+    await tester.pumpAndSettle();
+    expect(client.claimCalls, 1);
+  });
+}
+
+/// Probes that take 50 ms, so a second tap lands while the first paste is
+/// still probing (D35).
+class _SlowProbes extends FakeProbes {
+  _SlowProbes() : super(meshUp: true);
+
+  @override
+  Future<bool> mesh(
+    String hostInput, {
+    Duration timeout = kTransportProbeTimeout,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    return super.mesh(hostInput, timeout: timeout);
+  }
 }

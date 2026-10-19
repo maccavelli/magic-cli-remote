@@ -12,14 +12,20 @@ class AppUpdateService {
     this.apiUrl =
         'https://api.github.com/repos/maccavelli/magic-cli-remote/releases/latest',
     Future<String> Function()? localVersion,
+    IOSink Function(File)? openSink,
   }) : _client = client ?? http.Client(),
        _localVersion =
            localVersion ??
-           (() async => (await PackageInfo.fromPlatform()).version);
+           (() async => (await PackageInfo.fromPlatform()).version),
+       _openSink = openSink ?? ((f) => f.openWrite());
 
   final http.Client _client;
   final String apiUrl;
   final Future<String> Function() _localVersion;
+
+  /// Opens the file a download streams into. Replaceable so a test can make
+  /// closing it fail (MADR 0201 D39).
+  final IOSink Function(File) _openSink;
 
   /// Path of a successfully verified APK, if any (this process).
   File? verifiedApk;
@@ -134,7 +140,7 @@ class AppUpdateService {
     if (streamed.statusCode != 200) {
       throw AppUpdateException('apk HTTP ${streamed.statusCode}');
     }
-    final sink = dest.openWrite();
+    final sink = _openSink(dest);
     var received = 0;
     final total = streamed.contentLength;
     final digest = AccumulatorSink<Digest>();
@@ -149,9 +155,20 @@ class AppUpdateService {
       await sink.close();
       hash.close();
     } catch (e) {
-      await sink.close();
+      // Close, delete, then rethrow the original error. A close that also
+      // fails must neither mask the error that ended the download nor leave a
+      // partial APK behind (MADR 0201 D39).
+      try {
+        await sink.close();
+      } catch (_) {
+        // The download already failed; that error is the one reported.
+      }
       hash.close();
-      if (await dest.exists()) await dest.delete();
+      try {
+        if (await dest.exists()) await dest.delete();
+      } catch (_) {
+        // Best effort, as above: the original error still goes to the caller.
+      }
       rethrow;
     }
     final got = digest.events.single.toString();

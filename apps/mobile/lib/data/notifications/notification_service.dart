@@ -115,8 +115,18 @@ class NotificationService {
     return _ready;
   }
 
-  Future<void> init() async {
-    if (_ready) return;
+  /// The init in flight, shared by every caller that races it.
+  Future<void>? _initFuture;
+
+  Future<void> init() {
+    if (_ready) return Future<void>.value();
+    // Concurrent callers await the one init in flight instead of each
+    // initialising the plugin again (MADR 0201 D38). It is cleared when done,
+    // so a failed init is still retried by the next caller (MADR 0046 L-5).
+    return _initFuture ??= _init().whenComplete(() => _initFuture = null);
+  }
+
+  Future<void> _init() async {
     // A restart after dispose() needs a live controller; the old one is closed
     // and cannot be reopened (MADR 0128 D3).
     if (_responses.isClosed) {

@@ -132,7 +132,14 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
   void _onHostEdited() {
     if (_pendingFor != null && _hostCtrl.text.trim() != _pendingFor) {
-      _clearPendingPairHints();
+      // Inside setState, so the screen stops offering to claim the old host's
+      // code at once rather than at the next unrelated rebuild (MADR 0201
+      // D34).
+      if (mounted) {
+        setState(_clearPendingPairHints);
+      } else {
+        _clearPendingPairHints();
+      }
     }
     if (_programmaticHostEdit) return;
     // A new authority is a different daemon with different reachability, so
@@ -864,17 +871,22 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
   Future<void> _pastePairUri() async {
     _supersedeAutoConnect();
-    // Reading the clipboard is a platform round-trip; keep the button disabled
-    // so a double tap cannot start two paste/claim flows.
+    // Held across the clipboard read, the probes and the claim, and released
+    // in one finally. Releasing it after the read let a second tap start a
+    // second claim of a one-shot code while the first awaited its probes
+    // (MADR 0201 D35).
     if (_busy) return;
     setState(() => _busy = true);
-    final String text;
     try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      text = data?.text?.trim() ?? '';
+      await _pasteAndApply();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _pasteAndApply() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
     if (!mounted) return;
     if (text.isEmpty) {
       setState(() {

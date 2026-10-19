@@ -44,6 +44,9 @@ class _FakeStore extends SettingsStore {
   bool clearTokenCalled = false;
   bool clearSecretsCalled = false;
   bool clearFingerprintCalled = false;
+
+  /// Thrown by [clearSecrets] when set (MADR 0201 D37).
+  Object? clearSecretsError;
   ({String cert, String key})? identity;
   ({String op, String error, DateTime at})? storageFailure;
 
@@ -124,6 +127,8 @@ class _FakeStore extends SettingsStore {
   @override
   Future<void> clearSecrets() async {
     clearSecretsCalled = true;
+    final err = clearSecretsError;
+    if (err != null) throw err;
     token = null;
   }
 
@@ -568,6 +573,60 @@ void main() {
     expect(store.clearFingerprintCalled, isTrue);
     expect(client.clearMemoryCalled, isTrue);
     expect(find.text('connect-stub'), findsOneWidget);
+  });
+
+  testWidgets('Re-pair this host says so when the keystore refuses '
+      '(MADR 0201 D37)', (tester) async {
+    // clearSecrets() was not caught: a keystore that refused the erase made
+    // the tap do nothing visible, with the error lost.
+    tester.view.physicalSize = const Size(1000, 6000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = _FakeStore()
+      ..token = 'mcr_old'
+      ..clearSecretsError = const SecureStorageUnavailable('keystore locked');
+    final client = _FakeClient();
+    final router = GoRouter(
+      initialLocation: '/settings',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) =>
+              const Scaffold(body: Text('connect-stub')),
+        ),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => const SettingsScreen(),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(store),
+          mcremoteClientProvider.overrideWithValue(client),
+          transportProbesProvider.overrideWithValue(_FakeProbes()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Re-pair this host'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Re-pair'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('refused to erase the saved credentials'),
+      findsOneWidget,
+    );
+    // Stopped where it failed: still on Settings, pin and memory untouched.
+    expect(find.text('connect-stub'), findsNothing);
+    expect(store.clearFingerprintCalled, isFalse);
+    expect(client.clearMemoryCalled, isFalse);
   });
 
   // ---------------------------------------------------------------------

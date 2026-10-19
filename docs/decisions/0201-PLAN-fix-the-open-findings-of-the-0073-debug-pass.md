@@ -1155,3 +1155,85 @@ make markdownlint-docs                            -> exit 0
 
 0090-PLAN's note for D23 is P8 step 2.
 
+### P7, 2026-10-18: phone app — complete
+
+Starting commit `84011354` (P6).
+
+**Each test seen failing first:**
+
+```text
+D33  transcript_cache_serial_test.dart: round 3: Expected Set:['s3', 't3'], Actual Set:['t3']
+D34  connect_screen_test.dart (D34): Expected no "Claim & connect" button after one pump; found one
+D35  connect_screen_test.dart (D35): claimCalls Expected <1>, Actual <2>
+D36  chat_bubble_post_frame_test.dart: Expected no _StreamingCaret; found one ("a finished reply has no caret")
+D37  settings_screen_test.dart (D37): uncaught SecureStorageUnavailable; no "refused to erase the saved credentials" text
+D38  notifications_test.dart (concurrent init): initCalls Expected <1>, Actual <3>
+D39  app_update_cleanup_test.dart: Expected throws SocketException; threw FileSystemException: close failed
+```
+
+**Test seams, added alone first, with no change in behaviour:**
+
+- **D36:** `debugAssistantMarkdown` (`@visibleForTesting`) builds `_AssistantMarkdown` alone.
+- **D39:** `AppUpdateService` takes an optional `openSink`, defaulting to `File.openWrite`.
+
+**What changed** (`apps/mobile/lib/`):
+
+- **D33** (`data/chat/transcript_cache.dart`). `_serial` is `static`, so every instance shares one
+  queue.
+- **D34** (`features/connect/connect_screen.dart`). `_onHostEdited` clears the pending hints
+  inside `setState`.
+- **D35** (same file). `_pastePairUri` holds `_busy` across the clipboard read, the probes and the
+  claim (now `_pasteAndApply`), and releases it in one `finally`.
+- **D36** (`features/chat/chat_bubble.dart`). The post-frame callback returns when
+  `!widget.streaming`, as the tier timer already did.
+- **D37** (`features/settings/settings_screen.dart`). Re-pair catches `SecureStorageUnavailable`
+  from `clearSecrets`. It shows an error through `showTopNotification`, the app's error surface
+  (sign-out's keystore failure uses it too), rather than a literal snackbar. It then stops, with
+  the pin and the in-memory credentials untouched.
+- **D38** (`data/notifications/notification_service.dart`). `init` shares one in-flight
+  `_initFuture`. It is cleared on completion, so a failed init is still retried (MADR 0046 L-5).
+- **D39** (`data/update/app_update.dart`). The catch closes and deletes, each guarded, then
+  rethrows the original error.
+
+**Deviations in test detail only:**
+
+- **D34, D35:** their tests are in `connect_screen_test.dart`, whose harness (`_wrap` and the
+  fakes) is private to that file, not in two new files.
+- **D35:** a probe fake delays 50 ms, so the second tap, 10 ms after the first, lands while the
+  first paste is probing.
+- **D36 at screen level.** The first attempt drove `ChatScreen` through its transcript notifier.
+  It built a streaming update and then a finish between frames, and the old code passed it. Why
+  the screen did not show the defect was not established. The test therefore drives
+  `_AssistantMarkdown` directly, where the defect reproduces. The screen-level attempt was
+  removed.
+- **D37, D38:** their tests are in `settings_screen_test.dart` and `notifications_test.dart`. The
+  fake store gains `clearSecretsError`, and a counting plugin delays `initialize` 10 ms.
+
+**Planted breaks**, each on a fresh scratch copy of `apps/mobile`. The PLAN's three, plus one for
+each of D34, D36, D37 and D38. All seven failed their test with an assertion:
+
+```text
+D33 instance _serial restored            Expected Set:['t1', 's1'], Actual Set:['t1']
+D34 hints cleared outside setState       "Claim & connect" still found after one pump
+D35 early _busy = false restored         claimCalls Expected <1>, Actual <2>
+D36 post-frame streaming check removed   caret found on a finished reply
+D37 clearSecrets not caught              no "refused to erase the saved credentials" text
+D38 no shared init future                initCalls Expected <1>, Actual <3>
+D39 old catch order restored             threw FileSystemException: close failed, not SocketException
+```
+
+**Gates.**
+
+```text
+dart format --set-exit-if-changed (12 changed files)  -> exit 0
+make preflight                                        -> preflight passed
+  flutter analyze                                     -> No issues found
+  flutter test                                        -> +1480 ~3: All tests passed! (1473 before P7)
+  Go: gofmt, tidy, vet, staticcheck, race, build      -> passed
+make ci-windows (the Windows test host)               -> ci-windows-exit=0 (Go only; the harness
+                                                         syncs without apps/, so Flutter on Windows
+                                                         is left to GitHub CI's "Flutter (test on
+                                                         windows)")
+check_records.py --check-all, markdownlint-docs       -> exit 0
+```
+

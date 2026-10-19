@@ -563,7 +563,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // the host; the dialog copy directs to the QR.
     final store = ref.read(settingsStoreProvider);
     final client = ref.read(mcremoteClientProvider);
-    await store.clearSecrets();
+    try {
+      await store.clearSecrets();
+    } on SecureStorageUnavailable {
+      // Stop here and say so: uncaught, a refused erase made the tap do
+      // nothing visible (MADR 0201 D37). The pin and the in-memory
+      // credentials stay, so the next try starts from the same state.
+      if (!mounted) return;
+      showTopNotification(
+        context,
+        'Re-pair stopped: the device keystore refused to erase the saved '
+        'credentials. Try again.',
+        severity: NoticeSeverity.error,
+      );
+      return;
+    }
     await store.clearFingerprint();
     client.clearMemoryCredentials();
     if (!mounted) return;

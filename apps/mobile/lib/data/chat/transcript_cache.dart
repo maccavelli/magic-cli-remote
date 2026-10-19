@@ -159,7 +159,13 @@ class TranscriptCache {
   /// drop one session from the index while its entry file stays on disk —
   /// invisible to LRU eviction and [clear], so the directory grows without
   /// bound.
-  Future<void> _serial = Future<void>.value();
+  ///
+  /// Static, so the chain is process-wide: the settings screen builds its own
+  /// instances for usage and for clear, and a per-instance chain let their
+  /// writes interleave with the live notifier's (MADR 0201 D33). Every
+  /// instance shares one cache directory and one index, so they share one
+  /// queue.
+  static Future<void> _serial = Future<void>.value();
 
   @visibleForTesting
   Future<void> get debugWhenIdle => _serial;
