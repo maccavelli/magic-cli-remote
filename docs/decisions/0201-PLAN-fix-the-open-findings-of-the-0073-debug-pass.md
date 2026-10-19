@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-18
+status: complete
+date: 2026-10-19
 associated-madr: "0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -1416,7 +1416,7 @@ this commit, Deviation 8's fix, when P9's records are written.
 **State of the PLAN:** P0–P8 and P10 are done. P9 (D26, D30, and the §6.1 check) waits for
 0054's acceptance and its S1/S3, so the PLAN stays `in-progress`.
 
-### P9, 2026-10-19 — complete, staged for the owner's commit; the records pass follows the commit
+### P9, 2026-10-19 — complete, committed as `91960170`
 
 **Starting point.** 0054 was accepted on 2026-10-19, and its S1 (`9a443153`) and S3 (`8c80bb96`)
 are committed. The owner chose "P9, then S4". P9 started from `8c80bb96`.
@@ -1551,3 +1551,18 @@ does not exist yet:
   - the "Status after 0201" counts move.
 - This PLAN's status becomes `complete`. P9 and P10 are then done, and every row it covers is
   FIXED.
+
+### Records pass, 2026-10-19 — the PLAN is complete
+
+After the owner committed P9 as `91960170`:
+
+- **The 0073 report.**
+  - **The status section** now reads 44 FIXED and none still present. Its phase table gains P9
+    (`91960170`) and P10 (`da95b793`).
+  - **§6.2** cites `da95b793`, P10's Windows fix (Deviation 8), beside P6's `84011354`.
+  - **§6.6** is FIXED by 0054's S1 (`9a443153`) and S3 (`8c80bb96`), as D26 decided, and proved by
+    P9's tests.
+  - **§6.10(d)** is FIXED by `91960170` (D30).
+  - **§6.1's row** records the check P9 added.
+- **This PLAN is `complete`.** Every row of the triage report it covers is marked FIXED, and P9
+  and P10 are done, which is the completion condition under Verification.
