@@ -124,6 +124,19 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		return nil
 	}
 
+	// The installer's options as environment variables (MADR 0054 PLAN S5d),
+	// all read before anything is set up, so a bad value changes nothing.
+	withRelay := false
+	if !f.printOnly {
+		var err error
+		if opts, err = service.ApplyInstallerEnv(opts); err != nil {
+			return err
+		}
+		if withRelay, err = service.EnvFlag(service.EnvWithRelayService); err != nil {
+			return err
+		}
+	}
+
 	res, err := service.Setup(opts)
 	if err != nil {
 		// The definition may already be on disk (post-write step failed): say where.
@@ -138,7 +151,19 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		return nil
 	}
 
-	service.PrintSetupResult(out, res, f.noLinger, "mcremote")
+	service.PrintSetupResult(out, res, opts.NoLinger, "mcremote")
+	if withRelay && res.NotConfigured {
+		fmt.Fprintf(out, "mcrelay (%s=1): not set up either, for the same reason\n", service.EnvWithRelayService)
+	}
+	if withRelay && !res.NotConfigured {
+		fmt.Fprintln(out)
+		fmt.Fprintf(out, "mcrelay (%s=1):\n", service.EnvWithRelayService)
+		rres, err := service.SetupRelayBeside(res, opts)
+		if err != nil {
+			return err
+		}
+		service.PrintSetupResult(out, rres, opts.NoLinger, "mcrelay")
+	}
 	return nil
 }
 

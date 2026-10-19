@@ -2238,3 +2238,109 @@ Both remote copies were removed.
   - `detect_unix_test.go`, `supervisor_unix_test.go` and `unitrecord_test.go`;
 - this PLAN, including the redaction in S5b's record.
 
+### S5d, 2026-10-19 — staged for the owner's commit; Deviation 1 accepted
+
+**Starting point.** The owner committed S5c and said "proceed".
+
+**What S5d changed:**
+
+- **`internal/cli/service/installerenv.go` (new):**
+  - **The variables:** `EnvNoLinger`, `EnvForceService` and `EnvWithRelayService`, which name
+    `MCREMOTE_NO_LINGER`, `MCREMOTE_FORCE_SERVICE` and `MCREMOTE_WITH_RELAY_SERVICE`.
+  - **`EnvFlag`.** `1` is on, and unset or `0` is off. Anything else, an empty value included, is
+    refused, naming the variable.
+  - **`ApplyInstallerEnv`** turns `NoLinger` and `Force` on. A flag already on stays on.
+  - **`SetupRelayBeside`** sets up `mcrelay`:
+    - from the `mcrelay` binary in the folder of the `mcremote` binary the service runs, with
+      `.exe` on Windows;
+    - with `mcremote`'s enable, start, linger and force choices, and otherwise `mcrelay`'s own
+      defaults;
+    - if that binary is missing, the error names the path and the variable;
+    - if the relay's setup fails, the error says "mcremote is set up; mcrelay is not".
+- **`internal/cli/setup_service.go`:**
+  - `setup-service`, though not `--print-only`, `--refresh` or `--remove`, reads all three
+    variables before anything is set up.
+  - After `mcremote`'s result, with `MCREMOTE_WITH_RELAY_SERVICE=1`, it prints a `mcrelay (…=1):`
+    heading and the relay's result. On a host with nothing to supervise it says the relay was not
+    set up either.
+  - The linger line uses the effective `NoLinger`.
+- **`internal/relay/cli.go`:** `mcrelay setup-service` reads the first two variables, the same way.
+
+**Deviation 1, 2026-10-19 — the relay follows any successful `mcremote` setup, not only a
+confirmed one. The owner accepted it: "Accept".**
+
+- **What the PLAN said.** S5d step 2 sets up `mcrelay` "once its own service is confirmed
+  running".
+- **What was done.** The relay is set up whenever `mcremote`'s setup succeeds. That includes
+  S5c's "still starting", which is a warning with exit 0, and `--no-start`, which watches
+  nothing.
+- **Why.** That is what `install.sh` did. Its `svc_confirm` returned 0 for "starting", and the
+  relay followed (`:704-718`). A slow `mcremote` would otherwise lose the relay the operator
+  asked for. A `mcremote` confirmed not running still fails before the relay is attempted.
+
+**Not run live.** `SetupRelayBeside` sets up the relay under its product name, `mcrelay`, because
+`setup-service` takes no relay unit name. On the Linux test host that would install a real
+`mcrelay` unit in the test account. The relay's setup is the same `Setup` that S5a–S5c ran live.
+What S5d adds, the variables and the call, is covered by the tests below.
+
+**Tests:**
+
+- **`installerenv_test.go`:**
+  - `TestEnvFlag`: unset, `0`, `1`, and `""`, `true`, `yes`, `2` and ` 1` refused.
+  - `TestApplyInstallerEnv`, including that a variable never turns a flag off.
+- **`installerenv_unix_test.go`:** `TestSetupRelayBeside`,
+  `TestSetupRelayBesideWithNoRelayBinary` and `TestSetupRelayBesideWhenTheRelayFails`.
+- **`internal/cli/setup_service_test.go`:**
+  - `TestRunSetupServiceRefusesABadInstallerVariable`, for each of the three, with nothing
+    printed.
+  - `TestRunSetupServiceWithRelayOnAHostWithNothingToSupervise`.
+  - `TestRunSetupServiceReadsTheInstallerVariables`. On a scratch systemd host, both services
+    show "Linger: skipped" from `MCREMOTE_NO_LINGER=1`, and `mcrelay`'s unit runs the binary
+    beside `mcremote`.
+- **`internal/relay/setup_service_refresh_test.go`:**
+  `TestRelaySetupServiceRefusesABadInstallerVariable`.
+
+**Planted breaks, each on its own fresh scratch copy** (`s5d_plants.py`, 10). Each failed a test
+assertion:
+
+```text
+any non-empty value is on                      setup_service_test.go:136: MCREMOTE_NO_LINGER=yes: <nil>, want a refusal naming it
+MCREMOTE_NO_LINGER is ignored                  setup_service_test.go:191: want Linger skipped for both services
+a variable turns a flag off                    installerenv_test.go:45: the --no-linger flag was turned off by NO_LINGER=0
+the relay runs mcremote's binary               setup_service_test.go:195: want mcrelay set up from …/mcrelay
+the relay does not take --no-start             installerenv_unix_test.go:42: relay result {…}: mcremote's --no-start and --no-linger were not carried over
+a relay failure does not say mcremote is set up   installerenv_unix_test.go:63: a relay that does not start: … want it to say mcremote is set up
+setup-service never sets up the relay          setup_service_test.go:195: want mcrelay set up from …/mcrelay
+setup-service ignores a bad installer variable setup_service_test.go:136: MCREMOTE_NO_LINGER=yes: <nil>, want a refusal naming it
+mcrelay setup-service ignores a bad installer variable   setup_service_refresh_test.go:91: MCREMOTE_NO_LINGER=yes: <nil>, want a refusal naming it
+no word when the relay is not set up           setup_service_test.go:161: output does not say mcrelay was not set up
+```
+
+**Gates, exit status captured before reading output.** The files were staged first, so the
+tracked-file guards saw them:
+
+```text
+make pre-add-check (7 Go files)                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` passed, with "ALL SELECTED CHECKS PASSED" and 43
+  `ok`.
+- **The Linux test host:** the race tests of `internal/cli/...`, `internal/relay` and
+  `internal/updateclient` passed, and the probe logged `detectInit=systemd-user`.
+
+Both remote copies were removed.
+
+**Files staged for S5d:**
+
+- `internal/cli/service/`: `installerenv.go`, `installerenv_test.go` and
+  `installerenv_unix_test.go` (new);
+- `internal/cli/setup_service.go`, `internal/cli/setup_service_test.go`;
+- `internal/relay/cli.go`, `internal/relay/setup_service_refresh_test.go`;
+- this PLAN.
+

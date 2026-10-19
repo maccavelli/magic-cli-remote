@@ -72,3 +72,27 @@ func TestRelaySetupServiceRefreshConflictsWithRemove(t *testing.T) {
 		t.Fatalf("err = %v, want a mutual-exclusion error", err)
 	}
 }
+
+// TestRelaySetupServiceRefusesABadInstallerVariable: mcrelay's setup-service
+// reads the linger and force variables before it sets anything up, and
+// refuses a value that is not 1 or 0 (MADR 0054 PLAN S5d).
+func TestRelaySetupServiceRefusesABadInstallerVariable(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideDetectedKind(service.KindNone)()
+	for _, name := range []string{service.EnvNoLinger, service.EnvForceService} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "yes")
+			cfg, lvl, fmtv := "", "", ""
+			cmd := newSetupServiceCmd(&cfg, &lvl, &fmtv)
+			var buf bytes.Buffer
+			cmd.SetOut(&buf)
+			err := runSetupService(cmd, setupServiceFlags{}, cfg, lvl, fmtv)
+			if err == nil || !strings.Contains(err.Error(), name) {
+				t.Fatalf("%s=yes: %v, want a refusal naming it", name, err)
+			}
+			if buf.Len() != 0 {
+				t.Fatalf("%s=yes printed a result, so setup ran:\n%s", name, buf.String())
+			}
+		})
+	}
+}

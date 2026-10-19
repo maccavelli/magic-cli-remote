@@ -9,6 +9,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -112,6 +113,90 @@ func TestRunSetupServiceWithNothingToSuperviseSucceeds(t *testing.T) {
 	if !strings.Contains(out, "service:  not configured (no supported service manager detected: none)") ||
 		!strings.Contains(out, "run it:   "+bin+" serve") {
 		t.Fatalf("output lacks the advice:\n%s", out)
+	}
+}
+
+// TestRunSetupServiceRefusesABadInstallerVariable: each installer variable is
+// read before anything is set up, and a value that is not 1 or 0 stops the
+// command, naming it (MADR 0054 PLAN S5d).
+func TestRunSetupServiceRefusesABadInstallerVariable(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideDetectedKind(service.KindNone)()
+	t.Setenv("HOME", t.TempDir())
+	bin := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "mcremote"), "")
+	for _, name := range []string{service.EnvNoLinger, service.EnvForceService, service.EnvWithRelayService} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "yes")
+			var buf bytes.Buffer
+			cmd := newSetupServiceCmd()
+			cmd.SetOut(&buf)
+			cfgFile = ""
+			err := runSetupService(cmd, setupServiceFlags{binary: bin})
+			if err == nil || !strings.Contains(err.Error(), name) {
+				t.Fatalf("%s=yes: %v, want a refusal naming it", name, err)
+			}
+			if buf.Len() != 0 {
+				t.Fatalf("%s=yes printed a result, so setup ran:\n%s", name, buf.String())
+			}
+		})
+	}
+}
+
+// TestRunSetupServiceWithRelayOnAHostWithNothingToSupervise: the relay is not
+// set up where mcremote could not be, and the output says so.
+func TestRunSetupServiceWithRelayOnAHostWithNothingToSupervise(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideDetectedKind(service.KindNone)()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(service.EnvWithRelayService, "1")
+	bin := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "mcremote"), "")
+	var buf bytes.Buffer
+	cmd := newSetupServiceCmd()
+	cmd.SetOut(&buf)
+	cfgFile = ""
+	if err := runSetupService(cmd, setupServiceFlags{binary: bin}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "mcrelay ("+service.EnvWithRelayService+"=1): not set up either") {
+		t.Fatalf("output does not say mcrelay was not set up:\n%s", buf.String())
+	}
+}
+
+// TestRunSetupServiceReadsTheInstallerVariables: MCREMOTE_NO_LINGER reaches the
+// options (no loginctl, "Linger: skipped"), and MCREMOTE_WITH_RELAY_SERVICE=1
+// sets mcrelay up from the binary beside mcremote's (MADR 0054 PLAN S5d).
+func TestRunSetupServiceReadsTheInstallerVariables(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideRunSystemctl(func(...string) error { return nil })()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(k, filepath.Join(home, k))
+	}
+	t.Setenv(service.EnvNoLinger, "1")
+	t.Setenv(service.EnvWithRelayService, "1")
+	dir := t.TempDir()
+	// Setup checks only the executable bit; the stubs are never run here.
+	bin := testexec.WriteShellStub(t, filepath.Join(dir, "mcremote"), "")
+	testexec.WriteShellStub(t, filepath.Join(dir, "mcrelay"), "")
+	var buf bytes.Buffer
+	cmd := newSetupServiceCmd()
+	cmd.SetOut(&buf)
+	cfgFile = ""
+	if err := runSetupService(cmd, setupServiceFlags{binary: bin, noStart: true}); err != nil {
+		t.Fatalf("%v\n%s", err, buf.String())
+	}
+	out := buf.String()
+	if strings.Count(out, "Linger:            skipped") != 2 {
+		t.Errorf("want Linger skipped for both services:\n%s", out)
+	}
+	if !strings.Contains(out, "mcrelay ("+service.EnvWithRelayService+"=1):") ||
+		!strings.Contains(out, "ExecStart binary:  "+filepath.Join(dir, "mcrelay")) {
+		t.Errorf("want mcrelay set up from %s:\n%s", filepath.Join(dir, "mcrelay"), out)
+	}
+	unit := filepath.Join(home, "XDG_CONFIG_HOME", "systemd", "user", "mcrelay.service")
+	if b, err := os.ReadFile(unit); err != nil || !strings.Contains(string(b), filepath.Join(dir, "mcrelay")+" serve") {
+		t.Errorf("mcrelay unit %s: %v\n%s", unit, err, b)
 	}
 }
 

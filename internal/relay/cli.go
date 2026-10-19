@@ -453,6 +453,15 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		return nil
 	}
 
+	// The installer's linger and force options as environment variables
+	// (MADR 0054 PLAN S5d), read before anything is set up.
+	if !f.printOnly {
+		var err error
+		if opts, err = service.ApplyInstallerEnv(opts); err != nil {
+			return err
+		}
+	}
+
 	res, err := service.Setup(opts)
 	if err != nil {
 		if res.UnitPath != "" && !f.printOnly {
@@ -467,7 +476,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 	if res.Unchanged {
 		fmt.Fprintln(out, "Service definition unchanged (already installed).")
 	}
-	service.PrintSetupResult(out, res, f.noLinger, "mcrelay")
+	service.PrintSetupResult(out, res, opts.NoLinger, "mcrelay")
 	fmt.Fprintln(out)
 	// 0099 F4b: the written config binds loopback, because a public bind with
 	// no TLS is refused at startup and used to yield a crash-looping unit.
