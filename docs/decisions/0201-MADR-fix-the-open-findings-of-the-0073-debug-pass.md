@@ -370,6 +370,17 @@ that proves it. Severity is 0073's own ranking.
     - Linux is unchanged.
   - **Test.** Fake `launchctl` and `schtasks` runners record no stop or start call under
     `--no-start`, and the definition is written.
+  - **Amended 2026-10-18 (PLAN P10, Deviation 8).** Skipping `startWindows` was not enough
+    on a real Windows host.
+    - **What happened.** Stopping the task disables it (`stopWindows`). `sameTaskDefinition`
+      compares the disabled flag on purpose, so `--force --no-start` re-registered the task
+      enabled, and its one-minute watchdog trigger started the daemon. Measured: Disabled, then
+      Ready/Enabled at once, then Running 75 s later.
+    - **The decision, restated.** `--no-start` keeps a stopped task stopped. When the registered
+      task is disabled, the new definition is registered disabled too. The definition is still
+      written, and nothing can start the task until the operator does.
+    - **Test.** A fake `schtasks` holding a disabled task records a definition registered with
+      `Enabled` false, and no `/enable` or `/run`.
 - **D23 — §6.4, Medium: every configuration key can be set from the environment.**
   - **The defect.** `setDefaults` (`internal/config/load.go`) has no default for
     `limits.ws_read_deadline_seconds`, `limits.ws_resume_window_seconds`, `limits.tcp_keepalive.*`

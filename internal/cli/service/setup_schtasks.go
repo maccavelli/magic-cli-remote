@@ -22,8 +22,21 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 	res.Scope = "windows-task"
 	res.Label = name
 
+	keptDisabled := false
 	if existing, err := runSchtasks("/query", "/tn", name, "/xml", "ONE"); err == nil {
 		res.AlreadyExisted = true
+		// --no-start keeps a stopped task stopped. Stop disables the task, so
+		// that its watchdog trigger cannot undo the stop; registering the new
+		// definition enabled let that trigger start the daemon within a minute
+		// (MADR 0201 D22, amended; measured on a real host).
+		if opts.NoStart && taskDisabled(existing) {
+			disabled, err := withTaskDisabled(body)
+			if err != nil {
+				return res, err
+			}
+			body = disabled
+			keptDisabled = true
+		}
 		if sameTaskDefinition(existing, body) {
 			res.Unchanged = true
 		} else if !opts.Force {
@@ -50,7 +63,8 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 		}
 	}
 
-	res.Enabled = true
+	// A stopped task kept stopped is registered, but not enabled.
+	res.Enabled = !keptDisabled
 	// --no-start registers the task and starts nothing (MADR 0201 D22).
 	if opts.NoStart {
 		return res, nil
@@ -79,6 +93,31 @@ func removeSchtasks(opts Options) (Result, error) {
 	}
 	res.Removed = true
 	return res, nil
+}
+
+// taskDisabled reports whether a registered definition is disabled, which is
+// how Stop leaves it (MADR 0159 D5). An unreadable definition counts as enabled.
+func taskDisabled(existing string) bool {
+	f, err := taskFieldsFromXML(existing)
+	return err == nil && !f.Enabled
+}
+
+// withTaskDisabled returns body, a definition renderTaskXML produced, with the
+// task itself disabled: the one Enabled element inside Settings. Triggers keep
+// their own Enabled. A body without exactly one is refused rather than guessed
+// at.
+func withTaskDisabled(body string) (string, error) {
+	start := strings.Index(body, "<Settings>")
+	end := strings.Index(body, "</Settings>")
+	if start < 0 || end < start {
+		return "", fmt.Errorf("disable task definition: no Settings element")
+	}
+	settings := body[start:end]
+	const on, off = "<Enabled>true</Enabled>", "<Enabled>false</Enabled>"
+	if n := strings.Count(settings, on); n != 1 {
+		return "", fmt.Errorf("disable task definition: %d enabled elements in Settings, want 1", n)
+	}
+	return body[:start] + strings.Replace(settings, on, off, 1) + body[end:], nil
 }
 
 // sameTaskDefinition reports whether a registered definition and a freshly

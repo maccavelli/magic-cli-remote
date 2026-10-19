@@ -1274,3 +1274,145 @@ make markdownlint-docs         -> exit 0 (covers docs/reports)
 
 The PLAN stays `in-progress`.
 
+### Deviation 8, 2026-10-18 (P10): D22 on Windows registers a stopped task disabled
+
+**Found.** P10 step 2 on the Windows test host, with the task stopped as `stopWindows` leaves
+it, failed:
+
+```text
+start:                                  ('Running', 'Enabled')
+stopped for the check:                  ('Disabled', 'Disabled')
+setup-service --force --no-start        exit=0, "Started: skipped"
+right after:                            ('Ready', 'Enabled')
+75 s later (past one watchdog interval): ('Running', 'Enabled')
+```
+
+**Cause.** `stopWindows` disables the task, so that its one-minute watchdog trigger cannot
+undo a stop (MADR 0159 D5). `sameTaskDefinition` compares `Settings.Enabled` on purpose:
+`task_compare_test.go`'s "disabled" case asserts that a disabled task is not the same definition.
+So `--force --no-start` re-registered the task with `/create /f` as enabled, and the watchdog
+started the daemon.
+
+P6's `TestNoStartDoesNotStartTheWindowsTask` passed because its fake `schtasks` returned an
+enabled task.
+
+**Owner's decision.** Register it disabled. MADR D22 is amended to match.
+
+**Plan for the fix** (the same files as P6, plus the test):
+
+- In `setupSchtasks` (`internal/cli/service/setup_schtasks.go`): under `--no-start`, when the
+  registered task is disabled, re-render the definition with `Settings.Enabled` false before
+  comparing and registering it.
+- **Test:** `TestNoStartKeepsAStoppedWindowsTaskStopped`. A fake holding a disabled task records
+  a `/create` whose XML has `Enabled` false, and no `/change /enable` and no `/run`. It is seen
+  failing first.
+- **Planted break:** the disabled re-render removed.
+- **Then:** the Windows real-host check again, with the host restored to Running/Enabled and the
+  task's definition afterwards.
+
+The host was restored before this entry was written: Running/Enabled, with the definition
+identical to the one saved before the check.
+
+### P10, 2026-10-18: real hosts — complete, with Deviation 8
+
+Starting commit `13e1cc11` (P8). Every binary was built from the working tree at that commit: for
+macOS, linux/amd64 and windows/amd64. No provider quota was spent, because the scratch daemons
+enabled only the fake provider.
+
+**1. D8, ALPN.** A scratch daemon in self-signed mode, with a temporary data directory and an
+unused loopback port, was probed with `openssl s_client -alpn h2,http/1.1`:
+
+```text
+macOS (this machine)    ALPN protocol: http/1.1
+the Linux test host     ALPN protocol: http/1.1
+```
+
+**2. D22, `--no-start`.**
+
+- **macOS**, with the LaunchAgent running. The plist was saved first.
+
+  ```text
+  before: pid=<pid> state=running
+  setup-service --force --no-start: exit=0, "Started: skipped",
+    "note: gui/<uid>/com.magiccliremote.mcremote is running; the running job keeps its current definition until restarted"
+  after:  same pid, state=running      plist rewritten: True
+  plist restored, identical to backup: True
+  ```
+
+- **Windows**, with the task stopped as `stopWindows` leaves it (disabled). The first run failed:
+  the task went Disabled, then Ready/Enabled, then Running 75 s later. See Deviation 8. After the
+  fix:
+
+  ```text
+  start:                     ('Running', 'Enabled')
+  stopped for the check:     ('Disabled', 'Disabled')
+  setup-service --force --no-start: exit=0, "Started: skipped"
+  right after:               ('Disabled', 'Disabled')
+  75 s later:                ('Disabled', 'Disabled')
+  restore: definition identical to the saved one: True; final: ('Running', 'Enabled')
+  ```
+
+  That run printed "Enabled: yes" for the task it had kept disabled. `Result.Enabled` was then
+  corrected and asserted in the unit test. The real-host run predates that output correction,
+  and its task-state behaviour is the same.
+
+**3. D27, runtime directory, on the Linux test host.**
+
+- **The production service** was left untouched: same MainPID before and after. Its unit
+  already pins `XDG_RUNTIME_DIR` from its installer, so it cannot exercise `%t`.
+- **The probe unit.** A separate unit, `mcr-p10-probe`, was rendered and started by this build,
+  from an environment without `XDG_RUNTIME_DIR`, with its own scratch config, data directory and
+  port:
+
+  ```text
+  --print-only:  Environment=XDG_RUNTIME_DIR=%t   PrivateTmp=true
+  probe active=active, its XDG_RUNTIME_DIR=/run/user/<uid>
+  admin socket for this data dir: /run/user/<uid>/mcremote/<instance-key>/admin.sock
+  ```
+
+**4. D31, smoke protocol.** Against the macOS scratch daemon, with the fake provider:
+
+```text
+✓ auth device_id=<id> name=smoke protocol=2
+✓ smoke-protocol PASSED
+```
+
+**5. Changes to real hosts, all undone:**
+
+- **macOS.**
+  - The LaunchAgent plist was rewritten and then restored byte-for-byte. The job kept running
+    throughout.
+  - The scratch daemon's empty runtime directory was removed.
+- **The Linux test host.**
+  - The probe unit was removed with `setup-service --remove`, and its unit file is gone.
+  - `~/mcr-p10` and the probe's runtime and instance directories were removed.
+  - The production service kept its MainPID.
+  - **A mistake of mine.** The first attempt's background launch kept the SSH session open and
+    timed out. Its scratch daemon outlived the cleanup, still listening on the scratch port. I
+    found it, stopped it, and removed its empty runtime directory. The launch was then fixed:
+    only the redirected command is backgrounded.
+- **The Windows test host.** The task was stopped for the check, twice, and each time restored
+  to Running/Enabled, with its definition identical to the one saved before. The scratch binary
+  directory was removed.
+
+**Deviation 8's fix:**
+
+- **Test seen failing first:** `nostart_schtasks_test.go:101: --no-start registered a stopped
+  task enabled: its watchdog trigger would start the daemon`.
+- **Planted break** (the disabled re-render removed): fails both assertions, the `Enabled` result
+  (`:90`) and the registered definition (`:105`).
+- **Gates.**
+
+  ```text
+  make pre-add-check (2 Go files)            -> clean (gofmt, golint, govulncheck)
+  go vet ./... and GOOS=windows on service, make lint, make staticcheck -> exit 0
+  go test -race -count=1 ./...               -> exit 0, 42 packages ok
+  make ci-windows (the Windows test host)    -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED
+  ```
+
+**Left for the next records pass:** the 0073 triage row for §6.2 cites P6's commit. It gains
+this commit, Deviation 8's fix, when P9's records are written.
+
+**State of the PLAN:** P0–P8 and P10 are done. P9 (D26, D30, and the §6.1 check) waits for
+0054's acceptance and its S1/S3, so the PLAN stays `in-progress`.
+
