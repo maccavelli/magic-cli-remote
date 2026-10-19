@@ -39,6 +39,11 @@ func IsInstalled(product string) (bool, error) {
 		fi, err := os.Stat(plist)
 		return err == nil && !fi.IsDir(), nil
 	case "linux":
+		if kind, err := ResolveBackend(product); err != nil {
+			return false, err
+		} else if kind.isScriptKind() {
+			return newScriptBackend(kind, strings.TrimSuffix(names.Unit, ".service")).Installed(context.Background(), product)
+		}
 		unit := names.Unit
 		if out, err := runSystemctlCapture("--user", "show", "-p", "LoadState", "--value", unit); err == nil {
 			switch strings.TrimSpace(out) {
@@ -79,6 +84,9 @@ type Status struct {
 	Active bool
 	// Hint is a short operator action when something is wrong; empty when OK.
 	Hint string
+	// Kind is the supervisor on Linux when it is runit, s6 or OpenRC, whose
+	// definition PlistOrUnit then names; empty for systemd (MADR 0054 PLAN S5f).
+	Kind Kind
 }
 
 // probeTimeout bounds doctor's service probes.
@@ -109,6 +117,10 @@ func ProbeStatus(product string) Status {
 		st.PlistOrUnit = fmt.Sprintf("%s/Library/LaunchAgents/%s.plist", os.Getenv("HOME"), names.Label)
 	case "linux":
 		st.PlistOrUnit = names.Unit
+		if kind, err := ResolveBackend(product); err == nil && kind.isScriptKind() {
+			st.Kind = kind
+			st.PlistOrUnit = scriptDefFor(kind, strings.TrimSuffix(names.Unit, ".service"), "").Path
+		}
 	case "windows":
 		st.PlistOrUnit = `Task Scheduler\` + names.Task
 	default:
@@ -167,7 +179,16 @@ func ProbeStatus(product string) Status {
 		case "windows":
 			st.Hint = "registered but not running — run: schtasks /run /tn " + names.Task
 		default:
-			st.Hint = "run: systemctl --user start " + st.PlistOrUnit + " (or mcremote setup-service --force)"
+			switch st.Kind {
+			case KindRunit:
+				st.Hint = "run: sv up " + filepath.Dir(st.PlistOrUnit) + " (or mcremote setup-service --force)"
+			case KindS6:
+				st.Hint = "run: s6-svc -u " + filepath.Dir(st.PlistOrUnit) + " (or mcremote setup-service --force)"
+			case KindOpenRCUser:
+				st.Hint = "run: rc-service --user " + filepath.Base(st.PlistOrUnit) + " start (or mcremote setup-service --force)"
+			default:
+				st.Hint = "run: systemctl --user start " + st.PlistOrUnit + " (or mcremote setup-service --force)"
+			}
 		}
 	}
 	return st

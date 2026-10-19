@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/launchd"
@@ -31,9 +32,24 @@ func NewBackend(product, unitName string) (Backend, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch runtime.GOOS {
+	// installOS, not runtime.GOOS: the same dispatch as Setup, Remove,
+	// IsInstalled and ProbeStatus, so a test can pin it (PLAN S5f).
+	osName := installOS
+	if osName == "" {
+		osName = runtime.GOOS
+	}
+	switch osName {
 	case "linux":
 		ensureUserRuntimeDir()
+		// runit, s6 and OpenRC have this product's own backend; systemd has
+		// the library's (MADR 0054 amendment S5-3, PLAN S5f).
+		kind, err := ResolveBackend(product)
+		if err != nil {
+			return nil, err
+		}
+		if kind.isScriptKind() {
+			return newScriptBackend(kind, strings.TrimSuffix(names.Unit, ".service")), nil
+		}
 		u, err := systemd.New(systemd.Options{Unit: names.Unit, Scope: systemd.User})
 		if err != nil {
 			return nil, err
@@ -60,7 +76,7 @@ func NewBackend(product, unitName string) (Backend, error) {
 		}
 		return t, nil
 	default:
-		return nil, fmt.Errorf("service control unsupported on %s", runtime.GOOS)
+		return nil, fmt.Errorf("service control unsupported on %s", osName)
 	}
 }
 

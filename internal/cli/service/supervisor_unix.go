@@ -22,7 +22,7 @@ var procRoot = "/proc"
 // user already watches dir. It is install.sh's
 // `pgrep -u "$(id -u)" -f "runsvdir .*$DIR"` (:786, :801), read from /proc
 // so it needs no pgrep, and matched on the argument rather than a pattern.
-func supervisorWatching(scanner, dir string) bool {
+var supervisorWatching = func(scanner, dir string) bool {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return false

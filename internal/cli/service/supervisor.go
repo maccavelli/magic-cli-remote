@@ -632,3 +632,11 @@ func removeAllRetry(dir string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+// OverrideSupervisorWatching replaces the probe for a running runsvdir or
+// s6-svscan, for tests outside this package. Restore with the returned func.
+func OverrideSupervisorWatching(fn func(scanner, dir string) bool) (restore func()) {
+	prev := supervisorWatching
+	supervisorWatching = fn
+	return func() { supervisorWatching = prev }
+}

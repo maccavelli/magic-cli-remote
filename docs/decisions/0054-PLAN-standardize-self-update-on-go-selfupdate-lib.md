@@ -2466,3 +2466,145 @@ Both remote copies were removed.
 - `internal/relay/cli.go`, `internal/relay/setup_service_refresh_test.go`;
 - this PLAN.
 
+### S5f, 2026-10-19 — staged for the owner's commit
+
+**Starting point.** The owner committed S5e and said "proceed".
+
+**What S5f changed:**
+
+- **`internal/cli/service/scriptbackend.go` (new):** `scriptBackend`, a `selfupdate.Lifecycle` and
+  `selfupdate.EnabledLifecycle` for runit, s6 and OpenRC user services, on S5b's and S5c's control
+  code.
+  - `Installed`: the definition exists.
+  - `Enabled`: for runit and s6, no `down` file; for OpenRC, the service is in the user's default
+    runlevel.
+  - `Running`: S5c's sampler.
+  - `Stop`: `sv down`, `s6-svc -d` or `rc-service --user … stop`, then waits up to 15 s for
+    `Running` to go false.
+  - `Start`: through the user's own supervisor, `sv up`, `s6-svc -u` or `rc-service --user …
+    start`. With no runsvdir, s6-svscan or OpenRC user session running, it starts one first, as
+    setup-service does.
+  - `WaitHealthy`: S5c's settle, with `MCREMOTE_SVC_WAIT_SECS`. Anything but confirmed running is
+    an error, which the library rolls back on.
+- **`backend.go`:**
+  - `NewBackend` returns `scriptBackend` when the recorded backend (`ResolveBackend`) is runit, s6
+    or OpenRC, and the library's systemd backend otherwise.
+  - It now dispatches on `installOS`, as `Setup`, `Remove`, `IsInstalled` and `ProbeStatus`
+    already did, so a test can pin it. In production the two are the same value.
+- **`control.go`:**
+  - `IsInstalled`, which `update` asks when no backend can be built, reads the script definition.
+  - `ProbeStatus`, which `doctor` uses, names the definition and the supervisor's own start
+    command, in the new `Status.Kind`. So `update` and `doctor` agree (D6).
+- **`supervisor.go` and the two `supervisor_*.go`:** `supervisorWatching` became a variable, and
+  `OverrideSupervisorWatching` sets it from a test in another package.
+- **The reconcile child** is unchanged. It is the new binary's `setup-service --refresh --json`,
+  which S5b already dispatches on the recorded backend. So is the rollback's
+  `RestoreUnitBackup`, which reloads systemd only for a `.service`.
+
+**Two choices inside the PLAN's words:**
+
+- **`Start` brings up a supervisor when none runs.** After a logout or reboot, the session's
+  runsvdir, s6-svscan or OpenRC user session is gone. Without this, an enabled but stopped service
+  could not be started, and the update would roll back. The behavior is S5b's own setup behavior.
+- **`WaitHealthy` treats "still starting" as not healthy.** An update must end with a service
+  confirmed running, or roll back. S5c's setup gives a warning instead, because setup has no older
+  binary to restore.
+
+**Tests:**
+
+- **`scriptbackend_unix_test.go`:**
+  - `TestScriptBackendInstalledAndEnabled`, for all three kinds.
+  - `TestScriptBackendStop`: the command runs, and a service that stays up is an error.
+  - `TestScriptBackendStart`: runit through its watcher; s6 with no scanner starts one; OpenRC
+    with no session starts it.
+  - `TestScriptBackendWaitHealthy`.
+  - `TestNewBackendFollowsTheRecord`. Off Linux, the systemd half expects the library's refusal,
+    "systemd runs on Linux, not darwin".
+  - `TestProbeStatusOnRunit`, with `IsInstalled`.
+- **`internal/updateclient/managed_script_unix_test.go`: `TestUpdateRestartsARunitService`.**
+  - It is a real `update --yes`, from v0.1.0 to v0.2.0 against `selfupdatetest`, through the real
+    `NewBackend`, on a runit service that `setup-service` installed.
+  - A stateful fake `sv` keeps a state and a pid in files, with shell builtins only.
+  - Cases:
+    - running is restarted (`down`, then `up`);
+    - enabled and stopped is started (`up`);
+    - disabled and stopped stays stopped (no calls);
+    - a new binary that crash-loops is rolled back, and the executable is the old one again.
+
+**Planted breaks, each on its own fresh scratch copy** (`s5f_plants.py`, 9). Each failed a test
+assertion:
+
+```text
+NewBackend ignores the record                  scriptbackend_unix_test.go:177: with runit recorded: … want the runit script backend
+a down file reads as enabled                   scriptbackend_unix_test.go:68: runit enabled true before the down file and true after
+Stop stops nothing                             scriptbackend_unix_test.go:90: calls [sv status …], want sv down
+Stop does not wait for down                    scriptbackend_unix_test.go:97: a service that stays up: <nil>, want an error
+Start never starts a session scanner           scriptbackend_unix_test.go:124: starts [], calls [s6-svc -u …]; want a session s6-svscan
+OpenRC Start never starts the session          scriptbackend_unix_test.go:134: calls [rc-service --user mcremote start], want [openrc --user boot …]
+WaitHealthy is always healthy                  scriptbackend_unix_test.go:151: a crash loop: <nil>, want an error
+                                               managed_script_unix_test.go:150: the update succeeded although the new binary crash-loops
+doctor gives the systemd hint on runit         scriptbackend_unix_test.go:193: hint "run: systemctl --user start …/run …"
+IsInstalled asks systemd on runit              scriptbackend_unix_test.go:198: IsInstalled = false, <nil>; want the runit definition found
+```
+
+The first version of the `WaitHealthy` plant did not compile, because it had a duplicate `case`.
+It was rewritten to compile.
+
+**The live check,** in throwaway containers on this Mac's Podman machine, which was stopped
+afterwards (`s5f_live.py`).
+
+- **Why a scratch test.** `update` reads its release source from no variable: `APIBaseURL` is a
+  test option. Adding a production hook for this was out of scope, and it would make a release
+  binary's update source settable.
+- **What ran.** A scratch test, `zz_live_update_test.go`, copied into a scratch copy of the tree
+  and never into the tree, was built with `go test -c` for linux/arm64. Each container ran it as a
+  non-root user. It:
+  - installs a `make build-remote` v0.1.0 release build as the user's service, through
+    `service.Setup` with real detection;
+  - updates it to a v0.2.0 build through the real `New` and `Run` against a local `selfupdatetest`
+    release;
+  - uses the library's real exec reconciler, so the reconcile child is the new binary itself.
+- **Results:**
+
+```text
+runit   setup: scope=runit health=running         before: serving pids [69];  v0.1.0 (release)
+        update: applied=true err=<nil>            after:  serving pids [97];  v0.2.0 (release)   --- PASS
+s6      setup: scope=s6 health=running            before: serving pids [25];  v0.1.0 (release)
+        update: applied=true err=<nil>            after:  serving pids [53];  v0.2.0 (release)   --- PASS
+OpenRC  setup: scope=openrc-user health=running   before: serving pids [146]; v0.1.0 (release)
+        update: applied=true err=<nil>            after:  serving pids [270]; v0.2.0 (release)   --- PASS
+```
+
+In each, `/proc/<pid>/exe` of the new process was `/home/<user>/.local/bin/mcremote`, the
+replaced file, not a deleted one.
+
+**Gates, exit status captured before reading output.** The files were staged first:
+
+```text
+make pre-add-check (8 Go files)                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` passed, with "ALL SELECTED CHECKS PASSED" and 43
+  `ok`.
+- **The Linux test host:**
+  - The race tests of `internal/cli/...`, `internal/relay` and `internal/updateclient` passed,
+    including `TestUpdateRestartsARunitService`.
+  - There `TestNewBackendFollowsTheRecord` built the library's real systemd backend.
+
+Both remote copies were removed.
+
+**Files staged for S5f:**
+
+- `internal/cli/service/`:
+  - `scriptbackend.go` and `scriptbackend_unix_test.go` (new);
+  - `backend.go`, `control.go`;
+  - `supervisor.go`, `supervisor_unix.go` and `supervisor_windows.go`;
+- `internal/updateclient/managed_script_unix_test.go` (new);
+- this PLAN.
+
