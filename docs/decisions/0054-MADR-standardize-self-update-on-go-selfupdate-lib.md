@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-13
+status: accepted
+date: 2026-10-19
 decision-makers: Project Owner
 consulted: none
 informed: operators running mcremote update / mcrelay update; install-script consumers; anyone consuming the GitHub release assets
@@ -607,3 +607,279 @@ Each item is available later without another migration, and each has a reason ot
   or a VM, never on the operator's own account.
 * After the rehome change, a file scan finds `mcplib` only under `docs/decisions/` and
   `docs/reports/`.
+
+## Amendment — 2026-10-19: re-verified against `da95b793` and the current library releases
+
+~~**Status: proposed.**~~ **Accepted 2026-10-19.** The owner accepted this record, the
+2026-10-13 amendment and this one, with the answers A1–A4 below. That meets step 2 of
+[0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md)
+D3. Each S phase still starts only when the owner approves it by name.
+
+The owner asked on 2026-10-19 for this record to be checked against the codebase, the current
+releases of its dependencies, and the project's other records, with every assertion proved. This
+amendment records what that check found. It changes no decision except D13's wording, and it
+corrects some premises and citations. Where it differs from the text above, this amendment
+governs, and the text above stays as written.
+
+The method:
+
+- **The tree:** `master` at `da95b793`, clean. Only reads, plus `go list -m all` and
+  `scripts/vulncheck.sh`, which write nothing to the tree.
+- **The libraries:** scratch clones of `go-selfupdate-lib`, `mcplib` and `acp-go-sdk2`, read at
+  their tags with `git show` and `git grep`. `git ls-remote --tags` supplied the tag commits, and
+  the GitHub security-advisories API the advisories.
+- **One probe:** a scratch copy of the tree. The working tree was not touched.
+
+### The releases on 2026-10-19
+
+| Module | Latest tag (date) | Peeled commit | After the tag | This repository |
+| :--- | :--- | :--- | :--- | :--- |
+| `go-selfupdate-lib` | `v1.15.2` (2026-10-12) | `436a7f5976a6815491c7384527fef90869574a1b` | `main` is 2 commits ahead (`f774c5c`, `5c0ab0d`); they change only `README.md` and `docs/` | not required yet |
+| `mcplib` | `v1.6.0` (2026-09-28) | `4e1f9a53e265808bbfa740e3e3b09a51ed7f56ce` | 3 commits; they add 2 decision records about `go-llmprovider-sdk` | `v1.4.1` (`go.mod:12`) |
+| `acp-go-sdk2` | `v1.15.2` (2026-10-18) | `f7defb4c596feb2b90727522028e5b7e810ce15a` | none | `v1.15.0` (`go.mod:11`), under 0184 |
+
+### Facts confirmed
+
+- **D1's target is still the latest release.** No `go-selfupdate-lib` release has followed
+  `v1.15.2`, and its peeled commit is unchanged since the 2026-10-13 amendment.
+  - Its `go.mod` requires `go 1.27.1`, `golang.org/x/mod v0.40.0`, `x/sys v0.47.0` and
+    `x/term v0.43.0`.
+  - This module has `go 1.27.2`, `x/mod v0.41.0`, `x/sys v0.49.0` and `x/term v0.47.0`.
+  - `go1.27.2` is the newest stable Go release that `https://go.dev/dl/?mode=json` lists.
+  - Neither `go-selfupdate-lib` nor `mcplib` has a published GitHub security advisory.
+- **A rehome on its own still changes behavior, and still no test notices.** The probe was rerun
+  on a scratch copy of `da95b793`:
+  - **The swap.** The import path was changed in the 11 files that import `mcplib/selfupdate`
+    (both `cmd/*/main.go` files and nine in `internal/updateclient`, four of them tests). Then
+    `go get github.com/maccavelli/go-selfupdate-lib@v1.15.2` and `go mod tidy` ran.
+  - **`go.mod`** loses `mcplib v1.4.1`. It gains `go-selfupdate-lib v1.15.2`, plus
+    `davecgh/go-spew` and `pmezard/go-difflib` as `// indirect`. Nothing else changes.
+  - **`go list -m all`** before the swap lists `mcplib v1.4.1`, `modelcontextprotocol/go-sdk
+    v1.6.1`, `invopop/jsonschema v0.14.0`, `golang.org/x/oauth2 v0.36.0` and `go.yaml.in/yaml/v4
+    v4.0.0-rc.2`. After it, it lists none of the five.
+  - **The gates all exit 0:**
+    - `go build ./...`;
+    - `go vet ./...` for darwin/arm64, windows/amd64, and linux/amd64 with `CGO_ENABLED=0`;
+    - `go test -count=1` of `internal/updateclient`, `internal/cli`, `internal/cli/service` and
+      `internal/relay`.
+  - **The behavior change.** `internal/updateclient/lifecycle.go` still has no `Enabled` method.
+    `v1.15.2` starts a stopped service only through `EnabledLifecycle`
+    (`selfupdate/managed.go:135-145`). `mcplib v1.4.1` starts it unconditionally
+    (`selfupdate/managed.go:92`). So D2 is still required.
+  - **Advisories.** `govulncheck` on the copy reports nothing called and nothing imported. It
+    reports one required-module finding, `GO-2026-5932` in `golang.org/x/crypto v0.58.0`, which
+    has no fixed version. The untouched tree reports the same ID, and `scripts/vulncheck-allow.txt`
+    allowlists it. The swap adds no finding.
+- **The API, counted with a stated method.**
+  - The 11 files use 31 distinct `selfupdate.` identifiers, 29 of them outside tests.
+  - Top-level declarations, as `go doc -all` lists them: `mcplib v1.4.1`'s `selfupdate` exports
+    77, and `v1.15.2`'s exports 170. None of the 77 is missing.
+  - These figures replace the 2026-10-13 amendment's 26, 219 and 95, whose counting method that
+    amendment did not record. The probe's clean compile is the stronger proof.
+- **The receipt contract still matches, field for field.**
+  - `service.Receipt` has the JSON fields `schema_version`, `verdict`, `path`, `backup`,
+    `changed`, `reloaded`, `reason` and `warnings`.
+  - Its verdicts are `none`, `unchanged`, `refreshed` and `kept`.
+  - `RefreshResult` has every field except `schema_version` (`internal/cli/service/refresh.go:42-49`).
+    It uses the same four verdicts (`refresh.go:19-28`).
+  - A receipt with no `schema_version` is read as version 1
+    (`selfupdate/service/execreconciler.go:35-37`), so `refresh.go` needs no new field.
+  - The receipt's `warnings` become `ReconcileResult.Warnings` (`execreconciler.go:131`).
+  - Every backend D3 names has a constructor, `New(Options) (…, error)`, in `systemd`,
+    `launchd` and `taskscheduler`.
+- **The library names this repository in fewer places than the draft says.** At `v1.15.2`,
+  `selfupdate/service/execreconciler.go` no longer says "magic-cli-remote's refresh result". The
+  migration guide still names this repository's `codesignTransformer` (`:581`) and its
+  `v0.16.0`-only `bridge-release` (`:136`).
+- **D11's request to the library has not been made.** At `go-selfupdate-lib` `main` (`5c0ab0d`),
+  no file mentions an uninstall hook. `releasespec` still accepts only `before_install` and
+  `after_install` (`selfupdate/releasespec/installer.go:24`, `:27`, `:84-85`).
+- **D9's folder name is decided.** The owner answered
+  [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md)'s
+  Q1 on 2026-10-13: the folder is `%LOCALAPPDATA%\Programs\magic-cli-remote`. D9's "the owner
+  confirms the name when accepting this record" is met.
+- **`acp-go-sdk2` does not touch this migration.** Its `go.mod` at `v1.15.0` and at `v1.15.2` has
+  no `require` block, so it brings neither `mcplib` nor `go-selfupdate-lib` into the module graph.
+  - The ACP migration has landed (`db717ed3`), and 0184 is accepted.
+  - The pin is `v1.15.0`, while `v1.15.2` is tagged, and moving it is 0184's decision.
+  - Its one advisory, GHSA-579q-9j9v-7w8w, affects `v0.15.0` only.
+
+### Facts corrected
+
+- **D13 named the wrong endpoint.** No `/health` route exists. The daemon's version is the
+  `version` field of `GET /v1/hello`, which requires authorization (`internal/ws/server.go:295`,
+  `:527-546`, the field at `:543`). The unauthenticated `GET /healthz` returns only
+  `{"ok":true}` (`:294`, `:482-487`). This was already so at `64e3b219`, with the field at `:531`.
+  - The same version also reaches ACP agents as `clientInfo.version`
+    (`internal/daemon/daemon.go:327`, `internal/provider/acpagent/acpagent.go:1203`), as
+    [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+    D4 expects.
+  - The phone app never requests `/v1/hello`. `apps/mobile/lib` names it only in a comment
+    (`lib/data/local/settings_store.dart:1271`).
+  - **D13 now reads:** `/v1/hello`'s `version` and ACP's `clientInfo.version` report `buildinfo`
+    as it is, so a release reports `v0.X.Y` where it reports `0.X.Y` today. The decision is
+    otherwise unchanged.
+- **D5's two premises do not hold today.**
+  - `doctor` runs no daemon health check. It renders `service.ProbeStatus`, the service manager's
+    view (`internal/cli/doctor.go:37`).
+  - The daemon has two health checks: the admin socket's `ping` (`internal/admin/admin.go:37`,
+    `:192`, used by `internal/cli/pair.go:36`) and `GET /healthz`.
+  - The admin socket has no shutdown request. Its operations are `ping`, `disconnect_device` and
+    `disconnect_devices` (`admin.go:36-40`). So under D5's own condition, "where the daemon offers
+    one", `taskscheduler.Options.RequestStop` is not wired unless a shutdown operation is added.
+  - Q1 and Q2 below ask the owner to decide these two points.
+- **Amendment 1's premise, "this product's supplied state always answers enabled", is too
+  broad.** It is corrected below; its conclusion holds.
+  - **What the library treats as enabled:**
+    - systemd: `UnitFileState` `enabled` or `enabled-runtime` (`systemd/lifecycle.go:50`).
+    - launchd: `RunAtLoad`, or `KeepAlive` true, and the label not disabled in launchd's override
+      database (`launchd/lifecycle.go:44`).
+    - Task Scheduler: the task enabled, with an enabled trigger that starts it unattended
+      (`taskscheduler/lifecycle.go:64`).
+  - **Magic leaves a service not enabled in three ways:**
+    - `setup-service --no-enable` (`internal/cli/setup_service.go:85`) skips
+      `systemctl --user enable` and `launchctl enable` (`internal/cli/service/setup.go:392-397`,
+      `:517-522`).
+    - On macOS, that also leaves any earlier `launchctl disable` in force, such as the one
+      `--remove` runs (`setup.go:697`).
+    - On Windows, stopping disables the task
+      (`internal/cli/service/control_schtasks.go:92-108`), and since `da95b793`, `--no-start`
+      keeps a stopped task disabled (0201 D22, as amended).
+  - **The conclusion.** Each of these is an operator's deliberate choice, so only a service the
+    operator chose not to run goes unhealed.
+- **The workflow does not enforce the pin rule.** The More Information bullet on pins says they
+  move with the `go.mod` requirement "per the build workflow's own version check". The build
+  workflow's check is a floor only. Its `checkLibraryFloor` requires the module to need a library
+  release that can read every field the spec uses (`internal/cmd/selfupdate-release/floor.go`).
+  D1's rule, that `go.mod` and both pins move together, is this record's own.
+- **D8 maps the installer variables imprecisely.**
+  - The shipped `install.sh` reads `MCREMOTE_VERSION`, `MCREMOTE_INSTALL_DIR`,
+    `MCREMOTE_NO_SERVICE`, `MCREMOTE_SVC_WAIT_SECS` and `MC_TEST_BASE_URL` (`scripts/install.sh:30`,
+    `:1024-1027`). It prints PATH advice and edits no file (`:287`).
+  - The shipped `install.ps1` reads one variable, `MCREMOTE_INSTALL_NO_PATH_UPDATE`
+    (`scripts/install.ps1:37`).
+  - The `install.sh` template reads `<PREFIX>_VERSION`, `<PREFIX>_INSTALL_DIR` and
+    `<PREFIX>_NO_HOOKS`, and only prints PATH advice (`installer/install.sh:375-380`, `:462-464`).
+  - The `install.ps1` template also reads `<PREFIX>_NO_PATH_UPDATE`
+    (`installer/install.ps1:475-476`).
+  - So, of D8's renames, `MCREMOTE_INSTALL_NO_PATH_UPDATE` → `MCREMOTE_NO_PATH_UPDATE` is
+    Windows-only. `MCREMOTE_VERSION` and `MCREMOTE_INSTALL_DIR` are new on Windows.
+  - `MCREMOTE_SVC_WAIT_SECS` has no template equivalent, and D8 and D10 do not mention it (Q3).
+- **"Implementation Plan: none yet" is out of date.** The PLAN,
+  [0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md),
+  is `in-progress`:
+  - R1 was executed on 2026-10-11.
+  - S1–S8 were added on 2026-10-13.
+  - No S phase has started: `go.mod` does not require `go-selfupdate-lib`.
+- **Citations that moved, or were wrong.** Each was read at `da95b793`.
+
+| Cited above | Now |
+| :--- | :--- |
+| ci.yml build job, `ver="${GITHUB_REF_NAME#v}"` | `BASE="${GITHUB_REF_NAME#v}"` at `.github/workflows/ci.yml:198`, then `ver="$BASE"` at `:220` |
+| `Makefile:173` as the release stamp | `:173` is the local `build` target. The release lane runs `build-relay` (`:222`) and `build-remote` (`:239`) with `VERSION="$ver" BUILD_KIND=release` (`ci.yml:230`) |
+| `mcremote.user.service.tmpl:78` (`WantedBy`) | `:79`; `:78` is `[Install]` |
+| `internal/cli/setup_service.go:85` as "the `enable` setup-service runs" | `:85` is the `--no-enable` flag. The enables are `internal/cli/service/setup.go:393` (systemd) and `:518` (launchd) |
+| `internal/ws/server.go:531` (`/health`) | `GET /v1/hello`, field at `:543` (see above) |
+| `ci.yml:990-1014` (bridge step) | `:990-1016` |
+| `docs/guides/config.md:637-717` (update section) | `:637-664`; `:665` starts the next section |
+| `apps/mobile/lib/data/update/app_update.dart:112-113` (comments citing mcplib) | `:118-120` |
+| `go-selfupdate-lib@v1.13.0/selfupdate/service/execreconciler.go:32-33` | true at `v1.13.0`; removed by `v1.15.2` (see above) |
+
+The other file and line citations above were checked and still hold:
+
+- `go.mod:12`;
+- `ci.yml:980-988`, `:1042` and `:1048`;
+- `refresh.go:43-49`;
+- `plist_render.go:169-170`;
+- `internal/cli/root.go:46-48`;
+- `cmd/mcremote/main.go:29` and `cmd/mcrelay/main.go:25`;
+- in the library at `v1.15.2`: `managed.go:135-145`, `confirmer.go:38-58` and `codesign.go:151`.
+
+### Records that now depend on this one
+
+- [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md)
+  is `accepted`. It makes this record's PLAN its self-update track and holds that S1 removes
+  `mcplib` entirely.
+- [0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md](0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md)
+  is `accepted`. Its PLAN P9 waits for S1 and S3, and carries three items:
+  - **D26 (§6.6)** depends on the receipt's `warnings` reaching `Result.Warnings`, confirmed
+    above.
+  - **D30 (§6.10(d))** puts a recorded unit name into the backends' `Options`:
+    `systemd.Options.Unit`, `launchd.Options.Label` and `taskscheduler.Options.Name`
+    (`systemd/unit.go:41`, `launchd/job.go:82`, `taskscheduler/task.go:49`).
+  - **The §6.1 check** confirms that an update on a host with no installed service still
+    succeeds after the move.
+- Since the 2026-10-13 amendment, 0201 has changed code this migration keeps: refresh's handling
+  of `%t` (D27), and `setup-service --no-start` (D22, amended). Neither change affects a decision
+  here. D4 keeps the refresh child, and D10 extends `setup-service` rather than replacing it.
+
+### Questions for the owner
+
+Each question applies to a later phase, and none blocks S1. The owner answered all three on
+2026-10-19; the answers follow the questions.
+
+- **Q1 (D5, S8): what backs each backend's `Options.Probe`?**
+  - **The admin socket's `ping` (recommended).** It is local, and does not depend on the
+    listener's TLS mode or port. `pair` already uses it.
+  - **Or `GET /healthz`.** That needs the configured scheme and port, and it tests the
+    listener.
+- **Q2 (D5, S8): add a shutdown operation to the admin socket, so that
+  `taskscheduler.Options.RequestStop` can let the daemon drain on Windows?**
+  - **Add it (recommended under O1).** The cost is one more admin operation, on a socket only its
+    owner can open.
+  - **Or leave `RequestStop` unset.** Windows then keeps the no-drain stop that
+    [0116-MADR-windows-and-linux-arm64-build-targets.md](0116-MADR-windows-and-linux-arm64-build-targets.md)
+    D9 accepts.
+- **Q3 (D8 and D10, S5): what happens to `MCREMOTE_SVC_WAIT_SECS`?**
+  - **Keep the name (recommended).** `setup-service`'s verified start (D10, G2) reads it, so an
+    operator's existing setting keeps working.
+  - **Or retire it,** and document the removal with the other installer changes.
+
+### The owner's answers (2026-10-19)
+
+The owner chose the recommended option for each question, and for A4, which followed from them.
+The answers refine D5 and D10 as follows:
+
+- **A1 — the probe is the admin socket's `ping`.** S8 wires an `Options.Probe` for each backend
+  (`systemd`, `launchd` and `taskscheduler`). The probe sends `ping` to the daemon's admin socket,
+  and passes only on a successful reply. `GET /healthz` is not used as the probe.
+- **A2 — the admin socket gains a shutdown operation.** S8 adds the operation and its tests:
+  - On receiving it, the daemon begins the same graceful shutdown as its shutdown signals.
+    `serve` cancels its context on them (`internal/cli/serve.go:46`): `SIGINT` and `SIGTERM` on
+    Unix (`signals_unix.go:12`), and `os.Interrupt` only on Windows (`signals_windows.go:16`).
+  - `taskscheduler.Options.RequestStop` sends it, and `Options.StopGrace` is set shorter than
+    the poll timeout, as `taskscheduler.New` requires (`taskscheduler/task.go:71-76`).
+  - The socket stays owner-only (`internal/admin/owner_unix.go`, `owner_windows.go`).
+  - D5's condition, "where the daemon offers one", is met by this work.
+  - [0116-MADR-windows-and-linux-arm64-build-targets.md](0116-MADR-windows-and-linux-arm64-build-targets.md)
+    D9's no-drain stop on Windows applies only when the request fails or the grace runs out.
+- **A4 — `mcrelay` uses `/healthz`, and stops without a drain.** Writing the PLAN amendment found
+  that A1 and A2 can reach `mcremote` only. `mcrelay` serves no admin socket: nothing under
+  `internal/relay` or `cmd/mcrelay` uses `internal/admin`, and only `mcremote`'s daemon calls
+  `admin.Serve` (`internal/daemon/daemon.go:490`). `mcrelay` serves `GET /healthz`, which returns
+  `{"ok":true}` (`internal/relay/server.go:114`, `:418-422`). The owner chose, on 2026-10-19:
+  - `mcrelay`'s `Options.Probe` sends `GET /healthz` to the relay's own listener: the port in
+    `listen.port`, using whichever transport the relay's resolved configuration serves. That is
+    plaintext, or TLS from certificate files or ACME (`internal/relay/fileconfig.go:43-46`,
+    `:72-77`, `:580-620`; `internal/relay/config.go:157-166`). It passes only on status 200 with
+    the body `{"ok":true}`. The probe verifies TLS normally; it never skips verification.
+  - `mcrelay` sets no `RequestStop`. On Windows it keeps the no-drain stop of 0116 D9.
+  - `mcrelay` gains no admin socket.
+- **A3 — `MCREMOTE_SVC_WAIT_SECS` is kept.** S5's verified start in `setup-service` (D10, G2)
+  waits up to that many seconds. The default stays 15, as in `scripts/install.sh:30`. So the
+  `after_install` hook honours an operator's existing setting, and the operator guide documents
+  the variable with `setup-service`.
+
+### Consequences of this amendment
+
+- Good, because the record now matches the tree and the released libraries. Its one false
+  endpoint, its one false premise, and the stale citations are corrected, each with its evidence.
+- Good, because D1, D2 and D9 are re-confirmed with today's evidence: the target release, the
+  behavior trap that requires the backends, and the owner's folder name.
+- Neutral, because no decision changes except D13's wording, and the owner's answers A1–A4, which
+  refine D5 and D10 within their existing phases, S8 and S5.
+- Bad, because A2 adds product work to S8: a new admin operation, a new path into the daemon's
+  graceful shutdown, and the tests for both.
+- Bad, because the PLAN still repeats the corrected facts. Its `/health` steps and checks, the
+  `app_update.dart` and `ci.yml:990-1014` citations, and the `RequestStop` step must be amended
+  to match before the phases that use them start.

@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-13
+date: 2026-10-19
 associated-madr: "0054-MADR-standardize-self-update-on-go-selfupdate-lib.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -153,7 +153,8 @@ accepted.
 ## Amendment — 2026-10-13: source phases S1–S8 for the fullest adoption
 
 Implements the MADR's "Amendment — 2026-10-13: fullest adoption, `v1.15.2`, and the owner's
-installer decisions" (O1–O4, D1–D14). **Not approved for execution.** The MADR is still `proposed`.
+installer decisions" (O1–O4, D1–D14). ~~**Not approved for execution.** The MADR is still `proposed`.~~
+**2026-10-19: the MADR is accepted; see the amendment of that date at the end of this PLAN.**
 A phase starts only after the MADR is accepted **and** the owner approves that phase by name
 ("do S1"). Each phase ends with `make pre-add-check` on its staged Go files, the race suite and
 `make preflight`. On a Windows host it also runs the 0145 gates. The owner commits (`git commit
@@ -383,3 +384,108 @@ health and roll back; the tag's published asset list, quoted in the execution re
   first.
 * D9's Windows migration is one-way on each host. A rollback release keeps reading both folders
   until no install remains in the old one.
+
+## Amendment — 2026-10-19: the MADR is accepted; corrections and the owner's answers A1–A4
+
+Implements the MADR's "Amendment — 2026-10-19: re-verified against `da95b793` and the current
+library releases". The owner accepted the MADR on 2026-10-19. **Each phase still starts only when
+the owner approves it by name** ("do S1"). Where this amendment differs from the S1–S8 text above,
+it governs, and that text stays as written.
+
+### Corrections to S1–S8
+
+| Where | Was | Now |
+| :--- | :--- | :--- |
+| S1 Scope | `apps/mobile/lib/data/update/app_update.dart:112-113` | `:118-120` |
+| S1 step 8 | the bridge staging step at `ci.yml:990-1014` | `:990-1016` |
+| S1 step 1 | confirm `v1.15.2`'s peeled commit | unchanged on 2026-10-19 (`436a7f5976a6815491c7384527fef90869574a1b`); still the latest tag. Re-run the check when S1 starts |
+| S1 step 8 | the pin "per the build workflow's own version check" (the MADR's) | the workflow checks only a library floor; moving `go.mod` and both pins together is D1's own rule. Keep doing it |
+| S2 step 2 | "Pass the `buildinfo` version to `/health`" | pass it through `daemon.Options.Version`. It then reaches `GET /v1/hello`'s `version` field (`internal/ws/server.go:543`) and ACP's `clientInfo.version` (`internal/daemon/daemon.go:327`, `internal/provider/acpagent/acpagent.go:1203`). No `/health` route exists |
+| S2 Verification | "a `/health` test asserting the `v`-prefixed version" | a `/v1/hello` test, authorized as the existing hello tests are, asserting the `v`-prefixed `version`; and an `acpagent` test asserting `initialize` sends that version as `clientInfo.version` |
+| S6 | ask the library for `before_uninstall` | still not asked: on 2026-10-19 no file at `go-selfupdate-lib` `5c0ab0d` mentions an uninstall hook |
+| S8 step 1 | wire "the daemon health check" and "a graceful shutdown request" | replaced by S8 steps 1a–1e below |
+
+### S1 also keeps 0201's changes, and serves 0201's P9
+
+- **Keep 0201's service changes intact.** S1's scope includes `internal/cli/service/refresh.go`.
+  - It must keep 0201 D27's read-back of `%t` (`Environment=XDG_RUNTIME_DIR=%t`).
+  - It must not change `setup-service --no-start`: 0201 D22, and that decision's amendment for
+    Windows, `da95b793`, are both outside S1's scope.
+  - The suites of `internal/cli/service`, including `runtime_dir_test.go`,
+    `nostart_launchd_test.go` and `nostart_schtasks_test.go`, pass unchanged.
+- **The backends take a name, for 0201's P9.**
+  [0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md](0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md)
+  P9 runs after S1 and S3, and its D30 feeds a recorded unit name into the backends' `Options`. So
+  S1 builds each backend through one function per GOOS that takes the name as a parameter, with
+  no literal inline. S1 passes the names it uses today; P9 changes only what is passed.
+
+### S5 step 2 — the settle wait reads `MCREMOTE_SVC_WAIT_SECS` (A3)
+
+Added to S5 step 2, test-first:
+
+- `setup-service`'s verified start waits up to `MCREMOTE_SVC_WAIT_SECS` seconds. Unset means 15,
+  the default of `scripts/install.sh:30`.
+- A value that is not a positive integer is refused. The error names the variable and the value,
+  and the wait does not begin. The shipped script has no such check (`install.sh:475` compares the
+  value in a shell loop), so this is new, deliberate behavior.
+- Tests:
+  - unset waits the default;
+  - a set value is honoured;
+  - `0`, `-1`, `abc` and an empty string are each refused.
+- Fail-first: a scratch copy that ignores the variable fails the "honoured" case.
+- The operator guide documents the variable with `setup-service`.
+
+### S8 step 1, replaced (A1, A2, A4)
+
+S8's Scope adds `internal/admin/`, `internal/daemon/` (the shutdown wiring), `internal/cli/serve.go`
+and `internal/relay/` (the probe's address and TLS resolution, read only), with their tests.
+
+- **1a. `mcremote`'s probe is the admin socket's `ping` (A1).**
+  - The `Options.Probe` of each `mcremote` backend (`systemd`, `launchd`, `taskscheduler`) is a
+    `service.HealthProbe` that calls `admin.Call(<the instance's admin socket>, admin.Request{Op:
+    admin.OpPing})`.
+  - It returns `Health{Ready: true}` only when the call succeeds and `Response.OK` is true. A
+    failed call is returned as an error, which `PollHealthy` keeps.
+  - The socket path comes from the same configuration resolution `pair` uses for its `ping`
+    (`internal/cli/pair.go:36`).
+- **1b. The admin socket gains a shutdown operation (A2).**
+  - `internal/admin` adds an operation constant beside `OpPing` and dispatches it.
+  - On receiving it, the daemon cancels the same context its shutdown signals cancel
+    (`internal/cli/serve.go:46`), so it runs exactly the shutdown path it runs on a signal.
+  - The reply is sent before the shutdown begins.
+  - The socket's owner-only checks are unchanged (`internal/admin/owner_unix.go`,
+    `owner_windows.go`).
+- **1c. Windows `mcremote` sets `RequestStop` (A2).**
+  - `taskscheduler.Options.RequestStop` sends the shutdown operation.
+  - `Options.StopGrace` is set explicitly, shorter than `Options.Poll.Timeout`, which
+    `taskscheduler.New` requires when `RequestStop` is set (`selfupdate/service/taskscheduler/task.go:71-76`).
+  - A unit test constructs the options and asserts that `New` accepts them.
+- **1d. `mcrelay`'s probe is its own `/healthz`, and it has no `RequestStop` (A4).**
+  - The `Options.Probe` of each `mcrelay` backend sends `GET /healthz` to the loopback address at
+    the relay's configured `listen.port`. It uses the scheme the relay's resolved TLS
+    configuration serves (`internal/relay/fileconfig.go:580-620`).
+  - It returns `Health{Ready: true}` only on status 200 with the body `{"ok":true}`.
+  - TLS is verified normally: never `InsecureSkipVerify`. The server name and roots come from the
+    relay's own configuration: the first ACME domain, or the configured certificate file and its
+    names.
+  - `mcrelay` sets no `RequestStop`, and gains no admin socket.
+- **1e. Unchanged from step 1 above:** `systemd.Notify` in the daemon and `Type=notify` in the
+  unit template.
+
+Verification, added to S8's:
+
+- **Probes:**
+  - the `mcremote` probe is ready against a test admin server that answers `ping`. It is not
+    ready when the server is absent, or answers `OK: false`.
+  - The `mcrelay` probe is ready against a relay test server, over plaintext and over TLS. It is
+    not ready on a non-200 status, or on a body other than `{"ok":true}`.
+- **The shutdown operation:** a running `serve` under test returns after it, as it does after a
+  signal. An unknown operation is still refused.
+- **Windows:** the task options are accepted by `taskscheduler.New`. On the Windows test host,
+  `scripts/acceptance-windows-service.ps1` sees an update stop the daemon through the request.
+- **Fail-first, each on a scratch copy:**
+  - the `mcremote` probe ignoring `Response.OK`;
+  - the `mcrelay` probe ignoring the body;
+  - the shutdown dispatch removed.
+
+  Each is seen failing.
