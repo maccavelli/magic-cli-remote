@@ -1100,3 +1100,130 @@ approving the PLAN accepts them.
   checks need throwaway containers on this Mac's Podman machine. If a supervisor cannot be run
   there, its live check is recorded as not done.
 
+## Amendment — 2026-10-19 (S7): the installer's hook must upgrade, not only install
+
+~~**Status of this amendment: proposed.** The record stays `accepted`. The decisions below wait for
+the owner, and PLAN S7 does not start until they are decided.~~
+**Decided by the owner on 2026-10-19: H1, M1 and L1, the recommended option each time.** The record
+stays `accepted`.
+
+Reading S7 against the code before starting it found that its one hook cannot do what the shipped
+installer does on a host that already has the product.
+
+### What S7's reading found
+
+- **S7 step 1's hook is a first-install command.** The PLAN gives the generated installer one hook,
+  `{"when": "after_install", "product": "mcremote", "args": ["setup-service"]}`. The arguments are
+  fixed in the spec, so every run of the installer runs that same command.
+- **The shipped installer branches on an existing definition** (`scripts/install.sh:652-719`, and
+  `:721-772` for launchd):
+  - **A definition that runs another folder's binary** is left alone. The installer reports it
+    and still exits 0 (`:666-670`).
+  - **A definition this folder owns** is refreshed with `setup-service --refresh`, which keeps
+    every option baked into it (`svc_refresh_units`, `:639-650`). Then the services that were
+    running before the install are restarted and checked (`:672-697`).
+  - **Only `--force-service`** re-runs a full `setup-service --force` (`:672`).
+  - **Only a host with no definition** gets a first-install `setup-service` (`:699-718`).
+- **Plain `setup-service` refuses a definition that differs, on every backend:** systemd
+  (`internal/cli/service/setup.go:462`), launchd (`:545`), the Task Scheduler
+  (`setup_schtasks.go:43`), and runit, s6 and OpenRC (`supervisor.go:375`). Any option baked in at
+  setup time makes the unit differ from a default render, and so does any template change in a new
+  release. So, under S7 as written, re-running the installer on an existing host would:
+  - install the new binaries;
+  - fail the hook with "pass --force to overwrite", and exit 3;
+  - leave the daemon running the old binary.
+
+  `--force`, through `MCREMOTE_FORCE_SERVICE=1`, would instead reset every baked option.
+- **On Windows the template installs where the old task does not run.** It installs to
+  `%LOCALAPPDATA%\Programs\magic-cli-remote\` (template `install.ps1:468`). A host installed by
+  the shipped `install.ps1` has a task that runs `…\Programs\<product>\<product>.exe`.
+  - Plain `setup-service` refuses that task as different, as above.
+  - `setup-service --refresh` takes D9's migration path. Its copy step copies each old binary into
+    the new folder, overwriting what is there (`migrate.go:163-177`). Run straight after the
+    template, it would replace the release just installed with the old binaries, check the copies
+    against those old sources, and point the task at them. The result is a silent downgrade.
+- **Neither installer stops the service first.** The shipped one stops the running services before
+  the swap and restarts them after (`svc_note_active`, `svc_stop_if_running`, `:597-615`). The
+  template has no step like that.
+  - On Unix, a rename leaves the running process on the old file.
+  - On Windows, the template renames the running `.exe` to `.prev` (template `install.ps1:566-572`).
+
+  Either way, the new binary runs only once the hook restarts the service.
+- **The library releases do not change this.** The installer templates are byte-identical at
+  `v1.15.2` and `v1.16.0` (`git diff --stat v1.15.2 v1.16.0 --
+  internal/cmd/selfupdate-release/installer/` is empty), so S7 can render at the D1 pin.
+
+### Options for the hook
+
+- **H1 — a `setup-service` mode for the installer (recommended).** One argument, proposed as
+  `--from-installer`, makes `setup-service` do what the shipped installer's branches do, for the
+  product it runs as:
+  - **No definition:** a first-install setup. For `mcremote` this includes
+    `MCREMOTE_WITH_RELAY_SERVICE`. For `mcrelay` it does nothing, because the relay's first
+    service comes from that variable or from `mcrelay setup-service`.
+  - **A definition this binary's folder owns:** a refresh, which keeps the baked options. The
+    service is then cycled by `update`'s rule (S5f): a running service is restarted, and a stopped
+    one is started only when it is enabled. Each start is confirmed by the verified start (S5c).
+  - **A definition that runs another folder's binary:** it is reported, left alone, and the
+    command exits 0. This is the shipped installer's "foreign" case. On Windows, the per-product
+    folders of D9 are the migration case below, not foreign.
+  - **`MCREMOTE_FORCE_SERVICE=1`:** a full `setup-service --force`, as `--force-service` was.
+  - **The spec has two hooks,** one per product:
+    - `{"when": "after_install", "product": "mcremote", "args": ["setup-service", "--from-installer"]}`;
+    - the same for `mcrelay`.
+
+    So an install of only one product (`--product`) still cycles that product's service.
+  - **No `before_install` hook.** The restart after the swap is what puts the new binary in
+    service, as above.
+- **H2 — two hooks, `setup-service --refresh` then `setup-service`.** The second still refuses a
+  definition the refresh kept with its baked options, and a refresh restarts nothing. So H2 fails
+  in the same cases S7 does.
+- **H3 — make plain `setup-service` upgrade a definition it owns, instead of refusing it.** This
+  changes a command operators run by hand. Today a definition that differs is an error unless they
+  pass `--force`. This option would silently refresh it instead.
+
+### Also proposed: the migration keeps a newer binary
+
+- **M1 — the migration copies a binary only when the new folder does not have it (recommended).**
+  `copyToNewFolder` skips a product whose `.exe` is already in
+  `%LOCALAPPDATA%\Programs\magic-cli-remote\`. That copy is the one the template just installed,
+  or one an earlier move made.
+  - The task is still switched, and the `PATH` and cleanup steps still run.
+  - With H1, an old-folder host upgraded by the generated `install.ps1` ends on the new release,
+    in the new folder, with the old folders removed.
+  - It also removes the S5h finding: a re-run of the old `install.ps1` can no longer be undone by a
+    later refresh, because that installer is deleted.
+- **M2 — or compare versions,** and copy only when the old folder's binary is newer. This needs a
+  version order inside the migration. M1 needs none, because a binary in the new folder can only
+  have been put there by the template or by an earlier move.
+
+### Questions for the live installs
+
+S7 step 3 reruns the live installs of
+[0098-MADR-ephemeral-cloud-install-verification.md](0098-MADR-ephemeral-cloud-install-verification.md).
+That record's fleet is paid AWS and DigitalOcean hosts.
+
+- **L1 — the hosts S5 used (recommended):**
+  - throwaway Podman containers on this Mac: Void for runit, Alpine with s6, and Alpine booted
+    with OpenRC;
+  - the Linux test host, under a scratch unit name and a scratch `XDG_STATE_HOME`;
+  - macOS on this Mac;
+  - the Windows test host, including one upgrade of an install from the old folders.
+
+  This costs nothing. It does not cover the rows only 0098's fleet reaches: RHEL with SELinux
+  enforcing, arm64 on cloud hardware, and WSL.
+- **L2 — L1, plus the 0098 fleet for the rows L1 cannot reach.** The spend is bounded by 0098's
+  own ceiling and teardown, and the owner approves it before launch.
+
+### Consequences of this amendment
+
+- Good, because re-running the installer stays a safe upgrade: options baked into the service
+  survive, and a definition from another install is not taken over. That is the shipped
+  installer's behaviour, now in Go with tests.
+- Good, because an old Windows install upgraded by the generated installer is moved, not
+  downgraded.
+- Neutral, because `setup-service` gains one more mode. It is built from parts S5 already ships:
+  the refresh, the ownership rule of `--uninstall`, `update`'s cycling rule, and the verified
+  start.
+- Bad, because S7 grows by a Go sub-phase before its release-lane work. The PLAN splits S7 into
+  sub-phases, each committed on its own.

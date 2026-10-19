@@ -744,6 +744,132 @@ Tests (Windows, with seams for the task, the registry and the copy check):
 - **Reverting an S5 commit restores the earlier behavior.** Any `service-backend` record left
   behind is ignored by older binaries, which do not read it.
 
+## Amendment — 2026-10-19 (S7): S7 in four sub-phases
+
+**Status: proposed.** This implements the MADR's "Amendment — 2026-10-19 (S7): the installer's
+hook must upgrade, not only install", with its options H1, M1 and L1. ~~**It waits for the
+owner's decisions on H, M and L, and for approval by name.**~~ The owner chose H1, M1 and L1 on
+2026-10-19. **Each sub-phase still waits for approval by name.** Where this amendment differs from
+S7 as first written, it governs, and that text stays as written.
+
+- **S7 step 1** (the hook) is replaced by S7a and S7b.
+- **S7 step 1's** "a `before_install` hook only if S6's hook has shipped" means
+  `before_uninstall`. That hook has not shipped (S6 record).
+
+**Rules:** each sub-phase is test-first, with each new test seen to fail on a scratch copy. Each is
+staged for the owner's commit on its own, with its own execution record. The rules for every phase
+still apply.
+
+### S7a — `setup-service --from-installer`, and the migration keeps a newer binary (H1, M1)
+
+Scope:
+
+- `internal/cli/service/`: a new file for the mode, `migrate.go`, and their tests;
+- `internal/cli/setup_service.go` and `internal/relay/cli.go`, for the flag;
+- `docs/guides/config.md` and `config-mcrelay.md`, for the flag row.
+
+Steps:
+
+1. Add `--from-installer` to both products' `setup-service`. It cannot be combined with
+   `--refresh`, `--remove`, `--uninstall` or `--print-only`.
+2. For the product it runs as, it finds the definition with `ResolveBackend` and the recorded name:
+   - **None:** a first-install `Setup`. For `mcremote` that includes
+     `MCREMOTE_WITH_RELAY_SERVICE`, exactly as plain `setup-service` does (S5d). For `mcrelay` it
+     does nothing, prints that no relay service is set up, and exits 0.
+   - **Owned** (its program is in this binary's folder, the ownership rule of `--uninstall`):
+     - `RefreshUnit`;
+     - then the cycle of `update` (S5f): running means restart, and stopped and enabled means start;
+     - then the verified start (S5c) for each start.
+   - **Foreign:** report it, as `--uninstall`'s `left:` line does, and exit 0.
+   - **Windows, a task in the per-product folders:** `RefreshUnit`, whose migration moves it, then
+     the cycle above.
+   - **`MCREMOTE_FORCE_SERVICE=1`:** `Setup` with `Force`.
+3. In `migrate.go`, `copyToNewFolder` skips a product whose `.exe` is already in the new folder. It
+   still switches the task, and the `PATH` and cleanup steps still run.
+
+Tests:
+
+- each of the five cases, on each backend the package's fakes cover;
+- a baked option (`--listen-port`) kept on the owned path;
+- a stopped, disabled service left stopped;
+- a foreign definition left untouched;
+- the flag's conflicts;
+- `mcrelay` with no definition;
+- a migration where the new folder already holds a newer binary, which is kept, while the task
+  moves.
+
+Live:
+
+- the Podman containers and the Linux test host, under scratch names: a first install, then a
+  second run that keeps a baked option and restarts;
+- the Windows test host: one second run.
+
+### S7b — The spec's `installer` block, and a rehearsal (D8, D9)
+
+Scope: `internal/updateclient/selfupdate-release.json`, `internal/updateclient/spec_test.go`, and
+`.github/workflows/ci.yml` limited to the extras.
+
+Steps:
+
+1. Add the installer block:
+
+```json
+"installer": {
+  "name": "magic-cli-remote",
+  "env_prefix": "MCREMOTE",
+  "hooks": [
+    {"when": "after_install", "product": "mcremote", "args": ["setup-service", "--from-installer"]},
+    {"when": "after_install", "product": "mcrelay", "args": ["setup-service", "--from-installer"]}
+  ]
+}
+```
+
+2. Remove `install.sh` and `install.ps1` from `extras`, because the build workflow now generates
+   them. The scripts stay in the tree until S7d.
+3. `spec_test.go` pins the block and the absence of those two extras. It is seen to fail on a
+   scratch copy without the hooks.
+4. After the owner pushes, dispatch a rehearsal (S4 Deviation 2). Read the staged `install.sh` and
+   `install.ps1`: the values block, the hooks, the prefix, and the Windows folder.
+
+### S7c — Live installs with the rendered installers (S7 step 3, L1)
+
+Use the rehearsal's rendered scripts, served from a loopback origin through
+`SELFUPDATE_INSTALL_BASE_URL`, the templates' test origin (D8).
+
+- **Containers:** Void (runit), Alpine with s6 (`curl` installed, as D12 requires), and Alpine
+  booted with OpenRC. In each, as a non-root user: a first install, a second install over it, and
+  the two-command uninstall of D11, which must leave no definition.
+- **The Linux test host:** the same, under a scratch unit name and a scratch `XDG_STATE_HOME`.
+- **macOS:** on this Mac, under a scratch label, only if the owner agrees when S7c starts.
+- **The Windows test host:**
+  - `scripts/acceptance-windows.ps1` and `scripts/acceptance-windows-service.ps1`;
+  - a first install;
+  - one upgrade of an install in the old folders, which must end in the new folder on the new
+    release.
+- **Not covered by L1:** RHEL with SELinux enforcing, arm64 on cloud hardware, and WSL. These are
+  recorded as not done unless the owner chooses L2.
+
+### S7d — Delete the scripts, and rewrite the install documentation (S7 step 4)
+
+Only after S7c passes.
+
+1. Delete `scripts/install.sh`, `scripts/install.ps1`, `scripts/install_test.sh`,
+   `scripts/install_ps1_test.ps1` and `scripts/install_ps1_unit_test.ps1`.
+2. Delete CI's "install.sh tests (hermetic)" step (`ci.yml:170-171`), and the PowerShell installer
+   steps (`:300-346`).
+3. Rewrite the install text in `README.md`, `docs/guides/ops-linux-install.md`,
+   `ops-windows-install.md` and `ops-macos-tcc.md`, and update `docs/README.md`'s links:
+   - the generated installers' options;
+   - both renames of D8;
+   - the refusal of BusyBox `wget` (D12);
+   - the two-command uninstall (D11);
+   - what the hook does on a second run.
+4. The comments in `internal/cli/service/` that cite `scripts/install.sh` lines stay. They name the
+   source a port came from, as of the commit that deleted it. The execution record lists them.
+
+Rollback: S7b and S7d each revert with their commit, before the next tag. S7a is source, and
+reverts with its commit.
+
 ## S1–S8 execution record
 
 ### S1, 2026-10-19 — complete, staged for the owner's commit
