@@ -988,3 +988,113 @@ S4's verification found that two statements of this record are false today:
   That rule is now in two places. A mismatch is loud: the stage step refuses an extras directory
   holding a file the spec does not list, and the verify step refuses a set missing one.
 
+## Amendment — 2026-10-19 (S5): the supervisors, the relay, updates and the Windows folder
+
+Reading S5 against the code before starting it found four things the record did not settle. The
+owner decided each on 2026-10-19, choosing the recommended option every time.
+
+### What S5's reading found
+
+- **The record contradicts itself on the relay.**
+  - Amendment 4 retires the installer's `--with-relay-service`. In its place you run
+    `mcrelay setup-service` after the install (the "Installers" bullet of "The shape, per surface",
+    and amendment 4 under "The amendments, stated").
+  - D10, written later (2026-10-13), gives `--with-relay-service` an environment-variable
+    equivalent read by `setup-service`. PLAN S5 step 3 names it `MCREMOTE_WITH_RELAY_SERVICE`.
+- **The shell installer's other supervisors are thinner than its systemd path.**
+  - For runit and s6, `install.sh` writes a run script that is a bare
+    `exec "<dir>/mcremote" serve 2>&1`. For OpenRC it writes an init script with
+    `command_args="serve"` (`scripts/install.sh:776-831`).
+  - Each covers `mcremote` only. None passes `--config`. None bakes the environment the systemd
+    unit sets.
+  - None is checked for a start. `svc_confirm` runs only on the systemd and launchd paths
+    (`:686`, `:704`, `:741`, `:759`).
+- **`update` has never restarted those supervisors.**
+  - On Linux, `NewBackend` always returns the systemd backend (`internal/cli/service/backend.go:36-41`).
+  - On a runit, s6 or OpenRC host, a managed update finds no systemd unit and installs the binary
+    as a standalone update.
+  - The supervisor keeps the old process running, on the replaced file. That was already true
+    under `mcplib`. Only `install.sh` stopped and restarted those services (`svc_note_active`,
+    `:597-609`).
+- **D9's migration would point the task at a missing binary.**
+  - Today each product has its own folder: `%LOCALAPPDATA%\Programs\<product>\<product>.exe`
+    (`scripts/install.ps1:324-326`; `internal/cli/service/setup.go:1364-1371`).
+  - Each of those folders has its own User `PATH` entry (`install.ps1:357-369`).
+  - The library's template installs flat: `%LOCALAPPDATA%\Programs\<installer.name>\<product>.exe`
+    (template `install.ps1:468`, `:489`).
+  - A managed update replaces the binary where it already is, so after an update it is still in
+    the old folder.
+  - D9 says only that the refresh "re-registers the task at the new path, and moves the user
+    `PATH` entry". The binaries are never moved, and there are two entries, not one.
+
+### The owner's decisions (2026-10-19)
+
+- **S5-1: D10 holds for the relay.**
+  - With `MCREMOTE_WITH_RELAY_SERVICE=1`, `mcremote setup-service` also sets up `mcrelay`, from
+    the `mcrelay` binary in the same folder as its own `--binary`, and checks that it starts.
+  - `mcrelay setup-service` keeps working on its own.
+  - Amendment 4 still retires the installer's flag. The variable replaces the flag, and running
+    `mcrelay setup-service` yourself is the other way to opt in.
+- **S5-2: the runit, s6 and OpenRC definitions match the systemd unit.**
+  - They run the same `serve` command, with the same arguments and the same environment the
+    unit bakes in, for both products.
+  - They live in the user directories `install.sh` already uses: `$XDG_DATA_HOME/runit/service`,
+    `$XDG_DATA_HOME/s6/service` and `$XDG_CONFIG_HOME/rc/init.d` (`install.sh:299-303`). Each is
+    named by the recorded unit name.
+  - They follow the unit's rules for `--force`, `--refresh` and `--remove`.
+- **S5-3: `update` restarts them.**
+  - Each of the three supervisors gets a product backend that implements `selfupdate.Lifecycle`
+    and `selfupdate.EnabledLifecycle`, built on the same control code `setup-service` uses.
+  - `setup-service` records which backend it set up. `NewBackend` and `doctor` read that record,
+    so a managed update stops, starts and health-checks those services, and rolls back on them,
+    as it does on systemd.
+  - This extends D5 ("the backends own health") to backends this product writes, because the
+    library has none for these supervisors.
+- **S5-4: D9's migration copies, switches, then cleans up.** When `setup-service --refresh` on
+  Windows finds the task running a binary from `%LOCALAPPDATA%\Programs\<product>\`:
+  - It copies each product's `.exe` that is present into `%LOCALAPPDATA%\Programs\magic-cli-remote\`.
+  - It checks that each copy runs and reports the same identity as its source.
+  - It re-registers the task at the new path.
+  - It replaces both per-product User `PATH` entries with the one new folder, keeping the value's
+    registry type.
+  - It deletes the old copies when nothing runs from them. A copy in use is deleted by a later
+    refresh.
+  - A task that already runs from the new folder means no move, only that cleanup.
+  - If a copy fails its check, nothing is switched.
+
+### Proposed with the PLAN, for the owner's review
+
+These settle the points D10 leaves open. The S5 amendment of the PLAN implements them, and
+approving the PLAN accepts them.
+
+- **A host where `setup-service` cannot supervise exits 0, with a hint.**
+  - This covers three cases: systemd present but its user manager unreachable (the
+    "broken-systemd fallback"); a system-only OpenRC; and no supported supervisor.
+  - Nothing is written. The advice `install.sh` prints is ported: its `advisories`, `:854-893`.
+  - This meets amendment 4, and matches `install.sh`, which never falls through from a broken
+    systemd to another supervisor (`detect_init`, `:148-158`).
+  - **System OpenRC is narrowed from O2's "OpenRC (user and system)".** A system service needs
+    root to write `/etc/init.d`, and `setup-service` runs as the user. So the hint gives the root
+    steps rather than performing them.
+- **`setup-service --uninstall` removes both products' definitions,** for every backend it
+  supports.
+  - It removes only definitions whose program sits in the same folder as the binary running it,
+    which is `install.sh`'s ownership rule (`svc_targets_install_dir`, `:387-392`).
+  - So D11's two documented commands leave no definition pointing at a binary the installer then
+    deletes. Definitions that run another folder's binary are reported and left alone.
+
+### Consequences of this amendment
+
+- Good, because hosts on runit, s6 and OpenRC keep supervision with the same configuration as
+  systemd hosts, and `update` keeps them current. Neither was true before.
+- Good, because the Windows migration can no longer leave the task without a binary. The binaries
+  move before the task does, and nothing switches unless the copies are checked.
+- Neutral, because the relay has two ways to opt in, the variable and running
+  `mcrelay setup-service`. Both use the same code.
+- Bad, because S5 grows. It now also covers three product backends for `update`, a backend
+  record, and the binary copy in the migration. The PLAN splits S5 into sub-phases, each committed
+  on its own.
+- Bad, because nothing in CI or on the test hosts exercises runit, s6 or OpenRC today. The live
+  checks need throwaway containers on this Mac's Podman machine. If a supervisor cannot be run
+  there, its live check is recorded as not done.
+

@@ -305,6 +305,9 @@ selector resolves it.)*
 
 ### S5 — `setup-service` closes the installer gaps (O2, D9, D10)
 
+*(2026-10-19: replaced by "Amendment — 2026-10-19 (S5): S5 in eight sub-phases" below. The steps
+are kept as written.)*
+
 Scope: `internal/cli/service/` and `internal/cli/setup_service.go`, with new files for the runit,
 s6 and OpenRC backends, plus their tests and `docs/guides/` operator text.
 
@@ -496,6 +499,250 @@ Verification, added to S8's:
   - the shutdown dispatch removed.
 
   Each is seen failing.
+
+## Amendment — 2026-10-19 (S5): S5 in eight sub-phases
+
+This follows the MADR's amendment "2026-10-19 (S5): the supervisors, the relay, updates and the
+Windows folder" (S5-1 to S5-4, and its two proposals). S5 as first written had six steps. It now
+runs as eight sub-phases.
+
+- Each sub-phase is test-first. Each new test is seen to fail on a scratch copy before it counts.
+- Each sub-phase is staged for the owner's commit on its own, with its own execution record.
+- The rules for every phase still apply.
+
+**Scope, across S5a–S5h:**
+
+- `internal/cli/service/`: new files for detection, the backend record, the runit, s6 and OpenRC
+  definitions and backends, the start check, uninstall, and the Windows migration;
+- `internal/cli/setup_service.go` and `internal/relay/cli.go`, for the flags and environment
+  variables;
+- `internal/updateclient/managed.go`, only where `NewBackend`'s choice reaches it;
+- `docs/guides/config.md`, `docs/guides/config-mcrelay.md`, `docs/guides/ops-linux-install.md`,
+  `docs/guides/ops-windows-install.md` and `README.md`, for the operator text;
+- their tests.
+
+### S5a — Detection, the backend record, and hosts with nothing to supervise
+
+1. Port `detect_init` (`install.sh:132-174`) to Go.
+   - It reports one of `systemd-user`, `systemd-broken`, `runit`, `s6`, `openrc-user`,
+     `openrc-system`, `launchd-agent`, `windows-task` or `none`.
+   - The order and the probes are `install.sh`'s, including s6 needing `s6-svstat`.
+   - The kernel and PID 1 files it reads are package variables, so tests can point them
+     elsewhere.
+2. Record the backend `setup-service` used in `<state_dir>/service-backend`, beside
+   `service-unit`, and forget it on removal.
+   - `ResolveBackend(product)` returns the recorded backend.
+   - With no record it returns the OS default: `systemd-user`, `launchd-agent` or
+     `windows-task`. So every existing install keeps today's behavior.
+3. On `systemd-broken`, `openrc-system` and `none`, `setup-service` writes nothing.
+   - It prints the advice `install.sh`'s `advisories` prints (`:854-893`): the `su` or
+     `pam_systemd` cause, a PID 1 that is not systemd, WSL2's `systemd=true`, and WSL1.
+   - It also prints the run-it-yourself hint (`:952-956`). For `openrc-system` it adds the root
+     steps.
+   - It exits 0. `--print-only` is unaffected.
+
+Tests:
+
+- the detection table, with fake `systemctl`, `runsvdir`, `sv`, `s6-svscan`, `s6-svc`,
+  `s6-svstat` and `rc-service` binaries on a temporary `PATH` (Unix only);
+- the record round-trip, and the default when there is no record;
+- exit 0 and the advice for each of the three kinds.
+
+### S5b — runit, s6 and OpenRC user definitions, matching systemd (G1, S5-2)
+
+1. **Render** each definition from the same options and the same environment the systemd unit
+   renders.
+   - **runit and s6:** a `run` script that carries the managed marker, exports the unit's
+     environment (`PATH`, `HOME`, the XDG directories and `--env`), changes to the working
+     directory, and runs `exec <binary> serve <args> 2>&1`.
+   - **OpenRC:** an `openrc-run` script with the same `command`, `command_args` and exported
+     environment, `command_background`, and a pid file under the runtime directory.
+2. **Write** to `$XDG_DATA_HOME/runit/service/<name>/run`, `$XDG_DATA_HOME/s6/service/<name>/run`
+   or `$XDG_CONFIG_HOME/rc/init.d/<name>`.
+   - The systemd unit's rules apply: identical content is a no-op, different content needs
+     `--force`, and the mode is `0600` when `--env` is given.
+3. **Start.**
+   - **runit and s6:** if a `runsvdir` or `s6-svscan` of the user's own already watches the
+     directory, restart the service through it (`sv restart`, `s6-svc -r`). Otherwise start
+     one, detached, for this session. That is `install.sh`'s "supervised-session"
+     (`:786-807`), and the result says that nothing starts it at boot.
+   - **runit and s6 enable:** a service is enabled when its directory has no `down` file.
+     `--no-enable` writes one.
+   - **OpenRC:** `rc-service --user <name> restart`. Unless `--no-enable`, it also runs
+     `rc-update --user add <name> default`.
+4. **`--refresh` and `--remove`** handle the three kinds:
+   - refresh recovers the options from the script, as it does from `ExecStart`, and rewrites
+     only a script that carries the marker;
+   - remove stops the service, deletes the definition, and forgets both records.
+5. **Both products.** `mcrelay setup-service` takes the same path.
+
+Tests:
+
+- rendering parity with the systemd unit for the same options;
+- write, `--force` and the no-op rule;
+- start against the fakes, both with a supervisor running and without one;
+- `--no-enable`;
+- refresh, recovering options and refusing a script without the marker;
+- remove.
+
+### S5c — The verified start and `MCREMOTE_SVC_WAIT_SECS` (G2, A3)
+
+1. After every start, wait for the service to settle. This ports `svc_settle` (`install.sh:467-520`).
+   - **systemd** reads `ActiveState`, `SubState` and `NRestarts`:
+     - a rise in `NRestarts`, `auto-restart` with two or more restarts, or `failed` means not
+       running;
+     - running needs `active` on three consecutive seconds.
+   - **The other kinds** need two consecutive seconds of their running probe:
+     - launchd: `launchctl print` state;
+     - Task Scheduler: the task's running state;
+     - runit, s6 and OpenRC: `sv status`, `s6-svstat` (the `^up ` line) and
+       `rc-service status`.
+2. Report one of three outcomes:
+   - **running:** "running, enabled at boot", or that kind's session or boot wording, as
+     `install.sh`'s `summary` words it (`:916-958`). Exit 0.
+   - **still starting when the wait ends:** a warning. Exit 0.
+   - **not running:** that backend's diagnostic, as in `svc_diagnose` (`:524-533`), then a
+     non-zero exit.
+3. Read the wait from `MCREMOTE_SVC_WAIT_SECS`, as the S5 step 2 amendment above says. Its
+   rules and tests stand.
+4. `--no-start` skips the wait.
+
+Tests:
+
+- each outcome, for each kind, with the fakes or seams;
+- a crash loop seen through `NRestarts`;
+- the variable's cases.
+
+### S5d — The installer options as environment variables (G3, S5-1)
+
+1. `setup-service` reads `MCREMOTE_NO_LINGER`, `MCREMOTE_FORCE_SERVICE` and
+   `MCREMOTE_WITH_RELAY_SERVICE`.
+   - `1` turns an option on. Unset or `0` leaves it off.
+   - Any other value is refused, and the error names the variable.
+   - A flag also turns its option on.
+2. With `MCREMOTE_WITH_RELAY_SERVICE=1`, `mcremote setup-service` sets up `mcrelay` once its own
+   service is confirmed running.
+   - It uses the `mcrelay` binary in the same folder as `--binary`. If that binary is missing,
+     the run fails.
+   - If the relay fails to start, `mcremote` is left running. The command says so and exits
+     non-zero, as `install.sh` does (`:706-718`).
+3. `mcrelay setup-service` reads the first two variables.
+
+Tests: each variable on, off and refused; the relay set up beside `mcremote`; the relay's binary
+missing; and the relay failing to start.
+
+### S5e — `setup-service --uninstall` (G4)
+
+1. For `mcremote` and `mcrelay`, and for every backend with a definition present:
+   - if the definition's program is in the same folder as the binary running the command, stop
+     it, disable it, delete it, and forget both records;
+   - otherwise report it, and leave it.
+
+   This is `install.sh`'s `do_uninstall` (`:960-997`), with its ownership rule.
+2. With nothing to remove, exit 0.
+3. `--uninstall` cannot be combined with `--refresh` or `--remove`.
+4. `mcrelay setup-service --uninstall` does the same.
+
+Tests:
+
+- each backend's definition removed;
+- a definition that runs another folder's binary left in place and reported;
+- both products in one run;
+- nothing installed.
+
+### S5f — `update` restarts runit, s6 and OpenRC services (S5-3)
+
+1. Add product backends for runit, s6 and OpenRC. Each implements `selfupdate.Lifecycle` and
+   `selfupdate.EnabledLifecycle` on the control code from S5b and S5c:
+   - `Installed`: the definition exists.
+   - `Running`: the status probe.
+   - `Stop` and `Start`.
+   - `WaitHealthy`: the S5c settle.
+   - `Enabled`: no `down` file, or listed in the default runlevel.
+2. `NewBackend` chooses the backend `ResolveBackend` returns. `IsInstalled` and `ProbeStatus`
+   follow it, so `update` and `doctor` agree (D6).
+3. Refresh for the three kinds (S5b step 4) is the reconcile child's work, as it is for systemd.
+
+Tests: a managed update through `selfupdatetest` on a fake runit, s6 and OpenRC host:
+
+- running means restarted;
+- stopped and enabled means started;
+- stopped with `down` means left stopped;
+- a start that fails rolls back;
+- `doctor` names the backend.
+
+### S5g — The Windows migration (D9, S5-4)
+
+1. In refresh on Windows, a task whose `Exec` is `%LOCALAPPDATA%\Programs\<product>\<product>.exe`
+   is migrated:
+   - Copy each product's `.exe` that is present into `%LOCALAPPDATA%\Programs\magic-cli-remote\`.
+   - Run each copy's `version` and compare its identity line with its source's. On any mismatch,
+     stop, switch nothing, and report it.
+   - Re-register the task with `Exec` at the new path. The refresh's own rewrite does this, with
+     the binary changed.
+   - Rewrite the User `PATH`:
+     - remove `…\Programs\mcremote` and `…\Programs\mcrelay`;
+     - add `…\Programs\magic-cli-remote` once;
+     - keep the value's registry type and every other entry;
+     - announce the change with `WM_SETTINGCHANGE`.
+   - Delete each old copy, and its folder when that is empty. A copy in use stays, and a later
+     refresh deletes it.
+   - The refresh's JSON receipt names the migration as a change.
+2. A task already in the new folder means no copy, only the cleanup.
+3. `defaultInstalledBinary` on Windows returns the new folder.
+
+Tests (Windows, with seams for the task, the registry and the copy check):
+
+- the old folder;
+- the new folder;
+- already migrated;
+- only one product present;
+- a copy that fails its check, after which nothing has changed;
+- a `PATH` whose value is `REG_EXPAND_SZ`;
+- leftovers cleaned on a later run.
+
+### S5h — Operator documentation
+
+- **`docs/guides/config.md` and `config-mcrelay.md`:** the `setup-service` section covers:
+  - the three new supervisors;
+  - the verified start and its outcomes;
+  - the three variables and `MCREMOTE_SVC_WAIT_SECS`;
+  - `--uninstall`;
+  - the advice on hosts with nothing to supervise.
+- **`ops-linux-install.md`:** the supervisors and the session-only caveat.
+- **`ops-windows-install.md`:** the folder move.
+- **The README rows** for the new flags.
+
+### Verification for S5
+
+- **Each sub-phase's tests,** each seen to fail first on a scratch copy.
+- **The repository's gates** for every sub-phase: `make pre-add-check`, `go vet` on three
+  platforms, `make lint`, `make staticcheck`, `go test -race ./...`, and the record checks. Also
+  `make ci-windows` on the Windows test host, and the changed packages on the Linux test host.
+- **Live runs, never on the operator's own account:**
+  - **runit, s6 and OpenRC:** throwaway containers on this Mac's Podman machine, which is
+    started for the run and stopped after it. Void Linux for runit; Alpine with s6; Alpine with
+    OpenRC. In each, as a non-root user: setup, the verified start, an update from a local
+    release that restarts the service, and `--uninstall`.
+    - User OpenRC needs OpenRC 0.60 or later. If no image provides it, the OpenRC run covers
+      detection and the system-OpenRC hint only, and the record says so.
+  - **systemd:** on the Linux test host, under a scratch unit name (`--unit-name s5-live`): setup,
+    the verified start, a crash-looping configuration that must be reported as not running, and
+    `--uninstall`. The scratch unit is removed afterwards.
+  - **Windows:** on the Windows test host. Install the old layout with today's `install.ps1`,
+    run a managed update, and check:
+    - the task and `PATH` point at the new folder;
+    - the old copies are gone after a second refresh;
+    - `scripts/acceptance-windows-service.ps1` passes.
+
+### Rollout and rollback for S5
+
+- **Every sub-phase is additive, apart from S5g.** A host with no backend record behaves as before.
+- **S5g changes Windows installs on their next update.** Its rollback is the refresh's existing
+  `.prev` restore for the task. The copy check runs before anything switches. The old binaries
+  are deleted only after the switch.
+- **Reverting an S5 commit restores the earlier behavior.** Any `service-backend` record left
+  behind is ignored by older binaries, which do not read it.
 
 ## S1–S8 execution record
 
