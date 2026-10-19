@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# verify-build-metadata.sh — assert build-tag and cgo policy across every
-# published target (MADR 0059 D9, MADR 0116 D2/D21).
+# verify-build-metadata.sh — assert the build-tag and cgo policy the Makefile
+# builds with, on every release platform (MADR 0059 D9, MADR 0116 D2/D21).
+# This covers local and `make` builds only. The published binaries come from
+# go-selfupdate-lib's build workflow, which builds them cgo-free with no tags
+# and checks each one's build information itself (MADR 0054 S4).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

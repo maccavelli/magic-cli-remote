@@ -1,14 +1,14 @@
 package updateclient
 
 import (
-	"encoding/json"
 	"os"
-	"reflect"
-	"regexp"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	yaml "go.yaml.in/yaml/v3"
 )
 
 // frozenPlatforms is the release matrix: MADR 0116 D19 leaves out
@@ -22,8 +22,8 @@ var frozenPlatforms = []selfupdate.Platform{
 
 // TestReleaseSpecServesEachProduct: the embedded spec parses, names each
 // product with its identity command, gives each an asset selector, and holds
-// the frozen platforms and the APK extra, so a spec this program cannot use
-// fails here rather than in a release (MADR 0054 D8, S3).
+// the frozen platforms and the extras, so a spec this program cannot use
+// fails here rather than in a release (MADR 0054 D8, S3, S4).
 func TestReleaseSpecServesEachProduct(t *testing.T) {
 	spec, err := releaseSpec()
 	if err != nil {
@@ -47,44 +47,113 @@ func TestReleaseSpecServesEachProduct(t *testing.T) {
 	if got := spec.Targets(); !slices.Equal(got, frozenPlatforms) {
 		t.Errorf("spec.Targets() = %v, want the frozen matrix %v", got, frozenPlatforms)
 	}
-	if got, err := spec.ExtraNames("v1.2.3"); err != nil || !slices.Equal(got, []string{"magic-cli-remote-v1.2.3-arm64.apk"}) {
-		t.Errorf("spec.ExtraNames(v1.2.3) = %q, %v; want the APK only until S4 and S7", got, err)
+	wantExtras := []string{"install.sh", "install.ps1", "magic-cli-remote-v1.2.3-arm64.apk"}
+	if got, err := spec.ExtraNames("v1.2.3"); err != nil || !slices.Equal(got, wantExtras) {
+		t.Errorf("spec.ExtraNames(v1.2.3) = %q, %v; want %q until S7 generates the installers", got, err, wantExtras)
 	}
 	if _, err := New(Options{Product: "mcother"}); err == nil {
 		t.Error("New accepted a product the spec does not name")
 	}
 }
 
-// TestReleaseSpecMatchesThePublishJob: until the library's build workflow
-// reads the spec (MADR 0054 PLAN S4), the publish job's products and platforms
-// are written out in ci.yml, and must agree with the spec the client selects
-// assets from.
-func TestReleaseSpecMatchesThePublishJob(t *testing.T) {
+// TestReleaseSpecExtrasHaveTheirSources: the build job stages the installers
+// from their paths and the APK from android-apk's artifact (MADR 0054 S4), so
+// each path must name a file in the repository, and the APK must have none.
+func TestReleaseSpecExtrasHaveTheirSources(t *testing.T) {
 	spec, err := releaseSpec()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ci, err := os.ReadFile("../../.github/workflows/ci.yml")
+	want := map[string]string{
+		"install.sh":                       "scripts/install.sh",
+		"install.ps1":                      "scripts/install.ps1",
+		"magic-cli-remote-{tag}-arm64.apk": "",
+	}
+	if len(spec.Extras) != len(want) {
+		t.Fatalf("spec has %d extras, want %d", len(spec.Extras), len(want))
+	}
+	for _, e := range spec.Extras {
+		path, ok := want[e.Name]
+		if !ok || e.Path != path {
+			t.Errorf("extra %s has path %q, want %q", e.Name, e.Path, path)
+			continue
+		}
+		if path == "" {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join("..", "..", filepath.FromSlash(path))); err != nil || !fi.Mode().IsRegular() {
+			t.Errorf("extra %s: %s is not a regular file in the repository: %v", e.Name, path, err)
+		}
+	}
+}
+
+// ciJob is the part of a ci.yml job these tests read.
+type ciJob struct {
+	If    string            `yaml:"if"`
+	Needs []string          `yaml:"needs"`
+	Uses  string            `yaml:"uses"`
+	With  map[string]string `yaml:"with"`
+	Steps []struct {
+		Uses string            `yaml:"uses"`
+		With map[string]string `yaml:"with"`
+	} `yaml:"steps"`
+}
+
+// TestReleaseJobsReadTheSpec: the release is built from this package's
+// embedded spec, and published with the inputs the build job derives from it,
+// never with a copy written into ci.yml (MADR 0054 D8, S4). The build gets the
+// APK from the artifact android-apk uploads; publish runs only on a tag and
+// never for a rehearsal; and both library workflows are called at one pin.
+func TestReleaseJobsReadTheSpec(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/ci.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ input, want string }{
-		{"products-json", spec.ProductsJSON()},
-		{"platforms-json", spec.PlatformsJSON()},
-	} {
-		m := regexp.MustCompile(`(?m)^\s+` + tc.input + `: '(.*)'$`).FindSubmatch(ci)
-		if m == nil {
-			t.Fatalf("ci.yml has no %s input", tc.input)
+	var ci struct {
+		Jobs map[string]ciJob `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &ci); err != nil {
+		t.Fatal(err)
+	}
+	build, publish, apk := ci.Jobs["build"], ci.Jobs["publish"], ci.Jobs["android-apk"]
+
+	const lib = "maccavelli/go-selfupdate-lib/.github/workflows/"
+	buildPin, ok := strings.CutPrefix(build.Uses, lib+"build-selfupdate-release.yml@")
+	if !ok {
+		t.Fatalf("build uses %q, want the library's build workflow", build.Uses)
+	}
+	if publishPin, ok := strings.CutPrefix(publish.Uses, lib+"publish-selfupdate-release.yml@"); !ok || publishPin != buildPin {
+		t.Errorf("publish uses %q, want the library's publish workflow at the build's pin %s", publish.Uses, buildPin)
+	}
+	if got := build.With["spec-path"]; got != "internal/updateclient/selfupdate-release.json" {
+		t.Errorf("build spec-path = %q, want the spec this package embeds", got)
+	}
+	if !slices.Contains(build.Needs, "android-apk") || build.If != apk.If {
+		t.Errorf("build needs %v if %q; want android-apk, under its gate %q", build.Needs, build.If, apk.If)
+	}
+	uploaded := ""
+	for _, s := range apk.Steps {
+		if strings.HasPrefix(s.Uses, "actions/upload-artifact@") {
+			uploaded = s.With["name"]
 		}
-		var got, want any
-		if err := json.Unmarshal(m[1], &got); err != nil {
-			t.Fatalf("ci.yml %s: %v", tc.input, err)
-		}
-		if err := json.Unmarshal([]byte(tc.want), &want); err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("ci.yml %s = %s, but the spec gives %s", tc.input, m[1], tc.want)
+	}
+	if uploaded == "" || build.With["extras-artifact-name"] != uploaded {
+		t.Errorf("build extras-artifact-name = %q, but android-apk uploads %q", build.With["extras-artifact-name"], uploaded)
+	}
+
+	if !slices.Equal(publish.Needs, []string{"build"}) {
+		t.Errorf("publish needs %v, want [build]", publish.Needs)
+	}
+	if publish.If != "github.ref_type == 'tag' && needs.build.outputs.rehearsal == 'false'" {
+		t.Errorf("publish if = %q, want it to run only on a tag that is not a rehearsal", publish.If)
+	}
+	inputs := []string{"artifact-name", "products-json", "platforms-json", "extra-assets-json", "prerelease-channels-json"}
+	if len(publish.With) != len(inputs) {
+		t.Errorf("publish has inputs %v, want exactly %v", publish.With, inputs)
+	}
+	for _, in := range inputs {
+		if want := "${{ needs.build.outputs." + in + " }}"; publish.With[in] != want {
+			t.Errorf("publish %s = %q, want %q", in, publish.With[in], want)
 		}
 	}
 }

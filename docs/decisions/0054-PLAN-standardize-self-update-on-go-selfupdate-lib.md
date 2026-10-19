@@ -289,14 +289,19 @@ Scope: `.github/workflows/ci.yml` (build, release and APK jobs), `scripts/verify
 Steps:
 
 1. Call `build-selfupdate-release.yml` at the D1 pin. Feed the APK through `extras-artifact-name`.
+   *(2026-10-19, S4 Deviation 2: the call runs on a tag and on `workflow_dispatch` only.)*
 2. Delete the release job's build, stamp, rename, smoke, cgo-assert, checksum and staging steps.
    Keep the APK build and `assert-flutter-release-apk.sh`. Ship `scripts/install.sh` and
-   `install.ps1` as spec `extras` until S7.
+   `install.ps1` as spec `extras` until S7. *(2026-10-19, S4 Deviation 1: the spec and
+   `spec_test.go` join S4's scope.)*
 3. Run a branch rehearsal and read its staged artifact: four platforms, both products, the APK, and
-   a `SHA256SUMS` naming canonical names only.
+   a `SHA256SUMS` naming canonical names only. *(2026-10-19, S4 Deviation 2: a dispatched
+   rehearsal, after the owner pushes.)*
 
 Verification: the rehearsal's own checks, quoted in the execution record; the frozen v0.15.3
-fixture still resolves the rehearsed asset set.
+fixture still resolves the rehearsed asset set. *(2026-10-19, S4 Deviation 4: it cannot, and the
+check is replaced. The rehearsed set equals the last published release's set, and the client's
+selector resolves it.)*
 
 ### S5 — `setup-service` closes the installer gaps (O2, D9, D10)
 
@@ -369,7 +374,9 @@ Steps:
 2. Add pointer amendments to the records this MADR's "More Information" lists: 0103, 0065, 0059 D9,
    0116 D13/D19/D21, 0097, 0099, 0104, 0156, 0170, 0159 and 0132.
 3. Tag the first release, with the owner's explicit ask, and verify the release contract: an
-   immutable, attested release; the frozen v0.15.3 fixture resolves its asset set; `update --check`
+   immutable, attested release; the frozen v0.15.3 fixture resolves its asset set *(2026-10-19, S4
+   Deviation 4: replaced by "the asset set equals the last published release's, and the client's
+   selector resolves it")*; `update --check`
    from the last mcplib-built release exits 10 against it.
 
 Verification: health tests per backend, including a crash-looping fixture that must now fail
@@ -1129,3 +1136,247 @@ commits S3.
 - `internal/exit_test.go` (new);
 - `docs/guides/config.md`;
 - this PLAN.
+
+### S4, 2026-10-19 — implemented and staged; the dispatched rehearsal is open
+
+**Deviation 1, 2026-10-19 — the spec and its test join S4's scope.**
+
+- **What was found.** Step 2 ships `scripts/install.sh` and `install.ps1` as spec extras. That edits
+  two files outside S4's listed scope, both from S3:
+  - `internal/updateclient/selfupdate-release.json`;
+  - `internal/updateclient/spec_test.go`. Its extras check expects the APK only, and
+    `TestReleaseSpecMatchesThePublishJob` compares the spec with `ci.yml`'s literal publish
+    inputs. After S4, those inputs are the build job's outputs.
+- **The owner's decision:** "Add both to S4". The changes:
+  - The spec gains the two installer extras, each with its `path`.
+  - The extras check expects all three.
+  - The publish test now checks how publish is wired: it takes its inputs from the build job's
+    outputs, and runs only when the build is not a rehearsal.
+
+**Deviation 2, 2026-10-19 — the build runs on a tag and on a dispatch, not on every push.**
+
+- **What was found.** The library's build workflow cannot stage a set without the spec's
+  path-less APK extra:
+  - `stage.go:262-266` at the pin refuses a run with no extras directory;
+  - the verify step checks every extra.
+
+  Calling it on every push and PR, as the MADR's "rehearsed on every push and PR" implies, would
+  run the APK job there too. That job has run only on a tag or a dispatch. Each run would cost
+  about 8.5 more minutes (run 36022338143). Every Dependabot or fork PR would fail at the
+  canonical-repo signing rule (`ci.yml:701-707`).
+- **The owner's decision:** "Tags + manual dispatch". The build job takes the APK job's gate, and
+  a dispatched rehearsal is required before every tag. This is recorded in the MADR's
+  amendment "2026-10-19 (S4): rehearsals run on demand, not on every push".
+- **Effect on step 3.** The rehearsal is a `workflow_dispatch` run, made after the owner commits
+  and pushes S4. It needs the owner's go-ahead, because it runs on the remote repository.
+
+**What S4 changed.**
+
+- **`.github/workflows/ci.yml`:**
+  - **A new `build` job** calls `build-selfupdate-release.yml` at the D1 pin, `436a7f59`
+    (`go-selfupdate-lib v1.15.2`). It passes `spec-path: internal/updateclient/selfupdate-release.json`
+    and `extras-artifact-name: magic-cli-remote-android-arm64`. It needs `go`, `go-native`,
+    `flutter` and `android-apk`, and runs under the APK job's gate (Deviation 2).
+  - **`publish`** needs `build`. It runs only when `github.ref_type == 'tag'` and the build is not
+    a rehearsal. Its five inputs are the build job's outputs: `artifact-name`, `products-json`,
+    `platforms-json`, `extra-assets-json` and `prerelease-channels-json`.
+  - **Deleted** (step 2), each replaced by the library workflow's own step:
+
+    | Deleted | Replaced by |
+    | --- | --- |
+    | the `go` job's tag steps: fetching build tags, the build matrix with its stamp, rename, linux/amd64 smoke, cgo assert and `SHA256SUMS`, and the binaries upload | build, layer-2 build-information checks, `SHA256SUMS` |
+    | the `go` job's `version` output | the APK job derives its own version |
+    | the `smoke-native` job | the identity jobs, on each platform's runner |
+    | the `release` job, which downloaded, rechecked, smoked, cgo-checked and staged | stage, then the verifier |
+
+  - **`android-apk`:**
+    - It derives its `versionName` from the tag, refusing a tag that is not `vX.Y.Z`, as the
+      `go` job did. Off a tag it builds unstamped, as a dispatch always has.
+    - It stages the APK under the spec's name: the tag, or `rehearsal-` plus the first 12 hex
+      digits of the commit. The `aapt` recheck still runs on that file.
+    - The release build, `assert-flutter-release-apk.sh` and the signing rule are unchanged.
+  - **Two comments** named jobs that no longer exist: the concurrency note and the
+    `flutter-windows` header. Both now name the jobs that do.
+- **`internal/updateclient/selfupdate-release.json`** (Deviation 1) gains `install.sh` and
+  `install.ps1`, with `path` set to `scripts/install.sh` and `scripts/install.ps1`. They come first,
+  in the order the deleted `release` job staged them.
+- **`internal/updateclient/spec_test.go`** (Deviation 1):
+  - The extras check expects all three names.
+  - **`TestReleaseSpecExtrasHaveTheirSources`** is new. Each installer's `path` names a regular
+    file in the repository, and the APK has no path.
+  - **`TestReleaseJobsReadTheSpec`** replaces `TestReleaseSpecMatchesThePublishJob`. It parses
+    `ci.yml` with `go.yaml.in/yaml/v3`, already a dependency, and requires:
+    - `build` to call the library's build workflow with this package's spec;
+    - `publish` to call the publish workflow at the same pin;
+    - `build` to need `android-apk`, run under its gate, and read the artifact `android-apk`
+      uploads;
+    - `publish` to need only `build`, to carry exactly the five inputs, and to run on a tag that
+      is not a rehearsal.
+- **`scripts/verify-build-metadata.sh`.** Its header now scopes it to the Makefile's builds, and
+  says the published binaries come from the library's workflow. The MADR's release-pipeline row
+  gives the reason: `netgo` and `osusergo` are inert under `CGO_ENABLED=0`. The script itself is
+  unchanged.
+
+**The library's recipe, run locally over this tree** (`s4_rehearse.py`, in a throwaway clone):
+
+- **Setup.** The working tree was put into a scratch clone as one scratch commit, so the build
+  stamps `vcs.modified=false`. The tool was built from the pin's own source. The APK was a
+  stand-in file named by the rehearsal rule. Nothing left the host.
+
+  ```text
+  plan rehearsal = 'true'   stamp-version = 'rehearsal-796406524451'   stamp-kind = 'local'
+  plan extra-assets-json = '["install.sh","install.ps1","magic-cli-remote-rehearsal-796406524451-arm64.apk"]'
+  built mcremote-{linux-amd64,linux-arm64,darwin-arm64,windows-amd64.exe}, mcrelay-{same four}
+  staged: SHA256SUMS install.ps1 install.sh magic-cli-remote-rehearsal-796406524451-arm64.apk + the 8 binaries
+  SHA256SUMS: the 8 canonical names only
+  install.sh and install.ps1 are byte-identical to scripts/
+  verify exit=0   verify-selfupdate-release: ok
+  identity mcremote darwin/arm64 exit=0: reports "rehearsal-796406524451 (local) 796406524451"
+  identity mcrelay  darwin/arm64 exit=0: reports "rehearsal-796406524451 (local) 796406524451"
+  ```
+
+- **The two refusals behind Deviation 2,** on the same build output:
+  - An APK named `magic-cli-remote-latest-arm64.apk`, the old name, fails at stage:
+    `lstat …/magic-cli-remote-rehearsal-796406524451-arm64.apk: no such file or directory`.
+  - No extras directory fails at stage: `extra magic-cli-remote-rehearsal-796406524451-arm64.apk
+    has no path, and no extras directory was given`.
+- **The client's selector.** It is built from the embedded spec. On the rehearsed set it selects
+  `<product>-<os>-<arch>[.exe]` and `SHA256SUMS` for all 8 product and platform pairs.
+- **The last release.** The rehearsed names are v0.20.1's published asset set exactly, with the
+  APK's tag swapped (`gh release view v0.20.1`).
+
+**Planted breaks, each on its own fresh scratch copy** (`s4_plants.py`). Each failed a test
+assertion:
+
+```text
+tree: scripts/install.ps1 is missing         spec_test.go:85: … scripts/install.ps1 is not a regular file in the repository
+spec: install.ps1 extra dropped              spec_test.go:52 (ExtraNames) and :73: spec has 2 extras, want 3
+spec: installer path names no file           spec_test.go:78: extra install.sh has path "scripts/install-missing.sh"
+spec: the APK gains a path                   spec_test.go:78: extra magic-cli-remote-{tag}-arm64.apk has path "README.md", want ""
+ci: publish takes a literal products-json    spec_test.go:156: publish products-json = "[…]", want "${{ needs.build.outputs.products-json }}"
+ci: publish runs for a rehearsal             spec_test.go:148: publish if = "github.ref_type == 'tag'"
+ci: publish drops prerelease-channels-json   spec_test.go:152 and :156
+ci: build reads another extras artifact      spec_test.go:141: … but android-apk uploads "magic-cli-remote-android-arm64"
+ci: build runs on every push                 spec_test.go:132: build … if ""; want android-apk, under its gate
+ci: build reads another spec                 spec_test.go:129: build spec-path = "selfupdate-release.json"
+ci: publish pinned apart from build          spec_test.go:126: publish uses "…@8d4d89ff…", want … at the build's pin
+```
+
+In the first run, the missing-path plant failed on the path comparison, so the file-exists branch
+had not been seen to fail. The `tree:` plant was added for that branch.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (spec_test.go)                      exit=0   gofmt, golint, govulncheck clean
+actionlint .github/workflows/ci.yml                    exit=1   one finding, pre-existing (below)
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck / make verify-build-metadata   exit=0 / exit=0 / exit=0
+go test -race -count=1 ./...                           first run exit=1 (internal/ws, below); rerun exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+- **actionlint.**
+  - **What remains.** The one finding is SC2012 (info) at `ci.yml:671`, the `ls` of
+    `$ANDROID_HOME/build-tools` in the unchanged "Assert release signature" step.
+  - **The original file, for comparison.** Linted from a scratch copy, it has that finding at
+    `:827`, plus SC2086 in the deleted build step. So S4 removed one finding and added none.
+  - **Why it failed the gate.** actionlint is not a CI gate here. It was run for this phase.
+- **`internal/ws`.**
+  - **The failure.** `TestResumeReturnsOwnedSessionBounds` failed once in the full race run:
+    `resume_test.go:153: want auth_ok got event … session_status`.
+  - **Why it is not S4's.** S4 changes nothing in that package or its dependencies.
+  - **The reruns.** The test passed 10 times in a row alone (`-race -count=10`), and the full
+    rerun was clean.
+  - **Status.** It is recorded as an intermittent failure there, not fixed here.
+
+**Other hosts** (`s4_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` gave `ci-windows-exit=0`, "ALL SELECTED CHECKS
+  PASSED", 43 `ok` lines.
+  - **The first run failed,** with `ci-windows-exit=2`. Only
+    `TestTrackedFilesUseOnlyPlaceholderHomes` failed: "no git index". The runner had copied the
+    files without a git index, and that guard reads one.
+  - **The rerun.** The runner now runs `git init` and `git add -A` on the remote copy. Nothing in
+    the tree changed between the two runs.
+- **The Linux test host:** `go test -race` of `internal/updateclient` is `ok`. The three spec tests
+  pass, and `make verify-build-metadata` passes (`linux-exit=0`).
+
+Both remote copies were removed, checked with `test -e`.
+
+**Open.**
+
+1. **Step 3, the dispatched rehearsal (Deviation 2).** After the owner commits and pushes S4, run
+   `workflow_dispatch` on `master`, with the owner's go-ahead. Then read the run:
+   - the build job's staged artifact;
+   - the identity jobs on linux/arm64, darwin/arm64 and windows/amd64;
+   - that `publish` was skipped.
+2. **The Verification item "the frozen v0.15.3 fixture still resolves the rehearsed asset set"
+   cannot hold. The owner decided it: see Deviation 4.**
+   - **What the fixture matches.** The frozen selector (`legacy_test.go`) matches only
+     `<product>-<os>-<arch>-<ver>` compatibility names. Only the `v0.16.0` bridge carried those.
+   - **Run on the rehearsed set** (`s4_fixture.py`), it returns `no asset matching
+     <product>-<os>-<arch>-*` for all 8 pairs.
+   - **The bridge release no longer exists.** The `v0.16.0` tag's run 33701454306 succeeded on
+     2026-09-03, but `gh api …/releases/tags/v0.16.0` returns 404. `gh release list` shows nine
+     releases, v0.17.1 to v0.20.1.
+   - **So two of the MADR's statements are false today:** "the pre-0.16 published bridge is
+     untouched", and the Confirmation's "whose asset set the frozen v0.15.3 fixture still
+     resolves". S8 step 3 repeats the second.
+
+**Out of scope, found during S4.** These became Deviation 3.
+
+**Files staged for S4:**
+
+- `.github/workflows/ci.yml`;
+- `internal/updateclient/selfupdate-release.json`, `internal/updateclient/spec_test.go`;
+- `scripts/verify-build-metadata.sh`;
+- `Makefile` (Deviation 3);
+- `docs/decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md` (the S4 amendment,
+  with its fixture section);
+- this PLAN.
+
+**Deviation 3, 2026-10-19 — three stale comments join S4's scope.**
+
+- **What was found:**
+  - The `Makefile`'s comment on `verify-build-metadata` says it asserts "release binaries".
+    Since S4, release binaries are built by the library.
+  - The `go` job's checkout gives "release base and build/* ledger" as the reason for
+    `fetch-depth: 0`.
+  - It gives "so GITHUB_TOKEN can push build/* tags" as the reason for
+    `persist-credentials: true`.
+  - The ledger has been gone since MADR 0005, and since S4 the job builds no release.
+- **The owner's decision:** "Add to S4". What was checked first:
+  - **`fetch-depth: 0` is still needed.** The `Makefile`'s `BASE_VERSION` comes from
+    `git tag -l` (`Makefile:11`). The job's local `make` builds read it: the identity test runs
+    `make build-remote|build-relay` (`internal/identity_test.go`). A shallow checkout fetches no
+    tags. The local identity test would still pass, since it matches
+    `^\S+ \(local\)`, but the version it stamps would lose its base. So the depth stays, and
+    the comment gives the true reason.
+  - **No step needs credentials.** Nothing pushes, fetches with git, or uses the token: the steps
+    run checks, `go`, `make` and the hermetic installer tests. The job's permissions are
+    `contents: read`. So `persist-credentials` becomes `false`.
+- **The edits.** The `Makefile` comment, now "Assert this Makefile's builds carry the expected
+  build tags", names the library's workflow for the published binaries. The two checkout comments
+  give their reasons, and `persist-credentials: false`.
+- **Checks after the edits:**
+  - the three spec tests: `ok`;
+  - `actionlint`: the same single pre-existing SC2012;
+  - `make -n verify-build-metadata`: exit 0;
+  - `make check-records`: exit 0;
+  - markdownlint on both 0054 records: no findings.
+
+  The first token-less run is the dispatched rehearsal.
+
+**Deviation 4, 2026-10-19 — the frozen fixture cannot resolve a post-bridge set; the check is
+replaced.**
+
+- **What was found** is under "Open", item 2, above.
+- **The owner's decision:** "Correct records, keep fixture". It is recorded in the MADR section
+  "The frozen fixture, and the `v0.16.0` bridge that is no longer published".
+  - The fixture and `legacy_test.go` are unchanged.
+  - S4's check is now "the rehearsed set equals the last published release's set, and the
+    client's selector resolves it". Both are shown above: `s4_select.py`, and the comparison
+    with `v0.20.1`.
+  - S8 step 3 is annotated the same way.
+

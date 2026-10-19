@@ -883,3 +883,108 @@ The answers refine D5 and D10 as follows:
 - Bad, because the PLAN still repeats the corrected facts. Its `/health` steps and checks, the
   `app_update.dart` and `ci.yml:990-1014` citations, and the `RequestStop` step must be amended
   to match before the phases that use them start.
+
+## Amendment — 2026-10-19 (S4): rehearsals run on demand, not on every push
+
+Starting S4 showed that the decision's "rehearsed on every push and PR" would put the Android APK
+build on every push and PR. Branch pushes and PRs have never built the APK. The owner chose to
+keep it that way.
+
+### What S4 found
+
+- **The build workflow cannot stage without the APK.**
+  - The spec's APK extra has no `path`, so the APK must come from an extras artifact.
+  - At the D1 pin, `436a7f59`, the stage tool returns `extra … has no path, and no extras
+    directory was given` when that artifact is absent (`internal/cmd/selfupdate-release/stage.go:262-266`).
+  - The workflow's verify step then checks the staged set against every extra
+    (`build-selfupdate-release.yml`, "Verify the staged release").
+  - Nothing exempts a rehearsal. Off a tag, the APK is named `magic-cli-remote-rehearsal-<sha12>-arm64.apk`.
+- **What the APK costs.** In run 36022338143 the APK job took 8 min 26 s, after waiting for the
+  `go` job. A push run takes about 6 minutes without it and about 14 with it.
+- **What it would break.** On the canonical repository the APK job fails when no signing secrets
+  are present (`ci.yml:701-707`, MADR 0065 B1). GitHub gives no Actions secrets to Dependabot PRs
+  (`.github/dependabot.yml`) or to fork PRs. Every such PR would turn red. The only way to avoid
+  that would be to loosen the signing rule.
+
+### The owner's decision (2026-10-19)
+
+- **The build workflow runs only where the APK already runs:** on a tag, and on a manual
+  `workflow_dispatch` (`ci.yml:635`).
+- **Branch pushes and PRs keep their CI unchanged.** They run the test, lint and mobile jobs and
+  build no release set.
+- **A dispatched rehearsal is required before every tag.**
+  - Before tagging, run `workflow_dispatch` on the commit to be tagged.
+  - That run is the rehearsal this record asks for. It builds, checks, identity-runs and stages
+    the whole set, the APK included, stamped `rehearsal-<sha12> (local)`, and publishes nothing.
+
+### What this changes in the record
+
+These statements are superseded. They stay as written above.
+
+- **"Rehearsals run on every push and PR"** (the release-pipeline row of "What changes for this
+  repository's contracts"). Read it as "rehearsals run on a dispatch, and one is required before
+  every tag".
+- **"the release recipe is rehearsed on every push and PR instead of being tried first on the
+  tag"** (Decision Outcome, Consequences). The recipe is still rehearsed before the tag, but on
+  demand rather than on every change.
+- **"a rehearsal on a branch push produces …"** (Confirmation). Read it as "a dispatched
+  rehearsal produces …". The rest of that bullet stands.
+
+### The frozen fixture, and the `v0.16.0` bridge that is no longer published
+
+S4's verification found that two statements of this record are false today:
+
+- "the pre-0.16 published bridge is untouched — the frozen fixture keeps proving it"
+  (Decision Outcome, Consequences);
+- "a publish produces an immutable, attested release whose asset set the frozen v0.15.3 fixture
+  still resolves" (Confirmation). S8 step 3 of the PLAN repeats it.
+
+**The evidence, 2026-10-19:**
+
+- **What the frozen selector matches.** In `internal/updateclient/legacy_test.go` it matches only
+  `<product>-<os>-<arch>-<ver>` compatibility names. Only the `v0.16.0` bridge carried them.
+- **Run on S4's rehearsed set,** it returns `no asset matching <product>-<os>-<arch>-*` for all
+  eight product and platform pairs. The same holds for every published release, all of which
+  carry canonical names only. `v0.20.1`'s assets are the eight canonical binaries, `SHA256SUMS`,
+  `install.sh`, `install.ps1` and the APK.
+- **The bridge release is gone.**
+  - The `v0.16.0` tag exists, and its CI run 33701454306 succeeded on 2026-09-03.
+  - `GET /repos/maccavelli/magic-cli-remote/releases/tags/v0.16.0` returns 404.
+  - `gh release list` shows nine releases, `v0.17.1` to `v0.20.1`. `v0.17.0`'s run also succeeded,
+    and it has no release either.
+  - When and why the earlier releases were removed is not recorded here.
+
+**The owner's decision (2026-10-19): correct the record, and keep the fixture.**
+
+- **No published release serves an installed pre-0.16 client.** Its selector finds no asset in
+  any release, so it cannot update itself. It must be reinstalled with the installer, which
+  resolves canonical names.
+- **The frozen fixture stays, as D7 decided, with its role restated.** It records the `v0.16.0`
+  file set and how a pre-0.16 client read it. It is not evidence about any release that is
+  published now or later.
+- **The confirmation becomes:**
+  - the set a release run stages, rehearsed or tagged, equals the last published release's asset
+    set, apart from the tag in the APK's name;
+  - this program's selector, built from the embedded spec, resolves every product and platform
+    in it.
+
+  S4 has shown both for its rehearsal (the PLAN's S4 record). S8 checks them for the first tag.
+
+### Consequences of this amendment
+
+- Good, because push and PR CI keep their cost and their result. No Dependabot or fork PR turns
+  red, and the APK signing rule stays as it is.
+- Good, because the whole release recipe still runs before the tag: the dispatched rehearsal runs
+  the same jobs as the tag.
+- Neutral, because the library's workflow can rehearse on every change. This repository uses it
+  more narrowly than it allows.
+- Bad, because a change that breaks the release recipe is caught only when someone dispatches a
+  rehearsal, not on the push that broke it. The required rehearsal before each tag bounds the
+  damage to "found before the tag".
+- Bad, because the APK job must name its file the way the library names the `{tag}` extra:
+  - the tag on a tag;
+  - otherwise `rehearsal-` plus the commit's first 12 hex digits (`plan.go:95-100` at the pin).
+
+  That rule is now in two places. A mismatch is loud: the stage step refuses an extras directory
+  holding a file the spec does not list, and the verify step refuses a set missing one.
+

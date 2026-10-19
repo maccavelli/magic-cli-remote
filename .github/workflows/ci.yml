@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 # One run per ref; a new push to the same PR/branch cancels the older run.
-# Tag runs are NEVER cancelled: the release job creates a GitHub Release and
+# Tag runs are NEVER cancelled: the publish job creates a GitHub Release and
 # then uploads assets, so a cancel landing between those two steps leaves a
 # published release with missing or partial artifacts.
 concurrency:
@@ -31,19 +31,16 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Go daemon: vet + race tests + release binaries (tag runs)
+  # Go daemon: vet + race tests. The release binaries come from the build job.
   # ---------------------------------------------------------------------------
   go:
-    name: Go (test; build on tag)
+    name: Go (test)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # Read-only. The build/<BASE>.<N> ledger is gone (MADR 0005): a release is
     # an immutable strict tag and this job pushes nothing.
     permissions:
       contents: read
-    # Version stamped into both binaries; used by the release job artifact names.
-    outputs:
-      version: ${{ steps.build.outputs.version }}
     # MADR 0118 D4. testexec.SkipIfNoSymlink skips where the symlink privilege
     # is absent, which is right on a developer's unprivileged Windows shell and
     # wrong in CI: a lane that stops verifying three symlink-escape invariants
@@ -56,10 +53,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history + tags for release base (vX.Y.Z) and build/* ledger.
+          # Full history + tags: the Makefile derives BASE_VERSION from the
+          # vX.Y.Z tags, and the identity test's local `make` builds stamp it.
           fetch-depth: 0
-          # Needed so GITHUB_TOKEN can push build/* tags on tag runs.
-          persist-credentials: true
+          # This job pushes nothing (MADR 0054 S4), so the token is not kept.
+          persist-credentials: false
 
       - name: Set up Node.js (LTS 24)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -171,119 +169,6 @@ jobs:
 
       - name: install.sh tests (hermetic)
         run: sh scripts/install_test.sh
-
-      - name: Fetch build version tags
-        if: github.ref_type == 'tag'
-        run: |
-          git fetch origin 'refs/tags/build/*:refs/tags/build/*' --force 2>/dev/null \
-            || git fetch origin --tags --force 2>/dev/null \
-            || true
-          echo "Release tags:"; git tag -l 'v*.*.*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -5 || true
-          echo "Recent build tags:"; git tag -l 'build/*' | sort -V | tail -10 || true
-
-      # Build mcremote and mcrelay for their release platforms, all stamped with
-      # one shared VERSION/commit/date.
-      #
-      # BASE_VERSION is pinned to the tag being built. Without it the allocator
-      # resolves BASE from the highest vX.Y.Z tag in the repo, so re-running an
-      # older tag (or pushing tags out of order) stamped binaries with a version
-      # they were not built from.
-      - name: Build mcremote & mcrelay
-        id: build
-        if: github.ref_type == 'tag'
-        env:
-          CI: "true"
-        run: |
-          set -euo pipefail
-          BASE="${GITHUB_REF_NAME#v}"
-          if [[ ! "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "error: tag '$GITHUB_REF_NAME' is not vX.Y.Z — cannot derive BASE_VERSION" >&2
-            exit 1
-          fi
-
-          # Release cross-compile targets — the SAME set for both daemons.
-          # build_matrix resolves GOOS/GOARCH; Makefile picks tags per GOOS
-          # (MADR 0059 D9: Darwin omits netgo/osusergo).
-          PLATFORMS=""
-          PLATFORMS="$PLATFORMS linux/amd64"
-          PLATFORMS="$PLATFORMS linux/arm64"
-          PLATFORMS="$PLATFORMS darwin/arm64"
-          PLATFORMS="$PLATFORMS windows/amd64"
-          # The Intel Darwin release target is deliberately absent (MADR 0120).
-          # windows/arm64 is deliberately absent (MADR 0116 D19). Re-entry is
-          # this one line plus a verify-build-metadata case and a
-          # windows-11-arm go-native matrix leg.
-
-          # The immutable tag IS the version (MADR 0005). Every per-platform
-          # build passes the tag, with its v, as VERSION= and BUILD_KIND=release,
-          # so the release binaries report it through buildinfo (MADR 0054 S2)
-          # and nothing allocates or pushes anything. The job's version output
-          # stays without the v: the APK's --build-name takes it.
-          ver="$BASE"
-          echo "version=$ver" >> "$GITHUB_OUTPUT"
-
-          mkdir -p dist
-          build_matrix() { # $1=make target  $2=binary name  $3=space-separated os/arch list
-            local mk="$1" name="$2" list="$3" os arch ext
-            for p in $list; do
-              os="${p%/*}"; arch="${p#*/}"
-              ext=""; [ "$os" = "windows" ] && ext=".exe"
-              echo "==> $name $os/$arch"
-              make "$mk" VERSION="v$ver" BUILD_KIND=release GOOS="$os" GOARCH="$arch" >/dev/null
-              cp -f "bin/${name}${ext}" "dist/${name}-${os}-${arch}${ext}"
-            done
-          }
-          build_matrix build-remote mcremote "$PLATFORMS"
-          build_matrix build-relay  mcrelay  "$PLATFORMS"
-
-          # Smoke the host-native build of each binary — the only platform this
-          # runner can execute — to prove the stamp took. `version` prints the
-          # identity line first, "v<tag> (release)" then the commit (MADR 0054
-          # S2). Skips a binary that does not target linux/amd64.
-          for bin in mcremote mcrelay; do
-            f="dist/${bin}-linux-amd64"
-            [ -f "$f" ] || continue
-            got="$("./$f" version | sed -n 1p)"
-            case "$got" in
-              "v$ver (release)" | "v$ver (release) "*) ;;
-              *) echo "error: ${bin}-linux-amd64 reports '$got', expected 'v$ver (release)'" >&2; exit 1 ;;
-            esac
-          done
-
-          # MADR 0116 D21. Every published binary must be pure-Go. Asserted on
-          # the artifact, not inferred from the build recipe: CGO_ENABLED ?= 0
-          # in the Makefile is defeated by a stray environment variable (F22),
-          # and a future workflow change could bypass make entirely.
-          # debug/buildinfo parses ELF, PE and Mach-O, so this reads the
-          # Windows .exe and both Darwin binaries without executing them.
-          for f in dist/mcremote-* dist/mcrelay-*; do
-            case "$f" in *SHA256SUMS*) continue ;; esac
-            if ! go version -m "$f" | grep -q '^	build	CGO_ENABLED=0$'; then
-              echo "error: $f is not CGO_ENABLED=0 — refusing to publish" >&2
-              go version -m "$f" | grep -i cgo >&2 || true
-              exit 1
-            fi
-            echo "ok: $f is cgo-free"
-          done
-
-          (cd dist && sha256sum mcremote-* mcrelay-* > SHA256SUMS)
-          ls -lh dist/
-          # echo unquoted collapses the list's leading/dup spaces before join.
-          active="$(echo $PLATFORMS | tr ' ' ',')"
-          {
-            echo "### Go binaries"
-            echo "Stamped: \`v$ver\` (base \`$BASE\` from tag \`$GITHUB_REF_NAME\`)"
-            echo "Platforms (mcremote + mcrelay): \`${active}\`"
-            echo "Ledger: git tags \`build/<BASE>.<N>\` (global, race-safe)"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload Go binaries
-        if: github.ref_type == 'tag'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mcremote-mcrelay-${{ steps.build.outputs.version || github.sha }}
-          path: dist/
-          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Native execution for the non-amd64-Linux targets (MADR 0116 D17).
@@ -477,53 +362,6 @@ jobs:
   # reason.
 
   # ---------------------------------------------------------------------------
-  # Execute the published non-amd64-Linux binaries on real hardware (MADR 0116
-  # D17). No emulation: ubuntu-24.04-arm and windows-latest are native runners.
-  # Closes the F2 gap where linux/arm64 shipped SHA-verified but never run.
-  # ---------------------------------------------------------------------------
-  smoke-native:
-    name: Smoke (${{ matrix.label }})
-    if: github.ref_type == 'tag'
-    needs: [go]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { runner: ubuntu-24.04-arm, label: linux/arm64, suffix: linux-arm64, ext: "" }
-          - { runner: windows-latest, label: windows/amd64, suffix: windows-amd64, ext: ".exe" }
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
-    steps:
-      - name: Download Go binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: mcremote-mcrelay-${{ needs.go.outputs.version || github.sha }}
-          path: dist
-
-      # Same assertion the amd64 smoke makes, on real hardware. Kept
-      # byte-identical in shape across the matrix so the legs cannot drift.
-      - name: Smoke binaries
-        shell: bash
-        env:
-          VER: ${{ needs.go.outputs.version }}
-          SUFFIX: ${{ matrix.suffix }}
-          EXT: ${{ matrix.ext }}
-        run: |
-          set -euo pipefail
-          for bin in mcremote mcrelay; do
-            f="dist/${bin}-${SUFFIX}${EXT}"
-            test -f "$f" || { echo "error: $f missing from the artifact" >&2; exit 1; }
-            chmod +x "$f" || true
-            # The identity line, as the build job's smoke checks it (MADR 0054 S2).
-            got="$("./$f" version | sed -n 1p)"
-            case "$got" in
-              "v$VER (release)" | "v$VER (release) "*) ;;
-              *) echo "error: $f reports '$got', expected 'v$VER (release)'" >&2; exit 1 ;;
-            esac
-            echo "ok: $f $got"
-          done
-
-  # ---------------------------------------------------------------------------
   # Flutter app: format + static analysis + widget/unit tests
   # ---------------------------------------------------------------------------
   flutter:
@@ -587,7 +425,7 @@ jobs:
   # and CI — Linux-only — could never see it.
   #
   # `shell: bash` is explicit because windows-latest defaults to PowerShell,
-  # exactly as go-native and smoke-native already do on this runner.
+  # exactly as go-native already does on this runner.
   # ---------------------------------------------------------------------------
   flutter-windows:
     name: Flutter (test on windows)
@@ -622,12 +460,13 @@ jobs:
   # ---------------------------------------------------------------------------
   android-apk:
     name: Android APK (release arm64)
-    # Build the phone app only on a release tag. PRs and branch pushes get the
-    # fast test jobs; developers build locally with `make apk`.
+    # Build the phone app only on a release tag or a manual dispatch. PRs and
+    # branch pushes get the fast test jobs; developers build locally with
+    # `make apk`. The APK is one of the release spec's extras, so the build job
+    # runs under this same gate (MADR 0054, amendment 2026-10-19 (S4)).
     #
     # needs go+flutter: this build costs ~10 min, so do not spend it when the
-    # tests it ships alongside are already red. `go` also supplies the version
-    # the APK is stamped with, keeping one release from carrying two schemes.
+    # tests it ships alongside are already red.
     # Runnable on demand as well as on a tag. A tag-only job cannot be
     # exercised BEFORE the release that depends on it, which is exactly how
     # the manifest-surface gate shipped broken and failed its first two tag
@@ -777,14 +616,15 @@ jobs:
       # Tag/release APKs MUST be Flutter release mode (not debug/profile).
       # FLUTTER_BUILD_MODE is fail-closed: only "release" is accepted.
       #
-      # versionName is the full Go build version (e.g. 0.3.11.2) so the APK and
-      # the binaries in the same release agree. versionCode stays github.run_number:
-      # it must increase monotonically forever, and the build serial N restarts
-      # at 1 on every new release base.
+      # versionName is the release tag without its v, so the APK and the
+      # binaries in the same release agree. versionCode stays github.run_number:
+      # it must increase monotonically forever. A dispatched rehearsal is not a
+      # release and builds unstamped.
       - name: Build release APK (arm64)
         env:
           FLUTTER_BUILD_MODE: release
-          BUILD_NAME: ${{ needs.go.outputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           MODE="${FLUTTER_BUILD_MODE:?FLUTTER_BUILD_MODE must be set}"
@@ -792,11 +632,16 @@ jobs:
             echo "error: tag APK builds must use Flutter release mode (got FLUTTER_BUILD_MODE=$MODE)" >&2
             exit 1
           fi
-          if [[ -n "${BUILD_NAME:-}" ]]; then
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            BUILD_NAME="${REF_NAME#v}"
+            if [[ ! "$BUILD_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "error: tag '$REF_NAME' is not vX.Y.Z — cannot derive the APK's versionName" >&2
+              exit 1
+            fi
             flutter build apk --"$MODE" --target-platform android-arm64 \
               --build-name="$BUILD_NAME" --build-number="${{ github.run_number }}"
           else
-            echo "warning: no version from the go job; building unstamped" >&2
+            echo "note: not a tag; building unstamped" >&2
             flutter build apk --"$MODE" --target-platform android-arm64
           fi
 
@@ -855,16 +700,30 @@ jobs:
             echo "note: ANDROID_RELEASE_CERT_SHA256 repo variable not set — pin it to: $got"
           fi
 
+      # The release spec's path-less extra, magic-cli-remote-{tag}-arm64.apk,
+      # named as the build workflow's plan names {tag}: the tag on a tag,
+      # otherwise rehearsal-<the commit's first 12 hex digits>
+      # (go-selfupdate-lib v1.15.2, internal/cmd/selfupdate-release/plan.go).
+      # Its stage step refuses an extras artifact holding any other file, so a
+      # drift between the two rules fails the build job loudly.
       - name: Stage artifact
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [ "$REF_TYPE" = tag ]; then
+            tag="$REF_NAME"
+          else
+            tag="rehearsal-${SHA:0:12}"
+          fi
+          out="dist/magic-cli-remote-${tag}-arm64.apk"
           mkdir -p dist
-          cp -f build/app/outputs/flutter-apk/app-release.apk \
-            dist/magic-cli-remote-latest-arm64.apk
+          cp -f build/app/outputs/flutter-apk/app-release.apk "$out"
           ls -lh dist/
           # Re-check staged copy (basename no longer says "release").
-          ASSERT_REQUIRE_AAPT=1 ../../scripts/assert-flutter-release-apk.sh \
-            dist/magic-cli-remote-latest-arm64.apk
+          ASSERT_REQUIRE_AAPT=1 ../../scripts/assert-flutter-release-apk.sh "$out"
 
       - name: Upload APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -876,154 +735,50 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------------------
-  # Publish release assets — tag runs only.
-  # No rebuild: downloads APK + Go binary artifacts after go, flutter, and
-  # android-apk are all green.
+  # Build, check and stage the release through go-selfupdate-lib's reusable
+  # workflow (MADR 0054 D1, S4), from the embedded release spec. It builds both
+  # products for every platform with one recipe (CGO_ENABLED=0, -trimpath,
+  # buildinfo stamps), checks each binary from its own build information, runs
+  # each product's identity command on its own platform's runner, writes
+  # SHA256SUMS over the canonical names, and stages the spec's extras: the
+  # installers from the repository and the APK from android-apk's artifact.
+  #
+  # On a tag it stages the release. On a dispatch it rehearses, stamped
+  # rehearsal-<sha12> (local), and publish skips. It runs where the APK runs,
+  # because the APK is one of the extras (MADR 0054, amendment 2026-10-19
+  # (S4)): dispatch a rehearsal on the commit before tagging it.
   # ---------------------------------------------------------------------------
-  release:
-    name: Publish Release assets
-    if: github.ref_type == 'tag'
-    needs: [go, go-native, smoke-native, flutter, android-apk]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  build:
+    name: Build self-update release
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    needs: [go, go-native, flutter, android-apk]
     permissions:
-      contents: write
-    steps:
-      # MUST stay before the downloads: checkout defaults to clean: true, which
-      # runs `git clean -ffdx` and would delete the untracked apk/ and go-bin/
-      # directories the artifacts land in.
-      - name: Checkout (assert script)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # Needed for `go version -m`, which is how the cgo gate below reads a
-      # binary's build settings without executing it.
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Download APK artifact
-        # v8 targets Node.js 24; download-artifact@v6 still shipped Node.js 20
-        # (unlike upload-artifact@v6), which triggered the deprecation warning.
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: magic-cli-remote-android-arm64
-          path: apk
-
-      - name: Download Go binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: mcremote-mcrelay-${{ needs.go.outputs.version || github.sha }}
-          path: go-bin
-
-      - name: Attach to GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Explicit repo: avoid relying solely on checkout remote for gh.
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          TAG="${{ github.ref_name }}"
-          VER="${{ needs.go.outputs.version || github.sha }}"
-
-          SRC="apk/magic-cli-remote-latest-arm64.apk"
-          if [ ! -f "$SRC" ]; then
-            shopt -s nullglob
-            candidates=(apk/*.apk)
-            shopt -u nullglob
-            if [ ${#candidates[@]} -eq 0 ]; then
-              echo "error: no APK under apk/ — the android-apk artifact did not land" >&2
-              ls -laR apk go-bin 2>&1 || true
-              exit 1
-            fi
-            SRC="${candidates[0]}"
-          fi
-          APK_OUT="magic-cli-remote-${TAG}-arm64.apk"
-          cp -f "$SRC" "$APK_OUT"
-
-          # Content re-check before publish (no Android SDK in this job; aapt
-          # gate already ran in android-apk). Rejects debug JIT / wrong basenames.
-          ./scripts/assert-flutter-release-apk.sh "$APK_OUT"
-
-          # Artifact zips do not preserve the executable bit.
-          chmod +x go-bin/mcremote-* go-bin/mcrelay-*
-
-          # Verify the checksums recorded at build time survived the round trip.
-          (cd go-bin && sha256sum -c SHA256SUMS)
-
-          # MADR 0116 D21, second gate. Same rule as the build job, re-run here
-          # so an artifact that changed between jobs is still caught. Two
-          # loops, one rule — keep them byte-identical.
-          for f in go-bin/mcremote-* go-bin/mcrelay-*; do
-            case "$f" in *SHA256SUMS*) continue ;; esac
-            if ! go version -m "$f" | grep -q '^	build	CGO_ENABLED=0$'; then
-              echo "error: $f is not CGO_ENABLED=0 — refusing to publish" >&2
-              go version -m "$f" | grep -i cgo >&2 || true
-              exit 1
-            fi
-            echo "ok: $f is cgo-free"
-          done
-
-          # Smoke the binaries we are about to publish. Only the host platform
-          # (linux/amd64) can run here; darwin/windows are content-checked via
-          # the checksum verify above. A truncated or mis-stamped linux/amd64
-          # build is by far the likeliest corruption and used to ship unchecked.
-          # Guarded so this still works if linux/amd64 is ever dropped.
-          for bin in mcremote mcrelay; do
-            f="go-bin/${bin}-linux-amd64"
-            [ -f "$f" ] || continue
-            # The identity line, as the build job's smoke checks it (MADR 0054 S2).
-            got="$("./$f" version | sed -n 1p)"
-            case "$got" in
-              "v$VER (release)" | "v$VER (release) "*) ;;
-              *) echo "error: ${bin}-linux-amd64 reports '$got', expected 'v$VER (release)'" >&2; exit 1 ;;
-            esac
-            echo "ok: ${bin}-linux-amd64 $got"
-          done
-
-          # Stage the canonical release exactly as MADR 0005 defines it. The
-          # build job already produced canonical names and a SHA256SUMS over
-          # them, so staging copies rather than renames: an asset name is never
-          # rewritten after it was hashed.
-          mkdir -p staging
-          cp -f go-bin/mcremote-* go-bin/mcrelay-* staging/
-          rm -f staging/SHA256SUMS
-          cp -f go-bin/SHA256SUMS staging/SHA256SUMS
-
-          # Declared extras: the installers ship with the release they know how
-          # to install, and the APK carries the tag in its basename.
-          cp -f scripts/install.sh staging/install.sh
-          cp -f scripts/install.ps1 staging/install.ps1
-          cp -f "$APK_OUT" "staging/$APK_OUT"
-
-          ls -lh staging/
-          cat staging/SHA256SUMS
-
-      - name: Upload the staged release
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: magic-cli-remote-release-${{ github.ref_name }}
-          path: staging/
-          if-no-files-found: error
+      contents: read
+    uses: maccavelli/go-selfupdate-lib/.github/workflows/build-selfupdate-release.yml@436a7f5976a6815491c7384527fef90869574a1b # go-selfupdate-lib v1.15.2
+    with:
+      spec-path: internal/updateclient/selfupdate-release.json
+      extras-artifact-name: magic-cli-remote-android-arm64
 
   # ---------------------------------------------------------------------------
   # Publish through go-selfupdate-lib's reusable workflow (MADR 0054 D14). It
-  # validates the staged file set against the canonical contract, assembles a
-  # draft, attests it, publishes it, and waits for immutability. It never uses
-  # --clobber and refuses to touch a tag that already has a release.
+  # takes the build job's staged set and its inputs from the build job's
+  # outputs, never from a copy written here. It validates the staged file set
+  # against the canonical contract, assembles a draft, attests it, publishes
+  # it, and waits for immutability. It never uses --clobber and refuses to
+  # touch a tag that already has a release. A rehearsal is never published.
   # ---------------------------------------------------------------------------
   publish:
     name: Publish self-update release
-    if: github.ref_type == 'tag'
-    needs: [release]
+    if: github.ref_type == 'tag' && needs.build.outputs.rehearsal == 'false'
+    needs: [build]
     permissions:
       contents: write
       id-token: write
       attestations: write
     uses: maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml@436a7f5976a6815491c7384527fef90869574a1b # go-selfupdate-lib v1.15.2
     with:
-      artifact-name: magic-cli-remote-release-${{ github.ref_name }}
-      products-json: '["mcremote","mcrelay"]'
-      platforms-json: '[{"os":"linux","arch":"amd64"},{"os":"linux","arch":"arm64"},{"os":"darwin","arch":"arm64"},{"os":"windows","arch":"amd64"}]'
-      extra-assets-json: '["install.sh","install.ps1","magic-cli-remote-${{ github.ref_name }}-arm64.apk"]'
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      products-json: ${{ needs.build.outputs.products-json }}
+      platforms-json: ${{ needs.build.outputs.platforms-json }}
+      extra-assets-json: ${{ needs.build.outputs.extra-assets-json }}
+      prerelease-channels-json: ${{ needs.build.outputs.prerelease-channels-json }}

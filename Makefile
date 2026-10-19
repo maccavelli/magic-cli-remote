@@ -624,8 +624,10 @@ NEW_DART_FILES := \
 	lib/features/chat/session_controls/control_glyphs.dart \
 	lib/features/chat/session_controls/ui_icons.dart
 
-# Assert release binaries carry the expected build tags (MADR 0059 D9).
-# Builds temporary Darwin (no tags) and Linux (netgo,osusergo) artifacts.
+# Assert this Makefile's builds carry the expected build tags (MADR 0059 D9).
+# Builds temporary Darwin (no tags) and Linux (netgo,osusergo) artifacts. The
+# published release binaries come from go-selfupdate-lib's build workflow
+# (MADR 0054 S4).
 verify-build-metadata:
 	@./scripts/verify-build-metadata.sh
 

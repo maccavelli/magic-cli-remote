@@ -12,6 +12,8 @@
   ],
   "packaging": "binary",
   "extras": [
+    {"name": "install.sh", "path": "scripts/install.sh"},
+    {"name": "install.ps1", "path": "scripts/install.ps1"},
     {"name": "magic-cli-remote-{tag}-arm64.apk"}
   ]
 }
