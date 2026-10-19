@@ -1227,3 +1227,15 @@ That record's fleet is paid AWS and DigitalOcean hosts.
   start.
 - Bad, because S7 grows by a Go sub-phase before its release-lane work. The PLAN splits S7 into
   sub-phases, each committed on its own.
+
+### H1 and M1 as built (PLAN S7a, Deviations 1 and 2, accepted 2026-10-19)
+
+- **H1:**
+  - **A definition another folder's binary runs is left, even with `MCREMOTE_FORCE_SERVICE=1`.**
+    That is install.sh's order (`scripts/install.sh:666`, before `:672`).
+  - **On Windows, a task still in install.ps1's per-product folder is moved, even with that
+    variable.** A plain `setup --force` would leave both old folders, and their older binaries,
+    on the User `PATH`.
+- **M1:**
+  - **A binary kept in the new folder must report its identity,** or the move is not made.
+  - **A copy that fails its check is removed,** so a later move cannot keep it.

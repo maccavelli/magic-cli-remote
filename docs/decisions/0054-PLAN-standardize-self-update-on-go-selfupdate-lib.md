@@ -3083,3 +3083,216 @@ These are the gates S5 used and saw fail on planted input. S6 adds no new check,
 plant of its own.
 
 **Files staged for S6:** the MADR and this PLAN. No source, test or CI file changed.
+
+### S7a, 2026-10-19 — code committed as `171344ac`; this record staged; Deviations 1 and 2 accepted
+
+**Starting point.** The owner committed the S7 amendment (`ea8c6ce7`), with H1, M1 and L1 decided,
+and said "committed, proceed".
+
+**The commit.** The owner committed the staged code as `171344ac` while the live checks below were
+running. No file changed after it was staged. The Windows runs used that commit's build, whose
+version line names `171344ac54b1`.
+
+**What S7a changed:**
+
+- **`internal/cli/service/installerhook.go` (new):**
+  - **`PlanInstallerHook`** finds the product's definition with `ResolveBackend`, the recorded
+    name (the product's name for a Windows task), and `--uninstall`'s `findDefinition`. It returns
+    one of four plans:
+    - **`setup`:** no definition, for `mcremote`. The caller then runs plain `setup-service`,
+      `MCREMOTE_WITH_RELAY_SERVICE` included.
+    - **`none`:** no definition, for `mcrelay`.
+    - **`foreign`:** the definition's program is in another folder, or cannot be read.
+    - **`upgrade`:** this folder owns it, by `--uninstall`'s rule. On Windows, a task in
+      install.ps1's per-product folder is owned by an install in the new folder.
+  - **`UpgradeFromInstaller`:**
+    - `RefreshUnit`;
+    - then `update`'s cycle on the backend `NewBackend` returns: running means stop then start,
+      stopped and enabled means start, and disabled means left stopped;
+    - then `verifyStart` for each start;
+    - on Windows, after the restart, `cleanOldFolders` again.
+  - **`RunInstallerHook`** applies the installer's variables, plans, and carries out everything
+    but a first install. `CheckFromInstaller` refuses the other modes, and `PrintInstallerHook`
+    reports.
+- **`migrate.go` (M1):**
+  - `copyToNewFolder` skips a product whose `.exe` is already in the new folder.
+  - `copyChecked` removes a copy that fails its check.
+  - `removeOldCopy` is a variable, for the test of a copy in use.
+- **`internal/cli/setup_service.go` and `internal/relay/cli.go`:** the `--from-installer` flag, and
+  the hook before the other modes.
+- **`docs/guides/config.md` and `config-mcrelay.md`:** the flag's row.
+
+**Decisions inside the PLAN's words:**
+
+- **The order is install.sh's.** A definition another folder's binary runs is left even with
+  `MCREMOTE_FORCE_SERVICE=1`, because install.sh checks for one (`:666`) before
+  `--force-service` (`:672`). That variable therefore makes only an owned definition a
+  `setup --force`, and sets up no relay with no definition.
+- **The cleanup after the restart.** During the move the daemon still runs the old copy, which
+  Windows will not delete. So S5g's cleanup left it for "a later refresh". The hook restarts the
+  daemon onto the new copy, and then runs the cleanup again, so the old folder goes in the same
+  install.
+
+**Deviation 1, 2026-10-19 — a task in the per-product folders is moved even with
+`MCREMOTE_FORCE_SERVICE=1`. The owner accepted it: "Accept: move it".**
+
+- **Found.** H1 makes that variable "a full `setup-service --force`". On a Windows task still in
+  install.ps1's folder, a plain `setup --force` re-registers the task at the new folder but does
+  not move anything else. Both old folders, with their older binaries, stay on the User `PATH`.
+- **Done.** Such a task is the move (`upgrade`), with or without the variable.
+- **Test:** `TestFromInstallerMovesAnOldTaskEvenWithForce`.
+- **The alternative:** follow H1 to the letter, and leave the old folders on the `PATH` until a
+  later refresh.
+
+**Deviation 2, 2026-10-19 — M1 also checks the binary it keeps, and removes a failed copy. The
+owner accepted it: "Accept both".**
+
+- **Found.** M1 keeps whatever `.exe` is in the new folder. A failed copy check in S5g left the
+  failed copy there (`copyChecked` did not remove it). M1 would then keep it, and switch the task
+  to a copy that had already failed.
+- **Done:**
+  - a kept binary must report an identity, or the move is not made, with the reason;
+  - `copyChecked` removes a copy that fails its check.
+- **Tests:** `TestMigrationRefusesANewFolderBinaryThatDoesNotRun`, and a new assertion in
+  `TestRefreshDoesNotMoveWhenACopyFails`.
+- **The alternative:** M1 as worded, which would keep such a copy.
+
+**Tests:**
+
+- **`installerhook_test.go` (new; every OS, through the Task Scheduler seams and a fake backend):**
+  - `TestFromInstallerMovesAnOldTaskWithoutDowngrading`;
+  - `TestFromInstallerRemovesTheCopyTheRestartFreed`;
+  - `TestFromInstallerMovesAnOldTaskEvenWithForce`;
+  - `TestMigrationKeepsANewerBinary`;
+  - `TestMigrationRefusesANewFolderBinaryThatDoesNotRun`;
+  - `TestPrintInstallerHook`, `TestCheckFromInstaller`.
+- **`installerhook_unix_test.go` (new):**
+  - `TestFromInstallerFirstInstall`;
+  - `TestFromInstallerLeavesAnotherInstallsDefinition`;
+  - `TestFromInstallerUpgradeKeepsBakedOptions`;
+  - `TestFromInstallerForceIsAFullSetup`;
+  - `TestFromInstallerCyclesAsUpdateDoes`, three cases;
+  - `TestFromInstallerFailsWhenTheStartFails`, two cases.
+- **`migrate_test.go`:** the failed copy is gone.
+- **`internal/cli`:** `TestRunSetupServiceFromInstaller`, covering the conflicts and a first install
+  that runs as plain setup.
+- **`internal/relay`:** `TestRelaySetupServiceFromInstaller`, covering the conflicts and no relay
+  service.
+
+**Planted breaks, each on its own fresh scratch copy** (`s7a_plants.py`, 16). Each failed a test
+assertion:
+
+```text
+another folder's definition is owned           installerhook_unix_test.go:60: force=false: plan {… Action:upgrade …}
+force wins over a foreign definition           installerhook_test.go:155: plan {… Action:setup …}; want the move
+mcrelay with no service is set up              installerhook_unix_test.go:36: mcrelay: plan {… Action:setup …}; want none
+the upgrade does not refresh                   installerhook_test.go:99: the task runs …/Programs/mcremote/mcremote.exe, want …
+a running service is not stopped first         installerhook_test.go:113: calls [running start] …; want a confirmed restart
+a disabled service is started                  installerhook_unix_test.go:154: calls [running enabled start] …; want [running enabled]
+a failed verified start passes                 installerhook_unix_test.go:186: res {…}; want a failure
+no cleanup after the restart                   installerhook_test.go:143: the old folder survived the restart that freed its copy
+the old Windows folder is not this install's   installerhook_test.go:91: plan {… Action:foreign …}
+force on an old Windows task skips the move    installerhook_test.go:155: plan {… Action:setup …}; want the move
+the move overwrites a newer binary             installerhook_test.go:103: mcremote in the new folder is "mcremote v0.2.0 (release)\n" …
+a new-folder binary that does not run is kept  installerhook_test.go:194: res = {Verdict:refreshed …}; want no move and the reason
+a copy that failed its check is left           migrate_test.go:235: the copy that failed its check is still in the new folder
+mcremote accepts a conflicting flag            setup_service_test.go:250: {… refresh:true …}: <nil>, want a refusal
+mcrelay accepts a conflicting flag             setup_service_refresh_test.go:109: {… refresh:true …}: <nil>, want a refusal
+mcremote's first install does not fall through setup_service_test.go:263: a first install did not run as setup-service
+```
+
+- **A rewritten plant.** The first ownership plant left `path/filepath` unused. That is a build
+  failure, so it was rewritten to compile, and it then failed the assertion above.
+
+**Live, in throwaway Podman containers** (`s7a_live.py`, `live/hook-user.sh`; as the non-root user
+`tester`).
+
+The steps, the same on each supervisor:
+
+1. `--from-installer` on a clean host is a first install, confirmed running.
+2. An operator's install with `--listen-port 7600`.
+3. Plain `setup-service` over it refuses: "definition already exists … (pass --force to
+   overwrite)". This is the failure S7 as first written would have shipped.
+4. `--from-installer` over it exits 0. The definition still has `--listen-port 7600`, and the daemon
+   was restarted.
+5. A copy in `/tmp/other` runs the hook and gets "left alone: … runs …/.local/bin/mcremote, not a
+   program from /tmp/other". The definition and the daemon are unchanged.
+6. `mcrelay`: "no mcrelay service is set up".
+7. A disabled, stopped service: "left stopped: it is not enabled", and it stays down.
+8. `--uninstall` removes the service.
+
+```text
+                     1    3 plain   4 upgrade pid      5 unchanged   6 relay   7 disabled   8
+Void, runit          ok   refused   127 -> 167, 7600   yes           none      left down    removed
+Alpine, s6           ok   refused   77 -> 118, 7600    yes           none      left down    removed
+Alpine, OpenRC 0.62  ok   refused   282 -> 420, 7600   yes           none      left down    removed
+```
+
+- **The first runit run printed "definition unchanged: NO" at step 5.** The Void image has no
+  `cmp` (`hook-user.sh: 68: cmp: not found`). The probe compared `cksum` output through `cmp`, so
+  the comparison failed. It now compares the strings, and the re-run (`s7a2`) gives the row above.
+
+**Live, on the Linux test host** (`s7a_linux_host.py`), under the scratch unit `s7a-live` and a scratch
+`XDG_STATE_HOME`. The account's own service and records were not touched.
+
+```text
+1. setup with --listen-host 127.0.0.1 --listen-port 39518     exit=0, Running: yes; MainPID=830010
+2. plain setup-service without them                            exit=1, "unit already exists … (pass --force to overwrite)"
+3. --from-installer                                            exit=0, "service definition unchanged", "restarted", Running: yes
+                                                               MainPID=830412; unit: --listen-port 39518
+4. another folder's copy runs --from-installer                 exit=0, "left alone: … runs /home/<user>/mcr-s7a-live/scratch/mcremote …"
+                                                               unit unchanged=yes; MainPID=830412
+5. remove                                                      exit=0; the unit and the remote tree are gone
+```
+
+**Live, on the Windows test host:**
+
+- **Another folder's copy** (`s7a_win.py`). The working tree's `mcremote.exe`, run from a scratch
+  folder, printed "left alone: mcremote windows-task service Task Scheduler\mcremote — runs
+  C:\Users\<user>\AppData\Local\Programs\magic-cli-remote\mcremote.exe, not a program from
+  C:\Users\<user>\mcr-s7a". The task, the folder, the User `PATH` and the daemon (pid 21824) were
+  unchanged.
+- **The install's own folder** (`s7a_win2.py`). The owner decided "Real install, then restore":
+  - **The swap.** The installed `mcremote.exe`, `mcremote 0.20.1 (a078372b)`, was renamed aside,
+    and the working-tree build put in its place.
+  - **The hook:** "service definition unchanged: Task Scheduler\mcremote", "mcremote service
+    restarted on the new binary", "Running: yes, confirmed after the start", exit 0. The daemon
+    went from pid 21824 to pid 42360, running the build.
+  - **The restore:**
+    - the task was disabled and ended;
+    - the original binary was put back, with the same SHA-256 (`534D26E9…`);
+    - its own `setup-service --refresh` reported "refreshed";
+    - the task was enabled and run, as pid 43644.
+  - **After the restore,** the task, the folder (`mcrelay.exe, mcremote.exe`), the User `PATH`,
+    still `REG_SZ`, and a running daemon match the state before.
+  - **The one difference.** The task definition is now the one `0.20.1` renders. Since S5g, it had
+    been the one the working-tree build rendered. The previous definition is kept at
+    `…\mcremote\State\mcremote-task.prev.xml`.
+
+**Gates, exit status captured before reading output.** The files were staged first:
+
+```text
+make pre-add-check (9 Go files)                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` passed, with "ALL SELECTED CHECKS PASSED" and 43
+  `ok`, including `internal/cli/service` and `internal/relay`.
+- **The Linux test host:** `internal/cli`, `internal/cli/service`, `internal/relay` and
+  `internal/updateclient` passed, and so did the detection probe (`systemd-user`, `native`,
+  PID 1 `systemd`).
+
+**Files staged for S7a:**
+
+- `internal/cli/service/`:
+  - `installerhook.go`, `installerhook_test.go` and `installerhook_unix_test.go` (new);
+  - `migrate.go` and `migrate_test.go`;
+- `internal/cli/setup_service.go` and `setup_service_test.go`;
+- `internal/relay/cli.go` and `setup_service_refresh_test.go`;
+- `docs/guides/config.md` and `config-mcrelay.md`;
+- this PLAN.
