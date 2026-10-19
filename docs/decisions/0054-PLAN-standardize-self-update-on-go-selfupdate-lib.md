@@ -412,7 +412,7 @@ it governs, and that text stays as written.
 | S1 step 8 | the pin "per the build workflow's own version check" (the MADR's) | the workflow checks only a library floor; moving `go.mod` and both pins together is D1's own rule. Keep doing it |
 | S2 step 2 | "Pass the `buildinfo` version to `/health`" | pass it through `daemon.Options.Version`. It then reaches `GET /v1/hello`'s `version` field (`internal/ws/server.go:543`) and ACP's `clientInfo.version` (`internal/daemon/daemon.go:327`, `internal/provider/acpagent/acpagent.go:1203`). No `/health` route exists |
 | S2 Verification | "a `/health` test asserting the `v`-prefixed version" | a `/v1/hello` test, authorized as the existing hello tests are, asserting the `v`-prefixed `version`; and an `acpagent` test asserting `initialize` sends that version as `clientInfo.version` |
-| S6 | ask the library for `before_uninstall` | still not asked: on 2026-10-19 no file at `go-selfupdate-lib` `5c0ab0d` mentions an uninstall hook |
+| S6 | ask the library for `before_uninstall` | still not asked: on 2026-10-19 no file at `go-selfupdate-lib` `5c0ab0d` mentions an uninstall hook. *(2026-10-19, S6: asked as `maccavelli/go-selfupdate-lib` issue #1.)* |
 | S8 step 1 | wire "the daemon health check" and "a graceful shutdown request" | replaced by S8 steps 1a–1e below |
 
 ### S1 also keeps 0201's changes, and serves 0201's P9
@@ -2879,3 +2879,81 @@ sub-phase. The Windows and Linux test hosts were not needed, and no live run was
 `docs/guides/ops-linux-install.md`, `docs/guides/ops-windows-install.md`, and this PLAN.
 
 **S5 is complete with S5h,** pending the owner's commit. S6–S8 remain.
+
+### S6, 2026-10-19 — the request is filed; staged for the owner's commit
+
+**Starting point.** The owner committed S5h (`0868fd9f`) and said "committed, proceed".
+
+**Owner decisions, 2026-10-19:**
+
+- **The form of the request.** S6 allows a MADR proposal or an issue in the library. The library
+  records decisions as MADRs and had never had an issue. The owner chose "GitHub issue", and then
+  "File it as drafted".
+- **The new library release.** `v1.16.0` was tagged after this MADR pinned `v1.15.2`. The owner
+  chose to record it as a finding.
+
+**The library, read first (read-only):**
+
+- **Tags.** `git ls-remote` gives `main` at `86f6e700f663bc7fee93ea4b58f30f8c281c7013`, which is
+  also the peeled `v1.16.0`. `v1.15.2` is still `436a7f5976a6815491c7384527fef90869574a1b`.
+- **At `v1.16.0`,** `selfupdate/releasespec/installer.go` still defines only `HookBeforeInstall`
+  (`:24`) and `HookAfterInstall` (`:27`), and `validateInstaller` refuses any other `when`
+  (`:84`). `installer_test.go:53` pins the refusal of `after_uninstall`.
+- **The templates' uninstall runs no hook.** In `install.sh`, `uninstall()` (`:289`) deletes the
+  binaries and their `.prev` files, and `main` calls it before any hook (`:395`). The `-Uninstall`
+  branch of `install.ps1` (`:487`) does the same.
+
+**The request.** [`maccavelli/go-selfupdate-lib` issue #1](https://github.com/maccavelli/go-selfupdate-lib/issues/1),
+"releasespec: add a before_uninstall installer hook", filed 2026-10-19T21:40:42Z, state `OPEN`. It
+asks for a `before_uninstall` hook time that mirrors `before_install`:
+
+- the installed copy runs before anything is deleted, with no standard input;
+- a product that is not installed is skipped;
+- a failure removes nothing and exits 1;
+- `--no-hooks` and `<PREFIX>_NO_HOOKS=1` skip it, and `--dry-run` reports it;
+- both templates;
+- an addition within `v1`.
+
+It names this product's entry, `{"when": "before_uninstall", "product": "mcremote", "args":
+["setup-service", "--uninstall"]}`. It cites D11 by repository and filename, and leaves two
+questions to the library: hooks for unselected products, and an override for a failed hook. The
+body holds no hostname, account or local path.
+
+**The library version that ships it:** none yet. `v1.16.0`, the latest tag, does not. When a
+release does, the PLAN records it here and S7 step 1 adds the hook (step 1's
+"`before_install`" condition means this hook).
+
+**Until then, D11 stands as written.** The uninstall is `mcremote setup-service --uninstall`, then
+the installer's `--uninstall`. S7 documents it.
+
+**A finding (not acted on): `v1.16.0` is available.** It is additive within `v1` per its
+changelog: `NewGitHubUpdater`, `HTTPError`, `service.CommandError`, `Clock` and an opt-in
+`signednote` verifier. Its other changes:
+
+- the module requires Go 1.26.9;
+- `SHA256SUMS.note` is reserved as an asset name;
+- Windows cleanup retries take the session's `LockTimeout`;
+- a Task Scheduler data race is fixed.
+
+D1 moves `go.mod` and both workflow pins together. Whether to move them, and in which phase, is
+an amendment for the owner to approve before S7 or S8. S6 changes no pin.
+
+**Annotated, not rewritten:**
+
+- the MADR's 2026-10-19 bullet "D11's request to the library has not been made";
+- this PLAN's corrections-table row for S6.
+
+**Checks, after staging** (`records_check.py`, exit status captured first):
+
+```text
+make check-records                          exit=0
+markdownlint on the 0054 records            0 findings
+placeholder-homes guard                     exit=0
+identifier scan of the MADR and this PLAN   0 hits
+relative links in both records              0 dead
+```
+
+These are the gates S5 used and saw fail on planted input. S6 adds no new check, so it has no
+plant of its own.
+
+**Files staged for S6:** the MADR and this PLAN. No source, test or CI file changed.

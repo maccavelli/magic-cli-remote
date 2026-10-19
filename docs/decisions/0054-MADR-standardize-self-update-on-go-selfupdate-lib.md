@@ -694,6 +694,8 @@ The method:
 - **D11's request to the library has not been made.** At `go-selfupdate-lib` `main` (`5c0ab0d`),
   no file mentions an uninstall hook. `releasespec` still accepts only `before_install` and
   `after_install` (`selfupdate/releasespec/installer.go:24`, `:27`, `:84-85`).
+  *(2026-10-19, PLAN S6: the request is now made, as `maccavelli/go-selfupdate-lib` issue #1.
+  `v1.16.0` still has no uninstall hook.)*
 - **D9's folder name is decided.** The owner answered
   [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md)'s
   Q1 on 2026-10-13: the folder is `%LOCALAPPDATA%\Programs\magic-cli-remote`. D9's "the owner
