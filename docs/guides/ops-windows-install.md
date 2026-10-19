@@ -33,7 +33,10 @@ notepad install.ps1
 
 Binaries land in `%LOCALAPPDATA%\Programs\mcremote\` and
 `%LOCALAPPDATA%\Programs\mcrelay\` — **per-user, no elevation**, the analogue
-of `~/.local/bin` on Unix.
+of `~/.local/bin` on Unix. Once the background task is registered, the first
+`mcremote update` moves both into one folder,
+`%LOCALAPPDATA%\Programs\magic-cli-remote\` (see
+[The folder move](#the-folder-move)).
 
 Windows has no per-user program folder that is on `PATH` by default, so the
 installer adds both folders to your **User** `Path`, as winget and Scoop do
@@ -185,6 +188,37 @@ task with it:
 ```powershell
 mcremote setup-service --force
 ```
+
+### The folder move
+
+Both binaries now live in one folder, `%LOCALAPPDATA%\Programs\magic-cli-remote\`,
+which is where go-selfupdate-lib's installer template puts them
+([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md),
+D9; PLAN S5g). An install in the per-product folders is moved by the task
+refresh. That is the refresh `update` runs after the swap, or
+`mcremote setup-service --refresh` by hand. With no task, or one the refresh
+cannot reproduce (verdict `kept`), nothing moves. Otherwise:
+
+1. Each of `mcremote.exe` and `mcrelay.exe` that is present is copied into the
+   new folder. Each copy's `version` identity is compared with its source's. On
+   any mismatch nothing is switched, and the refresh says why.
+2. The task is re-registered to run the new folder's copy.
+3. The User `Path` loses the two per-product entries and gains the new folder
+   once. Every other entry stays as written, and so does the value's registry
+   type. Running programs are told of the change, but terminals that were
+   already open need to be reopened.
+4. Each old copy that no task runs is deleted, with its `.prev`, and with the
+   files the updater kept beside it (`.<name>.exe.selfupdate…`). Then the folder
+   goes, if nothing else is in it. A copy in use stays, and a later refresh
+   deletes it. Files you put there are not touched.
+
+`--refresh --json` names the move in `migrated`. `--refresh --print-only`
+makes no move.
+
+Until `install.ps1` itself installs to the new folder, update with
+`mcremote update` rather than re-running `install.ps1`. A re-run puts the
+binaries back in the per-product folders and on `Path`. The task keeps running
+the new folder's copy, and the next refresh deletes the re-installed copies.
 
 ## Durability caveat
 

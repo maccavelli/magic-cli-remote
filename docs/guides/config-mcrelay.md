@@ -356,10 +356,27 @@ Limits (`limits.*`) are **yaml / env only** (no CLI flags) — set in config or
 
 ### `mcrelay setup-service`
 
-Linux: systemd `--user` unit. macOS: launchd user LaunchAgent
-`com.magiccliremote.mcrelay` (session-bound, no sudo). Examples:
+Linux: systemd `--user` unit, or a runit, s6 or OpenRC (0.60 or later) user service where that
+is the service manager. macOS: launchd user LaunchAgent `com.magiccliremote.mcrelay`
+(session-bound, no sudo). Windows: a Task Scheduler at-logon task. Examples:
 [deploy/systemd/mcrelay.user.service](../../deploy/systemd/mcrelay.user.service),
 [deploy/launchd/com.magiccliremote.mcrelay.plist](../../deploy/launchd/com.magiccliremote.mcrelay.plist).
+
+It behaves as `mcremote setup-service` does, and [config.md](config.md#mcremote-setup-service--mcremote---setup-service)
+describes it in full:
+
+- **The service manager** is detected and recorded. runit and s6 may start a supervisor for this
+  session only, which nothing starts at boot.
+- **Hosts with nothing to supervise** (`systemd-broken`, `openrc-system`, `none`) get advice, no
+  definition, and exit 0.
+- **The verified start** waits up to `MCREMOTE_SVC_WAIT_SECS` seconds (default `15`) and reports
+  running, still starting (exit 0, with a warning), or not running (non-zero, with the command
+  that shows why).
+- **The environment variables** `MCREMOTE_NO_LINGER=1` and `MCREMOTE_FORCE_SERVICE=1` act as
+  `--no-linger` and `--force`. The names keep the `MCREMOTE_` prefix because they are the
+  installer's. `MCREMOTE_WITH_RELAY_SERVICE` is read by `mcremote setup-service`, which sets up
+  this service beside its own.
+- **`--uninstall`** removes both products' services that run a program from this binary's folder.
 
 | Flag | Description |
 |------|-------------|
@@ -374,6 +391,9 @@ Linux: systemd `--user` unit. macOS: launchd user LaunchAgent
 | `--force` | Overwrite differing definition |
 | `--no-enable` / `--no-start` / `--no-linger` | Skip enable / start / linger (`--no-linger` no-op on macOS) |
 | `--remove` | Stop, disable, delete service definition |
+| `--refresh` | Re-render the installed definition from this binary's template, keeping the options baked into it; `update` runs it after a swap |
+| `--json` | With `--refresh`, print the result as one JSON object |
+| `--uninstall` | Remove every `mcremote` and `mcrelay` service definition that runs a program from this binary's folder, on every service manager; report the rest. Cannot be combined with `--refresh` or `--remove` |
 
 User-unit hardening (on by default; set `false` in a drop-in to disable):
 `NoNewPrivileges`, `PrivateTmp`, `RestrictSUIDSGID`, `LockPersonality`,

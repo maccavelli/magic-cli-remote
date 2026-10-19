@@ -610,16 +610,103 @@ At least one of `--keyless` or `--stale` is required.
 
 | Platform | Definition | Enable / start | Linger |
 |----------|------------|----------------|--------|
-| Linux | `~/.config/systemd/user/mcremote.service` from `internal/cli/service/mcremote.user.service.tmpl` | `systemctl --user` | `loginctl enable-linger` (default) |
+| Linux, systemd | `~/.config/systemd/user/mcremote.service` from `internal/cli/service/mcremote.user.service.tmpl` | `systemctl --user` | `loginctl enable-linger` (default) |
+| Linux, runit | `$XDG_DATA_HOME/runit/service/mcremote/run` | no `down` file; `sv restart` through your `runsvdir`, or one started for this session | **None** (see below) |
+| Linux, s6 | `$XDG_DATA_HOME/s6/service/mcremote/run` | no `down` file; `s6-svc -r` through your `s6-svscan`, or one started for this session | **None** (see below) |
+| Linux, OpenRC 0.60+ | `$XDG_CONFIG_HOME/rc/init.d/mcremote` (`openrc-run` script) | `rc-update --user add mcremote default`; `rc-service --user mcremote restart` | **None** (see below) |
 | macOS | `~/Library/LaunchAgents/com.magiccliremote.mcremote.plist` (LaunchAgent) | `launchctl` `gui/$UID` | **None** (session-bound; no sudo) |
+| Windows | Task Scheduler task `mcremote` (at logon, no elevation) | `schtasks` | **None** (see [ops-windows-install.md](ops-windows-install.md)) |
 
 Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.service`,
 `deploy/launchd/com.magiccliremote.mcremote.plist`. See MADR/PLAN 0058.
 
+**Which service manager.** On Linux, `setup-service` detects the service manager the way
+`install.sh` does: a present `systemctl` decides alone, then runit, s6 and OpenRC, in that order
+([`0054-MADR-standardize-self-update-on-go-selfupdate-lib.md`](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md), PLAN S5a). It records the one it
+used in `service-backend` in the state directory, beside `service-unit`. `--refresh`, `--remove`,
+`update` and `doctor` follow that record. An install made before the record existed follows what is
+detected, or the OS default.
+
+**runit and s6.** The definition is a `run` script carrying the same environment, working
+directory and `serve` arguments as the systemd unit. If a `runsvdir` or `s6-svscan` of yours
+already watches the service directory, the service is restarted through it. Otherwise
+`setup-service` starts one, detached from the terminal, and the result says `At boot: NOT
+configured`: nothing starts that supervisor again after a reboot. Running `setup-service` again
+starts it. `--no-enable` writes a `down` file, so the supervisor leaves the service stopped.
+
+**OpenRC.** User services need OpenRC 0.60 or later. If your OpenRC user session is not running,
+`setup-service` starts it, and the result says that it starts at boot only if `pam_openrc` starts
+user sessions at login. Unless `--no-enable`, the service is added to the user `default` runlevel.
+
+**Hosts with nothing to supervise.** On `systemd-broken` (`systemctl` present, user manager
+unreachable), on `openrc-system` (OpenRC older than 0.60) and on `none`, `setup-service` writes
+nothing and exits 0. It prints:
+
+- `service:  not configured (no supported service manager detected: <kind>)`;
+- how to run the daemon yourself, in the foreground or with `nohup`;
+- the likely cause: entering the session with `su`, a PID 1 that is not systemd, WSL2 without
+  `systemd=true`, or WSL1;
+- on `openrc-system`, the root steps for a system service: an `/etc/init.d/<name>` script that
+  runs the daemon as you, then `rc-update add` and `rc-service start`.
+
+`--print-only` still prints the systemd unit there.
+
+**The verified start** (PLAN S5c). A start command that returns 0 means the start was accepted,
+not that the daemon stayed up. After starting, `setup-service` watches the service for up to
+`MCREMOTE_SVC_WAIT_SECS` seconds (default `15`) and reports one of three outcomes:
+
+| Output | Meaning | Exit |
+|--------|---------|------|
+| `Running:           yes, confirmed after the start` | Confirmed running | 0 |
+| `Running:           not yet confirmed — still starting when the wait ended`, and a `warning:` | Still coming up when the wait ended. Check it with the printed status command | 0 |
+| `<name> is not running after setup: <why>. The definition is installed; see why with:`, then the command | Confirmed not running: failed, never seen up, or restarting over and over | non-zero |
+
+- **systemd** must be `active` on three consecutive samples. A rise in `NRestarts` while watched,
+  `auto-restart` with two or more restarts, or `failed` is not running. For systemd the failure
+  also prints the journal's last lines.
+- **The other managers** must show the service up on two consecutive samples with the same
+  process, or report it up for two seconds. A process that changes while watched is a restart,
+  and counts as not running. So does runit or s6 reporting it down while wanting it up, and OpenRC
+  reporting it `crashed`. launchd's `waiting` does not count as up.
+- `--no-start` skips the wait. A value of `MCREMOTE_SVC_WAIT_SECS` that is not a positive whole
+  number is refused before anything is written.
+
+**The installer's options as environment variables** (PLAN S5d). They are named as `install.sh`
+names them, so one setting serves both:
+
+| Variable | Effect | Read by |
+|----------|--------|---------|
+| `MCREMOTE_NO_LINGER` | Same as `--no-linger` | `mcremote` and `mcrelay` |
+| `MCREMOTE_FORCE_SERVICE` | Same as `--force` | `mcremote` and `mcrelay` |
+| `MCREMOTE_WITH_RELAY_SERVICE` | Once `mcremote`'s service is set up, set up `mcrelay` from the same folder as `--binary` | `mcremote` |
+| `MCREMOTE_SVC_WAIT_SECS` | Seconds the verified start waits (default `15`) | `mcremote` and `mcrelay` |
+
+- `1` turns an option on, and unset or `0` leaves it off. Any other value, empty included, is
+  refused with an error naming the variable, before anything is written. A flag also turns its
+  option on.
+- With `MCREMOTE_WITH_RELAY_SERVICE=1`, a missing `mcrelay` beside `mcremote` fails the command.
+  If `mcrelay` does not start, `mcremote` is left set up and running, and the command says so and
+  exits non-zero. On a host with nothing to supervise, neither is set up.
+- `--print-only` reads none of the first three.
+
+**Uninstall** (PLAN S5e). `setup-service --uninstall` removes the background services before the
+binaries go. It looks for `mcremote` and `mcrelay`, under the recorded name and the product name,
+on every service manager of the OS.
+
+- A definition whose program is in the same folder as the binary running the command is stopped,
+  disabled and deleted, and its records are forgotten. It prints `removed: <product> <kind>
+  service <path>`.
+- Any other definition is left in place and reported: `left: … — runs <program>, not a program
+  from <folder>`.
+- One it could not remove is reported as `failed: …`, and the command exits non-zero. With nothing
+  found it prints so and exits 0.
+- Configuration and data stay. Remove the binaries with the installer's `--uninstall`.
+- `--uninstall` cannot be combined with `--refresh` or `--remove`.
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--setup-service` | false | Root flag alias for this command |
-| `--unit-name` | `mcremote` (setup); the recorded name (`--refresh`, `--remove`) | Linux unit name; macOS maps to `com.magiccliremote.<name>` Label. Setup records the name it used, so later commands find a custom-named service without the flag (MADR 0201 D30). Refused on Windows |
+| `--unit-name` | `mcremote` (setup); the recorded name (`--refresh`, `--remove`) | Linux unit name, runit or s6 service directory, or OpenRC script name; macOS maps to `com.magiccliremote.<name>` Label. Setup records the name it used, so later commands find a custom-named service without the flag (MADR 0201 D30). Refused on Windows |
 | `--binary` | `~/.local/bin/mcremote` if present, else this executable | Serve path only (never copies the binary; use `make install`) |
 | `--service-config` | | Config path embedded in service (else `--config`) |
 | `--data-dir` | | Passed to `serve` |
@@ -628,11 +715,14 @@ Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.servi
 | `--working-directory` | `$HOME` | Working directory |
 | `--env` | | Extra `KEY=VALUE` (repeatable) |
 | `--print-only` | false | Print unit/plist to stdout only |
-| `--force` | false | Overwrite existing definition |
-| `--no-enable` | false | Skip enable |
-| `--no-start` | false | Skip start/restart |
-| `--no-linger` | false | Linux: skip linger. macOS: no effect |
+| `--force` | false | Overwrite existing definition. Also `MCREMOTE_FORCE_SERVICE=1` |
+| `--no-enable` | false | Skip enable (runit and s6: write a `down` file) |
+| `--no-start` | false | Skip start/restart, and the verified start |
+| `--no-linger` | false | Linux: skip linger. macOS: no effect. Also `MCREMOTE_NO_LINGER=1` |
 | `--remove` | false | Stop, disable, and delete the service definition |
+| `--refresh` | false | Re-render the installed definition from this binary's template, keeping the options baked into it. Rewrites only a definition this binary wrote. `update` runs it after a swap. On Windows it also moves an install out of the per-product folders ([ops-windows-install.md](ops-windows-install.md)) |
+| `--json` | false | With `--refresh`, print the result as one JSON object |
+| `--uninstall` | false | Remove every `mcremote` and `mcrelay` service definition that runs a program from this binary's folder, on every service manager; report the rest. Cannot be combined with `--refresh` or `--remove` |
 
 ### `mcremote update` / `mcrelay update` (MADR 0065 and 0103, superseded by MADR 0005, and 0054)
 
@@ -652,6 +742,10 @@ User-initiated upgrade from GitHub Releases. The update is
   - A stopped service is started again only when it is enabled. A service the operator disabled
     stays stopped.
   - With no service, the update replaces the binary alone.
+  - The service manager is the one `setup-service` recorded, so a runit, s6 or OpenRC user service
+    is restarted too, and its start is confirmed with `setup-service`'s verified start (PLAN S5f).
+    A runit or s6 service with a `down` file, or an OpenRC service outside the `default`
+    runlevel, counts as disabled, so a stopped one stays stopped.
 - **Failure.** A definition reconcile, start, or health-check failure is fatal and rolls the
   binary and the definition back together.
 

@@ -2770,3 +2770,112 @@ Both remote copies, and the scratch binary, were removed.
   - `refresh_schtasks.go`, `refresh.go`, `setup.go`;
 - this PLAN.
 
+### S5h, 2026-10-19 — staged for the owner's commit; one finding for the owner
+
+**Starting point.** The owner committed S5g, pushed it (CI run 39325582874 green), and said
+"proceed tree is clean".
+
+**What S5h changed.** Documentation only. Every statement was checked against the code it
+describes, and each file and line is named below.
+
+- **`docs/guides/config.md`, `### mcremote setup-service`:**
+  - **The platform table** gains rows for runit, s6, OpenRC 0.60+ and Windows, with each definition's
+    path (`supervisor.go` `scriptDefFor`).
+  - **Which service manager:** the detection order and the `service-backend` record (S5a).
+  - **runit and s6:** the session supervisor, which nothing starts at boot, and the `down` file
+    (S5b). It also says that running `setup-service` again starts the supervisor, because
+    `setupScript` starts it even when the definition is unchanged.
+  - **OpenRC:** the user session, and the `default` runlevel.
+  - **Hosts with nothing to supervise:** the advice `unsupervisedAdvice` prints, exit 0, and
+    `--print-only` previewing the OS default (`setup.go` `Setup`).
+  - **The verified start:** the three outputs as `printHealth` and `verifyStart` print them, the
+    systemd and other-manager rules from `settle.go`, `--no-start`, and the refusal of a bad
+    `MCREMOTE_SVC_WAIT_SECS`.
+  - **The environment variables:** a table, the `1`/`0` rule, the relay's two failure cases
+    (`SetupRelayBeside`), and `--print-only` reading none of them (`setup_service.go`).
+  - **Uninstall:** the `removed:`, `left:` and `failed:` lines (`PrintUninstallResult`), and the
+    non-zero exit on a failure.
+  - **The flag table** gains `--refresh`, `--json` and `--uninstall`, and names the variables on
+    `--force` and `--no-linger`.
+  - **The update section** gains a bullet: runit, s6 and OpenRC services are restarted, and the
+    `down` file or the runlevel decides whether they are enabled (S5f).
+- **`docs/guides/config-mcrelay.md`:** the backends, a summary pointing to `config.md`, and the three
+  flag rows. It says that the variables keep the `MCREMOTE_` prefix, and that
+  `MCREMOTE_WITH_RELAY_SERVICE` is read by `mcremote`.
+- **`docs/guides/ops-linux-install.md`:**
+  - **`setup-service` on runit, s6 and OpenRC.** A new paragraph and list under Service backends,
+    with the session-only caveat and the hosts with nothing to supervise. The installer's own
+    table above it still describes `install.sh`, which S5 did not change, so it is untouched.
+  - **The OpenRC user control command.**
+  - **Updating.** Lines 205–207 said `update` cannot cycle a runit, s6 or OpenRC host. They now
+    say this was true before S5f. A paragraph says how such a service is updated.
+  - **Uninstall.** `setup-service --uninstall` comes before `install.sh --uninstall`.
+- **`docs/guides/ops-windows-install.md`:**
+  - **The install paragraph** names the new folder.
+  - **New `### The folder move`, at the end of Updating:** the four steps of the move, the
+    `migrated` field, `--print-only`, and the finding below. It also says that nothing moves with no
+    task, or with a task the refresh keeps (`refresh_schtasks.go:35-47`).
+- **`README.md`:**
+  - the Windows install line;
+  - the service platform table, with the hosts with nothing to supervise and the wait;
+  - the command and global-flag rows;
+  - the `setup-service` flag table, with `--refresh`, `--json`, `--uninstall` and the variables;
+  - Uninstall.
+
+**Corrections made while reviewing the diff,** before anything was staged:
+
+- **Wrong placement.** `### The folder move` was first placed before the paragraph "Going back to
+  v0.18.0 or earlier by hand", so it took that paragraph in. It now sits at the end of Updating.
+- **The move needs the task.** "The first `mcremote update` moves both" was true only with the
+  task registered. The README and the guide now say so.
+- **A preview line that does not print.** `--refresh --print-only` was described as reporting the
+  move it would make. The command prints only the definition under `--print-only`
+  (`setup_service.go:122-124`), so the warning never shows. The guide now says only that it makes
+  no move.
+
+**A finding for the owner (not acted on): re-running `install.ps1` after the move loses the
+re-install.**
+
+- **Why.** `install.ps1` still installs to `Programs\<product>\` and puts those folders back on
+  the User `Path` (`scripts/install.ps1:280`, `:324-369`). It does not touch the task.
+- **What follows.** The task keeps running the new folder's older copy. The next refresh's
+  `cleanOldFolders` then deletes the re-installed copies, because each has a copy in the new folder
+  and no task runs it, and removes the `Path` entries again.
+- **So** re-running the documented one-liner after a move installs nothing that stays.
+- **What S5h did.** It records this in `ops-windows-install.md` ("update with `mcremote update`
+  rather than re-running `install.ps1`").
+- **The fix is out of S5's scope.** S7's generated installer installs to the new folder. Until S7
+  ships, the documented advice is the only mitigation.
+
+**Checks, exit status captured before reading output** (`s5h_check.py`):
+
+- **The link resolver.** Nothing in the repository checks links in guides or the README.
+  `s5h_links.py` resolves every relative link in the five files, with its `#fragment` against
+  GitHub's heading slugs. It was first seen to fail on a scratch copy of the tree:
+
+```text
+plant dead fragment   exit=1  guides/config-mcrelay.md:365: dead fragment config.md#mcremote-setup-service-mcremote-setup-service
+plant dead file       exit=1  guides/config.md:10: dead link ops-windows-instal.md
+```
+
+  - The first attempt at the fragment plant failed for another reason. The copy lacked
+    `configs/`, so a different link was reported dead. The script now requires the planted target
+    itself in the output, and the plants above meet that.
+- **The gates:**
+
+```text
+s5h_links.py on the five files        exit=0, dead links: 0
+make markdownlint-docs                exit=0, 53 files, 0 issues
+make check-records                    exit=0
+records_check.py, after staging       markdownlint on the 0054 records 0 findings;
+                                      placeholder-homes guard exit=0;
+                                      identifier scan 0 hits in the 6 staged files
+```
+
+No Go file changed, so `make pre-add-check`, vet, lint and the tests do not apply to this
+sub-phase. The Windows and Linux test hosts were not needed, and no live run was made.
+
+**Files staged for S5h:** `README.md`, `docs/guides/config.md`, `docs/guides/config-mcrelay.md`,
+`docs/guides/ops-linux-install.md`, `docs/guides/ops-windows-install.md`, and this PLAN.
+
+**S5 is complete with S5h,** pending the owner's commit. S6–S8 remain.

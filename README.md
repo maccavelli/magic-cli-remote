@@ -150,7 +150,9 @@ irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/inst
 ```
 
 Binaries land in `%LOCALAPPDATA%\Programs\` and `mcremote setup-service`
-registers a Task Scheduler at-logon task — **no elevation at any point**.
+registers a Task Scheduler at-logon task — **no elevation at any point**. Once
+the task is registered, the first `mcremote update` moves both binaries into
+`%LOCALAPPDATA%\Programs\magic-cli-remote\`.
 
 Read [docs/guides/ops-windows-install.md](docs/guides/ops-windows-install.md) before relying
 on it: the binaries are not Authenticode-signed yet, the background task starts
@@ -307,7 +309,17 @@ daemon. It does **not** copy the binary — install first with `make install`.
 | Platform | Backend | Survives logout? |
 |----------|---------|------------------|
 | Linux | systemd `--user` unit | Yes (linger enabled by default) |
+| Linux | runit or s6 user service (`run` script) | Yes, while its supervisor runs; at boot only if your `runsvdir` / `s6-svscan` starts at boot |
+| Linux | OpenRC 0.60+ user service | Yes, while your OpenRC user session runs |
 | macOS | launchd **user LaunchAgent** (`~/Library/LaunchAgents`) | **No** — session-bound; no sudo system daemon |
+| Windows | Task Scheduler at-logon task | **No** — starts at logon |
+
+On a Linux host with none of these (`systemctl` with no reachable user
+manager, OpenRC older than 0.60, or no service manager), `setup-service`
+writes nothing, prints how to run the daemon yourself, and exits 0. After
+starting the service it waits up to `MCREMOTE_SVC_WAIT_SECS` seconds (default
+`15`) to confirm it is running. See
+[docs/guides/config.md](docs/guides/config.md#mcremote-setup-service--mcremote---setup-service).
 
 Design notes: [docs/decisions/0058-MADR-macos-launchd-service-hardening.md](docs/decisions/0058-MADR-macos-launchd-service-hardening.md).
 
@@ -415,7 +427,8 @@ mcremote setup-service --no-enable --no-start --no-linger --print-only
 ### Uninstall
 
 ```bash
-mcremote setup-service --remove
+mcremote setup-service --remove      # this service only
+mcremote setup-service --uninstall   # every mcremote and mcrelay service from this binary's folder
 ```
 
 Stops the daemon, disables the service, and deletes the unit/plist. The binary
@@ -576,7 +589,7 @@ mcremote completion bash|zsh|fish|powershell
 | `pair create` | Long-lived `mcr_…` device token |
 | `pair list` / `pair revoke` | Manage devices |
 | `pair prune` | Remove stale (`--stale`) or keyless (`--keyless`) devices |
-| `setup-service` / `--setup-service` | Install background service + start (Linux systemd --user / macOS launchd agent; `--remove` to uninstall) |
+| `setup-service` / `--setup-service` | Install background service + start (Linux systemd --user, runit, s6 or OpenRC / macOS launchd agent / Windows task; `--remove` to remove it, `--uninstall` to remove every service of both products) |
 | `engines` | List agent engine processes (`opencode`/`kilo` `serve`, `codex app-server`) and whether their owning daemon is alive (`--reap` to stop orphans) |
 | `paths` | Print the resolved XDG layout — config, data, state, cache, runtime, admin socket, engine registry, log dir (`--json` for machine-readable). Read-only: creates nothing |
 | `receipts list` / `verify` / `show` | Inspect and verify signed permission-decision receipts (opt-in, see [Signed receipts](#signed-receipts)) |
@@ -592,10 +605,10 @@ mcremote completion bash|zsh|fish|powershell
 | `--log-format` | `text` \| `json` |
 | `--help` / `-h` | Help |
 | `--version` | Version |
-| `--setup-service` | Install + enable + start background service (Linux systemd / macOS launchd) |
+| `--setup-service` | Install + enable + start background service (Linux systemd, runit, s6 or OpenRC / macOS launchd / Windows task) |
 
 Root-level flags also include the full `setup-service` option set (`--binary`,
-`--force`, `--print-only`, `--remove`, `--env`, …) so `mcremote --setup-service`
+`--force`, `--print-only`, `--remove`, `--uninstall`, `--env`, …) so `mcremote --setup-service`
 works without a subcommand.
 
 ### `serve` flags
@@ -655,6 +668,14 @@ works without a subcommand.
 | `--force` | | Overwrite existing definition |
 | `--no-enable` / `--no-start` / `--no-linger` | | Skip enable / start / linger (`--no-linger` is no-op on macOS) |
 | `--remove` | | Stop, disable, and delete the service definition |
+| `--refresh` | | Re-render the installed definition from this binary's template, keeping its baked options |
+| `--json` | | With `--refresh`, print the result as JSON |
+| `--uninstall` | | Remove every `mcremote` and `mcrelay` service that runs a program from this binary's folder |
+
+Environment: `MCREMOTE_NO_LINGER=1` and `MCREMOTE_FORCE_SERVICE=1` act as
+`--no-linger` and `--force`; `MCREMOTE_WITH_RELAY_SERVICE=1` also sets up
+`mcrelay` beside `mcremote`; `MCREMOTE_SVC_WAIT_SECS` bounds the verified
+start. The first three take `1` or `0`; any other value is refused.
 
 ```bash
 # Listen from config.yaml (recommended):

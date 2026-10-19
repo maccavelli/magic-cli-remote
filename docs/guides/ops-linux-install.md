@@ -92,6 +92,33 @@ are session-bound: they stop on logout, and there is no user-level linger.
 The installer therefore reports which of the two capabilities it actually
 achieved and never claims persistence it did not configure.
 
+**`setup-service` on runit, s6 and OpenRC.** `mcremote setup-service` and
+`mcrelay setup-service` now set up these supervisors themselves, with the
+same definitions as the systemd unit, and `update` restarts them
+([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md),
+PLAN S5b and S5f). Its wording for what it achieved is the installer's:
+
+- **runit and s6, session only.** If no `runsvdir` or `s6-svscan` of yours
+  watches the service directory, `setup-service` starts one, detached from the
+  terminal, and prints `At boot: NOT configured`. That supervisor runs until
+  the machine restarts. After a reboot nothing starts it, and the daemon stays
+  down until you run `setup-service` again or start the supervisor yourself.
+  To make it permanent, start your supervisor at boot, which is a root action.
+- **OpenRC user services** need OpenRC 0.60 or later. If your OpenRC user
+  session is not running, `setup-service` starts it, and prints that it starts
+  at boot only if `pam_openrc` starts user sessions at login. The service is
+  added to the user `default` runlevel.
+- **`openrc-system`** (OpenRC older than 0.60), **`systemd-broken`** and
+  **`none`:** `setup-service` writes nothing, prints the likely cause and how
+  to run the daemon yourself, and exits 0. On `openrc-system` it also prints
+  the root steps for a system service that runs the daemon as you.
+
+`setup-service` confirms the start the way the installer does, and
+`MCREMOTE_SVC_WAIT_SECS` bounds the wait for both. `MCREMOTE_NO_LINGER`,
+`MCREMOTE_FORCE_SERVICE` and `MCREMOTE_WITH_RELAY_SERVICE` also act on
+`setup-service` (`1` on; unset or `0` off; anything else refused). See
+[config.md](config.md#mcremote-setup-service--mcremote---setup-service).
+
 Control commands per backend:
 
 ```sh
@@ -109,6 +136,9 @@ SVDIR=~/.local/share/runit/service sv status|up|down mcremote
 # s6
 s6-svstat ~/.local/share/s6/service/mcremote      # status ("up (pid N) …")
 s6-svc -u|-d ~/.local/share/s6/service/mcremote   # bring up / take down
+
+# OpenRC user service (setup-service only)
+rc-service --user mcremote status|restart|stop
 ```
 
 ## Environment-specific notes
@@ -170,10 +200,18 @@ does four things, in this order:
    render what the release ships;
 4. `systemctl --user daemon-reload`, then start, then confirm it is active.
 
-`mcremote update` only cycles `mcremote.service`. `mcrelay update` only
-cycles `mcrelay.service`. If that product has no unit file, the command
-still replaces the binary and does not start a service. If the unit
-exists but the process is down, the update starts it (MADR 0103).
+`mcremote update` only cycles `mcremote`'s service. `mcrelay update` only
+cycles `mcrelay`'s. If that product has no service definition, the command
+still replaces the binary and does not start a service. If the definition
+exists but the process is down, the update starts it when it is enabled
+(MADR 0103).
+
+The steps above are systemd's. On a runit, s6 or OpenRC user service that
+`setup-service` set up, `update` stops it through its supervisor, swaps and
+refreshes the run script the same way, starts it, and confirms it with
+`setup-service`'s verified start. A runit or s6 service with a `down` file,
+or an OpenRC service outside the `default` runlevel, is disabled: if it was
+stopped, it stays stopped.
 
 The refresh reports one of four outcomes and never fails the update:
 
@@ -202,19 +240,27 @@ Two limitations worth knowing:
   entries it did not apply. `mcremote setup-service --force` re-derives them —
   at the cost of resetting every baked option to its default.
 
-If no service is installed at all — `--no-service`, or a `runit`/`s6`/`openrc`
-host, which `update` cannot cycle — `update` now replaces the binary and exits 0
-instead of failing on a service that was never there.
+If no service is installed at all — `--no-service`, or a host with nothing to
+supervise — `update` replaces the binary and exits 0 instead of failing on a
+service that was never there. Before PLAN S5f this was also true of a
+`runit`, `s6` or `openrc` host, whose service `update` could not cycle.
 
 ## Uninstall
 
 ```sh
+mcremote setup-service --uninstall
 sh install.sh --uninstall
 ```
 
-Stops and disables the service, removes the unit or run directory, and deletes
-both binaries. Configuration and data under `~/.config` and `~/.local/share`
-are left in place deliberately.
+`setup-service --uninstall` stops and removes every `mcremote` and `mcrelay`
+service definition, on every service manager, whose program is in the same
+folder as the `mcremote` running it. A definition that runs a binary from
+another folder is reported and left. It covers what `setup-service` set up,
+including an OpenRC user service.
+
+`install.sh --uninstall` stops and disables the service, removes the unit or
+run directory, and deletes both binaries. Configuration and data under
+`~/.config` and `~/.local/share` are left in place deliberately.
 
 ## Testing
 
