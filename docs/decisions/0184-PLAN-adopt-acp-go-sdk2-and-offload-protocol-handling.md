@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-18
+date: 2026-10-19
 associated-madr: "0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -1123,3 +1123,35 @@ Still `in-progress`, and this is what remains, checked against the tree and CI:
   2026-10-18 (B2).
 * **Not this PLAN's to close.** `maccavelli/acp-go-sdk2#7`, for which `submitPrompt` keeps
   its check, and gobble's own pin of the SDK.
+
+## Amendment — 2026-10-19: B3 for `v1.15.2` (proposed)
+
+**Not approved.** This implements the MADR amendment of 2026-10-19 (G1–G6) once the owner approves
+it by name ("do B3"). It changes Go code in `internal/provider/acpagent` only, plus `go.mod` and
+`go.sum`.
+
+**B3 — move to `acp-go-sdk2 v1.15.2`.**
+
+1. **Re-check the tag.** `git ls-remote https://github.com/maccavelli/acp-go-sdk2
+   'refs/tags/v1.15.2^{}'` still gives `f7defb4c596feb2b90727522028e5b7e810ce15a`, and no later
+   tag exists. A later tag stops the phase, for an amendment.
+2. **Pin it.**
+   - `go get github.com/maccavelli/acp-go-sdk2@v1.15.2`, then `go mod tidy`.
+   - `go.mod` changes one line, and `go.sum` changes only the module's lines.
+   - `TestGoModRequiresTaggedACPDirectly` passes, and `govulncheck` is clean.
+   - `go test ./...` passes before step 3 changes anything, which shows the bump alone changes
+     nothing Magic tests.
+3. **Delete the mitigation (G2).**
+   - Remove `submitPrompt`'s `ctx.Err()` check and its comment (`session.go:597-613`).
+   - Keep `TestPromptSendsNothingWithAnEndedContext`.
+   - Fail-first, on a scratch copy pinned at `v1.15.0` with the check removed: the test fails
+     with "put "session/cancel" on the wire", as the assessment observed. On `v1.15.2` with the
+     check removed, it passes.
+4. **Verification.**
+   - `go test -race ./...`, `make pre-add-check`, `make lint`, `make staticcheck`.
+   - `make ci-windows` on the Windows test host.
+   - Quota-free against grok: `TestLiveGrokElicitationAtSessionStart` and
+     `TestLiveGrokPlanAtSessionStart`.
+   - `make live-grok` only with the owner's quota approval (G6). Until it passes, B3 is not done.
+5. **Records.** An execution record here. Update the 2026-10-18 status note's last bullet: #7 is
+   closed, and `submitPrompt`'s check is gone. gobble's pin stays gobble's (G5).

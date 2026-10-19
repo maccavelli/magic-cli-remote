@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-13
+date: 2026-10-19
 decision-makers: Project Owner
 consulted: none
 informed: operators of ACP providers (grok today; gobble when registered); maintainers of acp-go-sdk2 and gobble-cli
@@ -577,3 +577,91 @@ module proxy's source zip.
   `TestLiveGrokElicitationAtSessionStart` and `TestLiveGrokPlanAtSessionStart`, plus the unit and
   wire suites. D12's `make live-grok` spends quota, and waits for the owner's word. Under D12, B2
   is done only when it passes.
+
+## Amendment — 2026-10-19: move to `v1.15.2` (B3)
+
+**Status: proposed.** The owner asked for this assessment on 2026-10-19: "Assess under 0184". It
+was read-only. The bump waits for the owner's approval, and so does any provider quota.
+
+### What shipped
+
+- **The tags.** `acp-go-sdk2` has published two releases since `v1.15.0`: `v1.15.1` and `v1.15.2`,
+  both dated 2026-10-18.
+  - `v1.15.2` is the latest tag. `git ls-remote` resolves `refs/tags/v1.15.2^{}` to
+    `f7defb4c596feb2b90727522028e5b7e810ce15a`.
+  - No commit follows it on `main`.
+- **The module.** Its `go.mod` has no `require` block, at either tag.
+- **The schema** is unchanged at `1.25.0`.
+- **The exported API is unchanged.**
+  - The module's own release notes say so (`docs/reports/0019-REPORT-release-notes-v1-15-1.md` and
+    `-v1-15-2.md`).
+  - Checked independently on 2026-10-19: `go doc -all` of the package at both tags, with comments
+    and whitespace removed, gives 2528 declaration lines each, with none added or removed.
+- **`v1.15.1`** adds documentation, examples, tests and tooling. Its generated files change in
+  comments only.
+- **`v1.15.2`** fixes the three issues the SDK's owner closed: #7, #8 and #9. GitHub shows all three
+  `CLOSED` on 2026-10-19. The fixes:
+  - **#7 (B22).** `Prompt` no longer sends `session/cancel` for a prompt it never handed to its
+    writer, whether the context had already ended or ended before the hand-off.
+  - **#8 (B23).** When the input ends cleanly, the connection drains:
+    - the requests this side is waiting on fail at once with `-32603`, wrapping
+      `ErrPeerDisconnected`;
+    - handlers already running keep their contexts for up to five seconds, and their answers are
+      written;
+    - `Done()` closes after that.
+  - **#9 (B24).** Without `subagents` in the client's capabilities, `subagent_update`,
+    `session_message` and `session_message_chunk` are gated. Received, they are dropped and
+    logged.
+  - **After the release notes.** The tag also carries `3fb248d`, written after the notes, which
+    tightens `waitForResponse`:
+    - an answer already read is delivered rather than lost to the end of input or of the
+      connection;
+    - a connection that ends after its input ended reports the end of input.
+
+### What it changes for Magic
+
+- **G1. The pin moves** to `v1.15.2`. A probe on a scratch copy of `999cc42c` changed one line of
+  `go.mod` and two of `go.sum`. Its gates:
+  - `go build ./...`, and `go vet ./...` for darwin/arm64, windows/amd64 and linux/amd64 with
+    `CGO_ENABLED=0`, all exit 0.
+  - `go test -race ./...`: 41 packages pass. The one failure is
+    `TestTrackedFilesUseOnlyPlaceholderHomes`, which needs a git index the copy did not have ("no
+    git index … the guard cannot read the tracked files"). It passes on the working tree.
+  - `govulncheck` exits 0.
+- **G2. `submitPrompt`'s check is deleted.**
+  - This check is F3's mitigation for #7 (`internal/provider/acpagent/session.go:597-613`).
+  - The probe removed it on both versions. On `v1.15.0`,
+    `TestPromptSendsNothingWithAnEndedContext` fails: "a prompt with an ended context put
+    "session/cancel" on the wire". On `v1.15.2`, it passes.
+  - So the SDK now does what the check did. It also covers the case the check could not: a
+    context that ends before the hand-off.
+  - The test stays, as the guard on the SDK's behavior.
+  - This follows [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md)'s
+    driver "delete the mitigation when the fix ships".
+- **G3. The subagent gate (#9) changes no outcome.**
+  - Magic advertises no `subagents` capability (`defaultClientCapabilities`,
+    `internal/provider/acpagent/acpagent.go:1092`). So the SDK now drops the three gated
+    updates before Magic's handler sees them.
+  - Magic already declined all three (`sessionupdate_test.go:90-92`, under
+    [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md)).
+    Only the component that logs the decline changes.
+  - Magic's sub-agent status comes from grok's `_x.ai/session_notification` extension
+    (`internal/provider/acpagent/subagents.go`), which the gate does not cover.
+- **G4. The end-of-input drain (#8) needs no change in Magic.** Magic is a client, and its agent
+  is the peer whose output ends.
+  - Magic's pending requests still fail with `ErrPeerDisconnected`, which `session.go:509`
+    already turns into one disconnect.
+  - Magic's own handlers for the agent's requests (permission, elicitation, file system,
+    terminal) may run up to five seconds after the end of input, then are cancelled.
+  - `conn.Done()`, which `watchConnClose` waits on (`session.go:1244`), can close up to five
+    seconds later than before. That matters only for an agent that closes its output and keeps
+    running. An agent whose process exits is still reported at once by the exit watcher.
+- **G5. gobble.** D12 has both repositories pin the same tag. gobble-cli pins `v1.14.0` (`go.mod`
+  line 15, at `ea509b6`), so it is already one release behind Magic's `v1.15.0`. Its move is
+  gobble's own record, as F4 said.
+- **G6. Verification.** The same as B2's F5, with one difference about quota:
+  - **Quota-free:** the unit and wire suites, `make ci-windows`, and the probes
+    `TestLiveGrokElicitationAtSessionStart` and `TestLiveGrokPlanAtSessionStart`.
+  - **`make live-grok` spends quota.** The pre-approval in 0186's answer Q7 covered 0184's
+    acceptance run, which ran on 2026-10-18. So B3's run waits for the owner's word, and under D12
+    B3 is done only when it passes.
