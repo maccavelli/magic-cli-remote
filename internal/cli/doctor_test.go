@@ -54,6 +54,7 @@ func TestRenderServiceDoctor(t *testing.T) {
 		PlistOrUnit:  "/tmp/com.magiccliremote.mcremote.plist",
 		PlistPresent: true,
 		Loaded:       false,
+		Enabled:      true,
 		Active:       false,
 		Hint:         "plist present but not loaded (bootout left down) — run: mcremote setup-service --force",
 	})
@@ -62,6 +63,7 @@ func TestRenderServiceDoctor(t *testing.T) {
 		"mcremote user service",
 		"present: yes",
 		"loaded:  no",
+		"enabled: yes",
 		"active:  no",
 		"bootout left down",
 		"setup-service --force",

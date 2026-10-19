@@ -199,6 +199,7 @@ func renderServiceDoctor(w io.Writer, st service.Status) {
 	fmt.Fprintf(w, "  path:    %s\n", st.PlistOrUnit)
 	fmt.Fprintf(w, "  present: %s\n", yesNo(st.PlistPresent))
 	fmt.Fprintf(w, "  loaded:  %s\n", yesNo(st.Loaded))
+	fmt.Fprintf(w, "  enabled: %s\n", yesNo(st.Enabled))
 	fmt.Fprintf(w, "  active:  %s\n", yesNo(st.Active))
 	if st.Hint != "" {
 		fmt.Fprintf(w, "  hint:    %s\n", st.Hint)

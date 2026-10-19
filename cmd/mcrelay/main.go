@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/maccavelli/mcplib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 
 	"github.com/maccavelli/magic-cli-remote/internal/relay"
 )

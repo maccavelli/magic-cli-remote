@@ -1,18 +1,19 @@
-// Package updateclient adapts mcplib/selfupdate to mcremote and mcrelay.
+// Package updateclient adapts go-selfupdate-lib's selfupdate package to
+// mcremote and mcrelay.
 //
 // It is the only place this repository knows about GitHub releases, version
 // comparison, download, verification, or executable replacement: that logic
-// lives once in github.com/maccavelli/mcplib/selfupdate (MADR 0005). What
-// stays here is what is genuinely product-specific — the stamped identity of
-// an already-installed legacy binary, user-service lifecycle, unit
-// reconciliation, and the optional macOS codesign transform.
+// lives once in github.com/maccavelli/go-selfupdate-lib/selfupdate (MADR 0005,
+// 0054). What stays here is what is genuinely product-specific: the stamped
+// identity of an already-installed legacy binary, and the composition of the
+// library's service backend, reconciler and codesign signer.
 package updateclient
 
 import (
 	"strconv"
 	"strings"
 
-	"github.com/maccavelli/mcplib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 // ReleaseBuildKind is the exact stamped value that marks a release build.
@@ -36,8 +37,9 @@ const ReleaseBuildKind = "release"
 //	anything malformed   -> unchanged, LocalBuild
 //
 // Only the three-part base survives, because only the base was ever a real
-// release identity. This normalizer is deliberately not exported from mcplib:
-// no other product should inherit the BASE.N exception (MADR 0005 F3).
+// release identity. This normalizer is deliberately not exported from the
+// shared library: no other product should inherit the BASE.N exception (MADR
+// 0005 F3).
 func NormalizeInstalled(rawVersion, rawBuildKind string) (string, selfupdate.BuildKind) {
 	raw := strings.TrimSpace(rawVersion)
 	base, ok := legacyBase(raw)

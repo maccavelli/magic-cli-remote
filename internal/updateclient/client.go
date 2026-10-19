@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/maccavelli/mcplib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 // Repository is the single GitHub repository both products are published from.
@@ -55,6 +56,9 @@ type Options struct {
 	HTTPClient *http.Client
 	// APIBaseURL overrides the GitHub API origin in tests.
 	APIBaseURL string
+	// TargetPath overrides the executable the update replaces, in tests. Its
+	// directory becomes an allowed root.
+	TargetPath string
 }
 
 // New builds the updater for one product. Every security-relevant component is
@@ -80,18 +84,28 @@ func New(opts Options) (*selfupdate.Updater, error) {
 		return nil, fmt.Errorf("updateclient: asset selector: %w", err)
 	}
 
-	standalone, err := selfupdate.NewStandaloneInstaller(selfupdate.InstallOptions{})
+	var install selfupdate.InstallOptions
+	if opts.TargetPath != "" {
+		install.TargetPolicy = selfupdate.TargetPolicy{
+			ExecutablePath: opts.TargetPath,
+			AllowedRoots:   []string{filepath.Dir(opts.TargetPath)},
+		}
+	}
+	standalone, err := selfupdate.NewStandaloneInstaller(install)
 	if err != nil {
 		return nil, fmt.Errorf("updateclient: installer: %w", err)
 	}
 
 	var installer selfupdate.Installer = standalone
 	if opts.Managed {
-		managed, err := selfupdate.NewManagedInstaller(standalone, &Lifecycle{}, &Reconciler{})
-		if err != nil {
-			return nil, fmt.Errorf("updateclient: managed installer: %w", err)
+		if installer, err = managedInstaller(opts.Product, standalone); err != nil {
+			return nil, err
 		}
-		installer = managed
+	}
+
+	transformer, err := newTransformer(opts.Product, opts.CodesignIdentity)
+	if err != nil {
+		return nil, err
 	}
 
 	out := opts.Out
@@ -107,7 +121,7 @@ func New(opts Options) (*selfupdate.Updater, error) {
 		Source:      source,
 		Versions:    selfupdate.NewStrictVersionPolicy(),
 		Assets:      selector,
-		Transformer: newCodesignTransformer(opts.CodesignIdentity),
+		Transformer: transformer,
 		Installer:   installer,
 		Reporter:    selfupdate.NewTextReporter(out),
 		Confirmer:   selfupdate.NewTerminalConfirmer(opts.In, errw),
@@ -173,7 +187,7 @@ func parseBase(raw string) (*url.URL, error) {
 //
 // The command owns flag parsing and stream selection and nothing else.
 // Discovery, verification, staging, replacement, rollback and exit semantics
-// all live in mcplib/selfupdate.
+// all live in go-selfupdate-lib's selfupdate package.
 func NewCommand(product string, identity func() (rawVersion, rawBuildKind string)) *cobra.Command {
 	var (
 		check, yes, force bool

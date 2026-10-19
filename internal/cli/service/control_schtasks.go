@@ -43,15 +43,6 @@ var taskState = func(name string) (state int, found bool, err error) {
 	return n, true, nil
 }
 
-// isActiveWindows reports whether the scheduled task is currently running.
-func isActiveWindows(product string) (bool, error) {
-	state, found, err := taskState(taskName(product))
-	if err != nil {
-		return false, err
-	}
-	return found && state == taskStateRunning, nil
-}
-
 // isInstalledWindows reports whether the task is registered at all.
 func isInstalledWindows(product string) (bool, error) {
 	_, found, err := taskState(taskName(product))
@@ -61,9 +52,11 @@ func isInstalledWindows(product string) (bool, error) {
 	return found, nil
 }
 
-// startWindows enables the task, then runs it now. Enabling first undoes a
-// stop (which disables; see stopWindows), so the watchdog trigger is live
-// again once the daemon is (MADR 0159 D5).
+// startWindows enables the task, then runs it now, for setup-service. Enabling
+// first undoes a stop (which disables; see stopWindows), so the watchdog
+// trigger is live again once the daemon is (MADR 0159 D5). A managed update
+// starts the task through go-selfupdate-lib's taskscheduler backend instead
+// (MADR 0054 D3).
 func startWindows(product string) error {
 	name := taskName(product)
 	if out, err := runSchtasks("/change", "/tn", name, "/enable"); err != nil {
@@ -75,11 +68,14 @@ func startWindows(product string) error {
 	return nil
 }
 
-// stopWindows disables the task, then ends it if it is running.
+// stopWindows disables the task, then ends it if it is running, for
+// setup-service --remove. A managed update stops the task through
+// go-selfupdate-lib's taskscheduler backend, which disables it first for the
+// same reason (MADR 0054 D3).
 //
 // Disabling comes first because the task carries a repeating watchdog trigger
 // (MADR 0159 D5): a bare /end is undone within a minute, which would restart a
-// daemon that `update` stopped in order to replace its binary. A disabled task
+// daemon that was stopped on purpose. A disabled task
 // is not relaunched (measured, MADR 0159 probe 8). Whether to /end is decided
 // by the state probe rather than by parsing /end's localised error for a task
 // that is not running.

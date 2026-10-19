@@ -115,9 +115,10 @@ class AppUpdateService {
   }) async {
     // MADR 0132. The expected hash comes from the release asset's own `digest`
     // first, and only then from a SHA256SUMS manifest. Since MADR 0005 moved
-    // publishing to mcplib's reusable workflow, SHA256SUMS lists exactly the
-    // canonical Go binaries — mcplib's verifier fails the publish otherwise
-    // (verify-selfupdate-release.sh:193) — so the APK has no line in it and
+    // publishing to a shared reusable workflow, go-selfupdate-lib's since MADR
+    // 0054, SHA256SUMS lists exactly the canonical Go binaries — its verifier
+    // fails the publish otherwise (verify-selfupdate-release.sh:211 at
+    // v1.15.2) — so the APK has no line in it and
     // never will. v0.16.0 shipped that way and is immutable, so the manifest
     // path cannot be repaired for it; GitHub's per-asset digest already covers
     // it. The manifest stays as the fallback for releases that predate the

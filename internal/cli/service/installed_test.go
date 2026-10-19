@@ -6,22 +6,15 @@
 
 package service
 
-// White-box: IsInstalled's LoadState probe and ExecRefresher's child contract
-// are both driven through unexported seams (MADR 0100 Phase 4).
+// White-box: IsInstalled's LoadState probe is driven through an unexported
+// seam (MADR 0100 Phase 4).
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
-
-func updateRefresh(path, backup string) UnitRefresh {
-	return UnitRefresh{Changed: true, Path: path, BackupPath: backup}
-}
 
 func stubSystemctlCapture(t *testing.T, out string, err error) *[]string {
 	t.Helper()
@@ -97,68 +90,5 @@ func TestIsInstalledDarwinPlistPresent(t *testing.T) {
 	}
 	if got, _ := IsInstalled("mcrelay"); !got {
 		t.Fatal("plist present must be true")
-	}
-}
-
-// stubBinary writes an executable that prints script on stdout and exits code.
-func stubBinary(t *testing.T, script string, code int) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "mcremote")
-	body := "cat <<'JSON'\n" + script + "\nJSON\nexit " + itoa(code) + "\n"
-	testexec.WriteShellStub(t, path, body)
-	return path
-}
-
-func TestExecRefresherParsesJSON(t *testing.T) {
-	bin := stubBinary(t, `{"verdict":"refreshed","path":"/u/mcremote.service","backup":"/u/mcremote.service.prev","changed":true,"reloaded":true}`, 0)
-	got, err := ExecRefresher{Timeout: 10 * time.Second}.RefreshUnit("mcremote", bin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Changed || got.Path != "/u/mcremote.service" || got.BackupPath != "/u/mcremote.service.prev" {
-		t.Fatalf("got %+v", got)
-	}
-	if !strings.Contains(got.Output, "service definition refreshed") {
-		t.Fatalf("Output = %q", got.Output)
-	}
-}
-
-func TestExecRefresherNonZeroIsError(t *testing.T) {
-	// The downgrade case: an older binary does not know --refresh.
-	bin := stubBinary(t, "unknown flag: --refresh", 1)
-	_, err := ExecRefresher{Timeout: 10 * time.Second}.RefreshUnit("mcremote", bin)
-	if err == nil {
-		t.Fatal("a non-zero child must surface as an error the caller can step over")
-	}
-	if !strings.Contains(err.Error(), "setup-service --refresh") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestExecRefresherRejectsGarbage(t *testing.T) {
-	bin := stubBinary(t, "not json at all", 0)
-	if _, err := (ExecRefresher{Timeout: 10 * time.Second}).RefreshUnit("mcremote", bin); err == nil {
-		t.Fatal("unparseable output must not be treated as a successful refresh")
-	}
-}
-
-func TestExecRefresherRestoreUsesBackup(t *testing.T) {
-	defer OverrideInstallOS("linux")()
-	recordSystemctl(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "mcremote.service")
-	backup := path + ".prev"
-	if err := os.WriteFile(path, []byte("new\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(backup, []byte("old\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	err := ExecRefresher{}.RestoreUnit("mcremote", updateRefresh(path, backup))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(path); string(b) != "old\n" {
-		t.Fatalf("restored = %q", b)
 	}
 }

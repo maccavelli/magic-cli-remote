@@ -19,8 +19,6 @@ import (
 // that way, none of which carried a build tag, so all five were compiled into
 // the Windows daemon and every one of them opened a console window.
 var spawnAllowlist = map[string]string{
-	"internal/updateclient/codesign_darwin.go": "darwin-only: runs codesign(1) during a macOS update, " +
-		"never a child of the Windows daemon, and the file does not build on Windows",
 	"internal/testexec/testexec.go": "test-only: imported only from _test.go files, so never linked into " +
 		"the daemon; and it cannot import procutil, because procutil imports fsutil, whose in-package " +
 		"tests import testexec (an import cycle). It warms test stubs (MADR 0193 D1, D2, Deviation 3)",

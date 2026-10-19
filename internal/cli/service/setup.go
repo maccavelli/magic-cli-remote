@@ -1261,13 +1261,27 @@ func withUserRuntimeEnv(base []string) []string {
 	if has {
 		return base
 	}
-	if u, err := user.Current(); err == nil {
-		rd := filepath.Join("/run/user", u.Uid)
-		if st, err := os.Stat(rd); err == nil && st.IsDir() {
-			return append(base, "XDG_RUNTIME_DIR="+rd)
-		}
+	if rd, ok := userRuntimeDir(); ok {
+		return append(base, "XDG_RUNTIME_DIR="+rd)
 	}
 	return base
+}
+
+// userRuntimeRoot is where systemd-logind makes each user's runtime
+// directory. It is a variable for tests.
+var userRuntimeRoot = "/run/user"
+
+// userRuntimeDir returns the calling user's runtime directory, when it exists.
+func userRuntimeDir() (string, bool) {
+	u, err := user.Current()
+	if err != nil {
+		return "", false
+	}
+	rd := filepath.Join(userRuntimeRoot, u.Uid)
+	if st, err := os.Stat(rd); err == nil && st.IsDir() {
+		return rd, true
+	}
+	return "", false
 }
 
 // xdgConfigHome returns the absolute XDG config home (not product leaf).

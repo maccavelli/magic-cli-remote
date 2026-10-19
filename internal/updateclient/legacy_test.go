@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maccavelli/mcplib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 func TestNormalizeInstalled(t *testing.T) {
@@ -109,7 +109,9 @@ func legacySumsAsset(assets []legacyAsset, ver string) (legacyAsset, error) {
 }
 
 // bridgeAssets is the complete v0.16.0 staged file set, exactly as the release
-// job assembles it and as mcplib's verify-selfupdate-release.sh validates it.
+// job assembled it and as the publish workflow's verify-selfupdate-release.sh
+// validated it. The bridge is spent: S1 of the MADR 0054 PLAN removed its
+// staging, and this fixture now freezes the published v0.16.0 file set.
 func bridgeAssets() ([]legacyAsset, map[string]string) {
 	products := []string{"mcremote", "mcrelay"}
 	plats := [][2]string{{"linux", "amd64"}, {"linux", "arm64"}, {"darwin", "arm64"}, {"windows", "amd64"}}

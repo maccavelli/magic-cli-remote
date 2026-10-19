@@ -473,25 +473,25 @@ func withTaskState(t *testing.T, fn func(name string) (int, bool, error)) {
 	t.Cleanup(func() { taskState = prev })
 }
 
-// TestTaskStateDrivesActiveAndInstalled replaces the English-text parser
-// (MADR 0159 F12, D9): the numeric state decides, and a probe failure is an
-// error rather than "not running".
-func TestTaskStateDrivesActiveAndInstalled(t *testing.T) {
+// TestTaskStateDrivesInstalled replaces the English-text parser (MADR 0159
+// F12, D9): the numeric state decides, and a probe failure is an error rather
+// than "not installed". Whether the task runs is the taskscheduler backend's
+// to say now (MADR 0054 D6).
+func TestTaskStateDrivesInstalled(t *testing.T) {
 	probeErr := errors.New("powershell failed")
 	for _, tc := range []struct {
 		name          string
 		state         int
 		found         bool
 		err           error
-		wantActive    bool
 		wantInstalled bool
 		wantErr       bool
 	}{
-		{"running", 4, true, nil, true, true, false},
-		{"ready", 3, true, nil, false, true, false},
-		{"disabled", 1, true, nil, false, true, false},
-		{"absent", 0, false, nil, false, false, false},
-		{"probe error", 0, false, probeErr, false, false, true},
+		{"running", 4, true, nil, true, false},
+		{"ready", 3, true, nil, true, false},
+		{"disabled", 1, true, nil, true, false},
+		{"absent", 0, false, nil, false, false},
+		{"probe error", 0, false, probeErr, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var asked string
@@ -499,10 +499,6 @@ func TestTaskStateDrivesActiveAndInstalled(t *testing.T) {
 				asked = name
 				return tc.state, tc.found, tc.err
 			})
-			active, err := isActiveWindows("mcremote")
-			if (err != nil) != tc.wantErr || active != tc.wantActive {
-				t.Errorf("isActiveWindows = %v, %v; want %v, err=%v", active, err, tc.wantActive, tc.wantErr)
-			}
 			installed, err := isInstalledWindows("mcremote")
 			if (err != nil) != tc.wantErr || installed != tc.wantInstalled {
 				t.Errorf("isInstalledWindows = %v, %v; want %v, err=%v", installed, err, tc.wantInstalled, tc.wantErr)

@@ -1,154 +1,98 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 )
 
-func TestIsActiveLinux(t *testing.T) {
+// fakeBackend answers ProbeStatus's probes. A managed update never reaches
+// it, so its lifecycle actions fail.
+type fakeBackend struct {
+	installed, enabled, running bool
+	err                         error
+}
+
+func (f fakeBackend) Installed(context.Context, string) (bool, error) { return f.installed, f.err }
+func (f fakeBackend) Enabled(context.Context, string) (bool, error)   { return f.enabled, f.err }
+func (f fakeBackend) Running(context.Context, string) (bool, error)   { return f.running, f.err }
+func (fakeBackend) Stop(context.Context, string) error                { return errors.New("not in a probe") }
+func (fakeBackend) Start(context.Context, string) error               { return errors.New("not in a probe") }
+func (fakeBackend) WaitHealthy(context.Context, string) error         { return errors.New("not in a probe") }
+
+func withProbeBackend(t *testing.T, b Backend, err error) {
+	t.Helper()
+	prev := newProbeBackend
+	newProbeBackend = func(string, string) (Backend, error) { return b, err }
+	t.Cleanup(func() { newProbeBackend = prev })
+}
+
+// TestProbeStatusReadsTheBackend: doctor reports what the update's backend
+// reports, so the two cannot disagree (MADR 0054 D6). On macOS, "loaded"
+// still comes from launchctl, which keeps the bootout hint (MADR 0054 PLAN S1,
+// Deviation 2).
+func TestProbeStatusReadsTheBackend(t *testing.T) {
+	probeErr := errors.New("systemctl show failed")
+	for _, tc := range []struct {
+		name     string
+		os       string
+		backend  fakeBackend
+		loaded   bool
+		want     Status
+		wantHint string
+	}{
+		{"absent", "linux", fakeBackend{}, false,
+			Status{}, "unit missing"},
+		{"disabled and stopped", "linux", fakeBackend{installed: true}, false,
+			Status{PlistPresent: true, Loaded: true}, "not enabled, so an update leaves it stopped"},
+		{"enabled and stopped", "linux", fakeBackend{installed: true, enabled: true}, false,
+			Status{PlistPresent: true, Loaded: true, Enabled: true}, "systemctl --user start mcremote.service"},
+		{"running", "linux", fakeBackend{installed: true, enabled: true, running: true}, false,
+			Status{PlistPresent: true, Loaded: true, Enabled: true, Active: true}, ""},
+		{"probe error", "linux", fakeBackend{installed: true, err: probeErr}, false,
+			Status{PlistPresent: true, Loaded: true}, "service probe failed: systemctl show failed"},
+		{"task stopped", "windows", fakeBackend{installed: true, enabled: true}, false,
+			Status{PlistPresent: true, Loaded: true, Enabled: true}, "schtasks /run /tn mcremote"},
+		{"bootout left down", "darwin", fakeBackend{installed: true, enabled: true}, false,
+			Status{PlistPresent: true, Enabled: true}, "bootout left down"},
+		{"loaded, not running", "darwin", fakeBackend{installed: true, enabled: true}, true,
+			Status{PlistPresent: true, Loaded: true, Enabled: true}, "launchctl kickstart -k"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer OverrideInstallOS(tc.os)()
+			withProbeBackend(t, tc.backend, nil)
+			defer OverrideRunLaunchctlCapture(func(...string) (string, error) {
+				if tc.loaded {
+					return "state = waiting", nil
+				}
+				return "", errors.New("Could not find service")
+			})()
+			st := ProbeStatus("mcremote")
+			got := Status{PlistPresent: st.PlistPresent, Loaded: st.Loaded, Enabled: st.Enabled, Active: st.Active}
+			if got != tc.want {
+				t.Errorf("status = %+v, want %+v", got, tc.want)
+			}
+			if tc.wantHint == "" && st.Hint != "" {
+				t.Errorf("hint = %q, want none", st.Hint)
+			}
+			if !strings.Contains(st.Hint, tc.wantHint) {
+				t.Errorf("hint = %q, want it to contain %q", st.Hint, tc.wantHint)
+			}
+		})
+	}
+}
+
+// TestProbeStatusWithoutABackend: a service manager the backend cannot reach
+// is reported, not taken for a missing service.
+func TestProbeStatusWithoutABackend(t *testing.T) {
 	defer OverrideInstallOS("linux")()
-	prev := runSystemctlCapture
-	defer func() { runSystemctlCapture = prev }()
-
-	runSystemctlCapture = func(args ...string) (string, error) {
-		if strings.Join(args, " ") == "--user is-active mcremote.service" {
-			return "active\n", nil
-		}
-		return "", errors.New("unexpected")
-	}
-	ok, err := IsActive("mcremote")
-	if err != nil || !ok {
-		t.Fatalf("ok=%v err=%v", ok, err)
-	}
-
-	runSystemctlCapture = func(args ...string) (string, error) {
-		return "inactive\n", errors.New("exit 3")
-	}
-	ok, err = IsActive("mcremote")
-	if err != nil || ok {
-		t.Fatalf("inactive: ok=%v err=%v", ok, err)
-	}
-}
-
-func TestIsActiveDarwinExitedNotActive(t *testing.T) {
-	// Mirrors install-binary.sh: state=exited / pid leftover after SIGTERM.
-	defer OverrideInstallOS("darwin")()
-	prev := runLaunchctlCapture
-	defer func() { runLaunchctlCapture = prev }()
-
-	runLaunchctlCapture = func(args ...string) (string, error) {
-		return "state = exited\npid = 12345\n", nil
-	}
-	ok, err := IsActive("mcremote")
-	if err != nil || ok {
-		t.Fatalf("exited with residual pid: ok=%v err=%v", ok, err)
-	}
-	runLaunchctlCapture = func(args ...string) (string, error) {
-		return "state = not running\n", nil
-	}
-	ok, err = IsActive("mcremote")
-	if err != nil || ok {
-		t.Fatalf("not running: ok=%v err=%v", ok, err)
-	}
-	runLaunchctlCapture = func(args ...string) (string, error) {
-		return "state = running\npid = 42\n", nil
-	}
-	ok, err = IsActive("mcremote")
-	if err != nil || !ok {
-		t.Fatalf("running: ok=%v err=%v", ok, err)
-	}
-}
-
-func TestStopStartLinux(t *testing.T) {
-	defer OverrideInstallOS("linux")()
-	var calls []string
-	defer OverrideRunSystemctl(func(args ...string) error {
-		calls = append(calls, strings.Join(args, " "))
-		return nil
-	})()
-	if err := Stop("mcremote"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Start("mcremote"); err != nil {
-		t.Fatal(err)
-	}
-	if len(calls) < 2 {
-		t.Fatalf("calls=%v", calls)
-	}
-}
-
-// MADR 0072 P2: after bootout the job is not loaded — Start must bootstrap
-// then kickstart, not only kickstart.
-func TestStartDarwinBootstrapsWhenNotLoaded(t *testing.T) {
-	defer OverrideInstallOS("darwin")()
-	prevCap := runLaunchctlCapture
-	defer func() { runLaunchctlCapture = prevCap }()
-
-	var calls []string
-	runLaunchctlCapture = func(args ...string) (string, error) {
-		calls = append(calls, "cap:"+strings.Join(args, " "))
-		// print fails → not loaded
-		return "", errors.New("Could not find service")
-	}
-	defer OverrideRunLaunchctl(func(args ...string) error {
-		calls = append(calls, strings.Join(args, " "))
-		return nil
-	})()
-
-	if err := Start("mcremote"); err != nil {
-		t.Fatal(err)
-	}
-	joined := strings.Join(calls, " | ")
-	if !strings.Contains(joined, "bootstrap") {
-		t.Fatalf("expected bootstrap when not loaded, calls=%v", calls)
-	}
-	if !strings.Contains(joined, "kickstart") {
-		t.Fatalf("expected kickstart after bootstrap, calls=%v", calls)
-	}
-}
-
-func TestStartDarwinKickstartWhenLoaded(t *testing.T) {
-	defer OverrideInstallOS("darwin")()
-	prevCap := runLaunchctlCapture
-	defer func() { runLaunchctlCapture = prevCap }()
-
-	var calls []string
-	runLaunchctlCapture = func(args ...string) (string, error) {
-		calls = append(calls, "cap:"+strings.Join(args, " "))
-		return "state = running\npid = 1\n", nil
-	}
-	defer OverrideRunLaunchctl(func(args ...string) error {
-		calls = append(calls, strings.Join(args, " "))
-		return nil
-	})()
-
-	if err := Start("mcremote"); err != nil {
-		t.Fatal(err)
-	}
-	joined := strings.Join(calls, " | ")
-	if strings.Contains(joined, "bootstrap") {
-		t.Fatalf("loaded job must not bootstrap, calls=%v", calls)
-	}
-	if !strings.Contains(joined, "kickstart") {
-		t.Fatalf("expected kickstart, calls=%v", calls)
-	}
-}
-
-func TestProbeStatusDarwinNotLoadedHint(t *testing.T) {
-	defer OverrideInstallOS("darwin")()
-	prevCap := runLaunchctlCapture
-	defer func() { runLaunchctlCapture = prevCap }()
-	runLaunchctlCapture = func(args ...string) (string, error) {
-		return "", errors.New("not found")
-	}
-	// Plist may or may not exist on the real HOME; only assert loaded/active
-	// and that a non-empty hint is produced when not active.
+	withProbeBackend(t, nil, errors.New("user scope needs XDG_RUNTIME_DIR"))
 	st := ProbeStatus("mcremote")
-	if st.Loaded || st.Active {
-		t.Fatalf("want not loaded/active, got %+v", st)
+	if st.PlistPresent || st.Active {
+		t.Errorf("status = %+v, want nothing claimed", st)
 	}
-	if st.Hint == "" {
-		t.Fatal("expected recovery hint when down")
+	if !strings.Contains(st.Hint, "cannot reach the service manager: user scope needs XDG_RUNTIME_DIR") {
+		t.Errorf("hint = %q", st.Hint)
 	}
 }

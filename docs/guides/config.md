@@ -634,10 +634,10 @@ Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.servi
 | `--no-linger` | false | Linux: skip linger. macOS: no effect |
 | `--remove` | false | Stop, disable, and delete the service definition |
 
-### `mcremote update` / `mcrelay update` (MADR 0065 and 0103, superseded by MADR 0005 in mcplib)
+### `mcremote update` / `mcrelay update` (MADR 0065 and 0103, superseded by MADR 0005, and 0054)
 
 User-initiated upgrade from GitHub Releases, implemented once in
-`github.com/maccavelli/mcplib/selfupdate` and bound here by
+`github.com/maccavelli/go-selfupdate-lib/selfupdate` and bound here by
 `internal/updateclient`: discover the release, select the exact
 `<product>-<goos>-<goarch>` asset and `SHA256SUMS`, verify the GitHub asset
 digest and the checksum entry, stage in the target directory, replace with a

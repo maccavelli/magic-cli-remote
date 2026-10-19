@@ -987,34 +987,6 @@ jobs:
           cp -f scripts/install.ps1 staging/install.ps1
           cp -f "$APK_OUT" "staging/$APK_OUT"
 
-          # The v0.16.0 bridge, and only v0.16.0. An installed pre-0.16 client
-          # selects <product>-<goos>-<goarch>-<VER> by prefix and then requests
-          # SHA256SUMS-<VER> with the identical suffix, which is why the
-          # compatibility suffix omits the leading "v". The copies are
-          # byte-identical to the canonical binaries and get their own manifest;
-          # SHA256SUMS keeps listing canonical names only.
-          # internal/updateclient.TestLegacySelectorCrossesTheBridge proves the
-          # frozen v0.15.3 selector resolves this exact file set.
-          if [ "$TAG" = "v0.16.0" ]; then
-            ( cd staging
-              for f in mcremote-* mcrelay-*; do
-                case "$f" in SHA256SUMS*|*-0.16.0|*-0.16.0.exe) continue ;; esac
-                case "$f" in
-                  *.exe) cp -f "$f" "${f%.exe}-0.16.0.exe" ;;
-                  *)     cp -f "$f" "${f}-0.16.0" ;;
-                esac
-              done
-              set --
-              for f in *-0.16.0 *-0.16.0.exe; do
-                [ -f "$f" ] || continue
-                set -- "$@" "$f"
-              done
-              [ "$#" -gt 0 ] || { echo "error: bridge produced no compatibility copies" >&2; exit 1; }
-              sha256sum "$@" > SHA256SUMS-0.16.0
-              cat SHA256SUMS-0.16.0
-            )
-          fi
-
           ls -lh staging/
           cat staging/SHA256SUMS
 
@@ -1026,10 +998,10 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Publish through mcplib's reusable workflow. It validates the staged file set
-  # against the canonical contract, assembles a draft, attests it, publishes it,
-  # and waits for immutability. It never uses --clobber and refuses to touch a
-  # tag that already has a release.
+  # Publish through go-selfupdate-lib's reusable workflow (MADR 0054 D14). It
+  # validates the staged file set against the canonical contract, assembles a
+  # draft, attests it, publishes it, and waits for immutability. It never uses
+  # --clobber and refuses to touch a tag that already has a release.
   # ---------------------------------------------------------------------------
   publish:
     name: Publish self-update release
@@ -1039,10 +1011,9 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: maccavelli/mcplib/.github/workflows/publish-selfupdate-release.yml@8d4d89ff34ff79c1ed65f223cc3d83b3ec0550aa # mcplib v1.4.1
+    uses: maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml@436a7f5976a6815491c7384527fef90869574a1b # go-selfupdate-lib v1.15.2
     with:
       artifact-name: magic-cli-remote-release-${{ github.ref_name }}
       products-json: '["mcremote","mcrelay"]'
       platforms-json: '[{"os":"linux","arch":"amd64"},{"os":"linux","arch":"arm64"},{"os":"darwin","arch":"arm64"},{"os":"windows","arch":"amd64"}]'
       extra-assets-json: '["install.sh","install.ps1","magic-cli-remote-${{ github.ref_name }}-arm64.apk"]'
-      bridge-release: ${{ github.ref_name == 'v0.16.0' }}

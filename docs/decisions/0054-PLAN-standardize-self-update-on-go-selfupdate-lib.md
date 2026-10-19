@@ -489,3 +489,244 @@ Verification, added to S8's:
   - the shutdown dispatch removed.
 
   Each is seen failing.
+
+## S1–S8 execution record
+
+### S1, 2026-10-19 — complete, staged for the owner's commit
+
+**Approval:** the owner on 2026-10-19 chose "Both, ACP first" when asked whether "proceed" meant
+S1, the ACP assessment, or both. The ACP assessment was committed as `608077d9`, and S1 began from
+that commit.
+
+**Deviations, each decided by the owner on 2026-10-19 before any code changed:**
+
+- **Deviation 1 — `XDG_RUNTIME_DIR` is derived, as today.**
+  - **Found.** The library's systemd backend refuses to construct without `XDG_RUNTIME_DIR` in the
+    updating process (`selfupdate/service/systemd/unit.go:133-137`).
+  - **Today.** When it is unset and `/run/user/<uid>` exists, Magic derives that directory for
+    every `systemctl` call and for the refresh child (`withUserRuntimeEnv`,
+    `internal/cli/service/setup.go:1253-1271`). So an update run from cron, `su -` or a bare SSH
+    session works.
+  - **The conflict.** Step 2's rule, "the update refuses when a definition exists", taken alone,
+    would refuse that update.
+  - **Decision.** Before constructing the systemd backend, the update sets `XDG_RUNTIME_DIR` in its
+    own process when it is unset and `/run/user/<uid>` exists. The reconcile child inherits it.
+  - **The rule still holds.** Step 2's refuse-or-standalone rule applies when the backend still
+    cannot be constructed.
+- **Deviation 2 — `doctor` reads the backends, and keeps launchd's "loaded".**
+  - **Found.** The backends report installed, enabled and running. They do not report launchd's
+    "loaded" state, on which the "plist present but not loaded (bootout left down)" hint of MADR
+    0072 P2 depends.
+  - **Decision.** `ProbeStatus` takes present from `Installed`, a new enabled field from
+    `Enabled`, and active from `Running`, all from the backend.
+    - On macOS, "loaded" and its hint still come from `launchctl print`; elsewhere loaded mirrors
+      present, as today.
+    - A backend error is shown as its own hint.
+  - **Scope.** `internal/cli/doctor.go` gains the enabled line, so its render function and test
+    join S1's scope. Its scope already lists `doctor.go`.
+- **Deviation 3 — two lines of `docs/guides/config.md` join S1's scope.**
+  - **Found.** S1's verification wants no `mcplib` outside `docs/decisions/` and `docs/reports/`,
+    but the update section names it at `docs/guides/config.md:637` and `:640`. S3 rewrites that
+    section.
+  - **Decision.** S1 changes only those two lines, so that they name `go-selfupdate-lib`. S3's
+    rewrite is unchanged.
+- **Deviation 4 — the `mcplib` scan looks for the module, and skips recorded wire.**
+  - **Found.** `internal/provider/codex/testdata/wire/0.152.1/frames.jsonl:5` is a recorded codex
+    capture whose trust list holds a project directory path ending `/go/mcplib`. It is not a
+    dependency, and a capture is never edited.
+  - **Decision.** The scan fails on any of these:
+    - `maccavelli/mcplib` in any tracked file outside `docs/decisions/` and `docs/reports/`;
+    - the bare word `mcplib` in any tracked file outside those two directories, except files
+      under a `testdata/wire/` directory.
+
+    It is shown failing on a planted reference first, on a scratch copy.
+
+- **Deviation 5 — the procutil spawn guard joins S1's scope.**
+  - **Found.** After step 6 deleted `internal/updateclient/codesign_darwin.go`, the full race
+    suite failed one test: `spawnsites_test.go:128: spawnAllowlist["internal/updateclient/codesign_darwin.go"]
+    no longer contains a banned spawn call: delete the entry rather than leaving an exemption
+    nothing needs`.
+  - **Decision.** S1 deletes that one allowlist entry from `internal/procutil/spawnsites_test.go`.
+    The guard still fails on any real bare spawn.
+
+**Step 1.** `git ls-remote https://github.com/maccavelli/go-selfupdate-lib 'refs/tags/v1.15.2^{}'`
+gives `436a7f5976a6815491c7384527fef90869574a1b`, and `v1.15.2` is still the latest tag.
+
+**Step 2, the tests against the current `lifecycle.go`.**
+
+- **The test.** A test of today's adapter, `&Lifecycle{}` with an installed, stopped service,
+  through the library's managed installer. It was run on two scratch copies:
+  - **(a)** the tree on `mcplib v1.4.1`;
+  - **(b)** a bare rehome onto `v1.15.2`, with only the import path changed and `go mod tidy`.
+- **The results:**
+
+  ```text
+  (a) mcplib v1.4.1 + lifecycle.go:   exit=1
+      --- PASS: TestProbeEnabledStoppedServiceIsStarted
+      heal_probe_test.go:86: an installed, disabled, stopped service was started by the update
+      --- FAIL: TestProbeDisabledStoppedServiceIsNotStarted
+  (b) v1.15.2 + lifecycle.go, bare rehome:   exit=1
+      heal_probe_test.go:78: an installed, enabled, stopped service was left stopped by the update
+      --- FAIL: TestProbeEnabledStoppedServiceIsStarted
+      --- PASS: TestProbeDisabledStoppedServiceIsNotStarted
+  ```
+
+- **What it shows.** `mcplib` heals a service whatever the operator configured. A rehome with the
+  old adapter heals none. That is the trap D2 closes.
+- **Not committed.** The test can tell enabled from disabled only by intent, because the old
+  adapter has no `Enabled`. So it stayed in the scratch copies.
+- **The committed tests** exercise the new composition, and each was seen failing on a planted
+  break (below).
+
+**Steps 3–9, what changed.**
+
+- **Step 3.**
+  - `go get github.com/maccavelli/go-selfupdate-lib@v1.15.2`, then the 11 imports rewritten, then
+    `go mod tidy`.
+  - `go.mod` loses `mcplib v1.4.1`. It gains `go-selfupdate-lib v1.15.2`, plus `davecgh/go-spew`
+    and `pmezard/go-difflib` as `// indirect`.
+  - `go.sum` changes four lines.
+- **Step 4.**
+  - `internal/cli/service/backend.go` (new): `NewBackend(product, unitName)` returns the library's
+    backend for the OS, `Backend` being `selfupdate.Lifecycle` plus `EnabledLifecycle`.
+    - **Linux:** `systemd.New(Unit: <unitName>.service, Scope: User)`, after
+      `ensureUserRuntimeDir` (Deviation 1).
+    - **macOS:** `launchd.New(Label: LaunchdLabel(product, unitName), Domain: GUI(uid), Plist:
+      ~/Library/LaunchAgents/<label>.plist)`.
+    - **Windows:** `taskscheduler.New(Name: taskNameFor(product))`.
+    - The name is a parameter, as the 2026-10-19 amendment asks for 0201's P9.
+  - `internal/updateclient/managed.go` (new):
+    - `managedInstaller` composes `NewManagedInstaller(standalone, backend,
+      NewExecReconciler(...))`.
+    - When no backend can be built: an installed definition refuses, and none means a
+      binary-only update.
+    - The reconciler runs `setup-service --refresh --json`. Its `RestoreFunc` calls
+      `RestoreUnitBackup(receipt.Path, receipt.Backup)`.
+  - `client.go` uses it, and gains the test-only `Options.TargetPath`.
+- **Step 5.** `newTransformer` is `codesign.NewSigner` with the identifier
+  `com.magiccliremote.<product>`, the one `make codesign-maybe` uses. It returns no transform with
+  no identity, or off macOS, as before.
+- **Step 6.**
+  - **Deleted files:** `lifecycle.go`, `lifecycle_test.go`, `codesign_darwin.go`,
+    `codesign_other.go`, `codesign_test.go` and `internal/cli/service/exec_refresher.go`.
+  - **Deleted from `control.go`:** `IsActive`, `Stop` and `Start`.
+  - **Deleted from `control_schtasks.go`:** `isActiveWindows`. `startWindows`, `stopWindows` and
+    `taskState` stay, because setup, `--remove` and refresh call them.
+  - **Kept:** `IsInstalled`, as the fallback probe when no backend can be built.
+  - **`ProbeStatus`** reads the backend (Deviation 2), and `doctor` prints an `enabled:` line.
+  - **Tests of the deleted code** were removed with it:
+    - the `ExecRefresher` tests in `installed_test.go`;
+    - the `IsActive`, `Stop` and `Start` tests in `control_test.go`;
+    - `TestStopDarwinWaitsForTeardown` in `launchd_wait_test.go`;
+    - the `isActiveWindows` half of the task-state test, now `TestTaskStateDrivesInstalled`.
+- **Step 7.** No hand-built release fixture existed to move. The new managed-update tests use
+  `selfupdatetest.NewGitHubServer` and `NewRelease`. The frozen v0.15.3 fixture changed only its
+  import and one comment.
+- **Step 8.**
+  - The `publish` job's `uses:` is
+    `maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml@436a7f5976a6815491c7384527fef90869574a1b # go-selfupdate-lib v1.15.2`.
+  - `bridge-release` and the bridge staging step are deleted.
+  - The four remaining inputs, and the three permissions, are the ones the workflow declares at
+    that commit.
+- **Step 9 and Deviation 3.** These were reworded so that no file outside the records names
+  `mcplib`:
+  - the `legacy.go` and `legacy_test.go` comments;
+  - `app_update.dart:118-122`, which now cites the library verifier's line
+    `verify-selfupdate-release.sh:211` at `v1.15.2`;
+  - `config.md:637` and `:640`.
+
+**The committed tests, and the break each was seen failing on.** Each break ran on its own fresh
+scratch copy:
+
+```text
+Enabled hidden from the managed installer   managed_test.go:165: stops=0 starts=0, want stops=0 starts=1
+installed definition no longer refuses      managed_test.go:201: err = <nil>, want a refusal naming the installed service ...
+reconcile args without --refresh            managed_test.go:186: reconcile ran <tmp>/mcremote ["setup-service" "--json"], want ...
+restore swaps path and backup               managed_test.go:264: restored ["/u/mcremote.service.prev" "/u/mcremote.service"], want the receipt's path and backup
+identifier from the product name            managed_test.go:320: signOptions(mcremote) = {... Identifier:mcremote ...}; TestSignerSignsUnderTheFixedIdentifier FAIL
+transform built with no identity            managed_test.go:333: newTransformer("") = <nil>, updateclient: codesign: selfupdate: codesign: Identity is required
+XDG_RUNTIME_DIR not derived                 backend_test.go:69: XDG_RUNTIME_DIR = "", want the derived "<tmp>/<uid>"
+darwin gets no backend                      backend_test.go:40: NewBackend on darwin = <nil>, service control unsupported on darwin
+doctor's enabled from Running               control_test.go:74: status = {... Enabled:false ...}, want {... Enabled:true ...}
+doctor drops the enabled line               doctor_test.go:72: missing "enabled: yes"
+```
+
+**The `mcplib` scan (Deviation 4).**
+
+- **The tree.** It lists tracked files and untracked files git does not ignore, and found 0 in
+  1942 files.
+- **Planted breaks,** on a scratch copy with its `.git`:
+  - `// mcplib` in `managed.go` gives one finding, `names mcplib`;
+  - `maccavelli/mcplib` appended to the codex wire capture gives one finding, `names the module`.
+- **A finding of its own.** Its first version listed tracked files only, so a new, untracked file
+  passed unseen. It caught the bare word in a comment of the new `managed_test.go` only after the
+  listing included untracked files. The comment was reworded.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (21 Go files)                      exit=0   gofmt, golint, govulncheck clean
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint                                             exit=0
+make staticcheck (linux, darwin, windows)             exit=0
+go test -race -count=1 ./...                          exit=0, 42 packages ok
+dart format --set-exit-if-changed app_update.dart     exit=0, 0 changed
+make check-records                                    exit=0
+```
+
+**Other hosts.**
+
+- **The Windows test host, `make ci-windows`:** `ci-windows-exit=0`, "ALL SELECTED CHECKS
+  PASSED". A4 build, A5 vet and A6 `go test ./...` passed in every package, including
+  `internal/updateclient` and `internal/cli/service`.
+- **The Linux test host:** `go vet ./...` and `go test -race -v` of `internal/updateclient`,
+  `internal/cli/service` and `internal/cli`, on go1.27.2 linux/amd64, all `ok`.
+  `TestNewBackendIsTheLibrarysForThisOS` constructed the systemd backend. The scratch directory
+  was removed.
+- **`scripts/acceptance-windows-service.ps1` on the Windows test host: ALL CHECKS PASSED**, exit
+  0, S1–S8 and C3.
+  - **Why it needed a task.** Over SSH the session holds an elevated token, and the script refused
+    it at S0, before changing anything. That is C2 of 0159, by design.
+  - **The owner's choice** was a temporary task. It was a one-shot task, `mcr-s1-accept`,
+    registered `-LogonType Interactive -RunLevel Limited` for the logged-on user.
+  - **The run.** The task ran the script at Medium integrity (`whoami /groups`: `Mandatory
+    Label\Medium Mandatory Level S-1-16-8192`).
+  - **Afterwards** the task was unregistered and the copy removed. `schtasks /query` shows
+    `mcremote` Running, and no `mcrelay` or `mcr-s1-accept` task.
+  - **What it covers.** The script drives `setup-service` on `mcrelay`. It shows that the setup,
+    refresh, stop and removal paths S1 kept still work on Windows. It runs no update.
+
+**Not done, and why:**
+
+- **No real managed update on a host.** S1's verification does not ask for one. Running one
+  against the operator's own services would replace the binaries they run. The release-contract
+  acceptance is S8's first tag.
+- **No branch push.** The publish job's syntax runs on the owner's next push, and the publish
+  itself first runs at the next tag, as S1's verification states.
+- **Two lines are now out of date, and both are outside S1's scope:**
+  - `docs/guides/config.md:645` still says "a crashed unit is restarted". Since S1, a stopped unit
+    is restarted only when it is enabled. S3 rewrites that section.
+  - `internal/cli/service/refresh_schtasks.go:15-16` names the deleted `UnitRefresh` in a
+    comment.
+- **The codesign timestamp.** The library signer passes `--timestamp=none` unless `Timestamp` is
+  set. The old transformer passed no timestamp flag, and neither does `make codesign-maybe`. TCC
+  grants do not depend on the timestamp, so S1 keeps the library's default.
+
+**Files staged for S1:**
+
+- `go.mod`, `go.sum`;
+- `cmd/mcremote/main.go`, `cmd/mcrelay/main.go`;
+- `internal/updateclient/`: `client.go`, `client_test.go`, `legacy.go`, `legacy_test.go`,
+  `managed.go`, `managed_test.go` and `signer_darwin_test.go`. The five files deleted in step 6
+  are staged as deletions.
+- `internal/cli/service/`:
+  - `backend.go` and `backend_test.go`;
+  - `control.go`, `control_test.go`, `control_schtasks.go`, `setup.go` (`userRuntimeDir`);
+  - `installed_test.go`, `launchd_wait_test.go`, `schtasks_test.go`;
+  - `exec_refresher.go`, deleted.
+- `internal/cli/doctor.go`, `doctor_test.go`;
+- `internal/procutil/spawnsites_test.go` (Deviation 5);
+- `.github/workflows/ci.yml`;
+- `apps/mobile/lib/data/update/app_update.dart`;
+- `docs/guides/config.md` (Deviation 3);
+- this PLAN.

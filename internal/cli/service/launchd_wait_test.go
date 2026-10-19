@@ -140,21 +140,3 @@ func TestStopAndWaitToleratesABootoutRace(t *testing.T) {
 		t.Fatalf("job is gone; want nil, got %v", err)
 	}
 }
-
-func TestStopDarwinWaitsForTeardown(t *testing.T) {
-	// Stop is the public entry point every caller uses before a bootstrap.
-	restoreOS := OverrideInstallOS("darwin")
-	defer restoreOS()
-	s := &scriptedLaunchctl{loaded: []bool{true, false}}
-	s.install(t)
-
-	if err := Stop("mcremote"); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
-	if len(s.calls) != 1 || !strings.Contains(s.calls[0], "com.magiccliremote.mcremote") {
-		t.Fatalf("expected one bootout of the product label, got %v", s.calls)
-	}
-	if s.prints < 2 {
-		t.Fatalf("Stop must observe the domain before and after bootout, prints=%d", s.prints)
-	}
-}
