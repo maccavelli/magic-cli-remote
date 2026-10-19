@@ -1137,7 +1137,7 @@ commits S3.
 - `docs/guides/config.md`;
 - this PLAN.
 
-### S4, 2026-10-19 — implemented and staged; the dispatched rehearsal is open
+### S4, 2026-10-19 — complete: committed as `ffd39d0b`, rehearsed by run 39293939732
 
 **Deviation 1, 2026-10-19 — the spec and its test join S4's scope.**
 
@@ -1306,8 +1306,9 @@ Both remote copies were removed, checked with `test -e`.
 
 **Open.**
 
-1. **Step 3, the dispatched rehearsal (Deviation 2).** After the owner commits and pushes S4, run
-   `workflow_dispatch` on `master`, with the owner's go-ahead. Then read the run:
+1. **Step 3, the dispatched rehearsal (Deviation 2).** Done; see "The dispatched rehearsal"
+   below. As planned: after the owner commits and pushes S4, run `workflow_dispatch` on
+   `master`, with the owner's go-ahead. Then read the run:
    - the build job's staged artifact;
    - the identity jobs on linux/arm64, darwin/arm64 and windows/amd64;
    - that `publish` was skipped.
@@ -1379,4 +1380,53 @@ replaced.**
     client's selector resolves it". Both are shown above: `s4_select.py`, and the comparison
     with `v0.20.1`.
   - S8 step 3 is annotated the same way.
+
+**The dispatched rehearsal, 2026-10-19 (step 3).**
+
+- **The owner committed S4 as `ffd39d0b` and pushed it.** The push run, 39293154418, was
+  `success`. It ran the test and mobile jobs. `Android APK`, `Build self-update release` and
+  `Publish self-update release` were skipped, as Deviation 2 intends.
+- **Why the dispatch waited.** A dispatch on `master` shares the push run's concurrency group,
+  `ci-CI-refs/heads/master`, and non-tag runs cancel in progress (`ci.yml:15-17`). So the
+  dispatch waited for the push run to finish.
+- **The dispatch.** With the owner's go-ahead, `gh workflow run ci.yml --ref master` started run
+  39293939732 on `ffd39d0b`. Its conclusion was `success`:
+
+```text
+success  Flutter (test on windows) / Go (test) / Go (windows/amd64) / Go (linux/arm64) / Flutter (analyze & test)
+success  Android APK (release arm64)                 "note: not a tag; building unstamped"; "signer digest matches pinned certificate"
+success  Build self-update release / build           rehearsal=true  stamp-version=rehearsal-ffd39d0b34e4  artifact selfupdate-rehearsal-ffd39d0b34e4-1
+success  Build self-update release / identity × 8    mcremote and mcrelay on linux/amd64, linux/arm64, darwin/arm64, windows/amd64
+skipped  Publish self-update release
+```
+
+- **The build job's log.**
+  - `extra-assets-json=["install.sh","install.ps1","magic-cli-remote-rehearsal-ffd39d0b34e4-arm64.apk"]`.
+  - `built` and `staged` lines for the eight binaries.
+  - `verify-selfupdate-release: ok`.
+  - The staged artifact was uploaded: 87,803,975 bytes.
+- **The identity jobs.** Each ran on its own platform's runner. For example:
+
+  ```text
+  selfupdate-release identity: mcremote-windows-amd64.exe reports "rehearsal-ffd39d0b34e4 (local) ffd39d0b34e4"
+  selfupdate-release identity: mcremote-darwin-arm64 reports "rehearsal-ffd39d0b34e4 (local) ffd39d0b34e4"
+  selfupdate-release identity: mcrelay-linux-arm64 reports "rehearsal-ffd39d0b34e4 (local) ffd39d0b34e4"
+  selfupdate-release identity: mcremote-linux-amd64 reports "rehearsal-ffd39d0b34e4 (local) ffd39d0b34e4"
+  ```
+
+- **The staged artifact,** downloaded and read on this host:
+  - **The files:**
+    - `install.ps1` and `install.sh`, byte-identical to `scripts/`;
+    - `magic-cli-remote-rehearsal-ffd39d0b34e4-arm64.apk`, a 41 MB zip;
+    - the eight canonical binaries;
+    - `SHA256SUMS`.
+  - **`SHA256SUMS`** names the eight canonical names only, and `shasum -a 256 -c` passes for all
+    eight.
+  - **The asset set** is v0.20.1's, with the APK's tag swapped. That is Deviation 4's check.
+    `s4_select.py` showed the client's selector resolves this file set.
+- **What was not exercised.** The publish workflow did not run, since it skips a rehearsal. The
+  first tag is still the first end-to-end publish: S8 step 3, which needs the owner's explicit
+  ask.
+
+**S4 is complete.** Every step and verification item is met, with Deviations 1–4 recorded above.
 
