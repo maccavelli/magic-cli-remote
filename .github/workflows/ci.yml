@@ -740,8 +740,9 @@ jobs:
   # products for every platform with one recipe (CGO_ENABLED=0, -trimpath,
   # buildinfo stamps), checks each binary from its own build information, runs
   # each product's identity command on its own platform's runner, writes
-  # SHA256SUMS over the canonical names, and stages the spec's extras: the
-  # installers from the repository and the APK from android-apk's artifact.
+  # SHA256SUMS over the canonical names, generates install.sh and install.ps1
+  # from the spec's installer block (MADR 0054 PLAN S7b), and stages the APK
+  # from android-apk's artifact.
   #
   # On a tag it stages the release. On a dispatch it rehearses, stamped
   # rehearsal-<sha12> (local), and publish skips. It runs where the APK runs,

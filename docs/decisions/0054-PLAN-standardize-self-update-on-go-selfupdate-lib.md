@@ -3296,3 +3296,94 @@ make check-records / make markdownlint-docs            exit=0 / exit=0
 - `internal/relay/cli.go` and `setup_service_refresh_test.go`;
 - `docs/guides/config.md` and `config-mcrelay.md`;
 - this PLAN.
+
+### S7b, 2026-10-19 — staged for the owner's commit; the rehearsal waits for the push
+
+**Starting point.** The owner committed the S7a record (`3d78019e`) and said "committed, proceed".
+
+**What S7b changed:**
+
+- **`internal/updateclient/selfupdate-release.json`:**
+  - The `installer` block of S7b step 1: `"name": "magic-cli-remote"` and `"env_prefix":
+    "MCREMOTE"`, and two hooks, `after_install` for `mcremote` and `mcrelay`, each with `["setup-service",
+    "--from-installer"]`.
+  - `install.sh` and `install.ps1` leave `extras`.
+- **Both changes go together.** With an installer block, the library reserves both names, so an
+  extra of either name is refused: "extras[0].name: "install.sh" is already an installer's name"
+  (`selfupdate/releasespec/spec.go` `ExtraNames`, v1.15.2).
+  - `ExtraNames` then lists the generated installers after the extras. The release therefore
+    publishes the same three extra names as before: the APK, `install.sh` and `install.ps1`.
+- **`internal/updateclient/spec_test.go`:**
+  - New: `TestReleaseSpecInstaller`. It pins the name, the prefix, the two generated scripts and
+    the two hooks exactly.
+  - `TestReleaseSpecServesEachProduct` expects the APK, then `install.sh`, then `install.ps1`.
+  - `TestReleaseSpecExtrasHaveTheirSources` expects the APK alone.
+- **`.github/workflows/ci.yml`:** only the build job's comment. It said the installers are staged
+  "from the repository"; it now says they are generated from the spec's installer block.
+- **Kept for S7d:**
+  - `scripts/install.sh` and `scripts/install.ps1`, with their suites and CI steps, stay in the
+    tree.
+  - So does the comment at `ci.yml:312` ("This job gates `release`, which publishes install.ps1"),
+    which S7d deletes with those steps.
+
+**Planted breaks, each on its own fresh scratch copy of the spec** (`s7b_plants.py`, 6). Each failed
+a test assertion:
+
+```text
+no hooks                                 spec_test.go:91: hooks [], want ["after_install mcremote setup-service --from-installer" …]
+mcremote's hook is plain setup-service   spec_test.go:91: hooks ["after_install mcremote setup-service" …], want …
+no mcrelay hook                          spec_test.go:91: hooks ["after_install mcremote setup-service --from-installer"], want …
+the default prefix                       spec_test.go:80: installer env prefix "MAGIC_CLI_REMOTE", <nil>; want MCREMOTE
+another folder name                      spec_test.go:77: installer name "mcremote", want magic-cli-remote, the folder setup-service migrates to
+the scripts are still extras             spec_test.go:30: … extras[0].name: "install.sh" is already an installer's name
+```
+
+**A local render, before the rehearsal** (`s7b_render.py`).
+
+- **How.** The library at the D1 pin, `v1.15.2`, was exported with `git archive` into a scratch
+  folder, so the local clone and its uncommitted edits were not touched. Its own
+  `selfupdate-release installer` ran on this spec, with `-tag v0.21.0`, and exited 0.
+- **`install.sh`, 14654 bytes.** Its values block:
+  - `REPOSITORY='maccavelli/magic-cli-remote'`, `INSTALLER_NAME='magic-cli-remote'`,
+    `ENV_PREFIX='MCREMOTE'`, `PRODUCTS='mcremote mcrelay'`;
+  - the six Linux and macOS assets;
+  - `IDENTITY` `version` for both;
+  - `HOOKS='after_install mcremote setup-service --from-installer` / `after_install mcrelay
+    setup-service --from-installer'`.
+- **`install.ps1`, 32454 bytes.** The same values, the two `windows-amd64.exe` assets, and the same
+  two hooks. It defaults to `Join-Path $env:LOCALAPPDATA "Programs\$InstallerName"`, the folder
+  setup-service migrates to.
+- **The rehearsal's render is still the check S7b step 4 names.** The local one runs the same code
+  on the same spec; it is not a substitute.
+
+**A finding for S7d's documentation: `--version` of a release older than S7a fails its hook.**
+
+- **The cause.** The template's `--version TAG` installs another release with this installer's
+  hooks (template `install.sh` `main`; `install.ps1` `$want`).
+- **The effect.** A release from before S7a has no `--from-installer`, so its `setup-service`
+  refuses the flag. The template then exits 3: "installed, but an after_install hook failed". The
+  binaries are installed and the service is left as it was.
+- **What follows.** Installing an older release has to use that release's own `install.sh` or
+  `install.ps1`, as the template's own error for a missing asset already says. S7d documents this.
+
+**Gates, exit status captured before reading output.** The files were staged first:
+
+```text
+make pre-add-check (spec_test.go)                      exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+actionlint .github/workflows/ci.yml                    exit=1: one finding, SC2012 (info) at ci.yml:672
+```
+
+- **The actionlint finding predates S7b.** It is on the APK step's `ls` (`ci.yml:672`), which S7b
+  does not touch. `actionlint` on `HEAD`'s `ci.yml`, written to a scratch copy, reports the same
+  finding at the same line (`s7b_actionlint_head.py`).
+
+**Not yet done: S7b step 4, the rehearsal.** It needs the owner's push, and then a dispatch of `ci.yml`
+on that commit (S4 Deviation 2). Its staged `install.sh` and `install.ps1` are then read for the
+values block, the hooks, the prefix and the Windows folder, and quoted here.
+
+**Files staged for S7b:** `internal/updateclient/selfupdate-release.json`, `internal/updateclient/spec_test.go`,
+`.github/workflows/ci.yml` and this PLAN.

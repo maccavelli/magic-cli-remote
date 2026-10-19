@@ -12,8 +12,14 @@
   ],
   "packaging": "binary",
   "extras": [
-    {"name": "install.sh", "path": "scripts/install.sh"},
-    {"name": "install.ps1", "path": "scripts/install.ps1"},
     {"name": "magic-cli-remote-{tag}-arm64.apk"}
-  ]
+  ],
+  "installer": {
+    "name": "magic-cli-remote",
+    "env_prefix": "MCREMOTE",
+    "hooks": [
+      {"when": "after_install", "product": "mcremote", "args": ["setup-service", "--from-installer"]},
+      {"when": "after_install", "product": "mcrelay", "args": ["setup-service", "--from-installer"]}
+    ]
+  }
 }

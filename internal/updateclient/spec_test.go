@@ -47,26 +47,60 @@ func TestReleaseSpecServesEachProduct(t *testing.T) {
 	if got := spec.Targets(); !slices.Equal(got, frozenPlatforms) {
 		t.Errorf("spec.Targets() = %v, want the frozen matrix %v", got, frozenPlatforms)
 	}
-	wantExtras := []string{"install.sh", "install.ps1", "magic-cli-remote-v1.2.3-arm64.apk"}
+	// The APK, then the installers the build workflow generates (MADR 0054
+	// PLAN S7b): the release publishes them under the same names as before.
+	wantExtras := []string{"magic-cli-remote-v1.2.3-arm64.apk", "install.sh", "install.ps1"}
 	if got, err := spec.ExtraNames("v1.2.3"); err != nil || !slices.Equal(got, wantExtras) {
-		t.Errorf("spec.ExtraNames(v1.2.3) = %q, %v; want %q until S7 generates the installers", got, err, wantExtras)
+		t.Errorf("spec.ExtraNames(v1.2.3) = %q, %v; want %q", got, err, wantExtras)
 	}
 	if _, err := New(Options{Product: "mcother"}); err == nil {
 		t.Error("New accepted a product the spec does not name")
 	}
 }
 
-// TestReleaseSpecExtrasHaveTheirSources: the build job stages the installers
-// from their paths and the APK from android-apk's artifact (MADR 0054 S4), so
-// each path must name a file in the repository, and the APK must have none.
+// TestReleaseSpecInstaller: the build workflow generates install.sh and
+// install.ps1 from this block (MADR 0054 D8, D9, amendment S7 H1; PLAN S7b).
+// Its name is the Windows folder setup-service migrates to (installerName in
+// internal/cli/service/migrate.go), its prefix keeps the MCREMOTE_ variables,
+// and each product's hook is the upgrade-aware --from-installer, never a plain
+// setup-service, which refuses a definition with baked options on a second
+// install.
+func TestReleaseSpecInstaller(t *testing.T) {
+	spec, err := releaseSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Installer == nil {
+		t.Fatal("the spec has no installer block, so the build workflow generates no installers")
+	}
+	if got := spec.InstallerName("magic-cli-remote"); got != "magic-cli-remote" {
+		t.Errorf("installer name %q, want magic-cli-remote, the folder setup-service migrates to", got)
+	}
+	if got, err := spec.InstallerEnvPrefix("magic-cli-remote"); err != nil || got != "MCREMOTE" {
+		t.Errorf("installer env prefix %q, %v; want MCREMOTE", got, err)
+	}
+	if got := spec.InstallerScripts(); !slices.Equal(got, []string{"install.sh", "install.ps1"}) {
+		t.Errorf("installers %v, want install.sh and install.ps1", got)
+	}
+	var hooks []string
+	for _, h := range spec.Installer.Hooks {
+		hooks = append(hooks, h.When+" "+h.Product+" "+strings.Join(h.Args, " "))
+	}
+	want := []string{"after_install mcremote setup-service --from-installer", "after_install mcrelay setup-service --from-installer"}
+	if !slices.Equal(hooks, want) {
+		t.Errorf("hooks %q, want %q", hooks, want)
+	}
+}
+
+// TestReleaseSpecExtrasHaveTheirSources: the build job stages the APK from
+// android-apk's artifact (MADR 0054 S4), so it has no path; the installers
+// are generated, so no extra names a script in the repository (PLAN S7b).
 func TestReleaseSpecExtrasHaveTheirSources(t *testing.T) {
 	spec, err := releaseSpec()
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"install.sh":                       "scripts/install.sh",
-		"install.ps1":                      "scripts/install.ps1",
 		"magic-cli-remote-{tag}-arm64.apk": "",
 	}
 	if len(spec.Extras) != len(want) {
