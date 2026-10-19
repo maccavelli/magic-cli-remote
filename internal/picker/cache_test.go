@@ -148,3 +148,64 @@ func TestNilCacheStillFetches(t *testing.T) {
 	}
 	c.Invalidate() // must not panic
 }
+
+// TestAPanickingFetchReleasesItsWaiters is MADR 0201 D28 (0073 §6.10(a)).
+// The in-flight entry was cleared, and done closed, only after a normal
+// return, so a panicking fetch left every later caller waiting on its own
+// context.
+func TestAPanickingFetchReleasesItsWaiters(t *testing.T) {
+	c := picker.NewCache[string](time.Minute)
+	started, proceed := make(chan struct{}), make(chan struct{})
+	type result struct {
+		err      error
+		panicked any
+	}
+	leader := make(chan result, 1)
+	go func() {
+		var r result
+		defer func() {
+			r.panicked = recover()
+			leader <- r
+		}()
+		_, r.err = c.Get(context.Background(), "k", func(context.Context) (picker.Catalog, error) {
+			close(started)
+			<-proceed
+			panic("boom")
+		})
+	}()
+	<-started
+	waiter := make(chan error, 1)
+	go func() {
+		_, err := c.Get(context.Background(), "k", func(context.Context) (picker.Catalog, error) {
+			return oneOption("unexpected"), nil
+		})
+		waiter <- err
+	}()
+	time.Sleep(20 * time.Millisecond) // let the waiter join the in-flight fetch
+	close(proceed)
+
+	deadline := time.After(100 * time.Millisecond)
+	select {
+	case r := <-leader:
+		if r.panicked != nil || r.err == nil {
+			t.Fatalf("caller: panicked=%v err=%v; want an error, not a panic", r.panicked, r.err)
+		}
+	case <-deadline:
+		t.Fatal("the caller of a panicking fetch did not return")
+	}
+	select {
+	case err := <-waiter:
+		if err == nil {
+			t.Fatal("a waiter on a panicking fetch got no error")
+		}
+	case <-deadline:
+		t.Fatal("a waiter on a panicking fetch was never released")
+	}
+
+	got, err := c.Get(context.Background(), "k", func(context.Context) (picker.Catalog, error) {
+		return oneOption("again"), nil
+	})
+	if err != nil || len(got.Options) != 1 || got.Options[0].ID != "again" {
+		t.Fatalf("the next call did not fetch again: %+v, %v", got, err)
+	}
+}

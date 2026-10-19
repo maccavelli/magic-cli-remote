@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,7 @@ type pairCodeFile struct {
 type PairCodeStore struct {
 	path string
 	mu   sync.Mutex
+	log  *slog.Logger
 }
 
 // OpenPairCodeStore opens or creates the pair-code file under data_dir.
@@ -67,7 +69,7 @@ func OpenPairCodeStore(path string) (*PairCodeStore, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	s := &PairCodeStore{path: path}
+	s := &PairCodeStore{path: path, log: slog.Default()}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := s.save(pairCodeFile{Codes: []pairCodeRecord{}}); err != nil {
 			return nil, err
@@ -186,14 +188,14 @@ func (s *PairCodeStore) Take(raw string) (TakenPairCode, error) {
 		}
 		if idx < 0 {
 			data.Codes = purgeExpired(data.Codes, now)
-			_ = s.save(data)
+			s.saveOrWarn(data, "purge expired pair codes")
 			return ErrInvalidPairCode
 		}
 		rec := data.Codes[idx]
 		data.Codes = append(data.Codes[:idx], data.Codes[idx+1:]...)
 		data.Codes = purgeExpired(data.Codes, now)
 		if now.After(rec.ExpiresAt) {
-			_ = s.save(data)
+			s.saveOrWarn(data, "remove an expired pair code")
 			return ErrExpiredPairCode
 		}
 		if err := s.save(data); err != nil {
@@ -332,6 +334,19 @@ func (s *PairCodeStore) load() (pairCodeFile, error) {
 		data.Codes = []pairCodeRecord{}
 	}
 	return data, nil
+}
+
+// saveOrWarn saves data where the caller's result does not depend on the
+// write: the code was not valid either way. A store that cannot write must
+// still not be invisible, or the entries it failed to drop come back on the
+// next load (MADR 0201 D29).
+func (s *PairCodeStore) saveOrWarn(data pairCodeFile, what string) {
+	if err := s.save(data); err != nil {
+		s.log.Warn("pair code store not written; "+what+" will be retried",
+			slog.String("path", s.path),
+			slog.String("err", err.Error()),
+		)
+	}
 }
 
 func (s *PairCodeStore) save(data pairCodeFile) error {

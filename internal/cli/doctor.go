@@ -1,16 +1,23 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/config"
+	"github.com/maccavelli/magic-cli-remote/internal/daemon"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/spf13/cobra"
 )
@@ -18,11 +25,13 @@ import (
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Diagnose host-level problems (service + macOS privacy)",
+		Short: "Diagnose host-level problems (service, macOS privacy, engines)",
 		Long: "Checks the host for conditions that break phone reconnect or " +
 			"agent sessions in ways the daemon cannot fix itself: user " +
-			"service install/load/active (MADR 0072 P2) and macOS privacy " +
-			"protection (TCC / Full Disk Access; MADR 0069 D5).",
+			"service install/load/active (MADR 0072 P2), macOS privacy " +
+			"protection (TCC / Full Disk Access; MADR 0069 D5), and whether " +
+			"each enabled agent engine's binary is present and ready (a " +
+			"lookup only; nothing is started; MADR 0201 D32).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			renderServiceDoctor(w, service.ProbeStatus("mcremote"))
@@ -30,6 +39,15 @@ func newDoctorCmd() *cobra.Command {
 			renderDoctor(w, runtime.GOOS, tcc.Probe())
 			fmt.Fprintln(w)
 			renderCredentialDoctor(w, probeCredentialStores())
+			fmt.Fprintln(w)
+			cfg, err := config.Load(config.LoadOptions{ConfigFile: cfgFile})
+			if err != nil {
+				fmt.Fprintln(w, "agent engines")
+				fmt.Fprintf(w, "  configuration could not be loaded: %v\n", err)
+				return nil
+			}
+			log := slog.New(slog.DiscardHandler)
+			renderEngineDoctor(w, daemon.InspectProviders(cfg, version, log), engineBins(cfg))
 			return nil
 		},
 	}
@@ -130,6 +148,47 @@ func renderCredentialDoctor(w io.Writer, stores []credentialStore) {
 		}
 		if s.Warning != "" {
 			fmt.Fprintf(w, "    warning:   %s\n", s.Warning)
+		}
+	}
+}
+
+// engineBins is each engine's configured binary, as its provider resolves it.
+func engineBins(cfg config.Config) map[provider.ID]string {
+	return map[provider.ID]string{
+		provider.IDGrok:     cfg.Providers.Grok.Bin,
+		provider.IDOpencode: cfg.Providers.Opencode.Bin,
+		provider.IDCodex:    cfg.Providers.Codex.Bin,
+		provider.IDKilo:     cfg.Providers.Kilo.Bin,
+	}
+}
+
+// renderEngineDoctor reports each enabled engine (MADR 0201 D32): the binary
+// it resolves, or that it is missing, and whether the provider reports itself
+// ready. A lookup only: no engine is started and no tokens are spent.
+func renderEngineDoctor(w io.Writer, reg *provider.Registry, bins map[provider.ID]string) {
+	fmt.Fprintln(w, "agent engines (lookup only; nothing is started)")
+	ps := reg.All()
+	if len(ps) == 0 {
+		fmt.Fprintln(w, "  none enabled")
+		return
+	}
+	slices.SortFunc(ps, func(a, b provider.Provider) int { return cmp.Compare(a.ID(), b.ID()) })
+	for _, p := range ps {
+		label := string(p.ID()) + ":"
+		bin, hasBin := bins[p.ID()]
+		if !hasBin {
+			fmt.Fprintf(w, "  %-9s ready: %s (built in)\n", label, yesNo(p.Ready()))
+			continue
+		}
+		resolved, err := launch.Resolve(bin)
+		switch {
+		case err != nil:
+			fmt.Fprintf(w, "  %-9s missing: %s\n", label, bin)
+		case p.Ready():
+			fmt.Fprintf(w, "  %-9s ready    %s\n", label, resolved.Path)
+		default:
+			fmt.Fprintf(w, "  %-9s not ready: %s was found, but the provider refuses it; check its configuration\n",
+				label, resolved.Path)
 		}
 	}
 }

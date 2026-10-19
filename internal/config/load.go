@@ -265,6 +265,13 @@ func (cfg *Config) RecomputePaths() error {
 	return nil
 }
 
+// AbsDataDir makes a --data-dir value absolute against the working directory,
+// as Load does for the flag it binds. For a caller that reads the flag from a
+// flag set Load did not see (MADR 0201 D24).
+func AbsDataDir(raw string) (string, error) {
+	return absAgainstCWD(raw)
+}
+
 func absAgainstCWD(p string) (string, error) {
 	if p == "" {
 		return "", nil
@@ -359,6 +366,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("providers.codex.reconnect_attempts", d.Providers.Codex.ReconnectAttempts)
 	v.SetDefault("providers.codex.standalone_processes_enabled", d.Providers.Codex.StandaloneProcessesEnabled)
 	v.SetDefault("providers.codex.standalone_process_env_allowlist", d.Providers.Codex.StandaloneProcessEnvAllowlist)
+	v.SetDefault("providers.codex.sandbox_broken_policy", d.Providers.Codex.SandboxBrokenPolicy)
 	v.SetDefault("providers.kilo.enabled", d.Providers.Kilo.Enabled)
 	v.SetDefault("providers.kilo.bin", d.Providers.Kilo.Bin)
 	v.SetDefault("providers.kilo.always_approve", d.Providers.Kilo.AlwaysApprove)
@@ -373,6 +381,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("headscale.control_url", d.Headscale.ControlURL)
 	v.SetDefault("limits.max_ws_clients", d.Limits.MaxWSClients)
 	v.SetDefault("limits.max_live_sessions", d.Limits.MaxLiveSessions)
+	// Without these defaults the keys are absent from viper's key set and
+	// their MCREMOTE_LIMITS_* variables are silently ignored (MADR 0201 D23).
+	v.SetDefault("limits.ws_read_deadline_seconds", d.Limits.WSReadDeadlineSeconds)
+	v.SetDefault("limits.ws_resume_window_seconds", d.Limits.WSResumeWindowSeconds)
+	v.SetDefault("limits.tcp_keepalive.disable", d.Limits.TCPKeepalive.Disable)
+	v.SetDefault("limits.tcp_keepalive.idle_seconds", d.Limits.TCPKeepalive.IdleSeconds)
+	v.SetDefault("limits.tcp_keepalive.interval_seconds", d.Limits.TCPKeepalive.IntervalSeconds)
+	v.SetDefault("limits.tcp_keepalive.count", d.Limits.TCPKeepalive.Count)
 	v.SetDefault("relay.url", d.Relay.URL)
 	v.SetDefault("relay.host_id", d.Relay.HostID)
 	v.SetDefault("relay.secret", d.Relay.Secret)

@@ -72,6 +72,119 @@ func opencodeConfigFrom(cfg config.Config, sessionTree *bool, streamCoalesce *ti
 	}
 }
 
+// grokConfig maps daemon configuration onto the grok provider's config.
+// daemon.Run and InspectProviders share it, so they cannot drift (MADR 0201
+// D32).
+func grokConfig(cfg config.Config, version string) grok.Config {
+	acpCfg := acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig)
+	acpCfg.ReasoningEffort = cfg.Providers.Grok.ReasoningEffort
+	acpCfg.PermissionMode = cfg.Providers.Grok.PermissionMode
+	acpCfg.Sandbox = cfg.Providers.Grok.Sandbox
+	acpCfg.AllowedTools = cfg.Providers.Grok.AllowedTools
+	acpCfg.DisallowedTools = cfg.Providers.Grok.DisallowedTools
+	acpCfg.AllowRules = cfg.Providers.Grok.AllowRules
+	acpCfg.DenyRules = cfg.Providers.Grok.DenyRules
+	acpCfg.NoSubagents = cfg.Providers.Grok.NoSubagents
+	acpCfg.DisableWebSearch = cfg.Providers.Grok.DisableWebSearch
+	acpCfg.ClientVersion = version
+	// Explicit pointer so 0 means "one event per token" (pre-0057), not
+	// "use the transport default".
+	streamCoalesce := time.Duration(cfg.Providers.Grok.StreamCoalesceMs) * time.Millisecond
+	acpCfg.StreamCoalesce = &streamCoalesce
+	return acpCfg
+}
+
+// opencodeConfig is opencodeConfigFrom with the daemon's own pointers.
+func opencodeConfig(cfg config.Config) opencode.Config {
+	sessionTree := cfg.Providers.Opencode.SessionTree
+	streamCoalesce := time.Duration(
+		cfg.Providers.Opencode.StreamCoalesceMs) * time.Millisecond
+	return opencodeConfigFrom(cfg, &sessionTree, &streamCoalesce)
+}
+
+// codexConfig maps daemon configuration onto the codex provider's config.
+func codexConfig(cfg config.Config) codex.Config {
+	streamCoalesce := time.Duration(cfg.Providers.Codex.StreamCoalesceMs) * time.Millisecond
+	executionEnvironments := make([]provider.ExecutionEnvironment, 0, len(cfg.Providers.Codex.Environments))
+	for _, environment := range cfg.Providers.Codex.Environments {
+		executionEnvironments = append(executionEnvironments, provider.ExecutionEnvironment{
+			ID: environment.ID, ExecServerURL: environment.ExecServerURL,
+			ConnectTimeout:        time.Duration(environment.ConnectTimeoutMS) * time.Millisecond,
+			RuntimeWorkspaceRoots: append([]string(nil), environment.RuntimeWorkspaceRoots...),
+		})
+	}
+	return codex.Config{
+		Bin:                           cfg.Providers.Codex.Bin,
+		AlwaysApprove:                 cfg.Providers.Codex.AlwaysApprove,
+		DefaultCWD:                    cfg.Providers.Codex.DefaultCWD,
+		Model:                         cfg.Providers.Codex.Model,
+		PermissionTimeout:             time.Duration(cfg.Providers.Codex.PermissionTimeoutSeconds) * time.Second,
+		Prewarm:                       cfg.Providers.Codex.Prewarm,
+		TurnStallNotice:               time.Duration(cfg.Providers.Codex.TurnStallNoticeSeconds) * time.Second,
+		StreamCoalesce:                &streamCoalesce,
+		ApprovalPolicy:                cfg.Providers.Codex.ApprovalPolicy,
+		SandboxMode:                   cfg.Providers.Codex.SandboxMode,
+		AllowFullAccess:               cfg.Providers.Codex.AllowFullAccess,
+		SandboxBrokenPolicy:           cfg.Providers.Codex.SandboxBrokenPolicy,
+		Transport:                     codex.TransportMode(cfg.Providers.Codex.Transport),
+		ListenAddress:                 cfg.Providers.Codex.ListenAddress,
+		WSAuthMode:                    codex.WSAuthMode(cfg.Providers.Codex.WSAuthMode),
+		ReconnectAttempts:             cfg.Providers.Codex.ReconnectAttempts,
+		ReconnectAttemptsConfigured:   true,
+		RuntimeDir:                    cfg.Paths.RuntimeDir,
+		Environments:                  executionEnvironments,
+		StandaloneProcessesEnabled:    cfg.Providers.Codex.StandaloneProcessesEnabled,
+		StandaloneProcessEnvAllowlist: append([]string(nil), cfg.Providers.Codex.StandaloneProcessEnvAllowlist...),
+	}
+}
+
+// kiloConfig maps daemon configuration onto the kilo provider's config.
+func kiloConfig(cfg config.Config) kilo.Config {
+	sessionTree := cfg.Providers.Kilo.SessionTree
+	streamCoalesce := time.Duration(
+		cfg.Providers.Kilo.StreamCoalesceMs) * time.Millisecond
+	return kilo.Config{
+		Bin:           cfg.Providers.Kilo.Bin,
+		AlwaysApprove: cfg.Providers.Kilo.AlwaysApprove,
+		DefaultCWD:    cfg.Providers.Kilo.DefaultCWD,
+		Model:         cfg.Providers.Kilo.Model,
+		PermissionTimeout: time.Duration(
+			cfg.Providers.Kilo.PermissionTimeoutSeconds) * time.Second,
+		TurnStallNotice: time.Duration(
+			cfg.Providers.Kilo.TurnStallNoticeSeconds) * time.Second,
+		// Explicit pointer so the false default (plan PD2) is distinct
+		// from zero Config; kilo flips this only after MADR 0075 Q7.
+		SessionTree: &sessionTree,
+		// Likewise explicit: 0 means "stream one event per token".
+		StreamCoalesce: &streamCoalesce,
+		Pure:           cfg.Providers.Kilo.Pure,
+	}
+}
+
+// InspectProviders builds the providers cfg enables, for inspection only
+// (mcremote doctor, MADR 0201 D32): no credential coordination, no orphan
+// reaping, no engine, no prewarm. Constructing them starts nothing; callers
+// must not call Start. Ready reports what daemon.Run's providers would.
+func InspectProviders(cfg config.Config, version string, log *slog.Logger) *provider.Registry {
+	reg := provider.NewRegistry()
+	if cfg.Providers.Fake.Enabled {
+		reg.Register(fake.New())
+	}
+	if cfg.Providers.Grok.Enabled {
+		reg.Register(grok.NewWithLogger(grokConfig(cfg, version), log))
+	}
+	if cfg.Providers.Opencode.Enabled {
+		reg.Register(opencode.NewHTTPWithLogger(opencodeConfig(cfg), log))
+	}
+	if cfg.Providers.Codex.Enabled {
+		reg.Register(codex.NewWithLogger(codexConfig(cfg), log))
+	}
+	if cfg.Providers.Kilo.Enabled {
+		reg.Register(kilo.NewHTTPWithLogger(kiloConfig(cfg), log))
+	}
+	return reg
+}
+
 // Run starts the daemon and blocks until ctx is cancelled.
 func Run(ctx context.Context, opts Options) error {
 	log := opts.Log
@@ -211,21 +324,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	if cfg.Providers.Grok.Enabled {
-		acpCfg := acpAgentConfig(cfg.Providers.Grok.ACPProviderConfig)
-		acpCfg.ReasoningEffort = cfg.Providers.Grok.ReasoningEffort
-		acpCfg.PermissionMode = cfg.Providers.Grok.PermissionMode
-		acpCfg.Sandbox = cfg.Providers.Grok.Sandbox
-		acpCfg.AllowedTools = cfg.Providers.Grok.AllowedTools
-		acpCfg.DisallowedTools = cfg.Providers.Grok.DisallowedTools
-		acpCfg.AllowRules = cfg.Providers.Grok.AllowRules
-		acpCfg.DenyRules = cfg.Providers.Grok.DenyRules
-		acpCfg.NoSubagents = cfg.Providers.Grok.NoSubagents
-		acpCfg.DisableWebSearch = cfg.Providers.Grok.DisableWebSearch
-		acpCfg.ClientVersion = opts.Version
-		// Explicit pointer so 0 means "one event per token" (pre-0057), not
-		// "use the transport default".
-		streamCoalesce := time.Duration(cfg.Providers.Grok.StreamCoalesceMs) * time.Millisecond
-		acpCfg.StreamCoalesce = &streamCoalesce
+		acpCfg := grokConfig(cfg, opts.Version)
 		gp := grok.NewWithLogger(acpCfg, log)
 		if gc := guard.coordinator("grok"); gc != nil {
 			// The coordinated wrapper owns the transactional device-auth and
@@ -247,11 +346,7 @@ func Run(ctx context.Context, opts Options) error {
 		// One shared long-lived `opencode serve` engine (HTTP + SSE) drives
 		// every OpenCode session; they are cheap server-side objects, so there
 		// is no per-session process (MADR 0019).
-		sessionTree := cfg.Providers.Opencode.SessionTree
-		streamCoalesce := time.Duration(
-			cfg.Providers.Opencode.StreamCoalesceMs) * time.Millisecond
-		op := opencode.NewHTTPWithLogger(
-			opencodeConfigFrom(cfg, &sessionTree, &streamCoalesce), log)
+		op := opencode.NewHTTPWithLogger(opencodeConfig(cfg), log)
 		reg.Register(op)
 		if !op.Ready() {
 			log.Warn("opencode provider enabled but binary not found in PATH",
@@ -266,38 +361,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	if cfg.Providers.Codex.Enabled {
-		streamCoalesce := time.Duration(cfg.Providers.Codex.StreamCoalesceMs) * time.Millisecond
-		executionEnvironments := make([]provider.ExecutionEnvironment, 0, len(cfg.Providers.Codex.Environments))
-		for _, environment := range cfg.Providers.Codex.Environments {
-			executionEnvironments = append(executionEnvironments, provider.ExecutionEnvironment{
-				ID: environment.ID, ExecServerURL: environment.ExecServerURL,
-				ConnectTimeout:        time.Duration(environment.ConnectTimeoutMS) * time.Millisecond,
-				RuntimeWorkspaceRoots: append([]string(nil), environment.RuntimeWorkspaceRoots...),
-			})
-		}
-		codexConf := codex.Config{
-			Bin:                           cfg.Providers.Codex.Bin,
-			AlwaysApprove:                 cfg.Providers.Codex.AlwaysApprove,
-			DefaultCWD:                    cfg.Providers.Codex.DefaultCWD,
-			Model:                         cfg.Providers.Codex.Model,
-			PermissionTimeout:             time.Duration(cfg.Providers.Codex.PermissionTimeoutSeconds) * time.Second,
-			Prewarm:                       cfg.Providers.Codex.Prewarm,
-			TurnStallNotice:               time.Duration(cfg.Providers.Codex.TurnStallNoticeSeconds) * time.Second,
-			StreamCoalesce:                &streamCoalesce,
-			ApprovalPolicy:                cfg.Providers.Codex.ApprovalPolicy,
-			SandboxMode:                   cfg.Providers.Codex.SandboxMode,
-			AllowFullAccess:               cfg.Providers.Codex.AllowFullAccess,
-			SandboxBrokenPolicy:           cfg.Providers.Codex.SandboxBrokenPolicy,
-			Transport:                     codex.TransportMode(cfg.Providers.Codex.Transport),
-			ListenAddress:                 cfg.Providers.Codex.ListenAddress,
-			WSAuthMode:                    codex.WSAuthMode(cfg.Providers.Codex.WSAuthMode),
-			ReconnectAttempts:             cfg.Providers.Codex.ReconnectAttempts,
-			ReconnectAttemptsConfigured:   true,
-			RuntimeDir:                    cfg.Paths.RuntimeDir,
-			Environments:                  executionEnvironments,
-			StandaloneProcessesEnabled:    cfg.Providers.Codex.StandaloneProcessesEnabled,
-			StandaloneProcessEnvAllowlist: append([]string(nil), cfg.Providers.Codex.StandaloneProcessEnvAllowlist...),
-		}
+		codexConf := codexConfig(cfg)
 		// The coordinated constructor differs only by carrying a credential
 		// coordinator; every other behaviour is identical, which keeps the
 		// activation a wiring change rather than a second code path.
@@ -320,25 +384,7 @@ func Run(ctx context.Context, opts Options) error {
 		// Kilo session, same architecture as OpenCode — kilo is an OpenCode
 		// fork with a distinct dialect (MADR 0075 D2/D4). Spawned un-gated on
 		// loopback like the opencode engine (D5 as amended, plan PD1).
-		sessionTree := cfg.Providers.Kilo.SessionTree
-		streamCoalesce := time.Duration(
-			cfg.Providers.Kilo.StreamCoalesceMs) * time.Millisecond
-		kp := kilo.NewHTTPWithLogger(kilo.Config{
-			Bin:           cfg.Providers.Kilo.Bin,
-			AlwaysApprove: cfg.Providers.Kilo.AlwaysApprove,
-			DefaultCWD:    cfg.Providers.Kilo.DefaultCWD,
-			Model:         cfg.Providers.Kilo.Model,
-			PermissionTimeout: time.Duration(
-				cfg.Providers.Kilo.PermissionTimeoutSeconds) * time.Second,
-			TurnStallNotice: time.Duration(
-				cfg.Providers.Kilo.TurnStallNoticeSeconds) * time.Second,
-			// Explicit pointer so the false default (plan PD2) is distinct
-			// from zero Config; kilo flips this only after MADR 0075 Q7.
-			SessionTree: &sessionTree,
-			// Likewise explicit: 0 means "stream one event per token".
-			StreamCoalesce: &streamCoalesce,
-			Pure:           cfg.Providers.Kilo.Pure,
-		}, log)
+		kp := kilo.NewHTTPWithLogger(kiloConfig(cfg), log)
 		reg.Register(kp)
 		if !kp.Ready() {
 			log.Warn("kilo provider enabled but binary not found in PATH",

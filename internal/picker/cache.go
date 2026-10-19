@@ -2,6 +2,7 @@ package picker
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -100,18 +101,31 @@ func (c *Cache[K]) Get(ctx context.Context, key K, fetch func(context.Context) (
 	gen := c.gen
 	c.mu.Unlock()
 
-	cl.cat, cl.err = fetch(ctx)
-
-	c.mu.Lock()
-	if c.inflight[key] == cl {
-		delete(c.inflight, key)
-	}
-	// Only store when the generation still matches: an engine restart during
-	// the fetch means this result describes a process that is already gone.
-	if cl.err == nil && gen == c.gen {
-		c.entries[key] = &cacheEntry{cat: cl.cat, expires: time.Now().Add(c.ttl), gen: gen}
-	}
-	c.mu.Unlock()
-	close(cl.done)
+	c.lead(ctx, key, gen, cl, fetch)
 	return cl.cat, cl.err
+}
+
+// lead runs fetch for cl, then releases cl's waiters. The release is deferred,
+// so a panicking fetch cannot leave every later caller waiting on its own
+// context: the panic becomes cl.err for the caller and every waiter (MADR 0201
+// D28).
+func (c *Cache[K]) lead(ctx context.Context, key K, gen int, cl *call, fetch func(context.Context) (Catalog, error)) {
+	defer func() {
+		if r := recover(); r != nil {
+			cl.cat, cl.err = Catalog{}, fmt.Errorf("catalog fetch panicked: %v", r)
+		}
+		c.mu.Lock()
+		if c.inflight[key] == cl {
+			delete(c.inflight, key)
+		}
+		// Only store when the generation still matches: an engine restart
+		// during the fetch means this result describes a process that is
+		// already gone.
+		if cl.err == nil && gen == c.gen {
+			c.entries[key] = &cacheEntry{cat: cl.cat, expires: time.Now().Add(c.ttl), gen: gen}
+		}
+		c.mu.Unlock()
+		close(cl.done)
+	}()
+	cl.cat, cl.err = fetch(ctx)
 }

@@ -10,7 +10,6 @@ import (
 
 func newPathsCmd() *cobra.Command {
 	var asJSON bool
-	var dataDir string
 	cmd := &cobra.Command{
 		Use:   "paths",
 		Short: "Print resolved XDG path layout (no mutation)",
@@ -20,18 +19,14 @@ paths for mcremote after applying --config, MCREMOTE_*, and --data-dir.
 Does not create directories or start the daemon.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load binds --data-dir and makes it absolute against the
+			// working directory (MADR 0201 D24).
 			cfg, err := config.Load(config.LoadOptions{
 				ConfigFile: cfgFile,
 				Flags:      cmd.Flags(),
 			})
 			if err != nil {
 				return err
-			}
-			if cmd.Flags().Changed("data-dir") {
-				cfg.DataDir = dataDir
-				if err := cfg.RecomputePaths(); err != nil {
-					return err
-				}
 			}
 			return printPaths(cmd, pathReport{
 				Product:           "mcremote",
@@ -50,7 +45,7 @@ Does not create directories or start the daemon.`,
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
-	cmd.Flags().StringVar(&dataDir, "data-dir", "", "data directory (overrides config)")
+	cmd.Flags().String("data-dir", "", "data directory (overrides config)")
 	return cmd
 }
 

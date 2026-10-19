@@ -345,8 +345,10 @@ func TestRenderOmitsListenAndRuntimeDirWhenUnset(t *testing.T) {
 	if strings.Contains(body, "--listen-host") || strings.Contains(body, "--listen-port") {
 		t.Errorf("listen flags baked in without being requested:\n%s", body)
 	}
-	if strings.Contains(body, "XDG_RUNTIME_DIR=") {
-		t.Errorf("empty XDG_RUNTIME_DIR must be omitted (it would override systemd's own):\n%s", body)
+	// With no installer value the unit names systemd's own runtime directory,
+	// %t, so the service never falls back to its private /tmp (MADR 0201 D27).
+	if n := strings.Count(body, "XDG_RUNTIME_DIR="); n != 1 || !strings.Contains(body, "Environment=XDG_RUNTIME_DIR=%t\n") {
+		t.Errorf("empty XDG_RUNTIME_DIR must render exactly one Environment=XDG_RUNTIME_DIR=%%t line (got %d):\n%s", n, body)
 	}
 }
 

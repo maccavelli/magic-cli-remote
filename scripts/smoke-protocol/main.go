@@ -1,4 +1,5 @@
-// Command smoke-protocol exercises mcremote.v1 over WebSocket without a GUI.
+// Command smoke-protocol exercises the mcremote protocol over WebSocket without
+// a GUI. It offers protocols [2, 1] and requires v2 to be negotiated.
 //
 // Usage (from repo root):
 //
@@ -125,7 +126,10 @@ func main() {
 	go readLoop(ctx, conn, inbox, errCh)
 
 	step("auth", "device token")
-	authEnv, err := request(ctx, conn, inbox, "auth", map[string]any{"token": tok}, tok)
+	// Offer v2 first, as the phone does, so the smoke run exercises the
+	// negotiated protocol and not only v1 (MADR 0201 D31). Frames keep
+	// v: 1, which a v2 server still accepts inbound.
+	authEnv, err := request(ctx, conn, inbox, "auth", map[string]any{"token": tok, "protocols": []int{2, 1}}, tok)
 	if err != nil {
 		fail("auth", err)
 	}
@@ -135,9 +139,13 @@ func main() {
 	var authOK struct {
 		DeviceID   string `json:"device_id"`
 		DeviceName string `json:"device_name"`
+		Protocol   int    `json:"protocol"`
 	}
 	_ = json.Unmarshal(authEnv.Payload, &authOK)
-	ok(fmt.Sprintf("auth device_id=%s name=%s", authOK.DeviceID, authOK.DeviceName))
+	if authOK.Protocol != 2 {
+		fail("auth", fmt.Errorf("negotiated protocol %d, want 2", authOK.Protocol))
+	}
+	ok(fmt.Sprintf("auth device_id=%s name=%s protocol=%d", authOK.DeviceID, authOK.DeviceName, authOK.Protocol))
 
 	step("providers.list", "")
 	provEnv, err := request(ctx, conn, inbox, "providers.list", map[string]any{}, "")
@@ -402,9 +410,6 @@ func requestWithEvents(ctx context.Context, conn *websocket.Conn, inbox <-chan e
 	var events []envelope
 	gotResp := false
 	deadline := time.Now().Add(30 * time.Second)
-	if waitAfter > 0 {
-		// First wait for response with a fixed bound, then collect events.
-	}
 
 	for time.Now().Before(deadline) {
 		remaining := time.Until(deadline)

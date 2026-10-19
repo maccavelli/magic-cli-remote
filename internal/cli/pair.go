@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -21,6 +22,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// daemonDialTimeout bounds the check for a daemon on the listen address.
+const daemonDialTimeout = 500 * time.Millisecond
+
+// warnIfDaemonMissesDataDir tells the operator when the credential just
+// written cannot be accepted (MADR 0201 D2, 0073 F3(a)). The admin socket is
+// keyed by the data directory, so a ping that goes unanswered means no daemon
+// serves this one. If something does answer on the listen address, it is a
+// daemon serving another data directory, which will reject the phone's claim
+// with nothing on the host to say why. With nothing listening at all, the
+// daemon may simply not be started yet, and there is nothing to say.
+func warnIfDaemonMissesDataDir(w io.Writer, cfg config.Config) {
+	if _, err := admin.Call(cfg.Paths.AdminSocket, admin.Request{Op: admin.OpPing}); err == nil {
+		return
+	}
+	host := cfg.Listen.Host
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "127.0.0.1"
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(cfg.Listen.Port))
+	conn, err := net.DialTimeout("tcp", addr, daemonDialTimeout)
+	if err != nil {
+		return
+	}
+	_ = conn.Close()
+	fmt.Fprintf(w, "warning: this was written to %s, a daemon is listening on %s, and no daemon serves this data directory.\n"+
+		"         A daemon that has not paired the device will reject it. Run pair with that daemon's --data-dir or config.\n",
+		cfg.DataDir, addr)
+}
+
 func newPairCmd() *cobra.Command {
 	var (
 		name     string
@@ -38,6 +69,7 @@ func newPairCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		warnIfDaemonMissesDataDir(cmd.ErrOrStderr(), cfg)
 
 		host := resolvePairHost(pairHost, cfg)
 		fp, err := pairFingerprint(cfg)
@@ -99,6 +131,7 @@ func newPairCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		warnIfDaemonMissesDataDir(cmd.ErrOrStderr(), cfg)
 
 		host := resolvePairHost(pairHost, cfg)
 		fp, err := pairFingerprint(cfg)
@@ -472,7 +505,13 @@ func loadConfigFromFlags(cmd *cobra.Command) (config.Config, error) {
 	// parent-level data-dir was set after bind (pair subcommands nest flags).
 	if cmd.Parent() != nil {
 		if f := cmd.Parent().Flags().Lookup("data-dir"); f != nil && cmd.Parent().Flags().Changed("data-dir") {
-			cfg.DataDir = f.Value.String()
+			// Absolute against the working directory, as Load makes the
+			// command's own flag (MADR 0201 D24).
+			abs, err := config.AbsDataDir(f.Value.String())
+			if err != nil {
+				return config.Config{}, err
+			}
+			cfg.DataDir = abs
 			if err := cfg.RecomputePaths(); err != nil {
 				return config.Config{}, err
 			}

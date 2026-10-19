@@ -945,3 +945,213 @@ check_records.py --check-all             -> exit 0
 make markdownlint-docs                   -> exit 0
 ```
 
+### Deviation 5, 2026-10-18 (P6): D23's allowlist names ten deliberately unbound keys
+
+**Found.** The reflection test walks every `mapstructure` leaf of `Config`, embedded `,squash`
+structs included. It found 17 keys with no viper default: the MADR's seven, and ten more.
+
+| Key | Kind | Why it has no default |
+| --- | --- | --- |
+| `tls.letsencrypt.domains` | string list | config file or `--tls-domain` only |
+| `providers.grok.args` | string list | config file only |
+| `providers.grok.fs_roots` | string list | config file only |
+| `providers.grok.allowed_tools` | string list | config file only |
+| `providers.grok.disallowed_tools` | string list | config file only |
+| `providers.grok.allow_rules` | string list | config file only |
+| `providers.grok.deny_rules` | string list | config file only |
+| `providers.grok.mcp_servers` | list of tables | config file only; `load.go` already says so |
+| `providers.codex.environments` | list of tables | config file only |
+| `providers.opencode.transport` | retired key | `Config.validate` rejects it; a default would make every config look as if it set it |
+
+A comma-split environment value cannot carry list entries that contain commas, such as `args`, or
+rules like `Bash(git log, …)`. A list of tables cannot be expressed in one variable at all.
+
+**Owner's decision.** List all ten as deliberately unbound.
+
+**Done instead.** `setDefaults` gains defaults for the MADR's seven keys only. The test's
+`unboundKeys` names the ten, each with its reason, and any new key without a default still fails
+the test. The MADR's decision is unchanged: every key that can be set from the environment now
+is.
+
+### Deviation 6, 2026-10-18 (P6): D27 also teaches refresh to read `%t` back
+
+**Found.** With the D27 template change in place, four existing tests failed.
+
+1. **`TestRefreshRoundTripsRenderedUnit` (all four cases) and `TestRefreshUnchangedOnFreshSetup`
+   (`internal/cli/service/refresh_test.go`).** Refresh reads an installed unit's
+   `Environment=XDG_RUNTIME_DIR=%t` back as the literal value `%t`. The re-render then escapes
+   it as data, as `%%t`, which is a literal path and no longer the specifier. So a fresh setup
+   reported `refreshed` instead of `unchanged`, and every refresh would have rewritten the unit
+   with a broken runtime directory.
+2. **`TestRenderOmitsListenAndRuntimeDirWhenUnset` (`internal/cli/service/setup_test.go`).** It
+   asserted the omit-when-empty rule that D27 reverses, "empty XDG_RUNTIME_DIR must be omitted
+   (it would override systemd's own)". `%t` is systemd's own value: for a user manager,
+   systemd.unit(5) defines it as the path `$XDG_RUNTIME_DIR` resolves to.
+
+**Owner's decision.** Fix refresh, and update the test.
+
+**Done instead.** `internal/cli/service/refresh.go` joins P6's scope.
+
+- `assignManagedEnv` reads an installed value of exactly `%t` back as "no installer value", which
+  the template renders as `%t`. The four refresh tests then pass unmodified.
+- The setup test asserts the decided behaviour: with an empty installer value, the unit carries
+  exactly one line, `Environment=XDG_RUNTIME_DIR=%t`.
+
+The MADR is unchanged.
+
+### Deviation 7, 2026-10-18 (P6): D32 extracts a side-effect-free provider builder from the daemon
+
+**Found.** D32's step has `doctor` call each enabled provider's `Ready()` through a registry. But
+the real registry is built only inside `daemon.Run` (`internal/daemon/daemon.go`), interleaved
+with:
+
+- orphan-engine reaping;
+- credential-guard recovery and coordinated wrappers;
+- the "not found in PATH" warnings;
+- prewarm.
+
+`doctor` could not build one without that wiring. Every real `Ready()` is
+`launch.Resolve(bin)`, and codex's also returns false on a configuration error.
+
+The four provider constructors (`grok.NewWithLogger`, `opencode.NewHTTPWithLogger`,
+`codex.NewWithLogger`, `kilo.NewHTTPWithLogger`) start no goroutine or process, and write no file.
+
+**Owner's decision.** Extract a registry builder.
+
+**Done instead.** `internal/daemon/daemon.go` joins P6's scope.
+
+- Each provider's configuration translation moves into one helper. `daemon.Run` and the new
+  builder share them, so the two cannot drift.
+- The new builder is exported, `daemon.InspectProviders`. It builds the enabled providers with no
+  coordination, no engine and no prewarm, and starts nothing.
+- `daemon.Run` keeps its own wiring: coordinators, warnings and prewarm. Its behaviour is
+  unchanged.
+- `doctor` lists each provider from `InspectProviders`. It prints `ready` and the resolved path,
+  `missing: <bin>` when the binary does not resolve, or `not ready` when the binary resolves but
+  the provider still says no (codex's configuration check).
+
+The MADR's decision is unchanged.
+
+### P6, 2026-10-18: CLI, configuration, store and installer — complete
+
+Starting commit `bbd2d154` (P5). D23 is as in Deviation 5, D27 as in Deviation 6, and D32 as in
+Deviation 7.
+
+**Each test seen failing first:**
+
+```text
+D2   pair_daemon_test.go:63: no warning; stderr: (empty)
+D22  nostart_launchd_test.go:73: --no-start ran launchctl bootout gui/<uid>/com.magiccliremote.mcremote
+D22  nostart_launchd_test.go:83: no note that the running job keeps its old definition
+D22  nostart_schtasks_test.go:34: --no-start ran schtasks /run /tn mcremote
+D23  viper_defaults_test.go:87: config keys with no viper default … (the MADR's seven, once Deviation 5's ten were listed)
+D23  env_limits_test.go:39: limits.ws_read_deadline_seconds = 120, want 300 from the environment (and the other six)
+D24  paths_test.go:37 / :56: paths and serve --data-dir rel/x: appdirs: data dir must be absolute, got "rel/x"
+D25  store_open_test.go:55: round 0: 0 devices after a write raced OpenStore; the device was truncated away
+D27  runtime_dir_test.go:32: mcremote and mcrelay units, installer XDG_RUNTIME_DIR="": no "Environment=XDG_RUNTIME_DIR=%t" line
+D28  cache_test.go:191: caller: panicked=boom err=<nil>; want an error, not a panic
+D29  paircode_save_test.go:50: after Take(unknown) on a store that cannot write: 0 warn lines, want 1
+D32  doctor_engines_test.go:50 / :53: alpha wants ready and its path; beta wants missing: mcremote-no-such-engine
+```
+
+**Test seams, added alone first, with no change in behaviour:**
+
+- **D29:** `PairCodeStore.log`, defaulting to `slog.Default()`.
+- **D24:** `serve`'s config handling, extracted unchanged into `loadServeConfig(cmd)`, which reads
+  its flags by name.
+- **D32:** an empty `renderEngineDoctor`.
+
+**What changed.**
+
+- **D2** (`internal/cli/pair.go`). After writing a code (`pair`, `pair code`) or a token
+  (`pair create`), `warnIfDaemonMissesDataDir` pings the admin socket. The socket path is keyed by
+  the data directory. If nothing answers, and something accepts a TCP connection on the listen
+  address (a wildcard host is dialled on loopback), it prints the warning to stderr. If nothing
+  listens at all, it says nothing.
+- **D22** (`internal/cli/service/setup.go`, `setup_schtasks.go`). Under `--no-start`:
+  - **launchd:** the teardown is skipped. A running job whose plist changed gets one stderr
+    note: "the running job keeps its current definition until restarted".
+  - **schtasks:** the task is registered and not started.
+- **D23** (`internal/config/load.go`). Seven `SetDefault` calls. The reflection test walks
+  `Config`, including embedded `,squash` structs. The first draft of the walker skipped those,
+  and missed grok's keys.
+- **D24** (`internal/cli/serve.go`, `paths.go`, `pair.go`, `internal/config/load.go`).
+  - `serve` and `paths` drop the re-assignment of `--data-dir`.
+  - `config.AbsDataDir` is exported, and `pair`'s parent-flag branch uses it.
+- **D25** (`internal/auth/store.go`). `OpenStore`'s stat and create run under `withPathLock`, and
+  the file is created only if still absent.
+- **D27** (both unit templates, `setup.go`, and `refresh.go` per Deviation 6). An empty installer
+  value renders `Environment=XDG_RUNTIME_DIR=%t`.
+- **D28** (`internal/picker/cache.go`). The leader's release runs in `lead`'s deferred function,
+  and a panic becomes `catalog fetch panicked: …` for the caller and every waiter.
+- **D29** (`internal/auth/paircode.go`). Both ignored saves go through `saveOrWarn`, which logs
+  the path and the error at `warn`. The results are unchanged.
+- **D31** (`scripts/smoke-protocol/main.go`).
+  - Auth offers `protocols: [2, 1]`, and fails unless `auth_ok.protocol == 2`. Frames keep
+    `v: 1`, which protocol-v2.md's accept rule allows.
+  - The empty block is gone, and the header comment no longer says v1.
+- **D32** (`internal/daemon/daemon.go`, `internal/cli/doctor.go`).
+  - **daemon:** `grokConfig`, `opencodeConfig`, `codexConfig` and `kiloConfig` hold the
+    translations. A line-by-line check found that every line removed from `daemon.Run` reappears
+    in them. The six exceptions are the expected rewrites: the version parameter, and
+    constructor calls turned into returns.
+  - **builder:** `daemon.InspectProviders` builds the uncoordinated providers.
+  - **doctor:** a new "agent engines" section, with `ready <path>`, `missing: <bin>`, or
+    `not ready`. On this macOS host it listed codex, grok, kilo and opencode as ready, with their
+    resolved paths.
+
+**Deviations in test detail only:**
+
+- **Test files.** Several tests live in new files rather than the ones the PLAN named:
+  - D29's in `paircode_save_test.go`, in-package, because it swaps the logger;
+  - D25's in `store_open_test.go`, in-package;
+  - D2's in `pair_daemon_test.go`;
+  - D23's two in `viper_defaults_test.go` (in-package) and `env_limits_test.go`;
+  - D22's in `nostart_launchd_test.go` and `nostart_schtasks_test.go`;
+  - D27's in `runtime_dir_test.go`;
+  - D32's in `doctor_engines_test.go`.
+- **D25's race.** A first draft raced two full `OpenStore`+`Create` sequences, and did not lose
+  the device in 200 rounds: the writer's two fsync'd writes always outlasted the bare `OpenStore`.
+  The test therefore uses the writer the PLAN describes, one atomic write under `withPathLock`,
+  and the old code lost the device in round 0.
+- **D22's launchd test** writes its placeholder binary with `testexec.WriteShellStub`.
+  `TestRunFixturesAreWarmed` (MADR 0193) failed the first full race run on a hand-written
+  `#!/bin/sh` file.
+
+**Not covered by a test:**
+
+- `pair create`'s call of the D2 warning; the `pair code` path is tested.
+- `pair`'s parent-flag `--data-dir` branch.
+- D31, which is built and vetted only. P10 runs it against a daemon.
+
+**Planted breaks**, each on a fresh scratch copy. The PLAN's seven, plus one each for D22's
+Windows half, D2 and D32. All ten failed their test with an assertion:
+
+```text
+D22 unconditional stopAndWaitDarwin     nostart_launchd_test.go: --no-start ran launchctl bootout gui/<uid>/…
+D22 Windows task started regardless     nostart_schtasks_test.go:34: --no-start ran schtasks /run /tn mcremote
+D23 one SetDefault removed              both: viper_defaults_test.go:87 and env_limits_test.go:39 (ws_resume_window_seconds = 120, want 600)
+D24 serve re-assignment restored        paths_test.go:56: serve --data-dir rel/x: appdirs: data dir must be absolute
+D25 create outside the lock             store_open_test.go:55: round 0: 0 devices … truncated away
+D27 template else removed               runtime_dir_test.go:32: no "Environment=XDG_RUNTIME_DIR=%t" line
+D28 no recover                          cache_test.go:191: caller: panicked=boom err=<nil>
+D29 warn log removed                    paircode_save_test.go:50: 0 warn lines, want 1
+D2  no warning call in pair code        pair_daemon_test.go:63: no warning
+D32 doctor never says missing           doctor_engines_test.go:53: beta: want missing: mcremote-no-such-engine
+```
+
+**Gates.**
+
+```text
+make pre-add-check (25 Go files)                  -> clean (gofmt, golint, govulncheck)
+go vet ./..., ./scripts/..., GOOS=windows ./internal/... -> exit 0
+make lint, make staticcheck                       -> exit 0
+go build ./scripts/smoke-protocol/                -> ok
+go test -race -count=1 ./...                      -> exit 0, 42 packages ok
+make ci-windows (the Windows test host)           -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED
+check_records.py --check-all                      -> exit 0
+make markdownlint-docs                            -> exit 0
+```
+
+0090-PLAN's note for D23 is P8 step 2.
+

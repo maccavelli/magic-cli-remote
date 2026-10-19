@@ -227,10 +227,20 @@ func OpenStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 	s := &Store{path: path, lastFlush: time.Now().UTC()}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := s.persistLocked(fileData{Devices: []deviceRecord{}}); err != nil {
-			return nil, err
+	// The stat and the create run under the cross-process lock: outside it, a
+	// device another process added between them was truncated away by the
+	// empty file (MADR 0201 D25). The file is created only if still absent.
+	created := false
+	if err := withPathLock(path, func() error {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			return nil
 		}
+		created = true
+		return s.persistLocked(fileData{Devices: []deviceRecord{}})
+	}); err != nil {
+		return nil, err
+	}
+	if created {
 		s.devices = nil
 		return s, nil
 	}

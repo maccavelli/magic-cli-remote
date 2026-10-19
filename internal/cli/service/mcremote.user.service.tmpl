@@ -48,6 +48,7 @@ Environment=XDG_DATA_HOME={{.XDGDataHome}}
 Environment=XDG_STATE_HOME={{.XDGStateHome}}
 Environment=XDG_CACHE_HOME={{.XDGCacheHome}}
 {{if .XDGRuntimeDir}}Environment=XDG_RUNTIME_DIR={{.XDGRuntimeDir}}
+{{else}}Environment=XDG_RUNTIME_DIR=%t
 {{end}}{{if .ExtraEnviron}}{{range .ExtraEnviron}}Environment={{.}}
 {{end}}{{end}}
 

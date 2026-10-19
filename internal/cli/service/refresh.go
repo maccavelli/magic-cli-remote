@@ -475,13 +475,21 @@ func assignManagedEnv(env *renderEnv, key, val string) {
 	case "XDG_CACHE_HOME":
 		env.XDGCacheHome = val
 	case "XDG_RUNTIME_DIR":
+		// %t is the template's own default, systemd's runtime-directory
+		// specifier, not a path the installer had. Read it back as "none",
+		// which re-renders as %t; kept as a value it would be escaped to a
+		// literal %%t (MADR 0201 D27, Deviation 6).
+		if val == "%t" {
+			val = ""
+		}
 		env.XDGRuntimeDir = val
 	}
 }
 
 // fillMissingEnv falls back to computed values for keys an older template did
-// not emit, and names each one. XDG_RUNTIME_DIR is exempt: the template omits
-// it whenever the value is empty, so its absence is normal.
+// not emit, and names each one. XDG_RUNTIME_DIR is exempt: templates before
+// MADR 0201 D27 omitted it whenever the value was empty, so its absence is
+// normal, and the re-render then names systemd's %t.
 func fillMissingEnv(product string, env *renderEnv, seen map[string]bool) []string {
 	cur := currentRenderEnv(product)
 	var missing []string

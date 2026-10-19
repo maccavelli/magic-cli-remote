@@ -51,6 +51,10 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 	}
 
 	res.Enabled = true
+	// --no-start registers the task and starts nothing (MADR 0201 D22).
+	if opts.NoStart {
+		return res, nil
+	}
 	if err := startWindows(opts.Product); err != nil {
 		// A task that registers but will not start is worth reporting, but it
 		// is registered — the same posture the systemd path takes.

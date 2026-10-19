@@ -502,7 +502,15 @@ func setupLaunchdAgent(opts Options, body string, res Result) (Result, error) {
 	// domain is what returned 5 here on a real Mac; the error used to be
 	// discarded outright, so a genuine failure walked straight into a
 	// bootstrap that could not succeed (MADR 0125 D1/D3/F3).
-	if err := stopAndWaitDarwin(svc); err != nil {
+	//
+	// --no-start writes the definition and touches no running instance: the
+	// teardown used to run regardless, so --no-start stopped a running job
+	// and left it stopped (MADR 0201 D22).
+	if opts.NoStart {
+		if !res.Unchanged && launchdJobRunning(svc) {
+			fmt.Fprintf(os.Stderr, "note: %s is running; the running job keeps its current definition until restarted\n", svc)
+		}
+	} else if err := stopAndWaitDarwin(svc); err != nil {
 		return res, fmt.Errorf("plist installed at %s, but the existing job could not be torn down: %w (%s)", plistPath, err, manual)
 	}
 
@@ -945,8 +953,9 @@ type renderEnv struct {
 	XDGDataHome   string
 	XDGStateHome  string
 	XDGCacheHome  string
-	// XDGRuntimeDir empty means the line is omitted, which is what the template
-	// already does for an unset XDG_RUNTIME_DIR.
+	// XDGRuntimeDir empty makes the unit name systemd's %t, the user manager's
+	// runtime directory, so the service never falls back to its private /tmp
+	// (MADR 0201 D27).
 	XDGRuntimeDir string
 }
 

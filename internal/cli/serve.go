@@ -15,11 +15,6 @@ import (
 )
 
 func newServeCmd() *cobra.Command {
-	var listenHost string
-	var listenPort int
-	var dataDir string
-	var enableTLS bool
-	var relayURL, relayHostID, relaySecret string
 	var detachConsole bool
 
 	cmd := &cobra.Command{
@@ -38,49 +33,10 @@ For a managed background process on Linux, prefer:
 			if detachConsole {
 				service.DetachConsole()
 			}
-			cfg, err := config.Load(config.LoadOptions{
-				ConfigFile: cfgFile,
-				Flags:      cmd.Flags(),
-			})
+			cfg, err := loadServeConfig(cmd)
 			if err != nil {
 				return err
 			}
-			if cmd.Flags().Changed("listen-host") {
-				cfg.Listen.Host = listenHost
-			}
-			if cmd.Flags().Changed("listen-port") {
-				cfg.Listen.Port = listenPort
-			}
-			if cmd.Flags().Changed("data-dir") {
-				cfg.DataDir = dataDir
-				if err := cfg.RecomputePaths(); err != nil {
-					return err
-				}
-			}
-			if cmd.Flags().Changed("tls") {
-				// Legacy switch: --tls=false forces off, --tls=true re-resolves
-				// the mode (letsencrypt when a domain + email are configured).
-				cfg.TLS = cfg.TLS.WithEnabled(enableTLS)
-			}
-			if cmd.Flags().Changed("relay-url") {
-				cfg.Relay.URL = relayURL
-			}
-			if cmd.Flags().Changed("relay-host-id") {
-				cfg.Relay.HostID = relayHostID
-			}
-			if cmd.Flags().Changed("relay-secret") {
-				cfg.Relay.Secret = relaySecret
-			}
-			if logLevel != "" {
-				cfg.Log.Level = logLevel
-			}
-			if logFormat != "" {
-				cfg.Log.Format = logFormat
-			}
-			if err := cfg.Validate(); err != nil {
-				return err
-			}
-			cfg.TLS = cfg.TLS.Normalized()
 
 			logger := logging.Setup(logging.Options{
 				Level:  cfg.Log.Level,
@@ -124,13 +80,13 @@ For a managed background process on Linux, prefer:
 		},
 	}
 
-	cmd.Flags().StringVar(&listenHost, "listen-host", "", "listen host (overrides config)")
-	cmd.Flags().IntVar(&listenPort, "listen-port", 0, "listen port (overrides config)")
-	cmd.Flags().StringVar(&relayURL, "relay-url", "", "mcrelay base URL (e.g. wss://relay.example.com); env MCREMOTE_RELAY_URL")
-	cmd.Flags().StringVar(&relayHostID, "relay-host-id", "", "public host id for mcrelay registration; env MCREMOTE_RELAY_HOST_ID")
-	cmd.Flags().StringVar(&relaySecret, "relay-secret", "", "mcrelay registration secret; env MCREMOTE_RELAY_SECRET")
-	cmd.Flags().StringVar(&dataDir, "data-dir", "", "data directory (overrides config)")
-	cmd.Flags().BoolVar(&enableTLS, "tls", true,
+	cmd.Flags().String("listen-host", "", "listen host (overrides config)")
+	cmd.Flags().Int("listen-port", 0, "listen port (overrides config)")
+	cmd.Flags().String("relay-url", "", "mcrelay base URL (e.g. wss://relay.example.com); env MCREMOTE_RELAY_URL")
+	cmd.Flags().String("relay-host-id", "", "public host id for mcrelay registration; env MCREMOTE_RELAY_HOST_ID")
+	cmd.Flags().String("relay-secret", "", "mcrelay registration secret; env MCREMOTE_RELAY_SECRET")
+	cmd.Flags().String("data-dir", "", "data directory (overrides config)")
+	cmd.Flags().Bool("tls", true,
 		"serve HTTPS/WSS; --tls=false for plaintext (same as --tls-mode off)")
 	cmd.Flags().String("tls-mode", "",
 		"letsencrypt|selfsigned|off (default: letsencrypt when a domain + email are set, else selfsigned)")
@@ -145,6 +101,57 @@ For a managed background process on Linux, prefer:
 	addDetachConsoleFlag(cmd, &detachConsole)
 	return cmd
 }
+
+// loadServeConfig loads serve's configuration and applies its flags, the part
+// of serve that runs before the daemon starts. It is separate so a test can
+// check what serve would run with (MADR 0201 D24).
+func loadServeConfig(cmd *cobra.Command) (config.Config, error) {
+	// Load binds --data-dir and makes it absolute against the working
+	// directory; assigning the raw flag again here broke a relative one
+	// (MADR 0201 D24).
+	cfg, err := config.Load(config.LoadOptions{
+		ConfigFile: cfgFile,
+		Flags:      cmd.Flags(),
+	})
+	if err != nil {
+		return config.Config{}, err
+	}
+	if cmd.Flags().Changed("listen-host") {
+		cfg.Listen.Host = flagValue(cmd.Flags().GetString("listen-host"))
+	}
+	if cmd.Flags().Changed("listen-port") {
+		cfg.Listen.Port = flagValue(cmd.Flags().GetInt("listen-port"))
+	}
+	if cmd.Flags().Changed("tls") {
+		// Legacy switch: --tls=false forces off, --tls=true re-resolves
+		// the mode (letsencrypt when a domain + email are configured).
+		cfg.TLS = cfg.TLS.WithEnabled(flagValue(cmd.Flags().GetBool("tls")))
+	}
+	if cmd.Flags().Changed("relay-url") {
+		cfg.Relay.URL = flagValue(cmd.Flags().GetString("relay-url"))
+	}
+	if cmd.Flags().Changed("relay-host-id") {
+		cfg.Relay.HostID = flagValue(cmd.Flags().GetString("relay-host-id"))
+	}
+	if cmd.Flags().Changed("relay-secret") {
+		cfg.Relay.Secret = flagValue(cmd.Flags().GetString("relay-secret"))
+	}
+	if logLevel != "" {
+		cfg.Log.Level = logLevel
+	}
+	if logFormat != "" {
+		cfg.Log.Format = logFormat
+	}
+	if err := cfg.Validate(); err != nil {
+		return config.Config{}, err
+	}
+	cfg.TLS = cfg.TLS.Normalized()
+	return cfg, nil
+}
+
+// flagValue drops the error of a flag getter: serve defines every flag it
+// reads, so the lookup cannot fail.
+func flagValue[T any](v T, _ error) T { return v }
 
 // addDetachConsoleFlag registers the flag the Windows task passes so the
 // daemon leaves the console Windows gives it (MADR 0159 D7). It is hidden:
