@@ -105,6 +105,9 @@ var (
 	// ErrShuttingDown is returned when Create is attempted after CloseAll has
 	// begun (Phase 1.6): the daemon is draining and must not start new agents.
 	ErrShuttingDown = errors.New("session manager shutting down")
+	// ErrSessionIDMismatch is returned when a provider starts a session under
+	// an id other than the LocalSessionID it was asked for (MADR 0201 D4).
+	ErrSessionIDMismatch = errors.New("provider session id does not match the requested id")
 )
 
 // The values of Meta.NameSource (MADR 0187 D2).
@@ -196,6 +199,12 @@ type entry struct {
 	meta   Meta
 	sess   provider.Session
 	cancel context.CancelFunc
+	// deliverMu is held from the moment an event for this session is given
+	// its seq until every client delivery that event causes has been made, so
+	// clients see seqs in order (MADR 0201 D11). Lock order: lockCreate, then
+	// deliverMu, then advertiseMu, then m.mu. Never hold two entries'
+	// deliverMu at once.
+	deliverMu sync.Mutex
 	// dead is set briefly while auto-close runs after a disconnected status.
 	// Entries are removed from m.sessions on close; dead is not a long-lived
 	// tombstone (R2=A).
@@ -220,6 +229,11 @@ type entry struct {
 	// level: a session that drops back below (a /compact, a /clear) re-arms,
 	// so the operator is told again the next time it climbs.
 	ctxPressureNoticed int
+	// replayWithheld counts the replay-marked events kept out of live delivery
+	// since the last live one; replayWarned records that the current turn has
+	// already warned about one (MADR 0201 D12).
+	replayWithheld int
+	replayWarned   bool
 	// replayIndex maps replayKey(ev) to the positions in history carrying that
 	// key, so a session/load replay can find a duplicate without scanning the
 	// ring. It indexes every event, not only replayed ones, because the scan it
@@ -1151,6 +1165,14 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 	if err != nil {
 		return Meta{}, err
 	}
+	// Every provider honours LocalSessionID; one that did not would key the
+	// session under an id no owner record or client knows (MADR 0201 D4, 0073
+	// F-T1).
+	if opts.LocalSessionID != "" && sess.ID() != opts.LocalSessionID {
+		_ = sess.Close(ctx)
+		return Meta{}, fmt.Errorf("%w: asked for %q, got %q",
+			ErrSessionIDMismatch, opts.LocalSessionID, sess.ID())
+	}
 
 	// Prefer the session's resolved working directory (config default or
 	// home-dir fallback) over the raw request value, so metadata reflects
@@ -1295,6 +1317,7 @@ func (m *Manager) create(ctx context.Context, providerID provider.ID, opts provi
 		return Meta{}, fmt.Errorf("%w: %v", ErrPersist, err)
 	}
 
+	m.flushWithheldReplays(meta.ID)
 	m.log.Info("session created",
 		slog.String("session_id", meta.ID),
 		slog.String("provider", string(providerID)),
@@ -1334,6 +1357,18 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// Context-pressure text for this turn, or empty. Same deal: built
 			// under the lock, emitted after it.
 			var ctxPressure string
+			// Held until this event and everything it triggers are delivered
+			// (D11); nil when sess no longer owns an entry.
+			delivering := m.lockPumpDelivery(sess)
+			release := func() {
+				if delivering != nil {
+					delivering.deliverMu.Unlock()
+					delivering = nil
+				}
+			}
+			if delivering != nil {
+				m.noteReplay(sess.ID(), delivering, &ev)
+			}
 			m.mu.Lock()
 			e, mine := m.sessions[sess.ID()]
 			// Only touch (or broadcast for) the entry when it still belongs to
@@ -1341,7 +1376,10 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// event from the old process must not stamp state — least of all
 			// death — onto the replacement entry, nor reach clients under the
 			// replacement's id.
-			mine = mine && e.sess == sess
+			mine = mine && e.sess == sess && e == delivering
+			if !mine {
+				release()
+			}
 			if mine {
 				if ev.Type == event.TypeSessionStatus && ev.Status != "" {
 					e.meta.Status = ev.Status
@@ -1413,6 +1451,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					// any session_title it receives (MADR 0187 D3).
 					if ev.TitleGenerated && effectiveNameSource(e.meta.Name, e.meta.NameSource) == NameSourceUser {
 						m.mu.Unlock()
+						release()
 						continue
 					}
 					title := strings.TrimSpace(ev.Title)
@@ -1460,6 +1499,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				if !ev.Replay && ev.Type == event.TypeNotice &&
 					!e.noticeDedupe.ShouldEmit("", ev.Text) {
 					m.mu.Unlock()
+					release()
 					continue
 				}
 				// An agent's notice repeats the same way (MADR 0188 D2). Its kind
@@ -1467,12 +1507,14 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				if !ev.Replay && ev.Type == event.TypeAgentNotice &&
 					!e.noticeDedupe.ShouldEmit("agent:"+ev.NoticeSeverity, ev.NoticeTitle+"\n"+ev.NoticeDescription) {
 					m.mu.Unlock()
+					release()
 					continue
 				}
 				// A compaction's state repeats per ID, not as a run, so it has
 				// its own memory rather than the notice deduper (MADR 0190 D2).
 				if !ev.Replay && ev.Type == event.TypeCompaction && !e.compactionChangedLocked(&ev) {
 					m.mu.Unlock()
+					release()
 					continue
 				}
 				// Turn timing (MADR 0137 Phase 2). Recorded before the
@@ -1542,31 +1584,6 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				// also skip them — but that's incidental, not contractual.)
 				m.maybeCreateReceipt(sess.ID(), ev, receiptReq)
 			}
-			if reresolve {
-				// Outside the lock: resolution reads provider capabilities and
-				// emits its own event.
-				m.advertiseCommands(sess.ID())
-			}
-			if ctxPressure != "" {
-				m.emitEvent(sess.ID(), event.Event{
-					Type:      event.TypeNotice,
-					SessionID: sess.ID(),
-					Timestamp: time.Now().UTC(),
-					Text:      ctxPressure,
-				})
-			}
-			for _, trimmedID := range globalTrimmed {
-				// Outside the lock, and once per session: emitEvent takes m.mu
-				// itself, and a busy host must not repeat this on every event.
-				m.emitEvent(trimmedID, event.Event{
-					Type:      event.TypeNotice,
-					SessionID: trimmedID,
-					Timestamp: time.Now().UTC(),
-					Text: "Older parts of this transcript were dropped to stay " +
-						"inside the host's memory budget. The conversation itself " +
-						"is kept; tool output and status updates go first.",
-				})
-			}
 			if histID != "" {
 				m.scheduleHistoryPersist(histID)
 			}
@@ -1579,12 +1596,43 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					m.persist(persistMeta.ID)
 				}
 			}
+			// The event itself goes first, then what it triggered: each was
+			// stamped after it, so delivering them first would show clients a
+			// later seq before this one (D11).
+			//
 			// Replay events (session/load re-emitting the prior conversation)
 			// go into history for cold clients but are never broadcast live —
 			// a client that resumed a session it already displays would
 			// append the whole conversation again.
 			if mine && !ev.Replay && m.onEvent != nil {
 				m.onEvent(ev)
+			}
+			if reresolve {
+				// Outside m.mu: resolution reads provider capabilities and
+				// emits its own event.
+				m.advertiseCommandsLocked(sess.ID(), delivering)
+			}
+			if ctxPressure != "" {
+				m.emitEventLocked(sess.ID(), delivering, event.Event{
+					Type:      event.TypeNotice,
+					SessionID: sess.ID(),
+					Timestamp: time.Now().UTC(),
+					Text:      ctxPressure,
+				})
+			}
+			release()
+			for _, trimmedID := range globalTrimmed {
+				// After release: these may be other sessions, whose delivery
+				// locks must not nest inside this one's. Once per session: a
+				// busy host must not repeat this on every event.
+				m.emitEvent(trimmedID, event.Event{
+					Type:      event.TypeNotice,
+					SessionID: trimmedID,
+					Timestamp: time.Now().UTC(),
+					Text: "Older parts of this transcript were dropped to stay " +
+						"inside the host's memory budget. The conversation itself " +
+						"is kept; tool output and status updates go first.",
+				})
 			}
 			if autoClose {
 				if ctx.Err() == nil {
@@ -1594,6 +1642,69 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			}
 		}
 	}
+}
+
+// noteReplay makes replay suppression visible (MADR 0201 D12). Replay-marked
+// events are withheld from live delivery; a provider whose replay flag stuck
+// on would otherwise silence a session without a trace. A burst is counted and
+// logged at debug when a live event ends it. A replay event while a turn is in
+// flight is the signature of a stuck flag, and warns once per turn. Caller
+// holds e.deliverMu, not m.mu.
+func (m *Manager) noteReplay(id string, e *entry, ev *event.Event) {
+	burst, warn := 0, false
+	m.mu.Lock()
+	if ev.Replay {
+		e.replayWithheld++
+		if !e.promptAt.IsZero() && !e.replayWarned {
+			e.replayWarned = true
+			warn = true
+		}
+	} else {
+		burst, e.replayWithheld = e.replayWithheld, 0
+	}
+	m.mu.Unlock()
+	if warn {
+		m.log.Warn("replay-marked event during a turn; withheld from live delivery",
+			slog.String("session_id", id),
+			slog.String("type", string(ev.Type)),
+		)
+	}
+	m.logWithheldReplays(id, burst)
+}
+
+// flushWithheldReplays logs a replay burst still being counted for id, for
+// Create's return: a session/load replay may be followed by no live event.
+func (m *Manager) flushWithheldReplays(id string) {
+	n := 0
+	m.mu.Lock()
+	if e := m.sessions[id]; e != nil {
+		n, e.replayWithheld = e.replayWithheld, 0
+	}
+	m.mu.Unlock()
+	m.logWithheldReplays(id, n)
+}
+
+func (m *Manager) logWithheldReplays(id string, n int) {
+	if n > 0 {
+		m.log.Debug("replay events withheld from live delivery",
+			slog.String("session_id", id),
+			slog.Int("count", n),
+		)
+	}
+}
+
+// lockPumpDelivery takes the delivery lock of the entry sess belongs to and
+// returns that entry, or returns nil when sess no longer owns one.
+func (m *Manager) lockPumpDelivery(sess provider.Session) *entry {
+	m.mu.RLock()
+	e := m.sessions[sess.ID()]
+	owned := e != nil && e.sess == sess
+	m.mu.RUnlock()
+	if !owned {
+		return nil
+	}
+	e.deliverMu.Lock()
+	return e
 }
 
 // PendingAsks returns a deterministic, owner-scoped copy of every unresolved
@@ -1744,14 +1855,39 @@ func visibleTo(ownerDeviceID, pendingHandoffTo, deviceID string) bool {
 	return true
 }
 
+// errClaimNeedsLock is authorize's signal that it reached a first-touch claim
+// without the per-session lock held. Authorize takes the lock and runs again.
+var errClaimNeedsLock = errors.New("claim needs the per-session lock")
+
 // Authorize checks that deviceID may access sessionID.
 // When claim is true and the session has an empty (legacy) owner, the device
 // is stamped as owner (first-touch claim).
+//
+// A claim runs under the per-session lock Create, Release and Claim hold, so
+// the owner check, the persist and the stamp cannot interleave with another
+// claimer: the second one waits, sees an owner, and is forbidden (MADR 0201
+// D13). Checks that claim nothing never take it.
 func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
+	err := m.authorize(sessionID, deviceID, claim, false)
+	if !errors.Is(err, errClaimNeedsLock) {
+		return err
+	}
+	unlock := m.lockCreate(sessionID)
+	defer unlock()
+	return m.authorize(sessionID, deviceID, claim, true)
+}
+
+// authorize is Authorize's body. locked reports that the caller holds
+// lockCreate(sessionID); without it a claim returns errClaimNeedsLock.
+func (m *Manager) authorize(sessionID, deviceID string, claim, locked bool) error {
 	m.mu.Lock()
 	if e, ok := m.sessions[sessionID]; ok && !e.dead {
 		if e.meta.OwnerDeviceID == "" {
 			if claim && deviceID != "" {
+				if !locked {
+					m.mu.Unlock()
+					return errClaimNeedsLock
+				}
 				// Persist first; only stamp in-memory owner after Save succeeds
 				// so a disk failure cannot leave a live claim that restart loses
 				// (MADR 0056 H-4).
@@ -1790,6 +1926,9 @@ func (m *Manager) Authorize(sessionID, deviceID string, claim bool) error {
 	}
 	if rec.OwnerDeviceID == "" {
 		if claim && deviceID != "" {
+			if !locked {
+				return errClaimNeedsLock
+			}
 			rec.OwnerDeviceID = deviceID
 			if err := m.store.Save(rec); err != nil {
 				m.log.Warn("persist session claim failed",
@@ -2432,6 +2571,7 @@ func (m *Manager) markPromptStart(id string) {
 	if e := m.sessions[id]; e != nil {
 		e.promptAt = time.Now().UTC()
 		e.firstOutputAt = time.Time{}
+		e.replayWarned = false
 	}
 }
 

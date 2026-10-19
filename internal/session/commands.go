@@ -106,6 +106,21 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 // resolution is re-run on several triggers (commands advertised, modes arriving,
 // the first usage report) that often resolve to the same list.
 func (m *Manager) advertiseCommands(id string) {
+	m.mu.RLock()
+	e := m.sessions[id]
+	m.mu.RUnlock()
+	if e == nil {
+		return
+	}
+	e.deliverMu.Lock()
+	defer e.deliverMu.Unlock()
+	m.advertiseCommandsLocked(id, e)
+}
+
+// advertiseCommandsLocked is advertiseCommands for a caller holding
+// e.deliverMu, where e is id's entry. It does nothing if id's entry is no
+// longer e.
+func (m *Manager) advertiseCommandsLocked(id string, e *entry) {
 	// Serialized, and the snapshot is taken inside the lock: see advertiseMu.
 	m.advertiseMu.Lock()
 	defer m.advertiseMu.Unlock()
@@ -124,8 +139,7 @@ func (m *Manager) advertiseCommands(id string) {
 	}
 
 	m.mu.Lock()
-	e, ok := m.sessions[id]
-	if !ok {
+	if cur, ok := m.sessions[id]; !ok || cur != e {
 		m.mu.Unlock()
 		return
 	}
@@ -136,7 +150,7 @@ func (m *Manager) advertiseCommands(id string) {
 	e.advertised = list
 	m.mu.Unlock()
 
-	m.emitEvent(id, event.Event{
+	m.emitEventLocked(id, e, event.Event{
 		Type:           event.TypeRemoteCommands,
 		SessionID:      id,
 		Timestamp:      time.Now().UTC(),
@@ -1557,11 +1571,37 @@ func (m *Manager) relaunch(ctx context.Context, id string, prov provider.ID, cwd
 
 // emitEvent pushes a daemon-originated event to a session's clients and records
 // it in the history ring (so a cold replay includes it), mirroring how
-// [Manager.pump] handles provider events.
+// [Manager.pump] handles provider events. The seq stamp and the delivery
+// happen under the session's delivery lock, so concurrent emitters and the
+// pump cannot deliver out of seq order (MADR 0201 D11).
 func (m *Manager) emitEvent(id string, ev event.Event) {
+	for {
+		m.mu.RLock()
+		e := m.sessions[id]
+		m.mu.RUnlock()
+		if e != nil {
+			e.deliverMu.Lock()
+		}
+		done := m.emitEventLocked(id, e, ev)
+		if e != nil {
+			e.deliverMu.Unlock()
+		}
+		if done {
+			return
+		}
+	}
+}
+
+// emitEventLocked is emitEvent for a caller holding e.deliverMu, where e is
+// id's entry (nil when id has none). It emits nothing and returns false when
+// id's entry is no longer e, so the caller can retry under the right lock.
+func (m *Manager) emitEventLocked(id string, e *entry, ev event.Event) bool {
 	m.mu.Lock()
-	e, mine := m.sessions[id]
-	if mine {
+	if m.sessions[id] != e {
+		m.mu.Unlock()
+		return false
+	}
+	if e != nil {
 		e.appendHistoryLocked(&ev)
 	}
 	m.mu.Unlock()
@@ -1569,12 +1609,13 @@ func (m *Manager) emitEvent(id string, ev event.Event) {
 	// for durable persistence, exactly as [Manager.pump] does for provider
 	// events — otherwise a crash loses /help output, notices, and echoed
 	// commands from the on-disk transcript.
-	if mine {
+	if e != nil {
 		m.scheduleHistoryPersist(id)
 	}
 	if m.onEvent != nil {
 		m.onEvent(ev)
 	}
+	return true
 }
 
 // emitNotice pushes a daemon-originated informational line (e.g. command output).

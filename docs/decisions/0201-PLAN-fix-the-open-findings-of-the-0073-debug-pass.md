@@ -214,11 +214,12 @@ All tests are in `internal/session`, using `internal/provider/fake` and the help
     session;
   - exactly one gets `nil`, the other `ErrForbidden`, and `store.Get(id).OwnerDeviceID` equals
     the in-memory owner.
-  - **Implement:** `entry.claimMu`, taken before `m.mu` in `Authorize`'s claim path. The check
-    and the stamp happen under it.
+  - **Implement:** ~~`entry.claimMu`~~ the existing per-session lock (`lockCreate`), taken
+    before `m.mu` in `Authorize`'s claim path. The check and the stamp happen under it.
+    See Deviation 2.
 - **Planted breaks:**
   - D11: the triggering `onEvent` moved back after the notices;
-  - D13: `claimMu` removed;
+  - D13: ~~`claimMu`~~ the per-session lock removed (Deviation 2);
   - D4: the equality check removed.
 
   Each must fail its test.
@@ -623,4 +624,108 @@ check_records.py --check-all           -> exit 0
 ```
 
 The real-host ALPN check (`openssl s_client`) is P10.
+
+### Deviation 2, 2026-10-18 (P3): D13 uses the existing per-session lock, not a new `claimMu`
+
+**Found.** P3's D13 step adds `entry.claimMu`. `Manager` already has a per-session lock,
+`lockCreate(id)` (`internal/session/manager.go`), which `Create`, `Release` and `Claim` hold for the
+same check, persist and stamp sequence. An `entry` field also cannot cover `Authorize`'s
+stored-only path, where there is no entry: its `Get`, check and `Save` are unlocked too. Racing it
+for 600 rounds under `-race` never caught a double win, but the window is there when read.
+
+**Owner's decision.** Use the existing lock.
+
+**Done instead.** MADR D13's decision holds as written: a per-session claim mutex is held across
+check, persist and stamp, and is taken before `m.mu`.
+
+- `Authorize` runs its checks without the lock. On reaching a first-touch claim, in either path,
+  it returns an internal `errClaimNeedsLock`. `Authorize` then takes `lockCreate(id)` and runs the
+  checks again, so the second claimer sees the first one's owner and is forbidden.
+- Checks that claim nothing never take the lock. No caller of `Authorize` holds it, so it cannot
+  deadlock.
+- A claim is now also ordered against `Release` and `Claim`.
+- `TestOnlyOneConcurrentClaimWins` covers both paths, with 200 rounds each: a `live` subtest, which
+  failed first, and a `stored` subtest, which did not.
+- P3's planted break (the lock removed) later caught a double win in the `stored` subtest as well,
+  so that race is real, not only possible when read.
+
+No files were added to the phase's scope.
+
+### P3, 2026-10-18: session ordering and ownership — complete
+
+Starting commit `bbd04664` (P2). D13 is as in Deviation 2.
+
+**Each test seen failing first:**
+
+```text
+D4   create_id_test.go:54: Create = <nil>, want ErrSessionIDMismatch
+D11  delivery_order_test.go:104: round 0: delivery 2 has seq 1 (session_mode) after seq 3 (remote_commands); want strictly increasing
+D11  delivery_order_test.go:146: concurrent emits: delivery 20 has seq 19 (notice) after seq 21 (assistant_message_chunk); want strictly increasing
+D12  replay_suppression_test.go:95: withheld-replay records = 0, want 1: []
+D12  replay_suppression_test.go:119: during-turn warnings = 0, want 1: []
+D13  claim_race_test.go:81: <id>: both claimers were told they own the session
+```
+
+**What changed.** All of it is in `internal/session/manager.go` and `internal/session/commands.go`.
+
+- **D4.** `Create` refuses a provider session whose id is not the `LocalSessionID` it asked for. It
+  closes that session and returns `ErrSessionIDMismatch`, so no entry exists under either id.
+- **D11.**
+  - `entry.deliverMu` is held from an event's seq stamp to the last client delivery it causes. The
+    lock order is in its comment: `lockCreate`, then `deliverMu`, then `advertiseMu`, then `m.mu`.
+    Two entries' `deliverMu` are never held at once.
+  - The pump delivers the event itself first, then what it triggered: `advertiseCommandsLocked`
+    and the context-pressure notice, through `emitEventLocked`. The history and meta persistence
+    stay ahead of the broadcast, as before.
+  - Global-budget notices may name other sessions, so they are emitted after the lock is released.
+  - `emitEvent` and `advertiseCommands` take the entry's `deliverMu`. If the entry was replaced in
+    between, `emitEventLocked` reports it, and `emitEvent` retries under the new entry's lock.
+- **D12.**
+  - `noteReplay` counts withheld replay events per session. A live event ends a burst and logs it
+    at `debug` (`replay events withheld from live delivery`, `count`).
+  - A replay event while a turn is in flight logs at `warn`, with its type, once per turn.
+    `markPromptStart` re-arms it.
+  - `Create` flushes a burst still being counted at its return.
+- **D13.** See Deviation 2.
+
+**Deviations in test detail only.**
+
+- `TestFirstEventsOfASessionArriveInSeqOrder`:
+  - **The PLAN said:** record "the first 20 events".
+  - **Why it changed:** a fake session's start-up and first turn deliver 13. Waiting for 20 timed
+    out, a failure for the wrong reason.
+  - **What it does instead:** it waits for the turn's `turn_complete` and checks every delivery
+    up to it, over 20 fresh sessions.
+- `TestConcurrentEmitsKeepSeqOrder`:
+  - **The PLAN said:** 4 goroutines calling `emitEvent`.
+  - **What it does instead:** 4 goroutines × 50 `emitNotice` calls (a thin wrapper over
+    `emitEvent`) against 200 provider events.
+- `TestOnlyOneConcurrentClaimWins` adds a `stored` subtest (Deviation 2).
+- **Not covered by a test:** `Create`'s flush of an unfinished burst. A test cannot tell it apart
+  from the flush the next live event makes, because the pump runs concurrently with `Create`'s
+  return.
+
+**Planted breaks**, each on a fresh scratch copy. The PLAN's three, plus one for `emitEvent`'s lock
+and one for each D12 log. All six failed their test with an assertion:
+
+```text
+D11 triggering onEvent after the notices  delivery_order_test.go:104: round 0: delivery 2 has seq 2 (session_mode) after seq 3 (remote_commands)
+D11 emitEvent without the delivery lock   delivery_order_test.go:146: concurrent emits: delivery 37 has seq 36 (notice) after seq 41 (notice)
+D12 burst count never logged              replay_suppression_test.go:95: withheld-replay records = 0, want 1
+D12 no warning during a turn              replay_suppression_test.go:119: during-turn warnings = 0, want 1
+D13 per-session lock removed              claim_race_test.go:81 (live) and :93 (stored): both claimers were told they own the session
+D4  equality check removed                create_id_test.go:54: Create = <nil>, want ErrSessionIDMismatch
+```
+
+**Gates.**
+
+```text
+make pre-add-check (6 Go files)          -> clean (gofmt, golint, govulncheck)
+go vet ./..., make lint, make staticcheck -> exit 0
+go test -race -count=1 ./...             -> exit 0, 42 packages ok
+P3 tests, -race -count=10                -> exit 0
+make ci-windows (the Windows test host)  -> ci-windows-exit=0, ALL SELECTED CHECKS PASSED (session ok)
+check_records.py --check-all             -> exit 0
+make markdownlint-docs                   -> exit 0
+```
 
