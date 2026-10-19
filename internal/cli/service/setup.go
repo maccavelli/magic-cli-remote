@@ -1474,8 +1474,10 @@ func xdgStateHome() string {
 // defaultInstalledBinary is where the per-user installer puts <product>.
 //
 // Unix: ~/.local/bin/<product>, what `make install` and install.sh write.
-// Windows: %LOCALAPPDATA%\Programs\<product>\<product>.exe, what
-// install.ps1 writes (MADR 0116 D13).
+// Windows: %LOCALAPPDATA%\Programs\magic-cli-remote\<product>.exe, the
+// library installer's folder (MADR 0054 D9, PLAN S5g). It replaces install.ps1's
+// %LOCALAPPDATA%\Programs\<product>\<product>.exe (MADR 0116 D13), which a
+// refresh moves installs out of.
 //
 // Without the Windows branch, setup-service would bake whatever path the user
 // happened to invoke into the scheduled task — a downloads folder, a temp
@@ -1486,7 +1488,7 @@ func defaultInstalledBinary(home, product string) string {
 		if base == "" {
 			base = filepath.Join(home, "AppData", "Local")
 		}
-		return filepath.Join(base, "Programs", product, product+".exe")
+		return filepath.Join(base, "Programs", installerName, product+".exe")
 	}
 	return filepath.Join(home, ".local", "bin", product)
 }

@@ -2608,3 +2608,165 @@ Both remote copies were removed.
 - `internal/updateclient/managed_script_unix_test.go` (new);
 - this PLAN.
 
+### S5g, 2026-10-19 — staged for the owner's commit; Deviation 1 decided by the owner
+
+**Starting point.** The owner committed S5f and said "proceed".
+
+**What S5g changed:**
+
+- **`internal/cli/service/migrate.go` (new)**, the folder move of D9 as amendment S5-4 decided it:
+  - **`rewriteUserPath`** removes the per-product folders from a `PATH` value, case-insensitively
+    and ignoring a trailing backslash. It appends `…\Programs\magic-cli-remote` once and keeps every
+    other entry in place, empty and `%VAR%` entries included.
+  - **`copyToNewFolder`** copies each product's `.exe` that install.ps1 left into the new folder,
+    writing to a temporary name and renaming. It checks that each copy's `version` identity line
+    equals its source's. Any failure stops the move.
+  - **`movePathEntries`** writes the new value with the old value's registry type and announces it.
+  - **`cleanOldFolders`** deletes each old copy that has a copy in the new folder and that no task
+    still runs, with its `.prev` and, by Deviation 1, the library's own files for it. Then it
+    deletes the folder when it is empty. A copy in use is kept for a later refresh.
+  - **`planMigration` and `finishMigration`** tie these to the refresh.
+- **`migrate_windows.go` and `unsafe_windows.go` (new).**
+  - The User `PATH` store is `HKCU\Environment`'s `Path`, through `golang.org/x/sys/windows/registry`.
+    It keeps `REG_SZ` or `REG_EXPAND_SZ` as it found it.
+  - `broadcastEnvironmentChange` is install.ps1's `Send-EnvironmentChange`: `SendMessageTimeoutW`,
+    `WM_SETTINGCHANGE`, `"Environment"`, `SMTO_ABORTIFHUNG`, 5 s. The package's one use of `unsafe`
+    is kept to that file, as `procutil` does.
+  - `migrate_other.go` is the store off Windows, which errors and is reached only in tests.
+- **`refresh_schtasks.go`.** A task whose binary is `…\Programs\<product>\<product>.exe` is moved:
+  - **The move.** The copies are made and checked, the task is re-rendered with the new binary and
+    re-registered, with the usual backup, and then the `PATH` and the old copies are handled.
+  - **What the receipt says.** `reason` names the move, the new `migrated` field names the folder,
+    and the `PATH` change and any kept copy are in `warnings`, which the update prints.
+  - **A failed copy** leaves the task unchanged, with a warning. The move is not made, and the
+    update is not failed.
+  - **Already moved.** A task already in the new folder is unchanged, and only the cleanup runs.
+  - **Preview.** `--print-only` moves nothing and says the task would move.
+  - **The binary warning.** It is not given after a move, because the refresh child then runs from
+    the old folder by design.
+- **`refresh.go`:** `RefreshResult.Migrated` (`json:"migrated,omitempty"`). The library's receipt
+  decoder accepts unknown fields (`selfupdate/service/execreconciler.go` `decodeReceipt`).
+- **`setup.go`:** on Windows `defaultInstalledBinary` is `…\Programs\magic-cli-remote\<product>.exe`.
+
+**A decision inside the PLAN's words.** S5g step 1 deletes an old copy "when nothing runs from
+it". Before deleting, the cleanup also checks the other product's task. So mcremote's refresh does
+not delete the `mcrelay.exe` that mcrelay's own task still runs before mcrelay's refresh moves it.
+
+**Tests:**
+
+- **`migrate_test.go` (new):**
+  - `TestRewriteUserPath`, seven cases.
+  - `TestRefreshMovesAnOldWindowsInstall`: copies, the task, the `PATH` (type kept, one
+    broadcast), and the old folders gone.
+  - `TestRefreshKeepsACopyAnotherTaskRuns`.
+  - `TestRefreshDoesNotMoveWhenACopyFails`: nothing is switched, and the `PATH` and old copies are
+    untouched.
+  - `TestRefreshAfterTheMoveOnlyCleansUp`.
+  - `TestRefreshPreviewDoesNotMove`.
+  - They run on every host, through the existing Task Scheduler seams and a Task Scheduler that
+    keeps each task's XML by name.
+- **`migrate_windows_test.go` (new):** `TestDefaultInstalledBinaryIsTheNewFolder`, which runs on
+  Windows only.
+
+**Planted breaks, each on its own fresh scratch copy** (`s5g_plants.py`, 12, with Deviation 1's
+three below). Each failed a test assertion:
+
+```text
+the old entries stay on the PATH               migrate_test.go:32: rewriteUserPath(…) = "C:\\Windows;C:\\L\\Programs\\mcremote;…"
+the PATH loses REG_EXPAND_SZ                   migrate_test.go:168: User PATH "…" (type 0, 1 broadcasts), want … type 2
+the change is not announced                    migrate_test.go:168: User PATH "…" (type 2, 0 broadcasts), want … one broadcast
+a copy is not checked                          migrate_test.go:208: res = {Verdict:refreshed …}, want no move and a warning
+a copy a task runs is deleted                  migrate_test.go:185: mcrelay's old copy, which its task runs, was removed
+the task is not switched                       migrate_test.go:154: res = {Verdict:unchanged …}, want a change naming the move
+a moved install is not cleaned up              migrate_test.go:237: the old folder a previous move left survived
+a preview moves                                migrate_test.go:253: a preview moved something
+the receipt does not name the move             migrate_test.go:154: res = {… Migrated: …}, want a change naming the move
+```
+
+- **A rewritten plant.** The first `REG_EXPAND_SZ` plant left a variable unused. That is a build
+  failure, so it was rewritten to compile.
+- **Not run as a plant: `TestDefaultInstalledBinaryIsTheNewFolder`.** It builds only on Windows,
+  and the plants run on this Mac. It passed on the Windows test host.
+
+**The live check, on the Windows test host: its real install, migrated for real** (owner decision:
+"Migrate it for real"; `s5g_live_win.py`).
+
+- **The starting state,** read first: the account's `mcremote` task Running from
+  `C:\Users\<user>\AppData\Local\Programs\mcremote\mcremote.exe`, a live `mcremote` from that file,
+  both per-product folders on the User `PATH` as `REG_SZ`, and no relay task.
+- **What ran.** The working tree's `setup-service --refresh --json`, built for windows/amd64 and
+  run from a scratch folder. This is what an update's reconcile child runs.
+
+```text
+first refresh   verdict refreshed, changed true
+                reason "moved the task to C:\Users\<user>\AppData\Local\Programs\magic-cli-remote\mcremote.exe"
+                migrated "C:\Users\<user>\AppData\Local\Programs\magic-cli-remote"
+                warnings: the User PATH now has …\magic-cli-remote in place of the per-product folders; open a new terminal
+                          …\Programs\mcremote\mcremote.exe is in use and was kept; a later refresh removes it
+after it        task exec …\Programs\magic-cli-remote\mcremote.exe; new folder: mcrelay.exe, mcremote.exe
+                User PATH entries: …\Programs\magic-cli-remote only; value kind String (REG_SZ, as before)
+                old mcrelay.exe and .prev deleted (no task runs them); old mcremote.exe kept (the daemon, pid 30016, runs it)
+task restarted  (schtasks /end, /run, as an update's Start does) → mcremote pid 21824 runs …\magic-cli-remote\mcremote.exe
+second refresh  verdict unchanged; old mcremote.exe and .prev deleted
+                its one warning: the definition runs …\magic-cli-remote\mcremote.exe, not this binary (the scratch copy)
+```
+
+**Deviation 1, 2026-10-19 — the library's leftovers are removed with the old copy. The owner
+decided: "Clean them in S5g".**
+
+- **What was found.** The first live run left both old folders in place. Each held only the
+  library's own files for the binary that lived there: `.<name>.exe.selfupdate.lock`,
+  `.<name>.exe.selfupdate.cleanup` and `.<name>.exe.selfupdate-bak-<n>`, left by earlier updates.
+  The step deleted a folder only when it was empty. Later updates target the new folder, so
+  nothing would clean these files.
+- **What was done.** `removeLibraryLeftovers` deletes the files named `.<product>.exe.selfupdate…`
+  from the old folder, once the copy is gone and no task runs it. Files in use are skipped, and no
+  other file is touched. The folder then goes when it is empty.
+  - It also runs when the old `.exe` is already gone, which was the Windows test host's state after
+    the first run.
+- **Tests:**
+  - every `migrationHost` folder now holds those three files, so `TestRefreshMovesAnOldWindowsInstall`
+    requires them removed;
+  - new: `TestRefreshKeepsFilesItDidNotWrite`, where a `notes.txt` and its folder stay;
+  - new: `TestRefreshCleansLeftoversAfterTheCopyIsGone`.
+- **Plants** (in the 12 above):
+
+```text
+the library's leftovers stay                   migrate_test.go:177: the old mcremote folder survived: <nil>
+any file in the old folder is removed          migrate_test.go:287: the old folder holding another file was removed
+leftovers are cleaned only beside a copy       migrate_test.go:316: the old folder with only the library's files survived: <nil>
+```
+
+- **Live, on the same Windows install** (`s5g_live_win2.py`).
+  - **Before:** both old folders held only those three files each.
+  - **The refresh:** verdict `unchanged`.
+  - **After:** no old folder remains. The task still runs `…\Programs\magic-cli-remote\mcremote.exe`,
+    the User `PATH` is unchanged and still `REG_SZ`, and the daemon, pid 21824, kept running.
+
+**Gates, exit status captured before reading output.** The files were staged first:
+
+```text
+make pre-add-check (9 Go files)                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck (linux, darwin, windows)  exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` passed, with "ALL SELECTED CHECKS PASSED" and 43
+  `ok`. That includes the migration tests and `TestDefaultInstalledBinaryIsTheNewFolder` on
+  Windows itself, with the `PATH` store replaced by the in-memory one.
+- **The Linux test host:** the race tests passed.
+
+Both remote copies, and the scratch binary, were removed.
+
+**Files staged for S5g:**
+
+- `internal/cli/service/`:
+  - `migrate.go`, `migrate_windows.go`, `migrate_other.go` and `unsafe_windows.go` (new);
+  - `migrate_test.go` and `migrate_windows_test.go` (new);
+  - `refresh_schtasks.go`, `refresh.go`, `setup.go`;
+- this PLAN.
+

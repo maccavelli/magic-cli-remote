@@ -47,6 +47,10 @@ type RefreshResult struct {
 	Reloaded   bool     `json:"reloaded"`
 	Reason     string   `json:"reason,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
+	// Migrated is the folder a Windows refresh moved the binaries to (MADR
+	// 0054 D9, PLAN S5g); empty when nothing moved. The library's receipt
+	// ignores it; the operator reads the move in Reason and Warnings.
+	Migrated string `json:"migrated,omitempty"`
 	// Body is the re-rendered definition, for --print-only. Never serialized:
 	// the JSON form is a status report, not a transport for the unit itself.
 	Body string `json:"-"`

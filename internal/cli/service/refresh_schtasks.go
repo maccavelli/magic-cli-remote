@@ -45,7 +45,26 @@ func refreshSchtasks(opts Options, ro RefreshOptions) (RefreshResult, error) {
 		res.Verdict, res.Reason = VerdictKept, why
 		return res, nil
 	}
-	res.Warnings = append(res.Warnings, binaryWarning(rec.Binary)...)
+
+	// The folder move (MADR 0054 D9, PLAN S5g). It writes files, so a
+	// preview only says it would happen.
+	var mig migration
+	moved, inNew := false, samePath(filepath.Dir(rec.Binary), newWindowsDir())
+	if inOldLayout(opts.Product, rec.Binary) {
+		if ro.PrintOnly {
+			res.Warnings = append(res.Warnings, "the task would move to "+newWindowsDir())
+		} else {
+			var bin string
+			bin, mig = planMigration(opts.Product, rec.Binary)
+			moved = bin != rec.Binary
+			rec.Binary = bin
+		}
+	}
+	if !moved {
+		// After a move the refresh child still runs from the old folder,
+		// so the definition runs another binary by design.
+		res.Warnings = append(res.Warnings, binaryWarning(rec.Binary)...)
+	}
 
 	want, err := renderTaskXML(rec, currentTaskUser())
 	if err != nil {
@@ -54,6 +73,11 @@ func refreshSchtasks(opts Options, ro RefreshOptions) (RefreshResult, error) {
 	res.Body = want
 	if sameTaskDefinition(existing, want) {
 		res.Verdict = VerdictUnchanged
+		if inNew && !ro.PrintOnly {
+			// Already moved: only what a previous move left behind.
+			finishMigration(&mig, userPath)
+		}
+		res.Warnings = append(res.Warnings, mig.Notes...)
 		return res, nil
 	}
 
@@ -73,6 +97,14 @@ func refreshSchtasks(opts Options, ro RefreshOptions) (RefreshResult, error) {
 	if err := registerTaskXML(name, want); err != nil {
 		return res, err
 	}
+	if moved || inNew {
+		finishMigration(&mig, userPath)
+	}
+	if moved {
+		res.Migrated = mig.To
+		res.Reason = "moved the task to " + filepath.Join(mig.To, opts.Product+".exe")
+	}
+	res.Warnings = append(res.Warnings, mig.Notes...)
 	return res, nil
 }
 
