@@ -8,7 +8,7 @@ import (
 
 // newUpdateCmd builds `mcrelay update`. Both products share one command body
 // and one adapter, and each reports its own build identity (MADR 0005, 0054
-// S2).
+// S2), and its own health wiring (D5).
 func newUpdateCmd() *cobra.Command {
-	return updateclient.NewCommand("mcrelay")
+	return updateclient.NewCommand("mcrelay", updateHealth())
 }

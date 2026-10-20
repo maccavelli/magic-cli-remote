@@ -37,6 +37,10 @@ const (
 	OpPing              = "ping"
 	OpDisconnectDevice  = "disconnect_device"
 	OpDisconnectDevices = "disconnect_devices"
+	// OpShutdown asks the daemon to shut down as it does on a signal. An
+	// update on Windows sends it before ending the task, so the daemon can
+	// drain (MADR 0054 A2).
+	OpShutdown = "shutdown"
 )
 
 // Request is a single admin command.
@@ -67,8 +71,9 @@ func SocketPath(runtimeDir string) string {
 
 // Serve listens on the admin Unix socket at socketPath until ctx is cancelled.
 // It validates the parent runtime directory and removes only a verified stale
-// socket before binding.
-func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Logger) error {
+// socket before binding. shutdown is what OpShutdown calls, after its reply is
+// sent; nil refuses the operation.
+func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Logger, shutdown func()) error {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -158,11 +163,11 @@ func Serve(ctx context.Context, socketPath string, d Disconnector, log *slog.Log
 			}
 			return err
 		}
-		go handleConn(conn, d, log)
+		go handleConn(conn, d, log, shutdown)
 	}
 }
 
-func handleConn(conn net.Conn, d Disconnector, log *slog.Logger) {
+func handleConn(conn net.Conn, d Disconnector, log *slog.Logger, shutdown func()) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error("admin handleConn panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
@@ -177,7 +182,8 @@ func handleConn(conn net.Conn, d Disconnector, log *slog.Logger) {
 		_ = json.NewEncoder(conn).Encode(Response{OK: false, Error: "bad_json: " + err.Error()})
 		return
 	}
-	resp := dispatch(req, d)
+	op := strings.ToLower(strings.TrimSpace(req.Op))
+	resp := dispatch(op, req, d, shutdown != nil)
 	if !resp.OK {
 		log.Debug("admin request failed",
 			slog.String("op", req.Op),
@@ -185,11 +191,21 @@ func handleConn(conn net.Conn, d Disconnector, log *slog.Logger) {
 		)
 	}
 	_ = json.NewEncoder(conn).Encode(resp)
+	if op == OpShutdown && resp.OK {
+		// After the reply: the shutdown closes this listener.
+		log.Info("shutdown requested over the admin socket")
+		shutdown()
+	}
 }
 
-func dispatch(req Request, d Disconnector) Response {
-	switch strings.ToLower(strings.TrimSpace(req.Op)) {
+func dispatch(op string, req Request, d Disconnector, canShutdown bool) Response {
+	switch op {
 	case OpPing:
+		return Response{OK: true}
+	case OpShutdown:
+		if !canShutdown {
+			return Response{OK: false, Error: "shutdown not supported"}
+		}
 		return Response{OK: true}
 	case OpDisconnectDevice:
 		id := strings.TrimSpace(req.DeviceID)
@@ -245,6 +261,13 @@ func Call(socketPath string, req Request) (Response, error) {
 		return resp, fmt.Errorf("admin: %s", resp.Error)
 	}
 	return resp, nil
+}
+
+// RequestShutdown asks the daemon serving socketPath to shut down. It returns
+// once the daemon has accepted the request, not when it has exited.
+func RequestShutdown(socketPath string) error {
+	_, err := Call(socketPath, Request{Op: OpShutdown})
+	return err
 }
 
 // NotifyDisconnect asks a running daemon to kick the given device ids.

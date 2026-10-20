@@ -28,6 +28,85 @@ func (f *fakeDisc) DisconnectDevices(ids []string) int {
 	return len(ids)
 }
 
+// serveForTest runs Serve on a fresh socket until the test ends, and returns
+// the socket once it answers a ping.
+func serveForTest(t *testing.T, d admin.Disconnector, shutdown func()) string {
+	t.Helper()
+	// A short directory: t.TempDir's carries the test name, and a Unix
+	// socket path is limited to 104 bytes on macOS.
+	dir, err := os.MkdirTemp("", "adm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "admin.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- admin.Serve(ctx, sock, d, nil, shutdown) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-errCh:
+		case <-time.After(2 * time.Second):
+			t.Error("admin Serve did not exit")
+		}
+	})
+	waitReady(t, sock)
+	return sock
+}
+
+// waitReady waits until the admin socket answers a ping.
+func waitReady(t *testing.T, sock string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := admin.Call(sock, admin.Request{Op: admin.OpPing}); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("admin socket never became ready")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestShutdownAnswersThenRequestsIt: the shutdown operation replies OK and
+// then calls the daemon's shutdown, which serve wires to the context its
+// signals cancel (MADR 0054 A2; PLAN S8 step 1b).
+func TestShutdownAnswersThenRequestsIt(t *testing.T) {
+	requested := make(chan struct{})
+	var once sync.Once
+	sock := serveForTest(t, &fakeDisc{}, func() { once.Do(func() { close(requested) }) })
+
+	if err := admin.RequestShutdown(sock); err != nil {
+		t.Fatalf("RequestShutdown: %v", err)
+	}
+	select {
+	case <-requested:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the shutdown operation did not call the daemon's shutdown")
+	}
+}
+
+// TestShutdownRefusedWithoutAHandler: a daemon that wires no shutdown refuses
+// the operation rather than answering OK and doing nothing.
+func TestShutdownRefusedWithoutAHandler(t *testing.T) {
+	sock := serveForTest(t, &fakeDisc{}, nil)
+	err := admin.RequestShutdown(sock)
+	if err == nil || !strings.Contains(err.Error(), "shutdown not supported") {
+		t.Fatalf("RequestShutdown = %v, want it refused as not supported", err)
+	}
+}
+
+// TestUnknownOpStillRefused: adding an operation leaves the default refusal.
+func TestUnknownOpStillRefused(t *testing.T) {
+	sock := serveForTest(t, &fakeDisc{}, func() {})
+	_, err := admin.Call(sock, admin.Request{Op: "reboot"})
+	if err == nil || !strings.Contains(err.Error(), "unknown op: reboot") {
+		t.Fatalf("Call(reboot) = %v, want unknown op", err)
+	}
+}
+
 func TestAdminDisconnectRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "admin.sock")
@@ -36,19 +115,9 @@ func TestAdminDisconnectRoundTrip(t *testing.T) {
 	defer cancel()
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- admin.Serve(ctx, sock, d, nil) }()
+	go func() { errCh <- admin.Serve(ctx, sock, d, nil, nil) }()
 
-	// Wait until socket exists.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := admin.Call(sock, admin.Request{Op: admin.OpPing}); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("admin socket never became ready")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitReady(t, sock)
 
 	n, err := admin.NotifyDisconnect(sock, "dev-a", "dev-b")
 	if err != nil {
@@ -94,7 +163,7 @@ func TestServeRefusesNonSocket(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	err := admin.Serve(ctx, sock, &fakeDisc{}, nil)
+	err := admin.Serve(ctx, sock, &fakeDisc{}, nil, nil)
 	if err == nil {
 		t.Fatal("Serve accepted a non-socket at the socket path")
 	}

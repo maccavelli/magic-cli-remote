@@ -25,6 +25,8 @@ import (
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/cli"
+
+	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
 
 // Repository is the single GitHub repository both products are published from.
@@ -53,6 +55,9 @@ type Options struct {
 	// TargetPath overrides the executable the update replaces, in tests. Its
 	// directory becomes an allowed root.
 	TargetPath string
+	// Health is the product's health wiring for its service backend: the
+	// probe, and on Windows the shutdown request (MADR 0054 D5).
+	Health service.HealthOptions
 }
 
 // New builds the updater for one product. Every security-relevant component is
@@ -104,7 +109,7 @@ func New(opts Options) (*selfupdate.Updater, error) {
 
 	var installer selfupdate.Installer = standalone
 	if opts.Managed {
-		if installer, err = managedInstaller(opts.Product, standalone); err != nil {
+		if installer, err = managedInstaller(opts.Product, standalone, opts.Health); err != nil {
 			return nil, err
 		}
 	}
@@ -164,12 +169,13 @@ var (
 	// stdin can answer a prompt. It cannot; a test sets it to prompt.
 	commandInteractive = false
 	// newCommandUpdater builds the command's updater.
-	newCommandUpdater = func(product string, id buildinfo.Info) (*selfupdate.Updater, error) {
+	newCommandUpdater = func(product string, id buildinfo.Info, health service.HealthOptions) (*selfupdate.Updater, error) {
 		return New(Options{
 			Product:          product,
 			Identity:         id,
 			Managed:          true,
 			CodesignIdentity: strings.TrimSpace(os.Getenv("MC_CODESIGN_IDENTITY")),
+			Health:           health,
 		})
 	}
 )
@@ -194,7 +200,10 @@ func (e *ExitError) Error() string { return fmt.Sprintf("update: exit status %d"
 // request from buildinfo, and cli.Run and cli.Exit, which own the streams,
 // the signals, the run timeout and the exit status. Progress, prompts and
 // the outcome go to stderr; stdout carries only --json's JSON Lines.
-func NewCommand(product string) *cobra.Command {
+//
+// health is the product's own: each product knows how to reach its daemon,
+// and this package imports neither product's configuration.
+func NewCommand(product string, health service.HealthOptions) *cobra.Command {
 	var flags cli.Flags
 	cmd := &cobra.Command{
 		Use:   "update",
@@ -227,7 +236,7 @@ before install, which preserves TCC grants (MADR 0069).`,
 			if err != nil {
 				return exit(o, selfupdate.Result{}, err)
 			}
-			u, err := newCommandUpdater(product, id)
+			u, err := newCommandUpdater(product, id, health)
 			if err != nil {
 				return exit(o, selfupdate.Result{}, err)
 			}

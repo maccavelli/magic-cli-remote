@@ -173,7 +173,11 @@ consequences worth knowing before you rely on it:
 - **`schtasks /end` terminates the process** rather than asking it to drain.
   Provider process trees still die with it — they are held in a Job Object —
   and a stale admin socket is detected and cleared on the next start. What is
-  lost is an orderly hub teardown.
+  lost is an orderly hub teardown. `mcremote update` does not lose it: it asks
+  the daemon to shut down over its admin socket first, and ends the task only
+  if the daemon is still running 30 seconds later
+  ([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md),
+  A2).
 - **Stopping one session asks the agent CLI to finish first.** The daemon sends
   `CTRL_BREAK` and escalates to a hard kill only if the tree is still there when
   the timeout expires. That signal needs a console shared with the child, which a
@@ -213,11 +217,16 @@ mcremote update           # check, download, verify, replace, restart
 mcremote update --check   # only report whether an update is available
 ```
 
-When the background task is installed, `update` stops it (disable, then end),
-replaces the binary, and asks the **new** binary to refresh the task
+When the background task is installed, `update` stops it: it disables the task,
+asks the daemon to shut down over its admin socket, waits up to 30 seconds for
+it to exit, and ends the task only if it has not. It then replaces the binary,
+and asks the **new** binary to refresh the task
 definition. The refresh keeps every option baked into the task and re-registers
 it only if this release's template differs. `update` then starts the task
-again (enable, then run) and waits for it to report running. If any step after
+again (enable, then run), waits for it to report running, and then for the
+daemon's admin socket to answer a ping, at the socket of the data directory
+the task runs with. The `mcremote` that runs `update` does all this, so an
+update from a release before this one ends the task as before. If any step after
 the swap fails, it rolls back: the previous binary is restored, and so is the
 previous task definition, which the refresh saved under
 `%LocalAppData%\mcremote\State` (MADR 0159 D1).

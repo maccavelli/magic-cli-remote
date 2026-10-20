@@ -15,8 +15,9 @@ import (
 
 // The seams below are variables for tests; production never changes them.
 var (
-	// newBackend builds the service manager's backend (MADR 0054 D2, D3).
-	newBackend = service.NewBackend
+	// newBackend builds the service manager's backend, with the product's
+	// health wiring (MADR 0054 D2, D3, D5).
+	newBackend = service.NewBackendWith
 	// definitionInstalled reports whether a service definition exists. It is
 	// asked only when no backend can be built.
 	definitionInstalled = service.IsInstalled
@@ -42,8 +43,12 @@ var reconcileArgs = []string{"setup-service", "--refresh", "--json"}
 // When no backend can be built, an installed definition makes the update
 // refuse, because it could neither stop nor restart that service; with no
 // definition the update replaces the binary alone (MADR 0054 PLAN S1).
-func managedInstaller(product string, standalone *selfupdate.StandaloneInstaller) (selfupdate.Installer, error) {
-	backend, err := newBackend(product, "")
+//
+// health is the product's probe and, on Windows, its shutdown request; the
+// backend's WaitHealthy runs the probe after a new instance has settled
+// (MADR 0054 D5, A1, A2, A4).
+func managedInstaller(product string, standalone *selfupdate.StandaloneInstaller, health service.HealthOptions) (selfupdate.Installer, error) {
+	backend, err := newBackend(product, "", health)
 	if err != nil {
 		installed, ierr := definitionInstalled(product)
 		switch {

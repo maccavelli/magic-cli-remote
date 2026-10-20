@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
@@ -50,7 +51,7 @@ func (f *fakeService) Start(context.Context, string) error {
 func withBackend(t *testing.T, backend service.Backend, err error) {
 	t.Helper()
 	prev := newBackend
-	newBackend = func(string, string) (service.Backend, error) { return backend, err }
+	newBackend = func(string, string, service.HealthOptions) (service.Backend, error) { return backend, err }
 	t.Cleanup(func() { newBackend = prev })
 }
 
@@ -95,6 +96,12 @@ func releaseBody(tag string) func(selfupdate.Platform) []byte {
 // executable's path.
 func runUpdate(t *testing.T) (string, error) {
 	t.Helper()
+	return runUpdateWith(t, service.HealthOptions{})
+}
+
+// runUpdateWith is runUpdate with the product's health wiring.
+func runUpdateWith(t *testing.T, health service.HealthOptions) (string, error) {
+	t.Helper()
 	spec, err := releaseSpec()
 	if err != nil {
 		t.Fatal(err)
@@ -117,6 +124,7 @@ func runUpdate(t *testing.T) (string, error) {
 	opts := Options{
 		Product: "mcremote", Identity: buildinfo.Info{Version: "v0.1.0", Kind: buildinfo.KindRelease}, Managed: true,
 		HTTPClient: gh.Client, APIBaseURL: gh.APIBase.String(), TargetPath: exe,
+		Health: health,
 	}
 	up, err := New(opts)
 	if err != nil {
@@ -172,6 +180,77 @@ func TestUpdateStartsAStoppedServiceOnlyWhenEnabled(t *testing.T) {
 				t.Errorf("stops=%d starts=%d, want stops=%d starts=%d", svc.stops, svc.starts, tc.wantStops, tc.wantRuns)
 			}
 		})
+	}
+}
+
+// probingService is a backend whose WaitHealthy runs the product's probe, as
+// the systemd, launchd and Task Scheduler backends run Options.Probe once
+// their own check has passed.
+type probingService struct {
+	fakeService
+	probe  service.ServeProbe
+	probes int
+}
+
+func (p *probingService) WaitHealthy(ctx context.Context, _ string) error {
+	if p.probe == nil {
+		return nil
+	}
+	return libservice.PollHealthy(ctx, func(ctx context.Context) (libservice.Health, error) {
+		p.probes++
+		return p.probe(ctx, service.ServeArgs{})
+	}, libservice.PollOptions{Interval: 10 * time.Millisecond, Timeout: 300 * time.Millisecond, Settle: -1})
+}
+
+// withProbingBackend makes the update see svc, wired with the health options
+// the update passes it.
+func withProbingBackend(t *testing.T, svc *probingService) {
+	t.Helper()
+	prev := newBackend
+	newBackend = func(_, _ string, h service.HealthOptions) (service.Backend, error) {
+		svc.probe = h.Probe
+		return svc, nil
+	}
+	t.Cleanup(func() { newBackend = prev })
+}
+
+// TestUpdateRunsTheProductsProbe: the product's probe reaches the backend,
+// and a ready probe completes the update (MADR 0054 D5).
+func TestUpdateRunsTheProductsProbe(t *testing.T) {
+	svc := &probingService{fakeService: fakeService{installed: true, enabled: true, running: true}}
+	withProbingBackend(t, svc)
+	withChild(t, libservice.Output{Stdout: refreshStdout(t, service.RefreshResult{Verdict: service.VerdictUnchanged})})
+	exe, err := runUpdateWith(t, service.HealthOptions{Probe: func(context.Context, service.ServeArgs) (libservice.Health, error) {
+		return libservice.Health{Ready: true}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireReplaced(t, exe)
+	if svc.probes == 0 {
+		t.Fatal("the update never ran the product's probe")
+	}
+}
+
+// TestUpdateRollsBackWhenTheProbeNeverPasses: a new daemon the service
+// manager reports running, but whose own check never passes, such as one
+// crash-looping before its admin socket opens, fails health, and the update
+// puts the previous binary back (MADR 0054 D5; PLAN S8 Verification).
+func TestUpdateRollsBackWhenTheProbeNeverPasses(t *testing.T) {
+	svc := &probingService{fakeService: fakeService{installed: true, enabled: true, running: true}}
+	withProbingBackend(t, svc)
+	withChild(t, libservice.Output{Stdout: refreshStdout(t, service.RefreshResult{Verdict: service.VerdictUnchanged})})
+	exe, err := runUpdateWith(t, service.HealthOptions{Probe: func(context.Context, service.ServeArgs) (libservice.Health, error) {
+		return libservice.Health{Detail: "admin ping: the daemon keeps restarting"}, nil
+	}})
+	if err == nil {
+		t.Fatal("the update succeeded although the probe never passed")
+	}
+	if !errors.Is(err, libservice.ErrTimeout) {
+		t.Errorf("err = %v, want the health wait's timeout", err)
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "mcremote v0.1.0" {
+		t.Errorf("executable = %q, want the previous binary restored", got)
 	}
 }
 

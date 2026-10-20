@@ -75,12 +75,12 @@ func runCommandContext(ctx context.Context, t *testing.T, managed bool, current 
 	id := buildinfo.Info{Version: current, Kind: buildinfo.KindRelease}
 	prevID, prevNew := commandIdentity, newCommandUpdater
 	commandIdentity = func() buildinfo.Info { return id }
-	newCommandUpdater = func(product string, id buildinfo.Info) (*selfupdate.Updater, error) {
+	newCommandUpdater = func(product string, id buildinfo.Info, _ service.HealthOptions) (*selfupdate.Updater, error) {
 		return New(Options{Product: product, Identity: id, HTTPClient: gh.Client, APIBaseURL: gh.APIBase.String(), TargetPath: exe, Managed: managed})
 	}
 	t.Cleanup(func() { commandIdentity, newCommandUpdater = prevID, prevNew })
 
-	cmd := NewCommand("mcremote")
+	cmd := NewCommand("mcremote", service.HealthOptions{})
 	var out, errb bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errb)

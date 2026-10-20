@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -43,20 +45,8 @@ For a managed background process on Linux, prefer:
 				Format: cfg.Log.Format,
 			})
 
-			ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals()...)
-			defer stop()
-			// After the first signal starts graceful shutdown, restore default
-			// signal handling so a second Ctrl-C force-quits instead of being
-			// swallowed while the 10s drain runs.
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("signal restorer panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
-					}
-				}()
-				<-ctx.Done()
-				stop()
-			}()
+			ctx, requestShutdown, release := serveContext(cmd.Context())
+			defer release()
 
 			memLimit, memLimitSource := applyMemoryLimit()
 
@@ -70,9 +60,10 @@ For a managed background process on Linux, prefer:
 			)
 
 			if err := daemon.Run(ctx, daemon.Options{
-				Config:  cfg,
-				Version: runningVersion(),
-				Log:     logger,
+				Config:   cfg,
+				Version:  runningVersion(),
+				Log:      logger,
+				Shutdown: requestShutdown,
 			}); err != nil {
 				return fmt.Errorf("daemon: %w", err)
 			}
@@ -100,6 +91,35 @@ For a managed background process on Linux, prefer:
 	cmd.Flags().String("tls-route53-profile", "", "AWS shared-config profile for the Route 53 API")
 	addDetachConsoleFlag(cmd, &detachConsole)
 	return cmd
+}
+
+// errShutdownRequested is the cause a shutdown request over the admin socket
+// gives serve's context, and so the reason the daemon logs.
+var errShutdownRequested = errors.New("shutdown requested over the admin socket")
+
+// serveContext is the context serve runs the daemon under. The shutdown
+// signals cancel it, and so does requestShutdown, which the admin socket's
+// shutdown operation calls: a request runs the same graceful shutdown as a
+// signal (MADR 0054 A2). release stops both.
+func serveContext(parent context.Context) (ctx context.Context, requestShutdown func(), release func()) {
+	sigCtx, stop := signal.NotifyContext(parent, shutdownSignals()...)
+	ctx, cancel := context.WithCancelCause(sigCtx)
+	// After the first signal or request starts graceful shutdown, restore
+	// default signal handling so a second Ctrl-C force-quits instead of being
+	// swallowed while the 10s drain runs.
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("signal restorer panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
+		<-ctx.Done()
+		stop()
+	}()
+	return ctx, func() { cancel(errShutdownRequested) }, func() {
+		cancel(nil)
+		stop()
+	}
 }
 
 // loadServeConfig loads serve's configuration and applies its flags, the part

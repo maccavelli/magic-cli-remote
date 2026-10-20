@@ -28,6 +28,15 @@ type Backend interface {
 // it into the definition's name exactly as setup does, so the backend manages
 // the definition setup wrote.
 func NewBackend(product, unitName string) (Backend, error) {
+	return NewBackendWith(product, unitName, HealthOptions{})
+}
+
+// NewBackendWith is NewBackend with the product's health wiring: h.Probe as
+// the systemd, launchd and Task Scheduler backends' Options.Probe, and on
+// Windows h.RequestStop and h.StopGrace (MADR 0054 D5, A1, A2). The runit, s6
+// and OpenRC backends confirm a start with setup-service's verified start
+// instead.
+func NewBackendWith(product, unitName string, h HealthOptions) (Backend, error) {
 	names, err := namesFor(product, unitName)
 	if err != nil {
 		return nil, err
@@ -50,7 +59,11 @@ func NewBackend(product, unitName string) (Backend, error) {
 		if kind.isScriptKind() {
 			return newScriptBackend(kind, strings.TrimSuffix(names.Unit, ".service")), nil
 		}
-		u, err := systemd.New(systemd.Options{Unit: names.Unit, Scope: systemd.User})
+		u, err := systemd.New(systemd.Options{
+			Unit:  names.Unit,
+			Scope: systemd.User,
+			Probe: h.backendProbe(product, unitName),
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -64,19 +77,32 @@ func NewBackend(product, unitName string) (Backend, error) {
 			Label:  names.Label,
 			Domain: launchd.GUI(os.Getuid()),
 			Plist:  filepath.Join(home, "Library", "LaunchAgents", names.Label+".plist"),
+			Probe:  h.backendProbe(product, unitName),
 		})
 		if err != nil {
 			return nil, err
 		}
 		return j, nil
 	case "windows":
-		t, err := taskscheduler.New(taskscheduler.Options{Name: names.Task})
+		t, err := taskscheduler.New(taskOptions(product, unitName, names.Task, h))
 		if err != nil {
 			return nil, err
 		}
 		return t, nil
 	default:
 		return nil, fmt.Errorf("service control unsupported on %s", osName)
+	}
+}
+
+// taskOptions are the Task Scheduler backend's options for product.
+// taskscheduler.New refuses a StopGrace that is not shorter than the poll
+// timeout when RequestStop is set (taskscheduler/task.go:149-150).
+func taskOptions(product, unitName, task string, h HealthOptions) taskscheduler.Options {
+	return taskscheduler.Options{
+		Name:        task,
+		Probe:       h.backendProbe(product, unitName),
+		RequestStop: h.backendRequestStop(product, unitName),
+		StopGrace:   h.StopGrace,
 	}
 }
 

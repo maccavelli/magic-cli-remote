@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
+
+	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
 
 func TestNewRequiresProduct(t *testing.T) {
@@ -27,7 +29,7 @@ func TestNewBuildsStandaloneAndManaged(t *testing.T) {
 // TestNewCommandFlagSurface: the command carries the library's canonical
 // flags (MADR 0054 S3, draft amendment 2).
 func TestNewCommandFlagSurface(t *testing.T) {
-	cmd := NewCommand("mcremote")
+	cmd := NewCommand("mcremote", service.HealthOptions{})
 	for _, name := range []string{"check", "yes", "force", "dry-run", "json", "version", "channel"} {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Errorf("missing --%s", name)
@@ -41,7 +43,7 @@ func TestNewCommandFlagSurface(t *testing.T) {
 // TestNewCommandRejectsPositionalArgs keeps a typo from being read as an
 // argument the command silently ignores.
 func TestNewCommandRejectsPositionalArgs(t *testing.T) {
-	cmd := NewCommand("mcremote")
+	cmd := NewCommand("mcremote", service.HealthOptions{})
 	if err := cmd.Args(cmd, []string{"stray"}); err == nil {
 		t.Fatal("expected positional arguments to be rejected")
 	}

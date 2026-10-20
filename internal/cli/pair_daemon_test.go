@@ -70,7 +70,7 @@ func TestPairCodeWarnsWhenNoDaemonServesItsDataDir(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		served := make(chan error, 1)
-		go func() { served <- admin.Serve(ctx, cfg.Paths.AdminSocket, noDisconnector{}, nil) }()
+		go func() { served <- admin.Serve(ctx, cfg.Paths.AdminSocket, noDisconnector{}, nil, nil) }()
 		t.Cleanup(func() {
 			cancel()
 			<-served

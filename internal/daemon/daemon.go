@@ -41,6 +41,11 @@ type Options struct {
 	Config  config.Config
 	Version string
 	Log     *slog.Logger
+	// Shutdown, when set, is what the admin socket's shutdown operation
+	// calls. serve cancels the context its signals cancel with it, so a
+	// request runs the same graceful shutdown as a signal (MADR 0054 A2).
+	// Nil refuses the operation.
+	Shutdown func()
 }
 
 // opencodeConfigFrom maps daemon configuration onto the OpenCode transport
@@ -496,7 +501,7 @@ func Run(ctx context.Context, opts Options) error {
 			}
 			sock = cfg.Paths.AdminSocket
 		}
-		if err := admin.Serve(ctx, sock, wsServer, log); err != nil {
+		if err := admin.Serve(ctx, sock, wsServer, log, opts.Shutdown); err != nil {
 			adminErrCh <- err
 			return
 		}

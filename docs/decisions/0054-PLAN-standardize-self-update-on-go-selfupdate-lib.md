@@ -4006,3 +4006,205 @@ make check-records / make markdownlint-docs                             exit=0 /
 - `README.md`, `docs/README.md`;
 - `docs/guides/ops-linux-install.md`, `ops-windows-install.md`, `ops-macos-tcc.md` and `config.md`;
 - this PLAN.
+
+### S8a, 2026-10-20 — staged for the owner's commit
+
+**Approval.** The owner said "proceed" after S7d (`b89b5367`), and on 2026-10-20 chose "From the
+definition", "TimeoutStartSec=240" and "Four sub-phases" for the questions S8's reading raised. The
+amendment of 2026-10-20 (S8) records them and is staged for its own commit.
+
+**Deviations, each decided by the owner on 2026-10-20 before this record:**
+
+- **Deviation 1 — The Windows live check sends the operation now; the update through it waits.**
+  - **Found.** The S8 Verification says `scripts/acceptance-windows-service.ps1` sees an update stop
+    the daemon through the request. That script exercises only `mcrelay`, which sets no
+    `RequestStop`.
+  - **Why an update cannot show it yet.** `RequestStop` belongs to the process that runs the
+    update. The first update whose running `mcremote` has this code is one from the first S8
+    release to a later one. `mcremote update` takes a test API origin only in tests.
+  - **Decision: "Live op now, update later".** A scratch `mcremote serve` on the Windows test host
+    receives the operation now. A real update that stops the task through the request is checked
+    after the second S8 release, and recorded then.
+- **Deviation 2 — `docs/guides/ops-windows-install.md` joins S8a's scope.**
+  - **Found.** The guide said `update` stops the task "(disable, then end)", and that
+    `schtasks /end` terminates the process "rather than asking it to drain".
+  - **Decision: "Fix it in S8a".**
+  - **The text now says:**
+    - `update` disables the task, asks the daemon to shut down, waits up to 30 seconds, and ends
+      the task only if it still runs;
+    - after the start, `update` waits for the admin socket of the task's data directory to answer;
+    - an update run by an older release ends the task as before;
+    - `schtasks /end` by hand still terminates the process.
+
+**What S8a changed:**
+
+- **`internal/admin/admin.go`:**
+  - `OpShutdown`. `Serve` takes a `shutdown func()`, which is called after the reply is sent.
+  - A nil `shutdown` refuses the operation with "shutdown not supported". An unknown operation is
+    still refused as before.
+  - `RequestShutdown(socket)` is the client side.
+- **`internal/daemon/daemon.go`:** `Options.Shutdown`, passed to the admin socket.
+- **`internal/cli/serve.go`:**
+  - `serveContext` builds the run context: the signals cancel it, and so does the request, with
+    the cause "shutdown requested over the admin socket".
+  - That cause is the reason the daemon logs, and the shutdown path is the one a signal takes.
+- **`internal/cli/service/health.go` (new):**
+  - `ServeArgs` and `HealthOptions`.
+  - `readServeArgs` reads the installed definition with the refresh's parsers: `recoverOptions`,
+    `recoverPlistOptions` and `recoverTaskOptions`.
+  - The probe reads the definition on each check. A definition that cannot be read is an error. One
+    whose arguments cannot be read back gets no application check, with the reason as its detail.
+  - The Task Scheduler backend's `RequestStop` goes to the definition's daemon; the process ID is
+    not used.
+- **`internal/cli/service/backend.go`:**
+  - `NewBackendWith(product, unitName, HealthOptions)` sets `Probe` on the systemd and launchd
+    backends, and `Probe`, `RequestStop` and `StopGrace` on the Task Scheduler backend
+    (`taskOptions`).
+  - `NewBackend`, which `doctor` and setup use, wires none, as before. The runit, s6 and OpenRC
+    backends keep `setup-service`'s verified start.
+- **`internal/updateclient/`:** `NewCommand(product, HealthOptions)`, `Options.Health`, and
+  `managedInstaller` passes it to `NewBackendWith`.
+- **`internal/cli/health.go` (new), `mcremote`:**
+  - The probe loads the configuration the definition's `--config` names, with its `--data-dir`,
+    and pings that admin socket. It is ready only on `OK: true`. A call that fails is an error.
+  - `RequestStop` sends `OpShutdown` there, with `StopGrace` 30 seconds.
+- **`internal/relay/health.go` (new), `mcrelay`:**
+  - The probe loads the relay's configuration with the baked `--listen-host`, `--listen-port` and
+    `--data-dir`.
+  - It requests `GET /healthz` on the configured host, or on loopback for an empty or wildcard
+    host. It is ready only on 200 and exactly `{"ok":true}`.
+  - TLS is verified: a Let's Encrypt relay as its first domain against the system roots, and a
+    `files` relay against its own certificate file, as the certificate's first DNS or IP name.
+  - No `RequestStop`.
+- **`internal/cli/update.go` and `internal/relay/update.go`:** each passes its own `updateHealth()`.
+- **`docs/guides/ops-windows-install.md`:** Deviation 2.
+
+**Tests (new, unless named):**
+
+- **`internal/admin`:** the shutdown answers and then calls the daemon's shutdown; refused without a
+  handler; an unknown operation still refused.
+- **`internal/daemon/shutdown_unix_test.go`:** a whole `Run`, under scratch XDG roots with only the
+  fake provider, returns nil after the request, and its context's cause is the request.
+- **`internal/cli`:**
+  - `serveContext`: ends on the request with its cause, and follows its parent.
+  - `adminPingProbe` (Unix):
+    - it follows a baked `--data-dir` and a baked `--config`, each a socket other than the
+      default's;
+    - with no daemon, an error;
+    - on `OK: false`, not ready.
+  - On Windows, `NewBackendWith("mcremote", "", updateHealth())` builds the task backend.
+- **`internal/cli/service`:**
+  - `readServeArgs` from a rendered unit, plist and task, each with every option baked;
+  - the probe passes the arguments, skips an unreadable definition, and errors without one;
+  - no probe from empty options;
+  - `RequestStop` passes the arguments;
+  - on Windows, `taskscheduler.New` accepts a 30-second grace and refuses 60.
+- **`internal/relay`:**
+  - ready over plaintext and over TLS from a certificate file;
+  - the baked `--listen-port` followed;
+  - a wildcard host dialled on loopback;
+  - not ready on a 500, on `{"ok":false}`, on another body, and on a body that is not JSON;
+  - an error with nothing listening.
+- **`internal/updateclient`:**
+  - the product's probe reaches the backend;
+  - a probe that never passes fails health with the timeout, and the update puts the previous
+    binary back. This is the Verification's "crash-looping fixture that must now fail health and
+    roll back".
+
+**Planted breaks, each on its own fresh scratch copy** (`s8a_plants.py`, 8). Each failed a test
+assertion:
+
+```text
+the mcremote probe ignores Response.OK          health_unix_test.go:168: probe = {Ready:true … draining}, want not ready on OK: false
+the mcremote probe ignores the definition       health_unix_test.go:104: … want ready on the baked data dir's socket
+the mcrelay probe ignores the body              health_test.go:184: probe = {Ready:true … 200 {"ok":false}}, want not ready …
+the mcrelay probe ignores the baked port        health_test.go:147: … connection refused; want ready on the baked port …
+the shutdown dispatch is removed                admin_test.go:82: RequestShutdown: admin: unknown op: shutdown
+serve's request does not cancel                 serve_shutdown_test.go:23: the shutdown request did not end serve's context
+an unreadable definition is probed anyway       health_test.go:138: the check ran on a definition that could not be read back
+the update drops the product's health           managed_test.go:231: the update never ran the product's probe
+```
+
+- **A rewritten plant.** The first "baked port" plant left a variable unused, which broke the build.
+  It was rewritten to compile, and then failed the assertion above.
+- **The plants ran twice,** after the first gate run and again after the Windows fixes below. Both
+  times all eight failed.
+
+**Gates, exit status captured before reading output** (the second run, after the Windows fixes):
+
+```text
+make pre-add-check (23 Go files)                                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                                            exit=0 / exit=0
+go test -race -count=1 ./...                                            exit=0, 42 ok
+make check-records / make markdownlint-docs                             exit=0 / exit=0
+```
+
+- **After the guide edit,** `make markdownlint-docs` exit 0, and the link resolver found 0 dead links
+  in `ops-windows-install.md`.
+
+**Other hosts** (`s5_hosts.py`, with `internal/admin` and `internal/daemon` added to the Linux
+run):
+
+- **The Windows test host, first run.** Two of the new tests failed there. Both faults were in the
+  tests:
+  - `TestReadServeArgsFromEachDefinition`: its systemd and launchd cases set `XDG_CONFIG_HOME` and
+    `HOME`, which Windows' Known Folders and `USERPROFILE` ignore. The two folders are now seams
+    (`systemdUserDir`, `launchAgentsDir`), set by the test on every OS.
+  - The relay probe tests wrote their config with mode `0600`, which on Windows is no DACL. The
+    relay's config guard refused it as readable by other accounts. They now write it into the
+    relay tests' own owner-only folder (`privateFixtureDir`).
+- **The Windows test host, second run:** `make ci-windows`, "ALL SELECTED CHECKS PASSED".
+- **The Linux test host:** the changed packages under the race detector, exit 0, and the detection
+  probe, exit 0.
+
+**Live, the Windows test host** (Deviation 1; `s8a_win_live.py`, `win/s8a_win_shutdown.ps1`):
+
+- **The setup.** A scratch `mcremote.exe` from the working tree, and a scratch client (`zzadmin`)
+  that sends one admin operation. Both were built in a scratch copy of the tree.
+- **The scratch instance.** Its own configuration and data directory, so its own admin socket, on
+  port 38099. TLS was off, and only the fake provider was enabled. The account's own task and
+  daemon were not touched.
+
+```text
+S1 the scratch daemon answers ping: True (op=ping ok=true error="" err=<nil>)
+S2 the shutdown operation: op=shutdown ok=true error="" err=<nil>
+S3 exited within 30 s: True; exit code: 0
+S4 the log's shutdown line: … level=INFO msg="shutting down" component=daemon reason="shutdown requested over the admin socket"
+S5 the admin socket was removed: True
+RESULT: PASS
+cleanup: removed the scratch instance's Runtime\<instance key>
+```
+
+- **A harness fault, first run.** `Start-Process -PassThru` left `ExitCode` empty, because nothing
+  read the process handle while it ran. The script now reads it, and the second run above passed.
+  The daemon itself had already logged the same shutdown line in the first run.
+
+**Not done.**
+
+- **A real `mcremote update` that stops the task through the request.** By Deviation 1, it waits
+  for the second S8 release.
+- **A live update through either probe.** The probe runs inside `update`, which needs a published
+  release that carries it. The tests above run it against real admin sockets and real HTTP and TLS
+  servers.
+- **A relay certificate with no DNS or IP name** is a probe error, because Go does not verify a
+  certificate by its common name. Such a relay's update would fail health. This follows from 1d,
+  "TLS is verified normally". The probe matches what any Go client of that relay sees.
+- **Environment a definition pins** (its `XDG_*` values, `--env`) is not applied, as the amendment
+  says.
+- **macOS:** no live run, by S7c Deviation 3.
+
+**Files for S8a's commit:**
+
+- `internal/admin/admin.go`, `admin_test.go`;
+- `internal/daemon/daemon.go`, and `shutdown_unix_test.go` (new);
+- `internal/cli/`:
+  - `serve.go`, `update.go`, `pair_daemon_test.go`;
+  - new: `health.go`, `health_unix_test.go`, `health_windows_test.go`, `serve_shutdown_test.go`;
+- `internal/cli/service/`: `backend.go`, and new `health.go`, `health_test.go`,
+  `health_windows_test.go`;
+- `internal/relay/`: `update.go`, and new `health.go`, `health_test.go`;
+- `internal/updateclient/`: `client.go`, `managed.go`, `client_test.go`, `command_test.go`,
+  `managed_test.go`;
+- `docs/guides/ops-windows-install.md`;
+- this PLAN.
