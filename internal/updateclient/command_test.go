@@ -217,8 +217,8 @@ func TestNewCommandUsesCallerContext(t *testing.T) {
 // TestUpdateWarnsWhenTheServiceRunsAnotherBinary is MADR 0201 D26 (0073 §6.6):
 // when the service's definition runs a different binary than the one the
 // update replaced, the refresh child says so in its receipt's warnings, and
-// the update prints each as `warning: …` on stderr and still exits 0. On the
-// mcplib path the receipt's detail was dropped and nothing was printed.
+// the update prints each as `warning: …` on stderr and still exits 0. Before
+// MADR 0054 the receipt's detail was dropped and nothing was printed.
 func TestUpdateWarnsWhenTheServiceRunsAnotherBinary(t *testing.T) {
 	warning := "the definition runs /x, not this binary (/y)"
 	withBackend(t, &fakeService{installed: true, enabled: true, running: true}, nil)
