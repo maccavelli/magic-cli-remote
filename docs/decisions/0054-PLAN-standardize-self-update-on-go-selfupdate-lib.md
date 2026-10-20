@@ -4572,3 +4572,102 @@ ALL PASS
 The PLAN stays `in-progress` until the first two are checked and recorded.
 
 **Files for this commit:** this PLAN.
+
+### S9a, 2026-10-20 — staged for the owner's commit; the rehearsal follows the push
+
+**Approval.** The owner approved the S9 amendment ("U1 product-scoped", "Approve; start S9a"),
+committed it (`cebf744a`) and said "proceed".
+
+**Deviation 1 — a test that holds D1's rule joins S9a** (decided by the owner on 2026-10-20: "Add
+it in S9a", then "X/mod").
+
+- **Found.** `TestReleaseJobsReadTheSpec` requires the build and publish workflows at one pin, but
+  nothing compared that pin with `go.mod`. A later move that changed one side alone would not fail
+  here.
+- **Decision.** A new test, `TestWorkflowPinsMatchGoMod`. It reads `go.mod` with
+  `golang.org/x/mod/modfile`, and `ci.yml` as a `yaml.Node`, so each `uses:` value keeps its line
+  comment.
+  - It requires the library in `go.mod` with no `replace`, so the code built is the release the
+    pins name.
+  - It requires exactly two library workflow calls, each pinned to a full 40-hex commit, each
+    commented `# go-selfupdate-lib <the version go.mod requires>`.
+  - Whether the commit is that release's tag is still checked by hand, with `git ls-remote`.
+- **The dependency.** `golang.org/x/mod v0.41.0` was already in the module graph, as an indirect
+  requirement. It is now direct, at the same version, and `go.sum` is unchanged for it.
+  - A first version matched `go.mod` with a regular expression. The owner asked whether `x/mod`
+    would help: it reads both forms of `require`, and it sees a `replace`, which the expression
+    could not. The owner chose it.
+
+**What S9a changed:**
+
+- **Pin check, before the move:** `git ls-remote https://github.com/maccavelli/go-selfupdate-lib
+  'refs/tags/v1.17.1^{}'` → `e8d4904a09194d99761042a8996983e8d5b957eb`, as the amendment recorded.
+- **`go.mod`, `go.sum`:**
+  - `go get github.com/maccavelli/go-selfupdate-lib@v1.17.1`: "upgraded … v1.15.2 => v1.17.1".
+  - `go mod tidy`. Only the library's two `go.sum` lines changed, so no other module moved.
+- **`.github/workflows/ci.yml`:** both pins at
+  `@e8d4904a09194d99761042a8996983e8d5b957eb # go-selfupdate-lib v1.17.1`.
+- **`internal/updateclient/spec_test.go`:** Deviation 1.
+- **Two comments still cite `v1.15.2`, and stay.** Each names the version its evidence was read at,
+  and each is still true at that version:
+  - `ci.yml:654`, for the plan step's tag rule;
+  - `apps/mobile/lib/data/update/app_update.dart:121`, for the verifier's line.
+
+**The library's code from `v1.15.2` to `v1.17.1`,** in the packages this product calls (comments and
+blank lines dropped, `s9a_codediff.py`):
+
+- **`selfupdate/managed.go`:** the managed session takes a mutex in each method (`v1.17.1`).
+- **`session.go`, `cleanup_*.go`, `replace_*.go`:** the cleanup receipt takes a context, bounded by
+  the session's `LockTimeout` (`v1.16.0`, Windows).
+- **The three backends and `ExecReconciler`:** a failed command is a `*service.CommandError`, built
+  from the same fields as the old message, so the text is unchanged.
+- **`taskscheduler/com_windows.go`:** the last `CoInitializeEx` result is atomic (`v1.16.0`'s race
+  fix).
+- **`releasespec`:** `HookBeforeUninstall`, and `SHA256SUMS.note` reserved.
+- **New and unused here:** `NewGitHubUpdater`, `Clock`, `NewSlogReporter`.
+- No change to `cli`, `codesign` or `buildinfo`'s code reaches this product. None of it called for
+  a new test here.
+
+**Planted breaks, each on its own fresh scratch copy** (`s9a_plants.py`, 5). Each failed a test
+assertion:
+
+```text
+the publish pin's comment is left behind      spec_test.go:180: publish-selfupdate-release.yml@e8d4904a… is commented "# go-selfupdate-lib v1.15.2"; want "# go-selfupdate-lib v1.17.1", the release go.mod requires
+both comments are left behind                 spec_test.go:180: build-selfupdate-release.yml@e8d4904a… is commented "# go-selfupdate-lib v1.15.2"; want …  (and publish)
+a pin by tag, not commit                      spec_test.go:177: publish-selfupdate-release.yml is pinned to "v1.17.1", want a full commit
+the version comment is dropped                spec_test.go:180: publish-selfupdate-release.yml@e8d4904a… is commented ""; want …
+go.mod replaces the library                   spec_test.go:153: go.mod replaces github.com/maccavelli/go-selfupdate-lib with … v1.17.1: the build would not be the release the pins name
+```
+
+- **The `replace` plant** points the library at the same version, a module replace, so the build
+  still loads, and only the test can fail.
+- **"Both comments are left behind"** is what a `go.mod` moved alone looks like. Moving `go.mod`
+  without its `go.sum` lines would break module loading instead.
+
+**Gates, exit status captured before reading output** (the second run, with the guard and `x/mod`):
+
+```text
+make pre-add-check (spec_test.go; govulncheck over the module)          exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                                            exit=0 / exit=0
+go test -race -count=1 ./...                                            exit=0, 42 ok
+make check-records / make markdownlint-docs                             exit=0 / exit=0
+```
+
+**Other hosts** (`s5_hosts.py`), run before and after the guard:
+
+- **The Windows test host:** `make ci-windows`, "ALL SELECTED CHECKS PASSED".
+- **The Linux test host:** the changed packages under the race detector, exit 0, and the detection
+  probe, exit 0.
+
+**Still to do in S9a, after the owner pushes:**
+
+- **A rehearsal dispatch,** once the push run has finished.
+- **What its staged installers must show:** they differ from `v0.21.0`'s only by the template
+  changes `v1.17.0` and `v1.17.1` list. Those are the `--force` option, the "skip the release's
+  hooks" wording, and the partial-removal report and exit 3. With no `before_uninstall` hook in the
+  spec yet, no hook line is added.
+- **Where it is recorded:** an addendum in S9b's commit.
+
+**Files for S9a's commit:** `go.mod`, `go.sum`, `.github/workflows/ci.yml`,
+`internal/updateclient/spec_test.go`, and this PLAN.

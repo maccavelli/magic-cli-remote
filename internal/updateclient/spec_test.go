@@ -3,12 +3,14 @@ package updateclient
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	yaml "go.yaml.in/yaml/v3"
+	"golang.org/x/mod/modfile"
 )
 
 // frozenPlatforms is the release matrix: MADR 0116 D19 leaves out
@@ -118,6 +120,75 @@ func TestReleaseSpecExtrasHaveTheirSources(t *testing.T) {
 		if fi, err := os.Stat(filepath.Join("..", "..", filepath.FromSlash(path))); err != nil || !fi.Mode().IsRegular() {
 			t.Errorf("extra %s: %s is not a regular file in the repository: %v", e.Name, path, err)
 		}
+	}
+}
+
+// TestWorkflowPinsMatchGoMod: go.mod and both library workflow pins move
+// together (MADR 0054 D1). go.mod requires the library with no replace, so the
+// code built is the release it names; each pin is a full commit; and its
+// comment names that release, so a move that changes one side alone fails
+// here. That the commit is that release's tag is checked by hand, with git
+// ls-remote, when the pin moves.
+func TestWorkflowPinsMatchGoMod(t *testing.T) {
+	const module = "github.com/maccavelli/go-selfupdate-lib"
+	data, err := os.ReadFile("../../go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ""
+	for _, r := range mod.Require {
+		if r.Mod.Path == module {
+			want = r.Mod.Version
+		}
+	}
+	if want == "" {
+		t.Fatalf("go.mod does not require %s", module)
+	}
+	for _, r := range mod.Replace {
+		if r.Old.Path == module {
+			t.Errorf("go.mod replaces %s with %s %s: the build would not be the release the pins name", module, r.New.Path, r.New.Version)
+		}
+	}
+
+	ci, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(ci, &root); err != nil {
+		t.Fatal(err)
+	}
+	const lib = "maccavelli/go-selfupdate-lib/.github/workflows/"
+	sha := regexp.MustCompile(`^[0-9a-f]{40}$`)
+	calls := 0
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		if n.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				k, v := n.Content[i], n.Content[i+1]
+				if k.Value == "uses" && v.Kind == yaml.ScalarNode && strings.HasPrefix(v.Value, lib) {
+					calls++
+					wf, ref, _ := strings.Cut(strings.TrimPrefix(v.Value, lib), "@")
+					if !sha.MatchString(ref) {
+						t.Errorf("%s is pinned to %q, want a full commit", wf, ref)
+					}
+					if c := strings.TrimSpace(v.LineComment); c != "# go-selfupdate-lib "+want {
+						t.Errorf("%s@%s is commented %q; want \"# go-selfupdate-lib %s\", the release go.mod requires", wf, ref, c, want)
+					}
+				}
+			}
+		}
+		for _, c := range n.Content {
+			walk(c)
+		}
+	}
+	walk(&root)
+	if calls != 2 {
+		t.Errorf("ci.yml calls %d library workflows, want the build and publish workflows", calls)
 	}
 }
 

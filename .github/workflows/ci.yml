@@ -703,7 +703,7 @@ jobs:
     needs: [go, go-native, flutter, android-apk]
     permissions:
       contents: read
-    uses: maccavelli/go-selfupdate-lib/.github/workflows/build-selfupdate-release.yml@436a7f5976a6815491c7384527fef90869574a1b # go-selfupdate-lib v1.15.2
+    uses: maccavelli/go-selfupdate-lib/.github/workflows/build-selfupdate-release.yml@e8d4904a09194d99761042a8996983e8d5b957eb # go-selfupdate-lib v1.17.1
     with:
       spec-path: internal/updateclient/selfupdate-release.json
       extras-artifact-name: magic-cli-remote-android-arm64
@@ -724,7 +724,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml@436a7f5976a6815491c7384527fef90869574a1b # go-selfupdate-lib v1.15.2
+    uses: maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml@e8d4904a09194d99761042a8996983e8d5b957eb # go-selfupdate-lib v1.17.1
     with:
       artifact-name: ${{ needs.build.outputs.artifact-name }}
       products-json: ${{ needs.build.outputs.products-json }}
