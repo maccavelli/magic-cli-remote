@@ -390,6 +390,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0201 | MADR | Fix every open finding from 0073's debug pass | [0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md](decisions/0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md) |
 | 0201 | PLAN | Implement fixing every open finding from 0073's debug pass | [0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md](decisions/0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md) |
 | 0202 | REPORT | go-llmprovider-sdk provider-auth adoption assessment for magic-cli-remote | [0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md](../docs/reports/0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md) |
+| 0203 | MADR | Skip the full CI for a push or pull request that changes only Markdown, and check it with a docs workflow that also runs the tests that read Markdown | [0203-MADR-skip-full-ci-for-docs-only-pushes.md](decisions/0203-MADR-skip-full-ci-for-docs-only-pushes.md) |
+| 0203 | PLAN | Implement skipping the full CI for docs-only pushes, with a docs workflow that runs the Markdown-reading tests | [0203-PLAN-skip-full-ci-for-docs-only-pushes.md](decisions/0203-PLAN-skip-full-ci-for-docs-only-pushes.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
