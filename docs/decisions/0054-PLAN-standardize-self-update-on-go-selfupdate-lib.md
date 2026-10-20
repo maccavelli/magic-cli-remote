@@ -4400,3 +4400,97 @@ the account's unit and daemon unchanged: yes
   - The staged lines: no host or account name.
 
 **Files for S8c's commit:** the eleven records above, and this PLAN.
+
+### S8d, 2026-10-20 — `v0.21.0` published; this record staged for the owner's commit
+
+**Approval and order.**
+
+- **Push.** The owner committed S8c (`02f65f4a`) and pushed `master`.
+- **The push run,** CI 39443270685, passed.
+  - The Go jobs (`test`, `linux/arm64`, `windows/amd64`) and both Flutter jobs succeeded.
+  - The APK, build and publish jobs were skipped, as they are off a tag.
+  - `internal/daemon` and `internal/admin`, with the S8a and S8b tests, report `ok` in all three Go
+    jobs. No package failed.
+- **The rehearsal.** The owner said "dispatch the rehearsal". It was dispatched only after the push
+  run had finished, so it cancelled nothing (S4's correction).
+- **The tag.** The owner created and pushed `v0.21.0`, annotated, on `02f65f4a`: the commit that
+  was pushed, run and rehearsed.
+
+**The rehearsal,** CI 39444869851 (`workflow_dispatch`, `02f65f4a`): success.
+
+- **Jobs.** The APK built. The build job and all eight identity jobs succeeded, and publish was
+  skipped.
+- **The staged set** (artifact `selfupdate-rehearsal-02f65f4a4cf6-1`, checked by
+  `s8d_rehearsal_check.py`, every check PASS):
+  - the eight binaries, `magic-cli-remote-rehearsal-02f65f4a4cf6-arm64.apk`, `install.sh`,
+    `install.ps1` and `SHA256SUMS`;
+  - `SHA256SUMS` lists exactly the eight binaries, and each hash matches its file;
+  - both installers carry `rehearsal-02f65f4a4cf6`, `magic-cli-remote`, `MCREMOTE` and the two
+    `setup-service --from-installer` hooks;
+  - both are byte-identical to S7b's rehearsal apart from the tag.
+- **Identity.** Each binary, on its own platform's runner:
+  `reports "rehearsal-02f65f4a4cf6 (local) 02f65f4a4cf6"`.
+
+**The release,** CI 39448312198 (push of `v0.21.0`): success.
+
+- **Jobs.** Every job succeeded, the APK, the build, the eight identity jobs and
+  `Publish self-update release / publish` among them.
+- **`gh release view v0.21.0`:**
+  - `isImmutable: true`, `isDraft: false`, `isPrerelease: false`;
+  - published `2026-10-20T15:42:02Z`;
+  - twelve assets, each with a GitHub `digest`.
+- **The asset set against the last published release.** `v0.20.2` is a tag with no release; the
+  releases end at `v0.20.1`, as S4 found. `v0.21.0`'s twelve names are `v0.20.1`'s, with the APK
+  carrying its own tag (`magic-cli-remote-v0.21.0-arm64.apk`):
+
+  ```text
+  install.ps1, install.sh, magic-cli-remote-<tag>-arm64.apk,
+  mcrelay-{darwin-arm64, linux-amd64, linux-arm64, windows-amd64.exe},
+  mcremote-{darwin-arm64, linux-amd64, linux-arm64, windows-amd64.exe}, SHA256SUMS
+  ```
+
+**The release contract** (`s8d_contract.py`, on fresh downloads; nothing installed, no service
+touched):
+
+```text
+PASS  mcremote-darwin-arm64 matches SHA256SUMS
+PASS  mcrelay-darwin-arm64 matches SHA256SUMS
+PASS  SHA256SUMS lists the eight binaries and no APK
+PASS  mcremote-darwin-arm64 is attested by the publish workflow
+PASS  install.sh is attested by the publish workflow
+PASS  v0.21.0 reports its release identity — v0.21.0 (release) 02f65f4a4cf6
+      v0.20.1 version: mcremote 0.20.1 (a078372b) 2026-09-30T20:13:39Z
+PASS  v0.20.1's update --check exits 10 against v0.21.0
+      selfupdate: selected product=mcremote current=v0.20.1 target=v0.21.0 asset=mcremote-darwin-arm64
+PASS  v0.21.0's update --check resolves v0.21.0 and is up to date
+      selfupdate: selected product=mcremote current=v0.21.0 target=v0.21.0 asset=mcremote-darwin-arm64
+      mcremote: up to date (v0.21.0)
+ALL PASS
+```
+
+- **What each line covers:**
+  - **Immutable and attested:** "an immutable, attested release".
+  - **The `v0.20.1` check:** "`update --check` from the last mcplib-built release exits 10". It is
+    the last release built with mcplib, and its selector resolves the new release.
+  - **The `v0.21.0` check:** "the client's selector resolves it" (S4 Deviation 4).
+- **The attestation** was checked with `gh attestation verify --signer-workflow
+  maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml`.
+- **A harness fault, first run.** Both `update --check` runs exited 1: "target … is outside allowed
+  roots". The updater acts only on a binary in an install folder it allows, and the script had run
+  the downloads in place. Each binary was then copied to `.local/bin/mcremote` under its own scratch
+  `HOME`, and both checks passed.
+
+**What remains of 0054 after S8.**
+
+- **A real `mcremote update` that stops the Windows task through the shutdown request.**
+  - By S8a Deviation 1, it waits for a release after `v0.21.0`.
+  - The first update whose running `mcremote` carries the request is `v0.21.0` to that release.
+- **A live update through either probe,** for the same reason. The first update run by a binary that
+  probes is one from `v0.21.0`.
+- **The two-command uninstall** stays until `go-selfupdate-lib` ships a `before_uninstall` hook
+  (D11, issue 1).
+- **Adopting the library's `v1.16.0`** would need an amendment of its own.
+
+The PLAN stays `in-progress` until the first two are checked and recorded.
+
+**Files for this commit:** this PLAN.
