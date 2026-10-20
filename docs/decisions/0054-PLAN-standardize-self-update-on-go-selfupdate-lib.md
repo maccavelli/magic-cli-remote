@@ -3436,3 +3436,179 @@ install.ps1  $InstallerName = 'magic-cli-remote'  $EnvPrefix = 'MCREMOTE'  the t
 
 **Files staged for S7b:** `internal/updateclient/selfupdate-release.json`, `internal/updateclient/spec_test.go`,
 `.github/workflows/ci.yml` and this PLAN.
+
+### S7c, 2026-10-19 — in progress; Deviations 1–3 decided by the owner before any install ran
+
+**Starting point.** The owner committed the S7b record and said "committed, proceed".
+
+**Deviation 1, 2026-10-19 — S7c installs from a local release build, not from the rehearsal's
+artifact. The owner decided: "Local release build".**
+
+- **Found.** S7c says to use "the rehearsal's rendered scripts". They cannot install:
+  - Run with `--dry-run`, the rehearsal's `install.sh` exits 1 with "install: vrehearsal-5fb5c189f829
+    is not a release tag (vMAJOR.MINOR.PATCH)". The template's `check_tag` accepts only
+    `vX.Y.Z`, and it adds the `v` itself.
+  - The rehearsal's binaries identify as `rehearsal-5fb5c189f829 (local)`, and the template's
+    `check_identity` requires `<tag> (release)`.
+
+  This is how the library builds a rehearsal; S7b did not cause it.
+- **Done.** The library tool at the D1 pin (`v1.15.2`, exported with `git archive`) runs on `HEAD`:
+  - `installer` renders `install.sh` and `install.ps1` for the scratch tag `v0.0.1`. S7b showed
+    that the rehearsal's scripts equal such a render, line for line, apart from the tag.
+  - `build` and `stage` make both products for the four platforms, stamped `v0.0.1 (release)`,
+    with `SHA256SUMS`.
+  - Everything is served from a loopback origin through `SELFUPDATE_INSTALL_BASE_URL`, the
+    templates' test origin (D8).
+- **Why `v0.0.1`.** It is lower than every release, so a host it lands on still updates normally
+  afterwards.
+- **The alternative, not taken:** wait for S8's first tag, which would leave S7d waiting too and
+  ship generated installers nobody had run.
+
+**Deviation 2, 2026-10-19 — the Windows installs. The owner decided: "Scratch + real upgrade".**
+
+- **Found:**
+  - The task is always named after the product (MADR 0159 D13), so any Windows install meets the
+    real account's `mcremote` task.
+  - `scripts/acceptance-windows.ps1` and `scripts/acceptance-windows-service.ps1` take no
+    installer. They build from the tree, and the second drives `mcrelay` so that the live
+    `mcremote` task is never touched. So S7c's "against the rendered installers" cannot apply to
+    them.
+- **Done:**
+  - **Both acceptance scripts, as they are.**
+  - **A first and a second install** into a scratch `-InstallDir`, with `-NoPathUpdate`. Their
+    hooks must leave the real task alone.
+  - **The old-folder upgrade, on the real install:**
+    1. back up;
+    2. recreate the per-product layout with the current `0.20.1` binaries, and register the task
+       there;
+    3. run the generated `install.ps1` to its default folder;
+    4. check the move;
+    5. then put `0.20.1` back in the new folder, refresh and restart the task, and check that the
+       state matches the backup.
+
+**Deviation 3, 2026-10-19 — no macOS run. The owner decided: "Skip macOS".**
+
+- **The reason.** With no LaunchAgent present, the hook would bootstrap one into the real login
+  session. A scratch `HOME` does not isolate launchd.
+- **What covers it instead.** The macOS path is covered by `setup-service`'s own tests. The run is
+  recorded as not done.
+
+**Deviation 4, 2026-10-19 — on the Linux test host, an upgrade and a foreign check, not a first
+install. The owner decided: "Upgrade + foreign".**
+
+- **Found.** The hook takes no unit name. It uses the recorded `service-unit`, or else the product's
+  name. The host's own service is `mcremote.service`, so a true first install there would only
+  meet it.
+- **Done:**
+  - an upgrade, over a scratch `s7c-live` unit recorded in a scratch `XDG_STATE_HOME`;
+  - a fresh-state install, whose hook must leave the host's own unit alone, read-only.
+- **Not done:** a systemd first install through the installer.
+
+**The local release** (`s7c_build.py`).
+
+- **The source.** A clone of `HEAD` (`a3c3a01c`), tagged `v0.0.1` in that clone only, so that each
+  binary's module version is the tag, as `stage` requires. The clone has no remote.
+- **Built by** the library tool at `v1.15.2`: eight binaries, `built` and `staged`, then
+  `verify-selfupdate-release: ok`.
+- **Its `install.sh` and `install.ps1` equal the CI rehearsal's** apart from the tag
+  (`s7c_same_scripts.py`).
+- **The first stage attempt** refused the binaries: "the main module version is
+  "v0.20.3-0.20261020011812-a3c3a01c945b", want "v0.0.1"". That is why the clone is tagged.
+
+**Live, in throwaway containers** (`s7c_live.py`, `live/inst-root.sh`, `live/inst-user.sh`).
+
+Each container served the release from `127.0.0.1:8080` inside it. As the non-root user `tester`,
+`curl -fsSL <origin>/…/v0.0.1/install.sh | SELFUPDATE_INSTALL_BASE_URL=<origin> sh` ran these steps:
+
+1. **A first install.** The `mcremote` hook set the service up and confirmed it running. The
+   `mcrelay` hook said "no mcrelay service is set up". The binary reports
+   `v0.0.1 (release) a3c3a01c945b`.
+2. **The operator bakes `--listen-port 7600`.**
+3. **A second install.** "service definition unchanged", "mcremote service restarted on the new
+   binary", "Running: yes". The port was kept, and `.prev` copies of both binaries were made.
+4. **`setup-service --uninstall`, then the installer's `--uninstall`.** No definition, no binary
+   and no daemon were left.
+
+```text
+                     1 first install     3 second install, pid       7600 kept   4 uninstall
+Void, runit          ok, Running: yes    204 -> 298, restarted       yes         nothing left
+Alpine, s6           ok, Running: yes    143 -> 237, restarted       yes         nothing left
+Alpine, OpenRC 0.62  ok, Running: yes    336 -> 528, restarted       yes         nothing left
+```
+
+- **The first runit run did not run.** Void's busybox has no `httpd` ("httpd: applet not found"),
+  so nothing was served. Its "exit=0" lines were `curl | sh` reading an empty script. The re-run
+  (`s7c2`) served the release with Python's `http.server`, checked the origin with HTTP 200, and
+  gives the row above.
+
+**Live, on the Linux test host** (`s7c_linux_host.py`, `live/s7c-host.sh`). The release was served
+from `127.0.0.1:38087` for the life of one remote script.
+
+```text
+the account's own unit before   sha256 3928e742…  MainPID 1327
+1. scratch install, baked port  setup-service --unit-name s7c-live --listen-port 39519: Running: yes, MainPID 961981
+2. the generated install.sh     "service definition unchanged", "restarted on the new binary", Running: yes
+                                MainPID 961981 -> 962083; --listen-port 39519 kept; binary v0.0.1 (release)
+3. fresh state, second folder   "left alone: mcremote systemd-user service …/mcremote.service — runs
+                                 /home/<user>/.local/bin/mcremote, not a program from …/bin2"
+the account's own unit after    sha256 3928e742…  MainPID 1327: unchanged
+4. uninstall                    removed s7c-live; "left: … mcremote.service — runs /home/<user>/.local/bin/mcremote …";
+                                both scratch folders emptied; no server left, the scratch tree removed
+```
+
+- **Two failed starts of the probe.** Both started the server in the background over its own
+  `ssh` call, and that call never returned. The first time it had only `nohup`; the second time
+  it also redirected stdin and used `setsid`. Each left a `python3 -m http.server`, found with
+  `pgrep` and killed.
+- **The probe now** runs one remote script, in which the server starts and stops under a `trap`.
+
+**Live, on the Windows test host:**
+
+- **Both acceptance scripts** ran through the one-shot task `mcr-s7c-accept`, at Medium integrity
+  (`S-1-16-8192`), as S1 did. The task was unregistered afterwards and the copy removed.
+  - **`acceptance-windows-service.ps1`: ALL CHECKS PASSED,** S1–S8 and C3 "the live mcremote task
+    is unchanged".
+  - **`acceptance-windows.ps1`: exit 2, "2 CHECK(S) FAILED".** See the finding below.
+- **Scratch installs** (`s7c_win.py`, `win/s7c_win_scratch.ps1`). The release was served from
+  `http://localhost:38088`, and installed into a scratch `-InstallDir` with `-NoPathUpdate`, twice.
+  - Both runs: "left alone: mcremote windows-task service Task Scheduler\mcremote — runs
+    C:\Users\<user>\AppData\Local\Programs\magic-cli-remote\mcremote.exe, not a program from …\bin",
+    and "no mcrelay service is set up".
+  - The second run made `.prev` copies.
+  - `setup-service --uninstall` reported the task as `left:`, and `-Uninstall` emptied the folder.
+  - The account's task, folders, `PATH` and daemon (pid 43644) were unchanged.
+- **The old-folder upgrade, on the real install** (`win/s7c_win_upgrade.ps1`, then always
+  `win/s7c_win_restore.ps1`):
+  1. **Backed up:** both binaries, the task's XML, and the User `PATH` (kind `String`).
+  2. **The task was stopped.** The binaries were copied into `Programs\mcremote` and
+     `Programs\mcrelay`, and the new folder was set aside.
+  3. **The `PATH` was given the two per-product entries.** The task was registered at
+     `Programs\mcremote\mcremote.exe` by its own `setup-service --force`. It ran there as pid
+     21484.
+  4. **The generated `install.ps1` ran to its default folder:**
+     - "installed …\Programs\magic-cli-remote\mcremote.exe (v0.0.1)", and the same for `mcrelay`;
+     - "added …\magic-cli-remote to your user PATH";
+     - the `mcremote` hook: "service definition refreshed", "the User PATH now has
+       …\magic-cli-remote in place of the per-product folders", "…\Programs\mcremote\mcremote.exe
+       is in use and was kept", "mcremote service restarted on the new binary", "Running: yes";
+     - `install.ps1` exited 0.
+  5. **After:**
+     - the task runs `…\magic-cli-remote\mcremote.exe`, as pid 30564, `v0.0.1 (release)`;
+     - `Programs\mcremote` and `Programs\mcrelay` are gone. The copy in use was removed by the
+       cleanup after the restart (S7a);
+     - the User `PATH` has `…\magic-cli-remote` only, still `String`.
+  6. **The restore:**
+     - the original folder is back, and both binaries match the backup;
+     - the `PATH` value and kind are restored;
+     - the task is re-registered from the saved XML and running, as pid 27356.
+     - **The state matches the state before,** pids aside. The backup and the scratch folder were
+       then deleted.
+  - **A fault in the probe, not the product.** `Start-Origin` returned its "origin check" line
+    along with the job, so `Stop-Job` was handed the wrong object and errored. The server job
+    ended with its script. Afterwards, `Get-NetTCPConnection` showed no listener on 38088.
+
+**Not done, and why:**
+
+- **A systemd first install through the installer** (Deviation 4).
+- **macOS** (Deviation 3).
+- **RHEL with SELinux enforcing, arm64 on cloud hardware, and WSL:** they are outside L1.
