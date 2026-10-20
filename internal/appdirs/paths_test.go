@@ -136,6 +136,7 @@ func TestResolveDoesNotDoubleJoinProductLeaf(t *testing.T) {
 		CacheHome:     filepath.Join(base, "Cache"),
 		RuntimeHome:   filepath.Join(base, "Runtime"),
 		Temp:          filepath.Join(home, "tmp"),
+		Logs:          filepath.Join(base, "Logs"),
 		ProductScoped: true,
 	}
 	p, err := Resolve(ProductMcremote, r, "")
@@ -158,6 +159,11 @@ func TestResolveDoesNotDoubleJoinProductLeaf(t *testing.T) {
 	}
 	if p.RuntimeBase != r.RuntimeHome {
 		t.Errorf("RuntimeBase = %q, want %q (no second leaf)", p.RuntimeBase, r.RuntimeHome)
+	}
+	// %LocalAppData%\mcremote\Logs, not …\Logs\mcremote (MADR 0116 D3;
+	// scripts/acceptance-windows.ps1 C1).
+	if p.LogDir != r.Logs {
+		t.Errorf("LogDir = %q, want %q (no second leaf)", p.LogDir, r.Logs)
 	}
 }
 

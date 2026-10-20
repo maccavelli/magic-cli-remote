@@ -67,7 +67,9 @@ func Resolve(product Product, roots Roots, dataDirOverride string) (Paths, error
 		}
 		// Prefer short product name under Library/Logs for existing fixtures;
 		// LaunchLabel is still available for service code that wants reverse-DNS.
-		p.LogDir = filepath.Join(roots.Logs, product.Name)
+		// joinProduct, as for State and Cache: the Windows Logs root is already
+		// %LocalAppData%\<product>\Logs (MADR 0116 D3).
+		p.LogDir = roots.joinProduct(roots.Logs, product.Name)
 		_ = label
 	}
 
