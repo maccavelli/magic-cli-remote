@@ -987,6 +987,84 @@ Records only, in their own commit.
 
 Only on the owner's explicit ask in that turn.
 
+## Amendment — 2026-10-20 (S9): `v1.17.1`, the `before_uninstall` hook, and the next release
+
+**Status: approved** by the owner on 2026-10-20 ("Approve; start S9a", with "U1 product-scoped").
+This implements the MADR's "Amendment — 2026-10-20 (S9)". S9a starts after this amendment is
+committed; each later sub-phase starts when the owner approves it by name. Each is
+test-first and staged for the owner's commit on its own with its own record, under the rules for
+every phase.
+
+### S9a — Move to `v1.17.1`, with no hook
+
+Scope: `go.mod`, `go.sum`, the two workflow pins in `.github/workflows/ci.yml`, and anything the
+move breaks.
+
+1. Re-run the pin check: `git ls-remote https://github.com/maccavelli/go-selfupdate-lib
+   'refs/tags/v1.17.1^{}'` must still give `e8d4904a09194d99761042a8996983e8d5b957eb`.
+2. `go get github.com/maccavelli/go-selfupdate-lib@v1.17.1` and `go mod tidy`. Move both workflow
+   pins to that commit, with the comment `# go-selfupdate-lib v1.17.1`.
+3. Read the library's diff from `v1.15.2` for the calls this product makes:
+   - the managed installer and its session;
+   - the three backends;
+   - `ExecReconciler`;
+   - `codesign`;
+   - `buildinfo`;
+   - `cli`;
+   - `releasespec`.
+
+   Record any behaviour a test here should pin.
+4. **Verification:**
+   - the full gates, `make ci-windows` on the Windows test host, and the Linux host's tests;
+   - `TestReleaseJobsReadTheSpec` must still pass with the new pins;
+   - a rehearsal dispatch after the push run ends, whose staged installers differ from `v0.21.0`'s
+     only by the template changes `v1.17.0` and `v1.17.1` list.
+
+### S9b — The `before_uninstall` hook (U1)
+
+Scope: `internal/cli/service/uninstall.go`, `internal/cli/setup_service.go`, `internal/relay/cli.go`,
+`internal/updateclient/selfupdate-release.json` and `spec_test.go`, their tests, `README.md`,
+`docs/guides/ops-linux-install.md`, `ops-windows-install.md`, `config.md` and `config-mcrelay.md`.
+
+1. `setup-service --uninstall --from-installer` removes only the running product's definitions in
+   its folder, and reports the rest as `--uninstall` does. `CheckFromInstaller` allows
+   `--uninstall`, and still refuses `--refresh`, `--remove` and `--print-only`.
+2. The spec gains, for each product,
+   `{"when": "before_uninstall", "product": "<product>", "args": ["setup-service", "--uninstall", "--from-installer"]}`.
+3. **Tests, each seen failing first on a scratch copy:**
+   - each product's hook removes its own definitions and leaves the other's;
+   - plain `--uninstall` still removes both;
+   - the spec pins the two hooks exactly.
+4. **The documentation:**
+   - the uninstall is one command;
+   - `--force` / `-Force`, and the exit codes 1 and 3;
+   - an install of `v0.21.0` or earlier uninstalls with the two commands;
+   - `PrintUninstallResult`'s closing line is reworded for both paths.
+
+### S9c — Live, before the tag
+
+Using a local release build of the working tree (S7c Deviation 1), or the rehearsal's rendered
+installers:
+
+- **The Linux test host,** under a scratch unit name and state, as in S7c:
+  - an install, then the one-command uninstall, which leaves no definition and no binary;
+  - `--product mcrelay --uninstall` leaves `mcremote`'s service.
+- **The Windows test host,** with a scratch install:
+  - an uninstall while the daemon runs removes the task and both binaries, and exits 0.
+
+### S9d — The release, and S8's deferred checks
+
+Only on the owner's explicit ask in that turn:
+
+1. Rehearse, then tag. Verify the release contract as S8d did.
+2. Then the checks S8a deferred to this release:
+   - **The Windows test host:** `mcremote update` from `v0.21.0` stops the task through the
+     shutdown request, so the daemon's log shows "shutdown requested over the admin socket", and
+     the update confirms the new daemon with its probe.
+   - **The Linux test host,** under a scratch unit: `mcremote update` from `v0.21.0` passes the
+     admin-socket probe, with a baked `--data-dir`.
+3. Mark this PLAN `complete` once all of these are recorded.
+
 ## S1–S8 execution record
 
 ### S1, 2026-10-19 — complete, staged for the owner's commit

@@ -1358,3 +1358,105 @@ A4 and D5; it reverses nothing.
 - Bad, because `systemctl start` now returns only at `READY=1`. A start that hangs before it is
   reported after up to four minutes, and `setup-service` and `update` wait that long; a daemon that
   exits before `READY=1` still fails the start at once.
+
+## Amendment — 2026-10-20 (S9): `v1.17.1` and the `before_uninstall` hook
+
+~~**Status of this amendment: proposed.**~~ **Decided by the owner on 2026-10-20:** "U1
+product-scoped" for the hook, and "Approve; start S9a", which approves S9-1 to S9-5 as proposed.
+The record stays `accepted`. The amendment changes no decision above: D11 said this product
+"adopts the hook when it ships", and the hook has shipped.
+
+### What changed in the library
+
+- **D11's request was met.** `maccavelli/go-selfupdate-lib` issue 1, "releasespec: add a
+  `before_uninstall` installer hook", was closed as completed on 2026-10-20. The closing comment
+  names `v1.17.0`.
+- **The releases since this record's pin, `v1.15.2`** (the library's `CHANGELOG.md` and migration
+  guide §16–§17, read at `v1.17.1`):
+  - **`v1.16.0`** adds API and changes no message.
+    - Of what this product uses: the Task Scheduler backend loses a data race when two tasks are
+      driven at once.
+    - On Windows, the cleanup receipt's retries take the session's `LockTimeout`.
+    - `fmt` and `slog` print a `Credential` as `<redacted>`.
+    - Release signing is new and opt-in (`sign` on the publish workflow).
+  - **`v1.17.0`** adds `releasespec.HookBeforeUninstall`:
+    - The hook runs the installed copy of each selected product before `--uninstall` /
+      `-Uninstall` removes it.
+    - A failed hook removes nothing, and the installer exits 1. A new `--force` / `-Force` removes
+      anyway and exits 3.
+    - `--uninstall --dry-run` lists the hooks it would run.
+    - The build workflow refuses a spec with the hook in a module that requires less than
+      `v1.17.0`.
+  - **`v1.17.1`** changes no API, but fixes two things this product depends on:
+    - `install.ps1`'s uninstall reported a program it could not remove, such as a running
+      `mcremote.exe`, as removed, and exited 0. Both installers now say so, remove the rest and
+      exit 3.
+    - A managed install's session now serializes its methods. `update` uses that session.
+- **The workflows' contract holds.**
+  - At `v1.17.1` the build workflow has the same five inputs and seven outputs as at `v1.15.2`.
+  - The publish workflow adds only optional inputs, `sign` and `note-verifier-key`, and an
+    optional secret. So the five inputs this repository passes are unchanged.
+- **The pin.** `git ls-remote https://github.com/maccavelli/go-selfupdate-lib 'refs/tags/v1.17.1^{}'`
+  gives `e8d4904a09194d99761042a8996983e8d5b957eb` (2026-10-20).
+
+### What the hook has to do here
+
+- **`setup-service --uninstall` removes both products' definitions.** It removes every definition
+  of `mcremote` and of `mcrelay` that runs a program from the folder of the binary running it
+  (`internal/cli/service/uninstall.go`, `Uninstall`). Both products' `setup-service --uninstall`
+  call it.
+- **The installer runs one hook per selected product.** By default it selects both. With
+  `--product NAME` it selects one.
+- **`v0.21.0`, the one release whose binaries have `setup-service --uninstall`,** refuses that
+  flag with `--from-installer`. Earlier releases have no `--uninstall` at all.
+  - The hook runs the installed copy, so any new argument fails on such an install.
+  - The installer then exits 1 and removes nothing, and the operator uses `--force`, or the two
+    commands D11 documents.
+
+### Options for the hook
+
+- **U1 — Both products, a product-scoped uninstall (recommended).**
+  - `setup-service --uninstall --from-installer` removes only the running product's own
+    definitions in its folder, and reports the rest as plain `--uninstall` does.
+  - The spec has one `before_uninstall` hook per product, with those arguments.
+  - Good, because `--product mcrelay --uninstall` removes only the relay's service, and a default
+    uninstall removes both.
+  - Bad, because a `v0.21.0` install, or an older one, cannot run it. Its uninstall fails safe,
+    with exit 1 and nothing removed, and needs the two commands once.
+- **U2 — Both products, plain `setup-service --uninstall`.**
+  - Good, because `v0.21.0` installs uninstall in one command, and no code changes.
+  - Bad, because `--product mcrelay --uninstall` also removes `mcremote`'s service, while the
+    `mcremote` binary stays.
+- **U3 — `mcremote` only, plain `setup-service --uninstall`.**
+  - Good, because a default uninstall removes both services in one hook.
+  - Bad, because `--product mcrelay --uninstall` runs no hook, and leaves the relay's service
+    pointing at the binary it deletes. That is the gap D11 exists to close.
+
+### Proposed decisions
+
+- **S9-1 — Move to `v1.17.1`,** `go.mod` and both workflow pins together, as D1 requires. Not
+  `v1.17.0`: without `v1.17.1`'s fix, an uninstall on Windows with the daemon running would say it
+  removed `mcremote.exe` and exit 0.
+- **S9-2 — The hook is U1** (the owner's choice).
+- **S9-3 — The uninstall becomes one command.**
+  - The documentation says so, with `--force` and the uninstall exit codes: 1 when a hook failed
+    and nothing was removed, and 3 when forced or only partly removed.
+  - It also says that an install of `v0.21.0` or earlier uninstalls with the two commands.
+  - `setup-service --uninstall`'s closing line, which names the installer's `--uninstall` as the
+    next step, is reworded for both paths.
+- **S9-4 — Release signing is not adopted here.** It is opt-in and needs a key, a verifier in
+  `Config.ManifestVerifiers` and a first signed tag. That is a decision of its own.
+- **S9-5 — The release that ships this is the second S8 release.** `v0.21.0` → that release is the
+  first update run by a binary with S8a's code. So it is when S8a Deviation 1's Windows check and
+  the live probe checks are run.
+
+### Consequences of this amendment
+
+- Good, because an uninstall removes the services and then the binaries, in one command, on every
+  OS.
+- Good, because on Windows the hook stops the task before the installer deletes its binary, which
+  a running daemon would otherwise hold.
+- Good, because the Task Scheduler race and the session serialization fixes arrive with it.
+- Neutral, because the publish workflow's new inputs are optional and left unset.
+- Bad, under U1, because an install made by `v0.21.0` or earlier needs the two commands once, or
+  `--force`.
