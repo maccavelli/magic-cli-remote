@@ -3437,7 +3437,7 @@ install.ps1  $InstallerName = 'magic-cli-remote'  $EnvPrefix = 'MCREMOTE'  the t
 **Files staged for S7b:** `internal/updateclient/selfupdate-release.json`, `internal/updateclient/spec_test.go`,
 `.github/workflows/ci.yml` and this PLAN.
 
-### S7c, 2026-10-19 — in progress; Deviations 1–3 decided by the owner before any install ran
+### S7c, 2026-10-19 — complete, staged for the owner's commit; Deviations 1–5 decided by the owner
 
 **Starting point.** The owner committed the S7b record and said "committed, proceed".
 
@@ -3568,7 +3568,7 @@ the account's own unit after    sha256 3928e742…  MainPID 1327: unchanged
   (`S-1-16-8192`), as S1 did. The task was unregistered afterwards and the copy removed.
   - **`acceptance-windows-service.ps1`: ALL CHECKS PASSED,** S1–S8 and C3 "the live mcremote task
     is unchanged".
-  - **`acceptance-windows.ps1`: exit 2, "2 CHECK(S) FAILED".** See the finding below.
+  - **`acceptance-windows.ps1`: exit 2, "2 CHECK(S) FAILED".** See Deviation 5.
 - **Scratch installs** (`s7c_win.py`, `win/s7c_win_scratch.ps1`). The release was served from
   `http://localhost:38088`, and installed into a scratch `-InstallDir` with `-NoPathUpdate`, twice.
   - Both runs: "left alone: mcremote windows-task service Task Scheduler\mcremote — runs
@@ -3612,3 +3612,45 @@ the account's own unit after    sha256 3928e742…  MainPID 1327: unchanged
 - **A systemd first install through the installer** (Deviation 4).
 - **macOS** (Deviation 3).
 - **RHEL with SELinux enforcing, arm64 on cloud hardware, and WSL:** they are outside L1.
+
+**Deviation 5, 2026-10-19 — `acceptance-windows.ps1` fails one check, C1, which predates 0054. The
+owner decided: "Re-run; C1 separately".**
+
+- **Found.** The first run exited 2, with "2 CHECK(S) FAILED":
+  - **`go test ./...`,** with three failures, all from the harness:
+    - `TestTrackedFilesUseOnlyPlaceholderHomes`: "no git index: … mcr-s7c-accept\.git … the guard
+      cannot read the tracked files". The copy had no `.git`.
+    - `TestReleaseBuildReportsTheTag` and `TestLocalBuildReportsLocal`: "make: *** [Makefile:268:
+      check-cgo-off] Error 255", after "The system cannot find the path specified". The task's
+      `cmd` had no `sh.exe` on `PATH`, which GNU make needs (AGENTS.md).
+    - All three passed under `make ci-windows` in S7a.
+  - **`mcremote paths --json` (C1):** "log_dir: got 'C:\Users\<user>\AppData\Local\mcremote\Logs\mcremote'
+    want 'C:\Users\<user>\AppData\Local\mcremote\Logs'".
+- **The re-run, with the harness corrected.** The copy now has a git index (`git init && git add -A`,
+  as `s5_hosts.py` gives `make ci-windows`). The task's `PATH` starts with Git's `usr\bin` and
+  `bin`.
+
+```text
+acceptance-windows.ps1          exit=1  "1 CHECK(S) FAILED"
+  PASS go build ./... · go vet ./... · go test ./... · build binaries · binaries are cgo-free (D21) · mcremote version
+  FAIL mcremote paths --json (C1) -- log_dir: got '…\mcremote\Logs\mcremote' want '…\mcremote\Logs'
+  PASS mcremote pair create (F5 / C2) · mcremote pair list (C2) · mcremote doctor exit 0 (C3)
+acceptance-windows-service.ps1  exit=0  "ALL CHECKS PASSED" (S1–S8, C3)
+```
+
+  - **The integrity line was not recorded this time.** Git's `find.exe`, now first on `PATH`,
+    shadows Windows' `find`.
+  - **The run was unelevated, as before.** `acceptance-windows-service.ps1` fails at S0 under an
+    elevated token (`:104-105`), and it ran to the end.
+- **C1 predates 0054:**
+  - The code has given `Paths.LogDir` as `<Logs root>\<product>` since `f34f3678`
+    (`internal/appdirs/paths.go:70`). The Windows Logs root is from `068195ff` (2026-08-27).
+  - The assertion, `Join-Path $local 'mcremote\Logs'`, was added in `ca436bbc` (2026-09-06)
+    (`scripts/acceptance-windows.ps1:143`).
+  - They have never agreed. No S phase of 0054 touches either line.
+- **Left for its own record, not acted on.** Which side is wrong — the assertion, or the Windows
+  `log_dir` — is a paths decision, not a self-update one. It needs its own MADR/PLAN.
+
+**S7c is complete.** The installers generated from this spec install, reinstall over baked options,
+and uninstall on runit, s6, OpenRC and systemd. On Windows they install, and they move an install
+in the old folders. What was not done is listed above, with the owner's decision for each item.
