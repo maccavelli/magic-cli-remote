@@ -1,0 +1,68 @@
+name: Docs
+
+# Checks a change to Markdown alone, which ci.yml skips: the records check
+# and markdownlint, with ci.yml's commands, and the Go tests that read
+# Markdown (docs/guides/protocol-v1.md, and every tracked file for home
+# paths). A change to anything else runs ci.yml, and so does every tag
+# (docs/decisions/0203-MADR-skip-full-ci-for-docs-only-pushes.md). Not named
+# "CI": ci-flake-ledger.yml's workflow_run matches that name.
+on:
+  push:
+    branches: [master]
+    paths: ['**.md', '.markdownlint-cli2.jsonc', '.github/workflows/docs.yml']
+  pull_request:
+    paths: ['**.md', '.markdownlint-cli2.jsonc', '.github/workflows/docs.yml']
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: "24"
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Docs (records, markdownlint, Markdown-reading tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js (LTS 24)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+
+      - name: Assert Node.js major version
+        run: |
+          node -v
+          major="$(node -p "process.versions.node.split('.')[0]")"
+          test "$major" = "24" || { echo "expected Node 24, got $(node -v)" >&2; exit 1; }
+
+      - name: Check records
+        run: make check-records
+
+      - name: Markdownlint (user-facing docs)
+        run: make markdownlint-docs
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The whole package, so a doc guard added to it later is covered.
+      - name: Protocol spec guards (docs/guides/protocol-v1.md)
+        run: go test -count=1 ./internal/protocol/
+
+      # 0196-MADR: reads every tracked text file, Markdown included.
+      - name: Home-path guard (every tracked file)
+        run: go test -count=1 -run '^TestTrackedFilesUseOnlyPlaceholderHomes$' ./internal/

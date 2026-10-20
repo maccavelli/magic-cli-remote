@@ -1,11 +1,17 @@
 name: CI
 
 on:
+  # 0203-MADR-skip-full-ci-for-docs-only-pushes.md. A change to Markdown alone
+  # runs docs.yml instead. GitHub does not evaluate path filters for a tag
+  # push, so every v* tag runs this workflow in full, and workflow_dispatch
+  # takes no filter.
   push:
     branches: [master]
     tags:
       - "v*"
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
   workflow_dispatch:
 
 # One run per ref; a new push to the same PR/branch cancels the older run.
@@ -620,7 +626,7 @@ jobs:
         run: |
           set -euo pipefail
           APK="build/app/outputs/flutter-apk/app-release.apk"
-          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          BT="$ANDROID_HOME/build-tools/$(find -H "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 ! -name '.*' -exec basename {} \; | sort -V | tail -1)"
           certs="$("$BT/apksigner" verify --print-certs "$APK")"
           printf '%s\n' "$certs"
           if grep -qi 'Android Debug' <<<"$certs"; then

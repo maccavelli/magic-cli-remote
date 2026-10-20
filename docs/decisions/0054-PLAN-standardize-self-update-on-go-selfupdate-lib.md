@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-20
 associated-madr: "0054-MADR-standardize-self-update-on-go-selfupdate-lib.md"
 ---
@@ -4914,3 +4914,118 @@ install.ps1 exit=0
   failure that would cause it (`TestUninstallKeepsGoingPastAFailure`).
 
 **Files for this commit:** this PLAN. S9c changes no code.
+
+### S9d, 2026-10-20 — `v0.22.0` published; the deferred checks done; the PLAN is complete
+
+**Approval and order.**
+
+- **Commits.** The owner committed and pushed S9b (`0dda8b62`), S9c's record (`1ae69f72`) and another
+  session's 0202 report (`8802be5e`), and said "proceed".
+- **The tree.** Before that, `master` had diverged. The S9a push run's retry had made the flake ledger
+  push `b65a7438` while the S9b commit was made locally without it. The S9b commit had also picked up
+  another session's 0202 report.
+  - The owner said "fix it". `fix_tree.py` moved the unpushed S9b commit back onto `e3baf73a`,
+    keeping every change staged, and took the 0202 files out of the index. It then fast-forwarded
+    to `b65a7438`, checking every step.
+  - The owner then re-committed S9b as `0dda8b62`, which `stage_s9c.py` checked holds exactly S9b's
+    17 files.
+- **The push run,** 39481886172, passed. Its `Go (linux/arm64)` job failed
+  `TestReapOrphanEnginesKillsOrphan` once and passed it on retry.
+  - The test is in `internal/procutil`, which 0054 does not touch.
+  - It is the test's first row in the ledger: the bot's `057fe379`.
+- **The rehearsal,** 39482769654 on `057fe379`, passed. `s9d_rehearsal.py`, every check PASS:
+  - the twelve staged files;
+  - `SHA256SUMS` listing exactly the eight binaries, each hash matching;
+  - both installers carrying the four hooks, the two `before_uninstall` ones among them.
+- **The tag.** The owner pushed `v0.22.0`, annotated, on `8802be5e`. The rehearsal's commit adds
+  only the ledger row to it.
+
+**The release,** run 39486738256: success. The contract (`release_contract.py v0.22.0 v0.21.0`):
+
+```text
+PASS  v0.22.0 is immutable, published, not a draft or prerelease — 2026-10-20T20:07:59Z
+PASS  v0.22.0's asset names are v0.21.0's, with its own tag
+PASS  every asset has a GitHub digest
+PASS  SHA256SUMS lists eight binaries and no APK
+PASS  mcremote-darwin-arm64 matches SHA256SUMS
+PASS  mcrelay-darwin-arm64 matches SHA256SUMS
+PASS  mcremote-darwin-arm64 is attested by the publish workflow
+PASS  install.sh is attested by the publish workflow
+PASS  v0.22.0 reports its release identity — v0.22.0 (release) 8802be5ecc9b
+PASS  v0.21.0's update --check finds v0.22.0 (exit 10)
+PASS  v0.22.0's update --check is up to date (exit 0)
+ALL PASS
+```
+
+**S8a's deferred checks,** on the first update run by a binary that carries S8a's code
+(`v0.21.0` → `v0.22.0`):
+
+- **The Linux test host** (`s9d_linux_update.py`, `live/host_update_linux.py`).
+  - **The setup.** A scratch unit, `s9d-live`, ran `v0.21.0`, fetched from its release and checked
+    against `SHA256SUMS`. Its definition bakes its own `--config` and `--data-dir`.
+  - **The update.** `mcremote update --yes` ran from that binary.
+
+  ```text
+  before:  v0.21.0 (release) 02f65f4a4cf6   active running   Type=notify   NRestarts=0
+  the unit's admin socket (from its baked --config and --data-dir): /run/user/<uid>/mcremote/4b4f7393ce4ba2b8/admin.sock exists=True
+  the default configuration's admin socket:                       /run/user/<uid>/mcremote/cffb9fba27a917d7/admin.sock exists=True
+  selfupdate: complete product=mcremote current=v0.21.0 target=v0.22.0 asset=mcremote-linux-amd64 release asset integrity verified
+  mcremote: updated v0.21.0 -> v0.22.0          update exit: 0
+  after:   v0.22.0 (release) 8802be5ecc9b   active running   Type=notify   NRestarts=0   Result=success   MainPID changed: True
+  the account's unit and daemon unchanged: yes      (the scratch unit and folder were removed)
+  ```
+
+  - **What it shows.** An update of a service with a baked `--data-dir` passes the update's health
+    wait, whose probe pings the admin socket.
+  - **What it does not show.** The default configuration's socket also exists here: it is the
+    account's own daemon's. So a probe that followed the default configuration would have passed
+    too. That the probe follows the definition is shown by S8a's tests and planted breaks, not by
+    this run.
+- **The Windows test host** (owner decision, 2026-10-20: "Exit code, calibrated"; `s9d_win_update.py`,
+  `live/host_update_windows.py`).
+  - **The setup.** The real install was backed up and restored, as in S9c. `v0.21.0` was installed
+    over it from its own release, and the hook restarted the task on it.
+  - **Why an exit code.** The daemon writes no log file on Windows yet (MADR 0157), so the PLAN's
+    evidence, its log line, cannot be read. The proof is instead the stopped daemon's exit code,
+    read from a process handle held before it exits.
+
+  ```text
+  calibration: `schtasks /end` on pid …: exited=True, exit code=1067
+  before the update: v0.21.0 (release) 02f65f4a4cf6, task Running
+  mcremote: updated v0.21.0 -> v0.22.0          update exit=0 after 14 s
+  the old daemon: exited=True, exit code=0
+  after the update: v0.22.0 (release) 8802be5ecc9b, task Running
+  verdict: forced end exit code=1067; the update's stop exit code=0; drained through the request: True
+  restore: both binaries match the backup; User Path restored, kind 1 (REG_SZ); task re-registered, running 0.20.1
+  state matches before: yes
+  ```
+
+  - **What it shows.** The update's stop ended the daemon with a clean exit, 0, where a forced end
+    gives 1067. That is the shutdown request draining it before the task is ended. The update then
+    confirmed the new daemon, health probe included, and exited 0.
+
+**A finding, left for a record of its own.** The Windows update printed:
+
+```text
+warning: mcremote: Task Scheduler\mcremote was rewritten and the service manager was not reloaded; the next start may run the previous definition
+```
+
+- **What was observed.** The restarted task ran `v0.22.0`, so the warning did not describe what
+  happened. Task Scheduler has no reload step.
+- **The likely cause, not yet confirmed.** The refresh receipt reports `changed: true` with
+  `reloaded: false` for a Task Scheduler definition, and the library's reconciler reads that as a
+  missed reload.
+- **Still open.** Why the task was rewritten at all between `v0.21.0` and `v0.22.0`.
+- Neither was investigated here: both are outside S9.
+
+**What remains,** none of it a step of this PLAN:
+
+- the warning above;
+- the flaky `TestReapOrphanEnginesKillsOrphan`, which the flake ledger holds;
+- release signing (S9-4);
+- macOS, by S7c Deviation 3.
+
+**The PLAN is complete.** Every phase, S1 to S9d, is recorded, and so is each check deferred to a
+later release.
+
+**Files for this commit:** this PLAN.

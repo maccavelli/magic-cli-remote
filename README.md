@@ -1448,8 +1448,18 @@ Release signing for CI/canonical tags:
 
 Workflows live under [`.github/workflows/`](.github/workflows/):
 
-A single workflow, `ci.yml`, runs on push to `master`, pull request, tag `v*`,
-or manual dispatch:
+Three workflows run there
+([0203-MADR-skip-full-ci-for-docs-only-pushes.md](docs/decisions/0203-MADR-skip-full-ci-for-docs-only-pushes.md)):
+
+- `ci.yml` runs on push to `master`, pull request, tag `v*`, or manual
+  dispatch, except that a push or pull request that changes only Markdown
+  skips it. A tag always runs it in full. Its jobs are in the table below.
+- `docs.yml` runs for a push or pull request that changes Markdown: the
+  records check, markdownlint, and the Go tests that read Markdown.
+- `ci-flake-ledger.yml` runs after each `CI` run, and daily, and commits the
+  tests that `ci.yml` retried to `ci-flakes.tsv`.
+
+`ci.yml`'s jobs:
 
 | Job | When | What it does |
 |-----|------|--------------|

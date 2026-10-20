@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-20
 decision-makers: Project Owner
 consulted: "GitHub's workflow syntax reference (path filters) and its GITHUB_TOKEN trigger rule; the Actions timing API for run 39481886172; this repository's run history 2026-08-01 to 2026-10-20; go-selfupdate-lib's docs/decisions/0028-MADR-skip-full-ci-for-docs-only-pushes.md"
@@ -159,7 +159,14 @@ that permission for the workflow change it names.
 
 ## Decision Outcome
 
-Chosen option (proposed; the owner decides): "E", because it is go-selfupdate-lib's B with
+Chosen option: "E". The owner approved it as recommended on 2026-10-20, answering
+"magic-cli-remote 0203" to "Which repos' pairs do you approve as recommended (MADR accepted, PLAN
+in-progress, then Phase 0/records and Phase 1 per its plan)?". The recommendation approved is
+option E, the new workflow named `Docs`, no change to `ci-flake-ledger.yml`, and the dated
+amendment to 0143's MADR in the PLAN's P2. That approval is also the permission AGENTS.md
+("Tests") requires for the workflow edit.
+
+"E" was chosen because it is go-selfupdate-lib's B with
 the one addition this repository's facts require. Two sets of Go tests read Markdown, and one of
 them has failed CI on a Markdown change. The docs job runs both, at the cost of a Go setup in a
 Linux job,
@@ -277,3 +284,19 @@ unfiltered list holds the ledger's runs and would hold the Docs runs. The PLAN r
   still says "A single workflow, `ci.yml`".
 * The ledger: [0143-MADR-ci-retries-once-and-records-every-retry.md](0143-MADR-ci-retries-once-and-records-every-retry.md),
   its Amendment of 2026-09-06, and `ci-flakes.tsv`.
+
+## Amendment — 2026-10-20 (actionlint already failed on `ci.yml`)
+
+The Confirmation's first point, "`actionlint` passes on `ci.yml`, `docs.yml` and
+`ci-flake-ledger.yml`", did not hold before this change. P1's run of actionlint v1.7.12 found one
+finding on `ci.yml`, and the same command on the unchanged `ci.yml` of `8802be5e` found it too:
+shellcheck's SC2012 ("Use find instead of ls to better handle non-alphanumeric filenames"), at
+the `ls "$ANDROID_HOME/build-tools"` line of the `android-apk` job's "Assert release signature
+(upload key, not debug)" step. That line came in with `64a0b7cd` (2026-08-02, "feat(ci): Add
+release signing and signature assertion"). `docs.yml` and `ci-flake-ledger.yml` passed.
+
+The PLAN put any change to `ci.yml`'s jobs or steps out of scope. Offered a choice, the owner
+chose, on 2026-10-20, "Amend 0203: fix that line (Recommended)": this pair replaces that `ls`
+with a `find` that selects the same `build-tools` directory and fails the same way when there is
+none. It is the one change to `ci.yml`'s steps. The Confirmation stands as written, and is met
+once that line is fixed. The decision, option E, is unchanged.

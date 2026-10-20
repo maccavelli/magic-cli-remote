@@ -259,3 +259,28 @@ retry is ingested). Rows are produced by the go-native retry path and committed
 by a separate workflow with `contents: write`, so the test job itself never
 pushes. Visibility beyond `warning_on_retry`: job step summary table and a
 `::notice` annotation naming `failing_test` and `retry_result`.
+
+## Amendment — 2026-10-20 (docs-only pushes no longer run `CI`)
+
+[0203-MADR-skip-full-ci-for-docs-only-pushes.md](0203-MADR-skip-full-ci-for-docs-only-pushes.md)
+changes which pushes this record's sample is drawn from. It does not change the
+decision.
+
+* **From the commit that adds `.github/workflows/docs.yml`** (P1 of
+  [0203-PLAN-skip-full-ci-for-docs-only-pushes.md](0203-PLAN-skip-full-ci-for-docs-only-pushes.md),
+  which records its hash), a push or pull request that changes only Markdown
+  starts no `CI` run. No `workflow_run` event fires, so no ledger run starts
+  either; a `Docs` run checks the change instead.
+* **What that removes.** In the 30 days to 2026-10-20, 17 of the 63 push runs
+  of `CI` on `master` were docs-only. Of the ledger's 18 rows since 2026-09-07,
+  5 came from docs-only push runs (0203's Facts).
+* **The Phase 5 recount counts `CI` runs only:**
+  `gh run list --workflow ci.yml --limit 200 --json conclusion,headBranch,createdAt`.
+  The unfiltered list that
+  [0143-PLAN-ci-retries-once-and-records-every-retry.md](0143-PLAN-ci-retries-once-and-records-every-retry.md)'s
+  "Verification" gives also holds the ledger's own runs, and now the `Docs`
+  runs.
+* **What stays comparable, and what does not.** Each remaining `CI` run has the
+  full job set, so the failure rate per run stays comparable. The
+  3-in-30-days threshold sees fewer runs, about a quarter fewer, so a flaky
+  test trips it later than it would have.
