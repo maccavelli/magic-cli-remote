@@ -703,6 +703,11 @@ on every service manager of the OS.
   found it prints so and exits 0.
 - Configuration and data stay. Remove the binaries with the installer's `--uninstall`.
 - `--uninstall` cannot be combined with `--refresh` or `--remove`.
+- **With `--from-installer`** it is the release installer's `before_uninstall` hook, which runs
+  before the installer deletes each binary. It looks only at its own product's definitions, so
+  removing only `mcrelay` leaves `mcremote`'s service. A failure makes the installer delete
+  nothing ([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md),
+  amendment S9).
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -724,7 +729,7 @@ on every service manager of the OS.
 | `--refresh` | false | Re-render the installed definition from this binary's template, keeping the options baked into it. Rewrites only a definition this binary wrote. `update` runs it after a swap. On Windows it also moves an install out of the per-product folders ([ops-windows-install.md](ops-windows-install.md)) |
 | `--json` | false | With `--refresh`, print the result as one JSON object |
 | `--uninstall` | false | Remove every `mcremote` and `mcrelay` service definition that runs a program from this binary's folder, on every service manager; report the rest. Cannot be combined with `--refresh` or `--remove` |
-| `--from-installer` | false | What the release installer runs after every install. No service: a first install, as plain `setup-service`. A definition this binary's folder owns: refresh it, keeping its options, then restart it if running, or start it if stopped and enabled, with the verified start. A definition another folder's binary runs: report it and leave it, exit 0. On Windows a task in the per-product folders is moved. `MCREMOTE_FORCE_SERVICE=1` makes an owned definition a `--force` setup. Afterwards it prints the AppArmor notice on a Linux host that restricts unprivileged user namespaces, and the Full Disk Access note on macOS. Cannot be combined with `--refresh`, `--remove`, `--uninstall` or `--print-only` |
+| `--from-installer` | false | What the release installer runs after every install. No service: a first install, as plain `setup-service`. A definition this binary's folder owns: refresh it, keeping its options, then restart it if running, or start it if stopped and enabled, with the verified start. A definition another folder's binary runs: report it and leave it, exit 0. On Windows a task in the per-product folders is moved. `MCREMOTE_FORCE_SERVICE=1` makes an owned definition a `--force` setup. Afterwards it prints the AppArmor notice on a Linux host that restricts unprivileged user namespaces, and the Full Disk Access note on macOS. With `--uninstall`: what the installer runs before it deletes this binary, removing only `mcremote`'s own definitions. Cannot be combined with `--refresh`, `--remove` or `--print-only` |
 
 ### `mcremote update` / `mcrelay update` (MADR 0065 and 0103, superseded by MADR 0005, and 0054)
 

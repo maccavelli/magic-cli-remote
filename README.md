@@ -141,18 +141,19 @@ their version in an older form, so it puts back what was there and exits `2`.
 
 ### Uninstall
 
-Two commands, in this order:
-
 ```bash
-mcremote setup-service --uninstall
 curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh -s -- --uninstall
 ```
 
-The first stops and removes the services that run a binary from this folder.
-The second deletes the binaries. Configuration and data stay. The installer
-cannot do the first step itself yet; that waits on a `before_uninstall` hook in
-go-selfupdate-lib ([issue 1](https://github.com/maccavelli/go-selfupdate-lib/issues/1)).
+Before it deletes each binary, the installer runs that binary's
+`setup-service --uninstall --from-installer`, which stops and removes that
+product's services. Then it deletes the binaries. Configuration and data stay.
 If you installed with `--dir`, pass the same `--dir` to `--uninstall`.
+
+If a service cannot be removed, nothing is deleted and the installer exits `1`;
+`--force` deletes the binaries anyway and exits `3`. An install made by v0.21.0
+or earlier cannot run that step: see
+[Uninstall](docs/guides/ops-linux-install.md#uninstall) in the Linux guide.
 
 ### If your machine has no systemd
 

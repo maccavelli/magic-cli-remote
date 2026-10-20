@@ -224,13 +224,15 @@ func TestPrintInstallerHook(t *testing.T) {
 	}
 }
 
-// TestCheckFromInstaller: the flag refuses the other modes.
+// TestCheckFromInstaller: the flag refuses the modes the installer never
+// runs. With --uninstall it is the installer's before_uninstall hook (MADR
+// 0054 amendment S9, U1), which the caller routes before this check matters.
 func TestCheckFromInstaller(t *testing.T) {
-	if err := CheckFromInstaller(false, false, false, false); err != nil {
+	if err := CheckFromInstaller(false, false, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range [][4]bool{{true}, {false, true}, {false, false, true}, {false, false, false, true}} {
-		if err := CheckFromInstaller(c[0], c[1], c[2], c[3]); err == nil {
+	for _, c := range [][3]bool{{true}, {false, true}, {false, false, true}} {
+		if err := CheckFromInstaller(c[0], c[1], c[2]); err == nil {
 			t.Errorf("%v: accepted", c)
 		}
 	}

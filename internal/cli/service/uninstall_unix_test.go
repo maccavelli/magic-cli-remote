@@ -143,6 +143,66 @@ func TestUninstallRemovesWhatThisFolderRuns(t *testing.T) {
 	}
 }
 
+// TestUninstallFromInstallerScopesToItsProduct is the installer's
+// before_uninstall hook (MADR 0054 amendment S9, U1): run as one product, it
+// removes only that product's definitions in this folder, so `--product
+// mcrelay --uninstall` leaves mcremote's service; a definition of the same
+// product that runs another folder's binary is still left and reported.
+func TestUninstallFromInstallerScopesToItsProduct(t *testing.T) {
+	bin, other, _ := uninstallHost(t, "linux")
+	remote := writeDefinition(t, KindSystemdUser, "mcremote", "mcremote", filepath.Join(bin, "mcremote"))
+	relay := writeDefinition(t, KindRunit, "mcrelay", "mcrelay", filepath.Join(bin, "mcrelay"))
+	foreign := writeDefinition(t, KindS6, "mcrelay", "mcrelay", filepath.Join(other, "mcrelay"))
+
+	res, err := UninstallFromInstaller("mcrelay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := items(res.Removed), []string{"mcrelay runit run"}; !slices.Equal(got, want) {
+		t.Errorf("removed %v, want only mcrelay's own %v", got, want)
+	}
+	if got, want := items(res.Left), []string{"mcrelay s6 run"}; !slices.Equal(got, want) {
+		t.Errorf("left %v, want the other folder's %v", got, want)
+	}
+	if _, err := os.Stat(relay); !os.IsNotExist(err) {
+		t.Errorf("mcrelay's definition survived: %v", err)
+	}
+	for _, p := range []string{remote, foreign} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s was removed by mcrelay's hook: %v", p, err)
+		}
+	}
+	var out bytes.Buffer
+	PrintUninstallResult(&out, res)
+	if !strings.Contains(out.String(), "The installer removes the binaries next.") ||
+		strings.Contains(out.String(), "Remove the binaries with the installer's --uninstall") {
+		t.Errorf("the hook's closing line is wrong:\n%s", out.String())
+	}
+
+	// The same for mcremote, and plain --uninstall still names the next step.
+	res, err = UninstallFromInstaller("mcremote")
+	if err != nil || !slices.Equal(items(res.Removed), []string{"mcremote systemd-user mcremote.service"}) {
+		t.Fatalf("mcremote's hook: %+v, %v", res, err)
+	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Errorf("mcremote's hook removed mcrelay's other-folder definition: %v", err)
+	}
+}
+
+// TestUninstallFromInstallerWithNothingInstalled names only its product.
+func TestUninstallFromInstallerWithNothingInstalled(t *testing.T) {
+	uninstallHost(t, "linux")
+	res, err := UninstallFromInstaller("mcrelay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	PrintUninstallResult(&out, res)
+	if strings.TrimSpace(out.String()) != "no service definition of mcrelay was found" {
+		t.Fatalf("output:\n%s", out.String())
+	}
+}
+
 func TestUninstallWithNothingInstalled(t *testing.T) {
 	uninstallHost(t, "linux")
 	res, err := Uninstall()

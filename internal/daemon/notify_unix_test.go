@@ -87,6 +87,19 @@ func TestRunNotifiesSystemd(t *testing.T) {
 	}
 	_ = c.Close()
 
+	// READY=1 means the TCP listener is open. The admin socket is served by
+	// its own goroutine, which may still be binding: wait for it to answer,
+	// as the update's probe does, before asking it to shut the daemon down.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := admin.Call(cfg.Paths.AdminSocket, admin.Request{Op: admin.OpPing}); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the daemon's admin socket never answered after READY=1")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if err := admin.RequestShutdown(cfg.Paths.AdminSocket); err != nil {
 		t.Fatalf("RequestShutdown: %v", err)
 	}

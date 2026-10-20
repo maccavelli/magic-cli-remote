@@ -377,6 +377,8 @@ describes it in full:
   installer's. `MCREMOTE_WITH_RELAY_SERVICE` is read by `mcremote setup-service`, which sets up
   this service beside its own.
 - **`--uninstall`** removes both products' services that run a program from this binary's folder.
+  With `--from-installer` it is the release installer's `before_uninstall` hook, and removes only
+  `mcrelay`'s own.
 
 | Flag | Description |
 |------|-------------|
@@ -394,7 +396,7 @@ describes it in full:
 | `--refresh` | Re-render the installed definition from this binary's template, keeping the options baked into it; `update` runs it after a swap |
 | `--json` | With `--refresh`, print the result as one JSON object |
 | `--uninstall` | Remove every `mcremote` and `mcrelay` service definition that runs a program from this binary's folder, on every service manager; report the rest. Cannot be combined with `--refresh` or `--remove` |
-| `--from-installer` | What the release installer runs after every install. A relay service this binary's folder owns is refreshed, keeping its options, and restarted or started as `update` would. Another folder's is reported and left. With no relay service it sets none up: `MCREMOTE_WITH_RELAY_SERVICE=1` on `mcremote`'s does. Cannot be combined with `--refresh`, `--remove`, `--uninstall` or `--print-only` |
+| `--from-installer` | What the release installer runs after every install. A relay service this binary's folder owns is refreshed, keeping its options, and restarted or started as `update` would. Another folder's is reported and left. With no relay service it sets none up: `MCREMOTE_WITH_RELAY_SERVICE=1` on `mcremote`'s does. With `--uninstall`: what the installer runs before it deletes this binary, removing only `mcrelay`'s own definitions. Cannot be combined with `--refresh`, `--remove` or `--print-only` |
 
 User-unit hardening (on by default; set `false` in a drop-in to disable):
 `NoNewPrivileges`, `PrivateTmp`, `RestrictSUIDSGID`, `LockPersonality`,

@@ -66,7 +66,8 @@ func TestReleaseSpecServesEachProduct(t *testing.T) {
 // internal/cli/service/migrate.go), its prefix keeps the MCREMOTE_ variables,
 // and each product's hook is the upgrade-aware --from-installer, never a plain
 // setup-service, which refuses a definition with baked options on a second
-// install.
+// install. Each product's before_uninstall hook removes only its own services
+// before the installer deletes its binary (MADR 0054 amendment S9, U1).
 func TestReleaseSpecInstaller(t *testing.T) {
 	spec, err := releaseSpec()
 	if err != nil {
@@ -88,7 +89,12 @@ func TestReleaseSpecInstaller(t *testing.T) {
 	for _, h := range spec.Installer.Hooks {
 		hooks = append(hooks, h.When+" "+h.Product+" "+strings.Join(h.Args, " "))
 	}
-	want := []string{"after_install mcremote setup-service --from-installer", "after_install mcrelay setup-service --from-installer"}
+	want := []string{
+		"after_install mcremote setup-service --from-installer",
+		"after_install mcrelay setup-service --from-installer",
+		"before_uninstall mcremote setup-service --uninstall --from-installer",
+		"before_uninstall mcrelay setup-service --uninstall --from-installer",
+	}
 	if !slices.Equal(hooks, want) {
 		t.Errorf("hooks %q, want %q", hooks, want)
 	}

@@ -4671,3 +4671,135 @@ make check-records / make markdownlint-docs                             exit=0 /
 
 **Files for S9a's commit:** `go.mod`, `go.sum`, `.github/workflows/ci.yml`,
 `internal/updateclient/spec_test.go`, and this PLAN.
+
+### S9a, addendum — the rehearsal
+
+- **The push run.** The owner committed S9a (`e3baf73a`) and pushed. Push run 39471008509 passed.
+- **The rehearsal.** It was dispatched once the push run had finished: run 39472551505, success,
+  publish skipped.
+- **It ran on `b65a7438`, not `e3baf73a`.** `b65a7438` is the flake ledger's own commit, by
+  `github-actions[bot]`. It adds one row to `ci-flakes.tsv` and changes no code. The row is the
+  flake recorded below, under "S8b, a correction".
+- **Its installers against the `v0.21.0` commit's rehearsal,** with the tag masked
+  (`s9a_installer_diff.py`): `install.sh` +56/−8 lines, `install.ps1` +40/−10.
+  - Every change is one `v1.17.0` and `v1.17.1` list:
+    - the exit-code header;
+    - `--force` / `-Force`, with `--uninstall` only;
+    - "skip the release's hooks";
+    - `before_uninstall` in the hook loop, with "would run …" under `--dry-run`;
+    - a failed hook removes nothing and exits 1;
+    - a program that cannot be removed is reported and exits 3.
+  - The values blocks are unchanged: the two `after_install` hooks, and no `before_uninstall`
+    entry, as expected before S9b.
+
+### S8b, a correction — `TestRunNotifiesSystemd` raced the admin socket
+
+- **Found.** The S9a push run's `Go (linux/arm64)` job failed `TestRunNotifiesSystemd` once and
+  passed it on retry. The flake ledger recorded it, as the row above.
+  - The failure: `notify_unix_test.go:91: RequestShutdown: mcremote daemon not running (admin
+    socket unavailable)`.
+- **The cause is in the test.**
+  - `READY=1` is sent once the TCP listener is open, as S8b decided. The admin socket is served by
+    its own goroutine, which nothing orders against `READY=1`.
+  - The test asked for shutdown the moment `READY=1` arrived. An update's probe polls the socket,
+    so the daemon's behaviour was right.
+- **Decision** (the owner, 2026-10-20: "Fix the test"). After `READY=1` and the listener check, the
+  test waits up to 20 seconds for the admin socket to answer `ping`, as the shutdown test does, then
+  sends the request. `READY=1` keeps its meaning.
+- **Reproduced, then fixed** (`s8b_flake_repro.py`, on scratch copies, with a planted 500 ms delay
+  before `admin.Serve` binds):
+
+  ```text
+  HEAD's test, slow bind: exit=1 -> as expected
+     notify_unix_test.go:91: RequestShutdown: mcremote daemon not running (admin socket unavailable)
+  the fixed test, slow bind: exit=0 -> as expected      (go test -count=3)
+  ```
+
+- `go test -race -count=3 ./internal/daemon/` passes, and so does the pre-add check on the file.
+
+### S9b, 2026-10-20 — staged for the owner's commit
+
+**Approval.** The owner said "proceed to S9b".
+
+**What S9b changed:**
+
+- **`internal/cli/service/uninstall.go`:**
+  - `UninstallFromInstaller(product)` is `Uninstall` for that product alone, with the result marked
+    `FromInstaller`. `Uninstall()` still covers both products.
+  - `UninstallResult` carries the products it looked at. "no service definition of … was found"
+    names those products.
+  - After a removal, the closing line is "The installer removes the binaries next." for the hook,
+    and the earlier "Remove the binaries with the installer's --uninstall." otherwise.
+- **`internal/cli/service/installerhook.go`:** `CheckFromInstaller(refresh, remove, printOnly)`
+  no longer refuses `--uninstall`.
+- **`internal/cli/setup_service.go` and `internal/relay/cli.go`:**
+  - `--uninstall --from-installer` runs `UninstallFromInstaller("mcremote")` or `("mcrelay")`,
+    before the install hook's path.
+  - Both flags' help says so.
+- **`internal/updateclient/selfupdate-release.json`:** two `before_uninstall` hooks, one per
+  product, each `setup-service --uninstall --from-installer`.
+- **The documentation:**
+  - `README.md`, `ops-linux-install.md` and `ops-windows-install.md` give the one-command uninstall,
+    `--force` / `-Force` with its option row, and the uninstall exit codes: 1, nothing deleted; 3,
+    forced, or a binary not deleted.
+  - They also give the way to uninstall an install made by `v0.21.0` or earlier: the services by
+    hand, then `--uninstall --no-hooks`.
+  - `config.md` and `config-mcrelay.md` describe `--uninstall --from-installer`.
+  - The links to the library's issue 1 are gone, because the hook has shipped.
+- **Timing.** The guides describe the release that carries this spec. Until it is tagged, the
+  `latest` installer is still `v0.21.0`'s, which has no `before_uninstall` hook.
+
+**Tests:**
+
+- **`internal/cli/service`:**
+  - `TestUninstallFromInstallerScopesToItsProduct` (new). `mcrelay`'s hook removes its own runit
+    definition. It leaves `mcremote`'s systemd unit, and another folder's `mcrelay` s6 definition,
+    which it reports. The hook's closing line is printed. Then `mcremote`'s hook removes its unit.
+  - `TestUninstallFromInstallerWithNothingInstalled` (new): "no service definition of mcrelay was
+    found".
+  - `TestCheckFromInstaller`, updated.
+- **`internal/cli` and `internal/relay`:**
+  - Each CLI's `--uninstall --from-installer` reaches its own product: "no service definition of
+    mcremote was found", and the same for `mcrelay`.
+  - The `--from-installer` refusal lists drop `--uninstall`.
+- **`internal/updateclient`:** `TestReleaseSpecInstaller` pins the four hooks exactly. Before the
+  spec changed, it failed with the two-hook list.
+
+**Planted breaks, each on its own fresh scratch copy** (`s9b_plants.py`, 5). Each failed a test
+assertion:
+
+```text
+the hook ignores its product                      uninstall_unix_test.go:162: removed [mcrelay runit run mcremote systemd-user mcremote.service], want only mcrelay's own [mcrelay runit run]
+mcremote's CLI does not route the hook            setup_service_test.go:239: the hook's output: …
+the hook prints plain --uninstall's closing line  uninstall_unix_test.go:179: the hook's closing line is wrong: …
+the spec has no mcrelay before_uninstall hook     spec_test.go:99: hooks [… "before_uninstall mcremote setup-service --uninstall --from-installer"], want […]
+--from-installer refuses --uninstall again        installerhook_test.go:232: --from-installer cannot be combined with --refresh, --remove or --print-only
+```
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (10 Go files)                                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                                            exit=0 / exit=0
+go test -race -count=1 ./...                                            exit=0, 42 ok
+make check-records / make markdownlint-docs                             exit=0 / exit=0
+```
+
+- **The link resolver** on `README.md` and the four guides: 0 dead.
+
+**Other hosts** (`s5_hosts.py`): the Windows test host's `make ci-windows`, "ALL SELECTED CHECKS PASSED"; the Linux test host's changed packages under the race detector, exit 0, and the detection probe, exit 0.
+
+**Not done in S9b,** by the PLAN: the live uninstall runs, which are S9c, and the release, S9d.
+
+**Files for S9b's commit:**
+
+- `internal/cli/service/`: `uninstall.go`, `uninstall_unix_test.go`, `installerhook.go`,
+  `installerhook_test.go`;
+- `internal/cli/`: `setup_service.go`, `setup_service_test.go`;
+- `internal/relay/`: `cli.go`, `setup_service_refresh_test.go`;
+- `internal/updateclient/`: `selfupdate-release.json`, `spec_test.go`;
+- `internal/daemon/notify_unix_test.go` (the S8b correction);
+- `README.md`, and in `docs/guides/`: `ops-linux-install.md`, `ops-windows-install.md`,
+  `config.md`, `config-mcrelay.md`;
+- this PLAN.

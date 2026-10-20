@@ -90,7 +90,8 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 	fs.BoolVar(&f.noLinger, "no-linger", false, "Linux: skip loginctl enable-linger. macOS: no effect (LaunchAgents are session-bound)")
 	fs.BoolVar(&f.remove, "remove", false, "stop, disable, and delete the service definition (inverse of setup)")
 	fs.BoolVar(&f.uninstall, "uninstall", false,
-		"stop and remove every mcremote and mcrelay service definition that runs a program from this binary's folder, on every service manager; run it before the installer's --uninstall")
+		"stop and remove every mcremote and mcrelay service definition that runs a program from this binary's folder, on every service manager; "+
+			"the release installer's --uninstall runs it first, per product, with --from-installer")
 	fs.BoolVar(&f.refresh, "refresh", false,
 		"re-render the installed unit/plist from this binary's template, preserving the options baked into it; rewrites only what this binary wrote, and reloads the systemd user manager")
 	fs.BoolVar(&f.jsonOut, "json", false, "with --refresh, print the result as one JSON object")
@@ -100,7 +101,8 @@ func bindSetupServiceFlags(cmd *cobra.Command, f *setupServiceFlags) {
 
 // fromInstallerUsage is --from-installer's help text.
 const fromInstallerUsage = "run by the release installer after every install: set the service up on a first install; " +
-	"on a later one, refresh a definition this binary's folder owns, keeping its options, and restart it; leave another install's alone"
+	"on a later one, refresh a definition this binary's folder owns, keeping its options, and restart it; leave another install's alone. " +
+	"With --uninstall, run before the installer removes this binary: remove only mcremote's own definitions"
 
 func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 	out := cmd.OutOrStdout()
@@ -109,7 +111,14 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 	// The installer's hook (MADR 0054 amendment S7, PLAN S7a). A first
 	// install falls through to plain setup-service below.
 	if f.fromInstaller {
-		if err := service.CheckFromInstaller(f.refresh, f.remove, f.uninstall, f.printOnly); err != nil {
+		if err := service.CheckFromInstaller(f.refresh, f.remove, f.printOnly); err != nil {
+			return err
+		}
+		if f.uninstall {
+			// The installer's before_uninstall hook: mcremote's own services
+			// only (MADR 0054 amendment S9, U1).
+			res, err := service.UninstallFromInstaller("mcremote")
+			service.PrintUninstallResult(out, res)
 			return err
 		}
 		if handled, err := service.RunInstallerHook(out, opts); handled {

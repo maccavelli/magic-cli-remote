@@ -226,6 +226,18 @@ func TestRunSetupServiceUninstall(t *testing.T) {
 	if !strings.Contains(buf.String(), "no service definition of mcremote or mcrelay was found") {
 		t.Fatalf("output:\n%s", buf.String())
 	}
+
+	// With --from-installer it is the installer's before_uninstall hook, which
+	// looks only at mcremote's own definitions (MADR 0054 amendment S9, U1).
+	buf.Reset()
+	cmd = newSetupServiceCmd()
+	cmd.SetOut(&buf)
+	if err := runSetupService(cmd, setupServiceFlags{uninstall: true, fromInstaller: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "no service definition of mcremote was found" {
+		t.Fatalf("the hook's output:\n%s", got)
+	}
 }
 
 // TestRunSetupServiceFromInstaller: --from-installer refuses the other modes,
@@ -242,7 +254,7 @@ func TestRunSetupServiceFromInstaller(t *testing.T) {
 	}
 	for _, f := range []setupServiceFlags{
 		{fromInstaller: true, refresh: true}, {fromInstaller: true, remove: true},
-		{fromInstaller: true, uninstall: true}, {fromInstaller: true, printOnly: true},
+		{fromInstaller: true, printOnly: true},
 	} {
 		cmd := newSetupServiceCmd()
 		cmd.SetOut(&bytes.Buffer{})

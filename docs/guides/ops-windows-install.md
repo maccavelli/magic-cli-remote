@@ -65,6 +65,7 @@ programs about the change. Open a new terminal to use `mcremote` by name.
 | `-NoHooks` | `MCREMOTE_NO_HOOKS=1` | unset: run `setup-service --from-installer` |
 | `-NoPathUpdate` | `MCREMOTE_NO_PATH_UPDATE=1` | unset: add the folder to the User `Path` |
 | `-VerifyAttestation` | — | unset; also verifies each download's attestation with `gh` |
+| `-Force` | — | unset; with `-Uninstall` only: delete the binaries even when a task cannot be removed |
 | `-DryRun`, `-Uninstall` | — | — |
 
 `irm | iex` cannot take parameters. Either set the environment variable first,
@@ -88,26 +89,40 @@ puts back what was there and fails with exit code `2`. Use that release's own
 `install.ps1`, from
 `https://github.com/maccavelli/magic-cli-remote/releases/download/<tag>/install.ps1`.
 
-Exit codes, when run with `-File`: `0` installed · `1` usage or environment
-error · `2` download, checksum or version check failed (nothing changed, or the
-previous binaries restored) · `3` installed, but `setup-service` failed. Under
-`iex` a failure is an error, `install failed (exit N)`, and the session stays
-open.
+Exit codes, when run with `-File`: `0` installed or removed · `1` usage or
+environment error, or with `-Uninstall` a task that could not be removed
+(nothing deleted) · `2` download, checksum or version check failed (nothing
+changed, or the previous binaries restored) · `3` installed, but
+`setup-service` failed; or with `-Uninstall`, deleted with `-Force` although a
+task could not be removed, or a binary still running, which Windows does not
+delete. Under `iex` a failure is an error, `install failed (exit N)`, and the
+session stays open.
 
 ### Uninstall
 
-Two commands, in this order:
-
 ```powershell
-mcremote setup-service --uninstall
 & ([scriptblock]::Create((irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1))) -Uninstall
 ```
 
-The first stops and removes the tasks that run a binary from this folder. The
-second deletes the binaries and their `.prev` copies, and takes the folder off
-the User `Path` once neither is left. Configuration and data stay. The
-installer will do both once go-selfupdate-lib has a `before_uninstall` hook
-([issue 1](https://github.com/maccavelli/go-selfupdate-lib/issues/1)).
+For each product it removes, the installer first runs that product's own
+`setup-service --uninstall --from-installer`, which ends and removes its task.
+That also stops the daemon, so Windows can delete its binary. Then it deletes
+the binaries and their `.prev` copies, and takes the folder off the User `Path`
+once neither is left. Configuration and data stay.
+
+- A task that cannot be removed stops the uninstall: nothing is deleted, and
+  the exit code is `1`. `-Force` deletes the binaries anyway, with exit code
+  `3`.
+- A binary that is still running is reported as not removed, the rest are
+  removed, and the exit code is `3`. Stop it and run the uninstall again.
+- An install made by v0.21.0 or earlier cannot run the hook, so its uninstall
+  stops with exit code `1`. Remove the task by hand, then uninstall without the
+  hooks:
+
+```powershell
+mcremote setup-service --uninstall      # v0.21.0; before it: mcremote setup-service --remove
+& ([scriptblock]::Create((irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1))) -Uninstall -NoHooks
+```
 
 ### SmartScreen
 

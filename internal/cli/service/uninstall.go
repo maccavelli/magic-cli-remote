@@ -11,13 +11,14 @@ import (
 	"strings"
 )
 
-// setup-service --uninstall (MADR 0054 PLAN S5e, gap G4). The library's
-// installer removes binaries only and has no uninstall hook (MADR 0054 D11),
-// so the documented uninstall runs this first. It is install.sh's do_uninstall
-// (scripts/install.sh:960-997): every definition of either product, on every
-// service manager this OS has, that runs a program from the folder of the
-// binary running the command is stopped and removed; any other is reported
-// and left, so two installs in different folders do not remove each other.
+// setup-service --uninstall (MADR 0054 PLAN S5e, gap G4). It is install.sh's
+// do_uninstall (scripts/install.sh:960-997): every definition of either
+// product, on every service manager this OS has, that runs a program from the
+// folder of the binary running the command is stopped and removed; any other
+// is reported and left, so two installs in different folders do not remove
+// each other. With --from-installer it is the release installer's
+// before_uninstall hook, run once per product the installer removes, and it
+// looks only at that product (MADR 0054 D11, amendment S9, U1).
 
 // UninstallItem is one definition --uninstall found.
 type UninstallItem struct {
@@ -33,10 +34,15 @@ type UninstallItem struct {
 // UninstallResult is what --uninstall did.
 type UninstallResult struct {
 	// Dir is the folder whose definitions were removed.
-	Dir     string
-	Removed []UninstallItem
-	Left    []UninstallItem
-	Failed  []UninstallItem
+	Dir string
+	// Products are the products looked at.
+	Products []string
+	// FromInstaller is set when the release installer's before_uninstall
+	// hook ran it: the installer deletes the binaries next.
+	FromInstaller bool
+	Removed       []UninstallItem
+	Left          []UninstallItem
+	Failed        []UninstallItem
 }
 
 // uninstallExeDir is the folder of the binary running the command, symlinks
@@ -69,17 +75,32 @@ func uninstallKinds(osName string) []Kind {
 // program from this binary's folder, and reports the rest. A failed removal
 // is reported and the others still run; the error says how many failed.
 func Uninstall() (UninstallResult, error) {
+	return uninstall([]string{"mcremote", "mcrelay"})
+}
+
+// UninstallFromInstaller is Uninstall for product alone: the release
+// installer's before_uninstall hook, which runs once for each product it
+// removes. So removing only mcrelay leaves mcremote's service (MADR 0054
+// amendment S9, U1). A failure fails the hook, and the installer then
+// removes nothing.
+func UninstallFromInstaller(product string) (UninstallResult, error) {
+	res, err := uninstall([]string{product})
+	res.FromInstaller = true
+	return res, err
+}
+
+func uninstall(products []string) (UninstallResult, error) {
 	osName := installOS
 	if osName == "" {
 		osName = runtime.GOOS
 	}
-	var res UninstallResult
+	res := UninstallResult{Products: products}
 	dir, err := uninstallExeDir()
 	if err != nil {
 		return res, fmt.Errorf("resolve this binary's folder: %w", err)
 	}
 	res.Dir = dir
-	for _, product := range []string{"mcremote", "mcrelay"} {
+	for _, product := range products {
 		recorded, err := ResolveUnitName(product)
 		if err != nil {
 			return res, err
@@ -261,7 +282,11 @@ func removeDefinition(kind Kind, product, name string) error {
 // PrintUninstallResult writes what --uninstall did.
 func PrintUninstallResult(w io.Writer, res UninstallResult) {
 	if len(res.Removed)+len(res.Left)+len(res.Failed) == 0 {
-		fmt.Fprintln(w, "no service definition of mcremote or mcrelay was found")
+		products := res.Products
+		if len(products) == 0 {
+			products = []string{"mcremote", "mcrelay"}
+		}
+		fmt.Fprintf(w, "no service definition of %s was found\n", strings.Join(products, " or "))
 		return
 	}
 	for _, it := range res.Removed {
@@ -273,7 +298,11 @@ func PrintUninstallResult(w io.Writer, res UninstallResult) {
 	for _, it := range res.Failed {
 		fmt.Fprintf(w, "failed:  %s %s service %s — %s\n", it.Product, it.Kind, it.Path, it.Reason)
 	}
-	if len(res.Removed) > 0 {
+	switch {
+	case len(res.Removed) == 0:
+	case res.FromInstaller:
+		fmt.Fprintln(w, "Configuration and data were left in place. The installer removes the binaries next.")
+	default:
 		fmt.Fprintln(w, "Configuration and data were left in place. Remove the binaries with the installer's --uninstall.")
 	}
 }

@@ -45,6 +45,7 @@ What it guarantees:
 | `--no-hooks` | `MCREMOTE_NO_HOOKS=1` | unset: run `setup-service --from-installer` |
 | `--verify-attestation` | — | unset; also verifies each download's attestation with `gh` |
 | `--allow-root` | — | unset: refuse to run as root |
+| `--force` | — | unset; with `--uninstall` only: delete the binaries even when a service cannot be removed |
 | `--dry-run`, `--uninstall`, `--help` | — | — |
 
 On the piped one-liner, flags go after `sh -s --`:
@@ -89,9 +90,11 @@ there and exits `2`. Install such a release with its own installer, from
 `https://github.com/maccavelli/magic-cli-remote/releases/download/<tag>/install.sh`.
 
 Exit codes: `0` success · `1` usage error, unsupported platform or missing
-tool · `2` download, checksum or version check failed (nothing changed, or the
-previous binaries restored) · `3` binaries installed, but `setup-service`
-failed.
+tool, or with `--uninstall` a service that could not be removed (nothing
+deleted) · `2` download, checksum or version check failed (nothing changed, or
+the previous binaries restored) · `3` binaries installed, but `setup-service`
+failed; or with `--uninstall`, deleted with `--force` although a service could
+not be removed, or a binary that could not be deleted.
 
 **What the service lines mean.** `setup-service` waits for the service to settle
 and reports what it observed, never what it merely requested:
@@ -318,27 +321,42 @@ service that was never there. Before PLAN S5f this was also true of a
 
 ## Uninstall
 
-Two commands, in this order:
-
 ```sh
-mcremote setup-service --uninstall
 curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh -s -- --uninstall
 ```
 
-`setup-service --uninstall` stops and removes every `mcremote` and `mcrelay`
-service definition, on every service manager, whose program is in the same
-folder as the `mcremote` running it. A definition that runs a binary from
-another folder is reported and left. It covers what `setup-service` set up,
-including an OpenRC user service.
+**What it does.** For each product it removes, the installer first runs that
+product's own `setup-service --uninstall --from-installer`, its
+`before_uninstall` hook
+([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md),
+amendment S9). Then it deletes the binaries and their `.prev` copies from
+`~/.local/bin`, or from the `--dir` you pass it.
 
-The installer's `--uninstall` deletes both binaries and their `.prev` copies
-from `~/.local/bin`, or from the `--dir` you pass it, and does nothing else.
-That is why `setup-service --uninstall` comes first: run alone, it would leave
-a service pointing at a deleted binary. The installer will do both once
-go-selfupdate-lib has a `before_uninstall` hook
-([issue 1](https://github.com/maccavelli/go-selfupdate-lib/issues/1)).
-Configuration and data under `~/.config` and `~/.local/share` are left in
-place deliberately.
+- **The hook removes only its own product's services**, on every service
+  manager, whose program is in the same folder. So
+  `--product mcrelay --uninstall` leaves `mcremote`'s service. A definition
+  that runs a binary from another folder is reported and left.
+- **A service that cannot be removed stops the uninstall:** nothing is deleted,
+  and the installer exits `1`. `--force` deletes the binaries anyway, and exits
+  `3`.
+- **`--dry-run`** lists the hooks it would run, as `would run <product> <args>`,
+  and the binaries it would remove.
+- **Configuration and data** under `~/.config` and `~/.local/share` are left in
+  place deliberately.
+
+`mcremote setup-service --uninstall`, run by hand, still removes every
+`mcremote` and `mcrelay` service from its folder at once.
+
+**An install made by v0.21.0 or earlier.** The hook runs the installed binary,
+and such a binary cannot run it: v0.21.0's refuses `--from-installer` with
+`--uninstall`, and older ones have no `--uninstall`. So the uninstall stops
+with exit `1` and deletes nothing. Remove the services by hand, then delete the
+binaries without the hooks:
+
+```sh
+mcremote setup-service --uninstall      # v0.21.0; before it: mcremote setup-service --remove, and mcrelay's if it has one
+curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh -s -- --uninstall --no-hooks
+```
 
 ## Testing
 

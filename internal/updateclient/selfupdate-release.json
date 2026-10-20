@@ -19,7 +19,9 @@
     "env_prefix": "MCREMOTE",
     "hooks": [
       {"when": "after_install", "product": "mcremote", "args": ["setup-service", "--from-installer"]},
-      {"when": "after_install", "product": "mcrelay", "args": ["setup-service", "--from-installer"]}
+      {"when": "after_install", "product": "mcrelay", "args": ["setup-service", "--from-installer"]},
+      {"when": "before_uninstall", "product": "mcremote", "args": ["setup-service", "--uninstall", "--from-installer"]},
+      {"when": "before_uninstall", "product": "mcrelay", "args": ["setup-service", "--uninstall", "--from-installer"]}
     ]
   }
 }

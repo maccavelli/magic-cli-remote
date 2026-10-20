@@ -206,11 +206,12 @@ func hookStartResult(plan HookPlan) Result {
 	return r
 }
 
-// CheckFromInstaller refuses --from-installer with a flag that picks another
-// mode.
-func CheckFromInstaller(refresh, remove, uninstall, printOnly bool) error {
-	if refresh || remove || uninstall || printOnly {
-		return fmt.Errorf("--from-installer cannot be combined with --refresh, --remove, --uninstall or --print-only")
+// CheckFromInstaller refuses --from-installer with a flag that picks a mode
+// the installer never runs. With --uninstall it is the installer's
+// before_uninstall hook (UninstallFromInstaller; MADR 0054 amendment S9).
+func CheckFromInstaller(refresh, remove, printOnly bool) error {
+	if refresh || remove || printOnly {
+		return fmt.Errorf("--from-installer cannot be combined with --refresh, --remove or --print-only")
 	}
 	return nil
 }

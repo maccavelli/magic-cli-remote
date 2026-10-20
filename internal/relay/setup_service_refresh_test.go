@@ -74,9 +74,16 @@ func TestRelaySetupServiceRefreshConflictsWithRemove(t *testing.T) {
 }
 
 // TestRelaySetupServiceUninstallConflicts: mcrelay's --uninstall cannot be
-// combined with --refresh or --remove (MADR 0054 PLAN S5e).
+// combined with --refresh or --remove (MADR 0054 PLAN S5e). With
+// --from-installer it is the installer's before_uninstall hook, which looks
+// only at mcrelay's own definitions (MADR 0054 amendment S9, U1).
 func TestRelaySetupServiceUninstallConflicts(t *testing.T) {
 	defer service.OverrideInstallOS("linux")()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(k, home+"/"+k)
+	}
 	for _, f := range []setupServiceFlags{{uninstall: true, refresh: true}, {uninstall: true, remove: true}} {
 		cfg, lvl, fmtv := "", "", ""
 		cmd := newSetupServiceCmd(&cfg, &lvl, &fmtv)
@@ -84,6 +91,16 @@ func TestRelaySetupServiceUninstallConflicts(t *testing.T) {
 		if err := runSetupService(cmd, f, cfg, lvl, fmtv); err == nil || !strings.Contains(err.Error(), "--uninstall cannot be combined") {
 			t.Errorf("%+v: %v, want a refusal", f, err)
 		}
+	}
+	var out bytes.Buffer
+	cfg, lvl, fmtv := "", "", ""
+	cmd := newSetupServiceCmd(&cfg, &lvl, &fmtv)
+	cmd.SetOut(&out)
+	if err := runSetupService(cmd, setupServiceFlags{uninstall: true, fromInstaller: true}, cfg, lvl, fmtv); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "no service definition of mcrelay was found" {
+		t.Fatalf("the hook's output:\n%s", got)
 	}
 }
 
@@ -100,7 +117,7 @@ func TestRelaySetupServiceFromInstaller(t *testing.T) {
 	}
 	for _, f := range []setupServiceFlags{
 		{fromInstaller: true, refresh: true}, {fromInstaller: true, remove: true},
-		{fromInstaller: true, uninstall: true}, {fromInstaller: true, printOnly: true},
+		{fromInstaller: true, printOnly: true},
 	} {
 		cfg, lvl, fmtv := "", "", ""
 		cmd := newSetupServiceCmd(&cfg, &lvl, &fmtv)
