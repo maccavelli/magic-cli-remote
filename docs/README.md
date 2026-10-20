@@ -397,7 +397,11 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | :--- | :--- |
 | understand how this fits together | [architecture.md](architecture.md) |
 | pair a phone | [Device pairing](../README.md#device-pairing) |
+| install the prebuilt binaries | [Install on Linux and macOS](../README.md#install-on-linux-and-macos), [Install on Windows](../README.md#install-on-windows) |
+| choose an installer option, or find what a renamed one became | [Linux options](guides/ops-linux-install.md#options), [Windows options](guides/ops-windows-install.md#options) |
 | run the daemon as a service | [Linux install](guides/ops-linux-install.md), [Windows install](guides/ops-windows-install.md) |
+| uninstall | [Linux and macOS](guides/ops-linux-install.md#uninstall), [Windows](guides/ops-windows-install.md#uninstall) |
+| grant Full Disk Access on macOS, or run a browser-downloaded binary | [ops-macos-tcc.md](guides/ops-macos-tcc.md) |
 | configure mcrelay | [config-mcrelay.md](guides/config-mcrelay.md) |
 | configure signed receipts | [receipts.md](guides/receipts.md) |
 | set up Headscale | [headscale.md](guides/headscale.md) |

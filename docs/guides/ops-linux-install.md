@@ -1,67 +1,130 @@
-# Linux install runbook (`install.sh`)
+# Linux install runbook
 
 <!-- markdownlint-disable MD013 -->
 
-Decision record: [MADR 0097](../decisions/0097-MADR-linux-curl-installer.md); implementation
-plan: [0097-PLAN](../decisions/0097-PLAN-linux-curl-installer.md).
+Decision records: [MADR 0097](../decisions/0097-MADR-linux-curl-installer.md) (the
+`curl | sh` install), and
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md),
+which replaced the hand-written script with one go-selfupdate-lib generates for each release.
 
 ```bash
 curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh
 ```
 
 The installer is a **bootstrap**, not a package manager. It places two verified
-binaries and hands off to `mcremote setup-service`. Upgrades are
-`mcremote update` ([MADR 0065](../decisions/0065-MADR-update-automation.md),
+binaries, then runs `mcremote setup-service --from-installer` and
+`mcrelay setup-service --from-installer`, which set up or refresh the service.
+Upgrades are `mcremote update` ([MADR 0065](../decisions/0065-MADR-update-automation.md),
 [0100](../decisions/0100-MADR-update-unit-refresh-and-daemon-reload.md) — see
 [Updating](#updating)), so this script is run once per host.
 
 What it guarantees:
 
-- **No root.** Everything lands under `$HOME`; the script never calls `sudo`.
+- **No root.** Everything lands under `$HOME`; the script never calls `sudo`,
+  and refuses to run as root unless given `--allow-root`.
 - **Verified.** Each binary's SHA-256 is compared against the published
   `SHA256SUMS` *before* anything is installed. A mismatch leaves an existing
   installation untouched.
+- **HTTPS only.** It downloads with `curl`, or with a `wget` that has
+  `--https-only`. BusyBox `wget` has no such option and is refused, so an
+  Alpine-style host needs `curl` installed first.
 - **No GitHub API call**, so the 60-requests/hour per-IP anonymous limit
   cannot break an install behind shared egress.
 - **Atomic.** Downloads are staged inside the install directory and renamed
-  into place, so a partial download can never become a live binary.
+  into place, so a partial download can never become a live binary. Each new
+  binary must then report the release's version (`v<X.Y.Z> (release)`), or the
+  previous ones are put back. The previous binary is kept as `<name>.prev`.
 
 ## Options
 
 | Flag | Environment variable | Default |
 |---|---|---|
-| `--version X.Y.Z` | `MCREMOTE_VERSION` | latest release |
-| `--dir PATH` | `MCREMOTE_INSTALL_DIR` | `~/.local/bin` |
-| `--no-service` | `MCREMOTE_NO_SERVICE=1` | unset |
-| `--with-relay-service` | — | unset (relay binary installed, no service) |
-| `--no-linger` | — | unset |
-| `--dry-run`, `--verbose`, `--uninstall`, `--help` | — | — |
+| `--version TAG` | `MCREMOTE_VERSION` | the installer's own release |
+| `--dir DIR` | `MCREMOTE_INSTALL_DIR` | `~/.local/bin` |
+| `--product NAME` (repeatable) | — | both `mcremote` and `mcrelay` |
+| `--no-hooks` | `MCREMOTE_NO_HOOKS=1` | unset: run `setup-service --from-installer` |
+| `--verify-attestation` | — | unset; also verifies each download's attestation with `gh` |
+| `--allow-root` | — | unset: refuse to run as root |
+| `--dry-run`, `--uninstall`, `--help` | — | — |
 
-Piped invocation cannot pass flags, so use the environment form:
+On the piped one-liner, flags go after `sh -s --`:
 
 ```bash
-curl -fsSL <url>/install.sh | MCREMOTE_NO_SERVICE=1 sh
+curl -fsSL <url>/install.sh | sh -s -- --no-hooks
 ```
 
-Exit codes: `0` success · `1` usage/unsupported platform · `2` download or
-checksum failure (nothing installed) · `3` binaries installed but the service
-did not start.
+**The service options are environment variables.** The installer passes its
+environment to `setup-service`, which reads these (`1` on; unset or `0` off):
 
-**What the service line means.** The installer waits for the service to settle
+| Variable | Effect |
+|---|---|
+| `MCREMOTE_WITH_RELAY_SERVICE=1` | also set up `mcrelay` as a service, beside `mcremote`'s |
+| `MCREMOTE_NO_LINGER=1` | skip `loginctl enable-linger` |
+| `MCREMOTE_FORCE_SERVICE=1` | overwrite an existing service definition from defaults |
+| `MCREMOTE_SVC_WAIT_SECS` | seconds to wait for the service to confirm it is running (default `15`) |
+
+```bash
+curl -fsSL <url>/install.sh | MCREMOTE_WITH_RELAY_SERVICE=1 sh
+```
+
+**Renamed from the earlier hand-written installer:**
+
+| Before | Now |
+|---|---|
+| `--no-service`, `MCREMOTE_NO_SERVICE=1` | `--no-hooks`, `MCREMOTE_NO_HOOKS=1` |
+| `--with-relay-service` | `MCREMOTE_WITH_RELAY_SERVICE=1` |
+| `--no-linger` | `MCREMOTE_NO_LINGER=1` |
+| `--force-service` | `MCREMOTE_FORCE_SERVICE=1` |
+| `--verbose` | removed |
+| `--version X.Y.Z` | `--version vX.Y.Z`; a version without its `v` still works |
+
+`--no-hooks` skips `setup-service` entirely: no service is set up on a first
+install, and on a second one the running daemon keeps running the previous
+binary until you restart it.
+
+**Installing an older release.** `--version` installs another release with
+this installer's steps. A release published before this installer reports its
+version in an older form, so it is refused: the installer puts back what was
+there and exits `2`. Install such a release with its own installer, from
+`https://github.com/maccavelli/magic-cli-remote/releases/download/<tag>/install.sh`.
+
+Exit codes: `0` success · `1` usage error, unsupported platform or missing
+tool · `2` download, checksum or version check failed (nothing changed, or the
+previous binaries restored) · `3` binaries installed, but `setup-service`
+failed.
+
+**What the service lines mean.** `setup-service` waits for the service to settle
 and reports what it observed, never what it merely requested:
 
-| Line | Meaning | Exit |
+| Line | Meaning | Installer exit |
 |---|---|---|
-| `running, and enabled at boot` / `supervised…` | confirmed running | 0 |
-| `starting — not yet confirmed running` | still coming up when the wait window closed; check with the printed command | 0 |
-| `FAILED to start` | confirmed not running; the backend's own diagnostic is printed beneath it | 3 |
+| `Running:           yes, confirmed after the start` | confirmed running | 0 |
+| `Running:           not yet confirmed — still starting when the wait ended`, and a `warning:` | still coming up when the wait window closed; check with the printed command | 0 |
+| `<name> is not running after setup: <why>. The definition is installed; see why with:` | confirmed not running; the backend's own diagnostic is printed beneath it | 3 |
+
+**What a second install does.** Each product's `setup-service --from-installer`
+looks for that product's service definition:
+
+- **None:** for `mcremote`, a first install, as plain `setup-service`. For
+  `mcrelay`, nothing: it prints that no relay service is set up, and how to
+  set one up.
+- **One that runs a binary from this folder:** it is refreshed as `update`
+  refreshes it, keeping the options baked into it (see [Updating](#updating)).
+  Then a running service is restarted on the new binary, a stopped one that is
+  enabled is started, and a disabled one is left stopped. Each start is
+  confirmed as above.
+- **One that runs a binary from another folder:** it is reported and left
+  alone, even with `MCREMOTE_FORCE_SERVICE=1`.
+- **`MCREMOTE_FORCE_SERVICE=1`** makes a definition this folder owns a full
+  `setup-service --force`, which resets every baked option to its default.
 
 ## Supported platforms
 
 `linux/amd64` and `linux/arm64`. The binaries are built with `CGO_ENABLED=0`
 and `-tags netgo,osusergo`, so they are **fully static** — one artifact per
 architecture runs on glibc (Ubuntu, Oracle, Rocky, Debian) and musl (Alpine)
-alike. 32-bit ARM, i686 and riscv64 are not published and are rejected by name.
+alike. 32-bit ARM, i686 and riscv64 are not published, and the installer
+refuses them, naming the platforms the release ships.
 
 The same `install.sh` also installs on Apple Silicon macOS (`darwin/arm64`).
 Intel Macs are not supported; see
@@ -71,7 +134,7 @@ a launchd LaunchAgent, not systemd; Full Disk Access is a separate grant, see
 
 ## Service backends
 
-The installer probes for a *rootless* service manager. What each can deliver:
+`setup-service` probes for a *rootless* service manager. What each can deliver:
 
 | Detected | Supervised (restart on crash) | Starts at boot | Notes |
 |---|---|---|---|
@@ -79,9 +142,8 @@ The installer probes for a *rootless* service manager. What each can deliver:
 | `launchd-agent` | yes | **no** (login session) | macOS LaunchAgent in `~/Library/LaunchAgents` |
 | `runit` | yes | only if `runsvdir` is started at boot | run script in `~/.local/share/runit/service` |
 | `s6` | yes | only if `s6-svscan` is started at boot | run script in `~/.local/share/s6/service` |
-| `openrc-user` | best effort | unverified | experimental upstream (OpenRC 0.60+) |
-| `openrc-system`, `sysvinit` | no | no | needs root; not attempted |
-| `none`, `wsl1`, `container` | no | no | binaries installed, run manually |
+| `openrc-user` | yes | only if `pam_openrc` starts user sessions | OpenRC 0.60+, user `default` runlevel |
+| `openrc-system`, `systemd-broken`, `none` | no | no | nothing written; prints how to run the daemon yourself |
 
 **Why only systemd gets boot persistence.** For a user service to start at
 boot, something running as root at boot must start it. systemd provides
@@ -89,14 +151,14 @@ exactly that through `loginctl enable-linger`. runit and s6 supervise
 rootlessly and correctly, but their `runsvdir`/`s6-svscan` must itself be
 started, and starting *that* at boot is a root action. macOS LaunchAgents
 are session-bound: they stop on logout, and there is no user-level linger.
-The installer therefore reports which of the two capabilities it actually
+`setup-service` therefore reports which of the two capabilities it actually
 achieved and never claims persistence it did not configure.
 
 **`setup-service` on runit, s6 and OpenRC.** `mcremote setup-service` and
-`mcrelay setup-service` now set up these supervisors themselves, with the
+`mcrelay setup-service` set up these supervisors themselves, with the
 same definitions as the systemd unit, and `update` restarts them
 ([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md),
-PLAN S5b and S5f). Its wording for what it achieved is the installer's:
+PLAN S5b and S5f). What it reports:
 
 - **runit and s6, session only.** If no `runsvdir` or `s6-svscan` of yours
   watches the service directory, `setup-service` starts one, detached from the
@@ -113,10 +175,10 @@ PLAN S5b and S5f). Its wording for what it achieved is the installer's:
   to run the daemon yourself, and exits 0. On `openrc-system` it also prints
   the root steps for a system service that runs the daemon as you.
 
-`setup-service` confirms the start the way the installer does, and
-`MCREMOTE_SVC_WAIT_SECS` bounds the wait for both. `MCREMOTE_NO_LINGER`,
-`MCREMOTE_FORCE_SERVICE` and `MCREMOTE_WITH_RELAY_SERVICE` also act on
-`setup-service` (`1` on; unset or `0` off; anything else refused). See
+`MCREMOTE_SVC_WAIT_SECS` bounds the verified start. `MCREMOTE_NO_LINGER`,
+`MCREMOTE_FORCE_SERVICE` and `MCREMOTE_WITH_RELAY_SERVICE` act on
+`setup-service` whether the installer runs it or you do (`1` on; unset or `0`
+off; anything else refused). See
 [config.md](config.md#mcremote-setup-service--mcremote---setup-service).
 
 Control commands per backend:
@@ -137,7 +199,7 @@ SVDIR=~/.local/share/runit/service sv status|up|down mcremote
 s6-svstat ~/.local/share/s6/service/mcremote      # status ("up (pid N) …")
 s6-svc -u|-d ~/.local/share/s6/service/mcremote   # bring up / take down
 
-# OpenRC user service (setup-service only)
+# OpenRC user service
 rc-service --user mcremote status|restart|stop
 ```
 
@@ -159,19 +221,28 @@ Almost always caused by entering the session with `su`, which skips
 call fails with an opaque D-Bus error. Reconnect over `ssh`, or use
 `machinectl shell $(id -un)@`.
 
-**`mcrelay` binds loopback by default.** `--with-relay-service` provisions
-`listen.host: 127.0.0.1`, because a public bind with no TLS is refused at
-startup and would leave the unit crash-looping (MADR 0099 F4b). To expose the
-relay, set `listen.host` and `tls.mode=letsencrypt|files` together.
+**Alpine and other BusyBox hosts** — install `curl` before the one-liner
+(`apk add curl`). BusyBox `wget` cannot refuse a downgrade to plain HTTP, so
+the installer will not use it.
+
+**`mcrelay` binds loopback by default.** `MCREMOTE_WITH_RELAY_SERVICE=1`
+provisions `listen.host: 127.0.0.1`, because a public bind with no TLS is
+refused at startup and would leave the unit crash-looping (MADR 0099 F4b). To
+expose the relay, set `listen.host` and `tls.mode=letsencrypt|files` together.
 
 **`~/.local/bin` not on `PATH`** — standard on Ubuntu/Debian via `~/.profile`,
 but not guaranteed in minimal containers or some RHEL-family shells. The
-installer reports this rather than editing profile files.
+installer prints the `export PATH=…` line to add rather than editing profile
+files.
 
 **AppArmor restricted user namespaces (Ubuntu 24.04+)** — does not affect
 `mcremote` itself, but breaks bubblewrap sandboxing inside the agent CLIs the
-daemon spawns, which surfaces later as a confusing sandbox failure. The
-installer detects and reports it; the remedy needs `sudo`:
+daemon spawns, which surfaces later as a confusing sandbox failure. When
+`/proc/sys/kernel/apparmor_restrict_unprivileged_userns` reads `1`,
+`mcremote setup-service --from-installer` prints a notice after its service
+step. The remedy needs `sudo` and is host-wide: see
+[config.md](config.md#codex-sandbox-unprivileged-user-namespaces-ubuntu-2404)
+and MADR 0048. From a clone of this repository:
 
 ```sh
 sudo sh scripts/bwrap-apparmor-fix.sh    # see MADR 0048
@@ -233,23 +304,25 @@ Two limitations worth knowing:
 - **The behaviour arrives with the release that installs it.** The parent process
   in an update is the previous binary, so a host running a pre-0100 release gets
   the refresh from its *next* update. To apply a unit fix immediately, re-run
-  `curl … | sh` (the installer refreshes on upgrade) or run
-  `mcremote setup-service --refresh` by hand.
+  `curl … | sh` (its `setup-service --from-installer` refreshes and restarts) or
+  run `mcremote setup-service --refresh` by hand.
 - **PATH is pinned, not re-derived.** If a release adds a directory to the
   service `PATH`, the refresh keeps your unit's existing value and says which
   entries it did not apply. `mcremote setup-service --force` re-derives them —
   at the cost of resetting every baked option to its default.
 
-If no service is installed at all — `--no-service`, or a host with nothing to
+If no service is installed at all — `--no-hooks`, or a host with nothing to
 supervise — `update` replaces the binary and exits 0 instead of failing on a
 service that was never there. Before PLAN S5f this was also true of a
 `runit`, `s6` or `openrc` host, whose service `update` could not cycle.
 
 ## Uninstall
 
+Two commands, in this order:
+
 ```sh
 mcremote setup-service --uninstall
-sh install.sh --uninstall
+curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh -s -- --uninstall
 ```
 
 `setup-service --uninstall` stops and removes every `mcremote` and `mcrelay`
@@ -258,21 +331,26 @@ folder as the `mcremote` running it. A definition that runs a binary from
 another folder is reported and left. It covers what `setup-service` set up,
 including an OpenRC user service.
 
-`install.sh --uninstall` stops and disables the service, removes the unit or
-run directory, and deletes both binaries. Configuration and data under
-`~/.config` and `~/.local/share` are left in place deliberately.
+The installer's `--uninstall` deletes both binaries and their `.prev` copies
+from `~/.local/bin`, or from the `--dir` you pass it, and does nothing else.
+That is why `setup-service --uninstall` comes first: run alone, it would leave
+a service pointing at a deleted binary. The installer will do both once
+go-selfupdate-lib has a `before_uninstall` hook
+([issue 1](https://github.com/maccavelli/go-selfupdate-lib/issues/1)).
+Configuration and data under `~/.config` and `~/.local/share` are left in
+place deliberately.
 
 ## Testing
 
-`scripts/install_test.sh` is offline and host-independent — it stubs `uname`
-and replaces `PATH`, so it produces identical results on a macOS workstation
-and a Linux runner:
+The installer is go-selfupdate-lib's template, and its tests live in that
+repository. This repository pins what it feeds the template: the `installer`
+block of `internal/updateclient/selfupdate-release.json`, checked by
+`TestReleaseSpecInstaller` in `internal/updateclient/spec_test.go`, and
+`setup-service --from-installer`, tested in `internal/cli/service`.
+
+To see what a release's installer would do on a host without changing
+anything:
 
 ```sh
-sh scripts/install_test.sh
-shellcheck -s sh scripts/install.sh          # must be clean; -s sh, not bash
-docker run --rm -v "$PWD:/w" -w /w alpine:3.22 sh scripts/install_test.sh
+curl -fsSL <url>/install.sh | sh -s -- --dry-run
 ```
-
-Use `-s sh` rather than `-s bash`: Alpine's `/bin/sh` is busybox `ash`, and the
-installer must stay POSIX.

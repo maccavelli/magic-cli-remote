@@ -36,8 +36,10 @@ verbatim, so raw strings still appear inside agent transcripts.
 ## Granting Full Disk Access
 
 `curl …/install.sh | sh` (and `make install`) place `~/.local/bin/mcremote`.
-Neither grants Full Disk Access — TCC has no programmatic grant API. Do this
-after the one-liner, then restart the LaunchAgent.
+Neither grants Full Disk Access — TCC has no programmatic grant API. The
+installer's last step, `mcremote setup-service --from-installer`, prints these
+steps with the binary's path and the LaunchAgent's label. Do this after the
+one-liner, then restart the LaunchAgent.
 
 1. System Settings → Privacy & Security → **Full Disk Access**.
 2. "+" → press ⌘⇧G in the file dialog → enter the binary path
@@ -49,6 +51,24 @@ after the one-liner, then restart the LaunchAgent.
    "Full Disk Access not granted" warn line means it did not take.
    `mcremote doctor` from a terminal probes the *terminal's* identity, not
    the LaunchAgent's — useful, but the startup log is authoritative.
+
+## A binary downloaded by a browser
+
+This is Gatekeeper, not TCC, but it stops the same binary. `curl` sets no
+quarantine attribute, so the one-liner's binaries run as installed. A binary
+you download with a browser instead, such as `mcremote-darwin-arm64` from the
+release page, carries `com.apple.quarantine`, and Gatekeeper refuses to run it
+while it is unsigned. Remove the attribute from the installed copy before its
+first run:
+
+```sh
+xattr -d com.apple.quarantine ~/.local/bin/mcremote
+```
+
+Nothing in the install clears it for you: a quarantined binary cannot run, so
+it could not run `setup-service` to clear it
+([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md),
+amendment S7d, A3).
 
 ## Keeping the grant across upgrades: signed builds
 

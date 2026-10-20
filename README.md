@@ -28,48 +28,63 @@ login session (it stops on logout — keep a login session for an always-on Mac)
 
 ### What it actually does
 
-The script works through five steps and tells you what it did at each one:
+Each release publishes its own `install.sh`, generated from the release by
+[go-selfupdate-lib](https://github.com/maccavelli/go-selfupdate-lib)
+([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](docs/decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)).
+It works through five steps:
 
 1. **Works out what machine it is on.** It reads `uname` and picks the right
    build for your CPU — `amd64` or `arm64`. If you are on something that has
    no published build (32-bit ARM, for example) it stops immediately and says
    so, rather than downloading something that cannot run.
-2. **Downloads the two binaries** for the newest release, `mcremote` and
-   `mcrelay`.
+2. **Downloads the two binaries** for its release, `mcremote` and `mcrelay`,
+   over HTTPS only. It uses `curl`, or a `wget` that can refuse plain HTTP.
+   BusyBox `wget` cannot, so it is refused: on Alpine, install `curl` first.
 3. **Checks them before trusting them.** Every release publishes a
    `SHA256SUMS` file, and the script compares what it downloaded against the
    published checksum. If the two disagree it stops and installs nothing —
    and if you already had a working copy, that copy is left exactly as it was.
-4. **Installs them to `~/.local/bin`.** Downloads are staged and then renamed
-   into place, so a half-finished download can never end up as a live binary.
-   If `~/.local/bin` is not on your `PATH`, the script tells you and prints
-   the line to add. It will not edit your shell profile behind your back.
-5. **Sets up the background service.** On a normal systemd machine it installs
-   a user service and enables *lingering*, which is the piece that lets the
-   daemon keep running after you log out and start again after a reboot. On
-   macOS it installs a user LaunchAgent (`~/Library/LaunchAgents`); there is
-   no user-level linger, so the agent is session-bound.
+4. **Installs them to `~/.local/bin`.** Downloads are staged beside the
+   binaries and renamed into place, and each new binary must report the
+   release's version, or the previous ones are put back. If `~/.local/bin` is
+   not on your `PATH`, the script prints the line to add. It will not edit
+   your shell profile behind your back.
+5. **Sets up the background service,** by running
+   `mcremote setup-service --from-installer`, then the same for `mcrelay`. On
+   a normal systemd machine that installs a user service and enables
+   *lingering*, which is the piece that lets the daemon keep running after you
+   log out and start again after a reboot. On macOS it installs a user
+   LaunchAgent (`~/Library/LaunchAgents`); there is no user-level linger, so
+   the agent is session-bound. `mcrelay` gets no service unless you ask for
+   one (below).
 
-Everything lands under your home directory. The script never asks for root
-and never touches anything outside `$HOME`.
+Everything lands under your home directory. The script refuses to run as
+root, and unless you pass `--dir` it touches nothing outside `$HOME`.
 
 ### Passing options
 
-Because the command pipes into `sh`, you cannot put flags after it — the
-shell would hand them to `sh` instead of to the script. Use environment
-variables instead:
+Flags go after `sh -s --`:
 
 ```bash
 URL=https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh
 
-# install the binaries but do not set up any service
-curl -fsSL "$URL" | MCREMOTE_NO_SERVICE=1 sh
-
-# install a specific release instead of the newest one
-curl -fsSL "$URL" | MCREMOTE_VERSION=0.13.2 sh
+# install the binaries but do not run setup-service
+curl -fsSL "$URL" | sh -s -- --no-hooks
 
 # install somewhere other than ~/.local/bin
-curl -fsSL "$URL" | MCREMOTE_INSTALL_DIR=$HOME/bin sh
+curl -fsSL "$URL" | sh -s -- --dir "$HOME/bin"
+```
+
+Each has an environment form too: `MCREMOTE_NO_HOOKS=1`,
+`MCREMOTE_INSTALL_DIR` and `MCREMOTE_VERSION`. The environment also reaches
+`setup-service`, so these work on the one-liner:
+
+```bash
+# also set up mcrelay as a service, beside mcremote's
+curl -fsSL "$URL" | MCREMOTE_WITH_RELAY_SERVICE=1 sh
+
+# skip lingering on Linux
+curl -fsSL "$URL" | MCREMOTE_NO_LINGER=1 sh
 ```
 
 If you would rather read the script before running it — a reasonable habit
@@ -78,9 +93,15 @@ with any `curl | sh` — download it first and run it with normal flags:
 ```bash
 curl -fsSLO https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh
 less install.sh
-sh install.sh --dry-run     # shows every decision, changes nothing
+sh install.sh --dry-run     # shows what it would download and where, changes nothing
 sh install.sh --help        # full flag list
 ```
+
+**Renamed in this installer.** `--no-service` and `MCREMOTE_NO_SERVICE` are
+now `--no-hooks` and `MCREMOTE_NO_HOOKS`. `--with-relay-service`,
+`--no-linger` and `--force-service` are now the variables
+`MCREMOTE_WITH_RELAY_SERVICE=1`, `MCREMOTE_NO_LINGER=1` and
+`MCREMOTE_FORCE_SERVICE=1`, which `setup-service` reads. `--verbose` is gone.
 
 ### Upgrading later
 
@@ -104,28 +125,54 @@ systemd unit or the launchd plist, it re-renders yours from the new template —
 keeping the options you baked in at setup time — and reloads the service manager
 before restarting. A definition you hand-edited is left alone and reported.
 
-Re-running the installer is also safe. It notices the daemons that are
-already running, stops them, swaps in the new binaries, and starts them back
-up. It refreshes a unit it recognises as its own; one you hand-edited is kept
-as you wrote it — pass `--force-service` to overwrite that from defaults.
+Re-running the installer is also safe. It swaps in the new binaries, and
+`setup-service --from-installer` then refreshes the service definition the
+same way `update` does and restarts the daemon on the new binary. A stopped
+service that is enabled is started; a disabled one is left stopped. A
+definition you hand-edited is kept as you wrote it, and so is one that runs a
+binary from another folder. To overwrite yours from defaults, set
+`MCREMOTE_FORCE_SERVICE=1`.
+
+To install a release published before this installer, use that release's own
+installer, from
+`https://github.com/maccavelli/magic-cli-remote/releases/download/<tag>/install.sh`.
+This installer's `--version` refuses those releases: their binaries report
+their version in an older form, so it puts back what was there and exits `2`.
+
+### Uninstall
+
+Two commands, in this order:
+
+```bash
+mcremote setup-service --uninstall
+curl -fsSL https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.sh | sh -s -- --uninstall
+```
+
+The first stops and removes the services that run a binary from this folder.
+The second deletes the binaries. Configuration and data stay. The installer
+cannot do the first step itself yet; that waits on a `before_uninstall` hook in
+go-selfupdate-lib ([issue 1](https://github.com/maccavelli/go-selfupdate-lib/issues/1)).
+If you installed with `--dir`, pass the same `--dir` to `--uninstall`.
 
 ### If your machine has no systemd
 
 Plenty of Linux environments do not have a per-user systemd: Alpine,
 containers, WSL1, and WSL2 unless you have explicitly turned systemd on. The
 installer still works on all of them — it verifies and installs the binaries
-exactly the same way, then tells you honestly that it could not configure a
-background service and shows you how to start the daemon yourself.
+exactly the same way, then `setup-service` tells you honestly that it could
+not configure a background service and shows you how to start the daemon
+yourself.
 
-Where a rootless supervisor *is* available it will use it. runit and s6 are
-both supported, and the script writes the service definition for you.
+Where a rootless supervisor *is* available it will use it. runit, s6 and
+OpenRC 0.60+ user services are all supported, and `setup-service` writes the
+service definition for you.
 
 One honest limitation, worth understanding rather than discovering later:
 **only systemd can give you start-on-boot without root.** Something running
 as root at boot has to launch your service, and systemd's lingering is the
 mechanism that does that for a normal user. runit and s6 will happily
 supervise the daemon and restart it if it crashes, but making *them* start at
-boot needs a one-time root action. The installer always tells you which of
+boot needs a one-time root action. `setup-service` always tells you which of
 the two you got, and never claims persistence it did not actually set up.
 
 Full per-environment detail, including WSL2 setup and the AppArmor note for
@@ -135,9 +182,9 @@ Ubuntu 24.04 and newer, is in
 ### macOS notes
 
 The same one-liner installs on macOS. Full Disk Access is **not** granted by
-the script — add `~/.local/bin/mcremote` in System Settings → Privacy &
-Security after install. Unsigned upgrades drop that grant; to keep it, sign
-with `MC_CODESIGN_IDENTITY` (see
+the installer — add `~/.local/bin/mcremote` in System Settings → Privacy &
+Security after install; `setup-service` prints the steps. Unsigned upgrades
+drop that grant; to keep it, sign with `MC_CODESIGN_IDENTITY` (see
 [docs/guides/ops-macos-tcc.md](docs/guides/ops-macos-tcc.md)).
 
 ## Install on Windows
@@ -149,10 +196,12 @@ PowerShell:
 irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1 | iex
 ```
 
-Binaries land in `%LOCALAPPDATA%\Programs\` and `mcremote setup-service`
-registers a Task Scheduler at-logon task — **no elevation at any point**. Once
-the task is registered, the first `mcremote update` moves both binaries into
-`%LOCALAPPDATA%\Programs\magic-cli-remote\`.
+Both binaries land in `%LOCALAPPDATA%\Programs\magic-cli-remote\`, which is
+added to your User `Path`, and the installer then runs
+`mcremote setup-service --from-installer`, which registers a Task Scheduler
+at-logon task — **no elevation at any point**. An install in the older
+per-product folders moves to the new one on its next update, or when you
+re-run the installer.
 
 Read [docs/guides/ops-windows-install.md](docs/guides/ops-windows-install.md) before relying
 on it: the binaries are not Authenticode-signed yet, the background task starts

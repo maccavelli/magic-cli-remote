@@ -28,31 +28,86 @@ Or download and inspect first, which is the better habit:
 ```powershell
 irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1 -OutFile install.ps1
 notepad install.ps1
-.\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-Binaries land in `%LOCALAPPDATA%\Programs\mcremote\` and
-`%LOCALAPPDATA%\Programs\mcrelay\` — **per-user, no elevation**, the analogue
-of `~/.local/bin` on Unix. Once the background task is registered, the first
-`mcremote update` moves both into one folder,
-`%LOCALAPPDATA%\Programs\magic-cli-remote\` (see
-[The folder move](#the-folder-move)).
+Each release publishes its own `install.ps1`, generated from the release by
+go-selfupdate-lib
+([0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)).
+It downloads both binaries over HTTPS, checks each against the release's
+`SHA256SUMS`, and installs them into one folder,
+`%LOCALAPPDATA%\Programs\magic-cli-remote\` — **per-user, no elevation**, the
+analogue of `~/.local/bin` on Unix. Each new binary must report the release's
+version, or the previous ones are put back. The previous binary is kept as
+`<name>.exe.prev`.
+
+It then runs `mcremote setup-service --from-installer`, which registers the
+background task on a first install (see
+[Running in the background](#running-in-the-background)). On a later install
+it refreshes the task and restarts it on the new binary, the way `update`
+does. A task that runs another folder's binary is reported and left alone.
+`mcrelay setup-service --from-installer` runs too, and does nothing unless a
+relay task exists.
 
 Windows has no per-user program folder that is on `PATH` by default, so the
-installer adds both folders to your **User** `Path`, as winget and Scoop do
-with theirs (MADR 0159 D16). It adds only what is missing and keeps every
-existing entry as written, including `%VAR%` references. It tells running
-programs about the change. The shell you installed from can use `mcremote`
-straight away; terminals that were already open need to be reopened.
+installer adds its folder to your **User** `Path`, as winget and Scoop do with
+theirs (MADR 0159 D16). It adds the folder only if it is missing, keeps every
+existing entry as written, including `%VAR%` references, and tells running
+programs about the change. Open a new terminal to use `mcremote` by name.
 
-To leave `Path` alone and get the command to run yourself instead, pass
-`-NoPathUpdate`. For the `irm | iex` one-liner, which cannot take parameters,
-set the environment variable first:
+### Options
+
+| Parameter | Environment variable | Default |
+| --- | --- | --- |
+| `-Version TAG` | `MCREMOTE_VERSION` | the installer's own release |
+| `-InstallDir DIR` | `MCREMOTE_INSTALL_DIR` | `%LOCALAPPDATA%\Programs\magic-cli-remote` |
+| `-Product NAME` | — | both `mcremote` and `mcrelay` |
+| `-NoHooks` | `MCREMOTE_NO_HOOKS=1` | unset: run `setup-service --from-installer` |
+| `-NoPathUpdate` | `MCREMOTE_NO_PATH_UPDATE=1` | unset: add the folder to the User `Path` |
+| `-VerifyAttestation` | — | unset; also verifies each download's attestation with `gh` |
+| `-DryRun`, `-Uninstall` | — | — |
+
+`irm | iex` cannot take parameters. Either set the environment variable first,
+or run the download as a script block:
 
 ```powershell
-$env:MCREMOTE_INSTALL_NO_PATH_UPDATE = '1'
+$env:MCREMOTE_NO_PATH_UPDATE = '1'
 irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1 | iex
+
+& ([scriptblock]::Create((irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1))) -NoPathUpdate
 ```
+
+**Renamed from the earlier hand-written installer:** `MCREMOTE_INSTALL_NO_PATH_UPDATE`
+is now `MCREMOTE_NO_PATH_UPDATE`. `MCREMOTE_VERSION`, `MCREMOTE_INSTALL_DIR` and
+`MCREMOTE_NO_HOOKS` are new on Windows. The earlier installer did not register
+the task; it printed `Next: mcremote setup-service`.
+
+**Installing an older release.** `-Version` refuses a release published before
+this installer, because its binaries report their version in an older form: it
+puts back what was there and fails with exit code `2`. Use that release's own
+`install.ps1`, from
+`https://github.com/maccavelli/magic-cli-remote/releases/download/<tag>/install.ps1`.
+
+Exit codes, when run with `-File`: `0` installed · `1` usage or environment
+error · `2` download, checksum or version check failed (nothing changed, or the
+previous binaries restored) · `3` installed, but `setup-service` failed. Under
+`iex` a failure is an error, `install failed (exit N)`, and the session stays
+open.
+
+### Uninstall
+
+Two commands, in this order:
+
+```powershell
+mcremote setup-service --uninstall
+& ([scriptblock]::Create((irm https://github.com/maccavelli/magic-cli-remote/releases/latest/download/install.ps1))) -Uninstall
+```
+
+The first stops and removes the tasks that run a binary from this folder. The
+second deletes the binaries and their `.prev` copies, and takes the folder off
+the User `Path` once neither is left. Configuration and data stay. The
+installer will do both once go-selfupdate-lib has a `before_uninstall` hook
+([issue 1](https://github.com/maccavelli/go-selfupdate-lib/issues/1)).
 
 ### SmartScreen
 
@@ -215,10 +270,10 @@ cannot reproduce (verdict `kept`), nothing moves. Otherwise:
 `--refresh --json` names the move in `migrated`. `--refresh --print-only`
 makes no move.
 
-Until `install.ps1` itself installs to the new folder, update with
-`mcremote update` rather than re-running `install.ps1`. A re-run puts the
-binaries back in the per-product folders and on `Path`. The task keeps running
-the new folder's copy, and the next refresh deletes the re-installed copies.
+Re-running `install.ps1` makes the same move. It installs into the new folder,
+and its `setup-service --from-installer` refreshes a task that still runs a
+per-product folder's copy, so the task moves as above. A binary the installer
+has just put in the new folder is newer than the old copy, and is kept.
 
 ## Durability caveat
 

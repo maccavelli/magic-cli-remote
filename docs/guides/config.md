@@ -620,8 +620,8 @@ At least one of `--keyless` or `--stale` is required.
 Examples: `deploy/systemd/mcremote.user.service`, `deploy/systemd/mcremote.service`,
 `deploy/launchd/com.magiccliremote.mcremote.plist`. See MADR/PLAN 0058.
 
-**Which service manager.** On Linux, `setup-service` detects the service manager the way
-`install.sh` does: a present `systemctl` decides alone, then runit, s6 and OpenRC, in that order
+**Which service manager.** On Linux, `setup-service` detects the service manager in this order:
+a present `systemctl` decides alone, then runit, s6 and OpenRC
 ([`0054-MADR-standardize-self-update-on-go-selfupdate-lib.md`](../decisions/0054-MADR-standardize-self-update-on-go-selfupdate-lib.md), PLAN S5a). It records the one it
 used in `service-backend` in the state directory, beside `service-unit`. `--refresh`, `--remove`,
 `update` and `doctor` follow that record. An install made before the record existed follows what is
@@ -671,8 +671,9 @@ not that the daemon stayed up. After starting, `setup-service` watches the servi
 - `--no-start` skips the wait. A value of `MCREMOTE_SVC_WAIT_SECS` that is not a positive whole
   number is refused before anything is written.
 
-**The installer's options as environment variables** (PLAN S5d). They are named as `install.sh`
-names them, so one setting serves both:
+**The installer's options as environment variables** (PLAN S5d). The release installer passes
+its environment to `setup-service --from-installer`, so a variable set on the installer's command
+line, such as `curl … | MCREMOTE_WITH_RELAY_SERVICE=1 sh`, reaches it:
 
 | Variable | Effect | Read by |
 |----------|--------|---------|

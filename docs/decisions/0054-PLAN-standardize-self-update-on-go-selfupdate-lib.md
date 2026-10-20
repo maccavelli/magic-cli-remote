@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-19
+date: 2026-10-20
 associated-madr: "0054-MADR-standardize-self-update-on-go-selfupdate-lib.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -3801,4 +3801,144 @@ make check-records / make markdownlint-docs            exit=0 / exit=0
   - `installerhook.go` and `installerhook_unix_test.go`;
 - `internal/cli/setup_service.go` and `setup_service_test.go`;
 - `docs/guides/config.md`;
+- this PLAN.
+
+### S7d, 2026-10-20 — staged for the owner's commit
+
+**Approval.** The owner committed S7d0 (`b94550e8`) and said "Proceed".
+
+**Step 1, the scripts.** `git rm` of `scripts/install.sh`, `scripts/install.ps1`,
+`scripts/install_test.sh`, `scripts/install_ps1_test.ps1` and `scripts/install_ps1_unit_test.ps1`.
+
+**Step 2, CI.** `.github/workflows/ci.yml` loses five steps:
+
+- `install.sh tests (hermetic)` in the `go` job;
+- the four `Installer unit test` and `Installer fixture test` steps in `go-native`, with their
+  comment, including the line at `:312` ("This job gates `release`, which publishes install.ps1").
+  The block ran to `:347`, one line past the `:346` the step names: the last step's `exit`.
+- The workflow still parses: 7 jobs and 52 steps at `HEAD`, 7 jobs and 47 steps after.
+
+**Step 3, the documentation:**
+
+- **`README.md`:** the two install sections are rewritten for the generated installers.
+- **`docs/guides/ops-linux-install.md`:** rewritten:
+  - the title loses `(install.sh)`;
+  - the options, the service variables, and a table of what each old option became;
+  - the exit codes and the service lines as `setup-service` prints them;
+  - what a second install does;
+  - the backends as `setup-service` detects them;
+  - the BusyBox note, the AppArmor note, the uninstall and the testing section.
+- **`docs/guides/ops-windows-install.md`:**
+  - the install section, with an options table, the rename, the exit codes and an uninstall;
+  - the re-run caveat at `:218-221` becomes how a re-run makes the folder move.
+- **`docs/guides/ops-macos-tcc.md`:**
+  - `:38` says the hook prints the Full Disk Access steps;
+  - a new section, "A binary downloaded by a browser", gives `xattr -d com.apple.quarantine` (A3).
+- **`docs/guides/config.md`:** `:623-624` and `:674-676` no longer name `install.sh`. The first
+  states the detection order alone. The second says the installer passes its environment to the
+  hook.
+- **`docs/README.md`:** four rows in "I want to…": install, the options and renames, uninstall, and
+  the macOS grant and browser download.
+
+**What the documentation states,** as the PLAN's S7d step 3 and its amendment list it:
+
+- **The generated options.** Taken from the rendered scripts of the S7b rehearsal.
+- **D8's renames:**
+  - `MCREMOTE_NO_SERVICE` became `MCREMOTE_NO_HOOKS`;
+  - `MCREMOTE_INSTALL_NO_PATH_UPDATE` became `MCREMOTE_NO_PATH_UPDATE`.
+- **The options that are now variables:** `--with-relay-service`, `--no-linger` and
+  `--force-service`.
+- **The BusyBox `wget` refusal (D12),** and `apk add curl`.
+- **The two-command uninstall (D11),** linked to the library's issue 1.
+- **What the hook does on a second install,** case by case, from `installerhook.go`.
+- **The Windows task.** The installer now registers it; the earlier one printed
+  `Next: mcremote setup-service` (report G6).
+- **The browser download on macOS (A3).**
+- **`--version` of an older release,** and the correction below.
+
+**A correction to the S7b finding on `--version`.**
+
+- **What S7b said.** `--version` of a release from before S7a fails its hook, and the installer
+  exits 3 with the binaries installed.
+- **What happens to every published release.** The installer stops earlier, at its version check,
+  and exits 2:
+  - `v0.20.2`, the newest tag, prints `mcremote %s (%s) %s` (`git show v0.20.2:internal/cli/root.go`,
+    `VersionString`). S2 changed that line later.
+  - The template's `check_identity` requires `<tag> (release)`. On a mismatch it puts back the
+    previous binaries, or removes new ones that had none, and exits 2 before any hook runs.
+- **Where S7b's case applies.** Exit 3 would follow only for a release with S2's version line and no
+  `--from-installer`. No such release was published, because no tag has been made since S2.
+- **What changes.** Only the exit code the guides give. The advice was already to use that
+  release's own installer, and it stands.
+
+**Step 4, the comments that stay.** They cite the deleted scripts as the source a port came from, as
+of `HEAD` before this commit:
+
+- `internal/cli/service/`:
+  - `advisories.go:12`;
+  - `detect.go:79`, `:151`;
+  - `installerenv.go:15`;
+  - `installerhook.go:15`, `:64`;
+  - `migrate.go:17` and `unsafe_windows.go:13`, which cite `scripts/install.ps1`;
+  - `result_print.go:176`;
+  - `settle.go:19`, `:24`;
+  - `supervisor.go:18`;
+  - `uninstall.go:17`.
+- **Comments that name `install.sh` or `install.ps1` with no path also stay:** in that package and
+  its tests, in `defaults_mcrelay.yaml:13`, and in `scripts/install-binary.sh:61`.
+- **One printed line stays as it is.** `result_print.go:136` prints "Install/update it with:
+  install.ps1" for a Windows task. That is still the release's asset name.
+
+**Checks:**
+
+- **The link resolver** (`s5h_links.py`) reads every relative link and fragment. Nothing else checks
+  links in guides and READMEs.
+  - **Seen to fail first.** A scratch file held one good link, which passed, and three bad ones:
+    a link to the deleted `scripts/install.sh`, a fragment typo, and the old title's fragment
+    `#linux-install-runbook-installsh`. It reported the three as dead, exit 1.
+  - **Then the edited files.** `README.md`, `docs/README.md`, `ops-linux-install.md`,
+    `ops-windows-install.md`, `ops-macos-tcc.md` and `config.md`: 0 dead, exit 0.
+  - Only `docs/README.md` links to a fragment of the rewritten guides.
+- **A sweep for the deleted files.** Outside the records, `git grep` finds:
+  - the comments listed above;
+  - the rename tables, which name the old variables on purpose.
+  - No test, Makefile target or script reads the deleted files.
+- **The piped flag form.** The guides now say flags go after `sh -s --`. It was run on the S7c local
+  release's `install.sh`, with `sh -s -- … < install.sh` standing in for the `curl` pipe:
+  - `--dry-run --dir <scratch>` printed the two downloads into that folder, exit 0, and the folder
+    was not created;
+  - `--uninstall --dry-run` printed `would remove /Users/<user>/.local/bin/mcremote`, then the same
+    for `mcrelay`, and `configuration, if any, is left in place`, exit 0;
+  - `--version 0.20.2 --dry-run` resolved `…/releases/download/v0.20.2/…`, exit 0, so a version
+    without its `v` works.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (every tracked Go file; S7d changes none)            exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                                            exit=0 / exit=0
+go test -race -count=1 ./...                                            exit=0, 42 ok
+make check-records / make markdownlint-docs                             exit=0 / exit=0
+```
+
+- **Re-run after the last edits.** Two `README.md` edits came after the gate run: a record cited by
+  its full filename, and "unless you pass `--dir`". `make markdownlint-docs` and the link resolver
+  were run again: exit 0, and 0 dead.
+
+**Not done.**
+
+- **No live install in S7d.** The phase deletes and documents. S7c ran the generated installers on
+  every host L1 names.
+- **Not run anywhere:** the Windows script-block form with `-NoPathUpdate` or `-Uninstall`. The
+  guide gives it as the template's own header does (`& ([scriptblock]::Create((irm …))) -Version`).
+- **The `curl` pipe with `--uninstall`.** S7c ran the installer's `--uninstall` from a file. Here
+  only the `sh -s --` dry run was run.
+
+**Files for S7d's commit:**
+
+- deleted: the five `scripts/install*` files above;
+- `.github/workflows/ci.yml`;
+- `README.md`, `docs/README.md`;
+- `docs/guides/ops-linux-install.md`, `ops-windows-install.md`, `ops-macos-tcc.md` and `config.md`;
 - this PLAN.
