@@ -1446,6 +1446,9 @@ The record stays `accepted`. The amendment changes no decision above: D11 said t
     next step, is reworded for both paths.
 - **S9-4 — Release signing is not adopted here.** It is opt-in and needs a key, a verifier in
   `Config.ManifestVerifiers` and a first signed tag. That is a decision of its own.
+  - Decided 2026-10-20 in
+    [0205-MADR-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md](0205-MADR-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md):
+    no signing; `v*` tags are limited to the owner by a tag ruleset.
 - **S9-5 — The release that ships this is the second S8 release.** `v0.21.0` → that release is the
   first update run by a binary with S8a's code. So it is when S8a Deviation 1's Windows check and
   the live probe checks are run.
@@ -1460,3 +1463,107 @@ The record stays `accepted`. The amendment changes no decision above: D11 said t
 - Neutral, because the publish workflow's new inputs are optional and left unset.
 - Bad, under U1, because an install made by `v0.21.0` or earlier needs the two commands once, or
   `--force`.
+
+## Amendment — 2026-10-20 (S10, S11): the Task Scheduler refresh, and the macOS run
+
+~~**Status of this amendment: proposed.**~~ **Decided by the owner on 2026-10-20:** "Approve S10a"
+for S10-1 and S10-2, and "M1 real, backed up" for S11, each the recommended option. The record stays
+`accepted`. S10 corrects a defect PLAN S9d found in this product's own code; it reverses no decision
+above. S11 reverses S7c Deviation 3 ("Skip macOS").
+
+### What S9d's warning comes from
+
+PLAN S9d's Windows update printed "Task Scheduler\mcremote was rewritten and the service manager
+was not reloaded; the next start may run the previous definition", though the task then ran
+`v0.22.0`. Read on 2026-10-20, at `v1.17.1` and this repository's `HEAD`, `8385b133`:
+
+- **F1 — The update disables the task before it refreshes it.**
+  - The managed session runs `Stop`, then `Reconcile`, then `Start` (library
+    `selfupdate/managed.go:193`, `:208`, `:213`).
+  - The Task Scheduler backend's `Stop` disables an enabled task and records that it did, and
+    `Start` enables it again (library `selfupdate/service/taskscheduler/lifecycle.go:107`, `:267`).
+    The disable keeps the watchdog trigger from relaunching the old binary mid-update.
+- **F2 — So every managed update on Windows rewrites the task.**
+  - The refresh always renders `Enabled` true (`internal/cli/service/schtasks.go:144`), and the
+    comparison counts the task's `Enabled` (`setup_schtasks.go:179`, `:291`).
+  - During an update it compares against the task `Stop` just disabled. They differ, so it backs
+    the task up, re-registers it and reports `changed` (`refresh_schtasks.go:84-108`).
+  - S9d shows both sides. The install hook, which runs no `Stop`, reported "service definition
+    unchanged: Task Scheduler\mcremote". The update then, with the same template in `v0.21.0` and
+    `v0.22.0`, reported a rewrite. `git diff v0.21.0 v0.22.0` changes no file the task is rendered
+    from.
+- **F3 — And every rewrite warns.**
+  - `refreshSchtasks` never sets `reloaded` (`refresh_schtasks.go:27-109`). The library's exec
+    reconciler adds the warning whenever a receipt is `changed` and not `reloaded` (library
+    `selfupdate/service/execreconciler.go:133-138`).
+  - Task Scheduler has no reload step: a re-registered definition is what its next run uses. So on
+    Windows the warning is never true.
+- **F4 — Inferred from the code, not yet observed through an update: an update can undo a stop.**
+  - The documented way to stop the service is to disable the task, then end it, "and keep it
+    stopped" (`docs/guides/ops-windows-install.md:213-217`). The backend's `Stop` leaves a
+    disabled, idle task alone, and the session then starts nothing (library
+    `taskscheduler/lifecycle_test.go:297`, `TestStopDisabledIdle`).
+  - But the refresh re-registers the task enabled, and its watchdog trigger runs every minute
+    (`schtasks.go:121-131`). So the daemon would start within a minute of an update.
+  - The install hook would do the same, and then report the service as "started on the new binary
+    (it was stopped and is enabled)" (`installerhook.go:263`).
+  - The same mechanism was measured once already, through `setup-service --force --no-start`:
+    "Disabled, then Ready/Enabled at once, then Running 75 s later" (MADR 0201 D22, amended
+    2026-10-18). That fix covered `setupSchtasks` only, not the refresh.
+- **F5 — launchd has the same gap in the receipt, with a different effect.**
+  - `refreshLaunchd` never sets `reloaded` either (`refresh.go:300-319`).
+  - Under an update, the launchd backend's `Stop` boots the job out and its `Start` bootstraps it,
+    which reads the new plist. So a rewrite there is followed by the new definition, and the
+    warning would be wrong too.
+  - A job that is loaded but not running is not booted out by `Stop` (library
+    `launchd/reconcile_unix_test.go:50-56`). There the warning would be right.
+  - No plist template has changed since `v0.21.0`, so no update has hit this. It is unobserved.
+
+### Proposed decisions (S10)
+
+- **S10-1 — The refresh keeps the task's enabled state.** `refreshSchtasks` renders the task as
+  enabled or disabled as it is registered, with `withTaskDisabled` (`setup_schtasks.go:109`), which
+  `setupSchtasks` already uses for `--no-start` (`:32-38`).
+  - An update's disabled task then compares unchanged. Nothing is re-registered, backed up or warned.
+  - A task the operator disabled stays stopped through an update or a reinstall, as the guide
+    promises.
+  - A task that does need a new definition is re-registered as `Stop` left it, and `Start` enables
+    it again, as now.
+  - Not taken: ignoring `Enabled` in the comparison. That would still re-enable a stopped task
+    whenever a template changes.
+- **S10-2 — A Task Scheduler re-registration reports `reloaded: true`.** That is what the receipt
+  field means for a manager with no separate reload step. The fix is in this product's receipt, not
+  in the library's warning, which is correct for systemd.
+- **S10-3 — launchd is not changed here.** F5 is unobserved; S11 looks for it.
+- **S10-4 — It ships as `v0.22.1`,** on the owner's ask. The receipt is written by the *new* binary,
+  so an update from `v0.22.0` to `v0.22.1` already shows the fix.
+
+### The macOS run (S11)
+
+S7c Deviation 3 skipped macOS because a scratch `HOME` does not isolate launchd: the hook would
+bootstrap a job into the real login session. Since then, PLAN S9c and S9d ran on the Windows test
+host's real install, backed up first and restored after, at the owner's choice. This Mac has a real
+install: `com.magiccliremote.mcremote.plist`, running `~/.local/bin/mcremote` `0.20.1` (read on
+2026-10-20).
+
+- **M1 — This Mac's real install, backed up and restored, as on Windows (recommended).**
+  - Good, because it is the only run on a real operator's Mac, Full Disk Access and all.
+  - Bad, because it replaces the binary that holds the Full Disk Access grant. Restoring the same
+    bytes should restore the grant, since the grant follows the code signature, but that is not yet
+    observed.
+- **M2 — A GitHub-hosted macOS runner, dispatched by hand.**
+  - Good, because it is disposable and touches no operator account.
+  - Bad, because it needs a new workflow, and whether a hosted runner's `gui/<uid>` domain accepts a
+    bootstrap is unconfirmed. It also has no Full Disk Access to observe.
+- **M3 — Keep macOS unrun.** The launchd path stays covered by tests alone, and F5 stays unobserved.
+
+### Consequences of this amendment
+
+- Good, because a Windows update stops warning about a reload that does not exist, and stops
+  rewriting a task that has not changed.
+- Good, because a task the operator stopped stays stopped through an update and a reinstall, as
+  `ops-windows-install.md` already says it does.
+- Neutral, because a task that does need rewriting is still backed up and restorable, as now.
+- Bad, because the refresh now carries one piece of state from the registered task into what it
+  renders. A test has to keep the comparison and the render agreeing on it, or the task would be
+  rewritten on every update again.

@@ -392,6 +392,10 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0202 | REPORT | go-llmprovider-sdk provider-auth adoption assessment for magic-cli-remote | [0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md](../docs/reports/0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md) |
 | 0203 | MADR | Skip the full CI for a push or pull request that changes only Markdown, and check it with a docs workflow that also runs the tests that read Markdown | [0203-MADR-skip-full-ci-for-docs-only-pushes.md](decisions/0203-MADR-skip-full-ci-for-docs-only-pushes.md) |
 | 0203 | PLAN | Implement skipping the full CI for docs-only pushes, with a docs workflow that runs the Markdown-reading tests | [0203-PLAN-skip-full-ci-for-docs-only-pushes.md](decisions/0203-PLAN-skip-full-ci-for-docs-only-pushes.md) |
+| 0204 | MADR | Isolate the orphan-reaper tests from other packages' startup sweeps | [0204-MADR-isolate-the-orphan-reaper-tests-from-concurrent-sweeps.md](decisions/0204-MADR-isolate-the-orphan-reaper-tests-from-concurrent-sweeps.md) |
+| 0204 | PLAN | Implement isolating the orphan-reaper tests from other packages' startup sweeps | [0204-PLAN-isolate-the-orphan-reaper-tests-from-concurrent-sweeps.md](decisions/0204-PLAN-isolate-the-orphan-reaper-tests-from-concurrent-sweeps.md) |
+| 0205 | MADR | Do not sign release manifests while every release stays immutable on GitHub | [0205-MADR-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md](decisions/0205-MADR-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md) |
+| 0205 | PLAN | Implement not signing release manifests, with release tags limited to the owner | [0205-PLAN-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md](decisions/0205-PLAN-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

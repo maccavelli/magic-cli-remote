@@ -1,5 +1,5 @@
 ---
-status: complete
+status: in-progress
 date: 2026-10-20
 associated-madr: "0054-MADR-standardize-self-update-on-go-selfupdate-lib.md"
 ---
@@ -1064,6 +1064,68 @@ Only on the owner's explicit ask in that turn:
    - **The Linux test host,** under a scratch unit: `mcremote update` from `v0.21.0` passes the
      admin-socket probe, with a baked `--data-dir`.
 3. Mark this PLAN `complete` once all of these are recorded.
+
+## Amendment — 2026-10-20 (S10, S11): the Task Scheduler refresh, and the macOS run
+
+**Status: approved** by the owner on 2026-10-20: "Approve S10a", and "M1 real, backed up" for S11.
+This implements the MADR's "Amendment — 2026-10-20 (S10, S11)". S1 to S9d stay complete as
+recorded. The front matter is `in-progress` from S10a's approval, and returns to `complete` when the
+last sub-phase is recorded. S10a starts once this amendment is committed. S10b and S11 each need
+the owner's explicit ask in their turn. Each sub-phase is test-first, and is staged for the owner's
+commit on its own with its own record, under the rules for every phase.
+
+### S10a — The refresh keeps the task's enabled state, and reports the re-registration (S10-1, S10-2)
+
+Scope: `internal/cli/service/refresh_schtasks.go` and `refresh_schtasks_test.go`, and
+`installerhook_test.go` if the hook's message needs a test of its own.
+
+1. `refreshSchtasks` renders the task with the registered task's `Enabled`, through
+   `withTaskDisabled` when the registered task is disabled, before it compares.
+2. A re-registration sets `res.Reloaded = true`. A verdict of `unchanged`, `kept` or `none` leaves it
+   false: nothing was registered.
+3. **Tests, each seen failing first on a scratch copy of the tree, on the `runSchtasks` seam:**
+   - a registered task that differs from the render only by a disabled `Settings` is `unchanged`,
+     with no `/create` call and no backup;
+   - a disabled task that needs a new definition is registered disabled, and the receipt is
+     `changed` and `reloaded`;
+   - an enabled task that needs a new definition is registered enabled, and the receipt is
+     `changed` and `reloaded`;
+   - the `--json` receipt carries `"reloaded": true` for a re-registration, so the old binary's
+     library adds no warning;
+   - through the install hook, a disabled task is reported "left stopped", not "started".
+4. **Verification:** `make preflight`; `make ci-windows` on the Windows test host; the Linux host's
+   tests.
+
+### S10b — `v0.22.1`, and the Windows checks (S10-4)
+
+Only on the owner's explicit ask in that turn:
+
+1. Rehearse, then tag `v0.22.1`. Verify the release contract as S8d did, against `v0.22.0`.
+2. **On the Windows test host,** with the real install backed up and restored as in S9d:
+   - **F4, on the old code first:** install `v0.21.0`, disable and end the task as the guide says,
+     then `mcremote update --yes --version v0.22.0`. Record whether the daemon runs again within
+     150 s. That confirms F4, or records that it does not hold.
+   - **The fix, running:** install `v0.22.0`; `mcremote update --yes` to `v0.22.1`. It prints no
+     "not reloaded" warning, the refresh reports the task unchanged, and the old daemon exits 0.
+   - **The fix, stopped:** install `v0.22.0`, disable and end the task, update to `v0.22.1`. After
+     150 s the task is still disabled and no daemon runs.
+
+### S11 — The macOS run (M1, the owner's choice)
+
+Starts only on the owner's explicit ask, after S10b. Under **M1**, on this Mac's real install:
+
+1. **Back up:** the LaunchAgent plist, the binaries in its folder, the recorded service state, and
+   the job's `launchctl print` state. Record how the Full Disk Access grant can be observed. If it
+   cannot be, the record says so.
+2. **Install** `v0.22.0` with its `install.sh` over the real install. The hook upgrades the job, and
+   prints the Full Disk Access notice (S7d0).
+3. **Update** to `v0.22.1`. Health passes. Record any "not reloaded" warning (F5).
+4. **Uninstall** with the installer. No plist and no binary is left.
+5. **Restore:** the binaries' bytes, the plist and the state; bootstrap the job; check that it runs
+   `0.20.1` and that the snapshot matches the backup, the Full Disk Access check included where step
+   1 found one.
+
+M2, a hosted runner, and M3, no run, were not chosen.
 
 ## S1–S8 execution record
 
