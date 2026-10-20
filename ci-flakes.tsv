@@ -16,3 +16,4 @@ run_id	job_name	commit_sha	first_attempt_result	retry_result	failing_test	timest
 37177612995	Go (windows/amd64)	b5ed5a3062de005b7c3fff6f4a5130a5856c6173	fail	fail	TestEventTypesAreDocumented	2026-10-04T04:41:14Z
 37177612995	Go (linux/arm64)	b5ed5a3062de005b7c3fff6f4a5130a5856c6173	fail	fail	TestEventTypesAreDocumented	2026-10-04T04:40:19Z
 39471008509	Go (linux/arm64)	e3baf73aedd38f18be3f71fe7a1bdd6c941152ba	fail	pass	TestRunNotifiesSystemd	2026-10-20T18:02:33Z
+39481886172	Go (linux/arm64)	8802be5ecc9be9ca463c7a0a1f888da61da1bbab	fail	pass	TestReapOrphanEnginesKillsOrphan	2026-10-20T19:16:19Z
