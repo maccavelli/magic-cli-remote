@@ -1239,3 +1239,61 @@ That record's fleet is paid AWS and DigitalOcean hosts.
 - **M1:**
   - **A binary kept in the new folder must report its identity,** or the move is not made.
   - **A copy that fails its check is removed,** so a later move cannot keep it.
+
+## Amendment — 2026-10-19 (S7d): the shipped installer's advisories
+
+~~**Status of this amendment: proposed.**~~ **Decided by the owner on 2026-10-19:** port the
+advisories rather than drop them, and then "Approve; document A3", which approves A1, A2 and A3
+as proposed. The record stays `accepted`.
+
+### What S7d's reading found
+
+Three behaviours of the shipped `install.sh` are not in the generated installers, and the
+report's G1–G8 table does not list them:
+
+- **The AppArmor notice.** It runs when `/proc/sys/kernel/apparmor_restrict_unprivileged_userns`
+  is `1` (`scripts/install.sh:895-902`). `mcremote` itself is unaffected, but the agent CLIs'
+  bubblewrap sandbox fails.
+- **The macOS Full Disk Access note** (`:904-913`). It says how to grant the access and that an
+  unsigned upgrade drops the grant.
+- **Clearing `com.apple.quarantine` on macOS** (`clear_quarantine`, `:273-281`). It was run from
+  the shell, with `xattr -d`, on each installed binary.
+
+The shipped script printed the first two on every install, whatever the service result
+(`advisories`, called at `:1113`).
+
+### Proposed: port the two notices; document the quarantine
+
+- **A1 — The AppArmor notice moves into `setup-service --from-installer`, for `mcremote`.**
+  - It is printed on Linux whenever that file reads `1`, after whatever the hook did.
+  - The text is the shipped one. The remedy names
+    [0048-MADR-codex-sandbox-namespace.md](0048-MADR-codex-sandbox-namespace.md) and the Linux guide, because
+    an installer run through `curl` has no `scripts/` folder to run `bwrap-apparmor-fix.sh` from.
+- **A2 — The Full Disk Access note moves into `setup-service --from-installer`, for `mcremote`.**
+  - It is printed on macOS on every run.
+  - It names the binary in the hook's own folder and the LaunchAgent's label.
+- **A3 — The quarantine clearing is not ported. It is documented instead.**
+  - **Why.** The generated `install.sh` runs the installed `mcremote` before any hook: its identity
+    check runs `mcremote version`. macOS Gatekeeper blocks a quarantined, unsigned binary when it
+    is run. So a binary that still had the attribute would fail the identity check, and the hook
+    that could clear it would never run.
+  - **What setup-service could still do.** Only remove the attribute from a binary that is already
+    running, where it no longer matters.
+  - **Why it rarely arises.** `curl`, which the documented install uses, does not set the attribute,
+    as `install.sh:273` notes.
+  - **What is documented.** The macOS guide gives `xattr -d com.apple.quarantine` for a binary
+    fetched by a browser.
+  - **The alternative.** Port it anyway, knowing it can act only on a binary that is already
+    running.
+- **Only `mcremote`'s hook prints them.** The installer runs both products' hooks, so printing in
+  `mcrelay`'s too would show each notice twice. Both notices are about `mcremote`: the agent CLIs
+  are its children, and the grant is its own.
+
+### Consequences of this amendment
+
+- Good, because an Ubuntu 24.04+ host and a Mac still get the warnings the shipped installer gave
+  them, on every install.
+- Neutral, because `setup-service --from-installer` prints two notices that plain `setup-service`
+  does not. The notices belong to an install, not to a setup by hand.
+- Bad, because the quarantine clearing is lost. On the documented `curl` path it removed nothing,
+  and the documented `xattr` command covers a browser download.

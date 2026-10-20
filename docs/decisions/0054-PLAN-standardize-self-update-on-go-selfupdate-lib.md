@@ -870,6 +870,59 @@ Only after S7c passes.
 Rollback: S7b and S7d each revert with their commit, before the next tag. S7a is source, and
 reverts with its commit.
 
+## Amendment — 2026-10-19 (S7d): S7d0 ports two advisories; S7d gains `config.md`
+
+**Status: approved.** This implements the MADR's "Amendment — 2026-10-19 (S7d): the shipped
+installer's advisories". The owner approved it on 2026-10-19 ("Approve; document A3"). S7d0 runs
+before S7d, because S7d deletes the script the advisories are ported from.
+
+### S7d0 — The AppArmor and Full Disk Access notices in `setup-service --from-installer` (A1, A2)
+
+Scope:
+
+- `internal/cli/service/installerhook.go`, and a new `advisories.go`;
+- their tests;
+- `docs/guides/config.md`, for the `--from-installer` row.
+
+Steps:
+
+1. **`installerAdvisories(osName, product, dir)`** returns the notice lines, with nothing for
+   `mcrelay`:
+   - **On Linux,** the AppArmor notice when `apparmorRestrictPath`, a package variable for tests,
+     reads `1`.
+   - **On macOS,** the Full Disk Access note, naming `<dir>/mcremote`, the LaunchAgent label, and
+     `ops-macos-tcc.md`.
+2. **`RunInstallerHook` prints them after the plan's action,** whichever it was. That includes a
+   first install, which falls through to plain setup: the caller prints them after `Setup`
+   succeeds or finds nothing to supervise.
+3. **No other mode prints them.**
+
+Tests:
+
+- the AppArmor file at `1`, at `0`, and absent;
+- macOS, and the text naming the hook's own folder;
+- `mcrelay`, which gets nothing;
+- the CLI printing them after a first install and after an upgrade.
+
+Each is seen to fail on a scratch copy first.
+
+Live: the Ubuntu-family Linux test host, if it restricts user namespaces, under a scratch state
+and folder as in S7c. Otherwise the record says the notice was seen only in tests. No macOS run,
+by S7c Deviation 3.
+
+### S7d gains `docs/guides/config.md`
+
+Two sentences there, `:624` and `:674`, say `setup-service` detects and names its variables "the
+way `install.sh` does". S7d rewords them to describe the behaviour without naming the deleted
+script. The owner decided this on 2026-10-19 ("Include them").
+
+### S7d's documentation also states
+
+- **The Windows task is registered by the installer.** The generated `install.ps1` runs
+  `mcremote setup-service --from-installer`, so a first install on Windows registers the task.
+  The shipped one only printed "Next: mcremote setup-service" (report G6).
+- **A3.** The macOS guide's `xattr -d com.apple.quarantine` for a binary fetched by a browser.
+
 ## S1–S8 execution record
 
 ### S1, 2026-10-19 — complete, staged for the owner's commit
