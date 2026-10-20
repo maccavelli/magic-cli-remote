@@ -389,6 +389,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0200 | REPORT | Record status audit, 2026-10-18 | [0200-REPORT-record-status-audit.md](../docs/reports/0200-REPORT-record-status-audit.md) |
 | 0201 | MADR | Fix every open finding from 0073's debug pass | [0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md](decisions/0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md) |
 | 0201 | PLAN | Implement fixing every open finding from 0073's debug pass | [0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md](decisions/0201-PLAN-fix-the-open-findings-of-the-0073-debug-pass.md) |
+| 0202 | REPORT | go-llmprovider-sdk provider-auth adoption assessment for magic-cli-remote | [0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md](../docs/reports/0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
