@@ -5091,3 +5091,84 @@ warning: mcremote: Task Scheduler\mcremote was rewritten and the service manager
 later release.
 
 **Files for this commit:** this PLAN.
+
+### S10a, 2026-10-20 — staged for the owner's commit
+
+**Approval.** The amendment for S10 and S11 was committed as `d6c5c349`, and the owner said
+"proceed".
+
+**What changed** (`internal/cli/service/refresh_schtasks.go`):
+
+- **S10-1.** After rendering, `refreshSchtasks` disables the render with `withTaskDisabled` when the
+  registered task is disabled (`taskDisabled(existing)`), before it compares. A disabled task that
+  is otherwise current is `unchanged`. One that needs a new definition is registered disabled.
+- **S10-2.** A re-registration sets `res.Reloaded = true`. `unchanged`, `kept` and `none` leave it
+  false.
+
+**Tests** (`refresh_schtasks_test.go`, `installerhook_test.go`):
+
+- `TestRefreshSchtasksLeavesADisabledCurrentTaskAlone`: the current task, disabled as an update's
+  `Stop` leaves it, is `unchanged`, with no `/create`, no backup and no `reloaded`.
+- `TestRefreshSchtasksKeepsADisabledTaskDisabled`: a disabled `v0.18.0`-shaped task is re-registered
+  once, disabled, with the detach flag, and the receipt is `changed` and `reloaded`.
+- `TestRefreshSchtasksAddsTheDetachFlagToAV0180Task`, extended: an enabled task is re-registered
+  enabled, and `reloaded`.
+- `TestRefreshReceiptRaisesNoReloadWarning`: the refresh's own `--json` receipt, from
+  `PrintRefreshResult`, is fed to the library's `ExecReconciler` through a `RunnerFunc`, as `update`
+  runs it. Its warnings carry no "not reloaded".
+- `TestFromInstallerLeavesADisabledTaskStopped`: a disabled task in the old folder is moved by the
+  hook, registered disabled, and reported `CycleLeftStopped`, with only `running` and `enabled`
+  asked of the backend. `fakeHookBackend` gained `enabledFn`, so `Enabled` reads the task the refresh
+  registered.
+- `disabledExport` builds a disabled export as Task Scheduler writes one: `<Enabled>false</Enabled>`
+  in `Settings`. It checks that `taskDisabled` reads the result as disabled.
+
+**Fail-first plants,** each on a scratch copy of the tree (`s10a_plants.py`), all as expected:
+
+```text
+== plant: render ignores the registered enabled state
+    installerhook_test.go:150: the rewritten task was registered enabled
+    installerhook_test.go:153: calls [running enabled start], cycle "started"; want the service left stopped
+    refresh_schtasks_test.go:180: re-registered a task that differed only by being disabled
+    refresh_schtasks_test.go:183: backed up a task it did not rewrite
+    refresh_schtasks_test.go:200: a disabled task was registered enabled
+  ok  TestRefreshSchtasksLeavesADisabledCurrentTaskAlone: FAIL (want FAIL)
+  ok  TestRefreshSchtasksKeepsADisabledTaskDisabled: FAIL (want FAIL)
+  ok  TestRefreshSchtasksAddsTheDetachFlagToAV0180Task: PASS (want PASS)
+  ok  TestRefreshReceiptRaisesNoReloadWarning: PASS (want PASS)
+  ok  TestFromInstallerLeavesADisabledTaskStopped: FAIL (want FAIL)
+== plant: re-registration not reported reloaded
+    refresh_schtasks_test.go:147: a re-registered task was not reported reloaded
+    refresh_schtasks_test.go:241: the updater would warn: mcremote: Task Scheduler\mcremote was rewritten and the service manager was not reloaded; the next start may run the previous definition
+  ok  TestRefreshSchtasksLeavesADisabledCurrentTaskAlone: PASS (want PASS)
+  ok  TestRefreshSchtasksKeepsADisabledTaskDisabled: FAIL (want FAIL)
+  ok  TestRefreshSchtasksAddsTheDetachFlagToAV0180Task: FAIL (want FAIL)
+  ok  TestRefreshReceiptRaisesNoReloadWarning: FAIL (want FAIL)
+  ok  TestFromInstallerLeavesADisabledTaskStopped: PASS (want PASS)
+ALL PLANTS BEHAVED
+```
+
+- The first plant is the code before this change. Through the hook, it reproduces F4: a task the
+  operator disabled is reported "started".
+- The second makes the library print S9d's warning word for word.
+
+**Verification:**
+
+- `make pre-add-check` on the three Go files: "3 file(s) clean (gofmt, golint, govulncheck)".
+- `make preflight`: "✅ preflight passed", exit 0: records, Markdown, `gofmt`, `go mod tidy`,
+  `go vet`, `staticcheck`, `go test -race`, the install and unit tests, the release build, and the
+  Flutter checks. No `FAIL` line in the log.
+- The Windows test host: `make ci-windows` on the working tree, "ALL SELECTED CHECKS PASSED",
+  `internal/cli/service` 2.910 s, exit 0.
+- The Linux test host: `go test -race` over `internal/cli/...`, `relay`, `updateclient`, `admin`
+  and `daemon`, exit 0.
+
+**Not shown here:** the live behaviour. S10b checks F4 on the old code, then the fix, on the Windows
+test host, once `v0.22.1` exists.
+
+**Files for this commit:**
+
+- `internal/cli/service/refresh_schtasks.go`;
+- `internal/cli/service/refresh_schtasks_test.go`;
+- `internal/cli/service/installerhook_test.go`;
+- this PLAN.

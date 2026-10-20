@@ -70,6 +70,16 @@ func refreshSchtasks(opts Options, ro RefreshOptions) (RefreshResult, error) {
 	if err != nil {
 		return res, err
 	}
+	// A disabled task stays disabled: an update's Stop disables the task
+	// before it refreshes it, and so does an operator who stops the service
+	// (MADR 0054 amendment S10, S10-1). Rendered enabled, every update would
+	// rewrite the task, and an operator's stop would be undone by the watchdog
+	// trigger within a minute.
+	if taskDisabled(existing) {
+		if want, err = withTaskDisabled(want); err != nil {
+			return res, err
+		}
+	}
 	res.Body = want
 	if sameTaskDefinition(existing, want) {
 		res.Verdict = VerdictUnchanged
@@ -97,6 +107,10 @@ func refreshSchtasks(opts Options, ro RefreshOptions) (RefreshResult, error) {
 	if err := registerTaskXML(name, want); err != nil {
 		return res, err
 	}
+	// Task Scheduler has no reload step: the registered definition is what
+	// the next run uses. Unset, the updater warns that the next start may
+	// run the previous definition (MADR 0054 amendment S10, S10-2).
+	res.Reloaded = true
 	if moved || inNew {
 		finishMigration(&mig, userPath)
 	}

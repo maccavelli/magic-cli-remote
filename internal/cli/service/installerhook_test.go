@@ -19,12 +19,18 @@ type fakeHookBackend struct {
 	calls            []string
 	// onStop runs when the service stops.
 	onStop func()
+	// enabledFn, when set, answers Enabled in place of enabled, so the
+	// answer can follow what the refresh registered.
+	enabledFn func() bool
 }
 
 func (f *fakeHookBackend) Installed(context.Context, string) (bool, error) { return true, nil }
 
 func (f *fakeHookBackend) Enabled(context.Context, string) (bool, error) {
 	f.calls = append(f.calls, "enabled")
+	if f.enabledFn != nil {
+		return f.enabledFn(), nil
+	}
 	return f.enabled, nil
 }
 
@@ -111,6 +117,40 @@ func TestFromInstallerMovesAnOldTaskWithoutDowngrading(t *testing.T) {
 	}
 	if !slices.Equal(fb.calls, []string{"running", "stop", "start"}) || res.Cycle != CycleRestarted || res.Health != HealthRunning {
 		t.Fatalf("calls %v, cycle %q, health %q; want a confirmed restart", fb.calls, res.Cycle, res.Health)
+	}
+}
+
+// TestFromInstallerLeavesADisabledTaskStopped: an operator stopped the service
+// by disabling its task, as ops-windows-install.md says, and then installs a
+// release whose refresh rewrites the task. The task stays disabled, so the hook
+// reports it left stopped and starts nothing (MADR 0054 amendment S10, F4).
+func TestFromInstallerLeavesADisabledTaskStopped(t *testing.T) {
+	ft, _ := migrationHost(t, []string{"mcremote"}, "mcremote")
+	disabled, err := withTaskDisabled(ft.xml["mcremote"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	ft.xml["mcremote"] = disabled
+	newRelease(t, "v0.3.0", "mcremote")
+	fb := &fakeHookBackend{enabledFn: func() bool { return !taskDisabled(ft.xml["mcremote"]) }}
+	withHookBackend(t, fb)
+
+	plan, err := PlanInstallerHook(Options{Product: "mcremote"})
+	if err != nil || plan.Action != HookUpgrade {
+		t.Fatalf("plan %+v, %v; want an upgrade of the old task", plan, err)
+	}
+	res, err := UpgradeFromInstaller(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ft.creates != 1 || !res.Refresh.Changed {
+		t.Fatalf("%d /create calls, refresh %+v; want the task rewritten once", ft.creates, res.Refresh)
+	}
+	if !taskDisabled(ft.xml["mcremote"]) {
+		t.Error("the rewritten task was registered enabled")
+	}
+	if !slices.Equal(fb.calls, []string{"running", "enabled"}) || res.Cycle != CycleLeftStopped {
+		t.Fatalf("calls %v, cycle %q; want the service left stopped", fb.calls, res.Cycle)
 	}
 }
 

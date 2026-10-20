@@ -1,11 +1,15 @@
 package service
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
 // refreshHarness drives refreshSchtasks through its seams: the task-state
@@ -135,6 +139,107 @@ func TestRefreshSchtasksAddsTheDetachFlagToAV0180Task(t *testing.T) {
 	was, _ := taskFieldsFromXML(export)
 	if got.Arguments != was.Arguments+detachArg {
 		t.Errorf("arguments = %q, want %q", got.Arguments, was.Arguments+detachArg)
+	}
+	if !got.Enabled {
+		t.Error("an enabled task was registered disabled")
+	}
+	if !res.Reloaded {
+		t.Error("a re-registered task was not reported reloaded")
+	}
+}
+
+// disabledExport is export as Task Scheduler exports it once the task is
+// disabled, by an update's Stop or by an operator: Settings gains
+// <Enabled>false</Enabled>, which an enabled export omits as a default.
+func disabledExport(t *testing.T, export string) string {
+	t.Helper()
+	const anchor = "<StartWhenAvailable>true</StartWhenAvailable>"
+	if !strings.Contains(export, anchor) || taskDisabled(export) {
+		t.Fatalf("the export lacks %q, or is already disabled", anchor)
+	}
+	out := strings.Replace(export, anchor, anchor+"<Enabled>false</Enabled>", 1)
+	if !taskDisabled(out) {
+		t.Fatal("the disabled export does not read as disabled")
+	}
+	return out
+}
+
+// TestRefreshSchtasksLeavesADisabledCurrentTaskAlone is what every Windows
+// update meets: the updater's Stop disabled the task, which is otherwise
+// current. The refresh must not rewrite it (MADR 0054 amendment S10, F2).
+func TestRefreshSchtasksLeavesADisabledCurrentTaskAlone(t *testing.T) {
+	h := newRefreshHarness(t, disabledExport(t, currentShapeExport(t)))
+	res, err := refreshSchtasks(Options{Product: "mcremote"}, RefreshOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != VerdictUnchanged || res.Changed || res.Reloaded {
+		t.Errorf("res = %+v, want unchanged and not reloaded", res)
+	}
+	if len(h.creates) != 0 {
+		t.Error("re-registered a task that differed only by being disabled")
+	}
+	if _, err := os.Stat(h.backup); !errors.Is(err, os.ErrNotExist) {
+		t.Error("backed up a task it did not rewrite")
+	}
+}
+
+// TestRefreshSchtasksKeepsADisabledTaskDisabled: a disabled task that does
+// need a new definition is registered disabled, so its watchdog trigger cannot
+// start a daemon the operator stopped (MADR 0054 amendment S10, F4).
+func TestRefreshSchtasksKeepsADisabledTaskDisabled(t *testing.T) {
+	h := newRefreshHarness(t, disabledExport(t, v0180ShapeExport(t)))
+	res, err := refreshSchtasks(Options{Product: "mcremote"}, RefreshOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != VerdictRefreshed || !res.Changed || !res.Reloaded || len(h.creates) != 1 {
+		t.Fatalf("res = %+v with %d /create calls, want refreshed, changed and reloaded once", res, len(h.creates))
+	}
+	if !taskDisabled(h.creates[0]) {
+		t.Error("a disabled task was registered enabled")
+	}
+	if got, err := taskFieldsFromXML(h.creates[0]); err != nil || !strings.HasSuffix(got.Arguments, detachArg) {
+		t.Errorf("the registered task is not the current definition: %+v, %v", got, err)
+	}
+}
+
+// TestRefreshReceiptRaisesNoReloadWarning feeds the --json receipt of a
+// re-registration to the library's exec reconciler, which is what `update`
+// runs. A receipt that is changed but not reloaded makes it warn that "the
+// next start may run the previous definition", which is never true of Task
+// Scheduler (MADR 0054 amendment S10, F3).
+func TestRefreshReceiptRaisesNoReloadWarning(t *testing.T) {
+	newRefreshHarness(t, v0180ShapeExport(t))
+	res, err := refreshSchtasks(Options{Product: "mcremote"}, RefreshOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt bytes.Buffer
+	if err := PrintRefreshResult(&receipt, res, "mcremote", true); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := libservice.NewExecReconciler(libservice.ExecOptions{
+		Reconcile: []string{"setup-service", "--refresh", "--json"},
+		Restore:   []string{"setup-service", "--restore"},
+		Runner: libservice.RunnerFunc(func(context.Context, libservice.Command) (libservice.Output, error) {
+			return libservice.Output{Stdout: receipt.Bytes()}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := rec.Reconcile(context.Background(), "mcremote", `C:\new\mcremote.exe`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Changed {
+		t.Fatalf("the reconciler read %+v, want a change", got)
+	}
+	for _, w := range got.Warnings.List() {
+		if strings.Contains(w, "not reloaded") {
+			t.Errorf("the updater would warn: %s", w)
+		}
 	}
 }
 
