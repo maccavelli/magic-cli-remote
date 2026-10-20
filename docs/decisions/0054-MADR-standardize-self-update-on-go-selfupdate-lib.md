@@ -1297,3 +1297,64 @@ The shipped script printed the first two on every install, whatever the service 
   does not. The notices belong to an install, not to a setup by hand.
 - Bad, because the quarantine clearing is lost. On the documented `curl` path it removed nothing,
   and the documented `xattr` command covers a browser download.
+
+## Amendment — 2026-10-20 (S8): where the probe looks, and how long a notify start may take
+
+**Decided by the owner on 2026-10-20,** when S8 began: "From the definition", "TimeoutStartSec=240"
+and "Four sub-phases", each the recommended option. The record stays `accepted`. This refines A1,
+A4 and D5; it reverses nothing.
+
+### What S8's reading found
+
+- **The admin socket's path depends on the data directory.**
+  - The socket is `<runtime dir>/<instance key>/admin.sock`, where the instance key is a hash of
+    the data directory (`internal/appdirs/paths.go:94-100`).
+  - A service can carry its own `--config` and `--data-dir`, and `mcrelay`'s its own
+    `--listen-port`. Setup bakes them into the definition, and the refresh reads them back from all
+    three definition formats (`internal/cli/service/refresh.go:461-464`, `:731-733`,
+    `refresh_schtasks.go:235-237`).
+  - `mcremote update` loads no configuration of its own. A probe that resolved the socket as `pair`
+    does (`internal/cli/pair.go:36`), from the default configuration, would ping a socket no daemon
+    serves on such a host. Health would never pass, and every update would roll back.
+  - `pair`'s own ping has the same blind spot, but a missed ping there costs nothing.
+- **A first start can wait three minutes for Let's Encrypt before it listens.**
+  - The daemon obtains its certificate before it opens the listener, and the first issuance is
+    bounded by `ACMEStartupTimeout`, 3 minutes (`internal/certs/acme.go:30`).
+  - Under `Type=notify`, `systemctl start` returns only on `READY=1`. The unit template sets no
+    `TimeoutStartSec` (`internal/cli/service/mcremote.user.service.tmpl:21-32`), so systemd's
+    default, 90 seconds, applies.
+  - A slow DNS challenge would therefore fail the start and loop on `Restart=always`, where today's
+    `Type=simple` cannot.
+
+### The owner's decisions (2026-10-20)
+
+- **S1 — The probe finds its target from the installed definition.**
+  - Each probe reads the product's installed definition, with the refresh's own parser. It loads
+    the configuration that definition names, with its baked `--data-dir`, and for `mcrelay` its
+    baked `--listen-port`.
+  - `mcremote`'s probe pings that configuration's admin socket (A1). `mcrelay`'s requests that
+    configuration's `/healthz` (A4).
+  - A definition that names none of these gets the defaults, which are also what the service runs
+    with.
+  - The alternative, the default configuration as `pair` resolves it, is not taken: it fails every
+    update of a service with a baked `--config` or `--data-dir`.
+- **S2 — `Type=notify` gets `TimeoutStartSec=240`.**
+  - The daemon sends `READY=1` once its listener is open, and `STOPPING=1` when shutdown begins.
+  - The template gains `TimeoutStartSec=240`, longer than the 3-minute issuance bound with time for
+    the rest of start-up.
+  - The alternatives, not taken: `EXTEND_TIMEOUT_USEC` heartbeats from the ACME wait, which
+    thread systemd into `internal/certs`; and `READY=1` when the admin socket opens, before TLS
+    and the listener, which would no longer mean the daemon serves phones.
+- **S3 — S8 runs as four sub-phases,** each committed on its own: the probes and the shutdown
+  request; `Type=notify`; the pointer amendments; and the first tag, on the owner's explicit ask.
+
+### Consequences of this amendment
+
+- Good, because a service run with its own configuration or data directory still passes health,
+  and its updates still complete.
+- Good, because a first start that waits on Let's Encrypt is not killed by systemd.
+- Neutral, because each probe reads the definition and the configuration it names. Both are small
+  local files.
+- Bad, because `systemctl start` now returns only at `READY=1`. A start that hangs before it is
+  reported after up to four minutes, and `setup-service` and `update` wait that long; a daemon that
+  exits before `READY=1` still fails the start at once.

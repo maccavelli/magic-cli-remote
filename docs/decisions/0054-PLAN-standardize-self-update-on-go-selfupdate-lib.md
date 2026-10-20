@@ -923,6 +923,70 @@ script. The owner decided this on 2026-10-19 ("Include them").
   The shipped one only printed "Next: mcremote setup-service" (report G6).
 - **A3.** The macOS guide's `xattr -d com.apple.quarantine` for a binary fetched by a browser.
 
+## Amendment — 2026-10-20 (S8): four sub-phases; the probe reads the definition; `TimeoutStartSec`
+
+**Status: approved.** This implements the MADR's "Amendment — 2026-10-20 (S8): where the probe
+looks, and how long a notify start may take". The owner decided it on 2026-10-20, when S8 began.
+It refines S8 step 1 as replaced by the 2026-10-19 amendment (1a–1e). Each sub-phase is test-first,
+is staged for the owner's commit on its own with its own execution record, and keeps the rules for
+every phase.
+
+### S8a — The probes, the shutdown request and Windows `RequestStop` (1a–1d)
+
+Scope: `internal/admin/`, `internal/daemon/` (the shutdown wiring), `internal/cli/serve.go`,
+`internal/cli/service/` (the backends' options and the probes), `internal/relay/` (the probe's
+address and TLS, read only), and their tests.
+
+- **1a and 1d, refined: the target comes from the definition.**
+  - A probe reads the installed definition with the refresh's parser (`applyServeArgv` and its
+    launchd and Task Scheduler counterparts). It does so on each check, so it follows the
+    definition the update has just refreshed.
+  - It loads the configuration that definition's `--config` names, with its `--data-dir`, as
+    `serve` would.
+  - `mcremote`: the admin socket of that configuration, `ping`, ready only on `OK: true`.
+  - `mcrelay`: `GET /healthz` on loopback at the baked `--listen-port`, else that configuration's
+    `listen.port`, with the scheme and TLS of 1d.
+  - A definition that cannot be read is a probe error, which `PollHealthy` keeps and reports if
+    the wait times out.
+  - A definition the parser cannot read back, such as a hand-edited one the refresh keeps, gets no
+    application check: the probe reports ready, with the reason as its detail. The backend's own
+    check still applies: a new instance that stays up for the settle window. Probing the default
+    configuration instead could roll back every update of such a service.
+  - Environment a definition pins itself (its `XDG_*` values, `--env`) is not applied: the probe
+    loads the configuration in the updating process. Setup pins the environment it ran in, so the
+    two agree unless the service was set up from another environment.
+  - `mcrelay` dials its configured `listen.host`, or loopback when that is empty, a wildcard, or
+    loopback already. Loopback alone would never reach a relay bound to one other address.
+- **1b and 1c** are as the 2026-10-19 amendment states them.
+- **Tests,** in addition to that amendment's:
+  - a definition with a baked `--data-dir`: the probe pings the socket of that data directory, and
+    not the default one;
+  - the same for a baked `--config` whose file sets `data_dir`;
+  - `mcrelay` with a baked `--listen-port`.
+  - Fail-first, on a scratch copy: a probe that ignores the definition and uses the default
+    configuration fails the first of these.
+
+### S8b — `Type=notify` (1e)
+
+Scope: the daemon's start and shutdown, `internal/cli/service/mcremote.user.service.tmpl`, and their
+tests.
+
+- `systemd.Ready()` once the listener is open, and `systemd.Stopping()` when shutdown begins. Off a
+  `Type=notify` unit both return without sending (`NOTIFY_SOCKET` unset).
+- The template: `Type=notify`, and `TimeoutStartSec=240`.
+- Tests: the template's rendered lines, the refresh's `refreshed` verdict on a `Type=simple` unit,
+  and `READY=1` received on a test socket only after the listener opens. Each fails first on a
+  scratch copy.
+- Live: the Linux test host, under a scratch unit name, as S5 and S7c ran.
+
+### S8c — The pointer amendments (step 2)
+
+Records only, in their own commit.
+
+### S8d — The first tag (step 3)
+
+Only on the owner's explicit ask in that turn.
+
 ## S1–S8 execution record
 
 ### S1, 2026-10-19 — complete, staged for the owner's commit
