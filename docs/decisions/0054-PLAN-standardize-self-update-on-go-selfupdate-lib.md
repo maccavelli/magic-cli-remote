@@ -3297,7 +3297,7 @@ make check-records / make markdownlint-docs            exit=0 / exit=0
 - `docs/guides/config.md` and `config-mcrelay.md`;
 - this PLAN.
 
-### S7b, 2026-10-19 — staged for the owner's commit; the rehearsal waits for the push
+### S7b, 2026-10-19 — complete: committed as `5fb5c189`, rehearsed by run 39348677626
 
 **Starting point.** The owner committed the S7a record (`3d78019e`) and said "committed, proceed".
 
@@ -3381,9 +3381,58 @@ actionlint .github/workflows/ci.yml                    exit=1: one finding, SC20
   does not touch. `actionlint` on `HEAD`'s `ci.yml`, written to a scratch copy, reports the same
   finding at the same line (`s7b_actionlint_head.py`).
 
-**Not yet done: S7b step 4, the rehearsal.** It needs the owner's push, and then a dispatch of `ci.yml`
-on that commit (S4 Deviation 2). Its staged `install.sh` and `install.ps1` are then read for the
-values block, the hooks, the prefix and the Windows folder, and quoted here.
+**S7b step 4, the rehearsal.**
+
+- **The push.** The owner committed S7b as `5fb5c189` and pushed `master` with S5h–S7b, six commits.
+  `git ls-remote` showed `5fb5c189f82932a03230062c300fec22dc36ccad` on GitHub.
+- **The dispatch.** As the owner directed ("I'll push; then dispatch"), `gh workflow run ci.yml
+  --ref master` started run 39348677626 on `5fb5c189`. Its conclusion was `success`:
+
+```text
+success  Go (test) / Go (windows/amd64) / Go (linux/arm64) / Flutter (analyze & test) / Flutter (test on windows)
+success  Android APK (release arm64)
+success  Build self-update release / build           rehearsal=true  stamp-version=rehearsal-5fb5c189f829  artifact selfupdate-rehearsal-5fb5c189f829-1
+success  Build self-update release / identity × 8    mcremote and mcrelay on linux/amd64, linux/arm64, darwin/arm64, windows/amd64
+skipped  Publish self-update release
+```
+
+- **The build job's log:**
+  - `extra-assets-json=["magic-cli-remote-rehearsal-5fb5c189f829-arm64.apk","install.sh","install.ps1"]`;
+  - `verify-selfupdate-release: ok`;
+  - the staged artifact was uploaded, 88,779,251 bytes.
+- **The staged artifact,** downloaded into an empty scratch folder and read on this host
+  (`s7b_staged_check.py`):
+  - **The files:** `install.sh` (14669 bytes), `install.ps1` (32469 bytes), the APK, the eight
+    canonical binaries, and `SHA256SUMS`.
+  - **Both installers are the local render, line for line,** apart from the tag:
+    `rehearsal-5fb5c189f829` in place of the local render's `v0.21.0`, which is 15 bytes each.
+  - **Their values blocks:**
+
+```text
+install.sh   REPOSITORY='maccavelli/magic-cli-remote'  TAG='rehearsal-5fb5c189f829'  INSTALLER_NAME='magic-cli-remote'
+             ENV_PREFIX='MCREMOTE'  PRODUCTS='mcremote mcrelay'  six linux and darwin assets  IDENTITY version for both
+             HOOKS='after_install mcremote setup-service --from-installer
+                    after_install mcrelay setup-service --from-installer'
+install.ps1  $InstallerName = 'magic-cli-remote'  $EnvPrefix = 'MCREMOTE'  the two windows-amd64.exe assets
+             $Hooks = @{ When = 'after_install'; Product = 'mcremote'; Args = @('setup-service', '--from-installer') }
+                      @{ When = 'after_install'; Product = 'mcrelay'; Args = @('setup-service', '--from-installer') }
+```
+
+  - **`SHA256SUMS`** names the eight canonical binaries only, and each digest matches its file.
+
+**A correction to S4's record: a dispatch on `master` cancels the push run.**
+
+- **What S4 said.** S4's record says a dispatch "waited for the push run to finish".
+- **What happened here.** The dispatch was created at 00:36:51Z. The push run, 39348617842 on the
+  same commit, then had every job cancelled between 00:36:55Z and 00:37:09Z, and ended
+  `cancelled`.
+- **Why.** Both runs share the concurrency group `ci-CI-refs/heads/master`, and a run off a tag
+  cancels the one in progress (`ci.yml:15-17`).
+- **Nothing went unchecked.** The dispatch ran the same test and mobile jobs on the same commit,
+  and every one passed. Still, a later rehearsal is dispatched only after the push run has
+  finished, so the push run keeps its own result.
+
+**S7b is complete.**
 
 **Files staged for S7b:** `internal/updateclient/selfupdate-release.json`, `internal/updateclient/spec_test.go`,
 `.github/workflows/ci.yml` and this PLAN.
