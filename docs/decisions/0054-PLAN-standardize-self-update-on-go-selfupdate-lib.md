@@ -4338,3 +4338,65 @@ the account's unit and daemon unchanged: yes
 - `internal/daemon/daemon.go`, and `notify_unix_test.go` (new);
 - `docs/guides/config.md`;
 - this PLAN.
+
+### S8c, 2026-10-20 — staged for the owner's commit
+
+**Approval.** The owner committed S8b (`fbb23a22`) and said "proceed".
+
+**What S8c did** (S8 step 2, records only).
+
+- **Each record the MADR's "More Information" lists** gained one section at its end, "Amendment —
+  2026-10-20: what 0054 changed here".
+- **Each section** links this MADR and this PLAN by full filename, states what changed for that
+  record and which phase changed it, and says that the record's own text stays as written while
+  0054 governs where they differ.
+- **No status field was changed.** Those fields record each decision's own history, and the
+  pointer is not a new decision.
+
+| Record | What the pointer states |
+| :--- | :--- |
+| `0103-MADR-update-tracks-release-build-and-active-service.md` | the `Enabled` gate (D2); the per-product cycle kept; output on stderr; the health wait (D5) |
+| `0065-MADR-update-automation.md` | the flags and exit codes kept; `--dry-run` and `--json` new; `--channel` refused; output on stderr; the phone path unchanged |
+| `0059-MADR-native-paths-and-linux-macos-parity.md` D9 | the library's one recipe; Darwin still without the tags; Linux's tags inert with cgo off; `make verify-build-metadata` kept |
+| `0116-MADR-windows-and-linux-arm64-build-targets.md` D9, D13, D19, D21 | the drain before ending the task; canonical names, the generated `install.ps1` and its folder; `windows/arm64` in the spec; the cgo check in the library's workflow |
+| `0097-MADR-linux-curl-installer.md` | the generated installer, the renames, BusyBox `wget`, the two-command uninstall |
+| `0099-MADR-installer-service-state-verification.md` | the verified start moved into `setup-service`; exit 3 from the hook |
+| `0104-MADR-installer-linux-and-macos.md` | the generated installer on both OSes; the macOS notes (A2, A3) |
+| `0156-MADR-only-the-posix-installer-learned-canonical-names.md` | the PowerShell installer and its suites deleted; one list of names for installer and client |
+| `0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md` | `install_test.sh` gone from D2 and D3; D1's rule where it lives now; D4–D6 unchanged |
+| `0159-MADR-the-windows-service-path-is-half-wired.md` | the library backend; D1 and D5 stand; the drain and the probe; the one folder and D16; the generated installer |
+| `0132-MADR-verify-the-apk-by-github-asset-digest.md` | the decision unchanged: `SHA256SUMS` still lists no APK; the verifier moved |
+
+- **0116 D9 was added** to the D13, D19 and D21 that S8 step 2 names. S8a's drain changed D9's
+  "ending the scheduled task terminates the process without a graceful drain" for an update, so its
+  pointer says so.
+- **Facts checked before writing,** where the PLAN alone did not settle them:
+  - **The rehearsal's staged `SHA256SUMS`** (S7b) lists the eight binaries and no APK, which is
+    0132's premise.
+  - **0159 D9's task-state reads are still in use** (`control_schtasks.go`, `taskState`). Its
+    pointer does not call them replaced.
+  - **On Darwin,** a cgo-off binary without `netgo` still uses the system resolver. So 0059's
+    pointer says only that Linux's tags are inert, not Darwin's.
+
+**Checks:**
+
+- **`make check-records`:** exit 0.
+- **Seen to fail first.** On a full scratch copy of the tree, which itself passes with exit 0, one
+  pointer's link to this MADR was broken. `check_records.py --check-all` then exits 1 and names
+  exactly that link:
+
+  ```text
+  broken relative link: docs/decisions/0097-MADR-linux-curl-installer.md:531: 0054-MADR-standardize-self-update.md
+  1 broken relative link(s)
+  ```
+
+- **markdownlint on the eleven records, before and after:** 753 findings at `HEAD`, 752 now, and no
+  finding in the working tree that `HEAD` does not have.
+  - The first run found two of the new lines longer than 200 columns (MD013), in 0059 and 0132.
+  - Each pointer's opening paragraph was then wrapped at 100 columns, with no link split.
+- **The records, placeholder and identifier checks** (`records_check.py`, on the index):
+  - `make check-records` and the placeholder guard: exit 0.
+  - The identifier scan: one hit, the `/Users/<user>` placeholder S7d committed.
+  - The staged lines: no host or account name.
+
+**Files for S8c's commit:** the eleven records above, and this PLAN.

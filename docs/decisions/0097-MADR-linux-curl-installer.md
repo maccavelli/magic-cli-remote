@@ -525,3 +525,23 @@ silent profile edits are a common source of surprise.
 Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
 
 ~~`proposed`~~ `accepted`. The installer shipped and its acceptance rows were executed (the PLAN). Its platform scope was later reversed by [0104-MADR-installer-linux-and-macos.md](0104-MADR-installer-linux-and-macos.md), which says it "reverses only the platform scope of 0097". On 2026-10-18 the owner chose to mark such records accepted with this note.
+
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+replaced the hand-written installer (PLAN S7, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)):
+
+- **The script is gone.** `scripts/install.sh` and its suite were deleted (PLAN S7d, `b89b5367`).
+  Each release publishes an `install.sh` that `go-selfupdate-lib` generates from the release
+  spec.
+- **The service step moved.** The installer then runs `mcremote setup-service --from-installer`
+  and the same for `mcrelay`.
+- **Renamed options.** `--no-service` is now `--no-hooks` (`MCREMOTE_NO_HOOKS`), and the service
+  options are variables `setup-service` reads (0054 D8, D10).
+- **BusyBox `wget` is refused** (0054 D12).
+- **Uninstall is two commands,** `mcremote setup-service --uninstall` and then the installer's
+  `--uninstall`, until the library has a `before_uninstall` hook (0054 D11).
+- **The operator guide** is `docs/guides/ops-linux-install.md`.
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.

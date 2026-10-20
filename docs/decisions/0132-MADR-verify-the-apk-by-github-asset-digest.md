@@ -257,3 +257,19 @@ now.
   (mcplib v1.4.1, `8d4d89f`).
 * Regression commit: `32510a6`.
 * Implementation: [0132-PLAN-verify-the-apk-by-github-asset-digest.md](0132-PLAN-verify-the-apk-by-github-asset-digest.md).
+
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+moved the release pipeline from `mcplib`'s workflows to `go-selfupdate-lib`'s (PLAN S4, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)).
+This record's decision is unchanged:
+
+- **`SHA256SUMS` still lists only the products' binaries,** over their canonical names. A
+  rehearsal of the new lane staged it without the APK, which is one of the release's extras.
+- **So the phone still checks the APK** against GitHub's per-asset `digest`, with the
+  `SHA256SUMS` lookup as the fallback this record keeps.
+- **The release verifier** this record's contract rests on moved with the publish workflow into
+  `go-selfupdate-lib`.
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.

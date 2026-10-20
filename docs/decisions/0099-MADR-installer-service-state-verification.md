@@ -288,3 +288,20 @@ option 2 as the whole answer.
   directives that turned out to break it.
 * [ops-linux-install.md](../guides/ops-linux-install.md) — backend capability table and
   advisories; updated when the summary vocabulary changes.
+
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+moved the installer's service handling into `setup-service` (0054 D10; PLAN S5 and S7, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)).
+For this record:
+
+- **The verified start** is `setup-service`'s own (PLAN S5c). It keeps the three outcomes:
+  running; still starting, which exits 0 with a warning; and not running, which is non-zero and
+  prints the command that shows why. It also keeps `MCREMOTE_SVC_WAIT_SECS`.
+- **The generated installer** runs `setup-service --from-installer` after the install, and exits
+  3 when that fails.
+- **The s6 and relay backends** this record repaired are `setup-service`'s now (PLAN S5b, S5d).
+- **The installer's own state machine** was deleted with `scripts/install.sh` (PLAN S7d).
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.

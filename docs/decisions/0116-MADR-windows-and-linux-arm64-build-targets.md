@@ -1736,3 +1736,34 @@ now says the binaries are unsigned and that no signing step exists yet. When a
 certificate is procured, the hook is a new record, built beside
 `codesign-maybe`. The rest of D14 (signing is not SmartScreen trust; reputation
 accrues over releases) stands.
+
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+moved the release lane, the installers and the Windows service control to `go-selfupdate-lib` (PLAN
+S1–S8, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)).
+For this record:
+
+- **D9.** Ending the task by hand, `schtasks /end`, still terminates the process. An update no
+  longer does:
+  - It asks the daemon to shut down over a new admin socket operation, the drain D9 chose to go
+    without.
+  - It ends the task only if the daemon has not exited after 30 seconds (0054 A2, PLAN S8a).
+  - `mcrelay` has no admin socket, and keeps D9's stop.
+- **D13.**
+  - The asset names are the canonical ones the release spec states once:
+    `<product>-<goos>-<goarch>[.exe]`, with no version in the name.
+  - `scripts/install.ps1` was deleted (PLAN S7d). Each release publishes an `install.ps1`
+    generated from the spec.
+  - It installs both products into one folder, `%LOCALAPPDATA%\Programs\magic-cli-remote\`
+    (0054 D9). An install in the per-product folders moves there on its next refresh (PLAN S5g).
+- **D19.** `windows/arm64` stays unpublished. The release spec's platform list encodes it, read
+  by the client, the build and the publish alike.
+- **D21.**
+  - The artifact assertion is now the library's build workflow, which checks each binary's build
+    information, `CGO_ENABLED=0` included.
+  - The Makefile guard and `scripts/verify-build-metadata.sh`, layers 3 and 2, still cover local
+    builds.
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.

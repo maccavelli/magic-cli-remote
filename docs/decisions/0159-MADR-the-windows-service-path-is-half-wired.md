@@ -1580,3 +1580,28 @@ owner, after installing v0.19.0          an agent session opens no window and su
 | `x/sys` exports the flags but not the console calls | measured: `types_windows.go:243-253`; `go doc` finds no `AttachConsole`/`FreeConsole`/`GetConsoleProcessList` |
 | Provider argv carries flags, paths and a port, not free text | measured: `launchArguments(cfg, endpoint, secretFile)`, `dialect.ServeArgs(port)` |
 | cmd.exe's own line limit is ~8191 | documented, not measured |
+
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+moved Windows service control to `go-selfupdate-lib`'s Task Scheduler backend (PLAN S1, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)).
+For this record:
+
+- **D1 stands.** The update's reconcile step is still this product's `setup-service --refresh`
+  (0054 D4).
+- **D5 stands.** The library's stop disables the task before ending it, as D5 has it.
+- **A stopped task is started** only when it is enabled (0054 D2).
+- **Before ending the task,** an update asks the daemon to shut down over its admin socket, and
+  waits up to 30 seconds. After the start, it waits for the admin socket to answer (0054 A1, A2;
+  PLAN S8a).
+- **The folder and D16.** Both products now install into one folder,
+  `%LOCALAPPDATA%\Programs\magic-cli-remote\` (0054 D9). The refresh moves an install out of
+  the per-product folders, and replaces their two User `Path` entries with the one folder
+  (PLAN S5g).
+- **The installer.**
+  - The installer amendments here describe `scripts/install.ps1`, deleted in PLAN S7d.
+  - The generated `install.ps1` adds its one folder to the User `Path`.
+  - It registers the task itself, by running `mcremote setup-service --from-installer`.
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.

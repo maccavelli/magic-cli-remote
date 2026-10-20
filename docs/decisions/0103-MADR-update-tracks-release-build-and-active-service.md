@@ -463,3 +463,22 @@ rejected: a crashed daemon with a unit file must come back.
 Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
 
 ~~`proposed`~~ accepted, and superseded in part. It was implemented (`bf95d751`, `63f1c0c5`, `754294e5`, `b5114d44`). On 2026-09-02, `45f82032` replaced `internal/update` with `mcplib/selfupdate`, under MADR 0005 in the mcplib repository (`docs/guides/config.md`, "`mcremote update` / `mcrelay update`"). The BASE.N tracking went with it, and `internal/updateclient/legacy.go` now calls BASE.N a legacy format. The per-product service restart survives (`internal/updateclient/lifecycle.go`).
+
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+replaced `mcplib/selfupdate` with `go-selfupdate-lib` (PLAN S1–S3, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)).
+For this record:
+
+- **Which service an update starts.** A running service is restarted. A stopped one is started only
+  when its backend reports it enabled; a disabled one stays stopped (0054 D2). That is the
+  library's `Enabled` gate.
+- **The per-product rule stands.** `mcremote update` cycles only `mcremote`'s service, and
+  `mcrelay update` only `mcrelay`'s.
+- **The output moved.** Progress, prompts and the outcome go to stderr; stdout is empty unless
+  `--json` is given (0054, "What changes for this repository's contracts").
+- **After the start,** the backend waits for a new instance that stays up, then for the daemon's
+  own check: `mcremote`'s admin socket, `mcrelay`'s `/healthz` (0054 D5, A1, A4).
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.

@@ -543,3 +543,19 @@ disk was restarted from systemd's cached copy. 0100 inserts a definition
 reconciliation between the swap and the start, performed by the newly installed
 binary. This record is not superseded; its decisions still stand.
 
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+moved the host update path from `mcplib/selfupdate` to `go-selfupdate-lib` (PLAN S1–S3, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)).
+For this record's command surface:
+
+- **Kept:** `--check`, `--yes`, `--force` and `--version`, and the exit codes: 0, 10 for an update
+  found by `--check`, and 1.
+- **New:** `--dry-run` and `--json`. `--channel` is refused, because no prerelease channels are
+  configured.
+- **Moved:** progress, prompts and the outcome go to stderr. Stdout carries only `--json`'s JSON
+  Lines.
+- **Unchanged:** the phone's in-app update.
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.

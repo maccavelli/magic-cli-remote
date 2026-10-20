@@ -335,3 +335,18 @@ selected tag is the same on every host where it was already right.
 **D4, amended (owner's decision, 2026-10-13): `STATICCHECK_VERSION = v0.8.2`.** Everything else in
 D4 stands: built once for the host into `bin/tools/`, then run for each of linux, darwin and
 windows. D5 also stands: no finding is suppressed.
+
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+deleted `scripts/install.sh` and `scripts/install_test.sh` (PLAN S7d, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)).
+For this record:
+
+- **D2 and D3.** The `install_test.sh` half of D2, and its CI step in D3, went with the script.
+  `install-binary_test.sh` and its CI step stay.
+- **D1.** The rule D1 calls "`install.sh`'s" is still the rule of `install-binary.sh`. It is also
+  the rule of `setup-service`'s detection (`internal/cli/service/detect.go`, PLAN S5a).
+- **D4–D6** are unchanged.
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.

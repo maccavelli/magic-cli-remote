@@ -600,3 +600,20 @@ clause from both Darwin architectures to `darwin/arm64` because the Intel
 target had neither an acceptance host nor native CI execution. The rest of D10,
 including native CI as a release gate, signing, notarization, and the stated
 minimum macOS version, is unaffected.
+
+## Amendment — 2026-10-20: what 0054 changed here
+
+[0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md)
+moved the release build to `go-selfupdate-lib`'s build workflow (PLAN S4, in
+[0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md](0054-PLAN-standardize-self-update-on-go-selfupdate-lib.md)).
+For D9:
+
+- **The published binaries** are built by one recipe for every platform, with `CGO_ENABLED=0`,
+  `-trimpath` and no build tags. Each binary is checked from its own build information.
+- **D9's table still holds.**
+  - The Darwin binary carries neither tag, as D9 requires, so it keeps the system resolver.
+  - On Linux, `netgo` and `osusergo` change nothing once cgo is off. D9 only allowed them there.
+- **Local builds are unchanged.** `make verify-build-metadata` still checks the Makefile's
+  builds against D9's table (Linux `netgo,osusergo`; Darwin none).
+
+The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.
