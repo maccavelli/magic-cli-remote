@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/systemd"
+
 	"github.com/maccavelli/magic-cli-remote/internal/admin"
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
@@ -35,6 +37,20 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 )
+
+// notifySystemd sends one sd_notify state with send, systemd.Ready or
+// systemd.Stopping. A failure is logged, never fatal: the daemon serves the
+// same either way, and under Type=notify systemd reports a missing READY=1 by
+// timing the start out.
+func notifySystemd(log *slog.Logger, state string, send func() (bool, error)) {
+	sent, err := send()
+	switch {
+	case err != nil:
+		log.Warn("sd_notify failed", slog.String("state", state), slog.String("err", err.Error()))
+	case sent:
+		log.Debug("sd_notify sent", slog.String("state", state))
+	}
+}
 
 // Options for Run.
 type Options struct {
@@ -665,10 +681,17 @@ func Run(ctx context.Context, opts Options) error {
 		errCh <- nil
 	}()
 
+	// Under the unit's Type=notify, systemctl start returns, and the unit
+	// becomes active, at READY=1: the listener is open, so the daemon serves
+	// (MADR 0054 D5, amendment S8). Off such a unit NOTIFY_SOCKET is unset and
+	// nothing is sent.
+	notifySystemd(log, "READY=1", systemd.Ready)
+
 	// gracefulDrain performs the ordered shutdown: stop accepting, close the
 	// hijacked WebSocket conns (http.Server.Shutdown never touches them), close
 	// live sessions, then drain the serve goroutines.
 	gracefulDrain := func(reason string) error {
+		notifySystemd(log, "STOPPING=1", systemd.Stopping)
 		log.Info("shutting down", slog.String("reason", reason))
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -694,6 +717,7 @@ func Run(ctx context.Context, opts Options) error {
 	case <-ctx.Done():
 		return gracefulDrain(causeStr())
 	case err := <-errCh:
+		notifySystemd(log, "STOPPING=1", systemd.Stopping)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdownCtx)
@@ -709,6 +733,7 @@ func Run(ctx context.Context, opts Options) error {
 			return gracefulDrain(causeStr())
 		}
 		if err != nil {
+			notifySystemd(log, "STOPPING=1", systemd.Stopping)
 			log.Error("admin socket failed", slog.String("err", err.Error()))
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

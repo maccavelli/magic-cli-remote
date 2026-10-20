@@ -131,7 +131,9 @@ func settle(kind Kind, res Result, secs int) (string, string) {
 // the only field that separates "still coming up" from "coming up over and
 // over": with Restart=always a crash-looping unit never reaches failed.
 // `active` must hold for three samples, because with Type=simple systemd
-// reports it the moment the process is forked (MADR 0099).
+// reports it the moment the process is forked (MADR 0099). mcremote's unit is
+// Type=notify, active only after READY=1, and the samples still catch a crash
+// right after it (MADR 0054 D5).
 func settleSystemd(unit string, secs int) (string, string) {
 	show := func() (active, sub string, restarts int) {
 		out, err := runSystemctlCapture("--user", "show", unit, "--property=ActiveState", "--property=SubState", "--property=NRestarts")

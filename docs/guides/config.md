@@ -796,7 +796,8 @@ digest then intentionally differs from the release digest).
 
 | Directive | Value / notes |
 |-----------|----------------|
-| `Type` | `simple` |
+| `Type` | `notify`: the daemon sends `READY=1` once its listener is open, so `systemctl --user start` returns, and the unit is active, only when it serves. `mcrelay`'s unit stays `simple` |
+| `TimeoutStartSec` | `240`: longer than the three-minute bound on a first Let's Encrypt issuance, which runs before the listener opens |
 | `WorkingDirectory` | installer's home (override with `--working-directory`) |
 | `ExecStart` | `<binary> serve` plus optional `--config`, `--data-dir`, `--listen-host`, `--listen-port`, `--log-level`, `--log-format` |
 | `Restart` | `always` (not `on-failure`) |

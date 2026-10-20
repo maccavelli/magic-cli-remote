@@ -18,7 +18,13 @@ StartLimitIntervalSec=300
 StartLimitBurst=30
 
 [Service]
-Type=simple
+# notify: the daemon sends READY=1 once its listener is open, so a start
+# returns, and the unit is active, only when it serves (MADR 0054 D5).
+Type=notify
+# Longer than the three-minute bound on a first Let's Encrypt issuance, which
+# runs before the listener opens (internal/certs ACMEStartupTimeout), with
+# time for the rest of start-up. systemd's 90 s default would kill that start.
+TimeoutStartSec=240
 # Resolve relative paths against a stable home workspace.
 WorkingDirectory={{.WorkingDirectory}}
 

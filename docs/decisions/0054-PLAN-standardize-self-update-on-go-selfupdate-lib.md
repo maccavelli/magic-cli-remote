@@ -4208,3 +4208,133 @@ cleanup: removed the scratch instance's Runtime\<instance key>
   `managed_test.go`;
 - `docs/guides/ops-windows-install.md`;
 - this PLAN.
+
+### S8b, 2026-10-20 — staged for the owner's commit
+
+**Approval.** The owner committed S8a (`b170caa4`) and said "proceed".
+
+**Deviation 1 — `docs/guides/config.md` joins S8b's scope** (decided by the owner on 2026-10-20,
+"Fix it in S8b").
+
+- **Found.** The "Unit file options (embedded user template)" table gave `Type` as `simple`, and
+  had no `TimeoutStartSec` row.
+- **Changed.** `Type` is `notify`, with what that means, and `mcrelay`'s unit stays `simple`. A
+  `TimeoutStartSec` row gives `240` and its reason.
+
+**What S8b changed:**
+
+- **`internal/cli/service/mcremote.user.service.tmpl`:** `Type=notify` and `TimeoutStartSec=240`,
+  each with its reason.
+- **`mcrelay`'s template is unchanged,** at `Type=simple`. The relay sends no `READY=1`, so as a
+  `notify` unit it would never finish starting. A test pins this.
+- **`internal/daemon/daemon.go`:**
+  - `notifySystemd` sends `READY=1` (`systemd.Ready`) once the HTTP server's goroutine runs on the
+    open listener.
+  - It sends `STOPPING=1` (`systemd.Stopping`) at the start of each shutdown path: the graceful
+    drain, a serve error, and an admin socket failure.
+  - A failure to notify is logged as a warning, never fatal. Off a `notify` unit, `NOTIFY_SOCKET` is
+    unset and nothing is sent.
+- **`internal/cli/service/settle.go`:** a comment only. `setup-service`'s three-sample check also
+  catches a crash right after `READY=1`.
+- **`docs/guides/config.md`:** Deviation 1.
+- **Not changed, deliberately:** the `deploy/systemd/*.service` examples. They stay
+  `Type=simple`, which is still correct for a daemon that notifies, and `make verify-units` checks
+  them as they are. No code compares them with the template.
+
+**Tests (new), each first seen failing against the code before the change:**
+
+```text
+TestUnitIsTypeNotify                notify_unit_test.go:33: mcremote unit lacks "Type=notify"  (and "TimeoutStartSec=240")
+TestRefreshMovesASimpleUnitToNotify notify_unit_test.go:69: could not write the earlier release's unit
+TestRunNotifiesSystemd              notify_unix_test.go:83: waiting for READY=1: … i/o timeout
+```
+
+- **`TestUnitIsTypeNotify`:** `mcremote`'s unit has `Type=notify` and `TimeoutStartSec=240`, and
+  `mcrelay`'s stays `Type=simple`.
+- **`TestRefreshMovesASimpleUnitToNotify`:** an earlier release's unit, `Type=simple` with no start
+  timeout, is `refreshed` to exactly the current template.
+- **`TestRunNotifiesSystemd` (Unix):**
+  - A whole `Run`, under scratch XDG roots, sends to a test `NOTIFY_SOCKET`.
+  - `READY=1` arrives, and at that moment the listener accepts a connection.
+  - After the shutdown request, `STOPPING=1` arrives, and `Run` returns nil.
+
+**Planted breaks, each on its own fresh scratch copy** (`s8b_plants.py`, 5). Each failed a test
+assertion:
+
+```text
+the unit stays Type=simple        notify_unit_test.go:33: mcremote unit lacks "Type=notify"
+the unit has no start timeout     notify_unit_test.go:33: mcremote unit lacks "TimeoutStartSec=240"
+mcrelay's unit turns notify       notify_unit_test.go:45: mcrelay unit must stay Type=simple
+READY=1 before the listener       notify_unix_test.go:86: READY=1 arrived before the listener accepted connections: … connection refused
+no STOPPING=1 on shutdown         notify_unix_test.go:93: waiting for STOPPING=1: … i/o timeout
+```
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (4 Go files)                                         exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                                            exit=0 / exit=0
+go test -race -count=1 ./...                                            exit=0, 42 ok
+make check-records / make markdownlint-docs                             exit=0 / exit=0
+```
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows`, "ALL SELECTED CHECKS PASSED".
+- **The Linux test host:** the changed packages under the race detector, `internal/daemon` included, exit 0; the detection probe, exit 0.
+
+**Live, the Linux test host** (`s8b_linux_host.py`, `live/s8b-host.sh`):
+
+- **The setup.** A `linux/amd64` `mcremote` built from the working tree.
+- **The scratch unit.** Named `s8b-live`, with scratch state through `XDG_STATE_HOME` and its own
+  config and data dir, on port 39521. TLS was off, and only the fake provider was enabled.
+- **The account's own unit** was read before and after, and never changed.
+
+```text
+== 1. setup-service writes a Type=notify unit and starts it
+Running:           yes, confirmed after the start
+setup-exit=0
+Type=notify
+TimeoutStartSec=240
+ActiveState=active SubState=running Type=notify NotifyAccess=main TimeoutStartUSec=4min Result=success NRestarts=0
+healthz HTTP 200
+== 2. a restart returns only once the daemon serves
+restart-exit=0 after 138 ms
+healthz HTTP 200
+== 3. stop: the daemon reports STOPPING=1 and exits cleanly
+stop-exit=0
+ActiveState=inactive SubState=dead … Result=success NRestarts=0
+… msg="shutting down" component=daemon reason="terminated signal received"
+== 4. an earlier release's Type=simple unit is refreshed to notify
+Type=simple
+service definition refreshed: /home/<user>/.config/systemd/user/s8b-live.service (previous kept at …/s8b-live.service.prev)
+Type=notify
+TimeoutStartSec=240
+start-exit=0
+ActiveState=active SubState=running Type=notify … Result=success NRestarts=0
+healthz HTTP 200
+the account's unit and daemon unchanged: yes
+== cleanup: the scratch unit is gone, inactive; the scratch folder removed
+```
+
+- **`/healthz` answered at once** after each start and restart returned. Under `Type=notify` the
+  start returns only at `READY=1`, after the listener opens.
+- **`STOPPING=1` itself is not visible** in systemd's output. The unit test receives it, and the
+  clean stop (`Result=success`) shows the shutdown path ran.
+
+**Not done.**
+
+- **A start that hangs before `READY=1`,** to see systemd time it out at 240 seconds. That takes
+  four minutes per run, and the timeout is systemd's own. The rendered value is pinned by the test,
+  and systemd read it back as `TimeoutStartUSec=4min`.
+- **A first start that waits on Let's Encrypt.** It needs a public domain and DNS credentials. The
+  issuance bound is `internal/certs`'s `ACMEStartupTimeout`, which is unchanged.
+- **macOS** has no `systemd`. Nothing changed there.
+
+**Files for S8b's commit:**
+
+- `internal/cli/service/mcremote.user.service.tmpl`, `settle.go`, and `notify_unit_test.go` (new);
+- `internal/daemon/daemon.go`, and `notify_unix_test.go` (new);
+- `docs/guides/config.md`;
+- this PLAN.
