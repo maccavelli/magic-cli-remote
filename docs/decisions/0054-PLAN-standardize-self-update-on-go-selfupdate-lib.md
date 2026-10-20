@@ -4803,3 +4803,114 @@ make check-records / make markdownlint-docs                             exit=0 /
 - `README.md`, and in `docs/guides/`: `ops-linux-install.md`, `ops-windows-install.md`,
   `config.md`, `config-mcrelay.md`;
 - this PLAN.
+
+### S9c, 2026-10-20 — complete; this record staged for the owner's commit
+
+**Approval.** The owner committed S9b (`b7231835`) and said "proceed".
+
+**Deviation 1 — the Windows check runs on the real install, backed up and restored** (decided by the
+owner on 2026-10-20: "Real, backed up, restored").
+
+- **Found.** S9c's Windows line asks for a scratch install whose uninstall removes its task. On
+  Windows the task is always named after the product (MADR 0159 D13), and `--unit-name` is refused.
+  So a scratch install cannot own a task while the account's `mcremote` task exists: its hook would
+  find that task, report it as another folder's, and leave it.
+- **Decision.** As S7c Deviation 2 did:
+  - back up the real install: the folder and its files, the task's XML, the User `Path` value and
+    its registry type, and the service records;
+  - install the local build over it, so the installed copy carries the hook;
+  - uninstall it in one command while the daemon runs;
+  - then restore everything, and check that the state matches the state before.
+
+**The local release.** `s9c_build.py` builds and stages `HEAD` (`b7231835`):
+
+- **How.** It uses go-selfupdate-lib's release tool at the S9a pin. `v1.17.1` is exported with
+  `git archive`, and the library clone is not touched. The release is stamped `v0.0.1 (release)` in
+  a throwaway clone, as S7c Deviation 1 did.
+- **Checks.** `verify-selfupdate-release: ok`. The staged `install.sh` and `install.ps1` each carry
+  the four hooks:
+
+  ```text
+  HOOKS='after_install mcremote setup-service --from-installer
+  after_install mcrelay setup-service --from-installer
+  before_uninstall mcremote setup-service --uninstall --from-installer
+  before_uninstall mcrelay setup-service --uninstall --from-installer'
+  ```
+
+**The Linux test host** (`s9c_linux_host.py`, `live/s9c-host.sh`):
+
+- **The setup.** The release is served from loopback for the life of the script only. Scratch unit
+  names (`s9c-remote`, `s9c-relay`), a scratch state folder and a scratch install folder.
+- **The account's own unit** was read before and after, and never changed.
+
+```text
+== 0. install the binaries, then a scratch service for each product
+install-exit=0  setup-remote-exit=0  setup-relay-exit=0   (units and binaries present)
+== 1. --uninstall --dry-run lists the hooks and changes nothing
+would run mcremote setup-service --uninstall --from-installer
+would run mcrelay setup-service --uninstall --from-installer
+would remove …/mcr-s9c/bin/mcremote
+would remove …/mcr-s9c/bin/mcrelay
+dry-run-exit=0   (units and binaries present)
+== A. --product mcrelay --uninstall: only the relay's service and binary
+running mcrelay setup-service --uninstall --from-installer
+removed: mcrelay systemd-user service /home/<user>/.config/systemd/user/s9c-relay.service
+Configuration and data were left in place. The installer removes the binaries next.
+removed …/mcr-s9c/bin/mcrelay
+uninstall-relay-exit=0
+unit s9c-remote: present   unit s9c-relay: absent   binary mcremote: present   binary mcrelay: absent
+active                     (s9c-remote is still running)
+== B. --uninstall: the rest
+running mcremote setup-service --uninstall --from-installer
+removed: mcremote systemd-user service /home/<user>/.config/systemd/user/s9c-remote.service
+left:    mcremote systemd-user service /home/<user>/.config/systemd/user/mcremote.service — runs /home/<user>/.local/bin/mcremote, not a program from /home/<user>/mcr-s9c/bin
+Configuration and data were left in place. The installer removes the binaries next.
+removed …/mcr-s9c/bin/mcremote
+uninstall-exit=0
+unit s9c-remote: absent   unit s9c-relay: absent   binary mcremote: absent   binary mcrelay: absent
+the account's unit and daemon unchanged: yes
+== cleanup: no scratch unit left; no-server; the scratch folder removed
+```
+
+- **In B,** `mcrelay`'s hook did not run: the template skips a product whose binary is no longer in
+  the folder.
+
+**The Windows test host** (Deviation 1; `s9c_win.py`, `win/s9c_lib.ps1`, `win/s9c_win_uninstall.ps1`,
+`win/s9c_win_restore.ps1`):
+
+```text
+== 0. back up      the folder (mcrelay.exe, mcremote.exe), the task, the User Path (String), 0 service record(s)
+                   real version: mcremote 0.20.1 (a078372b) …
+== 1. install the local v0.0.1 over it
+  | running mcremote setup-service --from-installer
+  | service definition unchanged: Task Scheduler\mcremote
+  | mcremote service restarted on the new binary
+  | Running:           yes, confirmed after the start
+install.ps1 exit=0   installed version: v0.0.1 (release) b72318350f33
+== 2. -Uninstall -DryRun   would run mcremote …, would run mcrelay …, would remove …; exit=0; nothing changed
+== 3. -Uninstall while the daemon runs   (mcremote processes before: 1)
+  | running mcremote setup-service --uninstall --from-installer
+  | removed: mcremote windows-task service Task Scheduler\mcremote
+  | Configuration and data were left in place. The installer removes the binaries next.
+  | running mcrelay setup-service --uninstall --from-installer
+  | no service definition of mcrelay was found
+  | removed C:\Users\<user>\AppData\Local\Programs\magic-cli-remote\mcremote.exe
+  | removed C:\Users\<user>\AppData\Local\Programs\magic-cli-remote\mcrelay.exe
+install.ps1 exit=0
+  task: none   process: none   folder: (empty)   on User Path: False   service records left: 0
+== restore         mcrelay.exe and mcremote.exe match the backup; User Path restored, kind String;
+                   task re-registered from the saved definition: exit=0; running, version 0.20.1
+== state matches before, process ids aside: yes   (the backup was then removed)
+```
+
+- **The hook stops the daemon by removing the task,** so Windows can delete a binary it no longer
+  holds. That is the case `v1.17.1` reports, with exit 3, when nothing stops the daemon first.
+
+**Not done in S9c:**
+
+- **macOS,** by S7c Deviation 3.
+- **A hook that fails,** which the installer reports with exit 1 having removed nothing. The
+  template's tests in the library cover that path, and S9b's tests cover the `setup-service`
+  failure that would cause it (`TestUninstallKeepsGoingPastAFailure`).
+
+**Files for this commit:** this PLAN. S9c changes no code.
