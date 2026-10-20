@@ -3707,3 +3707,98 @@ acceptance-windows-service.ps1  exit=0  "ALL CHECKS PASSED" (S1–S8, C3)
 **S7c is complete.** The installers generated from this spec install, reinstall over baked options,
 and uninstall on runit, s6, OpenRC and systemd. On Windows they install, and they move an install
 in the old folders. What was not done is listed above, with the owner's decision for each item.
+
+### S7d0, 2026-10-19 — staged for the owner's commit
+
+**Starting point.**
+
+- **The C1 fix.** The owner asked for C1 to be fixed with no record ("Fix c1 no docs needed").
+  It was committed as `bea91879`. `Paths.LogDir` now goes through `joinProduct`, so on Windows
+  it is `%LocalAppData%\mcremote\Logs`. The re-run on the Windows test host gave
+  `acceptance-windows.ps1` "ALL CHECKS PASSED".
+- **The approval.** The owner chose to port the advisories, then approved the S7d amendment:
+  "Approve; document A3".
+
+**What S7d0 changed:**
+
+- **`internal/cli/service/advisories.go` (new):**
+  - **`installerAdvisories(osName, product, dir)`:**
+    - the AppArmor notice, when `apparmorRestrictPath` reads `1`;
+    - on macOS, the Full Disk Access note, naming `<dir>/mcremote` and the LaunchAgent label from
+      the recorded name;
+    - nothing for `mcrelay`, and nothing on Windows.
+  - **`PrintInstallerAdvisories`** uses the binary's own folder (`uninstallExeDir`).
+  - **`OverrideApparmorRestrictPath`** is the test seam.
+  - **The text is the shipped one** (`scripts/install.sh:895-913`). One change: the AppArmor remedy
+    names MADR 0048 and the Linux guide, in place of `sudo sh scripts/bwrap-apparmor-fix.sh`,
+    which an install through `curl` does not have.
+- **`installerhook.go`:** `RunInstallerHook` prints the notices after `PrintInstallerHook`,
+  whatever the plan.
+- **`internal/cli/setup_service.go`:** for a first install, which falls through to plain setup, a
+  `defer` prints the notices after setup's output, whether it succeeds or not. Only `mcremote`
+  does this. `mcrelay` falls through only with `MCREMOTE_FORCE_SERVICE=1`, and gets no notices.
+- **`docs/guides/config.md`:** the `--from-installer` row names the two notices.
+
+**Tests:**
+
+- **`advisories_test.go` (new, every OS):**
+  - `TestInstallerAdvisoriesAppArmor`: `1`, `0` and absent;
+  - `TestInstallerAdvisoriesFullDiskAccess`;
+  - `TestInstallerAdvisoriesOnlyForMcremote`.
+- **`installerhook_unix_test.go`:** `TestFromInstallerPrintsTheAdvisories`. It covers `mcremote`
+  after an upgrade, which prints them, and `mcrelay` with another install's unit, which does not.
+- **`internal/cli`:** `TestRunSetupServiceFromInstallerPrintsTheAdvisories`. A first install prints
+  them, and plain `setup-service` does not.
+
+**Planted breaks, each on its own fresh scratch copy** (`s7d0_plants.py`, 6). Each failed a test
+assertion:
+
+```text
+the AppArmor notice always shows         advisories_test.go:34: file "0": notice shown true, want false
+the AppArmor notice never shows          advisories_test.go:34: file "1": notice shown false, want true
+mcrelay prints the notices too           advisories_test.go:65: linux: mcrelay got ["" "note: AppArmor restricts …" …]
+the note names another folder            advisories_test.go:54: the note lacks "add /Users/user/.local/bin/mcremote"
+the hook does not print them             installerhook_unix_test.go:130: mcremote: notice shown false, want true
+a first install does not print them      setup_service_test.go:296: fromInstaller=true: notice shown false, want true
+```
+
+- **A rewritten plant.** The first "always shows" plant left a variable and an import unused. That
+  is a build failure, so it was rewritten to compile, and it then failed the assertion above.
+
+**Gates, exit status captured before reading output:**
+
+```text
+make pre-add-check (6 Go files)                        exit=0
+go vet ./...  darwin/arm64, windows/amd64, linux/amd64 (CGO_ENABLED=0)   exit=0 each
+make lint / make staticcheck                           exit=0 / exit=0
+go test -race -count=1 ./...                           exit=0, 42 ok
+make check-records / make markdownlint-docs            exit=0 / exit=0
+```
+
+- **Run on the working tree.** The S7d amendment was staged for its own commit, so the S7d0 files
+  were not in the index.
+  - The placeholder-homes guard reads only the index, so the files were scanned by path as well.
+  - That scan found a one-letter macOS home path in two lines of `advisories_test.go`. It became
+    `/Users/user`, and the tests passed again after the change.
+
+**Other hosts** (`s5_hosts.py`):
+
+- **The Windows test host:** `make ci-windows` passed, with "ALL SELECTED CHECKS PASSED".
+- **The Linux test host:** the changed packages passed under the race detector, and so did the
+  detection probe.
+
+**Not done.**
+
+- **A live AppArmor notice.** The Linux test host reads `0` from
+  `/proc/sys/kernel/apparmor_restrict_unprivileged_userns`, so the notice was seen only in tests,
+  as the PLAN allows.
+- **A macOS run,** by S7c Deviation 3.
+
+**Files for S7d0's commit:**
+
+- `internal/cli/service/`:
+  - `advisories.go` and `advisories_test.go` (new);
+  - `installerhook.go` and `installerhook_unix_test.go`;
+- `internal/cli/setup_service.go` and `setup_service_test.go`;
+- `docs/guides/config.md`;
+- this PLAN.

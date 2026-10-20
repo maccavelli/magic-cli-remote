@@ -115,6 +115,9 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		if handled, err := service.RunInstallerHook(out, opts); handled {
 			return err
 		}
+		// A first install: the install notices follow plain setup's output,
+		// whether it succeeds or not (MADR 0054 amendment S7d).
+		defer service.PrintInstallerAdvisories(out, "mcremote")
 	}
 
 	if f.uninstall {

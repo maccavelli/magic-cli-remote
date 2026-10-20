@@ -264,6 +264,40 @@ func TestRunSetupServiceFromInstaller(t *testing.T) {
 	}
 }
 
+// TestRunSetupServiceFromInstallerPrintsTheAdvisories: a first install, which
+// runs as plain setup, ends with the install notices; plain setup-service does
+// not print them (MADR 0054 amendment S7d, A1).
+func TestRunSetupServiceFromInstallerPrintsTheAdvisories(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideDetectedKind(service.KindNone)()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(k, filepath.Join(home, k))
+	}
+	ap := filepath.Join(t.TempDir(), "apparmor_restrict_unprivileged_userns")
+	if err := os.WriteFile(ap, []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer service.OverrideApparmorRestrictPath(ap)()
+	bin := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "mcremote"), "")
+	cfgFile = ""
+	for _, tc := range []struct {
+		f    setupServiceFlags
+		want bool
+	}{{setupServiceFlags{fromInstaller: true, binary: bin}, true}, {setupServiceFlags{binary: bin}, false}} {
+		var buf bytes.Buffer
+		cmd := newSetupServiceCmd()
+		cmd.SetOut(&buf)
+		if err := runSetupService(cmd, tc.f); err != nil {
+			t.Fatal(err)
+		}
+		if has := strings.Contains(buf.String(), "AppArmor restricts"); has != tc.want {
+			t.Errorf("fromInstaller=%v: notice shown %v, want %v:\n%s", tc.f.fromInstaller, has, tc.want, buf.String())
+		}
+	}
+}
+
 func TestRunSetupServicePrintOnly(t *testing.T) {
 	// This test asserts systemd unit text, so pin the install OS instead of
 	// inheriting the host's. On macOS the renderer correctly emits a launchd

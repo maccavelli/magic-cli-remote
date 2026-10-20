@@ -112,6 +112,26 @@ func TestFromInstallerUpgradeKeepsBakedOptions(t *testing.T) {
 	}
 }
 
+// TestFromInstallerPrintsTheAdvisories: after an upgrade, and after leaving
+// another install's unit, mcremote's hook prints the AppArmor notice; mcrelay's
+// does not (MADR 0054 amendment S7d, A1).
+func TestFromInstallerPrintsTheAdvisories(t *testing.T) {
+	bin, other := hookHost(t, KindSystemdUser)
+	withApparmor(t, "1")
+	withHookBackend(t, &fakeHookBackend{running: true})
+	writeDefinition(t, KindSystemdUser, "mcremote", "mcremote", filepath.Join(bin, "mcremote"))
+	writeDefinition(t, KindSystemdUser, "mcrelay", "mcrelay", filepath.Join(other, "mcrelay"))
+	for product, want := range map[string]bool{"mcremote": true, "mcrelay": false} {
+		var out bytes.Buffer
+		if handled, err := RunInstallerHook(&out, Options{Product: product}); !handled || err != nil {
+			t.Fatalf("%s: handled %v, %v", product, handled, err)
+		}
+		if has := strings.Contains(out.String(), "AppArmor restricts"); has != want {
+			t.Errorf("%s: notice shown %v, want %v:\n%s", product, has, want, out.String())
+		}
+	}
+}
+
 // TestFromInstallerForceIsAFullSetup: with MCREMOTE_FORCE_SERVICE=1, a unit
 // this folder owns is set up again with --force, as --force-service did.
 func TestFromInstallerForceIsAFullSetup(t *testing.T) {

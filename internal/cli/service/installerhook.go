@@ -236,6 +236,9 @@ func RunInstallerHook(out io.Writer, opts Options) (bool, error) {
 		res, err = UpgradeFromInstaller(plan)
 	}
 	PrintInstallerHook(out, plan, res)
+	// After whatever the hook did, as install.sh's advisories followed its
+	// service step (MADR 0054 amendment S7d, A1 and A2).
+	PrintInstallerAdvisories(out, plan.Product)
 	return true, err
 }
 
