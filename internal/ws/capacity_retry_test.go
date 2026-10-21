@@ -40,7 +40,7 @@ func TestCapacityRefusalCarriesRetryAfter(t *testing.T) {
 
 	// Fill every slot with a DISTINCT authenticated device — same-device
 	// dials would be absorbed by replacement (P2), not refused.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, token, err := store.Create("dev" + strconv.Itoa(i))
 		if err != nil {
 			t.Fatal(err)

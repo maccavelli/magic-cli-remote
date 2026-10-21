@@ -518,7 +518,7 @@ func TestRestoreUnitBackup(t *testing.T) {
 // replaceExecStart swaps the ExecStart line of a rendered unit.
 func replaceExecStart(body, line string) string {
 	out := make([]string, 0, 80)
-	for _, l := range strings.Split(body, "\n") {
+	for l := range strings.SplitSeq(body, "\n") {
 		if strings.HasPrefix(l, "ExecStart=") {
 			out = append(out, line)
 			continue

@@ -14,7 +14,7 @@ import (
 // (MADR 0095 F7).
 func TestPurgedSetIsBounded(t *testing.T) {
 	m := NewManager(provider.NewRegistry(), nil, nil, func(event.Event) {})
-	for i := 0; i < maxPurgedIDs+64; i++ {
+	for i := range maxPurgedIDs + 64 {
 		m.markPurged(fmt.Sprintf("sess-%d", i))
 	}
 	m.persistMu.Lock()
@@ -48,7 +48,7 @@ func TestPurgedSetIsBounded(t *testing.T) {
 // Re-marking an id must not grow the order slice (MADR 0095 F7).
 func TestMarkPurgedIsIdempotent(t *testing.T) {
 	m := NewManager(provider.NewRegistry(), nil, nil, func(event.Event) {})
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		m.markPurged("same-id")
 	}
 	m.persistMu.Lock()

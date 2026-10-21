@@ -379,7 +379,7 @@ func recoverOptions(product, unitName, body string) (recovery, string, bool) {
 	seen := map[string]bool{}
 	execs := 0
 
-	for _, raw := range strings.Split(body, "\n") {
+	for raw := range strings.SplitSeq(body, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "[") {
 			continue

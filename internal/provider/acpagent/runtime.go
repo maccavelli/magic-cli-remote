@@ -342,8 +342,7 @@ func unavailableReason(err error) string {
 // isAuthRequired reports whether err is ACP's -32000 "Authentication required",
 // which is what grok's require_xai_auth gate returns.
 func isAuthRequired(err error) bool {
-	var re *acp.RequestError
-	if errors.As(err, &re) {
+	if re, ok := errors.AsType[*acp.RequestError](err); ok {
 		return re.Code == -32000
 	}
 	return false

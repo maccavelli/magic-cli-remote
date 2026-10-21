@@ -120,9 +120,9 @@ func deliver(t *testing.T, s *session, update string) {
 // None reaches a silent default.
 func TestEverySessionUpdateIsMappedOrDeclined(t *testing.T) {
 	ut := reflect.TypeFor[acp.SessionUpdate]()
-	for i := range ut.NumField() {
-		if _, ok := sessionUpdateRows[ut.Field(i).Name]; !ok {
-			t.Errorf("acp.SessionUpdate.%s has no row: map it or decline it", ut.Field(i).Name)
+	for field := range ut.Fields() {
+		if _, ok := sessionUpdateRows[field.Name]; !ok {
+			t.Errorf("acp.SessionUpdate.%s has no row: map it or decline it", field.Name)
 		}
 	}
 	for field, row := range sessionUpdateRows {

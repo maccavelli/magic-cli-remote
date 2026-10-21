@@ -57,7 +57,8 @@ func waitElicit(t *testing.T, out <-chan elicitResult) acp.CreateElicitationResp
 	return acp.CreateElicitationResponse{}
 }
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 func strProp(p acp.ElicitationPropertySchemaString) acp.ElicitationPropertySchema {
 	p.Type = "string"
@@ -70,7 +71,7 @@ func formRequest(props map[string]acp.ElicitationPropertySchema, required ...str
 		Message: "Tell me about the release.",
 		Mode:    "form",
 		RequestedSchema: acp.ElicitationSchema{
-			Title: ptr("Release details"), Properties: props, Required: required, Type: "object",
+			Title: new("Release details"), Properties: props, Required: required, Type: "object",
 		},
 		Session: &acp.ElicitationSessionScope{SessionId: "a1", ToolCallId: ptr(acp.ToolCallId("call-7"))},
 	}}
@@ -79,20 +80,20 @@ func formRequest(props map[string]acp.ElicitationPropertySchema, required ...str
 // releaseForm has one property of every kind Magic draws.
 func releaseForm() acp.CreateElicitationRequest {
 	return formRequest(map[string]acp.ElicitationPropertySchema{
-		"name": strProp(acp.ElicitationPropertySchemaString{Title: ptr("Name"),
-			MinLength: ptr(uint32(1)), MaxLength: ptr(uint32(12)), Default: ptr("Ada")}),
+		"name": strProp(acp.ElicitationPropertySchemaString{Title: new("Name"),
+			MinLength: new(uint32(1)), MaxLength: new(uint32(12)), Default: new("Ada")}),
 		"email": strProp(acp.ElicitationPropertySchemaString{Format: ptr(acp.StringFormatEmail)}),
 		"color": strProp(acp.ElicitationPropertySchemaString{Enum: []string{"red", "green"}}),
 		"size": strProp(acp.ElicitationPropertySchemaString{OneOf: []acp.EnumOption{
 			{Const: "s", Title: "Small"}, {Const: "l", Title: "Large"}}}),
-		"code": strProp(acp.ElicitationPropertySchemaString{Pattern: ptr("^[A-Z]{3}$")}),
+		"code": strProp(acp.ElicitationPropertySchemaString{Pattern: new("^[A-Z]{3}$")}),
 		"age": {Integer: &acp.ElicitationPropertySchemaInteger{Type: "integer",
-			Minimum: ptr(int64(0)), Maximum: ptr(int64(130))}},
-		"ratio": {Number: &acp.ElicitationPropertySchemaNumber{Type: "number", Maximum: ptr(1.0)}},
-		"ok":    {Boolean: &acp.ElicitationPropertySchemaBoolean{Type: "boolean", Default: ptr(true)}},
+			Minimum: new(int64(0)), Maximum: new(int64(130))}},
+		"ratio": {Number: &acp.ElicitationPropertySchemaNumber{Type: "number", Maximum: new(1.0)}},
+		"ok":    {Boolean: &acp.ElicitationPropertySchemaBoolean{Type: "boolean", Default: new(true)}},
 		"tags": {Array: &acp.ElicitationPropertySchemaArray{Type: "array",
 			Items:    acp.MultiSelectItems{String: &acp.MultiSelectItemsString{Type: "string", Enum: []string{"a", "b", "c"}}},
-			MinItems: ptr(uint64(1)), MaxItems: ptr(uint64(2))}},
+			MinItems: new(uint64(1)), MaxItems: new(uint64(2))}},
 	}, "age", "name")
 }
 
@@ -378,7 +379,7 @@ func TestElicitationFormsMagicCannotShow(t *testing.T) {
 func TestElicitationDropsWhatItCannotDraw(t *testing.T) {
 	s, h := newFormSession(0)
 	req := formRequest(map[string]acp.ElicitationPropertySchema{
-		"name":  strProp(acp.ElicitationPropertySchemaString{Pattern: ptr(`(?<=x)y`), Format: ptr(acp.StringFormat("hostname"))}),
+		"name":  strProp(acp.ElicitationPropertySchemaString{Pattern: new(`(?<=x)y`), Format: ptr(acp.StringFormat("hostname"))}),
 		"color": {Other: &acp.ElicitationPropertySchemaOther{Type: "color"}},
 	}, "name")
 	req.Form.Meta = map[string]any{"x": 1}

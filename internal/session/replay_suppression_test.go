@@ -31,7 +31,7 @@ func (s *logSink) records(t *testing.T, substr string) []map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(s.buf.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(s.buf.String()), "\n") {
 		if line == "" {
 			continue
 		}

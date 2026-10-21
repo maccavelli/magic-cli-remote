@@ -79,7 +79,7 @@ func sendAndAwait(t *testing.T, w *authWS, typ string, payload any) protocol.Env
 // The happy path: the key reaches the provider, and the declared inputs travel
 // with it (MADR 0074 D5).
 func TestSetCredentialReachesProvider(t *testing.T) {
-	p := &writableProvider{authProbeProvider: authProbeProvider{id: "opencode", state: sampleState()}}
+	p := &writableProvider{id: "opencode", state: sampleState()}
 	w, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w.close()
 
@@ -112,8 +112,8 @@ func TestSetCredentialReachesProvider(t *testing.T) {
 // turn. The client is told to retry, with a transient code.
 func TestSetCredentialBusyIsTransient(t *testing.T) {
 	p := &writableProvider{
-		authProbeProvider: authProbeProvider{id: "opencode", state: sampleState()},
-		setErr:            provider.ErrAuthBusy,
+		id: "opencode", state: sampleState(),
+		setErr: provider.ErrAuthBusy,
 	}
 	w, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w.close()
@@ -146,7 +146,7 @@ func TestSetCredentialUnsupportedProvider(t *testing.T) {
 // MADR 0074 D6: the verbs are gated too, not just the status block. A v1
 // client must not be able to write credentials.
 func TestSetCredentialRefusedWithoutCapability(t *testing.T) {
-	p := &writableProvider{authProbeProvider: authProbeProvider{id: "opencode"}}
+	p := &writableProvider{id: "opencode"}
 	w, _ := startAuthServer(t, nil, p)
 	defer w.close()
 
@@ -174,7 +174,7 @@ func TestCredentialWriteNeverLogsSecret(t *testing.T) {
 	restore := swapDefaultLogger(&buf)
 	defer restore()
 
-	p := &writableProvider{authProbeProvider: authProbeProvider{id: "opencode", state: sampleState()}}
+	p := &writableProvider{id: "opencode", state: sampleState()}
 	w, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w.close()
 
@@ -186,8 +186,8 @@ func TestCredentialWriteNeverLogsSecret(t *testing.T) {
 	// And again against a provider that fails, since error paths are where
 	// payloads most often get formatted into messages.
 	p2 := &writableProvider{
-		authProbeProvider: authProbeProvider{id: "grok"},
-		setErr:            errors.New("upstream rejected the key"),
+		id:     "grok",
+		setErr: errors.New("upstream rejected the key"),
 	}
 	w2, _ := startAuthServer(t, []int{1, 2}, p2)
 	defer w2.close()
@@ -203,7 +203,7 @@ func TestCredentialWriteNeverLogsSecret(t *testing.T) {
 // Two devices writing at once is a supported race whose outcome is one of the
 // two values, never a wedged handler (D10).
 func TestConcurrentCredentialWrites(t *testing.T) {
-	p := &writableProvider{authProbeProvider: authProbeProvider{id: "opencode", state: sampleState()}}
+	p := &writableProvider{id: "opencode", state: sampleState()}
 	w1, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w1.close()
 
@@ -214,7 +214,7 @@ func TestConcurrentCredentialWrites(t *testing.T) {
 	// (dispatchAsync), so the four handlers overlap regardless.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		env, _ := protocol.NewEnvelope(protocol.TypeProviderSetCredential, "c", protocol.SetCredentialPayload{
 			ProviderID: "opencode", UpstreamID: "opencode-go", Secret: "sk-concurrent",
 		})
@@ -240,7 +240,7 @@ func TestConcurrentCredentialWrites(t *testing.T) {
 }
 
 func TestClearCredential(t *testing.T) {
-	p := &writableProvider{authProbeProvider: authProbeProvider{id: "opencode", state: sampleState()}}
+	p := &writableProvider{id: "opencode", state: sampleState()}
 	w, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w.close()
 
@@ -306,7 +306,7 @@ func (p *switchableProvider) lastSwitch() string {
 // MADR 0074 D14 over the wire: the phone moves an agent off a quota-blocked
 // upstream without touching a credential. This is the MADR 0073 fix.
 func TestSetActiveUpstreamOverWire(t *testing.T) {
-	p := &switchableProvider{authProbeProvider: authProbeProvider{id: "opencode", state: sampleState()}}
+	p := &switchableProvider{id: "opencode", state: sampleState()}
 	w, _ := startAuthServer(t, []int{1, 2}, p)
 	defer w.close()
 

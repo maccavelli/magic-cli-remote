@@ -75,15 +75,13 @@ func TestCommitBlocksOnTheProviderNativeLockFile(t *testing.T) {
 			held := make(chan struct{})
 			release := make(chan struct{})
 			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				_ = fsutil.WithLock(live, 5*time.Second, func() error {
 					close(held)
 					<-release
 					return nil
 				})
-			}()
+			})
 			<-held
 
 			commitErr := c.Commit(ctx, txn)

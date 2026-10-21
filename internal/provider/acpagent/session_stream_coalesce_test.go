@@ -61,7 +61,7 @@ func TestStreamCoalesceDisabledOnePerChunk(t *testing.T) {
 	s := newStreamSession(64, 0)
 	const n = 20
 	var want strings.Builder
-	for i := 0; i < n; i++ {
+	for i := range n {
 		text := string(rune('a' + i%26))
 		want.WriteString(text)
 		s.emit(event.Event{Type: event.TypeAssistantChunk, Text: text})
@@ -89,7 +89,7 @@ func TestTimedStreamCoalesceBoundsFrames(t *testing.T) {
 	const n = 200
 	var want strings.Builder
 	start := time.Now()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		text := string(rune('a'+i%26)) + " "
 		want.WriteString(text)
 		s.emit(event.Event{Type: event.TypeAssistantChunk, Text: text})

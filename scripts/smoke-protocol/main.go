@@ -65,10 +65,7 @@ func main() {
 	// Ensure overall budget covers long -wait (e.g. grok with -wait 45s).
 	total := *timeout
 	if total <= 0 {
-		total = 2*(*waitEvents) + 45*time.Second
-		if total < 90*time.Second {
-			total = 90 * time.Second
-		}
+		total = max(2*(*waitEvents)+45*time.Second, 90*time.Second)
 	}
 	if total < *waitEvents+30*time.Second {
 		total = *waitEvents + 30*time.Second

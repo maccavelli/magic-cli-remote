@@ -217,7 +217,7 @@ func withProbingBackend(t *testing.T, svc *probingService) {
 // TestUpdateRunsTheProductsProbe: the product's probe reaches the backend,
 // and a ready probe completes the update (MADR 0054 D5).
 func TestUpdateRunsTheProductsProbe(t *testing.T) {
-	svc := &probingService{fakeService: fakeService{installed: true, enabled: true, running: true}}
+	svc := &probingService{installed: true, enabled: true, running: true}
 	withProbingBackend(t, svc)
 	withChild(t, libservice.Output{Stdout: refreshStdout(t, service.RefreshResult{Verdict: service.VerdictUnchanged})})
 	exe, err := runUpdateWith(t, service.HealthOptions{Probe: func(context.Context, service.ServeArgs) (libservice.Health, error) {
@@ -237,7 +237,7 @@ func TestUpdateRunsTheProductsProbe(t *testing.T) {
 // crash-looping before its admin socket opens, fails health, and the update
 // puts the previous binary back (MADR 0054 D5; PLAN S8 Verification).
 func TestUpdateRollsBackWhenTheProbeNeverPasses(t *testing.T) {
-	svc := &probingService{fakeService: fakeService{installed: true, enabled: true, running: true}}
+	svc := &probingService{installed: true, enabled: true, running: true}
 	withProbingBackend(t, svc)
 	withChild(t, libservice.Output{Stdout: refreshStdout(t, service.RefreshResult{Verdict: service.VerdictUnchanged})})
 	exe, err := runUpdateWith(t, service.HealthOptions{Probe: func(context.Context, service.ServeArgs) (libservice.Health, error) {

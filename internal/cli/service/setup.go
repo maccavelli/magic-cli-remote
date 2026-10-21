@@ -640,7 +640,7 @@ func launchdLastExitNote(svc string) string {
 	}
 	text := string(out)
 	// Typical lines: "last exit code = 1:" or "last exit code = (never exited)"
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.Contains(line, "last exit code") {
 			continue

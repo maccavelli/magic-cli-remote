@@ -24,7 +24,7 @@ func TestCacheServesWithinTTL(t *testing.T) {
 		calls.Add(1)
 		return oneOption("a"), nil
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		got, err := c.Get(context.Background(), "k", fetch)
 		if err != nil {
 			t.Fatal(err)
@@ -91,7 +91,7 @@ func TestCacheSingleFlight(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	errs := make([]error, 8)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

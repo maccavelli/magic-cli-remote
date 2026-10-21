@@ -32,8 +32,7 @@ func (e *exitCodeError) Unwrap() error { return e.err }
 
 // ExitCode reports the process exit code an error requests, or 1.
 func ExitCode(err error) int {
-	var ec *exitCodeError
-	if errors.As(err, &ec) {
+	if ec, ok := errors.AsType[*exitCodeError](err); ok {
 		return ec.code
 	}
 	if err != nil {

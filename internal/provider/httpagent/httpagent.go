@@ -90,7 +90,9 @@ func (c Config) TreeEnabled() bool {
 func (c Config) treeEnabled() bool { return c.TreeEnabled() }
 
 // Bool returns a *bool for Config.SessionTree literals.
-func Bool(v bool) *bool { return &v }
+//
+//go:fix inline
+func Bool(v bool) *bool { return new(v) }
 
 // API performs one JSON request against the engine. The path is appended to
 // the engine base URL; a non-2xx response is returned as an error carrying a

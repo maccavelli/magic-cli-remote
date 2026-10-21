@@ -192,7 +192,7 @@ type Meta struct {
 	CreatedAt    time.Time `json:"created_at"`
 	// UpdatedAt is the durable record's last write. Disk-backed (not live)
 	// rows use this so the phone can put recently closed sessions first.
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 	Status    string    `json:"status"`
 	Live      bool      `json:"live"`
 	// LastSeq is the highest seq this session has sent. Create seeds from it
@@ -825,9 +825,9 @@ func (m *Manager) ReceiptEntriesFor(deviceID string) ([]ReceiptEntry, error) {
 	}
 	out := make([]ReceiptEntry, 0, len(lines))
 	// Newest first: the phone shows the most recent decision at the top.
-	for i := len(lines) - 1; i >= 0; i-- {
-		e := ReceiptEntry{JWS: lines[i]}
-		if payload, derr := receipt.DecodePayloadUnverified(lines[i]); derr == nil {
+	for _, line := range slices.Backward(lines) {
+		e := ReceiptEntry{JWS: line}
+		if payload, derr := receipt.DecodePayloadUnverified(line); derr == nil {
 			var stmt receipt.Statement
 			if json.Unmarshal(payload, &stmt) == nil {
 				e.Statement = &stmt
@@ -1000,8 +1000,8 @@ func (m *Manager) handleUnsandboxedBang(ctx context.Context, id, deviceID, text 
 		m.emitNotice(id, "Usage: !<command> — every invocation requires a separate full-host-access confirmation.")
 		return nil
 	}
-	if strings.HasPrefix(command, "confirm ") {
-		candidate := strings.TrimSpace(strings.TrimPrefix(command, "confirm "))
+	if after, ok0 := strings.CutPrefix(command, "confirm "); ok0 {
+		candidate := strings.TrimSpace(after)
 		m.mu.Lock()
 		pending, exists := m.pendingShell[id]
 		valid := exists && pending.deviceID == deviceID && time.Now().Before(pending.expires) && candidate == pending.command

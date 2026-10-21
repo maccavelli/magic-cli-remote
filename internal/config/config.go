@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -1367,10 +1368,5 @@ func HasInlineSecret(inFile func(key string) bool) bool {
 	if inFile == nil {
 		return false
 	}
-	for _, key := range secretConfigKeys {
-		if inFile(key) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(secretConfigKeys, inFile)
 }

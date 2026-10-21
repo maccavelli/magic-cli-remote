@@ -53,9 +53,7 @@ func TestLockCertDirExcludes(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			unlock, err := lockCertDir(dir)
 			if err != nil {
 				t.Errorf("lockCertDir: %v", err)
@@ -75,7 +73,7 @@ func TestLockCertDirExcludes(t *testing.T) {
 			mu.Lock()
 			inside--
 			mu.Unlock()
-		}()
+		})
 	}
 	wg.Wait()
 

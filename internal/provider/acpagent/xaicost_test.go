@@ -42,8 +42,6 @@ func liveTurn(t *testing.T, s *session, promptID string, ticks *int64, partial, 
 	HandleXAISessionNotification(context.Background(), s, raw)
 }
 
-func ticksOf(n int64) *int64 { return &n }
-
 // drainEvents returns every event queued so far.
 func drainEvents(s *session) []event.Event {
 	var out []event.Event
@@ -105,12 +103,12 @@ func TestReplayedTurnCostsRebuildTheSessionTotal(t *testing.T) {
 	// A turn grok marks as a replay on the live channel adds and reports no
 	// session cost either, even after loading has ended.
 	s.loading = false
-	liveTurn(t, s, "replayed-elsewhere", ticksOf(5), false, true)
+	liveTurn(t, s, "replayed-elsewhere", new(int64(5)), false, true)
 	if u := drainUsage(t, s); u.SessionCost != nil {
 		t.Fatalf("a replay-marked turn reported session cost %+v", *u.SessionCost)
 	}
 
-	liveTurn(t, s, "live-1", ticksOf(10_000_000), false, false)
+	liveTurn(t, s, "live-1", new(int64(10_000_000)), false, false)
 	u := drainUsage(t, s)
 	want := usdOf(118_673_600 + 31_320_800 + 31_633_600 + 5 + 10_000_000)
 	if u.SessionCost == nil || *u.SessionCost != want {
@@ -124,9 +122,9 @@ func TestReplayedTurnCostsRebuildTheSessionTotal(t *testing.T) {
 // TestARepeatedTurnCountsOnce is 0199 E1's dedupe by prompt_id.
 func TestARepeatedTurnCountsOnce(t *testing.T) {
 	s := newQueueTestSession()
-	liveTurn(t, s, "p1", ticksOf(100), false, false)
+	liveTurn(t, s, "p1", new(int64(100)), false, false)
 	_ = drainUsage(t, s)
-	liveTurn(t, s, "p1", ticksOf(100), false, false)
+	liveTurn(t, s, "p1", new(int64(100)), false, false)
 	u := drainUsage(t, s)
 	if u.SessionCost == nil || *u.SessionCost != usdOf(100) {
 		t.Fatalf("SessionCost = %+v, want %+v: a repeated prompt_id counted twice", u.SessionCost, usdOf(100))
@@ -137,9 +135,9 @@ func TestARepeatedTurnCountsOnce(t *testing.T) {
 // it is counted rather than lost.
 func TestALiveTurnWithoutAPromptIDStillCounts(t *testing.T) {
 	s := newQueueTestSession()
-	liveTurn(t, s, "", ticksOf(100), false, false)
+	liveTurn(t, s, "", new(int64(100)), false, false)
 	_ = drainUsage(t, s)
-	liveTurn(t, s, "", ticksOf(100), false, false)
+	liveTurn(t, s, "", new(int64(100)), false, false)
 	u := drainUsage(t, s)
 	if u.SessionCost == nil || *u.SessionCost != usdOf(200) {
 		t.Fatalf("SessionCost = %+v, want %+v", u.SessionCost, usdOf(200))
@@ -156,11 +154,11 @@ func TestAnUnknownTurnCostStopsTheSessionTotal(t *testing.T) {
 		partial bool
 	}{
 		{"no cost", nil, false},
-		{"partial cost", ticksOf(50), true},
+		{"partial cost", new(int64(50)), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newQueueTestSession()
-			liveTurn(t, s, "p1", ticksOf(100), false, false)
+			liveTurn(t, s, "p1", new(int64(100)), false, false)
 			if u := drainUsage(t, s); u.SessionCost == nil {
 				t.Fatal("first turn reported no session cost")
 			}
@@ -169,7 +167,7 @@ func TestAnUnknownTurnCostStopsTheSessionTotal(t *testing.T) {
 				t.Fatalf("turn with an unknown cost: SessionCost %+v, Used %d; want none and 10",
 					u.SessionCost, u.Used)
 			}
-			liveTurn(t, s, "p3", ticksOf(100), false, false)
+			liveTurn(t, s, "p3", new(int64(100)), false, false)
 			if u := drainUsage(t, s); u.SessionCost != nil {
 				t.Fatalf("a later turn reported %+v after an unknown cost", *u.SessionCost)
 			}

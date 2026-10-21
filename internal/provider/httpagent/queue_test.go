@@ -114,7 +114,7 @@ func TestPromptQueueOverflowReturnsTurnBusy(t *testing.T) {
 	s.turnActive = true
 	s.mu.Unlock()
 
-	for i := 0; i < maxPromptQueue; i++ {
+	for i := range maxPromptQueue {
 		if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "q"}}); err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)
 		}

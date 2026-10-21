@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 )
 
@@ -126,13 +127,7 @@ func ReapOrphanEngines(log *slog.Logger, registryDir ...string) int {
 	}
 	if defaultEngineRegistryDir != "" {
 		// Avoid double-counting when the same dir is passed explicitly.
-		dup := false
-		for _, dir := range registryDir {
-			if dir == defaultEngineRegistryDir {
-				dup = true
-				break
-			}
-		}
+		dup := slices.Contains(registryDir, defaultEngineRegistryDir)
 		if !dup {
 			reaped += ReapRegistryOrphans(log, defaultEngineRegistryDir)
 		}

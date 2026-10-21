@@ -32,9 +32,7 @@ func TestWithLockSerializes(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := WithLock(path, 5*time.Second, func() error {
 				mu.Lock()
 				inside++
@@ -53,7 +51,7 @@ func TestWithLockSerializes(t *testing.T) {
 			if err != nil {
 				t.Errorf("WithLock: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if maxInside != 1 {

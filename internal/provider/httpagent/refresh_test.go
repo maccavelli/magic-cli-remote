@@ -195,12 +195,10 @@ func TestRefreshSerializesAgainstConcurrentRefreshes(t *testing.T) {
 	registerFor(t, s, "/work/project")
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			_ = s.RefreshSkills(context.Background())
-		}()
+		})
 	}
 	wg.Wait()
 	disposals, reloads := ds.counts()
@@ -242,7 +240,7 @@ func TestDiagnosticsMarkerIsDebounced(t *testing.T) {
 	p.nowFn = func() time.Time { return now }
 
 	// A burst inside one window yields exactly one marker.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		now = base.Add(time.Duration(i) * 10 * time.Millisecond)
 		p.noteDiagnosticsChanged(3)
 	}
@@ -489,7 +487,7 @@ func TestShellClaimsTheTurnSlot(t *testing.T) {
 	}()
 	<-started
 	// Wait for the claim to land.
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		s.mu.Lock()
 		claimed := s.turnActive
 		s.mu.Unlock()
@@ -551,12 +549,10 @@ func TestConcurrentShellRequestsRunOne(t *testing.T) {
 
 	var wg sync.WaitGroup
 	busy := make(chan error, 8)
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			busy <- s.Shell(context.Background(), "ls")
-		}()
+		})
 	}
 	time.Sleep(20 * time.Millisecond)
 	close(ds.release)

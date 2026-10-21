@@ -74,7 +74,7 @@ func TestNonBlockingProbeCoalescesConcurrentCallers(t *testing.T) {
 	stub := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "codex-stub"),
 		"echo ran >> "+marker+"\nsleep 1\nexit 1")
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		if got := ObserveCredentialStoreCachedNonBlocking(stub, time.Minute); got != RealityUnknown {
 			t.Fatalf("call %d returned %v, want RealityUnknown", i, got)
 		}

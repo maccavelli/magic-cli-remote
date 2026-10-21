@@ -308,7 +308,7 @@ func TestReceiptEndToEndOverRealWS(t *testing.T) {
 // creation's async remote_commands advertisement racing session.created).
 func readUntilType(ctx context.Context, t *testing.T, conn *websocket.Conn, want string) protocol.Envelope {
 	t.Helper()
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		env := readEnv(ctx, t, conn)
 		if env.Type == want {
 			return env
@@ -323,7 +323,7 @@ func readUntilType(ctx context.Context, t *testing.T, conn *websocket.Conn, want
 // e.g. an initial mode/usage/status event some providers emit).
 func readUntilEventType(ctx context.Context, t *testing.T, conn *websocket.Conn, want event.Type) protocol.Envelope {
 	t.Helper()
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		env := readEnv(ctx, t, conn)
 		if env.Type != protocol.TypeEvent {
 			continue

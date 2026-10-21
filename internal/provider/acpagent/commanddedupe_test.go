@@ -34,7 +34,7 @@ func TestAvailableCommandsDedupes(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if err := s.SessionUpdate(ctx, note("compress history")); err != nil {
 			t.Fatal(err)
 		}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -162,10 +163,8 @@ func (s *Store) ResolveAgentSession(providerID provider.ID, agentSessionID strin
 		if rec.Provider != providerID {
 			continue
 		}
-		for _, alias := range rec.AgentSessionAliases {
-			if alias == agentSessionID {
-				return rec, true
-			}
+		if slices.Contains(rec.AgentSessionAliases, agentSessionID) {
+			return rec, true
 		}
 	}
 	return Record{}, false

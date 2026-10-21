@@ -51,7 +51,7 @@ func scriptEnvAndArgv(t *testing.T, kind Kind, body string) (map[string]string, 
 	env := map[string]string{}
 	var dir string
 	var argv []string
-	for _, raw := range strings.Split(body, "\n") {
+	for raw := range strings.SplitSeq(body, "\n") {
 		line := strings.TrimSpace(raw)
 		words, err := shellWords(line)
 		if err != nil {
@@ -71,7 +71,7 @@ func scriptEnvAndArgv(t *testing.T, kind Kind, body string) (map[string]string, 
 			argv = words[1 : len(words)-1] // drop "exec" and "2>&1"
 		case kind == KindOpenRCUser && strings.HasPrefix(line, "start-stop-daemon --start"):
 			j := slices.Index(words, "--")
-			for i := 0; i < j; i++ {
+			for i := range j {
 				switch words[i] {
 				case "--env":
 					k, v, _ := strings.Cut(words[i+1], "=")
@@ -100,7 +100,7 @@ func TestScriptMatchesTheSystemdUnit(t *testing.T) {
 	wantEnv := map[string]string{}
 	var wantDir string
 	var wantArgv []string
-	for _, raw := range strings.Split(unit, "\n") {
+	for raw := range strings.SplitSeq(unit, "\n") {
 		k, v, ok := strings.Cut(strings.TrimSpace(raw), "=")
 		if !ok {
 			continue
@@ -547,7 +547,7 @@ func TestRefreshScript(t *testing.T) {
 			// An older script with no XDG_CACHE_HOME is rewritten, and says so.
 			body, _ := os.ReadFile(def.Path)
 			var kept []string
-			for _, l := range strings.Split(string(body), "\n") {
+			for l := range strings.SplitSeq(string(body), "\n") {
 				if !strings.HasPrefix(l, "export XDG_CACHE_HOME=") {
 					kept = append(kept, l)
 				}

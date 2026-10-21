@@ -56,7 +56,7 @@ func TestThreadScopedWarningIsNotHeldForAnotherThread(t *testing.T) {
 // next session is about to run in.
 func TestEarlyWarningsAreBounded(t *testing.T) {
 	p := New(Config{})
-	for i := 0; i < maxEarlyWarnings*2; i++ {
+	for i := range maxEarlyWarnings * 2 {
 		p.handleProviderNotification("warning", json.RawMessage(
 			fmt.Sprintf(`{"summary":"warning number %d"}`, i)))
 	}

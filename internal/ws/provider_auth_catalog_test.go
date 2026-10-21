@@ -54,7 +54,7 @@ func bigCatalog(n int) provider.AuthCatalog {
 		provider.UpstreamAuth{ID: "opencode-go", Label: "OpenCode Go", Status: provider.AuthConfigured,
 			Methods: []provider.AuthMethod{{ID: "opencode-go:api", Type: provider.AuthMethodAPIKey, Label: "API key"}}},
 	)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ups = append(ups, provider.UpstreamAuth{
 			ID: fmt.Sprintf("vendor-%03d", i), Label: fmt.Sprintf("Vendor %03d", i),
 			Status:  provider.AuthMissing,

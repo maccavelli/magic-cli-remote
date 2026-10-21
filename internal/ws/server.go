@@ -2477,17 +2477,8 @@ func (s *Server) handleAuthCatalog(ctx context.Context, c *client, env protocol.
 	case page > maxCatalogPage:
 		page = maxCatalogPage
 	}
-	start := p.Offset
-	if start < 0 {
-		start = 0
-	}
-	if start > len(matched) {
-		start = len(matched)
-	}
-	end := start + page
-	if end > len(matched) {
-		end = len(matched)
-	}
+	start := min(max(p.Offset, 0), len(matched))
+	end := min(start+page, len(matched))
 	out.Offset = start
 	out.Truncated = end < len(matched)
 	out.Upstreams = make([]protocol.UpstreamAuthPayload, 0, end-start)
@@ -3539,9 +3530,8 @@ func (s *Server) writeAuthError(ctx context.Context, c *client, id string, err e
 	// unmapped is likely an internal/store error whose text can leak the
 	// data-dir path or username, so it is logged and reported generically.
 	code, msg := "auth_failed", "authentication failed"
-	var devErr *deviceAuthError
 	deviceID := ""
-	if errors.As(err, &devErr) {
+	if devErr, ok := errors.AsType[*deviceAuthError](err); ok {
 		deviceID = devErr.deviceID
 	}
 	switch {

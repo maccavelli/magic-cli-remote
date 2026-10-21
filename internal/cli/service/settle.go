@@ -86,7 +86,7 @@ func settle(kind Kind, res Result, secs int) (string, string) {
 	probe := newSampler(kind, res)
 	seenUp := false
 	lastPid, ok, exits := 0, 0, 0
-	for i := 0; i < secs; i++ {
+	for range secs {
 		s, err := probe()
 		if s.up && res.replacedPid != 0 && s.pid == res.replacedPid {
 			// Still the process the restart replaces.
@@ -140,7 +140,7 @@ func settleSystemd(unit string, secs int) (string, string) {
 		if err != nil {
 			return "unknown", "unknown", 0
 		}
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			k, v, _ := strings.Cut(strings.TrimSpace(line), "=")
 			switch k {
 			case "ActiveState":
@@ -155,7 +155,7 @@ func settleSystemd(unit string, secs int) (string, string) {
 	}
 	_, _, base := show()
 	ok := 0
-	for i := 0; i < secs; i++ {
+	for range secs {
 		active, sub, restarts := show()
 		switch {
 		case restarts > base:
@@ -283,7 +283,7 @@ func diagnose(kind Kind, res Result) []string {
 	case KindSystemdUser:
 		lines := []string{"  journalctl --user -u " + res.UnitName + " -n 20 --no-pager"}
 		if out, err := runCmdOutput("journalctl", "--user", "-u", res.UnitName, "-n", "8", "--no-pager"); err == nil {
-			for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			for l := range strings.SplitSeq(strings.TrimRight(out, "\n"), "\n") {
 				lines = append(lines, "  | "+l)
 			}
 		}

@@ -189,7 +189,7 @@ func TestKindForToolCoversEvery1_18_21Builtin(t *testing.T) {
 
 func TestCommandHintMatrix(t *testing.T) {
 	long := make([]string, 0, 40)
-	for i := 0; i < 40; i++ {
+	for range 40 {
 		long = append(long, "$LONGPLACEHOLDER")
 	}
 	cases := []struct {
@@ -231,7 +231,7 @@ func TestCommandHintMatrix(t *testing.T) {
 		// Multi-byte placeholders: a byte-index cut would leave half a rune,
 		// which is a decode error on the phone.
 		var wide []string
-		for i := 0; i < 60; i++ {
+		for range 60 {
 			wide = append(wide, "«ARG»")
 		}
 		got := commandHint(wide)

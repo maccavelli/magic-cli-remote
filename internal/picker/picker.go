@@ -113,8 +113,10 @@ func (o Option) IsEnabled() bool {
 }
 
 // WithEnabled returns a copy with Enabled set.
+//
+//go:fix inline
 func WithEnabled(enabled bool) *bool {
-	return &enabled
+	return new(enabled)
 }
 
 // Catalog is a full picker payload for one surface (e.g. models for a provider).

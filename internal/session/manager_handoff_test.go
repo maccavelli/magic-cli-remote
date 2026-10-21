@@ -163,7 +163,7 @@ func TestConcurrentOpenClaimSingleWinner(t *testing.T) {
 	owners := make([]string, 2)
 	devices := []string{"device-b", "device-c"}
 	start := make(chan struct{})
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -177,7 +177,7 @@ func TestConcurrentOpenClaimSingleWinner(t *testing.T) {
 	wg.Wait()
 
 	wins := 0
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if results[i] == nil {
 			wins++
 			if owners[i] != devices[i] {

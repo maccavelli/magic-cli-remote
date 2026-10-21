@@ -176,7 +176,7 @@ func TestValidateDebouncesLastUsedWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	afterCreate := store.SaveCount()
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if _, err := store.Validate(token); err != nil {
 			t.Fatal(err)
 		}
@@ -245,7 +245,7 @@ func TestStoreConcurrentCreateTwoHandles(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < per; i++ {
+		for range per {
 			if _, _, err := a.Create("a"); err != nil {
 				t.Errorf("a create: %v", err)
 				return
@@ -254,7 +254,7 @@ func TestStoreConcurrentCreateTwoHandles(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < per; i++ {
+		for range per {
 			if _, _, err := b.Create("b"); err != nil {
 				t.Errorf("b create: %v", err)
 				return

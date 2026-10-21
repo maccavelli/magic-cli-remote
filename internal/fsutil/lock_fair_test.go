@@ -55,9 +55,7 @@ func TestAcquireQueuesBehindATightHolder(t *testing.T) {
 	stop := make(chan struct{})
 	var holders sync.WaitGroup
 	for range fairHolders {
-		holders.Add(1)
-		go func() {
-			defer holders.Done()
+		holders.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -73,7 +71,7 @@ func TestAcquireQueuesBehindATightHolder(t *testing.T) {
 				time.Sleep(fairHoldTime)
 				release()
 			}
-		}()
+		})
 	}
 	t.Cleanup(func() {
 		close(stop)

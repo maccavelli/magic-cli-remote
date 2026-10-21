@@ -54,7 +54,7 @@ func TestRuntimeSnapshotCapturesBoundedProviderState(t *testing.T) {
 
 func TestRuntimeSnapshotBoundsMCPDiagnostics(t *testing.T) {
 	p := New(Config{})
-	for i := 0; i < maxRuntimeMCPServers+20; i++ {
+	for i := range maxRuntimeMCPServers + 20 {
 		p.handleProviderNotification("mcpServer/startupStatus/updated", json.RawMessage(fmt.Sprintf(`{"name":"server-%03d","status":"ready"}`, i)))
 	}
 	got := p.RuntimeSnapshot()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func sessionListIDs(ctx context.Context, t *testing.T, conn *websocket.Conn, req
 	list, _ := protocol.NewEnvelope(protocol.TypeSessionList, reqID, struct{}{})
 	writeEnv(ctx, t, conn, list)
 	// Drain until the matching list_result arrives (broadcasts may interleave).
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		env := readEnv(ctx, t, conn)
 		if env.Type != protocol.TypeSessionListResult {
 			continue
@@ -63,18 +64,13 @@ func sessionListIDs(ctx context.Context, t *testing.T, conn *websocket.Conn, req
 }
 
 func contains(ids []string, id string) bool {
-	for _, x := range ids {
-		if x == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ids, id)
 }
 
 // readReplyFor drains until the envelope with the given request id arrives.
 func readReplyFor(ctx context.Context, t *testing.T, conn *websocket.Conn, reqID string) protocol.Envelope {
 	t.Helper()
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		env := readEnv(ctx, t, conn)
 		if env.ID == reqID {
 			return env

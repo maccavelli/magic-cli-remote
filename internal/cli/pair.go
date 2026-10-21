@@ -139,10 +139,7 @@ func newPairCmd() *cobra.Command {
 			return err
 		}
 		out := cmd.OutOrStdout()
-		remain := time.Until(info.ExpiresAt).Round(time.Second)
-		if remain < 0 {
-			remain = 0
-		}
+		remain := max(time.Until(info.ExpiresAt).Round(time.Second), 0)
 		fmt.Fprintf(out, "Device name: %s\n", info.Name)
 		fmt.Fprintf(out, "Pair code:   %s\n", info.Display)
 		fmt.Fprintf(out, "Expires in:  %s (at %s)\n", remain, info.ExpiresAt.Local().Format(time.Kitchen))

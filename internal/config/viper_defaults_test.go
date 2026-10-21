@@ -31,8 +31,7 @@ func configLeafKeys() []string {
 	var out []string
 	var walk func(rt reflect.Type, prefix string)
 	walk = func(rt reflect.Type, prefix string) {
-		for i := 0; i < rt.NumField(); i++ {
-			f := rt.Field(i)
+		for f := range rt.Fields() {
 			parts := strings.Split(f.Tag.Get("mapstructure"), ",")
 			tag := parts[0]
 			ft := f.Type

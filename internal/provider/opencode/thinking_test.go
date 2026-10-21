@@ -243,12 +243,12 @@ func TestConcurrentThinkingAccess(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 300; i++ {
+		for range 300 {
 			_ = s.SetThinkingLevel(context.Background(), "high")
 			_ = s.SetThinkingLevel(context.Background(), defaultVariant)
 		}
 	}()
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		_ = s.ThinkingLevel()
 		_ = s.requestVariant()
 	}

@@ -41,12 +41,12 @@ func syntheticFull() string {
 	var b strings.Builder
 	b.WriteString(`{"default":{"kilo":"kilo-auto/balanced"},"connected":["p000","p001","p002"],"all":[`)
 	perProvider := realModelCount / realProviderCount
-	for p := 0; p < realProviderCount; p++ {
+	for p := range realProviderCount {
 		if p > 0 {
 			b.WriteString(",")
 		}
 		fmt.Fprintf(&b, `{"id":"p%03d","name":"Provider %03d","models":{`, p, p)
-		for m := 0; m < perProvider; m++ {
+		for m := range perProvider {
 			if m > 0 {
 				b.WriteString(",")
 			}
@@ -66,12 +66,12 @@ func syntheticConnected() string {
 	var b strings.Builder
 	b.WriteString(`{"default":{"p000":"some-fairly-long-model-identifier-000"},"providers":[`)
 	perProvider := realConnectedModels / realConnectedCount
-	for p := 0; p < realConnectedCount; p++ {
+	for p := range realConnectedCount {
 		if p > 0 {
 			b.WriteString(",")
 		}
 		fmt.Fprintf(&b, `{"id":"p%03d","name":"Provider %03d","key":"SENTINEL","models":{`, p, p)
-		for m := 0; m < perProvider; m++ {
+		for m := range perProvider {
 			if m > 0 {
 				b.WriteString(",")
 			}
@@ -87,7 +87,7 @@ func syntheticConnected() string {
 
 func TestCapDefaultCatalogModelsKeepsDefault(t *testing.T) {
 	opts := make([]picker.Option, 0, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		opts = append(opts, picker.Option{ID: fmt.Sprintf("p/m%02d", i)})
 	}
 	// Default is past the cap; it must be forced into the kept window.

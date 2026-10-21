@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -110,8 +111,8 @@ func (s *Server) clientIP(r *http.Request) string {
 	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
-		for i := len(parts) - 1; i >= 0; i-- {
-			ip := net.ParseIP(strings.TrimSpace(parts[i]))
+		for _, part := range slices.Backward(parts) {
+			ip := net.ParseIP(strings.TrimSpace(part))
 			if ip == nil {
 				continue
 			}

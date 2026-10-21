@@ -76,7 +76,7 @@ func (s *session) ListAgentSessions(ctx context.Context) ([]provider.AgentSessio
 	const maxPages = 20
 	out := make([]provider.AgentSessionMeta, 0, 32)
 	var cursor *string
-	for page := 0; page < maxPages; page++ {
+	for range maxPages {
 		res, err := conn.ListSessions(callCtx, acp.ListSessionsRequest{Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("session/list: %w", err)
@@ -186,8 +186,7 @@ func callAgentExtension(ctx context.Context, s *session, method string, params a
 // (MADR 0184 D5). Both mean the agent has no such method; neither is a
 // failure worth showing anyone.
 func isMethodNotFound(err error) bool {
-	var re *acp.RequestError
-	if errors.As(err, &re) {
+	if re, ok := errors.AsType[*acp.RequestError](err); ok {
 		return re.Code == int(acp.ErrorCodeMethodNotFound)
 	}
 	var ce *acp.CapabilityError

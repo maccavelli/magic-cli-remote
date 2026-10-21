@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	yaml "go.yaml.in/yaml/v3"
@@ -28,12 +29,7 @@ var KnownProviderIDs = []string{"grok", "opencode", "codex", "kilo"}
 
 // KnownProvider reports whether id is a prewarm-controllable agent.
 func KnownProvider(id string) bool {
-	for _, k := range KnownProviderIDs {
-		if k == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(KnownProviderIDs, id)
 }
 
 // SetProviderPrewarm updates the in-memory flag for one agent.

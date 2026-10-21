@@ -108,7 +108,7 @@ func checkNoSymlinkComponents(root, rel string) error {
 		return nil
 	}
 	cur := root
-	for _, seg := range strings.Split(rel, "/") {
+	for seg := range strings.SplitSeq(rel, "/") {
 		if seg == "" {
 			continue
 		}

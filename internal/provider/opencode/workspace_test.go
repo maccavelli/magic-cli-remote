@@ -162,7 +162,7 @@ func TestListRejectsEscapingUpstreamPaths(t *testing.T) {
 // TestListIsCapped proves the row budget is enforced.
 func TestListIsCapped(t *testing.T) {
 	var rows []string
-	for i := 0; i < maxWorkspaceEntries+50; i++ {
+	for i := range maxWorkspaceEntries + 50 {
 		rows = append(rows, fmt.Sprintf(`{"name":"f%04d","path":"f%04d.txt","type":"file"}`, i, i))
 	}
 	_, s, _ := workspaceSession(t, route{"/file", "[" + strings.Join(rows, ",") + "]"})
@@ -529,7 +529,7 @@ func TestListSkipsRowsWithNoUsableName(t *testing.T) {
 // top of whatever the engine returned.
 func TestSearchCapsAreEnforcedOnTheRowBudget(t *testing.T) {
 	var rows []string
-	for i := 0; i < maxWorkspaceMatches+25; i++ {
+	for i := range maxWorkspaceMatches + 25 {
 		rows = append(rows, fmt.Sprintf(`"dir/f%04d.go"`, i))
 	}
 	_, s, _ := workspaceSession(t, route{"/find/file", "[" + strings.Join(rows, ",") + "]"})

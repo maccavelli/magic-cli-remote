@@ -201,7 +201,7 @@ func TestListAgentSessionsLiveFiltersAndBounds(t *testing.T) {
 
 func TestListAgentSessionsLiveCapsAtOneHundred(t *testing.T) {
 	body := "["
-	for i := 0; i < 150; i++ {
+	for i := range 150 {
 		if i > 0 {
 			body += ","
 		}
@@ -465,7 +465,7 @@ func TestListProjectsLiveDropsUnusableRows(t *testing.T) {
 
 func TestListProjectsLiveCapsAndClips(t *testing.T) {
 	body := "["
-	for i := 0; i < 150; i++ {
+	for i := range 150 {
 		if i > 0 {
 			body += ","
 		}

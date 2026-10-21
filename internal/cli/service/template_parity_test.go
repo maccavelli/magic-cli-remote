@@ -127,7 +127,7 @@ func flattenYAML(m map[string]any, prefix string, out map[string]struct{}) {
 // are recorded only as the collection key.
 func requiredConfigKeys() []string {
 	var out []string
-	walkConfigKeys(reflect.TypeOf(config.Config{}), "", &out)
+	walkConfigKeys(reflect.TypeFor[config.Config](), "", &out)
 	return out
 }
 
@@ -138,8 +138,7 @@ func walkConfigKeys(t reflect.Type, prefix string, out *[]string) {
 	if t.Kind() != reflect.Struct {
 		return
 	}
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
+	for f := range t.Fields() {
 		tag := f.Tag.Get("mapstructure")
 		if tag == "" || tag == "-" {
 			continue

@@ -183,7 +183,7 @@ func TestStatusWithoutARuntimeDialectStillAnswers(t *testing.T) {
 
 // TestStatusReportsADialectFailureAsText keeps a broken probe visible.
 func TestStatusReportsADialectFailureAsText(t *testing.T) {
-	d := runtimeDialect{stubDialect: stubDialect{id: provider.IDKilo},
+	d := runtimeDialect{id: provider.IDKilo,
 		err: errors.New("engine refused: 503")}
 	got := runtimeStatus(context.Background(), d, nil, "Kilo")
 	if !strings.Contains(got, "status unavailable") || !strings.Contains(got, "503") {
@@ -191,12 +191,12 @@ func TestStatusReportsADialectFailureAsText(t *testing.T) {
 	}
 
 	// An empty answer is treated as "nothing to say", not as an answer.
-	blank := runtimeDialect{stubDialect: stubDialect{id: provider.IDKilo}, msg: "   "}
+	blank := runtimeDialect{id: provider.IDKilo, msg: "   "}
 	if got := runtimeStatus(context.Background(), blank, nil, "Kilo"); !strings.Contains(got, "no plan usage") {
 		t.Errorf("status = %q, want the fallback line for an empty dialect answer", got)
 	}
 
-	ok := runtimeDialect{stubDialect: stubDialect{id: provider.IDKilo}, msg: "Kilo · credits 3/50"}
+	ok := runtimeDialect{id: provider.IDKilo, msg: "Kilo · credits 3/50"}
 	if got := runtimeStatus(context.Background(), ok, nil, "Kilo"); got != "Kilo · credits 3/50" {
 		t.Errorf("status = %q, want the dialect's own line", got)
 	}

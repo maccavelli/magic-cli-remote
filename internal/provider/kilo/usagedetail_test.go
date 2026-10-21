@@ -3,6 +3,7 @@ package kilo
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -84,9 +85,9 @@ func lastUsage(t *testing.T, h *captureHost) *event.Usage {
 	t.Helper()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for i := len(h.events) - 1; i >= 0; i-- {
-		if h.events[i].Type == event.TypeUsage && h.events[i].Usage != nil {
-			return h.events[i].Usage
+	for _, v := range slices.Backward(h.events) {
+		if v.Type == event.TypeUsage && v.Usage != nil {
+			return v.Usage
 		}
 	}
 	t.Fatal("no usage event emitted")
@@ -102,7 +103,7 @@ func TestFixtureConfirmsKiloReportsACacheRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if !strings.Contains(line, `"cache"`) {
 			continue
 		}

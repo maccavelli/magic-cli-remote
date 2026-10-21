@@ -92,10 +92,7 @@ func (s *Server) startV2Liveness(c *client) {
 // failed ping is left for the watchdog to reap — closing here would race
 // the read loop.
 func (s *Server) pingLoop(c *client) {
-	interval := s.readDeadline / 3
-	if interval < time.Second {
-		interval = time.Second
-	}
+	interval := max(s.readDeadline/3, time.Second)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {

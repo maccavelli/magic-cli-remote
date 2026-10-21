@@ -9,8 +9,6 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
-func f64(v float64) *float64 { return &v }
-
 // lastUsageEvent returns the final usage report the host saw.
 func lastUsageEvent(h *captureHost) *event.Usage {
 	h.mu.Lock()
@@ -80,7 +78,7 @@ func TestFreeTurnIsDistinguishableFromUnknownCost(t *testing.T) {
 // reported as unknown rather than as a fabricated number.
 func TestInvalidCostIsOmittedNotClamped(t *testing.T) {
 	for _, bad := range []*float64{
-		f64(math.NaN()), f64(math.Inf(1)), f64(math.Inf(-1)), f64(-0.5),
+		new(math.NaN()), new(math.Inf(1)), new(math.Inf(-1)), new(-0.5),
 	} {
 		if got := validCost(bad); got != nil {
 			t.Fatalf("validCost(%v) = %v, want nil", *bad, *got)
@@ -89,10 +87,10 @@ func TestInvalidCostIsOmittedNotClamped(t *testing.T) {
 	if got := validCost(nil); got != nil {
 		t.Fatal("validCost(nil) invented a value")
 	}
-	if got := validCost(f64(0)); got == nil || *got != 0 {
+	if got := validCost(new(float64(0))); got == nil || *got != 0 {
 		t.Fatalf("a finite zero must survive, got %v", got)
 	}
-	if got := validCost(f64(1.5)); got == nil || *got != 1.5 {
+	if got := validCost(new(1.5)); got == nil || *got != 1.5 {
 		t.Fatalf("validCost(1.5) = %v", got)
 	}
 }

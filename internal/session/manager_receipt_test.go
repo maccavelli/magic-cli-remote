@@ -101,16 +101,16 @@ func (p *permProvider) lastSession() *permSession {
 // test to simulate a signing device, a silent one, or one replying with a
 // tampered signature.
 type fakeReceiptTransport struct {
-	calls    int32
+	calls    atomic.Int32
 	behavior func(ctx context.Context, deviceID, sessionID, correlationID string, statement json.RawMessage) (string, error)
 }
 
 func (f *fakeReceiptTransport) RequestReceipt(ctx context.Context, deviceID, sessionID, correlationID string, statement json.RawMessage) (string, error) {
-	atomic.AddInt32(&f.calls, 1)
+	f.calls.Add(1)
 	return f.behavior(ctx, deviceID, sessionID, correlationID, statement)
 }
 
-func (f *fakeReceiptTransport) callCount() int32 { return atomic.LoadInt32(&f.calls) }
+func (f *fakeReceiptTransport) callCount() int32 { return f.calls.Load() }
 
 // receiptTestFixture bundles one device's real keypair (registered in a real
 // auth.Store, matching PublicKeyFor's real code path), a real receipt.Store,

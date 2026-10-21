@@ -129,13 +129,11 @@ func TestConcurrentEmitsKeepSeqOrder(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for g := range emitters {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range perEmitter {
 				mgr.emitNotice(meta.ID, fmt.Sprintf("emitter %d notice %d", g, i))
 			}
-		}()
+		})
 	}
 	for i := range providerEvs {
 		p.session.events <- event.Event{Type: event.TypeAssistantChunk, SessionID: meta.ID,

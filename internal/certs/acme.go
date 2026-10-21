@@ -106,17 +106,15 @@ func EnsureACME(ctx context.Context, opts ACMEOptions) (*ACMEBundle, error) {
 	logger := acmeLogger(opts.Verbose)
 
 	solver := &certmagic.DNS01Solver{
-		DNSManager: certmagic.DNSManager{
-			DNSProvider: &route53.Provider{
-				Region:       opts.Route53.Region,
-				Profile:      opts.Route53.Profile,
-				HostedZoneID: opts.Route53.HostedZoneID,
-				MaxRetries:   opts.Route53.MaxRetries,
-			},
-			TTL:                acmeChallengeTTL,
-			PropagationTimeout: acmePropagationTimeout,
-			Logger:             logger,
+		DNSProvider: &route53.Provider{
+			Region:       opts.Route53.Region,
+			Profile:      opts.Route53.Profile,
+			HostedZoneID: opts.Route53.HostedZoneID,
+			MaxRetries:   opts.Route53.MaxRetries,
 		},
+		TTL:                acmeChallengeTTL,
+		PropagationTimeout: acmePropagationTimeout,
+		Logger:             logger,
 	}
 
 	storage := &certmagic.FileStorage{Path: opts.StorageDir}

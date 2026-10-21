@@ -89,7 +89,7 @@ func svCalls(t *testing.T, svDir string) []string {
 	t.Helper()
 	b, _ := os.ReadFile(filepath.Join(svDir, "calls"))
 	var out []string
-	for _, c := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+	for c := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
 		if c != "" && !strings.HasPrefix(c, "status ") {
 			out = append(out, strings.Fields(c)[0])
 		}

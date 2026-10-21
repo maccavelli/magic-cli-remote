@@ -22,7 +22,7 @@ func TestPinIsCorroboratedByItsFixture(t *testing.T) {
 			"without a fixture is a claim that nothing changed: %v", KnownGoodVersion, err)
 	}
 	found := ""
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}

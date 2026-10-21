@@ -203,7 +203,7 @@ func TestDiscoveryUnsupportedWithoutDialectSupport(t *testing.T) {
 // Discovery needs a reachable engine. A missing binary must surface as an
 // error, never as an empty catalog.
 func TestDiscoveryRequiresAReachableEngine(t *testing.T) {
-	d := &discoveryDialect{fakeDialect: fakeDialect{id: "test"}}
+	d := &discoveryDialect{id: "test"}
 	p := NewWithLogger(d, Config{Bin: "definitely-not-a-real-binary-xyz"}, nil)
 
 	if _, err := p.ListAgentSessions(context.Background()); err == nil {
@@ -221,7 +221,7 @@ func TestDiscoveryRequiresAReachableEngine(t *testing.T) {
 // The provider satisfies both shared optional interfaces, so the WebSocket
 // layer's type assertions find it.
 func TestProviderImplementsDiscoveryInterfaces(t *testing.T) {
-	p := NewWithLogger(&discoveryDialect{fakeDialect: fakeDialect{id: "test"}}, Config{Bin: testBin(t)}, nil)
+	p := NewWithLogger(&discoveryDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
 	if _, ok := any(p).(provider.AgentSessionLister); !ok {
 		t.Error("Provider must implement provider.AgentSessionLister")
 	}
@@ -244,7 +244,7 @@ func withFakeEngine(t *testing.T, p *Provider, handler http.HandlerFunc) {
 func TestDiscoveryForwardsToDialectWhenEngineIsUp(t *testing.T) {
 	cost := 0.5
 	d := &discoveryDialect{
-		fakeDialect: fakeDialect{id: "test"},
+		id: "test",
 		sessions: []provider.AgentSessionMeta{{
 			ID: "ses_1", CWD: "/w", Title: "t",
 			ModelID: "opencode/big-pickle", Agent: "build", ThinkingLevel: "high",
@@ -299,7 +299,7 @@ func TestDiscoveryPropagatesDialectErrors(t *testing.T) {
 	sessionsErr := errors.New("session listing blew up")
 	projectsErr := errors.New("project listing blew up")
 	d := &discoveryDialect{
-		fakeDialect: fakeDialect{id: "test"},
+		id:          "test",
 		sessionsErr: sessionsErr,
 		projectsErr: projectsErr,
 	}

@@ -132,7 +132,7 @@ func experimentalNotifications(t *testing.T, sourceTree string) map[string]struc
 
 	out := map[string]struct{}{}
 	experimental, renamed := false, ""
-	for _, line := range strings.Split(block, "\n") {
+	for line := range strings.SplitSeq(block, "\n") {
 		trimmed := strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(trimmed, "#[experimental"):
@@ -170,16 +170,16 @@ func experimentalNotifications(t *testing.T, sourceTree string) map[string]struc
 }
 
 func firstQuoted(s string) (string, bool) {
-	i := strings.Index(s, "\"")
-	if i < 0 {
+	_, after, ok := strings.Cut(s, "\"")
+	if !ok {
 		return "", false
 	}
-	rest := s[i+1:]
-	j := strings.Index(rest, "\"")
-	if j < 0 {
+	rest := after
+	before0, _, ok0 := strings.Cut(rest, "\"")
+	if !ok0 {
 		return "", false
 	}
-	return rest[:j], true
+	return before0, true
 }
 
 // implementedMethods reports which wire methods this package actually uses,

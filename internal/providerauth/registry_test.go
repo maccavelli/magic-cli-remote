@@ -91,7 +91,7 @@ func TestCancelEndsTheContext(t *testing.T) {
 
 func TestPerDeviceAndGlobalCaps(t *testing.T) {
 	r := NewRegistry()
-	for i := 0; i < MaxFlowsPerDevice; i++ {
+	for i := range MaxFlowsPerDevice {
 		if _, _, err := r.Add(context.Background(), newFlow("dev-1")); err != nil {
 			t.Fatalf("flow %d refused: %v", i, err)
 		}
@@ -152,7 +152,7 @@ func TestExpirySweep(t *testing.T) {
 // A disconnecting device must not leave a flow polling on behalf of nobody.
 func TestCancelDevice(t *testing.T) {
 	r := NewRegistry()
-	for i := 0; i < MaxFlowsPerDevice; i++ {
+	for range MaxFlowsPerDevice {
 		if _, _, err := r.Add(context.Background(), newFlow("dev-1")); err != nil {
 			t.Fatal(err)
 		}

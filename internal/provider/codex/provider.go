@@ -340,7 +340,7 @@ func collectModels(ctx context.Context, send rpcSender, cfgModel string, log *sl
 	opts := make([]picker.Option, 0, 8)
 	recs := make([]modelRecord, 0, 8)
 	cursor := ""
-	for page := 0; page < maxModelListPages; page++ {
+	for page := range maxModelListPages {
 		// An empty object, never nil: codex rejects a request with no params.
 		params := map[string]any{}
 		if cursor != "" {
@@ -1042,11 +1042,8 @@ func (p *Provider) handleUnexpectedEngineExit(gen int, att *engineAttempt, exitE
 		s.engineLost()
 	}
 
-	attempts := p.cfg.ReconnectAttempts
-	if attempts > len(engineReconnectBackoffs) {
-		attempts = len(engineReconnectBackoffs)
-	}
-	for attempt := 0; attempt < attempts; attempt++ {
+	attempts := min(p.cfg.ReconnectAttempts, len(engineReconnectBackoffs))
+	for attempt := range attempts {
 		p.mu.Lock()
 		closed := p.closed
 		p.mu.Unlock()
@@ -1403,14 +1400,14 @@ func (w *lineRing) tail() string {
 	if len(w.ring) == 0 {
 		return ""
 	}
-	out := ""
+	var out strings.Builder
 	for i, line := range w.ring {
 		if i > 0 {
-			out += "\n"
+			out.WriteString("\n")
 		}
-		out += line
+		out.WriteString(line)
 	}
-	return out
+	return out.String()
 }
 
 // withResolvedUserName guarantees the engine sees a USERNAME.

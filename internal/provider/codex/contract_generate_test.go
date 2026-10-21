@@ -296,8 +296,8 @@ func generatedFixtures(stable, experimental ContractSurface, stableDocs, experim
 }
 
 func responseSchema(method, params string, docs generatedSchemaDocs) string {
-	if strings.HasSuffix(params, "Params") {
-		candidate := strings.TrimSuffix(params, "Params") + "Response"
+	if before, ok := strings.CutSuffix(params, "Params"); ok {
+		candidate := before + "Response"
 		if _, ok := docs.definitions[candidate]; ok {
 			return candidate
 		}

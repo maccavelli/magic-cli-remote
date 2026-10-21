@@ -116,7 +116,7 @@ func TestDecodeVariantsIsDeterministic(t *testing.T) {
 	obj := json.RawMessage(`{}`)
 	in := map[string]json.RawMessage{"zeta": obj, "alpha": obj, "beta": obj, "gamma": obj}
 	first := ids(decodeVariants(in))
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		if got := ids(decodeVariants(in)); !eq(got, first) {
 			t.Fatalf("iteration %d = %v, want %v", i, got, first)
 		}
@@ -218,11 +218,11 @@ func TestModelSurfaceCacheConcurrent(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 500; i++ {
+		for range 500 {
 			c.replace(map[string]modelSurface{"opencode/m": {Attachment: true}})
 		}
 	}()
-	for i := 0; i < 500; i++ {
+	for range 500 {
 		_, _ = c.lookup("opencode/m")
 		_ = c.len()
 	}

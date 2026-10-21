@@ -129,7 +129,7 @@ func TestRenderUnitMcrelay(t *testing.T) {
 }
 
 func hasUnitDirective(body, directive string) bool {
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if strings.TrimSpace(line) == directive {
 			return true
 		}

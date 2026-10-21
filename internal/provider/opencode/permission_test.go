@@ -122,31 +122,29 @@ func TestRespondPermissionPrefersGlobalThenSession(t *testing.T) {
 	defer ts.Close()
 
 	h := &originHost{
-		captureHost: captureHost{
-			api: func(ctx context.Context, method, path string, body, out any) error {
-				var rd io.Reader
-				if body != nil {
-					b, _ := json.Marshal(body)
-					rd = strings.NewReader(string(b))
-				}
-				req, err := http.NewRequestWithContext(ctx, method, ts.URL+path, rd)
-				if err != nil {
-					return err
-				}
-				if body != nil {
-					req.Header.Set("Content-Type", "application/json")
-				}
-				res, err := http.DefaultClient.Do(req)
-				if err != nil {
-					return err
-				}
-				defer res.Body.Close()
-				if res.StatusCode >= 300 {
-					b, _ := io.ReadAll(res.Body)
-					return errHTTP(res.StatusCode, string(b))
-				}
-				return nil
-			},
+		api: func(ctx context.Context, method, path string, body, out any) error {
+			var rd io.Reader
+			if body != nil {
+				b, _ := json.Marshal(body)
+				rd = strings.NewReader(string(b))
+			}
+			req, err := http.NewRequestWithContext(ctx, method, ts.URL+path, rd)
+			if err != nil {
+				return err
+			}
+			if body != nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return err
+			}
+			defer res.Body.Close()
+			if res.StatusCode >= 300 {
+				b, _ := io.ReadAll(res.Body)
+				return errHTTP(res.StatusCode, string(b))
+			}
+			return nil
 		},
 		origin: "child1",
 	}

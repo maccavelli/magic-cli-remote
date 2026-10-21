@@ -292,7 +292,7 @@ func HasGrokConfigAPIKey(path string) bool {
 	}
 	inQuotedModel := false
 	inAuth := false
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inQuotedModel = isQuotedGrokModelTable(trimmed)

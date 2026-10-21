@@ -309,7 +309,7 @@ func TestChunksCoalesceUnderBackpressure(t *testing.T) {
 		cfg:      Config{StreamCoalesce: &win},
 	}
 	var want strings.Builder
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		text := string(rune('a'+i%26)) + "x"
 		want.WriteString(text)
 		s.emit(event.Event{Type: event.TypeAssistantChunk, SessionID: "local-1", Text: text})
@@ -348,7 +348,7 @@ func TestChunksCoalesceUnderBackpressure(t *testing.T) {
 // neither iteration count nor -race forces it). It guards against a regression
 // that widens the window materially, and documents the contract.
 func TestRespondPermissionCancelRaceConsistency(t *testing.T) {
-	for i := 0; i < 400; i++ {
+	for i := range 400 {
 		s := &session{
 			localID:  "l",
 			agentID:  "a",

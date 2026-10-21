@@ -58,7 +58,7 @@ func TestPinMatchesTheFixtureItCites(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := ""
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if !strings.Contains(line, "cliVersion") {
 			continue
 		}
@@ -68,8 +68,8 @@ func TestPinMatchesTheFixtureItCites(t *testing.T) {
 		}
 		// The value is nested; a substring scan over the raw line is enough to
 		// read it, and does not depend on where in the thread object it sits.
-		i := strings.Index(line, `"cliVersion":`)
-		rest := line[i+len(`"cliVersion":`):]
+		_, after, _ := strings.Cut(line, `"cliVersion":`)
+		rest := after
 		rest = strings.TrimLeft(rest, " ")
 		if !strings.HasPrefix(rest, `"`) {
 			continue

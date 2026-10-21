@@ -143,7 +143,7 @@ func (s *Store) Lines(deviceID string) ([]string, error) {
 		return nil, fmt.Errorf("read %s: %w", s.path(deviceID), err)
 	}
 	var lines []string
-	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(string(b), "\n"), "\n") {
 		if line != "" {
 			lines = append(lines, line)
 		}
@@ -202,10 +202,7 @@ func readLastLine(path string) ([]byte, bool, error) {
 	var tail []byte
 	pos := size
 	for pos > 0 {
-		readSize := int64(seekChunkSize)
-		if readSize > pos {
-			readSize = pos
-		}
+		readSize := min(int64(seekChunkSize), pos)
 		pos -= readSize
 		chunk := make([]byte, readSize)
 		if _, err := f.ReadAt(chunk, pos); err != nil && err != io.EOF {

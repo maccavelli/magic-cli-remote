@@ -156,10 +156,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 		}
 		text := fmt.Sprintf("Retry (attempt %d): %s", p.Status.Attempt, msg)
 		if p.Status.Next > 0 {
-			secs := (p.Status.Next + 999) / 1000
-			if secs < 1 {
-				secs = 1
-			}
+			secs := max((p.Status.Next+999)/1000, 1)
 			text = fmt.Sprintf("Retry (attempt %d) in %ds: %s", p.Status.Attempt, secs, msg)
 		}
 		// Soft rate-limit retries keep the turn alive; prefer Present copy
@@ -168,10 +165,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 			if cls.Message != "" {
 				text = fmt.Sprintf("Retry (attempt %d): %s", p.Status.Attempt, cls.Message)
 				if p.Status.Next > 0 {
-					secs := (p.Status.Next + 999) / 1000
-					if secs < 1 {
-						secs = 1
-					}
+					secs := max((p.Status.Next+999)/1000, 1)
 					text = fmt.Sprintf("Retry (attempt %d) in %ds: %s", p.Status.Attempt, secs, cls.Message)
 				}
 			}

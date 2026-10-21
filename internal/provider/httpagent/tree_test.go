@@ -30,7 +30,7 @@ func (d *treeDialect) ParentIDFromProps(props json.RawMessage) string {
 }
 
 func TestLookupSessionBootstrapChild(t *testing.T) {
-	d := &treeDialect{fakeDialect: fakeDialect{id: "test"}}
+	d := &treeDialect{id: "test"}
 	p := NewWithLogger(d, Config{}, nil)
 	parent, _ := newTestSession(p)
 	parent.agentID = "parent1"
@@ -60,7 +60,7 @@ func TestLookupSessionBootstrapChild(t *testing.T) {
 }
 
 func TestLookupSessionBootstrapGrandchild(t *testing.T) {
-	d := &treeDialect{fakeDialect: fakeDialect{id: "test"}}
+	d := &treeDialect{id: "test"}
 	p := NewWithLogger(d, Config{}, nil)
 	parent, _ := newTestSession(p)
 	parent.agentID = "parent1"
@@ -88,7 +88,7 @@ func TestLookupSessionBootstrapGrandchild(t *testing.T) {
 }
 
 func TestLookupSessionUnknownNoParent(t *testing.T) {
-	d := &treeDialect{fakeDialect: fakeDialect{id: "test"}}
+	d := &treeDialect{id: "test"}
 	p := NewWithLogger(d, Config{}, nil)
 	props := json.RawMessage(`{"info":{"id":"orphan","parentID":"missing"}}`)
 	p.mu.Lock()
@@ -101,8 +101,8 @@ func TestLookupSessionUnknownNoParent(t *testing.T) {
 
 // KD11: session_tree=false disables bootstrap demux and child aliases.
 func TestLookupSessionTreeKillSwitch(t *testing.T) {
-	d := &treeDialect{fakeDialect: fakeDialect{id: "test"}}
-	p := NewWithLogger(d, Config{SessionTree: Bool(false)}, nil)
+	d := &treeDialect{id: "test"}
+	p := NewWithLogger(d, Config{SessionTree: new(false)}, nil)
 	parent, _ := newTestSession(p)
 	parent.agentID = "parent1"
 	if err := p.register(parent); err != nil {

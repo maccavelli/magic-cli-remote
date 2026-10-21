@@ -191,7 +191,7 @@ func runPairCode(t *testing.T, yaml string) pairuri.Payload {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("pair code: %v\n%s", err, buf.String())
 	}
-	for _, line := range strings.Split(buf.String(), "\n") {
+	for line := range strings.SplitSeq(buf.String(), "\n") {
 		if i := strings.Index(line, "mcremote://"); i >= 0 {
 			p, err := pairuri.Parse(strings.TrimSpace(line[i:]))
 			if err != nil {
@@ -345,7 +345,7 @@ func TestPairQRStaysScannable(t *testing.T) {
 	})
 
 	width := 0
-	for _, line := range strings.Split(buf.String(), "\n") {
+	for line := range strings.SplitSeq(buf.String(), "\n") {
 		if n := len([]rune(line)); n > width {
 			width = n
 		}
@@ -399,7 +399,7 @@ func TestPairListShowsKeyColumn(t *testing.T) {
 		t.Errorf("fingerprint not truncated to a prefix in:\n%s", out)
 	}
 	var legacyLine string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, "legacy") {
 			legacyLine = line
 		}

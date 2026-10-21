@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -786,12 +787,7 @@ func prewarmPlan(cfg config.Config) []provider.ID {
 }
 
 func prewarmWants(cfg config.Config, id provider.ID) bool {
-	for _, got := range prewarmPlan(cfg) {
-		if got == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(prewarmPlan(cfg), id)
 }
 
 // acpAgentConfig builds an acpagent.Config from the shared ACP provider config.

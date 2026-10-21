@@ -156,16 +156,14 @@ func TestLockContentionIsBounded(t *testing.T) {
 	held := make(chan struct{})
 	release := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		other := mk(5 * time.Second)
 		_ = other.withProviderLock(ctx, func(*Manifest) error {
 			close(held)
 			<-release
 			return nil
 		})
-	}()
+	})
 	<-held
 
 	start := time.Now()
@@ -198,9 +196,7 @@ func TestConcurrentBeginAdmitsOne(t *testing.T) {
 	var ok int
 	var busy int
 	for range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := c.Begin(ctx, SourceDeviceAuth)
 			mu.Lock()
 			defer mu.Unlock()
@@ -210,7 +206,7 @@ func TestConcurrentBeginAdmitsOne(t *testing.T) {
 			case errors.Is(err, ErrTransactionBusy):
 				busy++
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

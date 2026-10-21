@@ -96,7 +96,7 @@ func TestCoordinatedAPIKeyNeverLeaksTheKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		if strings.Contains(line, key) {
 			t.Fatalf("the key reached argv or the environment: %q", line)
 		}

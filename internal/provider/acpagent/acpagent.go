@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -294,9 +295,7 @@ func (p *Provider) resolveCredentialModel(ctx context.Context) (string, error) {
 
 func cloneAuthInputs(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in)+1)
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 

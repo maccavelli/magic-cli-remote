@@ -104,13 +104,11 @@ func TestAutoApprovalSummaryConcurrent(t *testing.T) {
 	const n = 50
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			s.HandleEvent("permission.asked", json.RawMessage(
 				`{"id":"per_`+strconv.Itoa(i)+`","sessionID":"ses_test",`+
 					`"permission":"bash","patterns":["cmd`+strconv.Itoa(i)+`"]}`))
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -395,7 +393,7 @@ func TestAutoApproveStopsWhenClaimedElsewhere(t *testing.T) {
 // keep auto-approving even with the per-session flag off.
 func TestConfigAlwaysApproveStillWorks(t *testing.T) {
 	log := &replyLog{}
-	h := &alwaysApproveHost{captureHost: captureHost{api: log.api}}
+	h := &alwaysApproveHost{api: log.api}
 	d := &httpDialect{log: slog.Default(), defaultModelProvider: "kilo", defaultModelID: defaultModelID}
 	s := d.NewSession(h).(*httpSession)
 	h.mu.Lock()

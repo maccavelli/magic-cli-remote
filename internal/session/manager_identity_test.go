@@ -63,7 +63,6 @@ func TestSnapshotOnlyTouchesItsOwnPart(t *testing.T) {
 		{Type: event.TypeAssistantChunk, Text: "b", NativeMessageID: "m1", NativePartID: "p2"},
 		{Type: event.TypeAssistantChunk, Text: "c", NativeMessageID: "m2", NativePartID: "p1"},
 	} {
-		ev := ev
 		e.appendHistoryLocked(&ev)
 	}
 	snap := event.Event{Type: event.TypeAssistantChunk, Text: "A",
@@ -105,7 +104,6 @@ func TestTombstoneRemovesAndIsRetained(t *testing.T) {
 		{Type: event.TypeAssistantChunk, Text: "gone", NativeMessageID: "m1", NativePartID: "p1"},
 		{Type: event.TypeAssistantChunk, Text: "stays", NativeMessageID: "m1", NativePartID: "p2"},
 	} {
-		ev := ev
 		e.appendHistoryLocked(&ev)
 	}
 	tomb := event.Event{Type: event.TypeTranscriptRemove, NativeMessageID: "m1", NativePartID: "p1"}
@@ -129,7 +127,6 @@ func TestMessageTombstoneRemovesEveryPart(t *testing.T) {
 		{Type: event.TypeToolCall, Text: "b", NativeMessageID: "m1", NativePartID: "p2"},
 		{Type: event.TypeAssistantChunk, Text: "keep", NativeMessageID: "m2", NativePartID: "p1"},
 	} {
-		ev := ev
 		e.appendHistoryLocked(&ev)
 	}
 	tomb := event.Event{Type: event.TypeTranscriptRemove, NativeMessageID: "m1"}
@@ -151,7 +148,7 @@ func TestRemovalIsIdempotentForUnknownIDs(t *testing.T) {
 	keep := event.Event{Type: event.TypeAssistantChunk, Text: "keep",
 		NativeMessageID: "m1", NativePartID: "p1"}
 	e.appendHistoryLocked(&keep)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		tomb := event.Event{Type: event.TypeTranscriptRemove, NativeMessageID: "unknown", NativePartID: "nope"}
 		e.appendHistoryLocked(&tomb)
 	}
@@ -172,7 +169,6 @@ func TestLegacyRowsWithoutIdentityAreNeverMatched(t *testing.T) {
 		{Type: event.TypeAssistantChunk, Text: "legacy-1"},
 		{Type: event.TypeAssistantChunk, Text: "legacy-2"},
 	} {
-		ev := ev
 		e.appendHistoryLocked(&ev)
 	}
 	// A tombstone with an empty message id must be inert, not a wildcard.
@@ -221,7 +217,6 @@ func TestRemovalHelpersRefuseAnEmptyMessageID(t *testing.T) {
 		{Type: event.TypeUserMessage, Text: "optimistic", NativeMessageID: "m1"},
 		{Type: event.TypeAssistantChunk, Text: "identified", NativeMessageID: "m1", NativePartID: "p1"},
 	} {
-		ev := ev
 		e.appendHistoryLocked(&ev)
 	}
 	before := len(e.history)

@@ -165,7 +165,7 @@ func TestBytesTracksStructGrowth(t *testing.T) {
 	// check the total moves; a field Bytes forgets shows up as a zero delta.
 	base := Event{}
 	baseline := Bytes(&base)
-	rt := reflect.TypeOf(Event{})
+	rt := reflect.TypeFor[Event]()
 	var forgotten []string
 	for i := range rt.NumField() {
 		f := rt.Field(i)

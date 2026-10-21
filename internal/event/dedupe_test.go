@@ -12,7 +12,7 @@ func TestCommandDeduperSuppressesOnlyIdenticalRepeats(t *testing.T) {
 
 	var d CommandDeduper
 	emits := 0
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if d.ShouldEmit(base) {
 			emits++
 		}
@@ -95,7 +95,7 @@ func TestNoticeDeduperSuppressesConsecutiveRepeats(t *testing.T) {
 	const dep = "codex_hooks is deprecated; use hooks"
 
 	emits := 0
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if d.ShouldEmit("", dep) {
 			emits++
 		}

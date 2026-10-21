@@ -420,7 +420,7 @@ func launchRows(t *testing.T, path string) []string {
 		t.Fatalf("read launch log %s: %v", path, err)
 	}
 	var rows []string
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		if strings.TrimSpace(line) != "" {
 			rows = append(rows, strings.TrimSpace(line))
 		}
@@ -434,7 +434,7 @@ func readLaunchLog(path string) (int, error) {
 		return 0, err
 	}
 	n := 0
-	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
 		if strings.TrimSpace(line) != "" {
 			n++
 		}

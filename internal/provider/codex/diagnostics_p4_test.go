@@ -72,11 +72,9 @@ func TestDiagnosticRunnerExactArgvTimeoutNonzeroAndSingleFlight(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
-	wg.Add(1)
-	go func() { defer wg.Done(); _, err := p.RunDoctor(context.Background()); errs <- err }()
+	wg.Go(func() { ; _, err := p.RunDoctor(context.Background()); errs <- err })
 	<-entered
-	wg.Add(1)
-	go func() { defer wg.Done(); _, err := p.RunDoctor(context.Background()); errs <- err }()
+	wg.Go(func() { ; _, err := p.RunDoctor(context.Background()); errs <- err })
 	waitForRunDoctorJoin(t, 2)
 	close(release)
 	wg.Wait()

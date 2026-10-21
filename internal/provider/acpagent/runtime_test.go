@@ -145,8 +145,8 @@ func TestSessionUsageDecodesFlattenedTotals(t *testing.T) {
 // wrong number rather than a missing one.
 func TestUsageNeverReportsAnAbsentCostAsFree(t *testing.T) {
 	base := promptUsage{
-		promptUsageModel: promptUsageModel{InputTokens: 900, OutputTokens: 100},
-		NumTurns:         3,
+		InputTokens: 900, OutputTokens: 100,
+		NumTurns: 3,
 	}
 
 	absent := formatSessionUsage(base)

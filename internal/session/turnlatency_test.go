@@ -128,7 +128,7 @@ func (b *syncBuf) String() string {
 func (b *syncBuf) turnRecords(t *testing.T) []map[string]any {
 	t.Helper()
 	var out []map[string]any
-	for _, line := range strings.Split(b.String(), "\n") {
+	for line := range strings.SplitSeq(b.String(), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}

@@ -100,7 +100,7 @@ func TestReconnectChurnCannotExhaustThePool(t *testing.T) {
 	// replacement the 4th dial is refused `too many clients`. No retries
 	// needed: replaceElders frees the elder's slot under the capacity
 	// check's own lock, before auth_ok is even written.
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		conn, _, err := websocket.Dial(ctx, url, nil)
 		if err != nil {
 			t.Fatalf("dial %d refused: %v", i, err)

@@ -246,7 +246,7 @@ func readDefinition(path string) (string, bool) {
 
 // programOfUnit reads a unit's ExecStart program.
 func programOfUnit(body string) (string, string) {
-	for _, raw := range strings.Split(body, "\n") {
+	for raw := range strings.SplitSeq(body, "\n") {
 		k, v, ok := strings.Cut(strings.TrimSpace(raw), "=")
 		if !ok || strings.TrimSpace(k) != "ExecStart" {
 			continue

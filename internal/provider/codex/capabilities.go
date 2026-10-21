@@ -3,6 +3,7 @@ package codex
 import (
 	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -164,7 +165,7 @@ func (s CapabilitySnapshot) Sanitized() SanitizedCapabilitySnapshot {
 			supported = append(supported, id)
 		}
 	}
-	sort.Slice(supported, func(i, j int) bool { return supported[i] < supported[j] })
+	slices.Sort(supported)
 	return SanitizedCapabilitySnapshot{
 		BinaryName:           filepath.Base(s.BinaryIdentity.Path),
 		Version:              s.BinaryIdentity.Version,

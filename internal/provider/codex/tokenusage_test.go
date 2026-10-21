@@ -25,7 +25,7 @@ func TestTokenUsageDecodesTheShapeCodexActuallySends(t *testing.T) {
 		t.Fatal(err)
 	}
 	var params json.RawMessage
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if !strings.Contains(line, `"thread/tokenUsage/updated"`) {
 			continue
 		}

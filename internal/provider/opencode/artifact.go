@@ -84,11 +84,11 @@ func validArtifactURL(raw string) (string, error) {
 // canonical payload plus its decoded size.
 func decodeArtifactDataURL(raw string) (string, int64, error) {
 	rest := raw[len("data:"):]
-	comma := strings.IndexByte(rest, ',')
-	if comma < 0 {
+	before, after, ok := strings.Cut(rest, ",")
+	if !ok {
 		return "", 0, fmt.Errorf("data url has no payload")
 	}
-	meta, payload := rest[:comma], rest[comma+1:]
+	meta, payload := before, after
 	if !strings.Contains(strings.ToLower(meta), "base64") {
 		// Percent-encoded data URLs are legal but are not what the engine
 		// emits; refusing keeps exactly one decoder on this path.

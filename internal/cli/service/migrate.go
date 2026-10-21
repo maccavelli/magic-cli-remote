@@ -69,7 +69,7 @@ func inOldLayout(product, binary string) bool {
 func rewriteUserPath(value string, remove []string, add string) (string, bool) {
 	var out []string
 	have := false
-	for _, e := range strings.Split(value, ";") {
+	for e := range strings.SplitSeq(value, ";") {
 		drop := false
 		for _, r := range remove {
 			if e != "" && samePath(e, r) {

@@ -26,9 +26,9 @@ func (d *defaultingDialect) DefaultModel() (string, string) { return d.mp, d.mid
 // to the provider-wide dialect, and this pins that.
 func TestCurrentModelReadsTheProviderDialectNotTheSessionView(t *testing.T) {
 	p := NewWithLogger(&defaultingDialect{
-		fakeDialect: fakeDialect{id: "test"},
-		mp:          "kilo",
-		mid:         "kilo-auto/balanced",
+		id:  "test",
+		mp:  "kilo",
+		mid: "kilo-auto/balanced",
 	}, Config{Bin: testBin(t)}, nil)
 	s := &session{p: p}
 
@@ -44,9 +44,9 @@ func TestCurrentModelReadsTheProviderDialectNotTheSessionView(t *testing.T) {
 // the default is only what it would have been.
 func TestCurrentModelPrefersTheSessionsOwnModel(t *testing.T) {
 	p := NewWithLogger(&defaultingDialect{
-		fakeDialect: fakeDialect{id: "test"},
-		mp:          "kilo",
-		mid:         "kilo-auto/balanced",
+		id:  "test",
+		mp:  "kilo",
+		mid: "kilo-auto/balanced",
 	}, Config{Bin: testBin(t)}, nil)
 	s := &session{p: p, model: "anthropic/claude-opus-5"}
 
@@ -67,7 +67,7 @@ func TestCurrentModelIsEmptyWhenNothingKnowsOne(t *testing.T) {
 		}
 	})
 	t.Run("dialect has not resolved one yet", func(t *testing.T) {
-		p := NewWithLogger(&defaultingDialect{fakeDialect: fakeDialect{id: "test"}},
+		p := NewWithLogger(&defaultingDialect{id: "test"},
 			Config{Bin: testBin(t)}, nil)
 		s := &session{p: p}
 		if got := s.CurrentModel(); got != "" {

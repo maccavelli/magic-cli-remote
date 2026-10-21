@@ -97,11 +97,9 @@ func TestBlockingCallersShareOneProbe(t *testing.T) {
 	results := make([]StoreReality, callers)
 	var wg sync.WaitGroup
 	for i := range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			results[i], _ = ObserveCredentialStoreCached(context.Background(), stub, time.Minute)
-		}()
+		})
 	}
 	wg.Wait()
 

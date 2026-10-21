@@ -1811,10 +1811,7 @@ func firstNonEmpty(vals ...string) string {
 // b that ends on a UTF-8 rune boundary, so slicing b at the result never splits
 // a multi-byte rune. Used to re-align part text after a dropped/reordered delta.
 func commonPrefixLen(a, b string) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	i := 0
 	for i < n && a[i] == b[i] {
 		i++

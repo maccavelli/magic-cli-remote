@@ -73,7 +73,7 @@ func TestStoreAppendAndVerifyIntact(t *testing.T) {
 	}
 
 	const n = 25
-	for i := 0; i < n; i++ {
+	for i := range n {
 		appendPermissionDecision(t, s, priv, "dev-1", i)
 	}
 	broken, err := s.Verify("dev-1", &priv.PublicKey, &daemonPriv.PublicKey)
@@ -110,7 +110,7 @@ func TestStoreVerifyDetectsTamperedLine(t *testing.T) {
 	}
 
 	const n = 10
-	for i := 0; i < n; i++ {
+	for i := range n {
 		appendPermissionDecision(t, s, priv, "dev-1", i)
 	}
 
@@ -151,7 +151,7 @@ func TestStoreLastHashSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		appendPermissionDecision(t, s, priv, "dev-1", i)
 	}
 	want, ok, err := s.LastHash("dev-1")
@@ -340,7 +340,7 @@ func TestStoreLargeChainMaintainsIntegrity(t *testing.T) {
 	}
 
 	const entries = 1000
-	for i := 0; i < entries; i++ {
+	for i := range entries {
 		appendPermissionDecision(t, s, priv, "dev-1", i)
 	}
 

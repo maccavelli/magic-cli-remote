@@ -34,9 +34,7 @@ func TestWithPathLockExcludes(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := withPathLock(path, func() error {
 				mu.Lock()
 				inside++
@@ -55,7 +53,7 @@ func TestWithPathLockExcludes(t *testing.T) {
 			if err != nil {
 				t.Errorf("withPathLock: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

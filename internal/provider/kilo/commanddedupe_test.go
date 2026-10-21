@@ -21,7 +21,7 @@ func TestAdvertiseCommandsDedupes(t *testing.T) {
 		{Name: "init", Description: "guided AGENTS.md setup"},
 		{Name: "compact", Description: "compress history"},
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		o.emitCommands(list)
 	}
 	if got := countCommandEvents(h); got != 1 {

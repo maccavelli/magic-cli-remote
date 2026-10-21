@@ -159,12 +159,10 @@ func TestOwnerCallsWaitOnceAndFinishesOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make([]error, 4)
 	for i := range results {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-res.Done()
 			results[i] = res.Result()
-		}()
+		})
 	}
 	wg.Wait()
 

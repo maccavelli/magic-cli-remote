@@ -152,7 +152,7 @@ func (a *nativeThreadAPI) loadedIDs(ctx context.Context) (map[string]bool, error
 		return loaded, nil
 	}
 	cursor := ""
-	for page := 0; page < maxLoadedThreadPages; page++ {
+	for range maxLoadedThreadPages {
 		params := map[string]any{"limit": uint32(maxNativeThreadPage)}
 		if cursor != "" {
 			params["cursor"] = cursor
@@ -1010,7 +1010,7 @@ func (s *session) replayThreadHistory(ctx context.Context, fr *conn) error {
 	}
 
 	cursor := ""
-	for page := 0; page < replayPageLimit; page++ {
+	for range replayPageLimit {
 		raw, err := fr.sendReadOnlyOrWriteRequest(ctx, "thread/items/list", replayPageParams(s.AgentSessionID(), cursor))
 		if err != nil {
 			return fmt.Errorf("thread/items/list replay: %w", err)

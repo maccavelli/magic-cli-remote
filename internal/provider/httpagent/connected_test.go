@@ -183,12 +183,10 @@ func TestSingleFlightProviderFetch(t *testing.T) {
 		return json.Unmarshal([]byte(providerJSON(nil)), out)
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			_ = p.VerifyUpstreamConnected(context.Background(), api, "togetherai")
-		}()
+		})
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for started.Load() < 1 && time.Now().Before(deadline) {
@@ -205,7 +203,7 @@ func TestSingleFlightProviderFetch(t *testing.T) {
 
 func TestMutationRingWraps(t *testing.T) {
 	p := NewWithLogger(&fakeDialect{id: "test"}, Config{Bin: testBin(t)}, nil)
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		p.Note("set", fmt.Sprintf("v%d", i))
 	}
 	if n := p.MutationRingLen(); n != mutationRingCap {

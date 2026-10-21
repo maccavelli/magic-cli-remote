@@ -83,9 +83,8 @@ func TestSecretConfigKeysCoversEveryTag(t *testing.T) {
 			return
 		}
 		seen[rt] = true
-		for i := 0; i < rt.NumField(); i++ {
-			f := rt.Field(i)
-			tag := strings.Split(f.Tag.Get("mapstructure"), ",")[0]
+		for f := range rt.Fields() {
+			tag, _, _ := strings.Cut(f.Tag.Get("mapstructure"), ",")
 			if tag == "" || tag == "-" {
 				continue
 			}
@@ -105,7 +104,7 @@ func TestSecretConfigKeysCoversEveryTag(t *testing.T) {
 			walk(f.Type, key)
 		}
 	}
-	walk(reflect.TypeOf(Config{}), "")
+	walk(reflect.TypeFor[Config](), "")
 
 	if len(missing) > 0 {
 		t.Fatalf("config keys look like credentials but are not in secretConfigKeys: %v\n"+

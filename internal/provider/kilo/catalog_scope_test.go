@@ -19,7 +19,7 @@ func gatewayLastCatalog(bulk int) string {
 	var b strings.Builder
 	b.WriteString(`{"default":{"kilo":"kilo-auto/balanced"},"providers":[`)
 	fmt.Fprintf(&b, `{"id":"bulk","name":"Bulk Vendor","models":{`)
-	for i := 0; i < bulk; i++ {
+	for i := range bulk {
 		if i > 0 {
 			b.WriteString(",")
 		}
@@ -97,7 +97,7 @@ func TestModelsForIsDeterministic(t *testing.T) {
 	api := routedAPI(map[string]string{"/config/providers": gatewayLastCatalog(4)})
 	d := newDialect()
 	var first []string
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		cat, err := d.ListModelsForLive(context.Background(), api, "kilo")
 		if err != nil {
 			t.Fatal(err)

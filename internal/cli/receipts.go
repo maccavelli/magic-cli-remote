@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -114,13 +115,7 @@ func newReceiptsListCmd() *cobra.Command {
 				return err
 			}
 			if device != "" {
-				found := false
-				for _, id := range ids {
-					if id == device {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(ids, device)
 				if !found {
 					fmt.Fprintf(cmd.OutOrStdout(), "No receipts for device %s.\n", device)
 					return nil

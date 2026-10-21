@@ -36,9 +36,7 @@ func TestUnstableLiveDefersInsteadOfWedging(t *testing.T) {
 	// for longer than StableReadDeadline, so the observation never settles.
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for i := 100; ; i++ {
 			select {
 			case <-stop:
@@ -48,7 +46,7 @@ func TestUnstableLiveDefersInsteadOfWedging(t *testing.T) {
 			_ = os.WriteFile(ad.live, []byte(`{"mode":"chatgpt","seq":`+itoa(i)+`}`), 0o600)
 			time.Sleep(10 * time.Millisecond)
 		}
-	}()
+	})
 
 	st, err := c.Recover(ctx)
 	close(stop)

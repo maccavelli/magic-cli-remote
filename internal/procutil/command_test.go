@@ -59,8 +59,7 @@ func TestCommandHonoursContextCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		// Windows reports the kill rather than the cause on some paths; an
 		// *exec.ExitError is an acceptable shape, a nil error is not.
-		var ee *exec.ExitError
-		if !errors.As(err, &ee) {
+		if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 			t.Errorf("Run() error = %v, want context.Canceled or *exec.ExitError", err)
 		}
 	}

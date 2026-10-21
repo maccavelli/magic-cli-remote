@@ -293,10 +293,7 @@ func (w boundedDoctorStream) Write(p []byte) (int, error) {
 		w.output.overflow = true
 	}
 	if w.stdout {
-		remaining := MaxDoctorOutputBytes + 1 - w.output.stdout.Len()
-		if remaining > len(p) {
-			remaining = len(p)
-		}
+		remaining := min(MaxDoctorOutputBytes+1-w.output.stdout.Len(), len(p))
 		if remaining > 0 {
 			_, _ = w.output.stdout.Write(p[:remaining])
 		}

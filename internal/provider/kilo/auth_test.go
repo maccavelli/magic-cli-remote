@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -85,13 +86,7 @@ func TestAuthStatusMapsCatalogInputs(t *testing.T) {
 			t.Errorf("%s declares no inputs; MADR 0074 §7.3 says it must", want.upstream)
 			continue
 		}
-		found := false
-		for _, k := range keys {
-			if k == want.key {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(keys, want.key)
 		if !found {
 			t.Errorf("%s inputs %v missing %q", want.upstream, keys, want.key)
 		}

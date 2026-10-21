@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,12 +61,7 @@ func (a *scriptedAgent) methods() []string {
 }
 
 func (a *scriptedAgent) sent(method string) bool {
-	for _, m := range a.methods() {
-		if m == method {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a.methods(), method)
 }
 
 // paramsFor returns the decoded params of the first request for method.

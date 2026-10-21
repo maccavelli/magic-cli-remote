@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -104,9 +105,9 @@ func TestSessionCostIsTheLatestReportedTotal(t *testing.T) {
 // lastNotice returns the text of the session's most recent notice.
 func lastNotice(mgr *Manager, id string) string {
 	h := mgr.History(id)
-	for i := len(h) - 1; i >= 0; i-- {
-		if h[i].Type == event.TypeNotice {
-			return h[i].Text
+	for _, v := range slices.Backward(h) {
+		if v.Type == event.TypeNotice {
+			return v.Text
 		}
 	}
 	return ""

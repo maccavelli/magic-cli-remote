@@ -28,9 +28,9 @@ func TestUpstreamAuthPayloadAnnotatesAvailability(t *testing.T) {
 		reason string
 	}{
 		{nil, ""},
-		{boolPtr(false), protocol.AuthReasonBrowserOnly},
-		{boolPtr(false), protocol.AuthReasonDeviceUnsupported},
-		{boolPtr(false), protocol.AuthReasonKeyringManaged},
+		{new(false), protocol.AuthReasonBrowserOnly},
+		{new(false), protocol.AuthReasonDeviceUnsupported},
+		{new(false), protocol.AuthReasonKeyringManaged},
 	}
 	for i, w := range want {
 		m := got.Methods[i]
@@ -47,5 +47,3 @@ func TestUpstreamAuthPayloadAnnotatesAvailability(t *testing.T) {
 		t.Errorf("wired device method still annotated: %v %q", m.Available, m.Reason)
 	}
 }
-
-func boolPtr(b bool) *bool { return &b }

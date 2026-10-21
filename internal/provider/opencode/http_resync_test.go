@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -107,9 +108,9 @@ func TestResyncRecoversMissedTurnEnd(t *testing.T) {
 	last := func(typ event.Type) event.Event {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		for i := len(h.events) - 1; i >= 0; i-- {
-			if h.events[i].Type == typ {
-				return h.events[i]
+		for _, v := range slices.Backward(h.events) {
+			if v.Type == typ {
+				return v
 			}
 		}
 		return event.Event{}

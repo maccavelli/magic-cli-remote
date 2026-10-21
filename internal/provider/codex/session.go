@@ -271,10 +271,7 @@ func (s *session) stallTicker() {
 	// Tick at the configured interval: 120 s default. The notice fires
 	// when a tick observes a gap >= interval. A 5 s jittered half-tick
 	// keeps the first notice from racing the first chunk.
-	tick := interval / 4
-	if tick < 250*time.Millisecond {
-		tick = 250 * time.Millisecond
-	}
+	tick := max(interval/4, 250*time.Millisecond)
 	t := time.NewTicker(tick)
 	defer t.Stop()
 	for {
@@ -2657,21 +2654,21 @@ func (s *session) drainChunksClose() {
 }
 
 func (s *session) emitUserMessage(parts []provider.Content) {
-	var text string
+	var text strings.Builder
 	var attachments []event.AttachmentInfo
 	for _, p := range parts {
 		switch p.Type {
 		case "image":
 			attachments = append(attachments, event.AttachmentInfo{Kind: "image", MimeType: p.MimeType})
 		default:
-			text += p.Text
+			text.WriteString(p.Text)
 		}
 	}
 	s.emit(event.Event{
 		Type:           event.TypeUserMessage,
 		SessionID:      s.localID,
 		Timestamp:      time.Now().UTC(),
-		Text:           text,
+		Text:           text.String(),
 		Attachments:    attachments,
 		AgentSessionID: s.agentID,
 	})

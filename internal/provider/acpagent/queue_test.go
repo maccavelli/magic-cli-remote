@@ -96,7 +96,7 @@ func TestPromptQueueOverflowReturnsTurnBusy(t *testing.T) {
 	s.prompting = true
 	s.mu.Unlock()
 
-	for i := 0; i < maxPromptQueue; i++ {
+	for i := range maxPromptQueue {
 		if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "q"}}); err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)
 		}
@@ -202,11 +202,9 @@ func TestRespondPermissionDrainsQueueWhenIdle(t *testing.T) {
 	s.mu.Unlock()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-w.ch // RespondPermission sends here
-	}()
+	})
 
 	if err := s.RespondPermission(context.Background(), "p1", "once", false, "dev-1"); err != nil {
 		t.Fatal(err)

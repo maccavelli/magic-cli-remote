@@ -196,8 +196,7 @@ func TestPlanRemovedKeepsTheStablePlan(t *testing.T) {
 // fieldTags lists a struct's fields as "Name:json-tag".
 func fieldTags(rt reflect.Type) []string {
 	var out []string
-	for i := range rt.NumField() {
-		f := rt.Field(i)
+	for f := range rt.Fields() {
 		out = append(out, f.Name+":"+f.Tag.Get("json"))
 	}
 	return out

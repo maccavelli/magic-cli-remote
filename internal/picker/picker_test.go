@@ -7,7 +7,7 @@ import (
 func TestValidateSelectionSingle(t *testing.T) {
 	c := SingleCatalog(SourceStatic, []Option{
 		{ID: "a", Label: "A"},
-		{ID: "b", Label: "B", Enabled: WithEnabled(false)},
+		{ID: "b", Label: "B", Enabled: new(false)},
 	}, "a", false)
 
 	if err := c.ValidateSelection([]string{"a"}); err != nil {

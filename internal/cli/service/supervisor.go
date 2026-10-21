@@ -295,7 +295,7 @@ func recoverScript(kind Kind, product, unitName, body string) (recovery, string,
 			}
 			var bin string
 			argv := []string{}
-			for i := 0; i < len(words); i++ {
+			for i := range words {
 				if words[i] == "--" {
 					argv = words[i+1:]
 					break

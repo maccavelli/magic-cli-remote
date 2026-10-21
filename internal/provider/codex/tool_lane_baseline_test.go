@@ -35,7 +35,7 @@ func TestToolLaneConcatenatesNonTerminalUpdates(t *testing.T) {
 		cfg:     Config{StreamCoalesce: &win},
 	}
 	const n = 8
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s.emit(event.Event{
 			Type:   event.TypeToolUpdate,
 			ToolID: "cmd-1",
@@ -58,7 +58,7 @@ func TestToolLaneConcatenatesNonTerminalUpdates(t *testing.T) {
 					t.Fatalf("tool_call_update count = %d, want 1", len(updates))
 				}
 				var want string
-				for i := 0; i < n; i++ {
+				for i := range n {
 					want += "out " + strconv.Itoa(i)
 				}
 				if updates[0].Text != want {

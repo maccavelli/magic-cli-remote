@@ -30,13 +30,13 @@ const browserAuthorize = `{
 }`
 
 func deviceAPI(authorize, upstream string, connectAfter int32) func(context.Context, string, string, any, any) error {
-	var polls int32
+	var polls atomic.Int32
 	return func(_ context.Context, method, path string, _, out any) error {
 		switch {
 		case method == "POST" && strings.Contains(path, "/oauth/authorize"):
 			return json.Unmarshal([]byte(authorize), out)
 		case path == "/config/providers":
-			n := atomic.AddInt32(&polls, 1)
+			n := polls.Add(1)
 			if n >= connectAfter {
 				return json.Unmarshal(
 					[]byte(`{"providers":[{"id":"`+upstream+`"}],"default":{}}`), out)

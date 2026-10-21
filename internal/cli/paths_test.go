@@ -36,7 +36,7 @@ func TestRelativeDataDirFlagResolvesAgainstCWD(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("paths --data-dir %s: %v\n%s", rel, err, out.String())
 		}
-		for _, line := range strings.Split(out.String(), "\n") {
+		for line := range strings.SplitSeq(out.String(), "\n") {
 			if v, ok := strings.CutPrefix(line, "data_dir:"); ok {
 				if got := strings.TrimSpace(v); got != want {
 					t.Fatalf("paths reports data_dir %q, want %q", got, want)

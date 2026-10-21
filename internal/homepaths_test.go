@@ -131,7 +131,7 @@ func indexPaths(b []byte, idSize int) ([]string, error) {
 	prev := ""
 	seen := make(map[string]bool, count)
 	var out []string
-	for i := 0; i < count; i++ {
+	for i := range count {
 		start := pos
 		pos += statSize + idSize
 		if pos+2 > len(b) {

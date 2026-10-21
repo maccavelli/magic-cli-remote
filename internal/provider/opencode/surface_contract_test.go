@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -35,7 +36,7 @@ func readLines(t *testing.T, name string) []string {
 		t.Fatalf("read %s: %v", name, err)
 	}
 	var out []string
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			out = append(out, l)
 		}
@@ -226,12 +227,7 @@ func TestSurfaceContractManifest(t *testing.T) {
 }
 
 func contains(hay []string, needle string) bool {
-	for _, h := range hay {
-		if h == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(hay, needle)
 }
 
 // The shell fixture is what PLAN P10 maps. Its tool id is "bash": 1.18.21 has

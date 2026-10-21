@@ -69,10 +69,7 @@ func syntheticHistory(n int) []event.Event {
 		// Subtract the fixed JSON scaffolding so the encoded event lands near
 		// the measured mean rather than that mean plus overhead.
 		const scaffold = 120
-		fill := pick.bytes - scaffold
-		if fill < 8 {
-			fill = 8
-		}
+		fill := max(pick.bytes-scaffold, 8)
 		ev := event.Event{
 			Type:      pick.typ,
 			SessionID: "s1",

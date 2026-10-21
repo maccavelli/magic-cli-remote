@@ -161,8 +161,7 @@ func TestServeRefusesNonSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	err := admin.Serve(ctx, sock, &fakeDisc{}, nil, nil)
 	if err == nil {
 		t.Fatal("Serve accepted a non-socket at the socket path")

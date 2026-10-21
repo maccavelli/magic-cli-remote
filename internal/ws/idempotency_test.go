@@ -38,16 +38,14 @@ func TestIdempotencyWaitForInFlight(t *testing.T) {
 
 	var got []byte
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, wait, action := l.begin("dev", "req-2")
 		if action != idemWait || wait == nil {
 			t.Errorf("want wait, got action=%v", action)
 			return
 		}
 		got = wait(context.Background())
-	}()
+	})
 
 	time.Sleep(20 * time.Millisecond)
 	payload := []byte(`{"type":"session.created","id":"req-2"}`)
@@ -92,16 +90,14 @@ func TestIdempotencyFailReleasesWaiterForReexecute(t *testing.T) {
 	}
 	var got []byte
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, wait, a := l.begin("dev", "req-fail")
 		if a != idemWait || wait == nil {
 			t.Errorf("want wait, got %v", a)
 			return
 		}
 		got = wait(context.Background())
-	}()
+	})
 	time.Sleep(20 * time.Millisecond)
 	l.fail("dev", "req-fail")
 	wg.Wait()
@@ -130,11 +126,11 @@ func TestIdempotencyFailReleasesWaiterForReexecute(t *testing.T) {
 func TestIdempotencyPurgeEnforcesCapWithManyInFlight(t *testing.T) {
 	l := newIdempotencyLedger()
 	const inFlight = 200
-	for i := 0; i < inFlight; i++ {
+	for i := range inFlight {
 		l.begin("dev", fmt.Sprintf("inflight-%d", i))
 	}
 	worst := 0
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		id := fmt.Sprintf("req-%d", i)
 		l.begin("dev", id)
 		l.complete("dev", id, []byte(`{"type":"ok"}`))

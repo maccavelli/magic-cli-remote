@@ -11,7 +11,7 @@ import (
 
 // unitHas reports whether body carries directive as a whole line.
 func unitHas(body, directive string) bool {
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if strings.TrimSpace(line) == directive {
 			return true
 		}

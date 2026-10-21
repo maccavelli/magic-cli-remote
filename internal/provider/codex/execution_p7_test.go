@@ -182,7 +182,7 @@ func TestProcessSpawnControlOutputExitAndGenerationOwnership(t *testing.T) {
 	api.standaloneEnabled = true
 	api.envAllowlist = map[string]struct{}{"TERM": {}}
 	process, err := api.SpawnProcess(context.Background(), provider.ProcessSpawnRequest{
-		Argv: []string{"bash", "-lc", "printf hi"}, CWD: "/repo", Env: map[string]*string{"TERM": ptr("xterm")},
+		Argv: []string{"bash", "-lc", "printf hi"}, CWD: "/repo", Env: map[string]*string{"TERM": new("xterm")},
 		TTY: true, Rows: 24, Cols: 80, OutputBytesCap: 1024, Timeout: time.Second,
 	})
 	if err != nil || process.ID == "" || process.Generation != 9 || process.Label != provider.ExecutionLabelStandalone {
@@ -203,7 +203,7 @@ func TestProcessSpawnControlOutputExitAndGenerationOwnership(t *testing.T) {
 	if err := api.KillProcess(context.Background(), process.ID); !errors.Is(err, provider.ErrTerminalNotFound) {
 		t.Fatalf("stale handle error=%v", err)
 	}
-	if _, err := api.SpawnProcess(context.Background(), provider.ProcessSpawnRequest{Argv: []string{"env"}, CWD: "/repo", Env: map[string]*string{"TOKEN": ptr("secret")}}); err == nil {
+	if _, err := api.SpawnProcess(context.Background(), provider.ProcessSpawnRequest{Argv: []string{"env"}, CWD: "/repo", Env: map[string]*string{"TOKEN": new("secret")}}); err == nil {
 		t.Fatal("non-allowlisted secret environment name accepted")
 	}
 	api.generation = 10
@@ -211,8 +211,6 @@ func TestProcessSpawnControlOutputExitAndGenerationOwnership(t *testing.T) {
 		t.Fatalf("foreign generation error=%v", err)
 	}
 }
-
-func ptr(value string) *string { return &value }
 
 // TestTerminalOutputPushesLiveAndStaysReplayable proves the live push and the
 // bounded replay buffer are the same sequence. A client that misses a push

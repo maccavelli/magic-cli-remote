@@ -18,8 +18,7 @@ func main() {
 	// The update command has reported its own outcome on its streams, and
 	// carries its exit status: 10 when --check found an update, 1 otherwise
 	// (MADR 0054 PLAN S3, Deviation 1).
-	var update *updateclient.ExitError
-	if errors.As(err, &update) {
+	if update, ok := errors.AsType[*updateclient.ExitError](err); ok {
 		os.Exit(update.Code)
 	}
 	// Cobra SilenceErrors is set; print the error for operators.

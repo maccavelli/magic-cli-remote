@@ -20,12 +20,10 @@ func claimRace(t *testing.T, mgr *session.Manager, store *session.Store, id stri
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	for i := range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			errs[i] = mgr.Authorize(id, devs[i], true)
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

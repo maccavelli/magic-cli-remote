@@ -114,7 +114,7 @@ func TestDiagnosticsDropsEverySensitiveField(t *testing.T) {
 // TestDiagnosticsSectionsAreBounded proves each section is capped and sorted.
 func TestDiagnosticsSectionsAreBounded(t *testing.T) {
 	var skills, lsp, formatters []string
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		skills = append(skills, `{"name":"skill-`+pad(i)+`"}`)
 		lsp = append(lsp, `{"name":"lsp-`+pad(i)+`"}`)
 		formatters = append(formatters, `{"name":"fmt-`+pad(i)+`"}`)

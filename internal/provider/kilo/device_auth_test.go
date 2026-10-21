@@ -148,13 +148,13 @@ func TestAwaitCredentialStopsOnCancel(t *testing.T) {
 // respawns it, and the vendor-side flow is unaffected.
 func TestAwaitCredentialToleratesEngineRestart(t *testing.T) {
 	shrinkDevicePoll(t)
-	var polls int32
+	var polls atomic.Int32
 	api := func(_ context.Context, method, path string, _, out any) error {
 		if method == "POST" && strings.Contains(path, "/oauth/authorize") {
 			return json.Unmarshal([]byte(gatewayAuthorize), out)
 		}
 		if path == "/config/providers" {
-			if atomic.AddInt32(&polls, 1) < 3 {
+			if polls.Add(1) < 3 {
 				return fmt.Errorf("kilo server not running")
 			}
 			return json.Unmarshal([]byte(`{"providers":[{"id":"kilo"}]}`), out)

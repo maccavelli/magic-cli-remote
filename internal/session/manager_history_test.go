@@ -303,8 +303,8 @@ func (p *cwdProvider) ID() provider.ID { return provider.IDFake }
 func (p *cwdProvider) Ready() bool     { return true }
 func (p *cwdProvider) Start(_ context.Context, opts provider.StartOptions) (provider.Session, error) {
 	return &cwdSession{
-		scriptedSession: scriptedSession{id: opts.LocalSessionID, events: make(chan event.Event, 1)},
-		cwd:             p.cwd,
+		id: opts.LocalSessionID, events: make(chan event.Event, 1),
+		cwd: p.cwd,
 	}, nil
 }
 

@@ -125,7 +125,7 @@ func TestFixtureSyncFramesAdvanceContiguously(t *testing.T) {
 		t.Fatal(err)
 	}
 	seqs := map[string][]int64{}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if !strings.Contains(line, `"sync"`) {
 			continue
 		}

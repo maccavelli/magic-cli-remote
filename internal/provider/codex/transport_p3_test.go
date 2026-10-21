@@ -62,7 +62,7 @@ func TestTransportConformance(t *testing.T) {
 			var wg sync.WaitGroup
 			readErr := make(chan error, 1)
 			go func() {
-				for i := 0; i < 8; i++ {
+				for range 8 {
 					if _, err := fixture.client.Read(ctx); err != nil {
 						readErr <- err
 						return
@@ -70,12 +70,10 @@ func TestTransportConformance(t *testing.T) {
 				}
 				readErr <- nil
 			}()
-			for i := 0; i < 8; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+			for range 8 {
+				wg.Go(func() {
 					_ = fixture.client.Send(ctx, []byte(`{"method":"ping"}`))
-				}()
+				})
 			}
 			wg.Wait()
 			if err := <-readErr; err != nil {
