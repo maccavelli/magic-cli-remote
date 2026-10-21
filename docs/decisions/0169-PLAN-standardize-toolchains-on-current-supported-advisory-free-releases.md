@@ -1620,3 +1620,61 @@ not called.
 
 **Files for this commit:** `go.mod`, `README.md`, `docs/guides/standards/go/README.md`,
 `scripts/test-linux-arm64.sh`, and this PLAN.
+
+**Committed and pushed:** P13 as `ec9032d6`. Its push run, CI 39546441367, passed every Go and
+Flutter job. `Go (test)` set up `go version go1.27.3 linux/amd64`, and its vulnerability check
+printed `vulncheck: clear; allowlisted required-module findings: GO-2026-5932`.
+
+## P14 execution record, 2026-10-21
+
+**Approval:** "Archive + PATH" and "Fix in P14", above.
+
+**The Linux test host** (`host_p14_linux.py`, run there):
+
+- **Before:** the dotfiles' `00-paths.sh` was clean in git.
+- **The backup:** Go's env file, `00-paths.sh` and the drop-in `path.conf`, in a dated folder in
+  that account's home.
+- **The install:** `go1.27.3.linux-amd64.tar.gz`, whose SHA-256 matched the table, extracted to
+  `~/sdk/go1.27.3`, reporting `go version go1.27.3 linux/amd64`.
+- **The swaps,** each asserted to occur exactly once:
+  - `00-paths.sh`: `path_prepend "$HOME/sdk/go1.27.2/bin"` → `path_prepend "$HOME/sdk/go1.27.3/bin"`;
+  - the drop-in: `~/sdk/go1.27.1/bin` → `~/sdk/go1.27.3/bin`, the rest of its literal PATH unchanged;
+  - `go env -w GOTOOLCHAIN=go1.27.3`;
+  - then `systemctl --user daemon-reload`. The service stayed `active`, and its unit's PATH now
+    names `~/sdk/go1.27.3/bin`. The running daemon takes it at its next restart.
+- **A fresh ssh session:** `go version go1.27.3 linux/amd64`; `GOTOOLCHAIN` `go1.27.3`; `GOROOT`
+  `~/sdk/go1.27.3`.
+- **The script's own report** first printed `GOTOOLCHAIN` as `local`. That was the script reading
+  under the `GOTOOLCHAIN=local` it runs `go` with, not the file. The fresh session's reading above is
+  the result, and the script now reads the file itself.
+- **The dotfiles commit.** Both files are links into the dotfiles repository, the drop-in included.
+  At the owner's ask they were committed there as `7bc78b9` on `main`, with no other file. It is not
+  pushed.
+- **The gates there,** on the P13 tree: the race tests over `internal/cli/...`, `relay`,
+  `updateclient`, `admin` and `daemon`, run as `go1.27.3 linux/amd64`, exit 0.
+
+**The Windows test host** (`host_p14_windows.py`, run there):
+
+- **The backup:** Go's env file and the User Path value and its kind, in a dated folder in that
+  account's profile.
+- **The install:** `go1.27.3.windows-amd64.zip`, whose SHA-256 matched the table, extracted to
+  `~/sdk/go1.27.3`, reporting `go version go1.27.3 windows/amd64`.
+- **The swaps:**
+  - the User Path entry `~/sdk/go1.27.2/bin` → `~/sdk/go1.27.3/bin`, the only one, kind 1 kept;
+  - `go env -w GOTOOLCHAIN=go1.27.3`.
+- **Found: a user environment variable,** `GOTOOLCHAIN=go1.27.2`, which overrides Go's env file. A
+  fresh session still reported go1.27.2. The variable was moved to `go1.27.3` with its kind kept, and
+  its old value saved beside the backup for the rollback. It is the "GOTOOLCHAIN if it pins one" of
+  step 1.
+- **Found: ssh sessions did not see the registry change.** After both changes, the registry held
+  go1.27.3, but new ssh sessions still got the old `PATH` and `GOTOOLCHAIN`. Windows OpenSSH gives
+  sessions an environment that a registry change does not refresh. After the owner refreshed it, a
+  fresh session reported `go version go1.27.3 windows/amd64`.
+- **The gates there,** on the working tree at `ec9032d6`: `make ci-windows`, "ALL SELECTED CHECKS
+  PASSED", run as `go version go1.27.3 windows/amd64`, exit 0.
+
+**What is left of P14:** the standard file in magic-git, Go 1.27.3 with the floor 1.26.10, which the
+owner commits there (step 4). go1.27.2 stays installed on all three hosts (C4), to be removed once
+nothing needs it.
+
+**Files for this commit:** this PLAN.
