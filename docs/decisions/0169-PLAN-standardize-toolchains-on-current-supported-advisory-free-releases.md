@@ -1459,6 +1459,21 @@ with a dated backup of what it changes:
    the race tests on the Linux test host.
 4. The standard file in magic-git, Go 1.27.3 with the floor 1.26.10, is the owner's to commit there.
 
+**Decided by the owner on 2026-10-21,** after P13's reading of the hosts: "Archive + PATH" and "Fix in
+P14", each the recommended option.
+
+- **Step 1 on each host** is the P12 way:
+  - the archive, extracted to `~/sdk/go1.27.3` beside `~/sdk/go1.27.2`;
+  - `go env -w GOTOOLCHAIN=go1.27.3`;
+  - the PATH entry swapped from `~/sdk/go1.27.2/bin` to `~/sdk/go1.27.3/bin`.
+- **Where PATH is set.** On the Windows test host, in the User Path value, whose registry kind is
+  kept and which is backed up first. On the Linux test host, in the dotfiles'
+  `.bashrc.d/00-paths.sh` (D13), whose change the owner commits in the dotfiles repository.
+- **Added to P14's scope: the Linux host's `mcremote` service drop-in.** `path.conf` still names
+  `~/sdk/go1.27.1/bin`, missed when the host went to 1.27.2. It is pointed at `~/sdk/go1.27.3/bin`,
+  with the rest of its literal PATH unchanged and a backup first, then
+  `systemctl --user daemon-reload`. The running daemon keeps its environment until its next restart.
+
 **Verification:** `go version` = `go1.27.3` on both hosts in a fresh shell; both hosts' gates exit 0.
 
 **Rollback:** restore the host's backup, so `go` is 1.27.2 again. That host then cannot build this
@@ -1534,3 +1549,74 @@ Still `in-progress`. The "Remaining as of 2026-10-08" list above is partly out o
   * P6b, Node 26 (due 2026-10-28);
   * Linux git 2.56;
   * Python 3.14.8.
+
+## P13 execution record, 2026-10-21 — staged for the owner's commit
+
+**Approval.** The owner chose "Go 1.27.3 via 0169" on 2026-10-21. The amendment was committed as
+`b89899fe`, and P13 started then.
+
+**Fail-first, on go1.27.2,** before anything moved: `make vulncheck` exited 2, as the `v0.22.1` tag
+run did:
+
+```text
+vulncheck: GO-2026-6809 is called by this module.
+      Found in: crypto/x509@go1.27.2
+      Fixed in: crypto/x509@go1.27.3
+        #1: internal/provider/codex/transport.go:71:33: codex.jsonlTransport.Read calls bufio.Reader.ReadSlice, which eventually calls x509.Certificate.Verify
+```
+
+**Step 1, this Mac.**
+
+- **The backup:** Go's env file and the `~/.local/bin/go` link, which pointed at
+  `~/.local/go1.27.2/bin/go`, in a dated folder in the session's scratch area.
+- **The install:** `go1.27.3.darwin-arm64.tar.gz`, whose SHA-256 matched the table, extracted to
+  `~/.local/go1.27.3`. The link was repointed, and `go env -w GOTOOLCHAIN=go1.27.3` run. go1.27.2
+  stays installed (C4).
+- **A snag in the script, not the install.** Its first version-check ran the new `go` under the
+  env file's `GOTOOLCHAIN=go1.27.2`, which made it hand off to go1.27.2 and report that. The script
+  stopped there, with the archive extracted but the link and the env file unchanged. Re-run with
+  `GOTOOLCHAIN=local` for that check, it reported `go version go1.27.3 darwin/arm64`, and finished.
+- **The result,** in a fresh shell: `go version go1.27.3 darwin/arm64`; `GOTOOLCHAIN=go1.27.3`;
+  `GOROOT` is `~/.local/go1.27.3`.
+
+**Step 2.** `go mod edit -go=1.27.3`, then `go mod tidy`. Tidy rewrote nothing else: the diff is
+line 3 of `go.mod` alone, and `go.sum` is unchanged.
+
+**Step 3, the live files:**
+
+- `README.md` Requirements: **Go 1.27.3** (module pins `go 1.27.3`);
+- `docs/guides/standards/go/README.md`: `version: "1.27.3-v1"`, `last_updated: "2026-10-21"`,
+  `go_version: "1.27.3"`, and "The module declares Go 1.27.3";
+- `scripts/test-linux-arm64.sh`: `GO_IMAGE="${GO_IMAGE:-golang:1.27.3}"`. Docker Hub's
+  `library/golang` tag `1.27.3` exists (HTTP 200).
+
+**Step 4, the gates on go1.27.3:**
+
+```text
+vulncheck: clear; allowlisted required-module findings: GO-2026-5932
+pre-add-check                exit=0   go-precheck: 942 file(s) clean (gofmt, golint, govulncheck).
+vet darwin/arm64             exit=0
+vet windows/amd64            exit=0
+vet linux/amd64 cgo-off      exit=0
+make lint                    exit=0
+make staticcheck             exit=0   rebuilt as staticcheck-v0.8.2-go1.27.3
+go test -race                exit=0  42 ok, 0 FAIL lines
+make check-records           exit=0
+make markdownlint-docs       exit=0
+make preflight               ✅ preflight passed, no FAIL line
+```
+
+GO-2026-5932, `golang.org/x/crypto/openpgp`, is MADR 0174's allowlisted required-module finding,
+not called.
+
+**Found for P14, read only.** Both test hosts keep Go in `~/sdk/go1.27.2`, and pin
+`GOTOOLCHAIN=go1.27.2` in Go's env file.
+
+- **The Windows test host** puts `~/sdk/go1.27.2/bin` on PATH through its User Path.
+- **The Linux test host** puts it there in the dotfiles' `.bashrc.d/00-paths.sh`, line 30, as D13
+  says. That file is in the dotfiles repository, so changing it is a commit there.
+- **Outside P14:** the Linux host's `mcremote` service drop-in, `path.conf`, still names
+  `~/sdk/go1.27.1/bin`. It was not moved when that host went to go1.27.2.
+
+**Files for this commit:** `go.mod`, `README.md`, `docs/guides/standards/go/README.md`,
+`scripts/test-linux-arm64.sh`, and this PLAN.

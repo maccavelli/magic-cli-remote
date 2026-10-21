@@ -280,7 +280,7 @@ and [docs/decisions/0061-MADR-relay-pair-advertise-and-path-selection.md](docs/d
 
 ## Requirements
 
-- **Go 1.27.2** (module pins `go 1.27.2`)
+- **Go 1.27.3** (module pins `go 1.27.3`)
 - **Linux** (primary), **macOS**, or **Windows 10 1809+** (`amd64`, Tier 2)
 - Optional mesh: Headscale + Tailscale clients ([docs/guides/headscale.md](docs/guides/headscale.md))
 - For `setup-service`: Linux **systemd --user**, macOS **launchd** user
