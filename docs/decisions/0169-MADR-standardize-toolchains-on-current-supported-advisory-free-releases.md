@@ -689,3 +689,52 @@ and `GET /v1/vulns/<id>` for the aliases above.
 Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
 
 ~~`proposed`~~ `accepted`. P0–P11 were executed: `go.mod` is on `go 1.27.2` (`9b75e5f3`), and [0114-MADR-manage-markdownlint-cli2-with-mise.md](0114-MADR-manage-markdownlint-cli2-with-mise.md) is superseded by this record's D15. The acceptance itself was never written down. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change.
+
+## Amendment — 2026-10-21: Go 1.27.3 is the standard (D2)
+
+**Decided by the owner on 2026-10-21:** "Go 1.27.3 via 0169". The record stays `accepted`. This
+applies D1 as written; it changes no rule.
+
+**What happened.** The `v0.22.1` tag run, 39535919839, failed its `Go (test)` job at
+`make vulncheck`. The push run on the same commit, `a1d0c4e7`, had passed about two hours
+earlier:
+
+```text
+vulncheck: GO-2026-6809 is called by this module.
+  Vulnerability #1: GO-2026-6809
+      Distrust compromised intermediate certificates in crypto/x509
+    Standard library
+      Found in: crypto/x509@go1.27.2
+      Fixed in: crypto/x509@go1.27.3
+        #1: internal/provider/codex/transport.go:71:33: codex.jsonlTransport.Read calls bufio.Reader.ReadSlice, which eventually calls x509.Certificate.Verify
+```
+
+**OSV,** `POST /v1/query` for `stdlib` and `toolchain` on 2026-10-21:
+
+| Package | 1.27.2 / 1.26.9 | 1.27.3 / 1.26.10 |
+| --- | --- | --- |
+| `stdlib` | 1 | 0 |
+| `toolchain` | 0 | 0 |
+
+| OSV | CVE | Package | Fixed in | Published | Summary |
+| --- | --- | --- | --- | --- | --- |
+| GO-2026-6809 | CVE-2026-111943 | `crypto/x509` | 1.27.3, 1.26.10 | 2026-10-21 | Distrust compromised intermediate certificates in crypto/x509 |
+
+go.dev lists `go1.27.3` and `go1.26.10` as the current releases (`https://go.dev/dl/?mode=json`).
+
+Under D1, 1.27.2 is no longer the standard: it has a published advisory, and 1.27.3 is the newest
+stable patch of the newest supported line with none. The floor moves to 1.26.10.
+
+**D2 now reads:** Go **1.27.3** on every host and in CI, with the `go` directive of Go modules moved
+to 1.27.3 repository by repository after each passes its own gates. Until a repository has passed,
+the floor is **1.26.10**. The standard Go tools are rebuilt with 1.27.3.
+
+Confirmation for Go is `go version` = `go1.27.3`, or `go1.26.10` while a repository is on the floor.
+PLAN 0169 P13 moves this repository and P14 the hosts.
+
+**A host must move with the repository.** This Mac sets `GOTOOLCHAIN=go1.27.2` (read 2026-10-21),
+so it cannot build a module that declares `go 1.27.3`. P13 therefore installs 1.27.3 on this Mac
+first. The two test hosts are moved before they run this repository's gates again (P14).
+
+Sources: OSV `POST /v1/query` and `GET /v1/vulns/GO-2026-6809`; [go.dev downloads](https://go.dev/dl/?mode=json);
+the run's log, job 119012412412.

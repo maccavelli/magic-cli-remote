@@ -1537,6 +1537,9 @@ was not reloaded; the next start may run the previous definition", though the ta
 - **S10-3 — launchd is not changed here.** F5 is unobserved; S11 looks for it.
 - **S10-4 — It ships as `v0.22.1`,** on the owner's ask. The receipt is written by the *new* binary,
   so an update from `v0.22.0` to `v0.22.1` already shows the fix.
+  - Corrected 2026-10-21 (PLAN S10b Deviation 1): it ships as **`v0.22.2`**. The `v0.22.1` tag run
+    failed on a Go advisory published that day, GO-2026-6809, so `v0.22.1` has no release. The
+    owner chose a new tag over moving the pushed one.
 
 ### The macOS run (S11)
 

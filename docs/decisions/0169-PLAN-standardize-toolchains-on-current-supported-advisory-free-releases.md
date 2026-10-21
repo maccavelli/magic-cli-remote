@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-18
+date: 2026-10-21
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -1405,6 +1405,64 @@ advisory on the Go standard or installs; `make ci-windows` exits 0.
 
 **Rollback:** restore the dated PATH / Go-env backup so `GOTOOLCHAIN` names go1.27.1 again.
 The P11 commit can stay; that host then cannot build this module until it moves.
+
+### P13 — This Mac and this repository on Go 1.27.3 (D2 amendment 2026-10-21)
+
+Approved by the owner on 2026-10-21 ("Go 1.27.3 via 0169"). It starts once this amendment is
+committed. Archive checksums are from `https://go.dev/dl/?mode=json`:
+
+| Archive | SHA-256 |
+| --- | --- |
+| `go1.27.3.darwin-arm64.tar.gz` | `dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2` |
+| `go1.27.3.linux-amd64.tar.gz` | `65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40` |
+| `go1.27.3.linux-arm64.tar.gz` | `a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49` |
+| `go1.27.3.windows-amd64.zip` | `f26081f438319757f8a1b46d7d0b2c5ec7583d4038e485e0aa725cfde7885fff` |
+
+1. **This Mac,** first: it pins `GOTOOLCHAIN=go1.27.2` in Go's env file, so it cannot build the
+   module after step 2 until it moves.
+   - Back up the env file and the `~/.local/bin/go` link, dated, in the scratch area.
+   - Download the darwin-arm64 archive, check its SHA-256 against the table, and extract it to
+     `~/.local/go1.27.3`, beside 1.27.2.
+   - Repoint `~/.local/bin/go` to `~/.local/go1.27.3/bin/go`, and run
+     `go env -w GOTOOLCHAIN=go1.27.3`. Leave 1.27.2 installed until the gates pass (C4).
+2. `go mod edit -go=1.27.3`, then `go mod tidy`. Record exactly what tidy rewrote.
+3. The live files that name the pin:
+   - `README.md` Requirements: Go **1.27.3** (module pins `go 1.27.3`);
+   - `docs/guides/standards/go/README.md`: `version`, `go_version` and the declared module
+     version, **1.27.3**;
+   - `scripts/test-linux-arm64.sh`: the default `GO_IMAGE=golang:1.27.3`.
+
+   The test strings in `internal/modguard_test.go` and the `Makefile` comment about Go 1.27.2's
+   export data are not pins, and stay.
+4. **Gates on go1.27.3:**
+   - `make vulncheck`, which must no longer report GO-2026-6809. It is seen failing first on
+     go1.27.2, the tag run's failure reproduced here;
+   - `go vet ./...`, `make pre-add-check` over every tracked Go file, `make staticcheck`,
+     `make race`;
+   - `make preflight`.
+5. Stage for the owner's commit. Push and CI wait for an explicit ask.
+
+**Verification:** `go version` is `go1.27.3`; `go.mod` line 3 is `go 1.27.3`; the three live files
+name 1.27.3; every gate in step 4 exits 0.
+
+**Rollback:** restore the env file and the link from the backup; revert the phase commit.
+
+### P14 — The two test hosts on Go 1.27.3 (D2 amendment 2026-10-21)
+
+Before either test host runs this repository's gates again, so in time for PLAN 0054 S10b. Per host,
+with a dated backup of what it changes:
+
+1. Install go1.27.3 beside 1.27.2 the way P12 installed 1.27.2 on that host, from the table's archive
+   with its checksum checked. Point the host's `go` at it, and its `GOTOOLCHAIN` if it pins one.
+2. In a fresh shell, `go version` is `go1.27.3`.
+3. The repository's gates there at the P13 commit: `make ci-windows` on the Windows test host, and
+   the race tests on the Linux test host.
+4. The standard file in magic-git, Go 1.27.3 with the floor 1.26.10, is the owner's to commit there.
+
+**Verification:** `go version` = `go1.27.3` on both hosts in a fresh shell; both hosts' gates exit 0.
+
+**Rollback:** restore the host's backup, so `go` is 1.27.2 again. That host then cannot build this
+module at the P13 commit until it moves.
 
 ## Verification (whole plan)
 

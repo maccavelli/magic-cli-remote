@@ -1096,7 +1096,7 @@ Scope: `internal/cli/service/refresh_schtasks.go` and `refresh_schtasks_test.go`
 4. **Verification:** `make preflight`; `make ci-windows` on the Windows test host; the Linux host's
    tests.
 
-### S10b — `v0.22.1`, and the Windows checks (S10-4)
+### S10b — ~~`v0.22.1`~~ `v0.22.2` (Deviation 1), and the Windows checks (S10-4)
 
 Only on the owner's explicit ask in that turn:
 
@@ -1110,6 +1110,27 @@ Only on the owner's explicit ask in that turn:
    - **The fix, stopped:** install `v0.22.0`, disable and end the task, update to `v0.22.1`. After
      150 s the task is still disabled and no daemon runs.
 
+**S10b Deviation 1, 2026-10-21 — `v0.22.1` has no release; the fix ships as `v0.22.2`, on Go 1.27.3.**
+
+- **Found.** The rehearsal, run 39522886366 on `a1d0c4e7`, passed. At the owner's ask the
+  annotated tag `v0.22.1` was pushed on `a1d0c4e7`. Its run, 39535919839, then failed `Go (test)` at
+  `make vulncheck`, so the build and publish jobs were skipped and no release exists:
+  - **GO-2026-6809**, "Distrust compromised intermediate certificates in crypto/x509", in the
+    standard library at `go1.27.2` and fixed in `go1.27.3`;
+  - called here through `internal/provider/codex/transport.go:71` and `x509.Certificate.Verify`;
+  - published 2026-10-21 (OSV), after the push run on the same commit had passed.
+- **Not caused by this PLAN,** and outside it: the module's Go version is MADR 0169's.
+- **The owner decided (2026-10-21):**
+  - "Go 1.27.3 via 0169": the 0169 MADR's amendment of 2026-10-21 and PLAN 0169's P13 (this Mac and
+    the module) and P14 (the two test hosts);
+  - "New tag v0.22.2": the release is tagged `v0.22.2`, on a commit at or after P13's.
+- **So `v0.22.1` stays a pushed tag with no release.** The updater reads releases, not tags, so it
+  is never offered. No published ref is rewritten.
+- **S10b now:** step 1 is a rehearsal of P13's commit, then the tag `v0.22.2`, verified against
+  `v0.22.0`. In step 2, read `v0.22.2` for `v0.22.1`. It runs after P14, since both test hosts must
+  be on 1.27.3 first.
+- **The MADR's S10-4** gets the same correction. S11's step 3 reads `v0.22.2` too.
+
 ### S11 — The macOS run (M1, the owner's choice)
 
 Starts only on the owner's explicit ask, after S10b. Under **M1**, on this Mac's real install:
@@ -1119,7 +1140,8 @@ Starts only on the owner's explicit ask, after S10b. Under **M1**, on this Mac's
    cannot be, the record says so.
 2. **Install** `v0.22.0` with its `install.sh` over the real install. The hook upgrades the job, and
    prints the Full Disk Access notice (S7d0).
-3. **Update** to `v0.22.1`. Health passes. Record any "not reloaded" warning (F5).
+3. **Update** to ~~`v0.22.1`~~ `v0.22.2` (S10b Deviation 1). Health passes. Record any "not
+   reloaded" warning (F5).
 4. **Uninstall** with the installer. No plist and no binary is left.
 5. **Restore:** the binaries' bytes, the plist and the state; bootstrap the job; check that it runs
    `0.20.1` and that the snapshot matches the backup, the Full Disk Access check included where step
