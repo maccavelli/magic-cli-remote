@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-20
+status: complete
+date: 2026-10-21
 associated-madr: "0054-MADR-standardize-self-update-on-go-selfupdate-lib.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -5199,3 +5199,200 @@ test host, once `v0.22.1` exists.
 - `internal/cli/service/refresh_schtasks_test.go`;
 - `internal/cli/service/installerhook_test.go`;
 - this PLAN.
+
+### S10b, 2026-10-21 — `v0.22.2` published; the Windows checks pass; S10 is complete
+
+**The way here** (S10b Deviation 1, as amended):
+
+- **`v0.22.1`.** The tag was pushed on `a1d0c4e7` at the owner's ask. Its run failed
+  `make vulncheck` on GO-2026-6809, so it has no release.
+- **Go 1.27.3.** 0169 P13 (`ec9032d6`) and P14 moved the module and the three hosts.
+- **The `go fix` modernizers.** 0206 (`a5737c44`) was applied before the tag, at the owner's choice.
+- **The rehearsal of `a5737c44`,** run 39631382484, passed every check (`s9d_rehearsal.py`), with
+  `go1.27.3` binaries. Its `Go (windows/amd64)` job failed `TestOnlyOneConcurrentClaimWins` once,
+  at test cleanup, and passed on the retry. The flake ledger holds that as `1db8d68a`.
+- **The tag.** The owner pushed `v0.22.2`, annotated, on `a5737c44`.
+
+**The release,** run 39635656900: success. The contract, `release_contract.py v0.22.2 v0.22.0`:
+
+```text
+PASS  v0.22.2 is immutable, published, not a draft or prerelease — 2026-10-21T16:52:28Z
+PASS  v0.22.2's asset names are v0.22.0's, with its own tag
+PASS  every asset has a GitHub digest
+PASS  SHA256SUMS lists eight binaries and no APK
+PASS  mcremote-darwin-arm64 matches SHA256SUMS
+PASS  mcrelay-darwin-arm64 matches SHA256SUMS
+PASS  mcremote-darwin-arm64 is attested by the publish workflow
+PASS  install.sh is attested by the publish workflow
+PASS  v0.22.2 reports its release identity — v0.22.2 (release) a5737c44f996
+PASS  v0.22.0's update --check finds v0.22.2 (exit 10)
+PASS  v0.22.2's update --check is up to date (exit 0)
+ALL PASS
+```
+
+`v0.22.1` has no release, so the updater goes from `v0.22.0` straight to `v0.22.2`.
+
+**Step 2, the Windows test host.** The owner said "Run it now". The real install was backed up and
+restored, as in S9d (`s10b_win.py`, `live/host_s10b_windows.py`). Each "stop" is the guide's:
+disable the task, then end it.
+
+```text
+== F4, on the old code: v0.21.0, stopped, then update to v0.22.0
+stopped as the guide says: enabled=False, daemons=[]
+warning: mcremote: Task Scheduler\mcremote was rewritten and the service manager was not reloaded; the next start may run the previous definition
+mcremote: updated v0.21.0 -> v0.22.0
+after 150 s at most: daemon pid=48876, task enabled=True, v0.22.0 (release) 8802be5ecc9b
+verdict: F4 holds (the update undid the stop): True
+== the fix, stopped: v0.22.0, stopped, then update to v0.22.2
+stopped as the guide says: enabled=False, daemons=[]
+mcremote: updated v0.22.0 -> v0.22.2
+update  exit=0 after 4 s; 'not reloaded' printed: False
+after 150 s at most: daemon pid=None, task enabled=False, v0.22.2 (release) a5737c44f996
+verdict: the stop survived the update: True
+== the fix, running: v0.22.0, running, then update to v0.22.2
+mcremote: updated v0.22.0 -> v0.22.2
+update  exit=0 after 14 s; 'not reloaded' printed: False
+the old daemon (pid 45488): exited=True, exit code=0; new daemon pid=7720, v0.22.2 (release) a5737c44f996
+verdict: no warning, drained, new daemon up: True
+== restore
+mcrelay.exe matches the backup: True
+mcremote.exe matches the backup: True
+User Path restored, kind 1
+task re-registered from the saved definition: exit=0
+running again: pid=10000, mcremote 0.20.1 (a078372b) 2026-09-30T20:13:39Z
+== state matches before: yes
+```
+
+- **F4 is confirmed on the old code.** It was the MADR's inference. The update from `v0.21.0`
+  printed S9d's warning, re-enabled the task the operator had disabled, and a daemon ran again
+  within 150 s.
+- **The fix holds through an update.** With `v0.22.2`'s refresh, a stopped task stays stopped, and
+  neither case prints the warning. A running daemon is drained (exit 0) and replaced by a
+  `v0.22.2` one.
+- **The installer half of F4,** also seen on the old code. The third case's setup installed
+  `v0.22.0` over the task the second case had left disabled. `v0.22.0`'s hook re-registered it
+  ("service definition refreshed") and reported "mcremote service started on the new binary (it
+  was stopped and is enabled)". The fixed hook, in `v0.22.2`, is covered by
+  `TestFromInstallerLeavesADisabledTaskStopped` (S10a). It was not run live: an installer run of
+  `v0.22.2` over a stopped task is not one of S10b's cases.
+- **What the running case does not show.** The PLAN expected the refresh to report the task
+  unchanged. The update prints no receipt verdict, so what is seen is the absence of the warning:
+  the receipt was either `unchanged`, or `changed` and `reloaded`. S10a's
+  `TestRefreshSchtasksLeavesADisabledCurrentTaskAlone` is what pins `unchanged`.
+
+**S10 is complete.** S11, the macOS run (M1), waits for the owner's ask.
+
+**Files for this commit:** this PLAN.
+
+### S11, 2026-10-21 — the macOS run on this Mac's real install; the PLAN is complete
+
+**Approval.** The owner said "Run the macos s11 run". The tooling is `s11_mac.py` and
+`live/host_s11_macos.py`.
+
+**The real install, read first.**
+
+- **What it is:** the LaunchAgent `com.magiccliremote.mcremote`, running `~/.local/bin/mcremote`
+  `0.20.1` with a baked `--config`. `mcrelay` sits beside it. `~/.local/bin` also holds older
+  leftovers of ours: two lock files, `mcrelay.prev`, a staging file and `mcremote.new.<pid>`.
+- **The directories:** `v0.22.2`'s `paths --json` resolves the same config, data and state
+  directories and the same instance key as `0.20.1`, so there is no migration. The newer daemons
+  run against the real data, so the data was backed up too.
+
+**Step 1, the backup.**
+
+- **The daemon was stopped** with `launchctl bootout`, so the trees copied consistently.
+- **Saved,** in a `0700` folder in the session's scratch area: the plist, all seven of our files in
+  `~/.local/bin`, and the config, data and state trees, each hashed (names, modes, contents).
+- **Then bootstrapped again,** so the installer met a running service: `starts logged: ['0.20.1']`.
+- **Full Disk Access, observed.** `mcremote doctor` run from a terminal probes the terminal's
+  grant, not the LaunchAgent's (`internal/cli/doctor.go:227-233`). So the observation is the
+  daemon's own log: each start logs `starting mcremote` with its version, and a warning follows
+  only when Full Disk Access is denied (`internal/daemon/daemon.go:245`). The log had never carried
+  that warning.
+
+**Steps 2 to 4, the run.**
+
+```text
+== 1. install v0.22.0 with its install.sh over the real install
+  | service definition unchanged: ~/Library/LaunchAgents/com.magiccliremote.mcremote.plist
+  | mcremote service restarted on the new binary
+  | Running:           yes, confirmed after the start
+  | Full Disk Access is not granted by this installer.
+  | System Settings → Privacy & Security → Full Disk Access
+  |     → add ~/.local/bin/mcremote → restart the LaunchAgent:
+  |     launchctl kickstart -k gui/$(id -u)/com.magiccliremote.mcremote
+  | Unsigned upgrades drop that grant. To keep it, rebuild signed:
+  |     make install MC_CODESIGN_IDENTITY='Apple Development: you (TEAMID)'
+  | See docs/guides/ops-macos-tcc.md.
+install.sh exit=0; v0.22.0 (release) 8802be5ecc9b; job state=running pid changed=True
+Full Disk Access notice printed: True; starts logged: ['v0.22.0']; Full Disk Access denial warnings: 0
+== 2. mcremote update --yes, to the newest release
+  | mcremote: updated v0.22.0 -> v0.22.2
+update exit=0; v0.22.2 (release) a5737c44f996; job state=running pid changed=True
+'not reloaded' printed (F5): False; starts logged: ['v0.22.2']; Full Disk Access denial warnings: 0
+== 3. uninstall with v0.22.2's install.sh
+  | running mcremote setup-service --uninstall --from-installer
+  | removed: mcremote launchd-agent service ~/Library/LaunchAgents/com.magiccliremote.mcremote.plist
+  | Configuration and data were left in place. The installer removes the binaries next.
+  | removed ~/.local/bin/mcremote
+  | removed ~/.local/bin/mcrelay
+install.sh --uninstall exit=0; job loaded=False; plist present=False; binaries left=[]
+```
+
+- **The install hook (S7) upgrades a real LaunchAgent.** It found `0.20.1`'s plist current, and
+  restarted the job on `v0.22.0`. It also printed the Full Disk Access notice (S7d0, A2).
+- **The update (S8a)** replaced the binary and restarted the job, health probe included, and
+  exited 0.
+- **The one-command uninstall (S9)** removed the plist, unloaded the job and removed both binaries,
+  leaving configuration and data.
+- **Full Disk Access survived every binary change.** No start logged the denial warning, and the
+  `0.20.1` start after the restore did not either. The installer's notice says unsigned upgrades
+  drop the grant; here they did not.
+- **F5 stays unobserved.** The update printed no "not reloaded" warning. But no plist was
+  rewritten: the hook found it current, and the update changed no template. So the case F5 is
+  about, a rewritten plist for a loaded job that is not running, did not arise.
+
+**Step 5, the restore,** and one fault in it.
+
+- **The first restore put back** all seven files in `~/.local/bin`, the plist, and the three trees,
+  each matching its backup-time hash. Then `launchctl bootstrap` failed:
+  `Bootstrap failed: 5: Input/output error`. The real daemon was down until the second attempt.
+- **The cause: the uninstall leaves the label disabled, by design.** `launchctl print-disabled`
+  listed `"com.magiccliremote.mcremote" => disabled`.
+  - `setup-service --uninstall` disables the label before deleting the plist, so a stray copy cannot
+    load (`internal/cli/service/setup.go:821`).
+  - launchd refuses to bootstrap a disabled label.
+  - A fresh `setup-service` enables it again before its bootstrap (`setup.go:605`; the sequence
+    enable, bootstrap, kickstart is pinned by `setup_launchd_test.go:105`). So reinstalling with the
+    installer or `setup-service` is unaffected.
+  - Only a hand restore, a copied plist bootstrapped directly as this one was, needs
+    `launchctl enable gui/<uid>/com.magiccliremote.mcremote` first.
+- **The second restore,** with `launchctl enable` before the bootstrap:
+
+```text
+~/.local/bin, all 7 files of ours, match the backup: True
+plist matches the backup: True
+config directory restored exactly: True
+data directory restored exactly: True
+state directory restored exactly: True
+the label was disabled; enabled again: True
+running again: state=running, mcremote 0.20.1 (a078372b) 2026-09-30T20:13:39Z; starts logged: ['0.20.1']; Full Disk Access denial warnings: 0
+backup removed after the restore
+```
+
+- **The snapshot after** matches the one before, line for line. The job is loaded and running
+  `~/.local/bin/mcremote`; the plist, all seven files and their hashes are the same; the version is
+  `0.20.1`. It also shows the label is not disabled, a line the first snapshot did not yet have.
+  The label was enabled before the run, since the backup's own bootstrap succeeded.
+
+**What remains,** none of it a step of this PLAN:
+
+- **F5,** unobserved: no plist template has changed since `v0.21.0`.
+- **The ops guide could say** that a hand restore of the LaunchAgent needs `launchctl enable` first.
+  That is a documentation change for its own record.
+- **The Windows flake** `TestOnlyOneConcurrentClaimWins` (the ledger's `1db8d68a`); 0205's tag
+  ruleset; and 0169 P14's standard file in magic-git.
+
+**The PLAN is complete.** S10 and S11, the 2026-10-20 amendment, are recorded.
+
+**Files for this commit:** this PLAN.
