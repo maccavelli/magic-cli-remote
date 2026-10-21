@@ -1130,6 +1130,11 @@ Only on the owner's explicit ask in that turn:
   `v0.22.0`. In step 2, read `v0.22.2` for `v0.22.1`. It runs after P14, since both test hosts must
   be on 1.27.3 first.
 - **The MADR's S10-4** gets the same correction. S11's step 3 reads `v0.22.2` too.
+- **Amended 2026-10-21: `v0.22.2` goes after the `go fix` change.** The rehearsal of P13's commit,
+  `ec9032d6`, run 39621247626, passed every check, and its binaries are `go1.27.3`. The owner then
+  chose to apply [0206-MADR-apply-the-go-1-27-go-fix-modernizers.md](0206-MADR-apply-the-go-1-27-go-fix-modernizers.md)
+  before the tag ("A, now"). So step 1's rehearsal is of the commit that includes that change, and
+  the tag goes on that commit.
 
 ### S11 — The macOS run (M1, the owner's choice)
 

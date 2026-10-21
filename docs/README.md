@@ -396,6 +396,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0204 | PLAN | Implement isolating the orphan-reaper tests from other packages' startup sweeps | [0204-PLAN-isolate-the-orphan-reaper-tests-from-concurrent-sweeps.md](decisions/0204-PLAN-isolate-the-orphan-reaper-tests-from-concurrent-sweeps.md) |
 | 0205 | MADR | Do not sign release manifests while every release stays immutable on GitHub | [0205-MADR-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md](decisions/0205-MADR-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md) |
 | 0205 | PLAN | Implement not signing release manifests, with release tags limited to the owner | [0205-PLAN-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md](decisions/0205-PLAN-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md) |
+| 0206 | MADR | Apply the Go 1.27 `go fix` modernizers to the whole module | [0206-MADR-apply-the-go-1-27-go-fix-modernizers.md](decisions/0206-MADR-apply-the-go-1-27-go-fix-modernizers.md) |
+| 0206 | PLAN | Implement applying the Go 1.27 `go fix` modernizers to the whole module | [0206-PLAN-apply-the-go-1-27-go-fix-modernizers.md](decisions/0206-PLAN-apply-the-go-1-27-go-fix-modernizers.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
