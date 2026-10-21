@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-21
 associated-madr: "0206-MADR-apply-the-go-1-27-go-fix-modernizers.md"
 ---
@@ -137,3 +137,18 @@ helpers, so three remain: `picker.WithEnabled`, `httpagent.Bool`, and acpagent's
 must be of this commit.
 
 **Files for this commit:** the 149 Go files, and this PLAN.
+
+### The CI run, 2026-10-21 — the PLAN is complete
+
+- **The commits:** the records as `183a228b`, then F1 and F2 as `a5737c44`, both pushed by the owner.
+- **The push run,** CI 39629496205 on `a5737c44`: success.
+  - `Go (test)`, `Go (linux/arm64)`, `Go (windows/amd64)`, `Flutter (analyze & test)` and
+    `Flutter (test on windows)` passed.
+  - The three release jobs were skipped, as on every push that is not a tag.
+  - Docs, 39629495154: success.
+- **No retry.** The flake ledger's runs, one for this run and one on its schedule, added no row:
+  `origin/master` is still `a5737c44`.
+
+`v0.22.2` follows PLAN 0054 S10b, Deviation 1 as amended: a rehearsal of `a5737c44`, then the tag.
+
+**Files for this commit:** this PLAN.
