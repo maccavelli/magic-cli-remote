@@ -29,6 +29,34 @@ const (
 // daemon's own startup is.
 const orphanStopTimeout = 3 * time.Second
 
+// markerKeys names the two environment variables a sweep matches: the engine
+// ID that marks a process as an engine, and the owner token beside it.
+type markerKeys struct {
+	id, owner string
+}
+
+// engineMarkers are the keys every engine mcremote spawns carries. Every
+// production sweep uses them; tests sweep with keys of their own, so a sweep
+// run by another package's daemon at the same time cannot touch their
+// stand-ins (MADR 0204).
+var engineMarkers = markerKeys{id: EnvEngineID, owner: EnvEngineOwner}
+
+// The sweep's seams. A test records the keys a sweep uses through them,
+// without spawning a process or signalling one.
+var (
+	findByEnv  = FindByEnv
+	processEnv = ProcessEnv
+	// terminateOrphan stops pid's process group, reporting whether it found
+	// the process and whether it exited gracefully.
+	terminateOrphan = func(pid int) (found, graceful bool) {
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			return false, false
+		}
+		return true, TerminateProcessGroup(proc, nil, orphanStopTimeout)
+	}
+)
+
 // Orphan describes an engine process left behind by a daemon that is gone.
 type Orphan struct {
 	PID      int
@@ -52,22 +80,27 @@ func (o Orphan) String() string {
 // orphans, so the caller degrades to "nothing to reap" rather than to a wrong
 // answer.
 func FindOrphanEngines() []Orphan {
+	return findOrphanEngines(engineMarkers)
+}
+
+// findOrphanEngines is FindOrphanEngines for the marker keys k.
+func findOrphanEngines(k markerKeys) []Orphan {
 	self := os.Getpid()
 	var out []Orphan
-	for _, pid := range FindByEnv(EnvEngineID) {
+	for _, pid := range findByEnv(k.id) {
 		if pid == self {
 			continue
 		}
-		env, ok := ProcessEnv(pid)
+		env, ok := processEnv(pid)
 		if !ok {
 			// Exited between the scan and now, or not ours to read.
 			continue
 		}
-		owner := env[EnvEngineOwner]
+		owner := env[k.owner]
 		if owner != "" && OwnerAlive(owner) {
 			continue
 		}
-		out = append(out, Orphan{PID: pid, EngineID: env[EnvEngineID], Owner: owner})
+		out = append(out, Orphan{PID: pid, EngineID: env[k.id], Owner: owner})
 	}
 	return out
 }
@@ -104,13 +137,22 @@ func ReapOrphanEngines(log *slog.Logger, registryDir ...string) int {
 			reaped += ReapRegistryOrphans(log, defaultEngineRegistryDir)
 		}
 	}
-	orphans := FindOrphanEngines()
-	for _, o := range orphans {
-		proc, err := os.FindProcess(o.PID)
-		if err != nil {
+	reaped += reapMarkedOrphans(log, engineMarkers)
+	if reaped > 0 {
+		log.Info("orphaned engine sweep complete", slog.Int("reaped", reaped))
+	}
+	return reaped
+}
+
+// reapMarkedOrphans is the environment-marker half of ReapOrphanEngines, for
+// the marker keys k. It returns how many engines it stopped.
+func reapMarkedOrphans(log *slog.Logger, k markerKeys) int {
+	reaped := 0
+	for _, o := range findOrphanEngines(k) {
+		found, graceful := terminateOrphan(o.PID)
+		if !found {
 			continue
 		}
-		graceful := TerminateProcessGroup(proc, nil, orphanStopTimeout)
 		reaped++
 		log.Info("reaped orphaned agent engine",
 			slog.Int("pid", o.PID),
@@ -118,9 +160,6 @@ func ReapOrphanEngines(log *slog.Logger, registryDir ...string) int {
 			slog.String("dead_owner", o.Owner),
 			slog.Bool("graceful", graceful),
 		)
-	}
-	if reaped > 0 {
-		log.Info("orphaned engine sweep complete", slog.Int("reaped", reaped))
 	}
 	return reaped
 }

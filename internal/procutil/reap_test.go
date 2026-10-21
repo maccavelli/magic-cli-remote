@@ -5,6 +5,7 @@ package procutil_test
 import (
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -14,7 +15,9 @@ import (
 )
 
 // spawnMarked starts a long-running stand-in for an engine, stamped with the
-// ownership env vars a real one carries.
+// ownership env vars a real one carries, under this test process's own marker
+// keys: a production sweep, such as another package's test daemon makes at
+// start, cannot see it (MADR 0204).
 func spawnMarked(t *testing.T, engineID, owner string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command("/bin/sh", "-c", "while :; do sleep 0.05; done")
@@ -22,14 +25,15 @@ func spawnMarked(t *testing.T, engineID, owner string) *exec.Cmd {
 	env := make([]string, 0, len(os.Environ()))
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
-		if k == procutil.EnvEngineID || k == procutil.EnvEngineOwner {
+		switch k {
+		case procutil.EnvEngineID, procutil.EnvEngineOwner, procutil.TestEnvEngineID, procutil.TestEnvEngineOwner:
 			continue
 		}
 		env = append(env, kv)
 	}
-	env = append(env, procutil.EnvEngineID+"="+engineID)
+	env = append(env, procutil.TestEnvEngineID+"="+engineID)
 	if owner != "" {
-		env = append(env, procutil.EnvEngineOwner+"="+owner)
+		env = append(env, procutil.TestEnvEngineOwner+"="+owner)
 	}
 	cmd.Env = env
 	procutil.SetProcessGroup(cmd)
@@ -48,7 +52,7 @@ func spawnMarked(t *testing.T, engineID, owner string) *exec.Cmd {
 func orphanPIDs(t *testing.T) map[int]procutil.Orphan {
 	t.Helper()
 	out := map[int]procutil.Orphan{}
-	for _, o := range procutil.FindOrphanEngines() {
+	for _, o := range procutil.FindTestOrphans() {
 		out[o.PID] = o
 	}
 	return out
@@ -79,7 +83,7 @@ func TestFindOrphanEnginesSkipsLiveOwner(t *testing.T) {
 	}
 
 	// And it must survive a sweep.
-	procutil.ReapOrphanEngines(nil)
+	procutil.ReapTestOrphans(nil)
 	time.Sleep(300 * time.Millisecond)
 	if !alive(cmd.Process.Pid) {
 		t.Fatal("sweep killed an engine whose owner is alive")
@@ -114,7 +118,7 @@ func TestFindOrphanEnginesIgnoresUnmarkedProcesses(t *testing.T) {
 	if _, ok := orphanPIDs(t)[cmd.Process.Pid]; ok {
 		t.Fatal("an unmarked process was reported as an orphan")
 	}
-	procutil.ReapOrphanEngines(nil)
+	procutil.ReapTestOrphans(nil)
 	time.Sleep(300 * time.Millisecond)
 	if !alive(cmd.Process.Pid) {
 		t.Fatal("sweep killed an unmarked process")
@@ -130,7 +134,7 @@ func TestReapOrphanEnginesKillsOrphan(t *testing.T) {
 		close(exited)
 	}()
 
-	if n := procutil.ReapOrphanEngines(nil); n < 1 {
+	if n := procutil.ReapTestOrphans(nil); n < 1 {
 		t.Fatalf("sweep reaped %d processes, want at least the orphan", n)
 	}
 	select {
@@ -154,8 +158,43 @@ func TestFindOrphanEnginesTreatsMissingOwnerAsOrphan(t *testing.T) {
 	}
 	// Probe one more time for the error message.
 	pids := make([]int, 0)
-	for _, o := range procutil.FindOrphanEngines() {
+	for _, o := range procutil.FindTestOrphans() {
 		pids = append(pids, o.PID)
 	}
 	t.Fatalf("engine pid=%d with no owner token not found in orphans %v", cmd.Process.Pid, pids)
+}
+
+// TestProductionSweepsUseTheEngineMarkers pins what the tests above no longer
+// exercise, since they sweep with keys of their own: FindOrphanEngines and
+// ReapOrphanEngines scan for EnvEngineID and read the owner from
+// EnvEngineOwner. The scan, the environment read and the termination are
+// stubbed, so nothing is spawned or signalled.
+func TestProductionSweepsUseTheEngineMarkers(t *testing.T) {
+	const pid, dead = 4242, "999999999:1"
+	var scanned []string
+	var terminated []int
+	t.Cleanup(procutil.StubSweep(
+		func(key string) []int {
+			scanned = append(scanned, key)
+			return []int{pid}
+		},
+		func(int) (map[string]string, bool) {
+			return map[string]string{procutil.EnvEngineID: "engine-pinned", procutil.EnvEngineOwner: dead}, true
+		},
+		func(p int) (bool, bool) {
+			terminated = append(terminated, p)
+			return true, true
+		},
+	))
+
+	got := procutil.FindOrphanEngines()
+	if len(got) != 1 || got[0].PID != pid || got[0].EngineID != "engine-pinned" || got[0].Owner != dead {
+		t.Fatalf("FindOrphanEngines = %v, want pid %d, engine-pinned, owner %s", got, pid, dead)
+	}
+	if n := procutil.ReapOrphanEngines(nil); n != 1 || !slices.Equal(terminated, []int{pid}) {
+		t.Fatalf("ReapOrphanEngines reaped %d, terminated %v; want pid %d once", n, terminated, pid)
+	}
+	if want := []string{procutil.EnvEngineID, procutil.EnvEngineID}; !slices.Equal(scanned, want) {
+		t.Fatalf("the sweeps scanned for %q, want %q", scanned, want)
+	}
 }

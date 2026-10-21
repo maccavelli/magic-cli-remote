@@ -52,6 +52,10 @@ The cross-package sweep is inferred from the code. It has not been reproduced. T
 step reproduces it on the Linux test host before anything changes. If it does not reproduce, this
 record is amended before any fix.
 
+**Established 2026-10-20** by PLAN P1: alone, the test failed in 0 of 50 runs; beside a process that
+ran the production sweep every 20 ms, in 50 of 50, each with CI's message, "sweep reaped 0
+processes, want at least the orphan".
+
 ## Decision Drivers
 
 * The reaper tests keep asserting what they assert now: the count, and that the orphan is gone.
