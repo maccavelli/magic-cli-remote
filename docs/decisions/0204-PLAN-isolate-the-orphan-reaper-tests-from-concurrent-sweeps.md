@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-20
+status: complete
+date: 2026-10-21
 associated-madr: "0204-MADR-isolate-the-orphan-reaper-tests-from-concurrent-sweeps.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -154,3 +154,21 @@ package -race beside the sweeper: exit 1
 - `internal/procutil/export_test.go`;
 - `internal/procutil/reap_test.go`;
 - this PLAN and its MADR.
+
+### The CI run, 2026-10-21 — the PLAN is complete
+
+- **The commit.** The owner committed P1 and P2 as `a1d0c4e7` and pushed it, with `d6c5c349` and
+  `34fb3d0d`.
+- **The push run,** CI 39521853058 on `a1d0c4e7`: success.
+  - `Go (test)`, `Go (linux/arm64)`, `Go (windows/amd64)`, `Flutter (analyze & test)` and
+    `Flutter (test on windows)` passed.
+  - The three release jobs were skipped, as on every push that is not a tag.
+- **No retry.** The flake ledger run, 39522513119, succeeded and added no row for 39521853058. So no
+  job retried, `linux/arm64` included, where the flake was seen.
+- **Docs,** 39521852811: success.
+
+One clean run does not show that the flake is gone: it was first seen in one run. What shows the
+cause is closed is P1's 50 of 50 beside a sweeper, then 0 of 50 after P2. The ledger will show
+whether the test fails again.
+
+**Files for this commit:** this PLAN.
