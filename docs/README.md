@@ -398,6 +398,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0205 | PLAN | Implement not signing release manifests, with release tags limited to the owner | [0205-PLAN-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md](decisions/0205-PLAN-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md) |
 | 0206 | MADR | Apply the Go 1.27 `go fix` modernizers to the whole module | [0206-MADR-apply-the-go-1-27-go-fix-modernizers.md](decisions/0206-MADR-apply-the-go-1-27-go-fix-modernizers.md) |
 | 0206 | PLAN | Implement applying the Go 1.27 `go fix` modernizers to the whole module | [0206-PLAN-apply-the-go-1-27-go-fix-modernizers.md](decisions/0206-PLAN-apply-the-go-1-27-go-fix-modernizers.md) |
+| 0207 | MADR | Move to the current library releases, and close the adoption gaps they leave open | [0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](decisions/0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
