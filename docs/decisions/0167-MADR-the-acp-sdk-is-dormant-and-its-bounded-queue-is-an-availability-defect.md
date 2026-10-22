@@ -1075,6 +1075,13 @@ new.
 option is passed at the single construction site (`acpagent.go:494`). Observability comes from
 D18 reading the counter, not from a callback on the reader goroutine.
 
+*Note, 2026-10-22: amended by
+[0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
+D12. "With no drop handler" became "with a handler that only records". The handler stores the
+dropped notification's method in an atomic value, with no I/O, no lock and nothing that waits,
+so D17's reason holds. D18 still counts from `DroppedNotifications()`, and its notice now names
+the method.*
+
 **D18 — Tell the user, per turn, when their output may be incomplete.** Snapshot
 `DroppedNotifications()` when a turn starts and compare it after `submitPrompt` returns. If it
 rose, emit one `TypeNotice` on that session before `TypeTurnComplete`, on every exit path: done,

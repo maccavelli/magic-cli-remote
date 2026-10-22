@@ -1,6 +1,7 @@
 package acpagent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -259,7 +260,7 @@ func waitForContainment(s *session, budget time.Duration) bool {
 // GOMAXPROCS=1 (PLAN 0167 P12, execution record), and again on acp-go-sdk2
 // (PLAN 0184 A1 step 7, execution record).
 func TestACPConnectionSurvivesAStalledPump(t *testing.T) {
-	_, conn, agentIn := stalledSession(t, clientConnOptions(nil)...)
+	_, conn, agentIn := stalledSession(t, clientConnOptions(nil, nil)...)
 	const frames = sdkNotificationQueueDepth + 200
 
 	var written atomic.Int64
@@ -292,6 +293,63 @@ func TestACPConnectionSurvivesAStalledPump(t *testing.T) {
 		t.Fatalf("the ACP connection closed under a stalled pump (%d notifications dropped); "+
 			"the overflow policy is not in effect", conn.DroppedNotifications())
 	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+// blockingClient is an ACP client whose session/update handler blocks until
+// release closes: the SDK's single notification consumer stops, so its queue
+// fills and every notification past it is dropped under OverflowDropNewest.
+type blockingClient struct {
+	acp.Client
+	release chan struct{}
+}
+
+func (c blockingClient) SessionUpdate(ctx context.Context, _ acp.SessionNotification) error {
+	select {
+	case <-c.release:
+	case <-ctx.Done():
+	}
+	return nil
+}
+
+// TestDropHandlerRecordsTheDroppedMethod is MADR 0207 D12 against the SDK's
+// real drops: with the consumer blocked, a flood past the queue's depth is
+// dropped, and clientConnOptions' drop handler records the method on the
+// session it was given. The survival test above drops only now and then on a
+// fast host, so it cannot carry this check.
+func TestDropHandlerRecordsTheDroppedMethod(t *testing.T) {
+	rec := &session{}
+	release := make(chan struct{})
+	agentOut, agentIn := io.Pipe()
+	clientWritesR, clientWritesW := io.Pipe()
+	go answerInitialize(clientWritesR, agentIn)
+	conn := acp.NewClientSideConnection(blockingClient{release: release}, clientWritesW, agentOut,
+		clientConnOptions(nil, rec)...)
+	t.Cleanup(func() {
+		close(release)
+		_ = conn.Close()
+		_ = agentIn.Close()
+		_ = clientWritesW.Close()
+	})
+	initializeForTest(t, conn)
+
+	const frames = sdkNotificationQueueDepth + 50
+	for i := range frames {
+		if _, err := agentIn.Write(toolCallFrame("agent-1", i)); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+	deadline := time.After(5 * time.Second)
+	for conn.DroppedNotifications() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("no notification was dropped with the consumer blocked")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if m := rec.lastDropped.Load(); m == nil || *m != "session/update" {
+		t.Fatalf("%d notifications were dropped, but the drop handler recorded %v; want session/update",
+			conn.DroppedNotifications(), m)
 	}
 }
 

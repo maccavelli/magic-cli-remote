@@ -91,6 +91,37 @@ func TestDroppedUpdatesNoticeIsPerTurnAndPrecedesTurnComplete(t *testing.T) {
 	}
 }
 
+// TestDroppedUpdatesNoticeNamesTheLastMethod is MADR 0207 D12: when the drop
+// handler recorded a method, the turn's loss notice names it; with none
+// recorded the notice reads as before.
+func TestDroppedUpdatesNoticeNamesTheLastMethod(t *testing.T) {
+	for _, record := range []bool{true, false} {
+		s := newQueueTestSession()
+		var counter atomic.Uint64
+		s.testDropped = counter.Load
+		evs := turnEvents(t, s, func(context.Context) (acp.PromptResponse, error) {
+			counter.Add(2)
+			if record {
+				s.recordDropped("session/update", 2) // as the SDK's reader would
+			}
+			return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+		})
+		var text string
+		for _, ev := range evs {
+			if ev.Type == event.TypeNotice && strings.Contains(ev.Text, "may be incomplete") {
+				text = ev.Text
+			}
+		}
+		want := " 2 were dropped, so"
+		if record {
+			want = " 2 were dropped (last: session/update), so"
+		}
+		if !strings.Contains(text, want) {
+			t.Fatalf("recorded=%v: notice %q does not contain %q", record, text, want)
+		}
+	}
+}
+
 // TestDroppedNotificationsWithoutAConnectionIsZero keeps the helper safe on a
 // session that has no transport yet — the state before spawn, and in tests.
 func TestDroppedNotificationsWithoutAConnectionIsZero(t *testing.T) {

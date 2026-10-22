@@ -512,7 +512,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	proc, err := (&agentproc.Command{
 		Cmd:               cmd,
 		Grace:             agentGrace,
-		ConnectionOptions: clientConnOptions(log),
+		ConnectionOptions: clientConnOptions(log, s),
 		OutputTap:         s.wire.Tap(),
 	}).Start(s)
 	if err != nil {
@@ -1020,9 +1020,14 @@ type grokInitializeMeta struct {
 // OverflowDropNewest keeps the engine's transport alive when the SDK's bounded
 // notification queue fills, dropping the arriving notification instead of
 // closing the connection — which would end every session on this engine
-// (MADR 0166 F3, MADR 0167 D17). There is deliberately no drop handler: it would
-// run on the SDK's reader goroutine. Loss is surfaced per turn from
-// DroppedNotifications instead (D18).
+// (MADR 0166 F3, MADR 0167 D17). Loss is surfaced per turn from
+// DroppedNotifications (D18).
+//
+// The drop handler and the inbound validation hook record onto s (MADR 0207
+// D12, D13). The drop handler runs on the SDK's reader goroutine, which is why
+// 0167 D17 first had none: both hooks only store, and the per-turn notices
+// read what they stored. A nil s records nothing, as the stalled-pump fixture
+// builds its options before its session.
 //
 // The logger and the message bound are set here too (MADR 0184 D2). log goes
 // to WithLogger, which applies it before any message is read; nil keeps the
@@ -1030,12 +1035,14 @@ type grokInitializeMeta struct {
 // bound is visible in this repository: a longer line is answered -32600 and
 // skipped, not fatal to the connection.
 //
-// One definition, shared with the stalled-pump tests, so they exercise what
-// production runs: removing the overflow option here turns the survival test
-// red (D19).
-func clientConnOptions(log *slog.Logger) []acp.ConnectionOption {
+// One definition, shared with the stalled-pump and wire tests, so they exercise
+// what production runs: removing the overflow option here turns the survival
+// test red (D19).
+func clientConnOptions(log *slog.Logger, s *session) []acp.ConnectionOption {
 	return []acp.ConnectionOption{
 		acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest),
+		acp.WithNotificationDropHandler(s.recordDropped),
+		acp.WithInboundValidation(s.noteInbound),
 		acp.WithLogger(log),
 		acp.WithMaxMessageSize(maxACPMessageSize),
 	}

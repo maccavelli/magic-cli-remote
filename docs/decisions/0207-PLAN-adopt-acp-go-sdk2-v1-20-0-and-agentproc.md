@@ -203,6 +203,7 @@ its amendment of 2026-10-22.
 * `internal/provider/acpagent/acpagent.go`, `session.go`;
 * `droppednotice_test.go`, `stalledpump_test.go`;
 * a new `internal/provider/acpagent/refusednotice_test.go`;
+* `internal/provider/acpagent/wireagent_test.go`, one line. Added by S5 deviation 1.
 * `docs/decisions/0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md`
   (an amendment note on D17);
 * this plan.
@@ -596,3 +597,94 @@ pgrep -fl acpagent.test after the runs: no process left
   test checks only for `testagent process exited:` and the absence of `agent killed`, so it holds
   there.
   It is run at S6 with `make ci-windows`.
+
+S4 was committed by the owner as `324e14ed`.
+
+### S5 — 2026-10-22
+
+#### Deviation 1 — 2026-10-22: `wireagent_test.go` added to S5's files
+
+* **Found, before any S5 edit:** `wireagent_test.go:74` builds every wire-test connection with
+  `clientConnOptions(nil)`.
+  * Step 1 gives the function the session, so that call no longer compiles.
+  * Step 4's refused-message test runs over `newWireSession`, whose connections must carry the
+    hooks.
+* **Decision:** the owner chose "Add wireagent_test.go (Recommended)".
+  * The call becomes `clientConnOptions(nil, s)`, so wire-test sessions get production's hooks.
+  * `stalledpump_test.go` passes a nil session, and the hooks record nothing for one.
+
+#### What was done
+
+1. **`clientConnOptions(log, s *session)`** adds two hooks to the connection.
+   * `acp.WithNotificationDropHandler(s.recordDropped)` stores the method in
+     `s.lastDropped`, an `atomic.Pointer[string]`.
+   * `acp.WithInboundValidation(s.noteInbound)`, on a refusal, stores the method in
+     `s.lastRefused` and adds one to `s.refused`, an `atomic.Uint64`. It returns `err` unchanged.
+   * Both are no-ops for a nil session. The comment records that 0167 D17 had no handler, and
+     why storing alone keeps its reason. `spawnAgent` passes its session.
+2. **`noticeDroppedUpdates`** appends `" (last: <method>)"` when a method was recorded, through
+   a shared `lastMethod` helper.
+3. **`noticeRefusedUpdates(atStart)`.**
+   * The turn snapshots `s.refused` next to `droppedAtStart`, and calls this just after
+     `noticeDroppedUpdates`.
+   * Its text: "The agent sent N message(s) the protocol does not allow, which was/were dropped
+     (last: <method>)."
+   * Its comment gives why it is complete for the turn: the hook runs in each notification's
+     dispatch, and `Prompt` returns only after the notifications queued before its response.
+4. **Tests.**
+   * `TestDroppedUpdatesNoticeNamesTheLastMethod`, with and without a recorded method.
+   * `TestRefusedUpdateIsNoticedBeforeTurnComplete`, over `newWireSession`. A `tool_call` with
+     `locations: [{"path": "relative/file.go"}]` is refused by the SDK:
+     `ToolCallLocation: path: "relative/file.go" is not an absolute path`.
+     * It gives exactly one notice, "The agent sent 1 message the protocol does not allow, which
+       was dropped (last: session/update).", before `turn_complete`.
+     * The tool call is not delivered.
+     * A valid `notice` update in the same turn is delivered.
+   * `TestDropHandlerRecordsTheDroppedMethod` (`stalledpump_test.go`). A client whose
+     `session/update` blocks receives 1,074 frames, and the SDK's real drops are recorded as
+     `session/update`. It passed 5 of 5.
+5. **0167's D17** gets a dated note: amended by 0207 D12.
+
+#### A vacuous check, found and replaced
+
+* **The first wiring check was put in `TestACPConnectionSurvivesAStalledPump`.** It was guarded by
+  `if conn.DroppedNotifications() > 0`. Its plant, removing the drop handler, passed.
+* **Measured on a scratch copy (`s5/drops_probe.py`):** that test dropped nothing in five runs at
+  the default `GOMAXPROCS`, and in one of five at `GOMAXPROCS=1` (146 drops). So the check almost
+  never ran.
+* **Fixed:** it was removed by the inverse edit. `TestDropHandlerRecordsTheDroppedMethod` blocks
+  the consumer outright, so the drops are certain.
+
+#### Fail-first, on scratch copies of the module (`s5/plants.py`), final run
+
+```text
+== control: no plant: PASS (as expected)
+== the drop notice omits the method: FAIL (as expected)
+   droppednotice_test.go:120: recorded=true: notice "The agent sent updates faster than they could be processed and 2 were dropped, so this turn's output may be incomplete." does not contain " 2 were dropped (last: session/update), so"
+== no drop handler installed: FAIL (as expected)
+   stalledpump_test.go:351: 48 notifications were dropped, but the drop handler recorded <nil>; want session/update
+== the hook accepts what the SDK refused: FAIL (as expected)
+   refusednotice_test.go:67: the refused tool_call reached the session: the SDK's verdict was not kept
+== the hook does not count: FAIL (as expected)
+   refusednotice_test.go:61: got 0 refused-message notices [], want 1
+== no validation hook installed: FAIL (as expected)
+   refusednotice_test.go:61: got 0 refused-message notices [], want 1
+```
+
+#### Verification, 2026-10-22, go1.27.3 on darwin/arm64
+
+```text
+vet-darwin: exit 0; vet-linux: exit 0; vet-windows: exit 0
+make test: exit 0; 43 ok, 0 FAIL lines
+make race: exit 0; 43 ok, 0 FAIL lines
+make lint: exit 0
+make staticcheck: exit 0
+make pre-add-check FILES="(the six S5 Go files)": 6 file(s) clean (gofmt, golint, govulncheck)
+go test -count=5 -run '^TestDropHandlerRecordsTheDroppedMethod$': 5 of 5 PASS
+pgrep -fl acpagent.test after the runs: no process left
+```
+
+#### Not done in S5
+
+* **No live engine was run.** Whether grok sends anything the SDK refuses, which would now show
+  as a notice, is seen at S6's `make live-grok`.

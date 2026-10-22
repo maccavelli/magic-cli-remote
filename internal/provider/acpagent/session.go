@@ -224,6 +224,13 @@ type session struct {
 	// testDropped, when non-nil, replaces s.conn.DroppedNotifications (unit
 	// tests only), so the per-turn loss notice can be driven without a transport.
 	testDropped func() uint64
+	// lastDropped is the method of the notification the connection last
+	// dropped under OverflowDropNewest, stored by recordDropped (MADR 0207 D12).
+	lastDropped atomic.Pointer[string]
+	// refused counts the agent messages the SDK refused, and lastRefused holds
+	// the last one's method, both stored by noteInbound (MADR 0207 D13).
+	refused     atomic.Uint64
+	lastRefused atomic.Pointer[string]
 
 	// chunks coalesces assistant/thought text (MADR 0057 H-1 / chunkbuf).
 	// emitMu serializes Add/Drain/Unflush and delivery of the events they
@@ -416,6 +423,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		go s.watchStall(turnDone)
 	}
 	droppedAtStart := s.droppedNotifications()
+	refusedAtStart := s.refused.Load()
 
 	go func() {
 		defer func() {
@@ -473,6 +481,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		// Before any exit path emits turn_complete, so the notice belongs to
 		// this turn on the done, cancelled, errored and limit paths alike.
 		s.noticeDroppedUpdates(droppedAtStart)
+		s.noticeRefusedUpdates(refusedAtStart)
 		if err != nil {
 			// Stderr scrape aborted the wait for a provider limit.
 			s.mu.Lock()
@@ -603,9 +612,33 @@ func (s *session) droppedNotifications() uint64 {
 	return s.conn.DroppedNotifications()
 }
 
+// recordDropped is the connection's drop handler (MADR 0207 D12). It runs on
+// the SDK's reader goroutine, so it only stores the method: no I/O, no lock,
+// nothing that waits (MADR 0167 D17's reason). A nil session records nothing.
+func (s *session) recordDropped(method string, _ uint64) {
+	if s == nil {
+		return
+	}
+	s.lastDropped.Store(&method)
+}
+
+// noteInbound is the connection's inbound validation hook (MADR 0207 D13). It
+// returns the SDK's verdict unchanged, so nothing the SDK refuses is accepted,
+// and counts each refusal with its method for noticeRefusedUpdates. It runs in
+// the SDK's dispatch, and on the reader for the initialize answer, so it only
+// stores. A nil session records nothing.
+func (s *session) noteInbound(_ context.Context, method string, _ any, err error) error {
+	if err != nil && s != nil {
+		s.lastRefused.Store(&method)
+		s.refused.Add(1)
+	}
+	return err
+}
+
 // noticeDroppedUpdates tells the user when notifications were dropped while
 // this turn ran (MADR 0167 D18). It runs on the turn goroutine, never on the
-// SDK's reader, and the caller runs it before the turn's turn_complete.
+// SDK's reader, and the caller runs it before the turn's turn_complete. It
+// names the last dropped method when the drop handler recorded one (0207 D12).
 //
 // It is complete for the turn: the SDK counts a drop on its reader before that
 // reader handles the prompt's response, so every drop that preceded the
@@ -629,9 +662,45 @@ func (s *session) noticeDroppedUpdates(atStart uint64) {
 		Type:      event.TypeNotice,
 		SessionID: s.localID,
 		Timestamp: time.Now().UTC(),
-		Text: fmt.Sprintf("The agent sent updates faster than they could be processed and %d %s dropped, "+
-			"so this turn's output may be incomplete.", n, verb),
+		Text: fmt.Sprintf("The agent sent updates faster than they could be processed and %d %s dropped%s, "+
+			"so this turn's output may be incomplete.", n, verb, lastMethod(&s.lastDropped)),
 	})
+}
+
+// noticeRefusedUpdates tells the user when the SDK refused messages the agent
+// sent while this turn ran, as the protocol does not allow them (MADR 0207
+// D13). Today such a message is only logged. Like noticeDroppedUpdates it runs
+// on the turn goroutine before turn_complete, and is complete for the turn:
+// the hook runs in the dispatch of each notification, and Prompt returns only
+// once the notifications queued before its response have been dispatched.
+func (s *session) noticeRefusedUpdates(atStart uint64) {
+	now := s.refused.Load()
+	if now <= atStart {
+		return
+	}
+	n := now - atStart
+	noun := "messages"
+	verb := "were"
+	if n == 1 {
+		noun, verb = "message", "was"
+	}
+	s.emit(event.Event{
+		Type:      event.TypeNotice,
+		SessionID: s.localID,
+		Timestamp: time.Now().UTC(),
+		Text: fmt.Sprintf("The agent sent %d %s the protocol does not allow, which %s dropped%s.",
+			n, noun, verb, lastMethod(&s.lastRefused)),
+	})
+}
+
+// lastMethod renders a recorded method for a notice: " (last: <method>)", or
+// nothing when none was recorded.
+func lastMethod(p *atomic.Pointer[string]) string {
+	m := p.Load()
+	if m == nil || *m == "" {
+		return ""
+	}
+	return " (last: " + *m + ")"
 }
 
 // tryDrainQueue starts the next queued prompt if the session is idle and no

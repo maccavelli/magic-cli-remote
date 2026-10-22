@@ -71,7 +71,7 @@ func newWireSessionFor(t *testing.T, agentCaps string, p *Provider) (*session, *
 		terms:     newTerminalHost(),
 	}
 	go a.read(agentReads, agentCaps)
-	s.conn = acp.NewClientSideConnection(s, &stallingWriter{w: clientWrites, a: a}, clientReads, clientConnOptions(nil)...)
+	s.conn = acp.NewClientSideConnection(s, &stallingWriter{w: clientWrites, a: a}, clientReads, clientConnOptions(nil, s)...)
 	t.Cleanup(func() {
 		close(a.done)
 		_ = agentWrites.Close()
