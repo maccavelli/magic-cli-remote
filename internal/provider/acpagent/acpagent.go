@@ -482,6 +482,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		log:                     log,
 		events:                  make(chan event.Event, 256),
 		done:                    make(chan struct{}),
+		watched:                 make(chan struct{}),
 		cfg:                     p.cfg,
 		pending:                 make(map[string]*permWaiter),
 		questions:               make(map[string]*questionWaiter),
@@ -521,8 +522,12 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	s.proc = proc
 	conn := proc.Conn()
 	s.conn = conn
-	// killTree ends the agent and reaps it, before the exit watcher exists.
-	killTree := func() { _ = proc.Kill() }
+	// killTree ends the agent and reaps it, before the exit watcher exists, and
+	// closes the capture the watcher would have closed.
+	killTree := func() {
+		_ = proc.Kill()
+		s.wire.Close()
+	}
 
 	parent := ctx
 	if parent == nil {
@@ -585,7 +590,13 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	// paths kill through markClosedAndKill, which does not wait. Its message
 	// carries Wait's error unchanged: the exit status of an agent that stopped by
 	// itself, or ErrKilled / ErrTerminated when it was stopped (MADR 0207 D11).
+	//
+	// Once Wait has returned, the tap has written what it held, so the wire
+	// capture is closed here; nothing else closed it, which leaked one file per
+	// session with capture on, and kept Windows from deleting it (MADR 0207 PLAN,
+	// S6 deviation 1). watched closes last, recovered panic or not.
 	go func() {
+		defer close(s.watched)
 		defer func() {
 			if r := recover(); r != nil {
 				p.log.Error("process exit watcher panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
@@ -593,6 +604,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			}
 		}()
 		err := proc.Wait()
+		s.wire.Close()
 		msg := fmt.Sprintf("%s process exited", p.spec.ID)
 		if err != nil {
 			msg = fmt.Sprintf("%s process exited: %v", p.spec.ID, err)

@@ -101,6 +101,26 @@ func waitProcDone(t *testing.T, s *session) {
 	}
 }
 
+// waitWatched waits for the exit watcher to have reaped the agent and closed
+// the wire capture, so nothing the session holds outlives the test's temp dirs
+// (Windows refuses to remove an open file; MADR 0207 PLAN S6 deviation 1).
+func waitWatched(t *testing.T, s *session) {
+	t.Helper()
+	select {
+	case <-s.watched:
+	case <-time.After(wireBudget):
+		t.Fatal("the exit watcher had not finished")
+	}
+}
+
+// closeAndWait is a helper-agent test's cleanup: Close, then wait for the
+// exit watcher.
+func closeAndWait(t *testing.T, s *session) {
+	t.Helper()
+	_ = s.Close(context.Background())
+	waitWatched(t, s)
+}
+
 // exitedAgentProcess is an agentproc process that has exited and been reaped:
 // the test binary in "exit" mode.
 func exitedAgentProcess(t *testing.T) *agentproc.Process {
@@ -155,15 +175,27 @@ func TestSpawnAgentStartsThroughAgentproc(t *testing.T) {
 		t.Fatalf("the agent ended %v after Close, not before agentproc's grace of %v: Close did not kill it",
 			took, agentGrace)
 	}
-	_ = s.proc.Wait() // the tap has written what it holds once Wait returns
+	// The watcher's Wait has let the tap write what it held, and then closed
+	// the capture.
+	waitWatched(t, s)
 
-	frames, err := os.ReadFile(filepath.Join(capDir, "testagent", "frames.jsonl"))
+	path := filepath.Join(capDir, "testagent", "frames.jsonl")
+	frames, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	first, _, _ := strings.Cut(string(frames), "\n")
 	if !strings.Contains(first, `"result"`) || !strings.Contains(first, `"protocolVersion"`) {
 		t.Fatalf("the capture's first frame is not the initialize answer: %q", first)
+	}
+
+	// Closed: a frame recorded now is not written. This holds on every
+	// platform, where a leaked handle shows only on Windows.
+	s.wire.Frame([]byte(`{"after":"close"}`))
+	if after, err := os.ReadFile(path); err != nil {
+		t.Fatal(err)
+	} else if strings.Contains(string(after), `"after"`) {
+		t.Fatal("a frame was written after the session ended: the wire capture was never closed")
 	}
 }
 
@@ -176,7 +208,7 @@ func TestSpawnedAgentDeathIsOneDisconnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = s.Close(context.Background()) })
+	t.Cleanup(func() { closeAndWait(t, s) })
 
 	agent, err := os.FindProcess(testAgentPID(t, pidFile))
 	if err != nil {
@@ -235,7 +267,7 @@ func TestConnectionEndWithAgentAliveReportsTheConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = s.Close(context.Background()) })
+	t.Cleanup(func() { closeAndWait(t, s) })
 
 	_ = s.conn.Close()
 	deadline := time.After(wireBudget)
@@ -267,6 +299,7 @@ func TestClosedSessionReportsNoDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitProcDone(t, s)
+	t.Cleanup(func() { waitWatched(t, s) })
 	quiet := time.After(exitPreference + 500*time.Millisecond)
 	for {
 		select {

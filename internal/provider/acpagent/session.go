@@ -69,10 +69,13 @@ type session struct {
 	// proc is the agent process, started by agentproc, which owns its process
 	// group or job, its tie to conn, and its reaping (MADR 0207 D10). Nil for a
 	// session built without a process, as tests build them.
-	proc   *agentproc.Process
-	terms  *terminalHost
-	log    *slog.Logger
-	events chan event.Event
+	proc *agentproc.Process
+	// watched is closed by the exit watcher once it has reaped the agent and
+	// closed the wire capture. Nil for a session built without a process.
+	watched chan struct{}
+	terms   *terminalHost
+	log     *slog.Logger
+	events  chan event.Event
 	// agentCaps is the capability set the agent advertised at initialize.
 	// Read-only after spawnAgent; gates loadSession, prompt image/audio, and
 	// which MCP transports may be forwarded.

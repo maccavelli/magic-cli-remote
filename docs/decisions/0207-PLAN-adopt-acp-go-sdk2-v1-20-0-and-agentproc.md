@@ -240,7 +240,8 @@ its amendment of 2026-10-22.
 
 ### S6 — Acceptance on the other hosts, and live
 
-**No files** but this plan's execution record.
+~~**No files** but this plan's execution record.~~ *S6 deviation 1 adds phase S6a, below, which
+changes `internal/provider/acpagent/acpagent.go`, `session.go` and `agentproc_test.go`.*
 
 1. **The Windows test host.**
    * `make ci-windows`, from Git Bash.
@@ -253,6 +254,21 @@ its amendment of 2026-10-22.
      runs. The agent must be gone within a second: `agentproc`'s `Pdeathsig`.
 3. **`make live-grok`,** on the owner's word for that run. It closes D2's gate and runs D10's path
    against a real engine.
+
+### S6a — Close the session's wire capture (S6 deviation 1)
+
+**Files:** `internal/provider/acpagent/acpagent.go`, `session.go`, `agentproc_test.go`; this plan.
+
+1. **The exit watcher**, once `proc.Wait()` has returned, calls `s.wire.Close()`. `Wait` has
+   already given the tap its grace to write what it holds. The watcher then closes a new session
+   channel, `watched`, as its last act, through a defer, so a recovered panic closes it too.
+2. **`TestSpawnAgentStartsThroughAgentproc`** waits on `s.watched` before reading the capture.
+   * It then calls `s.wire.Frame` once more. The file must not hold that frame, which shows the
+     capture is closed on every platform, not only where Windows locks the file.
+   * Plant: remove the `Close` call. The test must fail.
+3. **The other helper-agent tests** close their sessions in cleanup and wait on `watched`, so no
+   agent outlives its test's temp dir.
+4. **Then:** rerun `make ci-windows` on the Windows test host, and the per-phase gates here.
 
 ## Verification
 
@@ -688,3 +704,137 @@ pgrep -fl acpagent.test after the runs: no process left
 
 * **No live engine was run.** Whether grok sends anything the SDK refuses, which would now show
   as a notice, is seen at S6's `make live-grok`.
+
+S5 was committed by the owner as `086e98af`.
+
+### S6 — 2026-10-22
+
+HEAD, `086e98af`, was shipped to each test host over SSH as a git bundle and cloned into a scratch
+folder in the login's home. Nothing was pushed. The probes are test files copied into that clone
+only (`s6/probe/`), never committed. The scripts are `s6/run_s6.py`, run here, and
+`s6/remote_s6.py`, run on the host.
+
+#### Deviation 1 — 2026-10-22: `make ci-windows` fails at a temp-dir cleanup, from a capture never closed
+
+* **Found on the Windows test host,** go1.27.3 windows/amd64:
+
+  ```text
+  make-ci-windows: exit 2 in 56s; 43 ok, 5 FAIL lines
+  --- FAIL: TestSpawnAgentStartsThroughAgentproc (1.70s)
+      testing.go:1619: TempDir RemoveAll cleanup: unlinkat C:\Users\<user>\AppData\Local\Temp\TestSpawnAgentStartsThroughAgentproc125187501\001\testagent\frames.jsonl: The process cannot access the file because it is being used by another process.
+  FAIL  A6 go test ./... (Git Bash, as CI; no -race, no live_*) -- exit 1
+  ```
+
+  * Every assertion of the test passed; only its temp dir's removal failed.
+  * **The cause predates 0207.** `acpagent` opens a capture file per session
+    (`acpagent.go:511`, `wirecap.For`) and nothing closes it. `git grep "wire.Close()"` finds only
+    `codex/conn.go:265`, at HEAD and at `6a4ef48d`.
+  * macOS and Linux delete an open file, so only Windows shows it. S3's test is the first to turn
+    the capture on in a test.
+* **Decision:** the owner chose "Close capture in exit watcher (Recommended)", phase S6a above.
+* **Doing nothing** would have left `make ci-windows` red, and one file handle leaked per session
+  whenever capture is on.
+
+#### The hosts' toolchains, probed first
+
+| Host | Observed |
+| :--- | :--- |
+| The Windows test host | MINGW64 x86_64; git 2.56.0.windows.1; go1.27.3 windows/amd64; Python 3.14.7; GNU Make 4.4.1; PowerShell |
+| The Linux test host | Linux x86_64; git 2.55.0; go1.27.3 linux/amd64; Python 3.14.7; GNU Make 4.4.1 |
+
+#### The probes, and their plants
+
+* **Grandchild** (`TestZZCloseEndsGrandchild`). The helper agent starts a grandchild with plain
+  `exec.Command`, so it stays in the agent's job on Windows and in the agent's process group on
+  Unix. After `Close`, the grandchild must be gone before half of `agentGrace`, which only Magic's
+  `Kill` can do.
+  * **The plant** removes `killProc`'s kill and must fail.
+  * **Run on macOS first.** That run caught a flaw in the probe: its first version checked the
+    bound only while the grandchild lived, so the plant passed at 2.011 s. The probe now checks the
+    time after the grandchild is gone.
+* **Death signal** (Linux; `TestZZPdeathsigParent` plus `remote_s6.py`). The test binary starts
+  the agent and is then SIGKILLed. The agent must be gone within 1 s.
+  * **The plant** sets the agent's `Pdeathsig` to SIGCONT, which `agentproc` keeps. The agent
+    must survive.
+
+#### Results on `086e98af`, before S6a
+
+```text
+Linux test host:
+  make test: exit 0 in 194s; 43 ok, 0 FAIL lines
+  make race: exit 0 in 249s; 43 ok, 0 FAIL lines
+  grandchild: ZZ-RESULT grandchild pid 569609 gone 21ms after Close
+  grandchild plant (Close's kill removed): FAIL as expected
+    the grandchild went 2.011984734s after Close, not before half agentproc's grace (1s): Close did not kill it
+  pdeath: agent alive before: True; agent gone True, 0.002s after the parent's SIGKILL
+  pdeath plant (Pdeathsig SIGCONT): agent gone False, 1.014s after the parent's SIGKILL: agent survived, as expected
+Windows test host:
+  make ci-windows: exit 2; the failure of deviation 1
+  grandchild: ZZ-RESULT grandchild pid 24884 gone 21ms after Close
+  grandchild plant (Close's kill removed): FAIL as expected
+    the grandchild went 2.012001s after Close, not before half agentproc's grace (1s): Close did not kill it
+macOS (this host, the probe's own check):
+  grandchild: gone 21ms after Close; plant FAIL as expected at 2.023976s
+```
+
+* **On Windows the grandchild's end is the job's.** `agentproc`'s `Kill` ends the job object, and
+  the grandchild, which never had a handle on its parent, ended with it (MADR 0150 D2).
+
+### S6a — 2026-10-22
+
+#### What was done
+
+1. **The exit watcher** calls `s.wire.Close()` once `proc.Wait()` returns, and closes a new
+   `s.watched` channel through its first defer, so it runs last, after the panic recovery.
+2. **Spawn's failure paths.** `killTree` closes the capture after `proc.Kill()`. The step named
+   only the watcher, but a spawn that fails before the watcher exists leaked the same handle, and
+   the decision was to close the session's capture.
+3. **`TestSpawnAgentStartsThroughAgentproc`** waits on `s.watched`, reads the capture, then calls
+   `s.wire.Frame` again and requires the file not to hold that frame.
+4. **The other helper-agent tests in `agentproc_test.go`** clean up through `closeAndWait`, or wait
+   on `s.watched`. `agentproc_unix_test.go` is not in S6a's files and runs only where an open file
+   can be deleted, so it is unchanged.
+
+#### Fail-first, on a scratch copy (`s6a/plants.py`)
+
+```text
+== control: no plant: PASS (as expected)
+== the exit watcher does not close the capture: FAIL (as expected)
+   agentproc_test.go:198: a frame was written after the session ended: the wire capture was never closed
+```
+
+#### Verification, 2026-10-22
+
+```text
+macOS (go1.27.3 darwin/arm64):
+  vet-darwin, vet-linux, vet-windows: exit 0
+  make test: exit 0; 43 ok, 0 FAIL lines
+  make race: exit 0; 43 ok, 0 FAIL lines
+  make lint: exit 0; make staticcheck: exit 0
+  make pre-add-check FILES="(the three S6a Go files)": 3 file(s) clean (gofmt, golint, govulncheck)
+Windows test host, a fresh clone of 086e98af with the S6a diff applied:
+  make ci-windows: exit 0 in 59s; 44 ok, 0 FAIL lines
+    PASS  A3 go.mod toolchain
+    PASS  A2 symlink probe (MC_REQUIRE_SYMLINK=1)
+    PASS  A4 go build ./...
+    PASS  A5 go vet ./...
+    PASS  A6 go test ./... (Git Bash, as CI; no -race, no live_*)
+  tasklist for acpagent.test.exe afterwards: no tasks running
+Linux test host, a fresh clone of 086e98af with the S6a diff applied:
+  make test: exit 0 in 83s; 43 ok, 0 FAIL lines
+  make race: exit 0 in 144s; 43 ok, 0 FAIL lines
+```
+
+* **Afterwards,** the scratch clones on both hosts were removed. No test agent of this run was
+  left on either host.
+
+#### Not done in S6
+
+* **`make live-grok`** waits for the owner's word on the quota (step 3). D2 is not done until it
+  passes, and the PLAN stays `in-progress`.
+
+* **The scripts needed two fixes, recorded so a rerun does not repeat them.** Both hosts once
+  shipped from one bundle path at the same time, and the second `git bundle create` failed: each
+  host now gets its own. And `shutil.rmtree` cannot delete git's read-only objects on Windows, so a
+  re-clone failed with "destination path … already exists". It now clears the read-only bit, and
+  the driver stops after a failed setup.
