@@ -297,6 +297,9 @@ type entry struct {
 	// ID, so an identical repeat is dropped (MADR 0190 D2). Bounded by
 	// maxCompactionStates.
 	compactionSeen map[string]uint64
+	// toolOutputs keeps the whole of each tool output cutToolEventLocked cut
+	// for the phone, for session.tool_output (MADR 0208 D11).
+	toolOutputs toolOutputs
 
 	promptAt      time.Time
 	firstOutputAt time.Time
@@ -1611,6 +1614,7 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					}
 					ctxPressure = e.contextPressureLocked()
 				}
+				e.cutToolEventLocked(&ev)
 				e.appendHistoryLocked(&ev)
 				e.lastEventAt = time.Now()
 				globalTrimmed = m.enforceGlobalBudgetLocked(sess.ID())

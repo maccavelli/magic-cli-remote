@@ -3977,6 +3977,25 @@ class McremoteClient with CodexThreadsClient, CodexExecutionClient {
     return SessionDiagnostics.fromJson(Map<String, dynamic>.from(raw));
   }
 
+  /// Fetch the whole of a tool output the daemon cut for the phone (an event
+  /// with `truncated`, MADR 0208 D11). Throws when the daemon no longer has it
+  /// (`tool_output_not_found`).
+  Future<ToolOutput> toolOutput(String sessionId, String toolCallId) async {
+    final res = await request(
+      'session.tool_output',
+      payload: {'session_id': sessionId, 'tool_call_id': toolCallId},
+      expectedType: 'session.tool_output_result',
+    );
+    if (res.type == 'error') {
+      throw McremoteClient.opException(res, 'tool output unavailable');
+    }
+    final raw = res.payload;
+    if (raw == null) {
+      throw Exception('unexpected session.tool_output response: ${res.type}');
+    }
+    return ToolOutput.fromJson(Map<String, dynamic>.from(raw));
+  }
+
   /// Create a session, or resume an existing agent conversation by passing
   /// [agentSessionId] (and optionally the prior [sessionId]) — the daemon
   /// forwards these to ACP `session/load`.

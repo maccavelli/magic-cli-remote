@@ -1807,7 +1807,8 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			ToolKind:  string(tc.Kind),
 			Status:    string(tc.Status),
 			// The agent's text as it came — never rawInput/rawOutput JSON trees.
-			Text: summarizeToolContent(tc.Content, tc.RawInput, nil, output.MaxToolText),
+			Text:  s.toolEventText(tc.Content, tc.RawInput, nil),
+			Diffs: toolDiffs(tc.Content),
 		})
 	case u.ToolCallUpdate != nil:
 		tu := u.ToolCallUpdate
@@ -1831,7 +1832,8 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			ToolName:  firstNonEmpty(title, "tool"),
 			ToolKind:  kind,
 			Status:    status,
-			Text:      summarizeToolContent(tu.Content, tu.RawInput, tu.RawOutput, output.MaxToolText),
+			Text:      s.toolEventText(tu.Content, tu.RawInput, tu.RawOutput),
+			Diffs:     toolDiffs(tu.Content),
 		})
 	case u.AvailableCommandsUpdate != nil:
 		// Forward ACP slash commands so the phone can autocomplete /invoke them.
@@ -2271,7 +2273,7 @@ func (s *session) noteAutoApproval(params acp.RequestPermissionRequest) {
 	// The same text the permission sheet uses below, so the audit can never
 	// carry raw rawInput JSON that the sheet would have withheld. One audit row
 	// is one line (output.Line).
-	detail := output.Line(toolText(params.ToolCall.Content, params.ToolCall.RawInput, nil), maxApprovalDetail)
+	detail := output.Line(toolText(params.ToolCall.Content, params.ToolCall.RawInput, nil, nil), maxApprovalDetail)
 	s.noteAutoApprovalItem(name, detail)
 }
 
@@ -2806,16 +2808,57 @@ func sanitizeUserFacingErr(err error) string {
 // summarizeToolContent is a tool's text, as toolText builds it, bounded to
 // maxLen bytes with its line structure kept (MADR 0208 D11).
 func summarizeToolContent(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage, maxLen int) string {
-	s, _ := output.Clip(toolText(content, rawIn, rawOut), maxLen)
+	s, _ := output.Clip(toolText(content, rawIn, rawOut, nil), maxLen)
 	return s
+}
+
+// toolEventText is a tool event's text: toolText with each terminal block
+// replaced by that terminal's buffered output, bounded to what an adapter hands
+// the daemon. The session manager cuts it for the phone (PLAN 0208 P2).
+func (s *session) toolEventText(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage) string {
+	text, _ := output.Clip(toolText(content, rawIn, rawOut, s.terminalOutput), output.MaxToolText)
+	return text
+}
+
+// terminalOutput is the output Magic has buffered for terminal id, or "" when
+// it runs no such terminal.
+func (s *session) terminalOutput(id string) string {
+	if s.terms == nil {
+		return ""
+	}
+	p, err := s.terms.get(id)
+	if err != nil || p.buf == nil {
+		return ""
+	}
+	out, _ := p.buf.Snapshot()
+	return out
+}
+
+// toolDiffs are a tool's diff blocks, as the agent sent them.
+func toolDiffs(content []acp.ToolCallContent) []event.ToolDiff {
+	var diffs []event.ToolDiff
+	for _, c := range content {
+		if c.Diff == nil {
+			continue
+		}
+		d := event.ToolDiff{Path: c.Diff.Path, NewText: c.Diff.NewText}
+		if c.Diff.OldText != nil {
+			d.OldText = *c.Diff.OldText
+		}
+		diffs = append(diffs, d)
+	}
+	return diffs
 }
 
 // toolText is what a tool card shows: the agent's content blocks as they came,
 // separated by blank lines, with line breaks, indentation and escape bytes
-// kept. Only leading blank lines and trailing whitespace go. Never dumps full
-// RawOutput JSON trees into the event stream: rawIn and rawOut, the SDK's raw
-// JSON values, are a short fallback when there is no content (see shortRaw).
-func toolText(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage) string {
+// kept. Only leading blank lines and trailing whitespace go. A diff block is a
+// "diff <path>" line, its text travelling in the event's Diffs. A terminal
+// block is that terminal's output when terminal finds it, and a
+// "terminal <id>" line otherwise. Never dumps full RawOutput JSON trees into
+// the event stream: rawIn and rawOut, the SDK's raw JSON values, are a short
+// fallback when there is no content (see shortRaw).
+func toolText(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage, terminal func(id string) string) string {
 	var parts []string
 	for _, c := range content {
 		switch {
@@ -2831,7 +2874,14 @@ func toolText(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage) stri
 			}
 			parts = append(parts, "diff "+path)
 		case c.Terminal != nil:
-			parts = append(parts, "terminal "+string(c.Terminal.TerminalId))
+			id := string(c.Terminal.TerminalId)
+			if terminal != nil {
+				if out := strings.TrimRight(terminal(id), " \t\r\n"); strings.TrimSpace(out) != "" {
+					parts = append(parts, strings.TrimLeft(out, "\r\n"))
+					continue
+				}
+			}
+			parts = append(parts, "terminal "+id)
 		}
 	}
 	// Prefer structured content. Only use raw fields as a short fallback.

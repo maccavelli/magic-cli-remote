@@ -10,16 +10,120 @@ part of 'chat_screen.dart';
 /// survives Element remounts when a finishing tool folds into the group (list
 /// key churn). Avoids [PageStorageKey], which collides with nested detail
 /// scroll views.
+/// Fetches the whole of a tool output the daemon cut (`session.tool_output`,
+/// MADR 0208 D11), by tool-call id.
+typedef _ToolOutputFetcher = Future<ToolOutput> Function(String toolId);
+
+/// [text] without its leading blank lines or trailing whitespace. A first
+/// line's indentation is the agent's layout, so it stays (MADR 0208 D11).
+String _trimBlankEdges(String text) =>
+    text.replaceFirst(RegExp(r'^(?:[ \t]*\r?\n)+'), '').trimRight();
+
+/// Opens a sheet that fetches the whole of a cut tool output and shows it as
+/// the agent sent it: its text, then each diff's new text under its path.
+Future<void> _showWholeOutput(
+  BuildContext context,
+  String title,
+  Future<ToolOutput> Function() fetch,
+) {
+  final future = fetch();
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final theme = Theme.of(sheetContext);
+      final muted = theme.colorScheme.onSurfaceVariant;
+      return SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height * 0.8,
+          child: FutureBuilder<ToolOutput>(
+            future: future,
+            builder: (context, snap) {
+              if (snap.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'The whole output is no longer available.',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                );
+              }
+              final out = snap.data;
+              if (out == null) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final whole = _trimBlankEdges(
+                [
+                  out.text,
+                  for (final d in out.diffs) '${d.path}\n${d.newText}',
+                ].where((s) => s.trim().isNotEmpty).join('\n\n'),
+              );
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Copy output',
+                          icon: const Icon(Icons.copy_outlined),
+                          onPressed: () async {
+                            await Clipboard.setData(ClipboardData(text: whole));
+                            if (context.mounted) {
+                              showTopNotification(
+                                context,
+                                'Copied',
+                                severity: NoticeSeverity.success,
+                              );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: SelectableText(
+                        whole,
+                        style: monoDetail.copyWith(color: muted),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class _ToolGroupTile extends StatelessWidget {
   const _ToolGroupTile({
     required this.group,
     required this.expanded,
     required this.onExpansionChanged,
+    this.fetchToolOutput,
   });
 
   final GroupRow group;
   final bool expanded;
   final ValueChanged<bool> onExpansionChanged;
+
+  /// Passed to each member's card, for "Show all" on a cut tool output.
+  final _ToolOutputFetcher? fetchToolOutput;
 
   IconData get _icon => switch (group.leadClass) {
     ToolClass.command => Icons.terminal,
@@ -36,7 +140,11 @@ class _ToolGroupTile extends StatelessWidget {
     // unchanged, so growing to two members rebuilds this subtree without
     // remounting the row.
     if (group.items.length == 1) {
-      return _ChatBubble(item: group.items.first, agentRunning: false);
+      return _ChatBubble(
+        item: group.items.first,
+        agentRunning: false,
+        fetchToolOutput: fetchToolOutput,
+      );
     }
 
     final theme = Theme.of(context);
@@ -126,7 +234,11 @@ class _ToolGroupTile extends StatelessWidget {
               ),
               children: [
                 for (final item in group.items)
-                  _ChatBubble(item: item, agentRunning: false),
+                  _ChatBubble(
+                    item: item,
+                    agentRunning: false,
+                    fetchToolOutput: fetchToolOutput,
+                  ),
               ],
             ),
           ),
@@ -144,10 +256,15 @@ class _ChatBubble extends StatelessWidget {
     this.maxUserWidth,
     this.maxAssistantWidth,
     this.onUserAction,
+    this.fetchToolOutput,
   });
 
   final ChatItem item;
   final bool agentRunning;
+
+  /// Fetches the whole of this tool card's output when the daemon cut it.
+  /// Null where nothing can be fetched; the card then offers no "Show all".
+  final _ToolOutputFetcher? fetchToolOutput;
 
   /// True when this assistant bubble belongs to the still-open turn and may
   /// still receive chunks — even when a tool card has been appended after it.
@@ -331,7 +448,19 @@ class _ChatBubble extends StatelessWidget {
         );
       case ChatItemKind.tool:
         final status = item.toolStatus ?? '';
-        final detail = (item.text ?? '').trim();
+        // The tool's text, then each diff's new text under its path, as the
+        // agent sent them. P3 of PLAN 0208 renders diffs as diffs.
+        final detail = _trimBlankEdges(
+          [
+            item.text ?? '',
+            for (final d in item.diffs) '${d.path}\n${d.newText}',
+          ].where((s) => s.trim().isNotEmpty).join('\n\n'),
+        );
+        final toolId = item.toolId ?? '';
+        final fetch = fetchToolOutput;
+        final showAll = item.toolTruncated && toolId.isNotEmpty && fetch != null
+            ? () => fetch(toolId)
+            : null;
         final running = status == 'running' || status == 'pending';
         final failed = status == 'failed' || status == 'error';
         final done = status == 'completed' || status == 'success';
@@ -369,6 +498,7 @@ class _ChatBubble extends StatelessWidget {
               ? tokens.success.withValues(alpha: 0.6)
               : scheme.outlineVariant,
           detail: detail == item.toolName ? '' : detail,
+          onShowAll: showAll,
         );
       case ChatItemKind.system:
         final text = item.text ?? '';
@@ -1289,12 +1419,16 @@ class _CompactStatusTile extends StatelessWidget {
     this.titleSuffix,
     this.railColor,
     this.shimmerTitle = false,
+    this.onShowAll,
   });
 
   final Widget leading;
   final String title;
   final String? titleSuffix;
   final String detail;
+
+  /// Fetches the whole detail when the daemon cut it; null hides "Show all".
+  final Future<ToolOutput> Function()? onShowAll;
 
   /// Accent color for the thin left rail (thought/tool state at a glance).
   final Color? railColor;
@@ -1357,7 +1491,7 @@ class _CompactStatusTile extends StatelessWidget {
       );
     }
 
-    final trimmedDetail = detail.trim();
+    final trimmedDetail = _trimBlankEdges(detail);
     if (trimmedDetail.isEmpty) {
       // Nothing to expand — a bare, low-chrome line.
       return withRail(
@@ -1439,6 +1573,15 @@ class _CompactStatusTile extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (onShowAll != null)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: () =>
+                              _showWholeOutput(context, title, onShowAll!),
+                          child: const Text('Show all'),
+                        ),
+                      ),
                   ],
                 ),
               ),

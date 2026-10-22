@@ -146,6 +146,8 @@ const (
 	TypeSessionRenameResult      = "session.rename_result"
 	TypeSessionDiagnostics       = "session.diagnostics"
 	TypeSessionDiagnosticsResult = "session.diagnostics_result"
+	TypeSessionToolOutput        = "session.tool_output"
+	TypeSessionToolOutputResult  = "session.tool_output_result"
 	TypePermissionRespond        = "permission.respond"
 	TypeQuestionRespond          = "question.respond"
 	// Signed-receipt read surface (MADR 0078 D8): a device reads its OWN chain.
@@ -1260,6 +1262,22 @@ type SessionRenameResultPayload struct {
 type SessionDiagnosticsResultPayload struct {
 	SessionID   string               `json:"session_id"`
 	Diagnostics provider.Diagnostics `json:"diagnostics"`
+}
+
+// SessionToolOutputPayload asks for the whole output of a tool event the
+// daemon cut for the phone, one whose event carried truncated (MADR 0208 D11).
+type SessionToolOutputPayload struct {
+	SessionID  string `json:"session_id"`
+	ToolCallID string `json:"tool_call_id"`
+}
+
+// SessionToolOutputResultPayload is the whole text and diffs of that tool
+// event. It is a direct response, never a transcript event.
+type SessionToolOutputResultPayload struct {
+	SessionID  string           `json:"session_id"`
+	ToolCallID string           `json:"tool_call_id"`
+	Text       string           `json:"text,omitempty"`
+	Diffs      []event.ToolDiff `json:"diffs,omitempty"`
 }
 
 // PermissionRespondPayload answers a permission_request event.

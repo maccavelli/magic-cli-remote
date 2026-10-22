@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 
 import '../protocol/models.dart';
 import 'chat_models.dart';
@@ -874,7 +874,14 @@ SessionTranscript _upsertApprovals(SessionTranscript t, SessionEvent ev) {
 SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
   final id = (ev.toolId ?? '').trim();
   final status = (ev.status ?? '').trim();
-  final detail = (ev.text ?? '').trim();
+  // The tool's text as it came: only leading blank lines and trailing
+  // whitespace go, so a first line's indentation survives (MADR 0208 D11).
+  final detail = (ev.text ?? '')
+      .replaceFirst(RegExp(r'^(?:[ \t]*\r?\n)+'), '')
+      .trimRight();
+  // An event that carries content replaces the card's cut state and diffs; a
+  // status-only update leaves them, as it leaves the text.
+  final hasContent = detail.isNotEmpty || ev.diffs.isNotEmpty;
   // `toolName` is only a real title when the event carried one. The daemon
   // substitutes the literal "tool" on updates that omit an ACP title, which
   // would otherwise rename an established card.
@@ -892,13 +899,17 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
       final nextName = name.isNotEmpty ? name : prev.toolName;
       final nextKind = kind.isNotEmpty ? kind : prev.toolKind;
       final nextText = clippedDetail.isNotEmpty ? clippedDetail : prev.text;
+      final nextTruncated = hasContent ? ev.toolTruncated : prev.toolTruncated;
+      final nextDiffs = hasContent ? ev.diffs : prev.diffs;
 
       // Identity guard: if nothing observable changed, return t unchanged
       // to avoid copying item list and triggering rebuilds (MADR 0034 D4).
       if (nextStatus == prev.toolStatus &&
           nextName == prev.toolName &&
           nextKind == prev.toolKind &&
-          nextText == prev.text) {
+          nextText == prev.text &&
+          nextTruncated == prev.toolTruncated &&
+          listEquals(nextDiffs, prev.diffs)) {
         return t;
       }
 
@@ -908,6 +919,8 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
         toolStatus: nextStatus,
         toolKind: nextKind,
         text: nextText,
+        toolTruncated: nextTruncated,
+        diffs: nextDiffs,
       );
       return t.copyWith(items: items, growableItems: true);
     }
@@ -930,6 +943,8 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
       toolStatus: status.isNotEmpty ? status : prev.toolStatus,
       toolKind: kind.isNotEmpty ? kind : prev.toolKind,
       text: clippedDetail.isNotEmpty ? clippedDetail : prev.text,
+      toolTruncated: hasContent ? ev.toolTruncated : prev.toolTruncated,
+      diffs: hasContent ? ev.diffs : prev.diffs,
     );
     return t.copyWith(items: items, growableItems: true);
   }
@@ -943,6 +958,8 @@ SessionTranscript _upsertTool(SessionTranscript t, SessionEvent ev) {
     status: status,
     detail: clippedDetail,
     toolKind: kind.isEmpty ? null : kind,
+    truncated: ev.toolTruncated,
+    diffs: ev.diffs,
     seq: t.nextSeq,
   );
   final items = _mutableItems(t)..add(item);

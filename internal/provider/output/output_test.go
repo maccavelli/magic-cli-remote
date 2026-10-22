@@ -39,6 +39,18 @@ func TestClip(t *testing.T) {
 	}
 }
 
+// TestBoundsLeaveRoomToFetch: what an event shows is less than what the daemon
+// keeps, and what it keeps fits one 1 MiB WebSocket message at four bytes of
+// JSON per byte of text.
+func TestBoundsLeaveRoomToFetch(t *testing.T) {
+	if MaxToolShown >= MaxToolText {
+		t.Fatalf("MaxToolShown %d must be below MaxToolText %d", MaxToolShown, MaxToolText)
+	}
+	if 4*MaxToolText > 1<<20 {
+		t.Fatalf("MaxToolText %d does not fit a 1 MiB message after escaping", MaxToolText)
+	}
+}
+
 func TestLine(t *testing.T) {
 	cases := []struct {
 		name, in string

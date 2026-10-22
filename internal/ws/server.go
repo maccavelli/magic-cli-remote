@@ -911,6 +911,8 @@ func (s *Server) handleMessage(ctx context.Context, c *client, data []byte) erro
 		return s.dispatchAsync(ctx, c, env, s.handleSessionRename)
 	case protocol.TypeSessionDiagnostics:
 		return s.dispatchAsync(ctx, c, env, s.handleSessionDiagnostics)
+	case protocol.TypeSessionToolOutput:
+		return s.dispatchAsync(ctx, c, env, s.handleSessionToolOutput)
 	case protocol.TypePermissionRespond:
 		// Async since MADR 0138 F4. Answering a permission calls into the
 		// provider, and on kilo/opencode that is a synchronous HTTP POST to the
@@ -3494,6 +3496,28 @@ func (s *Server) handleSessionDiagnostics(ctx context.Context, c *client, env pr
 	}
 	out, _ := protocol.NewEnvelope(protocol.TypeSessionDiagnosticsResult, env.ID,
 		protocol.SessionDiagnosticsResultPayload{SessionID: p.SessionID, Diagnostics: diagnostics})
+	return s.writeJSON(ctx, c, out)
+}
+
+// handleSessionToolOutput returns the whole output of a tool event the daemon
+// cut for the phone (MADR 0208 D11). A tool that was never cut, or whose
+// output was evicted, answers tool_output_not_found.
+func (s *Server) handleSessionToolOutput(ctx context.Context, c *client, env protocol.Envelope, deviceID string) error {
+	var p protocol.SessionToolOutputPayload
+	if err := protocol.DecodePayload(env, &p); err != nil {
+		return s.writeError(ctx, c, env.ID, "bad_payload", err.Error())
+	}
+	if p.SessionID == "" || p.ToolCallID == "" {
+		return s.writeError(ctx, c, env.ID, "bad_payload", "session_id and tool_call_id required")
+	}
+	text, diffs, err := s.sessions.ToolOutput(p.SessionID, p.ToolCallID, deviceID)
+	if err != nil {
+		return s.writeSessionErr(ctx, c, env.ID, protocol.ErrToolOutputNotFound, err)
+	}
+	out, _ := protocol.NewEnvelope(protocol.TypeSessionToolOutputResult, env.ID,
+		protocol.SessionToolOutputResultPayload{
+			SessionID: p.SessionID, ToolCallID: p.ToolCallID, Text: text, Diffs: diffs,
+		})
 	return s.writeJSON(ctx, c, out)
 }
 

@@ -412,6 +412,14 @@ type PlanEntry struct {
 	Priority string `json:"priority"`
 }
 
+// ToolDiff is one file change a tool reported (ACP's diff tool-call content).
+// OldText is empty for a new file.
+type ToolDiff struct {
+	Path    string `json:"path"`
+	OldText string `json:"old_text,omitempty"`
+	NewText string `json:"new_text"`
+}
+
 // ApprovalItem is one auto-approved permission inside an approval_summary
 // event. Clients render these as rows in a collapsible card.
 type ApprovalItem struct {
@@ -649,6 +657,13 @@ type Event struct {
 	// fetch, switch_mode, other). Clients use it to group actions ("Ran N
 	// commands", "Edited N files"); empty when the agent did not say.
 	ToolKind string `json:"tool_kind,omitempty"`
+
+	// Truncated marks a tool_call / tool_call_update whose Text or Diffs the
+	// session manager cut to the phone's bound; session.tool_output returns
+	// them whole (MADR 0208 D11).
+	Truncated bool `json:"truncated,omitempty"`
+	// Diffs are the file changes a tool reported, as the agent sent them.
+	Diffs []ToolDiff `json:"diffs,omitempty"`
 
 	Error string `json:"error,omitempty"`
 

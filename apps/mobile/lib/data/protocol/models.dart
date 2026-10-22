@@ -1915,6 +1915,55 @@ class SubagentInfo {
   int get hashCode => Object.hash(id, name, task, status);
 }
 
+/// One file change a tool reported (`diffs` on `tool_call` /
+/// `tool_call_update`, MADR 0208 D11). [oldText] is empty for a new file.
+class ToolDiff {
+  const ToolDiff({
+    required this.path,
+    this.oldText = '',
+    required this.newText,
+  });
+
+  final String path;
+  final String oldText;
+  final String newText;
+
+  factory ToolDiff.fromJson(Map<String, dynamic> j) => ToolDiff(
+    path: j['path'] as String? ?? '',
+    oldText: j['old_text'] as String? ?? '',
+    newText: j['new_text'] as String? ?? '',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'path': path,
+    if (oldText.isNotEmpty) 'old_text': oldText,
+    'new_text': newText,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is ToolDiff &&
+      other.path == path &&
+      other.oldText == oldText &&
+      other.newText == newText;
+
+  @override
+  int get hashCode => Object.hash(path, oldText, newText);
+}
+
+/// The whole of a tool output the daemon cut (`session.tool_output_result`).
+class ToolOutput {
+  const ToolOutput({this.text = '', this.diffs = const []});
+
+  final String text;
+  final List<ToolDiff> diffs;
+
+  factory ToolOutput.fromJson(Map<String, dynamic> j) => ToolOutput(
+    text: j['text'] as String? ?? '',
+    diffs: _mapList(j['diffs'], ToolDiff.fromJson),
+  );
+}
+
 /// One auto-approved permission inside an `approval_summary` event.
 ///
 /// Auto-approve must not mean invisible: the user has to be able to scroll back
@@ -2675,6 +2724,8 @@ class SessionEvent {
     this.toolId,
     this.toolName,
     this.toolKind,
+    this.toolTruncated = false,
+    this.diffs = const [],
     this.error,
     this.errorKind,
     this.retryAt,
@@ -2766,6 +2817,13 @@ class SessionEvent {
   /// ACP tool-kind classification (`execute`, `edit`, `read`, `search`, …).
   /// Used to group actions in the transcript; null when the agent omitted it.
   final String? toolKind;
+
+  /// The daemon cut this tool event's [text] or [diffs] for the phone
+  /// (`truncated`, MADR 0208 D11); `session.tool_output` returns the whole.
+  final bool toolTruncated;
+
+  /// The file changes a tool reported, on `tool_call` / `tool_call_update`.
+  final List<ToolDiff> diffs;
   final String? error;
 
   /// Daemon classification of an error event: `quota` (hard usage/credit
@@ -2867,6 +2925,8 @@ class SessionEvent {
     toolId: toolId,
     toolName: toolName,
     toolKind: toolKind,
+    toolTruncated: toolTruncated,
+    diffs: diffs,
     error: error,
     errorKind: errorKind,
     retryAt: retryAt,
@@ -2977,6 +3037,8 @@ class SessionEvent {
       toolId: json['tool_id'] as String?,
       toolName: json['tool_name'] as String?,
       toolKind: json['tool_kind'] as String?,
+      toolTruncated: json['truncated'] == true,
+      diffs: _mapList(json['diffs'], ToolDiff.fromJson),
       error: json['error'] as String?,
       errorKind: json['error_kind'] as String?,
       retryAt: retryAt,

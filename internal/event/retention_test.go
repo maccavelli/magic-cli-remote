@@ -195,6 +195,21 @@ func TestBytesCountsSessionCost(t *testing.T) {
 	}
 }
 
+// A tool's diffs are retained with its event, so the budget must count them
+// (PLAN 0208 P2 Deviation 2).
+func TestBytesCountsToolDiffs(t *testing.T) {
+	plain := Event{Type: TypeToolUpdate, ToolID: "t1"}
+	diffed := Event{Type: TypeToolUpdate, ToolID: "t1", Diffs: []ToolDiff{
+		{Path: "/a.go", OldText: "old", NewText: "new text"},
+		{Path: "/b.go", NewText: "created"},
+	}}
+	want := 2*int(unsafe.Sizeof(ToolDiff{})) + len("/a.go") + len("old") + len("new text") +
+		len("/b.go") + len("created")
+	if got := Bytes(&diffed) - Bytes(&plain); got != want {
+		t.Fatalf("diffs add %d bytes, want %d", got, want)
+	}
+}
+
 // A typed form's strings are retained with the question, so the budget must
 // count them (MADR 0191 D4).
 func TestBytesCountsQuestionFormFields(t *testing.T) {

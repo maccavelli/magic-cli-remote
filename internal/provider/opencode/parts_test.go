@@ -157,10 +157,11 @@ func TestMapPartToolPrecedence(t *testing.T) {
 	}
 }
 
-// TestToolVisibleOutputIsCapped proves the 8,000-character cap applies and
-// keeps line structure.
+// TestToolVisibleOutputIsCapped proves the adapter's cap (output.MaxToolText)
+// applies and keeps line structure. The phone's smaller bound is the session
+// manager's to apply (PLAN 0208 P2).
 func TestToolVisibleOutputIsCapped(t *testing.T) {
-	long := strings.Repeat("line\n", 5000)
+	long := strings.Repeat("line\n", output.MaxToolText/5+1000)
 	got := toolVisibleOutput(nativeToolState{Status: "completed", Output: long})
 	if len(got) <= output.MaxToolText {
 		if len(long) > output.MaxToolText {

@@ -188,6 +188,9 @@ func Bytes(ev *Event) int {
 	for i := range ev.Attachments {
 		n += attachmentBytes + len(ev.Attachments[i].Kind) + len(ev.Attachments[i].MimeType)
 	}
+	for i := range ev.Diffs {
+		n += toolDiffBytes + len(ev.Diffs[i].Path) + len(ev.Diffs[i].OldText) + len(ev.Diffs[i].NewText)
+	}
 
 	if ev.Usage != nil {
 		n += int(unsafe.Sizeof(Usage{}))
@@ -226,6 +229,7 @@ var (
 	collabModeBytes    = int(unsafe.Sizeof(CollaborationMode{}))
 	configOptionBytes  = int(unsafe.Sizeof(ConfigOption{}))
 	attachmentBytes    = int(unsafe.Sizeof(AttachmentInfo{}))
+	toolDiffBytes      = int(unsafe.Sizeof(ToolDiff{}))
 
 	configOptionValueBytes = int(unsafe.Sizeof(ConfigOptionValue{}))
 )

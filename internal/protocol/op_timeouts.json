@@ -20,6 +20,7 @@
         "session.diff": 30000,
         "session.rename": 30000,
         "session.diagnostics": 30000,
+        "session.tool_output": 30000,
         "permission.respond": 15000,
         "question.respond": 15000,
         "receipts.list": 30000,

@@ -496,10 +496,11 @@ func TestToolOutputVisibilityAndClipText(t *testing.T) {
 		t.Errorf("event text = %q, want output text", h.events[0].Text)
 	}
 
-	// 4. Output longer than output.MaxToolText (8000) is clipped with truncation marker.
+	// 4. Output longer than the adapter's cap (output.MaxToolText) is clipped with
+	// a truncation marker. The phone's smaller bound is the manager's (PLAN 0208 P2).
 	h.events = nil
 	s.turnCleanup()
-	longOut := strings.Repeat("x\n", 5000) // 10000 chars
+	longOut := strings.Repeat("x\n", output.MaxToolText/2+1000)
 	s.HandleEvent("message.part.updated", makeToolFrame(longOut, "", "bash"))
 	if len(h.events) != 1 {
 		t.Fatalf("expected 1 event for long output, got %d", len(h.events))

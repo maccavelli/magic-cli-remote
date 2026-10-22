@@ -341,6 +341,7 @@ denies transport access rather than merely a bearer secret.
 | `session.diff` | `{ "session_id", "message_id?" }` | `session.diff_result` |
 | `session.rename` | `{ "session_id", "name" }` | `session.rename_result` |
 | `session.diagnostics` | `{ "session_id" }` | `session.diagnostics_result` |
+| `session.tool_output` | `{ "session_id", "tool_call_id" }` | `session.tool_output_result` |
 | `ping` | `{}` | `pong` |
 
 ### `session.create` (Phase 2)
@@ -783,6 +784,24 @@ generated titles no longer replace it (MADR 0187).
 It never includes repository paths or content, patches, URLs, headers, tokens,
 OAuth state, command arguments, or arbitrary provider configuration.
 
+### `session.tool_output` (the whole of a cut tool output)
+
+The daemon cuts every provider's `tool_call` / `tool_call_update` to 8,000 bytes
+of `text`, and each side of each `diffs` entry likewise, in one place before the
+event enters history (MADR 0208 D11). A cut event carries `"truncated": true`.
+The daemon keeps the whole text and diffs for the live session, up to 8 MiB per
+session with the oldest tool evicted first, and returns them here. Reading is
+owner-authorized and does not claim the session; it is a direct response, never
+a pushed event.
+
+| Type | Payload | Reply |
+|------|---------|-------|
+| `session.tool_output` | `{ "session_id", "tool_call_id" }` | `session.tool_output_result` `{ "session_id", "tool_call_id", "text?", "diffs?" }` |
+
+A tool that was never cut, whose output was evicted, or whose session is no
+longer live answers `tool_output_not_found`. The whole text is itself bounded at
+256 KiB per tool, which is what an adapter hands the daemon.
+
 ### `session.close` vs `session.delete`
 
 - `session.close` stops the live session and **keeps** the persisted record, with
@@ -1002,6 +1021,8 @@ names the request that produced it: `session_create_failed`,
 `session_unrevert_failed`, `session_diff_failed`, `session_rename_failed`,
 `session_diagnostics_failed`, `permission_failed`, `question_failed`,
 `receipts_list_failed`, `devices_list_failed`.
+`tool_output_not_found` answers `session.tool_output` for a tool with nothing to
+fetch: never cut, evicted, or its session no longer live.
 `diagnostic_failed` reports that the explicit read-only Codex Doctor process
 timed out, exceeded its bound, or returned no valid schema-v1 report.
 
@@ -1169,6 +1190,7 @@ Domain events (inside live `event` push / history):
 | `codex.terminal.output` | `{ "session_id", "output": { "terminal_id", "sequence", "stream", "data", "cap_reached?" } }` — live push to the owning device only; never session history |
 | `session.rename_result` | `{ "session": Meta }` |
 | `session.diagnostics_result` | `{ "session_id", "diagnostics": { "branch?", "default_branch?", "vcs?", "mcp?" } }` |
+| `session.tool_output_result` | `{ "session_id", "tool_call_id", "text?", "diffs?": [{ "path", "old_text?", "new_text" }] }` |
 
 ### Session `Meta`
 
@@ -1310,6 +1332,15 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
   (`read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `switch_mode`,
   `other`) when the agent supplied one. Clients use it to group actions
   ("Ran N commands", "Edited N files"); absent means unclassified.
+- `text` on `tool_call` / `tool_call_update`: the agent's tool output as it came,
+  with its line breaks, indentation and escape bytes, cut to 8,000 bytes on a
+  line boundary. A diff block appears as a `diff <path>` line, and a terminal
+  block as that terminal's buffered output (MADR 0208 D11).
+- `diffs` on `tool_call` / `tool_call_update`: the file changes the tool
+  reported, `[{ "path", "old_text?", "new_text" }]`. `old_text` is absent for a
+  new file. Each side is cut to 8,000 bytes when longer.
+- `truncated` on `tool_call` / `tool_call_update`: the daemon cut `text` or a
+  diff, and `session.tool_output` returns the whole of them.
 - `tool_status` (`status` field on `tool_call` / `tool_call_update`): the
   daemon's tool-lifecycle vocabulary. The mobile reducer keys the spinner
   off `toolStatus == 'running' || 'pending'` and the terminal-state

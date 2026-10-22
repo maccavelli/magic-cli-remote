@@ -424,3 +424,130 @@ early break, one long line, a multi-byte rune at the boundary and no limit.
 * `internal/agenterr/agenterr.go:725` flattens error text before classifying it. Whether a
   classified message keeps the agent's lines is a question for P5, where engine answers pass
   through; P1's gate covers `internal/provider` only, as written.
+
+P1 was committed by the owner after the records commit `e86d9b5c`.
+
+### P2 Deviation 1, 2026-10-21 — the design pinned, and the file list amended. The owner decided: "Approve amended list"
+
+- **Found** at P2's start, before any code: the step list did not say where the full text lives
+  while the phone gets a bounded copy, and the file list missed the files that decides.
+- **The design:**
+  - **Two bounds** in `internal/provider/output`. `MaxToolText` becomes what an adapter hands the
+    daemon, 256 KiB: a fetched text must fit one 1 MiB WebSocket message (`maxWSMessageBytes`)
+    even if JSON escaping quadruples it. A new `MaxToolShown`, 8,000, is what an event carries.
+    opencode's and kilo's adapter code is unchanged, because it already names `MaxToolText`.
+  - **The manager clips centrally.** In `pump`, before a tool event enters the history ring, the
+    manager stores its full text and diffs, clips them to `MaxToolShown`, and sets `truncated`.
+    That makes the bound "one shared function" (MADR D11).
+  - **The store** keeps the full text and diffs per session, keyed by tool-call id, at most
+    8 MiB per session with the oldest evicted. It lives on the session's entry, so it goes when
+    the session does.
+  - **`diffs` is a list** (`path`, `old_text`, `new_text`), because one ACP tool call can carry
+    several diff blocks. The PLAN's step 1 said `diff`.
+  - **Terminal content** replaces the `terminal <id>` placeholder with the output Magic already
+    buffers for that terminal (`acpagent/terminal.go`, `limitedBuffer.Snapshot`).
+- **Files added to P2:** `internal/provider/output/output.go` and `output_test.go`;
+  `internal/session/tooloutput.go` and `tooloutput_test.go` (new);
+  `internal/provider/opencode/http_delta_test.go` and `parts_test.go`, which pin today's 8,000
+  adapter cap; a new test file in `internal/ws`; and on the phone `lib/data/chat/chat_models.dart`,
+  `lib/data/chat/transcript_reducer.dart` and a new Flutter test.
+- **Not taken:** moving diffs and terminal content to a separate P2b.
+- **The MADR is unchanged:** D11 already says the text is kept whole for the phone to fetch.
+
+### P2 Deviation 2, 2026-10-21 — `retention.go` counts diffs. The owner decided: "Add retention.go"
+
+- **Found** while adding `Diffs` to the event: `internal/event/retention.go`'s `Bytes` sizes every
+  owned string and slice for the history ring's budget, and warns that "adding a field the budget
+  does not count is how a budget silently stops bounding anything".
+- **Resolution:** `Bytes` counts each diff's struct header, path, old text and new text.
+  `internal/event/retention.go` and its test file, for a new `TestBytesCountsToolDiffs`, join P2's
+  files.
+- **Not taken:** stopping P2. No other route keeps the budget honest.
+
+### P2 Deviation 3, 2026-10-21 — three files for the request. The owner decided: "Approve all three"
+
+- **Found** by tracing the existing `session.diagnostics` request end to end:
+  - every async request needs a deadline in `internal/protocol/op_timeouts.json`, enforced by
+    `internal/ws/op_timeout_test.go` and `apps/mobile/test/op_timeout_ladder_test.dart`;
+  - requests are documented in `docs/guides/protocol-v1.md`. `protocol-v2.md`, which the step names,
+    covers negotiation and transport only;
+  - tool cards (`chat_bubble.dart`) reach neither the session id nor the client. The pane that
+    builds them, `transcript_pane.dart`, has both, and already passes `onUserAction` down.
+- **Resolution:**
+  - `session.tool_output` takes 30 s in `op_timeouts.json`, like `session.diagnostics`;
+  - it is documented in `protocol-v1.md`, which replaces `protocol-v2.md` in P2's files;
+  - `transcript_pane.dart` passes a fetch callback to the tool card, one optional parameter.
+- **Not taken:** stopping P2.
+
+### P2 Deviation 4, 2026-10-22 — the error code is registered. The owner decided: "Add errors.go"
+
+- **Found** by `TestWSErrorCodesAreRegistered`: "unregistered error code tool_output_not_found at
+  server.go:3515:44 — add it to protocol.ErrorCodes() and document it in
+  docs/guides/protocol-v1.md". No registered code means "this tool has nothing to fetch";
+  `session_not_live` would mislead, because the session is live when an output was evicted.
+- **Resolution:** `internal/protocol/errors.go` declares `ErrToolOutputNotFound` and lists it in
+  `ErrorCodes()`. The handler uses the constant, and protocol-v1.md documents it.
+- **Not taken:** stopping P2.
+
+### P2, 2026-10-22: complete (staged for the owner's commit)
+
+**What changed.**
+
+* **Bounds.** `output.MaxToolText` is 256 KiB, what an adapter hands the daemon. `MaxToolShown`,
+  8,000, is what an event carries. `TestBoundsLeaveRoomToFetch` pins that what an event shows is
+  below what the daemon keeps, and that the kept text fits 1 MiB at four bytes of JSON per byte.
+* **The event.** `Truncated` and `Diffs []ToolDiff` (`path`, `old_text`, `new_text`).
+  `retention.go` counts diffs (Deviation 2).
+* **The manager.** `cutToolEventLocked` runs in `pump` before `appendHistoryLocked`. It clips text
+  with `output.Clip` and each diff side only when it is over the bound, so a file's text is never
+  trimmed. When it cuts, it stores the whole and sets `Truncated`. An event carrying new content
+  that needs no cut drops a stale stored output; a status-only update leaves it.
+  `Manager.ToolOutput` authorizes the device without claiming the session.
+* **The store** (`internal/session/tooloutput.go`): 8 MiB per session, oldest tool evicted first.
+  The newest output is never evicted, even alone over budget.
+* **ACP.** Tool events fill `Diffs` from diff blocks, and a terminal block carries that terminal's
+  buffered output (`terminalOutput`, through the package's existing `get` and `Snapshot`), falling
+  back to `terminal <id>`. `terminal.go` is unchanged.
+* **The request.** `session.tool_output` → `session.tool_output_result`, 30 s in
+  `op_timeouts.json`, error `tool_output_not_found` (Deviations 3 and 4), documented in
+  `protocol-v1.md` with the event's `text`, `diffs` and `truncated` fields.
+* **The phone.**
+  * `SessionEvent` parses `truncated` and `diffs`. `ToolDiff` and `ToolOutput` are new.
+  * `ChatItem` carries and caches `toolTruncated` and `diffs`, which the reducer passes through.
+  * `McremoteClient.toolOutput` sends the request.
+  * A cut tool card shows "Show all", which opens a sheet with the whole output and a copy button.
+    The pane passes the fetcher down.
+  * Until P3, diffs show as each new text under its path.
+* **Also fixed, in the reducer and the tile:** both trimmed a tool's text, which removed the first
+  line's indentation P1 now carries. They now remove only leading blank lines and trailing
+  whitespace.
+
+**Failing first, each seen before its fix:**
+
+| Test | Failure before the fix |
+| :--- | :--- |
+| `TestBytesCountsToolDiffs` (counting removed) | `diffs add 0 bytes, want 124` |
+| `TestToolOutputsEvictOldestFirst`, `…KeepsAnOversizedNewest` (store stubbed) | `a = 0 bytes, false; want it kept whole`; `the newest output evicted itself` |
+| `TestManagerCutsToolEventsAndKeepsTheWhole` | `long event: truncated=false, 17000 bytes; want it cut to 8000` |
+| `TestToolDiffsAndTerminalOutputPassThrough` | `Diffs = []`; `Text = "diff /src/a.go\n\ndiff /src/new.go\n\nterminal term-1"` |
+| `TestWSSessionToolOutput` (route removed) | `want session.tool_output_result, got error: … unknown_type` |
+| opencode's two cap tests | `long output missing truncation marker`, once the adapter bound moved to 256 KiB |
+| Flutter "Show all" | `Found 0 widgets with text "Show all"` |
+| Flutter reducer and cache (fields removed) | `Expected: true, Actual: false` |
+
+The two opencode tests keep their assertions, the adapter's cap and its marker. Their inputs now
+exceed the new 256 KiB bound. `TestWSErrorCodesAreRegistered` caught the unregistered code
+(Deviation 4).
+
+**Verification.**
+
+* `go test -race -count=1 ./...`: no failures.
+* `make pre-add-check` on the 16 changed Go files: "16 file(s) clean (gofmt, golint, govulncheck)".
+* `make lint` and `make staticcheck` (linux, darwin, windows): exit 0.
+* `make preflight`: "No issues found!", "All tests passed!" (1,484 tests), formatting 0 changed.
+* `protocol-v1.md`: markdownlint 0 issues.
+* `make ci-windows` was not run: P2 changes no process, path or file handling. No provider quota
+  was spent.
+
+**Not done in P2.** Diffs render as diffs in P3. The 256 KiB adapter bound and 8 MiB store are
+constants until 0181's configurable message size lands.

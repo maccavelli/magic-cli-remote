@@ -10,13 +10,20 @@ import (
 	"unicode/utf8"
 )
 
-// MaxToolText bounds a tool event's text, in bytes. It is the cap opencode,
-// kilo and the phone's expanded tool detail (kMaxExpandedDetailChars) already
-// shared, so moving every adapter onto it grows nothing. It is not the phone's
+// MaxToolText bounds the text an adapter hands the daemon for one tool event,
+// in bytes. The session manager keeps it whole for session.tool_output, so it
+// must fit one WebSocket message (1 MiB) even if JSON escaping quadruples it
+// (PLAN 0208 P2 Deviation 1).
+const MaxToolText = 256 << 10
+
+// MaxToolShown bounds what a tool event carries to the phone, in bytes. The
+// session manager clips every provider's tool text to it in one place (MADR
+// 0208 D11) and marks the event truncated; the phone fetches the rest. It is
+// the cap opencode, kilo and the phone's expanded tool detail
+// (kMaxExpandedDetailChars) already shared. It is not the phone's
 // kMaxItemTextChars (100,000), because shipping text the phone never renders
-// is waste (MADR 0034 D2). PLAN 0208 P2 lets the phone fetch the rest; until
-// then this is the whole of what it sees.
-const MaxToolText = 8000
+// is waste (MADR 0034 D2).
+const MaxToolShown = 8000
 
 // Truncated ends text Clip has cut.
 const Truncated = "\n…[truncated]"

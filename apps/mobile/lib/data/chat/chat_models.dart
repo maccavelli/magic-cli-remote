@@ -187,6 +187,8 @@ class ChatItem {
     this.noticeDetail,
     this.compactionError,
     this.compactionTruncated = false,
+    this.toolTruncated = false,
+    this.diffs = const [],
   });
 
   final ChatItemKind kind;
@@ -292,6 +294,15 @@ class ChatItem {
   final String? compactionError;
   final bool compactionTruncated;
 
+  /// Set only on a [ChatItemKind.tool] row: the daemon cut the tool's [text]
+  /// or [diffs] for the phone, and `session.tool_output` has the whole of
+  /// them (MADR 0208 D11).
+  final bool toolTruncated;
+
+  /// The file changes a [ChatItemKind.tool] row's tool reported; empty on
+  /// every other row.
+  final List<ToolDiff> diffs;
+
   /// Text derived from [userParts] when present, else the plain [text].
   String get userText {
     if (userParts.isEmpty) return text ?? '';
@@ -326,6 +337,8 @@ class ChatItem {
     String? status,
     String? detail,
     String? toolKind,
+    bool truncated = false,
+    List<ToolDiff> diffs = const [],
     int seq = 0,
   }) => ChatItem(
     kind: ChatItemKind.tool,
@@ -335,6 +348,8 @@ class ChatItem {
     toolStatus: status,
     toolKind: toolKind,
     text: detail,
+    toolTruncated: truncated,
+    diffs: diffs,
   );
 
   /// One collapsing card for every permission auto-approved this turn.
@@ -366,6 +381,8 @@ class ChatItem {
     String? nativePartId,
     List<UserPart>? userParts,
     ArtifactInfo? artifact,
+    bool? toolTruncated,
+    List<ToolDiff>? diffs,
   }) => ChatItem(
     kind: kind,
     seq: seq ?? this.seq,
@@ -388,6 +405,8 @@ class ChatItem {
     noticeDetail: noticeDetail,
     compactionError: compactionError,
     compactionTruncated: compactionTruncated,
+    toolTruncated: toolTruncated ?? this.toolTruncated,
+    diffs: diffs ?? this.diffs,
   );
 
   Map<String, dynamic> toJson() => {
@@ -424,6 +443,9 @@ class ChatItem {
     // A compaction (MADR 0190 D3). Absent on every other row.
     if (compactionError != null) 'compactionError': compactionError,
     if (compactionTruncated) 'compactionTruncated': true,
+    // A cut tool output and its diffs (MADR 0208 D11). Absent on every other row.
+    if (toolTruncated) 'toolTruncated': true,
+    if (diffs.isNotEmpty) 'diffs': [for (final d in diffs) d.toJson()],
   };
 
   factory ChatItem.fromJson(Map<String, dynamic> j) {
@@ -457,6 +479,14 @@ class ChatItem {
       noticeDetail: j['noticeDetail'] as String?,
       compactionError: j['compactionError'] as String?,
       compactionTruncated: j['compactionTruncated'] == true,
+      toolTruncated: j['toolTruncated'] == true,
+      diffs: switch (j['diffs']) {
+        final List<dynamic> l => [
+          for (final d in l)
+            if (d is Map) ToolDiff.fromJson(Map<String, dynamic>.from(d)),
+        ],
+        _ => const <ToolDiff>[],
+      },
       artifact: switch (j['artifact']) {
         final Map<String, dynamic> m => ArtifactInfo.fromJson(m),
         final Map<dynamic, dynamic> m => ArtifactInfo.fromJson(

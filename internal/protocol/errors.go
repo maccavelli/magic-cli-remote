@@ -117,6 +117,7 @@ const (
 	ErrSessionDiffFailed            = "session_diff_failed"
 	ErrSessionRenameFailed          = "session_rename_failed"
 	ErrSessionDiagnosticsFailed     = "session_diagnostics_failed"
+	ErrToolOutputNotFound           = "tool_output_not_found"
 	ErrPermissionFailed             = "permission_failed"
 	ErrQuestionFailed               = "question_failed"
 	ErrReceiptsListFailed           = "receipts_list_failed"
@@ -293,6 +294,7 @@ func ErrorCodes() []string {
 		ErrSessionDiffFailed,
 		ErrSessionRenameFailed,
 		ErrSessionDiagnosticsFailed,
+		ErrToolOutputNotFound,
 		ErrPermissionFailed,
 		ErrQuestionFailed,
 		ErrQuestionInvalid,

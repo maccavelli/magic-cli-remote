@@ -173,6 +173,11 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
     GroupRow(:final items) => 'grp-${items.first.seq}',
   };
 
+  /// The whole of a tool output the daemon cut for this session (MADR 0208
+  /// D11), for a tool card's "Show all".
+  Future<ToolOutput> _fetchToolOutput(String toolId) =>
+      ref.read(mcremoteClientProvider).toolOutput(widget.sessionId, toolId);
+
   @override
   Widget build(BuildContext context) {
     final items = ref.watch(
@@ -268,6 +273,7 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
                     onExpansionChanged: (v) {
                       setState(() => _groupExpanded[firstSeq] = v);
                     },
+                    fetchToolOutput: _fetchToolOutput,
                   ),
                 ),
               );
@@ -289,6 +295,7 @@ class _TranscriptPaneState extends ConsumerState<_TranscriptPane> {
                       item.kind == ChatItemKind.assistant &&
                       single.index == lastAssistantIdx,
                   onUserAction: widget.onUserAction,
+                  fetchToolOutput: _fetchToolOutput,
                 ),
               ),
             );
