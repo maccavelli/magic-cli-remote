@@ -346,6 +346,17 @@ func (p *Provider) CommandTable() command.Table {
 	return ct.CommandTable()
 }
 
+// EngineVersion returns the version the dialect's engine last reported, or ""
+// when the dialect reports none. The session manager keys silent-command marks
+// by it, so an upgrade clears them (MADR 0208 D10).
+func (p *Provider) EngineVersion() string {
+	v, ok := p.dialect.(interface{ EngineVersion() string })
+	if !ok {
+		return ""
+	}
+	return v.EngineVersion()
+}
+
 // ListCommands implements [provider.CommandCatalog].
 func (p *Provider) ListCommands(ctx context.Context) (picker.Catalog, error) {
 	cl, ok := p.dialect.(CommandLister)

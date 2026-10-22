@@ -685,3 +685,134 @@ git's order, and a deliberate break of the code then failed both cases.
 
 **Not done in P3.** Findings 1–4 above. The renderer covers the kinds the captures showed; a new
 kind, or a misclassification, becomes a fixture through the same capture test and script.
+
+P3 was committed by the owner as `ea20b47b`.
+
+### P4 Deviation 1, 2026-10-22 — opencode and kilo report their version. The owner decided: "Add httpagent/provider.go"
+
+**Found, before any P4 edit.** A silent mark is keyed by the agent's version, so an upgrade clears
+it (D10; P4a step 2). Where that version comes from:
+
+* the acpagent providers (grok, gobble) and codex expose `EngineVersion()` on the provider
+  (`acpagent/version.go:60`, `codex/version.go:83`);
+* opencode and kilo keep it on their HTTP dialect (`opencode/http.go:727`, `kilo/version.go:55`),
+  and `httpagent.Provider` does not expose it.
+
+Without the provider exposing it, their marks would carry an empty version that no upgrade
+clears.
+
+**Decision.** `internal/provider/httpagent/provider.go` joins P4's files. It gains
+`EngineVersion()`, which returns the dialect's when the dialect has one, and "" otherwise.
+
+**Also settled while reading, with no file outside the list.** The marks file sits beside the
+session store, in `data_dir`. The store's root is `data_dir/sessions` (`session/store.go:80-86`),
+so the manager derives the directory, and `doctor` reads `cfg.DataDir`. `daemon.go` does not
+change.
+
+### P4a, 2026-10-22: detection, with today's tables unchanged
+
+**What was done.**
+
+1. **`internal/session/silent.go` (new).**
+   - **`SilentMark`:** provider, version, host, command, and when it was marked.
+   - **`LoadSilentMarks(dataDir)`** for `doctor`, and **`SilentMarksPath`**.
+   - **`silentMarks`,** the daemon's live set. It is loaded at start and written with
+     `fsutil.WriteFileAtomic` (mode `0600`) to `data_dir/silent-commands.json`. `commands` and
+     `add` match on provider, version and host, so a mark from another version or host never
+     applies.
+   - **`armSilentWatch` and `noteSilent`** (manager methods), and **`breaksSilence`**.
+   - **The host** is `os.Hostname()`, through a variable the tests replace.
+2. **`manager.go`.**
+   - `Prompt` notes the agent command a prompt carries: the native name after a translation, or
+     the agent's own command. It arms the watch just before the turn starts.
+   - The pump follows the watched turn. A `turn_complete` with nothing but bookkeeping before it,
+     and not cancelled, marks the command. An `error` ends the watch unmarked.
+   - The marking runs after the delivery lock is released. It writes the file, sends the notice,
+     and re-advertises.
+   - `clearPromptStart` drops the watch when the prompt fails.
+3. **`command.go`.**
+   - **`SessionState.Silent`.** A native mapping to a silent command is unavailable, whether
+     declared, the spec's default, or advertised and undeclared.
+   - **A new frozen reason,** `ReasonSilent`: "it produced nothing over the remote connection".
+   - **`commands.go`** fills `Silent` for the provider's current version.
+4. **`httpagent/provider.go`.** `EngineVersion()` passes the dialect's through (deviation 1).
+5. **`doctor`** gains "silent agent commands (each applies to its host and agent version only)".
+   It lists every mark on disk, sorted, or "none", or "could not be read".
+6. **The notice** is "“/<name>” produced nothing over the remote connection. It is marked
+   unavailable here for this agent version."
+
+**Three choices made while building it, each narrower than or the same as the step's text.**
+
+- **What breaks the silence is everything but bookkeeping.** Bookkeeping means the status, the
+  echoed prompt, `usage_update`, `available_commands`, `remote_commands`,
+  `session_capabilities` and `diagnostics_changed`.
+  - The step listed assistant text, thoughts, tools, plans, notices and errors.
+  - The wider rule marks fewer commands. A command whose only effect is a mode switch, a config
+    change, a title or a goal is not silent; `TestCommandsWithOutputAreNotMarked` covers the mode
+    switch.
+- **Only a command sent to an idle session is judged.** A prompt that queues behind a running
+  turn cannot be told apart from that turn's output, so it is not judged at all.
+- **Agent commands outside the canonical set get the notice and the `doctor` line, but no
+  `remote_commands` change.** `remote_commands` lists only the canonical vocabulary, so those
+  commands have no entry to mark. P4b's resolution order is where a mark changes what is sent.
+
+**Tests, each seen failing first.**
+
+- `internal/session/silent_test.go`, with a scripted provider: `/quiet` and `/loop` end with
+  bookkeeping only, `/loud` replies, and `/modeonly` only switches the mode.
+  - `TestSilentCommandIsMarked`: the mark is `sil/1.0/host-a/quiet`, and the notice is sent.
+  - `TestCommandsWithOutputAreNotMarked`: neither `/loud` nor `/modeonly` is marked.
+  - `TestSilentMarkMakesTheCanonicalCommandUnavailable`: `/loop` becomes unavailable with
+    `ReasonSilent`, and is available again once the agent's version changes.
+  - `TestMarkFromAnotherHostIsIgnored`: another host's mark for `/loop` does not apply.
+- `command_test.go`, `TestSilentNativeCommandIsUnavailable`: declared, default and advertised
+  native mappings.
+- `doctor_test.go`, `TestRenderSilentDoctor`.
+
+**Fail-first, on scratch copies of the module (`p4a/plants.py`), final run.**
+
+```text
+== control: no plant: PASS (as expected)
+== control: command and doctor: PASS (as expected)
+== the pump never marks: FAIL (as expected)
+   silent_test.go:204: timed out waiting for silent notice
+== every event is bookkeeping: FAIL (as expected)
+   silent_test.go:225: a command with output was reported silent
+== marks ignore the version: FAIL (as expected)
+   silent_test.go:248: timed out waiting for /loop available on a new version
+== marks ignore the host: FAIL (as expected)
+   silent_test.go:267: /loop was made unavailable by another host's mark: {… Available:false Reason:it produced nothing over the remote connection}
+== resolution ignores marks: FAIL (as expected)
+   command_test.go:352: /context with /session-info silent: available=true reason="", want unavailable, "it produced nothing over the remote connection"
+== doctor drops the version: FAIL (as expected)
+   doctor_test.go:217: marks missing "1.0.62":
+```
+
+- **One plant was redone.** Its first form, removing the marking call, left two variables unused,
+  so the build failed rather than the test. It now keeps the variables read, and the test fails on
+  the missing notice.
+- **One case of the resolution plant passed.** It removed the silent check from `available` only,
+  and the "advertised, undeclared" case has a check of its own in `Resolve`, so that case still
+  passed. The two cases that go through `available` failed.
+
+**Verification, 2026-10-22, go1.27.3.**
+
+```text
+macOS (darwin/arm64):
+  vet-darwin, vet-linux, vet-windows: exit 0
+  make test: exit 0; 43 ok, 0 FAIL lines
+  make race: exit 0; 43 ok, 0 FAIL lines
+  make lint: exit 0; make staticcheck: exit 0
+  make pre-add-check FILES="(the nine P4a Go files)": 9 file(s) clean (gofmt, golint, govulncheck)
+Windows test host (the phase writes a file), a fresh clone of d1f96902 with the P4a diff, new files included:
+  make ci-windows: exit 0 in 64s; 44 ok, 0 FAIL lines
+```
+
+- **No Dart file changed.** The phone already renders `remote_commands`' `available` and
+  `reason`.
+- **P4a is staged as a commit of its own.** P4b changes resolution, and its acceptance needs a
+  `make live-grok` run, which waits for the owner's quota word. Keeping them apart lets each be
+  reverted alone.
+
+**Not done in P4a.** P4b: the resolution order, the resolver tests over the five providers'
+tables, and grok's rows, which wait for a live run.

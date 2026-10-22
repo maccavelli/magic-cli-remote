@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -300,6 +301,9 @@ type entry struct {
 	// toolOutputs keeps the whole of each tool output cutToolEventLocked cut
 	// for the phone, for session.tool_output (MADR 0208 D11).
 	toolOutputs toolOutputs
+	// silentWatch follows the turn a forwarded slash command started, for
+	// silent-command detection (MADR 0208 D10). Nil when no such turn runs.
+	silentWatch *silentWatch
 
 	promptAt      time.Time
 	firstOutputAt time.Time
@@ -670,6 +674,9 @@ type Manager struct {
 	// have regressed by up to persistDebounce of events — and kept across
 	// clean restarts. Empty when the manager has no store (tests).
 	epoch string
+	// silent holds the silent-command marks, in the store's data directory
+	// (MADR 0208 D10). Nil when the manager has no store.
+	silent *silentMarks
 
 	// createMu guards createLocks. Creates are serialized per session id (not
 	// globally): close-and-replace for one id must not race another Create for
@@ -932,6 +939,8 @@ func NewManagerWithLimits(reg *provider.Registry, store *Store, log *slog.Logger
 		if err := store.SaveEpoch(epoch, false); err != nil {
 			m.log.Warn("epoch persist failed", slog.String("err", err.Error()))
 		}
+		// The store's root is data_dir/sessions; the marks sit in data_dir.
+		m.silent = openSilentMarks(filepath.Dir(store.root), m.log)
 	}
 	return m
 }
@@ -1436,6 +1445,10 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 			// Cancelled resolutions for asks still open when a turn ends
 			// (D20). Built under the lock, emitted after the event itself.
 			var abandoned []event.Event
+			// A forwarded command whose turn ended with nothing to show
+			// (MADR 0208 D10). Found under the lock, marked after it.
+			var silentHit string
+			var silentProv provider.ID
 			// Held until this event and everything it triggers are delivered
 			// (D11); nil when sess no longer owns an entry.
 			delivering := m.lockPumpDelivery(sess)
@@ -1614,6 +1627,22 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 					}
 					ctxPressure = e.contextPressureLocked()
 				}
+				// Silent-command detection (MADR 0208 D10): a forwarded
+				// command's turn that ends with nothing but bookkeeping. An
+				// error is output, and a cancelled turn says nothing either way.
+				if w := e.silentWatch; w != nil && !ev.Replay {
+					switch {
+					case ev.Type == event.TypeTurnComplete:
+						e.silentWatch = nil
+						if !w.output && ev.StopReason != "cancelled" {
+							silentHit, silentProv = w.command, e.meta.Provider
+						}
+					case ev.Type == event.TypeError:
+						e.silentWatch = nil
+					case breaksSilence(ev.Type):
+						w.output = true
+					}
+				}
 				e.cutToolEventLocked(&ev)
 				e.appendHistoryLocked(&ev)
 				e.lastEventAt = time.Now()
@@ -1709,6 +1738,11 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 				})
 			}
 			release()
+			if silentHit != "" {
+				// After release: it writes a file, emits a notice and
+				// re-advertises, each taking the delivery lock itself.
+				m.noteSilent(sess.ID(), silentProv, silentHit)
+			}
 			for _, trimmedID := range globalTrimmed {
 				// After release: these may be other sessions, whose delivery
 				// locks must not nest inside this one's. Once per session: a
@@ -2641,6 +2675,9 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 	if strings.HasPrefix(text, "!") {
 		return m.handleUnsandboxedBang(ctx, id, deviceID, text)
 	}
+	// forwarded is the agent command this prompt carries, when it is one, for
+	// silent-command detection (MADR 0208 D10).
+	var forwarded string
 	// A leading token that looks like a command ("/name …") is routed rather
 	// than sent verbatim to the agent. A "/" that is not a plausible command
 	// name (a path, code, etc.) falls through as a normal prompt.
@@ -2655,6 +2692,7 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 			// Not handled here: the agent executes this one. Send its own
 			// command text, which may differ from what the user typed.
 			text = forward
+			forwarded, _, _ = parseSlashCommand(forward)
 		} else if !m.agentAdvertises(id, name) {
 			// Neither canonical nor offered by the agent. Report it rather than
 			// sending confusing literal text to the model.
@@ -2667,6 +2705,9 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 		}
 		// Else: the agent owns this command; forward it unchanged (it echoes the
 		// user message itself), falling through to the normal prompt path.
+		if forwarded == "" {
+			forwarded = name
+		}
 	}
 	sess, err := m.liveSession(id)
 	if err != nil {
@@ -2682,6 +2723,9 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 	// Start the turn clock immediately before dispatch, so the measurement
 	// covers what the user waits for and not the command routing above
 	// (MADR 0137 Phase 2). Cleared at turn end by the event pump.
+	if forwarded != "" {
+		m.armSilentWatch(id, forwarded)
+	}
 	m.markPromptStart(id)
 	if err := sess.Prompt(ctx, parts); err != nil {
 		m.clearPromptStart(id)
@@ -2711,6 +2755,7 @@ func (m *Manager) clearPromptStart(id string) {
 	if e := m.sessions[id]; e != nil {
 		e.promptAt = time.Time{}
 		e.firstOutputAt = time.Time{}
+		e.silentWatch = nil
 	}
 }
 

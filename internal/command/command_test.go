@@ -321,3 +321,37 @@ func TestVocabularySpellingsAreUnique(t *testing.T) {
 		}
 	}
 }
+
+// TestSilentNativeCommandIsUnavailable is MADR 0208 D10: an agent command the
+// session manager marked silent stops satisfying a canonical command, whether
+// the table names it, the spec defaults to it, or the agent merely advertises
+// it, and the reason says why.
+func TestSilentNativeCommandIsUnavailable(t *testing.T) {
+	cases := []struct {
+		name string
+		cmd  string
+		tbl  Table
+	}{
+		{"declared native", "context", Table{"context": {Kind: KindNative, Native: "session-info"}}},
+		{"default native", "loop", nil},
+		{"undeclared, advertised", "review", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			native := c.cmd
+			if m, ok := c.tbl[c.cmd]; ok {
+				native = m.Native
+			}
+			s := SessionState{AgentCommands: []string{native}}
+			if r, _ := Resolve(c.cmd, c.tbl, s); !r.Available {
+				t.Fatalf("/%s unavailable before any mark: %+v", c.cmd, r)
+			}
+			s.Silent = []string{native}
+			r, _ := Resolve(c.cmd, c.tbl, s)
+			if r.Available || r.Reason() != ReasonSilent {
+				t.Fatalf("/%s with /%s silent: available=%v reason=%q, want unavailable, %q",
+					c.cmd, native, r.Available, r.Reason(), ReasonSilent)
+			}
+		})
+	}
+}

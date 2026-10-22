@@ -97,6 +97,8 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 		if c, ok := p.(command.Caveater); ok {
 			caveat = c.CommandCaveat()
 		}
+		// Marks for this agent version on this host (MADR 0208 D10).
+		state.Silent = m.silent.commands(prov, engineVersion(p))
 	}
 	return tbl, state, caveat
 }

@@ -108,6 +108,9 @@ const (
 	ReasonNoReview            = "this agent has no inline review command"
 	ReasonNoFork              = "this agent can't fork a session over the remote"
 	ReasonPermissionsNotMode  = "this agent uses /mode for agent modes, not permission presets"
+	// ReasonSilent explains an agent command the daemon saw complete a turn
+	// with nothing to show over the remote connection (MADR 0208 D10).
+	ReasonSilent = "it produced nothing over the remote connection"
 )
 
 // Mapping is how one provider satisfies one canonical command.
@@ -176,6 +179,11 @@ type SessionState struct {
 	CurrentCollaborationModeID string
 	// Ops reports the capabilities the session has. A missing key is false.
 	Ops map[Op]bool
+	// Silent are agent command names, without leading slashes, that the
+	// session manager saw produce nothing over the remote connection with this
+	// agent version on this host. A native mapping to one is unavailable
+	// (MADR 0208 D10).
+	Silent []string
 }
 
 // Resolution is the mechanism chosen for one command in one session.
@@ -237,6 +245,9 @@ func Resolve(name string, t Table, s SessionState) (Resolution, bool) {
 	if !ok {
 		return Resolution{}, false
 	}
+	// silenced records that a native mapping would have been used but for a
+	// silent mark, so the user is told that rather than "doesn't offer it".
+	silenced := false
 	if m, declared := t[spec.Name]; declared {
 		if m.Kind == KindNone {
 			return Resolution{Spec: spec, Mapping: m}, true
@@ -244,21 +255,35 @@ func Resolve(name string, t Table, s SessionState) (Resolution, bool) {
 		if available(m, s) {
 			return Resolution{Spec: spec, Mapping: m, Available: true}, true
 		}
+		silenced = m.Kind == KindNative && silentNative(m.Native, s)
 	} else if advertises(s.AgentCommands, spec.Name) {
 		// Undeclared, and the agent advertises this exact name: that is the best
 		// evidence available that the agent owns the command, so it wins over
 		// the spec's preferred default. A provider that knows better says so in
 		// its table — which is how grok's inert /compact stays unavailable.
-		return Resolution{
-			Spec:      spec,
-			Mapping:   Mapping{Kind: KindNative, Native: spec.Name},
-			Available: true,
-		}, true
+		if !advertises(s.Silent, spec.Name) {
+			return Resolution{
+				Spec:      spec,
+				Mapping:   Mapping{Kind: KindNative, Native: spec.Name},
+				Available: true,
+			}, true
+		}
+		silenced = true
 	}
 	if available(spec.Default, s) {
 		return Resolution{Spec: spec, Mapping: spec.Default, Available: true}, true
 	}
-	return Resolution{Spec: spec, Mapping: Mapping{Kind: KindNone, Note: unavailableNote(spec)}}, true
+	silenced = silenced || spec.Default.Kind == KindNative && silentNative(spec.Default.Native, s)
+	note := unavailableNote(spec)
+	if silenced {
+		note = ReasonSilent
+	}
+	return Resolution{Spec: spec, Mapping: Mapping{Kind: KindNone, Note: note}}, true
+}
+
+// silentNative reports whether an advertised agent command is marked silent.
+func silentNative(native string, s SessionState) bool {
+	return native != "" && advertises(s.AgentCommands, native) && advertises(s.Silent, native)
 }
 
 // ResolveAll resolves every canonical command for a session, in [Specs] order.
@@ -296,7 +321,7 @@ func available(m Mapping, s SessionState) bool {
 	case KindOp:
 		return s.Ops[m.Op]
 	case KindNative:
-		return m.Native != "" && advertises(s.AgentCommands, m.Native)
+		return m.Native != "" && advertises(s.AgentCommands, m.Native) && !advertises(s.Silent, m.Native)
 	default:
 		return false
 	}

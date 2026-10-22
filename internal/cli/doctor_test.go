@@ -2,11 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
+	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 )
 
@@ -187,5 +190,34 @@ func TestProbeCredentialStoresOnColdHost(t *testing.T) {
 		if s.Present {
 			t.Errorf("%s reported present on a cold host", s.Agent)
 		}
+	}
+}
+
+// MADR 0208 D10 — doctor lists every silent-command mark, with its host and
+// version, and says when there are none or the file cannot be read.
+func TestRenderSilentDoctor(t *testing.T) {
+	render := func(marks []session.SilentMark, err error) string {
+		var b bytes.Buffer
+		renderSilentDoctor(&b, marks, err)
+		return b.String()
+	}
+	if out := render(nil, nil); !strings.Contains(out, "none") {
+		t.Fatalf("no marks: %s", out)
+	}
+	if out := render(nil, errors.New("bad json")); !strings.Contains(out, "could not be read: bad json") {
+		t.Fatalf("unreadable: %s", out)
+	}
+	out := render([]session.SilentMark{
+		{Provider: "grok", Version: "1.0.62", Host: "host-a", Command: "status",
+			MarkedAt: time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)},
+		{Provider: "codex", Host: "host-a", Command: "quiet"},
+	}, nil)
+	for _, want := range []string{"/status", "1.0.62", "host host-a", "2026-10-22", "/quiet", "version unknown"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("marks missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "codex:") > strings.Index(out, "grok:") {
+		t.Fatalf("marks not sorted by provider:\n%s", out)
 	}
 }

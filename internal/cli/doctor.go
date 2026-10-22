@@ -18,6 +18,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
+	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/spf13/cobra"
 )
@@ -48,6 +49,9 @@ func newDoctorCmd() *cobra.Command {
 			}
 			log := slog.New(slog.DiscardHandler)
 			renderEngineDoctor(w, daemon.InspectProviders(cfg, runningVersion(), log), engineBins(cfg))
+			fmt.Fprintln(w)
+			marks, err := session.LoadSilentMarks(cfg.DataDir)
+			renderSilentDoctor(w, marks, err)
 			return nil
 		},
 	}
@@ -190,6 +194,33 @@ func renderEngineDoctor(w io.Writer, reg *provider.Registry, bins map[provider.I
 			fmt.Fprintf(w, "  %-9s not ready: %s was found, but the provider refuses it; check its configuration\n",
 				label, resolved.Path)
 		}
+	}
+}
+
+// renderSilentDoctor lists the agent commands the daemon saw produce nothing
+// over the remote connection (MADR 0208 D10). A mark applies only on the host
+// and agent version it names; the list shows every one on disk.
+func renderSilentDoctor(w io.Writer, marks []session.SilentMark, err error) {
+	fmt.Fprintln(w, "silent agent commands (each applies to its host and agent version only)")
+	if err != nil {
+		fmt.Fprintf(w, "  could not be read: %v\n", err)
+		return
+	}
+	if len(marks) == 0 {
+		fmt.Fprintln(w, "  none")
+		return
+	}
+	slices.SortFunc(marks, func(a, b session.SilentMark) int {
+		return cmp.Or(cmp.Compare(a.Provider, b.Provider), cmp.Compare(a.Version, b.Version),
+			cmp.Compare(a.Command, b.Command))
+	})
+	for _, m := range marks {
+		version := m.Version
+		if version == "" {
+			version = "version unknown"
+		}
+		fmt.Fprintf(w, "  %-9s /%-20s %s, host %s, marked %s\n", m.Provider+":", m.Command, version, m.Host,
+			m.MarkedAt.Format("2006-01-02"))
 	}
 }
 
