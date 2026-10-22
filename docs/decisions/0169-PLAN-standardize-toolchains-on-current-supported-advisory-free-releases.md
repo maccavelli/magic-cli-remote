@@ -1678,3 +1678,65 @@ owner commits there (step 4). go1.27.2 stays installed on all three hosts (C4), 
 nothing needs it.
 
 **Files for this commit:** this PLAN.
+
+#### Deviation 21 (2026-10-21): the WSL distro was left on go1.27.2
+
+**Found** by prepare-commit-msg's `make preflight-hosts`, in its
+`0018-PLAN-adopt-go-llmprovider-sdk-v1-18-0-and-go-selfupdate-lib-v1-17-0.md`
+Phase 4. That repository now requires Go 1.27.3, and its WSL leg stopped at
+`expected go1.27.3, got go1.27.2`. Read from the distro afterwards, changing
+nothing:
+
+- `go version go1.27.2 linux/amd64`, from `~/sdk/go1.27.2/bin/go`;
+- Go's env file (`~/.config/go/env`) pins `GOTOOLCHAIN=go1.27.2`, and no
+  `GOTOOLCHAIN` is set in the environment;
+- `~/.config/devenv.sh` line 7, a plain file, puts `$HOME/sdk/go1.27.2/bin`
+  on PATH.
+
+P12 moved WSL to go1.27.2. P14 named "the two test hosts" and moved the
+Windows test host's own Go, not the distro's.
+
+**Decision (owner, 2026-10-21): "Move it under 0169".** go1.27.2 stays
+installed (C4). Declined: recording the move in prepare-commit-msg's records,
+and leaving it to the owner.
+
+**Added to P14's scope: WSL,** the P12 way, after a dated backup of Go's env
+file and `devenv.sh` in that account's home:
+
+1. `go1.27.3.linux-amd64.tar.gz`, its SHA-256 checked against the table,
+   extracted to `~/sdk/go1.27.3` beside `~/sdk/go1.27.2`.
+2. `devenv.sh`: `$HOME/sdk/go1.27.2/bin` → `$HOME/sdk/go1.27.3/bin`, asserted
+   to occur exactly once.
+3. `go env -w GOTOOLCHAIN=go1.27.3`.
+4. In a fresh login shell: `go version go1.27.3 linux/amd64`, `GOTOOLCHAIN`
+   `go1.27.3`, and `GOROOT` `~/sdk/go1.27.3`.
+
+**Verification:** prepare-commit-msg's `make preflight-hosts` exits 0 on its
+WSL leg.
+
+**Rollback:** restore the backups, which puts `go` back to 1.27.2.
+
+**Executed 2026-10-21** (a script sent to the distro's login shell):
+
+- **The backup:** Go's env file and `devenv.sh`, in a dated folder in that
+  account's home.
+- **The install:** `go1.27.3.linux-amd64.tar.gz`, which `sha256sum -c`
+  reported `OK` against the table, extracted to `~/sdk/go1.27.3`. It
+  reported `go version go1.27.3 linux/amd64`.
+- **The swaps:**
+  - `devenv.sh` line 7: `$HOME/sdk/go1.27.2/bin` → `$HOME/sdk/go1.27.3/bin`,
+    found once, and the line's other entries unchanged (`diff` against the
+    backup: that one line);
+  - `go env -w GOTOOLCHAIN=go1.27.3`, run with `GOTOOLCHAIN=local` so that
+    the old pin did not fetch go1.27.2. Go warned that the command does not
+    override that environment variable. The env file now reads
+    `GOTOOLCHAIN=go1.27.3`.
+- **A fresh login shell:** `go version go1.27.3 linux/amd64`;
+  `GOTOOLCHAIN` `go1.27.3`; `GOROOT` `~/sdk/go1.27.3`.
+- **The verification:** prepare-commit-msg's `make preflight-hosts` at
+  that repository's `f75153e`: `wsl-ubuntu-24.04: exit=0`, and `4/4 hosts
+  passed`. The WSL leg ran that repository's `make verify`: `0 issues.`,
+  total coverage `83.7%`, `No vulnerabilities found.`.
+- go1.27.2 stays installed on all four hosts (C4).
+
+**Files for this commit:** this PLAN.
