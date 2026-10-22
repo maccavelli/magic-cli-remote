@@ -1,8 +1,8 @@
 ---
 status: proposed
-date: 2026-10-21
+date: 2026-10-22
 decision-makers: Project Owner
-consulted: "go-selfupdate-lib v1.17.1–v1.17.2, acp-go-sdk2 v1.15.0–v1.19.0 and go-llmprovider-sdk v1.21.0, read from full clones at their tags; their GitHub release notes; a scratch copy of this repository at 707d300d with both pins moved; gobble-cli's go.mod on its default branch"
+consulted: "go-selfupdate-lib v1.17.1–v1.17.2, acp-go-sdk2 v1.15.0–v1.19.0 and go-llmprovider-sdk v1.21.0, read from full clones at their tags; their GitHub release notes; a scratch copy of this repository at 707d300d with both pins moved; gobble-cli's go.mod on its default branch. Amendment of 2026-10-22: acp-go-sdk2 v1.20.0 from the Go module proxy and its release notes; a scratch copy at 6a4ef48d with both pins moved and agentproc run against Magic's command; gobble-cli at 53565a1"
 informed: anyone who changes this module's dependencies, its service code or its ACP provider
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -267,7 +267,8 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
 * **D1 — Pin `go-selfupdate-lib v1.17.2`.** `go.mod` and both `ci.yml` pins move together, the pins
   to `036289ecc701d84c7749f4950a57a154c1af2cf4` with the comment `# go-selfupdate-lib v1.17.2`
   (0054 D1; `TestWorkflowPinsMatchGoMod`). No Go code changes.
-* **D2 — Pin `acp-go-sdk2 v1.19.0`, replacing 0184's B3.** It is a 0184 B phase, as B1 and B2 were,
+* **D2 — Pin `acp-go-sdk2` ~~`v1.19.0`~~ `v1.20.0`, replacing 0184's B3.** The tag moved to
+  `v1.20.0` in the amendment of 2026-10-22; the steps below are unchanged. It is a 0184 B phase, as B1 and B2 were,
   with B3's steps on the new tag:
   * remove `submitPrompt`'s mitigation, keeping `TestPromptSendsNothingWithAnEndedContext`;
   * update 0184's status note: issue #7 is closed.
@@ -295,7 +296,9 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
   * The PLAN measures each call site first.
 * **D5 — Finish 0186's P2 and P1 (F3, F4).** They are accepted already, and this record re-decides
   neither; it puts them in the same PLAN, since F3 is the duplication the owner asked about.
-* **D6 — `agentproc` is not adopted yet; the SDK is asked for an output hook (C, declined).**
+* ~~**D6 — `agentproc` is not adopted yet; the SDK is asked for an output hook (C, declined).**~~
+  **Superseded by D10 in the amendment of 2026-10-22:** `v1.20.0` ships the hook as
+  `Command.OutputTap`, issue #10 is closed, and `agentproc` is adopted. The original text follows.
   * Ask `acp-go-sdk2` for a way to wrap the stdout reader `Start` hands the connection, such as a
     `Command.Output func(io.Reader) io.Reader`.
   * Filed at the owner's ask on 2026-10-21 as `maccavelli/acp-go-sdk2#10`, "agentproc: no hook on
@@ -311,7 +314,7 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
 * **D8 — The minor items (F6).**
   * `binaryWarning` uses `service.SameExecutable`.
   * `watchConnClose`'s comment is corrected, and its message says why the connection ended, from
-    `conn.Err()`.
+    `conn.Err()`. Extended to the process's exit by D11 in the amendment of 2026-10-22.
   * `samePath` stays.
 * **D9 — The unused library packages stay unused,** for the reasons in the table above:
   `selfupdate/archive`, `service/scm`, `verify/signednote`, `verify/ghattest`.
@@ -386,7 +389,12 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
    * the minor items (D8).
 
    The alternative is to amend 0054's, 0184's and 0186's PLANs, each with its own part.
+
+   *Answered 2026-10-22: "A second 0207 PLAN (Recommended)".* The SDK work (D2, D10 to D13) is
+   [0207-PLAN-adopt-acp-go-sdk2-v1-20-0-and-agentproc.md](0207-PLAN-adopt-acp-go-sdk2-v1-20-0-and-agentproc.md).
+   D1, D3, D4, D5 and D8's `binaryWarning` half take a sibling 0207 PLAN.
 2. **Quota.** D2's `make live-grok`: run it with D2, or later?
+   *Answered 2026-10-22: "Once, at S6 (Recommended)":* one run, after the SDK plan's S1 to S5.
 3. ~~**The SDK issue (D6).** File it on `acp-go-sdk2` now?~~ Filed on 2026-10-21 as
    `maccavelli/acp-go-sdk2#10`.
 4. **Order.** D1 and D2 first, then D3 and D4 in one release, so the live checks run once?
@@ -412,3 +420,345 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
   D7, D8 and its PLAN's P1 and P2, which D5 completes.
 * [0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md](../reports/0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md).
 * [0205-MADR-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md](0205-MADR-do-not-sign-release-manifests-while-releases-stay-immutable-on-github.md).
+
+## Amendment — 2026-10-22: `acp-go-sdk2 v1.20.0`, `agentproc`, the connection's end, and two connection hooks
+
+**The owner's ask, verbatim:** "Amend 207, adopt 1-5, open an issue about item 3 in gobble-cli repo.
+Pin to latest. Ground in codebase and research facts and ensure updated information is accurate,
+detailed, and proves all assertions."
+
+Items 1 to 5 are a list of unused SDK functionality given to the owner in conversation earlier the
+same day:
+
+1. `agentproc` with `OutputTap`;
+2. the connection's end cause, `Err` and `Wait`;
+3. agent-reported state in `session_info_update`;
+4. `WithPromptOverlapPolicy`;
+5. `WithNotificationDropHandler` and `WithInboundValidation`.
+
+Checked against the source, items 3 and 4 were wrong as stated (G4, G5).
+
+* **Item 3.** The owner was told and chose "No issue; fold into 0195 (Recommended)". No gobble-cli
+  issue was filed.
+* **Item 4.** Nothing on Magic's side can adopt it (D14).
+
+### Releases [observed 2026-10-22, the GitHub releases and git refs APIs]
+
+| Library | Magic pins | Latest | Latest's commit | Published |
+| :--- | :--- | :--- | :--- | :--- |
+| `acp-go-sdk2` | `v1.15.0` | **`v1.20.0`** | `4fa720471d44bdcbe3f7318d494d95035708fe12` (tag object `686a420d56cbaf3a70bccf5530604201a5e0394b`) | 2026-10-22T03:18:04Z, immutable |
+| `go-selfupdate-lib` | `v1.17.1` | `v1.17.2`, unchanged since D1 | `036289ecc701d84c7749f4950a57a154c1af2cf4` | tag only |
+
+* **The source read is the proxy's module.** `go mod download -json
+  github.com/maccavelli/acp-go-sdk2@v1.20.0` gives:
+  * `"Sum": "h1:RSZL1Kvpm1kAJdSPmoTC012074XZjCRwh7P2V/Lt16U="`;
+  * `"Origin"` hash `4fa72047…`, ref `refs/tags/v1.20.0`.
+
+  Every SDK line number below is in that tree.
+* **Issue `maccavelli/acp-go-sdk2#10` is closed,** at 2026-10-22T03:18:11Z, seven seconds after the
+  release.
+* **The ACP schema is still `1.25.0`.** The release notes say "`git diff v1.19.0 -- schema/` is
+  empty", and "`make api` reports four compatible additions and no incompatible change".
+
+### What `v1.20.0` changes, against Magic's use
+
+| Change (the release notes) | Effect on Magic |
+| :--- | :--- |
+| `agentproc`: `Command.OutputTap` and `InputTap`, `Process.DroppedTapBytes` | The seam D6 asked for. D10 adopts it. |
+| `agentproc`: `Process.Kill`, at once, with `ErrKilled` | Today's teardown semantics, through the library (G1, D10). |
+| `agentproc`: the agent's Windows job allows breakaway | Removes Magic's own agent job as the obstacle F1 names for D3 on Windows (G1). |
+| `agentproc`: on Windows, the agent starts suspended until it is in its job | Closes a race Magic's `SuperviseStarted` order has (G1). |
+| `agentproc`: on Linux and FreeBSD, `Pdeathsig` SIGKILL, from a thread locked for the agent's life | ACP agents get client-death cleanup they lack today (G1). |
+| The client records `initialize` when its answer arrives, and holds what the agent sends before it | A message an agent writes with its answer is no longer refused. Held notifications meet the queue bound: Magic runs `OverflowDropNewest` (`acpagent.go:1049`), so a burst drops, never closes. |
+| The validation hook sees the `initialize` answer on the reader goroutine | D13's hook must not block (G3). |
+| A 128 KiB read buffer, 64 KiB more per connection | One connection per agent process; nothing to change. |
+
+### Findings
+
+* **G1 — `agentproc` now fits `spawnAgent`.**
+  * **The command's contract** (`agentproc/agentproc.go:33-39`):
+    * `Stdin` and `Stdout` must be nil, so the two pipes `spawnAgent` makes (`acpagent.go:470-477`)
+      go.
+    * `Path`, `Args`, `Env`, `Dir` and `Stderr` stay the caller's. So the command line
+      `launch.Command` builds (`acpagent.go:464`), `cmd.Dir = procDir` (`:468`) and the stderr
+      scraper (`:498-503`) keep working.
+  * **Unix.** `prepare` (`agentproc/tree_unix.go:21-33`):
+    * refuses only a preset `Pgid`, and sets `Setpgid` unless `Setsid` is set;
+    * Magic's command already has `Setpgid` (`procutil/procutil_unix.go:25-30`);
+    * the probe below starts Magic's command with it, in a process group of its own.
+  * **Linux.** `setDeathSignal` sets `Pdeathsig` to SIGKILL unless the caller set one
+    (`agentproc/deathsig_pdeathsig.go:12-16`).
+    * `acpagent` sets none today. The only callers of `procutil.SetDeathSignal` are
+      `codex/provider.go:566`, `httpagent/provider.go:518` and `providerauth/cli.go:100`.
+    * `agentproc` starts the agent from a goroutine locked to its OS thread until the agent is
+      reaped (`agentproc.go:206-224`). That is the hazard `procutil`'s own comment names, "the Go
+      runtime may retire that thread while the process lives on, which silently disarms it"
+      (`procutil/owner_linux.go:18-21`).
+  * **Windows.**
+    * **`prepare`** (`agentproc/tree_windows.go:31-40`) adds `CREATE_SUSPENDED`, and refuses a
+      command that already has it. It keeps the caller's other flags, so `procutil`'s
+      `CREATE_NEW_PROCESS_GROUP` and conditional `CREATE_NO_WINDOW` stay
+      (`procutil/procutil_windows.go:103-118`). It does not touch `SysProcAttr.CmdLine`, which
+      `launch.Command` sets for a batch shim (0159 D23).
+    * **`attach`** (`:66-94`) creates the job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
+      JOB_OBJECT_LIMIT_BREAKAWAY_OK`, assigns the agent, then resumes it.
+    * **Magic's job differs.** `procutil.SuperviseStarted` (`procutil/procutil_windows.go:261-279`)
+      creates the job with `KILL_ON_JOB_CLOSE` alone, after `cmd.Start` has returned
+      (`acpagent.go:504`, `:512`). The release notes measured that order letting a descendant
+      escape the job, "with the assignment 100 ms late, in 20 of 20 trials". Magic's gap is
+      shorter, and this was not reproduced on Magic.
+  * **`wirecap` needs a writer.** `OutputTap` is an `io.Writer` that gets the raw bytes on a
+    goroutine of its own and "must not retain p" (`agentproc.go:48-58`). `wirecap` today wraps the
+    reader instead (`wirecap/wirecap.go:161-193`).
+    * Its line splitting moves to a `Write` method, which copies (`append`), so nothing is
+      retained.
+    * A disabled capture must be passed as an untyped nil: a typed nil `*Capture` in the interface
+      is a set tap.
+  * **The process and the connection are tied by the library.**
+    * When the agent exits, `watch` (`agentproc.go:259-273`) kills what is left of its group or job
+      and closes the connection.
+    * When the connection ends first, `monitor` (`:277-283`) stops the agent.
+    * Magic does the first by hand, with the `cmd.Wait` watcher (`acpagent.go:600-618`) and
+      `procExited` (`session.go:148-151`). It never stops the agent on a connection end; the
+      manager's `Close` does that later. Magic still needs its `disconnected` event, so
+      `watchConnClose` and `signalDisconnected` (`session.go:1213-1252`) stay.
+  * **Teardown.**
+    * **Magic today** sends SIGKILL to the group straight after `conn.Close`
+      (`session.go:1359-1379`).
+    * **`Process.Close`** is gentler. It closes the input and waits up to the grace; on Unix it
+      sends SIGTERM and waits again; then it kills (`agentproc.go:356-395`). Windows has no SIGTERM
+      step (`tree_windows.go:136`).
+    * **`Process.Kill`** goes straight to the kill (`:367-380`).
+* **G2 — The connection's end cause is available on Magic's connection type.**
+  `ClientSideConnection.Err` and `Wait` (`client_gen.go:72`, `:78`) forward to `Connection.Err`
+  (`connection.go:772`) and `Wait` (`:788`). `Err` returns one of two errors:
+  * `ErrConnectionClosed` when this side ended the connection, wrapping
+    `ErrNotificationQueueOverflow` for an overflow;
+  * otherwise `ErrPeerDisconnected`, "wrapping how the peer ended it, io.EOF at the end of its output
+    or the read's error".
+
+  Today the message is the fixed "agent connection lost" (`session.go:1251`). The process exit's
+  message is "`<id>` process exited: `<err>`" (`acpagent.go:613-616`). It cannot tell Magic's own
+  kill from the agent's crash.
+* **G3 — The two hooks.**
+  * **The drop handler.**
+    * `WithNotificationDropHandler` (`connection.go:542-555`) runs on the reader goroutine. It "must
+      return quickly and must not block".
+    * 0167 D17 declined it for that reason, and D18 tells the user per turn from
+      `DroppedNotifications()` (`session.go:616-657`). D18 knows how many updates were dropped, not
+      which method.
+  * **Inbound validation.**
+    * **Without the hook,** a `session/update` the SDK refuses is dropped and logged "failed to handle
+      notification" at Warn (`connection.go:1683-1697`). Magic's log gets it through `WithLogger`;
+      the phone is told nothing.
+    * **Where the hook runs.** For `session/update`, `checkInbound` (`connection.go:2319-2344`) runs
+      the hook in the dispatch, after decode and before Magic's `SessionUpdate`
+      (`client_gen.go:258-264`). Its `params` is the `*SessionNotification`, which carries the
+      session id. For the `initialize` answer it runs on the reader (the release notes).
+    * **What the hook cannot see.** A message that does not decode reaches no hook
+      (`connection.go:574-575`).
+* **G4 — Item 3, as stated, was wrong.**
+  * **No root-session state.** `session_info_update` has no `state`: `SessionSessionInfoUpdate`
+    has `_meta`, `sessionUpdate`, `title` and `updatedAt` only (`types_gen.go:14537-14549`).
+  * **Only on `subagent_update`, and unstable.**
+    * `StateUpdate` is a field of exactly two types: `SessionSubagentUpdate` (`:14866`) and
+      `SubagentUpdate` (`:17038`).
+    * Both are marked "**UNSTABLE** … not part of the spec yet" (`:14830-14832`).
+    * `schema/schema.json` has no `StateUpdate` (0 matches). `schema/schema.unstable.json` defines
+      it (`:5995`) and uses it in `SubagentUpdate.state` (`:6364`, `:6398`).
+  * **No engine Magic runs sends it.**
+    * gobble sends `session_info_update` with a title only (`acpserver/commands.go:597`).
+    * gobble has no subagent code: 0 files match `subagent` at `53565a1`, and GitHub code search of
+      the repository returns `total_count` 0.
+    * 0195 already maps subagent `state` (its lines 26-48) and defers it until an engine sends it.
+  * **Magic already has the root session's status from the protocol itself.**
+    * `running` when it sends the prompt (`session.go:408-413`).
+    * `idle` when the prompt's answer returns (`:527`, `:547`).
+    * Waiting on the user when the agent sends `session/request_permission` (`:2337`).
+* **G5 — Item 4 does not apply to a client.**
+  * `WithPromptOverlapPolicy` "sets what an AgentSideConnection does … Other connections ignore
+    it" (`connection.go:465-468`). It is read only at `agent_gen.go:172`.
+  * gobble, an agent, already sets `PromptOverlapConcurrent` (`acpserver/serve.go:38`).
+  * Magic's own per-session queue (`session.go:327`, `tryDrainQueue` at `:661`) is the client's
+    side, and stays.
+* **G6 — The one-pin rule with gobble still does not hold.** gobble pins `acp-go-sdk2 v1.16.3`
+  (`go.mod:15` at `53565a1`). Moving it is gobble's (0184 F4, G5).
+
+### The pin move and `agentproc`, proven on a scratch copy [2026-10-22]
+
+**Setup.**
+
+* The copy holds the tracked files as they stood in the working tree: `6a4ef48d`, with 0208's P3
+  staged and `apps/` left out.
+* Its build and module caches are its own.
+* Nothing in the tree was written.
+* The script is `r0207b/pin_probe.py`, with go1.27.3 on darwin/arm64.
+
+**What the copy changed.**
+
+* Both pins and `ci.yml`'s two workflow pins moved to `036289ec…` (D1).
+* `submitPrompt`'s mitigation was then removed, for B3's premise.
+* `zz_agentproc_probe_test.go` was added to `acpagent`. It starts the SDK's example agent, built
+  from the same module, through Magic's own `launch.Resolve` and `launch.Command`, under
+  `agentproc` with `clientConnOptions` and an `OutputTap`.
+
+```text
+go: upgraded github.com/maccavelli/go-selfupdate-lib v1.17.1 => v1.17.2
+go: upgraded github.com/maccavelli/acp-go-sdk2 v1.15.0 => v1.20.0
+go mod tidy: exit 0
+.github/workflows/ci.yml | 4 ++--     go.mod | 4 ++--     go.sum | 8 ++++----
+go build ./...: exit 0
+go vet darwin/arm64, windows/amd64, linux/amd64: exit 0
+go test -race ./...: exit 0; 43 ok, 0 FAIL lines
+B3 premise on v1.20.0, mitigation removed:  --- PASS: TestPromptSendsNothingWithAnEndedContext
+B3 premise on v1.15.0, mitigation removed:  lifecycle_test.go:77: a prompt with an ended context put "session/cancel" on the wire
+=== RUN   TestZZProbeStartTapClose
+    SysProcAttr before Start: Setpgid=true Pgid=0
+    agent pid=60315 pgid=60315 (own group: true)
+    initialize answered, protocolVersion=1
+    Close returned after 1ms: <nil>
+    DroppedTapBytes: output=0 input=0
+    tap's first line: {"jsonrpc":"2.0","id":1,"result":{"agentCapabilities":{...
+--- PASS
+=== RUN   TestZZProbeKill
+    Kill returned after 1ms: agentproc: agent killed: signal: killed (ErrKilled: true)
+--- PASS
+=== RUN   TestZZProbeAgentDiesConnErr
+    Wait after the agent died: signal: killed
+    Conn().Err() after the agent died: acp: peer disconnected: peer connection closed
+    errors.Is ErrPeerDisconnected=true, io.EOF=true
+--- PASS
+=== RUN   TestZZProbeRefusesPresetPgid
+    Start with a preset Pgid: agentproc: Command.Cmd.SysProcAttr.Pgid is set; the agent needs a process group of its own
+--- PASS
+```
+
+**What it shows.**
+
+* **The pin moves cleanly.** `go.mod` changes two lines, the two requirements. With `ci.yml`'s pins
+  moved as D1 requires, the whole race suite passes; the one failure of 2026-10-21,
+  `TestWorkflowPinsMatchGoMod`, came only from leaving them.
+* **B3's premise holds on `v1.20.0`.**
+* **Magic's command starts under `agentproc`, unchanged.** The agent gets a process group of its
+  own, and the tap holds the agent's raw `initialize` answer with no bytes dropped.
+* **The negative control is real.** A preset `Pgid` is refused, so the start above is not vacuous.
+* **D11's distinction exists.**
+  * Magic's own `Kill` reports `ErrKilled`.
+  * An agent killed from outside reports the bare exit status. The connection then says
+    `ErrPeerDisconnected`, wrapping `io.EOF`.
+* **Not shown here:**
+  * Linux's `Pdeathsig` and Windows' job, suspended start and breakaway. Those rest on the SDK's
+    source and its own tests (the release notes), not on a Magic run.
+  * The example agent exits at its input's end, so `Close` took 1 ms. Real engines may not, which
+    is question 6.
+
+### The decisions this amendment adds (proposed)
+
+* **D2, as amended — pin `v1.20.0`.**
+  * Its steps are unchanged: remove `submitPrompt`'s mitigation, keeping its test.
+  * It is done only when `make live-grok` passes, which spends quota and waits for the owner.
+* **D10 — Adopt `agentproc` in `spawnAgent` (item 1; replaces D6).**
+  * **The start.** The agent starts through `agentproc.Command`. `Cmd` is the command
+    `launch.Command` builds, with `Dir` and `Stderr` as today. The rest:
+    * `Grace` is set;
+    * `ConnectionOptions` is `clientConnOptions(log)`;
+    * `OutputTap` is the wire capture's writer when `wirecap` is enabled, and nil otherwise;
+    * `Start(s)` is called, and `s.conn` becomes `Conn()`.
+  * **Leaves `acpagent`:** the two pipes; `procutil.SuperviseStarted` and `s.release`; the group
+    kills in `markClosedAndKill`, `Close` and `killProcessTree`; `procExited`; and the `cmd.Wait`
+    watcher. The watcher is replaced by `Done` and `Wait`, and spawn's failure paths call `Kill`.
+  * **Stays in `procutil`:** its functions keep their other callers (codex, httpagent,
+    providerauth).
+  * **`wirecap`** gains the writer of G1. `TeeReader` goes once nothing calls it.
+  * **Teardown keeps today's semantics:** `Close` calls `Kill` after `session/close`. A graceful
+    `Process.Close` is question 6.
+  * **`InputTap` is not wired:** nothing in the repository reads client-to-agent frames.
+* **D11 — The phone is told why the agent went away (item 2; extends D8).**
+  * `watchConnClose`'s message carries `conn.Err()`.
+  * The exit watcher's message carries `Wait`'s error. That error names `ErrKilled` or
+    `ErrTerminated` when Magic stopped the agent, and the exit status when the agent stopped by
+    itself.
+* **D12 — A drop handler that only records (item 5, first half; amends 0167 D17).**
+  * The handler stores the dropped notification's method in an atomic value on the connection's
+    owner. It does no I/O, takes no lock, and calls nothing that can wait, which keeps D17's reason.
+  * D18's per-turn notice names the method.
+  * 0167 D17's "with no drop handler" becomes "with a handler that only records".
+* **D13 — Refused agent messages reach the phone (item 5, second half).**
+  * A `WithInboundValidation` hook returns the SDK's verdict unchanged, so nothing the SDK refuses
+    is accepted.
+  * It counts each refusal: against the session where `params` carries a session id, otherwise
+    against the connection.
+  * The turn's end emits one notice, as D18 does for drops, naming the count and the method. The
+    text says the agent sent updates that broke the protocol and were dropped.
+  * The hook must not block, since it runs on the reader for the `initialize` answer.
+* **D14 — Items 3 and 4 are not adopted, for the reasons in G4 and G5.** Subagent state stays with
+  [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md).
+  No gobble-cli issue is filed, at the owner's choice.
+* **D3, noted.** `agentproc`'s job allows breakaway (`tree_windows.go:73`), so D3's Windows
+  measurement no longer has Magic's agent job in the way. The measurement still runs: whatever
+  starts the daemon may hold a job of its own.
+
+### Consequences of the amendment
+
+* Good, because about six pieces of hand-written process code in `acpagent` go, replaced by a
+  library that tests them on three platforms.
+* Good, because ACP agents gain client-death cleanup on Linux, and a job assignment with no window
+  on Windows.
+* Good, because the wire capture survives the move, and the phone learns why an agent went away and
+  when an agent sent something the protocol forbids.
+* Neutral, because `acpagent`'s teardown keeps its semantics: `Kill`, as today's SIGKILL.
+* Bad, because the change sits on the one path every ACP session takes. It needs the full
+  `acpagent` suite, `make ci-windows` on the Windows host, and `make live-grok`, which spends quota.
+* Bad, because D12 reverses part of a recorded decision (0167 D17), for a modest gain: the method
+  name in a notice.
+
+### Confirmation of the amendment
+
+* `go.mod` names `acp-go-sdk2 v1.20.0`.
+* `acpagent` calls none of `procutil.SuperviseStarted`, `procutil.KillProcessGroup`,
+  `cmd.StdinPipe` or `cmd.StdoutPipe`.
+* A test starts a helper agent through `spawnAgent` and shows the agent in its own process group on
+  Unix, the capture holding the raw `initialize` answer, and `Close` ending the group.
+* Fail-first tests, each seen failing on a scratch copy before it passes:
+  * A dropped notification's notice names its method.
+  * A `session/update` the SDK refuses produces the notice of D13.
+  * The `disconnected` error carries the cause: `ErrPeerDisconnected` wrapping `io.EOF` when the
+    agent dies.
+* On the Windows test host, `make ci-windows` passes, and an agent's descendant ends with the job.
+* `make live-grok` passes, run when the owner approves the quota.
+
+### Questions this amendment adds
+
+These continue the numbering of "Questions for the owner" above.
+
+* **5. Where the work lives.** D10 to D13 join D2's phase in the 0207 PLAN, as one `acp-go-sdk2`
+  phase, or follow it as a phase of their own, so the pin and the process change bisect apart?
+  The proposal is a phase of their own.
+  *Answered 2026-10-22: "Separate phases (Recommended)".*
+* **6. Graceful teardown.** Keep `Kill`, today's semantics, or use `Process.Close` with a short
+  grace, so an agent that saves its session at its input's end can do so? `Close` waits up to two
+  graces on Unix. The proposal is `Kill` now, and `Close` once an engine is shown to lose state to
+  SIGKILL.
+  *Answered 2026-10-22: "Kill at once (Recommended)".*
+
+### Evidence index of the amendment
+
+* `acp-go-sdk2 v1.20.0`: the module from the Go module proxy (sum above), and the release notes,
+  from the GitHub releases API.
+* Issue `maccavelli/acp-go-sdk2#10`: `gh issue view`, closed at 2026-10-22T03:18:11Z.
+* gobble-cli at `53565a1`, read locally, and its GitHub code search.
+* The scratch probe: `r0207b/pin_probe.py`, `r0207b/zz_agentproc_probe_test.go` and the log quoted
+  above.
+
+### Related records of the amendment
+
+* [0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md](0167-MADR-the-acp-sdk-is-dormant-and-its-bounded-queue-is-an-availability-defect.md):
+  D17, which D12 amends, and D18, which D12 and D13 extend.
+* [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md):
+  where subagent state stays (D14).
+* [0150-MADR-the-windows-tree-kill-was-never-wired-up.md](0150-MADR-the-windows-tree-kill-was-never-wired-up.md):
+  the job object `agentproc` now provides for ACP agents.
+* [0137-MADR-prompt-to-first-token-latency-regression.md](0137-MADR-prompt-to-first-token-latency-regression.md):
+  the wire capture D10 keeps.
+* [0208-MADR-make-the-provider-layer-agent-neutral.md](0208-MADR-make-the-provider-layer-agent-neutral.md):
+  pass-through first, which D11 and D13 serve.
