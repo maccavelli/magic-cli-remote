@@ -56,7 +56,8 @@ Future<void> _showWholeOutput(
               final whole = _trimBlankEdges(
                 [
                   out.text,
-                  for (final d in out.diffs) '${d.path}\n${d.newText}',
+                  for (final d in out.diffs)
+                    unifiedDiff(d.path, d.oldText, d.newText),
                 ].where((s) => s.trim().isNotEmpty).join('\n\n'),
               );
               return Column(
@@ -94,10 +95,7 @@ Future<void> _showWholeOutput(
                   Expanded(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: SelectableText(
-                        whole,
-                        style: monoDetail.copyWith(color: muted),
-                      ),
+                      child: RawOutputView(text: whole, color: muted),
                     ),
                   ),
                 ],
@@ -399,10 +397,24 @@ class _ChatBubble extends StatelessWidget {
                     ? Border.all(color: scheme.outlineVariant)
                     : null,
               ),
-              child: _AssistantMarkdown(
-                data: item.text ?? '',
-                streaming: streamingText,
-              ),
+              // A finished reply stays Markdown unless it is terminal output
+              // or JSON, such as a forwarded command's preformatted answer
+              // (MADR 0208 D13). A streaming reply is always Markdown, so it
+              // does not flip renderer mid-stream.
+              child:
+                  !streamingText &&
+                      switch (classifyRawOutput(item.text ?? '')) {
+                        RawOutputKind.terminal || RawOutputKind.json => true,
+                        _ => false,
+                      }
+                  ? RawOutputView(
+                      text: item.text ?? '',
+                      color: scheme.onSurface,
+                    )
+                  : _AssistantMarkdown(
+                      data: item.text ?? '',
+                      streaming: streamingText,
+                    ),
             ),
           ),
         );
@@ -448,12 +460,13 @@ class _ChatBubble extends StatelessWidget {
         );
       case ChatItemKind.tool:
         final status = item.toolStatus ?? '';
-        // The tool's text, then each diff's new text under its path, as the
-        // agent sent them. P3 of PLAN 0208 renders diffs as diffs.
+        // The tool's text, then each diff as a unified diff built from its
+        // old and new text, so the renderer shows it as a diff (MADR 0208 D13).
         final detail = _trimBlankEdges(
           [
             item.text ?? '',
-            for (final d in item.diffs) '${d.path}\n${d.newText}',
+            for (final d in item.diffs)
+              unifiedDiff(d.path, d.oldText, d.newText),
           ].where((s) => s.trim().isNotEmpty).join('\n\n'),
         );
         final toolId = item.toolId ?? '';
@@ -1567,10 +1580,7 @@ class _CompactStatusTile extends StatelessWidget {
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 200),
                       child: SingleChildScrollView(
-                        child: SelectableText(
-                          displayDetail,
-                          style: monoDetail.copyWith(color: muted),
-                        ),
+                        child: RawOutputView(text: displayDetail, color: muted),
                       ),
                     ),
                     if (onShowAll != null)

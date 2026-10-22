@@ -1,0 +1,15 @@
+I'll run each command separately, starting with `ls -la`.Next is `git --no-pager diff`.Next is `cat data.json`.## Command results
+
+- `ls -la` listed the workspace: `.git`, `data.json`, `main.go`, `show.sh`, and `table.sh`.
+- `git --no-pager diff` showed `main.go` switching from `println("hello")` to `fmt.Println("hello, world")` with a new `fmt` import.
+- `cat data.json` printed a JSON object for service `alpha` (3 replicas, ports 80/443, web/staging labels).
+- `sh show.sh` printed a test log (`pkg/alpha` PASS, `pkg/beta` FAIL) plus a status table.
+- `sh table.sh` printed a three-row Kubernetes-style status table.
+
+| Command | Output |
+| --- | --- |
+| `ls -la` | Directory listing of 5 entries (`.`, `..`, `.git`, `data.json`, `main.go`, `show.sh`, `table.sh`); total 32 |
+| `git --no-pager diff` | Diff on `main.go`: add `import "fmt"`; `println("hello")` → `fmt.Println("hello, world")` |
+| `cat data.json` | `{"name": "alpha", "replicas": 3, "ports": [80, 443], "labels": {"tier": "web", "env": "staging"}}` |
+| `sh show.sh` | `PASS pkg/alpha 0.012s` / `FAIL pkg/beta 0.034s`, then a box table: alpha ok, beta failed |
+| `sh table.sh` | `NAME STATUS AGE` — api Running 3d, worker Pending 12m, cron Failed 1h |

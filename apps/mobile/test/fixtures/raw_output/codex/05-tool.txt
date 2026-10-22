@@ -1,0 +1,5 @@
+NAME       STATUS    AGE
+api        Running   3d
+worker     Pending   12m
+cron       Failed    1h
+Exit code 0 · 90 ms

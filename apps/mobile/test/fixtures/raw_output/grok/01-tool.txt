@@ -1,0 +1,8 @@
+total 32
+drwxr-xr-x@  7 user  staff  224 Oct 22 08:41 [34m.[39;49m[0m
+drwx------@  3 user  staff   96 Oct 22 08:41 [34m..[39;49m[0m
+drwxr-xr-x@ 12 user  staff  384 Oct 22 08:41 [34m.git[39;49m[0m
+-rw-r--r--@  1 user  staff  108 Oct 22 08:41 data.json
+-rw-r--r--@  1 user  staff   73 Oct 22 08:41 main.go
+-rw-r--r--@  1 user  staff  406 Oct 22 08:41 show.sh
+-rw-r--r--@  1 user  staff   90 Oct 22 08:41 table.sh

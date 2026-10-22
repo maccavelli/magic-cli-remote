@@ -551,3 +551,137 @@ exceed the new 256 KiB bound. `TestWSErrorCodesAreRegistered` caught the unregis
 
 **Not done in P2.** Diffs render as diffs in P3. The 256 KiB adapter bound and 8 MiB store are
 constants until 0181's configurable message size lands.
+
+P2 was committed by the owner.
+
+### P3 Deviation 1, 2026-10-22 — real captures first, and `chat_screen.dart`. The owner decided: "Live captures first" and "Add chat_screen.dart"
+
+- **Found** at P3's start, before any code:
+  - **Step 1 had no input.** A read-only scan of the five committed captures
+    (`internal/provider/{grok,opencode,kilo,codex}/testdata/wire/*/frames.jsonl`) found no
+    multi-line or escape-bearing string of 20 characters or more: no ANSI, table, box drawing,
+    JSON, diff or Markdown block. They are short smoke sessions. The MADR amendment's Confirmation
+    asks for fixtures "each from a real capture".
+  - **One import site.** `chat_bubble.dart` is `part of 'chat_screen.dart'`, so the new renderer
+    libraries must be imported in `chat_screen.dart`, which was not on the list.
+- **Resolution, a new step P3.0 before P3's code:**
+  1. **One live test per provider,** `internal/provider/{grok,opencode,kilo,codex}/live_rawoutput_test.go`,
+     under each package's existing live build tag. It does nothing unless
+     `MCREMOTE_RAW_OUTPUT_DIR` is set, so routine `make live-*` runs spend nothing on it.
+  2. **What each run does.** It starts the provider with auto-approve in a temporary workspace: a
+     small git repository with one modified file, a JSON file, and a script that prints coloured
+     and box-drawn lines. It sends one prompt asking the agent to run, one at a time, `ls -la`,
+     `git diff`, `cat data.json`, the script, and a command that prints an aligned table, and then
+     to answer with a short Markdown summary. It writes every tool event's text and diffs, and
+     the assistant's reply, as Magic received them, to `$MCREMOTE_RAW_OUTPUT_DIR/<provider>/`.
+  3. **The script reads those dumps,** not the wire frames: `scripts/extract-raw-output-fixtures.py`
+     copies each candidate to `apps/mobile/test/fixtures/raw_output/<provider>/` with a sidecar
+     naming its expected kind. Each candidate is read for identifiers before it is staged, as
+     wirecap's own documentation requires.
+  4. **Quota.** One prompt per provider, four runs, each only with the owner's approval for that
+     run. A provider that is not installed or signed in is skipped and recorded.
+  5. `apps/mobile/lib/features/chat/chat_screen.dart` gains import lines for the new libraries,
+     and nothing else.
+- **Not taken:** fixtures written by hand, with or without a later live step.
+- **The MADR is unchanged:** its "each from a real capture" now holds as written.
+- **Also found, not P3's:** the committed codex capture
+  (`internal/provider/codex/testdata/wire/0.152.1/frames.jsonl`, line 2) carries
+  `"serverName":"<host>"`, a real machine name in a public repository (redacted here).
+  It is reported to the owner; nothing here changes it.
+
+### P3.0, 2026-10-22: the live captures
+
+The owner approved four runs, one prompt each: "grok, opencode, kilo, codex".
+
+| Provider | Engine on this host | Result |
+| :--- | :--- | :--- |
+| grok | (pin unchanged) | PASS, 6 samples, 17.6 s |
+| opencode | v2.0.32, pin 1.18.26 | **FAIL before any prompt**: `POST /session` answered HTTP 405, and `GET /provider` answered HTML. No quota was spent. |
+| kilo | 7.8.12, pin 7.5.6 | PASS, 6 samples, 54.2 s; Magic warned of the pin |
+| codex | 0.163.0, pin 0.152.1 | PASS, 6 samples, 22.6 s; Magic warned of the pin |
+
+`scripts/extract-raw-output-fixtures.py` wrote 18 fixtures, 6 per provider, after redacting the
+account name, home directory and host name. Every fixture was read in full before staging. A scan
+for the account name, home paths, host names and the e-mail domain found none. The expected kinds
+were written by hand after reading. The one judgment call is codex's `cat data.json`, expected as
+`terminal`, because Magic's appended exit-code line makes it invalid JSON (below).
+
+**Found by the captures, none of them P3's to fix:**
+
+1. **opencode 2.x breaks Magic's opencode provider on this host.** The installed engine is a major
+   version past the pin, and session creation fails with HTTP 405. Phone sessions on opencode are
+   likely failing here today.
+2. **Magic writes text into codex's tool output.** The codex adapter appends
+   `Exit code N · M ms` to a command's output (`internal/provider/codex/items.go:299-311`). That is
+   composed text inside agent output, which D12 retires. It belongs to P5, or to its own step.
+3. **The committed codex capture names this machine.** Its `serverName` value is this host's name
+   (`hostname -s`), and it has been in a pushed fixture since the capture was committed.
+4. **kilo and codex run newer than their pins on this host** (7.8.12 against 7.5.6, and 0.163.0
+   against 0.152.1). Magic warns and carries on, as designed.
+
+Also seen: grok colours `ls` output with ANSI escapes, kilo's reply leaks a `</think>` tag, and grok
+joins its between-tool sentences without a separator. All three are kept in the fixtures as
+received.
+
+### P3, 2026-10-22: complete (staged for the owner's commit)
+
+**What changed.**
+
+* **`lib/data/chat/raw_output.dart`.** `classifyRawOutput` tries, in order:
+  * `diff`: a hunk header and a file header;
+  * `json`: the whole text parses as an object or array;
+  * terminal, strong signs: an escape or box drawing;
+  * `markdown`;
+  * terminal, weak signs: two or more lines with aligned columns, or most of three or more lines
+    indented;
+  * `plain`.
+
+  Trying the weak terminal signs after Markdown's refines the step's order, so a Markdown reply
+  with double spaces stays Markdown. A test pins it. The file also has `prettyJson`, and
+  `unifiedDiff`, a longest-common-subsequence line diff with three lines of context. It is coarse
+  above 4,000,000 compared line pairs.
+* **`lib/features/chat/ansi_text.dart`.**
+  * `ansiSpan` turns SGR codes into spans: bold, dim, italic, underline, the 16 colours,
+    256-colour and true colour.
+  * `stripAnsi` removes CSI, OSC and two-character escapes.
+  * `AnsiPalette.of` draws the colours from the theme, with red as its error colour.
+* **`lib/features/chat/raw_output_view.dart`.** `RawOutputView` renders each kind:
+  * terminal text in monospace, with colours and sideways scroll;
+  * JSON pretty-printed;
+  * diff lines marked by colour and tint;
+  * Markdown through `MarkdownBody`;
+  * plain as it came.
+
+  Text over the limit collapses behind "Show more". A renderer that throws falls back to plain
+  monospace.
+* **`chat_bubble.dart`.**
+  * Tool card detail and the "Show all" sheet render through `RawOutputView`.
+  * Diffs are built as unified diffs from their old and new text.
+  * A finished assistant reply that classifies as terminal or JSON renders through it as well. A
+    streaming reply stays Markdown.
+* **`chat_screen.dart`:** two import lines, and nothing else (Deviation 1).
+
+**Failing first, each seen before its fix:**
+
+| Test | Failure before the fix |
+| :--- | :--- |
+| fixture table (stub classifier) | all 18 fixtures: `got plain, want …` |
+| planted misclassification | `got plain, want diff`, then `got json, want diff` once classifying |
+| Markdown with double spaces | `Expected: markdown, Actual: plain` |
+| `unifiedDiff`, both cases (output deliberately broken) | both failed; restored |
+| ANSI, three cases (stub) | escapes left in place; no styles |
+| `RawOutputView`, seven cases (stub) | all seven failed |
+
+The first `unifiedDiff` run failed on the test, not the code: the expectation put added lines
+before removed ones, where `git diff` puts removed lines first. The expectation was corrected to
+git's order, and a deliberate break of the code then failed both cases.
+
+**Verification.**
+
+* `make preflight`: "No issues found!", "All tests passed!" (1,501, 17 new), formatting 0 changed.
+* `make pre-add-check` on the four capture tests: "4 file(s) clean".
+* `go test ./internal/provider/...`: 13 packages ok, unchanged.
+* `go vet` under each live tag compiles each capture test.
+
+**Not done in P3.** Findings 1–4 above. The renderer covers the kinds the captures showed; a new
+kind, or a misclassification, becomes a fixture through the same capture test and script.

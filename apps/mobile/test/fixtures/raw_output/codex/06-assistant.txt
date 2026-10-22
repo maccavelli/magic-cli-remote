@@ -1,0 +1,13 @@
+I’ll run the five read-only commands sequentially, exactly as supplied, then summarize their outputs.# Command Summary
+
+- All five commands completed successfully.
+- The repository has one unstaged change in `main.go`.
+- `show.sh` displayed one pass and one failure.
+
+| Command | What it printed |
+|---|---|
+| `ls -la` | Directory listing with `.git`, `data.json`, `main.go`, `show.sh`, and `table.sh` |
+| `git --no-pager diff` | Changed `println("hello")` to `fmt.Println("hello, world")` and added the `fmt` import |
+| `cat data.json` | JSON for `alpha`: 3 replicas, ports 80/443, staging web labels |
+| `sh show.sh` | Colored PASS/FAIL lines and a box table showing `alpha: ok`, `beta: failed` |
+| `sh table.sh` | Table showing `api: Running`, `worker: Pending`, and `cron: Failed` |

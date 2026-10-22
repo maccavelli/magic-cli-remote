@@ -1,0 +1,6 @@
+{
+  "name": "alpha",
+  "replicas": 3,
+  "ports": [80, 443],
+  "labels": {"tier": "web", "env": "staging"}
+}

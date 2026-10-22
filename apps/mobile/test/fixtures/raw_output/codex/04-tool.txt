@@ -1,0 +1,9 @@
+[1;32mPASS[0m  pkg/alpha  0.012s
+[1;31mFAIL[0m  pkg/beta   0.034s
+┌──────────┬────────┐
+│ name     │ status │
+├──────────┼────────┤
+│ alpha    │ ok     │
+│ beta     │ failed │
+└──────────┴────────┘
+Exit code 0 · 189 ms

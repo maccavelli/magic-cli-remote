@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'diagnostics_sheet.dart';
+import 'raw_output_view.dart';
 import 'session_controls/composer_actions_row.dart';
 import 'session_controls/control_glyphs.dart';
 import 'session_controls/ui_icons.dart';
@@ -23,6 +24,7 @@ import 'package:go_router/go_router.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../../data/chat/raw_output.dart';
 import '../../data/chat/streaming_markdown.dart';
 import '../../data/chat/transcript_rows.dart';
 import '../../data/notifications/notification_coordinator.dart';
