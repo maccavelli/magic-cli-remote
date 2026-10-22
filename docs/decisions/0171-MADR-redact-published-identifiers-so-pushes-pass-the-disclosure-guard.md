@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-09-24
+date: 2026-10-22
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -180,3 +180,82 @@ flutter test test/connect_screen_test.dart test/settings_screen_test.dart test/r
 - [0170-MADR](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md):
   its CI acceptance (A4) waits for this push.
 - The owner's dotfiles MADR 0010, which defines the guard. It lives outside this repository.
+
+## Amendment — 2026-10-22: agents run the guard before a push is asked for (accepted)
+
+**The owner's ask, verbatim:** "look in the go-llmprovider-sdk repo, there is a disclosure guard. we
+need to implement it here." Asked what it should cover, the owner chose "AGENTS.md rules
+(Recommended)". A Make target and per-agent pointer lines were offered and not chosen.
+
+### What was measured, not assumed (2026-10-22)
+
+- **The guard already runs on every push here.** `git config core.hooksPath` is the global hooks
+  directory. Its `pre-push` runs `github-disclosure.py pre-push`, so `git push` to github.com is
+  refused on any hit. Nothing in this repository needs to install it.
+- **go-llmprovider-sdk adds practice, not code.** Its AGENTS.md, section "Identifiers", says:
+  - describe an identifier scan by what was scanned for, never quote it;
+  - before asking the owner to push, run the guard itself over the outgoing commits, with the
+    command given in D6 below;
+  - never bypass it with `--no-verify`.
+
+  Its PLANs record that guard run before each push, from its 0033 PLAN to its 0056 PLAN.
+  Nothing else in that repository implements a guard: no Make target and no script.
+- **This repository's AGENTS.md has none of the three.** Its "Host identifiers never appear in
+  records" says what must not be committed, and its MADR section says `git push` needs an explicit
+  ask. It never says to run the guard, says nothing on `--no-verify`, and says nothing on how a scan
+  is recorded.
+- **What that cost on 2026-10-22.** The agent ran its own identifier scan over the 12 unpushed
+  commits, found nothing, and told the owner they were ready to push. Run read-only with the ref
+  line git would pass, the guard refused them. Its first report had 702 entries, from deny-list
+  rules the agent's scan did not cover: a CLI-name rule, a temp-path rule and an org rule.
+  - Those rules were uncommitted lines in the owner's deny list, added after the last push. The
+    owner removed them outside this repository, and the deny list is back to its committed rules.
+  - The guard then passed: `guard exit 0` over the 12 commits, `bd485116..461fe7e0`.
+  - The lesson is that only the guard, with the owner's live deny list, can say a push will pass.
+
+### The decisions (2026-10-22, accepted: "Approve both")
+
+**D6 — Before asking the owner to push, and before any push the owner asks for, the agent runs the
+guard over the outgoing commits.**
+
+```bash
+echo "refs/heads/master $(git rev-parse HEAD) refs/heads/master $(git rev-parse origin/master)" |
+  python3 ~/.global-git-hooks/github-disclosure.py pre-push origin "$(git remote get-url origin)"
+```
+
+For another branch, its name replaces `master`.
+
+- **Exit 0** is reported, and the push may then be asked for, or made on the owner's word.
+- **Exit 1 is a refusal.** The push is not made. The refusal is reported as counts by placeholder
+  and by file, and the fix follows this record's D1–D5.
+
+**D7 — Never bypass the guard with `--no-verify`.**
+
+**D8 — An identifier scan is recorded by what it scanned for, never by the value.** For example,
+"the local account name" or "the hostname domain".
+
+### Consequences (2026-10-22)
+
+- Good, because "ready to push" means the guard has passed, with the deny list as it is on the day.
+- Good, because it is go-llmprovider-sdk's practice word for word, so an agent working in both
+  repositories follows one rule.
+- Neutral, because the guard runs either way at `git push`. This moves the refusal before the ask,
+  where the owner has not yet spent a push on it.
+- Bad, because the check depends on the owner's machine: the guard and its deny list live in the
+  dotfiles, not here. An agent on a host without them cannot run it, and says so.
+
+### Confirmation (2026-10-22)
+
+- AGENTS.md's "Host identifiers never appear in records" carries D6–D8.
+- **The command, as written in AGENTS.md, is run, and the run is recorded.** On a scratch clone
+  whose origin URL is GitHub's, it exits 0. With a temporary deny list
+  (`DISCLOSURE_DENY`) holding a rule that matches a planted file in an outgoing commit, it exits 1.
+
+### Related records (2026-10-22)
+
+- [0171-PLAN-run-the-guard-before-asking-to-push.md](0171-PLAN-run-the-guard-before-asking-to-push.md)
+  implements D6–D8.
+- go-llmprovider-sdk's AGENTS.md, section "Identifiers", and its 0002 MADR amendment of
+  2026-09-29, point 4: the practice adopted here.
+- The owner's dotfiles MADR 0010. A separate amendment there makes the guard's pre-push scan skip
+  binary files, as its `redact` already does.

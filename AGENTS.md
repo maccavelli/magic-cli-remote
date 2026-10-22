@@ -90,6 +90,21 @@ Record format, naming, numbering, and how to record a deviation: `madr-and-plan-
 
 This repository is public. Nothing committed carries a hostname, account name, or absolute path with a real user in it. Use placeholders (`C:\Users\<user>\...`, `<HOST>\<group>`, `<owner-account>`). Redact as you write, including when quoting live evidence.
 
+- When recording an identifier scan in a record or a commit, describe what was scanned for
+  ("the local account name", "the hostname domain"); never quote it.
+- Pushes to GitHub pass through a global pre-push disclosure guard. Before asking the owner to push,
+  and before any push the owner asks for, run the guard itself over the outgoing commits (for another branch, use its name):
+
+  ```bash
+  echo "refs/heads/master $(git rev-parse HEAD) refs/heads/master $(git rev-parse origin/master)" |
+    python3 ~/.global-git-hooks/github-disclosure.py pre-push origin "$(git remote get-url origin)"
+  ```
+
+  Exit 1 is a refusal: do not push; report it as counts by placeholder and by file, and fix it as
+  [0171-MADR-redact-published-identifiers-so-pushes-pass-the-disclosure-guard.md](docs/decisions/0171-MADR-redact-published-identifiers-so-pushes-pass-the-disclosure-guard.md)
+  does.
+- Never bypass it with `--no-verify`.
+
 ## File naming
 
 Numbered records live in `docs/decisions/` (MADR, PLAN) and `docs/reports/` (REPORT, GATES); guides are unnumbered in `docs/guides/`. Flutter-companion records live under `apps/mobile/docs/` (same `NNNN` sequence). Filenames carry the kind infix and a zero-padded 4-digit number (`NNNN-MADR-*` / `NNNN-PLAN-*` / `NNNN-REPORT-*` / `NNNN-GATES-*`), unique across the whole repository; a MADR and its PLAN share the number. The next number comes from `scripts/check_records.py --next`; `make check-records` validates links and pairing. Cite records by full filename, never by number alone. When a decision rests on how an external CLI behaves, record the probe evidence in the MADR and pin it with a live-tagged test. Full naming and numbering rules: `madr-and-plan-writing`. Docs-tree layout: `documentation-writing`.
