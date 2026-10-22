@@ -582,7 +582,9 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	}
 
 	// Watch process exit from here on. The watcher's Wait reaps; later failure
-	// paths kill through markClosedAndKill, which does not wait.
+	// paths kill through markClosedAndKill, which does not wait. Its message
+	// carries Wait's error unchanged: the exit status of an agent that stopped by
+	// itself, or ErrKilled / ErrTerminated when it was stopped (MADR 0207 D11).
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -598,10 +600,9 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		s.signalDisconnected(msg)
 	}()
 
-	// Watch connection death independently of process exit: the ACP SDK can
-	// tear the connection down (e.g. its inbound notification queue overflowing
-	// behind a blocked handler) while leaving the agent process alive. Without
-	// this the session would zombie. See session.watchConnClose.
+	// Watch connection death independently of process exit: the connection can
+	// end while the agent process lives, and the session would then zombie. See
+	// session.watchConnClose.
 	go s.watchConnClose(conn)
 
 	return s, nil

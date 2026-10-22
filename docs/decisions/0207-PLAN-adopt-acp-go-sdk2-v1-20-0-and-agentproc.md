@@ -184,6 +184,9 @@ its amendment of 2026-10-22.
      does not end the connection (MADR F6).
 2. **The exit watcher's message** carries `Wait`'s error unchanged. Magic's own `Kill` then reads
    `agentproc: agent killed: signal: killed`; an agent that died by itself reads its exit status.
+   * *Added by S4 deviation 1:* `watchConnClose`, once the connection has ended, waits up to
+     500 ms for the process to exit. If it does, `watchConnClose` stays silent and the exit
+     watcher reports. Otherwise it reports `conn.Err()`.
 3. **Tests:**
    * **`fakeConn`.** Its `Err` returns `fmt.Errorf("%w: %w", acp.ErrPeerDisconnected, io.EOF)`, and
      the `disconnected` error text names `peer disconnected`.
@@ -502,3 +505,94 @@ pgrep -fl acpagent.test after the runs: no process left
 * **Windows and Linux.** The job, its suspended start and breakaway, and `Pdeathsig` were not run
   on their hosts. That is S6.
 * **The exit watcher's message is unchanged.** Its text is S4's.
+
+S3 was committed by the owner as `c4a39e85`.
+
+### S4 — 2026-10-22
+
+#### Deviation 1 — 2026-10-22: `watchConnClose` defers to the exit watcher when the agent has exited
+
+* **Found, before any S4 edit, on a scratch copy (`s4/which_watcher.py`).** The helper agent was
+  killed from outside 30 times. The error that reached the session's events was:
+
+  ```text
+    28  testagent agent connection lost
+     2  testagent process exited: signal: killed
+  ```
+
+  * `agentproc`'s `Wait` returns only once the connection's goroutines have (`agentproc.go:298-313`).
+    So the connection's end is nearly always reported first.
+  * S4 as planned would have put `conn.Err()` on that message, and the exit status D11 asks for
+    would almost never reach the phone.
+* **Decision:** the owner chose "Prefer the exit watcher (Recommended)".
+  * `watchConnClose`, after the connection ends, waits up to 500 ms for the process to exit.
+  * If the process exits, it stays silent and the exit watcher reports `Wait`'s error.
+  * If not, it reports `conn.Err()`.
+* **Cost:** a connection that ends while its agent lives is reported up to 500 ms later, and
+  `session.go` gains one branch with its test.
+* **The MADR** gets a note on D11. Recording a deviation's change to a decision is what adds the
+  MADR to S4's files.
+
+#### What was done
+
+1. **`watchConnClose`** (`session.go`).
+   * Its parameter's interface gains `Err() error`.
+   * After the connection ends it waits up to `exitPreference` (500 ms) for `s.proc.Done()`, and
+     returns silently if the process exits.
+   * Otherwise its message is `"<id> agent connection lost: <conn.Err()>"`.
+   * Its comment no longer says an overflow tears the connection down: under `OverflowDropNewest`
+     one cannot (MADR F6). It also gives the reason for the exit preference.
+2. **The exit watcher** (`acpagent.go`) already carried `Wait`'s error after S3. Its comment now
+   says so. The comment at `go s.watchConnClose(conn)` lost the overflow claim too.
+3. **Tests.**
+   * `fakeConn` gains `err` and `Err()`. `TestWatchConnCloseEmitsDisconnected` now requires the
+     error `… agent connection lost: acp: peer disconnected`, and its comment no longer blames an
+     overflow.
+   * `TestSpawnedAgentDeathIsOneDisconnect` now requires the message `testagent process exited: …`,
+     without `agent killed`.
+   * New: `TestConnectionEndWithAgentAliveReportsTheConnection`. The connection is closed while
+     the helper lives, and the message is `testagent agent connection lost: acp: connection
+     closed`.
+   * New: `TestClosedSessionReportsNoDisconnect`. After Magic's own `Close`, no error event in
+     `exitPreference` plus 500 ms.
+   * `TestSpawnedAgentDeathIsOneDisconnect` passed 30 of 30 with `-count=30`.
+
+#### Fail-first, on scratch copies of the module (`s4/plants.py`), final run
+
+```text
+== control: no plant: PASS (as expected)
+== the cause left out of the connection's message: FAIL (as expected)
+   session_test.go:578: disconnect error = "grok agent connection lost", want the connection's end cause
+== no wait for the exit: FAIL (as expected)   (--- FAIL 10 of 10)
+   agentproc_test.go:210: the agent's death was reported as "testagent agent connection lost: acp: peer disconnected: peer connection closed"; want its exit status from the exit watcher
+== an unbounded wait for the exit: FAIL (as expected)
+   agentproc_test.go:249: the connection's end was reported as "testagent process exited: agentproc: agent terminated: signal: terminated"; want its cause
+== a closed session still reports, latch only (recorded: emit also drops on a closed session): PASS (recorded)
+== a closed session still reports, latch and emit both bypassed: FAIL (as expected)
+   agentproc_test.go:275: a closed session reported "testagent process exited: agentproc: agent killed: signal: killed"
+```
+
+* **The plan's plant for a closed session needed both guards removed.** The plan's "emit on close"
+  first ran as the latch alone, and passed. `emit` also drops every event once a session is closed
+  (MADR 0057), so silence on close has two guards. With both bypassed, the test fails. The
+  failure also shows D11's wording for Magic's own kill: `agentproc: agent killed: signal: killed`.
+
+#### Verification, 2026-10-22, go1.27.3 on darwin/arm64
+
+```text
+vet-darwin: exit 0; vet-linux: exit 0; vet-windows: exit 0
+make test: exit 0; 43 ok, 0 FAIL lines
+make race: exit 0; 43 ok, 0 FAIL lines
+make lint: exit 0
+make staticcheck: exit 0
+make pre-add-check FILES="(the four S4 Go files)": 4 file(s) clean (gofmt, golint, govulncheck)
+go test -count=30 -run '^TestSpawnedAgentDeathIsOneDisconnect$': ok
+pgrep -fl acpagent.test after the runs: no process left
+```
+
+#### Not done in S4
+
+* **On Windows** the exit status of a killed agent reads differently (`exit status 1`). The death
+  test checks only for `testagent process exited:` and the absence of `agent killed`, so it holds
+  there.
+  It is run at S6 with `make ci-windows`.

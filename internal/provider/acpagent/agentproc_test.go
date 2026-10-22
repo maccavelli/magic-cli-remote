@@ -188,6 +188,7 @@ func TestSpawnedAgentDeathIsOneDisconnect(t *testing.T) {
 	waitProcDone(t, s)
 
 	var errs, disconnects int
+	var msg string
 	deadline := time.After(wireBudget)
 	for disconnects == 0 {
 		select {
@@ -195,12 +196,18 @@ func TestSpawnedAgentDeathIsOneDisconnect(t *testing.T) {
 			switch {
 			case ev.Type == event.TypeError:
 				errs++
+				msg = ev.Error
 			case ev.Type == event.TypeSessionStatus && ev.Status == "disconnected":
 				disconnects++
 			}
 		case <-deadline:
 			t.Fatal("no disconnected status after the agent died")
 		}
+	}
+	// The exit watcher reports a death, with the exit status, not
+	// watchConnClose, and not as a kill of Magic's (MADR 0207 D11).
+	if !strings.Contains(msg, "testagent process exited: ") || strings.Contains(msg, "agent killed") {
+		t.Fatalf("the agent's death was reported as %q; want its exit status from the exit watcher", msg)
 	}
 	// Both watchers fire; the latch lets one pair through.
 	time.Sleep(200 * time.Millisecond)
@@ -215,5 +222,60 @@ func TestSpawnedAgentDeathIsOneDisconnect(t *testing.T) {
 	}
 	if errs != 1 || disconnects != 1 {
 		t.Fatalf("one agent death gave %d errors and %d disconnects; want 1 and 1", errs, disconnects)
+	}
+}
+
+// TestConnectionEndWithAgentAliveReportsTheConnection: when the connection ends
+// and the agent lives on, watchConnClose reports why the connection ended,
+// after waiting exitPreference for an exit that does not come (MADR 0207 D11).
+// The helper ignores its input's end, so it outlives the connection.
+func TestConnectionEndWithAgentAliveReportsTheConnection(t *testing.T) {
+	p, _ := testAgentProvider(t)
+	s, err := p.spawnAgent(context.Background(), nil, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close(context.Background()) })
+
+	_ = s.conn.Close()
+	deadline := time.After(wireBudget)
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type != event.TypeError {
+				continue
+			}
+			if !strings.Contains(ev.Error, "testagent agent connection lost: acp: connection closed") {
+				t.Fatalf("the connection's end was reported as %q; want its cause", ev.Error)
+			}
+			return
+		case <-deadline:
+			t.Fatal("no error event after the connection ended")
+		}
+	}
+}
+
+// TestClosedSessionReportsNoDisconnect: Magic's own Close ends the agent and
+// its connection, and neither watcher reports it: the session is closed.
+func TestClosedSessionReportsNoDisconnect(t *testing.T) {
+	p, _ := testAgentProvider(t)
+	s, err := p.spawnAgent(context.Background(), nil, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitProcDone(t, s)
+	quiet := time.After(exitPreference + 500*time.Millisecond)
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeError {
+				t.Fatalf("a closed session reported %q", ev.Error)
+			}
+		case <-quiet:
+			return
+		}
 	}
 }

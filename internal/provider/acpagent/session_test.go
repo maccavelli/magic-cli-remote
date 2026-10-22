@@ -3,6 +3,8 @@ package acpagent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -514,10 +516,16 @@ checked:
 }
 
 // fakeConn stands in for the ACP connection so watchConnClose can be driven
-// deterministically (real conn death needs a subprocess + pipe EOF).
-type fakeConn struct{ done chan struct{} }
+// deterministically (real conn death needs a subprocess + pipe EOF). err is
+// what Err reports once done is closed.
+type fakeConn struct {
+	done chan struct{}
+	err  error
+}
 
 func (f *fakeConn) Done() <-chan struct{} { return f.done }
+
+func (f *fakeConn) Err() error { return f.err }
 
 func newWatchSession() *session {
 	return &session{
@@ -552,16 +560,30 @@ func awaitDisconnected(t *testing.T, s *session, want bool, wait time.Duration) 
 	}
 }
 
-// M11: when the SDK tears the connection down while the agent process is still
-// alive (its notification queue overflowed behind our blocked handler),
-// conn.Done fires but cmd.Wait does not. watchConnClose must still drive a
-// clean disconnected teardown so the session cannot zombie.
+// M11: when the connection ends while the agent process is still alive,
+// conn.Done fires but the exit watcher does not. watchConnClose must still
+// drive a clean disconnected teardown so the session cannot zombie, and its
+// error says why the connection ended (MADR 0207 D11).
 func TestWatchConnCloseEmitsDisconnected(t *testing.T) {
 	s := newWatchSession()
-	fc := &fakeConn{done: make(chan struct{})}
+	fc := &fakeConn{done: make(chan struct{}), err: fmt.Errorf("%w: %w", acp.ErrPeerDisconnected, io.EOF)}
 	go s.watchConnClose(fc)
-	close(fc.done) // SDK tore the connection down
-	awaitDisconnected(t, s, true, 2*time.Second)
+	close(fc.done) // the connection ended
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-s.events:
+			if ev.Type == event.TypeError {
+				if !strings.Contains(ev.Error, "agent connection lost: acp: peer disconnected") {
+					t.Fatalf("disconnect error = %q, want the connection's end cause", ev.Error)
+				}
+				awaitDisconnected(t, s, true, 2*time.Second)
+				return
+			}
+		case <-deadline:
+			t.Fatal("no error event after the connection ended")
+		}
+	}
 }
 
 // A normal Close (done closed, session marked closed) fires conn.Done too, but

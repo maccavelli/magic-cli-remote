@@ -1220,23 +1220,46 @@ func (s *session) signalDisconnected(msg string) {
 	})
 }
 
-// watchConnClose turns a dead ACP connection into a clean session teardown.
-// The SDK runs every session/update notification on ONE goroutine; if our
-// control-event delivery blocks it long enough, the SDK's inbound queue
-// overflows and it tears the connection down WITHOUT killing the agent process.
-// Nothing else observes that: cmd.Wait only fires on process exit, so the
-// session would otherwise zombie (process alive, no disconnected event, manager
-// entry live forever). Funnel a connection death through the same path as a
-// process exit; the manager's Close then reaps the process. Exits quietly when
-// the session is closed the normal way (done closes; conn.Done fires too, but
-// signalDisconnected no-ops once closed).
-func (s *session) watchConnClose(conn interface{ Done() <-chan struct{} }) {
+// exitPreference is how long watchConnClose waits, once the connection has
+// ended, for the agent process to exit, so that an agent's death is reported
+// by the exit watcher, with its exit status (MADR 0207 D11).
+const exitPreference = 500 * time.Millisecond
+
+// watchConnClose turns a dead ACP connection into a clean session teardown,
+// through the same path as a process exit; the manager's Close then stops the
+// process. Its message says why the connection ended, from conn.Err().
+//
+// The connection can end while the agent lives: a read error, or the agent
+// closing its output. A queue overflow cannot end it: Magic runs
+// OverflowDropNewest, which drops a notification instead (MADR 0167 D17;
+// 0207 F6). Without this watcher such a session would zombie.
+//
+// An agent's death ends the connection too, and that end is nearly always seen
+// first, because agentproc's Wait returns only once the connection's goroutines
+// have (28 of 30 scratch runs; 0207 PLAN S4 deviation 1). So when the process
+// exits within exitPreference, this stays silent and the exit watcher reports.
+//
+// It exits quietly when the session is closed the normal way (done closes;
+// conn.Done fires too, but signalDisconnected no-ops once closed).
+func (s *session) watchConnClose(conn interface {
+	Done() <-chan struct{}
+	Err() error
+}) {
 	select {
 	case <-conn.Done():
 	case <-s.done:
 		return
 	}
-	s.signalDisconnected(fmt.Sprintf("%s agent connection lost", s.providerID))
+	if s.proc != nil {
+		t := time.NewTimer(exitPreference)
+		defer t.Stop()
+		select {
+		case <-s.proc.Done():
+			return
+		case <-t.C:
+		}
+	}
+	s.signalDisconnected(fmt.Sprintf("%s agent connection lost: %v", s.providerID, conn.Err()))
 }
 
 // closeTimeout bounds the best-effort session/close on teardown.

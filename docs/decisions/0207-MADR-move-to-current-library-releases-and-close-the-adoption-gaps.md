@@ -678,6 +678,10 @@ B3 premise on v1.15.0, mitigation removed:  lifecycle_test.go:77: a prompt with 
   * The exit watcher's message carries `Wait`'s error. That error names `ErrKilled` or
     `ErrTerminated` when Magic stopped the agent, and the exit status when the agent stopped by
     itself.
+  * *Note, 2026-10-22 (the SDK plan's S4 deviation 1):* on an agent's death the connection's end
+    was reported first in 28 of 30 scratch runs, since `agentproc`'s `Wait` waits for the
+    connection's goroutines. So `watchConnClose` waits up to 500 ms for the process to exit, and
+    defers to the exit watcher when it does.
 * **D12 — A drop handler that only records (item 5, first half; amends 0167 D17).**
   * The handler stores the dropped notification's method in an atomic value on the connection's
     owner. It does no I/O, takes no lock, and calls nothing that can wait, which keeps D17's reason.
