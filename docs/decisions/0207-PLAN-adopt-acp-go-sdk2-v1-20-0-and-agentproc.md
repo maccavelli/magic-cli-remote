@@ -330,3 +330,47 @@ check_records.py --check: exit 0
 * **The quota-free live grok tests** that 0184's B3 listed (`TestLiveGrokElicitationAtSessionStart`,
   `TestLiveGrokPlanAtSessionStart`). They are live runs against grok, so they wait for S6 with
   `make live-grok`.
+
+S1 was committed by the owner as `a9741ef8`.
+
+### S2 — 2026-10-22
+
+#### What was done
+
+1. **`Capture.Tap() io.Writer`.** For a nil `Capture` it returns an untyped nil. Otherwise it
+   returns a `tapWriter`, whose `Write` always reports `len(p), nil`.
+2. **One line splitter for both directions.** The splitting moved out of `teeReader` into a small
+   `lines` type, which `teeReader` and `tapWriter` both use. It also changed
+   `strings.IndexByte(string(buf), '\n')` to `bytes.IndexByte(buf, '\n')`, which finds the same
+   index without converting the buffer to a string on each call.
+   * This keeps one implementation of the framing until S3 removes `teeReader`.
+   * `TestTeeReaderEmitsOnNewline` is unchanged and passes, and the new
+     `TestTapRecordsWhatTeeReaderRecords` compares the two.
+3. **Three tests**, in `wirecap_test.go`, with a `testCapture` helper:
+   * `TestTapOfNilCaptureIsNilWriter`;
+   * `TestTapRecordsWhatTeeReaderRecords`: the same four chunks through both, including a line
+     split across writes and a last line with no newline;
+   * `TestTapDoesNotRetainTheCallersSlice`.
+
+No file outside S2's list changed.
+
+#### Fail-first, on scratch copies of `internal/wirecap` (`s2/plants.py`)
+
+```text
+== control: no plant: PASS (as expected)
+== typed nil from a nil Capture: FAIL (as expected)
+   wirecap_test.go:210: nil Capture.Tap() = (*wirecap.tapWriter)(nil), want a nil io.Writer
+== no buffering across writes: FAIL (as expected)
+   wirecap_test.go:264: Tap frames = "hel\nlo\nne\nxt\n{\"a\":1}\ntail without newline\n", want "hello\nnext\n{\"a\":1}\n"
+== the caller's slice retained: FAIL (as expected)
+   wirecap_test.go:288: frames = "xyz\n", want "abc\n"
+```
+
+#### Verification, 2026-10-22
+
+```text
+go test -count=1 -v ./internal/wirecap/: ok (every test PASS, the three new ones included)
+make pre-add-check FILES="internal/wirecap/wirecap.go internal/wirecap/wirecap_test.go": 2 file(s) clean (gofmt, golint, govulncheck)
+make test: exit 0; 43 ok, 0 FAIL lines
+make race: exit 0; 43 ok, 0 FAIL lines
+```

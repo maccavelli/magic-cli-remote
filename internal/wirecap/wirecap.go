@@ -26,6 +26,8 @@
 package wirecap
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,27 +169,62 @@ func (c *Capture) TeeReader(r interface{ Read([]byte) (int, error) }) interface 
 	if c == nil {
 		return r
 	}
-	return &teeReader{src: r, cap: c}
+	return &teeReader{src: r, lines: lines{cap: c}}
 }
 
 type teeReader struct {
-	src interface{ Read([]byte) (int, error) }
-	cap *Capture
-	buf []byte
+	src   interface{ Read([]byte) (int, error) }
+	lines lines
 }
 
 func (t *teeReader) Read(p []byte) (int, error) {
 	n, err := t.src.Read(p)
 	if n > 0 {
-		t.buf = append(t.buf, p[:n]...)
-		for {
-			i := strings.IndexByte(string(t.buf), '\n')
-			if i < 0 {
-				break
-			}
-			t.cap.Frame(t.buf[:i])
-			t.buf = t.buf[i+1:]
-		}
+		t.lines.add(p[:n])
 	}
 	return n, err
+}
+
+// Tap returns a writer that records every line written to it. It is for a
+// transport that hands a copy of the raw stream to a writer instead of taking
+// a reader: acp-go-sdk2's agentproc.Command.OutputTap (MADR 0207 D10).
+//
+// For a nil Capture it returns a nil io.Writer, not a typed nil. OutputTap is
+// an interface, and an interface holding a nil pointer is a set tap.
+func (c *Capture) Tap() io.Writer {
+	if c == nil {
+		return nil
+	}
+	return &tapWriter{lines: lines{cap: c}}
+}
+
+// tapWriter is the writer Tap returns. It is written from one goroutine, as
+// agentproc writes a tap. Write always reports success: the capture is
+// best-effort, and agentproc ignores a tap's error.
+type tapWriter struct{ lines lines }
+
+func (w *tapWriter) Write(p []byte) (int, error) {
+	w.lines.add(p)
+	return len(p), nil
+}
+
+// lines splits a stream into newline-terminated frames. It copies what it
+// holds, so the caller's slice is never retained (agentproc: a tap "must not
+// retain p"). A last line with no newline is held, and written only once its
+// newline arrives.
+type lines struct {
+	cap *Capture
+	buf []byte
+}
+
+func (l *lines) add(p []byte) {
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexByte(l.buf, '\n')
+		if i < 0 {
+			return
+		}
+		l.cap.Frame(l.buf[:i])
+		l.buf = l.buf[i+1:]
+	}
 }

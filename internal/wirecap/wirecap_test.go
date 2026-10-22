@@ -202,6 +202,93 @@ func TestTeeReaderEmitsOnNewline(t *testing.T) {
 	}
 }
 
+// TestTapOfNilCaptureIsNilWriter: a disabled capture must hand agentproc no
+// tap at all. A typed nil in the io.Writer would be a set tap (MADR 0207 G1).
+func TestTapOfNilCaptureIsNilWriter(t *testing.T) {
+	var c *Capture
+	if w := c.Tap(); w != nil {
+		t.Fatalf("nil Capture.Tap() = %#v, want a nil io.Writer", w)
+	}
+}
+
+// testCapture is a capture writing to a file in a temp dir, and that file.
+func testCapture(t *testing.T) (*Capture, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "frames.jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Capture{f: f}
+	t.Cleanup(c.Close)
+	return c, path
+}
+
+// TestTapRecordsWhatTeeReaderRecords: the same bytes, written to Tap in uneven
+// chunks, give the same frames as TeeReader reading them. That includes a line
+// split across writes and a last line with no newline, which both hold.
+func TestTapRecordsWhatTeeReaderRecords(t *testing.T) {
+	chunks := [][]byte{
+		[]byte("hel"),
+		[]byte("lo\nne"),
+		[]byte("xt\n{\"a\":1}\n"),
+		[]byte("tail without newline"),
+	}
+
+	tee, teePath := testCapture(t)
+	tr := tee.TeeReader(&chunkReader{chunks: chunks})
+	buf := make([]byte, 32)
+	for {
+		if _, err := tr.Read(buf); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tap, tapPath := testCapture(t)
+	w := tap.Tap()
+	for _, c := range chunks {
+		if n, err := w.Write(c); n != len(c) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v; want %d, nil", c, n, err, len(c))
+		}
+	}
+
+	want := "hello\nnext\n{\"a\":1}\n"
+	for name, path := range map[string]string{"TeeReader": teePath, "Tap": tapPath} {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Errorf("%s frames = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// TestTapDoesNotRetainTheCallersSlice: agentproc reuses the slice it passes a
+// tap, which "must not retain p". A held partial line must survive the caller
+// overwriting it.
+func TestTapDoesNotRetainTheCallersSlice(t *testing.T) {
+	c, path := testCapture(t)
+	w := c.Tap()
+	p := []byte("abc")
+	if _, err := w.Write(p); err != nil {
+		t.Fatal(err)
+	}
+	copy(p, "xyz")
+	if _, err := w.Write([]byte("\n")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "abc\n"; string(got) != want {
+		t.Fatalf("frames = %q, want %q", got, want)
+	}
+}
+
 func TestFrameNoopOnWhitespace(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "frames.jsonl")
