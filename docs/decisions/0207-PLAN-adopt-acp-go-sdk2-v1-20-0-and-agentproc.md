@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-22
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
@@ -828,10 +828,27 @@ Linux test host, a fresh clone of 086e98af with the S6a diff applied:
 * **Afterwards,** the scratch clones on both hosts were removed. No test agent of this run was
   left on either host.
 
-#### Not done in S6
+#### `make live-grok`, on the owner's word ("run it"), 2026-10-22
 
-* **`make live-grok`** waits for the owner's word on the quota (step 3). D2 is not done until it
-  passes, and the PLAN stays `in-progress`.
+Run once, here, against grok `1.0.62 (1474f9cbdd91) [stable]`. The tree was `086e98af` with S6a
+in the working tree; the owner committed that S6a, unchanged, as `290aa9ce` while the run was
+going.
+
+```text
+ok      github.com/maccavelli/magic-cli-remote/internal/provider/grok    563.282s
+--- PASS: 104 top-level tests; --- FAIL: 0
+--- SKIP: TestLiveRawOutputSamples: live_rawoutput_test.go:30: MCREMOTE_RAW_OUTPUT_DIR not set
+```
+
+* **The one skip** is 0208's capture test, which runs only when its capture directory is set.
+* **No refusals.** The SDK logged no "failed to handle notification", so grok sent nothing it
+  refused, and D13's notice did not fire.
+  * The run's seven `-32602` lines are grok answering Magic's own requests, as those tests intend:
+    `live_fork_test.go:58`'s shape probes, and `live_setmodel_test.go:50`'s "expectedly failed"
+    unknown model ids.
+* **Nothing left behind.** `pgrep -fl "grok agent"` afterwards found no process.
+* **D2's gate is passed.** The pin to `v1.20.0` is done, and D10's launch path has run against a
+  real engine.
 
 * **The scripts needed two fixes, recorded so a rerun does not repeat them.** Both hosts once
   shipped from one bundle path at the same time, and the second `git bundle create` failed: each
