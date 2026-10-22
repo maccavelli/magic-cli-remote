@@ -265,7 +265,7 @@ func (o *httpSession) resyncParentMessageTurn(ctx context.Context, turnStartedAt
 		cls := agenterr.Present(msg, time.Now())
 		out := cls.Message
 		if out == "" {
-			out = clip(msg, 400)
+			out = clipText(msg, 400)
 		}
 		o.h.Emit(event.Event{
 			Type:      event.TypeError,

@@ -26,6 +26,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/output"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/sessionutil"
 	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
@@ -1805,8 +1806,8 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			ToolName:  firstNonEmpty(title, string(tc.Kind), "tool"),
 			ToolKind:  string(tc.Kind),
 			Status:    string(tc.Status),
-			// Human summary only — never dump rawInput/rawOutput JSON into chat.
-			Text: summarizeToolContent(tc.Content, tc.RawInput, nil, 400),
+			// The agent's text as it came — never rawInput/rawOutput JSON trees.
+			Text: summarizeToolContent(tc.Content, tc.RawInput, nil, output.MaxToolText),
 		})
 	case u.ToolCallUpdate != nil:
 		tu := u.ToolCallUpdate
@@ -1830,7 +1831,7 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			ToolName:  firstNonEmpty(title, "tool"),
 			ToolKind:  kind,
 			Status:    status,
-			Text:      summarizeToolContent(tu.Content, tu.RawInput, tu.RawOutput, 600),
+			Text:      summarizeToolContent(tu.Content, tu.RawInput, tu.RawOutput, output.MaxToolText),
 		})
 	case u.AvailableCommandsUpdate != nil:
 		// Forward ACP slash commands so the phone can autocomplete /invoke them.
@@ -2267,9 +2268,10 @@ func (s *session) noteAutoApproval(params acp.RequestPermissionRequest) {
 	} else if params.ToolCall.Kind != nil {
 		name = firstNonEmpty(string(*params.ToolCall.Kind), name)
 	}
-	// The same summariser the permission sheet uses below, so the audit can
-	// never carry raw rawInput JSON that the sheet would have withheld.
-	detail := summarizeToolContent(params.ToolCall.Content, params.ToolCall.RawInput, nil, maxApprovalDetail)
+	// The same text the permission sheet uses below, so the audit can never
+	// carry raw rawInput JSON that the sheet would have withheld. One audit row
+	// is one line (output.Line).
+	detail := output.Line(toolText(params.ToolCall.Content, params.ToolCall.RawInput, nil), maxApprovalDetail)
 	s.noteAutoApprovalItem(name, detail)
 }
 
@@ -2801,16 +2803,26 @@ func sanitizeUserFacingErr(err error) string {
 	return truncateRunes(msg, 400)
 }
 
-// summarizeToolContent builds a short human summary for chat tool cards.
-// Never dumps full RawOutput JSON trees into the event stream. rawIn and rawOut
-// are the SDK's raw JSON values; see shortRaw.
+// summarizeToolContent is a tool's text, as toolText builds it, bounded to
+// maxLen bytes with its line structure kept (MADR 0208 D11).
 func summarizeToolContent(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage, maxLen int) string {
+	s, _ := output.Clip(toolText(content, rawIn, rawOut), maxLen)
+	return s
+}
+
+// toolText is what a tool card shows: the agent's content blocks as they came,
+// separated by blank lines, with line breaks, indentation and escape bytes
+// kept. Only leading blank lines and trailing whitespace go. Never dumps full
+// RawOutput JSON trees into the event stream: rawIn and rawOut, the SDK's raw
+// JSON values, are a short fallback when there is no content (see shortRaw).
+func toolText(content []acp.ToolCallContent, rawIn, rawOut json.RawMessage) string {
 	var parts []string
 	for _, c := range content {
 		switch {
 		case c.Content != nil:
-			if t := strings.TrimSpace(contentText(c.Content.Content)); t != "" {
-				parts = append(parts, t)
+			t := contentText(c.Content.Content)
+			if strings.TrimSpace(t) != "" {
+				parts = append(parts, strings.TrimRight(strings.TrimLeft(t, "\r\n"), " \t\r\n"))
 			}
 		case c.Diff != nil:
 			path := c.Diff.Path
@@ -2831,9 +2843,7 @@ func summarizeToolContent(content []acp.ToolCallContent, rawIn, rawOut json.RawM
 			parts = append(parts, s)
 		}
 	}
-	out := strings.Join(parts, " · ")
-	out = strings.Join(strings.Fields(out), " ")
-	return truncateRunes(out, maxLen)
+	return strings.Join(parts, "\n\n")
 }
 
 // shortRaw summarizes one raw JSON value as shortAny does, after decoding it.

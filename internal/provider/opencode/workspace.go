@@ -334,7 +334,7 @@ func (o *httpSession) searchText(ctx context.Context, query string) (provider.Wo
 		m := provider.WorkspaceMatch{
 			Path: p,
 			Line: u.LineNumber,
-			Text: clipBlock(strings.TrimRight(u.Lines.Text, "\r\n"), 500),
+			Text: clipText(strings.TrimRight(u.Lines.Text, "\r\n"), 500),
 		}
 		if len(u.Submatches) > 0 {
 			m.Column = u.Submatches[0].Start + 1

@@ -15,6 +15,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/output"
 )
 
 type toolEmit struct{ status, name, kind, text string }
@@ -476,10 +477,10 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 				detail = shortJSON(part.State.Input, 300)
 			}
 			if out := strings.TrimRight(part.State.Output, " \t\n"); out != "" {
-				detail = clipBlock(out, maxToolOutputChars)
+				detail = clipText(out, output.MaxToolText)
 			}
 			if part.State.Error != "" {
-				detail = clip(part.State.Error, 300)
+				detail = clipText(part.State.Error, 300)
 			}
 			name := firstNonEmpty(part.State.Title, part.Tool, "tool")
 			kind := kindForTool(part.Tool)
@@ -632,7 +633,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 			cls := agenterr.Present(msg, time.Now())
 			out := cls.Message
 			if out == "" {
-				out = clip(msg, 400)
+				out = clipText(msg, 400)
 			}
 			// kilo reports plan usage structurally, so a limit classified from
 			// prose gets confirmed against the engine rather than trusted on
@@ -657,7 +658,7 @@ func (o *httpSession) HandleEvent(typ string, props json.RawMessage) {
 		msg := firstNonEmpty(p.Error.Data.Message, p.Error.Name, "subagent error")
 		o.h.Emit(event.Event{
 			Type: event.TypeNotice,
-			Text: clip("Subagent error: "+msg, 400),
+			Text: clipText("Subagent error: "+msg, 400),
 		})
 		// Child finished (with error); parent may still be busy.
 		o.tryTreeEndTurn()
@@ -923,37 +924,21 @@ func commonPrefixLen(a, b string) int {
 	return i
 }
 
-func clip(s string, max int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "…"
+// clip is the one-line form of s, for an id, a title, a branch or a header
+// (output.Line). Agent text that has lines of its own goes through clipText.
+func clip(s string, max int) string { return output.Line(s, max) }
+
+// clipText bounds agent text — tool output, an error, a notice — keeping its
+// line structure (output.Clip, MADR 0208 D11).
+func clipText(s string, max int) string {
+	s, _ = output.Clip(s, max)
+	return s
 }
 
+// shortJSON is a raw JSON value as the engine sent it, bounded as agent text.
 func shortJSON(raw json.RawMessage, max int) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	return clip(string(raw), max)
-}
-
-// maxToolOutputChars caps emitted tool stdout/stderr detail. Aligned with the client's
-// kMaxExpandedDetailChars (chat_models.dart:47). Not set to kMaxItemTextChars (100,000)
-// because shipping 100 KB the mobile UI will never render is waste (MADR 0034 D2).
-const maxToolOutputChars = 8000
-
-// clipBlock truncates multi-line tool output for transport. Unlike clip it
-// preserves line structure — a directory listing or grep result is
-// unreadable once newlines are collapsed — and never cuts mid-rune.
-func clipBlock(s string, max int) string {
-	s = strings.TrimRight(s, " \t\n")
-	if len(s) <= max {
-		return s
-	}
-	cut := max
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "\n…[truncated]"
+	return clipText(string(raw), max)
 }

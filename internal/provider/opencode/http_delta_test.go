@@ -15,6 +15,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/output"
 )
 
 // captureHost records emitted events for dialect unit tests.
@@ -445,24 +446,24 @@ func TestServeArgsPure(t *testing.T) {
 	}
 }
 
-func TestToolOutputVisibilityAndClipBlock(t *testing.T) {
-	// 1. clipBlock preserves newlines & handles rune boundaries.
+func TestToolOutputVisibilityAndClipText(t *testing.T) {
+	// 1. clipText preserves newlines & handles rune boundaries.
 	multiLine := "line 1\nline 2\nline 3"
-	if got := clipBlock(multiLine, 100); got != multiLine {
-		t.Errorf("clipBlock short multi-line = %q, want %q", got, multiLine)
+	if got := clipText(multiLine, 100); got != multiLine {
+		t.Errorf("clipText short multi-line = %q, want %q", got, multiLine)
 	}
 
-	// 2. clipBlock rune-safety test.
+	// 2. clipText rune-safety test.
 	// "é" is 2 bytes (0xC3, 0xA9).
 	strWithRune := "abc" + strings.Repeat("é", 10)
 	// If max is 5, "abc" is 3 bytes, plus 1 byte of "é" = index 4 is mid-rune.
-	// clipBlock should back off to 3 bytes ("abc") and append "\n…[truncated]".
-	clippedRune := clipBlock(strWithRune, 4)
+	// clipText should back off to 3 bytes ("abc") and append "\n…[truncated]".
+	clippedRune := clipText(strWithRune, 4)
 	if !strings.HasPrefix(clippedRune, "abc\n…[truncated]") {
-		t.Errorf("clipBlock failed rune boundary backoff, got %q", clippedRune)
+		t.Errorf("clipText failed rune boundary backoff, got %q", clippedRune)
 	}
 	if !utf8.ValidString(clippedRune) {
-		t.Errorf("clipBlock output is invalid UTF-8: %q", clippedRune)
+		t.Errorf("clipText output is invalid UTF-8: %q", clippedRune)
 	}
 
 	// 3. Tool frame carrying output emits output as Text.
@@ -495,7 +496,7 @@ func TestToolOutputVisibilityAndClipBlock(t *testing.T) {
 		t.Errorf("event text = %q, want output text", h.events[0].Text)
 	}
 
-	// 4. Output longer than maxToolOutputChars (8000) is clipped with truncation marker.
+	// 4. Output longer than output.MaxToolText (8000) is clipped with truncation marker.
 	h.events = nil
 	s.turnCleanup()
 	longOut := strings.Repeat("x\n", 5000) // 10000 chars
@@ -506,7 +507,7 @@ func TestToolOutputVisibilityAndClipBlock(t *testing.T) {
 	if !strings.HasSuffix(h.events[0].Text, "\n…[truncated]") {
 		t.Errorf("long output missing truncation marker: %q", h.events[0].Text[len(h.events[0].Text)-30:])
 	}
-	if len(h.events[0].Text) > maxToolOutputChars+30 {
+	if len(h.events[0].Text) > output.MaxToolText+30 {
 		t.Errorf("output length %d exceeds max cap + marker allowance", len(h.events[0].Text))
 	}
 

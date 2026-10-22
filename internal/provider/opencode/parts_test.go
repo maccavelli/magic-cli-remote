@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/output"
 )
 
 // TestDispositionCoversTheExactUnion pins every member of the 1.18.21 Part
@@ -161,8 +162,8 @@ func TestMapPartToolPrecedence(t *testing.T) {
 func TestToolVisibleOutputIsCapped(t *testing.T) {
 	long := strings.Repeat("line\n", 5000)
 	got := toolVisibleOutput(nativeToolState{Status: "completed", Output: long})
-	if len(got) <= maxToolOutputChars {
-		if len(long) > maxToolOutputChars {
+	if len(got) <= output.MaxToolText {
+		if len(long) > output.MaxToolText {
 			t.Fatalf("expected truncation marker, got %d bytes", len(got))
 		}
 	}

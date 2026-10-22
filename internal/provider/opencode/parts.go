@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/output"
 )
 
 // nativeToolState is the ToolPart state the transcript renders.
@@ -170,14 +171,15 @@ func mapPart(role string, p nativePart, replace bool, log *slog.Logger) (event.E
 // point: two implementations of the same precedence drift, and the drift only
 // shows up after a resume (PLAN P4 step 5).
 //
-// Output keeps its line structure and is capped at maxToolOutputChars; a
-// directory listing or grep result is unreadable once newlines collapse.
+// Output and errors keep their line structure, and output is capped at
+// output.MaxToolText; a directory listing or grep result is unreadable once
+// newlines collapse (MADR 0208 D11).
 func toolVisibleOutput(st nativeToolState) string {
 	if st.Error != "" {
-		return clip(st.Error, 300)
+		return clipText(st.Error, 300)
 	}
 	if out := strings.TrimRight(st.Output, " \t\n"); out != "" {
-		return clipBlock(out, maxToolOutputChars)
+		return clipText(out, output.MaxToolText)
 	}
 	if title := strings.TrimSpace(st.Title); title != "" {
 		return title

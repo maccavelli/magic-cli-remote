@@ -131,7 +131,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 			}
 			out := cls.Message
 			if out == "" {
-				out = clip(msg, 400)
+				out = clipText(msg, 400)
 			}
 			active := o.h.EndTurn()
 			if active {
@@ -172,7 +172,7 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 		}
 		o.h.Emit(event.Event{
 			Type: event.TypeNotice,
-			Text: clip(text, 300),
+			Text: clipText(text, 300),
 		})
 	case "idle":
 		o.noteNodeIdle(sid)
