@@ -497,6 +497,10 @@ session scratch directory.
       (`TestPromptSendsNothingWithAnEndedContext`).
     * Reported as [maccavelli/acp-go-sdk2#7](https://github.com/maccavelli/acp-go-sdk2/issues/7), at
       the owner's request.
+    * *Note, 2026-10-22: #7 closed on 2026-10-18, and its fix shipped in `v1.15.2`. `submitPrompt`'s
+      check was removed with the move to `v1.20.0`
+      ([0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
+      D2). The test stays, and now pins the SDK's behaviour.*
   * **B16 is removed.** `closeAgentSession`'s timer goes: a send returns when its context ends.
     `Close` also calls the connection's new `Close()` before the process kill.
     `TestCloseIsBoundedWhenTheAgentStopsReading` stays as the proof.

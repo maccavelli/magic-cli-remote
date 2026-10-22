@@ -599,14 +599,9 @@ func (s *session) submitPrompt(ctx context.Context, blocks []acp.ContentBlock) (
 	if s.testSubmit != nil {
 		return s.testSubmit(ctx, blocks)
 	}
-	// acp-go-sdk2 v1.14.0 no longer writes a prompt whose context has already
-	// ended, but its Prompt then still sends session/cancel for the session,
-	// for a turn the agent never received (client_gen.go, Prompt). Checking
-	// first keeps the wire silent (TestPromptSendsNothingWithAnEndedContext;
-	// MADR 0184 amendment of 2026-10-15, E5 as amended).
-	if err := ctx.Err(); err != nil {
-		return acp.PromptResponse{}, err
-	}
+	// No ctx.Err() check: from acp-go-sdk2 v1.15.2 the SDK writes nothing,
+	// neither the prompt nor a session/cancel, for a context that has already
+	// ended (issue #7; TestPromptSendsNothingWithAnEndedContext; MADR 0207 D2).
 	return s.conn.Prompt(ctx, acp.PromptRequest{
 		SessionId: acp.SessionId(s.agentID),
 		Prompt:    blocks,

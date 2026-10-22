@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-22
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
@@ -57,6 +57,8 @@ its amendment of 2026-10-22.
 
 * `go.mod`, `go.sum`;
 * `internal/provider/acpagent/session.go`;
+* `internal/provider/acpagent/lifecycle_test.go`, the test's comment only. Added by S1
+  deviation 1.
 * `docs/decisions/0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md` and
   `docs/decisions/0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md` (notes only);
 * this plan.
@@ -265,3 +267,66 @@ its amendment of 2026-10-22.
 * **The daemon carries no state about this change.** A release with it, or rolled back, needs
   nothing from the operator.
 * Nothing is pushed or tagged by this plan; the owner pushes.
+
+## Execution record
+
+### S1 — 2026-10-22
+
+#### Deviation 1 — 2026-10-22: `lifecycle_test.go` added to S1's files
+
+* **Found:** step 2 updates `TestPromptSendsNothingWithAnEndedContext`'s comment, but the test is
+  in `internal/provider/acpagent/lifecycle_test.go`, which S1's file list did not name. The
+  comment had been edited before this was noticed. The edit touches the comment only, no code.
+* **Decision:** the owner chose "Add the file to S1 (Recommended)". The file is added to S1's
+  list, and the comment edit stays.
+
+#### What was done
+
+1. **The pin.** `go get github.com/maccavelli/acp-go-sdk2@v1.20.0`: "upgraded … v1.15.0 => v1.20.0".
+   `go mod tidy` then printed nothing.
+   * `go.mod` changed one line.
+   * `go.sum` changed the SDK's two lines:
+     `h1:RSZL1Kvpm1kAJdSPmoTC012074XZjCRwh7P2V/Lt16U=` and, for its `go.mod`,
+     `h1:5WHwC+Nd7Wz7V0c0Xtz5MyYUpUKet1X9nHzLowXYhj4=`. These are the sums the MADR's probe
+     recorded from the module proxy.
+2. **The check.** `submitPrompt`'s `ctx.Err()` check and its comment are gone. A three-line
+   comment says why there is no check.
+   * The test's comment says it now pins the SDK's behaviour (deviation 1).
+3. **0184's PLAN.**
+   * The 2026-10-18 status note's bullet on #7 gets a dated note: #7 closed on 2026-10-18
+     (`gh issue view 7`), and the check is gone.
+   * The B3 amendment is marked superseded and never run.
+4. **0184's MADR.** It has no status note, so the note on #7 went where the MADR keeps that
+   check: E5's B9 bullet.
+
+#### Verification, 2026-10-22, go1.27.3 on darwin/arm64
+
+```text
+go build ./...: exit 0
+--- PASS: TestPromptSendsNothingWithAnEndedContext (0.50s)
+--- PASS: TestGoModRequiresTaggedACPDirectly (0.04s)
+vet-darwin: exit 0; vet-linux: exit 0; vet-windows: exit 0
+make test: exit 0; 43 ok, 0 FAIL lines
+make race: exit 0; 43 ok, 0 FAIL lines
+make lint: exit 0 (golint ./cmd/... ./internal/..., no output)
+make staticcheck: exit 0 (staticcheck v0.8.2, GOOS linux, darwin, windows)
+make pre-add-check FILES="…/session.go …/lifecycle_test.go": 2 file(s) clean (gofmt, golint, govulncheck)
+check_records.py --check: exit 0
+```
+
+* **Fail-first.** The test's failing half is the MADR's scratch probe of 2026-10-22: on `v1.15.0`
+  with the check removed, "a prompt with an ended context put "session/cancel" on the wire".
+  Nothing new was added that would need its own plant.
+* **markdownlint.** The repository's config excludes MADR and PLAN files from its globs. Run on the
+  two 0184 files under that config anyway, HEAD has 445 MD004 findings (asterisk lists against the
+  pinned dash) and 1 MD010. S1 adds one MD004: the new bullet in 0184's MADR, in that file's own
+  asterisk style. This plan lints clean.
+
+#### Not done in S1
+
+* **`make live-grok`.** It is D2's gate, and runs once, at S6 (the owner's Q2 answer). D2 is not
+  done until then.
+* **`make ci-windows`** on the Windows test host: S6.
+* **The quota-free live grok tests** that 0184's B3 listed (`TestLiveGrokElicitationAtSessionStart`,
+  `TestLiveGrokPlanAtSessionStart`). They are live runs against grok, so they wait for S6 with
+  `make live-grok`.

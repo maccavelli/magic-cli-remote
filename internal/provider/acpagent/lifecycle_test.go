@@ -65,7 +65,10 @@ func TestCloseSendsSessionClose(t *testing.T) {
 	a.respond(req, map[string]any{})
 }
 
-// TestPromptSendsNothingWithAnEndedContext is step 10 for the turn path.
+// TestPromptSendsNothingWithAnEndedContext is step 10 for the turn path. Since
+// MADR 0207 D2 it pins the SDK's behaviour, not a check of ours: submitPrompt
+// calls Prompt directly, and acp-go-sdk2 v1.15.2 and later write nothing for an
+// ended context. On v1.15.0 this test fails without the old check.
 func TestPromptSendsNothingWithAnEndedContext(t *testing.T) {
 	s, a := newWireSession(t, `{}`)
 	ctx, cancel := context.WithCancel(context.Background())

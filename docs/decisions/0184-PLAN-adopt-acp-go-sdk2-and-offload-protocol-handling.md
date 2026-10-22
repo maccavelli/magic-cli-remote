@@ -1123,8 +1123,16 @@ Still `in-progress`, and this is what remains, checked against the tree and CI:
   2026-10-18 (B2).
 * **Not this PLAN's to close.** `maccavelli/acp-go-sdk2#7`, for which `submitPrompt` keeps
   its check, and gobble's own pin of the SDK.
+  *Note, 2026-10-22: #7 closed on 2026-10-18, its fix shipped in `v1.15.2`, and `submitPrompt`'s
+  check is gone with the move to `v1.20.0`
+  ([0207-PLAN-adopt-acp-go-sdk2-v1-20-0-and-agentproc.md](0207-PLAN-adopt-acp-go-sdk2-v1-20-0-and-agentproc.md),
+  S1). gobble's pin stays gobble's.*
 
 ## Amendment — 2026-10-19: B3 for `v1.15.2` (proposed)
+
+*Superseded, 2026-10-22, never run:* 0207 D2 moves to `v1.20.0` instead, with B3's steps, in
+[0207-PLAN-adopt-acp-go-sdk2-v1-20-0-and-agentproc.md](0207-PLAN-adopt-acp-go-sdk2-v1-20-0-and-agentproc.md)
+S1. Its `make live-grok` gate runs once, at that plan's S6.
 
 **Not approved.** This implements the MADR amendment of 2026-10-19 (G1–G6) once the owner approves
 it by name ("do B3"). It changes Go code in `internal/provider/acpagent` only, plus `go.mod` and

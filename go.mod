@@ -8,7 +8,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/libdns/route53 v1.6.2
-	github.com/maccavelli/acp-go-sdk2 v1.15.0
+	github.com/maccavelli/acp-go-sdk2 v1.20.0
 	github.com/maccavelli/go-selfupdate-lib v1.17.1
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/spf13/cobra v1.10.2
