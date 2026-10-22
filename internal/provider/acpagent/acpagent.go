@@ -21,10 +21,10 @@ import (
 
 	"github.com/google/uuid"
 	acp "github.com/maccavelli/acp-go-sdk2"
+	"github.com/maccavelli/acp-go-sdk2/agentproc"
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
-	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
@@ -33,6 +33,11 @@ import (
 // startTimeout bounds ACP initialize + session/new. The process outlives
 // the request context, but hung Start must not pin the WS handler forever.
 const startTimeout = 30 * time.Second
+
+// agentGrace is agentproc's grace for an agent. Magic stops agents with Kill
+// (MADR 0207 Q6), which has no grace steps, so it bounds only the wait in
+// Process.Wait for the wire capture's tap to write what it holds.
+const agentGrace = 2 * time.Second
 
 // loadTimeout bounds session/load separately: the agent replays the entire
 // prior conversation as notifications before responding, so long sessions
@@ -467,21 +472,12 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	}
 	cmd.Dir = procDir
 	log := p.log
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
 
 	s := &session{
 		providerID:              p.spec.ID,
 		provider:                p,
 		extNotificationHandlers: p.spec.ExtensionNotifications,
 		procDir:                 procDir,
-		cmd:                     cmd,
 		terms:                   newTerminalHost(),
 		log:                     log,
 		events:                  make(chan event.Event, 256),
@@ -501,35 +497,32 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		prefix: string(p.spec.ID) + "-stderr",
 		onLine: s.noteEngineLogLine,
 	}
-	if err := cmd.Start(); err != nil {
+	// agentproc starts the agent in a process group of its own on Unix, and in
+	// a kill-on-close job on Windows, started suspended until it is in the job,
+	// so its descendants end with it (MADR 0150 D2; 0207 D10). On Linux it also
+	// sets a Pdeathsig, from a thread held for the agent's life. It ties the
+	// process to the connection, and it reaps.
+	//
+	// wirecap.For returns nil unless MCREMOTE_WIRE_CAPTURE_DIR is set, and a nil
+	// capture's Tap is a nil writer: no tap (MADR 0137 Phase 1). The logger is a
+	// connection option, applied before the SDK's goroutines start reading
+	// (acp-go-sdk2 WithLogger; MADR 0184 D2). The SDK reads before Start
+	// returns, so s is complete before Start is called.
+	s.wire = wirecap.For(string(p.spec.ID))
+	proc, err := (&agentproc.Command{
+		Cmd:               cmd,
+		Grace:             agentGrace,
+		ConnectionOptions: clientConnOptions(log),
+		OutputTap:         s.wire.Tap(),
+	}).Start(s)
+	if err != nil {
 		return nil, fmt.Errorf("start %s: %w", p.cfg.Bin, err)
 	}
-	// Bind the agent's descendants to a job object so they die with it
-	// (MADR 0150 D2). Stored on the session and called from teardown, never
-	// deferred here: closing the job kills the tree (0150 D3). A failure to
-	// supervise fails the spawn rather than running an agent whose
-	// grandchildren are known to be unreachable (0150 C4).
-	release, superviseErr := procutil.SuperviseStarted(cmd.Process)
-	if superviseErr != nil {
-		_ = procutil.KillProcessGroup(cmd.Process)
-		return nil, fmt.Errorf("supervise %s: %w", p.cfg.Bin, superviseErr)
-	}
-	s.release = release
-	killTree := func() {
-		release()
-		_ = procutil.KillProcessGroup(cmd.Process)
-	}
-
-	// The ACP SDK owns its own read loop, so the only seam for capturing raw
-	// agent->client frames is the reader handed to it (MADR 0137 Phase 1).
-	// wirecap.For returns nil unless MCREMOTE_WIRE_CAPTURE_DIR is set, and a
-	// nil capture's TeeReader returns the reader unchanged.
-	s.wire = wirecap.For(string(p.spec.ID))
-	// The logger is an option, applied before the SDK's goroutines start reading
-	// (acp-go-sdk2 WithLogger). A SetLogger call after construction would race
-	// them, which is why the fork's connections had none (MADR 0184 D2).
-	conn := acp.NewClientSideConnection(s, stdin, s.wire.TeeReader(stdout), clientConnOptions(log)...)
+	s.proc = proc
+	conn := proc.Conn()
 	s.conn = conn
+	// killTree ends the agent and reaps it, before the exit watcher exists.
+	killTree := func() { _ = proc.Kill() }
 
 	parent := ctx
 	if parent == nil {
@@ -542,11 +535,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	// initResp.Meta, which is where grok's vendor fields live (MADR 0167 F15).
 	initResp, err := conn.Initialize(initCtx, p.initializeRequest())
 	if err != nil {
-		// cmd.Wait (not Process.Wait) so exec closes the parent ends of the
-		// stdio pipes — Process.Wait leaks two fds per failed spawn. Safe
-		// here: the exit watcher starts only after initialize succeeds.
 		killTree()
-		_ = cmd.Wait()
 		return nil, fmt.Errorf("acp initialize: %w", err)
 	}
 
@@ -561,13 +550,11 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		id, err := selectACPAuthMethod(advertised, p.cfg.AuthMethodID, p.spec.SafeAuthMethodIDs, hasKey)
 		if err != nil {
 			killTree()
-			_ = cmd.Wait()
 			return nil, err
 		}
 		if id != "" {
 			if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(id)}); err != nil {
 				killTree()
-				_ = cmd.Wait()
 				return nil, fmt.Errorf("acp authenticate (%s): %w", id, err)
 			}
 			s.log.Info("acp authenticated", slog.String("method_id", id))
@@ -579,7 +566,6 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			MethodId: acp.AuthMethodId(p.cfg.AuthMethodID),
 		}); err != nil {
 			killTree()
-			_ = cmd.Wait()
 			return nil, fmt.Errorf("acp authenticate (%s): %w", p.cfg.AuthMethodID, err)
 		}
 		s.log.Info("acp authenticated", slog.String("method_id", p.cfg.AuthMethodID))
@@ -595,8 +581,8 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			slog.Int("count", len(advertised)))
 	}
 
-	// Watch process exit from here on (the watcher owns cmd.Wait; later
-	// failure paths must kill via markClosedAndKill, never Wait themselves).
+	// Watch process exit from here on. The watcher's Wait reaps; later failure
+	// paths kill through markClosedAndKill, which does not wait.
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -604,12 +590,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 				s.signalDisconnected("process exit watcher panic")
 			}
 		}()
-		err := cmd.Wait()
-		s.mu.Lock()
-		// Reaped: from here the PID may be recycled, so Close must never
-		// signal the process group again.
-		s.procExited = true
-		s.mu.Unlock()
+		err := proc.Wait()
 		msg := fmt.Sprintf("%s process exited", p.spec.ID)
 		if err != nil {
 			msg = fmt.Sprintf("%s process exited: %v", p.spec.ID, err)
@@ -746,8 +727,15 @@ func (p *Provider) claimWarm(wantDir string) *session {
 	p.warm = nil
 	p.warmMu.Unlock()
 	s.mu.Lock()
-	dead := s.procExited || s.closed
+	dead := s.closed
 	s.mu.Unlock()
+	if s.proc != nil {
+		select {
+		case <-s.proc.Done():
+			dead = true
+		default:
+		}
+	}
 	if dead {
 		s.markClosedAndKill()
 		return nil

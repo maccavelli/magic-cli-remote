@@ -28,7 +28,6 @@ func newExtSession(timeout time.Duration) *session {
 		pending:    make(map[string]*permWaiter),
 		questions:  make(map[string]*questionWaiter),
 		attached:   true,
-		procExited: true, // skip the process kill in Close
 		cfg:        Config{PermissionTimeout: timeout},
 	}
 }

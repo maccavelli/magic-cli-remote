@@ -112,6 +112,8 @@ its amendment of 2026-10-22.
 * `prewarm_test.go`, `session_test.go`;
 * a new `internal/provider/acpagent/agentproc_test.go`;
 * `internal/wirecap/wirecap.go`, `wirecap_test.go`, for the `TeeReader` removal;
+* `internal/provider/acpagent/extensions_test.go`, and a new
+  `internal/provider/acpagent/agentproc_unix_test.go`. Added by S3 deviation 1.
 * this plan.
 
 1. **`spawnAgent`** (`acpagent.go:455-627`).
@@ -161,7 +163,9 @@ its amendment of 2026-10-22.
      * Plant: start with `cmd.SysProcAttr.Pgid` preset. The spawn must fail, which shows the test
        sees `agentproc`'s refusal.
    * **Agent exit.** Killing the helper from outside makes the session emit `disconnected` once.
-     * Plant: drop the watcher. The test must fail.
+     * ~~Plant: drop the watcher. The test must fail.~~ Plant: drop both watchers, the exit
+       watcher and `watchConnClose`. The test must fail. (S3 deviation 2: either watcher alone
+       reports the death.)
 8. **Verify:**
    * `make test`, `make race`;
    * `go vet ./...` with `GOOS` set to `darwin`, `linux` and `windows`;
@@ -374,3 +378,127 @@ make pre-add-check FILES="internal/wirecap/wirecap.go internal/wirecap/wirecap_t
 make test: exit 0; 43 ok, 0 FAIL lines
 make race: exit 0; 43 ok, 0 FAIL lines
 ```
+
+S2 was committed by the owner as `4234e614`.
+
+### S3 — 2026-10-22
+
+#### Deviation 1 — 2026-10-22: two test files added to S3's files
+
+* **Found, before any S3 edit:**
+  * `internal/provider/acpagent/extensions_test.go:31` builds a session with `procExited: true`
+    to skip the kill in `Close`. Step 4 removes the field, so the file would not compile. The
+    same line in `session_test.go:136` and `prewarm_test.go:45` is in S3's list; this one was
+    missed.
+  * Step 7's check that the agent has a process group of its own needs `syscall.Getpgid`, which
+    does not exist on Windows. The Windows build of the package's tests would not compile.
+* **Decision:** the owner chose "Add both files (Recommended)".
+  * `extensions_test.go` loses the `procExited` line. Its session has no process, so nothing is
+    killed either way.
+  * A new `agentproc_unix_test.go` (`//go:build unix`) holds the process-group assertion.
+    `agentproc_test.go` keeps the parts that run everywhere.
+
+#### Deviation 2 — 2026-10-22: the agent-death plant drops both watchers
+
+* **Found, on a scratch copy (`s3/plants.py`):** step 7 planned to drop the exit watcher and see
+  `TestSpawnedAgentDeathIsOneDisconnect` fail. It passed:
+  `--- PASS: TestSpawnedAgentDeathIsOneDisconnect (0.23s)`.
+  * `watchConnClose` sees the same death, since the agent's output ends with it, and sends the
+    one disconnect.
+  * That is the design both before and after S3: two watchers, one latch (`signalDisconnected`).
+* **Decision:** the owner chose "Plant both watchers (Recommended)". With both dropped the test
+  fails: "no disconnected status after the agent died". S4 tests each watcher's message on its
+  own.
+
+#### What was done
+
+1. **`spawnAgent`** builds the command as before: `launch.Resolve`, `launch.Command`, `cmd.Dir`
+   and the stderr `slogWriter`. Then:
+   * it starts the agent with `agentproc.Command{Cmd, Grace: agentGrace, ConnectionOptions:
+     clientConnOptions(log), OutputTap: s.wire.Tap()}.Start(s)`;
+   * it sets `s.proc`, and `s.conn = proc.Conn()`.
+
+   `agentGrace` is a 2 s constant, and its comment says what it bounds under `Kill`.
+2. **Gone from `spawnAgent`:** the pipes, `cmd.Start`, `SuperviseStarted` and its release, and
+   every `cmd.Wait`.
+   * Spawn's four failure paths call `killTree`, now `proc.Kill()`, which kills and reaps.
+   * The exit watcher waits on `proc.Wait()`. Its message is unchanged, for S4.
+3. **`session`.**
+   * `cmd`, `release` and `procExited` are replaced by `proc`, and `killProcessTree` is deleted.
+   * `markClosedAndKill` and `Close` call a new `killProc`, which starts `proc.Kill()` on a
+     goroutine. That keeps the old contract: signal, and let the watcher reap.
+   * `Close`'s comment on recycled PIDs now says why there is nothing to guard: `agentproc` sends
+     nothing to an agent it has reaped.
+4. **`claimWarm`** treats a spare as dead when `s.closed` is set or `s.proc.Done()` is closed.
+5. **`wirecap`.**
+   * `TeeReader` and `teeReader` are deleted. `Tap`'s comment records that it replaced them.
+   * `TestTeeReaderEmitsOnNewline` is deleted, and the `TeeReader` half of
+     `TestNilCaptureMethodsNoop` with it.
+   * S2's comparison test became `TestTapFramesLinesAcrossWrites`, with the same chunks and the
+     same expected frames.
+6. **Tests.** The test binary is its own agent: `TestMain` serves a minimal ACP agent when
+   `MCREMOTE_TEST_ACP_AGENT=serve`, and exits at once for `exit`. The serving agent writes its PID to
+   the file `MCREMOTE_TEST_ACP_AGENT_PIDFILE` names.
+   * `TestSpawnAgentStartsThroughAgentproc`: initialize; the capture's first frame is the raw
+     `initialize` answer; after `Close`, the agent is gone before `agentGrace` has passed.
+   * `TestSpawnedAgentDeathIsOneDisconnect`: the agent is killed from outside by its PID. One
+     error and one `disconnected` follow.
+   * `TestSpawnedAgentHasItsOwnProcessGroup` (Unix): `getpgid(pid) == pid`.
+   * `TestClaimWarmRejectsDeadSpare` now uses a reaped `exit` agent.
+   * A new `TestClaimWarmRejectsClosedSpareWithoutProcess` covers a closed spare with no process.
+7. `extensions_test.go` and `session_test.go` lose `procExited` (deviation 1).
+
+#### Two assertions the plants caught as vacuous, fixed before the phase closed
+
+* **Close ending the agent passed with `killProc` removed.**
+  * The helper exited by itself at its input's end, which `Close` brings about.
+  * The helper now sleeps a minute after its input ends, as a wedged agent would.
+* **It still passed: `--- PASS … (2.05s)`.** `agentproc`'s own tie stops an agent whose connection
+  ended, after the grace, with SIGTERM (G1).
+  * The test now requires the agent gone before `agentGrace`.
+  * Without `Kill` it fails: "the agent ended 2.005729667s after Close, not before agentproc's
+    grace of 2s: Close did not kill it".
+
+#### Fail-first, on scratch copies of the module (`s3/plants.py`), final run
+
+```text
+== control: no plant: PASS (as expected)
+== preset Pgid: agentproc must refuse the start: FAIL (as expected)
+   agentproc_test.go:141: start …/acpagent.test: agentproc: Command.Cmd.SysProcAttr.Pgid is set; the agent needs a process group of its own
+== Close does not kill: FAIL (as expected)
+   agentproc_test.go:155: the agent ended 2.005729667s after Close, not before agentproc's grace of 2s: Close did not kill it
+== no tap: FAIL (as expected)
+   agentproc_test.go:166: the capture's first frame is not the initialize answer: ""
+== exit watcher only dropped (the PLAN's planned plant): PASS (recorded)
+== both watchers dropped: FAIL (as expected)
+   agentproc_test.go:202: no disconnected status after the agent died
+== claimWarm ignores an exited process: FAIL (as expected)
+   prewarm_test.go:52: dead spare must not be claimed
+```
+
+The process-group test has no Magic-side plant. On this path the group is `agentproc`'s to make,
+and the preset-`Pgid` plant shows Magic's start goes through that check.
+
+#### Verification, 2026-10-22, go1.27.3 on darwin/arm64
+
+```text
+vet-darwin: exit 0; vet-linux: exit 0; vet-windows: exit 0
+make test: exit 0; 43 ok, 0 FAIL lines
+make race: exit 0; 43 ok, 0 FAIL lines
+make lint: exit 0
+make staticcheck: exit 0
+make pre-add-check FILES="(the nine S3 Go files)": 9 file(s) clean (gofmt, golint, govulncheck)
+git grep -n -E "SuperviseStarted|KillProcessGroup|StdinPipe|StdoutPipe" -- internal/provider/acpagent:
+  terminal.go:39, :111, :113 only
+pgrep -fl acpagent.test after the runs: no process left
+```
+
+* **A whitespace-only fix landed after the gate run.** gofmt's alignment of `session`'s fields
+  came after it, so `go test -race` was re-run on `acpagent` and `wirecap` with the final bytes:
+  both ok.
+
+#### Not done in S3
+
+* **Windows and Linux.** The job, its suspended start and breakaway, and `Pdeathsig` were not run
+  on their hosts. That is S6.
+* **The exit watcher's message is unchanged.** Its text is S4's.

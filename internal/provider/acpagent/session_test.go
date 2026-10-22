@@ -127,13 +127,12 @@ func TestSessionUpdateIgnoresUserMessageChunk(t *testing.T) {
 // permission_resolved (Phase 2.5 / B.2).
 func TestCloseUnblocksPendingPermission(t *testing.T) {
 	s := &session{
-		localID:    "l",
-		agentID:    "a",
-		events:     make(chan event.Event, 16),
-		done:       make(chan struct{}),
-		log:        slog.Default(),
-		pending:    make(map[string]*permWaiter),
-		procExited: true, // skip process kill
+		localID: "l",
+		agentID: "a",
+		events:  make(chan event.Event, 16),
+		done:    make(chan struct{}),
+		log:     slog.Default(),
+		pending: make(map[string]*permWaiter),
 	}
 	ch := make(chan permResult, 1)
 	s.pending["p1"] = &permWaiter{ch: ch}

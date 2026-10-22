@@ -41,15 +41,31 @@ func TestClaimWarmRejectsDeadSpare(t *testing.T) {
 	dir := t.TempDir()
 	p := &Provider{log: slog.Default()}
 	warm := &session{
-		procDir:    dir,
-		procExited: true,
-		done:       make(chan struct{}),
-		events:     make(chan event.Event, 1),
+		procDir: dir,
+		proc:    exitedAgentProcess(t),
+		done:    make(chan struct{}),
+		events:  make(chan event.Event, 1),
 	}
 	p.warm = warm
 
 	if got := p.claimWarm(dir); got != nil {
 		t.Fatal("dead spare must not be claimed")
+	}
+}
+
+// TestClaimWarmRejectsClosedSpareWithoutProcess: a spare marked closed is dead
+// even when it has no process to ask.
+func TestClaimWarmRejectsClosedSpareWithoutProcess(t *testing.T) {
+	dir := t.TempDir()
+	p := &Provider{log: slog.Default()}
+	p.warm = &session{
+		procDir: dir,
+		closed:  true,
+		done:    make(chan struct{}),
+		events:  make(chan event.Event, 1),
+	}
+	if got := p.claimWarm(dir); got != nil {
+		t.Fatal("closed spare must not be claimed")
 	}
 }
 

@@ -160,34 +160,11 @@ func (c *Capture) Close() {
 	_ = c.f.Close()
 }
 
-// TeeReader returns r wrapped so every line read is recorded. Used where a
-// third-party SDK owns the read loop and the only seam is the io.Reader handed
-// to it — grok's ACP stdio connection.
-func (c *Capture) TeeReader(r interface{ Read([]byte) (int, error) }) interface {
-	Read([]byte) (int, error)
-} {
-	if c == nil {
-		return r
-	}
-	return &teeReader{src: r, lines: lines{cap: c}}
-}
-
-type teeReader struct {
-	src   interface{ Read([]byte) (int, error) }
-	lines lines
-}
-
-func (t *teeReader) Read(p []byte) (int, error) {
-	n, err := t.src.Read(p)
-	if n > 0 {
-		t.lines.add(p[:n])
-	}
-	return n, err
-}
-
 // Tap returns a writer that records every line written to it. It is for a
 // transport that hands a copy of the raw stream to a writer instead of taking
-// a reader: acp-go-sdk2's agentproc.Command.OutputTap (MADR 0207 D10).
+// a reader: acp-go-sdk2's agentproc.Command.OutputTap, which every ACP agent's
+// connection runs through (MADR 0207 D10). It replaced a reader wrapper,
+// TeeReader, when the SDK came to own the agent's pipes.
 //
 // For a nil Capture it returns a nil io.Writer, not a typed nil. OutputTap is
 // an interface, and an interface holding a nil pointer is a set tap.

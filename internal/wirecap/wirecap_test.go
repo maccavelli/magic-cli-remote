@@ -3,7 +3,6 @@ package wirecap
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,11 +49,6 @@ func TestNilCaptureMethodsNoop(t *testing.T) {
 	var c *Capture
 	c.Frame([]byte("x"))
 	c.Close()
-	r := bytes.NewReader([]byte("line\n"))
-	tr := c.TeeReader(r)
-	if tr != r {
-		t.Fatal("nil Capture.TeeReader should return the original reader")
-	}
 }
 
 func TestFrameEscapesEmbeddedNewlines(t *testing.T) {
@@ -166,42 +160,6 @@ func TestRedactAbsoluteAndRelativeHome(t *testing.T) {
 	})
 }
 
-func TestTeeReaderEmitsOnNewline(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "frames.jsonl")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &Capture{f: f}
-	defer c.Close()
-
-	r := &chunkReader{chunks: [][]byte{
-		[]byte("hel"),
-		[]byte("lo\n"),
-		[]byte("next\n"),
-	}}
-	tr := c.TeeReader(r)
-	buf := make([]byte, 8)
-	for {
-		_, err := tr.Read(buf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := strings.Split(strings.TrimSuffix(string(got), "\n"), "\n")
-	if len(lines) != 2 || lines[0] != "hello" || lines[1] != "next" {
-		t.Fatalf("frames = %#v, want [hello next]", lines)
-	}
-}
-
 // TestTapOfNilCaptureIsNilWriter: a disabled capture must hand agentproc no
 // tap at all. A typed nil in the io.Writer would be a set tap (MADR 0207 G1).
 func TestTapOfNilCaptureIsNilWriter(t *testing.T) {
@@ -224,26 +182,16 @@ func testCapture(t *testing.T) (*Capture, string) {
 	return c, path
 }
 
-// TestTapRecordsWhatTeeReaderRecords: the same bytes, written to Tap in uneven
-// chunks, give the same frames as TeeReader reading them. That includes a line
-// split across writes and a last line with no newline, which both hold.
-func TestTapRecordsWhatTeeReaderRecords(t *testing.T) {
+// TestTapFramesLinesAcrossWrites: bytes written to Tap in uneven chunks are
+// recorded one frame per line, as the reader wrapper it replaced recorded them
+// (MADR 0207 D10). That includes a line split across writes, and a last line
+// with no newline, which is held.
+func TestTapFramesLinesAcrossWrites(t *testing.T) {
 	chunks := [][]byte{
 		[]byte("hel"),
 		[]byte("lo\nne"),
 		[]byte("xt\n{\"a\":1}\n"),
 		[]byte("tail without newline"),
-	}
-
-	tee, teePath := testCapture(t)
-	tr := tee.TeeReader(&chunkReader{chunks: chunks})
-	buf := make([]byte, 32)
-	for {
-		if _, err := tr.Read(buf); err == io.EOF {
-			break
-		} else if err != nil {
-			t.Fatal(err)
-		}
 	}
 
 	tap, tapPath := testCapture(t)
@@ -254,15 +202,12 @@ func TestTapRecordsWhatTeeReaderRecords(t *testing.T) {
 		}
 	}
 
-	want := "hello\nnext\n{\"a\":1}\n"
-	for name, path := range map[string]string{"TeeReader": teePath, "Tap": tapPath} {
-		got, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != want {
-			t.Errorf("%s frames = %q, want %q", name, got, want)
-		}
+	got, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "hello\nnext\n{\"a\":1}\n"; string(got) != want {
+		t.Errorf("frames = %q, want %q", got, want)
 	}
 }
 
@@ -307,18 +252,4 @@ func TestFrameNoopOnWhitespace(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("whitespace-only frames should not write, got %q", got)
 	}
-}
-
-type chunkReader struct {
-	chunks [][]byte
-	i      int
-}
-
-func (s *chunkReader) Read(p []byte) (int, error) {
-	if s.i >= len(s.chunks) {
-		return 0, io.EOF
-	}
-	n := copy(p, s.chunks[s.i])
-	s.i++
-	return n, nil
 }

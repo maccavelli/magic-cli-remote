@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
@@ -20,10 +19,10 @@ import (
 
 	"github.com/google/uuid"
 	acp "github.com/maccavelli/acp-go-sdk2"
+	"github.com/maccavelli/acp-go-sdk2/agentproc"
 	"github.com/maccavelli/magic-cli-remote/internal/agenterr"
 	"github.com/maccavelli/magic-cli-remote/internal/chunkbuf"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
-	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpcommon"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/output"
@@ -41,17 +40,6 @@ const maxPendingChunkBytes = 8 << 10
 
 // chunkRetryDelay re-arms a flush whose non-blocking send lost to a slow pump.
 var chunkRetryDelay = 50 * time.Millisecond
-
-func killProcessTree(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	// SIGKILL the group only; the exit watcher (spawnAgent) owns cmd.Wait and
-	// reaps. A second Wait here would race the watcher's Wait (concurrent Wait
-	// on one process is unsafe). Callers MUST hold s.mu and confirm procExited
-	// is false so the PID cannot have been recycled before this signal.
-	return procutil.KillProcessGroup(cmd.Process)
-}
 
 // session is one ACP-backed agent conversation.
 type session struct {
@@ -78,14 +66,13 @@ type session struct {
 	// the requested session cwd matches procDir.
 	procDir string
 	conn    *acp.ClientSideConnection
-	cmd     *exec.Cmd
-	// release closes the job object holding this agent's descendant tree.
-	// Calling it KILLS the tree, so it is teardown state, not a defer at the
-	// spawn site (MADR 0150 D3). Nil until spawnAgent supervises the process.
-	release func()
-	terms   *terminalHost
-	log     *slog.Logger
-	events  chan event.Event
+	// proc is the agent process, started by agentproc, which owns its process
+	// group or job, its tie to conn, and its reaping (MADR 0207 D10). Nil for a
+	// session built without a process, as tests build them.
+	proc   *agentproc.Process
+	terms  *terminalHost
+	log    *slog.Logger
+	events chan event.Event
 	// agentCaps is the capability set the agent advertised at initialize.
 	// Read-only after spawnAgent; gates loadSession, prompt image/audio, and
 	// which MCP transports may be forwarded.
@@ -145,12 +132,8 @@ type session struct {
 	// the initial status emit) there is no consumer, so control-event delivery
 	// must not block — it drops the oldest buffered event instead.
 	attached bool
-	// procExited is set by the exit watcher after cmd.Wait has reaped the
-	// child. Once reaped, the PID may be recycled, so Close must not signal
-	// the (now unrelated) process group.
-	procExited bool
 	// disconnected latches the terminal teardown so the two independent
-	// watchers (process exit via cmd.Wait, connection death via conn.Done)
+	// watchers (process exit via proc.Wait, connection death via conn.Done)
 	// emit the disconnected status at most once between them.
 	disconnected bool
 	// syntheticModes is set when the advertised mode list came from
@@ -1183,7 +1166,8 @@ func (s *session) RespondPermission(ctx context.Context, permissionID, optionID 
 
 // markClosedAndKill abandons a session whose setup failed (or a spare that
 // was never used): suppresses further watcher events, wakes any parked
-// deliverers, and SIGKILLs the process group. The exit watcher owns reaping.
+// deliverers, and kills the agent's process group or job. It does not wait for
+// the reap; the exit watcher's Wait does that.
 func (s *session) markClosedAndKill() {
 	s.mu.Lock()
 	if s.closed {
@@ -1191,12 +1175,21 @@ func (s *session) markClosedAndKill() {
 		return
 	}
 	s.closed = true
-	exited := s.procExited
 	s.mu.Unlock()
 	close(s.done)
-	if !exited && s.cmd != nil && s.cmd.Process != nil {
-		_ = procutil.KillProcessGroup(s.cmd.Process)
+	s.killProc()
+}
+
+// killProc starts agentproc's Kill, which ends the agent's process group or
+// job at once and sends nothing to an agent that has already exited, so no
+// recycled PID is ever signalled. Kill returns only once the agent is reaped,
+// so it runs on a goroutine of its own: callers keep the old contract of
+// signalling without waiting (MADR 0207 D10, Q6).
+func (s *session) killProc() {
+	if s.proc == nil {
+		return
 	}
+	go func() { _ = s.proc.Kill() }()
 }
 
 // signalDisconnected emits the terminal error + disconnected status so the
@@ -1358,21 +1351,11 @@ func (s *session) Close(ctx context.Context) error {
 	if s.terms != nil {
 		s.terms.CloseAll()
 	}
-	// Kill under the lock, re-reading procExited so the decision is atomic with
-	// the exit watcher setting it: if the child was already reaped (during the
-	// bounded CloseSession above, which commonly makes the agent exit), the PID
-	// may be recycled and we must NOT signal its group. The signal itself is a
-	// non-blocking syscall, so holding s.mu across it cannot deadlock.
-	s.mu.Lock()
-	if !s.procExited && s.cmd != nil && s.cmd.Process != nil {
-		_ = killProcessTree(s.cmd)
-		// The group signal reaches only the direct child on Windows; closing
-		// the job takes the agent's own descendants (MADR 0150 D2/D3).
-		if s.release != nil {
-			s.release()
-		}
-	}
-	s.mu.Unlock()
+	// Kill at once, as before (MADR 0207 Q6): the process group on Unix, the
+	// job on Windows, so the agent's descendants end with it (MADR 0150 D2).
+	// agentproc never signals an agent it has reaped, so an agent that exited
+	// during the bounded CloseSession above is left alone.
+	s.killProc()
 	return nil
 }
 
