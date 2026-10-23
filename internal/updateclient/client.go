@@ -192,6 +192,18 @@ var (
 		}
 		return detacherFor(runtime.GOOS, b)
 	}
+	// newCommandInsider is the update's refusal backend, where it sets no
+	// handoff: the backend that can tell whether this process runs inside
+	// the service, so that an update there refuses before it downloads
+	// (MADR 0210 D8). It reports false where newCommandDetacher reports
+	// true, and when no backend can be built.
+	newCommandInsider = func(product string, health service.HealthOptions) (insider, bool) {
+		b, err := newBackend(product, "", health)
+		if err != nil {
+			return nil, false
+		}
+		return insiderFor(runtime.GOOS, b)
+	}
 	// commandArgs is the command line a detached run executes again: this
 	// process's own, so global flags such as --config carry over.
 	commandArgs = func() []string { return os.Args[1:] }
@@ -208,6 +220,41 @@ func detacherFor(goos string, backend any) (libservice.Detacher, bool) {
 	}
 	d, ok := backend.(libservice.Detacher)
 	return d, ok
+}
+
+// insider is a backend that can tell whether this process runs inside the
+// service: Magic's runit, s6 and OpenRC backend (MADR 0210 D4), and the
+// library's Task Scheduler backend.
+type insider interface {
+	Inside(ctx context.Context) (bool, error)
+}
+
+// insiderFor returns backend as an insider where detacherFor sets no
+// handoff: on Windows (D3), and for a backend that is not a Detacher (D4).
+func insiderFor(goos string, backend any) (insider, bool) {
+	if _, ok := detacherFor(goos, backend); ok {
+		return nil, false
+	}
+	i, ok := backend.(insider)
+	return i, ok
+}
+
+// refuseInside is the handoff's Detach where nothing can hand off (MADR 0210
+// D8). Inside the service it fails the run with ErrInsideService before
+// anything is downloaded; outside, the run goes on. An Inside error fails the
+// run, and is never read as outside. The backend's Stop keeps its own refusal
+// behind this one.
+func refuseInside(product string, b insider) func(context.Context, selfupdate.Request) (bool, string, error) {
+	return func(ctx context.Context, _ selfupdate.Request) (bool, string, error) {
+		in, err := b.Inside(ctx)
+		if err != nil {
+			return false, "", err
+		}
+		if in {
+			return false, "", fmt.Errorf("this update runs inside the %s service and cannot hand off here; run it from a shell: %w", product, libservice.ErrInsideService)
+		}
+		return false, "", nil
+	}
 }
 
 // ExitError is the exit status of an update command that did not succeed.
@@ -249,7 +296,8 @@ unless --json is given, which writes JSON Lines ending in one result object.
 Run from inside the service, such as by an agent in a phone session, the
 update hands itself off to the service manager and needs --yes, since the
 detached run cannot prompt. On Windows, and under runit, s6 and OpenRC, it
-refuses instead and leaves the service running.
+refuses before downloading and leaves the service running; run it from a
+shell there.
 
 Exit status: 0 up to date, declined, installed or handed off; 10 an update is
 available (with --check); 1 any error. Set GH_TOKEN or GITHUB_TOKEN to raise API rate
@@ -279,11 +327,15 @@ before install, which preserves TCC grants (MADR 0069).`,
 			// spawned, the update starts a detached copy of this command
 			// outside the service's kill scope and returns at once
 			// (MADR 0210 D1; the library's service.HandOffFunc).
+			// Where nothing can hand off, such an update refuses before it
+			// downloads (MADR 0210 D8).
 			if d, ok := newCommandDetacher(product, health); ok {
 				o.HandOff = cli.HandOff{
 					Detach: libservice.HandOffFunc(d, libservice.HandOff{Args: commandArgs()}),
 					Report: libservice.ReportFunc(),
 				}
+			} else if b, ok := newCommandInsider(product, health); ok {
+				o.HandOff.Detach = refuseInside(product, b)
 			}
 			// The caller's context, never context.Background: Ctrl-C during a
 			// download must actually cancel it (MADR 0005 F2). cli.Run adds the

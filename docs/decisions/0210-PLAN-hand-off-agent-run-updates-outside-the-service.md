@@ -1,5 +1,5 @@
 ---
-status: complete
+status: in-progress
 date: 2026-10-23
 associated-madr: "0210-MADR-hand-off-agent-run-updates-outside-the-service.md"
 ---
@@ -910,9 +910,10 @@ L1 was committed as `907c3c29`, at the owner's word ("Commit to master").
 
 ## Amendment — 2026-10-23 (A): L1's three findings
 
-**Status: proposed.** This implements the MADR's "Amendment — 2026-10-23 (A)": D8 (F7), D9 (F6)
-and D10 (F5). The phases above stay complete. The front matter's `status` becomes `in-progress`
-when the owner approves this amendment. With the owner's answers of 2026-10-23 ("5C: both",
+~~**Status: proposed.**~~ **Approved by the owner on 2026-10-23 ("proceed"); in progress.** This
+implements the MADR's "Amendment — 2026-10-23 (A)": D8 (F7), D9 (F6)
+and D10 (F5). The phases above stay complete. The front matter's `status` became `in-progress`
+on that approval. With the owner's answers of 2026-10-23 ("5C: both",
 "Skip R2"), the order is A0, A1, A2, A3, then L2, and ~~R2~~ does not run. The rules for every phase, above, apply
 unchanged: files named at the start, every new test seen failing first on a scratch copy, the
 gates, the guard's redact preview, and each phase staged for the owner.
@@ -1054,3 +1055,89 @@ A3's commit. The kit is R0's, under the rules R1's deviations set.
   * F5 comes back: a harmless journal line.
 
   Nothing is migrated, so nothing has to be undone on a host.
+
+### Execution record for amendment A
+
+#### A0, 2026-10-23: the library issue
+
+Filed as [go-selfupdate-lib#7](https://github.com/maccavelli/go-selfupdate-lib/issues/7), label
+`enhancement`, on the owner's "5C: both" and "proceed".
+
+* **Title:** "service: Detach copies the caller's per-unit service-manager variables into the
+  detached run". The `service:` prefix follows the library's issue titles, such as #6; the
+  wording is otherwise A0's.
+* **Body:** the request and the 5B list; F5's journal line with the unit, ID and PIDs as
+  placeholders; the sender as "most likely `systemctl --user daemon-reload`", not traced further
+  ("Skip R2"); and the cited lines, checked against the module cache at `v1.17.2`.
+* **Added while checking the citations.** Two more places pass `os.Environ()` on, and the body
+  names them: `selfupdate/service/execreconciler.go:176`, the reconcile command, and
+  `selfupdate/service/detach.go:30`, `DetachProcess`. The reconcile command's line is how the
+  refresh, and its children, inherit the variable inside the transient unit. Nothing in Magic's
+  phases changes because of them.
+* **Before filing,** the disclosure guard's redact preview ran over the body in a scratch
+  repository: "would edit 0 file(s)".
+* Nothing waits on it.
+
+#### A1, 2026-10-23: refuse before the download
+
+**What changed.**
+
+* **`internal/updateclient/client.go`:**
+  * `insider` is `interface{ Inside(ctx context.Context) (bool, error) }`.
+  * `insiderFor(goos, backend)` returns the backend as an `insider` only where `detacherFor`
+    reports false: on Windows, and for a backend that is not a `Detacher`.
+  * The seam `newCommandInsider(product, health) (insider, bool)` builds `newBackend(product, "",
+    health)` and returns it through `insiderFor(runtime.GOOS, b)`.
+  * `refuseInside(product, b)` is a `cli.HandOff.Detach`. Inside, it returns `this update runs
+    inside the <product> service and cannot hand off here; run it from a shell: %w` around
+    `libservice.ErrInsideService`. Outside, it returns `false, "", nil`. An `Inside` error is
+    returned as it is.
+  * In `RunE`, where `newCommandDetacher` reports false and `newCommandInsider` reports true,
+    `o.HandOff.Detach` is `refuseInside(product, b)`. `Report` stays unset there.
+  * The `Long` help now says that on Windows, runit, s6 and OpenRC the update "refuses before
+    downloading and leaves the service running; run it from a shell there".
+* **`internal/updateclient/command_test.go`:**
+  * `runCommandContext` sets `newCommandInsider` to `commandTestInsider`, or to none, as it does
+    for the detacher. It also counts `downloads`, the fake GitHub's requests to the asset host.
+  * Four tests are new: `TestUpdateRefusesInsideBeforeDownloading`,
+    `TestUpdateOutsideRunsWhereNothingHandsOff`, `TestUpdateFailsWhenInsideCannotBeTold` and
+    `TestUpdateChecksAndDryRunsNeverAskInside`. They use a `fakeInsider` that counts its calls.
+  * `TestDetacherForGatesWindowsAndScriptBackends` gains a second column, the refusal. A Detacher
+    on Windows now gets the refusal. H1's "no handoff" case was that table's last row, "a backend
+    that is not a Detacher". It is now two rows: "a script backend", which gets the refusal, and
+    "a backend that answers neither", which gets nothing.
+* **Guides, unchanged.** They still read true. `ops-linux-install.md` says the update "refuses
+  from inside the service and leaves it running, so update from a shell instead".
+  `ops-windows-install.md` quotes "this process runs inside the service it would stop", which
+  still ends the new message, since that message wraps the library's error.
+
+**Seen failing first**, on a scratch copy of the tree (`a1_plants.py`). The restored copy passed.
+
+| Plant in `client.go` | Failed, with |
+| :--- | :--- |
+| never refuses (`if false && in`) | `…RefusesInsideBeforeDownloading`: "exit status 0, want 1" |
+| an `Inside` error read as outside | `…FailsWhenInsideCannotBeTold`: "exit status 0", "the failed update downloaded 2 asset(s)", "changed the executable" |
+| the refusal not wired (`_ = b`) | `…RefusesInsideBeforeDownloading`, `…OutsideRunsWhereNothingHandsOff` ("Inside was never asked"), `…FailsWhenInsideCannotBeTold` |
+| `Inside` asked before the library decides | `…ChecksAndDryRunsNeverAskInside`: "[--check]: Inside calls 1", "[--dry-run --yes]: Inside calls 1" |
+| a Detacher refused too | `TestDetacherForGatesWindowsAndScriptBackends`: "a Detacher on Linux: insiderFor = true, want false", and on macOS |
+| the remedy dropped from the message | `…RefusesInsideBeforeDownloading`: the last line without "; run it from a shell" |
+| not `ErrInsideService` (`%v`, "inside") | `…RefusesInsideBeforeDownloading`: the last line ending "run it from a shell: inside" |
+
+The "downloaded 2 asset(s)" line shows that the download counter can fail: without the refusal,
+the run made two requests to the asset host.
+
+**Gates.**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the two Go files | "2 file(s) clean (gofmt, golint, govulncheck)" |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 43 packages ok, 0 FAIL lines |
+| `go mod tidy -diff` | no output |
+| `make markdownlint-docs`, `make check-records` | 0 issues in 55 files; exit 0 |
+
+The docs gates ran over a tree that also holds another session's unstaged changes:
+`.markdownlint-cli2.jsonc`, `docs/README.md` and the untracked 0211 pair. A1 does not touch or
+stage them.
+
+**Not done in A1.** A2 and A3. The refusal is confirmed live in L2.

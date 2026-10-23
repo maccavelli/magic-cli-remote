@@ -27,6 +27,8 @@ type commandRun struct {
 	exe            string
 	// requests is how many requests the fake GitHub received.
 	requests int
+	// downloads is how many of them were for a release asset.
+	downloads int
 }
 
 // lastLine is the last non-empty line of s.
@@ -74,17 +76,23 @@ func runCommandContext(ctx context.Context, t *testing.T, managed bool, current 
 		t.Fatal(err)
 	}
 	id := buildinfo.Info{Version: current, Kind: buildinfo.KindRelease}
-	prevID, prevNew, prevDet := commandIdentity, newCommandUpdater, newCommandDetacher
+	prevID, prevNew, prevDet, prevIns := commandIdentity, newCommandUpdater, newCommandDetacher, newCommandInsider
 	commandIdentity = func() buildinfo.Info { return id }
 	newCommandUpdater = func(product string, id buildinfo.Info, _ service.HealthOptions) (*selfupdate.Updater, error) {
 		return New(Options{Product: product, Identity: id, HTTPClient: gh.Client, APIBaseURL: gh.APIBase.String(), TargetPath: exe, Managed: managed})
 	}
 	// No test reaches the host's real service manager: the handoff backend is
-	// the one withDetacher sets, or none (MADR 0210 D1).
+	// the one withDetacher sets, or none (MADR 0210 D1), and the refusal
+	// backend the one withInsider sets, or none (D8).
 	newCommandDetacher = func(string, service.HealthOptions) (libservice.Detacher, bool) {
 		return commandTestDetacher, commandTestDetacher != nil
 	}
-	t.Cleanup(func() { commandIdentity, newCommandUpdater, newCommandDetacher = prevID, prevNew, prevDet })
+	newCommandInsider = func(string, service.HealthOptions) (insider, bool) {
+		return commandTestInsider, commandTestInsider != nil
+	}
+	t.Cleanup(func() {
+		commandIdentity, newCommandUpdater, newCommandDetacher, newCommandInsider = prevID, prevNew, prevDet, prevIns
+	})
 
 	cmd := NewCommand("mcremote", service.HealthOptions{})
 	var out, errb bytes.Buffer
@@ -93,7 +101,13 @@ func runCommandContext(ctx context.Context, t *testing.T, managed bool, current 
 	cmd.SetIn(strings.NewReader(stdin))
 	cmd.SetArgs(args)
 	err = cmd.ExecuteContext(ctx)
-	run := commandRun{stdout: out.String(), stderr: errb.String(), exe: exe, requests: len(gh.Requests())}
+	run := commandRun{stdout: out.String(), stderr: errb.String(), exe: exe}
+	for _, r := range gh.Requests() {
+		run.requests++
+		if r.Host != gh.APIBase.Host {
+			run.downloads++
+		}
+	}
 	var exit *ExitError
 	switch {
 	case err == nil:
@@ -389,24 +403,128 @@ type detacherService struct {
 	fakeDetacher
 }
 
-// TestDetacherForGatesWindowsAndScriptBackends is MADR 0210 D3 and D4: the
-// handoff is set only where the backend is a Detacher, and never on Windows
-// until go-selfupdate-lib#6 ships.
+// insiderService is a backend that answers Inside and is not a Detacher, as
+// Magic's runit, s6 and OpenRC backend is.
+type insiderService struct {
+	fakeService
+	fakeInsider
+}
+
+// TestDetacherForGatesWindowsAndScriptBackends is MADR 0210 D3, D4 and D8:
+// the handoff is set only where the backend is a Detacher, and never on
+// Windows until go-selfupdate-lib#6 ships. Where it is not set, a backend that
+// answers Inside gets the refusal instead.
 func TestDetacherForGatesWindowsAndScriptBackends(t *testing.T) {
 	both := &detacherService{}
 	for _, tc := range []struct {
-		name    string
-		goos    string
-		backend any
-		want    bool
+		name           string
+		goos           string
+		backend        any
+		detach, refuse bool
 	}{
-		{"a Detacher on Linux", "linux", both, true},
-		{"a Detacher on macOS", "darwin", both, true},
-		{"a Detacher on Windows", "windows", both, false},
-		{"a backend that is not a Detacher", "linux", &fakeService{}, false},
+		{"a Detacher on Linux", "linux", both, true, false},
+		{"a Detacher on macOS", "darwin", both, true, false},
+		{"a Detacher on Windows", "windows", both, false, true},
+		{"a script backend", "linux", &insiderService{}, false, true},
+		{"a backend that answers neither", "linux", &fakeService{}, false, false},
 	} {
-		if _, ok := detacherFor(tc.goos, tc.backend); ok != tc.want {
-			t.Errorf("%s: detacherFor = %v, want %v", tc.name, ok, tc.want)
+		if _, ok := detacherFor(tc.goos, tc.backend); ok != tc.detach {
+			t.Errorf("%s: detacherFor = %v, want %v", tc.name, ok, tc.detach)
+		}
+		if _, ok := insiderFor(tc.goos, tc.backend); ok != tc.refuse {
+			t.Errorf("%s: insiderFor = %v, want %v", tc.name, ok, tc.refuse)
+		}
+	}
+}
+
+// commandTestInsider is the refusal backend runCommandContext gives the
+// command; nil means none, as where a handoff is set.
+var commandTestInsider insider
+
+// fakeInsider is a backend that answers Inside and cannot hand off, such as
+// the script backends, or Windows' while go-selfupdate-lib#6 is open.
+type fakeInsider struct {
+	inside bool
+	err    error
+	calls  int
+}
+
+func (f *fakeInsider) Inside(context.Context) (bool, error) {
+	f.calls++
+	return f.inside, f.err
+}
+
+// withInsider makes the command's refusal backend i.
+func withInsider(t *testing.T, i insider) {
+	t.Helper()
+	prev := commandTestInsider
+	commandTestInsider = i
+	t.Cleanup(func() { commandTestInsider = prev })
+}
+
+// TestUpdateRefusesInsideBeforeDownloading is MADR 0210 D8: where nothing can
+// hand off, an update inside the service fails with ErrInsideService, names
+// the remedy, and downloads and replaces nothing.
+func TestUpdateRefusesInsideBeforeDownloading(t *testing.T) {
+	i := &fakeInsider{inside: true}
+	withInsider(t, i)
+	run := runCommand(t, "v0.1.0", "", "--yes")
+	if run.code != 1 {
+		t.Fatalf("exit status %d, want 1\nstderr:\n%s", run.code, run.stderr)
+	}
+	want := "update failed: this update runs inside the mcremote service and cannot hand off here; run it from a shell: " +
+		libservice.ErrInsideService.Error()
+	if got := lastLine(run.stderr); got != want {
+		t.Errorf("stderr's last line = %q, want %q", got, want)
+	}
+	if run.downloads != 0 {
+		t.Errorf("the refused update downloaded %d asset(s) first", run.downloads)
+	}
+	if b, _ := os.ReadFile(run.exe); string(b) != "mcremote v0.1.0" {
+		t.Errorf("the refused update changed the executable: %q", b)
+	}
+}
+
+// TestUpdateOutsideRunsWhereNothingHandsOff: outside the service, the
+// refusal backend lets an operator's update run as today.
+func TestUpdateOutsideRunsWhereNothingHandsOff(t *testing.T) {
+	i := &fakeInsider{inside: false}
+	withInsider(t, i)
+	run := runCommand(t, "v0.1.0", "", "--yes")
+	if run.code != 0 || lastLine(run.stderr) != "mcremote: updated v0.1.0 -> v0.2.0" {
+		t.Fatalf("exit status %d, stderr's last line %q; want 0 and the update", run.code, lastLine(run.stderr))
+	}
+	if i.calls == 0 {
+		t.Error("Inside was never asked")
+	}
+	requireReplaced(t, run.exe)
+}
+
+// TestUpdateFailsWhenInsideCannotBeTold: an Inside error fails the update
+// before the download, and is never read as outside.
+func TestUpdateFailsWhenInsideCannotBeTold(t *testing.T) {
+	withInsider(t, &fakeInsider{err: errors.New("read the process ancestry: permission denied")})
+	run := runCommand(t, "v0.1.0", "", "--yes")
+	if run.code != 1 || !strings.Contains(run.stderr, "read the process ancestry: permission denied") {
+		t.Errorf("exit status %d, stderr:\n%s\nwant 1 and the Inside error", run.code, run.stderr)
+	}
+	if run.downloads != 0 {
+		t.Errorf("the failed update downloaded %d asset(s)", run.downloads)
+	}
+	if b, _ := os.ReadFile(run.exe); string(b) != "mcremote v0.1.0" {
+		t.Errorf("the failed update changed the executable: %q", b)
+	}
+}
+
+// TestUpdateChecksAndDryRunsNeverAskInside: a check or a dry run installs
+// nothing, so it runs where it is, and never asks.
+func TestUpdateChecksAndDryRunsNeverAskInside(t *testing.T) {
+	for _, args := range [][]string{{"--check"}, {"--dry-run", "--yes"}} {
+		i := &fakeInsider{inside: true}
+		withInsider(t, i)
+		run := runCommand(t, "v0.1.0", "", args...)
+		if i.calls != 0 || strings.Contains(run.stderr, "runs inside") {
+			t.Errorf("%v: Inside calls %d\n%s", args, i.calls, run.stderr)
 		}
 	}
 }
