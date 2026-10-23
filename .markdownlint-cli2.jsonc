@@ -99,8 +99,6 @@
   //        - Plan files (PLAN-*.md, plan.md, *-plan-*.md, etc., case-insensitive)
   //        - `plans/` directories (case-insensitive: docs/plans/, Plans/, etc.)
   //
-  // To also exclude other agent-targeted files (AGENTS.md, CLAUDE.md,
-  // TODO.md, ROADMAP.md), uncomment the additional patterns below.
   "globs": [
     "**/*.md",
 
@@ -109,6 +107,28 @@
     "!**/vendor/**",
     "!**/dist/**",
     "!**/.git/**",
+
+    // Agent instruction files use process-oriented formatting rather than
+    // the reader-facing documentation style this configuration enforces.
+    "!**/AGENTS.md",
+    "!**/.claude/**",
+    "!**/.grok/**",
+    "!**/.opencode/**",
+    "!**/.codex/**",
+    "!**/.kilo/**",
+
+    // Generated Flutter dependencies and build products are not authored
+    // documentation. Their upstream Markdown must not fail this repository's
+    // documentation gate.
+    "!**/.dart_tool/**",
+    "!**/.symlinks/**",
+    "!**/.plugin_symlinks/**",
+    "!**/build/**",
+    "!**/ephemeral/**",
+    "!**/*.xcassets/**",
+
+    // Third-party fixtures preserve upstream content verbatim.
+    "!**/testdata/**",
 
     // MADR (Markdown Architectural Decision Records) — case-insensitive.
     // Matches: MADR-foo.md, NNNN-MADR-foo.md, madr-foo.md, foo-madr.md, etc.
@@ -128,11 +148,5 @@
     // Matches: docs/plans/, docs/Plans/, top-level plans/, etc.
     "!**/plans/**",
     "!**/Plans/**"
-
-    // Optional additional agent-targeted exclusions (uncomment as needed):
-    // , "!**/AGENTS.md"
-    // , "!**/CLAUDE.md"
-    // , "!**/TODO.md"
-    // , "!**/ROADMAP.md"
   ]
 }
