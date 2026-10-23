@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-18
+status: complete
+date: 2026-10-22
 associated-madr: "0186-MADR-integrate-current-library-releases-and-prepare-gobble.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -169,3 +169,10 @@ P2 and P1 are carried out by
 [0207-PLAN-finish-full-semver-pins-and-check-libs.md](0207-PLAN-finish-full-semver-pins-and-check-libs.md),
 under 0207's D5. Its V1 is this plan's P2, and its V2 is P1. That plan's execution record is the
 record of both. This plan is set `complete` when V2 is done.
+
+V1 was committed as `414695dc`, and V2 is done the same day, so this plan is `complete`. Its three
+goals hold:
+
+- the records agree (R1);
+- `make check-libs` checks both libraries' newest tags on demand (P1);
+- no pin matches a prerelease or pseudo-version of its release (P2).

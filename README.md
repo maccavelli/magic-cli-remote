@@ -1534,6 +1534,9 @@ make verify-build-metadata   # per-OS build tags (Linux netgo,osusergo / Darwin 
 make verify-units            # systemd unit directives
 make pre-add-check           # gofmt + golint + govulncheck (the staging rule)
 
+# Before moving a library pin (network; needs a ../go-shared checkout; not in CI)
+make check-libs              # latest acp-go-sdk2 and go-selfupdate-lib tags against HEAD
+
 # Live provider suites (require the real CLI on PATH + network; not in CI)
 make live-opencode
 # → go test -tags live_opencode ./internal/provider/opencode/

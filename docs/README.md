@@ -424,3 +424,4 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | sign Android or iOS builds | [Android signing](../apps/mobile/docs/guides/ops-android-signing.md), [iOS signing](../apps/mobile/docs/guides/ops-ios-signing.md) |
 | understand the wire protocol | [protocol-v2.md](guides/protocol-v2.md) (delta over [protocol-v1.md](guides/protocol-v1.md)) |
 | find why a decision was made | the records table above, starting at [0001-MADR-architecture-mcremote.md](decisions/0001-MADR-architecture-mcremote.md) |
+| check a library's newest release before moving a pin | `make check-libs`; [0207-PLAN-finish-full-semver-pins-and-check-libs.md](decisions/0207-PLAN-finish-full-semver-pins-and-check-libs.md), V2 |

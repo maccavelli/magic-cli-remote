@@ -1,0 +1,8 @@
+{"libraries": [
+  {"module": "github.com/maccavelli/acp-go-sdk2",
+   "packages": ["./internal/provider/acpagent/...", "./internal/provider/acpcommon/...",
+                "./internal/provider/grok/..."]},
+  {"module": "github.com/maccavelli/go-selfupdate-lib",
+   "packages": ["./internal/updateclient/...", "./internal/cli/...", "./internal/relay/...",
+                "./internal/daemon/..."]}
+]}

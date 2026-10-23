@@ -40,6 +40,7 @@ authoritative commands are in the Makefile and `AGENTS.md`:
 | Unit tests | `make test` |
 | Race suite | `make race` |
 | Full local CI parity | `make preflight` |
+| Library compatibility, before moving a pin (needs the network and a `../go-shared` checkout) | `make check-libs` |
 
 The pre-add gate requires `gofmt`, `golint`, and `govulncheck` to pass for Go
 files. Do not substitute `gofumpt` or `golangci-lint`: neither is configured by

@@ -157,7 +157,8 @@ MOBILE_DIR := apps/mobile
 
 .PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-kilo race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
-	pre-add-check vet tidy clean check-host-target check-cgo-off check-records markdownlint-docs
+	pre-add-check vet tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
+	check-libs
 
 build: check-cgo-off
 	@mkdir -p bin
@@ -285,6 +286,18 @@ check-host-target:
 # advisory.
 check-records:
 	@echo "==> records and docs links"; python3 scripts/check_records.py --check-all
+
+# Library compatibility (MADR 0186 D7 and Q6; 0207 D5). go-shared's check runs
+# the committed HEAD, on a scratch clone, against each check_libs.json library's
+# latest tag. It needs the network, so it is never part of preflight. The script
+# comes from a sibling go-shared checkout (go-shared 0002-MADR D3).
+GO_SHARED ?= ../go-shared
+
+check-libs:
+	@test -f "$(GO_SHARED)/scripts/check_libs.py" || { \
+		echo "check-libs: $(GO_SHARED)/scripts/check_libs.py not found; clone go-shared beside this repository or set GO_SHARED" >&2; \
+		exit 2; }
+	python3 "$(GO_SHARED)/scripts/check_libs.py" --repo .
 
 # User-facing markdownlint (MADR 0180 D6). --no-globs so the project
 # .markdownlint-cli2.jsonc include set does not pull in the rest of the tree.

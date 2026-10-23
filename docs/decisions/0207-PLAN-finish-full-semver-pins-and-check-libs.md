@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-22
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
@@ -322,3 +322,76 @@ The other cases passed on today's rule, so the failures are exactly D8's.
 
 **Not done in V1.** V2. V1 was written while 0208's P4b was still staged. It was staged only
 after the owner committed P4b as `03118fa1`, so V1 is a commit of its own.
+
+V1 was committed by the owner as `414695dc`.
+
+### V2, 2026-10-22: `make check-libs`, and its first verdicts
+
+**What changed.**
+
+* `check_libs.json` (new) names `acp-go-sdk2` with `acpagent`, `acpcommon` and `grok`, and
+  `go-selfupdate-lib` with `updateclient`, `cli`, `relay` and `daemon`. These are the packages
+  that import each library.
+* `Makefile`:
+  * `GO_SHARED ?= ../go-shared`, and `check-libs` added to `.PHONY`;
+  * the recipe exits 2, naming the script's path, when the script is missing. Otherwise it runs
+    `python3 $(GO_SHARED)/scripts/check_libs.py --repo .`;
+  * no other target depends on it.
+* `docs/README.md` has an "I want to…" row. `docs/guides/standards/go/README.md` and `README.md`
+  list the target, with its network and checkout needs.
+
+**Seen failing first**, on a scratch clone given the working tree's `Makefile`:
+
+| Plant | Result |
+| :--- | :--- |
+| `check_libs.json` naming `github.com/example/not-required` | `not-required required: FAIL … go.mod does not require github.com/example/not-required; nothing to check`, then `1 failing checks`. The script exited 1, so make exited 2. |
+| `GO_SHARED` set to a missing directory | `check-libs: …/no-such-go-shared/scripts/check_libs.py not found; clone go-shared beside this repository or set GO_SHARED`, and make exited 2 |
+| go-shared's `--self-test` | 22 cases, all `ok`, exit 0 |
+
+**The run.** `make check-libs` on `HEAD` `414695dc`, with go-shared at `d62e2a2`. go-shared's
+uncommitted changes there are two of its own PLANs and do not touch the script. Toolchain
+`go1.27.3`, from `go.mod`.
+
+| Check | `acp-go-sdk2` | `go-selfupdate-lib` |
+| :--- | :--- | :--- |
+| versions | pinned `v1.20.0`, checking `v1.20.0` | pinned `v1.17.1`, checking `v1.17.2` |
+| get and tidy, version, modules | ok | ok |
+| build; vet linux, darwin, windows | ok | ok |
+| test | ok | **FAIL** |
+| api | pinned at the tag; nothing to compare | ok |
+| govulncheck, advisories | ok | ok |
+
+The one failure is Magic's own pin guard, not the library:
+
+```text
+--- FAIL: TestWorkflowPinsMatchGoMod (0.00s)
+    spec_test.go:186: build-selfupdate-release.yml@e8d4904a09194d99761042a8996983e8d5b957eb is commented "# go-selfupdate-lib v1.17.1"; want "# go-selfupdate-lib v1.17.2", the release go.mod requires
+    spec_test.go:186: publish-selfupdate-release.yml@e8d4904a09194d99761042a8996983e8d5b957eb is commented "# go-selfupdate-lib v1.17.1"; want "# go-selfupdate-lib v1.17.2", the release go.mod requires
+FAIL  github.com/maccavelli/magic-cli-remote/internal/updateclient
+ok    github.com/maccavelli/magic-cli-remote/internal/cli
+ok    github.com/maccavelli/magic-cli-remote/internal/cli/service
+ok    github.com/maccavelli/magic-cli-remote/internal/relay
+ok    github.com/maccavelli/magic-cli-remote/internal/daemon
+```
+
+The check moves only `go.mod`. `ci.yml:712` and `:733` still pin the reusable workflows to
+`v1.17.1`, and the test exists to catch exactly that mismatch. The library's API is compatible,
+and every package that imports it passes. So the verdict for 0207 D1 is: `v1.17.2` builds, vets,
+tests and diffs clean against this tree, **provided the two workflow pins move with `go.mod`**, as
+D1 already requires. As step 4 says, it is not fixed here. With the current check, `make
+check-libs` reports this failure until D1 lands.
+
+`git status --porcelain` showed only V2's own files before and after the run. The kept scratch
+directories were removed after their logs were copied.
+
+**Gates.** `make markdownlint-docs`: 0 issues in 55 files. `make check-records` passes.
+markdownlint on this plan is clean. 0186's PLAN still has exactly its 46 existing MD004 findings,
+all on lines 14–164. Its closing list uses dashes, so it adds none.
+
+**Not done in V2.**
+
+* 0207 D1, the pin move, which the run above has now checked.
+* `make check-libs` on Windows. It calls `python3`, as `make check-records` does, and was run on
+  the macOS host only.
+
+**This plan is complete:** V1 and V2 are done, and 0186's PLAN is closed with them.
