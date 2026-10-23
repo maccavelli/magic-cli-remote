@@ -291,6 +291,10 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
     breakaway (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`) on that job is part of this decision.
   * This **amends 0054's "What stays deliberately unadopted"**: its premise, that no update starts
     inside the service, does not hold.
+  * *Note, 2026-10-22.* D3 is assessed in full, and proposed, by
+    [0210-MADR-hand-off-agent-run-updates-outside-the-service.md](0210-MADR-hand-off-agent-run-updates-outside-the-service.md).
+    It corrects F1 (with the 0207 REPORT's A1) and this record's amendment note on D3. It also
+    adds that runit, s6 and OpenRC have no inside guard at all.
 * **D4 — `setup-service` stops and starts through the library backends where their semantics match
   (F2).**
   * **Stop,** for `--remove`, `--force` and the before-rewrite stop, goes through the backend's
