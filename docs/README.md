@@ -406,6 +406,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0207 | REPORT | `go-selfupdate-lib` deeper-adoption assessment for `magic-cli-remote` | [0207-REPORT-go-selfupdate-lib-deeper-adoption-assessment.md](../docs/reports/0207-REPORT-go-selfupdate-lib-deeper-adoption-assessment.md) |
 | 0208 | MADR | Make the provider layer agent-neutral: declared capabilities, vendor code only in its vendor's package, one registration point | [0208-MADR-make-the-provider-layer-agent-neutral.md](decisions/0208-MADR-make-the-provider-layer-agent-neutral.md) |
 | 0208 | PLAN | Implement making the provider layer agent-neutral, pass-through first | [0208-PLAN-make-the-provider-layer-agent-neutral.md](decisions/0208-PLAN-make-the-provider-layer-agent-neutral.md) |
+| 0209 | MADR | Wait for the shell's trap, not a fixed sleep, in `procutil`'s termination tests | [0209-MADR-wait-for-shell-traps-in-procutil-tests.md](decisions/0209-MADR-wait-for-shell-traps-in-procutil-tests.md) |
+| 0209 | PLAN | Implement waiting for the shell's trap in `procutil`'s termination tests | [0209-PLAN-wait-for-shell-traps-in-procutil-tests.md](decisions/0209-PLAN-wait-for-shell-traps-in-procutil-tests.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

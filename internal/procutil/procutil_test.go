@@ -3,6 +3,7 @@
 package procutil_test
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"testing"
@@ -26,6 +27,51 @@ func startGroup(t *testing.T, script string) (*exec.Cmd, <-chan struct{}) {
 		close(exited)
 	}()
 	t.Cleanup(func() { _ = procutil.KillProcessGroup(cmd.Process) })
+	return cmd, exited
+}
+
+// startTrapped is startGroup for a script that must have its trap in place
+// before it is signalled. The script prints "ready" after the trap command,
+// and this waits for that line, so a SIGTERM can never reach the shell before
+// the trap does. A fixed sleep only made that unlikely, and a loaded -race run
+// still signalled the shell first (MADR 0209).
+func startTrapped(t *testing.T, trap, body string) (*exec.Cmd, <-chan struct{}) {
+	t.Helper()
+	cmd := exec.Command("/bin/sh", "-c", trap+"; echo ready; "+body)
+	procutil.SetProcessGroup(cmd)
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = procutil.KillProcessGroup(cmd.Process) })
+
+	type result struct {
+		line []byte
+		err  error
+	}
+	read := make(chan result, 1)
+	go func() {
+		line := make([]byte, len("ready\n"))
+		_, err := io.ReadFull(out, line)
+		read <- result{line, err}
+	}()
+	select {
+	case r := <-read:
+		if r.err != nil || string(r.line) != "ready\n" {
+			t.Fatalf("shell did not report its trap installed: read %q, %v", r.line, r.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("shell did not report its trap installed within 5s")
+	}
+
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
 	return cmd, exited
 }
 
@@ -55,11 +101,8 @@ func TestKillProcessGroupKillsChildShell(t *testing.T) {
 func TestTerminateProcessGroupGracefulPath(t *testing.T) {
 	// Writes a marker on SIGTERM, proving the handler ran (SIGKILL cannot).
 	marker := t.TempDir() + "/term-ran"
-	cmd, exited := startGroup(t,
-		`trap 'echo ok > `+marker+`; exit 0' TERM; while :; do sleep 0.05; done`)
-
-	// Give the shell a moment to install the trap.
-	time.Sleep(200 * time.Millisecond)
+	cmd, exited := startTrapped(t,
+		`trap 'echo ok > `+marker+`; exit 0' TERM`, `while :; do sleep 0.05; done`)
 
 	start := time.Now()
 	graceful := procutil.TerminateProcessGroup(cmd.Process, exited, 5*time.Second)
@@ -81,8 +124,7 @@ func TestTerminateProcessGroupGracefulPath(t *testing.T) {
 
 // A child that ignores SIGTERM must still die, via the SIGKILL escalation.
 func TestTerminateProcessGroupEscalatesToKill(t *testing.T) {
-	cmd, exited := startGroup(t, `trap '' TERM; while :; do sleep 0.05; done`)
-	time.Sleep(200 * time.Millisecond)
+	cmd, exited := startTrapped(t, `trap '' TERM`, `while :; do sleep 0.05; done`)
 
 	start := time.Now()
 	graceful := procutil.TerminateProcessGroup(cmd.Process, exited, 300*time.Millisecond)
@@ -102,8 +144,7 @@ func TestTerminateProcessGroupEscalatesToKill(t *testing.T) {
 // The whole group dies, not just the direct child — the property that makes
 // this safe for agents that spawn shells.
 func TestTerminateProcessGroupKillsGrandchildren(t *testing.T) {
-	cmd, exited := startGroup(t, `trap '' TERM; sleep 60 & while :; do sleep 0.05; done`)
-	time.Sleep(200 * time.Millisecond)
+	cmd, exited := startTrapped(t, `trap '' TERM`, `sleep 60 & while :; do sleep 0.05; done`)
 
 	if procutil.TerminateProcessGroup(cmd.Process, exited, 300*time.Millisecond) {
 		t.Fatal("expected escalation")
