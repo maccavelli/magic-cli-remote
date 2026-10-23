@@ -287,6 +287,16 @@ refreshes the run script the same way, starts it, and confirms it with
 or an OpenRC service outside the `default` runlevel, is disabled: if it was
 stopped, it stays stopped.
 
+**Updating from a phone session.** An agent can run the update for you, but it
+runs inside the service it updates, so it must pass `--yes`: `mcremote update
+--yes`. Under systemd the update hands itself off to the service manager, as a
+transient unit `<unit>-selfupdate-<id>.service`, and returns at once with
+`update handed off: …`. The daemon then restarts on the new release, which ends
+the session. Under
+runit, s6 and OpenRC there is no handoff yet: the update refuses from inside the
+service and leaves it running, so update from a shell instead
+([MADR 0210](../decisions/0210-MADR-hand-off-agent-run-updates-outside-the-service.md)).
+
 The refresh reports one of four outcomes and never fails the update:
 
 | Verdict | Meaning |

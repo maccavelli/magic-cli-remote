@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -73,12 +74,17 @@ func runCommandContext(ctx context.Context, t *testing.T, managed bool, current 
 		t.Fatal(err)
 	}
 	id := buildinfo.Info{Version: current, Kind: buildinfo.KindRelease}
-	prevID, prevNew := commandIdentity, newCommandUpdater
+	prevID, prevNew, prevDet := commandIdentity, newCommandUpdater, newCommandDetacher
 	commandIdentity = func() buildinfo.Info { return id }
 	newCommandUpdater = func(product string, id buildinfo.Info, _ service.HealthOptions) (*selfupdate.Updater, error) {
 		return New(Options{Product: product, Identity: id, HTTPClient: gh.Client, APIBaseURL: gh.APIBase.String(), TargetPath: exe, Managed: managed})
 	}
-	t.Cleanup(func() { commandIdentity, newCommandUpdater = prevID, prevNew })
+	// No test reaches the host's real service manager: the handoff backend is
+	// the one withDetacher sets, or none (MADR 0210 D1).
+	newCommandDetacher = func(string, service.HealthOptions) (libservice.Detacher, bool) {
+		return commandTestDetacher, commandTestDetacher != nil
+	}
+	t.Cleanup(func() { commandIdentity, newCommandUpdater, newCommandDetacher = prevID, prevNew, prevDet })
 
 	cmd := NewCommand("mcremote", service.HealthOptions{})
 	var out, errb bytes.Buffer
@@ -255,5 +261,152 @@ func TestUpdateOnAHostWithNoServiceInstallsStandalone(t *testing.T) {
 	}
 	if strings.Contains(run.stderr, "rolled back") || strings.Contains(run.stderr, "rollback") {
 		t.Errorf("the update rolled back:\n%s", run.stderr)
+	}
+}
+
+// commandTestDetacher is the handoff backend runCommandContext gives the
+// command; nil means none, as for the script backends and Windows.
+var commandTestDetacher libservice.Detacher
+
+// fakeDetacher records the handoffs the command asks for.
+type fakeDetacher struct {
+	inside      bool
+	insideCalls int
+	specs       []libservice.HandOff
+}
+
+func (f *fakeDetacher) Inside(context.Context) (bool, error) {
+	f.insideCalls++
+	return f.inside, nil
+}
+
+func (f *fakeDetacher) Detach(_ context.Context, spec libservice.HandOff) (libservice.Detached, error) {
+	f.specs = append(f.specs, spec)
+	return libservice.Detached{ID: "fake", Where: "a fake transient unit", ResultPath: spec.ResultPath}, nil
+}
+
+// withDetacher makes the command's handoff backend d, and its arguments args.
+func withDetacher(t *testing.T, d libservice.Detacher, args ...string) {
+	t.Helper()
+	prevD, prevArgs := commandTestDetacher, commandArgs
+	commandTestDetacher = d
+	commandArgs = func() []string { return args }
+	t.Cleanup(func() { commandTestDetacher, commandArgs = prevD, prevArgs })
+}
+
+// TestUpdateHandsOffFromInsideTheService is MADR 0210 D1. An update run inside
+// the service, as by an agent the daemon spawned, starts a detached copy of
+// the same command through the backend, and exits 0 at once, replacing
+// nothing itself.
+func TestUpdateHandsOffFromInsideTheService(t *testing.T) {
+	d := &fakeDetacher{inside: true}
+	withDetacher(t, d, "update", "--yes")
+	run := runCommand(t, "v0.1.0", "", "--yes")
+	if run.code != 0 {
+		t.Fatalf("exit status %d, want 0\nstderr:\n%s", run.code, run.stderr)
+	}
+	if !strings.Contains(run.stderr, "update handed off: ") {
+		t.Errorf("stderr does not say the update was handed off:\n%s", run.stderr)
+	}
+	if len(d.specs) != 1 || !slices.Equal(d.specs[0].Args, []string{"update", "--yes"}) {
+		t.Fatalf("handoffs = %+v, want one, with the command's own arguments", d.specs)
+	}
+	if b, _ := os.ReadFile(run.exe); string(b) != "mcremote v0.1.0" {
+		t.Errorf("the handing-off run replaced the executable itself: %q", b)
+	}
+}
+
+// TestUpdateHandOffUnderJSON: under --json the result object says handed_off.
+func TestUpdateHandOffUnderJSON(t *testing.T) {
+	withDetacher(t, &fakeDetacher{inside: true}, "update", "--yes", "--json")
+	run := runCommand(t, "v0.1.0", "", "--yes", "--json")
+	if run.code != 0 {
+		t.Fatalf("exit status %d, want 0\nstderr:\n%s", run.code, run.stderr)
+	}
+	lines := strings.Split(strings.TrimRight(run.stdout, "\n"), "\n")
+	var result map[string]any
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &result); err != nil {
+		t.Fatalf("last stdout line is not JSON: %q", lines[len(lines)-1])
+	}
+	if result["kind"] != "result" || result["handed_off"] == nil || result["handed_off"] == "" {
+		t.Errorf("result object = %v, want kind result with handed_off", result)
+	}
+}
+
+// TestUpdateHandOffNeedsYes: the detached run cannot prompt, so inside the
+// service an update a person confirmed at a prompt is still refused, and
+// nothing is detached or replaced (MADR 0210 D6; the library's HandOffFunc).
+func TestUpdateHandOffNeedsYes(t *testing.T) {
+	prev := commandInteractive
+	commandInteractive = true
+	t.Cleanup(func() { commandInteractive = prev })
+	d := &fakeDetacher{inside: true}
+	withDetacher(t, d, "update")
+	run := runCommand(t, "v0.1.0", "y\n")
+	if run.code != 1 || !strings.Contains(run.stderr, selfupdate.ErrConfirmationRequired.Error()) {
+		t.Errorf("exit status %d, stderr:\n%s\nwant 1 and %q", run.code, run.stderr, selfupdate.ErrConfirmationRequired)
+	}
+	if len(d.specs) != 0 {
+		t.Errorf("an unconfirmed update was handed off: %+v", d.specs)
+	}
+	if b, _ := os.ReadFile(run.exe); string(b) != "mcremote v0.1.0" {
+		t.Errorf("an unconfirmed update changed the executable: %q", b)
+	}
+}
+
+// TestUpdateOutsideTheServiceRunsItself: an operator's update, outside the
+// service, is today's update.
+func TestUpdateOutsideTheServiceRunsItself(t *testing.T) {
+	d := &fakeDetacher{inside: false}
+	withDetacher(t, d, "update", "--yes")
+	run := runCommand(t, "v0.1.0", "", "--yes")
+	if run.code != 0 || lastLine(run.stderr) != "mcremote: updated v0.1.0 -> v0.2.0" {
+		t.Fatalf("exit status %d, stderr's last line %q; want 0 and the update", run.code, lastLine(run.stderr))
+	}
+	if d.insideCalls == 0 || len(d.specs) != 0 {
+		t.Errorf("Inside calls %d, handoffs %d; want Inside asked and no handoff", d.insideCalls, len(d.specs))
+	}
+	requireReplaced(t, run.exe)
+}
+
+// TestUpdateChecksAndDryRunsNeverHandOff: a check or a dry run installs
+// nothing, so it runs where it is, inside the service or not.
+func TestUpdateChecksAndDryRunsNeverHandOff(t *testing.T) {
+	for _, args := range [][]string{{"--check"}, {"--dry-run", "--yes"}} {
+		d := &fakeDetacher{inside: true}
+		withDetacher(t, d, append([]string{"update"}, args...)...)
+		run := runCommand(t, "v0.1.0", "", args...)
+		if len(d.specs) != 0 || strings.Contains(run.stderr, "handed off") {
+			t.Errorf("%v was handed off: %+v\n%s", args, d.specs, run.stderr)
+		}
+	}
+}
+
+// detacherService is a backend that is also a Detacher, as the library's
+// systemd, launchd and Task Scheduler backends are.
+type detacherService struct {
+	fakeService
+	fakeDetacher
+}
+
+// TestDetacherForGatesWindowsAndScriptBackends is MADR 0210 D3 and D4: the
+// handoff is set only where the backend is a Detacher, and never on Windows
+// until go-selfupdate-lib#6 ships.
+func TestDetacherForGatesWindowsAndScriptBackends(t *testing.T) {
+	both := &detacherService{}
+	for _, tc := range []struct {
+		name    string
+		goos    string
+		backend any
+		want    bool
+	}{
+		{"a Detacher on Linux", "linux", both, true},
+		{"a Detacher on macOS", "darwin", both, true},
+		{"a Detacher on Windows", "windows", both, false},
+		{"a backend that is not a Detacher", "linux", &fakeService{}, false},
+	} {
+		if _, ok := detacherFor(tc.goos, tc.backend); ok != tc.want {
+			t.Errorf("%s: detacherFor = %v, want %v", tc.name, ok, tc.want)
+		}
 	}
 }

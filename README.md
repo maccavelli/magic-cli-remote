@@ -115,6 +115,9 @@ Releases are immutable `vX.Y.Z` tags and binaries are stamped with the tag
 (MADR 0005). `--version vX.Y.Z` installs an exact release, and a lower tag is
 an explicit rollback; `--force` is only for a local `make` build or a
 same-version reinstall. Each command recycles only its own unit, if one exists.
+An agent in a phone session can run `mcremote update --yes` too: on systemd and
+launchd it hands itself off to the service manager; elsewhere it refuses and
+leaves the service running (MADR 0210).
 
 Binaries published before v0.16.0 carry the superseded `BASE.N` build serial
 (e.g. `0.13.9.1`); an installed one still updates forward, because v0.16.0

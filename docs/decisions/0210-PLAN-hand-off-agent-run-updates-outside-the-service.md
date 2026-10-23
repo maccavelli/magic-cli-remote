@@ -562,3 +562,72 @@ kit's, from `ecffce5c` (Deviation 1), except on Windows, where the installed rel
 * The runner no longer removes anything after a failed install.
 
 **Not done in R1.** H1, which needs the owner's word.
+
+R1 was committed by the owner as `145ff6e0`, who approved H1 ("committed, proceed").
+
+### H1, 2026-10-23: the handoff in the update command
+
+**What changed.**
+
+* **`internal/updateclient/client.go`:**
+  * `newCommandDetacher` builds the managed installer's own `newBackend(product, "", health)`, and
+    returns it through `detacherFor(runtime.GOOS, b)`.
+  * `detacherFor` returns false on Windows (D3), and for a backend that is not a
+    `libservice.Detacher` (D4).
+  * `commandArgs` is `os.Args[1:]`, so a detached run repeats the whole command line, global flags
+    included.
+  * In `RunE`, after the updater is built, a backend that is a `Detacher` sets
+    `o.HandOff = cli.HandOff{Detach: libservice.HandOffFunc(d, libservice.HandOff{Args:
+    commandArgs()}), Report: libservice.ReportFunc()}`.
+  * The `Long` help gains D6's paragraph, and its exit-status line counts "handed off" under 0.
+* **`cmd/mcremote/main.go`, `cmd/mcrelay/main.go`** call `libservice.LoadHandOffEnvContext`
+  first, with a 15 s context. On an error they print `error: handoff environment: <err>` and exit 1.
+* **`internal/updateclient/command_test.go`:**
+  * `runCommandContext` now sets `newCommandDetacher` to `commandTestDetacher`, or to none. No
+    test reaches the host's real service manager.
+  * Six tests are new: `TestUpdateHandsOffFromInsideTheService`, `…HandOffUnderJSON`,
+    `…HandOffNeedsYes`, `…OutsideTheServiceRunsItself`, `…ChecksAndDryRunsNeverHandOff` and
+    `TestDetacherForGatesWindowsAndScriptBackends`. They use a fake `Detacher` that records each
+    handoff.
+  * The tests were first written in a new `handoff_test.go`, which is not in H1's files. They were
+    moved into `command_test.go`, and that file was deleted before anything was staged.
+* **Guides:** `ops-linux-install.md` and `ops-windows-install.md` each gain an "Updating from a
+  phone session" paragraph for their OS, and `README.md` one sentence.
+  * The Linux paragraph first said that `mcremote doctor` shows a handoff's outcome. That is H3's
+    work, so the clause was removed, to keep H1's commit true.
+  * H3 adds it back, which adds `ops-linux-install.md` to H3's files.
+
+**Seen failing first**, on a scratch copy holding H1's tests and seams (`h1_plants.py`):
+
+| Plant | Failed |
+| :--- | :--- |
+| the handoff not wired (today's command: `… ok && false`) | `…HandsOffFromInsideTheService`, `…HandOffUnderJSON`, `…HandOffNeedsYes`, `…OutsideTheServiceRunsItself` |
+| Windows not gated | `TestDetacherForGatesWindowsAndScriptBackends` |
+| the command's arguments dropped | `TestUpdateHandsOffFromInsideTheService` |
+
+The restored copy passed. `TestUpdateChecksAndDryRunsNeverHandOff` guards the opposite direction,
+a handoff on a run that installs nothing. That decision is the library's (`cli.HandOff.Detach`
+"runs before an apply that would install"), so no plant of Magic's code can break it.
+
+**The start-up step, run.** A scratch build:
+
+* `mcremote version` printed the version as before.
+* With `SELFUPDATE_HANDOFF_ENV=/nonexistent/handoff.env` it exited 1: `error: handoff environment:
+  lstat /nonexistent/handoff.env: no such file or directory`.
+
+So the call runs first, and refuses a bad environment.
+
+**Gates.**
+
+| Gate | Result |
+| :--- | :--- |
+| the six new tests, `-v` | each `--- PASS` |
+| `TestWorkflowPinsMatchGoMod`, `TestReleaseJobsReadTheSpec` | ok |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 43 packages ok, 0 FAIL lines |
+| `make vulncheck` | clear; GO-2026-5932 allowlisted, as before |
+| `go mod tidy -diff` | no output |
+| `make pre-add-check` on the four Go files | "4 file(s) clean (gofmt, golint, govulncheck)" |
+| `make markdownlint-docs`, `make check-records` | 0 issues in 55 files; ok |
+
+**Not done in H1.** H2 and H3. The handoff itself is confirmed live in L1, after H3.

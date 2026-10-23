@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/cli"
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
@@ -178,7 +180,35 @@ var (
 			Health:           health,
 		})
 	}
+	// newCommandDetacher is the update's handoff backend: the backend the
+	// managed installer drives, as a service.Detacher (MADR 0210 D1). It
+	// reports false where the command sets no handoff: on Windows (D3), for a
+	// backend that is not a Detacher, such as runit, s6 and OpenRC (D4), and
+	// when no backend can be built.
+	newCommandDetacher = func(product string, health service.HealthOptions) (libservice.Detacher, bool) {
+		b, err := newBackend(product, "", health)
+		if err != nil {
+			return nil, false
+		}
+		return detacherFor(runtime.GOOS, b)
+	}
+	// commandArgs is the command line a detached run executes again: this
+	// process's own, so global flags such as --config carry over.
+	commandArgs = func() []string { return os.Args[1:] }
 )
+
+// detacherFor returns backend as a Detacher, unless goos is Windows. There
+// the library's Task Scheduler detach relies on job breakaway, which Magic's
+// own kill-on-close jobs refuse, so the handoff waits for a detach that needs
+// none (go-selfupdate-lib#6; MADR 0210 D3). An update there keeps failing
+// safe, refused from inside the service.
+func detacherFor(goos string, backend any) (libservice.Detacher, bool) {
+	if goos == "windows" {
+		return nil, false
+	}
+	d, ok := backend.(libservice.Detacher)
+	return d, ok
+}
 
 // ExitError is the exit status of an update command that did not succeed.
 // The library has already reported the outcome on the command's streams, so
@@ -216,8 +246,13 @@ and enabled.
 Progress, prompts and the outcome are written to stderr. Stdout is empty
 unless --json is given, which writes JSON Lines ending in one result object.
 
-Exit status: 0 up to date, declined or installed; 10 an update is available
-(with --check); 1 any error. Set GH_TOKEN or GITHUB_TOKEN to raise API rate
+Run from inside the service, such as by an agent in a phone session, the
+update hands itself off to the service manager and needs --yes, since the
+detached run cannot prompt. On Windows, and under runit, s6 and OpenRC, it
+refuses instead and leaves the service running.
+
+Exit status: 0 up to date, declined, installed or handed off; 10 an update is
+available (with --check); 1 any error. Set GH_TOKEN or GITHUB_TOKEN to raise API rate
 limits. Set MC_CODESIGN_IDENTITY on macOS to re-sign the verified binary
 before install, which preserves TCC grants (MADR 0069).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -239,6 +274,16 @@ before install, which preserves TCC grants (MADR 0069).`,
 			u, err := newCommandUpdater(product, id, health)
 			if err != nil {
 				return exit(o, selfupdate.Result{}, err)
+			}
+			// Run from inside the service, as by an agent the daemon
+			// spawned, the update starts a detached copy of this command
+			// outside the service's kill scope and returns at once
+			// (MADR 0210 D1; the library's service.HandOffFunc).
+			if d, ok := newCommandDetacher(product, health); ok {
+				o.HandOff = cli.HandOff{
+					Detach: libservice.HandOffFunc(d, libservice.HandOff{Args: commandArgs()}),
+					Report: libservice.ReportFunc(),
+				}
 			}
 			// The caller's context, never context.Background: Ctrl-C during a
 			// download must actually cancel it (MADR 0005 F2). cli.Run adds the
