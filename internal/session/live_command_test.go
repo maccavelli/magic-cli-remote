@@ -4,7 +4,7 @@ package session_test
 
 import (
 	"context"
-	"strings"
+	"slices"
 	"testing"
 	"time"
 
@@ -43,10 +43,7 @@ func TestLiveCanonicalCommandsThroughTheDaemon(t *testing.T) {
 	// The advertised list is what a client renders: grok's real answer, not the
 	// canonical wish list.
 	sink.waitForAdvertised(t, "context", true)
-	sink.waitForAdvertised(t, "compact", false)
-	if c, _ := sink.advertisedCommand(t, "compact"); !strings.Contains(c.Reason, "terminal UI") {
-		t.Errorf("/compact reason = %q, want grok's own words", c.Reason)
-	}
+	sink.waitForAdvertised(t, "compact", true)
 
 	// /context is translated to the command grok actually executes, so the answer
 	// comes back as agent output.
@@ -62,12 +59,16 @@ func TestLiveCanonicalCommandsThroughTheDaemon(t *testing.T) {
 		t.Error("/context was not echoed as the user's own message")
 	}
 
-	// /compact refuses with the recorded reason instead of forwarding into
-	// silence.
+	// /compact is grok's own command: grok compacts, and its compaction
+	// reaches the phone (MADR 0208, P4b deviation 1).
 	if err := mgr.Prompt(ctx, meta.ID, "/compact", nil, "dev-a"); err != nil {
 		t.Fatalf("/compact: %v", err)
 	}
-	sink.waitForNoticeContaining(t, "isn't available here")
+	waitFor(t, "a completed compaction for /compact", func() bool {
+		return slices.ContainsFunc(sink.snapshot(), func(ev event.Event) bool {
+			return ev.Type == event.TypeCompaction && ev.CompactionStatus == "completed"
+		})
+	})
 
 	// /help is rendered from the same resolution the router uses.
 	if err := mgr.Prompt(ctx, meta.ID, "/help", nil, "dev-a"); err != nil {

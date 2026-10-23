@@ -86,8 +86,10 @@ func TestAgentAdvertisesAndHelp(t *testing.T) {
 			t.Errorf("help does not explain why %s is missing:\n%s", explained, rest)
 		}
 	}
-	// grok's own words for why /compact is out, not a generic shrug.
-	if !strings.Contains(h, "grok compacts only in its own terminal UI") {
+	// grok's own words for why /diff is out, not a generic shrug. (/compact
+	// is now grok's own command, missing here only because this session does
+	// not advertise it: MADR 0208, P4b deviation 1.)
+	if !strings.Contains(h, "/diff (grok exposes no diff over ACP") {
 		t.Errorf("help text lost the provider's reason:\n%s", h)
 	}
 }

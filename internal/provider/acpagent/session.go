@@ -53,7 +53,13 @@ type session struct {
 	cmdDedupe event.CommandDeduper
 	// compactions folds ACP compaction updates by ID (MADR 0190 D1). Touched
 	// only from the notification handler goroutine, like cmdDedupe.
-	compactions             compactionFold
+	compactions compactionFold
+	// xaiCompactions numbers the compactions grok reports on its own
+	// channel, which carry no ID; xaiCompactionOpen is the one grok has
+	// started and not yet ended (MADR 0208, P4b deviation 1). Touched only
+	// from the notification handler goroutine, like compactions.
+	xaiCompactions          int
+	xaiCompactionOpen       acp.CompactionId
 	provider                *Provider
 	extNotificationHandlers map[string]ExtensionNotificationHandler
 	localID                 string

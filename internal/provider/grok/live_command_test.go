@@ -18,8 +18,8 @@ import (
 //
 // Pins the finding the whole command framework rests on (MADR 0023),
 // re-checked against grok 1.0.5: grok's advertised catalog is its TUI's, and
-// only part of it answers over ACP. If a future grok starts executing /compact
-// over the protocol, or stops answering /session-info, this test is what
+// only part of it answers over ACP. If grok stops advertising a command the
+// table forwards to, or stops answering /session-info, this test is what
 // notices — the table would otherwise keep telling users something untrue.
 func TestLiveGrokCommandTableMatchesReality(t *testing.T) {
 	p := grok.New(grok.Config{AlwaysApprove: true})
@@ -43,7 +43,7 @@ func TestLiveGrokCommandTableMatchesReality(t *testing.T) {
 	if m := tbl["context"]; m.Kind != command.KindNative || m.Native == "" {
 		t.Fatalf("context mapping = %+v, want a native command", m)
 	}
-	for _, name := range []string{tbl["context"].Native, tbl["goal"].Native} {
+	for _, name := range []string{tbl["context"].Native, tbl["goal"].Native, tbl["compact"].Native} {
 		if !slicesContainsFold(advertised, name) {
 			t.Errorf("grok no longer advertises %q, which the table forwards to", name)
 		}
@@ -57,17 +57,13 @@ func TestLiveGrokCommandTableMatchesReality(t *testing.T) {
 		t.Logf("/%s answered %d bytes", tbl["context"].Native, len(got))
 	}
 
-	// …while /compact, which grok advertises, answers with nothing at all. That
-	// silence is why the table declares it unavailable.
-	if m := tbl["compact"]; m.Kind != command.KindNone {
-		t.Fatalf("compact mapping = %+v, want KindNone", m)
-	}
-	if !slicesContainsFold(advertised, "compact") {
-		t.Log("grok no longer advertises /compact at all — the note may be stale")
-	}
-	if got := promptText(t, s, "/compact", 60*time.Second); got != "" {
-		t.Errorf("/compact answered %q — grok may now support it over ACP; "+
-			"re-probe and update the table", got)
+	// …and /compact is grok's own command. It answers with no text: grok
+	// compacts and reports it on _x.ai/session_notification, which Magic shows
+	// as a compaction (MADR 0208, P4b deviation 1). That half is checked by
+	// TestLiveGrokSilentCommandsThroughTheDaemon, after a turn gives grok a
+	// conversation to compact.
+	if m := tbl["compact"]; m.Kind != command.KindNative || m.Native != "compact" {
+		t.Fatalf("compact mapping = %+v, want grok's own compact", m)
 	}
 }
 

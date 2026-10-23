@@ -308,6 +308,11 @@ governs.
 
 **N7 — Forwarding already exists, and silence is handled by hand.**
 
+*Note, 2026-10-22 (the PLAN's P4b deviation 1).* grok's current source shows its `/compact` does
+compact over ACP. It reports that only as `auto_compact_completed` on its
+`_x.ai/session_notification` channel, which Magic dropped, so Magic saw silence. `/context` is the silent one. P4b shows grok's compaction and
+forwards `/compact`. The paragraph below states what was observed against grok 1.0.5.
+
 * A `KindNative` mapping sends the agent's own slash command as prompt text, and the reply streams
   back as the agent's message.
 * Agent commands outside the canonical set are already forwarded as they are.

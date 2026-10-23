@@ -34,10 +34,11 @@ var commandTable = command.Table{
 	"deep-research": {Kind: command.KindNative, Native: "deep-research"},
 	"workflow":      {Kind: command.KindNative, Native: "workflow"},
 	"loop":          {Kind: command.KindNative, Native: "loop"},
-	"compact": {
-		Kind: command.KindNone,
-		Note: "grok compacts only in its own terminal UI — over the remote /compact returns nothing",
-	},
+	// grok's own /compact compacts over ACP and reports it on
+	// _x.ai/session_notification, as auto_compact_completed, which Magic now
+	// shows (MADR 0208, P4b deviation 1). It looked silent on 1.0.5 because
+	// that variant was dropped.
+	"compact": {Kind: command.KindNative, Native: "compact"},
 	"diff": {
 		Kind: command.KindNone,
 		Note: "grok exposes no diff over ACP — ask the agent to show its changes",
@@ -71,6 +72,7 @@ var commandTable = command.Table{
 
 // commandCaveat covers the rest of grok's advertised catalog: commands beyond
 // the canonical set are forwarded as-is, and the TUI-only ones among them
-// (/always-approve, /feedback, …) answer with silence.
+// (/always-approve, …) answer with silence. Magic marks each one it sees stay
+// silent (MADR 0208 D10).
 const commandCaveat = "Some of grok's own commands only work in its terminal UI " +
 	"and return nothing here."

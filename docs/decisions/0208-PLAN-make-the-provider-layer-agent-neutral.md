@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-21
+date: 2026-10-22
 associated-madr: "0208-MADR-make-the-provider-layer-agent-neutral.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -816,3 +816,139 @@ Windows test host (the phase writes a file), a fresh clone of d1f96902 with the 
 
 **Not done in P4a.** P4b: the resolution order, the resolver tests over the five providers'
 tables, and grok's rows, which wait for a live run.
+
+P4a was committed by the owner as `214cc35c`. The owner approved P4b's `make live-grok` run on
+2026-10-22 ("approved for the live run").
+
+### P4b Deviation 1, 2026-10-22 — grok's `/compact` compacts, so Magic shows it. The owner decided: "Show grok's compaction"
+
+**Found, before any P4b row change, in grok's source.** The owner pointed to the current sources
+in `~/gitrepos` (grok's is `grok-build`, at `2bdd1d6a`, synced 2026-09-29). Paths below are under
+its `crates/codegen/xai-grok-shell/src/`.
+
+| Command | What grok does over ACP | What Magic saw |
+| :--- | :--- | :--- |
+| `/context` | ends the turn with nothing (`session/acp_session_impl/slash_exec.rs:74`, `ContextInfo => ok_end_turn(0, None)`) | nothing: silent, and the `context` → `session-info` row stays |
+| `/compact` | **compacts** (`slash_exec.rs:16-19`, `run_compact`), then sends `auto_compact_completed` alone, with `summary_preview: None` (`session/compaction.rs:598-641`). A failure returns the prompt's error instead. The automatic path sends `auto_compact_started` first, then `_completed` or `_failed` (`compaction.rs:2327-2384`), and `_cancelled` only for an automatic compaction (`compaction.rs:644-652`). Shapes: `extensions/notification.rs:526-605`. All go out on `x.ai/session_notification` (`session/acp_session_impl/updates.rs:1060-1066`). | nothing: `HandleXAISessionNotification` returns at `u.SubagentID == ""` for every variant it does not name (`acpagent/subagents.go`) |
+| `/feedback` | bare, answers `Usage: /feedback <text>` as slash-command output and submits nothing (`slash_exec.rs:922-926`) | the reply: not silent, so the caveat's example is stale |
+| `/always-approve` | toggles auto-approve; its `YoloToggled` event reaches the TUI and telemetry, not ACP | nothing: silent, correctly |
+
+*Corrected while implementing, the same day.* This entry first named `_x.ai/session/update` and
+`HandleXAISessionUpdate`. That is the session/load replay channel. grok's live updates use
+`_x.ai/session_notification` (`updates.rs:1060-1066`), so the mapping is in that handler.
+Replayed compactions on `_x.ai/session/update` are still declined, which is not changed here.
+
+As written, step 3 would let P4a mark `/compact` silent and then delete its row, hiding a command
+that works.
+
+**Decision.** P4b gains these steps, before step 3's deletions:
+
+1. **grok's compaction becomes Magic's compaction event.** The four `auto_compact_*` updates
+   become `TypeCompaction` events (MADR 0190 D1's shape).
+   - `started` opens a compaction under an ID of Magic's, since grok sends none.
+   - `completed` closes it, with `summary_preview` as its summary, grok's own text. A
+     `completed` with none open, which is what `/compact` sends, is a whole compaction of its own.
+   - `failed` closes it with grok's `error`, and `cancelled` with status cancelled.
+   - Nothing of Magic's own wording is added (D11).
+2. **grok's `compact` row becomes `KindNative`, `compact`.** `/compact` then forwards to grok's
+   own command (D9), as `goal` and `loop` do. A row is kept because the conformance test requires
+   every canonical command to be declared.
+3. **The live run** checks that `/compact` shows its compaction and is not marked, that
+   `/always-approve` is marked, and that `/feedback` is not. The caveat is then rewritten, or
+   deleted, to match what the run shows.
+
+**Files added to P4.**
+
+- `internal/provider/acpagent/subagents.go`, for the dispatch (first written as `xaiusage.go`;
+  see the correction above), and `session.go` for the fold's two fields.
+- A new `internal/provider/acpagent/xaicompaction.go` and its test.
+- A new live test in `internal/provider/grok/`, `live_silent_test.go`, under `live_grok`.
+- `internal/session/live_command_test.go` (`live_grok`). It asserted that `/compact` is refused.
+
+### P4b, 2026-10-22: the agent's own command first, and grok's compaction shown
+
+**What was built.**
+
+- **D9's order** is in `internal/command/command.go` `Resolve`. Daemon-only commands (`help`,
+  `new`, `sessions`, `clear`) return `KindDaemon` before anything else is read. A `KindOp` row
+  yields to `KindNative` with the canonical name when the agent advertises that name and it is
+  not marked silent. The undeclared-name comment no longer cites grok's `/compact`.
+- **grok's compaction** (deviation 1). `HandleXAISessionNotification` sends the four
+  `auto_compact_*` variants to `onXAICompaction` (`acpagent/xaicompaction.go`), which folds them
+  through the session's existing `compactionFold` and emits `TypeCompaction`. IDs are `xai-N`.
+  The fold needs no lock: the SDK runs every notification, extension ones included, through one
+  ordered queue (`acp-go-sdk2@v1.20.0 connection.go:1399-1406`).
+- **grok's table.** `compact` is now `{KindNative, "compact"}`. No other grok row only said
+  "returns nothing here", so step 3 deleted nothing. The remaining `KindNone` rows (`diff`,
+  `undo`, `redo`, and others) say grok has no such operation over ACP. They are not silence
+  claims.
+- **grok's caveat** is kept as written ("Some of grok's own commands only work in its terminal
+  UI and return nothing here."), because the run below shows `/always-approve` doing exactly
+  that. Its code comment no longer names `/feedback`, which answers.
+
+**Tests, each seen failing first.** A scratch script copied the tree (without `.git` and
+`apps`), broke one thing per plant, ran the guarding test, and restored. All ten failed as
+expected, and the restored copy passed:
+
+| Plant | Failed |
+| :--- | :--- |
+| D9 branch removed | `TestAgentCommandComesBeforeATableOp` |
+| D9 ignores silent marks | `TestAgentCommandComesBeforeATableOp` |
+| D9 fires on any agent command | `TestNonCanonicalAgentCommandsChangeNothing` |
+| daemon commands forward | `TestDaemonCommandsNeverForward` |
+| grok `compact` row back to `KindNone` | `TestGrokCompactIsGroksOwn` |
+| grok `diff` note lost | `TestAgentAdvertisesAndHelp` |
+| `auto_compact_*` dispatch dropped | `TestXAIManualCompactShowsACompaction` |
+| compaction never closed | `TestXAICompactionsAreNumbered` |
+| `summary_preview` ignored | `TestXAIAutoCompactFoldsIntoOneCompaction/completed` |
+| `error` ignored | `TestXAIAutoCompactFoldsIntoOneCompaction/failed` |
+
+- `internal/command/resolve_order_test.go` (new) runs the D9 assertions over all five
+  providers' tables: 43 `KindOp` rows, each checked advertised, advertised-but-silent, and
+  not advertised. It also checks daemon-only commands over the five tables and a nil one, and
+  that non-canonical agent commands leave `ResolveAll` unchanged on every table (N8).
+- `internal/provider/acpagent/xaicompaction_test.go` (new) builds frames shaped like grok's
+  serde output.
+- `internal/session/commands_internal_test.go` asserted grok's old `/compact` note as "the
+  provider's own words". It now asserts grok's `/diff` note, which is the same check on a row
+  that still carries one.
+
+**The live run** (`make live-grok`, approved by the owner, grok 1.0.62): 104 PASS, 1 FAIL,
+1 SKIP (`TestLiveRawOutputSamples`, which needs `MCREMOTE_RAW_OUTPUT_DIR`).
+
+`TestLiveGrokSilentCommandsThroughTheDaemon` passed, through `session.Manager` with a real store:
+
+```text
+Reply with the single word: ready: assistant "ready"
+/compact: compaction id="xai-1" status="completed" summary="" error=""
+/always-approve: notice "“/always-approve” produced nothing over the remote connection. It is marked unavailable here for this agent version."
+/feedback: assistant "Usage: /feedback <text>"
+mark: provider=grok version=1.0.62 command=always-approve
+```
+
+So the compaction reached the phone before the turn ended, and `/compact` was not marked. The
+ordering was an assumption from grok's source (the notification is queued before `run_compact`
+returns), and this run is its evidence.
+
+The one FAIL was `TestLiveGrokCommandTableMatchesReality`
+(`internal/provider/grok/live_command_test.go:63`), which pinned `compact` as `KindNone`. It
+pins grok's command table, which is P4 scope, so it was updated. `compact` joined the commands
+the table forwards to, so the test checks that grok still advertises it, and it asserts the row
+is `{KindNative, "compact"}`. Its `/compact` prompt was removed, because the silent-commands
+test above checks the same command with a turn before it. **That updated test has not been
+re-run live**, and neither has `internal/session/live_command_test.go`, which `make live-grok`
+does not cover. Each costs one more grok session.
+
+**Gates.** `go vet ./...` for darwin/arm64, linux/amd64 and windows/amd64, `make test`,
+`make race`, `make lint` and `make staticcheck`: each exit 0 with no FAIL lines. `go vet
+-tags live_grok` is clean for `internal/provider/grok` and `internal/session`. `make
+pre-add-check` is clean on all eleven Go files.
+
+**Not done in P4b.**
+
+- Replayed compactions. On session/load, grok replays them on `_x.ai/session/update`, and
+  `HandleXAISessionUpdate` still declines them.
+- `docs/guides/protocol-v1.md:2279` still uses the old grok `/compact` reason in an example
+  payload. The guide is outside P4's files.
+- The phone's composer, which P4's file list names. Nothing in P4b needed it: a mark reaches the
+  phone as an unavailable `remote_commands` entry, which it already renders.

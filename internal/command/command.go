@@ -245,12 +245,27 @@ func Resolve(name string, t Table, s SessionState) (Resolution, bool) {
 	if !ok {
 		return Resolution{}, false
 	}
+	// The daemon's own concerns never forward, whatever the agent advertises or
+	// a table says (MADR 0208 D9, step 3).
+	if slices.Contains(daemonOnly, spec.Name) {
+		return Resolution{Spec: spec, Mapping: Mapping{Kind: KindDaemon}, Available: true}, true
+	}
 	// silenced records that a native mapping would have been used but for a
 	// silent mark, so the user is told that rather than "doesn't offer it".
 	silenced := false
 	if m, declared := t[spec.Name]; declared {
 		if m.Kind == KindNone {
 			return Resolution{Spec: spec, Mapping: m}, true
+		}
+		// The agent's own command comes before an operation Magic drives, when
+		// the agent advertises the canonical name and it is not silent here
+		// (MADR 0208 D9, steps 1 and 2).
+		if m.Kind == KindOp && advertises(s.AgentCommands, spec.Name) && !advertises(s.Silent, spec.Name) {
+			return Resolution{
+				Spec:      spec,
+				Mapping:   Mapping{Kind: KindNative, Native: spec.Name},
+				Available: true,
+			}, true
 		}
 		if available(m, s) {
 			return Resolution{Spec: spec, Mapping: m, Available: true}, true
@@ -260,7 +275,7 @@ func Resolve(name string, t Table, s SessionState) (Resolution, bool) {
 		// Undeclared, and the agent advertises this exact name: that is the best
 		// evidence available that the agent owns the command, so it wins over
 		// the spec's preferred default. A provider that knows better says so in
-		// its table — which is how grok's inert /compact stays unavailable.
+		// its table, with a KindNone row.
 		if !advertises(s.Silent, spec.Name) {
 			return Resolution{
 				Spec:      spec,
@@ -280,6 +295,10 @@ func Resolve(name string, t Table, s SessionState) (Resolution, bool) {
 	}
 	return Resolution{Spec: spec, Mapping: Mapping{Kind: KindNone, Note: note}}, true
 }
+
+// daemonOnly are the canonical commands only the daemon can do: they act on
+// Magic's sessions, not on the agent's (MADR 0208 D9).
+var daemonOnly = []string{"help", "new", "sessions", "clear"}
 
 // silentNative reports whether an advertised agent command is marked silent.
 func silentNative(native string, s SessionState) bool {

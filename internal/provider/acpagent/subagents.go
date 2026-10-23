@@ -63,6 +63,10 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 			Usage *xaiUsage `json:"usage"`
 			// PromptID names the turn, so its cost is counted once (MADR 0199 E1).
 			PromptID string `json:"prompt_id"`
+			// The auto_compact_* variants' own text: a failure's error, and a
+			// completion's summary preview (MADR 0208, P4b deviation 1).
+			Error          string  `json:"error"`
+			SummaryPreview *string `json:"summary_preview"`
 		} `json:"update"`
 		Meta struct {
 			// IsReplay marks a turn grok re-sends from history (MADR 0199 E2).
@@ -102,6 +106,10 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 		if u.Type != "failed" && u.Message != "" {
 			s.noteEngineLogLine(u.Message)
 		}
+		return
+	}
+	if _, ok := xaiCompactionStatus[u.SessionUpdate]; ok {
+		s.onXAICompaction(u.SessionUpdate, u.Error, u.SummaryPreview, time.Now().UTC())
 		return
 	}
 	if u.SubagentID == "" {
