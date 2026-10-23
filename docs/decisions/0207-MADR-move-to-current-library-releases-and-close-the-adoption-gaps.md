@@ -296,6 +296,16 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
   * The PLAN measures each call site first.
 * **D5 — Finish 0186's P2 and P1 (F3, F4).** They are accepted already, and this record re-decides
   neither; it puts them in the same PLAN, since F3 is the duplication the owner asked about.
+  * *Note, 2026-10-22.* D5 is carried out by its own plan,
+    [0207-PLAN-finish-full-semver-pins-and-check-libs.md](0207-PLAN-finish-full-semver-pins-and-check-libs.md).
+    It was read against the tree, which differs from 0186's text in three ways:
+    * kilo has no parser copy. It compared the version string exactly (`kilo/version.go:42`).
+    * Three tests asserted the reverse of 0186 D8, that a prerelease matches its release.
+    * `x/mod/semver` reads a bare `v1` as `v1.0.0`. Magic keeps its rule that a version needs
+      `major.minor`.
+
+    The owner's answers: kilo moves onto the shared comparison; a prerelease of opencode's floor is
+    below the floor; and the work is two phases, SemVer first.
 * ~~**D6 — `agentproc` is not adopted yet; the SDK is asked for an output hook (C, declined).**~~
   **Superseded by D10 in the amendment of 2026-10-22:** `v1.20.0` ships the hook as
   `Command.OutputTap`, issue #10 is closed, and `agentproc` is adopted. The original text follows.

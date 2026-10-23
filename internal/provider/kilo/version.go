@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
+
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 // KnownGoodVersion is the kilo CLI release every wire shape in this package
@@ -39,7 +41,9 @@ func (d *httpDialect) OnHealthy(body []byte) error {
 	if v == "" {
 		return nil
 	}
-	if v != KnownGoodVersion {
+	// Full SemVer, as every pin compares (MADR 0186 D8; 0207 D5, Q1): "v7.5.6"
+	// and "7.5.6+build" are the pinned release, and "7.5.6-rc.1" is not.
+	if !provider.SameVersion(v, KnownGoodVersion) {
 		d.log.Warn("kilo engine version differs from known-good pin",
 			slog.String("version", v),
 			slog.String("known_good", KnownGoodVersion),

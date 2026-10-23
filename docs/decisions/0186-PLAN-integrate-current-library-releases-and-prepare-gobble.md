@@ -162,3 +162,10 @@ Still `in-progress`. R1 is done, and P1 and P2 have not started. The code agrees
   (`internal/provider/opencode/version.go:44`). `golang.org/x/mod` is only an indirect
   dependency.
 * Each phase still needs the owner's approval by name.
+
+## Status note — 2026-10-22
+
+P2 and P1 are carried out by
+[0207-PLAN-finish-full-semver-pins-and-check-libs.md](0207-PLAN-finish-full-semver-pins-and-check-libs.md),
+under 0207's D5. Its V1 is this plan's P2, and its V2 is P1. That plan's execution record is the
+record of both. This plan is set `complete` when V2 is done.

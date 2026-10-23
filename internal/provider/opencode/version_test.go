@@ -6,39 +6,18 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/httpagent"
 )
 
-func TestParseSemver(t *testing.T) {
-	cases := []struct {
-		in            string
-		maj, min, pat int
-		ok            bool
-	}{
-		{"1.18.4", 1, 18, 4, true},
-		{"v1.18.4", 1, 18, 4, true},
-		{"1.18.4-beta", 1, 18, 4, true},
-		{"1.18", 1, 18, 0, true},
-		{"", 0, 0, 0, false},
-		{"not-a-version", 0, 0, 0, false},
-	}
-	for _, c := range cases {
-		maj, min, pat, ok := parseSemver(c.in)
-		if ok != c.ok || maj != c.maj || min != c.min || pat != c.pat {
-			t.Errorf("parseSemver(%q)=%d.%d.%d ok=%v want %d.%d.%d ok=%v",
-				c.in, maj, min, pat, ok, c.maj, c.min, c.pat, c.ok)
-		}
-	}
-}
-
 func TestCompareVersions(t *testing.T) {
-	if CompareVersions("1.18.4", "1.18.0") <= 0 {
+	if provider.CompareVersions("1.18.4", "1.18.0") <= 0 {
 		t.Fatal("1.18.4 should be > 1.18.0")
 	}
-	if CompareVersions("1.17.9", MinVersion) >= 0 {
+	if provider.CompareVersions("1.17.9", MinVersion) >= 0 {
 		t.Fatal("1.17.9 should be < MinVersion")
 	}
-	if CompareVersions("1.18.0", MinVersion) != 0 {
+	if provider.CompareVersions("1.18.0", MinVersion) != 0 {
 		t.Fatal("1.18.0 should equal MinVersion")
 	}
 	if !VersionMeetsMin("1.18.4") {
@@ -46,6 +25,10 @@ func TestCompareVersions(t *testing.T) {
 	}
 	if VersionMeetsMin("1.17.0") {
 		t.Fatal("1.17.0 should not meet min")
+	}
+	// A prerelease of the floor is below it (MADR 0186 D8; 0207 D5, Q2).
+	if VersionMeetsMin("1.18.0-rc.1") {
+		t.Fatal("1.18.0-rc.1 should not meet the 1.18.0 floor")
 	}
 }
 
@@ -92,7 +75,7 @@ func TestCompareVersionsCompleteMatrix(t *testing.T) {
 		{"equal with v prefix", "v1.18.21", "1.18.21", 0},
 		{"equal with capital V", "V1.18.21", "1.18.21", 0},
 		{"equal with surrounding space", "  1.18.21  ", "1.18.21", 0},
-		{"equal despite prerelease", "1.18.21-rc.1", "1.18.21", 0},
+		{"prerelease ranks below its release", "1.18.21-rc.1", "1.18.21", -1},
 		{"equal despite build metadata", "1.18.21+darwin", "1.18.21", 0},
 		{"missing patch equals explicit zero", "1.18", "1.18.0", 0},
 		{"major less", "0.18.21", "1.18.21", -1},
@@ -110,7 +93,7 @@ func TestCompareVersionsCompleteMatrix(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := CompareVersions(c.a, c.b); got != c.want {
+			if got := provider.CompareVersions(c.a, c.b); got != c.want {
 				t.Errorf("CompareVersions(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
 			}
 		})
@@ -126,7 +109,7 @@ func TestVersionIsKnownGoodMatrix(t *testing.T) {
 		{"1.18.26", true},
 		{"v1.18.26", true},
 		{"1.18.26+build.7", true},
-		{"1.18.26-rc.1", true},
+		{"1.18.26-rc.1", false},
 		{"1.18.25", false},
 		{"1.18.27", false},
 		{"1.19.0", false},
@@ -149,7 +132,7 @@ func TestKnownGoodIsDistinctFromMinimum(t *testing.T) {
 	if KnownGoodVersion == MinVersion {
 		t.Fatal("KnownGoodVersion and MinVersion must remain distinct policies")
 	}
-	if CompareVersions(KnownGoodVersion, MinVersion) <= 0 {
+	if provider.CompareVersions(KnownGoodVersion, MinVersion) <= 0 {
 		t.Fatalf("KnownGoodVersion %q must be above MinVersion %q", KnownGoodVersion, MinVersion)
 	}
 	if !VersionMeetsMin(KnownGoodVersion) {
