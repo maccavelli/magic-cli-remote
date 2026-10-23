@@ -401,3 +401,173 @@ After the change:
   `mcremote.user.service.tmpl:44`; `internal/procutil/procutil_windows.go:243-300`; the
   `SuperviseStarted` callers listed in F3; `internal/provider/acpagent/acpagent.go:1100-1102`;
   `cmd/mcremote/main.go`, `cmd/mcrelay/main.go`.
+
+## Amendment — 2026-10-23 (A): three findings from L1
+
+~~**Status of this amendment: proposed.**~~ **Decided by the owner on 2026-10-23:** "5C: both",
+"6A: every backend", "7A: refuse early in Magic" and "Skip R2" (the questions below). The
+decisions above stay accepted. This amendment adds
+D8 to D10, from what the PLAN's L1 observed. The owner asked to "address the 3 discovered items"
+on 2026-10-23. Read against `907c3c29` and go-selfupdate-lib `v1.17.2`.
+
+### What L1 found
+
+* **F5 — The service manager's notify socket reaches the detached run.**
+  * **Seen.** On the Linux test host, the handoff's journal has
+    `mcremote-d3probe-selfupdate-1467c607….service: Got notification message from PID 1866372,
+    but reception is disabled`, at 15:05:44.600.
+  * **The window.** The detached run was PID 1866346. The notifier was another process in the
+    transient unit, between the old daemon's stop (44.160) and the new one's start (44.629).
+    That is the reconcile window. The library's `ExecReconciler` runs the new binary as
+    `setup-service --refresh --json` (`selfupdate/service/execreconciler.go:115-116`), and that
+    refresh runs `systemctl --user daemon-reload` (`internal/cli/service/refresh.go:248`).
+  * **Who sent it is not known.** Magic sends sd_notify only from `daemon.Run`
+    (`internal/daemon/daemon.go:690`, `:709`, `:735`, `:751`), through the library's
+    `systemd.Notify`, which reads `NOTIFY_SOCKET` on each call (`service/systemd/notify.go:22`).
+    So the notifier was one of the two children, most likely `systemctl`. The journal has no entry
+    under that PID.
+  * **How the socket gets there.** The daemon's unit is `Type=notify`
+    (`mcremote.user.service.tmpl:23`), so systemd gives the daemon `NOTIFY_SOCKET`. Magic's
+    children inherit the daemon's environment: `acpagent/terminal.go:81`, `codex/provider.go:569`,
+    `httpagent/provider.go:534`, and the SDK's agent processes. An agent's `mcremote update`
+    therefore has it. Both detaching backends write the caller's whole environment into the
+    handoff's environment file: `service/systemd/detach.go:209` and `service/launchd/detach.go:100`
+    (`os.Environ()`).
+  * **Effect today.** One discarded message and a journal line. In the daemon's own unit, a child's
+    message is dropped, since `NotifyAccess=` defaults to `main` for `Type=notify`
+    (systemd.service(5)) and the template sets none. In a transient unit, reception is off.
+  * **Why it matters still.** The variable names one unit's socket, and it travels into processes
+    that belong to another unit, and into every command an agent runs. Any process there that
+    speaks sd_notify talks to a unit that is not its own.
+* **F6 — Removing a service leaves its definition's backup.**
+  * **Seen.** On Linux, `~/.config/systemd/user/mcremote-d3probe.service.prev` remained after
+    `setup-service --remove`, which exited 0. It was mode 0600.
+  * **Where it comes from.** A refresh that rewrites a definition first keeps the old one, and
+    prints `service definition refreshed: <path> (previous kept at <backup>)`
+    (`result_print.go:26`). The backups are:
+    * systemd: `<unit>.service.prev` (`refresh.go:239`);
+    * launchd: `<label>.plist.prev` (`refresh.go:306`);
+    * runit and s6: `run.prev` inside the service directory (`supervisor.go:61`);
+    * OpenRC: `<name>.prev` beside `init.d` (`supervisor.go:69`);
+    * Windows: `<name>-task.prev.xml` in the state directory (`refresh_schtasks.go:164-184`).
+  * **What remove deletes.**
+    * `removeSystemd` deletes the unit and its enable link (`setup.go:773-779`).
+    * `removeLaunchdAgent` deletes the plist (`setup.go:823`).
+    * `removeScript` deletes the runit or s6 service directory, which takes `run.prev` with it
+      (`supervisor.go:486`), or the OpenRC script alone (`supervisor.go:496`).
+    * `removeSchtasks` deletes the task (`setup_schtasks.go:91`).
+    * `--uninstall` calls the same four (`uninstall.go:269-275`).
+
+    So the backup outlives the service on systemd, launchd, OpenRC and Windows.
+  * **Why it matters.** A backup is mode 0600 when its definition carries extra environment
+    (`refresh.go:325-329`), and that is where `--env` values live, such as a relay secret. An
+    uninstall that leaves it leaves the secret. A later `setup-service` renders fresh and never
+    reads it. The update's own rollback reads the backup only during the update, through the
+    reconcile receipt (`execreconciler.go:147-173`).
+  * This predates 0210. It is decided here because L1 found it (the same-number rule in
+    `AGENTS.md`).
+* **F7 — Where nothing hands off, an inside update downloads before it refuses.**
+  * **Seen.** In each of L1's runit, s6 and OpenRC transcripts, `downloading-manifest` and
+    `installing … target=v0.22.2` come before `this process runs inside the service it would
+    stop`.
+  * **The cause.** The refusal comes from `Stop`, inside the managed install, after the download
+    and staging.
+  * **Windows.** It takes the same path, since `HandOff` is unset there (D3). That is read from
+    code; L1's Windows transcript was filtered to the result line.
+  * **What the library offers.** It runs `HandOff.Detach` before `u.RunWith`, after only a
+    release check (`selfupdate/cli/run.go:140-149`). A `Detach` error fails the run, and nothing
+    is downloaded.
+  * Both backends that refuse already answer `Inside`: `scriptBackend.Inside` (H2), and
+    `taskscheduler.Task.Inside` (`service/taskscheduler/detach.go:15`).
+
+### Considered options
+
+* **For F5:**
+  * **5A** — The daemon takes `NOTIFY_SOCKET` out of its own environment when it starts, keeps
+    the value, and sends its notifications to the kept path. No child inherits it, on any spawn
+    path.
+  * **5B** — A go-selfupdate-lib issue: `Detach`'s environment file leaves out the service
+    manager's per-unit variables (`NOTIFY_SOCKET`, `WATCHDOG_PID`, `WATCHDOG_USEC`, `LISTEN_PID`,
+    `LISTEN_FDS`, `LISTEN_FDNAMES`, `MAINPID`, `MANAGERPID`, `INVOCATION_ID`, `JOURNAL_STREAM`,
+    `SYSTEMD_EXEC_PID`). Magic waits for the release.
+  * **5C** — Both.
+  * **5D** — Record it, and change nothing.
+* **For F6:**
+  * **6A** — Each remover deletes the backup of the definition it removes, on every backend, and
+    its result names it.
+  * **6B** — As 6A, except Windows.
+  * **6C** — Keep the backups, and have remove print where each was left.
+  * **6D** — Change nothing.
+* **For F7:**
+  * **7A** — Where the update sets no handoff and the backend answers `Inside`, set
+    `HandOff.Detach` to a check that refuses with `ErrInsideService` before the download.
+  * **7B** — A library issue for such a check in `service`, and wait.
+  * **7C** — Change nothing.
+
+### Proposed decisions
+
+* **D8 — An update that cannot hand off refuses before it downloads (7A).**
+  * In `updateclient`, when `newCommandDetacher` reports no `Detacher` but the backend has
+    `Inside(ctx) (bool, error)`, `o.HandOff.Detach` is a refusal. Inside, it returns
+    `fmt.Errorf("…: %w", libservice.ErrInsideService)`; outside, `false, "", nil`; an `Inside`
+    error is returned, never read as "outside".
+  * This covers Windows (D3) and runit, s6 and OpenRC (D4). `Report` stays unset there, since no
+    run is detached.
+  * `Stop`'s guard stays, as the last line of defence.
+  * The message names the remedy, updating from a shell.
+* **D9 — Removing a service removes its definition's backup (6A).**
+  * `removeSystemd`, `removeLaunchdAgent`, `removeScript` (OpenRC) and `removeSchtasks` each
+    delete the backup the matching refresh writes. A missing backup is not an error. The result
+    gains the path, and `--remove`'s and `--uninstall`'s output lists it.
+  * Windows looks the path up without creating the state directory, which `taskBackupPath` does
+    today (`refresh_schtasks.go:180`).
+  * *Recommended because* a backup can hold `--env` secrets, and nothing reads it once its service
+    is gone.
+* **D10 — The daemon keeps its notify socket to itself (5C).**
+  * In `daemon.Run`, before anything is spawned, Magic reads `NOTIFY_SOCKET`, unsets it, and
+    sends `READY=1` and `STOPPING=1` to the kept address. That is `sd_notify`'s own
+    `unset_environment` practice (sd_notify(3)).
+  * The send is the library's datagram protocol, a few lines in a new `daemon_notify.go`:
+    a path, or an abstract `@` name, and `SOCK_DGRAM`. `notifySystemd` keeps its signature, and
+    is passed that sender.
+  * A go-selfupdate-lib issue asks `Detach` to leave the per-unit variables out (5B), so that every
+    product is safe. Filing it is outward-facing and needs the owner's word.
+  * *Recommended because* 5A closes the leak at its source for every child Magic spawns, including
+    the SDK's, and 5B closes it for other products and other variables.
+
+### Confirmation of this amendment
+
+* **Unit tests, each seen failing first:**
+  * D8: an inside update on a backend with `Inside` and no handoff fails with `ErrInsideService`,
+    and the fake updater records no run. Outside, it runs as today, and `--check` and `--dry-run`
+    never call it.
+  * D9: per remover, a definition with a backup leaves neither behind, and the result names the
+    backup. A missing backup is no error. On Windows, no state directory is created.
+  * D10: after start-up, the daemon's environment has no `NOTIFY_SOCKET`, `READY=1` still reaches
+    the test's socket, and a child spawned after start-up sees no `NOTIFY_SOCKET`. The existing
+    `TestRunNotifiesSystemd` keeps passing.
+* **Live** (the PLAN's L2, on the owner's word):
+  * Linux, systemd: L1.1's handoff completes, and the transient unit's journal has no
+    `reception is disabled` line.
+  * The same run's `--remove` leaves no `.service.prev`.
+  * In the three containers, the inside update is refused with no `downloading` event.
+  * On Windows, by the real-task procedure (R1 Deviation 3), the same.
+
+### Questions for the owner (amendment A)
+
+1. **F5.** Approve 5C, with the issue filed in go-selfupdate-lib (recommended)? Or 5A alone, 5B
+   alone, or 5D?
+2. **F6.** Approve 6A, on every backend, Windows included (recommended)? Or 6B, 6C or 6D?
+3. **F7.** Approve 7A (recommended)? Or 7B or 7C?
+4. **Who sent the message.** Should the PLAN identify it on the Linux test host (its R2), so the
+   issue can name it? That run points `NOTIFY_SOCKET` at a listener and runs `systemctl --user
+   daemon-reload` and the refresh against the test host's user manager. The fix does not depend
+   on the answer.
+
+*Answered 2026-10-23:*
+
+1. "5C: both". D10 stands as written. The issue is filed in A0.
+2. "6A: every backend". D9 stands as written, Windows included.
+3. "7A: refuse early in Magic". D8 stands as written.
+4. "Skip R2". The sender stays "one of the two children, most likely `systemctl`". The issue says
+   so.

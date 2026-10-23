@@ -905,3 +905,152 @@ The real services were unchanged:
 **The plan is complete.** Every acceptance criterion under Verification is met. The MADR is
 accepted for D1, D2 and D4 to D7, and D3 stays open on go-selfupdate-lib#6. A later amendment,
 when #6 or #2 ships, opens a new phase for the Windows or the script-supervisor handoff.
+
+L1 was committed as `907c3c29`, at the owner's word ("Commit to master").
+
+## Amendment — 2026-10-23 (A): L1's three findings
+
+**Status: proposed.** This implements the MADR's "Amendment — 2026-10-23 (A)": D8 (F7), D9 (F6)
+and D10 (F5). The phases above stay complete. The front matter's `status` becomes `in-progress`
+when the owner approves this amendment. With the owner's answers of 2026-10-23 ("5C: both",
+"Skip R2"), the order is A0, A1, A2, A3, then L2, and ~~R2~~ does not run. The rules for every phase, above, apply
+unchanged: files named at the start, every new test seen failing first on a scratch copy, the
+gates, the guard's redact preview, and each phase staged for the owner.
+
+### ~~R2 — Who sent the notification (only on question 4)~~ Not run: the owner chose "Skip R2"
+
+**Files:** this plan. On the Linux test host, in a scratch directory:
+
+1. A Python listener binds a `SOCK_DGRAM` socket at a scratch path, and prints each datagram
+   with the sender's PID (`SO_PASSCRED`).
+2. With `NOTIFY_SOCKET` set to that path, it runs:
+   * `systemctl --user daemon-reload`;
+   * `systemctl --user show-environment`, a read-only control;
+   * the kit's `mcremote setup-service --refresh --json`, against a scratch unit that L2's
+     install leaves in place.
+3. The record names the sender, or says that none sent anything.
+
+### A0 — The library issue (only on question 1: 5B or 5C)
+
+**Files:** this plan. One issue in go-selfupdate-lib:
+
+* **Title:** "Detach copies the caller's per-unit service-manager variables into the detached
+  run".
+* **Body:** F5's evidence, without host names. Which variables to leave out (the MADR's 5B list).
+  `systemd/detach.go:209` and `launchd/detach.go:100`.
+* The record carries the issue's URL. Nothing waits on it.
+
+### A1 — Refuse before the download (D8)
+
+**Files:** `internal/updateclient/client.go`, `command_test.go`; this plan.
+
+1. **Tests first**, in `command_test.go`:
+   * A backend that is no `Detacher` but answers `Inside` true: the update fails with
+     `ErrInsideService`, and the fake updater records no run.
+   * The same, answering false: the update runs as today.
+   * An `Inside` error is returned.
+   * `--check` and `--dry-run` never call `Inside`.
+   * On a faked Windows, the refusal is set even though the backend is a `Detacher`.
+   * The existing `TestDetacherForGatesWindowsAndScriptBackends` and H1's "no handoff" test are
+     updated, since those backends now get the refusal.
+2. **`client.go`:**
+   * A seam beside `newCommandDetacher`, `newCommandInsider func(product string, health
+     service.HealthOptions) (insider, bool)`, where `insider` is `interface{ Inside(ctx) (bool,
+     error) }`. It returns the backend when it answers `Inside` and `detacherFor` reports false.
+   * In `RunE`, when no handoff is set and that seam reports true, `o.HandOff.Detach` is
+     `refuseInside(b)`. That function returns `fmt.Errorf("this update runs inside the %s service
+     and cannot hand off here; run it from a shell: %w", product, libservice.ErrInsideService)`
+     when inside, and the error itself when `Inside` fails.
+   * The `Long` help's sentence about refusing becomes "it refuses before downloading".
+3. **Gates.**
+
+### A2 — Remove deletes the backup (D9)
+
+**Files:**
+
+* `internal/cli/service/setup.go`, `supervisor.go`, `setup_schtasks.go`, `refresh_schtasks.go`,
+  `uninstall.go`;
+* `internal/cli/setup_service.go`;
+* the tests `setup_test.go`, `setup_launchd_test.go`, `supervisor_unix_test.go`,
+  `schtasks_test.go`, `uninstall_unix_test.go`;
+* `docs/guides/ops-linux-install.md`, `docs/guides/ops-windows-install.md`;
+* this plan.
+
+1. **Tests first:**
+   * For systemd, launchd, OpenRC and Windows: a definition and its backup in place; `Remove`
+     leaves neither, and `Result.RemovedBackup` names the backup.
+   * Without a backup, no error, and no name.
+   * For runit and s6, as today: the directory and its `run.prev` go.
+   * On Windows, the remove creates no state directory.
+   * `--uninstall`'s result lists the backup.
+2. **Code:**
+   * `Result.RemovedBackup string`.
+   * Each remover deletes its backup with `os.Remove`, after the definition, and ignores
+     `fs.ErrNotExist`.
+   * `refresh_schtasks.go` splits `taskBackupPath`, so that a lookup does not create the state
+     directory.
+   * `setup_service.go` prints `Removed backup:     <path>`, and `uninstall.go` adds it to the
+     removed items.
+3. **Guides:** `ops-linux-install.md`, beside the refresh table's `<unit>.prev` row (line 306), and
+   `ops-windows-install.md`'s uninstall section (line 110). Each says that `--remove` and
+   `--uninstall` delete the kept definition too.
+4. **Gates.**
+
+### A3 — The daemon keeps its notify socket (D10)
+
+**Files:** `internal/daemon/daemon.go`, a new `internal/daemon/daemon_notify.go`,
+`notify_unix_test.go`; this plan.
+
+1. **Tests first**, in `notify_unix_test.go`, with a `unixgram` listener:
+   * After `Run` is ready, `os.Getenv("NOTIFY_SOCKET")` is empty, and `READY=1` arrived.
+   * A child that the test's fake provider spawns after start-up prints its environment, and it
+     has no `NOTIFY_SOCKET`.
+   * On shutdown, `STOPPING=1` arrives.
+   * An abstract `@` address is accepted.
+   * `TestRunNotifiesSystemd` passes unchanged.
+2. **`daemon_notify.go`:**
+   * `takeNotifySocket()` reads the variable, unsets it, and returns a sender. With no variable,
+     the sender reports `false, nil`, as the library does.
+   * The sender writes one datagram, by the library's rules (`service/systemd/notify.go`): a path,
+     or `@` for the abstract namespace.
+3. **`daemon.go`:**
+   * `Run` calls `takeNotifySocket` before any provider or terminal is started.
+   * The `READY=1` and `STOPPING=1` call sites pass its sender to `notifySystemd`. That keeps
+     `notifySystemd`'s signature, and drops the import of the library's `systemd` package if
+     nothing else uses it.
+4. **Gates,** with the Linux test host running `go test -race ./internal/daemon/`, since the
+   socket tests are Unix-only.
+
+### L2 — Confirm on each host (on the owner's word)
+
+**Files:** this plan, and the MADR (the amendment's status and a note). The binary is a build of
+A3's commit. The kit is R0's, under the rules R1's deviations set.
+
+1. **Linux, systemd.** `install`, then `inside-agent`. Expected:
+   * the handoff completes, as in L1.1;
+   * the transient unit's journal has no `reception is disabled` line;
+   * the scratch daemon became active, so `READY=1` still arrives.
+
+   Then `remove`. Expected: no `mcremote-d3probe.service.prev` remains, and the output names it.
+2. **The three containers.** `install`, then `inside-agent`. Expected:
+   * refused with the D8 message;
+   * no `downloading-manifest` or `installing` event in the transcript;
+   * the PID unchanged.
+3. **Windows.** W1 to W4 with the kit's update binary, as L1.3. Expected: the D8 refusal with no
+   download event, and W4's restore.
+4. **macOS.** `install`, `inside-agent`, `cleanup-check`, then `remove`, as L1.2. Expected: as in
+   L1.2, unchanged by A1 to A3.
+5. **Records.**
+   * L2's execution record.
+   * The MADR amendment becomes `decided`, with a dated note.
+   * This plan becomes `complete` again.
+
+### Rollout and rollback for amendment A
+
+* **Rollout.** At the next tag, with `make ci-windows-smoke` first.
+* **Rollback.** Revert A1 to A3's commits. Then:
+  * F7 comes back: a refused update downloads first, and still leaves the service running.
+  * F6 comes back: backups stay after a remove.
+  * F5 comes back: a harmless journal line.
+
+  Nothing is migrated, so nothing has to be undone on a host.
