@@ -7,7 +7,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
 // scriptBackend is the update's view of a runit, s6 or OpenRC user service:
@@ -76,9 +80,93 @@ func (b *scriptBackend) Running(context.Context, string) (bool, error) {
 	return s.up, err
 }
 
-// Stop stops the service and waits for it to be down.
+// parentOf returns a process's parent PID: procParent, which reads /proc on
+// Linux, the only OS a script backend runs on (backend.go), and is nil
+// elsewhere. It is a variable for tests.
+var parentOf = procParent
+
+// maxAncestry bounds Inside's walk, in case a parent chain loops.
+const maxAncestry = 4096
+
+// supervisedPID is the PID of the service's own process, or 0 when it is not
+// running or cannot be read. runit and s6 report it in their status, as the
+// settle reads it. OpenRC's start-stop-daemon writes it to
+// "${XDG_RUNTIME_DIR:-/tmp}/<name>.pid" (supervisor.go), resolved in the
+// environment OpenRC started the service with, so each candidate directory is
+// tried in turn.
+func (b *scriptBackend) supervisedPID() int {
+	if b.kind != KindOpenRCUser {
+		s, err := sampler(b.kind, b.result())()
+		if err != nil || !s.up {
+			return 0
+		}
+		return s.pid
+	}
+	var dirs []string
+	if rd := os.Getenv("XDG_RUNTIME_DIR"); rd != "" {
+		dirs = append(dirs, rd)
+	}
+	if rd, ok := userRuntimeDir(); ok {
+		dirs = append(dirs, rd)
+	}
+	for _, dir := range append(dirs, "/tmp") {
+		raw, err := os.ReadFile(filepath.Join(dir, b.name+".pid"))
+		if err != nil {
+			continue
+		}
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 {
+			return pid
+		}
+	}
+	return 0
+}
+
+// Inside reports whether this process descends from the service's own
+// process (MADR 0210 D4). An agent the daemon runs, and an update the agent
+// starts, are its descendants. When the daemon stops, its teardown ends the
+// agents' process groups (daemon.go, mgr.CloseAll), so such an update dies
+// before it can start the service again, and the supervisor holds it down.
+// The 0210 PLAN's R1 reproduced that under runit, s6 and OpenRC. A service
+// with no running process has no inside, and off Linux there is no parent to
+// read. An error reading the ancestry is returned, never read as "outside".
+func (b *scriptBackend) Inside(context.Context) (bool, error) {
+	if parentOf == nil {
+		return false, nil
+	}
+	pid := b.supervisedPID()
+	if pid <= 0 {
+		return false, nil
+	}
+	p := os.Getpid()
+	for range maxAncestry {
+		if p == pid {
+			return true, nil
+		}
+		if p <= 1 {
+			return false, nil
+		}
+		parent, err := parentOf(p)
+		if err != nil {
+			return false, fmt.Errorf("read the parent of process %d: %w", p, err)
+		}
+		p = parent
+	}
+	return false, fmt.Errorf("process %d's ancestry is longer than %d", os.Getpid(), maxAncestry)
+}
+
+// Stop stops the service and waits for it to be down. From inside the
+// service it refuses, as the library's backends do, with
+// service.ErrInsideService, and stops nothing: the managed installer then
+// leaves the service running and fails the update (MADR 0210 D4). runit, s6
+// and OpenRC have no handoff yet (go-selfupdate-lib#2).
 func (b *scriptBackend) Stop(ctx context.Context, product string) error {
-	var err error
+	inside, err := b.Inside(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: cannot tell whether this process runs inside it: %w", b.name, err)
+	}
+	if inside {
+		return fmt.Errorf("%s: %w", b.name, libservice.ErrInsideService)
+	}
 	switch b.kind {
 	case KindRunit:
 		err = runCmd("sv", "down", b.def.Dir)

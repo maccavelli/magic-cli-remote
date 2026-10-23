@@ -4,13 +4,18 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
 // scriptBackendHost is a scratch Linux host with kind's definition of
@@ -82,6 +87,9 @@ func TestScriptBackendInstalledAndEnabled(t *testing.T) {
 func TestScriptBackendStop(t *testing.T) {
 	ctx := context.Background()
 	b := scriptBackendHost(t, KindRunit)
+	// Outside the service: since MADR 0210 D4, Stop asks first, and off Linux
+	// there is no /proc to ask.
+	withAncestry(t, map[int]int{os.Getpid(): 1})
 	fakeOutput(t, "sv", "down: "+b.def.Dir+": 1s, normally up")
 	if err := b.Stop(ctx, "mcremote"); err != nil {
 		t.Fatal(err)
@@ -196,5 +204,145 @@ func TestProbeStatusOnRunit(t *testing.T) {
 	// same definition.
 	if ok, err := IsInstalled("mcremote"); err != nil || !ok {
 		t.Fatalf("IsInstalled = %v, %v; want the runit definition found", ok, err)
+	}
+}
+
+// withAncestry makes parentOf answer from parents, and fail for any other PID.
+func withAncestry(t *testing.T, parents map[int]int) {
+	t.Helper()
+	prev := parentOf
+	parentOf = func(pid int) (int, error) {
+		if p, ok := parents[pid]; ok {
+			return p, nil
+		}
+		return 0, os.ErrNotExist
+	}
+	t.Cleanup(func() { parentOf = prev })
+}
+
+// supervise makes b's supervisor report the service up as pid: `sv status`
+// and `s6-svstat` print it, and OpenRC's pidfile holds it, at the path the
+// OpenRC script renders.
+func supervise(t *testing.T, b *scriptBackend, pid int) {
+	t.Helper()
+	switch b.kind {
+	case KindRunit:
+		fakeOutput(t, "sv", "run: "+b.def.Dir+": (pid "+strconv.Itoa(pid)+") 40s")
+	case KindS6:
+		fakeOutput(t, "s6-svstat", "up (pid "+strconv.Itoa(pid)+" pgid "+strconv.Itoa(pid)+") 40 seconds")
+	case KindOpenRCUser:
+		rd := t.TempDir()
+		t.Setenv("XDG_RUNTIME_DIR", rd)
+		if err := os.WriteFile(filepath.Join(rd, b.name+".pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// stopCalls are the calls that would stop b's service.
+func stopCalls(calls []string) []string {
+	var out []string
+	for _, c := range calls {
+		if strings.HasPrefix(c, "sv down") || strings.HasPrefix(c, "s6-svc -d") || strings.HasSuffix(c, " stop") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// TestScriptBackendStopRefusesFromInside is MADR 0210 D4. An update an agent
+// runs descends from the supervised daemon. Stopping it would end the agent's
+// process group, and the update with it, and leave the service down: R1
+// reproduced exactly that under runit, s6 and OpenRC. Stop refuses first,
+// with the library's ErrInsideService, so the managed installer leaves the
+// service running and fails the update.
+func TestScriptBackendStopRefusesFromInside(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range scriptKinds {
+		t.Run(string(kind), func(t *testing.T) {
+			b := scriptBackendHost(t, kind)
+			supervise(t, b, 4242)
+			withAncestry(t, map[int]int{os.Getpid(): 100, 100: 4242, 4242: 1})
+			err := b.Stop(ctx, "mcremote")
+			if !errors.Is(err, libservice.ErrInsideService) {
+				t.Fatalf("Stop = %v, want ErrInsideService", err)
+			}
+			if s := stopCalls(fakeCalls(t)); len(s) != 0 {
+				t.Fatalf("a refused stop still ran %v", s)
+			}
+		})
+	}
+}
+
+// TestScriptBackendStopsFromOutside: an operator's update, outside the
+// service, stops it as before.
+func TestScriptBackendStopsFromOutside(t *testing.T) {
+	ctx := context.Background()
+	b := scriptBackendHost(t, KindRunit)
+	supervise(t, b, 4242)
+	withAncestry(t, map[int]int{os.Getpid(): 100, 100: 1})
+	prev := stopTimeout
+	stopTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { stopTimeout = prev })
+	_ = b.Stop(ctx, "mcremote") // the fake reports it still up; only the call matters here
+	if s := stopCalls(fakeCalls(t)); !slices.Equal(s, []string{"sv down " + b.def.Dir}) {
+		t.Fatalf("stop calls %v, want sv down", s)
+	}
+}
+
+// TestScriptBackendStopWhenNotRunning: a service with no supervised process
+// has no inside to protect, so Stop runs as before.
+func TestScriptBackendStopWhenNotRunning(t *testing.T) {
+	ctx := context.Background()
+	b := scriptBackendHost(t, KindRunit)
+	fakeOutput(t, "sv", "down: "+b.def.Dir+": 1s, normally up")
+	withAncestry(t, nil) // never consulted: there is no supervised PID to look for
+	if err := b.Stop(ctx, "mcremote"); err != nil {
+		t.Fatalf("Stop = %v, want nil", err)
+	}
+	if s := stopCalls(fakeCalls(t)); !slices.Equal(s, []string{"sv down " + b.def.Dir}) {
+		t.Fatalf("stop calls %v, want sv down", s)
+	}
+}
+
+// TestProcParentReadsTheRealParent pins the /proc reader the fakes above
+// stand in for: a parent is the one the kernel reports. The child matters:
+// under `go test` this process often leads no group of its own, so its
+// parent and its process group can be the same number, while a child's
+// parent (this process) and group (`go`'s) differ.
+func TestProcParentReadsTheRealParent(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc/<pid>/stat is Linux's; no script backend runs elsewhere")
+	}
+	got, err := procParent(os.Getpid())
+	if err != nil || got != os.Getppid() {
+		t.Fatalf("procParent(self) = %d, %v; want %d", got, err, os.Getppid())
+	}
+	child := exec.Command("sleep", "30")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	got, err = procParent(child.Process.Pid)
+	if err != nil || got != os.Getpid() {
+		t.Fatalf("procParent(child) = %d, %v; want %d", got, err, os.Getpid())
+	}
+}
+
+// TestScriptBackendStopWhenAncestryIsUnreadable: an error reading this
+// process's ancestry is returned, never read as "outside", as the library's
+// HandOffIfInside treats Inside's errors: proceeding could stop the caller's
+// own service.
+func TestScriptBackendStopWhenAncestryIsUnreadable(t *testing.T) {
+	ctx := context.Background()
+	b := scriptBackendHost(t, KindRunit)
+	supervise(t, b, 4242)
+	withAncestry(t, map[int]int{}) // this process's parent cannot be read
+	err := b.Stop(ctx, "mcremote")
+	if err == nil || errors.Is(err, libservice.ErrInsideService) {
+		t.Fatalf("Stop = %v, want the ancestry error", err)
+	}
+	if s := stopCalls(fakeCalls(t)); len(s) != 0 {
+		t.Fatalf("a stop that could not tell inside from outside still ran %v", s)
 	}
 }

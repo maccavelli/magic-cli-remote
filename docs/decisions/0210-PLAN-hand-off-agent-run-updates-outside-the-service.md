@@ -631,3 +631,83 @@ So the call runs first, and refuses a bad environment.
 | `make markdownlint-docs`, `make check-records` | 0 issues in 55 files; ok |
 
 **Not done in H1.** H2 and H3. The handoff itself is confirmed live in L1, after H3.
+
+H1 was committed by the owner as `6f944fbd`, who approved H2 ("committed, proceed").
+
+### H2, 2026-10-23: the script backends fail safe
+
+**What changed.**
+
+* **`internal/cli/service/scriptbackend.go`:**
+  * `supervisedPID` is the service's own PID, or 0 when it is not running. For runit and s6 it is
+    the existing sampler's `pid` when the service is up.
+  * For OpenRC it reads `<name>.pid` from the directory that `"${XDG_RUNTIME_DIR:-/tmp}"`
+    (`supervisor.go:138`) names in the environment `Start` gives the service. It tries
+    `$XDG_RUNTIME_DIR`, then `userRuntimeDir()` (the value `Start` falls back to), then `/tmp`.
+  * `Inside(ctx)` walks this process's ancestors through the seam `parentOf`, up to PID 1, and is
+    true when the walk meets the supervised PID. The walk is bounded at 4096 steps.
+  * An error reading a parent is returned, never read as "outside". With no supervised PID, or no
+    parent reader, it is false.
+  * `Stop` calls `Inside` first. Inside, it returns `<name>: <ErrInsideService>`; on an error it
+    returns `<name>: cannot tell whether this process runs inside it: <err>`. Both happen before
+    `sv`, `s6-svc` or `rc-service` runs.
+* **`scriptbackend_inside_linux.go`:** `procParent` reads `/proc/<pid>/stat` after the command
+  name's last `)`, and returns the parent, field 4.
+* **`scriptbackend_inside_other.go`** (`!linux`): `procParent` is nil, so `Inside` is false, as
+  step 2 says.
+  * A first draft returned `errors.ErrUnsupported` instead, and so made `Inside` an error off Linux.
+    The existing `TestUpdateRestartsARunitService` (`internal/updateclient`), which drives a fake
+    runit service on macOS, failed with `cannot tell whether this process runs inside it: read the
+    parent of process <pid>: unsupported operation`.
+  * The code was brought back to the plan's text, so this is not a deviation. No file outside
+    H2's list changed.
+* **`scriptbackend_unix_test.go`:**
+  * Helpers: `withAncestry` (a fake `parentOf`), `supervise` (fake `sv` or `s6-svstat` output, or
+    an OpenRC pidfile under a `t.Setenv` `XDG_RUNTIME_DIR`), and `stopCalls`.
+  * New tests: `TestScriptBackendStopRefusesFromInside` (runit, s6, OpenRC),
+    `…StopsFromOutside`, `…StopWhenNotRunning`, `…StopWhenAncestryIsUnreadable`, and
+    `TestProcParentReadsTheRealParent`. The last runs on Linux only. It checks this process and a
+    `sleep` child it starts. A child is needed because under `go test` a process's parent and its
+    process group can be the same number, so a check of the process alone cannot tell field 4
+    from field 5.
+  * The existing `TestScriptBackendStop` gains `withAncestry`. That makes it independent of the
+    real process tree, whose ancestry its fake PID could otherwise meet.
+
+**Seen failing first.** The plants were run on a scratch copy of the tree on macOS
+(`h2_plants.py`), and on a scratch directory on the Linux test host (`h2_linux.py`). Messages are
+quoted without their temporary paths.
+
+| Plant | Failed, with |
+| :--- | :--- |
+| no guard (today's `Stop`: `if inside && false`) | `…StopRefusesFromInside`, all three kinds: `Stop = mcremote is still running 15s after it was stopped, want ErrInsideService` |
+| an ancestry error read as outside (`_ = err`) | `…StopWhenAncestryIsUnreadable`: `a stop that could not tell inside from outside still ran [sv down …]` |
+| the walk skipped (`_, p = parent, 1`) | `…StopRefusesFromInside`, all three kinds, as the first row |
+| OpenRC's pidfile not read (`if true {` in `supervisedPID`) | `…StopRefusesFromInside/openrc-user` only |
+| Linux: field 5, the process group, read as the parent | `TestProcParentReadsTheRealParent`: `procParent(child) = <go's pid>, <nil>; want <test's pid>` |
+| Linux: field 3, the state, read as the parent | `TestProcParentReadsTheRealParent`: `strconv.Atoi: parsing "R": invalid syntax` |
+
+Each restored copy passed.
+
+* The first process-group plant passed, because it was checked on this process alone. The test
+  gained the child, and the plant was run again.
+* Two earlier plant runs failed only in the harness: one on a `grep` that read `[2]` as a
+  character class, and one on a plant that did not compile. Each was rerun after the harness was
+  fixed, and the verdicts above require the test's own `--- FAIL` line.
+
+**On the Linux test host** (Linux x86_64, go1.27.3 linux/amd64), the working tree's package, in a
+scratch directory that was deleted afterwards: `go vet`, `go test -count=1 -v` and
+`go test -race` on `./internal/cli/service/`, each exit 0. Nothing on the host's real service was
+touched.
+
+**Gates.**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the four Go files | "4 file(s) clean (gofmt, golint, govulncheck)" |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 0 FAIL lines |
+| `go mod tidy -diff` | no output |
+| `make check-records` | ok |
+
+**Not done in H2.** H3, which needs the owner's word. The guard is confirmed live in L1, in the
+runit, s6 and OpenRC containers.
