@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-22
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
@@ -369,3 +369,40 @@ go-selfupdate-lib govulncheck / advisories: ok
 It exited 0. This is the expected output of L2.1, line for line. `go-selfupdate-lib test` is ok
 where 0207 D5's run failed it, because `TestWorkflowPinsMatchGoMod` now sees the three pins agree.
 `git status --porcelain` was empty after the run.
+
+L2's record was committed as `b9bc388c`. The disclosure guard passed over `e715afe7` and
+`b9bc388c`, exit 0 with no output, and they were pushed: `864d9917..b9bc388c  master -> master`.
+
+### L3, 2026-10-22: the rehearsal
+
+`gh workflow run ci.yml --ref master` started run
+[39886988542](https://github.com/maccavelli/magic-cli-remote/actions/runs/39886988542), a
+`workflow_dispatch` at `b9bc388c`. `gh run watch --exit-status` ended with exit 0, and the run's
+conclusion is `success`.
+
+| Job | Result |
+| :--- | :--- |
+| Go (test), Go (linux/arm64), Go (windows/amd64) | success |
+| Flutter (analyze & test), Flutter (test on windows) | success |
+| Android APK (release arm64) | success |
+| Build self-update release / build | success |
+| Build self-update release / identity, for mcremote and mcrelay on linux/amd64, linux/arm64, darwin/arm64 and windows/amd64 | success, all eight |
+| Publish self-update release | skipped: it runs on a tag only |
+
+The run's log names the library workflow as
+`build-selfupdate-release.yml@036289ecc701d84c7749f4950a57a154c1af2cf4`, and no other library
+commit appears. It stamps `rehearsal-b9bc388c8574`, the `rehearsal-<sha12>` rule of `ci.yml:657-662`.
+So the new pin builds, checks and stages a full release on GitHub.
+
+**The push's own run was cancelled, not failed.** The push started run 39886979260 at `b9bc388c`
+seven seconds before the dispatch. `ci.yml:21-23` puts both in the group
+`ci-${{ github.workflow }}-${{ github.ref }}`, with `cancel-in-progress` on any non-tag ref, so the
+dispatch replaced it. Its six jobs show `cancelled`, and its two release jobs `skipped`. Every job
+it would have run ran in the dispatch, at the same commit, and passed.
+
+**Still to come, at the next tag:** the publish workflow's Go 1.27.3 release tools, which run only
+on a tag. `make ci-windows-smoke` runs on the Windows host before that tag (`AGENTS.md`), and that
+release's record notes the first publish at this pin.
+
+**This plan is complete.** L1, L2 and L3 are done, and every item in Verification holds. Q3's
+record for F-b follows this plan.
