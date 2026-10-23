@@ -60,6 +60,9 @@ and not in 0207-REPORT, whose A1 covered the library's backends only.
   before the swap and the start, and the supervisor has been told to keep the service down.
 * That ordering is read from the code. Whether the update is killed before `Install` gets past
   the stop is to be reproduced (Confirmation).
+* *Reproduced 2026-10-23* (the PLAN's R1) on runit, s6 and OpenRC 0.62.6. An agent-run update
+  left each service down, and the binary unchanged, with no result written. s6 read `down (exitcode
+  0) … normally up`, and OpenRC `* status: stopping`.
 
 **F3 — On Windows, Magic's own job, not Task Scheduler's, is what would kill a handed-off run.**
 
@@ -242,8 +245,9 @@ ships a one-shot-task detach, go-selfupdate-lib#6, and 0116 D8 stays as it is.
 Before any change (D7). Each run uses a scratch service under its own name, with scratch state,
 config and data directories, so no host's real service is touched (the test-host notes).
 
-1. **Linux (systemd).** A shell is moved into the scratch unit's cgroup (`cgroup.procs`; the
-   owner's answer to question 3). An `mcremote update --yes` run from it ends with
+1. **Linux (systemd).** ~~A shell is moved into the scratch unit's cgroup (`cgroup.procs`).~~
+   *Amended 2026-10-23:* the probe agent runs the update, as in item 2 (question 3, amended). An
+   `mcremote update --yes` run from inside ends with
    `update failed: … this process runs inside the service it would stop`, exit 1. The daemon's
    PID and version are unchanged.
 2. **macOS (launchd), Windows (Task Scheduler), and Linux runit, s6 and OpenRC in throwaway
@@ -360,6 +364,11 @@ After the change:
 
    *Answered 2026-10-23: "Add the shell to the group."* The Linux runs put a shell's PID into
    the unit's `cgroup.procs`. No agent and no provider quota are needed.
+
+   *Amended 2026-10-23: "Use the probe agent on Linux too".* The move was refused, because an
+   SSH shell starts outside the user manager's delegated subtree (the PLAN's R1 Deviation 2). Linux
+   now reaches "inside" through the scratch daemon's probe agent, as the other hosts do, still
+   with no provider quota.
 4. **Where the work lives.** A PLAN for this record, `0210-PLAN-…` (the recommendation). It would
    have phases for reproduction, D1+D2+D5+D6, D3, D4 and the live confirmation.
 

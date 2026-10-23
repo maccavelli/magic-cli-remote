@@ -363,3 +363,202 @@ Everything is in the scratchpad's `m54/d3/kit/`. Nothing in the tree changed but
    OpenRC run passes the same.
 
 **Not done in R0.** R1, which needs the owner's word.
+
+The owner committed the records as `ecffce5c` and approved R1 ("committed, proceed").
+
+### R1 Deviation 1, 2026-10-23 — the scratch service lives under `$HOME`. The owner decided: "Scratch dir under $HOME"
+
+**Found** by R1's first macOS run, before any update reached a stop:
+
+```text
+update failed: selfupdate: mcremote: selfupdate: target …/scratchpad/m54/d3/kit/scratch-d3probe/mcremote is outside allowed roots
+```
+
+The library's `TargetPolicy.AllowedRoots` are "additive canonical directories besides the user's
+home directory", and the update command sets none (`internal/updateclient/client.go:98-104`,
+`TargetPath` unset). So a binary outside `$HOME` cannot be updated at all. The rules' "scratch
+directories under a temporary directory" put it in the session's temporary scratchpad. This is
+not a Magic defect: the policy is the library's, on purpose.
+
+**Decision.** ~~"its own `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_DATA_HOME` under a temporary
+directory"~~. The scratch service now lives under `~/mcr-d3probe` on each host and in each
+container: its binary copy, config, data, state and work directories. It keeps its own name, port
+and XDG directories, and is deleted at each run's end. The kit's driver is the only change.
+
+**Also recorded, accepted by the owner ("Accept, and record it"):** on macOS the scratch plist
+logs to the same `~/Library/Logs/mcremote/mcremote.err.log` as the real service, because
+`setup-service` has no log-path flag. Its lines interleave with the real service's while a run
+lasts. They are identifiable by port 17631 and the scratch data directory.
+
+**Also found on the way, fixed in the kit:**
+
+* The probe agent advertised no auth method. Magic's grok spec then refuses `session/new` with
+  `acp: authentication required (advertised [])` (`acpagent/authselect.go:47`), unless a key is
+  present in the daemon's environment. The R0 self-check passed only because its foreground daemon
+  inherited this shell's environment.
+* The probe now advertises `cached_token`, and its `Authenticate` accepts it, so no credential
+  enters a scratch service's environment.
+* The kit was rebuilt from `ecffce5c`, whose code is `b946cf2d`'s; the commit between them is
+  docs only.
+
+The first macOS scratch service was removed (`setup-service --remove` exit 0; `launchctl print`
+of its label: "Could not find service"). The real service's PID was unchanged before and after.
+
+### R1 Deviation 2, 2026-10-23 — Linux reaches "inside" through the probe agent. The owner decided: "Use the probe agent on Linux too"
+
+**Found** by R1.1's first run on the Linux test host (systemd 259):
+
+```text
+inside-cgroup: ControlGroup /user.slice/user-1000.slice/user@1000.service/app.slice/mcremote-d3probe.service
+inside-cgroup: update exit 97 (cgroup.procs write refused)
+   /bin/sh: 1: echo: echo: I/O error
+```
+
+The plan named a refused write as a deviation. The cause:
+
+* An SSH shell starts in `0::/user.slice/user-1000.slice/session-37.scope`, outside the user
+  manager's delegated subtree.
+* Moving it into the scratch unit's cgroup needs a write at their common ancestor,
+  `user-1000.slice`, which belongs to root.
+* A shell started with `systemd-run --user --scope` starts in
+  `…/user@1000.service/app.slice/run-p…scope`, inside the subtree. That was offered, and declined.
+
+**Decision.** ~~R1.1's and L1.1's `inside-cgroup`~~. Linux reaches "inside" as the other hosts do:
+the scratch daemon's probe agent runs the update through Magic's terminal (`inside-agent`). It
+needs no provider quota. The MADR's answer to question 3 is amended to match. Nothing changed on
+the host:
+
+* the scratch unit was installed and removed (`setup-service --remove` exit 0);
+* `~/mcr-d3kit` was deleted;
+* the real service's `MainPID` was 1356 before and after.
+
+### R1 Deviation 3, 2026-10-23 — the run removed the Windows host's real task, which was restored. Windows cannot host a scratch service. The owner decided: "Yes, restore it now" and "Probe the real task, carefully"
+
+**What happened.**
+
+* `setup-service --unit-name mcremote-d3probe` on the Windows test host failed with "error:
+  --unit-name is not supported on Windows: the task is always named mcremote (MADR 0159 D13)".
+* The kit's runner then ran its cleanup on the failed install, `setup-service --remove --unit-name
+  mcremote-d3probe`. On Windows that removes the one task there is, the real one: "Removed: Task
+  Scheduler\mcremote. The daemon was stopped and the service disabled."
+* The real `mcremote` (PID 10000, task `Running`) was stopped, and its task deleted.
+* Not touched: the installed binary, the config, the data directory (devices, sessions, TLS key)
+  and the saved definition `State/mcremote-task.prev.xml`.
+* The plan's rules assumed a scratch name on every OS. Windows does not have one. The automatic
+  removal was the kit's design error, not Magic's.
+
+**Restored**, on the owner's word:
+
+* The command was the installed binary's own `setup-service --config <the real config>`, the
+  binary and config the saved definition names.
+* It exited 0: "Task: Task Scheduler\mcremote … Enabled: yes … Started: yes".
+* Afterwards the task was `Running`, with `mcremote` at a new PID. Its action, arguments
+  (`serve --config …\mcremote\config.yaml --detach-console`) and working directory matched the
+  saved definition. It has the logon and time triggers, and is enabled.
+
+**The kit is fixed so this cannot recur:**
+
+* the runner never removes after a failed install;
+* the driver refuses `install` and `remove` on Windows, where the name always means the real task.
+
+**Decision for Windows.** ~~a scratch task `mcremote-d3probe`~~. Windows is probed through its
+real task, carefully. The installed binary was found to be `mcremote 0.20.1 (a078372b)`, older
+than this month's library work, so a probe of it would show old code. Given that, the owner chose
+"Upgrade the host first, then probe". The procedure, for R1.3 and L1.3:
+
+1. **W0, the upgrade.** An operator `mcremote update --yes`, run by the installed binary from an
+   SSH shell, outside the service. That is the supported upgrade path. It takes the host to the
+   latest release, `v0.22.2`. The version, binary hash and task state are recorded before and
+   after.
+2. **W1, before the probe.** Record the task's state and PID, the binary's and config's SHA-256,
+   and `pair list`. Copy the config to `config.yaml.d3bak`.
+3. **W2, the temporary changes.** A script on the host edits only two keys in the real config:
+   * `providers.grok.bin` becomes the probe agent's path;
+   * `auth.require_client_key` becomes `false`, so the probe client can connect. Listen
+     (`tailscale:7531`, tailnet only) and TLS are unchanged.
+
+   Then the task is restarted (`Stop-ScheduledTask`, `Start-ScheduledTask`), and `pair create
+   d3probe` mints a token.
+4. **W3, the probe.** `smoke-protocol` dials the host's tailnet address on port 7531. It prompts
+   `RUN <installed mcremote.exe> --config <real config> update --yes --force --version v0.22.2`,
+   the installed version. So even an update that wrongly proceeds reinstalls the same release.
+   Recorded: the transcript's result line, the task's PID, and the binary's hash.
+5. **W4, the restore,** which runs whatever W2 or W3 did:
+   * `pair revoke` of the `d3probe` device's ID;
+   * the config copied back from `config.yaml.d3bak`, and its SHA-256 compared with W1's;
+   * the task restarted, and confirmed `Running`;
+   * `pair list` compared with W1's.
+
+   The backup is deleted only after the comparisons pass.
+
+### R1, 2026-10-23: today's behaviour, reproduced on every target
+
+Every update below was `mcremote update --yes --force --version v0.22.2`. It ran through the
+scratch daemon's terminal, at a probe agent's `RUN` prompt (Deviation 2). The binaries are the R0
+kit's, from `ecffce5c` (Deviation 1), except on Windows, where the installed release ran.
+
+| Target | The update's result (from the daemon's transcript) | Daemon afterwards | Binary afterwards |
+| :--- | :--- | :--- | :--- |
+| macOS, launchd | `update failed: … stop service: selfupdate: managed install failed selfupdate: service: this process runs inside the service it would stop: gui/<uid>/com.magiccliremote.mcremote-d3probe` | same PID, up | unchanged (`dev (local)`) |
+| Linux, systemd 259 | `update failed: … this process runs inside the service it would stop: mcremote-d3probe.service` | same PID, up | unchanged |
+| Windows, Task Scheduler, the real task at `v0.22.2` | `update failed: … this process runs inside the service it would stop: \mcremote` | same PID, `Running` | same SHA-256 |
+| runit (Void) | none was written: the update died with the daemon | **no serve process; `/healthz` unreachable** | unchanged |
+| s6 (Alpine 3.22) | none was written | **`down (exitcode 0) 129 seconds, normally up`** | unchanged |
+| OpenRC 0.62.6 (Alpine 3.22) | none was written | **`* status: stopping`, no serve process** | unchanged |
+
+**What this confirms.**
+
+* **The MADR's F1 holds.** On the library's three backends, an agent-run update fails safe with
+  `ErrInsideService`, the daemon stays up, and nothing is replaced.
+* **F2 is reproduced, no longer only read from code.** On all three script supervisors, the stop
+  took the daemon down. The daemon's teardown took the update with it, before any swap or start.
+  The supervisor was left holding the service down. For runit, `sv status` printed nothing (the
+  run's lookup of the service directory found none), so its state is read from the process table
+  and `/healthz`.
+* **F3's edge did not occur.** On Windows the update was judged inside and refused, and the real
+  daemon kept its PID.
+
+**The runs, in order, with what each left behind.**
+
+1. **macOS.**
+   * The first run failed on the target policy (Deviation 1).
+   * The second ran under `~/mcr-d3probe` and gave the result above.
+   * Both scratch services were removed (`setup-service --remove` exit 0, then `launchctl print`
+     of the label: "Could not find service").
+   * The real service's PID was the same before, between and after the runs.
+2. **Linux.**
+   * The first run's `cgroup.procs` write was refused (Deviation 2).
+   * The second used the probe agent.
+   * Both scratch units were removed. No `mcremote-d3probe` file remains under the user's systemd
+     directory, and the kit and scratch directories are gone.
+   * The real service's `MainPID` was the same before and after.
+3. **Windows.**
+   * The first attempt removed the real task, which was restored (Deviation 3).
+   * W0 upgraded the host from `0.20.1` to `v0.22.2` (`update exit 0`). The task restarted on the
+     new release.
+   * W1 to W4 gave the row above. W4 restored the config byte for byte (SHA-256 `348495ea…`
+     before and after).
+   * W4's device check failed: the kit's `pair create d3probe` had passed its name as a
+     positional argument, which `pair create` ignores, so the device was called `device` and the
+     revoke found nothing.
+   * The `device` row (created during the run, never used, keyless) was revoked by its ID by
+     hand: "Revoked device device (…)". `pair list` then showed only the device paired before.
+   * The backup and the kit were deleted. The task is `Running`.
+   * The kit now passes `--name`.
+4. **Containers.**
+   * The first runit run showed the outage, without the supervisor and binary checks.
+   * A second runit run failed on a release download (`update failed: … Get …`), before any stop,
+     so it shows nothing.
+   * A third gave the row above, as did one run each of s6 and OpenRC.
+   * Each container was removed after its run, and the Podman machine was stopped.
+5. **A stray directory.** `~/mcr-d3probe` on macOS, which the kit's guard check created through
+   `install`'s preparation step, was found and deleted. It held only the scratch config, binary
+   copy and empty directories.
+
+**The kit's guards, seen working:**
+
+* `check_windows_guard.py`: on a faked Windows, `install` and `remove` return 2 before any
+  `setup-service` call. On the control, macOS, both reach it.
+* The runner no longer removes anything after a failed install.
+
+**Not done in R1.** H1, which needs the owner's word.
