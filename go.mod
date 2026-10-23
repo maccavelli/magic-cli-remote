@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/libdns/route53 v1.6.2
 	github.com/maccavelli/acp-go-sdk2 v1.20.0
-	github.com/maccavelli/go-selfupdate-lib v1.17.1
+	github.com/maccavelli/go-selfupdate-lib v1.17.2
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10

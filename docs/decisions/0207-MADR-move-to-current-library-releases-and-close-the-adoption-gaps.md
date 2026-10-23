@@ -267,6 +267,13 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
 * **D1 — Pin `go-selfupdate-lib v1.17.2`.** `go.mod` and both `ci.yml` pins move together, the pins
   to `036289ecc701d84c7749f4950a57a154c1af2cf4` with the comment `# go-selfupdate-lib v1.17.2`
   (0054 D1; `TestWorkflowPinsMatchGoMod`). No Go code changes.
+  * *Note, 2026-10-22.* Approved by the owner with its plan,
+    [0207-PLAN-pin-go-selfupdate-lib-v1-17-2.md](0207-PLAN-pin-go-selfupdate-lib-v1-17-2.md)
+    ("Recommended for any and proceed"). This record stays `proposed` for D3, D4 and D8's
+    `binaryWarning` half.
+    * `git ls-remote … 'refs/tags/v1.17.2^{}'` still gives `036289ec…`, and no newer tag exists.
+    * The move changed `go.mod:12`, `go.sum:70-71` and `ci.yml:712` and `:733`, and nothing else.
+    * The plan's execution record holds the evidence.
 * **D2 — Pin `acp-go-sdk2` ~~`v1.19.0`~~ `v1.20.0`, replacing 0184's B3.** The tag moved to
   `v1.20.0` in the amendment of 2026-10-22; the steps below are unchanged. It is a 0184 B phase, as B1 and B2 were,
   with B3's steps on the new tag:
