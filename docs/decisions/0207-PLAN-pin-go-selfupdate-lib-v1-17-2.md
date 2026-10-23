@@ -346,3 +346,26 @@ added one index line, this plan's.
 
 **Not done in L1.** L2 waits for the owner's commit, and L3 for the push and the owner's word for
 the dispatch.
+
+L1 was committed as `e715afe7`, on the owner's word ("Proceed, rehearse, commit, push and
+proceed"), which also authorized L2's and L3's commits, the push and the dispatch.
+
+### L2, 2026-10-22: `make check-libs` on the committed pin
+
+`make check-libs` on `HEAD` `e715afe7`, with go-shared at `d62e2a2`, toolchain `go1.27.3`:
+
+```text
+acp-go-sdk2 versions: pinned v1.20.0, checking v1.20.0
+acp-go-sdk2 get and tidy / version / modules / build / vet linux, darwin, windows / test: ok
+acp-go-sdk2 api: pinned at v1.20.0; nothing to compare
+acp-go-sdk2 govulncheck / advisories: ok
+go-selfupdate-lib versions: pinned v1.17.2, checking v1.17.2
+go-selfupdate-lib get and tidy / version / modules / build / vet linux, darwin, windows / test: ok
+go-selfupdate-lib api: pinned at v1.17.2; nothing to compare
+go-selfupdate-lib govulncheck / advisories: ok
+0 failing checks; scratch removed
+```
+
+It exited 0. This is the expected output of L2.1, line for line. `go-selfupdate-lib test` is ok
+where 0207 D5's run failed it, because `TestWorkflowPinsMatchGoMod` now sees the three pins agree.
+`git status --porcelain` was empty after the run.
