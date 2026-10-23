@@ -3,9 +3,12 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 	"time"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
@@ -195,6 +198,44 @@ func TestProbeCredentialStoresOnColdHost(t *testing.T) {
 
 // MADR 0208 D10 — doctor lists every silent-command mark, with its host and
 // version, and says when there are none or the file cannot be read.
+// TestRenderHandOffDoctor: doctor reports the last update an agent handed off
+// to the service manager, or none, or why its result file could not be read
+// (MADR 0210 D5).
+func TestRenderHandOffDoctor(t *testing.T) {
+	render := func(res libservice.HandOffResult, err error) string {
+		var b bytes.Buffer
+		renderHandOffDoctor(&b, res, err)
+		return b.String()
+	}
+	if out := render(libservice.HandOffResult{}, fs.ErrNotExist); out != "self-update handoff: none\n" {
+		t.Fatalf("no result: %q", out)
+	}
+	if out := render(libservice.HandOffResult{}, errors.New("malformed handoff result")); !strings.Contains(out,
+		"could not be read: malformed handoff result") {
+		t.Fatalf("unreadable: %s", out)
+	}
+	ok := render(libservice.HandOffResult{
+		ID:         "0123abcd",
+		StartedAt:  time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC),
+		FinishedAt: time.Date(2026, 10, 23, 9, 0, 42, 0, time.UTC),
+	}, nil)
+	for _, want := range []string{"id:        0123abcd", "started:   2026-10-23T09:00:00Z",
+		"finished:  2026-10-23T09:00:42Z", "exit code: 0"} {
+		if !strings.Contains(ok, want) {
+			t.Fatalf("success missing %q:\n%s", want, ok)
+		}
+	}
+	if strings.Contains(ok, "error:") {
+		t.Fatalf("a success shows an error line:\n%s", ok)
+	}
+	failed := render(libservice.HandOffResult{ID: "0123abcd", ExitCode: 1, Error: "health check failed"}, nil)
+	for _, want := range []string{"exit code: 1", "error:     health check failed"} {
+		if !strings.Contains(failed, want) {
+			t.Fatalf("failure missing %q:\n%s", want, failed)
+		}
+	}
+}
+
 func TestRenderSilentDoctor(t *testing.T) {
 	render := func(marks []session.SilentMark, err error) string {
 		var b bytes.Buffer

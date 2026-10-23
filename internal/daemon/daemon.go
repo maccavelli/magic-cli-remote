@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -687,6 +688,19 @@ func Run(ctx context.Context, opts Options) error {
 	// (MADR 0054 D5, amendment S8). Off such a unit NOTIFY_SOCKET is unset and
 	// nothing is sent.
 	notifySystemd(log, "READY=1", systemd.Ready)
+
+	// Clear launchd's finished handoff jobs in the background, so start-up
+	// never waits on launchctl (MADR 0210 D5).
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("handoff cleanup panic", slog.Any("recover", r), slog.String("stack", string(debug.Stack())))
+			}
+		}()
+		cleanupCtx, cancel := context.WithTimeout(ctx, handOffCleanupTimeout)
+		defer cancel()
+		cleanupHandOffs(cleanupCtx, runtime.GOOS, newHandOffBackend, log)
+	}()
 
 	// gracefulDrain performs the ordered shutdown: stop accepting, close the
 	// hijacked WebSocket conns (http.Server.Shutdown never touches them), close

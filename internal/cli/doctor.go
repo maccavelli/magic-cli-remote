@@ -3,13 +3,19 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
+	"os"
 	"os/exec"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
@@ -32,7 +38,9 @@ func newDoctorCmd() *cobra.Command {
 			"service install/load/active (MADR 0072 P2), macOS privacy " +
 			"protection (TCC / Full Disk Access; MADR 0069 D5), and whether " +
 			"each enabled agent engine's binary is present and ready (a " +
-			"lookup only; nothing is started; MADR 0201 D32).",
+			"lookup only; nothing is started; MADR 0201 D32). It ends with " +
+			"the last update an agent handed off to the service manager: its " +
+			"ID, start and finish times, exit code and error (MADR 0210 D5).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			renderServiceDoctor(w, service.ProbeStatus("mcremote"))
@@ -52,6 +60,10 @@ func newDoctorCmd() *cobra.Command {
 			fmt.Fprintln(w)
 			marks, err := session.LoadSilentMarks(cfg.DataDir)
 			renderSilentDoctor(w, marks, err)
+			fmt.Fprintln(w)
+			exe, _ := os.Executable()
+			res, err := libservice.ReadHandOffResult(libservice.DefaultResultPath(exe))
+			renderHandOffDoctor(w, res, err)
 			return nil
 		},
 	}
@@ -221,6 +233,28 @@ func renderSilentDoctor(w io.Writer, marks []session.SilentMark, err error) {
 		}
 		fmt.Fprintf(w, "  %-9s /%-20s %s, host %s, marked %s\n", m.Provider+":", m.Command, version, m.Host,
 			m.MarkedAt.Format("2006-01-02"))
+	}
+}
+
+// renderHandOffDoctor reports the last update handed off to the service
+// manager (MADR 0210 D5). The detached run writes its result beside the
+// binary; with no file there, no update has been handed off.
+func renderHandOffDoctor(w io.Writer, res libservice.HandOffResult, err error) {
+	if errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintln(w, "self-update handoff: none")
+		return
+	}
+	fmt.Fprintln(w, "self-update handoff (the last update an agent handed to the service manager)")
+	if err != nil {
+		fmt.Fprintf(w, "  could not be read: %v\n", err)
+		return
+	}
+	fmt.Fprintf(w, "  id:        %s\n", res.ID)
+	fmt.Fprintf(w, "  started:   %s\n", res.StartedAt.Format(time.RFC3339))
+	fmt.Fprintf(w, "  finished:  %s\n", res.FinishedAt.Format(time.RFC3339))
+	fmt.Fprintf(w, "  exit code: %d\n", res.ExitCode)
+	if res.Error != "" {
+		fmt.Fprintf(w, "  error:     %s\n", res.Error)
 	}
 }
 

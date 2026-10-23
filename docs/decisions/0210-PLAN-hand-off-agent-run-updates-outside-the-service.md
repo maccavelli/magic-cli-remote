@@ -218,6 +218,7 @@ reproduction puts a shell into the unit's cgroup.
 
 * `internal/cli/doctor.go`, `doctor_test.go`;
 * `internal/daemon/daemon.go`, and a new `daemon_handoff.go` with its test;
+* `docs/guides/ops-linux-install.md`, added by H3 Deviation 1;
 * this plan.
 
 1. **Tests first:**
@@ -711,3 +712,90 @@ touched.
 
 **Not done in H2.** H3, which needs the owner's word. The guard is confirmed live in L1, in the
 runit, s6 and OpenRC containers.
+
+H2 was committed by the owner as `1bfab31b`, who approved H3 ("committed, proceed").
+
+### H3 Deviation 1, 2026-10-23 — the Linux guide joins H3's files. The owner decided: "committed, proceed"
+
+* **Found.** H1 removed a clause from `ops-linux-install.md`'s "Updating from a phone session"
+  paragraph, which said that `mcremote doctor` shows a handoff's outcome, because that was H3's
+  work (H1's record). H3's files did not name the guide, so putting the clause back needed it.
+* **Decided.** H2's handoff said the guide would be added to H3's files as a deviation, and the
+  owner approved H3 with "committed, proceed". The guide is added to H3's files, for that one
+  sentence. No other guide changes: Windows and the script supervisors do not hand off, and
+  macOS has no install guide. Its update is covered by `README.md`'s sentence from H1.
+* **MADR.** Unchanged: D5 already says that `doctor` reports the last handoff.
+
+### H3, 2026-10-23: reporting
+
+**What changed.**
+
+* **`internal/cli/doctor.go`:**
+  * `renderHandOffDoctor(w, res, err)` prints `self-update handoff: none` for `fs.ErrNotExist`. For
+    a read error it prints `could not be read: <err>`. For a result it prints the ID, the start and
+    finish times (RFC 3339), the exit code, and the error when there is one.
+  * `doctor` calls it after the silent-commands section, with
+    `libservice.ReadHandOffResult(libservice.DefaultResultPath(exe))`, where `exe` is
+    `os.Executable()`.
+  * The `Long` text names the section.
+* **`internal/daemon/daemon_handoff.go`** (new):
+  * `cleanupHandOffs(ctx, goos, newBackend, log)` returns at once off `darwin`, without building
+    a backend. On macOS it builds one, asserts the local interface `handOffCleaner`
+    (`CleanupHandOffs(ctx) error`), and calls it once. It logs a failure, to build the backend or
+    to clean up, at WARN, and returns nothing.
+  * `newHandOffBackend` is `service.NewBackend("mcremote", "")`.
+  * Against step 1's sketch, the function takes the daemon's logger, since it logs, and
+    `newBackend` returns `any`. That lets the test's fakes stand in without implementing the whole
+    `service.Backend`.
+* **`internal/daemon/daemon.go`:** after `READY=1`, a goroutine runs `cleanupHandOffs` with a 10 s
+  timeout on the daemon's context. It recovers a panic, as the daemon's other goroutines do.
+  Start-up never waits on `launchctl`.
+  * The library keeps handoff jobs under `$HOME` (`launchd/detach.go:70-82`), and the daemon
+    package's `TestMain` already isolates `HOME`. So the tests that call the real `Run` find no
+    job, and never reach `launchctl`.
+* **Tests:**
+  * `TestRenderHandOffDoctor` covers none, unreadable, a success (no error line), and a failure.
+  * In `daemon_handoff_test.go`, `TestCleanupHandOffsOnMacOS`, `…OnlyOnMacOS`, `…LogsAFailure` and
+    `…SkipsAnotherBackend` use a fake cleaner.
+  * `TestHandOffBackendCleansUpOnMacOS` (darwin only) asserts that the backend the daemon really
+    builds is a `handOffCleaner`. A renamed library method would otherwise turn the cleanup into
+    a silent no-op.
+* **`docs/guides/ops-linux-install.md`** (Deviation 1): the "Updating from a phone session"
+  paragraph says again that `mcremote doctor` shows the handoff's outcome.
+
+**Seen failing first**, on a scratch copy of the tree (`h3_plants.py`):
+
+| Plant | Failed, with |
+| :--- | :--- |
+| `renderHandOffDoctor` renders nothing | `TestRenderHandOffDoctor`: `no result: ""` |
+| no result read as an error | `TestRenderHandOffDoctor`: `no result: "self-update handoff (…)\n  could not be read: file does not exist\n"` |
+| a result's error not shown | `TestRenderHandOffDoctor`: `failure missing "error:     health check failed"` |
+| the cleanup never called | `TestCleanupHandOffsOnMacOS`: `built 1, cleanup calls 0, logged ""; want 1, 1, nothing`; `…LogsAFailure` |
+| no macOS gate | `TestCleanupHandOffsOnlyOnMacOS`: `linux: built 1, cleanup calls 1; want none` |
+| a cleanup failure dropped | `TestCleanupHandOffsLogsAFailure`: `cleanup failure logged ""` |
+| the interface no longer matches launchd's (an extra method) | `TestHandOffBackendCleansUpOnMacOS`: `the macOS backend *launchd.Job has no CleanupHandOffs`; `…OnMacOS`; `…LogsAFailure` |
+
+Each restored copy passed.
+
+**`doctor`, run.** A scratch build of the working tree, with its result file beside it:
+
+* no file: `self-update handoff: none`;
+* a planted failed result: the ID, both times, `exit code: 1` and `error:     planted: health
+  check failed`;
+* a malformed file: `could not be read: selfupdate: service: malformed handoff result: invalid
+  character 'n' …`.
+
+`doctor` exited 0 each time. The file was removed afterwards.
+
+**Gates.**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the five Go files | "5 file(s) clean (gofmt, golint, govulncheck)" |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 0 FAIL lines |
+| `go mod tidy -diff` | no output |
+| `make markdownlint-docs`, `make check-records` | 0 issues in 55 files; ok |
+
+**Not done in H3.** L1, which needs the owner's word for each host run. It is the first time the
+handoff runs end to end.
