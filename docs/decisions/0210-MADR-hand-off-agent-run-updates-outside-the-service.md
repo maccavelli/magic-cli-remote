@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-22
+status: accepted
+date: 2026-10-23
 decision-makers: Project Owner
 consulted: "go-selfupdate-lib v1.17.2 (036289ec), go doc -all of selfupdate/cli, selfupdate/service and its systemd, launchd and taskscheduler backends, and its 0011 and 0021 records; acp-go-sdk2 v1.20.0 agentproc (tree_windows.go); grok-build at 2bdd1d6a (its terminal backend selection); Microsoft Learn's Nested Jobs, Job Objects, Process Creation Flags and JOBOBJECT_BASIC_LIMIT_INFORMATION pages, read 2026-10-22; this repository at b946cf2d"
 informed: anyone who changes the update command, the service backends, or how agents' processes are contained
@@ -160,6 +160,12 @@ Proposed: "A" on systemd and launchd, with "C" on Windows (the owner, 2026-10-23
 phone's user update Magic through an agent wherever the library can detach without loosening
 Magic's containment, and it makes every other backend fail safe. Windows joins when the library
 ships a one-shot-task detach, go-selfupdate-lib#6, and 0116 D8 stays as it is.
+
+*Accepted 2026-10-23, after the PLAN's L1 confirmed it on every target:* D1, D2 and D4 to D7, as
+the plan approved by the owner set out. On systemd and launchd an agent-run `mcremote update
+--yes` handed off and the daemon restarted on the new release. On Windows, runit, s6 and OpenRC it
+failed safe with the service up. D3 is decided (option C) and stays open on go-selfupdate-lib#6:
+when #6 ships, an amendment here turns the Windows handoff on.
 
 * **D1 — The shared update command hands off.**
   * `updateclient.NewCommand` sets `o.HandOff` to `service.HandOffFunc(d, service.HandOff{Args:
@@ -332,7 +338,8 @@ After the change:
 ### What this record changes in others
 
 * **0054** "What stays deliberately unadopted": the handoff item is superseded by this record,
-  as 0207 D3 said it would be.
+  as 0207 D3 said it would be. The 0054 MADR carries a dated note at that item, and at its
+  original summary, since 2026-10-23 (the PLAN's L1 Deviation 1).
 * **0207** D3 is decided in full here, and F1 is corrected (F1 above, with 0207-REPORT A1). Its
   amendment note on D3, "agentproc's job allows breakaway", is corrected by F3: grok's shell
   commands run in Magic's terminal job. 0207 gets a dated note pointing here.

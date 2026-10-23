@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-23
 associated-madr: "0210-MADR-hand-off-agent-run-updates-outside-the-service.md"
 ---
@@ -241,8 +241,8 @@ reproduction puts a shell into the unit's cgroup.
 
 ### L1 — Confirm on each host (D7, after H1 to H3)
 
-**Files:** this plan (the execution record), and the MADR (status and a note). The binary is a
-build of H3's commit.
+**Files:** this plan (the execution record), and the MADR (status and a note). Also the 0054
+MADR, added by L1 Deviation 1. The binary is a build of H3's commit.
 
 1. **Linux, systemd.** `install`, then `inside-cgroup`. Expected:
    * `update handed off: …`, exit 0;
@@ -268,8 +268,9 @@ build of H3's commit.
 5. **Records.**
    * L1's execution record.
    * The MADR becomes `accepted` for D1, D2 and D4 to D7, with a dated note. D3 stays open on #6.
-   * 0054's PLAN gets a dated note: the handoff item of "What stays deliberately unadopted" is
-     adopted by 0210, except on Windows and the script supervisors.
+   * ~~0054's PLAN gets a dated note~~ The 0054 MADR gets a dated note, where the item is (L1
+     Deviation 1): the handoff item of "What stays deliberately unadopted" is adopted by 0210,
+     except on Windows and the script supervisors.
    * The plan becomes `complete`. A later amendment, when #6 or #2 ships, opens a new phase for
      the Windows or script-supervisor handoff.
 
@@ -799,3 +800,108 @@ Each restored copy passed.
 
 **Not done in H3.** L1, which needs the owner's word for each host run. It is the first time the
 handoff runs end to end.
+
+H3 was committed by the owner as `07bc7661`, who approved L1 and its host runs ("committed,
+proceed. approved for host testing").
+
+### L1 Deviation 1, 2026-10-23 — the note on 0054 goes in its MADR. The owner decided: "0054 MADR"
+
+* **Found.** Step 5 said "0054's PLAN gets a dated note" on the handoff item of "What stays
+  deliberately unadopted". That item is in the 0054 MADR: in its 2026-10-13 amendment's list, and
+  in the original "More Information" summary. The 0054 PLAN does not carry it. L1's files named
+  neither 0054 record.
+* **Decided.** The note goes beside the item, in the 0054 MADR, at both places. The 0054 MADR
+  joins L1's files. Step 5's bullet is struck and corrected above.
+* **MADR.** 0210's "What this record changes in others" says the note is there.
+
+### L1, 2026-10-23: confirmed on every target
+
+The kit was rebuilt from `07bc7661` (`build_kit.py`). Every update was `mcremote update --yes
+--force --version v0.22.2`, run through a scratch daemon's terminal at the probe agent's `RUN`
+prompt (R1 Deviation 2). On Windows the daemon was the real task's, with the procedure of R1
+Deviation 3 (W1 to W4).
+
+| Target | The agent saw | Daemon | Binary |
+| :--- | :--- | :--- | :--- |
+| macOS, launchd | `probeagent: exit 0`, `update handed off: 2aaf2495… (launchd job com.magiccliremote.mcremote-d3probe.selfupdate.2aaf2495…)` | PID 68693 → 68789, up | `dev (local)` → `v0.22.2 (release)` |
+| Linux, systemd 259 | `probeagent: exit 0`, `update handed off: 1467c607… (transient unit mcremote-d3probe-selfupdate-1467c607….service)` | PID 1866277 → 1866380, up | `dev (local)` → `v0.22.2 (release)` |
+| Windows, the real task | `probeagent: exit 1`, `update failed: … this process runs inside the service it would stop: \mcremote` | PID 43212 throughout the update, `Running` | the installed binary and the update binary each unchanged |
+| runit (Void) | `probeagent: exit 1`, `update failed: … managed install failed mcremote-d3probe: … this process runs inside the service it would stop` | PID 19 before and after, `/healthz` up | unchanged (`6f6d4dc2…`, the kit build) |
+| s6 (Alpine 3.22) | as runit | PID 17; `up (pid 17 pgid 17) 10 seconds` | unchanged |
+| OpenRC 0.62.6 (Alpine 3.22) | as runit | PID 150; `* status: started` | unchanged |
+
+**Against the plan's expectations.**
+
+* **L1.1 and L1.2, the handoff.** Each printed `update handed off`, and the agent's command exited
+  0. The result file, read with `cat` since the swapped `v0.22.2` has no `doctor` section (step
+  1), held `"exit_code":0`, `"applied":true`, `"service_was_running":true`,
+  `"service_started":true` and `"rolled_back":false`. The installed digest equalled the release
+  digest. The detached run took 14 s on macOS and 11 s on Linux.
+* **L1.1, the transient unit.** It had finished, and was no longer listed, when the result
+  appeared. Its journal shows the run: `Started mcremote-d3probe-selfupdate-1467c607….service -
+  selfupdate handoff for mcremote-d3probe.service`, the release's resolve, download and
+  verification, `mcremote: updated dev -> v0.22.2`, and `Consumed 1.046s CPU time over 11.423s
+  wall clock time`. `systemctl --version` is 259, above `Detach`'s 236.
+* **L1.2, the cleanup.** After the handoff, the one-shot job was still loaded, `state = not
+  running`, and its plist was in `~/Library/Application Support/selfupdate/handoff`. The scratch
+  binary was set back to this change's build, and the scratch job restarted (`launchctl
+  kickstart -k`, exit 0). Then `launchctl print` of the handoff job said `Could not find service
+  … in domain for user gui: <uid>`, and its files were gone. That is `CleanupHandOffs`, run by
+  H3's start-up step.
+* **L1.3, Windows.** The update binary was the kit's build of H3's commit, run against the real
+  config, as L1's binary rule says. The installed release, `v0.22.2`, predates H1. With
+  `HandOff` unset on Windows, the update failed safe, as in R1. W4 then:
+  * revoked the temporary device;
+  * restored the config byte for byte (`348495ea…`);
+  * found the paired devices as in W1;
+  * restarted the task (`Running`, a new PID).
+* **L1.4, the script supervisors.** Each failed safe with the service up and the same PID. That
+  is the fail-safe R1 lacked: R1 left all three down. runit's `sv status` printed nothing, as in
+  R1, so its state is read from the process table and `/healthz`.
+* **Not run: H3's `doctor` against a real handoff's result.** Step 1 allowed reading the file
+  directly. H3's `doctor` was run on the same file format with planted results, in H3's record.
+
+**Observations, not failures:**
+
+* **`NOTIFY_SOCKET` reaches the detached run.** The Linux journal has
+  `mcremote-d3probe-selfupdate-1467c607….service: Got notification message from PID 1866372, but
+  reception is disabled`. The library's environment file copies the inside process's whole
+  environment (`systemd/detach.go:209`, `os.Environ()`). That includes the daemon's
+  `NOTIFY_SOCKET` from its `Type=notify` unit, so a process in the transient unit sent an
+  `sd_notify` message, which systemd dropped. Which process it was is not known. It did no harm
+  here, and is a candidate for a library issue.
+* **`setup-service --remove` leaves the refresh's backup.** On Linux,
+  `~/.config/systemd/user/mcremote-d3probe.service.prev` remained after the remove. It was written
+  at 15:05, during the handoff, by the post-update definition refresh (`refresh.go:239`). It was
+  deleted by hand. macOS left none. This is behaviour from before 0210, recorded for a later
+  record.
+* **The script supervisors' update downloads before it refuses.** Each transcript shows
+  `installing … target=v0.22.2` before the stop was refused. The managed installer stages the new
+  binary first, and nothing was swapped.
+
+**What each run left behind.** Nothing:
+
+* the scratch services were removed (`setup-service --remove` exit 0 on macOS and Linux); the
+  scratch label and unit were gone, and `~/mcr-d3probe` and `~/mcr-d3kit` were deleted on each
+  host;
+* the library's empty `~/Library/Application Support/selfupdate/handoff` stays, as a real handoff
+  would leave it;
+* the Windows backup `config.yaml.d3bak` was deleted after W4's checks passed;
+* each container was removed, and the Podman machine was stopped.
+
+The real services were unchanged:
+
+* macOS PID 67479 before and after;
+* Linux `MainPID` 1356 before and after;
+* the Windows task `Running` throughout, with its restarts from W2 and W4 only.
+
+**The kit's changes for L1** (scratchpad only):
+
+* after an inside update that hands off, `d3_run.py` waits for the result file and the restarted
+  daemon, and on systemd prints the transient unit's state and journal;
+* a `cleanup-check` phase runs L1.2's cleanup;
+* `d3_windows.py` runs the kit's update binary and records both binaries' hashes.
+
+**The plan is complete.** Every acceptance criterion under Verification is met. The MADR is
+accepted for D1, D2 and D4 to D7, and D3 stays open on go-selfupdate-lib#6. A later amendment,
+when #6 or #2 ships, opens a new phase for the Windows or the script-supervisor handoff.
