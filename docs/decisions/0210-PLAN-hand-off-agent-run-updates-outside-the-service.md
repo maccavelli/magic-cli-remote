@@ -1037,8 +1037,10 @@ A3's commit. The kit is R0's, under the rules R1's deviations set.
    * refused with the D8 message;
    * no `downloading-manifest` or `installing` event in the transcript;
    * the PID unchanged.
-3. **Windows.** W1 to W4 with the kit's update binary, as L1.3. Expected: the D8 refusal with no
-   download event, and W4's restore.
+3. ~~**Windows.** W1 to W4 with the kit's update binary, as L1.3. Expected: the D8 refusal with no
+   download event, and W4's restore.~~ *Replaced by amendment B's B2 (proposed 2026-10-23): with
+   the Windows handoff on, L2.3 expects a handoff, by a procedure B2 writes and the owner
+   approves.*
 4. **macOS.** `install`, `inside-agent`, `cleanup-check`, then `remove`, as L1.2. Expected: as in
    L1.2, unchanged by A1 to A3.
 5. **Records.**
@@ -1141,3 +1143,50 @@ The docs gates ran over a tree that also holds another session's unstaged change
 stage them.
 
 **Not done in A1.** A2 and A3. The refusal is confirmed live in L2.
+
+A1 was committed by the owner as `250b59bb`.
+
+## Amendment — 2026-10-23 (B): the Windows handoff
+
+**Status: proposed.** This implements the MADR's "Amendment — 2026-10-23 (B)", D11. The owner set
+its order on 2026-10-23: after
+[0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md)'s
+U1 (the `v1.19.0` pin) and amendment A's A2 and A3, and before L2. The rules for every phase,
+above, apply unchanged.
+
+### B1 — Turn the Windows handoff on (D11)
+
+**Files:** `internal/updateclient/client.go`, `command_test.go`, `internal/daemon/daemon_handoff.go`,
+`daemon_handoff_test.go`, `docs/guides/ops-windows-install.md`, `README.md`; this plan.
+
+1. **Tests first:**
+   * `TestDetacherForGatesWindowsAndScriptBackends`: a Detacher on Windows now hands off and gets
+     no refusal.
+   * The daemon's cleanup runs for `goos == "windows"` with a backend that has
+     `CleanupHandOffs`, and still not for `linux`.
+2. **Code:**
+   * `detacherFor` drops its Windows branch, and its comment says why (#6, `v1.19.0`).
+   * `cleanupHandOffs` runs on `darwin` and `windows`.
+   * The `update` command's `Long` help: Windows hands off; runit, s6 and OpenRC refuse before
+     downloading.
+3. **Guides:** `ops-windows-install.md`, "Updating from a phone session" (line 249): the update
+   hands off to a one-shot Task Scheduler task, and `doctor` shows its outcome. `README.md:117-119`:
+   systemd, launchd and Task Scheduler hand off; runit, s6 and OpenRC refuse.
+4. **Gates.**
+
+### B2 — The Windows live procedure for L2.3
+
+**Files:** this plan; a new script in the scratch kit (not committed).
+
+1. **Why a new procedure.** L1.3 ran the kit's update binary against the real task, and it was
+   refused. A handoff instead stops the task, replaces the binary the detached run started from,
+   and runs that binary's `setup-service --refresh`, which renders the task for that binary's path.
+   Run from the kit's directory, it would point the real task at the kit's binary.
+2. **The procedure** is written so the handed-off update runs as the installed binary, at its
+   installed path, on a release that has B1. It is drafted, presented with its restore steps (W1
+   to W4's backup of the config, the task definition and the binary), and run only on the owner's
+   word. If no published release has B1 yet, the options are put to the owner rather than chosen
+   here.
+3. **Expected:** `update handed off: …`; the task back up on the target release; `doctor` shows
+   the handoff's result; after the daemon's next start, no `mcremote.selfupdate.*` task remains;
+   W4 restores the config byte for byte.

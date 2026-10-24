@@ -571,3 +571,62 @@ on 2026-10-23. Read against `907c3c29` and go-selfupdate-lib `v1.17.2`.
 3. "7A: refuse early in Magic". D8 stands as written.
 4. "Skip R2". The sender stays "one of the two children, most likely `systemctl`". The issue says
    so.
+
+## Amendment — 2026-10-23 (B): the Windows handoff, now that go-selfupdate-lib#6 has shipped
+
+**Status of this amendment: proposed.** The owner chose its place and order on 2026-10-23, in
+answer to 0207's amendment B question 8: "0210 amend B, before L2 (Recommended)". It becomes
+decided when the owner approves the PLAN's amendment B.
+
+### What changed
+
+* **#6 shipped in `go-selfupdate-lib v1.19.0`** (2026-10-23; its CHANGELOG; migration guide §19).
+  `taskscheduler.Task.Detach` now registers and runs a one-shot task, `<Name>.selfupdate.<id>`,
+  which Task Scheduler starts outside the program's jobs. `Task.CleanupHandOffs` removes finished
+  ones. `Options.HopDetach` keeps the old hop.
+* **D3 waited on exactly this** ("Windows joins when the library ships a one-shot-task detach").
+  0207's amendment B D15 pins `v1.19.0`, and this amendment follows it.
+* **What else `v1.19.0` changes for a handoff:**
+  * Only a task with an `InteractiveToken` principal hands off by default; another logon type
+    gets an error naming `HopDetach`. Magic's task registers with `InteractiveToken`
+    (`internal/cli/service/schtasks.go`, `renderTaskXML`; 0116 D12).
+  * The one-shot run's first argument names its environment file, and
+    `service.LoadHandOffEnvContext` applies and removes it. Both `main`s call it first already.
+  * `WriteHandOffEnv` gives its directory a protected access list on Windows: the user, SYSTEM
+    and Administrators.
+  * A one-shot task shows in Task Scheduler while it runs and until the next cleanup, and a
+    console window shows for about 50 ms while its hop starts the update.
+
+### Proposed decisions
+
+* **D11 — The Windows handoff is on (D3, option C, carried out).**
+  * `detacherFor` no longer refuses Windows: a backend that is a `Detacher` hands off on every
+    OS. 0116 D8's kill-on-close jobs stay as they are, since the one-shot task is outside them.
+  * The daemon's start-up `CleanupHandOffs` runs on Windows as well as macOS
+    (`internal/daemon/daemon_handoff.go`). `taskscheduler.Task.CleanupHandOffs(ctx) error` fits
+    its interface unchanged.
+  * D5's reporting is unchanged: `doctor` reads the result file the library writes.
+  * **D8 stops applying on Windows by itself.** `insiderFor` returns false for a `Detacher`, so
+    Windows gets the handoff, not the refusal. D8 stays for runit, s6 and OpenRC.
+  * The `update` command's help, `ops-windows-install.md`'s "Updating from a phone session", and
+    the README's sentence say Windows hands off.
+* **L2's Windows step changes.** It expects a handoff. A handoff really stops, replaces and
+  restarts the task, and a detached run replaces the binary that started it. So the Windows
+  procedure is rewritten before L2.3 runs, and approved by the owner (the PLAN's B2).
+
+### Confirmation of this amendment
+
+* **Unit tests, each seen failing first:** `detacherFor("windows", <a Detacher>)` is true, and
+  `insiderFor` false for it; the daemon's cleanup runs on `windows` and not on `linux`.
+* **Live** (L2, on the owner's word): on the Windows test host, an agent-run `update --yes` prints
+  `update handed off: …`; the task restarts on the target release; `doctor` shows the handoff's
+  result; the one-shot task is gone after the daemon's next start.
+
+### Consequences of this amendment
+
+* Good, because an agent-run update now works on Windows, as on systemd and launchd.
+* Good, because Magic's containment is unchanged: no breakaway was needed.
+* Neutral, because D8's early refusal now covers only the script supervisors.
+* Bad, because the Windows live check really updates the host's task, which needs a procedure of
+  its own (B2).
+

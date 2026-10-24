@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-10-22
+date: 2026-10-23
 decision-makers: Project Owner
 consulted: "go-selfupdate-lib v1.17.1–v1.17.2, acp-go-sdk2 v1.15.0–v1.19.0 and go-llmprovider-sdk v1.21.0, read from full clones at their tags; their GitHub release notes; a scratch copy of this repository at 707d300d with both pins moved; gobble-cli's go.mod on its default branch. Amendment of 2026-10-22: acp-go-sdk2 v1.20.0 from the Go module proxy and its release notes; a scratch copy at 6a4ef48d with both pins moved and agentproc run against Magic's command; gobble-cli at 53565a1"
 informed: anyone who changes this module's dependencies, its service code or its ACP provider
@@ -787,3 +787,306 @@ These continue the numbering of "Questions for the owner" above.
   the wire capture D10 keeps.
 * [0208-MADR-make-the-provider-layer-agent-neutral.md](0208-MADR-make-the-provider-layer-agent-neutral.md):
   pass-through first, which D11 and D13 serve.
+
+## Amendment — 2026-10-23 (B): `go-selfupdate-lib v1.19.0`, and the fullest use of both libraries
+
+**Status of this amendment: proposed.** The owner answered questions 8 to 11 on 2026-10-23 (below).
+It becomes decided when the owner approves its PLANs.
+
+**The owner's ask, verbatim:** "assess the go-llmprovider-sdk, acp-go-sdk2, and ensure we pin the
+current versions, and are using the fullest feature sets we can." Corrected in the next message:
+"go-selfupdate-lib is the one". So this amendment covers `go-selfupdate-lib` and `acp-go-sdk2`.
+`go-llmprovider-sdk` stays out of scope (D7; 0185), and was not re-assessed.
+
+### Releases [observed 2026-10-23, the GitHub tags, releases and compare APIs, and the Go module proxy]
+
+| Library | Magic pins | Latest | Latest's commit | Published |
+| :--- | :--- | :--- | :--- | :--- |
+| `go-selfupdate-lib` | `v1.17.2` | **`v1.19.0`** | `a6af9dc760a5392134dc62b00e6491b112d0ada5` | tag only, 2026-10-23; `v1.18.0` (`ce406dc1…`) the same day |
+| `acp-go-sdk2` | `v1.20.0` | `v1.20.0`, unchanged | `4fa720471d44bdcbe3f7318d494d95035708fe12` | 2026-10-22, immutable |
+
+* **`go-selfupdate-lib`.** `go mod download -json …@v1.19.0` gives `"Sum":
+  "h1:u08KixmhNgPv72HGOzNUvqxEU2CCY8xEU2Fb7vN7j58="` and origin `a6af9dc7…`, ref
+  `refs/tags/v1.19.0`. The library still publishes no GitHub releases (`gh release list` is
+  empty). Its `go.mod` asks for `go 1.26.10`, `golang.org/x/mod v0.40.0`, `x/sys v0.47.0` and
+  `x/term v0.43.0`, all at or below Magic's.
+* **The reusable release workflows did not change.** `compare/v1.17.2...v1.19.0` lists no file
+  under `.github/workflows/`. So `ci.yml`'s two pins move by commit and comment only.
+* **`acp-go-sdk2`.** 26 commits follow the `v1.20.0` tag. The only Go file they change is
+  `agentproc/tap_test.go`, a test. `go.mod`, `schema/` and `version` are unchanged. Nothing
+  unreleased matters to Magic.
+
+### What `v1.18.0` and `v1.19.0` add, against Magic's code
+
+Each release is additions only, by the library's `make apicheck` (its CHANGELOG). Each answers an
+issue this repository filed from the REPORT's A10.
+
+| Release | Addition (CHANGELOG; migration guide §18, §19) | Magic's counterpart today |
+| :--- | :--- | :--- |
+| `v1.18.0`, #5 | `selfupdate.DefaultHTTPClient()`: transport timeouts (30 s dial, 10 s TLS, 30 s response headers) and no `Client.Timeout` | `&http.Client{Timeout: OperationTimeout}`, 15 minutes over each request (`internal/updateclient/client.go:93`), the shape the library's guide now advises against (REPORT A5) |
+| `v1.18.0`, #4 | `launchd.Job.Loaded`; `launchd.Job.Status`, with `Installed`, `Loaded`, `Enabled`, `Running` and `PID` from one probe | `ProbeStatus` runs `launchctl print` itself for "loaded" (`internal/cli/service/control.go:153-157`); `launchdLoaded` and `launchdJobRunning` parse `launchctl print` (`launchd_wait.go:54-57`, `:103-112`) |
+| `v1.19.0`, #3 | `taskscheduler.Task.Register`, `Definition` and `Delete`, through the COM API | `schtasks /create /xml` from a UTF-16 temporary file (`setup_schtasks.go:48-63`; `refresh_schtasks.go:145-162`; `encodeTaskXML`, `schtasks.go:195`), `/query /xml` (`setup_schtasks.go:26`; `refresh_schtasks.go:38`) and `/delete` (`setup_schtasks.go:91`) |
+| `v1.19.0`, #3 | `taskscheduler.DiffDefinitions`, `SameDefinition` and `DefinitionDiff` | `sameTaskDefinition`, `taskFields` and `taskParse` (`setup_schtasks.go:134-318`). The library's comparison covers every trigger, setting and action element, not a chosen set. Its fixtures include a capture of Magic's own task shape (`testdata/definitions/consumer.*.xml`) |
+| `v1.19.0`, #3 | `taskscheduler.Task.Status`: installed, enabled, `TASK_STATE`, running, PIDs and the last run, in one call | `taskState`, a PowerShell `Get-ScheduledTask` of about 1.3 s per call (`control_schtasks.go:25-44`; 0159 probe 11), called from `isInstalledWindows`, `stopWindows`, `refreshSchtasks` and `uninstall.go:219` |
+| `v1.19.0`, #6 | `Task.Detach` hands off as a one-shot task, `<Name>.selfupdate.<id>`, started by Task Scheduler outside the program's jobs; `Task.CleanupHandOffs`; `Options.HopDetach` and `HandOffDir` | The Windows handoff 0210 D3 waits on: `detacherFor` returns false on Windows (`client.go:205-211`), and the daemon cleans finished handoffs on macOS only (`internal/daemon/daemon_handoff.go`) |
+| `v1.19.0` | `service.LoadHandOffEnvContext` applies and removes a first argument `--selfupdate-handoff-env=<path>` | Both `main`s already call it first (`cmd/mcremote/main.go:24`, `cmd/mcrelay/main.go:25`). Nothing to change. |
+
+**What the library still lacks for Magic.** `taskscheduler.Task` has no exported way to enable or
+disable a task outside `Stop` and `Start` (its exported methods, read at `v1.19.0`). Its `Start`
+re-enables only a task its own `Stop` disabled (`lifecycle.go:272-299`). Magic's `startWindows`
+enables first, whoever disabled it (`control_schtasks.go:60-68`). runit, s6 and OpenRC backends
+remain [go-selfupdate-lib#2](https://github.com/maccavelli/go-selfupdate-lib/issues/2), open.
+
+### The pin move, proven on a scratch copy [2026-10-23]
+
+On a `git archive` copy of `HEAD` `88d37d1c`, given its own git index, nothing in the tree
+written (`m207b/pin_probe.py` in the session scratchpad):
+
+```text
+go: upgraded github.com/maccavelli/go-selfupdate-lib v1.17.2 => v1.19.0
+go mod tidy: exit 0
+ci.yml: both pins moved
+go build ./...: exit 0
+go vet ./... darwin/arm64, linux/amd64, windows/amd64: exit 0, each
+go test -count=1 ./...: exit 0; 43 packages ok, 0 FAIL lines
+TestWorkflowPinsMatchGoMod, TestReleaseJobsReadTheSpec: ok
+```
+
+* `go.mod` changes on one line, and `go.sum` on the module's two lines.
+* The first run failed one test, `TestTrackedFilesUseOnlyPlaceholderHomes`: "no git index … the
+  guard cannot read the tracked files". The copy had no `.git`. With an index it passed. That is
+  the probe's own artefact, not the pin's.
+
+### What the 0207 REPORT left open, re-read against the tree at `88d37d1c`
+
+[0207-REPORT-go-selfupdate-lib-deeper-adoption-assessment.md](../reports/0207-REPORT-go-selfupdate-lib-deeper-adoption-assessment.md):
+
+| Finding | State |
+| :--- | :--- |
+| A1, the handoff | Done on systemd and launchd by 0210; Windows now unblocked (above); script supervisors wait on #2 |
+| A2, `setup-service` on the backends | Open: 0207 D4 |
+| A3, three ways to confirm a start | Open: no `WaitHealthy` or `PollHealthy` outside a test (`git grep`) |
+| A4, the script backend's contract | Part done: 0210 H2 added `Inside`. Its context and sentinel errors are open |
+| A5, the update's guards | Open: no `NewVersionProber`, `NewImageVerifier` or `DefaultHTTPClient` in the tree. `Spec.Unpacker()` returns nil for `binary` packaging (`releasespec/spec.go:329-330`), so `New` accepts the image verifier (`updater.go:105-121`) |
+| A6, `binaryWarning` | Open: 0207 D8's first half; no `SameExecutable` in the tree |
+| A7, the Windows CI script's stamps | Open: `scripts/ci-windows-local.ps1:132` still stamps `main.version`, so `make ci-windows-smoke`, a before-tag gate, cannot pass check B14 |
+| A8, mcrelay readiness | Open, and never put to the owner (REPORT question 4) |
+| A10, the four library asks | #3, #4 and #5 shipped (above); #2 open |
+
+### `acp-go-sdk2 v1.20.0`, used against what it offers [read 2026-10-23]
+
+The SDK's two exported packages, `acp` and `agentproc`, were read from the module cache, and every
+capability was matched against `internal/provider/acpagent` and the records. Magic uses the
+connection, every stable client call it has a reason to make, every client handler, the
+connection hooks of D11 to D13, and `agentproc` with `OutputTap`. What it does not use, with no
+recorded reason:
+
+* **H1 — Per-turn token usage is dropped.** `PromptResponse.Usage`, marked unstable, carries
+  input, output, cached-read, cached-write and thought tokens (`types_gen.go:11105-11120`). Magic
+  reads only `StopReason` from the answer (`session.go:537-543`). gobble sends it (gobble-cli
+  `acpserver/prompt.go`, read by the subagent; not run). So a non-grok agent's turns record no
+  token split. `xaiusage.go:14-18` says ACP's standard usage carries no cache fields, which
+  `v1.20.0`'s schema contradicts. Whether current grok fills the standard field as well as its
+  `_meta` usage is **unverified**; grok 1.0.13's captures carry it only under `_meta`.
+* **H2 — A missing file comes back as an internal error.** `ReadTextFile` returns the `PathError`
+  (`session.go:2653-2665`), which the SDK sends as -32603. The SDK has `NewResourceNotFound`
+  (-32002).
+* **H3 — Hand-built protocol values the SDK constructs.** MCP server entries
+  (`acpagent.go:639-649`, against `NewMcpServerHttp`, `NewMcpServerSse`), permission outcomes
+  (`session.go:2471-2480`, `:2611-2620`, against `NewRequestPermissionOutcomeCancelled`,
+  `…Selected`) and config-option requests (`session.go:1108-1112`, `:1168-1177`, against
+  `NewSetSessionConfigOptionRequestValueId`, `…Boolean`). Same wire bytes; the type tags are then
+  the SDK's.
+* **H4 — Small diagnostics.** `Process.DroppedTapBytes` is never read, so a truncated wire capture
+  is not known. A `ProtocolVersionError` at `initialize` (`acpagent.go:541-545`) is reported as
+  any other error.
+* **H5 — Dead branches.** The subagent decline branches (`session.go:2070-2075`) cannot run:
+  since `v1.15.2` the SDK drops those updates when `subagents` is not advertised (0184 amendment
+  of 2026-10-19, G3).
+
+These are product features the SDK enables, each needing a decision of its own rather than an
+adoption step: the typed `ResumeSession`, to re-attach without replay (grok and gobble advertise
+`resume`; only 0167-REPORT L3 recommends it); resource-link and embedded-resource prompt blocks,
+which both engines advertise (0179 F7, a finding only); confining file access to the session's
+`Roots()` (0184 "More Information", an open question); URL elicitation (0191 D1, D6: a trust
+policy first); stdio MCP servers (0179, deferred); grouped select options (0208 N3, proposed).
+
+**Stale recorded facts** found on the way:
+
+* 0207 G6 and this record's Consequences: "D12's one-pin rule with gobble keeps not holding".
+  gobble-cli's `go.mod` now pins `acp-go-sdk2 v1.20.0` (fetched 2026-10-23), so 0184 D12 holds.
+  gobble also pins `go-selfupdate-lib v1.17.0`, which D12 does not cover.
+* [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md)
+  says the SDK does not gate the subagent variants. It has since `v1.15.2`. The deferral stands.
+* [0167-REPORT-acp-go-sdk2-integration-assessment.md](../reports/0167-REPORT-acp-go-sdk2-integration-assessment.md)
+  L3 calls `providers/*` editor-centric; those methods configure an agent's LLM providers. Its
+  outcome stands, since no engine Magic runs advertises them. L4's "the SDK does not validate what
+  it sends" was corrected by 0184 PLAN A5, and the report never was.
+* [0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+  stays `in-progress` for one item: committed wire captures of permission, cancel, terminal,
+  file-system, delete and resume frames. Only `grok/testdata/wire/1.0.13` and `1.0.50` exist.
+  Closing it needs a capture-enabled `make live-grok`, which spends quota.
+* **A risk to watch, not a finding:** the SDK's own
+  `docs/reports/0032-REPORT-windows-floor-runtime-crashes.md` records Go runtime crashes in its
+  root-package tests on Windows CI, 3 of 56 jobs, one at go1.27.3. Its cause is undecided.
+
+### The decisions this amendment proposes
+
+* **D15 — Pin `go-selfupdate-lib v1.19.0`.** `go.mod`, `go.sum`, and both `ci.yml` pins to
+  `a6af9dc760a5392134dc62b00e6491b112d0ada5` with the comment `# go-selfupdate-lib v1.19.0`. No Go
+  code changes. Proven above.
+* **D16 — The update takes the library's guards (REPORT A5, A6).**
+  * `New` passes `selfupdate.DefaultHTTPClient()` when no client is given. `cli.Run` already bounds
+    the run by `OperationTimeout`.
+  * `Config.Probes` gets `NewVersionProber` over the spec's `identity_args`, so a staged binary
+    that cannot run here is refused before the service is stopped. On macOS with
+    `MC_CODESIGN_IDENTITY` set, `codesign.NewChecker` as well.
+  * `Config.Verifiers` gets `NewImageVerifier` for this platform.
+  * `binaryWarning` uses `service.SameExecutable` (0207 D8's first half).
+* **D17 — Task Scheduler through the library's COM API (`v1.19.0`, #3).**
+  * `taskState` becomes `Task.Status`.
+  * Register, read and delete become `Task.Register`, `Definition` and `Delete`. The UTF-16 file,
+    `encodeTaskXML` and the `schtasks /query /xml`, `/create` and `/delete` calls go.
+  * The comparison becomes `SameDefinition`. "Exists with different content" names the paths
+    `DiffDefinitions` reports.
+  * `taskFieldsFromXML` stays only where Magic reads a field (whether the task is disabled, the
+    uninstall's ownership check, the refresh's recovery of options). The PLAN measures each call
+    site.
+* **D18 — Enabling a task: ask the library (question 9).** File a `go-selfupdate-lib` issue for an
+  exported enable and disable on `taskscheduler.Task`. Until a release has it,
+  `schtasks /change /enable` and `/disable` stay, Magic's last `schtasks.exe` calls.
+* **D19 — launchd status through the library (`v1.18.0`, #4).** `ProbeStatus` reads
+  `launchd.Job.Status` in one probe. `launchdLoaded` becomes `Job.Loaded`, which tells "not loaded"
+  (exit 113) from a failure, the ambiguity 0125's open question 2 records.
+* **D4, as amended — the backends' stop, start and start confirmation (REPORT A2, A3).**
+  * Stop goes through the backend's `Stop`: on macOS the library's bootout-and-wait, on Windows its
+    drain.
+  * Start: on Windows, Magic enables the task (D18), then calls `Task.Start`. On macOS,
+    `Job.Start` where it matches setup's path. The PLAN measures each call site first.
+  * A start is confirmed by the backend's `WaitHealthy`, with the product's probe, for systemd,
+    launchd and Task Scheduler, and by `service.PollHealthy` over the existing samplers for runit,
+    s6 and OpenRC.
+  * `stopAndWaitDarwin`, `launchdJobRunning`, `startWindows`, `stopWindows` and the settle loops go
+    when nothing calls them.
+* **D20 — The script backend follows the backend contract (REPORT A4).** `Stop`, `Start` and
+  `WaitHealthy` honour their context, and their errors wrap `service.ErrTimeout`, `ErrUnhealthy`
+  and `ErrNotInstalled`.
+* **D21 — The Windows CI script stamps `buildinfo` (REPORT A7).** `ci-windows-local.ps1:132` takes
+  the `Makefile`'s `-X …/buildinfo.version=` and `….kind=local` pair.
+* **D22 — mcrelay tells systemd it is ready (REPORT A8; question 10).** `Type=notify` in its unit
+  template, `READY=1` and `STOPPING=1` at its ready and shutdown points, through the same kept
+  socket 0210 D10 gives the daemon.
+* **D23 — The Windows handoff is unblocked (0210 D3; question 8).** `v1.19.0` ships what 0210 D3
+  waits on. Adopting it removes the Windows gate in `detacherFor`, adds Windows to the daemon's
+  start-up `CleanupHandOffs`, and runs the agent-run update live on the Windows host. 0210 A1's
+  refusal then stops applying on Windows by itself, since `insiderFor` returns false for a
+  `Detacher`. Magic's task registers with `InteractiveToken`, the one logon type that hands off by
+  default. A console window shows for about 50 ms when the hop starts (migration guide §19).
+* **D24 — `acp-go-sdk2` stays on `v1.20.0`;** it is the newest tag, and nothing after it matters
+  (above). D12 holds again with gobble.
+* **D25 — Per-turn token usage from `PromptResponse.Usage` (H1).** At a turn's end, Magic maps the
+  standard usage to `event.Usage`, unless the turn already reported xAI usage, so grok is never
+  counted twice. A shape-pin test holds the unstable field, as the plan tests do. The accounting
+  rules of 0189 and 0199 are unchanged. `xaiusage.go`'s comment is corrected. Confirming grok's
+  behaviour needs one live capture, which spends quota (question 11).
+* **D26 — The SDK's conformance and helpers (H2 to H5).** `ReadTextFile` returns
+  `NewResourceNotFound` for a missing file. The SDK's constructors replace the hand-built values of
+  H3. `DroppedTapBytes` is logged when a capture closes, and a `ProtocolVersionError` at
+  `initialize` gets its own message. H5's dead branches go, with a test that the SDK drops those
+  updates.
+* **D27 — Record corrections.** A dated note on 0195; a dated note on 0167-REPORT L3 and L4; G6
+  and the Consequences here noted as no longer true.
+* **D28 — The product features the SDK enables are not decided here** (the list above). Each takes
+  its own MADR when the owner wants it (question 12).
+* **D9, re-checked at `v1.19.0`.** `archive`, `service/scm`, `verify/signednote` and
+  `verify/ghattest` stay unused, for the same reasons. `Options.HopDetach` and `HandOffDir` keep
+  their defaults. `Checker` and `CheckStore` stay new scope (REPORT A9).
+
+### Consequences of the amendment
+
+* Good, because Magic's Windows service path loses `schtasks.exe` for everything but enabling, and
+  PowerShell entirely, along with about 200 lines of XML encoding and comparison. The library tests
+  that code against captures of Magic's own task shape.
+* Good, because an agent-run update can hand off on Windows too (D23), the last OS but the script
+  supervisors.
+* Good, because a binary that cannot run here is refused before the service stops (D16), and a
+  stalled GitHub request fails in 30 s rather than 15 minutes.
+* Good, because every start is confirmed one way, with the product's own probe (D4).
+* Good, because non-grok agents' turns carry a token split (D25).
+* Neutral, because `acp-go-sdk2`'s pin does not move.
+* Bad, because D17, D4 and D23 change Windows behaviour the live runs exercise. Each needs the
+  Windows test host, with the real task backed up and restored as 0210 R1 Deviation 3 set out.
+* Bad, because D18 keeps one `schtasks.exe` call until the library ships an enable.
+* Bad, because the library's definition comparison is stricter than Magic's. A task someone edited
+  by hand in a setting setup does not render now reads as different, and `setup-service` asks for
+  `--force` where it did not before.
+* Bad, because D25 rests on an unstable schema field.
+
+### Confirmation of the amendment
+
+* `go.mod` names `go-selfupdate-lib v1.19.0`; `ci.yml`'s two pins name `a6af9dc7…`;
+  `TestWorkflowPinsMatchGoMod` passes.
+* `git grep` finds no `schtasks /create`, `/query`, `/delete`, no `powershell.exe` and no
+  `encodeTaskXML` under `internal/cli/service`, and `launchctl print` only where a hint is printed.
+* Fail-first tests, each seen failing on a scratch copy: the version probe refuses an unrunnable
+  staged binary before any stop; the definition comparison names a differing path; a missing file
+  answers -32002; a turn's standard usage reaches `event.Usage` once, and not beside xAI usage.
+* On the Windows host: `make ci-windows` and `make ci-windows-smoke` pass (D21);
+  `setup-service` install, `--force` and `--remove` against the real task, backed up and restored;
+  `--remove` drains, exit 0 as in S9d; an agent-run `update --yes` hands off (D23).
+* On the Linux host, `systemctl --user start` of mcrelay returns after `READY=1` (D22).
+
+### Questions this amendment adds
+
+These continue the numbering above.
+
+* **7. Where the work lives.** The proposal is two new 0207 PLANs: one for `go-selfupdate-lib
+  v1.19.0` (D15 to D22, D4), one for `acp-go-sdk2` (D25 to D27). Or a single PLAN?
+* **8. The Windows handoff (D23).** It is 0210's D3, and 0210 said an amendment of 0210 adopts it
+  when #6 ships. The proposal is a 0210 amendment B, taken before 0210's L2, so L2 checks the
+  handoff on Windows once instead of the refusal. And the order: D15 and D21 first, then 0210's
+  A2 and A3, then 0210 B, then L2, then the rest of this amendment?
+* **9. The enable (D18).** File the `go-selfupdate-lib` issue for an exported enable and disable,
+  and keep `schtasks /change` until it ships? Or keep it as Magic's for good?
+* **10. mcrelay readiness (D22).** In scope, or left as is?
+* **11. Quota.** D25 needs one capture-enabled `make live-grok`. The same run would close 0184's
+  last item, the wire captures. Run it once, after D25 lands?
+* **12. The product features (D28).** Open a MADR for any now? The proposal is none yet, with
+  `ResumeSession` first when one is wanted.
+
+*Answered 2026-10-23,* questions 8 to 11:
+
+* **8.** "0210 amend B, before L2 (Recommended)". D23 is decided in a 0210 amendment B. The order
+  is D15 and D21; 0210's A2 and A3; 0210 B; 0210's L2, which checks the Windows handoff; then the
+  rest of this amendment.
+* **9.** "File library issue (Recommended)". D18 stands: the issue is filed as the
+  `go-selfupdate-lib` PLAN's first step, and `schtasks /change` stays until a release has it.
+* **10.** "In scope (Recommended)". D22 stands.
+* **11.** "Once, after D25 (Recommended)". One capture-enabled `make live-grok` after D25 lands,
+  run on the owner's word for that run. It also closes 0184's wire-capture item.
+
+Questions 7 and 12 were not put separately. Their proposals are what the PLANs carry: two
+PLANs, and no product-feature MADR yet. Either can still be changed at the plans' review.
+
+### Evidence index of the amendment
+
+* `go-selfupdate-lib` `v1.18.0` and `v1.19.0` from the Go module proxy (sums and origins above);
+  its CHANGELOG and migration guide §18, §19; `compare/v1.17.2...v1.19.0`.
+* `acp-go-sdk2 v1.20.0` from the module cache; `compare/v1.20.0...HEAD`; gobble-cli's `go.mod`
+  from the contents API.
+* The capability inventory of `acp-go-sdk2` was made by a read-only subagent, and its three load-
+  bearing claims re-checked here: `PromptResponse.Usage` exists and is unstable; Magic reads only
+  `StopReason`; gobble pins `v1.20.0`. Its other line citations were not each re-read.
+* The scratch probe `m207b/pin_probe.py` and its logs, as quoted.
+
+### Related records of the amendment
+
+* [0210-MADR-hand-off-agent-run-updates-outside-the-service.md](0210-MADR-hand-off-agent-run-updates-outside-the-service.md):
+  D3, which D23 unblocks, and D8, whose Windows refusal D23 makes moot.
+* [0189-MADR-carry-the-agent-session-cost-as-a-session-total.md](0189-MADR-carry-the-agent-session-cost-as-a-session-total.md)
+  and [0199-MADR-total-grok-per-turn-costs-into-the-session-cost.md](0199-MADR-total-grok-per-turn-costs-into-the-session-cost.md):
+  the accounting D25 keeps.
+* [0159-MADR-the-windows-service-path-is-half-wired.md](0159-MADR-the-windows-service-path-is-half-wired.md):
+  D9 and D14, the PowerShell probe and the field comparison D17 replaces.
+* [0125-MADR-launchd-bootout-is-asynchronous.md](0125-MADR-launchd-bootout-is-asynchronous.md): the
+  launchd wait D19 and D4 move onto the library.
