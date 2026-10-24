@@ -248,12 +248,17 @@ the swap fails, it rolls back: the previous binary is restored, and so is the
 previous task definition, which the refresh saved under
 `%LocalAppData%\mcremote\State` (MADR 0159 D1).
 
-**Updating from a phone session.** An agent that runs `mcremote update` runs it
-inside the task it would stop. On Windows the update then refuses, with "this
-process runs inside the service it would stop", and leaves the task running
-and the binary unchanged. Update from a terminal instead. A handoff to Task
-Scheduler, as Linux and macOS have, waits on a library change
-([MADR 0210](../decisions/0210-MADR-hand-off-agent-run-updates-outside-the-service.md) D3).
+**Updating from a phone session.** An agent can run the update for you, but it
+runs inside the task it updates, so it must pass `--yes`: `mcremote update
+--yes`. The update hands itself off to Task Scheduler, as a one-shot task
+`mcremote.selfupdate.<id>`, and returns at once with `update handed off: …`.
+Task Scheduler starts that task outside the daemon's processes, so stopping
+the daemon does not end it, and a console window shows for a moment as it
+starts. The daemon then restarts on the new release, which ends the session.
+`mcremote doctor` then shows the handoff's outcome. The finished one-shot task
+stays listed in Task Scheduler until the daemon's next start removes it
+([MADR 0210](../decisions/0210-MADR-hand-off-agent-run-updates-outside-the-service.md)
+D11).
 
 **Updating from v0.17.x or earlier.** Those releases cannot restore a task
 definition. If an update from one of them fails after the refresh, the binary is

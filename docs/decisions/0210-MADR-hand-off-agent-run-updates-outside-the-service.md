@@ -574,9 +574,9 @@ on 2026-10-23. Read against `907c3c29` and go-selfupdate-lib `v1.17.2`.
 
 ## Amendment — 2026-10-23 (B): the Windows handoff, now that go-selfupdate-lib#6 has shipped
 
-**Status of this amendment: proposed.** The owner chose its place and order on 2026-10-23, in
-answer to 0207's amendment B question 8: "0210 amend B, before L2 (Recommended)". It becomes
-decided when the owner approves the PLAN's amendment B.
+~~**Status of this amendment: proposed.**~~ **Decided by the owner on 2026-10-24,** approving the
+PLAN's amendment B ("proceed"). The owner chose its place and order on 2026-10-23, in answer to
+0207's amendment B question 8: "0210 amend B, before L2 (Recommended)". L2 confirms it live.
 
 ### What changed
 

@@ -16,6 +16,9 @@ import (
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/launchd"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/systemd"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
@@ -410,28 +413,32 @@ type insiderService struct {
 	fakeInsider
 }
 
-// TestDetacherForGatesWindowsAndScriptBackends is MADR 0210 D3, D4 and D8:
-// the handoff is set only where the backend is a Detacher, and never on
-// Windows until go-selfupdate-lib#6 ships. Where it is not set, a backend that
-// answers Inside gets the refusal instead.
-func TestDetacherForGatesWindowsAndScriptBackends(t *testing.T) {
-	both := &detacherService{}
+// The library's three backends Magic builds hand off (MADR 0210 D1, D11),
+// checked on every OS this compiles for.
+var (
+	_ libservice.Detacher = (*systemd.Unit)(nil)
+	_ libservice.Detacher = (*launchd.Job)(nil)
+	_ libservice.Detacher = (*taskscheduler.Task)(nil)
+)
+
+// TestDetacherForGatesScriptBackends is MADR 0210 D1, D4, D8 and D11: the
+// handoff is set wherever the backend is a Detacher, Windows' Task Scheduler
+// backend included since go-selfupdate-lib v1.19.0 (#6). Where it is not set,
+// a backend that answers Inside gets the refusal instead.
+func TestDetacherForGatesScriptBackends(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
-		goos           string
 		backend        any
 		detach, refuse bool
 	}{
-		{"a Detacher on Linux", "linux", both, true, false},
-		{"a Detacher on macOS", "darwin", both, true, false},
-		{"a Detacher on Windows", "windows", both, false, true},
-		{"a script backend", "linux", &insiderService{}, false, true},
-		{"a backend that answers neither", "linux", &fakeService{}, false, false},
+		{"a Detacher (systemd, launchd, Task Scheduler)", &detacherService{}, true, false},
+		{"a script backend", &insiderService{}, false, true},
+		{"a backend that answers neither", &fakeService{}, false, false},
 	} {
-		if _, ok := detacherFor(tc.goos, tc.backend); ok != tc.detach {
+		if _, ok := detacherFor(tc.backend); ok != tc.detach {
 			t.Errorf("%s: detacherFor = %v, want %v", tc.name, ok, tc.detach)
 		}
-		if _, ok := insiderFor(tc.goos, tc.backend); ok != tc.refuse {
+		if _, ok := insiderFor(tc.backend); ok != tc.refuse {
 			t.Errorf("%s: insiderFor = %v, want %v", tc.name, ok, tc.refuse)
 		}
 	}
@@ -442,7 +449,7 @@ func TestDetacherForGatesWindowsAndScriptBackends(t *testing.T) {
 var commandTestInsider insider
 
 // fakeInsider is a backend that answers Inside and cannot hand off, such as
-// the script backends, or Windows' while go-selfupdate-lib#6 is open.
+// the script backends.
 type fakeInsider struct {
 	inside bool
 	err    error

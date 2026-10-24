@@ -17,7 +17,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -182,15 +181,15 @@ var (
 	}
 	// newCommandDetacher is the update's handoff backend: the backend the
 	// managed installer drives, as a service.Detacher (MADR 0210 D1). It
-	// reports false where the command sets no handoff: on Windows (D3), for a
-	// backend that is not a Detacher, such as runit, s6 and OpenRC (D4), and
-	// when no backend can be built.
+	// reports false where the command sets no handoff: for a backend that is
+	// not a Detacher, such as runit, s6 and OpenRC (D4), and when no backend
+	// can be built.
 	newCommandDetacher = func(product string, health service.HealthOptions) (libservice.Detacher, bool) {
 		b, err := newBackend(product, "", health)
 		if err != nil {
 			return nil, false
 		}
-		return detacherFor(runtime.GOOS, b)
+		return detacherFor(b)
 	}
 	// newCommandInsider is the update's refusal backend, where it sets no
 	// handoff: the backend that can tell whether this process runs inside
@@ -202,37 +201,32 @@ var (
 		if err != nil {
 			return nil, false
 		}
-		return insiderFor(runtime.GOOS, b)
+		return insiderFor(b)
 	}
 	// commandArgs is the command line a detached run executes again: this
 	// process's own, so global flags such as --config carry over.
 	commandArgs = func() []string { return os.Args[1:] }
 )
 
-// detacherFor returns backend as a Detacher, unless goos is Windows. There
-// the library's Task Scheduler detach relies on job breakaway, which Magic's
-// own kill-on-close jobs refuse, so the handoff waits for a detach that needs
-// none (go-selfupdate-lib#6; MADR 0210 D3). An update there keeps failing
-// safe, refused from inside the service.
-func detacherFor(goos string, backend any) (libservice.Detacher, bool) {
-	if goos == "windows" {
-		return nil, false
-	}
+// detacherFor returns backend as a Detacher: systemd's and launchd's, and
+// Task Scheduler's, whose detach since go-selfupdate-lib v1.19.0 is a one-shot
+// task outside Magic's kill-on-close jobs (#6; MADR 0210 D3, D11).
+func detacherFor(backend any) (libservice.Detacher, bool) {
 	d, ok := backend.(libservice.Detacher)
 	return d, ok
 }
 
 // insider is a backend that can tell whether this process runs inside the
-// service: Magic's runit, s6 and OpenRC backend (MADR 0210 D4), and the
-// library's Task Scheduler backend.
+// service and cannot hand off: Magic's runit, s6 and OpenRC backend (MADR
+// 0210 D4).
 type insider interface {
 	Inside(ctx context.Context) (bool, error)
 }
 
 // insiderFor returns backend as an insider where detacherFor sets no
-// handoff: on Windows (D3), and for a backend that is not a Detacher (D4).
-func insiderFor(goos string, backend any) (insider, bool) {
-	if _, ok := detacherFor(goos, backend); ok {
+// handoff: for a backend that is not a Detacher (D4).
+func insiderFor(backend any) (insider, bool) {
+	if _, ok := detacherFor(backend); ok {
 		return nil, false
 	}
 	i, ok := backend.(insider)
@@ -294,10 +288,10 @@ Progress, prompts and the outcome are written to stderr. Stdout is empty
 unless --json is given, which writes JSON Lines ending in one result object.
 
 Run from inside the service, such as by an agent in a phone session, the
-update hands itself off to the service manager and needs --yes, since the
-detached run cannot prompt. On Windows, and under runit, s6 and OpenRC, it
-refuses before downloading and leaves the service running; run it from a
-shell there.
+update hands itself off to the service manager (systemd, launchd or Task
+Scheduler) and needs --yes, since the detached run cannot prompt. Under runit,
+s6 and OpenRC it refuses before downloading and leaves the service running;
+run it from a shell there.
 
 Exit status: 0 up to date, declined, installed or handed off; 10 an update is
 available (with --check); 1 any error. Set GH_TOKEN or GITHUB_TOKEN to raise API rate

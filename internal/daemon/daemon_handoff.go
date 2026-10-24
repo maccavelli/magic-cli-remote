@@ -8,12 +8,15 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
 
-// handOffCleanupTimeout bounds the start-up cleanup's launchctl calls.
+// handOffCleanupTimeout bounds the start-up cleanup's launchctl or Task
+// Scheduler calls.
 const handOffCleanupTimeout = 10 * time.Second
 
-// handOffCleaner is a backend that clears its finished handoff jobs:
-// launchd's, which loads a one-shot job for each handoff and leaves it loaded
-// once it has run (go-selfupdate-lib 0011-MADR amendment A3).
+// handOffCleaner is a backend that clears its finished handoffs: launchd's,
+// which loads a one-shot job for each handoff and leaves it loaded once it
+// has run (go-selfupdate-lib 0011-MADR amendment A3), and Task Scheduler's,
+// which registers a one-shot task, <task>.selfupdate.<id>, that stays until a
+// cleanup (go-selfupdate-lib v1.19.0, #6).
 type handOffCleaner interface {
 	CleanupHandOffs(ctx context.Context) error
 }
@@ -24,11 +27,12 @@ func newHandOffBackend() (any, error) {
 	return service.NewBackend("mcremote", "")
 }
 
-// cleanupHandOffs clears the finished handoff jobs an agent-run update left,
-// once, at start (MADR 0210 D5). Only launchd leaves them, so it builds no
-// backend elsewhere. A failure is logged: the daemon serves either way.
+// cleanupHandOffs clears the finished handoffs an agent-run update left,
+// once, at start (MADR 0210 D5, D11). launchd and Task Scheduler leave them;
+// a systemd handoff is a transient unit, so it builds no backend on Linux. A
+// failure is logged: the daemon serves either way.
 func cleanupHandOffs(ctx context.Context, goos string, newBackend func() (any, error), log *slog.Logger) {
-	if goos != "darwin" {
+	if goos != "darwin" && goos != "windows" {
 		return
 	}
 	b, err := newBackend()

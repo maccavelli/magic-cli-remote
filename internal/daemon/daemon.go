@@ -690,8 +690,9 @@ func Run(ctx context.Context, opts Options) error {
 	// nothing is sent.
 	notifySystemd(log, "READY=1", notify.ready)
 
-	// Clear launchd's finished handoff jobs in the background, so start-up
-	// never waits on launchctl (MADR 0210 D5).
+	// Clear launchd's and Task Scheduler's finished handoffs in the
+	// background, so start-up never waits on the service manager (MADR 0210
+	// D5, D11).
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {

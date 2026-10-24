@@ -1334,7 +1334,8 @@ disabled` line. Next, by the owner's order: this amendment's B1 (the Windows han
 
 ## Amendment — 2026-10-23 (B): the Windows handoff
 
-**Status: proposed.** This implements the MADR's "Amendment — 2026-10-23 (B)", D11. The owner set
+~~**Status: proposed.**~~ **Approved by the owner on 2026-10-24 ("proceed", after A3's commit
+`c2a26882`); in progress.** This implements the MADR's "Amendment — 2026-10-23 (B)", D11. The owner set
 its order on 2026-10-23: after
 [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md)'s
 U1 (the `v1.19.0` pin) and amendment A's A2 and A3, and before L2. The rules for every phase,
@@ -1360,6 +1361,16 @@ above, apply unchanged.
    systemd, launchd and Task Scheduler hand off; runit, s6 and OpenRC refuse.
 4. **Gates.**
 
+#### B1 Deviation 1, 2026-10-24 — one comment outside B1's files. The owner decided: "Add daemon.go, comment only (Recommended)"
+
+* **Found** before any edit, by `git grep` for every statement that says Windows refuses or that
+  only launchd leaves handoffs. All but one are in B1's files. The one is
+  `internal/daemon/daemon.go:693`: "Clear launchd's finished handoff jobs in the background, so
+  start-up never waits on launchctl". With B1 it would be untrue on Windows.
+* **Options put to the owner:** add `daemon.go` for that comment alone, or leave it.
+* **Decided:** `internal/daemon/daemon.go` joins B1's files, for the comment. No code in it
+  changes.
+
 ### B2 — The Windows live procedure for L2.3
 
 **Files:** this plan; a new script in the scratch kit (not committed).
@@ -1376,3 +1387,95 @@ above, apply unchanged.
 3. **Expected:** `update handed off: …`; the task back up on the target release; `doctor` shows
    the handoff's result; after the daemon's next start, no `mcremote.selfupdate.*` task remains;
    W4 restores the config byte for byte.
+
+### Execution record for amendment B
+
+#### B1, 2026-10-24: the Windows handoff is on
+
+**What changed.**
+
+* **`internal/updateclient/client.go`:**
+  * `detacherFor(backend)` returns any `libservice.Detacher`; its Windows branch is gone. With no
+    OS left to decide, its `goos` parameter went too, and `insiderFor`'s with it. Both callers
+    are in this file, and `runtime` is no longer imported. A parameter that nothing reads would
+    have been dead code.
+  * The comments on `newCommandDetacher`, `detacherFor`, `insider` and `insiderFor` no longer say
+    Windows refuses.
+  * The `Long` help: the update hands off to "systemd, launchd or Task Scheduler"; under runit,
+    s6 and OpenRC it refuses before downloading.
+* **`internal/daemon/daemon_handoff.go`:** `cleanupHandOffs` runs on `darwin` and `windows`. The
+  comments name Task Scheduler's one-shot tasks beside launchd's jobs.
+* **`internal/daemon/daemon.go`:** the one comment of Deviation 1.
+* **Guides:** `ops-windows-install.md`'s "Updating from a phone session" now says the update hands
+  off to a one-shot task `mcremote.selfupdate.<id>`, needs `--yes`, that a console window shows
+  for a moment, that `doctor` shows the outcome, and that the finished task stays listed until
+  the daemon's next start. `README.md:117-119` names Task Scheduler with systemd and launchd.
+* **Tests:**
+  * `TestDetacherForGatesWindowsAndScriptBackends` became `TestDetacherForGatesScriptBackends`:
+    with no OS parameter, its rows are a Detacher (hands off, no refusal), a script backend
+    (refusal), and neither.
+  * Compile-time assertions, checked on every OS: `*systemd.Unit`, `*launchd.Job` and
+    `*taskscheduler.Task` are `libservice.Detacher`s (`command_test.go`); `*launchd.Job` and
+    `*taskscheduler.Task` fit `handOffCleaner` (`daemon_handoff_test.go`).
+  * `TestCleanupHandOffsOnMacOS` became `…OnMacOSAndWindows`; `…OnlyOnMacOS` became
+    `…NotOnLinux`; `TestHandOffBackendCleansUpOnMacOS` became `TestHandOffBackendCleansUp` and
+    runs on Windows as well. That one runs only on a Windows host, so it is first exercised by L2's
+    `make ci-windows`.
+
+**Seen failing first,** on a scratch copy (`b1_plants.py`). The restored copy passed.
+
+| Plant | Failed, with |
+| :--- | :--- |
+| no backend hands off | `TestDetacherForGatesScriptBackends`: "a Detacher (systemd, launchd, Task Scheduler): detacherFor = false, want true"; "insiderFor = true, want false" |
+| a Detacher is also refused | the same test: "insiderFor = true, want false" |
+| the cleanup skips Windows, as before B1 | `TestCleanupHandOffsOnMacOSAndWindows`: "windows: built 0, cleanup calls 0 …; want 1, 1, nothing" |
+| the cleanup runs on Linux too | `TestCleanupHandOffsNotOnLinux`: "built 1, cleanup calls 1; want none" |
+| the cleaner interface drifts from the library's | the build: "*launchd.Job does not implement handOffCleaner (missing method CleanupAll)", and the same for `*taskscheduler.Task` |
+
+**Gates.**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the five Go files | "5 file(s) clean (gofmt, golint, govulncheck)" |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 43 packages ok, 0 FAIL lines |
+| `go mod tidy -diff` | no output |
+| `make markdownlint-docs`, `make check-records` | exit 0 |
+
+**Not done in B1.** B2, the Windows procedure for L2.3, which is drafted and put to the owner
+before anything runs on the Windows host. No host run belongs to B1.
+
+#### B2, 2026-10-24: the route for L2.3. The owner decided: "Release first (Recommended)"
+
+* **The question B2's step 2 foresaw.** No published release has B1: the latest is `v0.22.2`,
+  and the Windows test host runs `v0.22.2 (release) a5737c44f996` (read with `mcremote.exe
+  version`, nothing else run). A handoff replaces the binary it started from and refreshes the
+  task for that binary's path, so it must run as the installed binary, at its installed path.
+* **Options put to the owner:** tag a release with A1 to B1 first; swap a kit build in at the
+  installed path and reinstall `v0.22.2` through the handoff; or defer the Windows check to the
+  next release.
+* **Decided:** release first. L2's order becomes:
+  1. L2.1 (Linux), L2.2 (the containers) and L2.4 (macOS), with the kit, as written.
+  2. A release `vR` with A1 to B1, on the owner's ask for the push and the tag, after
+     `make ci-windows-smoke` on the Windows host and the disclosure guard.
+  3. L2.3 on the Windows host, by the procedure below.
+* **The L2.3 procedure (drafted; it runs only on the owner's word for L2.3):**
+  * **W1, record:** the installed binary's version and hash, the config's hash, the task's state
+    and PID, the paired devices, and the task's definition. The config is backed up beside
+    itself.
+  * **W1b, the release from a shell:** `mcremote update --yes --version vR`, outside the
+    service: an ordinary update, not a handoff. The task runs `vR` afterwards.
+  * **W2, the probe:** as L1.3's W2. The config's grok binary becomes the kit's probe agent and
+    `require_client_key` false; the task is restarted; a temporary device is minted.
+  * **W3, the handoff:** the probe runs the **installed** `mcremote.exe --config <cfg> update --yes
+    --force --version vR` through Magic's terminal. Expected:
+    * `update handed off: …`;
+    * a `mcremote.selfupdate.<id>` task while it runs;
+    * the task back up on `vR` under a new PID;
+    * `doctor` showing the handoff's result.
+  * **W4, restore:** the device is revoked, the config is restored byte for byte, and the task
+    is restarted. After that start, no `mcremote.selfupdate.*` task remains, since that start's
+    cleanup removes it. The first restart, by the handoff itself, may come while the one-shot run
+    is still finishing, so it is not the one checked.
+  * **What stays changed:** the binary is `vR`, the release the host would take anyway. Going
+    back is `mcremote update --yes --version v0.22.2` from a shell, if the owner asks.

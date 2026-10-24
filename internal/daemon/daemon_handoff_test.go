@@ -8,6 +8,16 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/launchd"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
+)
+
+// The two backends whose handoffs outlive their run fit handOffCleaner, on
+// every OS this compiles for (MADR 0210 D5, D11).
+var (
+	_ handOffCleaner = (*launchd.Job)(nil)
+	_ handOffCleaner = (*taskscheduler.Task)(nil)
 )
 
 // fakeCleaner is a backend that clears finished handoff jobs, as launchd's
@@ -34,23 +44,25 @@ func cleanupWith(goos string, backend any, buildErr error) (built int, logged st
 	return built, b.String()
 }
 
-// TestCleanupHandOffsOnMacOS: on macOS the daemon clears launchd's finished
-// one-shot handoff jobs once at start (MADR 0210 D5).
-func TestCleanupHandOffsOnMacOS(t *testing.T) {
-	c := &fakeCleaner{}
-	if built, logged := cleanupWith("darwin", c, nil); built != 1 || c.calls != 1 || logged != "" {
-		t.Fatalf("built %d, cleanup calls %d, logged %q; want 1, 1, nothing", built, c.calls, logged)
+// TestCleanupHandOffsOnMacOSAndWindows: the daemon clears the finished
+// one-shot handoffs once at start, launchd's jobs on macOS (MADR 0210 D5) and
+// Task Scheduler's tasks on Windows (D11).
+func TestCleanupHandOffsOnMacOSAndWindows(t *testing.T) {
+	for _, goos := range []string{"darwin", "windows"} {
+		c := &fakeCleaner{}
+		if built, logged := cleanupWith(goos, c, nil); built != 1 || c.calls != 1 || logged != "" {
+			t.Fatalf("%s: built %d, cleanup calls %d, logged %q; want 1, 1, nothing", goos, built, c.calls, logged)
+		}
 	}
 }
 
-// TestCleanupHandOffsOnlyOnMacOS: only launchd leaves a finished handoff
-// job behind, so elsewhere no backend is built and nothing is called.
-func TestCleanupHandOffsOnlyOnMacOS(t *testing.T) {
-	for _, goos := range []string{"linux", "windows"} {
-		c := &fakeCleaner{}
-		if built, _ := cleanupWith(goos, c, nil); built != 0 || c.calls != 0 {
-			t.Fatalf("%s: built %d, cleanup calls %d; want none", goos, built, c.calls)
-		}
+// TestCleanupHandOffsNotOnLinux: a systemd handoff is a transient unit,
+// which leaves nothing behind, so on Linux no backend is built and nothing is
+// called.
+func TestCleanupHandOffsNotOnLinux(t *testing.T) {
+	c := &fakeCleaner{}
+	if built, _ := cleanupWith("linux", c, nil); built != 0 || c.calls != 0 {
+		t.Fatalf("built %d, cleanup calls %d; want none", built, c.calls)
 	}
 }
 
@@ -68,19 +80,20 @@ func TestCleanupHandOffsLogsAFailure(t *testing.T) {
 	}
 }
 
-// TestHandOffBackendCleansUpOnMacOS: the backend the daemon builds on macOS is
-// launchd's, and has CleanupHandOffs, so the start-up cleanup is not a silent
-// no-op. Building it runs no launchctl; TestMain isolates HOME.
-func TestHandOffBackendCleansUpOnMacOS(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("only launchd leaves finished handoff jobs")
+// TestHandOffBackendCleansUp: the backend the daemon builds on macOS is
+// launchd's, and on Windows Task Scheduler's, and each has CleanupHandOffs,
+// so the start-up cleanup is not a silent no-op. Building it runs neither
+// launchctl nor Task Scheduler; TestMain isolates HOME.
+func TestHandOffBackendCleansUp(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		t.Skip("a systemd handoff leaves nothing to clean up")
 	}
 	b, err := newHandOffBackend()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := b.(handOffCleaner); !ok {
-		t.Fatalf("the macOS backend %T has no CleanupHandOffs", b)
+		t.Fatalf("the %s backend %T has no CleanupHandOffs", runtime.GOOS, b)
 	}
 }
 
