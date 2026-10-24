@@ -71,7 +71,11 @@ func runitHost(t *testing.T, state string) (svDir, serviceDir string) {
 		t.Fatalf("setup used %s, want runit", res.Scope)
 	}
 	if state == "up" {
-		writeFile(t, filepath.Join(svDir, "pid"), "1\n")
+		// A pid no process can have, so the inside check's walk up this
+		// process's real /proc ancestry never matches it. PIDs on 64-bit
+		// Linux stay below PID_MAX_LIMIT, 2^22; pid 1, which this was, is
+		// every process's ancestor (MADR 0210 H2, L2 Deviation 1).
+		writeFile(t, filepath.Join(svDir, "pid"), "4194304\n")
 	}
 	writeFile(t, filepath.Join(svDir, "state"), state+"\n")
 	return svDir, filepath.Dir(res.UnitPath)

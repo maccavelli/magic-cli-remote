@@ -88,6 +88,11 @@ The `acp-go-sdk2` plan touches no file this one does, and runs after step 4.
   `make race`, `go vet ./...` for darwin/arm64, linux/amd64 and windows/amd64, `go mod tidy -diff`,
   `make check-records`, `make markdownlint-docs`, and the guard's redact preview from the
   repository root.
+  * *Added 2026-10-24, the owner's answer "Yes, every phase":* `go test -race ./...` on the Linux
+    test host too, in a scratch copy of the working tree. A Linux-only test failure reached CI
+    through macOS gates
+    ([0210-PLAN-hand-off-agent-run-updates-outside-the-service.md](0210-PLAN-hand-off-agent-run-updates-outside-the-service.md),
+    L2 Deviation 1). The sibling `acp-go-sdk2` plan takes these rules, so it gets the same gate.
 * **Host runs** need the owner's word for that phase. On Linux and macOS they use a scratch
   service, `mcremote-d3probe`, as 0210's rules set. On Windows they use the real task, backed up
   and restored, as 0210 R1 Deviation 3 set out (W1 to W4).

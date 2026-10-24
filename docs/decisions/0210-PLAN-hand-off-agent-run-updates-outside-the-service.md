@@ -68,6 +68,9 @@ reproduction puts a shell into the unit's cgroup.
 * **Before staging:** `make pre-add-check FILES="…"` on every staged `.go` file, then `make test`,
   `make race`, and `go vet ./...` for darwin/arm64, linux/amd64 and windows/amd64. Also the
   guard's redact preview from the repository root, and `make check-records`.
+  * *Added 2026-10-24, the owner's answer "Yes, every phase":* `go test -race ./...` on the Linux
+    test host too, in a scratch copy of the working tree. L2's CI failure (below) passed every
+    macOS gate.
 * **Host runs** (R1, L1) run on the owner's word for that phase. Each uses a scratch service:
   * unit, label or task `mcremote-d3probe`;
   * its own `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_DATA_HOME` under a temporary directory;
@@ -1479,3 +1482,128 @@ before anything runs on the Windows host. No host run belongs to B1.
     is still finishing, so it is not the one checked.
   * **What stays changed:** the binary is `vR`, the release the host would take anyway. Going
     back is `mcremote update --yes --version v0.22.2` from a shell, if the owner asks.
+
+B1 was committed by the owner as `7d2a3ecf`, who then asked: "committed, proceed and run all tests
+as needed". That is the owner's word for L2's host runs. It is not an ask to push or tag.
+
+#### L2, 2026-10-24 (Linux, the containers, macOS): confirmed; Windows waits for the release
+
+The kit was rebuilt from `HEAD` `7d2a3ecf` (`build_kit.py`, a `git archive` export) for
+darwin/arm64, linux/amd64, linux/arm64 and windows/amd64. Every update targets `v0.22.2`.
+
+**Two changes to the kit, before or during the runs (scratchpad only, nothing committed):**
+
+* **`remove` runs this change's build.** After a handoff the scratch service's binary is the
+  release, which predates A2, so the scratch copy would have tested the old remover. `remove` now
+  runs the kit's own `mcremote`, and lists each manager's backup before and after.
+* **L2's own checks:** `inside-agent` counts the transcript's download events, and on systemd reads
+  the transient unit's whole journal for `reception is disabled` and the scratch unit's
+  `ActiveState`.
+* **`place_binary`, after L2.4's first run (below).** The kit copied a binary over the existing
+  file. It now writes a new file and renames it into place.
+
+**L2.1 — Linux, systemd** (the Linux test host). The real service's `MainPID` was `1356` before
+and after.
+
+* `install`: exit 0; `/health` up, binary `dev (local)`.
+* `inside-agent`: "update handed off: dda41eb98a993ea6 (transient unit
+  mcremote-d3probe-selfupdate-dda41eb98a993ea6.service)"; the handoff result was written, exit
+  code 0, `applied: true`, `service_started: true`.
+* **D10:** "'reception is disabled' lines in mcremote-d3probe-selfupdate-dda41eb98a993ea6.service's
+  journal: 0 of 12 lines". L1's journal had one.
+* **READY=1 still arrives:** the `Type=notify` scratch unit after the handoff:
+  `ActiveState=active`, `SubState=running`, a new `MainPID`, and `/health` up on `v0.22.2
+  (release) a5737c44f996`.
+* **D9:** `remove` listed `backups before: ['/home/<user>/.config/systemd/user/mcremote-d3probe.service.prev']`,
+  printed `Removed backup:    /home/<user>/.config/systemd/user/mcremote-d3probe.service.prev`,
+  and then `backups after: none`. L1 left that file behind (F6).
+
+**L2.2 — runit, s6, OpenRC** (Podman on this Mac, linux/arm64). In each container:
+
+* The update was refused: "update failed: this update runs inside the mcremote service and cannot
+  hand off here; run it from a shell: selfupdate: service: this process runs inside the service it
+  would stop".
+* **D8:** "download events 0". L1's transcripts had `downloading-manifest` and `installing`
+  before the refusal.
+* The PID was unchanged (runit 19, s6 17, OpenRC 157), `/health` up, and the scratch binary's hash
+  equal to the kit build's (`0a665e50…`): nothing was replaced.
+* `remove` exit 0; no backup existed, since no refresh ran. Each container was removed, and the
+  Podman machine was stopped afterwards.
+
+**L2.4 — macOS, launchd** (this Mac). The real LaunchAgent's PID was `67479` before and after, on
+both runs.
+
+* **First run, failed at `cleanup-check`.** The handoff completed (`14e68844eaa3f98a`, exit code 0,
+  the daemon back on `v0.22.2`). Then `cleanup-check` copied this change's build over the scratch
+  binary and ran `kickstart -k`. The daemon never answered: launchd restarted it every two
+  seconds, and each start was killed. The crash report says `"signal":"SIGKILL (Code Signature
+  Invalid)"`, `"namespace":"CODESIGNING"`, `"indicator":"Taskgated Invalid Signature"`.
+  `shutil.copy2` wrote over the existing file, and macOS kills a binary whose signed content changed
+  under the same file. That is the kit's mistake, not Magic's: an update renames a new file into
+  place. The kit was fixed (`place_binary`, above). `remove` ran, so the scratch service was gone;
+  the first run's finished handoff job stayed loaded, with its plist.
+* **Second run, passed:**
+  * the handoff (`7f7c25a78f004594`), exit code 0, the daemon back on `v0.22.2`;
+  * `cleanup-check`: "this change's build restored; kickstart -k exit 0; daemon answers"; then the
+    job "Could not find service …"; its plist absent; no files left;
+  * the first run's leftover job is gone too (`launchctl print` exit 113), and the handoff
+    directory is empty: the start-up cleanup clears every finished handoff of the label, not only
+    the newest;
+  * `remove`: exit 0; `backups before: none`. `v0.22.2`'s refresh wrote no `.plist.prev` here, so on
+    macOS D9 rests on its unit tests (`TestDarwinRemoveAgent`).
+* The first run left 26 crash reports under `~/Library/Logs/DiagnosticReports/` (`mcremote-2026-10-24-11*.ips`).
+  They were not deleted.
+
+**Before the release** (L2's order, step 2), also run under "run all tests as needed":
+
+* The disclosure guard's pre-push check over the 14 commits `b946cf2d..7d2a3ecf`: exit 0.
+* On the Windows host, in a clone of `master` at `7d2a3ecf` made from a git bundle (the hash
+  checked), deleted afterwards:
+  * `make ci-windows-smoke`: B12, B13 and B14 PASS, "ALL SELECTED CHECKS PASSED", exit 0;
+  * `make ci-windows`: A2 to A6 PASS, `internal/cli/service` and `internal/daemon` run, not
+    cached, so `TestHandOffBackendCleansUp` ran on Windows; "ALL SELECTED CHECKS PASSED", exit 0.
+  * **A2 Deviation 2 held on a real Windows account.** The real task's refresh backup,
+    `%LocalAppData%\mcremote\State\mcremote-task.prev.xml`, dated 2026-10-21, was still there after
+    that run, whose tests exercise the remover.
+
+**Not done.** L2.3 (Windows) waits for a release with A1 to B1, which needs the owner's ask to push
+and tag. The MADR's amendment A becomes `decided` and this plan `complete` after L2.3.
+
+#### L2 Deviation 1, 2026-10-24 — CI fails a runit test on Linux, from H2. The owner decided: "Fix the fixture PID (Recommended)" and "Yes, every phase (Recommended)"
+
+* **Found** after the owner pushed `7d2a3ecf`. CI run 40113049697 failed on both Linux Go jobs,
+  `Go (test)` and `Go (linux/arm64)`, the latter after its one retry:
+  `TestUpdateRestartsARunitService/running_is_restarted`: "managed_script_unix_test.go:112:
+  selfupdate: mcremote: selfupdate: stop service: selfupdate: managed install failed / mcremote:
+  selfupdate: service: this process runs inside the service it would stop". Nothing else failed.
+* **Reproduced** on the Linux test host, in a scratch copy of the tree at `7d2a3ecf`, with the
+  same message.
+* **The cause, from H2 (`1bfab31b`).** The test's fake runit service starts with PID 1
+  (`managed_script_unix_test.go:74`, `writeFile(… "pid"), "1\n")`). H2 made `scriptBackend.Stop`
+  refuse from inside the service, by walking this process's `/proc` ancestry for the supervised
+  PID. PID 1, init, is every process's ancestor, so on Linux the walk always matched. On macOS the
+  walk is off (`procParent` is nil), so every gate this plan ran, all on macOS but A3's daemon
+  package, passed. The product is right; the fixture's PID was never a real service's.
+* **Options put to the owner:** a fixture PID no process can have; a fixture whose PID is a real
+  child the test starts; or `Inside` ignoring PID 1 in the product.
+* **Decided:** the fixture's first PID is `4194304`. Linux never assigns it: PIDs on 64-bit Linux
+  stay below `PID_MAX_LIMIT`, 2^22. `up` still increments it. A comment says why.
+* **Also decided:** every remaining phase of this plan and of the 0207 plans runs `go test -race
+  ./...` on the Linux test host as a gate (the rules for every phase, above).
+* **Files:** `internal/updateclient/managed_script_unix_test.go`; this plan; the 0207
+  `go-selfupdate-lib` plan's rules.
+
+**The fix, run.**
+
+* **Seen failing first:** CI and the Linux host's reproduction above, with the fixture at `1`.
+* **After, on the Linux test host,** in a scratch copy of the working tree:
+  * `go test -count=1 -run TestUpdateRestartsARunitService -v ./internal/updateclient/`: all four
+    subtests `--- PASS`;
+  * `go test -race -count=1 ./...`: 43 packages ok, exit 0. The copy's first run failed only
+    `TestTrackedFilesUseOnlyPlaceholderHomes`, "no git index", because the shipped copy had no
+    `.git`; with an index made in the copy it passed. That is the copy's artefact, as in 0207's pin
+    probe.
+* **Gates on this Mac:** `make pre-add-check` "1 file(s) clean"; `go build`; `go vet` for the three
+  targets; `make test` and `make race`, 43 packages ok; `go mod tidy -diff` empty; `make
+  check-records` and `make markdownlint-docs` exit 0.
+* **Before a tag:** CI must pass on the pushed fix.
