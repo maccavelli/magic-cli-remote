@@ -793,6 +793,12 @@ These continue the numbering of "Questions for the owner" above.
 **Status of this amendment: proposed.** The owner answered questions 8 to 11 on 2026-10-23 (below).
 It becomes decided when the owner approves its PLANs.
 
+*Note, 2026-10-23.* The owner approved the `go-selfupdate-lib` PLAN's U0 to U2 ("committed,
+proceed with U0–U2"). So D15 (the pin), D18's issue
+([go-selfupdate-lib#8](https://github.com/maccavelli/go-selfupdate-lib/issues/8)) and D21 (the
+Windows CI script) are carried out; that PLAN's execution record holds the evidence. The rest
+stays proposed.
+
 **The owner's ask, verbatim:** "assess the go-llmprovider-sdk, acp-go-sdk2, and ensure we pin the
 current versions, and are using the fullest feature sets we can." Corrected in the next message:
 "go-selfupdate-lib is the one". So this amendment covers `go-selfupdate-lib` and `acp-go-sdk2`.

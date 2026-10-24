@@ -126,10 +126,11 @@ try {
             if (-not $commit) { $commit = 'none' }
             $ver = "$base.g$commit"
         }
-        $commit = (git rev-parse --short HEAD 2>$null); if (-not $commit) { $commit = 'none' }
-        $date = (git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd 2>$null)
-        if (-not $date) { $date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
-        $ld = "-s -w -X main.version=$ver -X main.commit=$commit -X main.date=$date -X main.buildKind=local"
+        # The Makefile's pair: identity lives in go-selfupdate-lib's buildinfo. No
+        # main package declares version, commit or date, and the linker drops an
+        # -X for a symbol that does not exist without a word (0207 REPORT A7).
+        $buildinfo = 'github.com/maccavelli/go-selfupdate-lib/buildinfo'
+        $ld = "-s -w -X $buildinfo.version=$ver -X $buildinfo.kind=local"
 
         New-Item -ItemType Directory -Force -Path (Join-Path $root 'dist') | Out-Null
         $remoteOut = Join-Path $root 'dist\mcremote-windows-amd64.exe'

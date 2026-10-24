@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-23
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
@@ -248,4 +248,104 @@ builds, moved where both daemons can import it; this plan.
 
 ## Execution record
 
-Nothing has run. The plan waits for the owner's approval.
+The owner committed the records as `d8e261c7` and approved U0 to U2 on 2026-10-23: "committed,
+proceed with U0–U2". U3 to U8 wait for their own approval, after 0210's steps (the order above).
+
+### U0, 2026-10-23: the library issue
+
+Filed as [go-selfupdate-lib#8](https://github.com/maccavelli/go-selfupdate-lib/issues/8),
+"taskscheduler: export Enable and Disable for a task", label `enhancement`.
+
+* **Body:** `Start`'s documented rule, quoted; `Stop`'s step 3; the list of `Task`'s exported
+  methods, none of which enables or disables alone; Magic's `startWindows` and `stopWindows` as the
+  consumer; and a proposal for `Enable` and `Disable` with the library's error sentinels.
+* **Checked against the source before filing:** `Stop` disables through `r.setEnabled(false)`
+  (`lifecycle.go:215-226`), `Start` enables through `r.setEnabled(true)`, and on Windows
+  `setEnabled` is `IRegisteredTask::put_Enabled` (`com_windows.go:78`). So the operation exists,
+  unexported.
+* **Before filing,** the disclosure guard's redact preview ran over the body in a scratch
+  repository: "would edit 0 file(s)".
+
+### U1, 2026-10-23: the `v1.19.0` pin
+
+* **Step 3 first:** `git ls-remote --tags` gives `refs/tags/v1.19.0^{}` at
+  `a6af9dc760a5392134dc62b00e6491b112d0ada5`, and no tag above `v1.19.0`.
+* `go get github.com/maccavelli/go-selfupdate-lib@v1.19.0`: "upgraded … v1.17.2 => v1.19.0".
+  `go mod tidy`: no output.
+* Both `ci.yml` pins now read `@a6af9dc760a5392134dc62b00e6491b112d0ada5 # go-selfupdate-lib
+  v1.19.0` (`:712`, `:733`). `git grep` finds no `036289ec` left in `.github`, `go.mod` or `go.sum`.
+* **The diff** is the planned shape: `ci.yml` 2 lines, `go.mod` 1, `go.sum` 2 (the module's `h1:`
+  and `/go.mod` lines). No Go source changed.
+
+**Gates.** U1 stages no Go file, so `make vulncheck` and the pin tests stood in for the per-file
+pre-add check.
+
+| Gate | Result |
+| :--- | :--- |
+| `make vulncheck` | "clear; allowlisted required-module findings: GO-2026-5932", as before |
+| `TestWorkflowPinsMatchGoMod`, `TestReleaseJobsReadTheSpec` | ok (`internal/updateclient`) |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 43 packages ok, 0 FAIL lines |
+| `go mod tidy -diff` | no output |
+| `make markdownlint-docs`, `make check-records` | exit 0 |
+
+The pin tests' ability to fail was shown by the 0207 REPORT: a copy with only `go.mod` moved
+failed them.
+
+### U2, 2026-10-23: the Windows CI script stamps `buildinfo`
+
+**Seen failing first,** on the Windows test host, in a scratch clone of `master` at `d8e261c7`
+made from a git bundle (the hash checked equal to the local `HEAD`), not the host's install:
+
+```text
+PASS  B12 build dist/*-windows-amd64.exe
+PASS  B13 go version -m CGO_ENABLED=0
+FAIL  B14 version identity -- C:\Users\<user>\mcr-u2\dist\mcremote-windows-amd64.exe version output did not contain stamped VERSION=0.0.0.gd8e261c7
+v0.0.0-20261024002022-d8e261c79aae (local) d8e261c79aae
+ci-windows-local: 1 CHECK(S) FAILED
+make ci-windows-smoke: exit 2
+```
+
+The binary reported the toolchain's VCS version, so the `main.*` stamps were dropped, as the
+REPORT's A7 inferred. The base is `0.0.0` because a bundle of `master` carries no tags.
+
+**The change,** `scripts/ci-windows-local.ps1:129-133`: `$ld` is now `-s -w -X
+$buildinfo.version=$ver -X $buildinfo.kind=local`, with `$buildinfo` the library's `buildinfo`
+package, the `Makefile`'s pair (`Makefile:23`, `:173`). The `$commit` and `$date` lines that fed
+only the dropped stamps are gone; `$ver`'s own commit lookup stays.
+
+**After,** the same clone with the working tree's `ci-windows-local.ps1`, `go.mod` and `go.sum`
+copied in (so with U1's pin):
+
+```text
+PASS  B12 build dist/*-windows-amd64.exe
+PASS  B13 go version -m CGO_ENABLED=0
+PASS  B14 version identity
+ci-windows-local: ALL SELECTED CHECKS PASSED
+make ci-windows-smoke: exit 0
+```
+
+Both binaries print `0.0.0.gd8e261c7 (local) d8e261c79aae-dirty`: the stamped version, verbatim,
+as a local build.
+
+**`make ci-windows` too, beyond U2's steps,** since U1's pin changes what Windows builds:
+
+* **First run:** A2 to A5 passed, and A6 failed one test. The clone had the new `go.mod` but the
+  old `ci.yml`, because only three files had been copied in: "`build-selfupdate-release.yml@036289ec…`
+  is commented "# go-selfupdate-lib v1.17.2"; want "# go-selfupdate-lib v1.19.0", the release
+  go.mod requires" (`spec_test.go:186`). That was the clone's mistake, not the tree's. It also
+  shows `TestWorkflowPinsMatchGoMod` failing on a real half-moved pin.
+* **With `ci.yml` copied in as well:** "PASS A6 go test ./… (Git Bash, as CI; no -race, no
+  live_*)", "ALL SELECTED CHECKS PASSED", `make ci-windows`: exit 0. The smoke passed again.
+* The remote clone and its bundle were deleted afterwards.
+
+**Gates.** `make check-records` and `make markdownlint-docs` exit 0. The script is PowerShell, so
+no Go gate applies to it.
+
+**A process slip, recorded.** Two remote commands broke the owner's rule of one plain command per
+call. `u2_windows.py` first sent `&&`-chained command strings to the host, and one direct call
+chained `make ci-windows` with `echo exit=$?`. Both ran only in the scratch clone. The script now
+sends single commands (`make -C mcr-u2 …`), and the log was fetched with a plain `scp`.
+
+**Not done in U0 to U2.** U3 to U8 wait for 0210's A2, A3, amendment B and L2, and for their own
+approval.
