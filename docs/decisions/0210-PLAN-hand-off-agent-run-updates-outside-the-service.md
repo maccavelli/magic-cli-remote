@@ -1263,6 +1263,75 @@ A1 was committed by the owner as `250b59bb`.
 "no `.prev` remains". `make ci-windows` was not run on the Windows host for A2; Deviation 2's
 isolation is what keeps that run off the real backup, and it is first exercised there by L2.
 
+A2 was committed by the owner, who approved A3 ("committed, proceed").
+
+#### A3, 2026-10-24: the daemon keeps its notify socket
+
+**What changed.**
+
+* **`internal/daemon/daemon_notify.go`, new:**
+  * `notifySocket`, the kept address.
+  * `takeNotifySocket()` reads `NOTIFY_SOCKET`, unsets it, and returns it.
+  * `send(state)` writes one datagram to the kept address, a path or an `@` name. With none it
+    returns `false, nil`, as the library's `systemd.Notify` does. `ready()` and `stopping()` send
+    `READY=1` and `STOPPING=1`.
+* **`daemon.go`:** `Run` calls `takeNotifySocket()` right after its logger, before the data
+  directory, the providers or anything else is started. The four `notifySystemd` call sites pass
+  `notify.ready` or `notify.stopping`; `notifySystemd`'s signature is unchanged. The import of the
+  library's `systemd` package went, as nothing else in the file used it.
+* **`notify_unix_test.go`:**
+  * `TestRunTakesItsNotifySocket`: after `READY=1`, `NOTIFY_SOCKET` is unset in the daemon's
+    process, a child started then has no `NOTIFY_SOCKET` in its environment, and `STOPPING=1`
+    still arrives at the kept socket.
+  * `TestNotifySocketSends`: a path; an `@` name, on Linux; and no socket, which is no error.
+  * `TestRunNotifiesSystemd` is unchanged, and passes.
+* **How the child check was made.** A3's text had "a child that the test's fake provider spawns".
+  The fake provider spawns no process, so the test starts `env` itself, from the daemon's process
+  after `READY=1`. A provider's or terminal's child inherits that same process environment, so
+  this tests what the step meant, without a new fixture.
+* **A redundant line, removed.** The first sender mapped `@` to a leading NUL, as the library's
+  `systemd.Notify` does. On Linux the plant that broke that line did not fail. Go's own syscall
+  package already maps it: "'@' is also a valid way to specify abstract addresses … We rewrite
+  '@' prefix to NUL here" (`syscall/syscall_linux.go:553-571`, Go 1.27.3). The line was removed;
+  `TestNotifySocketSends/abstract` still passes on Linux, which shows an `@` name reaching its
+  socket.
+
+**Seen failing first,** on a scratch copy (`a3_plants.py`), on this Mac and on the Linux test host.
+The restored copies passed.
+
+| Plant | Failed, with |
+| :--- | :--- |
+| `Run` never takes the socket | `TestRunTakesItsNotifySocket`: "NOTIFY_SOCKET = "…/ntf…/notify" after start-up, want it unset"; "a child started after start-up inherited NOTIFY_SOCKET" |
+| the take leaves the variable set | the same, and `TestNotifySocketSends/path`: "takeNotifySocket left NOTIFY_SOCKET set" |
+| the send reads the environment, as the library's does | `TestRunNotifiesSystemd` and `TestRunTakesItsNotifySocket`: "waiting for READY=1: … i/o timeout"; `…/path`: "ready = false, dial unixgram : missing address" |
+| no socket is an error | `TestNotifySocketSends/none`: "ready with no socket = false, dial unixgram : missing address; want false, nil" |
+
+The third plant is the library's own behaviour, reading the variable on each send. It is what
+makes the existing `TestRunNotifiesSystemd` fail once the variable is gone, so that test now also
+guards D10. On Linux it fails `TestNotifySocketSends/abstract` as well.
+
+**On the Linux test host** (go1.27.3 linux/amd64), with the working tree shipped to a scratch
+directory and deleted afterwards, and nothing touching the host's own service:
+
+* `go test -race -count=1 ./internal/daemon/`: "ok … internal/daemon 3.858s".
+* `TestNotifySocketSends`: `path`, `abstract` and `none` each `--- PASS`.
+* The four plants above failed as on this Mac, and the restored copy passed.
+* The first run, before the redundant line was removed, also passed `-race`; its fifth plant (the
+  `@` mapping) did not fail, which led to the finding above.
+
+**Gates,** on this Mac, after the line was removed:
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the three Go files | "3 file(s) clean (gofmt, golint, govulncheck)" |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 43 packages ok, 0 FAIL lines |
+| `go mod tidy -diff` | no output |
+| `make markdownlint-docs`, `make check-records` | exit 0 |
+
+**Not done in A3.** The live check is L2.1: the transient unit's journal has no `reception is
+disabled` line. Next, by the owner's order: this amendment's B1 (the Windows handoff), then L2.
+
 ## Amendment — 2026-10-23 (B): the Windows handoff
 
 **Status: proposed.** This implements the MADR's "Amendment — 2026-10-23 (B)", D11. The owner set
