@@ -307,6 +307,10 @@ The refresh reports one of four outcomes and never fails the update:
 | `kept` | not rewritten, with the reason — a hand-edited unit, or one this binary did not write |
 | `none` | no service definition is installed; only the binary was replaced |
 
+The kept `<unit>.prev` can hold your `--env` values. `setup-service --remove`
+and `--uninstall` delete it with the definition and print its path (MADR 0210
+D9).
+
 What a refresh preserves: every option baked in at setup time
 (`--listen-port`, `--service-config`, `--data-dir`, `--env`), the unit's own
 `Environment=PATH=` and `XDG_*` values, the `0600` mode of a unit carrying

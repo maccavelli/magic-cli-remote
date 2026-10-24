@@ -102,6 +102,10 @@ type Result struct {
 	Unchanged      bool
 	// Removed is set by Remove.
 	Removed bool
+	// RemovedBackup is the definition's backup Remove deleted, the one a
+	// refresh keeps and which can hold --env secrets; empty when there was
+	// none (MADR 0210 D9).
+	RemovedBackup string
 	// ConfigPath is the config file path used/ensured for this product.
 	ConfigPath string
 	// ConfigCreated is true when setup wrote a new default config.yaml.
@@ -777,11 +781,28 @@ func removeSystemd(opts Options) (Result, error) {
 	if err := os.Remove(wants); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return res, fmt.Errorf("remove enable symlink: %w", err)
 	}
+	backup, err := removeBackup(unitPath + ".prev")
+	if err != nil {
+		return res, err
+	}
+	res.RemovedBackup = backup
 	if err := runSystemctl("--user", "daemon-reload"); err != nil {
 		return res, fmt.Errorf("systemctl daemon-reload: %w", err)
 	}
 	res.Removed = true
 	return res, nil
+}
+
+// removeBackup deletes the backup a refresh kept of a definition being
+// removed, and returns its path, or "" when there was none (MADR 0210 D9).
+func removeBackup(path string) (string, error) {
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("remove the kept definition: %w", err)
+	}
+	return path, nil
 }
 
 func removeLaunchdAgent(opts Options) (Result, error) {
@@ -822,6 +843,9 @@ func removeLaunchdAgent(opts Options) (Result, error) {
 
 	if err := os.Remove(plistPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return res, fmt.Errorf("remove plist: %w", err)
+	}
+	if res.RemovedBackup, err = removeBackup(plistPath + ".prev"); err != nil {
+		return res, err
 	}
 	res.Removed = true
 	return res, nil

@@ -1146,6 +1146,123 @@ stage them.
 
 A1 was committed by the owner as `250b59bb`.
 
+#### A2 Deviation 1, 2026-10-23 — mcrelay prints its own `--remove` result. The owner decided: "Shared printer (Recommended)"
+
+* **Found** before any edit, by `git grep` for the printers of a removal result. A2 names
+  `internal/cli/setup_service.go` (`:164`). mcrelay prints the same lines from its own copy,
+  `internal/relay/cli.go:488-489`, which A2 did not name. The two differ only in "The daemon" and
+  "The relay". The copy predates 0210.
+* **Why it matters.** mcrelay's backups are the likeliest to hold a secret given with `--env`,
+  and D9 says the output names the backup it deleted.
+* **Options put to the owner:** one shared printer that both commands call; one more line in
+  mcrelay's copy; or mcremote only.
+* **Decided:** one `service.PrintRemoveResult(w, res, what)`, in `result_print.go`, which prints
+  `Removed:` and, when set, `Removed backup:`, then "The <what> was stopped and the service
+  disabled." Both commands call it.
+* **Files added to A2:** `internal/relay/cli.go`, `internal/cli/service/result_print.go`,
+  `internal/cli/service/result_print_test.go`.
+
+#### A2 Deviation 2, 2026-10-23 — tests would delete the Windows host's real backup. The owner decided: "TestMain, package-wide (Recommended)"
+
+* **Found** while writing the Windows remover, before any test ran. `removeSchtasks` now deletes
+  `<state>\<task>-task.prev.xml`, found through `taskBackupFile`. Two existing tests reach it
+  without a stub: `TestRemoveSchtasksIdempotent` (`schtasks_test.go:182`) and
+  `TestUninstallOnWindows` (`uninstall_test.go:36`). On the Windows test host the lookup is the
+  account's real LocalAppData, so `make ci-windows` would delete the real task's refresh backup.
+  On macOS and Linux it would try `~/.local/state`.
+* **Options put to the owner:** point the lookup at a scratch directory for the whole test binary,
+  in the package's `TestMain`; or stub it in each test that reaches it.
+* **Decided:** `TestMain` (`unitrecord_test.go`), which already points the unit-name record at a
+  scratch directory so that "no test may write it into the developer's real state directory",
+  also points `taskBackupFile` there. The real lookup is kept as `realTaskBackupFile`, for the one
+  test that checks it creates nothing.
+* **File added to A2:** `internal/cli/service/unitrecord_test.go`.
+
+#### A2, 2026-10-23: removing a service removes its backup
+
+**What changed.**
+
+* **`internal/cli/service/setup.go`:**
+  * `Result.RemovedBackup`, the backup a remove deleted, or empty.
+  * `removeBackup(path)`: `os.Remove`; a missing file is `""` and no error; any other failure is
+    an error, "remove the kept definition: …".
+  * `removeSystemd` deletes `<unit>.service.prev` after the unit and its enable link, before
+    `daemon-reload`. `removeLaunchdAgent` deletes `<label>.plist.prev` after the plist.
+* **`supervisor.go`:** `removeScript` deletes OpenRC's `<name>.prev`, kept beside `init.d`. runit
+  and s6 are unchanged: their `run.prev` goes with the service directory, and is not named.
+* **`refresh_schtasks.go`:** `taskBackupPath` is split. `taskBackupFile` resolves
+  `<state>\<task>-task.prev.xml` and creates nothing; `taskBackupPath` calls it, then makes the
+  state directory, as before, for a refresh.
+* **`setup_schtasks.go`:** `removeSchtasks` deletes the backup through `taskBackupFile`. It does
+  so even when the task was already gone, which is a step beyond A2's text: a backup outlives a
+  task deleted by hand, and D9's reason, an `--env` secret, holds for it too.
+* **`uninstall.go`:** `UninstallItem.Backup`; `removeDefinition` returns the backup;
+  `PrintUninstallResult` adds `removed: <product> <kind> backup <path>`.
+* **`result_print.go`:** `PrintRemoveResult(out, res, what)`, per Deviation 1, called by
+  `internal/cli/setup_service.go` ("daemon") and `internal/relay/cli.go` ("relay"). It prints
+  `Removed backup:    <path>`, aligned with `Removed:`, where A2's text had one more space.
+* **`unitrecord_test.go`:** per Deviation 2.
+* **Guides:**
+  * `ops-linux-install.md`, after the refresh table: the kept `<unit>.prev` can hold `--env`
+    values, and `--remove` and `--uninstall` delete it and print its path.
+  * `ops-windows-install.md`, the uninstall section: `setup-service --uninstall` also removes the
+    task definition a refresh kept under `%LocalAppData%\<product>\State`, as `--remove` does.
+* **Tests.**
+  * New: `TestRemoveDeletesTheUnitBackup` (pinned to systemd);
+    `TestRemoveSchtasksDeletesTheBackup`, `…WithNoBackup`, `…AbsentTaskDropsItsBackup`;
+    `TestTaskBackupFileCreatesNothing` (Unix; on Windows the seam test covers it);
+    `TestPrintRemoveResult`; `TestUninstallRemovesTheDefinitionsBackup`.
+  * Extended: `TestRemove` (no backup, none named), `TestDarwinRemoveAgent` and `TestRemoveScript`
+    (a backup in place, gone after).
+
+**Seen failing first,** on a scratch copy of the tree (`a2_plants.py`). The restored copy passed.
+
+| Plant | Failed, with |
+| :--- | :--- |
+| systemd keeps its backup | `TestRemoveDeletesTheUnitBackup`: "…/units/mcremote-rm.service.prev survived Remove"; `TestUninstallRemovesTheDefinitionsBackup`: "want one item naming the backup" |
+| launchd keeps its backup | `TestDarwinRemoveAgent`: "…/com.magiccliremote.mcremote.plist.prev survived Remove" |
+| OpenRC keeps its backup | `TestRemoveScript/openrc-user`: "…/rc/mcremote.prev survived Remove" |
+| Windows keeps its backup | `TestRemoveSchtasksDeletesTheBackup`: "…/mcremote-task.prev.xml survived the remove"; `…AbsentTaskDropsItsBackup` |
+| Windows looks up through `taskBackupPath` | three `TestRemoveSchtasks…` tests: "the remove looked the backup up through taskBackupPath, which creates the state directory" |
+| the lookup creates the state directory | `TestTaskBackupFileCreatesNothing`: "the lookup created …/state" |
+| a missing backup is an error | `TestRemove`, `TestRemoveSchtasksIdempotent`, `…WithNoBackup`: "remove the kept definition: … no such file or directory" |
+| a missing backup is named | `TestRemove`: "RemovedBackup = "…/com.magiccliremote.mcremote-rm.plist.prev" with no backup to remove"; `…WithNoBackup` |
+| the printer drops the backup | `TestPrintRemoveResult`: "with a backup:" |
+| the uninstall printout drops it | `TestUninstallRemovesTheDefinitionsBackup`: "output lacks "removed: mcremote systemd-user backup …"" |
+| the uninstall forgets it | `TestUninstallRemovesTheDefinitionsBackup`: "want one item naming the backup" |
+
+* **The last plant first failed to compile,** since `return "", err` left `res` unused. It was
+  rewritten as `return res.RemovedBackup[:0], err`, and then failed as shown.
+* **The new systemd test first failed on this Mac for the wrong reason.** `Remove` picks its
+  backend by the host's OS, so on macOS it ran the launchd remover. It now pins Linux
+  (`OverrideInstallOS("linux")`, `OverrideRunSystemctl`), as `unitrecord_setup_test.go` does.
+* **Not fixed, recorded:** the older `TestRemove` has the same pinning gap. On macOS it removes a
+  launchd plist and then checks for a `.service` file that was never written, so there it proves
+  less than its name says. It is outside A2.
+* **The plant log shows Deviation 2 working:** the Windows remover's lookup resolved to
+  `…/service-unit-record-…/state/mcremote-task.prev.xml`, the scratch directory, not real state.
+
+**Gates.**
+
+* **First run:** `make test` and `make race` each failed one test outside the service package,
+  `TestRunFixturesAreWarmed` (0193's guard): "internal/cli/service/supervisor_unix_test.go:616
+  writes a #!/bin/sh script by hand. Use testexec.WriteShellStub …". It was A2's own fixture: the
+  OpenRC backup's content was `#!/bin/sh`. A backup is never run, so its content is now plain text,
+  and the guard passes. The OpenRC plant tests the file's existence, not its content, so it holds.
+* **Second run:**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the fifteen Go files | "15 file(s) clean (gofmt, golint, govulncheck)" |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 43 packages ok, 0 FAIL lines |
+| `go mod tidy -diff` | no output |
+| `make markdownlint-docs`, `make check-records` | exit 0 |
+
+**Not done in A2.** A3. No host run belongs to A2; its outcome on the Linux test host is L2.1's
+"no `.prev` remains". `make ci-windows` was not run on the Windows host for A2; Deviation 2's
+isolation is what keeps that run off the real backup, and it is first exercised there by L2.
+
 ## Amendment — 2026-10-23 (B): the Windows handoff
 
 **Status: proposed.** This implements the MADR's "Amendment — 2026-10-23 (B)", D11. The owner set

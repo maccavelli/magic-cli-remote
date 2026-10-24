@@ -161,8 +161,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "Removed:           %s\n", res.UnitPath)
-		fmt.Fprintln(out, "The daemon was stopped and the service disabled.")
+		service.PrintRemoveResult(out, res, "daemon")
 		return nil
 	}
 

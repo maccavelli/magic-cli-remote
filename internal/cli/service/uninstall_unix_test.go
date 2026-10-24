@@ -143,6 +143,33 @@ func TestUninstallRemovesWhatThisFolderRuns(t *testing.T) {
 	}
 }
 
+// TestUninstallRemovesTheDefinitionsBackup is MADR 0210 D9: --uninstall
+// deletes the backup a refresh kept beside a definition it removes, and lists
+// it.
+func TestUninstallRemovesTheDefinitionsBackup(t *testing.T) {
+	bin, _, _ := uninstallHost(t, "linux")
+	unit := writeDefinition(t, KindSystemdUser, "mcremote", "mcremote", filepath.Join(bin, "mcremote"))
+	backup := unit + ".prev"
+	if err := os.WriteFile(backup, []byte("[Service]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Uninstall()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Removed) != 1 || res.Removed[0].Backup != backup {
+		t.Fatalf("removed %+v, want one item naming the backup %s", res.Removed, backup)
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Errorf("%s survived --uninstall: %v", backup, err)
+	}
+	var out bytes.Buffer
+	PrintUninstallResult(&out, res)
+	if want := "removed: mcremote systemd-user backup " + backup; !strings.Contains(out.String(), want) {
+		t.Errorf("output lacks %q:\n%s", want, out.String())
+	}
+}
+
 // TestUninstallFromInstallerScopesToItsProduct is the installer's
 // before_uninstall hook (MADR 0054 amendment S9, U1): run as one product, it
 // removes only that product's definitions in this folder, so `--product

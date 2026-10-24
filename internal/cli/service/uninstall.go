@@ -29,6 +29,9 @@ type UninstallItem struct {
 	Program string
 	// Reason says why a definition was left, or why its removal failed.
 	Reason string
+	// Backup is the definition's backup the removal deleted, if there was
+	// one (MADR 0210 D9).
+	Backup string
 }
 
 // UninstallResult is what --uninstall did.
@@ -126,11 +129,13 @@ func uninstall(products []string) (UninstallResult, error) {
 					res.Left = append(res.Left, item)
 					continue
 				}
-				if err := removeDefinition(kind, product, name); err != nil {
+				backup, err := removeDefinition(kind, product, name)
+				if err != nil {
 					item.Reason = err.Error()
 					res.Failed = append(res.Failed, item)
 					continue
 				}
+				item.Backup = backup
 				if name == recorded {
 					if err := forgetUnitName(product, name); err != nil {
 						item.Reason = err.Error()
@@ -260,23 +265,25 @@ func programOfUnit(body string) (string, string) {
 	return "", "it has no ExecStart="
 }
 
-// removeDefinition stops, disables and deletes one definition.
-func removeDefinition(kind Kind, product, name string) error {
+// removeDefinition stops, disables and deletes one definition, and the backup
+// a refresh kept of it, whose path it returns (MADR 0210 D9).
+func removeDefinition(kind Kind, product, name string) (string, error) {
 	opts := Options{Product: product, UnitName: name}
+	var res Result
 	var err error
 	switch kind {
 	case KindSystemdUser:
-		_, err = removeSystemd(opts)
+		res, err = removeSystemd(opts)
 	case KindRunit, KindS6, KindOpenRCUser:
-		_, err = removeScript(kind, opts)
+		res, err = removeScript(kind, opts)
 	case KindLaunchdAgent:
-		_, err = removeLaunchdAgent(opts)
+		res, err = removeLaunchdAgent(opts)
 	case KindWindowsTask:
-		_, err = removeSchtasks(opts)
+		res, err = removeSchtasks(opts)
 	default:
 		err = fmt.Errorf("no removal for %s", kind)
 	}
-	return err
+	return res.RemovedBackup, err
 }
 
 // PrintUninstallResult writes what --uninstall did.
@@ -291,6 +298,9 @@ func PrintUninstallResult(w io.Writer, res UninstallResult) {
 	}
 	for _, it := range res.Removed {
 		fmt.Fprintf(w, "removed: %s %s service %s\n", it.Product, it.Kind, it.Path)
+		if it.Backup != "" {
+			fmt.Fprintf(w, "removed: %s %s backup %s\n", it.Product, it.Kind, it.Backup)
+		}
 	}
 	for _, it := range res.Left {
 		fmt.Fprintf(w, "left:    %s %s service %s — %s\n", it.Product, it.Kind, it.Path, it.Reason)

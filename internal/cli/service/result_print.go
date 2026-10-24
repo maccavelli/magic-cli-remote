@@ -7,6 +7,17 @@ import (
 	"path/filepath"
 )
 
+// PrintRemoveResult writes what --remove did, for mcremote ("daemon") or
+// mcrelay ("relay"): the definition, the backup it deleted when there was one
+// (MADR 0210 D9), and what was stopped.
+func PrintRemoveResult(out io.Writer, res Result, what string) {
+	fmt.Fprintf(out, "Removed:           %s\n", res.UnitPath)
+	if res.RemovedBackup != "" {
+		fmt.Fprintf(out, "Removed backup:    %s\n", res.RemovedBackup)
+	}
+	fmt.Fprintf(out, "The %s was stopped and the service disabled.\n", what)
+}
+
 // PrintRefreshResult writes the outcome of a --refresh. Every verdict is a
 // success: the caller decides nothing from the exit code except whether the
 // refresh itself errored.

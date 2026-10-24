@@ -485,6 +485,43 @@ func TestRemove(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(unitDir, "mcremote-rm.service")); !os.IsNotExist(err) {
 		t.Fatal("unit file still present after Remove")
 	}
+	if res.RemovedBackup != "" {
+		t.Errorf("RemovedBackup = %q with no backup to remove", res.RemovedBackup)
+	}
+}
+
+// TestRemoveDeletesTheUnitBackup is MADR 0210 D9: the .prev a refresh kept,
+// which can hold --env secrets, goes with the unit, and the result names it.
+// It pins systemd, which Remove otherwise picks by the host's OS.
+func TestRemoveDeletesTheUnitBackup(t *testing.T) {
+	defer service.OverrideInstallOS("linux")()
+	defer service.OverrideRunSystemctl(func(...string) error { return nil })()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "mcremote")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unitDir := filepath.Join(dir, "units")
+	if _, err := service.Setup(service.Options{
+		UnitName: "mcremote-rm", Binary: src, UnitDir: unitDir,
+		NoEnable: true, NoStart: true, NoLinger: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(unitDir, "mcremote-rm.service.prev")
+	if err := os.WriteFile(backup, []byte("[Service]\nEnvironment=MCRELAY_SECRET=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := service.Remove(service.Options{UnitName: "mcremote-rm", UnitDir: unitDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Fatalf("%s survived Remove: %v", backup, err)
+	}
+	if res.RemovedBackup != backup {
+		t.Errorf("RemovedBackup = %q, want %q", res.RemovedBackup, backup)
+	}
 }
 
 // A newline in any free-text unit field must be rejected: systemdQuote cannot

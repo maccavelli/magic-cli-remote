@@ -610,10 +610,26 @@ func TestRemoveScript(t *testing.T) {
 				_ = os.MkdirAll(filepath.Join(def.Dir, "supervise"), 0o755)
 				fakeProc(t, []string{"s6-svscan", root})
 			}
+			// The backup a refresh kept (MADR 0210 D9). runit's and s6's sits
+			// in the service directory, which Remove deletes whole, as before;
+			// OpenRC's sits beside init.d, and is named in the result.
+			if err := os.WriteFile(def.Backup, []byte("the previous definition\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 			_ = os.Remove(filepath.Join(os.Getenv("FAKE_CFG"), "calls"))
 			res, err := Remove(Options{Product: "mcremote", UnitDir: root})
 			if err != nil || !res.Removed {
 				t.Fatalf("Remove: %+v, %v", res, err)
+			}
+			if _, err := os.Stat(def.Backup); !os.IsNotExist(err) {
+				t.Fatalf("%s survived Remove: %v", def.Backup, err)
+			}
+			wantBackup := ""
+			if kind == KindOpenRCUser {
+				wantBackup = def.Backup
+			}
+			if res.RemovedBackup != wantBackup {
+				t.Errorf("RemovedBackup = %q, want %q", res.RemovedBackup, wantBackup)
 			}
 			for i := range want {
 				want[i] = strings.NewReplacer("DIR", def.Dir, "ROOT", root).Replace(want[i])

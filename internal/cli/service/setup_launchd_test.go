@@ -227,6 +227,11 @@ func TestDarwinRemoveAgent(t *testing.T) {
 	if _, err := os.Stat(plist); err != nil {
 		t.Fatal(err)
 	}
+	// The backup a refresh kept goes with the plist (MADR 0210 D9).
+	backup := plist + ".prev"
+	if err := os.WriteFile(backup, []byte("<plist/>\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	res, err := service.Remove(service.Options{UnitDir: plistDir})
 	if err != nil {
@@ -237,6 +242,12 @@ func TestDarwinRemoveAgent(t *testing.T) {
 	}
 	if _, err := os.Stat(plist); !os.IsNotExist(err) {
 		t.Fatal("plist still present")
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Fatalf("%s survived Remove: %v", backup, err)
+	}
+	if res.RemovedBackup != backup {
+		t.Errorf("RemovedBackup = %q, want %q", res.RemovedBackup, backup)
 	}
 
 	// Remove tears down only what is actually loaded. Nothing is here — no

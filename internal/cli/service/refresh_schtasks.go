@@ -165,6 +165,20 @@ func registerTaskXML(name, body string) error {
 // product's private state directory, which roams with nothing and is readable
 // by no other principal.
 var taskBackupPath = func(product, name string) (string, error) {
+	path, err := taskBackupFile(product, name)
+	if err != nil {
+		return "", err
+	}
+	if err := appdirs.EnsurePrivateDir(filepath.Dir(path)); err != nil {
+		return "", fmt.Errorf("prepare %s: %w", filepath.Dir(path), err)
+	}
+	return path, nil
+}
+
+// taskBackupFile is taskBackupPath's file, looked up without creating
+// anything: a remove deletes a backup there, and must not make the state
+// directory to find none (MADR 0210 D9).
+var taskBackupFile = func(product, name string) (string, error) {
 	prod, ok := appdirs.ProductByName(product)
 	if !ok {
 		return "", fmt.Errorf("unknown product %q", product)
@@ -176,9 +190,6 @@ var taskBackupPath = func(product, name string) (string, error) {
 	paths, err := appdirs.Resolve(prod, roots, "")
 	if err != nil {
 		return "", err
-	}
-	if err := appdirs.EnsurePrivateDir(paths.StateDir); err != nil {
-		return "", fmt.Errorf("prepare %s: %w", paths.StateDir, err)
 	}
 	return filepath.Join(paths.StateDir, name+"-task.prev.xml"), nil
 }

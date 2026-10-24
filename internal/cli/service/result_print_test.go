@@ -115,3 +115,24 @@ func TestNormalizeWindowsRefusesDroppedFlags(t *testing.T) {
 		t.Errorf("--unit-name equal to the product was refused: %v", err)
 	}
 }
+
+// TestPrintRemoveResult is the --remove summary both products print: the
+// definition, the backup when one was deleted (MADR 0210 D9), and what was
+// stopped.
+func TestPrintRemoveResult(t *testing.T) {
+	var buf bytes.Buffer
+	PrintRemoveResult(&buf, Result{UnitPath: "/u/mcrelay.service", RemovedBackup: "/u/mcrelay.service.prev"}, "relay")
+	want := "Removed:           /u/mcrelay.service\n" +
+		"Removed backup:    /u/mcrelay.service.prev\n" +
+		"The relay was stopped and the service disabled.\n"
+	if buf.String() != want {
+		t.Errorf("with a backup:\n%s\nwant:\n%s", buf.String(), want)
+	}
+	buf.Reset()
+	PrintRemoveResult(&buf, Result{UnitPath: "/u/mcremote.service"}, "daemon")
+	want = "Removed:           /u/mcremote.service\n" +
+		"The daemon was stopped and the service disabled.\n"
+	if buf.String() != want {
+		t.Errorf("with no backup:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}

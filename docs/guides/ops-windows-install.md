@@ -105,8 +105,10 @@ session stays open.
 ```
 
 For each product it removes, the installer first runs that product's own
-`setup-service --uninstall --from-installer`, which ends and removes its task.
-That also stops the daemon, so Windows can delete its binary. Then it deletes
+`setup-service --uninstall --from-installer`, which ends and removes its task,
+and the task definition an update's refresh kept under
+`%LocalAppData%\<product>\State`, as `setup-service --remove` does (MADR 0210
+D9). That also stops the daemon, so Windows can delete its binary. Then it deletes
 the binaries and their `.prev` copies, and takes the folder off the User `Path`
 once neither is left. Configuration and data stay.
 

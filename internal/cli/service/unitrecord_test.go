@@ -19,6 +19,14 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	unitRecordDir = func(product string) (string, error) { return filepath.Join(dir, product), nil }
+	// A Windows remove deletes the refresh's backup of the task (MADR 0210
+	// D9). The real lookup is the account's state directory, where a test
+	// would delete the real task's backup. Tests of the lookup use
+	// realTaskBackupFile.
+	realTaskBackupFile = taskBackupFile
+	taskBackupFile = func(_, name string) (string, error) {
+		return filepath.Join(dir, "state", name+"-task.prev.xml"), nil
+	}
 	// The verified start (MADR 0054 PLAN S5c) would watch a real service
 	// manager for up to 15 seconds after every test that starts one. Tests of
 	// it put realVerifyStart back.
@@ -34,6 +42,9 @@ func TestMain(m *testing.M) {
 
 // realVerifyStart is the verified start TestMain replaced.
 var realVerifyStart func(Kind, Result) (Result, error)
+
+// realTaskBackupFile is the backup lookup TestMain replaced.
+var realTaskBackupFile func(product, name string) (string, error)
 
 // withUnitRecord gives the test its own record directory, holding name for
 // product when name is not empty.

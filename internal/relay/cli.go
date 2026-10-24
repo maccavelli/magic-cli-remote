@@ -485,8 +485,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "Removed:           %s\n", res.UnitPath)
-		fmt.Fprintln(out, "The relay was stopped and the service disabled.")
+		service.PrintRemoveResult(out, res, "relay")
 		return nil
 	}
 

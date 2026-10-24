@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -183,6 +185,93 @@ func TestRemoveSchtasksIdempotent(t *testing.T) {
 	}
 	if res.Removed {
 		t.Error("Removed = true for a task that was not registered")
+	}
+}
+
+// withTaskBackupFile points the remover's backup lookup at path, and fails
+// the test if the remover asks taskBackupPath instead, which creates the state
+// directory (MADR 0210 D9).
+func withTaskBackupFile(t *testing.T, path string) {
+	t.Helper()
+	prevFile, prevPath := taskBackupFile, taskBackupPath
+	taskBackupFile = func(string, string) (string, error) { return path, nil }
+	taskBackupPath = func(string, string) (string, error) {
+		t.Error("the remove looked the backup up through taskBackupPath, which creates the state directory")
+		return path, nil
+	}
+	t.Cleanup(func() { taskBackupFile, taskBackupPath = prevFile, prevPath })
+}
+
+// TestRemoveSchtasksDeletesTheBackup is MADR 0210 D9 on Windows: the
+// definition a refresh kept goes with the task, and the result names it.
+func TestRemoveSchtasksDeletesTheBackup(t *testing.T) {
+	backup := filepath.Join(t.TempDir(), "mcremote-task.prev.xml")
+	if err := os.WriteFile(backup, []byte("<Task/>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withSchtasks(t, func(...string) (string, error) { return "", nil })
+	withTaskState(t, func(string) (int, bool, error) { return 3, true, nil })
+	withTaskBackupFile(t, backup)
+	res, err := removeSchtasks(windowsOpts())
+	if err != nil || !res.Removed {
+		t.Fatalf("removeSchtasks: %+v, %v", res, err)
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Fatalf("%s survived the remove: %v", backup, err)
+	}
+	if res.RemovedBackup != backup {
+		t.Errorf("RemovedBackup = %q, want %q", res.RemovedBackup, backup)
+	}
+}
+
+// TestRemoveSchtasksWithNoBackup: no backup is no error, and nothing is named.
+func TestRemoveSchtasksWithNoBackup(t *testing.T) {
+	withSchtasks(t, func(...string) (string, error) { return "", nil })
+	withTaskState(t, func(string) (int, bool, error) { return 3, true, nil })
+	withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
+	res, err := removeSchtasks(windowsOpts())
+	if err != nil || !res.Removed || res.RemovedBackup != "" {
+		t.Fatalf("removeSchtasks: %+v, %v; want Removed and no backup named", res, err)
+	}
+}
+
+// TestRemoveSchtasksAbsentTaskDropsItsBackup: a backup outlives its task when
+// the task was deleted by hand; the remove still deletes it.
+func TestRemoveSchtasksAbsentTaskDropsItsBackup(t *testing.T) {
+	backup := filepath.Join(t.TempDir(), "mcremote-task.prev.xml")
+	if err := os.WriteFile(backup, []byte("<Task/>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withSchtasks(t, func(...string) (string, error) { return "", errNotRegistered{} })
+	withTaskBackupFile(t, backup)
+	res, err := removeSchtasks(windowsOpts())
+	if err != nil || res.Removed || res.RemovedBackup != backup {
+		t.Fatalf("removeSchtasks: %+v, %v; want not Removed, and the backup named", res, err)
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Fatalf("%s survived the remove: %v", backup, err)
+	}
+}
+
+// TestTaskBackupFileCreatesNothing: the remover's lookup resolves the path
+// without creating the state directory, which taskBackupPath does for a
+// refresh. Off Windows the state root comes from XDG_STATE_HOME; on Windows
+// it is the account's real LocalAppData, so the seam test above covers it.
+func TestTaskBackupFileCreatesNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the state root is the account's LocalAppData; TestRemoveSchtasksDeletesTheBackup covers the seam")
+	}
+	state := filepath.Join(t.TempDir(), "state")
+	t.Setenv("XDG_STATE_HOME", state)
+	path, err := realTaskBackupFile("mcremote", "mcremote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(path, state) || filepath.Base(path) != "mcremote-task.prev.xml" {
+		t.Errorf("taskBackupFile = %q, want mcremote-task.prev.xml under %s", path, state)
+	}
+	if _, err := os.Stat(state); !os.IsNotExist(err) {
+		t.Errorf("the lookup created %s: %v", state, err)
 	}
 }
 

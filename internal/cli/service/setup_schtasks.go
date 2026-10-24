@@ -83,15 +83,23 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 func removeSchtasks(opts Options) (Result, error) {
 	name := taskNameFor(opts.Product)
 	res := Result{UnitName: name, Label: name, Scope: "windows-task", UnitPath: `Task Scheduler\` + name}
-	if _, err := runSchtasks("/query", "/tn", name); err != nil {
-		return res, nil
+	if _, err := runSchtasks("/query", "/tn", name); err == nil {
+		// Best-effort stop first so the delete does not race a running instance.
+		_ = stopWindows(opts.Product)
+		if out, err := runSchtasks("/delete", "/tn", name, "/f"); err != nil {
+			return res, fmt.Errorf("delete scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
+		}
+		res.Removed = true
 	}
-	// Best-effort stop first so the delete does not race a running instance.
-	_ = stopWindows(opts.Product)
-	if out, err := runSchtasks("/delete", "/tn", name, "/f"); err != nil {
-		return res, fmt.Errorf("delete scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
+	// The definition a refresh kept, even when the task itself was already
+	// gone, looked up without creating the state directory (MADR 0210 D9).
+	path, err := taskBackupFile(opts.Product, name)
+	if err != nil {
+		return res, err
 	}
-	res.Removed = true
+	if res.RemovedBackup, err = removeBackup(path); err != nil {
+		return res, err
+	}
 	return res, nil
 }
 

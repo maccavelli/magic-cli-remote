@@ -496,6 +496,12 @@ func removeScript(kind Kind, opts Options) (Result, error) {
 		if err := os.Remove(def.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return res, fmt.Errorf("remove %s: %w", def.Path, err)
 		}
+		// Kept beside init.d, so it outlives the script (MADR 0210 D9).
+		backup, err := removeBackup(def.Backup)
+		if err != nil {
+			return res, err
+		}
+		res.RemovedBackup = backup
 	default:
 		return res, fmt.Errorf("no script definition for %s", kind)
 	}
