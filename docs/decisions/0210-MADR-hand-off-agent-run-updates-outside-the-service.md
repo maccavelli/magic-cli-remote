@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-23
+date: 2026-10-24
 decision-makers: Project Owner
 consulted: "go-selfupdate-lib v1.17.2 (036289ec), go doc -all of selfupdate/cli, selfupdate/service and its systemd, launchd and taskscheduler backends, and its 0011 and 0021 records; acp-go-sdk2 v1.20.0 agentproc (tree_windows.go); grok-build at 2bdd1d6a (its terminal backend selection); Microsoft Learn's Nested Jobs, Job Objects, Process Creation Flags and JOBOBJECT_BASIC_LIMIT_INFORMATION pages, read 2026-10-22; this repository at b946cf2d"
 informed: anyone who changes the update command, the service backends, or how agents' processes are contained
@@ -410,6 +410,16 @@ decisions above stay accepted. This amendment adds
 D8 to D10, from what the PLAN's L1 observed. The owner asked to "address the 3 discovered items"
 on 2026-10-23. Read against `907c3c29` and go-selfupdate-lib `v1.17.2`.
 
+*Confirmed live on 2026-10-24, by the PLAN's L2, and released in `v0.23.0`:*
+
+* **D8:** in the runit, s6 and OpenRC containers the update refused with D8's message and
+  downloaded nothing.
+* **D9:** on Linux, `--remove` deleted the unit's `.prev` and printed it.
+* **D10:** the Linux handoff's transient unit logged no `reception is disabled` line, and the
+  scratch unit came back active.
+
+The PLAN's execution record holds the evidence.
+
 ### What L1 found
 
 * **F5 — The service manager's notify socket reaches the detached run.**
@@ -566,7 +576,8 @@ on 2026-10-23. Read against `907c3c29` and go-selfupdate-lib `v1.17.2`.
 
 *Answered 2026-10-23:*
 
-1. "5C: both". D10 stands as written. The issue is filed in A0.
+1. "5C: both". D10 stands as written. The issue is filed in A0, as
+   [go-selfupdate-lib#7](https://github.com/maccavelli/go-selfupdate-lib/issues/7).
 2. "6A: every backend". D9 stands as written, Windows included.
 3. "7A: refuse early in Magic". D8 stands as written.
 4. "Skip R2". The sender stays "one of the two children, most likely `systemctl`". The issue says
@@ -576,7 +587,13 @@ on 2026-10-23. Read against `907c3c29` and go-selfupdate-lib `v1.17.2`.
 
 ~~**Status of this amendment: proposed.**~~ **Decided by the owner on 2026-10-24,** approving the
 PLAN's amendment B ("proceed"). The owner chose its place and order on 2026-10-23, in answer to
-0207's amendment B question 8: "0210 amend B, before L2 (Recommended)". L2 confirms it live.
+0207's amendment B question 8: "0210 amend B, before L2 (Recommended)".
+
+*Confirmed live on 2026-10-24, by the PLAN's L2.3, on the Windows test host's real task with
+`v0.23.0`:* an agent-run `update --yes --force --version v0.23.0` of the installed binary printed
+`update handed off: … (task \mcremote.selfupdate.<id>)`. The one-shot task reinstalled the release
+(exit code 0), the task came back on `v0.23.0`, `doctor` showed the handoff, and no one-shot task
+remained after the daemon's start. D3 is now carried out.
 
 ### What changed
 

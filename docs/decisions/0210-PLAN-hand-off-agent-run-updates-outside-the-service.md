@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-23
+status: complete
+date: 2026-10-24
 associated-madr: "0210-MADR-hand-off-agent-run-updates-outside-the-service.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -913,7 +913,8 @@ L1 was committed as `907c3c29`, at the owner's word ("Commit to master").
 
 ## Amendment — 2026-10-23 (A): L1's three findings
 
-~~**Status: proposed.**~~ **Approved by the owner on 2026-10-23 ("proceed"); in progress.** This
+~~**Status: proposed.**~~ **Approved by the owner on 2026-10-23 ("proceed"); complete on
+2026-10-24,** after L2 (its execution record, below). This
 implements the MADR's "Amendment — 2026-10-23 (A)": D8 (F7), D9 (F6)
 and D10 (F5). The phases above stay complete. The front matter's `status` became `in-progress`
 on that approval. With the owner's answers of 2026-10-23 ("5C: both",
@@ -1338,7 +1339,7 @@ disabled` line. Next, by the owner's order: this amendment's B1 (the Windows han
 ## Amendment — 2026-10-23 (B): the Windows handoff
 
 ~~**Status: proposed.**~~ **Approved by the owner on 2026-10-24 ("proceed", after A3's commit
-`c2a26882`); in progress.** This implements the MADR's "Amendment — 2026-10-23 (B)", D11. The owner set
+`c2a26882`); complete on 2026-10-24,** after L2.3. This implements the MADR's "Amendment — 2026-10-23 (B)", D11. The owner set
 its order on 2026-10-23: after
 [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md)'s
 U1 (the `v1.19.0` pin) and amendment A's A2 and A3, and before L2. The rules for every phase,
@@ -1607,3 +1608,56 @@ and tag. The MADR's amendment A becomes `decided` and this plan `complete` after
   targets; `make test` and `make race`, 43 packages ok; `go mod tidy -diff` empty; `make
   check-records` and `make markdownlint-docs` exit 0.
 * **Before a tag:** CI must pass on the pushed fix.
+* **CI after the owner pushed `be41ef9a`:** run 40115078368, `CI`, success, both Linux Go jobs
+  included; `Docs` success.
+
+#### The release, 2026-10-24
+
+* The owner tagged `v0.23.0` at `be41ef9a` and pushed it ("tagged and pushed").
+* Run 40116011432, success: the Go jobs on all three targets, both Flutter jobs, the Android APK,
+  the self-update build and its eight identity checks, and the publish. `sign` was skipped, as 0205
+  decides.
+* The release is published and immutable, with both products' four binaries, the APK, both
+  installers and `SHA256SUMS`.
+
+#### L2.3, 2026-10-24: the Windows handoff, live on the real task
+
+By B2's procedure, run on the Windows test host with `l2_windows.py` from the kit. Its W4 ran in a
+`finally`. The real task was `Running`, PID 27828, before.
+
+* **W1:** `v0.22.2 (release) a5737c44f996`, the task `Running`, one paired device, no
+  `mcremote.selfupdate.*` task.
+* **W1b, from a shell:** `mcremote update --yes --version v0.23.0`: exit 0, "mcremote: updated
+  v0.22.2 -> v0.23.0". Then `v0.23.0 (release) be41ef9ab270`, the task `Running` under a new PID,
+  and `/healthz` answering.
+* **W2:** the probe config, the task restarted, a temporary device minted.
+* **W3:** the probe ran the **installed** `mcremote.exe --config <cfg> update --yes --force --version
+  v0.23.0` through Magic's terminal:
+  * "update handed off: 68b00105f3c35030 (task \mcremote.selfupdate.68b00105f3c35030); result
+    in C:\Users\<user>\AppData\Local\Programs\magic-cli-remote\.mcremote.exe.selfupdate.handoff";
+  * right after, `mcremote.selfupdate.68b00105f3c35030 Ready`;
+  * the result: `"exit_code":0`, `"operation":"reinstall"`, `"applied":true`, `current_version`
+    and `target_version` `v0.23.0`;
+  * `/healthz` answering, the task `Running` under a new PID, `v0.23.0 (release) be41ef9ab270`;
+  * `doctor`: "self-update handoff (the last update an agent handed to the service manager)";
+  * one-shot tasks after the handoff: none. The daemon the handoff restarted had already cleared it.
+* **W4:** the device revoked; the config "restored byte for byte"; the devices as before; the task
+  `Running` on `v0.23.0`; one-shot tasks after that start: none.
+* **Two older lines in the transcript scan,** "update failed: … this process runs inside the
+  service it would stop: \mcremote", came from earlier sessions, not this run. The scan reads the
+  20 newest session files. `grep -l` places the handoff line in the session file written at
+  2026-10-24 12:57 local, this run; the refusals sit in two files from 2026-10-23, R1's and L1's.
+* **What stays changed, as B2 said:** the host's binary is `v0.23.0`. The kit was deleted from the
+  host afterwards.
+
+**The plan is complete.**
+
+* **Amendment A's D8 to D10:** confirmed on Linux, in the three containers, and on macOS (L2.1,
+  L2.2, L2.4).
+* **Amendment B's D11, the Windows handoff:** confirmed on the real task (L2.3).
+* **Released:** both, in `v0.23.0`.
+* **Still open, and owned elsewhere:**
+  * a handoff for runit, s6 and OpenRC, waiting on go-selfupdate-lib#2;
+  * go-selfupdate-lib#7, the per-unit variables, of which Magic's daemon already keeps
+    `NOTIFY_SOCKET` (D10);
+  * the 0207 `go-selfupdate-lib` plan's U3 to U8, and its `acp-go-sdk2` sibling.
