@@ -1253,7 +1253,9 @@ These continue the numbering above.
 decided when the owner approves its PLAN step, U3b of
 [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md).~~
 **Decided 2026-10-25:** the owner approved U3b ("committed, proceed", after U3 was committed as
-`17ccfd21`). D33 to D36 stand as written below.
+`17ccfd21`). D33 to D36 stand as written below. **Confirmed 2026-10-25:** U3b is complete. Its tests,
+its guards and its live runs on every host are in the PLAN, with D36's one exception noted where it
+stands.
 
 **Why.**
 [0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md](../reports/0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md)
@@ -1376,6 +1378,12 @@ asked, verbatim, "scope and spec replace-before-stop", and answered four questio
 
     Each result must have `replaced_before_stop: true`, `service_started: true` and
     `rolled_back: false`, with a new daemon PID and `/healthz` up.
+    * *Note, 2026-10-25 (0207 PLAN, U3b Deviation 2; the owner chose the first resolution):*
+      under runit, s6 and OpenRC, an agent-run update refuses before it downloads, because they
+      have no handoff yet (0210-MADR D8). There, the success run is the update from a shell, with
+      L-b. The agent-run success run for those three moves to
+      [0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)
+      P6, whose adapter brings the handoff.
   * **A live failing probe:** a live-tagged Go test, `TestLiveReplaceFirstProbeFailure`, behind
     `MCREMOTE_REQUIRE_REPLACEFIRST=1`.
     * It builds the updater as `New` does, against the fake GitHub server, serving a release

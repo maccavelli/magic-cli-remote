@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-10-24
+date: 2026-10-25
 associated-madr: "0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -260,6 +260,11 @@ behind `MCREMOTE_REQUIRE_RUNIT`, `MCREMOTE_REQUIRE_S6` and `MCREMOTE_REQUIRE_OPE
    to allow.
 3. **On the owner's word:** `make live-supervisors` in the three containers; 0210's R1 reproduction
    re-run, now ending with the update applied and the service restarted on each.
+   * *Added 2026-10-25, from 0207 PLAN U3b Deviation 2:* the agent-run update, run through the
+     0210 kit's probe agent, must hand off on each of the three. Its result must have
+     `replaced_before_stop: true`, `service_started: true` and `rolled_back: false`, with a new PID
+     and `/healthz` up. That is 0207-MADR D36's success run, which U3b could not run there while
+     those supervisors had no handoff.
 4. The CI step runs runit and s6, as the library's M6 runs s6. `actionlint` is clean. OpenRC runs
    through the target only, since it needs a container booted with its init.
 5. Gates.

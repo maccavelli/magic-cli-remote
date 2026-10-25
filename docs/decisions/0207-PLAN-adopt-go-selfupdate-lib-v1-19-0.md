@@ -212,7 +212,7 @@ and its `go.mod`, the fixture program. *U3 Deviation 3:* so does
 3. **`refresh.go`:** `binaryWarning` calls `service.SameExecutable`.
 4. Gates.
 
-### U3b — Replace before the stop, with a post-install probe (amendment D, D33 to D36) — ~~proposed~~ approved 2026-10-25, in progress
+### U3b — Replace before the stop, with a post-install probe (amendment D, D33 to D36) — ~~proposed~~ approved 2026-10-25, done
 
 **Files:**
 
@@ -1094,3 +1094,32 @@ happen yet. Under those supervisors an update from inside the service refuses be
 because no handoff exists for them (0210-MADR D8). The library's supervised adapter brings one, but
 adopting it is 0212's work. What ran is the refusal, with the service untouched. The replacement
 before the stop is shown there by the update from a shell and by L-b.
+
+### U3b Deviation 2, 2026-10-25 — the agent-run success under runit, s6 and OpenRC moves to 0212. The owner decided: "committed. proceed"
+
+**Found in step 5's container runs** (above). Step 5 and MADR D36 expected the agent-run update to
+hand off under runit, s6 and OpenRC. Under 0210-MADR D8 it refuses there before any download,
+because those supervisors have no handoff yet. The refusal was what ran, with no download event and
+the PID unchanged.
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** close U3b as it stands. Record the refusal as D8's, by design. The agent-run success
+   run for those three supervisors moves to 0212's P6, whose supervised adapter brings the handoff.
+2. Keep U3b open until 0212 lands, then run the container agent case under U3b.
+
+The owner answered "committed. proceed" after the two were put, with the first recommended. That is
+taken as the first. The note sits on MADR D36, and 0212's PLAN P6 now names the check.
+
+**U3b is complete.**
+
+* Steps 1 to 4 and 6 were committed as `1f7ed945`, and the live test's lookup fix as the next
+  commit.
+* **Step 5** passed on macOS, Linux (systemd), Windows (the real task, restored byte for byte),
+  runit, s6 and OpenRC:
+  * L-b and its plant, everywhere;
+  * the update from a shell, everywhere;
+  * the agent-run handoff where a handoff exists: launchd, systemd and Task Scheduler.
+
+**Not done in this plan.** U4, U5, U6 and U8, each on its own approval. U6 also waits for 0212's P3.
+The plan stays `in-progress`.
