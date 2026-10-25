@@ -1,8 +1,8 @@
 ---
 status: proposed
-date: 2026-10-23
+date: 2026-10-24
 decision-makers: Project Owner
-consulted: "go-selfupdate-lib v1.17.1–v1.17.2, acp-go-sdk2 v1.15.0–v1.19.0 and go-llmprovider-sdk v1.21.0, read from full clones at their tags; their GitHub release notes; a scratch copy of this repository at 707d300d with both pins moved; gobble-cli's go.mod on its default branch. Amendment of 2026-10-22: acp-go-sdk2 v1.20.0 from the Go module proxy and its release notes; a scratch copy at 6a4ef48d with both pins moved and agentproc run against Magic's command; gobble-cli at 53565a1"
+consulted: "go-selfupdate-lib v1.17.1–v1.17.2, acp-go-sdk2 v1.15.0–v1.19.0 and go-llmprovider-sdk v1.21.0, read from full clones at their tags; their GitHub release notes; a scratch copy of this repository at 707d300d with both pins moved; gobble-cli's go.mod on its default branch. Amendment of 2026-10-22: acp-go-sdk2 v1.20.0 from the Go module proxy and its release notes; a scratch copy at 6a4ef48d with both pins moved and agentproc run against Magic's command; gobble-cli at 53565a1. Amendment C (2026-10-24): go-selfupdate-lib v1.20.0 and v1.21.0, their CHANGELOG entries, migration guide §20 and §21, and `git diff v1.19.0 v1.21.0` in a local clone; the Go module proxy; a scratch copy of this repository at 793b8f5b with the pin moved. Amendment E (2026-10-24): go-selfupdate-lib v1.22.0 from the Go module proxy and a local clone; acp-go-sdk2 through the GitHub compare API; go-llmprovider-sdk v1.22.0 to v1.22.2 in a local clone; gobble-cli's go.mod; a scratch copy at 793b8f5b with the pin moved to v1.22.0"
 informed: anyone who changes this module's dependencies, its service code or its ACP provider
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -1096,3 +1096,457 @@ PLANs, and no product-feature MADR yet. Either can still be changed at the plans
   D9 and D14, the PowerShell probe and the field comparison D17 replaces.
 * [0125-MADR-launchd-bootout-is-asynchronous.md](0125-MADR-launchd-bootout-is-asynchronous.md): the
   launchd wait D19 and D4 move onto the library.
+
+## Amendment — 2026-10-24 (C): `go-selfupdate-lib v1.21.0`
+
+**Status of this amendment: proposed.** It becomes decided when the owner approves its PLAN step,
+U1b of [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md).
+
+**Why now.** [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)
+D8, the owner's answer of 2026-10-24: "v1.21.0 first, under 0207". Two consequences:
+
+* 0212's later bump, to the release that ships the supervised adapter, carries only the adapter.
+* This record's remaining steps, U3 to U8, are written against the library they will build on.
+
+The owner's ask, verbatim: "write the 0207 amendment for v1.21.0 first".
+
+### Releases [observed 2026-10-24, the Go module proxy, `git ls-remote` and a local clone of the library]
+
+| Release | Commit | Issue | What it is |
+| :--- | :--- | :--- | :--- |
+| `v1.20.0` | `ca1c0e227e3ca59fb59a46e64d8c934f47d48698` | [#7](https://github.com/maccavelli/go-selfupdate-lib/issues/7), closed 2026-10-24 | Handoffs no longer pass on the service manager's per-unit variables |
+| `v1.21.0` | `29337d004689272c3f347db4c444ed81e0bec21c` | [#8](https://github.com/maccavelli/go-selfupdate-lib/issues/8), closed 2026-10-24 | `taskscheduler.Task.Enable` and `Disable`, filed by this record's D18 |
+
+* **`v1.21.0` is the newest tag.** `go mod download -json …@v1.21.0` gives `"Sum":
+  "h1:NDp8+ZRX0DbyeEGwSn/FeU/Kyv+xMtody2XWqq8g9so="` and origin `29337d00…`, ref
+  `refs/tags/v1.21.0`.
+* **Nothing changes in the module or the workflows.** `git diff v1.19.0 v1.21.0 -- .github go.mod
+  go.sum` is empty. The library still asks for `go 1.26.10`, `x/mod v0.40.0`, `x/sys v0.47.0` and
+  `x/term v0.43.0`. So `ci.yml`'s two pins move by commit and comment only, as in D15.
+* **Both releases are additions only,** by the library's `make apicheck` (its CHANGELOG). One
+  function returns less than before: `DiffDefinitions`, below.
+
+### What `v1.20.0` and `v1.21.0` change, against Magic's code [read at 793b8f5b]
+
+| Release | Change (CHANGELOG; migration guide §20, §21) | Magic today |
+| :--- | :--- | :--- |
+| `v1.20.0` | The systemd, launchd, SCM and Task Scheduler handoffs, `DetachProcess` and `ExecReconciler` leave out the variables `service.ManagerEnvNames` lists: systemd's per-unit run, notify, listen, watchdog, journal and trigger variables, `RUNTIME_DIRECTORY`, `CREDENTIALS_DIRECTORY`, and launchd's `XPC_SERVICE_NAME` and `XPC_FLAGS` (`selfupdate/service/managerenv.go:16-41`) | Magic's handoff passes no `HandOff.Env` (`internal/updateclient/client.go:328`), and its reconciler no `ExecOptions.Env` (`managed.go:79-85`). Nothing in `internal` or `cmd` reads any listed variable (`grep`, no match). `XDG_RUNTIME_DIR`, which the refresh child needs (`withUserRuntimeEnv`), is not listed |
+| `v1.20.0` | `service.ScrubManagerEnv`, for processes a program starts itself | The daemon unsets only `NOTIFY_SOCKET`, at start-up (`internal/daemon/daemon_notify.go:13-22`, 0210 D10). Agents and their terminals take the daemon's environment otherwise (`acpagent/terminal.go`, `codex/provider.go`, `httpagent/provider.go`), so they still see the unit's other variables, such as `INVOCATION_ID` and `JOURNAL_STREAM` [derived] |
+| `v1.21.0` | `taskscheduler.Task.Enable` and `Disable`; `Status.Disabled` | `startWindows` runs `schtasks /change … /enable`, and `stopWindows` `/change … /disable` (`internal/cli/service/control_schtasks.go:62`, `:90`). These are the two calls D18 kept |
+| `v1.21.0` | `DiffDefinitions`, and so `SameDefinition`, no longer compare `Settings/Enabled`, the task's switch | Magic's own comparison does compare it (`taskFields.Enabled`, `setup_schtasks.go:187`, `:299`). Its `--no-start` path keeps a stopped task stopped by registering a definition rendered with `<Enabled>false</Enabled>` (`setup_schtasks.go:27-38`, `withTaskDisabled`) |
+| `v1.21.0` | `Task.Start` is unchanged: it enables only a task its own `Stop` disabled, and otherwise returns `ErrTaskDisabled`. The guide: "Call `Enable` first" | D4 as amended: "on Windows, Magic enables the task (D18), then calls `Task.Start`" |
+
+**The guide's advice for a setup that ships a disabled task** (§21): "`DiffDefinitions` no longer
+tells you when someone enabled it. Check `Status.Disabled`, and call `Disable` after `Register`,
+which sets the switch from the definition." That applies to Magic's `--no-start` path once U4
+moves it to `Register` and `SameDefinition` (D31).
+
+### The pin move, proven on a scratch copy [2026-10-24]
+
+On a `git archive` copy of `HEAD` `793b8f5b`, given its own git index, nothing in the tree written
+(`m207c/pin_probe.py` in the session scratchpad):
+
+```text
+go: upgraded github.com/maccavelli/go-selfupdate-lib v1.19.0 => v1.21.0
+go mod tidy: exit 0
+go.mod/go.sum: 6 changed lines (the require line; the module's h1: and /go.mod lines)
+ci.yml: both pins moved
+go build ./...: exit 0
+go vet ./... darwin/arm64, linux/amd64, windows/amd64: exit 0, each
+go test -count=1 ./...: exit 0; 43 packages ok, 0 FAIL lines
+TestWorkflowPinsMatchGoMod, TestReleaseJobsReadTheSpec: ok (internal/updateclient)
+```
+
+The module's `/go.mod` hash is unchanged (`h1:boXH5t3X…`), since its `go.mod` is.
+
+**What the probe does not cover.** It ran no race detector, and nothing on the Linux or Windows
+hosts. Those are U1b's gates.
+
+### The decisions this amendment proposes
+
+* **D29 — Pin `go-selfupdate-lib v1.21.0`.**
+  * *Superseded before it was carried out, 2026-10-24: amendment E's D37 pins `v1.22.0`, which
+    includes `v1.21.0`. D30 and D31 rest on `v1.21.0`'s behaviour and still hold.*
+  * `go.mod` and `go.sum`, and both `ci.yml` pins, to
+    `29337d004689272c3f347db4c444ed81e0bec21c` with the comment `# go-selfupdate-lib v1.21.0`.
+  * No Go code changes. Proven above.
+  * D15's `v1.19.0` pin, already carried out, stays on record as the step before.
+* **D30 — D18 is fulfilled: no `schtasks /change`.**
+  * `v1.21.0` ships what question 9's answer waited for.
+  * D4's Windows start becomes `Task.Enable`, then `Task.Start`.
+  * Its stop becomes `Task.Stop`, which already disables the task, so the watchdog trigger cannot
+    restart it (library `lifecycle.go:213-226`). No separate `Disable` call is needed there.
+  * The work lands in U6, which already replaces `startWindows` and `stopWindows`. U6's goal, and
+    this plan's, become "no `schtasks.exe`".
+  * The printed manual hint, "Stop: schtasks /change … /disable then schtasks /end"
+    (`result_print.go:174`), is advice for a person, not a call, and stays.
+* **D31 — U4's comparison takes `v1.21.0`'s rule.**
+  * `SameDefinition` no longer sees the switch. So a stopped task with an unchanged definition
+    reads as unchanged, and nothing is registered. Its switch stays off.
+  * Whether the task is off is read from `Status.Disabled`, not from the stored XML
+    (`taskDisabled`, `setup_schtasks.go:108-111`).
+  * When a changed definition is registered over a stopped task with `--no-start`, it is still
+    rendered with `<Enabled>false</Enabled>` (`withTaskDisabled`). `Register` sets the switch from
+    the definition, so the task is never enabled, even for a moment.
+  * The guide's other route, registering enabled and then calling `Disable`, is not taken. The
+    task's repeating watchdog trigger (0159 D5) could start the daemon between the two calls
+    [derived; the window is not measured].
+  * U4 measures this path on the Windows host, with the real task backed up and restored (W1 to
+    W4), as its step 4 already sets out.
+* **D32 — The service manager's variables: no change in Magic.**
+  * `v1.20.0` scrubs Magic's handoff and reconcile child with no code change.
+  * The daemon's own removal of `NOTIFY_SOCKET` stays (0210 D10). The library's scrub covers only
+    processes the library starts, and agents are Magic's.
+  * Scrubbing agents' environments with `ScrubManagerEnv` is not taken now. Nothing in Magic reads
+    these variables, and no agent misbehaving on them is recorded.
+  * Whether a third-party agent CLI reads them is [unverified]. It is a change to what every agent
+    sees, so it needs a record of its own if the owner wants it (question 13).
+
+### Consequences of the amendment
+
+* Good, because Magic's last two `schtasks.exe` calls of the service path have a library
+  replacement. Together with U4 and U6, Windows setup runs no `schtasks.exe`.
+* Good, because a handed-off update and the reconcile child no longer inherit the service's
+  per-unit variables, with no code change in Magic.
+* Good, because a stopped task's switch no longer reads as a changed definition in U4's
+  comparison. `setup-service` on a stopped task then asks for no `--force` for that alone.
+* Good, because 0212's later bump carries only the adapter.
+* Neutral, because D29 is one line in `go.mod`, two in `go.sum` and two pins.
+* Bad, because U4 and U6 now depend on `v1.21.0`'s behaviour, so D29 must land before them.
+* Bad, because D31 changes where a stopped task is detected, from the stored XML to
+  `Status.Disabled`. The Windows host run must show that it reads the same.
+
+### Confirmation of the amendment
+
+* `go list -m github.com/maccavelli/go-selfupdate-lib` gives `v1.21.0`; `ci.yml`'s two pins name
+  `29337d00…`; `TestWorkflowPinsMatchGoMod` passes.
+* U1b's gates, including `go test -race ./...` on the Linux test host.
+* After U6: `git grep -n '"/change"' -- internal/cli/service` finds nothing outside tests.
+* U4's Windows run: an install with `--no-start` over a stopped task leaves it disabled, and reads
+  as unchanged.
+
+### Questions this amendment adds
+
+These continue the numbering above.
+
+* **13. Agents and the service manager's variables (D32).** Leave agents' environments as they are
+  (the proposal), or open a record to scrub them with `ScrubManagerEnv`?
+
+  *Answered 2026-10-24: "Leave agents as-is (Recommended)".* D32 is decided: no change in Magic.
+
+### Evidence index of the amendment
+
+* `go-selfupdate-lib` `v1.20.0` and `v1.21.0`: the CHANGELOG, migration guide §20 and §21, and
+  `selfupdate/service/managerenv.go` and `taskscheduler/lifecycle.go`, read in a local clone at
+  `v1.21.0`. `git diff --stat v1.19.0 v1.21.0` in that clone. The Go module proxy, for the sum and
+  origin above.
+* Issues [#7](https://github.com/maccavelli/go-selfupdate-lib/issues/7) and
+  [#8](https://github.com/maccavelli/go-selfupdate-lib/issues/8), both closed 2026-10-24.
+* This repository at `793b8f5b`: `internal/updateclient/client.go` and `managed.go`;
+  `internal/cli/service/control_schtasks.go`, `setup_schtasks.go` and `result_print.go`;
+  `internal/daemon/daemon_notify.go`.
+* The scratch probe `m207c/pin_probe.py` and its logs, as quoted.
+
+## Amendment — 2026-10-24 (D): replace the binary before the stop
+
+**Status of this amendment: proposed,** with its scope decided by the owner (below). It becomes
+decided when the owner approves its PLAN step, U3b of
+[0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md).
+
+**Why.**
+[0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md](../reports/0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md)
+B12 listed the library's replace-before-stop as considered, but not recommended alone. The owner
+asked, verbatim, "scope and spec replace-before-stop", and answered four questions on 2026-10-24:
+
+* **Scope:** "All backends, both (Recommended)";
+* **The pre-stop check:** "Add PostInstall probe (Recommended)";
+* **The record:** "0207 amendment D, U3b (Recommended)";
+* **The guards:** "Static guards + live (Recommended)".
+
+### Facts [read 2026-10-24]
+
+**The library** (`go-selfupdate-lib`, since `v1.13.0`; its
+`0020-MADR-precheck-gofmt-errors-and-replace-before-stop.md`, 4B):
+
+* **What the option does.** `ManagedOptions.ReplaceBeforeStop`, through `NewManagedInstallerWith`,
+  runs `Apply`, and with it `InstallOptions.PostInstall`'s probe, while a running service still
+  runs. Then come `Stop`, `Reconcile`, `Start`, `WaitHealthy` and `Commit`, as before
+  (`selfupdate/managed.go:29-39`, `:172-241`).
+* **What a failure does.**
+  * A failed `Apply` or probe rolls back and leaves the service running. Nothing restarts.
+  * A failed `Stop` rolls the binary back too (`recoverStop`, `:287-300`): under a service that
+    still runs, which is not restarted, or before a service that went down is started again.
+* **Where it is reported.** `Result.ReplacedBeforeStop`, which the result document carries as
+  `replaced_before_stop` (schema 4).
+* **What the library measured for its record** (0020, "Item 4"):
+  * **The window.** Stop-then-replace leaves the service down for the swap, a median of 24 to
+    165 ms for a 16 MiB binary across macOS, Linux and Windows. That is before any post-install
+    probe or reconcile. Stopping and starting dominate, and the order does not change them.
+  * **A rename under a running binary works** on all three OSes. The old process keeps running,
+    and a child it spawns from `os.Executable()` runs the **new** version.
+* **The hazards the library names** for the option:
+  * the service starting its own executable while it runs;
+  * a stop hook that runs the program;
+  * an unplanned restart in the gap, which starts the new binary before its health check.
+
+  The planned stop, start and health check follow anyway.
+* **The probe.** `NewVersionProber(args, want, timeout)` runs a binary with `args`, and requires
+  exit 0 within the timeout, with stdout containing the tag (`want` nil) (`selfupdate/probe.go:95-107`).
+  `InstallOptions.PostInstall` takes such a `Prober` and runs it on the installed path, before the
+  commit (`types.go:648`; the guide, "Probe the new binary").
+
+**Magic:**
+
+* **The managed installer** is `selfupdate.NewManagedInstaller` (`internal/updateclient/managed.go:66`),
+  the default order.
+* **`InstallOptions`** sets only `TargetPolicy` in tests (`client.go:99-105`). There is no
+  `PostInstall`.
+* **0207 U3 (D16)** adds `Config.Probes`, the same version prober on the *staged* file, before
+  anything is replaced. It does not run the binary at its installed path.
+* **The release spec's identity arguments** are `["version"]` for both products (`spec_test.go:39`).
+* **The first hazard: Magic never runs its own executable while serving.**
+  * `os.Executable()` is called in non-test code only by setup-service and doctor
+    (`internal/cli/doctor.go:64`; `internal/cli/service/setup.go:946`, `refresh.go:593`,
+    `uninstall.go:54`).
+  * `os.Args[0]` appears only in tests.
+  * The Codex identity check runs the Codex binary (`internal/provider/codex/provider.go:1133-1142`).
+  * The library's own read of Magic found the same: "No program found re-executes itself as a
+    worker while it serves" (its 0020, "Item 4").
+* **The second hazard: no definition has a stop hook that runs the program.**
+  * Neither unit template has `ExecStop`, `ExecStopPost` or `ExecReload` (`grep`, no match).
+  * The OpenRC script's `stop()` runs `start-stop-daemon --stop` (`supervisor.go:182`).
+  * runit and s6 get no `finish` script.
+* **The third hazard: an unplanned restart is possible on every backend.**
+  * The daemon restarts on systemd (`Restart=always`), launchd (`KeepAlive`), runit and s6.
+  * On Windows, the watchdog trigger stays enabled until `Stop` disables the task.
+* **Magic already shows the result schema.** The handoff result Magic shows already carries
+  schema 4 (`"schema_version":4` in the 0210 PLAN's W3 transcript). So the field needs no work in
+  Magic.
+
+### The decisions this amendment proposes
+
+* **D33 — Replace before the stop, for both products and every backend.**
+  * `managedInstaller` builds `selfupdate.NewManagedInstallerWith(standalone, backend, rec,
+    selfupdate.ManagedOptions{ReplaceBeforeStop: true})`.
+  * This covers systemd, launchd, Task Scheduler, runit, s6 and OpenRC, mcremote and mcrelay, and
+    the handoff's detached run, which drives the same managed install.
+  * A stopped or uninstalled service runs as today, since there is nothing to stop.
+* **D34 — A post-install probe.**
+  * `InstallOptions.PostInstall` is `NewVersionProber(<the spec's identity args>, nil, 30 s)`, run
+    on the installed path.
+  * It is built once, beside 0207 U3's `Config.Probes`, and both use it. So the staged file and
+    the installed binary are each checked before the stop.
+  * Its 30 s is the library's identity timeout for its own release checks. The PLAN measures the
+    real `version` run on each OS before it fixes the value.
+* **D35 — The hazards are held by two static guards,** each seen failing first.
+  * **G1, own executable.** A test parses every non-test `.go` file under `cmd` and `internal`. It
+    fails on:
+    * a call of `os.Executable`, or a use of `os.Args[0]`;
+    * a `procutil.Command` whose program is the literal `"mcremote"` or `"mcrelay"`.
+
+    The only exceptions are an allowlist naming each file with the reason it never runs while
+    serving: today's four setup-service and doctor sites. An allowlist entry that no longer
+    matches also fails, as `internal/procutil/spawnsites_test.go` does for its own allowlist.
+  * **G2, definitions.** A test renders every definition setup-service writes, and asserts that the
+    product binary's path appears exactly once, as the start command:
+    * both units;
+    * the LaunchAgent plist;
+    * the task XML;
+    * the runit, s6 and OpenRC definitions, in every form 0212 renders.
+
+    It also asserts that no unit has `ExecStop`, `ExecStopPost` or `ExecReload`, and that no script
+    supervisor gets a `finish` script that runs the binary.
+* **D36 — The proof.**
+  * **Tests, over the fake GitHub server and a fake lifecycle,** in the existing
+    `managed_test.go` pattern:
+    * the target holds the new release's bytes when `Stop` is called;
+    * a release whose binary fails `version` ends the update with an error, no `Stop` called,
+      and the target unchanged;
+    * the `--json` result carries `replaced_before_stop: true`.
+  * **Live success runs, on the owner's word:** an update from a shell, and an agent-run update
+    that hands off. They run on each host:
+    * Linux (systemd) and macOS (launchd), on the scratch services;
+    * runit, s6 and OpenRC, in the three containers;
+    * Windows, on the real task by W1 to W4.
+
+    Each result must have `replaced_before_stop: true`, `service_started: true` and
+    `rolled_back: false`, with a new daemon PID and `/healthz` up.
+  * **A live failing probe:** a live-tagged Go test, `TestLiveReplaceFirstProbeFailure`, behind
+    `MCREMOTE_REQUIRE_REPLACEFIRST=1`.
+    * It builds the updater as `New` does, against the fake GitHub server, serving a release
+      whose binary fails `version`.
+    * It runs against the real backend of the host's scratch service.
+    * It must end with the target's bytes unchanged, and the daemon's PID and start token
+      (`procutil.ProcessStartToken`) unchanged: the service was never stopped.
+    * It runs where the success runs do, the Windows real task included, by W1 to W4.
+
+    Product code gains no switch for it: `Options.APIBaseURL` and `TargetPath` are already
+    test-only.
+
+### Consequences of the amendment
+
+* Good, because a release that cannot run at its installed path is refused with the daemon never
+  stopped. Without the option, the same failure is caught only after the stop, and recovered by a
+  restart.
+* Good, because the swap leaves the downtime window: 24 to 165 ms, by the library's measure, plus
+  the probe.
+* Good, because the premise is held by tests. A later change that makes the daemon run its own
+  binary, or adds a stop hook, fails G1 or G2 before it can make the option unsafe.
+* Neutral, because stopping and starting, which dominate the downtime, are unchanged.
+* Bad, because an unplanned restart between the swap and the stop starts the new binary before its
+  health check. On Windows the watchdog trigger can do that within a minute, if the daemon exits
+  in that gap. The planned stop, start and health check then follow, as the library documents.
+* Bad, because until 0212's D11 raises the script backend's stop bound, a stop that times out on a
+  slow drain rolls the new binary back under the running daemon. The update fails safe, and the
+  daemon keeps running.
+* Bad, because the live failing-probe test touches the Windows host's real binary. It runs only by
+  W1 to W4, with the binary and config backed up and restored.
+
+### Confirmation of the amendment
+
+* `managedInstaller` passes `ReplaceBeforeStop: true`, and `New` sets `PostInstall`. U3b's tests
+  pass, each seen failing on a scratch copy:
+  * with the default order, the "target at Stop" test fails;
+  * without `PostInstall`, the failing-probe test sees a `Stop`.
+* G1 fails on a planted `os.Executable()` call in an `internal/daemon` file, and on a stale
+  allowlist entry. G2 fails on a planted `ExecStop=` in a unit template copy. Both plants are in a
+  scratch copy.
+* The live runs of D36 are recorded in the PLAN, per host.
+
+### Questions this amendment adds
+
+None. The owner's four answers settle its scope. The PLAN's U3b goes to the owner for approval.
+
+### Evidence index of the amendment
+
+* `go-selfupdate-lib`, read at `fff0940`: `selfupdate/managed.go`, `probe.go` and `types.go`; its
+  `0020-MADR-precheck-gofmt-errors-and-replace-before-stop.md`; and
+  `docs/guides/extending-selfupdate.md`, "Replace before the stop" and "Probe the new binary".
+* This repository at `793b8f5b`:
+  * `internal/updateclient/managed.go`, `client.go`, `spec_test.go` and `managed_test.go`;
+  * the unit templates;
+  * `internal/cli/service/supervisor.go`;
+  * the `os.Executable` and `os.Args[0]` searches above;
+  * `internal/procutil/spawnsites_test.go`, the guard pattern G1 follows.
+
+## Amendment — 2026-10-24 (E): the newest releases of all three libraries
+
+**Status of this amendment: proposed.** It becomes decided when the owner approves its PLAN step,
+U1b of [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md),
+now at `v1.22.0`.
+
+**The owner's ask, verbatim:** "assess the latest releases of go-selfupdate-lib, acp-go-sdk2,
+go-llmprovider-sdk, and ensure we are pinning latest. assess the impact of the new releases on our
+planning."
+
+### Releases [observed 2026-10-24, `git ls-remote --tags`, the Go module proxy, the GitHub compare API and local clones]
+
+| Library | Magic pins | Newest | Newest's commit | What is new for Magic |
+| :--- | :--- | :--- | :--- | :--- |
+| `go-selfupdate-lib` | `v1.19.0` | **`v1.22.0`**, 2026-10-24, tag only | `84805563ed252df384f59ced45a3daf529702ab4` (tag object `b7c2181…`) | `v1.20.0` and `v1.21.0`, as amendment C; and the supervised adapter |
+| `acp-go-sdk2` | `v1.20.0` | `v1.20.0`, unchanged | `4fa720471d44bdcbe3f7318d494d95035708fe12` | Nothing |
+| `go-llmprovider-sdk` | not a dependency | `v1.22.2`, 2026-10-24 | `97cc0b2f…` (tag object `88908c26…`) | Nothing: 0185 keeps it out of `go.mod` |
+
+* **`go-selfupdate-lib v1.22.0`** adds `service.NewSupervised`, `Supervised`, `SupervisedOptions`,
+  `SupervisedState` and `ErrNoSupervisor`, from library issue #2 (its CHANGELOG; migration guide
+  §22). `make apicheck` reports it compatible with `v1.21.0`.
+  * Outside the documents, `git diff --stat v1.21.0 v1.22.0` touches only the adapter's files,
+    a new `internal/procfs`, `errors.go`, `doc.go`, one `//nolint:gosec` comment in
+    `sameexec.go`, and the library's own `ci.yml` and `.golangci.yml`.
+  * `git diff v1.19.0 v1.22.0` over `build-selfupdate-release.yml`,
+    `publish-selfupdate-release.yml`, `go.mod` and `go.sum` is empty. So `ci.yml`'s two pins move
+    by commit and comment only, as in D15 and D29.
+  * The files amendment D cites (`managed.go`, `probe.go`, `types.go`) are unchanged since
+    `fff0940`, the commit it read.
+  * `go mod download -json …@v1.22.0` gives `"Sum": "h1:AHBwXsYs08WGTteAU7e/1NAa/CqbnTbZx+Xj6LSjKmk="`,
+    origin `84805563…`, ref `refs/tags/v1.22.0`. The `/go.mod` hash is unchanged.
+  * What the adapter means for runit, s6 and OpenRC is
+    [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)'s
+    amendment B.
+* **`acp-go-sdk2`.** `compare/v1.20.0...HEAD` is 26 commits and 31 files, the same as amendment B
+  found on 2026-10-23. The only Go file is `agentproc/tap_test.go`, a test. Nothing is unreleased
+  that matters to Magic.
+* **`go-llmprovider-sdk`,** read in a local clone, `v1.21.0..v1.22.2`:
+  * `v1.22.0`: the wizard's `ShowDeviceCode` hook, `NoPastePrompt`, and a paste prompt that ends
+    when the browser's loopback wins (its 0057-MADR);
+  * `v1.22.1`: wizard fixes and test cache isolation (its 0058-MADR and 0059-MADR);
+  * `v1.22.2`: the Claude key refusal hint names only the key prefix.
+
+  Each was asked for by gobble-cli. Its unreleased 0061-MADR answers gobble's issue #9. None
+  touches what Magic does.
+* **gobble-cli's `go.mod`** pins `acp-go-sdk2 v1.20.0`, `go-llmprovider-sdk v1.22.2` and
+  `go-selfupdate-lib v1.22.0`. So 0184's one-pin rule for `acp-go-sdk2` still holds.
+
+### The pin move, proven on a scratch copy [2026-10-24]
+
+The `m207c` probe, with its target moved to `v1.22.0` (`m207e/pin_probe.py` in the session
+scratchpad). It ran on a `git archive` copy of `HEAD` `793b8f5b`, given its own git index, with
+nothing in the tree written:
+
+```text
+go: upgraded github.com/maccavelli/go-selfupdate-lib v1.19.0 => v1.22.0
+go mod tidy: exit 0
+go.mod/go.sum: 6 changed lines (the require line; the module's h1: and /go.mod lines)
+ci.yml: both pins moved
+go build ./...: exit 0
+go vet ./... darwin/arm64, linux/amd64, windows/amd64: exit 0, each
+go test -count=1 ./...: exit 0; 43 packages ok, 0 FAIL lines
+-run TestWorkflowPinsMatchGoMod|TestReleaseJobsReadTheSpec: exit 0
+```
+
+**What the probe does not cover.** As in amendment C: no race detector, and nothing on the Linux
+or Windows hosts. Those are U1b's gates.
+
+### The decisions this amendment proposes
+
+* **D37 — Pin `go-selfupdate-lib v1.22.0`, in place of D29's `v1.21.0`.**
+  * `go.mod` and `go.sum`, and both `ci.yml` pins, to
+    `84805563ed252df384f59ced45a3daf529702ab4` with the comment `# go-selfupdate-lib v1.22.0`.
+  * No Go code changes. Proven above.
+  * U1b does it, in D29's place. D30 and D31 rest on `v1.21.0`'s behaviour, which `v1.22.0`
+    includes, so they stand.
+  * The adapter arrives unused. 0212's stage 2 is the first caller, and its own bump step lapses
+    (0212 amendment B, E2).
+* **D38 — `acp-go-sdk2` stays on `v1.20.0`.** It is still the newest tag (D24, re-checked).
+* **D39 — `go-llmprovider-sdk` stays out of `go.mod`.** 0185 stands, as D7 says. Its new releases
+  reach Magic only through gobble, which already pins `v1.22.2`
+  ([0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md](../reports/0202-REPORT-go-llmprovider-sdk-provider-auth-adoption-assessment.md),
+  its first feasible route).
+
+### Consequences of the amendment
+
+* Good, because one pin step brings Magic to the newest release of the library, the one 0212
+  builds on.
+* Good, because 0212's stage 2 no longer has a pin move of its own.
+* Neutral, because `v1.22.0` adds code that Magic does not call until 0212's stage 2.
+* Neutral, because `acp-go-sdk2` and `go-llmprovider-sdk` change nothing here.
+* Bad, because amendment C's "0212's later bump carries only the adapter" lapses. A regression from
+  the adapter's arrival would show at U1b, not at 0212's stage 2. Nothing Magic calls changes in
+  `v1.22.0`, so none is expected.
+
+### Confirmation of the amendment
+
+* `go list -m github.com/maccavelli/go-selfupdate-lib` gives `v1.22.0`. `ci.yml`'s two pins name
+  `84805563…`, and `TestWorkflowPinsMatchGoMod` passes.
+* U1b's gates, as amendment C set them, including `go test -race ./...` on the Linux test host and
+  `make ci-windows` on the Windows host.
+* `go list -m github.com/maccavelli/acp-go-sdk2` still gives `v1.20.0`. `go list -m all` names no
+  `go-llmprovider-sdk`.
+
+### Questions this amendment adds
+
+None. The owner's ask sets the pin. U1b, at `v1.22.0`, goes to the owner for approval.
+
+*Approved 2026-10-24:* the owner answered "U1b, then write 0212 PLAN". D37 is carried out by U1b;
+its execution record is in the PLAN.
+
+### Evidence index of the amendment
+
+* `git ls-remote --tags` of all three libraries, 2026-10-24.
+* `go-selfupdate-lib`: `CHANGELOG.md` and migration guide §22 at `v1.22.0`; its 0035-PLAN execution
+  record, M8; `git diff --stat` in a local clone, as quoted. The Go module proxy, for the sum.
+* `acp-go-sdk2`: `gh api repos/maccavelli/acp-go-sdk2/compare/v1.20.0...HEAD`.
+* `go-llmprovider-sdk`: `git log v1.21.0..v1.22.2` in a local clone, and its 0057, 0058, 0059 and
+  0061 MADRs.
+* gobble-cli's `go.mod`, in a local clone.
+* The scratch probe `m207e/pin_probe.py` and its logs, as quoted.

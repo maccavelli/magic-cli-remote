@@ -414,6 +414,9 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0210 | PLAN | Implement handing an agent-run update off to the service manager, and making every backend fail safe | [0210-PLAN-hand-off-agent-run-updates-outside-the-service.md](decisions/0210-PLAN-hand-off-agent-run-updates-outside-the-service.md) |
 | 0211 | MADR | Refresh the workspace scaffold without replacing repository-specific controls | [0211-MADR-refresh-workspace-scaffolding.md](decisions/0211-MADR-refresh-workspace-scaffolding.md) |
 | 0211 | PLAN | Refresh workspace scaffolding | [0211-PLAN-refresh-workspace-scaffolding.md](decisions/0211-PLAN-refresh-workspace-scaffolding.md) |
+| 0212 | MADR | Run runit, s6 and OpenRC through go-selfupdate-lib's supervised adapter, with Magic keeping each supervisor's state and commands | [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](decisions/0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md) |
+| 0212 | PLAN | Implement runit, s6 and OpenRC through go-selfupdate-lib's supervised adapter | [0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](decisions/0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md) |
+| 0212 | REPORT | What Magic's service backends can take from `go-selfupdate-lib` | [0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md](../docs/reports/0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-23
+date: 2026-10-24
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -10,6 +10,15 @@ associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adopt
 Associated MADR: [0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md),
 its "Amendment — 2026-10-23 (B)": D15 to D22, and D4 as amended. The owner's answers of 2026-10-23
 to its questions 8 to 11 apply.
+
+*Added 2026-10-24, proposed:* its "Amendment — 2026-10-24 (C)", D29 to D32, taken here as step U1b
+and as notes on U4 and U6. D32 changes no code.
+
+*Added 2026-10-24, proposed:* its "Amendment — 2026-10-24 (D)", D33 to D36, replace-before-stop
+with a post-install probe, taken here as step U3b.
+
+*Added 2026-10-24, proposed:* its "Amendment — 2026-10-24 (E)", D37 to D39. D37 moves U1b's pin
+to `v1.22.0`. D38 and D39 change nothing here.
 
 Sibling plans of the same MADR:
 
@@ -29,6 +38,11 @@ D23, the Windows handoff, is not here. It is 0210's amendment B, at the owner's 
   before anything is stopped. It uses the library's HTTP client.
 * Magic's Windows service path runs no PowerShell, and no `schtasks.exe` except `/change /enable`
   and `/disable`, until the library exports those.
+  * *Amendment C, proposed:* `v1.21.0` exports them (D30), so the goal is no `schtasks.exe` at
+    all, after U4 and U6.
+* *Amendment C, proposed:* `go.mod` requires `go-selfupdate-lib v1.21.0`, and `ci.yml`'s two pins
+  name `29337d00…` (D29, U1b).
+  * *Amendment E, proposed:* `v1.22.0` instead, with the pins naming `84805563…` (D37, U1b).
 * `ProbeStatus` reads launchd and Task Scheduler state in one library call each.
 * `setup-service` stops and starts through the backends where their semantics match, and confirms
   every start the same way, with the product's probe.
@@ -43,7 +57,10 @@ D23, the Windows handoff, is not here. It is 0210's amendment B, at the owner's 
     (the order below).
   * Any `acp-go-sdk2` change: the sibling plan.
   * Removing `schtasks /change`, which waits on the issue U0 files.
+    *Amendment C, proposed:* the issue shipped in `v1.21.0`, so this moves into U6 (D30).
   * runit, s6 and OpenRC backends in the library, which wait on go-selfupdate-lib#2.
+    *Amendment E:* `v1.22.0` ships the library's answer, the supervised adapter. Adopting it is
+    0212's work, not this plan's.
 
 ## Order across plans
 
@@ -57,6 +74,17 @@ At the owner's answer to question 8:
 5. This plan's U3 to U8.
 
 The `acp-go-sdk2` plan touches no file this one does, and runs after step 4.
+
+*Amendment D, proposed:* U3b runs right after U3, whose prober it reuses.
+
+*Amendment C, proposed:* steps 1 to 4 are done. U1b runs next, before U3, so U3 to U8 build on
+`v1.21.0`. 0212's stage 1 does not depend on the pin, and its stage 2 follows U1b
+([0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)
+D8).
+
+*Amendment E, proposed:* U1b pins `v1.22.0`, so U3 to U8 build on it. 0212's stage 2 then has no
+pin move of its own, and its stage 1 can use the adapter's `SupervisedState` (0212 amendment B,
+E2 and D16).
 
 ## Facts the steps rely on [read 2026-10-23, at `88d37d1c`]
 
@@ -129,6 +157,35 @@ The `acp-go-sdk2` plan touches no file this one does, and runs after step 4.
    `-X github.com/maccavelli/go-selfupdate-lib/buildinfo.version=$ver` and `….kind=local`.
 3. On the Windows host: `make ci-windows-smoke` passes, B14 included.
 
+### U1b — Pin ~~`v1.21.0`~~ `v1.22.0` (amendment C, D29; amendment E, D37) — in progress
+
+*Amended 2026-10-24 (E), before it ran:* `v1.22.0` was tagged the same day, and the owner asked
+for the newest pins. The struck values are D29's.
+
+**Files:** `go.mod`, `go.sum`, `.github/workflows/ci.yml`; this plan.
+
+1. `git ls-remote https://github.com/maccavelli/go-selfupdate-lib 'refs/tags/v1.22.0^{}'` gives
+   `84805563ed252df384f59ced45a3daf529702ab4`, and no tag above `v1.22.0` exists. Otherwise stop
+   and prompt. ~~`v1.21.0^{}` gives `29337d004689272c3f347db4c444ed81e0bec21c`.~~
+2. `go get github.com/maccavelli/go-selfupdate-lib@v1.22.0`, then `go mod tidy`.
+   ~~`@v1.21.0`~~
+3. Both `ci.yml` pins:
+   `@84805563ed252df384f59ced45a3daf529702ab4 # go-selfupdate-lib v1.22.0`.
+   ~~`@29337d004689272c3f347db4c444ed81e0bec21c # go-selfupdate-lib v1.21.0`~~
+4. **The diff** is `go.mod`'s one line, `go.sum`'s two (the module's `h1:` line changes to
+   `h1:AHBwXsYs08WGTteAU7e/1NAa/CqbnTbZx+Xj6LSjKmk=` and its `/go.mod` hash does not), and the two
+   pins. No Go source changes. `git grep a6af9dc7` finds nothing in `.github`, `go.mod` or
+   `go.sum`.
+5. **Gates:**
+   * the rules above, including `go test -race ./...` on the Linux test host;
+   * `TestWorkflowPinsMatchGoMod` and `TestReleaseJobsReadTheSpec` pass;
+   * `make vulncheck`;
+   * on the Windows host, on the owner's word, `make ci-windows`, since the pin changes what
+     Windows builds. No task is touched.
+
+   U1b stages no Go file, so `make vulncheck` and the pin tests stand in for the per-file pre-add
+   check, as in U1.
+
 ### U3 — The update's guards (D16)
 
 **Files:** `internal/updateclient/client.go`, `client_test.go` or `command_test.go` (whichever
@@ -150,6 +207,64 @@ holds `New`'s tests, measured first), `internal/cli/service/refresh.go`, its tes
      measured in step 1.
 3. **`refresh.go`:** `binaryWarning` calls `service.SameExecutable`.
 4. Gates.
+
+### U3b — Replace before the stop, with a post-install probe (amendment D, D33 to D36) — proposed
+
+**Files:**
+
+* `internal/updateclient/managed.go`, `client.go`, `managed_test.go`, and the test file that holds
+  `New`'s tests (measured in U3);
+* new: `internal/updateclient/replacefirst_guard_test.go` (G1);
+* new: `internal/cli/service/definitions_once_test.go` (G2);
+* new: `internal/updateclient/live_replacefirst_test.go` (live-tagged);
+* `Makefile`, for its `live-replacefirst` target;
+* `docs/guides/ops-linux-install.md` and `ops-windows-install.md`, one sentence each on the order;
+* this plan.
+
+1. **Measure:**
+   * that U3 has landed, and where its prober is built;
+   * the fixture binary U3 chose (a runnable fixture, or the prober's `Run` seam), which U3b
+     reuses;
+   * the real `mcremote version` run time on each OS, which fixes D34's timeout.
+2. **Tests first,** each seen failing on a scratch copy:
+   * **The order.** Over the fake GitHub server and a fake lifecycle (`managed_test.go`'s pattern),
+     the target holds the new release's bytes when `Stop` is called. This fails under today's
+     `NewManagedInstaller`.
+   * **The probe.** A release whose binary fails `version` ends the update with an error. The
+     fake lifecycle records no `Stop`, and the target's bytes are unchanged. Without `PostInstall`
+     this sees a `Stop`.
+   * **The result.** The `--json` result has `replaced_before_stop: true`.
+   * **G1** (D35): AST scan of the non-test files under `cmd` and `internal`.
+     * Its allowlist, with reasons: `internal/cli/doctor.go`, and `internal/cli/service/setup.go`,
+       `refresh.go` and `uninstall.go`.
+     * Plants: an `os.Executable()` call added to an `internal/daemon` file, and a stale allowlist
+       entry. Each must fail.
+   * **G2** (D35): renders both units, the plist, the task XML, and each script kind's definition.
+     The binary's path appears exactly once, and no `ExecStop`, `ExecStopPost` or `ExecReload`
+     appears. Plant: an `ExecStop=` line in a copy of the mcremote template, which must fail.
+3. **Code:**
+   * `managedInstaller` builds `NewManagedInstallerWith(…, selfupdate.ManagedOptions{ReplaceBeforeStop:
+     true})`.
+   * `New` sets `install.PostInstall` to U3's version prober. It is built once, and `Config.Probes`
+     uses it too.
+4. **The live test** `TestLiveReplaceFirstProbeFailure`, behind
+   `MCREMOTE_REQUIRE_REPLACEFIRST=1` and a `make live-replacefirst` target.
+   * It builds the updater as `New` does, against the fake GitHub server, serving a release whose
+     binary fails `version`.
+   * It uses the real backend of the scratch service.
+   * It asserts the error, the target's bytes unchanged, and the daemon's PID and start token
+     unchanged.
+5. **Host runs, on the owner's word** (0210's kit and rules; Windows by W1 to W4):
+   * **L-a, success:** an update from a shell, and an agent-run update that hands off, on:
+     * Linux (systemd, scratch service) and macOS (launchd, scratch service);
+     * runit, s6 and OpenRC, in the containers;
+     * Windows, on the real task.
+
+     Each result has `replaced_before_stop: true`, `service_started: true` and
+     `rolled_back: false`, with a new PID and `/healthz` up.
+   * **L-b, failure:** `make live-replacefirst` in each of the same places. The daemon's PID and
+     start token are unchanged, and so are the binary's bytes.
+6. **Gates,** with the Linux race gate, and the guide sentences.
 
 ### U4 — Task Scheduler through the COM API (D17)
 
@@ -173,6 +288,16 @@ measurement finds); this plan.
    W1 to W4: `setup-service` (unchanged), `--force` (re-registers), `--remove` and a fresh install.
    The task's definition after W4 compares the same as W1's.
 5. Gates.
+
+*Amendment C, proposed (D31):*
+
+* **Tests first:**
+  * a stopped task with an unchanged definition registers nothing, and asks for no `--force`;
+  * `--no-start` over a stopped task with a changed definition registers it with
+    `<Enabled>false</Enabled>`;
+  * "stopped" is read from `Status.Disabled`.
+* **On the Windows host:** step 4 adds `setup-service --no-start` over the stopped real task. It
+  stays disabled, and reads as unchanged.
 
 ### U5 — launchd status through the library (D19)
 
@@ -207,6 +332,15 @@ measurement finds); this plan.
    the daemon with exit code 0, a drain, as in 0054 S9d.
 5. Gates.
 
+*Amendment C, proposed (D30):*
+
+* The Windows start is `Task.Enable`, then `Task.Start`. The stop is `Task.Stop`, which leaves
+  the task disabled.
+* Step 2 adds a test: after a stop in another process, a start enables first and then starts. It
+  is seen failing against a start that only calls `Task.Start`, which returns `ErrTaskDisabled`.
+* After U6, `git grep -n '"/change"' -- internal/cli/service` finds nothing outside tests.
+  `result_print.go:174`'s printed hint stays.
+
 ### U7 — The script backend's contract (D20)
 
 **Files:** `internal/cli/service/scriptbackend.go`, its tests; this plan.
@@ -237,10 +371,15 @@ builds, moved where both daemons can import it; this plan.
 ## Verification
 
 * U1: `go list -m github.com/maccavelli/go-selfupdate-lib` gives `v1.19.0`; the pin tests pass.
+* U1b (amendment C): the same, giving ~~`v1.21.0`~~ `v1.22.0` (amendment E). `go list -m
+  github.com/maccavelli/acp-go-sdk2` still gives `v1.20.0`, and `go list -m all` names no
+  `go-llmprovider-sdk` (D38, D39).
+* U3b (amendment D): its tests, G1 and G2, each seen failing first; L-a and L-b recorded per host.
 * U2: `make ci-windows-smoke` passes on the Windows host.
 * U3 to U8: each phase's fail-first tests, quoted in its record; the gates.
 * After U4 and U6: `git grep -n -e powershell -e '"/create"' -e '"/query"' -e '"/delete"' --
-  internal/cli/service` finds nothing outside tests and hints.
+  internal/cli/service` finds nothing outside tests and hints. With amendment C, `'"/change"'` is
+  added to that search.
 * Each host run's outcome, in its phase's record.
 
 ## Rollout and Rollback
@@ -250,6 +389,12 @@ builds, moved where both daemons can import it; this plan.
   other's code, except U8 on 0210 A3's sender. A revert of U4 brings back the PowerShell probe and
   `schtasks.exe`; a revert of U6, the hard kill on Windows `--remove`. Nothing is migrated on a
   host, so nothing has to be undone there.
+* *Amendment D:* U3b reverts alone. Dropping `ReplaceBeforeStop` restores the default order. A
+  dropped `PostInstall` leaves U3's staged probe in place. G1 and G2 may stay, since they hold
+  facts the default order does not need, but which do no harm.
+* *Amendment C:* U1b alone reverts to `v1.19.0`. Once U4 or U6 has landed on `Task.Enable` or
+  `Status.Disabled`, it cannot revert alone: those phases revert first. *Amendment E:* the same
+  holds at `v1.22.0`, and once 0212's stage 1 uses `SupervisedState`, that stage reverts first too.
 
 ## Execution record
 
@@ -351,6 +496,41 @@ no Go gate applies to it.
 call. `u2_windows.py` first sent `&&`-chained command strings to the host, and one direct call
 chained `make ci-windows` with `echo exit=$?`. Both ran only in the scratch clone. The script now
 sends single commands (`make -C mcr-u2 …`), and the log was fetched with a plain `scp`.
+
+### U1b, 2026-10-24: the `v1.22.0` pin
+
+**Approval.** The owner answered "U1b, then write 0212 PLAN" on 2026-10-24, with amendment E's
+target, `v1.22.0`. The Windows host run of step 5 waits for the owner's word, as the step says.
+
+* **Step 1:** `git ls-remote --tags` gives `refs/tags/v1.22.0^{}` at
+  `84805563ed252df384f59ced45a3daf529702ab4` (tag object `b7c2181b…`), and no tag above
+  `v1.22.0`.
+* **Step 2:** `go get github.com/maccavelli/go-selfupdate-lib@v1.22.0`: "upgraded … v1.19.0 =>
+  v1.22.0". `go mod tidy`: no output.
+* **Step 3:** both `ci.yml` pins now read `@84805563ed252df384f59ced45a3daf529702ab4 #
+  go-selfupdate-lib v1.22.0` (`:712`, `:733`). A script asserted two matches of the old pin before
+  replacing, and two of the new after (`m207e/move_ci_pins.py`, session scratchpad).
+* **Step 4, the diff,** as planned: `ci.yml` 2 lines; `go.mod` 1; `go.sum` 2, where the module's
+  `h1:` line is `h1:AHBwXsYs08WGTteAU7e/1NAa/CqbnTbZx+Xj6LSjKmk=` and its `/go.mod` hash is
+  unchanged. No Go source changed. `git grep a6af9dc7 -- .github go.mod go.sum` finds nothing.
+
+**Step 5, the gates** (`m207e/u1b_gates.py`, logs beside it). U1b stages no Go file, so
+`make vulncheck` and the pin tests stand in for the per-file pre-add check, as in U1.
+
+| Gate | Result |
+| :--- | :--- |
+| `go list -m` | `go-selfupdate-lib v1.22.0`, `acp-go-sdk2 v1.20.0` |
+| `go mod tidy -diff` | exit 0, no output |
+| `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `TestWorkflowPinsMatchGoMod`, `TestReleaseJobsReadTheSpec` (`-v`) | `--- PASS`, each |
+| `make test`, `make race` | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make vulncheck` | "clear; allowlisted required-module findings: GO-2026-5932", as before (0174) |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, go1.27.3 linux/amd64, in a copy of the working tree with its own git index | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line. The copy was deleted |
+| `make ci-windows` on the Windows host | **not run yet:** waits for the owner's word |
+
+The pin tests' ability to fail stands from U2's record above, where a half-moved pin failed
+`TestWorkflowPinsMatchGoMod`. No new test was added, so there is no new plant.
 
 **Not done in U0 to U2.** U3 to U8 wait for 0210's A2, A3, amendment B and L2, and for their own
 approval.
