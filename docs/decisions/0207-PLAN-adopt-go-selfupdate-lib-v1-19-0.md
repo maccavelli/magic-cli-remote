@@ -1020,7 +1020,77 @@ exactly one daemon".
   * `go vet` for windows/amd64 and linux/amd64;
   * `go test ./internal/updateclient` passes.
 
-**Not done in step 5 yet,** each on the owner's word:
+~~**Not done in step 5 yet,** each on the owner's word:~~ Both ran on 2026-10-25, below.
 
-* runit, s6 and OpenRC, in the 0210 kit's containers;
-* Windows, on the real task, by W1 to W4.
+### U3b step 5, 2026-10-25: Windows on the real task, and runit, s6 and OpenRC in the containers
+
+**Approval.** The owner committed the macOS and Linux record and answered "committed, run both step 5
+tests".
+
+**Windows, the real task, by W1 to W4** (`u3b_win.py` on this Mac, `u3b_win_host.py` on the host,
+beside the kit).
+
+* **How the run was arranged.** W1 backed up the installed binary and the config beside
+  themselves. Every later step ran inside a `try`, with W4 in its `finally`.
+* **This change's build** (the kit's `mcremote-windows-amd64.exe`, built from `1f7ed945`, the same
+  product code as `HEAD`) was put at the installed path with the task stopped, and the task started.
+* **L-b** ran `make live-replacefirst` in a tree of `HEAD`, with `MCREMOTE_REPLACEFIRST_UNIT=mcremote`
+  (the task name is fixed, MADR 0159 D13) and the installed path.
+
+| Step | Outcome |
+| :--- | :--- |
+| W1 | `v0.23.0 (release)`; the task `Running`; one paired device; no one-shot task |
+| L-b 1 | `--- PASS`: `replaced_before_stop=true`, "installed probe of mcremote failed: exit status 1", rolled back; no `Stop` or `Start`; the same PID and start token |
+| L-b with `ReplaceBeforeStop: false` | `--- FAIL`, as it should: "the update called Stop 1 and Start 1 times, want neither", "PID 17076's start token is "" … the daemon was replaced" |
+| L-b 2, after a swap and a rollback | `--- PASS` |
+| L-a from a shell, to `v0.23.0` | `applied=True, replaced_before_stop=True, service_started=True, rolled_back=False`; PID 57136 → 39380; `/healthz` answers |
+| L-a by the agent (W2, W3), from this change's build again | `update handed off: c51a8ce7d857c413 (task \mcremote.selfupdate.c51a8ce7d857c413)`. The result has exit code 0, `replaced_before_stop=True, service_started=True, rolled_back=False`; `/healthz` answers on `v0.23.0`; no one-shot task left |
+| W4 | the device revoked; "binary restored byte for byte (v0.23.0 (release) …); config restored byte for byte; devices as before; task Running"; no one-shot task after that start's cleanup; the backups deleted |
+
+W3's transcript scan reads the newest session files, so it also printed two lines from 0210's own
+Windows runs: the refusal of its R1 and L1, and the handoff `68b00105…` of its L2.3. This run's
+handoff is `c51a8ce7…`, the ID in the result file.
+
+**runit, s6 and OpenRC,** in the 0210 kit's containers (local Podman, linux/arm64; `u3b_containers.py`).
+
+* **The setup.** A fresh container per supervisor, as the non-root `tester` user. The scratch
+  service was installed from this change's build.
+* **How L-b runs there.** The images have no Go toolchain, so the driver brings the test in:
+  * the updateclient test binary, cross-compiled with `go test -c`, clean and planted;
+  * `testdata/fixture`;
+  * go1.27.3 linux/arm64, from go.dev and checked against the SHA-256 that go.dev publishes, for
+    `TestMain` to build the fixture.
+
+  It runs `TestLiveReplaceFirstProbeFailure` with the make target's variables. The container has no
+  `make`, so this is the target's command, run directly.
+
+**The first container run counts only in part.** Two mistakes in the driver, neither in U3b:
+
+* **runit's L-b never ran:** "the go command is required to build the fixture: exec: "go":
+  executable file not found". The Void image has no `tar` or `gzip`, so the toolchain was never
+  unpacked, and the driver did not check.
+* **s6's L-b never ran:** "mcremote-d3probe must be running before the test: running=false". The
+  kit installs the scratch service with its own `XDG_STATE_HOME` and `XDG_DATA_HOME`. runit and s6
+  find a service's directory under `XDG_DATA_HOME`, and the driver ran the test without those two
+  variables. OpenRC's definition is under `XDG_CONFIG_HOME`, which the kit leaves alone.
+* **The fix and the rerun.** The driver now unpacks the toolchain on this Mac and copies the
+  directory in. It checks `go version` before anything else, and passes the scratch service's two
+  variables, as the kit's own `update` has them. runit and s6 then ran again in full.
+* **OpenRC's first run counts.** It had no such problem, and its rows below are from that run.
+
+| Supervisor | L-b 1 | L-b planted | L-b 2 | L-a from a shell, to `v0.23.0` | The agent-run update |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| runit (Void) | `--- PASS` | `--- FAIL`, as it should: "Stop 1 and Start 1 times, want neither", "PID 29's start token is "" … replaced" | `--- PASS` | `replaced_before_stop=True, service_started=True, rolled_back=False`; PID 718 → 826; `/healthz` up | refused: "this update runs inside the mcremote service and cannot hand off here"; no download event; PID 856 throughout |
+| s6 (Alpine) | `--- PASS` | `--- FAIL`, as it should: "… PID 26's start token is "" … replaced" | `--- PASS` | the same fields; PID 730 → 840 | refused, the same; PID 877 throughout |
+| OpenRC (Alpine) | `--- PASS` | `--- FAIL`, as it should: `* Stopping mcremote-d3probe … [ ok ]`, `* Starting mcremote-d3probe … [ ok ]`, "… PID 189's start token is "" … replaced" | `--- PASS` | the same fields; PID 1100 → 1400 | refused, the same; PID 1531 throughout |
+
+Each container's scratch service was removed (`setup-service --remove` exit 0, and OpenRC's `.prev`
+backup removed too), and each container was deleted. `podman ps -a` lists none. The Podman machine
+was stopped again, as it was before.
+
+**A difference from the plan, waiting for the owner.** Step 5 and the MADR's D36 expect an agent-run
+update that hands off under runit, s6 and OpenRC, with `replaced_before_stop: true`. That cannot
+happen yet. Under those supervisors an update from inside the service refuses before it downloads,
+because no handoff exists for them (0210-MADR D8). The library's supervised adapter brings one, but
+adopting it is 0212's work. What ran is the refusal, with the service untouched. The replacement
+before the stop is shown there by the update from a shell and by L-b.
