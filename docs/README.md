@@ -417,6 +417,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0212 | MADR | Run runit, s6 and OpenRC through go-selfupdate-lib's supervised adapter, with Magic keeping each supervisor's state and commands | [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](decisions/0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md) |
 | 0212 | PLAN | Implement runit, s6 and OpenRC through go-selfupdate-lib's supervised adapter | [0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](decisions/0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md) |
 | 0212 | REPORT | What Magic's service backends can take from `go-selfupdate-lib` | [0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md](../docs/reports/0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md) |
+| 0213 | MADR | Align docs-only CI and disclosure gates | [0213-MADR-align-docs-ci-and-disclosure-gates.md](decisions/0213-MADR-align-docs-ci-and-disclosure-gates.md) |
+| 0213 | PLAN | Implement aligned docs-only CI and disclosure gates | [0213-PLAN-align-docs-ci-and-disclosure-gates.md](decisions/0213-PLAN-align-docs-ci-and-disclosure-gates.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
