@@ -420,6 +420,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0213 | MADR | Align docs-only CI and disclosure gates | [0213-MADR-align-docs-ci-and-disclosure-gates.md](decisions/0213-MADR-align-docs-ci-and-disclosure-gates.md) |
 | 0213 | PLAN | Implement aligned docs-only CI and disclosure gates | [0213-PLAN-align-docs-ci-and-disclosure-gates.md](decisions/0213-PLAN-align-docs-ci-and-disclosure-gates.md) |
 | 0214 | MADR | Run OpenCode v2 over ACP with a lease-bound v2 HTTP control plane | [0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) |
+| 0215 | MADR | Test darwin/arm64 natively in CI with a macOS leg | [0215-MADR-test-darwin-arm64-natively-in-ci.md](decisions/0215-MADR-test-darwin-arm64-natively-in-ci.md) |
+| 0215 | PLAN | Implement a native darwin/arm64 CI leg | [0215-PLAN-test-darwin-arm64-natively-in-ci.md](decisions/0215-PLAN-test-darwin-arm64-natively-in-ci.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

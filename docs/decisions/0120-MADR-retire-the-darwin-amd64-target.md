@@ -544,6 +544,11 @@ it removes the *cost* objection but never established a *benefit*, and this
 amendment supplies the missing half. Anyone reopening this should argue from the
 gated surface, not from the phrase "unexercised target".
 
+*Superseded 2026-10-25 by
+[0215-MADR-test-darwin-arm64-natively-in-ci.md](0215-MADR-test-darwin-arm64-natively-in-ci.md),
+which re-measured the gated surface.* The measurement above stays as written;
+it was true when made.
+
 ### What the measurement does not settle
 
 macOS verification is a **manual step with no record**. Nothing in the

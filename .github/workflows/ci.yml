@@ -188,6 +188,9 @@ jobs:
         include:
           - { runner: ubuntu-24.04-arm, label: linux/arm64, shell: bash }
           - { runner: windows-latest, label: windows/amd64, shell: bash }
+          # MADR 0215 D1, D3: darwin/arm64 natively, on the pinned macos-15
+          # image (arm64), so an image change is a change here.
+          - { runner: macos-15, label: darwin/arm64, shell: bash }
           # No windows-11-arm leg: windows/arm64 is out of scope (MADR 0116
           # D19) — not a first-class port (zosarch.go), no local acceptance
           # host, and the most divergent runner image (no MSYS2).
@@ -275,6 +278,14 @@ jobs:
           # RUNNER_TEMP and FLAKE_STEP from the environment instead.
           on_retry_command: bash scripts/ci-flake-on-retry.sh
 
+      # MADR 0215 D2. The darwin leg also races. The job's CGO_ENABLED=0
+      # stands: on darwin -race needs no cgo (MADR 0116 D20), so this tests the
+      # same pure-Go stack as the pass above. Not retried, as the go job's race
+      # step is not: a race is a defect, not a flake.
+      - name: Test (race, darwin, cgo-free)
+        if: runner.os == 'macOS'
+        run: go test -race ./...
+
       # total_attempts > 1 is the ledger trigger (supplied free by the action).
       # Row is uploaded as an artifact; ci-flake-ledger.yml appends to the
       # committed ci-flakes.tsv so a retry does not produce a commit per flake.
@@ -300,20 +311,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  # No go-macos job, deliberately (MADR 0120 D11). Cost is NOT the reason:
-  # standard macOS runners are free and unlimited for public repositories (cap:
-  # 5 concurrent macOS jobs). The reason is that there is almost nothing here
-  # for such a job to run. The darwin-gated surface is 67 lines in two files
-  # (procutil/owner_darwin.go, procutil/starttoken_darwin.go), there are zero
-  # darwin-gated test files, and those 67 lines are already compile-checked on
-  # every push by `make verify-build-metadata`. The macOS logic that matters —
-  # plist rendering, TCC, launchd setup — carries no build tags and already
-  # runs on the ubuntu and windows lanes. darwin/arm64 runtime behaviour is
-  # covered by owner acceptance testing on real hardware.
-  #
-  # If you are here to add the job: argue from the gated surface, not from
-  # "darwin/arm64 has no CI lane". The latter is true and, on its own, not a
-  # reason.
+  # darwin/arm64 runs in go-native above (MADR 0215, superseding MADR 0120
+  # D11, which re-measured the darwin surface the update path had grown).
 
   # ---------------------------------------------------------------------------
   # Flutter app: format + static analysis + widget/unit tests
