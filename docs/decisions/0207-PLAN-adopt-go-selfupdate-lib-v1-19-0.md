@@ -946,3 +946,81 @@ were deleted afterwards.
   * Windows, on the real task by W1 to W4.
 
   The plan stays `in-progress` until they are recorded.
+
+### U3b step 5, 2026-10-25: macOS and Linux, on the scratch services
+
+**Approval.** The owner committed U3b's steps 1 to 4 and 6 as `1f7ed945`, and answered "committed
+proced", which approves step 5's host runs. Run first on the two scratch-service hosts, as the 0210
+kit sets them up.
+
+**The setup:**
+
+* **The kit:** the 0210 kit (R0), rebuilt from `HEAD` `1f7ed945`. The scratch service is
+  `mcremote-d3probe`, on port 17631, under `~/mcr-d3probe`. The host's real service is never touched.
+* **The new phases:** `u3b_run.py`, beside the kit in the session scratchpad:
+  * `shell-update <tag>` runs `update --yes --force --version <tag> --json` from a shell, against
+    the scratch service;
+  * `handoff-result` reads the result after the kit's `inside-agent` phase.
+* **The release:** the update installs the latest published release, `v0.23.0`. So the code that
+  updates is U3b's, and the binary that is probed and swapped in is a real release's.
+
+**macOS (launchd):**
+
+| Run | Outcome |
+| :--- | :--- |
+| L-b, `make live-replacefirst` | `--- PASS`: "installed probe of mcremote failed: exit status 1", "the replacement was rolled back"; `replaced_before_stop=true`, no `Stop` or `Start`, the same PID and start token, the same bytes |
+| L-b with `ReplaceBeforeStop: false`, on a scratch copy of `HEAD` (`plant_live.py`) | `--- FAIL`, as it should: "the binary was not replaced before the stop", "the update called Stop 1 and Start 1 times, want neither", "PID 34297's start token is "" … the daemon was replaced" |
+| L-a from a shell, to `v0.23.0` | `applied=True, replaced_before_stop=True, service_started=True, rolled_back=False`; PID 34816 → 35135; `/healthz` up, binary `v0.23.0 (release)` |
+| L-a by the agent | `update handed off: 001e398dcb47dd34 (launchd job …)`; the result has `replaced_before_stop: true`, `service_started: true`, `rolled_back: false`; PID 35437 → 35522; `/healthz` up on `v0.23.0` |
+
+* **Cleanup.** The scratch job was removed (`setup-service --remove` exit 0; `launchctl print` exit
+  113, not found).
+* **The handoff's own job stayed loaded.** The one-shot job had finished with exit 0, but it was
+  still loaded with its plist, because no daemon of this build restarted after it to clear it. That
+  is the case 0210's L1.2 recorded. It was unloaded with `launchctl bootout`, and its plist deleted.
+
+**Linux, systemd** (the Linux test host; `u3b_linux.py`, then `u3b_linux_lb.py`):
+
+| Run | Outcome |
+| :--- | :--- |
+| L-b, `make live-replacefirst` | `--- PASS`, as on macOS |
+| L-a from a shell, to `v0.23.0` | `applied=True, replaced_before_stop=True, service_started=True, rolled_back=False`; PID 3015050 → 3015618; `/healthz` up on `v0.23.0` |
+| L-a by the agent | `update handed off: c597c2f93bd14b1d (transient unit mcremote-d3probe-selfupdate-c597c2f93bd14b1d.service)`. The transient unit's journal runs through to "mcremote: updated dev -> v0.23.0", with no "reception is disabled" line. The result has `replaced_before_stop: true`, `service_started: true`, `rolled_back: false`; the scratch unit is `active`/`running` on PID 3015821 |
+
+**A finding, fixed within U3b's files.** The first Linux run's plant did not fail on the stop and the
+daemon. It failed before the update ran: "0 processes run /home/<user>/mcr-d3probe/mcremote, want
+exactly one daemon".
+
+* **The cause.** The live test found the Linux daemon by `/proc/<pid>/exe`. The passing L-b just
+  before it had swapped the binary under the running daemon and rolled it back, and after that the
+  daemon's `exe` link no longer named the target.
+* **The driver was too loose.** It counted any `--- FAIL` as the expected failure, so this plant
+  proved nothing.
+* **The fix,** in `live_replacefirst_test.go`, which is one of U3b's files. `pidByCommandLine` finds
+  the one process whose first argument is the binary, by its named or resolved path, and which has
+  `serve` among its arguments. That is what the supervisor started, and a rename under the process
+  does not change it. The 0210 kit finds its daemon the same way.
+* **The plant check is now strict.** It must fail with "want neither" and "the daemon was replaced",
+  and without "want exactly one daemon".
+
+**Linux, again, with the fixed test** (`u3b_linux_lb.py`):
+
+| Run | Outcome |
+| :--- | :--- |
+| L-b 1 | `--- PASS` |
+| L-b with `ReplaceBeforeStop: false` | `--- FAIL`, as it should: "the update called Stop 1 and Start 1 times, want neither", "PID 3015975's start token is "" … the daemon was replaced" |
+| L-b 2, after the plant's swap and rollback under the running daemon | `--- PASS`: the case the first lookup could not handle |
+
+* **Cleanup.** The scratch unit and its `.prev` backup were removed, and `list-unit-files` no
+  longer lists the unit. The kit, the two source trees and `~/mcr-d3probe` were deleted.
+* **macOS again with the fixed file.** L-b passed (`--- PASS`), and the scratch job was removed
+  again. The macOS path reads launchd's PID, so the fix does not change what it checks.
+* **Gates on the fix:**
+  * `make pre-add-check` on the file: "1 file(s) clean (gofmt, golint, govulncheck)";
+  * `go vet` for windows/amd64 and linux/amd64;
+  * `go test ./internal/updateclient` passes.
+
+**Not done in step 5 yet,** each on the owner's word:
+
+* runit, s6 and OpenRC, in the 0210 kit's containers;
+* Windows, on the real task, by W1 to W4.

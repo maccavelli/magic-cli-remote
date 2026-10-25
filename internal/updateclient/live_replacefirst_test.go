@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -65,16 +66,15 @@ func TestLiveReplaceFirstProbeFailure(t *testing.T) {
 			replaceFirstUnitEnv, replaceFirstBinaryEnv)
 	}
 	unit := os.Getenv(replaceFirstUnitEnv)
-	target := os.Getenv(replaceFirstBinaryEnv)
-	if unit == "" || target == "" || !filepath.IsAbs(target) {
+	named := os.Getenv(replaceFirstBinaryEnv)
+	if unit == "" || named == "" || !filepath.IsAbs(named) {
 		t.Fatalf("%s=1 needs %s and an absolute %s; got %q and %q", replaceFirstRequireEnv,
-			replaceFirstUnitEnv, replaceFirstBinaryEnv, unit, target)
+			replaceFirstUnitEnv, replaceFirstBinaryEnv, unit, named)
 	}
-	resolved, err := filepath.EvalSymlinks(target)
+	target, err := filepath.EvalSymlinks(named)
 	if err != nil {
 		t.Fatal(err)
 	}
-	target = resolved
 	original, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestLiveReplaceFirstProbeFailure(t *testing.T) {
 	if running, err := backend.Running(ctx, "mcremote"); err != nil || !running {
 		t.Fatalf("%s must be running before the test: running=%v, err=%v", unit, running, err)
 	}
-	pid, err := daemonPID(ctx, backend, target)
+	pid, err := daemonPID(ctx, backend, named, target)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,8 +145,8 @@ func TestLiveReplaceFirstProbeFailure(t *testing.T) {
 
 // daemonPID is the PID of the service's running process: launchd's and Task
 // Scheduler's own report on macOS and Windows, and on Linux, under any
-// supervisor, the process whose executable is target.
-func daemonPID(ctx context.Context, backend service.Backend, target string) (int, error) {
+// supervisor, the process started as the binary, named or target, to serve.
+func daemonPID(ctx context.Context, backend service.Backend, named, target string) (int, error) {
 	switch b := backend.(type) {
 	case interface {
 		Status(context.Context, string) (launchd.Status, error)
@@ -168,12 +168,16 @@ func daemonPID(ctx context.Context, backend service.Backend, target string) (int
 	if runtime.GOOS != "linux" {
 		return 0, fmt.Errorf("no way to find the daemon's PID on %s for %T", runtime.GOOS, backend)
 	}
-	return pidByExecutable(target)
+	return pidByCommandLine(named, target)
 }
 
-// pidByExecutable finds the one process whose executable is target, through
-// /proc.
-func pidByExecutable(target string) (int, error) {
+// pidByCommandLine finds, through /proc, the one process whose first argument
+// is the binary, by either path, and which serves. The command line is what
+// the supervisor started, so it holds across a replacement and a rollback
+// under the running process; /proc/<pid>/exe does not: after a rollback it
+// no longer names the target, which a second run on the Linux test host
+// showed (0207 PLAN, U3b's step 5 record).
+func pidByCommandLine(named, target string) (int, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return 0, err
@@ -181,17 +185,20 @@ func pidByExecutable(target string) (int, error) {
 	var pids []int
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == os.Getpid() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
 		if err != nil {
 			continue
 		}
-		exe, err := os.Readlink(filepath.Join("/proc", e.Name(), "exe"))
-		if err != nil || exe != target || pid == os.Getpid() {
-			continue
+		argv := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
+		if (argv[0] == named || argv[0] == target) && slices.Contains(argv[1:], "serve") {
+			pids = append(pids, pid)
 		}
-		pids = append(pids, pid)
 	}
 	if len(pids) != 1 {
-		return 0, fmt.Errorf("%d processes run %s, want exactly one daemon: %v", len(pids), target, pids)
+		return 0, fmt.Errorf("%d processes serve as %s, want exactly one daemon: %v", len(pids), named, pids)
 	}
 	return pids[0], nil
 }
