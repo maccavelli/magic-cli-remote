@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
 // Refresh verdicts. Every one of them is a successful outcome: a refresh that
@@ -585,7 +587,9 @@ func pathDriftWarning(product string, env renderEnv) []string {
 
 // binaryWarning flags a definition that runs a different binary than the one
 // this process is — the case where an update swaps a binary the service does
-// not run.
+// not run. Two spellings of one file are the same binary: another case on
+// Windows, a symlink, a junction or an 8.3 short name, as the library's
+// backends judge it when they reconcile (MADR 0207 D16).
 func binaryWarning(unitBinary string) []string {
 	if unitBinary == "" {
 		return nil
@@ -597,7 +601,7 @@ func binaryWarning(unitBinary string) []string {
 	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil && resolved != "" {
 		exe = resolved
 	}
-	if exe == unitBinary {
+	if libservice.SameExecutable(exe, unitBinary) {
 		return nil
 	}
 	return []string{"the definition runs " + unitBinary + ", not this binary (" + exe + ")"}

@@ -592,3 +592,29 @@ func TestRefreshWarnsWhenTheDefinitionRunsAnotherBinary(t *testing.T) {
 		t.Errorf("warnings = %q, want %q", got.Warnings, want)
 	}
 }
+
+// TestBinaryWarningKnowsTwoSpellingsOfOneBinary is MADR 0207 D16: a
+// definition that names this binary through a symlink runs this binary, so a
+// refresh does not warn that it runs another; a definition that names another
+// file still warns.
+func TestBinaryWarningKnowsTwoSpellingsOfOneBinary(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	link := filepath.Join(dir, "mcremote")
+	if err := os.Symlink(exe, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := binaryWarning(link); got != nil {
+		t.Errorf("binaryWarning(a symlink to this binary) = %q, want none", got)
+	}
+	other := filepath.Join(dir, "other")
+	if err := os.WriteFile(other, []byte("another binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := binaryWarning(other); len(got) != 1 {
+		t.Errorf("binaryWarning(another file) = %q, want one warning", got)
+	}
+}

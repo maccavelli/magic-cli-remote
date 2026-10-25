@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,6 +26,8 @@ import (
 	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/cli"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/codesign"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/releasespec"
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
@@ -36,6 +39,11 @@ var Repository = selfupdate.Repository{Owner: "maccavelli", Name: "magic-cli-rem
 // OperationTimeout bounds one whole update: discovery, download, install and
 // any managed recovery.
 const OperationTimeout = 15 * time.Minute
+
+// probeTimeout bounds one run of the staged binary's identity command. A
+// first run on macOS may wait for the system's assessment of a new binary,
+// so it is generous next to the command itself.
+const probeTimeout = 30 * time.Second
 
 // Options describe one product's updater.
 type Options struct {
@@ -74,7 +82,8 @@ func New(opts Options) (*selfupdate.Updater, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := spec.Product(opts.Product); err != nil {
+	product, err := spec.Product(opts.Product)
+	if err != nil {
 		return nil, fmt.Errorf("updateclient: %w", err)
 	}
 	selector, err := spec.AssetSelector()
@@ -87,11 +96,17 @@ func New(opts Options) (*selfupdate.Updater, error) {
 	}
 	limits := selfupdate.DefaultLimits()
 
-	client := opts.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: OperationTimeout}
+	source, err := newSource(opts, httpClient(opts.HTTPClient), limits)
+	if err != nil {
+		return nil, err
 	}
-	source, err := newSource(opts, client, limits)
+	// The release asset must be an executable image for this platform before
+	// anything else looks at it (MADR 0207 D16).
+	image, err := selfupdate.NewImageVerifier(selfupdate.Platform{})
+	if err != nil {
+		return nil, fmt.Errorf("updateclient: image verifier: %w", err)
+	}
+	probes, err := newProbes(product, opts.CodesignIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -124,13 +139,53 @@ func New(opts Options) (*selfupdate.Updater, error) {
 		Source:      source,
 		Versions:    selfupdate.NewStrictVersionPolicy(),
 		Assets:      selector,
+		Verifiers:   []selfupdate.Verifier{image},
 		Unpacker:    unpacker,
 		Transformer: transformer,
+		Probes:      probes,
 		Installer:   installer,
 		Reporter:    selfupdate.DiscardReporter(),
 		Confirmer:   selfupdate.NonInteractiveConfirmer(),
 		Limits:      limits,
 	})
+}
+
+// httpClient is the update's HTTP client: the given one, or the library's
+// default. The default has no Client.Timeout, since cli.Run's context already
+// bounds the whole update by OperationTimeout, and a timeout on the client
+// would cut off a slow but healthy download (MADR 0207 D16).
+func httpClient(given *http.Client) *http.Client {
+	if given != nil {
+		return given
+	}
+	return selfupdate.DefaultHTTPClient()
+}
+
+// newProbes are the checks the staged binary must pass before anything is
+// stopped or replaced (MADR 0207 D16). On macOS with a signing identity, the
+// signature newTransformer gave it is checked first, so a binary whose
+// signature fails is never run. Then the binary must run here and report the
+// tag being installed, through the identity arguments the release spec
+// declares. A product with none is refused rather than left unprobed.
+func newProbes(product releasespec.Product, codesignIdentity string) ([]selfupdate.Prober, error) {
+	if len(product.IdentityArgs) == 0 {
+		return nil, fmt.Errorf("updateclient: release spec gives %s no identity_args to probe it with", product.Name)
+	}
+	var probes []selfupdate.Prober
+	if strings.TrimSpace(codesignIdentity) != "" && runtime.GOOS == "darwin" {
+		checker, err := codesign.NewChecker(codesign.CheckOptions{
+			Requirement: `identifier "` + codesignIdentifier(product.Name) + `"`,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("updateclient: codesign check: %w", err)
+		}
+		probes = append(probes, checker)
+	}
+	version, err := selfupdate.NewVersionProber(product.IdentityArgs, nil, probeTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("updateclient: version probe: %w", err)
+	}
+	return append(probes, version), nil
 }
 
 func newSource(opts Options, client *http.Client, limits selfupdate.Limits) (selfupdate.ReleaseSource, error) {

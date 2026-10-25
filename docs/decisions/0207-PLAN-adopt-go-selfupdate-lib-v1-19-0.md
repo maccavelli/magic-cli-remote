@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-24
+date: 2026-10-25
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -186,10 +186,14 @@ for the newest pins. The struck values are D29's.
    U1b stages no Go file, so `make vulncheck` and the pin tests stand in for the per-file pre-add
    check, as in U1.
 
-### U3 — The update's guards (D16)
+### U3 — The update's guards (D16) — done
 
 **Files:** `internal/updateclient/client.go`, `client_test.go` or `command_test.go` (whichever
 holds `New`'s tests, measured first), `internal/cli/service/refresh.go`, its test; this plan.
+*U3 Deviation 1, 2026-10-25:* `internal/updateclient/managed_test.go` joins, for the runnable
+fixture (execution record below). *U3 Deviation 2:* so do `internal/updateclient/testdata/fixture/main.go`
+and its `go.mod`, the fixture program. *U3 Deviation 3:* so does
+`internal/cli/service/refresh_windows_test.go`, for the case on Windows.
 
 1. **Tests first:**
    * A staged binary whose `version` fails, or prints another tag, is refused, and the fake
@@ -549,3 +553,216 @@ The pin tests' ability to fail stands from U2's record above, where a half-moved
 
 **Not done in U0 to U2.** U3 to U8 wait for 0210's A2, A3, amendment B and L2, and for their own
 approval.
+
+### U3 Deviation 1, 2026-10-25 — the release fixture becomes a runnable image. The owner decided: "option 1, research this. make it as idiomatic, hardened, and robust as possible."
+
+**Approval.** 0210 is complete, so U3's wait is over. The owner answered "pushed. proceed with u3"
+on 2026-10-25.
+
+**Found while measuring step 1, before any file was written.** The update tests serve releases
+whose binary for every platform is a line of text: `releaseBody` returns `"mcremote <tag>
+<os>/<arch>"` (`internal/updateclient/managed_test.go:90-92`). Both of U3's guards refuse that:
+
+* `NewImageVerifier` requires an ELF, Mach-O or PE image for the platform, and has no test seam;
+* `NewVersionProber` runs the staged file with the spec's identity arguments, and text does not
+  run.
+
+So every existing test that installs a release would fail under U3: those in `managed_test.go`,
+`command_test.go` and `managed_script_unix_test.go`. Step 2 foresaw a fixture change ("a runnable
+fixture, or the prober's `Run` seam"), but the files list did not name `managed_test.go`, where
+the fixture lives. The prober's `Run` seam alone would not do, since the image verifier has none.
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** `managed_test.go` joins U3. `releaseBody` serves the package's own test binary for
+   the host platform, and `TestMain` answers its identity arguments with the release tag.
+2. A separate fixture program under `testdata/`, built once in `TestMain`. It needs the toolchain
+   at test time and the same `managed_test.go` change.
+3. Not offered: a seam that replaces the guards in tests. The existing install tests would then
+   never pass the real image check, which is a guard turned off.
+
+**The design, from go-selfupdate-lib's own tests.** The library's `selfupdate/probe_test.go`
+serves its test binary as the new release, and its `TestMain` prints a version when
+`SELFUPDATE_TEST_PRINT_VERSION` is set (`replace_native_test.go:17-34`). U3 follows that pattern,
+with these additions:
+
+* **The fixture answers only when it is run exactly as the prober runs it:** a marker variable
+  that `TestMain` sets before `m.Run`, and arguments equal to the spec's identity arguments. A
+  child started any other way runs the tests as usual, and a probe can never start the whole
+  suite again.
+* **It prints what a release prints:** `buildinfo.Info{Version: tag, Kind: KindRelease}.String()`,
+  with the tag `v0.2.0` by default. A test sets another tag or a non-zero exit with `t.Setenv`.
+* **The image is read once, in `TestMain`,** which exits 2 when it cannot read it, so no test
+  fails later with a confusing error. Only the host platform's asset is an image. The others stay
+  text, since only the host's asset is downloaded.
+* **`requireReplaced` reports a size and a SHA-256 when it fails,** not the bytes.
+* **`New` fails closed:** a product whose spec has no `identity_args` is refused, and the prober is
+  never silently left out.
+* **The macOS checker takes a requirement:** `identifier "<the signer's identifier>"`, so the
+  staged binary must carry the signature `newTransformer` gave it. It runs before the version
+  prober, so a binary whose signature fails is never executed.
+
+The test binary is 19 MB, as measured with `go test -c` on darwin/arm64. That is well under the
+library's 512 MiB `Limits.Executable`.
+
+### U3 Deviation 2, 2026-10-25 — the fixture becomes a small program, built once. The owner decided: "D1: option 2"
+
+**Found after Deviation 1 was built, with every gate passing.** Serving the test binary cost time
+the plan did not foresee. The binary is 19 MB, and 24 MB under `-race`. A test that installs a
+release took about 1.9 s under `-race`, against about 0.15 s for one that stops before the
+download. The updateclient package's times, taken from U1b's gate logs (before) and Deviation 1's
+gate run (after):
+
+| Run | Before | After Deviation 1 |
+| :--- | :--- | :--- |
+| `make test`, darwin/arm64 | 11.5 s | 20.6 s |
+| `make race`, darwin/arm64 | 13.9 s | 50.7 s |
+| `go test -race ./...`, the Linux test host | 5.5 s | 84.5 s |
+
+On the Linux test host it became the slowest package, beyond `internal`'s 69.3 s, so the whole
+race run grew.
+
+**The resolutions put to the owner:** keep the test binary and accept the cost, or Deviation 1's
+second resolution, a small fixture program built once (recommended, chosen).
+
+**The design, from go-selfupdate-lib's `archive/main_test.go` and `internal/testproc.Build`:**
+
+* **The program is `testdata/fixture/main.go`, a module of its own** (`go.mod`, `go 1.27.3` as
+  the main module). It imports only the standard library. The go command ignores `testdata`, so
+  `go build ./...`, `go vet ./...` and `go mod tidy` never see it.
+* **`TestMain` builds it once,** into a temporary directory that it removes after the tests:
+  `go build -trimpath -buildvcs=false -ldflags="-s -w"`, with `GOOS` and `GOARCH` the host's,
+  `CGO_ENABLED=0`, `GOWORK=off` and `GOFLAGS=` cleared. The build is therefore the same under
+  `-race`, `-cover` or any `GOFLAGS`, and writes nothing in the tree. A build that fails, or a
+  missing go command, exits 2 with the go command's output.
+* **It answers only `version`.** Run with any other arguments, it fails with exit 2. `TestMain`
+  refuses a spec whose `mcremote` identity arguments are not exactly `["version"]`, so the two
+  cannot drift apart unnoticed.
+* **What it prints and how it exits:** `<tag> (release)`, which is `buildinfo.Info.String()` for a
+  release with no revision. The tag is `v0.2.0` unless `MCREMOTE_UPDATECLIENT_FIXTURE_VERSION` is
+  set, and the exit status is `MCREMOTE_UPDATECLIENT_FIXTURE_EXIT`'s, where a value that is not a
+  number exits 2.
+* **Deviation 1's marker variable goes.** It kept the test binary from starting its own suite
+  again, and a separate program cannot do that.
+* **The rest of Deviation 1 stands:** `releaseBody`, `describe`, `foreignImage`, `New` failing
+  closed, and the checker's requirement.
+
+### U3 Deviation 3, 2026-10-25 — the Windows case gets its own test file. The owner decided: "D2: add a windows case"
+
+**Found while writing step 1's fourth test.** `refresh_test.go` is built for Unix only
+(`//go:build unix`), so it can hold the symlink case but not the case on Windows that step 1 names.
+`internal/cli/service/refresh_windows_test.go` joins U3: `binaryWarning` reports no warning for this
+test binary's path in another case, and still warns for another file. The Windows run of
+`make ci-windows` is what runs it, and it also runs the fixture and the PE patch on Windows. That run
+needs the owner's word.
+
+### U3, 2026-10-25: the update's guards
+
+**The change, as built after Deviations 1 to 3:**
+
+* **`client.go`:**
+  * `httpClient` returns the given client, or `selfupdate.DefaultHTTPClient()`, which has no
+    `Client.Timeout`.
+  * `Config.Verifiers` is `NewImageVerifier(selfupdate.Platform{})`, the runtime platform.
+  * `Config.Probes` comes from `newProbes`:
+    * on macOS with `MC_CODESIGN_IDENTITY`, first `codesign.NewChecker` with the requirement
+      `identifier "com.magiccliremote.<product>"`;
+    * then `NewVersionProber(<the product's identity_args>, nil, 30 s)`;
+    * a product with no `identity_args` is an error.
+* **`refresh.go`:** `binaryWarning` compares with `libservice.SameExecutable`.
+* **The tests:**
+
+  | Test | What it pins |
+  | :--- | :--- |
+  | `TestUpdateRefusesAReleaseThatIsNotForThisPlatform` | text, and a host image patched to another architecture: `ErrIntegrity`, no stop, start or refresh, the executable untouched |
+  | `TestUpdateRefusesAStagedBinaryThatCannotRunHere` | a fixture that exits 3, and one that reports `v0.1.9`: "staged binary failed a probe", no stop, the executable untouched |
+  | `TestNewUsesTheLibraryHTTPClient` | no `Client.Timeout`, its own transport, a given client kept |
+  | `TestNewProbesTheStagedBinary` | one probe for each product, two on macOS with an identity, an error without `identity_args` |
+  | `TestFixtureAnswersOnlyItsIdentityArguments` | the fixture's contract, which the refusal tests rely on |
+  | `TestBinaryWarningKnowsTwoSpellingsOfOneBinary` (Unix) | a symlink to the test binary gives no warning; another file warns |
+  | `TestBinaryWarningIgnoresCaseOnWindows` (Windows) | the test binary's path in another case gives no warning; another file warns |
+
+* **The fixture** is 1.6 MB on darwin/arm64, against the test binary's 19 MB. Building it in
+  `TestMain` writes nothing in the tree (`git status` shows only U3's files).
+
+**Seen failing first.** `m207u3/plants.py` (session scratchpad) ran each plant on its own scratch
+copy: `git archive HEAD` of `go.mod`, `go.sum`, `cmd` and `internal`, with U3's files laid over it
+and one plant applied by an asserted replacement. A plant counts only when `go test` exits non-zero
+on the named test's `--- FAIL`, or on `TestMain`'s message. A build failure does not count, and
+the script's first run refused three such plants until they were rewritten to compile.
+
+| Plant | The failure |
+| :--- | :--- |
+| U3's `client.go` over the committed tests (Deviation 1's evidence) | `TestUpdateStartsAStoppedServiceOnlyWhenEnabled`: "selfupdate: mcremote: selfupdate: integrity check failed", each subtest |
+| no image verifier | `TestUpdateRefusesAReleaseThatIsNotForThisPlatform`: the probe still refused both binaries ("staged binary failed a probe: … fork/exec …"), but the test requires `ErrIntegrity`, so it failed |
+| no probes | `TestUpdateRefusesAStagedBinaryThatCannotRunHere`: "managed install failed", past the stop |
+| the client with `Timeout: OperationTimeout` | `TestNewUsesTheLibraryHTTPClient`: "Client.Timeout = 15m0s, want none" |
+| no probe and no error without `identity_args` | `TestNewProbesTheStagedBinary`: "a product with no identity_args was given no probe and no error" |
+| `binaryWarning` comparing strings | `TestBinaryWarningKnowsTwoSpellingsOfOneBinary`: "binaryWarning(a symlink to this binary) = ["the definition runs …"]" |
+| `foreignImage` patching nothing | `TestUpdateRefusesAReleaseThatIsNotForThisPlatform`: "the patched fixture is not a darwin/amd64 image" |
+| `TestMain` expecting other identity arguments | the run stops before any test: "updateclient: release fixture: … testdata/fixture answers only [version]" |
+| a fixture that does not compile | the run stops: "go build in testdata/fixture: exit status 1", with the compiler's message |
+| a fixture that answers any arguments | `TestFixtureAnswersOnlyItsIdentityArguments`: "stdout "v0.2.0 (release)\n", exit 0; want "", exit 2", for no, other and extra arguments |
+
+The Windows test was not planted: this host cannot run it. It runs in `make ci-windows`.
+
+**Gates** (`m207u3/u3_gates.py`, logs beside it):
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the 7 Go files | "7 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| The new tests (`-count=1 -v`) | `--- PASS`, each, subtests included |
+| `make test`, `make race` | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs`, markdownlint on this plan | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, go1.27.3 linux/amd64, in a copy of the working tree with its own git index | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line. The copy was deleted |
+
+**The updateclient package's time**, which Deviation 2 was about:
+
+| Run | Before U3 | Deviation 1 | Built |
+| :--- | :--- | :--- | :--- |
+| `make test`, darwin/arm64 | 11.5 s | 20.6 s | 14.5 s |
+| `make race`, darwin/arm64 | 13.9 s | 50.7 s | 23.0 s |
+| `go test -race ./...`, the Linux test host | 5.5 s | 84.5 s | 12.3 s |
+
+The difference that remains is the fixture's build, and the probe each install test now runs.
+
+**The Windows run, 2026-10-25, on the owner's word ("proceed")** (`m207u3/u3_windows.py`, log
+beside it). It used a scratch clone of `master` made from a git bundle, not the host's install, and
+touched no task. The clone's `HEAD` checked equal to the local `HEAD`, `6c664d9b`, and U3's eight
+files were copied in: five modified, three new, as `git status` in the clone showed.
+
+```text
+PASS  A3 go.mod toolchain
+PASS  A2 symlink probe (MC_REQUIRE_SYMLINK=1)
+PASS  A4 go build ./...
+PASS  A5 go vet ./...
+PASS  A6 go test ./... (Git Bash, as CI; no -race, no live_*)
+ci-windows-local: ALL SELECTED CHECKS PASSED
+make ci-windows: exit 0
+```
+
+The new tests then ran verbosely in the same clone, so that each is seen by name on Windows: the
+fixture built as a `.exe`, the PE patch, and the case test.
+
+```text
+--- PASS: TestFixtureAnswersOnlyItsIdentityArguments (0.06s)
+--- PASS: TestNewUsesTheLibraryHTTPClient (0.00s)
+--- PASS: TestNewProbesTheStagedBinary (0.00s)
+--- PASS: TestUpdateRefusesAReleaseThatIsNotForThisPlatform (0.03s)
+    --- PASS: …/not_an_executable (0.01s)
+    --- PASS: …/an_image_for_another_architecture (0.02s)
+--- PASS: TestUpdateRefusesAStagedBinaryThatCannotRunHere (0.09s)
+--- PASS: TestUpdateStartsAStoppedServiceOnlyWhenEnabled (0.13s)
+ok      github.com/maccavelli/magic-cli-remote/internal/updateclient  0.473s
+--- PASS: TestBinaryWarningIgnoresCaseOnWindows (0.00s)
+ok      github.com/maccavelli/magic-cli-remote/internal/cli/service  0.021s
+```
+
+The fixture's seven subtests and the refusals' subtests all passed (the log keeps each line). The
+clone and both bundles were deleted afterwards.
+
+**U3 is complete.** Every step and every gate above passed. It is staged for the owner.
+
+**Not done in U3.** U3b, U4, U5, U6 and U8, each of which waits for its own approval. U6 also waits
+for 0212's P3.

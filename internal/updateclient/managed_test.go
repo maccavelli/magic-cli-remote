@@ -3,6 +3,11 @@ package updateclient
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"debug/elf"
+	"debug/macho"
+	"debug/pe"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -87,8 +92,16 @@ func withChild(t *testing.T, out libservice.Output) *[]libservice.Command {
 	return &runs
 }
 
+// releaseBody is a release's binary for each platform: the release fixture
+// for the host, the one platform an update downloads, and a line of text for
+// every other.
 func releaseBody(tag string) func(selfupdate.Platform) []byte {
-	return func(p selfupdate.Platform) []byte { return []byte("mcremote " + tag + " " + p.OS + "/" + p.Arch) }
+	return func(p selfupdate.Platform) []byte {
+		if p == hostPlatform {
+			return fixtureImage
+		}
+		return []byte("mcremote " + tag + " " + p.OS + "/" + p.Arch)
+	}
 }
 
 // runUpdate runs `mcremote update --yes` from v0.1.0 to v0.2.0 through New,
@@ -102,13 +115,20 @@ func runUpdate(t *testing.T) (string, error) {
 // runUpdateWith is runUpdate with the product's health wiring.
 func runUpdateWith(t *testing.T, health service.HealthOptions) (string, error) {
 	t.Helper()
+	return runUpdateServing(t, health, releaseBody)
+}
+
+// runUpdateServing is runUpdateWith against releases whose binaries body
+// gives.
+func runUpdateServing(t *testing.T, health service.HealthOptions, body func(tag string) func(selfupdate.Platform) []byte) (string, error) {
+	t.Helper()
 	spec, err := releaseSpec()
 	if err != nil {
 		t.Fatal(err)
 	}
 	gh := selfupdatetest.NewGitHubServer(t, Repository.Owner, Repository.Name,
-		selfupdatetest.NewRelease("mcremote", "v0.1.0", spec.Targets(), releaseBody("v0.1.0")),
-		selfupdatetest.NewRelease("mcremote", "v0.2.0", spec.Targets(), releaseBody("v0.2.0")))
+		selfupdatetest.NewRelease("mcremote", "v0.1.0", spec.Targets(), body("v0.1.0")),
+		selfupdatetest.NewRelease("mcremote", "v0.2.0", spec.Targets(), body("v0.2.0")))
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -145,9 +165,133 @@ func requireReplaced(t *testing.T, exe string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := releaseBody("v0.2.0")(selfupdate.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH})
+	want := releaseBody("v0.2.0")(hostPlatform)
 	if !bytes.Equal(got, want) {
-		t.Fatalf("executable = %q, want the v0.2.0 binary %q", got, want)
+		t.Fatalf("executable is %s, want the v0.2.0 binary, %s", describe(got), describe(want))
+	}
+}
+
+// describe names a binary by its size and SHA-256: the release fixture is a
+// whole test binary, too large to print.
+func describe(b []byte) string {
+	return fmt.Sprintf("%d bytes, sha256 %x", len(b), sha256.Sum256(b))
+}
+
+// foreignImage is img, an executable image for the host, with its machine
+// field set to another architecture: what a release built for the wrong
+// target ships. It is still a well-formed image, so only the platform check
+// can refuse it.
+func foreignImage(t *testing.T, img []byte) (selfupdate.Platform, []byte) {
+	t.Helper()
+	foreign := selfupdate.Platform{OS: runtime.GOOS, Arch: "arm64"}
+	if runtime.GOARCH == "arm64" {
+		foreign.Arch = "amd64"
+	}
+	b := bytes.Clone(img)
+	switch {
+	case bytes.HasPrefix(b, []byte(elf.ELFMAG)):
+		var order binary.ByteOrder = binary.LittleEndian
+		if elf.Data(b[elf.EI_DATA]) == elf.ELFDATA2MSB {
+			order = binary.BigEndian
+		}
+		machine := elf.EM_AARCH64
+		if foreign.Arch == "amd64" {
+			machine = elf.EM_X86_64
+		}
+		order.PutUint16(b[18:], uint16(machine)) // e_machine
+	case len(b) >= 8 && binary.LittleEndian.Uint32(b) == macho.Magic64:
+		cpu := macho.CpuArm64
+		if foreign.Arch == "amd64" {
+			cpu = macho.CpuAmd64
+		}
+		binary.LittleEndian.PutUint32(b[4:], uint32(cpu)) // cputype
+	case bytes.HasPrefix(b, []byte("MZ")) && len(b) >= 0x40:
+		off := binary.LittleEndian.Uint32(b[0x3c:]) // e_lfanew
+		if uint64(off)+6 > uint64(len(b)) || !bytes.Equal(b[off:off+4], []byte("PE\x00\x00")) {
+			t.Fatal("the fixture's PE header is not where e_lfanew says")
+		}
+		machine := uint16(pe.IMAGE_FILE_MACHINE_ARM64)
+		if foreign.Arch == "amd64" {
+			machine = pe.IMAGE_FILE_MACHINE_AMD64
+		}
+		binary.LittleEndian.PutUint16(b[off+4:], machine) // Machine
+	default:
+		t.Fatalf("the fixture is no ELF, Mach-O or PE image (%s)", describe(b))
+	}
+	// The patch must have made a real image for the other platform, not
+	// garbage the check would refuse for any reason.
+	if err := selfupdate.CheckImage(bytes.NewReader(b), foreign); err != nil {
+		t.Fatalf("the patched fixture is not a %s/%s image: %v", foreign.OS, foreign.Arch, err)
+	}
+	if err := selfupdate.CheckImage(bytes.NewReader(b), hostPlatform); err == nil {
+		t.Fatal("the patched fixture still passes as a host image")
+	}
+	return foreign, b
+}
+
+// TestUpdateRefusesAReleaseThatIsNotForThisPlatform is MADR 0207 D16: a
+// release binary that is not an executable image for this platform is
+// refused as an integrity failure before anything is stopped or replaced.
+func TestUpdateRefusesAReleaseThatIsNotForThisPlatform(t *testing.T) {
+	_, foreign := foreignImage(t, fixtureImage)
+	for _, tc := range []struct {
+		name string
+		host []byte
+	}{
+		{"not an executable", []byte("mcremote v0.2.0, not a program")},
+		{"an image for another architecture", foreign},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeService{installed: true, enabled: true, running: true}
+			withBackend(t, svc, nil)
+			runs := withChild(t, libservice.Output{})
+			exe, err := runUpdateServing(t, service.HealthOptions{}, func(tag string) func(selfupdate.Platform) []byte {
+				return func(p selfupdate.Platform) []byte {
+					if p == hostPlatform {
+						return tc.host
+					}
+					return releaseBody(tag)(p)
+				}
+			})
+			if !errors.Is(err, selfupdate.ErrIntegrity) {
+				t.Fatalf("err = %v, want an integrity failure", err)
+			}
+			if svc.stops != 0 || svc.starts != 0 || len(*runs) != 0 {
+				t.Errorf("stops=%d starts=%d refresh runs=%d, want none", svc.stops, svc.starts, len(*runs))
+			}
+			if got, _ := os.ReadFile(exe); string(got) != "mcremote v0.1.0" {
+				t.Errorf("executable is %s, want the previous binary untouched", describe(got))
+			}
+		})
+	}
+}
+
+// TestUpdateRefusesAStagedBinaryThatCannotRunHere is MADR 0207 D16: the
+// staged binary is run with the spec's identity arguments before anything is
+// stopped, and one that fails, or reports another tag, is refused.
+func TestUpdateRefusesAStagedBinaryThatCannotRunHere(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, value string
+	}{
+		{"it exits non-zero", fixtureExitEnv, "3"},
+		{"it reports another tag", fixtureVersionEnv, "v0.1.9"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.env, tc.value)
+			svc := &fakeService{installed: true, enabled: true, running: true}
+			withBackend(t, svc, nil)
+			runs := withChild(t, libservice.Output{})
+			exe, err := runUpdate(t)
+			if err == nil || !strings.Contains(err.Error(), "staged binary failed a probe") {
+				t.Fatalf("err = %v, want the staged probe's refusal", err)
+			}
+			if svc.stops != 0 || svc.starts != 0 || len(*runs) != 0 {
+				t.Errorf("stops=%d starts=%d refresh runs=%d, want none", svc.stops, svc.starts, len(*runs))
+			}
+			if got, _ := os.ReadFile(exe); string(got) != "mcremote v0.1.0" {
+				t.Errorf("executable is %s, want the previous binary untouched", describe(got))
+			}
+		})
 	}
 }
 
