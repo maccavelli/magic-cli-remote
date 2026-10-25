@@ -157,7 +157,7 @@ E2 and D16).
    `-X github.com/maccavelli/go-selfupdate-lib/buildinfo.version=$ver` and `….kind=local`.
 3. On the Windows host: `make ci-windows-smoke` passes, B14 included.
 
-### U1b — Pin ~~`v1.21.0`~~ `v1.22.0` (amendment C, D29; amendment E, D37) — in progress
+### U1b — Pin ~~`v1.21.0`~~ `v1.22.0` (amendment C, D29; amendment E, D37) — done
 
 *Amended 2026-10-24 (E), before it ran:* `v1.22.0` was tagged the same day, and the owner asked
 for the newest pins. The struck values are D29's.
@@ -527,7 +527,22 @@ target, `v1.22.0`. The Windows host run of step 5 waits for the owner's word, as
 | `make vulncheck` | "clear; allowlisted required-module findings: GO-2026-5932", as before (0174) |
 | `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
 | `go test -race -count=1 ./...` on the Linux test host, go1.27.3 linux/amd64, in a copy of the working tree with its own git index | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line. The copy was deleted |
-| `make ci-windows` on the Windows host | **not run yet:** waits for the owner's word |
+| `make ci-windows` on the Windows host, 2026-10-25, on the owner's word | exit 0: A2 to A6 `PASS`, "ALL SELECTED CHECKS PASSED". See below |
+
+**The Windows run** (`m207e/u1b_windows.py`, log beside it) used a scratch clone of `master` made
+from a git bundle, not the host's install, and touched no task. The clone's `HEAD` checked equal to
+the local `HEAD`, `93ff4964`. That is the pin commit `f27b743f` plus one commit that adds only the
+0213 records, so the Go tree it built is U1b's. The clone and both bundles were deleted afterwards.
+
+```text
+PASS  A3 go.mod toolchain
+PASS  A2 symlink probe (MC_REQUIRE_SYMLINK=1)
+PASS  A4 go build ./...
+PASS  A5 go vet ./...
+PASS  A6 go test ./... (Git Bash, as CI; no -race, no live_*)
+ci-windows-local: ALL SELECTED CHECKS PASSED
+make ci-windows: exit 0
+```
 
 The pin tests' ability to fail stands from U2's record above, where a half-moved pin failed
 `TestWorkflowPinsMatchGoMod`. No new test was added, so there is no new plant.
