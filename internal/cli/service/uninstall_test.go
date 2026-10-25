@@ -3,12 +3,12 @@ package service
 import (
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 )
 
 // TestUninstallOnWindows removes this folder's task, and only a task: the
-// definition is read from Task Scheduler's export (MADR 0054 PLAN S5e).
+// program is read from the definition Task Scheduler stores (MADR 0054 PLAN
+// S5e), and the task is deleted through it (MADR 0207 D17).
 func TestUninstallOnWindows(t *testing.T) {
 	defer OverrideInstallOS("windows")()
 	withUnitRecord(t, "mcremote", "")
@@ -22,22 +22,45 @@ func TestUninstallOnWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prevState, prevRun := taskState, runSchtasks
-	t.Cleanup(func() { taskState, runSchtasks = prevState, prevRun })
-	taskState = func(name string) (int, bool, error) { return 3, name == "mcremote", nil }
-	var calls []string
-	runSchtasks = func(args ...string) (string, error) {
-		calls = append(calls, strings.Join(args, " "))
-		if slices.Equal(args, []string{"/query", "/tn", "mcremote", "/xml", "ONE"}) {
-			return xml, nil
-		}
-		return "", nil
-	}
+	s := withTaskScheduler(t)
+	s.xml["mcremote"] = xml
+	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	res, err := Uninstall()
 	if err != nil || len(res.Removed) != 1 || res.Removed[0].Kind != KindWindowsTask || res.Removed[0].Product != "mcremote" {
 		t.Fatalf("Uninstall: %+v, %v; want mcremote's task removed", res, err)
 	}
-	if !slices.Contains(calls, "/delete /tn mcremote /f") {
-		t.Fatalf("schtasks calls %v, want the task deleted", calls)
+	if !slices.Contains(s.calls, "definition mcremote") || !slices.Contains(s.calls, "delete mcremote") {
+		t.Fatalf("Task Scheduler calls %q, want the program read from the definition and the task deleted", s.calls)
+	}
+	if _, ok := s.xml["mcremote"]; ok {
+		t.Error("the task is still registered")
+	}
+}
+
+// TestUninstallLeavesAnotherFoldersTask: a task whose definition runs a binary
+// in another folder is not this folder's, and is neither reported removed nor
+// deleted.
+func TestUninstallLeavesAnotherFoldersTask(t *testing.T) {
+	defer OverrideInstallOS("windows")()
+	withUnitRecord(t, "mcremote", "")
+	bin, other := t.TempDir(), t.TempDir()
+	prevExe := uninstallExeDir
+	uninstallExeDir = func() (string, error) { return bin, nil }
+	t.Cleanup(func() { uninstallExeDir = prevExe })
+
+	xml, err := renderTaskXML(Options{Product: "mcremote", UnitName: "mcremote", Binary: filepath.Join(other, "mcremote.exe"),
+		WorkingDirectory: other}, `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := withTaskScheduler(t)
+	s.xml["mcremote"] = xml
+	withSchtasks(t, func(...string) (string, error) { return "", nil })
+	res, err := Uninstall()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Removed) != 0 || slices.Contains(s.calls, "delete mcremote") {
+		t.Errorf("removed %+v with calls %q; another folder's task must be left", res.Removed, s.calls)
 	}
 }

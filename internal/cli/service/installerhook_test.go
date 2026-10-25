@@ -132,7 +132,7 @@ func TestFromInstallerLeavesADisabledTaskStopped(t *testing.T) {
 	}
 	ft.xml["mcremote"] = disabled
 	newRelease(t, "v0.3.0", "mcremote")
-	fb := &fakeHookBackend{enabledFn: func() bool { return !taskDisabled(ft.xml["mcremote"]) }}
+	fb := &fakeHookBackend{enabledFn: func() bool { return definitionEnabled(ft.xml["mcremote"]) }}
 	withHookBackend(t, fb)
 
 	plan, err := PlanInstallerHook(Options{Product: "mcremote"})
@@ -143,10 +143,10 @@ func TestFromInstallerLeavesADisabledTaskStopped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ft.creates != 1 || !res.Refresh.Changed {
-		t.Fatalf("%d /create calls, refresh %+v; want the task rewritten once", ft.creates, res.Refresh)
+	if len(ft.registered) != 1 || !res.Refresh.Changed {
+		t.Fatalf("%d registrations, refresh %+v; want the task rewritten once", len(ft.registered), res.Refresh)
 	}
-	if !taskDisabled(ft.xml["mcremote"]) {
+	if definitionEnabled(ft.xml["mcremote"]) {
 		t.Error("the rewritten task was registered enabled")
 	}
 	if !slices.Equal(fb.calls, []string{"running", "enabled"}) || res.Cycle != CycleLeftStopped {

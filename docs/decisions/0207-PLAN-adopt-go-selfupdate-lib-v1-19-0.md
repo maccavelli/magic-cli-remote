@@ -276,7 +276,8 @@ and its `go.mod`, the fixture program. *U3 Deviation 3:* so does
 
 **Files:** `internal/cli/service/control_schtasks.go`, `setup_schtasks.go`, `refresh_schtasks.go`,
 `schtasks.go`, `uninstall.go`, `control.go`, and their tests (`schtasks_test.go` and those the
-measurement finds); this plan.
+measurement finds); this plan. *U4 Deviation 1, 2026-10-25:* `health.go` and `health_test.go` join
+(execution record below).
 
 1. **Measure each call site** in the facts table, and name the test files, before any edit. A
    file outside this list is a deviation.
@@ -1123,3 +1124,169 @@ taken as the first. The note sits on MADR D36, and 0212's PLAN P6 now names the 
 
 **Not done in this plan.** U4, U5, U6 and U8, each on its own approval. U6 also waits for 0212's P3.
 The plan stays `in-progress`.
+
+### U4 Deviation 1, 2026-10-25 — `health.go` reads the task too. The owner decided: "option 1."
+
+**Approval.** The owner committed U3b's closing records and answered "committed, proceed" to U4
+being next.
+
+**Found by step 1's measurement, before any edit.** The facts table names three readers of the
+stored definition (`setup_schtasks.go:26`, `refresh_schtasks.go:38`, `uninstall.go:223`). There is a
+fourth: `health.go:119` runs `schtasks /query /tn <task> /xml ONE` to recover the serve options.
+`backendProbe` calls it on every health check of an update. `health.go` is not on U4's files list.
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** `health.go` and `health_test.go` join U4, and the export becomes `Task.Definition`
+   through the same seam.
+2. Leave it to an amendment of its own. U4 would then ship with one `/query /xml` call, and the
+   plan's check after U4 and U6, no `"/query"` outside tests and hints, could not pass.
+
+**What step 1 measured:**
+
+| Site | Today | U4 |
+| :--- | :--- | :--- |
+| `control_schtasks.go:25-44` `taskState` | PowerShell `Get-ScheduledTask` | `Task.Status` |
+| `control_schtasks.go:48`, `:93`; `refresh_schtasks.go:31`; `uninstall.go:224` | `taskState`'s callers | `Status` |
+| `setup_schtasks.go:26`; `refresh_schtasks.go:38`; `uninstall.go:228`; `health.go:119` | `schtasks /query /xml` | `Task.Definition` |
+| `setup_schtasks.go:61`; `refresh_schtasks.go:158` | `schtasks /create /xml`, through a UTF-16 temporary file | `Task.Register` |
+| `setup_schtasks.go:86`, `:89` | `/query`, then `/delete` | `Task.Delete` |
+| `setup_schtasks.go:142` `sameTaskDefinition`; `refresh_schtasks.go:84` | Magic's field comparison | `SameDefinition`, and `DiffDefinitions` for the message |
+| `setup_schtasks.go:32`; `refresh_schtasks.go:78` `taskDisabled` | read from the stored XML | `Status.Disabled` (D31) |
+| `control.go` `ProbeStatus` | three backend calls | one `Status` |
+| `control_schtasks.go:62`, `:65`, `:90`, `:100` | `/change`, `/run`, `/end` | kept: U6's, by D30 |
+
+**The test files it finds:**
+
+* `schtasks_test.go`, `task_compare_test.go`, `refresh_schtasks_test.go`, `nostart_schtasks_test.go`
+  and `uninstall_test.go`;
+* `installerhook_test.go`, which uses `taskDisabled` and `withTaskDisabled`;
+* `control_schtasks_windows_test.go`;
+* `schtasks_windows_test.go`, which tests `encodeTaskXML` against the real `schtasks.exe` and goes
+  with it;
+* `health_test.go`, by this deviation.
+* *Corrected while the tests were written:* `migrate_test.go`, whose `migrationHost` stubbed both
+  old seams, and `control_test.go`, for `ProbeStatus`. Both are test files the measurement finds,
+  as step 1 provides. The list above left them out.
+
+### U4, 2026-10-25: Task Scheduler through the library, steps 1 to 3 and 5
+
+**The seam** (`schtasks.go`):
+
+* `taskClient` is the four calls U4 uses: `Status`, `Definition`, `Register` and `Delete`.
+* `newTaskClient` returns `taskscheduler.New(Options{Name: name})`. `openTask` checks the name
+  first, as `taskNameRe` did for the PowerShell probe.
+* `taskStatus`, `taskDefinitionOf`, `registerTaskXML` and `taskDiffPaths` are the helpers the
+  callers share.
+
+**The change, by site:**
+
+* `taskState` and its PowerShell probe are gone. `isInstalledWindows` and `stopWindows` read
+  `Status`.
+* **Setup** reads `Status`, then `Definition`, and compares with `DiffDefinitions`.
+  * A changed task without `--force` is refused, and the error names each path that differs.
+  * A comparison error without `--force` is refused, never taken as unchanged.
+  * It registers with `Register`.
+  * `--no-start` keeps a task disabled when `Status.Disabled` says so (D31).
+* **Remove** reads `Status`, stops, then calls `Delete`.
+* **Refresh** reads `Status` and `Definition`, renders disabled when `Status.Disabled`, compares with
+  `DiffDefinitions`, and registers with `Register`.
+* **The rest:**
+  * the uninstall's ownership check and `health.go` read `Definition`;
+  * `ProbeStatus` takes one `Status` from a backend that has it;
+  * `encodeTaskXML`, the temporary files, `sameTaskDefinition`, `sameTaskAccount` and
+    `taskDisabled` are gone;
+  * `taskFieldsFromXML` stays: the uninstall reads the program with it, and the tests read what a
+    render holds.
+* **What remains of `schtasks.exe`:** `/change … /enable`, `/run`, `/change … /disable` and
+  `/end`, U6's by D30. `git grep -i -e powershell -e '"/create"' -e '"/query"' -e '"/delete"'` in
+  the package's non-test files finds only two comments.
+
+**The tests.** Every Windows test now runs on `fakeTaskScheduler`.
+
+* **How the fake behaves:**
+  * tasks are kept as their stored definitions;
+  * a definition's `Settings/Enabled` is the switch, and `Register` sets it;
+  * `switchOff` sets the switch apart from the definition, so a test can tell which one the code
+    reads;
+  * the fake also records `schtasks.exe`.
+* **Step 2's tests and amendment C's:**
+
+  | Test | Pins |
+  | :--- | :--- |
+  | `TestSetupSchtasksRegistersAnAbsentTask` | an absent task registers once, with exactly the render; no `Definition` read |
+  | `TestSetupSchtasksIdempotent` | an unchanged task registers nothing |
+  | `TestSetupSchtasksNamesWhatDiffers` | without `--force`, the refusal names each path `DiffDefinitions` reports; nothing registered, nothing started |
+  | `TestSetupSchtasksPropagatesAFailedRead` | a failed read is the error, nothing registered or started |
+  | `TestRemoveSchtasksDeletesThroughTheLibrary`, `TestRemoveSchtasksIdempotent` | one `Delete`, no `schtasks /delete` or `/query`; an absent task deletes nothing |
+  | `TestProbeStatusOnWindowsReadsOnce` | one `Status` read, and no per-state call |
+  | `TestUninstallOnWindows`, `TestUninstallLeavesAnotherFoldersTask` | the program comes from `Definition`; another folder's task is left |
+  | `TestAStoppedUnchangedTaskNeedsNoForce` | D31: a stopped, current task reads unchanged, with and without `--no-start` |
+  | `TestNoStartKeepsAStoppedWindowsTaskStopped`, `TestNoStartReadsTheSwitchFromTaskScheduler` | D31: `--no-start` keeps a task disabled by `Status.Disabled`, whatever the stored text says |
+  | `TestRefreshSchtasksReadsTheSwitchFromTaskScheduler` | the same for refresh |
+  | `TestTaskStatusDrivesInstalled`, `TestOpenTaskRejectsAnUnsafeName` | one read; an error is no "not installed"; an unsafe name reaches nothing |
+
+* **`task_compare_test.go`** now holds the library's comparison to Magic's own definitions:
+  * a real export (the v0.17.4 fixture) compares the same as its render;
+  * every field setup controls is detected;
+  * the switch is not compared (D31);
+  * unreadable input never compares unchanged.
+* **The Windows-only tests:**
+  * `schtasks_windows_test.go` keeps 0116's guard against a definition Task Scheduler cannot parse
+    (F25). It now hands a poisoned render to the real `Register`, never registering (C8). It
+    classifies by the stable HRESULTs `0x80041318` and `0x8004131A`, with a truncated definition as
+    its negative control.
+  * `control_schtasks_windows_test.go` reads an absent task through the real `Status`.
+  * Both run in `make ci-windows`.
+
+**A library finding** (`m207u4/diffprobe`, session scratchpad, against `v1.22.0`):
+
+* `DiffDefinitions` returns one difference and no error for `""`, `"not xml"` and `"<Other/>"`, and
+  an error for malformed XML (`"<Task><Triggers>"`). Its documentation says that "malformed XML on
+  either side is an error".
+* `SameDefinition` returns `true` alongside that error. A caller that checks only the boolean takes
+  malformed XML as unchanged.
+* Magic calls `DiffDefinitions` and checks the error first, and `TestUnreadableNeverComparesUnchanged`
+  holds that. Filing the finding in the library is the owner's call.
+
+**Seen failing first** (`m207u4/plants.py`). Each plant ran on its own scratch copy with U4's files
+laid over `HEAD`. All 11 fail on their named tests:
+
+| Plant | The failure |
+| :--- | :--- |
+| every comparison "the same" | `TestSetupSchtasksRegistersWhenChanged`: "Unchanged = true for a different definition"; `TestSetupSchtasksNamesWhatDiffers`: "a changed task was overwritten without --force" |
+| setup reads the switch from the XML | "a task Task Scheduler reports disabled was registered enabled" |
+| refresh ignores the switch | `TestRefreshSchtasksKeepsADisabledTaskDisabled` and `…ReadsTheSwitchFromTaskScheduler`: registered enabled |
+| remove never deletes | "calls ["status mcremote" "status mcremote"] … want one delete" |
+| `ProbeStatus` asks three times | "ProbeStatus asked Installed separately", "Status was read 0 times" |
+| a read error swallowed in `taskStatus` | "isInstalledWindows = false, <nil>; want false, err=true" |
+| a read error swallowed in setup | "err = <nil>, want the read's permission error" |
+| unreadable taken as unchanged | "setup over "<Task><Triggers>": err <nil> … schtasks ["/change /tn mcremote /enable" "/run /tn mcremote"]" |
+| the uninstall reads no program | `TestUninstallOnWindows`: nothing removed |
+| health reads another task | "read scheduled task "mcrelayx": … not installed" |
+| no name check | "taskStatus("a b") accepted an unsafe name", and the names reached Task Scheduler |
+
+**The first run of the plants found a gap in the tests, now closed.** Plant 8 did not fail. Several
+new tests did not stub `schtasks.exe`. Under a plant, setup went on to start the task through the
+real one, which is absent on macOS, and that error read as the refusal the test wanted. On the
+Windows host the same regression would have run `schtasks /change /enable` and `/run` against the
+real `mcremote` task.
+
+* `withTaskScheduler` now records `schtasks.exe` too, so no test using the fake reaches it.
+* The refusal tests assert the refusal's message, and that nothing was started.
+* All 11 plants were run again and failed as above.
+
+**Gates** (`m207u4/u4_gates.py`):
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the 18 changed Go files | "18 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| The Windows-path tests (`-count=1 -v`) | 108 `--- PASS` lines, tests and subtests |
+| `make test`, `make race` | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs`, markdownlint on this plan and the MADR | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, go1.27.3 linux/amd64 | exit 0; 43 packages ok. The copy was deleted |
+
+**Not done in U4 yet.** Step 4, on the owner's word: `make ci-windows`, which runs the two
+Windows-only tests, then the real task by W1 to W4, with amendment C's `--no-start` over the
+stopped task.

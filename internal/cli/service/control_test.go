@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 )
 
 // fakeBackend answers ProbeStatus's probes. A managed update never reaches
@@ -69,6 +71,79 @@ func TestProbeStatusReadsTheBackend(t *testing.T) {
 				return "", errors.New("Could not find service")
 			})()
 			st := ProbeStatus("mcremote")
+			got := Status{PlistPresent: st.PlistPresent, Loaded: st.Loaded, Enabled: st.Enabled, Active: st.Active}
+			if got != tc.want {
+				t.Errorf("status = %+v, want %+v", got, tc.want)
+			}
+			if tc.wantHint == "" && st.Hint != "" {
+				t.Errorf("hint = %q, want none", st.Hint)
+			}
+			if !strings.Contains(st.Hint, tc.wantHint) {
+				t.Errorf("hint = %q, want it to contain %q", st.Hint, tc.wantHint)
+			}
+		})
+	}
+}
+
+// statusBackend is the Task Scheduler backend's shape: one Status read
+// answers every state. Its per-state methods fail the test, so a probe that
+// asks them separately is caught.
+type statusBackend struct {
+	fakeBackend
+	t      *testing.T
+	status taskscheduler.Status
+	err    error
+	reads  int
+}
+
+func (b *statusBackend) Status(context.Context, string) (taskscheduler.Status, error) {
+	b.reads++
+	return b.status, b.err
+}
+
+func (b *statusBackend) Installed(context.Context, string) (bool, error) {
+	b.t.Error("ProbeStatus asked Installed separately")
+	return false, nil
+}
+
+func (b *statusBackend) Enabled(context.Context, string) (bool, error) {
+	b.t.Error("ProbeStatus asked Enabled separately")
+	return false, nil
+}
+
+func (b *statusBackend) Running(context.Context, string) (bool, error) {
+	b.t.Error("ProbeStatus asked Running separately")
+	return false, nil
+}
+
+// TestProbeStatusOnWindowsReadsOnce is MADR 0207 D17: on Windows, doctor's
+// status comes from one Task Scheduler read, not three.
+func TestProbeStatusOnWindowsReadsOnce(t *testing.T) {
+	readErr := errors.New("task scheduler: access denied")
+	for _, tc := range []struct {
+		name     string
+		status   taskscheduler.Status
+		err      error
+		want     Status
+		wantHint string
+	}{
+		{"running", taskscheduler.Status{Installed: true, Enabled: true, Running: true},
+			nil, Status{PlistPresent: true, Loaded: true, Enabled: true, Active: true}, ""},
+		{"stopped", taskscheduler.Status{Installed: true, Enabled: true},
+			nil, Status{PlistPresent: true, Loaded: true, Enabled: true}, "schtasks /run /tn mcremote"},
+		{"disabled", taskscheduler.Status{Installed: true, Disabled: true},
+			nil, Status{PlistPresent: true, Loaded: true}, "not enabled"},
+		{"absent", taskscheduler.Status{}, nil, Status{}, "scheduled task missing"},
+		{"read error", taskscheduler.Status{}, readErr, Status{}, "service probe failed: task scheduler: access denied"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer OverrideInstallOS("windows")()
+			b := &statusBackend{t: t, status: tc.status, err: tc.err}
+			withProbeBackend(t, b, nil)
+			st := ProbeStatus("mcremote")
+			if b.reads != 1 {
+				t.Errorf("Status was read %d times, want once", b.reads)
+			}
 			got := Status{PlistPresent: st.PlistPresent, Loaded: st.Loaded, Enabled: st.Enabled, Active: st.Active}
 			if got != tc.want {
 				t.Errorf("status = %+v, want %+v", got, tc.want)

@@ -1099,8 +1099,11 @@ PLANs, and no product-feature MADR yet. Either can still be changed at the plans
 
 ## Amendment — 2026-10-24 (C): `go-selfupdate-lib v1.21.0`
 
-**Status of this amendment: proposed.** It becomes decided when the owner approves its PLAN step,
-U1b of [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md).
+~~**Status of this amendment: proposed.** It becomes decided when the owner approves its PLAN step,
+U1b of [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md).~~
+**Decided 2026-10-24,** when the owner approved U1b ("U1b, then write 0212 PLAN"), with D29 carried
+out as amendment E's D37. *Status line corrected 2026-10-25, when U4 began: it had been left
+"proposed".*
 
 **Why now.** [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)
 D8, the owner's answer of 2026-10-24: "v1.21.0 first, under 0207". Two consequences:

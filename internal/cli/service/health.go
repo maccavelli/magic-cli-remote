@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
@@ -116,9 +115,9 @@ func readServeArgs(product, unitName string) (ServeArgs, string, error) {
 		opts = rec.Opts
 	case "windows":
 		name := taskNameFor(product)
-		existing, err := runSchtasks("/query", "/tn", name, "/xml", "ONE")
+		existing, err := taskDefinitionOf(name)
 		if err != nil {
-			return ServeArgs{}, "", fmt.Errorf("export scheduled task %q: %w (%s)", name, err, strings.TrimSpace(existing))
+			return ServeArgs{}, "", err
 		}
 		opts, why, ok = recoverTaskOptions(product, existing)
 	default:

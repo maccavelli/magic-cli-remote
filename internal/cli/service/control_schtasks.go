@@ -3,53 +3,22 @@ package service
 import (
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
-// taskStateRunning is Task Scheduler's numeric state for a running task
-// (MSFT_ScheduledTask State: 0 Unknown, 1 Disabled, 2 Queued, 3 Ready, 4 Running).
-const taskStateRunning = 4
-
-// taskNameRe bounds what may be interpolated into the PowerShell probe. Task
-// names here are product names, so this rejects nothing legitimate.
+// taskNameRe bounds the task names this package opens. Task names here are
+// product names, so this rejects nothing legitimate.
 var taskNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// taskState reports a task's numeric state, and whether it is registered at
-// all, without parsing localised text (MADR 0159 D9). `schtasks /query /fo LIST`
-// prints "Status: Running" in the UI language, which the previous parser matched
-// as English. Get-ScheduledTask's State is an enum, and absent tasks come back
-// as $null (measured: 4 for the live task, "absent" for a missing one, about
-// 1.3 s per call; MADR 0159 probe 11). A failure to run the probe is an error,
-// not "not running". It is a variable so tests can drive it.
-var taskState = func(name string) (state int, found bool, err error) {
-	if !taskNameRe.MatchString(name) {
-		return 0, false, fmt.Errorf("invalid task name %q", name)
-	}
-	script := `$t = Get-ScheduledTask -TaskPath '\' -TaskName '` + name +
-		"' -ErrorAction SilentlyContinue; if ($t) { [int]$t.State } else { 'absent' }"
-	out, err := runCmdOutput("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
-	text := strings.TrimSpace(out)
-	if err != nil {
-		return 0, false, fmt.Errorf("query scheduled task %q: %w (%s)", name, err, text)
-	}
-	if text == "absent" {
-		return 0, false, nil
-	}
-	n, convErr := strconv.Atoi(text)
-	if convErr != nil {
-		return 0, false, fmt.Errorf("query scheduled task %q: unexpected output %q", name, text)
-	}
-	return n, true, nil
-}
-
-// isInstalledWindows reports whether the task named name is registered at all.
+// isInstalledWindows reports whether the task named name is registered at all,
+// from one Task Scheduler read (MADR 0207 D17). It replaced a PowerShell
+// Get-ScheduledTask probe, about 1.3 s a call (MADR 0159 probe 11).
 func isInstalledWindows(name string) (bool, error) {
-	_, found, err := taskState(name)
+	st, err := taskStatus(name)
 	if err != nil {
 		return false, err
 	}
-	return found, nil
+	return st.Installed, nil
 }
 
 // startWindows enables the task, then runs it now, for setup-service. Enabling
@@ -77,8 +46,8 @@ func startWindows(product string) error {
 // (MADR 0159 D5): a bare /end is undone within a minute, which would restart a
 // daemon that was stopped on purpose. A disabled task
 // is not relaunched (measured, MADR 0159 probe 8). Whether to /end is decided
-// by the state probe rather than by parsing /end's localised error for a task
-// that is not running.
+// by Task Scheduler's own state rather than by parsing /end's localised error
+// for a task that is not running.
 //
 // `schtasks /end` is a TerminateProcess, NOT a graceful signal: the daemon gets
 // no drain (MADR 0116 D9). That is survivable by construction — provider trees
@@ -90,11 +59,11 @@ func stopWindows(product string) error {
 	if out, err := runSchtasks("/change", "/tn", name, "/disable"); err != nil {
 		return fmt.Errorf("disable scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
 	}
-	state, found, err := taskState(name)
+	st, err := taskStatus(name)
 	if err != nil {
 		return fmt.Errorf("stop scheduled task %q: %w", name, err)
 	}
-	if !found || state != taskStateRunning {
+	if !st.Installed || !st.Running {
 		return nil
 	}
 	if out, err := runSchtasks("/end", "/tn", name); err != nil {

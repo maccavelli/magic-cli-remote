@@ -8,7 +8,15 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 )
+
+// taskStatusReader is a backend that reads every state of its service in one
+// call: the Task Scheduler backend, *taskscheduler.Task (MADR 0207 D17).
+type taskStatusReader interface {
+	Status(ctx context.Context, product string) (taskscheduler.Status, error)
+}
 
 // IsInstalled reports whether a service definition exists for product,
 // regardless of whether it is enabled or running. A managed update asks it
@@ -141,13 +149,20 @@ func ProbeStatus(product string) Status {
 			probeErr = err
 		}
 	}
-	st.PlistPresent, err = b.Installed(ctx, product)
-	keep(err)
-	if st.PlistPresent {
-		st.Enabled, err = b.Enabled(ctx, product)
+	if s, ok := b.(taskStatusReader); ok {
+		// Task Scheduler answers all three in one read (MADR 0207 D17).
+		ts, err := s.Status(ctx, product)
 		keep(err)
-		st.Active, err = b.Running(ctx, product)
+		st.PlistPresent, st.Enabled, st.Active = ts.Installed, ts.Installed && ts.Enabled, ts.Installed && ts.Running
+	} else {
+		st.PlistPresent, err = b.Installed(ctx, product)
 		keep(err)
+		if st.PlistPresent {
+			st.Enabled, err = b.Enabled(ctx, product)
+			keep(err)
+			st.Active, err = b.Running(ctx, product)
+			keep(err)
+		}
 	}
 	st.Loaded = st.PlistPresent
 	svc := launchdServiceTarget(names.Label)

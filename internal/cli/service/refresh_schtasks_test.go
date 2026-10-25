@@ -12,47 +12,35 @@ import (
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
-// refreshHarness drives refreshSchtasks through its seams: the task-state
-// probe, schtasks itself, the principal, and the backup location.
+// refreshHarness drives refreshSchtasks through its seams: Task Scheduler (a
+// fake behind newTaskClient), the principal, and the backup location.
 type refreshHarness struct {
-	state   int
-	found   bool
-	stateEr error
-	export  string
-	creates []string // decoded bodies handed to /create
+	sched   *fakeTaskScheduler
+	creates []string // definitions handed to Register
 	backup  string
 }
 
+// newRefreshHarness registers export as the mcremote task. An empty export
+// registers nothing.
 func newRefreshHarness(t *testing.T, export string) *refreshHarness {
 	t.Helper()
-	h := &refreshHarness{state: taskStateRunning, found: true, export: export,
-		backup: filepath.Join(t.TempDir(), "mcremote-task.prev.xml")}
-	withTaskState(t, func(string) (int, bool, error) { return h.state, h.found, h.stateEr })
+	h := &refreshHarness{sched: withTaskScheduler(t), backup: filepath.Join(t.TempDir(), "mcremote-task.prev.xml")}
+	if export != "" {
+		h.sched.xml["mcremote"] = export
+	}
 	withTaskPrincipal(t, fixtureSID, nil, fixtureAccount, nil)
-	withSchtasks(t, func(args ...string) (string, error) {
-		switch {
-		case args[0] == "/query" && len(args) > 3 && args[3] == "/xml":
-			return h.export, nil
-		case args[0] == "/create":
-			b, err := os.ReadFile(args[4])
-			if err != nil {
-				t.Fatalf("read staged task file: %v", err)
-			}
-			h.creates = append(h.creates, decodeUTF16LEWithBOM(t, b))
-			return "", nil
-		}
-		return "", nil
-	})
 	prev := taskBackupPath
 	taskBackupPath = func(string, string) (string, error) { return h.backup, nil }
 	t.Cleanup(func() { taskBackupPath = prev })
 	return h
 }
 
+// registered returns the definitions refreshSchtasks registered.
+func (h *refreshHarness) registered() []string { return h.sched.registered }
+
 // TestRefreshSchtasksAbsentIsNone: nothing registered, nothing to do.
 func TestRefreshSchtasksAbsentIsNone(t *testing.T) {
 	h := newRefreshHarness(t, "")
-	h.found = false
 	res, err := refreshSchtasks(Options{Product: "mcremote"}, RefreshOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -60,18 +48,19 @@ func TestRefreshSchtasksAbsentIsNone(t *testing.T) {
 	if res.Verdict != VerdictNone || res.Path != `Task Scheduler\mcremote` {
 		t.Errorf("res = %+v, want verdict none at Task Scheduler\\mcremote", res)
 	}
-	if len(h.creates) != 0 {
+	if len(h.registered()) != 0 {
 		t.Error("registered a task that did not exist")
 	}
 }
 
-// TestRefreshSchtasksProbeErrorPropagates: a failed state probe is an error,
-// not "nothing installed" (which would let an update skip reconciliation).
-func TestRefreshSchtasksProbeErrorPropagates(t *testing.T) {
+// TestRefreshSchtasksReadErrorPropagates: a failed Task Scheduler read is an
+// error, not "nothing installed" (which would let an update skip
+// reconciliation).
+func TestRefreshSchtasksReadErrorPropagates(t *testing.T) {
 	h := newRefreshHarness(t, "")
-	h.stateEr = errors.New("powershell failed")
+	h.sched.statusErr = errors.New("task scheduler: access denied")
 	if _, err := refreshSchtasks(Options{Product: "mcremote"}, RefreshOptions{}); err == nil {
-		t.Fatal("a failed probe was reported as success")
+		t.Fatal("a failed read was reported as success")
 	}
 }
 
@@ -89,10 +78,10 @@ func TestRefreshSchtasksRefreshesTheV0174Task(t *testing.T) {
 	if res.Verdict != VerdictRefreshed || !res.Changed {
 		t.Fatalf("res = %+v, want refreshed and changed", res)
 	}
-	if len(h.creates) != 1 {
-		t.Fatalf("issued %d /create calls, want 1", len(h.creates))
+	if len(h.registered()) != 1 {
+		t.Fatalf("issued %d registrations, want 1", len(h.registered()))
 	}
-	got, err := taskFieldsFromXML(h.creates[0])
+	got, err := taskFieldsFromXML(h.registered()[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,10 +118,10 @@ func TestRefreshSchtasksAddsTheDetachFlagToAV0180Task(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Verdict != VerdictRefreshed || len(h.creates) != 1 {
-		t.Fatalf("res = %+v with %d /create calls, want refreshed once", res, len(h.creates))
+	if res.Verdict != VerdictRefreshed || len(h.registered()) != 1 {
+		t.Fatalf("res = %+v with %d registrations, want refreshed once", res, len(h.registered()))
 	}
-	got, err := taskFieldsFromXML(h.creates[0])
+	got, err := taskFieldsFromXML(h.registered()[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,11 +143,11 @@ func TestRefreshSchtasksAddsTheDetachFlagToAV0180Task(t *testing.T) {
 func disabledExport(t *testing.T, export string) string {
 	t.Helper()
 	const anchor = "<StartWhenAvailable>true</StartWhenAvailable>"
-	if !strings.Contains(export, anchor) || taskDisabled(export) {
+	if !strings.Contains(export, anchor) || !definitionEnabled(export) {
 		t.Fatalf("the export lacks %q, or is already disabled", anchor)
 	}
 	out := strings.Replace(export, anchor, anchor+"<Enabled>false</Enabled>", 1)
-	if !taskDisabled(out) {
+	if definitionEnabled(out) {
 		t.Fatal("the disabled export does not read as disabled")
 	}
 	return out
@@ -176,7 +165,7 @@ func TestRefreshSchtasksLeavesADisabledCurrentTaskAlone(t *testing.T) {
 	if res.Verdict != VerdictUnchanged || res.Changed || res.Reloaded {
 		t.Errorf("res = %+v, want unchanged and not reloaded", res)
 	}
-	if len(h.creates) != 0 {
+	if len(h.registered()) != 0 {
 		t.Error("re-registered a task that differed only by being disabled")
 	}
 	if _, err := os.Stat(h.backup); !errors.Is(err, os.ErrNotExist) {
@@ -193,14 +182,36 @@ func TestRefreshSchtasksKeepsADisabledTaskDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Verdict != VerdictRefreshed || !res.Changed || !res.Reloaded || len(h.creates) != 1 {
-		t.Fatalf("res = %+v with %d /create calls, want refreshed, changed and reloaded once", res, len(h.creates))
+	if res.Verdict != VerdictRefreshed || !res.Changed || !res.Reloaded || len(h.registered()) != 1 {
+		t.Fatalf("res = %+v with %d registrations, want refreshed, changed and reloaded once", res, len(h.registered()))
 	}
-	if !taskDisabled(h.creates[0]) {
+	if definitionEnabled(h.registered()[0]) {
 		t.Error("a disabled task was registered enabled")
 	}
-	if got, err := taskFieldsFromXML(h.creates[0]); err != nil || !strings.HasSuffix(got.Arguments, detachArg) {
+	if got, err := taskFieldsFromXML(h.registered()[0]); err != nil || !strings.HasSuffix(got.Arguments, detachArg) {
 		t.Errorf("the registered task is not the current definition: %+v, %v", got, err)
+	}
+}
+
+// TestRefreshSchtasksReadsTheSwitchFromTaskScheduler is MADR 0207 D31: whether
+// the task is stopped is the switch Task Scheduler reports, not the stored
+// definition's text. A task whose switch is off is registered disabled even
+// when its stored definition reads enabled.
+func TestRefreshSchtasksReadsTheSwitchFromTaskScheduler(t *testing.T) {
+	h := newRefreshHarness(t, v0180ShapeExport(t))
+	if !definitionEnabled(v0180ShapeExport(t)) {
+		t.Fatal("the stored definition must read enabled, or this case tests nothing")
+	}
+	h.sched.switchOff["mcremote"] = true
+	res, err := refreshSchtasks(Options{Product: "mcremote"}, RefreshOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != VerdictRefreshed || len(h.registered()) != 1 {
+		t.Fatalf("res = %+v with %d registrations, want refreshed once", res, len(h.registered()))
+	}
+	if definitionEnabled(h.registered()[0]) {
+		t.Error("a task Task Scheduler reports disabled was registered enabled")
 	}
 }
 
@@ -254,7 +265,7 @@ func TestRefreshSchtasksCurrentTaskIsUnchanged(t *testing.T) {
 	if res.Verdict != VerdictUnchanged || res.Changed {
 		t.Errorf("res = %+v, want unchanged", res)
 	}
-	if len(h.creates) != 0 {
+	if len(h.registered()) != 0 {
 		t.Error("re-registered an unchanged task")
 	}
 }
@@ -270,7 +281,7 @@ func TestRefreshSchtasksPrintOnlyWritesNothing(t *testing.T) {
 	if res.Verdict != VerdictRefreshed || res.Body == "" {
 		t.Errorf("res = %+v, want refreshed with a body", res)
 	}
-	if len(h.creates) != 0 || res.BackupPath != "" {
+	if len(h.registered()) != 0 || res.BackupPath != "" {
 		t.Error("--print-only registered or backed up")
 	}
 	if _, err := os.Stat(h.backup); !errors.Is(err, os.ErrNotExist) {
@@ -301,7 +312,7 @@ func TestRefreshSchtasksKeepsWhatItDidNotWrite(t *testing.T) {
 			if res.Verdict != VerdictKept || res.Reason == "" {
 				t.Errorf("res = %+v, want kept with a reason", res)
 			}
-			if len(h.creates) != 0 {
+			if len(h.registered()) != 0 {
 				t.Error("re-registered a task it did not write")
 			}
 		})
@@ -319,8 +330,8 @@ func TestRestoreUnitBackupReRegistersATask(t *testing.T) {
 	if err := RestoreUnitBackup(`Task Scheduler\mcremote`, h.backup); err != nil {
 		t.Fatal(err)
 	}
-	if len(h.creates) != 1 || h.creates[0] != export {
-		t.Fatalf("restore registered %d bodies; want exactly the backup", len(h.creates))
+	if len(h.registered()) != 1 || h.registered()[0] != export {
+		t.Fatalf("restore registered %d bodies; want exactly the backup", len(h.registered()))
 	}
 	if _, err := os.Stat(h.backup); !errors.Is(err, os.ErrNotExist) {
 		t.Error("the backup was not removed after a successful restore")

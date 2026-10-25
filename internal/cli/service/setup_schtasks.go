@@ -1,10 +1,9 @@
 package service
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
-	"os"
-	"reflect"
 	"strings"
 )
 
@@ -12,24 +11,42 @@ import (
 // D12). It requires no elevation: the principal runs with an InteractiveToken
 // at LeastPrivilege.
 //
-// Idempotency (contract C2 at the service layer): the rendered XML is compared
-// against what is already registered, and /create is issued only when they
-// differ, so a second Setup reports Unchanged and performs no writes. This
-// mirrors the Linux and macOS paths, which already report res.Unchanged.
+// Idempotency (contract C2 at the service layer): the rendered definition is
+// compared with the one Task Scheduler stores, by go-selfupdate-lib's rule,
+// and registered only when they differ, so a second Setup reports Unchanged
+// and performs no writes (MADR 0207 D17). That rule does not compare the
+// task's switch, so a stopped task with an unchanged definition reads as
+// unchanged, and needs no --force for that alone (D31).
 func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 	name := taskNameFor(opts.Product)
 	res.UnitPath = `Task Scheduler\` + name
 	res.Scope = "windows-task"
 	res.Label = name
 
+	task, err := openTask(name)
+	if err != nil {
+		return res, err
+	}
+	ctx := context.Background()
+	st, err := task.Status(ctx, name)
+	if err != nil {
+		return res, fmt.Errorf("query scheduled task %q: %w", name, err)
+	}
 	keptDisabled := false
-	if existing, err := runSchtasks("/query", "/tn", name, "/xml", "ONE"); err == nil {
+	if st.Installed {
 		res.AlreadyExisted = true
+		existing, err := task.Definition(ctx, name)
+		if err != nil {
+			return res, fmt.Errorf("read scheduled task %q: %w", name, err)
+		}
 		// --no-start keeps a stopped task stopped. Stop disables the task, so
 		// that its watchdog trigger cannot undo the stop; registering the new
 		// definition enabled let that trigger start the daemon within a minute
-		// (MADR 0201 D22, amended; measured on a real host).
-		if opts.NoStart && taskDisabled(existing) {
+		// (MADR 0201 D22, amended; measured on a real host). Whether it is
+		// stopped is the task's switch, as Task Scheduler reports it (MADR 0207
+		// D31). Register sets the switch from the definition, so a definition
+		// rendered disabled never enables the task, even for a moment.
+		if opts.NoStart && st.Disabled {
 			disabled, err := withTaskDisabled(body)
 			if err != nil {
 				return res, err
@@ -37,29 +54,21 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 			body = disabled
 			keptDisabled = true
 		}
-		if sameTaskDefinition(existing, body) {
+		paths, err := taskDiffPaths(existing, body)
+		switch {
+		case err != nil && !opts.Force:
+			return res, fmt.Errorf("scheduled task %q cannot be compared with this release's definition: %w (pass --force to overwrite)", name, err)
+		case err == nil && len(paths) == 0:
 			res.Unchanged = true
-		} else if !opts.Force {
-			return res, fmt.Errorf("scheduled task %q exists with different content (pass --force to overwrite)", name)
+		case err == nil && !opts.Force:
+			return res, fmt.Errorf("scheduled task %q exists with different content: %s (pass --force to overwrite)",
+				name, strings.Join(paths, ", "))
 		}
 	}
 
 	if !res.Unchanged {
-		tmp, err := os.CreateTemp("", "mc-task-*.xml")
-		if err != nil {
-			return res, fmt.Errorf("stage task xml: %w", err)
-		}
-		defer os.Remove(tmp.Name())
-		// UTF-16LE with a BOM, never the string as-is: see encodeTaskXML.
-		if _, err := tmp.Write(encodeTaskXML(body)); err != nil {
-			tmp.Close()
-			return res, fmt.Errorf("write task xml: %w", err)
-		}
-		if err := tmp.Close(); err != nil {
-			return res, fmt.Errorf("close task xml: %w", err)
-		}
-		if out, err := runSchtasks("/create", "/tn", name, "/xml", tmp.Name(), "/f"); err != nil {
-			return res, fmt.Errorf("register scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
+		if err := task.Register(ctx, name, body); err != nil {
+			return res, fmt.Errorf("register scheduled task %q: %w", name, err)
 		}
 	}
 
@@ -83,11 +92,21 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 func removeSchtasks(opts Options) (Result, error) {
 	name := taskNameFor(opts.Product)
 	res := Result{UnitName: name, Label: name, Scope: "windows-task", UnitPath: `Task Scheduler\` + name}
-	if _, err := runSchtasks("/query", "/tn", name); err == nil {
-		// Best-effort stop first so the delete does not race a running instance.
+	task, err := openTask(name)
+	if err != nil {
+		return res, err
+	}
+	ctx := context.Background()
+	st, err := task.Status(ctx, name)
+	if err != nil {
+		return res, fmt.Errorf("query scheduled task %q: %w", name, err)
+	}
+	if st.Installed {
+		// Best-effort stop first: a deleted task's running instance outlives
+		// the deletion.
 		_ = stopWindows(opts.Product)
-		if out, err := runSchtasks("/delete", "/tn", name, "/f"); err != nil {
-			return res, fmt.Errorf("delete scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
+		if err := task.Delete(ctx, name); err != nil {
+			return res, fmt.Errorf("delete scheduled task %q: %w", name, err)
 		}
 		res.Removed = true
 	}
@@ -101,13 +120,6 @@ func removeSchtasks(opts Options) (Result, error) {
 		return res, err
 	}
 	return res, nil
-}
-
-// taskDisabled reports whether a registered definition is disabled, which is
-// how Stop leaves it (MADR 0159 D5). An unreadable definition counts as enabled.
-func taskDisabled(existing string) bool {
-	f, err := taskFieldsFromXML(existing)
-	return err == nil && !f.Enabled
 }
 
 // withTaskDisabled returns body, a definition renderTaskXML produced, with the
@@ -128,37 +140,6 @@ func withTaskDisabled(body string) (string, error) {
 	return body[:start] + strings.Replace(settings, on, off, 1) + body[end:], nil
 }
 
-// sameTaskDefinition reports whether a registered definition and a freshly
-// rendered one describe the same task.
-//
-// It compares the fields setup controls, not text (MADR 0159 D14). Task
-// Scheduler rewrites a definition on registration: it drops elements that hold
-// their default value (RunLevel, AllowHardTerminate, Enabled, Hidden,
-// RunOnlyIfNetworkAvailable, the trigger's Enabled), stores the principal as a
-// SID, and adds URI, IdleSettings and UseUnifiedSchedulingEngine. The previous
-// normalised-text comparison therefore never matched a real registered task,
-// so setup was never idempotent on Windows (F19, measured against the
-// installed v0.17.4). A definition that cannot be parsed is never "the same".
-func sameTaskDefinition(existing, want string) bool {
-	a, err := taskFieldsFromXML(existing)
-	if err != nil {
-		return false
-	}
-	b, err := taskFieldsFromXML(want)
-	if err != nil {
-		return false
-	}
-	return a.equal(b)
-}
-
-// sameTaskAccount reports whether two principal UserIds name the same account.
-// Task Scheduler stores a SID where setup may have written DOMAIN\user, so a
-// rendered name and a registered SID are equal only once resolved. It is a
-// seam: the default compares case-insensitively, and MADR 0159 P6 renders the
-// principal as the SID itself so a registered task compares equal without a
-// lookup.
-var sameTaskAccount = func(a, b string) bool { return strings.EqualFold(a, b) }
-
 // taskTimeTrigger is the part of a TimeTrigger setup controls.
 type taskTimeTrigger struct {
 	StartBoundary     string
@@ -168,8 +149,9 @@ type taskTimeTrigger struct {
 }
 
 // taskFields is the part of a task definition setup controls, with Task
-// Scheduler's defaults applied, so a rendered definition and the registered
-// copy of it compare equal.
+// Scheduler's defaults applied. Comparing two definitions is the library's
+// (MADR 0207 D17); this package reads fields only where it needs one, such as
+// the uninstall's program, and its tests read what a render holds.
 type taskFields struct {
 	LogonTriggers              int
 	LogonUser                  string
@@ -193,23 +175,6 @@ type taskFields struct {
 	Command                    string
 	Arguments                  string
 	WorkingDirectory           string
-}
-
-func (a taskFields) equal(b taskFields) bool {
-	if !sameTaskAccount(a.PrincipalUser, b.PrincipalUser) || !sameTaskAccount(a.LogonUser, b.LogonUser) {
-		return false
-	}
-	a.PrincipalUser, b.PrincipalUser, a.LogonUser, b.LogonUser = "", "", "", ""
-	if len(a.TimeTriggers) != len(b.TimeTriggers) {
-		return false
-	}
-	for i := range a.TimeTriggers {
-		if a.TimeTriggers[i] != b.TimeTriggers[i] {
-			return false
-		}
-	}
-	a.TimeTriggers, b.TimeTriggers = nil, nil
-	return reflect.DeepEqual(a, b)
 }
 
 // taskParse mirrors the registered XML with pointers where an element may be

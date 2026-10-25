@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,15 +79,20 @@ func TestReadServeArgsFromEachDefinition(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// The definition comes from Task Scheduler through the library, not a
+		// schtasks export (MADR 0207 D17, U4 Deviation 1).
+		s := withTaskScheduler(t)
+		s.xml["mcrelay"] = body
 		withSchtasks(t, func(args ...string) (string, error) {
-			if strings.Join(args, " ") != "/query /tn mcrelay /xml ONE" {
-				t.Errorf("schtasks %q", args)
-			}
-			return body, nil
+			t.Errorf("schtasks %q", args)
+			return "", nil
 		})
 		got, why, err := readServeArgs("mcrelay", "")
 		if err != nil || why != "" || got != wantBaked {
 			t.Fatalf("readServeArgs = %+v, %q, %v; want %+v", got, why, err, wantBaked)
+		}
+		if !slices.Equal(s.calls, []string{"definition mcrelay"}) {
+			t.Errorf("Task Scheduler calls %q, want one definition read of mcrelay", s.calls)
 		}
 	})
 }

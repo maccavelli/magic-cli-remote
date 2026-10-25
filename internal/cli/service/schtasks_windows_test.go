@@ -3,35 +3,35 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/xml"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestTaskXMLParsesInRealSchtasks is PLAN 0116 rows 15-17 (MADR 0116 D24).
+// The HRESULTs Task Scheduler returns for a definition it rejects. The
+// library prints a COM failure as "HRESULT 0x%08X", which no UI language
+// changes.
+const (
+	hrSchedInvalidValue = "0x80041318" // SCHED_E_INVALIDVALUE: parsed, a value is wrong
+	hrSchedMalformedXML = "0x8004131A" // SCHED_E_MALFORMEDXML: not parsed
+)
+
+// TestRenderedTaskParsesInRealTaskScheduler is PLAN 0116 rows 15-17 (MADR
+// 0116 D24), moved onto go-selfupdate-lib's Register (MADR 0207 D17).
 //
-// Every other service test stubs schtasks, which is how a task file Task
-// Scheduler cannot parse shipped (F25). This one hands the bytes setupSchtasks
-// writes to the real schtasks.exe.
+// Every other service test fakes Task Scheduler, which is how a definition it
+// cannot parse once shipped (F25). This one hands the definition setup
+// registers to the real Task Scheduler, through the library, as setup does.
 //
-// It must never register a task (PLAN C8). Each file carries one invalid value,
-// <ExecutionTimeLimit>NOT_A_DURATION, so a file that PARSES is still rejected at
-// validation ("incorrectly formatted"), while a file in the wrong encoding is
-// rejected at parse ("malformed"). Measured on build 26100 with the rendered
-// definition. The name is throwaway, it is deleted in cleanup whatever happens,
-// and the test asserts it does not exist afterwards.
-//
-// schtasks messages are localised. Output that is neither English message is a
-// skip that says so, never a pass.
-//
-// Running schtasks by bare name is why this is a _windows_test.go file
-// (MADR 0147 D9/D10, testexec.TestNoTestResolvesABareBinaryName).
-func TestTaskXMLParsesInRealSchtasks(t *testing.T) {
+// It must never register a task (PLAN C8). The definition carries one invalid
+// value, <ExecutionTimeLimit>NOT_A_DURATION, so a definition that PARSES is
+// still rejected at validation, while one that does not parse is rejected as
+// malformed. The name is throwaway, it is deleted in cleanup whatever happens,
+// and the test asserts it does not exist afterwards. A rejection it cannot
+// classify is a skip that says so, never a pass.
+func TestRenderedTaskParsesInRealTaskScheduler(t *testing.T) {
 	body, err := renderTaskXML(windowsOpts(), currentTaskUser())
 	if err != nil {
 		t.Fatal(err)
@@ -46,50 +46,45 @@ func TestTaskXMLParsesInRealSchtasks(t *testing.T) {
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatal(err)
 	}
-	name := "mc-0116-p12-probe-" + hex.EncodeToString(suffix[:])
+	name := "mc-0207-u4-probe-" + hex.EncodeToString(suffix[:])
+	task, err := openTask(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
 	t.Cleanup(func() {
-		_ = exec.Command("schtasks", "/delete", "/tn", name, "/f").Run()
-		if exec.Command("schtasks", "/query", "/tn", name).Run() == nil {
-			t.Errorf("PLAN C8 breached: task %q still registered after cleanup", name)
+		_ = task.Delete(ctx, name)
+		if st, err := task.Status(ctx, name); err != nil || st.Installed {
+			t.Errorf("PLAN C8 breached: task %q is registered after cleanup (%+v, %v)", name, st, err)
 		}
 	})
 
-	create := func(t *testing.T, file []byte) (string, bool) {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "task.xml")
-		if err := os.WriteFile(path, file, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		out, err := exec.Command("schtasks", "/create", "/tn", name, "/xml", path, "/f").CombinedOutput()
-		return strings.TrimSpace(string(out)), err == nil
-	}
-
-	t.Run("UTF-16LE with BOM parses", func(t *testing.T) {
-		out, registered := create(t, encodeTaskXML(poisoned))
+	t.Run("the rendered definition parses", func(t *testing.T) {
+		err := task.Register(ctx, name, poisoned)
 		switch {
-		case registered:
-			t.Fatalf("schtasks registered a task from a definition with an invalid value; C8 relies on that being impossible: %s", out)
-		case strings.Contains(out, "malformed"):
-			t.Fatalf("Task Scheduler could not parse encodeTaskXML's bytes: %s", out)
-		case strings.Contains(out, "incorrectly formatted"):
+		case err == nil:
+			t.Fatalf("Task Scheduler registered a definition with an invalid value; C8 relies on that being impossible")
+		case strings.Contains(err.Error(), hrSchedMalformedXML):
+			t.Fatalf("Task Scheduler could not parse the rendered definition: %v", err)
+		case strings.Contains(err.Error(), hrSchedInvalidValue):
 			// Parsed, then rejected only the injected value.
 		default:
-			t.Skipf("unrecognised schtasks output (localised Windows?); cannot classify: %s", out)
+			t.Skipf("unclassified rejection; cannot tell parse from validation: %v", err)
 		}
 	})
 
-	t.Run("negative control: the pre-P12 UTF-8 bytes are malformed", func(t *testing.T) {
-		legacy := xml.Header + strings.TrimPrefix(poisoned, taskXMLDeclaration)
-		out, registered := create(t, []byte(legacy))
+	t.Run("negative control: a truncated definition is malformed", func(t *testing.T) {
+		truncated := poisoned[:strings.Index(poisoned, "<Settings>")]
+		err := task.Register(ctx, name, truncated)
 		switch {
-		case registered:
-			t.Fatalf("schtasks registered a task from the legacy bytes: %s", out)
-		case strings.Contains(out, "malformed"):
-			// The encoding defect this test exists to catch is still detectable.
-		case strings.Contains(out, "incorrectly formatted"):
-			t.Fatalf("schtasks now parses UTF-8 under a UTF-8 declaration, so this test no longer discriminates; revisit MADR 0116 F24: %s", out)
+		case err == nil:
+			t.Fatalf("Task Scheduler registered a truncated definition")
+		case strings.Contains(err.Error(), hrSchedMalformedXML):
+			// The parse failure this test exists to catch is still detectable.
+		case strings.Contains(err.Error(), hrSchedInvalidValue):
+			t.Fatalf("a truncated definition read as a value error, so this test no longer discriminates: %v", err)
 		default:
-			t.Skipf("unrecognised schtasks output (localised Windows?); cannot classify: %s", out)
+			t.Skipf("unclassified rejection of the truncated definition: %v", err)
 		}
 	})
 }

@@ -49,18 +49,12 @@ func (m *memPath) set(v string, typ uint32) error {
 }
 func (m *memPath) broadcast() { m.broadcasts++ }
 
-// fakeTasks is Task Scheduler for the folder move: each task's registered
-// XML by name, replaced on /create.
-type fakeTasks struct {
-	xml     map[string]string
-	creates int
-}
-
 // migrationHost is a Windows host with install.ps1's layout under a scratch
 // %LOCALAPPDATA%: each product in products installed in its own folder, and
 // a User PATH with both folders, as REG_EXPAND_SZ. tasks names the products
-// whose task is registered, running its old-layout binary.
-func migrationHost(t *testing.T, products []string, tasks ...string) (*fakeTasks, *memPath) {
+// whose task is registered, running its old-layout binary, in a fake Task
+// Scheduler.
+func migrationHost(t *testing.T, products []string, tasks ...string) (*fakeTaskScheduler, *memPath) {
 	t.Helper()
 	t.Cleanup(OverrideInstallOS("windows"))
 	withUnitRecord(t, "mcremote", "")
@@ -96,28 +90,11 @@ func migrationHost(t *testing.T, products []string, tasks ...string) (*fakeTasks
 	t.Cleanup(func() { userPath = prevPath })
 
 	withTaskPrincipal(t, fixtureSID, nil, fixtureAccount, nil)
-	ft := &fakeTasks{xml: map[string]string{}}
+	ft := withTaskScheduler(t)
 	for _, p := range tasks {
 		ft.xml[p] = taskXMLRunning(t, p, filepath.Join(oldWindowsDir(p), p+".exe"))
 	}
-	withTaskState(t, func(name string) (int, bool, error) {
-		_, ok := ft.xml[name]
-		return 3, ok, nil
-	})
-	withSchtasks(t, func(args ...string) (string, error) {
-		switch {
-		case args[0] == "/query" && len(args) > 3 && args[3] == "/xml":
-			return ft.xml[args[2]], nil
-		case args[0] == "/create":
-			b, err := os.ReadFile(args[4])
-			if err != nil {
-				t.Fatalf("read staged task file: %v", err)
-			}
-			ft.xml[args[2]] = decodeUTF16LEWithBOM(t, b)
-			ft.creates++
-		}
-		return "", nil
-	})
+	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	prevBackup := taskBackupPath
 	backup := filepath.Join(t.TempDir(), "task.prev.xml")
 	taskBackupPath = func(string, string) (string, error) { return backup, nil }
@@ -248,8 +225,8 @@ func TestRefreshAfterTheMoveOnlyCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Verdict != VerdictUnchanged || ft.creates != 0 {
-		t.Fatalf("res = %+v with %d registrations, want unchanged and none", res, ft.creates)
+	if res.Verdict != VerdictUnchanged || len(ft.registered) != 0 {
+		t.Fatalf("res = %+v with %d registrations, want unchanged and none", res, len(ft.registered))
 	}
 	if _, err := os.Stat(oldWindowsDir("mcremote")); !os.IsNotExist(err) {
 		t.Fatalf("the old folder a previous move left survived: %v", err)

@@ -221,13 +221,13 @@ func findDefinition(kind Kind, product, name string) (UninstallItem, bool) {
 		item.Program = rec.Opts.Binary
 	case KindWindowsTask:
 		item.Path = taskPathPrefix + name
-		_, found, err := taskState(name)
-		if err != nil || !found {
+		st, err := taskStatus(name)
+		if err != nil || !st.Installed {
 			return item, false
 		}
-		xml, err := runSchtasks("/query", "/tn", name, "/xml", "ONE")
+		xml, err := taskDefinitionOf(name)
 		if err != nil {
-			item.Reason = "its definition could not be exported: " + err.Error()
+			item.Reason = "its definition could not be read: " + err.Error()
 			return item, true
 		}
 		f, err := taskFieldsFromXML(xml)

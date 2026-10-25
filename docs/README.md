@@ -419,6 +419,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0212 | REPORT | What Magic's service backends can take from `go-selfupdate-lib` | [0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md](../docs/reports/0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md) |
 | 0213 | MADR | Align docs-only CI and disclosure gates | [0213-MADR-align-docs-ci-and-disclosure-gates.md](decisions/0213-MADR-align-docs-ci-and-disclosure-gates.md) |
 | 0213 | PLAN | Implement aligned docs-only CI and disclosure gates | [0213-PLAN-align-docs-ci-and-disclosure-gates.md](decisions/0213-PLAN-align-docs-ci-and-disclosure-gates.md) |
+| 0214 | MADR | Run OpenCode v2 over ACP with a lease-bound v2 HTTP control plane | [0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

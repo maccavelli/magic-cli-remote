@@ -8,17 +8,18 @@ import (
 	"time"
 )
 
-// TestTaskStateRealProbeReportsAbsent runs the real Get-ScheduledTask probe
-// against a task that cannot exist: it must answer "not found" without an
-// error, which is what distinguishes it from the old parser that turned every
-// failure into "not registered" (MADR 0159 F12).
-func TestTaskStateRealProbeReportsAbsent(t *testing.T) {
+// TestTaskStatusReportsAbsent runs the real Task Scheduler read, through
+// go-selfupdate-lib (MADR 0207 D17), against a task that cannot exist: it
+// must answer "not installed" without an error, which is what distinguishes it
+// from the old parser that turned every failure into "not registered" (MADR
+// 0159 F12).
+func TestTaskStatusReportsAbsent(t *testing.T) {
 	name := fmt.Sprintf("mcr-no-such-task-%d", time.Now().UnixNano())
-	state, found, err := taskState(name)
+	st, err := taskStatus(name)
 	if err != nil {
-		t.Fatalf("probe of an absent task errored: %v", err)
+		t.Fatalf("read of an absent task errored: %v", err)
 	}
-	if found {
-		t.Fatalf("probe reported %q as registered (state %d)", name, state)
+	if st.Installed {
+		t.Fatalf("read reported %q as registered: %+v", name, st)
 	}
 }

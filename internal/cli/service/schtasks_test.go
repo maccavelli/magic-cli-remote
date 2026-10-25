@@ -1,24 +1,127 @@
 package service
 
 import (
-	"encoding/binary"
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
-	"unicode/utf16"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 )
 
 // withSchtasks substitutes the schtasks runner so the Windows branch is
 // exercised on any host, the same way OverrideRunLaunchctl drives the launchd
-// path off Darwin.
+// path off Darwin. Only the enable, run and end that remain go through it
+// (MADR 0207 D30).
 func withSchtasks(t *testing.T, fn func(args ...string) (string, error)) {
 	t.Helper()
 	prev := runSchtasks
 	runSchtasks = fn
 	t.Cleanup(func() { runSchtasks = prev })
+}
+
+// fakeTaskScheduler stands in for Task Scheduler behind newTaskClient, so the
+// Windows branch runs on any host (MADR 0207 D17). Tasks are kept by name as
+// their stored definitions. A definition's Settings/Enabled is the task's
+// switch, as Task Scheduler keeps it, and Register sets it from the
+// definition.
+type fakeTaskScheduler struct {
+	xml     map[string]string
+	running map[string]bool
+	// switchOff turns a task's switch off apart from its stored definition,
+	// so a test can tell which of the two the code reads (D31). Register
+	// clears it, as it sets the switch.
+	switchOff map[string]bool
+	statusErr error
+	// calls are the client calls made, as "<method> <task>", in order.
+	calls []string
+	// registered are the definitions handed to Register, in order.
+	registered []string
+	// schtasks are the schtasks.exe commands run, as their joined arguments.
+	schtasks []string
+}
+
+// withTaskScheduler makes newTaskClient open tasks in a new fake, and returns
+// it. It also records schtasks.exe, which succeeds, so no test reaches the
+// real one: a regression on a Windows host would otherwise enable, run or end
+// the host's real task. A test that needs another answer calls withSchtasks
+// after it.
+func withTaskScheduler(t *testing.T) *fakeTaskScheduler {
+	t.Helper()
+	s := &fakeTaskScheduler{xml: map[string]string{}, running: map[string]bool{}, switchOff: map[string]bool{}}
+	prev := newTaskClient
+	newTaskClient = func(name string) (taskClient, error) { return fakeTaskClient{s: s, name: name}, nil }
+	t.Cleanup(func() { newTaskClient = prev })
+	withSchtasks(t, func(args ...string) (string, error) {
+		s.schtasks = append(s.schtasks, strings.Join(args, " "))
+		return "", nil
+	})
+	return s
+}
+
+// called reports how many calls of method the fake received.
+func (s *fakeTaskScheduler) called(method string) int {
+	n := 0
+	for _, c := range s.calls {
+		if strings.HasPrefix(c, method+" ") {
+			n++
+		}
+	}
+	return n
+}
+
+type fakeTaskClient struct {
+	s    *fakeTaskScheduler
+	name string
+}
+
+func (c fakeTaskClient) Status(context.Context, string) (taskscheduler.Status, error) {
+	c.s.calls = append(c.s.calls, "status "+c.name)
+	if c.s.statusErr != nil {
+		return taskscheduler.Status{}, c.s.statusErr
+	}
+	body, ok := c.s.xml[c.name]
+	if !ok {
+		return taskscheduler.Status{}, nil
+	}
+	disabled := c.s.switchOff[c.name] || !definitionEnabled(body)
+	return taskscheduler.Status{Installed: true, Disabled: disabled, Enabled: !disabled, Running: c.s.running[c.name]}, nil
+}
+
+func (c fakeTaskClient) Definition(context.Context, string) (string, error) {
+	c.s.calls = append(c.s.calls, "definition "+c.name)
+	body, ok := c.s.xml[c.name]
+	if !ok {
+		return "", fmt.Errorf("task %s: %w", c.name, libservice.ErrNotInstalled)
+	}
+	return body, nil
+}
+
+func (c fakeTaskClient) Register(_ context.Context, _, definition string) error {
+	c.s.calls = append(c.s.calls, "register "+c.name)
+	c.s.xml[c.name] = definition
+	c.s.registered = append(c.s.registered, definition)
+	delete(c.s.switchOff, c.name)
+	return nil
+}
+
+func (c fakeTaskClient) Delete(context.Context, string) error {
+	c.s.calls = append(c.s.calls, "delete "+c.name)
+	delete(c.s.xml, c.name)
+	return nil
+}
+
+// definitionEnabled reports a definition's own switch, Settings/Enabled. An
+// unreadable definition counts as enabled, as Task Scheduler's default is.
+func definitionEnabled(body string) bool {
+	f, err := taskFieldsFromXML(body)
+	return err != nil || f.Enabled
 }
 
 func windowsOpts() Options {
@@ -83,6 +186,22 @@ func TestRenderTaskXMLCarriesServeArgs(t *testing.T) {
 	}
 }
 
+// TestRenderTaskXMLDeclaresUTF16: the rendered declaration names UTF-16, the
+// encoding Task Scheduler keeps a definition in, and never UTF-8, which it
+// refused (MADR 0116 F24).
+func TestRenderTaskXMLDeclaresUTF16(t *testing.T) {
+	body, err := renderTaskXML(windowsOpts(), `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(body, `<?xml version="1.0" encoding="UTF-16"?>`) {
+		t.Errorf("rendered declaration does not name UTF-16: %q", body[:min(len(body), 60)])
+	}
+	if strings.Contains(body, `encoding="UTF-8"`) {
+		t.Error("rendered task XML declares UTF-8")
+	}
+}
+
 // TestServeArgsQuotesSpaces proves a path with a space survives as one
 // argument — Windows home directories routinely contain them.
 func TestServeArgsQuotesSpaces(t *testing.T) {
@@ -104,29 +223,45 @@ func TestServeArgsEndWithTheDetachFlag(t *testing.T) {
 	}
 }
 
+// TestSetupSchtasksRegistersAnAbsentTask: a task Task Scheduler does not know
+// is registered once, from exactly the rendered definition, and its stored
+// definition is never asked for.
+func TestSetupSchtasksRegistersAnAbsentTask(t *testing.T) {
+	opts := windowsOpts()
+	body, err := renderTaskXML(opts, `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := withTaskScheduler(t)
+	withSchtasks(t, func(...string) (string, error) { return "", nil })
+	res, err := setupSchtasks(opts, body, Result{})
+	if err != nil {
+		t.Fatalf("setupSchtasks: %v", err)
+	}
+	if res.AlreadyExisted || res.Unchanged {
+		t.Errorf("res = %+v, want a new task", res)
+	}
+	if len(s.registered) != 1 || s.registered[0] != body {
+		t.Fatalf("registered %d definitions, want exactly the rendered one", len(s.registered))
+	}
+	if s.called("definition") != 0 {
+		t.Errorf("read the definition of a task that is not registered: %q", s.calls)
+	}
+}
+
 // TestSetupSchtasksIdempotent pins contract C2 at the service layer: a second
-// Setup against an identical registered task performs no /create.
+// Setup against an identical registered task registers nothing.
 func TestSetupSchtasksIdempotent(t *testing.T) {
 	opts := windowsOpts()
 	body, err := renderTaskXML(opts, `CORP\dev`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	s := withTaskScheduler(t)
 	// The task engine re-formats what it stores; the comparison must survive
 	// that or every run would re-register.
-	stored := "\ufeff" + strings.ReplaceAll(body, "\n", "\r\n")
-
-	var creates int
-	withSchtasks(t, func(args ...string) (string, error) {
-		switch {
-		case args[0] == "/query" && len(args) > 3 && args[3] == "/xml":
-			return stored, nil
-		case args[0] == "/create":
-			creates++
-			return "", nil
-		}
-		return "", nil
-	})
+	s.xml["mcremote"] = strings.ReplaceAll(body, "\n", "\r\n")
+	withSchtasks(t, func(...string) (string, error) { return "", nil })
 
 	res, err := setupSchtasks(opts, body, Result{})
 	if err != nil {
@@ -136,32 +271,24 @@ func TestSetupSchtasksIdempotent(t *testing.T) {
 		t.Error("AlreadyExisted = false for a registered task")
 	}
 	if !res.Unchanged {
-		t.Error("Unchanged = false for a byte-equivalent task definition")
+		t.Error("Unchanged = false for an equivalent task definition")
 	}
-	if creates != 0 {
-		t.Errorf("issued %d /create calls for an unchanged task, want 0", creates)
+	if len(s.registered) != 0 {
+		t.Errorf("registered %d definitions for an unchanged task, want 0", len(s.registered))
 	}
 }
 
 // TestSetupSchtasksRegistersWhenChanged is the other half: a differing
-// definition must be rewritten.
+// definition is rewritten under --force.
 func TestSetupSchtasksRegistersWhenChanged(t *testing.T) {
 	opts := windowsOpts()
 	body, err := renderTaskXML(opts, `CORP\dev`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var creates int
-	withSchtasks(t, func(args ...string) (string, error) {
-		switch {
-		case args[0] == "/query" && len(args) > 3 && args[3] == "/xml":
-			return "<Task><Actions><Exec><Command>C:\\old.exe</Command></Exec></Actions></Task>", nil
-		case args[0] == "/create":
-			creates++
-			return "", nil
-		}
-		return "", nil
-	})
+	s := withTaskScheduler(t)
+	s.xml["mcremote"] = strings.Replace(body, opts.Binary, `C:\old\mcremote.exe`, 1)
+	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	res, err := setupSchtasks(opts, body, Result{})
 	if err != nil {
 		t.Fatalf("setupSchtasks: %v", err)
@@ -169,22 +296,98 @@ func TestSetupSchtasksRegistersWhenChanged(t *testing.T) {
 	if res.Unchanged {
 		t.Error("Unchanged = true for a different definition")
 	}
-	if creates != 1 {
-		t.Errorf("issued %d /create calls, want 1", creates)
+	if len(s.registered) != 1 || s.registered[0] != body {
+		t.Errorf("registered %d definitions, want the rendered one once", len(s.registered))
 	}
 }
 
-// TestRemoveSchtasksIdempotent proves removing an absent task is not an error.
+// TestSetupSchtasksNamesWhatDiffers: a changed task without --force is
+// refused, and the error names each path the library's comparison reports, so
+// the operator sees what --force would overwrite (MADR 0207 D17).
+func TestSetupSchtasksNamesWhatDiffers(t *testing.T) {
+	opts := windowsOpts()
+	opts.Force = false
+	body, err := renderTaskXML(opts, `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := strings.Replace(body, opts.Binary, `C:\old\mcremote.exe`, 1)
+	stored = strings.Replace(stored, "<Count>3</Count>", "<Count>5</Count>", 1)
+	diffs, err := taskscheduler.DiffDefinitions(stored, body)
+	if err != nil || len(diffs) != 2 {
+		t.Fatalf("the library finds %d differences (%v); the fixture expects two", len(diffs), err)
+	}
+	s := withTaskScheduler(t)
+	s.xml["mcremote"] = stored
+	_, err = setupSchtasks(opts, body, Result{})
+	if err == nil {
+		t.Fatal("a changed task was overwritten without --force")
+	}
+	for _, d := range diffs {
+		if !strings.Contains(err.Error(), d.Path) {
+			t.Errorf("the refusal does not name %s: %v", d.Path, err)
+		}
+	}
+	if !strings.Contains(err.Error(), "exists with different content") || !strings.Contains(err.Error(), "--force") ||
+		len(s.registered) != 0 || len(s.schtasks) != 0 {
+		t.Errorf("err = %v, %d registrations, schtasks %q; want the refusal, nothing registered and nothing started",
+			err, len(s.registered), s.schtasks)
+	}
+}
+
+// TestSetupSchtasksPropagatesAFailedRead: a Task Scheduler read that fails is
+// an error, never "not registered", which would register over a task setup
+// could not see (MADR 0159 F12).
+func TestSetupSchtasksPropagatesAFailedRead(t *testing.T) {
+	opts := windowsOpts()
+	body, err := renderTaskXML(opts, `CORP\dev`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := withTaskScheduler(t)
+	s.statusErr = fmt.Errorf("task scheduler: %w", libservice.ErrPermission)
+	if _, err := setupSchtasks(opts, body, Result{}); !errors.Is(err, libservice.ErrPermission) {
+		t.Fatalf("err = %v, want the read's permission error", err)
+	}
+	if len(s.registered) != 0 || len(s.schtasks) != 0 {
+		t.Errorf("registered %d and ran schtasks %q after a failed read; want neither", len(s.registered), s.schtasks)
+	}
+}
+
+// TestRemoveSchtasksIdempotent proves removing an absent task is not an error,
+// and deletes nothing.
 func TestRemoveSchtasksIdempotent(t *testing.T) {
-	withSchtasks(t, func(args ...string) (string, error) {
-		return "", errNotRegistered{}
-	})
+	s := withTaskScheduler(t)
+	withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
 	res, err := removeSchtasks(windowsOpts())
 	if err != nil {
 		t.Fatalf("removeSchtasks on an absent task: %v", err)
 	}
-	if res.Removed {
-		t.Error("Removed = true for a task that was not registered")
+	if res.Removed || s.called("delete") != 0 {
+		t.Errorf("Removed = %v with %d deletes for a task that was not registered", res.Removed, s.called("delete"))
+	}
+}
+
+// TestRemoveSchtasksDeletesThroughTheLibrary: a registered task is stopped,
+// then deleted once through Task Scheduler (MADR 0207 D17).
+func TestRemoveSchtasksDeletesThroughTheLibrary(t *testing.T) {
+	s := withTaskScheduler(t)
+	s.xml["mcremote"] = "<Task/>"
+	var schtasks []string
+	withSchtasks(t, func(args ...string) (string, error) {
+		schtasks = append(schtasks, strings.Join(args, " "))
+		return "", nil
+	})
+	withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
+	res, err := removeSchtasks(windowsOpts())
+	if err != nil || !res.Removed {
+		t.Fatalf("removeSchtasks: %+v, %v", res, err)
+	}
+	if s.called("delete") != 1 || len(s.xml) != 0 {
+		t.Errorf("calls %q, tasks %v; want one delete", s.calls, s.xml)
+	}
+	if slices.ContainsFunc(schtasks, func(c string) bool { return strings.HasPrefix(c, "/delete") || strings.HasPrefix(c, "/query") }) {
+		t.Errorf("schtasks ran %q; the delete and the query are the library's", schtasks)
 	}
 }
 
@@ -209,8 +412,9 @@ func TestRemoveSchtasksDeletesTheBackup(t *testing.T) {
 	if err := os.WriteFile(backup, []byte("<Task/>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	s := withTaskScheduler(t)
+	s.xml["mcremote"] = "<Task/>"
 	withSchtasks(t, func(...string) (string, error) { return "", nil })
-	withTaskState(t, func(string) (int, bool, error) { return 3, true, nil })
 	withTaskBackupFile(t, backup)
 	res, err := removeSchtasks(windowsOpts())
 	if err != nil || !res.Removed {
@@ -226,8 +430,9 @@ func TestRemoveSchtasksDeletesTheBackup(t *testing.T) {
 
 // TestRemoveSchtasksWithNoBackup: no backup is no error, and nothing is named.
 func TestRemoveSchtasksWithNoBackup(t *testing.T) {
+	s := withTaskScheduler(t)
+	s.xml["mcremote"] = "<Task/>"
 	withSchtasks(t, func(...string) (string, error) { return "", nil })
-	withTaskState(t, func(string) (int, bool, error) { return 3, true, nil })
 	withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
 	res, err := removeSchtasks(windowsOpts())
 	if err != nil || !res.Removed || res.RemovedBackup != "" {
@@ -242,7 +447,7 @@ func TestRemoveSchtasksAbsentTaskDropsItsBackup(t *testing.T) {
 	if err := os.WriteFile(backup, []byte("<Task/>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	withSchtasks(t, func(...string) (string, error) { return "", errNotRegistered{} })
+	withTaskScheduler(t)
 	withTaskBackupFile(t, backup)
 	res, err := removeSchtasks(windowsOpts())
 	if err != nil || res.Removed || res.RemovedBackup != backup {
@@ -275,32 +480,31 @@ func TestTaskBackupFileCreatesNothing(t *testing.T) {
 	}
 }
 
-type errNotRegistered struct{}
-
-func (errNotRegistered) Error() string { return "ERROR: The system cannot find the file specified." }
-
 // TestStopDisablesThenEnds pins stop's sequence (MADR 0159 D5): disable first,
 // so the watchdog trigger cannot relaunch a daemon that was stopped on purpose,
-// then /end only if the task is running. /end is still the ungraceful
-// termination MADR 0116 D9 recorded.
+// then /end only if Task Scheduler reports the task running. /end is still the
+// ungraceful termination MADR 0116 D9 recorded.
 func TestStopDisablesThenEnds(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		state int
-		found bool
-		want  []string
+		name                string
+		registered, running bool
+		want                []string
 	}{
-		{"running", taskStateRunning, true, []string{"/change /tn mcremote /disable", "/end /tn mcremote"}},
-		{"ready", 3, true, []string{"/change /tn mcremote /disable"}},
-		{"absent", 0, false, []string{"/change /tn mcremote /disable"}},
+		{"running", true, true, []string{"/change /tn mcremote /disable", "/end /tn mcremote"}},
+		{"ready", true, false, []string{"/change /tn mcremote /disable"}},
+		{"absent", false, false, []string{"/change /tn mcremote /disable"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			s := withTaskScheduler(t)
+			if tc.registered {
+				s.xml["mcremote"] = "<Task/>"
+			}
+			s.running["mcremote"] = tc.running
 			var calls []string
 			withSchtasks(t, func(args ...string) (string, error) {
 				calls = append(calls, strings.Join(args, " "))
 				return "", nil
 			})
-			withTaskState(t, func(string) (int, bool, error) { return tc.state, tc.found, nil })
 			if err := stopWindows("mcremote"); err != nil {
 				t.Fatal(err)
 			}
@@ -370,17 +574,7 @@ func TestSetupDispatchesToWindows(t *testing.T) {
 	// The Windows branch resolves the principal from the process token (MADR
 	// 0159 D8); off Windows there is no token to read, so inject it.
 	withTaskPrincipal(t, "S-1-5-21-7-7-7-1001", nil, `CORP\dev`, nil)
-
-	var sawCreate bool
-	withSchtasks(t, func(args ...string) (string, error) {
-		if args[0] == "/create" {
-			sawCreate = true
-		}
-		if args[0] == "/query" {
-			return "", errNotRegistered{}
-		}
-		return "", nil
-	})
+	s := withTaskScheduler(t)
 
 	opts := windowsOpts()
 	opts.PrintOnly = true
@@ -394,89 +588,8 @@ func TestSetupDispatchesToWindows(t *testing.T) {
 	if !strings.Contains(res.UnitBody, "LeastPrivilege") {
 		t.Error("previewed body is not the task XML")
 	}
-	if sawCreate {
-		t.Error("--print-only issued a /create")
-	}
-}
-
-// decodeUTF16LEWithBOM is the test's own reading of the task file bytes, kept
-// independent of encodeTaskXML so the two cannot share a bug.
-func decodeUTF16LEWithBOM(t *testing.T, b []byte) string {
-	t.Helper()
-	if len(b) < 2 || b[0] != 0xFF || b[1] != 0xFE {
-		t.Fatalf("task file does not start with the UTF-16LE BOM FF FE: first bytes % X", b[:min(len(b), 4)])
-	}
-	if len(b)%2 != 0 {
-		t.Fatalf("task file has an odd byte count (%d); not UTF-16", len(b))
-	}
-	units := make([]uint16, (len(b)-2)/2)
-	for i := range units {
-		units[i] = binary.LittleEndian.Uint16(b[2+2*i:])
-	}
-	return string(utf16.Decode(units))
-}
-
-// TestEncodeTaskXMLIsUTF16LEWithBOM is PLAN 0116 row 14 (MADR 0116 D24): the
-// bytes are UTF-16LE with a BOM, they decode back to exactly the rendered text,
-// and that text declares the encoding the bytes are actually in. The mismatch
-// between those last two is what Task Scheduler rejected (F24).
-func TestEncodeTaskXMLIsUTF16LEWithBOM(t *testing.T) {
-	body, err := renderTaskXML(windowsOpts(), `CORP\dev`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(body, `<?xml version="1.0" encoding="UTF-16"?>`) {
-		t.Fatalf("rendered declaration does not name UTF-16: %q", body[:min(len(body), 60)])
-	}
-	if strings.Contains(body, `encoding="UTF-8"`) {
-		t.Error("rendered task XML still declares UTF-8")
-	}
-	if got := decodeUTF16LEWithBOM(t, encodeTaskXML(body)); got != body {
-		t.Error("encodeTaskXML does not round-trip the rendered text")
-	}
-	// Non-ASCII must survive: a Windows user or path can carry it.
-	const s = `C:\Users\Zoë\AppData\Local\Programs\mcremote\mcremote.exe`
-	if got := decodeUTF16LEWithBOM(t, encodeTaskXML(s)); got != s {
-		t.Errorf("non-ASCII did not round-trip: %q", got)
-	}
-}
-
-// TestSetupSchtasksWritesUTF16 is PLAN C9: the file setupSchtasks hands to
-// `schtasks /create /xml` is encodeTaskXML's output, not the string. The stub
-// reads the staged file while it still exists.
-func TestSetupSchtasksWritesUTF16(t *testing.T) {
-	opts := windowsOpts()
-	body, err := renderTaskXML(opts, `CORP\dev`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var staged []byte
-	withSchtasks(t, func(args ...string) (string, error) {
-		if args[0] == "/create" {
-			for i := 0; i+1 < len(args); i++ {
-				if args[i] == "/xml" {
-					b, rerr := os.ReadFile(args[i+1])
-					if rerr != nil {
-						t.Errorf("read staged task file: %v", rerr)
-					}
-					staged = b
-				}
-			}
-			return "", nil
-		}
-		if args[0] == "/query" {
-			return "", errNotRegistered{} // nothing registered yet, so /create runs
-		}
-		return "", nil // /run and anything else succeed
-	})
-	if _, err := setupSchtasks(opts, body, Result{}); err != nil {
-		t.Fatalf("setupSchtasks: %v", err)
-	}
-	if staged == nil {
-		t.Fatal("setupSchtasks never issued /create with an /xml file")
-	}
-	if got := decodeUTF16LEWithBOM(t, staged); got != body {
-		t.Error("the staged task file does not decode to the rendered definition")
+	if len(s.registered) != 0 {
+		t.Error("--print-only registered a task")
 	}
 }
 
@@ -534,11 +647,12 @@ func TestRenderTaskXMLRefusesAnUnknownPrincipal(t *testing.T) {
 	})
 }
 
-// TestSetupFailsBeforeSchtasksWithoutAPrincipal: when the principal cannot be
-// determined, Setup stops before running schtasks at all.
-func TestSetupFailsBeforeSchtasksWithoutAPrincipal(t *testing.T) {
+// TestSetupFailsBeforeTaskSchedulerWithoutAPrincipal: when the principal
+// cannot be determined, Setup stops before Task Scheduler is asked anything.
+func TestSetupFailsBeforeTaskSchedulerWithoutAPrincipal(t *testing.T) {
 	defer OverrideInstallOS("windows")()
 	withTaskPrincipal(t, "", errors.New("no token"), "", nil)
+	s := withTaskScheduler(t)
 	var calls int
 	withSchtasks(t, func(args ...string) (string, error) {
 		calls++
@@ -549,65 +663,60 @@ func TestSetupFailsBeforeSchtasksWithoutAPrincipal(t *testing.T) {
 	if _, err := Setup(opts); err == nil {
 		t.Fatal("Setup succeeded with no principal")
 	}
-	if calls != 0 {
-		t.Errorf("schtasks ran %d times before the principal error", calls)
+	if calls != 0 || len(s.calls) != 0 {
+		t.Errorf("schtasks ran %d times and Task Scheduler was called %q before the principal error", calls, s.calls)
 	}
 }
 
-// withTaskState injects the Get-ScheduledTask probe.
-func withTaskState(t *testing.T, fn func(name string) (int, bool, error)) {
-	t.Helper()
-	prev := taskState
-	taskState = fn
-	t.Cleanup(func() { taskState = prev })
-}
-
-// TestTaskStateDrivesInstalled replaces the English-text parser (MADR 0159
-// F12, D9): the numeric state decides, and a probe failure is an error rather
-// than "not installed". Whether the task runs is the taskscheduler backend's
-// to say now (MADR 0054 D6).
-func TestTaskStateDrivesInstalled(t *testing.T) {
-	probeErr := errors.New("powershell failed")
+// TestTaskStatusDrivesInstalled: Task Scheduler's own state decides, from one
+// read (MADR 0207 D17), and a failed read is an error rather than "not
+// installed" (MADR 0159 F12).
+func TestTaskStatusDrivesInstalled(t *testing.T) {
+	readErr := fmt.Errorf("task scheduler: %w", libservice.ErrPermission)
 	for _, tc := range []struct {
 		name          string
-		state         int
-		found         bool
+		registered    bool
+		disabled      bool
 		err           error
 		wantInstalled bool
 		wantErr       bool
 	}{
-		{"running", 4, true, nil, true, false},
-		{"ready", 3, true, nil, true, false},
-		{"disabled", 1, true, nil, true, false},
-		{"absent", 0, false, nil, false, false},
-		{"probe error", 0, false, probeErr, false, true},
+		{"registered", true, false, nil, true, false},
+		{"disabled", true, true, nil, true, false},
+		{"absent", false, false, nil, false, false},
+		{"read error", true, false, readErr, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var asked string
-			withTaskState(t, func(name string) (int, bool, error) {
-				asked = name
-				return tc.state, tc.found, tc.err
-			})
+			s := withTaskScheduler(t)
+			if tc.registered {
+				s.xml["mcremote"] = "<Task/>"
+				s.switchOff["mcremote"] = tc.disabled
+			}
+			s.statusErr = tc.err
 			installed, err := isInstalledWindows("mcremote")
 			if (err != nil) != tc.wantErr || installed != tc.wantInstalled {
 				t.Errorf("isInstalledWindows = %v, %v; want %v, err=%v", installed, err, tc.wantInstalled, tc.wantErr)
 			}
-			if tc.wantErr && !errors.Is(err, probeErr) {
-				t.Errorf("the probe error was not propagated: %v", err)
+			if tc.wantErr && !errors.Is(err, libservice.ErrPermission) {
+				t.Errorf("the read error was not propagated: %v", err)
 			}
-			if asked != "mcremote" {
-				t.Errorf("probed task %q, want mcremote", asked)
+			if !slices.Equal(s.calls, []string{"status mcremote"}) {
+				t.Errorf("calls %q, want one status read of mcremote", s.calls)
 			}
 		})
 	}
 }
 
-// TestTaskStateRejectsAnUnsafeName: only product-shaped names reach the
-// PowerShell command line.
-func TestTaskStateRejectsAnUnsafeName(t *testing.T) {
+// TestOpenTaskRejectsAnUnsafeName: only product-shaped names in the root
+// folder are opened.
+func TestOpenTaskRejectsAnUnsafeName(t *testing.T) {
+	s := withTaskScheduler(t)
 	for _, name := range []string{"", "a b", "x';calc;'", `a\b`} {
-		if _, _, err := taskState(name); err == nil {
-			t.Errorf("taskState(%q) accepted an unsafe name", name)
+		if _, err := taskStatus(name); err == nil {
+			t.Errorf("taskStatus(%q) accepted an unsafe name", name)
 		}
+	}
+	if len(s.calls) != 0 {
+		t.Errorf("an unsafe name reached Task Scheduler: %q", s.calls)
 	}
 }

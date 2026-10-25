@@ -22,22 +22,22 @@ const taskPathPrefix = `Task Scheduler\`
 // It mirrors refreshLaunchd: a definition this package did not write, or
 // cannot reproduce, is reported and left alone; an unchanged one is not
 // touched; a changed one is backed up, then re-registered. The comparison is
-// semantic (D14): Task Scheduler rewrites what it stores, so text never
-// matches.
+// by value, by go-selfupdate-lib's rule (MADR 0207 D17): Task Scheduler
+// rewrites what it stores, so text never matches.
 func refreshSchtasks(opts Options, ro RefreshOptions) (RefreshResult, error) {
 	name := taskNameFor(opts.Product)
 	res := RefreshResult{Verdict: VerdictNone, Path: taskPathPrefix + name}
 
-	_, found, err := taskState(name)
+	st, err := taskStatus(name)
 	if err != nil {
 		return res, err
 	}
-	if !found {
+	if !st.Installed {
 		return res, nil
 	}
-	existing, err := runSchtasks("/query", "/tn", name, "/xml", "ONE")
+	existing, err := taskDefinitionOf(name)
 	if err != nil {
-		return res, fmt.Errorf("export scheduled task %q: %w (%s)", name, err, strings.TrimSpace(existing))
+		return res, err
 	}
 
 	rec, why, ok := recoverTaskOptions(opts.Product, existing)
@@ -72,16 +72,20 @@ func refreshSchtasks(opts Options, ro RefreshOptions) (RefreshResult, error) {
 	}
 	// A disabled task stays disabled: an update's Stop disables the task
 	// before it refreshes it, and so does an operator who stops the service
-	// (MADR 0054 amendment S10, S10-1). Rendered enabled, every update would
-	// rewrite the task, and an operator's stop would be undone by the watchdog
-	// trigger within a minute.
-	if taskDisabled(existing) {
+	// (MADR 0054 amendment S10, S10-1). Registered enabled, an operator's stop
+	// would be undone by the watchdog trigger within a minute. Disabled is the
+	// task's switch, as Task Scheduler reports it (MADR 0207 D31).
+	if st.Disabled {
 		if want, err = withTaskDisabled(want); err != nil {
 			return res, err
 		}
 	}
 	res.Body = want
-	if sameTaskDefinition(existing, want) {
+	paths, err := taskDiffPaths(existing, want)
+	if err != nil {
+		return res, fmt.Errorf("compare scheduled task %q with this release's definition: %w", name, err)
+	}
+	if len(paths) == 0 {
 		res.Verdict = VerdictUnchanged
 		if inNew && !ro.PrintOnly {
 			// Already moved: only what a previous move left behind.
@@ -135,28 +139,6 @@ func restoreSchtasksBackup(path, backup string) error {
 	}
 	if err := os.Remove(backup); err != nil {
 		return fmt.Errorf("restored %s, but could not remove %s: %w", path, backup, err)
-	}
-	return nil
-}
-
-// registerTaskXML registers body under name, replacing any existing task.
-// The file handed to schtasks is UTF-16LE with a BOM (encodeTaskXML): Task
-// Scheduler rejects anything else (MADR 0116 F24).
-func registerTaskXML(name, body string) error {
-	tmp, err := os.CreateTemp("", "mc-task-*.xml")
-	if err != nil {
-		return fmt.Errorf("stage task xml: %w", err)
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(encodeTaskXML(body)); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write task xml: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close task xml: %w", err)
-	}
-	if out, err := runSchtasks("/create", "/tn", name, "/xml", tmp.Name(), "/f"); err != nil {
-		return fmt.Errorf("register scheduled task %q: %w (%s)", name, err, strings.TrimSpace(out))
 	}
 	return nil
 }

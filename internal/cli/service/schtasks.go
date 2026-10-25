@@ -1,18 +1,21 @@
 package service
 
 // This file is deliberately NOT build-tagged for Windows. Nothing in the
-// Task Scheduler path touches a Windows API: it shells out to schtasks.exe
-// through the runSchtasks seam and manipulates XML. Compiling it everywhere is
-// what lets the Windows branch be exercised from a Unix development host via
-// OverrideInstallOS, the same way OverrideRunLaunchctl drives the launchd path
-// off Darwin (MADR 0116 D12).
+// Task Scheduler path touches a Windows API directly: it reaches Task
+// Scheduler through go-selfupdate-lib's taskscheduler package behind the
+// newTaskClient seam, and runs schtasks.exe through the runSchtasks seam for
+// the enable, run and end that remain (MADR 0207 D17, D30). Compiling it
+// everywhere is what lets the Windows branch be exercised from a Unix
+// development host via OverrideInstallOS, the same way OverrideRunLaunchctl
+// drives the launchd path off Darwin (MADR 0116 D12).
 
 import (
-	"encoding/binary"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"strings"
-	"unicode/utf16"
+
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 )
 
 // runSchtasks runs schtasks.exe and returns its combined output. It is a
@@ -22,17 +25,106 @@ var runSchtasks = func(args ...string) (string, error) {
 	return runCmdOutput("schtasks", args...)
 }
 
+// taskClient is the part of go-selfupdate-lib's *taskscheduler.Task that
+// setup, refresh, remove, uninstall and health use: one Task Scheduler read
+// of the task's state, and its definition read, registered and deleted
+// through the COM API, with no PowerShell and no schtasks.exe (MADR 0207
+// D17).
+type taskClient interface {
+	Status(ctx context.Context, product string) (taskscheduler.Status, error)
+	Definition(ctx context.Context, product string) (string, error)
+	Register(ctx context.Context, product, definition string) error
+	Delete(ctx context.Context, product string) error
+}
+
+// newTaskClient returns the task registered under name, in the root folder.
+// Off Windows the library returns service.ErrUnsupported. It is a variable so
+// tests can drive the Windows branch on any host.
+var newTaskClient = func(name string) (taskClient, error) {
+	return taskscheduler.New(taskscheduler.Options{Name: name})
+}
+
+// openTask returns the task registered under name, after checking that the
+// name is one this package registers: a product-shaped name in the root
+// folder.
+func openTask(name string) (taskClient, error) {
+	if !taskNameRe.MatchString(name) {
+		return nil, fmt.Errorf("invalid task name %q", name)
+	}
+	t, err := newTaskClient(name)
+	if err != nil {
+		return nil, fmt.Errorf("open scheduled task %q: %w", name, err)
+	}
+	return t, nil
+}
+
+// taskStatus reads the task's state with one Task Scheduler read. A task that
+// is not registered is a zero Status and no error; a read that fails is an
+// error, never "not registered" (MADR 0159 F12).
+func taskStatus(name string) (taskscheduler.Status, error) {
+	t, err := openTask(name)
+	if err != nil {
+		return taskscheduler.Status{}, err
+	}
+	st, err := t.Status(context.Background(), name)
+	if err != nil {
+		return taskscheduler.Status{}, fmt.Errorf("query scheduled task %q: %w", name, err)
+	}
+	return st, nil
+}
+
+// taskDefinitionOf returns the task's definition as Task Scheduler stores it.
+func taskDefinitionOf(name string) (string, error) {
+	t, err := openTask(name)
+	if err != nil {
+		return "", err
+	}
+	body, err := t.Definition(context.Background(), name)
+	if err != nil {
+		return "", fmt.Errorf("read scheduled task %q: %w", name, err)
+	}
+	return body, nil
+}
+
+// registerTaskXML registers body under name, creating the task or replacing
+// its definition. The definition sets the task's switch: a body with
+// Settings/Enabled false registers a disabled task (MADR 0207 D31).
+func registerTaskXML(name, body string) error {
+	t, err := openTask(name)
+	if err != nil {
+		return err
+	}
+	if err := t.Register(context.Background(), name, body); err != nil {
+		return fmt.Errorf("register scheduled task %q: %w", name, err)
+	}
+	return nil
+}
+
+// taskDiffPaths compares a stored definition with a wanted one by the
+// library's rule (MADR 0207 D17, D31): by value, not text, and not the task's
+// switch. It returns the paths that differ, or an error when either side
+// cannot be read.
+func taskDiffPaths(stored, wanted string) ([]string, error) {
+	diffs, err := taskscheduler.DiffDefinitions(stored, wanted)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(diffs))
+	for i, d := range diffs {
+		paths[i] = d.Path
+	}
+	return paths, nil
+}
+
 // taskName is the scheduled-task name for a product. Bare product, matching
 // the systemd unit name and the launchd label mapping.
 func taskName(product string) string { return taskNameFor(product) }
 
-// taskDefinition is the Task Scheduler 2.0 XML this project registers.
-//
-// Implemented against schtasks.exe rather than the COM Task Scheduler API:
-// schtasks is a documented, stable CLI, it needs no COM plumbing in a codebase
-// that has none, and it keeps the implementation reviewable. XML rather than
-// `/create /tr` because /tr cannot express the working directory, the restart
-// policy, or the principal's run level.
+// taskDefinition is the Task Scheduler 2.0 XML this project registers. This
+// package renders it; go-selfupdate-lib registers, reads and compares it
+// through the COM API (MADR 0207 D17). It is XML because only a definition
+// expresses the working directory, the restart policy and the principal's run
+// level.
 type taskDefinition struct {
 	XMLName   xml.Name `xml:"Task"`
 	Version   string   `xml:"version,attr"`
@@ -161,13 +253,11 @@ func renderTaskXML(opts Options, user string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("render task xml: %w", err)
 	}
-	// The declaration names UTF-16 because the file on disk IS UTF-16: see
-	// encodeTaskXML, the only thing that writes it. This used to be
-	// xml.Header (encoding="UTF-8") written as UTF-8, under a comment claiming
-	// schtasks accepted that "in practice". On Windows build 26100 it does not:
-	// "The task XML is malformed ... unable to switch the encoding" (MADR 0116
-	// F24, measured). The string stays text so tests and --print-only can read
-	// it; only the bytes handed to schtasks are UTF-16.
+	// The declaration names UTF-16, the encoding Task Scheduler keeps a
+	// definition in: a declaration saying UTF-8 is what it refused when Magic
+	// handed it files (MADR 0116 F24). The library's Register passes the text
+	// as UTF-16 and drops the declaration, so it only describes the text to a
+	// reader of --print-only (MADR 0207 D17).
 	return taskXMLDeclaration + string(body) + "\n", nil
 }
 
@@ -179,28 +269,9 @@ const (
 	taskWatchdogInterval = "PT1M"
 )
 
-// taskXMLDeclaration is the declaration renderTaskXML emits. It must name the
-// encoding encodeTaskXML actually produces; a mismatch is exactly what
-// schtasks rejects.
+// taskXMLDeclaration is the declaration renderTaskXML emits: UTF-16, the
+// encoding Task Scheduler keeps a definition in.
 const taskXMLDeclaration = `<?xml version="1.0" encoding="UTF-16"?>` + "\n"
-
-// encodeTaskXML returns body as UTF-16LE with a byte-order mark, the encoding
-// Task Scheduler parses and the one `schtasks /query /xml` exports (MADR 0116
-// D24). It is the only code that turns a task definition into file bytes, so
-// the declaration and the encoding cannot drift apart again (PLAN C9).
-//
-// Measured on build 26100 with the rendered definition: UTF-8 with or without
-// a BOM under a UTF-8 declaration is "malformed"; UTF-16LE with a BOM under a
-// UTF-16 declaration parses.
-func encodeTaskXML(body string) []byte {
-	units := utf16.Encode([]rune(body))
-	out := make([]byte, 2+2*len(units))
-	out[0], out[1] = 0xFF, 0xFE
-	for i, u := range units {
-		binary.LittleEndian.PutUint16(out[2+2*i:], u)
-	}
-	return out
-}
 
 // serveArgs builds the argv the task runs, in the SAME order and with the same
 // conditions as the systemd unit template's ExecStart and the launchd plist,
@@ -252,8 +323,8 @@ var (
 )
 
 // currentTaskUser returns the calling process token's user SID, or "" when it
-// cannot be read, which renderTaskXML reports as an error before any schtasks
-// call.
+// cannot be read, which renderTaskXML reports as an error before Task
+// Scheduler is called.
 //
 // It used to read USERDOMAIN and USERNAME, which any shell can override:
 // USERNAME=bogus rendered <UserId>bogus</UserId>, and both empty rendered an
