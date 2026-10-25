@@ -106,12 +106,18 @@ func New(opts Options) (*selfupdate.Updater, error) {
 	if err != nil {
 		return nil, fmt.Errorf("updateclient: image verifier: %w", err)
 	}
-	probes, err := newProbes(product, opts.CodesignIdentity)
+	probes, version, err := newProbes(product, opts.CodesignIdentity)
 	if err != nil {
 		return nil, err
 	}
 
-	var install selfupdate.InstallOptions
+	// The version prober runs twice: on the staged file (Config.Probes), and
+	// on the installed binary before the replacement is committed. With the
+	// managed installer's replace-before-stop, that second run comes before
+	// the service is stopped, so a release that cannot run at its installed
+	// path is rolled back under a daemon that never stopped (MADR 0207 D33,
+	// D34).
+	install := selfupdate.InstallOptions{PostInstall: version}
 	if opts.TargetPath != "" {
 		install.TargetPolicy = selfupdate.TargetPolicy{
 			ExecutablePath: opts.TargetPath,
@@ -162,14 +168,16 @@ func httpClient(given *http.Client) *http.Client {
 }
 
 // newProbes are the checks the staged binary must pass before anything is
-// stopped or replaced (MADR 0207 D16). On macOS with a signing identity, the
-// signature newTransformer gave it is checked first, so a binary whose
-// signature fails is never run. Then the binary must run here and report the
-// tag being installed, through the identity arguments the release spec
-// declares. A product with none is refused rather than left unprobed.
-func newProbes(product releasespec.Product, codesignIdentity string) ([]selfupdate.Prober, error) {
+// stopped or replaced (MADR 0207 D16), and the version prober among them,
+// which New also runs on the installed binary (D34). On macOS with a signing
+// identity, the signature newTransformer gave it is checked first, so a
+// binary whose signature fails is never run. Then the binary must run here
+// and report the tag being installed, through the identity arguments the
+// release spec declares. A product with none is refused rather than left
+// unprobed.
+func newProbes(product releasespec.Product, codesignIdentity string) ([]selfupdate.Prober, selfupdate.Prober, error) {
 	if len(product.IdentityArgs) == 0 {
-		return nil, fmt.Errorf("updateclient: release spec gives %s no identity_args to probe it with", product.Name)
+		return nil, nil, fmt.Errorf("updateclient: release spec gives %s no identity_args to probe it with", product.Name)
 	}
 	var probes []selfupdate.Prober
 	if strings.TrimSpace(codesignIdentity) != "" && runtime.GOOS == "darwin" {
@@ -177,15 +185,15 @@ func newProbes(product releasespec.Product, codesignIdentity string) ([]selfupda
 			Requirement: `identifier "` + codesignIdentifier(product.Name) + `"`,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("updateclient: codesign check: %w", err)
+			return nil, nil, fmt.Errorf("updateclient: codesign check: %w", err)
 		}
 		probes = append(probes, checker)
 	}
 	version, err := selfupdate.NewVersionProber(product.IdentityArgs, nil, probeTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("updateclient: version probe: %w", err)
+		return nil, nil, fmt.Errorf("updateclient: version probe: %w", err)
 	}
-	return append(probes, version), nil
+	return append(probes, version), version, nil
 }
 
 func newSource(opts Options, client *http.Client, limits selfupdate.Limits) (selfupdate.ReleaseSource, error) {

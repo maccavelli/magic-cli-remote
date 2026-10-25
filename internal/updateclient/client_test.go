@@ -30,6 +30,10 @@ const (
 	fixtureVersionEnv = "MCREMOTE_UPDATECLIENT_FIXTURE_VERSION"
 	// fixtureExitEnv, when set, is the fixture's exit status.
 	fixtureExitEnv = "MCREMOTE_UPDATECLIENT_FIXTURE_EXIT"
+	// fixtureFailNamedEnv, when set, makes the fixture exit 1 when its own
+	// file has that name: an update stages it under another name, so it
+	// fails only once installed.
+	fixtureFailNamedEnv = "MCREMOTE_UPDATECLIENT_FIXTURE_FAIL_NAMED"
 	// fixtureBuildTimeout bounds the fixture's one build.
 	fixtureBuildTimeout = 2 * time.Minute
 )
@@ -126,6 +130,10 @@ func TestFixtureAnswersOnlyItsIdentityArguments(t *testing.T) {
 		{"no arguments", nil, nil, "", 2},
 		{"other arguments", []string{"--version"}, nil, "", 2},
 		{"extra arguments", []string{"version", "--json"}, nil, "", 2},
+		{"run under the name it must fail as", []string{"version"},
+			[]string{fixtureFailNamedEnv + "=" + filepath.Base(fixturePath)}, "", 1},
+		{"run under another name than the one it must fail as", []string{"version"},
+			[]string{fixtureFailNamedEnv + "=mcremote-installed"}, "v0.2.0 (release)\n", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := exec.Command(fixturePath, tc.args...) //nolint:gosec // the fixture TestMain built
@@ -198,12 +206,12 @@ func TestNewProbesTheStagedBinary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		probes, err := newProbes(product, "")
-		if err != nil || len(probes) != 1 {
-			t.Errorf("%s: newProbes = %d probes, %v; want the version probe", name, len(probes), err)
+		probes, version, err := newProbes(product, "")
+		if err != nil || len(probes) != 1 || version == nil {
+			t.Errorf("%s: newProbes = %d probes, version %v, %v; want the version probe", name, len(probes), version, err)
 		}
 	}
-	if _, err := newProbes(releasespec.Product{Name: "mcother"}, ""); err == nil {
+	if _, _, err := newProbes(releasespec.Product{Name: "mcother"}, ""); err == nil {
 		t.Error("a product with no identity_args was given no probe and no error")
 	}
 	product, err := spec.Product("mcremote")
@@ -214,8 +222,9 @@ func TestNewProbesTheStagedBinary(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		want = 2
 	}
-	if probes, err := newProbes(product, "Developer ID Application: Example (TEAMID)"); err != nil || len(probes) != want {
-		t.Errorf("with a signing identity: newProbes = %d probes, %v; want %d", len(probes), err, want)
+	probes, version, err := newProbes(product, "Developer ID Application: Example (TEAMID)")
+	if err != nil || len(probes) != want || version == nil {
+		t.Errorf("with a signing identity: newProbes = %d probes, version %v, %v; want %d and the version probe", len(probes), version, err, want)
 	}
 }
 

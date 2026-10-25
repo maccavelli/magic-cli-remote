@@ -212,7 +212,7 @@ and its `go.mod`, the fixture program. *U3 Deviation 3:* so does
 3. **`refresh.go`:** `binaryWarning` calls `service.SameExecutable`.
 4. Gates.
 
-### U3b — Replace before the stop, with a post-install probe (amendment D, D33 to D36) — proposed
+### U3b — Replace before the stop, with a post-install probe (amendment D, D33 to D36) — ~~proposed~~ approved 2026-10-25, in progress
 
 **Files:**
 
@@ -224,6 +224,8 @@ and its `go.mod`, the fixture program. *U3 Deviation 3:* so does
 * `Makefile`, for its `live-replacefirst` target;
 * `docs/guides/ops-linux-install.md` and `ops-windows-install.md`, one sentence each on the order;
 * this plan.
+* *U3b Deviation 1, 2026-10-25:* `internal/updateclient/testdata/fixture/main.go`, U3's fixture,
+  joins for a switch that makes it fail only once installed (execution record below).
 
 1. **Measure:**
    * that U3 has landed, and where its prober is built;
@@ -766,3 +768,181 @@ clone and both bundles were deleted afterwards.
 
 **Not done in U3.** U3b, U4, U5, U6 and U8, each of which waits for its own approval. U6 also waits
 for 0212's P3.
+
+### U3b Deviation 1, 2026-10-25 — the fixture fails only once installed. The owner decided: "option 1, proceed"
+
+**Approval.** The owner committed U3 as `17ccfd21` and answered "committed, proceed" on 2026-10-25,
+which approves U3b, and with it the MADR's amendment D. Step 5's host runs still wait for the
+owner's word, per host.
+
+**Found while writing step 2's probe test.** U3 runs the same version prober on the staged file,
+before anything is installed. A release whose binary fails `version` is therefore refused there,
+with or without `PostInstall`. So the probe test as step 2 words it passes either way, and the
+confirmation "without `PostInstall` this sees a `Stop`" cannot be met. To test D34 on its own, the
+binary must pass while staged and fail once installed. The library stages it as
+`.<product>.selfupdate-*` beside the target (`session.go:98` at `v1.22.0`) and installs it under the
+product's name, so the fixture can tell the two runs apart by its own file name.
+
+**A process slip, recorded.** The switch was written into `testdata/fixture/main.go` before the
+files list was checked, and the file is not on it. Nothing else depended on the change when the
+owner was asked.
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** the fixture joins U3b. With `MCREMOTE_UPDATECLIENT_FIXTURE_FAIL_NAMED` set, it exits
+   1 when its own file has that name. The probe test sets it to the installed name, and the
+   fixture's contract test gains the case.
+2. Test `PostInstall` below `New`, with a managed installer built in the test. This leaves `New`'s
+   wiring untested.
+3. Drop the separate test, and amend the MADR's confirmation. `PostInstall` would then never be
+   seen to work.
+
+### U3b, 2026-10-25: replace before the stop, steps 1 to 4 and 6
+
+**Step 1, measured.**
+
+* U3 landed as `17ccfd21`. Its prober is built in `newProbes` (`client.go`), and its fixture is
+  `testdata/fixture`.
+* **The `version` run** (`m207u3b/measure_version.py`, session scratchpad): both products built as
+  a release is, each copied to a fresh path and run 10 times on each OS. Run 1 is a newly written
+  file's first run, which is what the post-install probe meets.
+
+  | Binary | First run | Warm median (max) |
+  | :--- | :--- | :--- |
+  | mcremote, darwin/arm64 (this Mac) | 773 ms | 30 ms (36 ms) |
+  | mcremote, linux/amd64 (the Linux test host) | 13 ms | 15 ms (24 ms) |
+  | mcremote, windows/amd64 (the Windows test host) | 265 ms | 39 ms (41 ms) |
+  | mcrelay, darwin/arm64 | 711 ms | 26 ms (27 ms) |
+  | mcrelay, linux/amd64 | 23 ms | 22 ms (30 ms) |
+  | mcrelay, windows/amd64 | 236 ms | 44 ms (45 ms) |
+
+  The worst case is under a second, so D34's 30 s stands, with a margin of about 40 times. The
+  remote scratch directories were deleted.
+
+**Step 3, the code.**
+
+* `managed.go`: `managedInstaller` builds `NewManagedInstallerWith(…,
+  selfupdate.ManagedOptions{ReplaceBeforeStop: true})`, with a comment naming the premise and the
+  two guards that hold it.
+* `client.go`: `newProbes` also returns the version prober, and `New` sets
+  `InstallOptions.PostInstall` to it. One prober serves both `Config.Probes` and `PostInstall`.
+
+**Step 2, the tests:**
+
+| Test | What it pins |
+| :--- | :--- |
+| `TestUpdateReplacesTheBinaryBeforeTheStop` | at `Stop` the target already holds the new release's bytes; one stop, one start |
+| `TestUpdateRollsBackAReleaseThatFailsOnceInstalled` | a release that passes the staged probe and fails once installed (Deviation 1): "installed binary failed its probe", no stop, start or refresh, the previous bytes back |
+| `TestUpdateReportsTheReplacementBeforeTheStop` | the `--json` result has `"replaced_before_stop":true` |
+| `TestNothingRunsItsOwnExecutableWhileServing` (G1) | no non-test file under `cmd` or `internal` refers to `os.Executable` or `os.Args[0]`, or calls `procutil.Command` with `"mcremote"` or `"mcrelay"`, outside the allowlist of four files and their reasons. Imports are resolved per file, a dot import of `os` or `procutil` is itself a site, and a stale entry fails |
+| `TestDefinitionsRunTheBinaryOnlyToStart` (G2) | for both products: the systemd unit, the plist, the task XML, and the runit, s6 and OpenRC scripts. The binary's path appears once, on the start command's line, and no unit has `ExecStop`, `ExecStopPost` or `ExecReload`. It is built on every OS |
+| `TestNoSupervisorFinishScript` (G2) | no non-test file of `internal/cli/service` names a `finish` script |
+| `TestFixtureAnswersOnlyItsIdentityArguments` | gains the cases for the fixture's new switch |
+
+**Step 4, the live test.** `live_replacefirst_test.go`, `TestLiveReplaceFirstProbeFailure`, and
+`make live-replacefirst`.
+
+* It runs only with `MCREMOTE_REQUIRE_REPLACEFIRST=1`, and then it requires
+  `MCREMOTE_REPLACEFIRST_UNIT` and an absolute `MCREMOTE_REPLACEFIRST_BINARY`.
+* It builds the updater with `New`. `newBackend` is the real backend of the named unit, wrapped to
+  count `Stop` and `Start`.
+* The release is the fixture, set to fail once installed. Because the failure comes only at the
+  installed path, the swap happens under the running daemon, and it is rolled back.
+* **The daemon's PID comes from:**
+  * launchd's `Status.PID` on macOS;
+  * Task Scheduler's `Status.PIDs` on Windows;
+  * on Linux, under any supervisor, the one process whose `/proc/<pid>/exe` is the target.
+* **It asserts:**
+  * the post-install refusal, with `ReplacedBeforeStop` true;
+  * no `Stop` or `Start`;
+  * the original bytes;
+  * the same PID and `procutil.ProcessStartToken`;
+  * the service still running.
+* A cleanup restores the original bytes if any other bytes are left.
+* Without its variables it skips, as every gate run shows. It has not run against a service yet:
+  that is step 5.
+
+**The guides.** Both described the old order in their own words. The Linux guide's numbered list
+said "stop … swap", and the Windows guide said "stops it … It then replaces the binary". So the order
+changed in each list, rather than a sentence being added beside a list that would contradict it.
+These are the two files the step names.
+
+**Seen failing first** (`m207u3b/plants.py`). Each plant ran on its own scratch copy: `git archive
+HEAD` with U3b's changed and new files laid over it, and one plant applied by an asserted
+replacement or a new file. 13 plants, 13 failures as expected:
+
+| Plant | The failure |
+| :--- | :--- |
+| `ReplaceBeforeStop: false` | `TestUpdateReplacesTheBinaryBeforeTheStop`: "at Stop the target is 15 bytes, … want the new release, 1587874 bytes" |
+| the same | `TestUpdateReportsTheReplacementBeforeTheStop`: "kind "result", applied true, replaced_before_stop false" |
+| no `PostInstall` | `TestUpdateRollsBackAReleaseThatFailsOnceInstalled`: "managed install failed", past the stop, which is the MADR's "without `PostInstall` … sees a `Stop`" |
+| `os.Executable()` in a new `internal/daemon` file (the MADR's G1 plant) | G1: "`zz_g1plant.go:6:12: os.Executable`" |
+| a stale allowlist entry (the MADR's G1 plant) | G1: "`ownExecutableAllowlist["internal/daemon/daemon.go"] no longer finds …`" |
+| `os` imported as `xos`, used as a function value | G1: "`zz_g1plant.go:5:15: os.Executable`" |
+| `os.Args[0]` | G1: "`zz_g1plant.go:5:32: os.Args[0]`" |
+| `procutil` imported as `pu`, `pu.Command(ctx, "mcrelay", "version")` | G1: "`procutil.Command(…, "mcrelay", …)`" |
+| a dot import of `os` | G1: "`zz_g1plant.go:3:8: dot import of os`" |
+| `ExecStop={{.Binary}} stop` in the mcremote unit template (the MADR's G2 plant) | G2, `mcremote/systemd_unit`: "the binary appears 2 times, want once" |
+| OpenRC's `stop()` given `--exec <binary>` | G2, `openrc-user_script` for both products: "the binary appears 2 times" |
+| a `"finish"` literal in a new `internal/cli/service` file | `TestNoSupervisorFinishScript`: "`zz_g2plant.go:3:17 names a supervisor finish script`" |
+| the fixture's switch disabled | `TestFixtureAnswersOnlyItsIdentityArguments`, "run under the name it must fail as": "exit 0; want "", exit 1" |
+
+**Gates** (`m207u3b/u3b_gates.py`, logs beside it):
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` on the 8 Go files | "8 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| The new tests (`-count=1 -v`) | `--- PASS`, each; the live test `--- SKIP` without its variables |
+| `make -n live-replacefirst` | `MCREMOTE_REQUIRE_REPLACEFIRST=1 go test ./internal/updateclient/ -run '^TestLiveReplaceFirstProbeFailure$' -count=1 -timeout 300s -v` |
+| `make test`, `make race` | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` (the guides), markdownlint on this plan and the MADR | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, go1.27.3 linux/amd64, in a copy of the working tree with its own git index | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line; updateclient 14.1 s, cli/service 6.8 s. The copy was deleted |
+
+**The Windows run, 2026-10-25, on the owner's word ("run make ci-windows")**
+(`m207u3b/u3b_windows.py`, log beside it). It used a scratch clone of `master` made from a git
+bundle, not the host's install, and touched no task. The clone's `HEAD` checked equal to the local
+`HEAD`, `17ccfd21`, and the 13 files U3b changed or added were copied in.
+
+```text
+PASS  A3 go.mod toolchain
+PASS  A2 symlink probe (MC_REQUIRE_SYMLINK=1)
+PASS  A4 go build ./...
+PASS  A5 go vet ./...
+PASS  A6 go test ./... (Git Bash, as CI; no -race, no live_*)
+ci-windows-local: ALL SELECTED CHECKS PASSED
+make ci-windows: exit 0
+```
+
+U3b's tests then ran verbosely in the same clone:
+
+```text
+--- PASS: TestFixtureAnswersOnlyItsIdentityArguments (0.07s)
+--- PASS: TestNewProbesTheStagedBinary (0.00s)
+--- SKIP: TestLiveReplaceFirstProbeFailure (0.00s)
+--- PASS: TestUpdateReplacesTheBinaryBeforeTheStop (0.09s)
+--- PASS: TestUpdateRollsBackAReleaseThatFailsOnceInstalled (0.08s)
+--- PASS: TestUpdateReportsTheReplacementBeforeTheStop (0.09s)
+--- PASS: TestNothingRunsItsOwnExecutableWhileServing (0.05s)
+ok      github.com/maccavelli/magic-cli-remote/internal/updateclient  0.532s
+--- PASS: TestDefinitionsRunTheBinaryOnlyToStart (0.01s)
+--- PASS: TestNoSupervisorFinishScript (0.01s)
+ok      github.com/maccavelli/magic-cli-remote/internal/cli/service  0.034s
+```
+
+The fixture's nine subtests, including both new cases for its switch, passed. So did G2's twelve
+definitions (the log keeps each line). On Windows, the post-install test swapped a real `.exe`
+under the target's name, refused it, and restored the previous file. The clone and both bundles
+were deleted afterwards.
+
+**Steps 1 to 4 and 6 are complete,** and staged for the owner.
+
+**Not done in U3b yet:**
+
+* **Step 5's host runs, each on the owner's word:** L-a, the success runs, and L-b,
+  `make live-replacefirst`, on:
+  * Linux and macOS, on the 0210 kit's scratch services;
+  * runit, s6 and OpenRC, in the containers;
+  * Windows, on the real task by W1 to W4.
+
+  The plan stays `in-progress` until they are recorded.

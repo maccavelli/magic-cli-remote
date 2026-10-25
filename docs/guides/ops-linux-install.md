@@ -264,15 +264,21 @@ mcremote update          # or: mcrelay update
 ```
 
 Since [MADR 0100](../decisions/0100-MADR-update-unit-refresh-and-daemon-reload.md) an update
-does four things, in this order:
+does five things, in this order:
 
-1. download the release asset and verify it against `SHA256SUMS`;
-2. stop the service, if one is installed and running;
-3. swap the binary, then **reconcile the service definition** by running
+1. download the release asset, verify it against `SHA256SUMS`, check that it is an
+   executable for this platform, and run its `version`;
+2. swap the binary while the service still runs, and run the installed binary's
+   `version`: if that fails, the previous binary goes back and the service is never
+   stopped
+   ([0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](../decisions/0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md),
+   D33, D34);
+3. stop the service, if one is installed and running;
+4. **reconcile the service definition** by running
    `<new binary> setup-service --refresh` — the running process is the *old*
    binary and carries the *old* template, so only the newly installed one can
    render what the release ships;
-4. `systemctl --user daemon-reload`, then start, then confirm it is active.
+5. `systemctl --user daemon-reload`, then start, then confirm it is active.
 
 `mcremote update` only cycles `mcremote`'s service. `mcrelay update` only
 cycles `mcrelay`'s. If that product has no service definition, the command
@@ -281,8 +287,8 @@ exists but the process is down, the update starts it when it is enabled
 (MADR 0103).
 
 The steps above are systemd's. On a runit, s6 or OpenRC user service that
-`setup-service` set up, `update` stops it through its supervisor, swaps and
-refreshes the run script the same way, starts it, and confirms it with
+`setup-service` set up, `update` swaps the binary first in the same way, stops the
+service through its supervisor, refreshes the run script, starts it, and confirms it with
 `setup-service`'s verified start. A runit or s6 service with a `down` file,
 or an OpenRC service outside the `default` runlevel, is disabled: if it was
 stopped, it stays stopped.

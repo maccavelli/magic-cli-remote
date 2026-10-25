@@ -234,10 +234,14 @@ mcremote update           # check, download, verify, replace, restart
 mcremote update --check   # only report whether an update is available
 ```
 
-When the background task is installed, `update` stops it: it disables the task,
+When the background task is installed and running, `update` first replaces the
+binary while the daemon still runs, and runs the installed binary's `version`. If
+that fails, the previous binary goes back and the task is never stopped
+([0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](../decisions/0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md),
+D33, D34). Then it stops the task: it disables the task,
 asks the daemon to shut down over its admin socket, waits up to 30 seconds for
-it to exit, and ends the task only if it has not. It then replaces the binary,
-and asks the **new** binary to refresh the task
+it to exit, and ends the task only if it has not. It then asks the **new** binary
+to refresh the task
 definition. The refresh keeps every option baked into the task and re-registers
 it only if this release's template differs. `update` then starts the task
 again (enable, then run), waits for it to report running, and then for the

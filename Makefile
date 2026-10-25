@@ -155,7 +155,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-kilo race test-all preflight apk manifest-surface \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-kilo live-replacefirst race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
 	check-libs
@@ -381,6 +381,15 @@ live-grok:
 # no model. Set MCREMOTE_LIVE_KILO_MODEL to choose the turn model.
 live-kilo:
 	go test -tags live_kilo ./internal/provider/kilo/ -count=1 -timeout 600s -v
+
+# Live replace-before-stop failure (MADR 0207 D36). Against a running scratch
+# service (the 0210 PLAN's kit; on Windows the real task, by W1 to W4), an
+# update whose release fails its probe once installed is rolled back while the
+# daemon runs: no stop, no start, the same daemon process, the same bytes. Set
+# MCREMOTE_REPLACEFIRST_UNIT (e.g. mcremote-d3probe) and
+# MCREMOTE_REPLACEFIRST_BINARY (the absolute path the service runs).
+live-replacefirst:
+	MCREMOTE_REQUIRE_REPLACEFIRST=1 go test ./internal/updateclient/ -run '^TestLiveReplaceFirstProbeFailure$$' -count=1 -timeout 300s -v
 
 race:
 	go test -race ./...

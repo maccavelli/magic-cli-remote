@@ -47,6 +47,14 @@ var reconcileArgs = []string{"setup-service", "--refresh", "--json"}
 // health is the product's probe and, on Windows, its shutdown request; the
 // backend's WaitHealthy runs the probe after a new instance has settled
 // (MADR 0054 D5, A1, A2, A4).
+//
+// A running service's binary is replaced, and its post-install probe run,
+// before the service is stopped (MADR 0207 D33): a release that fails there
+// is rolled back under a daemon that never stopped, and a good one leaves the
+// swap out of the downtime. That is safe because the daemon never runs its
+// own executable while it serves, and no definition runs the binary except
+// to start it. The tests G1 (replacefirst_guard_test.go) and G2
+// (internal/cli/service/definitions_once_test.go) hold both (D35).
 func managedInstaller(product string, standalone *selfupdate.StandaloneInstaller, health service.HealthOptions) (selfupdate.Installer, error) {
 	backend, err := newBackend(product, "", health)
 	if err != nil {
@@ -63,7 +71,8 @@ func managedInstaller(product string, standalone *selfupdate.StandaloneInstaller
 	if err != nil {
 		return nil, err
 	}
-	managed, err := selfupdate.NewManagedInstaller(standalone, backend, rec)
+	managed, err := selfupdate.NewManagedInstallerWith(standalone, backend, rec,
+		selfupdate.ManagedOptions{ReplaceBeforeStop: true})
 	if err != nil {
 		return nil, fmt.Errorf("updateclient: managed installer: %w", err)
 	}

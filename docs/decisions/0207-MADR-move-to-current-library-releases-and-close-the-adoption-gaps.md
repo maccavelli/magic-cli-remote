@@ -1249,9 +1249,11 @@ These continue the numbering above.
 
 ## Amendment — 2026-10-24 (D): replace the binary before the stop
 
-**Status of this amendment: proposed,** with its scope decided by the owner (below). It becomes
+~~**Status of this amendment: proposed,** with its scope decided by the owner (below). It becomes
 decided when the owner approves its PLAN step, U3b of
-[0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md).
+[0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md).~~
+**Decided 2026-10-25:** the owner approved U3b ("committed, proceed", after U3 was committed as
+`17ccfd21`). D33 to D36 stand as written below.
 
 **Why.**
 [0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md](../reports/0212-REPORT-what-the-service-backends-can-take-from-go-selfupdate-lib.md)
@@ -1362,6 +1364,9 @@ asked, verbatim, "scope and spec replace-before-stop", and answered four questio
     * the target holds the new release's bytes when `Stop` is called;
     * a release whose binary fails `version` ends the update with an error, no `Stop` called,
       and the target unchanged;
+      * *As built (0207 PLAN, U3b Deviation 1):* the binary fails only at its installed path.
+        U3's staged probe already refuses one that fails while staged, so only this case shows
+        `PostInstall` at work.
     * the `--json` result carries `replaced_before_stop: true`.
   * **Live success runs, on the owner's word:** an update from a shell, and an agent-run update
     that hands off. They run on each host:

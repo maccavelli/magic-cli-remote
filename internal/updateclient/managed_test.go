@@ -8,6 +8,7 @@ import (
 	"debug/macho"
 	"debug/pe"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -31,6 +32,8 @@ import (
 type fakeService struct {
 	installed, enabled, running bool
 	stops, starts               int
+	// onStop, when set, runs at each Stop, before the service is down.
+	onStop func()
 }
 
 var _ service.Backend = (*fakeService)(nil)
@@ -41,6 +44,9 @@ func (f *fakeService) Running(context.Context, string) (bool, error)   { return 
 func (f *fakeService) WaitHealthy(context.Context, string) error       { return nil }
 
 func (f *fakeService) Stop(context.Context, string) error {
+	if f.onStop != nil {
+		f.onStop()
+	}
 	f.stops++
 	f.running = false
 	return nil
@@ -122,13 +128,13 @@ func runUpdateWith(t *testing.T, health service.HealthOptions) (string, error) {
 // gives.
 func runUpdateServing(t *testing.T, health service.HealthOptions, body func(tag string) func(selfupdate.Platform) []byte) (string, error) {
 	t.Helper()
-	spec, err := releaseSpec()
-	if err != nil {
-		t.Fatal(err)
-	}
-	gh := selfupdatetest.NewGitHubServer(t, Repository.Owner, Repository.Name,
-		selfupdatetest.NewRelease("mcremote", "v0.1.0", spec.Targets(), body("v0.1.0")),
-		selfupdatetest.NewRelease("mcremote", "v0.2.0", spec.Targets(), body("v0.2.0")))
+	return runUpdateAt(t, newTarget(t), health, body)
+}
+
+// newTarget is the path of a new temporary executable for an update to
+// replace, which does not exist yet.
+func newTarget(t *testing.T) string {
+	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +143,20 @@ func runUpdateServing(t *testing.T, health service.HealthOptions, body func(tag 
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	exe := filepath.Join(dir, name)
+	return filepath.Join(dir, name)
+}
+
+// runUpdateAt is runUpdateServing on the executable exe, which newTarget
+// named, so the test knows the target before the update runs.
+func runUpdateAt(t *testing.T, exe string, health service.HealthOptions, body func(tag string) func(selfupdate.Platform) []byte) (string, error) {
+	t.Helper()
+	spec, err := releaseSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gh := selfupdatetest.NewGitHubServer(t, Repository.Owner, Repository.Name,
+		selfupdatetest.NewRelease("mcremote", "v0.1.0", spec.Targets(), body("v0.1.0")),
+		selfupdatetest.NewRelease("mcremote", "v0.2.0", spec.Targets(), body("v0.2.0")))
 	if err := os.WriteFile(exe, []byte("mcremote v0.1.0"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -292,6 +311,84 @@ func TestUpdateRefusesAStagedBinaryThatCannotRunHere(t *testing.T) {
 				t.Errorf("executable is %s, want the previous binary untouched", describe(got))
 			}
 		})
+	}
+}
+
+// TestUpdateReplacesTheBinaryBeforeTheStop is MADR 0207 D33: a running
+// service's binary is the new release's when the service is stopped, so the
+// swap is out of the downtime, and the update still restarts the service.
+func TestUpdateReplacesTheBinaryBeforeTheStop(t *testing.T) {
+	exe := newTarget(t)
+	var atStop []byte
+	svc := &fakeService{installed: true, enabled: true, running: true}
+	svc.onStop = func() {
+		var err error
+		if atStop, err = os.ReadFile(exe); err != nil {
+			t.Errorf("reading the target at Stop: %v", err)
+		}
+	}
+	withBackend(t, svc, nil)
+	withChild(t, libservice.Output{Stdout: refreshStdout(t, service.RefreshResult{Verdict: service.VerdictUnchanged})})
+	if _, err := runUpdateAt(t, exe, service.HealthOptions{}, releaseBody); err != nil {
+		t.Fatal(err)
+	}
+	if svc.stops != 1 || svc.starts != 1 {
+		t.Fatalf("stops=%d starts=%d, want one of each", svc.stops, svc.starts)
+	}
+	if want := releaseBody("v0.2.0")(hostPlatform); !bytes.Equal(atStop, want) {
+		t.Errorf("at Stop the target is %s, want the new release, %s", describe(atStop), describe(want))
+	}
+	requireReplaced(t, exe)
+}
+
+// TestUpdateRollsBackAReleaseThatFailsOnceInstalled is MADR 0207 D34: a
+// release that passes the staged probe but fails the same probe at its
+// installed path is rolled back before the service is ever stopped.
+func TestUpdateRollsBackAReleaseThatFailsOnceInstalled(t *testing.T) {
+	exe := newTarget(t)
+	t.Setenv(fixtureFailNamedEnv, filepath.Base(exe))
+	svc := &fakeService{installed: true, enabled: true, running: true}
+	withBackend(t, svc, nil)
+	runs := withChild(t, libservice.Output{})
+	_, err := runUpdateAt(t, exe, service.HealthOptions{}, releaseBody)
+	if err == nil || !strings.Contains(err.Error(), "installed binary failed its probe") {
+		t.Fatalf("err = %v, want the post-install probe's refusal", err)
+	}
+	if svc.stops != 0 || svc.starts != 0 || len(*runs) != 0 {
+		t.Errorf("stops=%d starts=%d refresh runs=%d, want none: the service must never stop", svc.stops, svc.starts, len(*runs))
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "mcremote v0.1.0" {
+		t.Errorf("executable is %s, want the previous binary restored", describe(got))
+	}
+}
+
+// TestUpdateReportsTheReplacementBeforeTheStop is MADR 0207 D36: the update's
+// --json result says the binary was replaced before the stop.
+func TestUpdateReportsTheReplacementBeforeTheStop(t *testing.T) {
+	withBackend(t, &fakeService{installed: true, enabled: true, running: true}, nil)
+	withChild(t, libservice.Output{Stdout: refreshStdout(t, service.RefreshResult{Verdict: service.VerdictUnchanged})})
+	run := runManagedCommand(t, "v0.1.0", "--yes", "--json")
+	if run.code != 0 {
+		t.Fatalf("exit status %d, want 0\nstderr:\n%s", run.code, run.stderr)
+	}
+	var line struct {
+		Kind   string `json:"kind"`
+		Result struct {
+			Applied            bool  `json:"applied"`
+			ReplacedBeforeStop *bool `json:"replaced_before_stop"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lastLine(run.stdout)), &line); err != nil {
+		t.Fatalf("the last stdout line is not JSON: %v\n%s", err, run.stdout)
+	}
+	r := line.Result
+	if line.Kind != "result" || !r.Applied || r.ReplacedBeforeStop == nil || !*r.ReplacedBeforeStop {
+		replaced := "absent"
+		if r.ReplacedBeforeStop != nil {
+			replaced = fmt.Sprint(*r.ReplacedBeforeStop)
+		}
+		t.Errorf("kind %q, applied %v, replaced_before_stop %s; want an applied result with replaced_before_stop true\n%s",
+			line.Kind, r.Applied, replaced, lastLine(run.stdout))
 	}
 }
 
