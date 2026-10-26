@@ -314,6 +314,8 @@ measurement finds); this plan. *U4 Deviation 1, 2026-10-25:* `health.go` and `he
 ### U5 — launchd status through the library (D19)
 
 **Files:** `internal/cli/service/control.go`, `launchd_wait.go`, their tests; this plan.
+*U5 Deviation 1, 2026-10-26:* `launchd_sequence_test.go`, `setup_launchd_test.go` and
+`uninstall_unix_test.go` join (execution record below).
 
 1. **Tests first:** `ProbeStatus` on darwin makes one `Status` call and reports `Loaded` from it;
    `launchdLoaded` returns an error, not false, for a probe that fails other than "not loaded".
@@ -1455,3 +1457,161 @@ path `DiffDefinitions` reported.
 | `go test -race -count=1 ./...` on the Linux test host | exit 0; 43 packages ok. The copy was deleted |
 
 With these, U4's step 4 is done. U4 is complete once the owner commits it, and the next CI run confirms it.
+
+### U5 Deviation 1, 2026-10-26 — three more test files steer `launchdLoaded`. The owner decided: "option 1, proceed"
+
+**Approval.** The owner committed U4's Deviations 2 to 4 as `775f5a56` and answered "committed,
+proceed" to U5 being next.
+
+**Found before any edit.** `launchdLoaded` reads `launchctl print` through the `runLaunchctlCapture`
+seam (`launchd_wait.go:54-57`). Test files outside U5's list stub that seam to steer it through
+setup, `--remove` and uninstall. Once it reads `Job.Loaded`, those stubs no longer reach it:
+
+* off macOS, `launchd.New` refuses with `ErrUnsupported`, so the teardown would see an error;
+* on a Mac, the tests would query the real launchd, the leak `setup_launchd_test.go`'s comment
+  says it closed (MADR 0125 P5).
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** those files join U5. `launchdLoaded` gets its own seam, defaulting to the library's
+   `Job.Loaded` and overridable through an exported `OverrideLaunchdLoaded`. Each test sets it
+   beside its existing stub and answers "loaded" or "not loaded" explicitly. No assertion is
+   loosened.
+2. Move only `ProbeStatus` now, and leave `launchdLoaded` on `launchctl print` until U6, with a MADR
+   amendment moving D19's second half there.
+3. Route the library's job through an adapter over `runLaunchctlCapture`, so the old stubs still
+   work. A workaround: those stubs return no exit code, so the adapter cannot tell 113 from a
+   failure, which is what D19 is for.
+
+**The measurement, after the decision.** A grep found four files. A trace over `go test ./...` on a
+scratch copy (`m207u5/trace_loaded.py`, session scratchpad) logged each `launchdLoaded` call and
+each `launchctl print`, with the caller:
+
+| Test file | Tests that reach `launchdLoaded` |
+| :--- | :--- |
+| `launchd_wait_test.go` (U5's own) | the five `TestStopAndWait…` |
+| `launchd_sequence_test.go` | `TestDarwinSetupWaitsForTeardownBeforeBootstrap`, `…RestartsInPlaceWhenPlistUnchanged`, `…ReportsAStuckTeardown`, `TestDarwinRemoveWaitsForTeardownWhenLoaded` |
+| `setup_launchd_test.go` | `TestDarwinSetupAgentOrder`, `TestDarwinSetupNeverTouchesSystemDomain`, `TestDarwinRemoveAgent` |
+| `uninstall_unix_test.go` | `TestUninstallOnMacOS` |
+| `setup_test.go` | `TestRemove`, unstubbed (below) |
+
+* `nostart_launchd_test.go` never reaches `launchdLoaded`. `--no-start` skips the teardown, and its
+  stub answers only `launchdJobRunning`. It does not join.
+* In `launchd_sequence_test.go`, `launchdLoaded` consumed every `print` answer in the queue, except
+  the in-place restart's second `Setup`, where `launchdJobRunning` read it. One queue answering both
+  seams in call order keeps each sequence.
+* `TestRemove` runs the host's own service path. On macOS it reads the real launchd for
+  `com.magiccliremote.mcremote-rm`, a label nothing installs, and only reads; elsewhere it never
+  reaches launchd. It stays as it is. `TestSetupSecretEnvTightensMode` and
+  `TestSetupWritesUnitWithoutCopyingBinary` read the real `launchctl print` the same way through
+  `launchdJobRunning`, which U6 removes.
+
+**Files added to U5:** `internal/cli/service/launchd_sequence_test.go`, `setup_launchd_test.go` and
+`uninstall_unix_test.go`. `OverrideLaunchdLoaded` lives in `launchd_wait.go`, beside its seam,
+because `setup.go`, where the other overrides live, is not on the list.
+
+### U5, 2026-10-26: launchd status through the library, steps 1, 2 and 4
+
+**The seams:**
+
+* `ProbeStatus` reads a backend that is a `launchdStatusReader` with one `Status` call, as it reads
+  a `taskStatusReader` on Windows. `*launchd.Job` is one, by a compile-time assertion beside the
+  Task Scheduler one.
+* `launchdLoaded(svc)` returns `(bool, error)`. It calls `launchdLoadedProbe`, by default
+  `jobLoaded`: the library's `Job.Loaded` for the job `svc` names, `gui/<uid>/<label>`, run through
+  `launchdRunner` (nil is the library's own runner). A target in another form is an error.
+  `OverrideLaunchdLoaded` replaces the probe for tests.
+
+**The change, by site:**
+
+* **`ProbeStatus`** on macOS takes `Installed`, `Loaded`, `Enabled` and `Running` from one probe.
+  It no longer runs `launchctl print` itself. A failed probe is "service probe failed: …", where
+  `print`'s failure read as "bootout left down". `Enabled` and `Active` still need the plist, as
+  before, and `Loaded` does not, also as before.
+* **`stopAndWaitDarwin`** returns the probe's error when the probe fails before the bootout, and
+  boots nothing out. A probe that fails during the wait is returned too, carrying the bootout's
+  error when there was one. It is not `ErrLaunchdStillLoaded`. Its callers are unchanged:
+  * setup reports "the existing job could not be torn down: read whether … is loaded: …";
+  * `--remove` and the uninstall discard the error, as they discarded every teardown error before.
+* **What still reads `launchctl print`:** `launchdJobRunning`, `launchdLastExitNote` and
+  `settle.go`. They are U6's.
+
+**The tests** (step 1, and Deviation 1's files):
+
+| Test | Pins |
+| :--- | :--- |
+| `TestProbeStatusOnMacOSReadsOnce` | one `Status` read, no per-state call, no `launchctl` and no `launchdLoaded`; seven states, among them "bootout left down", a job loaded without its plist and a probe error |
+| `TestStopAndWaitRefusesToGuessOnAFailedProbe` | a probe that fails before the bootout is the error, and nothing is booted out |
+| `TestStopAndWaitReportsAProbeThatFailsMidWait` | a probe that fails after the bootout is the error, not `ErrLaunchdStillLoaded`, and carries a failed bootout's error |
+| `TestLaunchdLoadedTellsNotLoadedFromAFailedProbe` | on macOS, the real `Job.Loaded` over a scripted runner: exit 0 is loaded, 113 is not loaded, and exit 5, exit 1 and a runner that could not run are errors; the job reads the label `svc` names. Elsewhere, `ErrUnsupported`, never "not loaded" |
+| `TestLaunchdLoadedRejectsAnotherTarget` | a `user/…` or `system/…` target, a non-numeric uid or a target without a label is an error, and no `launchctl` runs |
+
+* `TestProbeStatusReadsTheBackend` loses its two darwin cases, which moved to
+  `TestProbeStatusOnMacOSReadsOnce`, and the `loaded` column only they read.
+* `launchd_wait_test.go`'s `scriptedLaunchctl` answers through `OverrideLaunchdLoaded` and can fail a
+  given probe. Its five existing tests are otherwise unchanged.
+* `launchd_sequence_test.go`'s `scriptedPrint` became `scriptedLaunchd`: one queue answering
+  `launchdLoaded` and `launchctl print` in call order, as the trace in Deviation 1 measured.
+* `setup_launchd_test.go`'s three tests and `TestUninstallOnMacOS` answer "not loaded" through
+  `OverrideLaunchdLoaded` beside their existing stubs.
+
+**Seen failing first** (`m207u5/plants.py`, session scratchpad). Each plant ran on its own scratch
+copy of the working tree. All ten fail on their named tests:
+
+| Plant | The failure |
+| :--- | :--- |
+| `ProbeStatus` runs `launchctl print` for "loaded" again | "ProbeStatus ran launchctl [print gui/<uid>/com.magiccliremote.mcremote] itself"; a running job read as "bootout left down" |
+| `ProbeStatus` never consults the backend's `Status` | "ProbeStatus asked Installed separately", "Status was read 0 times, want once" |
+| `ProbeStatus` takes "loaded" from the plist | "bootout left down": "loaded but not running — run: launchctl kickstart -k …", want "bootout left down" |
+| a failed probe before the bootout returns nil | "want the probe's error, got <nil>" |
+| a failed probe during the wait returns nil | `…FailsMidWait/bootout_succeeded`: "want the probe's error, got <nil>" |
+| the wait's error drops the bootout's | `…FailsMidWait/bootout_failed`: "want the bootout error carried through" |
+| `jobLoaded` swallows `Job.Loaded`'s error | exit 5, exit 1 and the runner error: "launchdLoaded = false, <nil>; want false, error true" |
+| the job reads another label | "launchctl ran ["managername" "list com.example.other"]; want it to read com.magiccliremote.mcremote" |
+| a `user/…` target is accepted | "launchctl [print …] ran for a target launchdLoaded must refuse"; "= true, <nil>; want an error" |
+| `scriptedLaunchd` ignores the queue for `launchdLoaded` | `TestDarwinSetupWaitsForTeardownBeforeBootstrap`: "a loaded job must be booted out"; the stuck-teardown and remove tests fail too |
+
+**The plants found a gap in the tests, now closed.** The `user/…` plant did not fail on its first
+run. Every target the test refused also failed the length or the uid check, so the domain check was
+never what refused it. The test now has a `user/501/…` target, and a runner that fails the test if
+`launchctl` runs. Both plants were run again and failed as above. A second plant was miswritten and
+did not compile; it was rebuilt as above.
+
+**The trace again**, on the plants' copy with every call to the real `Job.Loaded` logged: only
+`TestRemove` reaches it, for `com.magiccliremote.mcremote-rm`, as Deviation 1 recorded.
+
+**Gates** (`m207u5/u5_gates.py`):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the seven changed Go files | "7 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host | exit 0; 43 packages ok |
+| U5's tests on the Linux test host | `TestLaunchdLoadedTellsNotLoadedFromAFailedProbe` passes off macOS |
+| that test, with `jobLoaded` planted to return "not loaded" when the job cannot be built | `--- FAIL`: "launchdLoaded off macOS = false, <nil>; want false and ErrUnsupported". The copy was deleted |
+
+### U5 step 3, 2026-10-26: `mcremote doctor` on macOS. The owner said: "run step 3"
+
+`m207u5/u5_doctor.py`, session scratchpad. It ran `mcremote doctor`, which only reads, against the
+real `mcremote` LaunchAgent, with three binaries. None of them wrote to the repository or the
+service. The builds were written to the scratchpad.
+
+| Binary | Version | The service section |
+| :--- | :--- | :--- |
+| the installed release | 0.20.1 | present, loaded and active: yes; "OK: service is loaded and running"; no `enabled:` line |
+| a build of `git archive HEAD`, `775f5a56`, without U5 | dev (local) | present, loaded, enabled and active: yes; "OK: service is loaded and running" |
+| this tree's build, with U5 | `775f5a56acfe-dirty` | the same as HEAD's |
+
+* The plist path is `/Users/<user>/Library/LaunchAgents/com.magiccliremote.mcremote.plist` in all
+  three.
+* **"Before" is HEAD's build, not the installed release.** The release predates the `enabled:` line
+  and doctor's last three sections, so it cannot show what U5 changed.
+* **HEAD and U5 print the same doctor output.** All six sections, service, TCC, credentials,
+  engines, silent commands and the update handoff, match byte for byte. U5's service section comes
+  from the library's one `Status` probe, where HEAD's ran `launchctl print` for "loaded".
+
+With this, U5's four steps are done. U5 is complete once the owner commits it, and the next CI
+run, with its darwin/arm64 leg, confirms it.

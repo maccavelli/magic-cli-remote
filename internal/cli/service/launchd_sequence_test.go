@@ -1,6 +1,6 @@
 // Deliberately NOT build-tagged. The launchd path shells out through the
-// runLaunchctl / runLaunchctlCapture seams and touches no Darwin API, so it
-// compiles and runs everywhere — the same reasoning schtasks.go gives for
+// runLaunchctl / runLaunchctlCapture seams and probes through launchdLoaded's,
+// and touches no Darwin API, so it compiles and runs everywhere — the same reasoning schtasks.go gives for
 // exercising the Windows branch from a Unix host (MADR 0116 D12).
 //
 // That matters here specifically: the teardown race this file pins was
@@ -10,6 +10,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,23 +22,36 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
 
-// scriptedPrint answers `launchctl print` from a queue, so a test can model a
-// job that is loaded and then finishes tearing down. The last value repeats.
-func scriptedPrint(loaded ...bool) func(args ...string) (string, error) {
+// scriptedLaunchd answers launchd's two probes from one queue, in call order,
+// so a test can model a job that is loaded and then finishes tearing down:
+// launchdLoaded, which reads the library's Job.Loaded (MADR 0207 D19), and
+// `launchctl print`, which launchdJobRunning still reads. The last value
+// repeats. Restore with the returned func.
+func scriptedLaunchd(loaded ...bool) (restore func()) {
 	i := 0
-	return func(args ...string) (string, error) {
-		if len(args) == 0 || args[0] != "print" {
-			return "", nil
-		}
+	next := func() bool {
 		v := loaded[len(loaded)-1]
 		if i < len(loaded) {
 			v = loaded[i]
 		}
 		i++
-		if v {
+		return v
+	}
+	restorePrint := service.OverrideRunLaunchctlCapture(func(args ...string) (string, error) {
+		if len(args) == 0 || args[0] != "print" {
+			return "", nil
+		}
+		if next() {
 			return "state = running\npid = 42\n", nil
 		}
 		return "", errors.New("could not find service")
+	})
+	restoreLoaded := service.OverrideLaunchdLoaded(func(context.Context, string) (bool, error) {
+		return next(), nil
+	})
+	return func() {
+		restoreLoaded()
+		restorePrint()
 	}
 }
 
@@ -86,7 +100,7 @@ func TestDarwinSetupWaitsForTeardownBeforeBootstrap(t *testing.T) {
 	}
 
 	// Loaded when asked, loaded once more mid-wait, then gone.
-	restoreCap := service.OverrideRunLaunchctlCapture(scriptedPrint(true, true, false, false))
+	restoreCap := scriptedLaunchd(true, true, false, false)
 	defer restoreCap()
 
 	var calls [][]string
@@ -130,7 +144,7 @@ func TestDarwinSetupRestartsInPlaceWhenPlistUnchanged(t *testing.T) {
 	src, plistDir, cfg := newSetupDir(t)
 
 	// First render the plist so the second call sees identical content.
-	restoreCap := service.OverrideRunLaunchctlCapture(scriptedPrint(false))
+	restoreCap := scriptedLaunchd(false)
 	restoreLC := service.OverrideRunLaunchctl(func(args ...string) error { return nil })
 	first, err := service.Setup(service.Options{
 		UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true,
@@ -145,7 +159,7 @@ func TestDarwinSetupRestartsInPlaceWhenPlistUnchanged(t *testing.T) {
 	}
 
 	// Now: same plist, job loaded and running.
-	restoreCap = service.OverrideRunLaunchctlCapture(scriptedPrint(true))
+	restoreCap = scriptedLaunchd(true)
 	defer restoreCap()
 	var calls [][]string
 	restoreLC = service.OverrideRunLaunchctl(func(args ...string) error {
@@ -193,7 +207,7 @@ func TestDarwinSetupReportsAStuckTeardown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restoreCap := service.OverrideRunLaunchctlCapture(scriptedPrint(true)) // never leaves
+	restoreCap := scriptedLaunchd(true) // never leaves
 	defer restoreCap()
 	// Shrink the wait: this asserts an error message, not fifteen seconds of
 	// patience. Production timings are untouched.
@@ -233,7 +247,7 @@ func TestDarwinRemoveWaitsForTeardownWhenLoaded(t *testing.T) {
 
 	src, plistDir, cfg := newSetupDir(t)
 
-	restoreCap := service.OverrideRunLaunchctlCapture(scriptedPrint(false))
+	restoreCap := scriptedLaunchd(false)
 	restoreLC := service.OverrideRunLaunchctl(func(args ...string) error { return nil })
 	if _, err := service.Setup(service.Options{
 		UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true,
@@ -244,7 +258,7 @@ func TestDarwinRemoveWaitsForTeardownWhenLoaded(t *testing.T) {
 	restoreCap()
 
 	// Loaded when Remove looks, gone after the bootout.
-	restoreCap = service.OverrideRunLaunchctlCapture(scriptedPrint(true, false))
+	restoreCap = scriptedLaunchd(true, false)
 	defer restoreCap()
 	var calls [][]string
 	restoreLC = service.OverrideRunLaunchctl(func(args ...string) error {

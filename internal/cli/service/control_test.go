@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/launchd"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 )
 
@@ -31,45 +32,33 @@ func withProbeBackend(t *testing.T, b Backend, err error) {
 }
 
 // TestProbeStatusReadsTheBackend: doctor reports what the update's backend
-// reports, so the two cannot disagree (MADR 0054 D6). On macOS, "loaded"
-// still comes from launchctl, which keeps the bootout hint (MADR 0054 PLAN S1,
-// Deviation 2).
+// reports, so the two cannot disagree (MADR 0054 D6). macOS reads "loaded"
+// from the backend too: TestProbeStatusOnMacOSReadsOnce.
 func TestProbeStatusReadsTheBackend(t *testing.T) {
 	probeErr := errors.New("systemctl show failed")
 	for _, tc := range []struct {
 		name     string
 		os       string
 		backend  fakeBackend
-		loaded   bool
 		want     Status
 		wantHint string
 	}{
-		{"absent", "linux", fakeBackend{}, false,
+		{"absent", "linux", fakeBackend{},
 			Status{}, "unit missing"},
-		{"disabled and stopped", "linux", fakeBackend{installed: true}, false,
+		{"disabled and stopped", "linux", fakeBackend{installed: true},
 			Status{PlistPresent: true, Loaded: true}, "not enabled, so an update leaves it stopped"},
-		{"enabled and stopped", "linux", fakeBackend{installed: true, enabled: true}, false,
+		{"enabled and stopped", "linux", fakeBackend{installed: true, enabled: true},
 			Status{PlistPresent: true, Loaded: true, Enabled: true}, "systemctl --user start mcremote.service"},
-		{"running", "linux", fakeBackend{installed: true, enabled: true, running: true}, false,
+		{"running", "linux", fakeBackend{installed: true, enabled: true, running: true},
 			Status{PlistPresent: true, Loaded: true, Enabled: true, Active: true}, ""},
-		{"probe error", "linux", fakeBackend{installed: true, err: probeErr}, false,
+		{"probe error", "linux", fakeBackend{installed: true, err: probeErr},
 			Status{PlistPresent: true, Loaded: true}, "service probe failed: systemctl show failed"},
-		{"task stopped", "windows", fakeBackend{installed: true, enabled: true}, false,
+		{"task stopped", "windows", fakeBackend{installed: true, enabled: true},
 			Status{PlistPresent: true, Loaded: true, Enabled: true}, "schtasks /run /tn mcremote"},
-		{"bootout left down", "darwin", fakeBackend{installed: true, enabled: true}, false,
-			Status{PlistPresent: true, Enabled: true}, "bootout left down"},
-		{"loaded, not running", "darwin", fakeBackend{installed: true, enabled: true}, true,
-			Status{PlistPresent: true, Loaded: true, Enabled: true}, "launchctl kickstart -k"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defer OverrideInstallOS(tc.os)()
 			withProbeBackend(t, tc.backend, nil)
-			defer OverrideRunLaunchctlCapture(func(...string) (string, error) {
-				if tc.loaded {
-					return "state = waiting", nil
-				}
-				return "", errors.New("Could not find service")
-			})()
 			st := ProbeStatus("mcremote")
 			got := Status{PlistPresent: st.PlistPresent, Loaded: st.Loaded, Enabled: st.Enabled, Active: st.Active}
 			if got != tc.want {
@@ -139,6 +128,91 @@ func TestProbeStatusOnWindowsReadsOnce(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer OverrideInstallOS("windows")()
 			b := &statusBackend{t: t, status: tc.status, err: tc.err}
+			withProbeBackend(t, b, nil)
+			st := ProbeStatus("mcremote")
+			if b.reads != 1 {
+				t.Errorf("Status was read %d times, want once", b.reads)
+			}
+			got := Status{PlistPresent: st.PlistPresent, Loaded: st.Loaded, Enabled: st.Enabled, Active: st.Active}
+			if got != tc.want {
+				t.Errorf("status = %+v, want %+v", got, tc.want)
+			}
+			if tc.wantHint == "" && st.Hint != "" {
+				t.Errorf("hint = %q, want none", st.Hint)
+			}
+			if !strings.Contains(st.Hint, tc.wantHint) {
+				t.Errorf("hint = %q, want it to contain %q", st.Hint, tc.wantHint)
+			}
+		})
+	}
+}
+
+// launchdBackend is the launchd backend's shape: one Status probe answers
+// every state, "loaded" included. Its per-state methods fail the test.
+type launchdBackend struct {
+	fakeBackend
+	t      *testing.T
+	status launchd.Status
+	err    error
+	reads  int
+}
+
+func (b *launchdBackend) Status(context.Context, string) (launchd.Status, error) {
+	b.reads++
+	return b.status, b.err
+}
+
+func (b *launchdBackend) Installed(context.Context, string) (bool, error) {
+	b.t.Error("ProbeStatus asked Installed separately")
+	return false, nil
+}
+
+func (b *launchdBackend) Enabled(context.Context, string) (bool, error) {
+	b.t.Error("ProbeStatus asked Enabled separately")
+	return false, nil
+}
+
+func (b *launchdBackend) Running(context.Context, string) (bool, error) {
+	b.t.Error("ProbeStatus asked Running separately")
+	return false, nil
+}
+
+// TestProbeStatusOnMacOSReadsOnce is MADR 0207 D19: on macOS, doctor's status,
+// "loaded" included, comes from one launchd probe, and a probe that fails is
+// reported, not read as "bootout left down".
+func TestProbeStatusOnMacOSReadsOnce(t *testing.T) {
+	probeErr := errors.New("launchctl list: exit 5")
+	for _, tc := range []struct {
+		name     string
+		status   launchd.Status
+		err      error
+		want     Status
+		wantHint string
+	}{
+		{"running", launchd.Status{Installed: true, Loaded: true, Enabled: true, Running: true, PID: 42},
+			nil, Status{PlistPresent: true, Loaded: true, Enabled: true, Active: true}, ""},
+		{"loaded, not running", launchd.Status{Installed: true, Loaded: true, Enabled: true},
+			nil, Status{PlistPresent: true, Loaded: true, Enabled: true}, "launchctl kickstart -k"},
+		{"bootout left down", launchd.Status{Installed: true, Enabled: true},
+			nil, Status{PlistPresent: true, Enabled: true}, "bootout left down"},
+		{"not enabled", launchd.Status{Installed: true, Loaded: true},
+			nil, Status{PlistPresent: true, Loaded: true}, "not enabled"},
+		{"loaded without its plist", launchd.Status{Loaded: true, Running: true, PID: 42},
+			nil, Status{Loaded: true}, "plist missing"},
+		{"absent", launchd.Status{}, nil, Status{}, "plist missing"},
+		{"probe error", launchd.Status{}, probeErr, Status{}, "service probe failed: launchctl list: exit 5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer OverrideInstallOS("darwin")()
+			defer OverrideRunLaunchctlCapture(func(args ...string) (string, error) {
+				t.Errorf("ProbeStatus ran launchctl %v itself", args)
+				return "", errors.New("not in this test")
+			})()
+			defer OverrideLaunchdLoaded(func(context.Context, string) (bool, error) {
+				t.Error("ProbeStatus asked launchdLoaded")
+				return false, errors.New("not in this test")
+			})()
+			b := &launchdBackend{t: t, status: tc.status, err: tc.err}
 			withProbeBackend(t, b, nil)
 			st := ProbeStatus("mcremote")
 			if b.reads != 1 {

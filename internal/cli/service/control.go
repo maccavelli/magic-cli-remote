@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/launchd"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 )
 
@@ -17,6 +18,18 @@ import (
 type taskStatusReader interface {
 	Status(ctx context.Context, product string) (taskscheduler.Status, error)
 }
+
+// launchdStatusReader is a backend that reads every state of its job, loaded
+// included, in one launchd probe: the launchd backend, *launchd.Job (MADR 0207
+// D19).
+type launchdStatusReader interface {
+	Status(ctx context.Context, product string) (launchd.Status, error)
+}
+
+var (
+	_ taskStatusReader    = (*taskscheduler.Task)(nil)
+	_ launchdStatusReader = (*launchd.Job)(nil)
+)
 
 // IsInstalled reports whether a service definition exists for product,
 // regardless of whether it is enabled or running. A managed update asks it
@@ -106,9 +119,9 @@ var newProbeBackend = NewBackend
 
 // ProbeStatus reports install/load/enabled/active for product without
 // mutating state. It reads the same backend probes a managed update does, so
-// doctor and update cannot disagree (MADR 0054 D6). launchd's "loaded" has no
-// backend probe, so macOS still asks launchctl for it, which keeps the
-// bootout-left-down hint (MADR 0054 PLAN S1, Deviation 2).
+// doctor and update cannot disagree (MADR 0054 D6). On Windows and macOS one
+// read answers every state; on macOS that includes "loaded", which keeps the
+// bootout-left-down hint (MADR 0054 PLAN S1, Deviation 2; MADR 0207 D17, D19).
 func ProbeStatus(product string) Status {
 	osName := installOS
 	if osName == "" {
@@ -149,12 +162,21 @@ func ProbeStatus(product string) Status {
 			probeErr = err
 		}
 	}
-	if s, ok := b.(taskStatusReader); ok {
+	switch s := b.(type) {
+	case taskStatusReader:
 		// Task Scheduler answers all three in one read (MADR 0207 D17).
 		ts, err := s.Status(ctx, product)
 		keep(err)
 		st.PlistPresent, st.Enabled, st.Active = ts.Installed, ts.Installed && ts.Enabled, ts.Installed && ts.Running
-	} else {
+		st.Loaded = st.PlistPresent
+	case launchdStatusReader:
+		// launchd answers all four in one probe. "Not loaded" is launchctl's
+		// exit 113; any other failure is the probe's error (MADR 0207 D19).
+		ls, err := s.Status(ctx, product)
+		keep(err)
+		st.PlistPresent, st.Enabled, st.Active = ls.Installed, ls.Installed && ls.Enabled, ls.Installed && ls.Running
+		st.Loaded = ls.Loaded
+	default:
 		st.PlistPresent, err = b.Installed(ctx, product)
 		keep(err)
 		if st.PlistPresent {
@@ -163,13 +185,9 @@ func ProbeStatus(product string) Status {
 			st.Active, err = b.Running(ctx, product)
 			keep(err)
 		}
+		st.Loaded = st.PlistPresent
 	}
-	st.Loaded = st.PlistPresent
 	svc := launchdServiceTarget(names.Label)
-	if osName == "darwin" {
-		_, err := runLaunchctlCapture("print", svc)
-		st.Loaded = err == nil
-	}
 
 	switch {
 	case probeErr != nil:

@@ -1,11 +1,17 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/launchd"
 )
 
 // launchd teardown is asynchronous: `launchctl bootout` returns before the job
@@ -43,31 +49,93 @@ var (
 	launchdNow   = time.Now
 )
 
-// launchdLoaded reports whether the label is present in the user domain.
+// launchdLoaded reports whether the job svc names is in its domain.
 //
-// A non-zero `launchctl print` cannot tell "gone" from "never existed" — both
-// exit non-zero with no machine-readable distinction (MADR 0125 open question
-// 2). For a teardown wait that ambiguity is harmless and the answer is the same
-// either way: the job is not in the domain. It is *not* harmless for
-// classifying a bootout failure, which is why callers check this first, while
-// the job is still there to observe.
-func launchdLoaded(svc string) bool {
-	_, err := runLaunchctlCapture("print", svc)
-	return err == nil
+// It reads the library's Job.Loaded, which tells "not loaded" (launchctl's
+// exit 113) from a probe that failed, and returns the failure as an error
+// (MADR 0207 D19). A non-zero `launchctl print` could not: every failure read
+// as "not loaded" (MADR 0125 open question 2), so a probe that failed let a
+// teardown be skipped.
+func launchdLoaded(svc string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	return launchdLoadedProbe(ctx, svc)
+}
+
+// launchdLoadedProbe answers launchdLoaded. Tests replace it through
+// OverrideLaunchdLoaded.
+var launchdLoadedProbe = jobLoaded
+
+// launchdRunner runs launchctl for the jobs launchdJobFor builds. Nil is the
+// library's own runner; tests answer with exit codes.
+var launchdRunner libservice.Runner
+
+// jobLoaded is Job.Loaded for svc.
+func jobLoaded(ctx context.Context, svc string) (bool, error) {
+	j, err := launchdJobFor(svc)
+	if err != nil {
+		return false, err
+	}
+	return j.Loaded(ctx, "")
+}
+
+// launchdJobFor is the library's job for svc, a service target as
+// launchdServiceTarget writes it: gui/<uid>/<label>. Loaded reads no plist, so
+// the plist is setup's default path whatever directory setup wrote to.
+func launchdJobFor(svc string) (*launchd.Job, error) {
+	parts := strings.SplitN(svc, "/", 3)
+	if len(parts) != 3 || parts[0] != "gui" {
+		return nil, fmt.Errorf("launchd service target %q is not gui/<uid>/<label>", svc)
+	}
+	uid, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("launchd service target %q: %w", svc, err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("home dir: %w", err)
+	}
+	return launchd.New(launchd.Options{
+		Label:  parts[2],
+		Domain: launchd.GUI(uid),
+		Plist:  filepath.Join(home, "Library", "LaunchAgents", parts[2]+".plist"),
+		Runner: launchdRunner,
+	})
+}
+
+// OverrideLaunchdLoaded replaces launchdLoaded's probe for tests; nil restores
+// Job.Loaded. Restore with the returned func.
+//
+// A teardown asks it whether there is a job to boot out, and when the job has
+// gone (MADR 0125 D1). A test that stubs launchctl must stub this too, or it
+// reads the real launchd (MADR 0207 D19).
+func OverrideLaunchdLoaded(fn func(ctx context.Context, svc string) (bool, error)) (restore func()) {
+	prev := launchdLoadedProbe
+	if fn == nil {
+		fn = jobLoaded
+	}
+	launchdLoadedProbe = fn
+	return func() { launchdLoadedProbe = prev }
 }
 
 // stopAndWaitDarwin boots the job out and waits until it has actually left the
 // user domain.
 //
 // Returns nil when the job is gone — including when it was never loaded, which
-// is the common case for a fresh install and is not an error.
+// is the common case for a fresh install and is not an error. A probe that
+// fails is an error: whether to tear down, and whether the teardown finished,
+// would otherwise be a guess (MADR 0207 D19).
 func stopAndWaitDarwin(svc string) error {
 	// Checked before bootout, not after: this is the only moment at which
 	// "bootout failed because there was nothing to boot out" can be told apart
 	// from "bootout failed and the job is still running". Discarding that
 	// distinction is what let a real failure proceed into a doomed bootstrap
 	// (MADR 0125 D3).
-	if !launchdLoaded(svc) {
+	loaded, err := launchdLoaded(svc)
+	if err != nil {
+		return fmt.Errorf("read whether %s is loaded: %w", svc, err)
+	}
+	if !loaded {
 		return nil
 	}
 
@@ -75,7 +143,14 @@ func stopAndWaitDarwin(svc string) error {
 
 	deadline := launchdNow().Add(launchdWaitTimeout)
 	for {
-		if !launchdLoaded(svc) {
+		loaded, err := launchdLoaded(svc)
+		if err != nil {
+			if bootoutErr != nil {
+				return fmt.Errorf("read whether %s left the domain after bootout (%v): %w", svc, bootoutErr, err)
+			}
+			return fmt.Errorf("read whether %s left the domain: %w", svc, err)
+		}
+		if !loaded {
 			return nil
 		}
 		if !launchdNow().Before(deadline) {

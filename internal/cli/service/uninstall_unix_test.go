@@ -4,6 +4,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -269,6 +270,7 @@ func TestUninstallOnMacOS(t *testing.T) {
 	bin, _, _ := uninstallHost(t, "darwin")
 	t.Cleanup(OverrideRunLaunchctl(func(...string) error { return nil }))
 	t.Cleanup(OverrideRunLaunchctlCapture(func(...string) (string, error) { return "", errors.New("not loaded") }))
+	t.Cleanup(OverrideLaunchdLoaded(func(context.Context, string) (bool, error) { return false, nil }))
 	body, err := renderPlist(Options{Product: "mcremote", UnitName: "mcremote", Binary: filepath.Join(bin, "mcremote"), WorkingDirectory: "/home/u"})
 	if err != nil {
 		t.Fatal(err)

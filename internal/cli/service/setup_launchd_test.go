@@ -7,6 +7,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -28,9 +29,10 @@ func TestDarwinSetupAgentOrder(t *testing.T) {
 	})
 	defer restoreLC()
 
-	// The teardown wait probes launchd through a *second* seam
-	// (runLaunchctlCapture, via launchdLoaded). Stubbing only the runner above
-	// leaves that probe talking to the real system, so on a macOS host where
+	// The teardown wait probes launchd through seams of its own: launchdLoaded,
+	// the library's Job.Loaded (MADR 0207 D19), and runLaunchctlCapture.
+	// Stubbing only the runner above leaves those probes talking to the real
+	// system, so on a macOS host where
 	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
 	// the developer's own live job and fails (MADR 0125 P5). These tests assert
 	// the "nothing was loaded" path in prose already; this makes it true on
@@ -41,6 +43,7 @@ func TestDarwinSetupAgentOrder(t *testing.T) {
 			return "", errors.New("launchctl: no such service")
 		})
 	defer restoreCap()
+	defer service.OverrideLaunchdLoaded(func(context.Context, string) (bool, error) { return false, nil })()
 
 	dir := t.TempDir()
 	src := filepath.Join(dir, "mcremote")
@@ -143,9 +146,10 @@ func TestDarwinSetupNeverTouchesSystemDomain(t *testing.T) {
 	})
 	defer restoreLC()
 
-	// The teardown wait probes launchd through a *second* seam
-	// (runLaunchctlCapture, via launchdLoaded). Stubbing only the runner above
-	// leaves that probe talking to the real system, so on a macOS host where
+	// The teardown wait probes launchd through seams of its own: launchdLoaded,
+	// the library's Job.Loaded (MADR 0207 D19), and runLaunchctlCapture.
+	// Stubbing only the runner above leaves those probes talking to the real
+	// system, so on a macOS host where
 	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
 	// the developer's own live job and fails (MADR 0125 P5). These tests assert
 	// the "nothing was loaded" path in prose already; this makes it true on
@@ -156,6 +160,7 @@ func TestDarwinSetupNeverTouchesSystemDomain(t *testing.T) {
 			return "", errors.New("launchctl: no such service")
 		})
 	defer restoreCap()
+	defer service.OverrideLaunchdLoaded(func(context.Context, string) (bool, error) { return false, nil })()
 
 	dir := t.TempDir()
 	src := filepath.Join(dir, "mcremote")
@@ -196,9 +201,10 @@ func TestDarwinRemoveAgent(t *testing.T) {
 	})
 	defer restoreLC()
 
-	// The teardown wait probes launchd through a *second* seam
-	// (runLaunchctlCapture, via launchdLoaded). Stubbing only the runner above
-	// leaves that probe talking to the real system, so on a macOS host where
+	// The teardown wait probes launchd through seams of its own: launchdLoaded,
+	// the library's Job.Loaded (MADR 0207 D19), and runLaunchctlCapture.
+	// Stubbing only the runner above leaves those probes talking to the real
+	// system, so on a macOS host where
 	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
 	// the developer's own live job and fails (MADR 0125 P5). These tests assert
 	// the "nothing was loaded" path in prose already; this makes it true on
@@ -209,6 +215,7 @@ func TestDarwinRemoveAgent(t *testing.T) {
 			return "", errors.New("launchctl: no such service")
 		})
 	defer restoreCap()
+	defer service.OverrideLaunchdLoaded(func(context.Context, string) (bool, error) { return false, nil })()
 
 	dir := t.TempDir()
 	src := filepath.Join(dir, "mcremote")
