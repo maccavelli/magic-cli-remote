@@ -15,9 +15,8 @@ import (
 // refreshHarness drives refreshSchtasks through its seams: Task Scheduler (a
 // fake behind newTaskClient), the principal, and the backup location.
 type refreshHarness struct {
-	sched   *fakeTaskScheduler
-	creates []string // definitions handed to Register
-	backup  string
+	sched  *fakeTaskScheduler
+	backup string
 }
 
 // newRefreshHarness registers export as the mcremote task. An empty export

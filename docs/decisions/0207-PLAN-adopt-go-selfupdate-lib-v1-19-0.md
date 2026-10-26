@@ -121,6 +121,9 @@ E2 and D16).
     through macOS gates
     ([0210-PLAN-hand-off-agent-run-updates-outside-the-service.md](0210-PLAN-hand-off-agent-run-updates-outside-the-service.md),
     L2 Deviation 1). The sibling `acp-go-sdk2` plan takes these rules, so it gets the same gate.
+  * *Added 2026-10-25, U4 Deviation 2, the owner's answer "option 1":* `make staticcheck`, the
+    pinned staticcheck for GOOS linux, darwin and windows, which CI's `Go (test)` job runs. U4
+    shipped a finding it reports.
 * **Host runs** need the owner's word for that phase. On Linux and macOS they use a scratch
   service, `mcremote-d3probe`, as 0210's rules set. On Windows they use the real task, backed up
   and restored, as 0210 R1 Deviation 3 set out (W1 to W4).
@@ -1290,3 +1293,49 @@ real `mcremote` task.
 **Not done in U4 yet.** Step 4, on the owner's word: `make ci-windows`, which runs the two
 Windows-only tests, then the real task by W1 to W4, with amendment C's `--no-start` over the
 stopped task.
+
+### U4 Deviation 2, 2026-10-25 — an unused test field reddened CI. The owner decided: "option 1"
+
+**Found** in CI run `40233848601`, the first run on U4's `9c0c5e2b`, pushed with
+[0215-PLAN-test-darwin-arm64-natively-in-ci.md](0215-PLAN-test-darwin-arm64-natively-in-ci.md)'s
+`40c151e5`. `Go (test)` failed at `Staticcheck (pinned; GOOS linux, darwin, windows)`:
+
+```text
+internal/cli/service/refresh_schtasks_test.go:19:2: field creates is unused (U1000)
+```
+
+**Cause.** U4 moved `refreshHarness` onto `fakeTaskScheduler`. `registered()` reads
+`h.sched.registered`, so nothing writes or reads `creates` any more. U4's gates, this plan's
+"Before staging" list, did not include `make staticcheck`, so the finding first ran in CI.
+`make staticcheck` on HEAD reproduces it for all three GOOS, and it is the only finding.
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** fix it here, as a U4 deviation: delete the field, show `make staticcheck` failing
+   on HEAD and passing with the fix, run U4's gates, and add `make staticcheck` to this plan's
+   "Before staging" list so U5 to U8 run it.
+2. Delete the field without this record or the gate change, leaving the same gap for U5 to U8.
+
+**Files:** `internal/cli/service/refresh_schtasks_test.go`, already on U4's list, and this plan.
+
+**The fix.** `refreshHarness` loses its `creates` field. Nothing else changes, and no test changes
+what it asserts.
+
+**Seen failing first** (`m207u4/u4d2_gates.py`, session scratchpad): `make staticcheck` in a
+`git archive HEAD` copy exited 2 with
+`internal/cli/service/refresh_schtasks_test.go:19:2: field creates is unused (U1000)`, once each for
+GOOS linux, darwin and windows. The copy was deleted.
+
+**Gates:**
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0; staticcheck v0.8.2 for linux, darwin and windows, no findings |
+| `make pre-add-check` on the changed Go file | "1 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| The U4 and refresh tests (`-count=1 -v`) | exit 0 |
+| `make test`, `make race` | exit 0; 43 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs`, markdownlint on this plan | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host | exit 0; 43 packages ok. The copy was deleted |
+
+**Not done:** the CI run on the owner's push, which confirms `Go (test)` is green again.

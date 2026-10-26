@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-25
 associated-madr: "0215-MADR-test-darwin-arm64-natively-in-ci.md"
 ---
@@ -152,3 +152,30 @@ lines 207–437, and the note holds no list. 0120 carries no `markdownlint-disab
 list markers is outside P1's files' purpose; it is left as the owner's call.
 
 **Not done in P1:** the CI run itself, which is P2, after the owner's push.
+
+### P2, 2026-10-25: the first CI run
+
+**Approval.** The owner committed P1 as `40c151e5`, pushed it, and answered "committed, pushed, proceed".
+
+**The run:** CI run `40233848601`, a push of `40c151e5`. **`Go (darwin/arm64)`** is job `121291085128`, on
+`macos-15`, conclusion **success**.
+
+| Step | Conclusion | Duration |
+| :--- | :--- | :--- |
+| Set up Go | success | 14 s |
+| Build | success | 32 s |
+| Vet | success | 12 s |
+| Test | success, first attempt: the flake-ledger steps were skipped, so `total_attempts` was 1 | 62 s |
+| Test (race, darwin, cgo-free) | success | 2 min 10 s |
+
+The job took 4 min 31 s in all. `Go (linux/arm64)`, `Go (windows/amd64)` and both Flutter jobs also passed.
+
+**The run as a whole failed, for a reason outside this plan.** `Go (test)`, on `ubuntu-latest`, failed at
+`Staticcheck (pinned; GOOS linux, darwin, windows)` with
+`internal/cli/service/refresh_schtasks_test.go:19:2: field creates is unused (U1000)`. That field became unused in
+`9c0c5e2b`, 0207's U4, which was pushed with this commit. CI had not run on `9c0c5e2b` before. `make staticcheck`
+on HEAD reproduces it, on all three GOOS targets, and it is the only finding. It is not this plan's file and not
+caused by it; it goes to 0207 as a deviation, for the owner to decide.
+
+**Outcome.** The Verification criterion is met: the first CI run after the push has `Go (darwin/arm64)` green,
+race step included. This plan is complete.

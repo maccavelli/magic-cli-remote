@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-25
 decision-makers: Project Owner
 consulted: "0120-MADR-retire-the-darwin-amd64-target.md's 2026-08-29 amendment (D11); 0116-MADR-windows-and-linux-arm64-build-targets.md D17, D20 and D20a; 0143-MADR-ci-retries-once-and-records-every-retry.md; this repository's .github/workflows/ci.yml at 9c0c5e2b; gobble-cli's .github/workflows/ci.yml and its 0004-PLAN-go-module-architecture.md, read 2026-10-25"
