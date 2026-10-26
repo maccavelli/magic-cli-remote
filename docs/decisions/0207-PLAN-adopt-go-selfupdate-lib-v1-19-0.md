@@ -295,8 +295,10 @@ measurement finds); this plan. *U4 Deviation 1, 2026-10-25:* `health.go` and `he
    `encodeTaskXML`, the temporary file and the three `schtasks` verbs go. `taskFieldsFromXML`
    stays only for the fields Magic reads.
 4. **On the Windows host,** on the owner's word: `make ci-windows`; then, against the real task by
-   W1 to W4: `setup-service` (unchanged), `--force` (re-registers), `--remove` and a fresh install.
-   The task's definition after W4 compares the same as W1's.
+   W1 to W4: `setup-service` (unchanged), `--force` ~~(re-registers)~~, `--remove` and a fresh
+   install. The task's definition after W4 compares the same as W1's.
+   *U4 Deviation 4, 2026-10-26:* over an unchanged definition `--force` registers nothing (D17).
+   The overwrite path is exercised by a changed option, refused, then forced, then restored.
 5. Gates.
 
 *Amendment C, proposed (D31):*
@@ -1237,8 +1239,9 @@ fourth: `health.go:119` runs `schtasks /query /tn <task> /xml ONE` to recover th
 * **The Windows-only tests:**
   * `schtasks_windows_test.go` keeps 0116's guard against a definition Task Scheduler cannot parse
     (F25). It now hands a poisoned render to the real `Register`, never registering (C8). It
-    classifies by the stable HRESULTs `0x80041318` and `0x8004131A`, with a truncated definition as
-    its negative control.
+    classifies by the stable HRESULTs `0x80041318` and `0x8004131A`, with ~~a truncated definition~~
+    as its negative control. *U4 Deviation 3, 2026-10-26: the library refuses a truncated definition
+    before Task Scheduler sees it; the control is now a repeated attribute.*
   * `control_schtasks_windows_test.go` reads an absent task through the real `Status`.
   * Both run in `make ci-windows`.
 
@@ -1338,4 +1341,117 @@ GOOS linux, darwin and windows. The copy was deleted.
 | `make check-records`, `make markdownlint-docs`, markdownlint on this plan | exit 0; "0 issues" |
 | `go test -race -count=1 ./...` on the Linux test host | exit 0; 43 packages ok. The copy was deleted |
 
-**Not done:** the CI run on the owner's push, which confirms `Go (test)` is green again.
+**CI.** The owner committed this as `dfa65b1f` and pushed it. CI run `40328847048` on `dfa65b1f`
+concluded `success`, `Go (test)`'s staticcheck step included.
+
+### U4 Deviation 3, 2026-10-26 — the Windows negative control cannot run. The owner decided: "fix these"
+
+**Found** in step 4's `make ci-windows` run on the Windows host, at `9c0c5e2b`.
+`TestRenderedTaskParsesInRealTaskScheduler`'s negative control skipped:
+
+```text
+unclassified rejection of the truncated definition: selfupdate: taskscheduler: register
+\mc-0207-u4-probe-1d4b13e4: the definition is not readable XML: XML syntax error on line 27: unexpected EOF
+```
+
+**Cause.** go-selfupdate-lib `v1.22.0`'s `Register` parses the definition in Go before it calls
+Task Scheduler (`registrationLogon`, `taskscheduler/register.go:143-146`). A definition Go cannot
+parse never reaches Task Scheduler, so the truncated control can never produce `0x8004131A`. The
+main subtest's "could not parse" branch has never been seen to fire on a real host. U4's record, "a
+truncated definition as its negative control", describes a control that does not run.
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** replace the truncated input with one Go parses and Task Scheduler rejects as
+   malformed. A probe on the Windows host finds it, in a scratch clone, registering nothing. Then
+   both subtests are seen failing on planted input there.
+2. Make the control assert the library's own rejection instead. That no longer proves Task
+   Scheduler's result can be classified, so it is a workaround.
+3. Leave it skipping.
+
+**Files:** `internal/cli/service/schtasks_windows_test.go`, already on U4's list, and this plan.
+
+**The probe** (`m207u4/d3/zz_probe_windows_test.go`, session scratchpad). This ran in a scratch clone of
+`dfa65b1f` on the Windows host, through the library's `Register`, on throwaway names. Each name was deleted
+and then confirmed absent. Every input that kept a `Task` root also carried the invalid `ExecutionTimeLimit`:
+
+| Input | Result |
+| :--- | :--- |
+| the poisoned render (control) | `HRESULT 0x80041318` |
+| root `<Other/>`; root renamed; an unknown element in `Settings` | `HRESULT 0x80041316` (unexpected node) |
+| a wrong namespace | `HRESULT 0x80041317` |
+| duplicate `Settings`; no `Actions`; `version="9.9"`; text inside `Task` | `HRESULT 0x80041318` |
+| **a repeated attribute** (`version="1.4" version="1.4"`) | **`HRESULT 0x8004131A`** |
+| an undeclared namespace prefix; a `DOCTYPE` with an internal subset; an XML declaration mid-document | `HRESULT 0x8004131A` |
+| an attribute holding `&#0;` | refused in Go: "the definition is not readable XML … illegal character code U+0000" |
+
+Nothing registered. Go's decoder accepts four inputs that Task Scheduler's parser rejects as malformed.
+
+**The change.** The negative control, now "a definition only Task Scheduler cannot parse", repeats the rendered
+definition's `version` attribute. The test refuses to build the control when that attribute is not there exactly
+once, and its classification is unchanged. A comment cites this deviation.
+
+**Seen failing first** (`m207u4/d3/plants_drive.py`, on the Windows host's clone):
+
+| Variant | Result |
+| :--- | :--- |
+| as fixed | both subtests `--- PASS` |
+| the control fed the merely invalid definition | `--- FAIL`: "a malformed definition read as a value error, so this test no longer discriminates: … HRESULT 0x80041318" |
+| the main subtest fed the repeated attribute | `--- FAIL`: "Task Scheduler could not parse the rendered definition: … HRESULT 0x8004131A" |
+
+The second plant is the first time the main subtest's "could not parse" branch has fired on a real host. The clone
+was deleted.
+
+### U4 Deviation 4, 2026-10-26 — `--force` over an unchanged task registers nothing. The owner decided: "fix these"
+
+**Found** in step 4's real-task run: `setup-service --force` over the unchanged `mcremote` task left
+the stored task file's time unchanged, and so did the `--force --no-start` witness.
+
+**Cause.** Step 4's "`--force` (re-registers)" is wrong about the code before and after U4. An
+identical definition reads unchanged, with or without `--force` (D17). The run never exercised
+overwriting an **existing** task through `Register`: the fresh install after `--remove` registered
+an absent one.
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** correct the step's wording, and add one real-task step that exercises the overwrite
+   path:
+   * `setup-service` with one option changed, `--log-level info`, which `serveArgs` writes into the
+     task's arguments: refused without `--force`, naming the differing path;
+   * the same with `--force`: registered, and the stored time moves;
+   * the original options with `--force`: registered again, and the export is W1's again;
+   * the `--no-start` witness, and the same backup and final restore as step 4.
+2. Correct only the wording, and leave the overwrite path unproven on a real host.
+
+**Files:** this plan. The run uses scratch scripts only.
+
+**The run** (`m207u4/u4d4_win.py`, session scratchpad), on the Windows host's real `mcremote` task. HEAD's build,
+`dfa65b1f` with this deviation's test file, ran only `setup-service`. Its options were recovered from the stored
+task, as in step 4, and it backed up and restored as step 4 did:
+
+| Step | Result |
+| :--- | :--- |
+| W1 | installed v0.23.0 (release), task Running; export and the one refresh backup saved |
+| `setup-service … --log-level info` | exit 1: "scheduled task "mcremote" exists with different content: Actions/Exec[1]/Arguments (pass --force to overwrite)"; stored time and export unchanged |
+| the same with `--force` | exit 0; the stored time moved; the export carries `--log-level info`; the daemon's PID unchanged |
+| the original options with `--force` | exit 0; the stored time moved again; the export is W1's |
+| the `--no-start` witness | the stored time unchanged: nothing registered |
+| final | binary, config, export and refresh backup as W1; task Running; `/healthz` answers; the kit was deleted |
+
+`Register` overwrote an existing task on a real host, and setup refused the change without `--force`, naming the
+path `DiffDefinitions` reported.
+
+### U4 Deviations 2 to 4: gates, 2026-10-26
+
+`m207u4/u4d34_gates.py`, on the working tree with Deviation 3's test file:
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the changed Go file | "1 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 43 packages ok |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host | exit 0; 43 packages ok. The copy was deleted |
+
+With these, U4's step 4 is done. U4 is complete once the owner commits it, and the next CI run confirms it.

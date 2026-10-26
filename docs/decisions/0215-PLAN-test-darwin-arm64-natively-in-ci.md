@@ -38,7 +38,8 @@ checks turns CI red.
 * **Before staging:**
   * `actionlint` on `ci.yml`;
   * `make check-records` and `make markdownlint-docs`;
-  * markdownlint on this pair and 0120;
+  * ~~markdownlint on this pair and 0120;~~ *corrected 2026-10-26 (P2): the repository's markdownlint
+    excludes records, so this check does not apply to them;*
   * the guard's redact preview from the repository root.
 * **The owner commits and pushes.** P2 waits for that push.
 
@@ -143,7 +144,7 @@ The clone was deleted.
 | :--- | :--- |
 | `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
 | markdownlint on this pair | 0 issues |
-| markdownlint on 0120 | 35 `MD004/ul-style` errors ("Expected: dash; Actual: asterisk"), all on lines 207–437 |
+| markdownlint on 0120 | 35 `MD004/ul-style` errors ("Expected: dash; Actual: asterisk"), all on lines 207–437. *Misapplied; see P2's correction* |
 | The guard's redact preview | "would edit 0 file(s)" |
 
 The 0120 errors predate this change. The dated note was inserted after line 545, so it cannot move or change
@@ -176,6 +177,14 @@ The job took 4 min 31 s in all. `Go (linux/arm64)`, `Go (windows/amd64)` and bot
 `9c0c5e2b`, 0207's U4, which was pushed with this commit. CI had not run on `9c0c5e2b` before. `make staticcheck`
 on HEAD reproduces it, on all three GOOS targets, and it is the only finding. It is not this plan's file and not
 caused by it; it goes to 0207 as a deviation, for the owner to decide.
+
+**Correction, 2026-10-26: 0120 has no lint errors.** P1's records gates reported 35 `MD004` errors in 0120 and
+left them "as the owner's call". That was a misapplied check. The repository's `.markdownlint-cli2.jsonc` excludes
+every MADR and PLAN file by glob (`!**/*MADR*.md`, `!**/*PLAN*.md`), because records follow their own conventions,
+including `*` list markers. Its `MD004: dash` is for user-facing documents. P1 passed 0120 to markdownlint by path,
+which bypasses that exclusion, so the user-facing rule was applied to a record. 0120 is unchanged.
+`make markdownlint-docs` is the gate for documents. This pair passed the same misapplied check only because it
+disables `MD004` in its header.
 
 **Outcome.** The Verification criterion is met: the first CI run after the push has `Go (darwin/arm64)` green,
 race step included. This plan is complete.

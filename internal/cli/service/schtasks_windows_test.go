@@ -73,18 +73,27 @@ func TestRenderedTaskParsesInRealTaskScheduler(t *testing.T) {
 		}
 	})
 
-	t.Run("negative control: a truncated definition is malformed", func(t *testing.T) {
-		truncated := poisoned[:strings.Index(poisoned, "<Settings>")]
-		err := task.Register(ctx, name, truncated)
+	// The control must be text Go parses and Task Scheduler does not: the library
+	// parses a definition before it reaches Task Scheduler, so a truncated one is
+	// refused in Go and never yields a result to classify (0207 PLAN U4
+	// Deviation 3). Go's decoder accepts a repeated attribute; Task Scheduler's
+	// parser answers it with SCHED_E_MALFORMEDXML (probed on a real host).
+	t.Run("negative control: a definition only Task Scheduler cannot parse", func(t *testing.T) {
+		const once, twice = `version="1.4"`, `version="1.4" version="1.4"`
+		if strings.Count(poisoned, once) != 1 {
+			t.Fatalf("rendered definition does not contain %s exactly once; the control cannot be built", once)
+		}
+		malformed := strings.Replace(poisoned, once, twice, 1)
+		err := task.Register(ctx, name, malformed)
 		switch {
 		case err == nil:
-			t.Fatalf("Task Scheduler registered a truncated definition")
+			t.Fatalf("Task Scheduler registered a definition with a repeated attribute")
 		case strings.Contains(err.Error(), hrSchedMalformedXML):
 			// The parse failure this test exists to catch is still detectable.
 		case strings.Contains(err.Error(), hrSchedInvalidValue):
-			t.Fatalf("a truncated definition read as a value error, so this test no longer discriminates: %v", err)
+			t.Fatalf("a malformed definition read as a value error, so this test no longer discriminates: %v", err)
 		default:
-			t.Skipf("unclassified rejection of the truncated definition: %v", err)
+			t.Skipf("unclassified rejection of the malformed definition: %v", err)
 		}
 	})
 }
