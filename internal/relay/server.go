@@ -285,8 +285,13 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		}()
 		errCh <- s.http.Serve(ln)
 	}()
+	// Under the unit's Type=notify, systemctl start returns, and the unit
+	// becomes active, at READY=1: the listener is open, so the relay serves;
+	// a connection the kernel queues first is served too (MADR 0207 D22).
+	s.cfg.Notify.Notify(s.log, "READY=1")
 	select {
 	case <-ctx.Done():
+		s.cfg.Notify.Notify(s.log, "STOPPING=1")
 		// R17 / D11: tear down hijacked WebSocket splices and host controls.
 		s.drainConnections("shutdown")
 		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -295,6 +300,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		<-errCh
 		return ctx.Err()
 	case err := <-errCh:
+		s.cfg.Notify.Notify(s.log, "STOPPING=1")
 		s.drainConnections("serve_error")
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil

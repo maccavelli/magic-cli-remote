@@ -13,6 +13,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/debugserve"
 	"github.com/maccavelli/magic-cli-remote/internal/logging"
+	"github.com/maccavelli/magic-cli-remote/internal/sdnotify"
 	"github.com/spf13/cobra"
 )
 
@@ -198,6 +199,9 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
   mcrelay serve --tls-cert /etc/ssl/relay.crt --tls-key /etc/ssl/relay.key \
     --allow 'devbox-1:your-long-registration-secret'`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Taken first, so nothing mcrelay ever starts inherits this unit's
+			// socket (sd_notify(3) unset_environment; MADR 0210 D10, 0207 D22).
+			notify := sdnotify.Take()
 			if detachConsole {
 				service.DetachConsole()
 			}
@@ -264,6 +268,7 @@ Empty tls.mode auto-selects: domains+email → letsencrypt; cert files → files
 			if allowPlaintext {
 				srvCfg.AllowPlaintext = true
 			}
+			srvCfg.Notify = notify
 			cleanup, err := ApplyTLS(ctx, fc, &srvCfg, log)
 			if err != nil {
 				return err

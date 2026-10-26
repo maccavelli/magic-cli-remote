@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -204,68 +203,4 @@ func TestRunTakesItsNotifySocket(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("Run did not return")
 	}
-}
-
-// TestNotifySocketSends: the kept socket takes a path or, on Linux, an
-// abstract "@" name, as the library's systemd.Notify does; with none, it
-// sends nothing and reports no error.
-func TestNotifySocketSends(t *testing.T) {
-	recv := func(t *testing.T, conn *net.UnixConn) string {
-		t.Helper()
-		buf := make([]byte, 64)
-		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := conn.Read(buf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(buf[:n])
-	}
-	t.Run("path", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "ntf")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.RemoveAll(dir) })
-		path := filepath.Join(dir, "notify")
-		conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = conn.Close() })
-		t.Setenv("NOTIFY_SOCKET", path)
-		s := takeNotifySocket()
-		if _, ok := os.LookupEnv("NOTIFY_SOCKET"); ok {
-			t.Error("takeNotifySocket left NOTIFY_SOCKET set")
-		}
-		if sent, err := s.ready(); !sent || err != nil {
-			t.Fatalf("ready = %v, %v", sent, err)
-		}
-		if got := recv(t, conn); got != "READY=1" {
-			t.Errorf("got %q, want READY=1", got)
-		}
-	})
-	t.Run("abstract", func(t *testing.T) {
-		if runtime.GOOS != "linux" {
-			t.Skip("the abstract namespace is Linux's")
-		}
-		name := "@mcremote-notify-test-" + strconv.Itoa(os.Getpid())
-		conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: "\x00" + name[1:], Net: "unixgram"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = conn.Close() })
-		t.Setenv("NOTIFY_SOCKET", name)
-		if sent, err := takeNotifySocket().stopping(); !sent || err != nil {
-			t.Fatalf("stopping = %v, %v", sent, err)
-		}
-		if got := recv(t, conn); got != "STOPPING=1" {
-			t.Errorf("got %q, want STOPPING=1", got)
-		}
-	})
-	t.Run("none", func(t *testing.T) {
-		t.Setenv("NOTIFY_SOCKET", "")
-		if sent, err := takeNotifySocket().ready(); sent || err != nil {
-			t.Errorf("ready with no socket = %v, %v; want false, nil", sent, err)
-		}
-	})
 }

@@ -982,6 +982,11 @@ policy first); stdio MCP servers (0179, deferred); grouped select options (0208 
 * **D22 — mcrelay tells systemd it is ready (REPORT A8; question 10).** `Type=notify` in its unit
   template, `READY=1` and `STOPPING=1` at its ready and shutdown points, through the same kept
   socket 0210 D10 gives the daemon.
+  * *Added 2026-10-26, the PLAN's U8 Deviation 1, the owner's answer "fix the mcrelay gap":* the
+    unit also gets `TimeoutStartSec=240`, as mcremote's has (0054 amendment S8). mcrelay can spend up
+    to `certs.ACMEStartupTimeout`, 3 minutes, issuing a certificate before it listens, and the
+    manager's default start timeout is 90 s. The kept socket moves to `internal/sdnotify`, which
+    both daemons import, because the library's `systemd.Notify` reads the environment on every call.
 * **D23 — The Windows handoff is unblocked (0210 D3; question 8).** `v1.19.0` ships what 0210 D3
   waits on. Adopting it removes the Windows gate in `detacherFor`, adds Windows to the daemon's
   start-up `CleanupHandOffs`, and runs the agent-run update live on the Windows host. 0210 A1's

@@ -369,7 +369,9 @@ measurement finds); this plan. *U4 Deviation 1, 2026-10-25:* `health.go` and `he
 
 **Files:** `internal/cli/service/mcrelay.user.service.tmpl`, `notify_unit_test.go`, the relay's
 start and shutdown code in `internal/relay` (measured first), the kept-socket sender 0210 A3
-builds, moved where both daemons can import it; this plan.
+builds, moved where both daemons can import it; this plan. *U8 Deviation 1, 2026-10-26:*
+`internal/daemon/daemon.go` and `internal/daemon/notify_unix_test.go` join, and the unit also gets
+`TimeoutStartSec=240` (execution record below).
 
 1. **Measure** where mcrelay is ready (listening) and where it begins to shut down, and where
    0210 A3 left the sender.
@@ -1615,3 +1617,170 @@ service. The builds were written to the scratchpad.
 
 With this, U5's four steps are done. U5 is complete once the owner commits it, and the next CI
 run, with its darwin/arm64 leg, confirms it.
+
+**CI, 2026-10-26.** The owner committed U5 as `dc97fb01` and pushed it with U4's `775f5a56`. CI run
+`40420371644` on `dc97fb01` concluded `success`. Every job passed, `Go (test)` with its staticcheck
+step and `Go (darwin/arm64)` included. U4 and U5 are complete.
+
+### U8 step 1 and Deviation 1, 2026-10-26 — the sender's caller moves with it, and mcrelay needs a start timeout. The owner decided: "option 1, fix the mcrelay gap"
+
+**Approval.** The owner committed and pushed U5 as `dc97fb01` and said "committed and pushed.
+proceed". U7 is retired into 0212 (its R2), and U6 waits for 0212's P3, so U8 is next.
+
+**Step 1's measurement:**
+
+| What | Where |
+| :--- | :--- |
+| mcrelay is ready: the listener is open, with its TLS wrapper | `relay/server.go:239-269`, then `Serve` |
+| mcrelay begins to shut down | `server.go:289`, the context ends and the drain begins; `:297`, serving failed |
+| What runs before the listener opens | `relay/cli.go:270` `ApplyTLS`: Let's Encrypt issuance, synchronous, bounded by `certs.ACMEStartupTimeout`, 3 minutes (`certs/acme.go:30`, applied at `acme.go:149` and `acme_http.go:106`) |
+| 0210 A3's kept-socket sender | `daemon/daemon_notify.go`, unexported |
+| Its users | `daemon.go:218`, `:691`, `:711`, `:737`, `:753`; its tests, `daemon/notify_unix_test.go:209-270` |
+| The daemon's logging of a send | `notifySystemd`, `daemon.go:41-53` |
+| An older mcrelay unit is refreshed | `relay/cli.go:469` `RefreshUnit`, which the managed update runs as `setup-service --refresh` (`updateclient/managed.go:34`) |
+| A rollback restores the unit | `managed.go:84-94`: the definition's `.prev`, with the old binary |
+
+**Found 1: the move changes two files outside U8's list.** `daemon.go` calls the sender, and
+`internal/daemon/notify_unix_test.go` tests it. Neither is on the list.
+
+The resolutions put to the owner:
+
+1. **Chosen:** both join U8. The sender moves to a shared package, `daemon.go`'s five calls move
+   to it, and the sender's own tests move with it. The daemon's end-to-end notify tests stay.
+2. Give mcrelay its own copy of the sender: two copies of one protocol, against the step's "moved
+   where both daemons can import it".
+3. Leave a forwarding wrapper in `daemon_notify.go`, so `daemon.go` does not change. A workaround:
+   the wrapper would exist only to stay inside the list.
+
+**Found 2: `Type=notify` alone would leave mcrelay unstartable on a first issuance.** Under
+`Type=notify`, systemd waits for `READY=1` for `TimeoutStartSec`, which defaults to the manager's
+`DefaultTimeoutStartSec`, 90 s. mcrelay can spend up to 3 minutes in `ApplyTLS` before it listens.
+A slow issuance at boot would be killed and restarted in a loop, where `Type=simple` never waits.
+mcremote's unit has `TimeoutStartSec=240` for the same bound (MADR 0054 amendment S8). The owner
+decided to fix it here: mcrelay's unit gets `TimeoutStartSec=240`, and the unit test ties both
+units' timeouts to `certs.ACMEStartupTimeout`.
+
+**Evaluated at the owner's ask,** whether option 1 and that fix are the most robust, idiomatic and
+platform-compatible fixes. They are, with three refinements:
+
+* **The library first.** v1.22.0 exports `systemd.Notify`, `Ready` and `Stopping`, but `Notify`
+  reads `NOTIFY_SOCKET` on every call and never unsets it (`systemd/notify.go:21-22`). Once the
+  variable is unset, as 0210 D10 decided by `sd_notify(3)`'s own `unset_environment` practice, it
+  cannot send. No variant takes a kept address. So the sender stays Magic's, in one package both
+  daemons import.
+  * A library export taking the kept address would shrink that package to its take-and-unset.
+    Filing it is outward-facing and the owner's call; it is not filed.
+* **Platforms.** The package needs no build tags. `net.DialUnix` compiles everywhere, and only
+  systemd sets `NOTIFY_SOCKET`. Under launchd, Task Scheduler, runit, s6 and OpenRC, and in a
+  terminal, a send is "not sent" with no error. Go does not support `unixgram` on Windows, and the
+  sender never dials there. An abstract `@` name is Linux's, and Go's `syscall` maps it.
+* **Moved as it is.** The sender ran live in 0210's L2. It moves unchanged, and the daemon's logging
+  helper moves too, so both daemons log a failed send the same way. *Refinement 1.*
+* **Where mcrelay sends.**
+  * `READY=1` goes in `Serve`, once the listener is open and its serve loop started. That covers
+    `ListenAndServe` and a caller's own listener. A connection the kernel queues before the loop
+    accepts it is served, so "listening" is the right moment, as in the daemon.
+  * `STOPPING=1` goes when shutdown begins, before the drain, on both exit paths, as in the
+    daemon's `gracefulDrain`.
+  * mcrelay is the unit's main process. `Type=notify` takes messages from the main process by
+    default (`NotifyAccess=main`), so nothing else is needed.
+  * `serve` takes the socket before anything else runs. mcrelay spawns no child today, so this
+    guards the next one. *Refinement 2.*
+* **The timeout.**
+  * A fixed `TimeoutStartSec` works on every systemd.
+  * `EXTEND_TIMEOUT_USEC` (systemd 236 and later) would keep the 90 s default outside ACME. But it
+    needs a ticker inside `internal/certs`, outside U8's list, and would differ from mcremote's unit.
+  * 240 s is the 3-minute bound plus a minute, as mcremote's is.
+  * The test asserts each unit's timeout exceeds `certs.ACMEStartupTimeout`, besides the literal, so
+    raising the bound without the units fails a test. *Refinement 3.*
+* **Rollback and downgrade.** A rollback restores the unit's `.prev`, `Type=simple`, with the old
+  binary (`managed.go:84-94`), so the update never runs an old mcrelay under the notify unit. A
+  binary copied back by hand, with no refresh, would time out at start. mcremote has had the same
+  exposure since S8.
+* **Not changed:** the static examples in `deploy/systemd/` stay `Type=simple`, as mcremote's did at
+  S8. `Type=simple` works with every release, and `make verify-units` checks them as they are.
+
+**Files added to U8:** `internal/daemon/daemon.go` and `internal/daemon/notify_unix_test.go`. The
+shared package is `internal/sdnotify`: `sdnotify.go`, where `daemon_notify.go`'s sender moves, and
+`sdnotify_unix_test.go`, where its tests move. The relay files the measurement found are
+`internal/relay/server.go`, `cli.go`, and a new `notify_unix_test.go`. *Corrected while the code was
+written:* `internal/relay/config.go` too, which holds the server's `Config`, the start code's input.
+It is relay start code the measurement finds, as U8's list provides, and the list above left it out.
+
+### U8, 2026-10-26: mcrelay tells systemd it is ready, steps 2, 3 and 5
+
+**The shared sender** (`internal/sdnotify`):
+
+* `Take()` reads and unsets `NOTIFY_SOCKET`. `Socket.Send(state)` writes one datagram. Both are
+  `daemon_notify.go`'s `takeNotifySocket` and `send`, unchanged.
+* `Socket.Notify(log, state)` sends and logs, and is the daemon's `notifySystemd`, unchanged.
+* `daemon_notify.go` is gone. `daemon.go` takes the socket with `sdnotify.Take()` and sends its
+  `READY=1` and three `STOPPING=1` with `notify.Notify`. What it sends, and when, is unchanged.
+
+**mcrelay:**
+
+* `serve` takes the socket first, before the console detach, `Load` and `ApplyTLS`, and hands it to
+  the server as `Config.Notify`.
+* `Serve` sends `READY=1` once the listener is open and its serve loop started.
+* It sends `STOPPING=1` when shutdown begins: on the context's end before the drain, and on a
+  serving error before that path's drain.
+* An empty socket sends nothing, so tests, terminals and every other service manager are
+  unaffected.
+
+**The unit.** `mcrelay.user.service.tmpl` is `Type=notify` with `TimeoutStartSec=240`, each with a
+comment naming its reason.
+
+**The tests:**
+
+| Test | Pins |
+| :--- | :--- |
+| `TestServeNotifiesSystemd` (relay) | the real `serve` command against a unixgram listener: `READY=1` arrives, and the listener then accepts a connection; `NOTIFY_SOCKET` is unset after start-up; a cancelled context brings `STOPPING=1`, and `serve` returns nil |
+| `TestServeNotifiesStoppingWhenServingFails` (relay) | a listener closed under `Serve` brings `STOPPING=1` after `READY=1`, and `Serve` returns the listener's error |
+| `TestUnitIsTypeNotify` | both units: `Type=notify`, `TimeoutStartSec=240`, no `Type=simple`, and a timeout longer than `certs.ACMEStartupTimeout`. It replaces "mcrelay must stay `Type=simple`" |
+| `TestRefreshMovesASimpleUnitToNotify` | for mcremote and mcrelay, an earlier release's `Type=simple` unit with no start timeout is refreshed to the current template (step 3) |
+| `TestSocketSends` (sdnotify) | the daemon's `TestNotifySocketSends`, moved with the sender: a path, an abstract name on Linux, and no socket |
+| `TestNotifyLogsAFailedSend` (sdnotify) | a failed send is a warning naming the state, and no socket logs nothing |
+
+The daemon's `TestRunNotifiesSystemd` and `TestRunTakesItsNotifySocket` stay where they are,
+unchanged, and pass.
+
+**Seen failing first** (`m207u8/plants.py`, session scratchpad). Each plant ran on its own scratch
+copy of the working tree. All eleven fail on their named tests:
+
+| Plant | The failure |
+| :--- | :--- |
+| `Serve` sends no `READY=1` | both relay tests: "waiting for READY=1: … i/o timeout" |
+| no `STOPPING=1` when the context ends | `TestServeNotifiesSystemd`: "waiting for STOPPING=1: … i/o timeout" |
+| no `STOPPING=1` when serving fails | `TestServeNotifiesStoppingWhenServingFails`: the same |
+| `serve` reads the variable and leaves it set | "NOTIFY_SOCKET = "…/notify" after start-up, want it unset" |
+| `serve` never hands the socket to the server | "waiting for READY=1: … i/o timeout" |
+| the mcrelay unit stays `Type=simple` | `TestUnitIsTypeNotify/mcrelay`: "mcrelay unit lacks "Type=notify"", "still says Type=simple" |
+| the mcrelay unit has no start timeout | "mcrelay unit lacks "TimeoutStartSec=240"", "the unit has no TimeoutStartSec" |
+| `certs.ACMEStartupTimeout` raised to 5 minutes | "mcremote unit: TimeoutStartSec 4m0s is not longer than certs.ACMEStartupTimeout 5m0s", and the same for mcrelay |
+| `Take` leaves the variable set | `TestSocketSends/path`: "Take left NOTIFY_SOCKET set" |
+| `Notify` drops a failure | "a failed send logged ""; want a warning naming READY=1" |
+| the daemon sends no `READY=1` | `TestRunNotifiesSystemd`: "waiting for READY=1: … i/o timeout" |
+
+* **No plant for "READY=1 before the listener".** `Serve` is handed an open listener, so `READY=1`
+  cannot come before it. A plant moving the send earlier, into `serve`, would race a listen that
+  takes microseconds, and could pass by luck. The dial after `READY=1` stays as the daemon's test
+  has it.
+* **One test mistake, fixed before the plants.** The first run of `TestNotifyLogsAFailedSend`
+  expected `state=READY=1`, but slog's text handler quotes a value holding `=`, as
+  `state="READY=1"`. The code was right, and the assertion now matches.
+
+**Gates** (`m207u8/u8_gates.py`):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the nine changed and added Go files | "9 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok, `internal/sdnotify` the new one; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host | exit 0; 44 packages ok |
+| U8's tests on the Linux test host, verbose | all pass; `TestSocketSends/abstract` runs there, where macOS skips it. The copy was deleted |
+
+**Not done in U8 yet.** Step 4, on the owner's word: on the Linux test host, a scratch mcrelay unit
+rendered by this tree, where `systemctl --user start` returns after `READY=1`, and `systemctl --user
+stop` leaves `STOPPING=1` in the journal.

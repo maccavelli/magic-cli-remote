@@ -5,8 +5,12 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/certs"
 )
 
 // unitHas reports whether body carries directive as a whole line.
@@ -19,44 +23,70 @@ func unitHas(body, directive string) bool {
 	return false
 }
 
-// TestUnitIsTypeNotify: mcremote's unit waits for the daemon's READY=1, with
-// a start timeout longer than the three-minute Let's Encrypt bound the daemon
-// waits before it listens (MADR 0054 amendment S8, S2). mcrelay sends no
-// READY=1, so its unit stays Type=simple: as notify it would never start.
+// TestUnitIsTypeNotify: each daemon's unit waits for its READY=1, with a start
+// timeout longer than the three-minute Let's Encrypt bound each waits before it
+// listens (MADR 0054 amendment S8, S2; MADR 0207 D22, U8 Deviation 1). mcrelay
+// was Type=simple until it sent READY=1.
 func TestUnitIsTypeNotify(t *testing.T) {
-	remote, err := renderWith(Options{Product: "mcremote", UnitName: "mcremote", Binary: "/opt/bin/mcremote"}, nil)
-	if err != nil {
-		t.Fatal(err)
+	for _, product := range []string{"mcremote", "mcrelay"} {
+		t.Run(product, func(t *testing.T) {
+			unit, err := renderWith(Options{Product: product, UnitName: product, Binary: "/opt/bin/" + product}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"Type=notify", "TimeoutStartSec=240"} {
+				if !unitHas(unit, want) {
+					t.Errorf("%s unit lacks %q", product, want)
+				}
+			}
+			if unitHas(unit, "Type=simple") {
+				t.Errorf("%s unit still says Type=simple", product)
+			}
+			// The literal above is today's value; this is the reason for it. A
+			// longer ACME bound without a longer timeout fails here.
+			if got := startTimeout(t, unit); got <= certs.ACMEStartupTimeout {
+				t.Errorf("%s unit: TimeoutStartSec %s is not longer than certs.ACMEStartupTimeout %s",
+					product, got, certs.ACMEStartupTimeout)
+			}
+		})
 	}
-	for _, want := range []string{"Type=notify", "TimeoutStartSec=240"} {
-		if !unitHas(remote, want) {
-			t.Errorf("mcremote unit lacks %q", want)
+}
+
+// startTimeout is the unit's TimeoutStartSec, in whole seconds as the
+// templates write it.
+func startTimeout(t *testing.T, unit string) time.Duration {
+	t.Helper()
+	for line := range strings.SplitSeq(unit, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "TimeoutStartSec="); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				t.Fatalf("TimeoutStartSec=%q is not whole seconds: %v", v, err)
+			}
+			return time.Duration(n) * time.Second
 		}
 	}
-	if unitHas(remote, "Type=simple") {
-		t.Error("mcremote unit still says Type=simple")
-	}
-
-	relay, err := renderWith(Options{Product: "mcrelay", UnitName: "mcrelay", Binary: "/opt/bin/mcrelay"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !unitHas(relay, "Type=simple") || unitHas(relay, "Type=notify") {
-		t.Errorf("mcrelay unit must stay Type=simple:\n%s", relay)
-	}
+	t.Fatal("the unit has no TimeoutStartSec")
+	return 0
 }
 
 // TestRefreshMovesASimpleUnitToNotify: a unit an earlier release wrote, as
 // Type=simple with no start timeout, is refreshed to the current template by
-// the update that installs this one.
+// the update that installs this one: mcremote's since S8, mcrelay's since
+// MADR 0207 D22.
 func TestRefreshMovesASimpleUnitToNotify(t *testing.T) {
+	for _, product := range []string{"mcremote", "mcrelay"} {
+		t.Run(product, func(t *testing.T) { refreshMovesASimpleUnitToNotify(t, product) })
+	}
+}
+
+func refreshMovesASimpleUnitToNotify(t *testing.T, product string) {
 	linuxRefresh(t)
 	recordSystemctl(t)
 	dir := t.TempDir()
 	unitDir := filepath.Join(dir, "units")
 	opts := Options{
-		Product: "mcremote", UnitName: "mcremote", Description: "d",
-		Binary: filepath.Join(dir, "mcremote"), WorkingDirectory: dir,
+		Product: product, UnitName: product, Description: "d",
+		Binary: filepath.Join(dir, product), WorkingDirectory: dir,
 	}
 	path := writeUnit(t, unitDir, opts, nil)
 	canonical, err := os.ReadFile(path)
@@ -72,7 +102,7 @@ func TestRefreshMovesASimpleUnitToNotify(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := RefreshUnit(Options{Product: "mcremote", UnitDir: unitDir}, RefreshOptions{})
+	got, err := RefreshUnit(Options{Product: product, UnitDir: unitDir}, RefreshOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

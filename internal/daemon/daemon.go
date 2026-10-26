@@ -33,24 +33,11 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/receipt"
 	"github.com/maccavelli/magic-cli-remote/internal/relayhost"
+	"github.com/maccavelli/magic-cli-remote/internal/sdnotify"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/maccavelli/magic-cli-remote/internal/ws"
 )
-
-// notifySystemd sends one sd_notify state with send, the kept socket's ready
-// or stopping (daemon_notify.go). A failure is logged, never fatal: the daemon
-// serves the same either way, and under Type=notify systemd reports a missing
-// READY=1 by timing the start out.
-func notifySystemd(log *slog.Logger, state string, send func() (bool, error)) {
-	sent, err := send()
-	switch {
-	case err != nil:
-		log.Warn("sd_notify failed", slog.String("state", state), slog.String("err", err.Error()))
-	case sent:
-		log.Debug("sd_notify sent", slog.String("state", state))
-	}
-}
 
 // Options for Run.
 type Options struct {
@@ -215,7 +202,7 @@ func Run(ctx context.Context, opts Options) error {
 	log = log.With(slog.String("component", "daemon"))
 	// Before anything is spawned: no child inherits the unit's notify socket
 	// (MADR 0210 D10).
-	notify := takeNotifySocket()
+	notify := sdnotify.Take()
 
 	cfg := opts.Config
 	if err := appdirs.EnsurePrivateDir(cfg.DataDir); err != nil {
@@ -688,7 +675,7 @@ func Run(ctx context.Context, opts Options) error {
 	// becomes active, at READY=1: the listener is open, so the daemon serves
 	// (MADR 0054 D5, amendment S8). Off such a unit NOTIFY_SOCKET is unset and
 	// nothing is sent.
-	notifySystemd(log, "READY=1", notify.ready)
+	notify.Notify(log, "READY=1")
 
 	// Clear launchd's and Task Scheduler's finished handoffs in the
 	// background, so start-up never waits on the service manager (MADR 0210
@@ -708,7 +695,7 @@ func Run(ctx context.Context, opts Options) error {
 	// hijacked WebSocket conns (http.Server.Shutdown never touches them), close
 	// live sessions, then drain the serve goroutines.
 	gracefulDrain := func(reason string) error {
-		notifySystemd(log, "STOPPING=1", notify.stopping)
+		notify.Notify(log, "STOPPING=1")
 		log.Info("shutting down", slog.String("reason", reason))
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -734,7 +721,7 @@ func Run(ctx context.Context, opts Options) error {
 	case <-ctx.Done():
 		return gracefulDrain(causeStr())
 	case err := <-errCh:
-		notifySystemd(log, "STOPPING=1", notify.stopping)
+		notify.Notify(log, "STOPPING=1")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdownCtx)
@@ -750,7 +737,7 @@ func Run(ctx context.Context, opts Options) error {
 			return gracefulDrain(causeStr())
 		}
 		if err != nil {
-			notifySystemd(log, "STOPPING=1", notify.stopping)
+			notify.Notify(log, "STOPPING=1")
 			log.Error("admin socket failed", slog.String("err", err.Error()))
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

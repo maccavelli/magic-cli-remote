@@ -7,6 +7,8 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/sdnotify"
 )
 
 // Limit ceilings (MADR 0017 D9). Defaults stay far below these.
@@ -178,6 +180,10 @@ type Config struct {
 	// AllowPlaintext permits a non-loopback listen with no TLS (0091 D5).
 	// Tests and --allow-plaintext set this; production must use TLS.
 	AllowPlaintext bool
+	// Notify is the service manager's notify socket serve took at start-up.
+	// Serve sends READY=1 to it once listening and STOPPING=1 when shutdown
+	// begins (MADR 0207 D22). Empty sends nothing.
+	Notify sdnotify.Socket
 }
 
 // parseAllowParts splits one "host_id:secret" entry. It is the single parse

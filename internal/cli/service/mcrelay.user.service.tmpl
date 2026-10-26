@@ -15,7 +15,12 @@ StartLimitIntervalSec=300
 StartLimitBurst=30
 
 [Service]
-Type=simple
+# notify: systemctl start returns, and the unit is active, once mcrelay sends
+# READY=1 from its open listener (MADR 0207 D22).
+Type=notify
+# Longer than certs.ACMEStartupTimeout (3 min): a first Let's Encrypt issuance
+# runs before the listener opens, and the manager's default is 90 s.
+TimeoutStartSec=240
 WorkingDirectory={{.WorkingDirectory}}
 
 # Prefer the installed binary path so upgrades + service stay aligned.
