@@ -1963,5 +1963,37 @@ provides:
 * the MADR is `accepted`, with a dated note under its Decision Outcome;
 * this plan is `complete`.
 
-**Not done, by this plan's terms:** the comment on issue #27 (step 2), which waits for the owner's
-ask. Next by these records, on the owner's word: 0207's U6 (D22).
+~~**Not done, by this plan's terms:** the comment on issue #27 (step 2), which waits for the owner's
+ask.~~ Done, below. Next by these records, on the owner's word: 0207's U6 (D22).
+
+### P7 step 2, 2026-10-27: issue #27
+
+The owner asked: "comment on #27 and close it if it is done."
+
+**Each acceptance line was checked against the tree first:**
+
+| The issue's line | The evidence |
+| :--- | :--- |
+| stops, replaces, starts and health-checks; the library's sentinels | P6's live tests, steps 3 and 5, and CI's run above; `TestToolFailuresAreClassified` |
+| an inside update hands off; OpenRC with cleanup on refuses before anything changes | the live tests' step 5; `TestOpenRCDetachCheckIsD3B`. go-selfupdate-lib `v1.22.1`'s `selfupdate/cli/run.go:140-145` returns a `Detach` error before `RunWith`, so before the download and the replacement |
+| a crash loop fails and rolls back | `TestUpdateRestartsARunitService/a_new_binary_that_does_not_stay_up_is_rolled_back`; the state readers' `Restarting` and `Failed` fixtures |
+| cancelling cancels the commands | `TestToolRunHonoursItsContext` |
+| no tool on `PATH`, no tool output on stdout | `TestResolveToolNeverReadsPATH`, `TestToolOutputNeverReachesTheTerminal`, `TestSupervisedCommandsPrintNothing`; P7's grep |
+
+All five hold. The issue's work items 1 to 10 are done, as R6 corrects them. Item 8's
+"`doctor` can read `Supervised.Status`" was optional and is not done.
+
+**The comment**
+([#27, comment 6449170961](https://github.com/maccavelli/magic-cli-remote/issues/27#issuecomment-6449170961))
+carries:
+
+* the acceptance table;
+* the live results, CI's and the local runs;
+* R6's four corrections;
+* what changed from the issue's plan: the bounds, s6's machine form, the log services, the
+  dropped `notify`, and P6's two OpenRC bugs;
+* what is not in it: 0207's U6, go-selfupdate-lib `v1.22.2` (which changes nothing in
+  `Supervised`), and `doctor`.
+
+Every claim in it was read against the tree or the library's pinned source before posting. The
+issue is closed as completed.
