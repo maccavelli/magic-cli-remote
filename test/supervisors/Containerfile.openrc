@@ -1,0 +1,7 @@
+# OpenRC for `make live-supervisors` (MADR 0212 D13-A; the 0210 PLAN's kit).
+# Alpine 3.22, pinned by its multi-arch index (linux/amd64 and linux/arm64),
+# booted with OpenRC's own init, which `openrc --user` needs. OpenRC is the
+# 3.22 branch's package at build time (0.62.6 when the 0212 PLAN's P1 ran).
+FROM docker.io/library/alpine@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
+RUN apk add --no-cache openrc curl && adduser -D -s /bin/sh user
+CMD ["/sbin/init"]

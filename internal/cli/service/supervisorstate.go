@@ -257,11 +257,16 @@ func openRCPID(name string) int {
 		return 0
 	}
 	comm, err := os.ReadFile(filepath.Join(stateProcRoot, strconv.Itoa(pid), "comm"))
-	if err != nil || strings.TrimSpace(string(comm)) != "supervise-daemon" {
+	if err != nil || strings.TrimSpace(string(comm)) != supervisorComm {
 		return pid
 	}
 	return childOf(pid)
 }
+
+// supervisorComm is supervise-daemon's name as /proc/<pid>/comm gives it: the
+// kernel keeps 15 characters (TASK_COMM_LEN), so "supervise-daemo", as the
+// 0212 PLAN's P4 step 3 read it (P6 Deviation 3).
+var supervisorComm = "supervise-daemon"[:15]
 
 // stateProcRoot is where processes are read. It is a variable for tests.
 var stateProcRoot = "/proc"

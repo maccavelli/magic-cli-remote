@@ -445,3 +445,17 @@ anything:
 ```sh
 curl -fsSL <url>/install.sh | sh -s -- --dry-run
 ```
+
+runit, s6 and OpenRC are tested live, each in a container built from
+`test/supervisors` (MADR 0212). Each run installs a scratch service, stops and
+starts it, updates it from a shell and then from inside the service, through
+the daemon's own agent, which must hand off, and removes it. It needs Podman
+(or `CONTAINER_ENGINE=docker`) and the network: the update downloads a
+published release, `v0.23.0` unless `MCREMOTE_LIVE_RELEASE` names another.
+CI runs runit and s6 on every push; OpenRC needs a container booted with its
+own init, so it runs here only:
+
+```sh
+make live-supervisors                  # all three
+make live-supervisors KINDS=openrc     # one
+```

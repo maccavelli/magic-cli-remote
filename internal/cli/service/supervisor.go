@@ -204,6 +204,10 @@ func renderScript(kind Kind, opts Options, penv *renderEnv) (string, error) {
 		// log/run make theirs.
 		line("")
 		line("start_pre() {")
+		// checkpath makes no missing parent, and a new user's home may have
+		// no ~/.local/state yet (the PLAN's P6 Deviation 2): the parents
+		// first, with the user's defaults, then the log directory, private.
+		line("	mkdir -p " + shq(filepath.Dir(scriptLogDir(opts.Product, renv))))
 		line("	checkpath -d -m 0700 " + shq(scriptLogDir(opts.Product, renv)))
 		line("}")
 	}
@@ -436,7 +440,8 @@ func recoverScript(kind Kind, product, unitName, body string) (recovery, string,
 				}
 			}
 		case kind == KindOpenRCUser && (strings.HasPrefix(line, "output_log=") || strings.HasPrefix(line, "error_log=") ||
-			openRCFixedLines[line] || line == "start_pre() {" || strings.HasPrefix(line, "checkpath -d -m 0700 ")):
+			openRCFixedLines[line] || line == "start_pre() {" || strings.HasPrefix(line, "checkpath -d -m 0700 ") ||
+			strings.HasPrefix(line, "mkdir -p ")):
 			// What setup writes the same for every install: the logs follow
 			// the recovered environment's XDG_STATE_HOME.
 			continue

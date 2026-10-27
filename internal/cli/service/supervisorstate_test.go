@@ -228,8 +228,9 @@ func TestOpenRCStartedReadsThePIDFile(t *testing.T) {
 				comm   string
 				parent int
 			}{
-				180:     {"python3", 1},
-				306:     {"supervise-daemon", 1},
+				180: {"python3", 1},
+				// As /proc/306/comm reads: 15 characters (P6 Deviation 3).
+				306:     {"supervise-daemo", 1},
 				tc.want: {"mcremote", tc.pidfile},
 			})
 			obs, err := observe(context.Background(), KindOpenRCUser, def, "mcremote")

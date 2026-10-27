@@ -1673,3 +1673,207 @@ new, the working tree. Raw output: `m212/p4d-<kind>.jsonl`.
 
 **P4b is complete** once the owner commits it. Next by this record: P6, the live tests in the tree,
 on the owner's word; then 0207's U6 (D22).
+
+### P6 Deviation 1, 2026-10-27 — where the update comes from, the probe agent, and the runner. The owner decided all three as recommended
+
+**Approval.** The owner committed P4b (`5cacbd01`) and answered "committed, proceed", the word for P6
+and its runs.
+
+**Found at the phase's start.** The 0210 kit, in the session scratchpad's `m54/d3/kit/`, does the
+update from inside in three steps:
+
+1. It pairs a client through `scripts/smoke-protocol`, which is in the tree.
+2. That client prompts a probe agent, a stand-in ACP agent the daemon spawns.
+3. The agent runs `mcremote update --yes --force --version <v>`, which downloads a published
+   release.
+
+The probe agent is the kit's own Go module. P6's list names neither it nor how a Go test runs
+inside a container. The latest release is `v0.23.0`, from before 0212. Its own refresh leaves the
+new definitions alone: on OpenRC it reports "kept".
+
+**The decisions:**
+
+1. **The release: "A pinned real release".** `update --yes --force --version v0.23.0`, from GitHub,
+   as the kit did. CI passes `GITHUB_TOKEN` against rate limits.
+   * The test ends with `/proc/<pid>/exe` no longer the test build, and with the result's
+     `replaced_before_stop`, `service_started` and `rolled_back` as 0207-MADR D36 asks.
+   * The other choice put to the owner was a fake release server. It would need a hidden
+     release-source override in `update`, a product change.
+2. **The probe agent: "In the main module".** `test/supervisors/probeagent/main.go`, a `package
+   main` here. go.mod already requires acp-go-sdk2, so there is no new dependency. The other
+   choice was its own module, with pins and gates of its own.
+3. **The runner: "Built on the host, run inside".**
+   * `make live-supervisors` runs `scripts/live_supervisors.py`. The script builds the images, then
+     cross-compiles `mcremote`, `smoke-protocol`, the probe agent and the live test binary
+     (`go test -c`) for Linux.
+   * It copies them into each container, and runs the test as the container's `user` with
+     `MCREMOTE_REQUIRE_<KIND>=1`. Podman runs it locally, Docker on the CI runner.
+   * The other choice was a Go toolchain in each image.
+
+**Files added to P6:** `test/supervisors/probeagent/main.go` and `scripts/live_supervisors.py`.
+
+### P6 Deviation 2, 2026-10-27 — OpenRC's log directory on a fresh home. The owner decided: "mkdir the parent, then checkpath (Recommended)"
+
+* **Found** by the first OpenRC live run. `TestLiveOpenRC/install` failed: "mcremote-live is not
+  running after setup: it was not seen running in 15s".
+* **The cause.** In a debug container, `/sbin/openrc` was wrapped to log each call setup made. It
+  showed `openrc --user default` printing
+  `checkpath: /home/<user>/.local/state/mcremote/log: could not open .local: No such file or directory`,
+  then "ERROR: mcremote-live failed to start".
+  * P4's `start_pre` runs `checkpath -d -m 0700 <logdir>`, which makes no missing parents.
+  * On a home with no `~/.local/state`, the first start fails. Setup writes its own records under
+    `~/.local` only after that start.
+  * P4's container runs always had `~/.local` already, from an earlier step. runit's and s6's
+    `log/run` use `mkdir -p` and are unaffected.
+* **The resolutions put to the owner:**
+  1. **Chosen:** `start_pre` runs `mkdir -p '<XDG_STATE_HOME>/<product>'`, then
+     `checkpath -d -m 0700 '<logdir>'` as now. The parents get the user's defaults, the log
+     directory is private, and checkpath still corrects its mode.
+  2. `mkdir -p -m 0700 '<logdir>'` alone, as runit and s6 do. A log directory that already exists
+     with a wider mode would no longer be corrected.
+* **Files added to P6:** `internal/cli/service/supervisor.go`, `testdata/definitions/openrc-user.golden`
+  and `scriptdefs_unix_test.go`.
+
+### P6 Deviation 3, 2026-10-27 — OpenRC's state has reported the supervisor's PID. The owner decided: "Match the kernel's comm (Recommended)"
+
+* **Found** by the OpenRC live run after Deviation 2. `TestLiveOpenRC/install` failed on its
+  `/proc/<pid>/exe` check: "the daemon runs 9ee1e74e…; want mcremote, 03140eb7…".
+* **The cause.** P3's `openRCPID` (`supervisorstate.go:260`) takes the pidfile's process for
+  `supervise-daemon`, and then its child, only when `/proc/<pid>/comm` reads `"supervise-daemon"`.
+  * The kernel keeps 15 characters (`TASK_COMM_LEN`), so it reads `"supervise-daemo"`, as P4 step 3
+    recorded ("the daemon's parent: supervise-daemo").
+  * So the comparison never held, and since P3 OpenRC's `State` has reported the supervisor's PID.
+  * P3's fixture (`supervisorstate_test.go:232`) used the untruncated name, which no `/proc`
+    shows.
+  * **The effect:** the adapter's instance is the supervisor's, so a daemon `supervise-daemon`
+    keeps restarting could look like one stable instance to the health wait. The inside check is
+    unaffected, since it reaches the daemon through the supervisor either way.
+* **The resolutions put to the owner:**
+  1. **Chosen:** compare with the name as `/proc/<pid>/comm` gives it, its first 15 characters.
+     The fixture takes the real value.
+  2. Identify the supervisor by `/proc/<pid>/exe`'s base name. That is a different read than P3
+     measured.
+* **Files added to P6:** `internal/cli/service/supervisorstate.go` and `supervisorstate_test.go`.
+
+### P6 Deviation 4, 2026-10-27 — the live plants. The owner decided: "Two live plants, one by unit test (Recommended)"
+
+* **Found** before step 2. Of the plan's three live plants, only "a `Down` that does nothing" can
+  work as written.
+  * **"`Detach` with the hop dropped from the spec"** is the library's code: Magic builds no hop.
+    Without it, the detached run is still started in a session of its own, which on runit and s6
+    may well succeed. So it may never fail, and prove nothing.
+  * **"OpenRC's `DetachCheck` made to allow"** cannot fail in a container. The daemon and the
+    update are both in `0::/` (P1, and the library's V6), so the real check allows too.
+* **The resolutions put to the owner:**
+  1. **Chosen:** two live plants on scratch copies.
+     * `Down` does nothing, on runit.
+     * The update sets no handoff: `detacherFor` reports false, Magic's own wiring, which the
+       "update from inside" step must catch.
+     * OpenRC's `DetachCheck` stays proven by `TestOpenRCDetachCheckIsD3B` and P5's plants on it.
+       It is recorded as not provable live in a container.
+  2. The same, plus a scratch copy of the library through a `go.mod` replace, with the hop dropped.
+     If it passed, that would prove nothing either way.
+
+### P6, 2026-10-27: the live tests in the tree
+
+**What was added:**
+
+* **`test/supervisors/Containerfile.runit`, `.s6`, `.openrc`.** The kit's images, each pinned to
+  its multi-arch index (linux/amd64 and linux/arm64), read with `podman manifest inspect`:
+  * `ghcr.io/void-linux/void-musl@sha256:cd50e0a9…6ed59`;
+  * `docker.io/library/alpine@sha256:2e0b81d6…eb55f`, Alpine 3.22.7.
+
+  The packages are the distributions' current ones at build time: neither keeps older ones to
+  pin. OpenRC read 0.62.6. The kit's `python3` is gone, since the test is a compiled Go binary.
+* **`test/supervisors/probeagent/main.go`** (Deviation 1). The kit's agent, reduced to the methods
+  `acp.Agent` requires. A prompt "RUN <command>" runs the command through the client's terminal.
+* **`internal/cli/service/live_supervisors_linux_test.go`.** `TestLiveRunit`, `TestLiveS6` and
+  `TestLiveOpenRC`, each off unless `MCREMOTE_REQUIRE_<KIND>=1`. In six steps:
+  1. install with `setup-service`;
+  2. stop and start through the update's own backend, the adapter, a new PID answering;
+  3. update from a shell, `update --yes --force --version v0.23.0 --json`;
+  4. put the build under test back, through the backend;
+  5. update from inside: the probe agent runs the update, which must print "update handed off";
+  6. `--remove`.
+
+  Steps 3 and 5 require the result to be applied, replaced before the stop, started and not
+  rolled back. A new PID must answer `/healthz`, and `/proc/<pid>/exe` must be the binary on disk
+  and not the build under test.
+* **`scripts/live_supervisors.py`** (Deviation 1) and **`make live-supervisors`**.
+  * Per kind it builds the image. Then it cross-compiles four binaries once for the image's
+    architecture: `mcremote`, `smoke-protocol`, the probe agent and `go test -c` of
+    `internal/cli/service`.
+  * It runs the test as `user` in a fresh container, which it removes afterwards.
+  * *The account was `tester`, the kit's. The first gates' home-path guard,
+    `TestTrackedFilesUseOnlyPlaceholderHomes`, failed on it on the Linux test host, where every
+    file is tracked: "scripts/live_supervisors.py:33: home path account "tester" is not a
+    placeholder". The same failure appeared in `Containerfile.runit` and `Containerfile.s6`. The
+    container's account is now `user`, a placeholder the guard accepts, in P6's own files. The
+    guard was not changed.*
+  * `CONTAINER_ENGINE` picks Podman or Docker. `GH_TOKEN` is passed by name only.
+* **`.github/workflows/ci.yml`:** a `live-supervisors` job runs runit and s6 on `ubuntu-latest`
+  with Docker and the job's token. `actionlint` is clean. The job is not among the release build's
+  `needs`. It has not run on GitHub yet: it runs on the push.
+* **`docs/guides/ops-linux-install.md`:** a paragraph under Testing.
+
+**The live runs** (step 3, local Podman, linux/arm64):
+
+| Run | Kind | Result | Steps (s) | The handoff |
+| :--- | :--- | :--- | :--- | :--- |
+| first | runit | PASS, 51.9 s | 3.1, 10.6, 12.2, 10.5, 15.4, 0.0 | "update handed off: eed092d0… (a detached run, started …" |
+| first | s6 | PASS, 48.5 s | 1.1, 10.4, 11.6, 10.5, 15.0, 0.0 | handed off |
+| first | OpenRC | FAIL at install (Deviation 2) | — | — |
+| second | OpenRC | FAIL at install's `/proc/<pid>/exe` check (Deviation 3) | — | — |
+| third | OpenRC | PASS, 50.6 s | 1.1, 10.3, 12.1, 11.1, 15.3, 0.6 | "update handed off: 27d738f6…" |
+| **final**, all three, on the final tree | runit | PASS, 50.3 s | 2.1, 10.4, 11.8, 10.5, 15.6, 0.0 | "update handed off: 4d209d76…" |
+| | s6 | PASS, 49.1 s | 1.1, 10.4, 12.1, 10.7, 14.8, 0.0 | "update handed off: 2ad2f33b…" |
+| | OpenRC | PASS, 50.5 s | 1.1, 10.3, 12.2, 11.0, 15.3, 0.6 | "update handed off: 5498220a…" |
+
+This is 0210's R1 reproduction, now in the tree. It ends with the update applied and the service
+restarted on each kind. It is also 0207-MADR D36's success run, which U3b could not run under
+these supervisors while they had no handoff.
+
+**Seen failing, live** (step 2, Deviation 4; `m212/p6_plants.py`). Each plant is on a scratch copy
+whose own driver built and ran runit:
+
+| Plant | The failure |
+| :--- | :--- |
+| `Down` does nothing on runit | `…/stop_and_start_through_the_update's_backend`: "Stop: … timed out: mcremote-live still runs 1m15s after it was stopped (last: up=true pid=222 … 30s)". The adapter's `sv kill` fired at 45 s, and runsv started the daemon again, still wanted up |
+| the update sets no handoff | `…/update_from_inside,_handed_off`: "the agent's update did not hand off". The agent's output was "update failed: this update runs inside the mcremote service …", the refusal |
+
+* OpenRC's `DetachCheck` is not provable live in a container (Deviation 4). It stays proven by
+  `TestOpenRCDetachCheckIsD3B` and P5's plants on it.
+* **Deviations 2 and 3's fixes, seen failing:** live, as the first and second OpenRC runs. As
+  unit tests (`m212/p6u_plants.py`), each plant on its own scratch copy:
+
+| Plant | The failure |
+| :--- | :--- |
+| `start_pre` without the parent's `mkdir` | `TestOpenRCDefinitionIsD10A`: "no line "\tmkdir -p '/home/u/.local/state/mcremote'"" |
+| the supervisor matched by its untruncated name | `TestOpenRCStartedReadsThePIDFile/sd-started`: "state {… PID:306 …}; want up, pid 307", the supervisor's PID for the daemon's |
+* **Two mistakes of mine, in the debug scripts only:** a config and a wrapper written through
+  `printf '%s'` with a JSON-quoted string got literal `\n`s. The first wrapper therefore never ran,
+  and the first debug daemon failed on its config. Both were rewritten as files copied in.
+
+**Gates** (`m212/p5_gates.py`, over the six changed and added Go files and two records, run twice):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the six Go files | "6 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `actionlint .github/workflows/ci.yml` | exit 0 |
+| `go test -race ./...` on the Linux test host, every file tracked | first run: the home-path guard failed on `tester` (above); second run: `internal/ws` `TestReceiptEndToEndOverRealWS` failed (below); third run, `go test -race -count=1 ./...`: exit 0, 44 packages ok |
+| `internal/cli/service` and `internal/updateclient`, verbose, on the Linux test host | exit 0, both runs |
+
+* **A flaky test, not P6's.** `TestReceiptEndToEndOverRealWS` failed once:
+  * The message: "want ok for permission.receipt, got event payload={"event":{"type":"permission_resolved"…".
+    The test reads the next frame, and a `permission_resolved` event can arrive before the reply.
+  * P6 changes nothing in `internal/ws`. On the committed tree before P6 (`5cacbd01`), the same
+    test failed once in 100 race runs on the Linux test host, with the same message
+    (`go test -race -count=100 -run '^TestReceiptEndToEndOverRealWS$' ./internal/ws/`).
+  * It is left for a record of its own. P6 does not touch it.
+
+**P6 is complete** once the owner commits it. The CI job runs on the push. Next by this record: P7,
+the records; then 0207's U6 (D22).

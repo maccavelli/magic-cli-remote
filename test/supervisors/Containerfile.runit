@@ -1,0 +1,9 @@
+# runit for `make live-supervisors` (MADR 0212 D13-A; the 0210 PLAN's kit).
+# Void Linux musl, whose init is runit, pinned by its multi-arch index
+# (linux/amd64 and linux/arm64). The packages are Void's current ones at build
+# time; Void keeps no older ones to pin.
+FROM ghcr.io/void-linux/void-musl@sha256:cd50e0a92688df54f380140004d58a9f6910227cb38adcc96b583684f936ed59
+RUN xbps-install -Syu xbps && xbps-install -Sy runit shadow curl && useradd -m -s /bin/sh user
+USER user
+WORKDIR /home/user
+CMD ["sleep", "infinity"]

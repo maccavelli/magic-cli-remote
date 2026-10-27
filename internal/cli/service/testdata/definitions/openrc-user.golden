@@ -17,5 +17,6 @@ respawn_period=300
 retry="TERM/45/KILL/5"
 
 start_pre() {
+	mkdir -p '/home/u/.local/state/mcremote'
 	checkpath -d -m 0700 '/home/u/.local/state/mcremote/log'
 }

@@ -155,7 +155,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-kilo live-replacefirst race test-all preflight apk manifest-surface \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-kilo live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
 	check-libs
@@ -390,6 +390,14 @@ live-kilo:
 # MCREMOTE_REPLACEFIRST_BINARY (the absolute path the service runs).
 live-replacefirst:
 	MCREMOTE_REQUIRE_REPLACEFIRST=1 go test ./internal/updateclient/ -run '^TestLiveReplaceFirstProbeFailure$$' -count=1 -timeout 300s -v
+
+# Live runit, s6 and OpenRC tests (MADR 0212 D13-A), each in a container built
+# from test/supervisors: install, stop and start, update from a shell and from
+# inside the service (the handoff), and remove. KINDS picks them (default all
+# three); CI runs runit and s6. Needs podman, or CONTAINER_ENGINE=docker, and
+# the network, for the images and the release the test updates to.
+live-supervisors:
+	python3 scripts/live_supervisors.py $(KINDS)
 
 race:
 	go test -race ./...

@@ -111,10 +111,16 @@ func TestOpenRCDefinitionIsD10A(t *testing.T) {
 		`retry="TERM/45/KILL/5"`, `pidfile="${XDG_RUNTIME_DIR}"'/mcremote.pid'`,
 		"output_log=" + logDir + "/mcremote.log'", "error_log=" + logDir + "/mcremote.log'",
 		"start_pre() {", "\tcheckpath -d -m 0700 " + logDir + "'",
+		// checkpath makes no parent: a fresh home has no ~/.local/state (P6
+		// Deviation 2).
+		"\tmkdir -p '/home/u/.local/state/mcremote'",
 	} {
 		if !strings.Contains(body, "\n"+want+"\n") {
 			t.Errorf("no line %q in:\n%s", want, body)
 		}
+	}
+	if strings.Index(body, "\tmkdir -p ") > strings.Index(body, "\tcheckpath ") {
+		t.Errorf("start_pre runs checkpath before it makes the parent:\n%s", body)
 	}
 	for _, gone := range []string{"notify", "ready=", "start-stop-daemon", "start() {", "stop() {", ":-/tmp"} {
 		if strings.Contains(body, gone) {

@@ -315,6 +315,38 @@ jobs:
   # D11, which re-measured the darwin surface the update path had grown).
 
   # ---------------------------------------------------------------------------
+  # runit and s6, live (MADR 0212 D13-A): `make live-supervisors` in each one's
+  # container, built from test/supervisors. Each run installs a scratch
+  # service, stops and starts it, updates it from a shell and from inside (the
+  # handoff) to a published release, and removes it. OpenRC needs a container
+  # booted with its own init, and runs locally only. The release comes from
+  # GitHub, so the job's token is passed in, by name, against rate limits.
+  # ---------------------------------------------------------------------------
+  live-supervisors:
+    name: Live supervisors (runit, s6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Live runit and s6
+        env:
+          CONTAINER_ENGINE: docker
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: make live-supervisors KINDS="runit s6"
+
+  # ---------------------------------------------------------------------------
   # Flutter app: format + static analysis + widget/unit tests
   # ---------------------------------------------------------------------------
   flutter:
