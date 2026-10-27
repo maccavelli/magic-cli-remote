@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-27
 associated-madr: "0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md"
 ---
@@ -1935,3 +1935,33 @@ the owner pushes. Pushing is the owner's ask.
 
 **P7 is done except step 3,** which waits for CI's first `live-supervisors` run. Next, on the
 owner's word: 0207's U6 (D22).
+
+### P7 step 3, 2026-10-27: the statuses
+
+The owner committed P7 as `a2106744` and pushed it ("committed and pushed"). CI ran on that
+commit: [run 40548773233](https://github.com/maccavelli/magic-cli-remote/actions/runs/40548773233),
+conclusion `success`.
+
+**The `live-supervisors` job, "Live supervisors (runit, s6)":** `success`, 17:15:06Z to 17:18:09Z.
+Its log, read in full for the test lines, shows the tests ran rather than skipped:
+
+| Kind | Result | Steps (s) | The handoff |
+| :--- | :--- | :--- | :--- |
+| runit | `--- PASS: TestLiveRunit (53.39s)` | 2.06, 10.56, 13.35, 10.79, 16.47, 0.14 | "update handed off: afaba9af6c402a05 (a detached run, started …" |
+| s6 | `--- PASS: TestLiveS6 (49.40s)` | 1.10, 10.32, 11.88, 10.51, 15.42, 0.15 | "update handed off: cfc5735b17c9d29c (a detached run, started …" |
+
+* It built for linux/amd64 ("built mcremote, smoke-protocol, probeagent and live.test for
+  linux/amd64") and ran under Docker. Every local run in P6 was Podman on linux/arm64, so this is
+  the first run on the other architecture and engine.
+* The driver's last line: "live supervisors: runit, s6; failed: none".
+* The run's six other test and build jobs passed. The Android APK and the two self-update release
+  jobs were skipped, as on any push without a tag.
+
+**Every Verification item now holds** (P7's table above, with CI's job closed here). So, as step 3
+provides:
+
+* the MADR is `accepted`, with a dated note under its Decision Outcome;
+* this plan is `complete`.
+
+**Not done, by this plan's terms:** the comment on issue #27 (step 2), which waits for the owner's
+ask. Next by these records, on the owner's word: 0207's U6 (D22).

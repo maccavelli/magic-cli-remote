@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-27
 decision-makers: Project Owner
 consulted: "issue #27 of this repository and go-selfupdate-lib issue #2 with its comments, read 2026-10-24; go-selfupdate-lib's 0035-MADR-serve-supervisors-through-a-supervised-adapter.md and 0035-REPORT-library-backends-or-consumer-api-for-runit-s6-and-openrc.md at 9a10708 (committed, not pushed), its selfupdate/service code at that commit, and its published tags to v1.21.0; OpenRC's NEWS.md, user-guide.md and etc/rc.conf on master, read 2026-10-24; this repository at 793b8f5b, with its 0054, 0207 and 0210 records. Amendment A: go-selfupdate-lib at fff0940 (its 0011, 0015, 0020, 0023, 0025, 0033 and 0035 records, its service package, systemd backend, internal/testproc and extending guide); OpenRC's service-script and supervise-daemon guides, openrc-run(8) and start-stop-daemon(8); s6's servicedir page; runit's sv(8) and runsv(8); all read 2026-10-24. Amendment B: go-selfupdate-lib at v1.22.0 (8480556), its CHANGELOG, migration guide §22, service package and 0035 records; library issue #2 and #27, read 2026-10-24. Amendment D: go-selfupdate-lib at v1.22.1 (4d9ae41) and 20e7cc7, its 0035 MADR and REPORT, architecture.md, extending guide, supervised adapter and systemd backend, read 2026-10-27"
@@ -345,6 +345,14 @@ The owner answered the five questions on 2026-10-24 (see "Questions for the owne
 * D2, D4, D6 and D7 were not asked, and stay proposed.
 
 So the record stays `proposed` until the PLAN is presented with them.
+
+*Accepted 2026-10-27, when every item of the PLAN's Verification held.* The owner approved the
+PLAN on 2026-10-26, and with it D2-A, D4-A, D6-A, D7-A, D12-A, D14-A, D15-A and D18. Amendment D's
+D19 to D22 were decided on 2026-10-27. The last Verification item was CI's `live-supervisors` job,
+which passed on its first run on GitHub, at `a2106744`
+([run 40548773233](https://github.com/maccavelli/magic-cli-remote/actions/runs/40548773233)): runit
+and s6, under Docker on linux/amd64, each handing off the update from inside. OpenRC passed the
+same test locally in P6.
 
 * **D1: "D1-B", two stages.** *Decided 2026-10-24.*
   * Stage 1 fixes M8 and M9 and closes M10 now, and none of it is lost when the adapter arrives:
