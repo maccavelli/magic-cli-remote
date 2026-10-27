@@ -532,6 +532,16 @@ func TestRemoveSchtasksStopsThroughTheTask(t *testing.T) {
 			t.Errorf("builds %+v, want the product's stop request and grace", *builds)
 		}
 	})
+	t.Run("a failed stop, recorded", func(t *testing.T) {
+		s := withTaskScheduler(t)
+		s.xml["mcremote"] = "<Task/>"
+		withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
+		withSetupBackend(t, &setupFake{stopErr: fmt.Errorf("%w: mcremote still runs after it was stopped", libservice.ErrTimeout)})
+		res, err := removeSchtasks(opts)
+		if err != nil || !res.Removed || !strings.Contains(res.StopFailure, "still runs") {
+			t.Fatalf("removeSchtasks: %+v, %v; want removed, with the stop's failure recorded", res, err)
+		}
+	})
 	t.Run("refused from inside", func(t *testing.T) {
 		s := withTaskScheduler(t)
 		s.xml["mcremote"] = "<Task/>"

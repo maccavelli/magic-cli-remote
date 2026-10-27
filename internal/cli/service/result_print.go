@@ -9,8 +9,9 @@ import (
 
 // PrintRemoveResult writes what --remove did, for mcremote ("daemon") or
 // mcrelay ("relay"): the definition, the backup it deleted when there was one
-// (MADR 0210 D9), the logs it kept (MADR 0212 PLAN P4b), and what was
-// stopped.
+// (MADR 0210 D9), the logs it kept (MADR 0212 PLAN P4b), and whether the
+// service stopped. A stop that failed is said so: the definition is gone, but
+// the process may still run (MADR 0207 PLAN U6b).
 func PrintRemoveResult(out io.Writer, res Result, what string) {
 	fmt.Fprintf(out, "Removed:           %s\n", res.UnitPath)
 	if res.RemovedBackup != "" {
@@ -18,6 +19,11 @@ func PrintRemoveResult(out io.Writer, res Result, what string) {
 	}
 	if res.KeptLogs != "" {
 		fmt.Fprintf(out, "Logs kept:         %s (delete them yourself when no longer needed)\n", res.KeptLogs)
+	}
+	if res.StopFailure != "" {
+		fmt.Fprintf(out, "The %s could not be stopped: %s. Its definition is removed; end the process yourself if it still runs.\n",
+			what, res.StopFailure)
+		return
 	}
 	fmt.Fprintf(out, "The %s was stopped and the service disabled.\n", what)
 }
@@ -117,13 +123,15 @@ func PrintSetupResult(out io.Writer, res Result, noLinger bool, product string) 
 		fmt.Fprintln(out, "Enabled:           skipped")
 	}
 	if res.Started {
+		// What setup did, through the backend the update uses (MADR 0207 D4,
+		// D43; PLAN U6b).
 		switch res.Scope {
 		case "launchd-agent":
-			fmt.Fprintln(out, "Started:           yes (bootstrap + kickstart)")
+			fmt.Fprintln(out, "Started:           yes (booted out, then bootstrapped and kickstarted)")
 		case "windows-task":
-			fmt.Fprintln(out, "Started:           yes (schtasks /run)")
+			fmt.Fprintln(out, "Started:           yes (enabled, then started; --force stops it first)")
 		default:
-			fmt.Fprintln(out, "Started:           yes (systemctl --user restart/start)")
+			fmt.Fprintln(out, "Started:           yes (stopped, then started)")
 		}
 	} else {
 		fmt.Fprintln(out, "Started:           skipped")

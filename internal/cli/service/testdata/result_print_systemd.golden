@@ -5,7 +5,7 @@ Scope:             systemd-user
 Config:            /home/dev/.config/mcremote/config.yaml (default written)
                    Edit this file, then: systemctl --user restart mcremote
 Enabled:           yes (systemctl --user enable)
-Started:           yes (systemctl --user restart/start)
+Started:           yes (stopped, then started)
 Linger:            not enabled (run: loginctl enable-linger $USER)
 
 Note: setup-service does not install the binary.

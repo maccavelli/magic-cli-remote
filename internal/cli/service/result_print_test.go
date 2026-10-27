@@ -135,4 +135,36 @@ func TestPrintRemoveResult(t *testing.T) {
 	if buf.String() != want {
 		t.Errorf("with no backup:\n%s\nwant:\n%s", buf.String(), want)
 	}
+	// MADR 0207 PLAN U6b: a stop that failed is said so, not reported as done.
+	buf.Reset()
+	PrintRemoveResult(&buf, Result{UnitPath: "/u/mcremote.service", StopFailure: "selfupdate: service: timed out"}, "daemon")
+	want = "Removed:           /u/mcremote.service\n" +
+		"The daemon could not be stopped: selfupdate: service: timed out. Its definition is removed; " +
+		"end the process yourself if it still runs.\n"
+	if buf.String() != want {
+		t.Errorf("with a failed stop:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}
+
+// TestPrintSetupResultNamesWhatTheStartDid is MADR 0207 PLAN U6b: the
+// "Started:" line names what setup now does through the backends, not the
+// commands it ran before U6.
+func TestPrintSetupResultNamesWhatTheStartDid(t *testing.T) {
+	for scope, want := range map[string]string{
+		"systemd-user":  "Started:           yes (stopped, then started)\n",
+		"launchd-agent": "Started:           yes (booted out, then bootstrapped and kickstarted)\n",
+		"windows-task":  "Started:           yes (enabled, then started; --force stops it first)\n",
+	} {
+		var buf bytes.Buffer
+		PrintSetupResult(&buf, Result{Scope: scope, UnitName: "mcremote", Label: "mcremote", UnitPath: "/x/mcremote",
+			Started: true, Health: HealthRunning}, true, "mcremote")
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("%s: no %q in:\n%s", scope, strings.TrimSpace(want), buf.String())
+		}
+		for _, old := range []string{"schtasks /run)", "bootstrap + kickstart", "restart/start)"} {
+			if strings.Contains(buf.String(), old) {
+				t.Errorf("%s: still names %q:\n%s", scope, old, buf.String())
+			}
+		}
+	}
 }

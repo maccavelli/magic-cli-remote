@@ -93,6 +93,14 @@ compaction without `session.compaction`. It does not refuse `subagent_update` or
 `session_message*` without `subagents`, although the RFD says an agent must not send them. Magic
 declines them anyway, so nothing breaks. This is an SDK inconsistency, outside this record.
 
+*Note, 2026-10-27, from
+[0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
+D27, decided by the owner:* no longer true. Since `acp-go-sdk2 v1.15.2` the SDK gates these
+variants on `subagents` (its issue #9). Magic advertises no `subagents`, so the SDK drops them
+before Magic's handler sees them
+([0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+G3). The deferral stands; only the component that declines them changed.
+
 ### The question
 
 What should Magic do with ACP's subagent sessions when no engine it runs sends them?

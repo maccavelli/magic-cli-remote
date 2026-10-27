@@ -146,3 +146,47 @@ func TestRemoveStopsThroughTheBackend(t *testing.T) {
 		})
 	}
 }
+
+// TestRemoveRecordsAFailedStop is MADR 0207 PLAN U6b: a stop that fails
+// otherwise than from inside is tolerated, the definition removed, and the
+// failure recorded, so the result does not say the service stopped. A service
+// that is not installed had nothing to stop.
+func TestRemoveRecordsAFailedStop(t *testing.T) {
+	for _, kind := range []Kind{KindSystemdUser, KindRunit} {
+		t.Run(string(kind), func(t *testing.T) {
+			var root, bin string
+			if kind == KindSystemdUser {
+				root, bin = systemdHost(t)
+			} else {
+				root, bin = supervisorHost(t, kind)
+				recordSessionStarts(t)
+			}
+			o := Options{Product: "mcremote", Binary: bin, UnitDir: root, ConfigPath: filepath.Join(t.TempDir(), "c.yaml"), NoStart: true, NoLinger: true}
+			res, err := Setup(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			withSetupBackend(t, &setupFake{stopErr: fmt.Errorf("%w: mcremote still runs 75s after it was stopped", libservice.ErrTimeout)})
+			got, err := Remove(Options{Product: "mcremote", UnitDir: root})
+			if err != nil {
+				t.Fatalf("Remove with a failed stop: %v, want it tolerated", err)
+			}
+			if !strings.Contains(got.StopFailure, "still runs 75s") {
+				t.Fatalf("StopFailure = %q, want the stop's error", got.StopFailure)
+			}
+			if _, err := os.Stat(res.UnitPath); !os.IsNotExist(err) {
+				t.Fatalf("the definition survived Remove: %v", err)
+			}
+		})
+	}
+	t.Run("not installed", func(t *testing.T) {
+		root, bin := systemdHost(t)
+		if _, err := Setup(Options{Product: "mcremote", Binary: bin, UnitDir: root, ConfigPath: filepath.Join(t.TempDir(), "c.yaml"), NoStart: true, NoLinger: true}); err != nil {
+			t.Fatal(err)
+		}
+		withSetupBackend(t, &setupFake{stopErr: libservice.ErrNotInstalled})
+		if got, err := Remove(Options{Product: "mcremote", UnitDir: root}); err != nil || got.StopFailure != "" {
+			t.Fatalf("Remove of a service not installed: %+v, %v; want no failure", got, err)
+		}
+	})
+}

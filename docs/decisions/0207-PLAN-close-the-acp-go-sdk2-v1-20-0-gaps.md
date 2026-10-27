@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-23
+status: in-progress
+date: 2026-10-27
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -135,3 +135,31 @@ first); this plan.
 ## Execution record
 
 Nothing has run. The plan waits for the owner's approval.
+
+### C4 alone, approved 2026-10-27; C1 to C3 deferred
+
+The owner asked "what is pending in the madr?", and answered two questions:
+
+* **D24 to D26:** "Assess v1.21–v1.24 first (Recommended)". `acp-go-sdk2` has shipped `v1.21.0`
+  to `v1.24.0` since this plan was read at `v1.20.0`. So C1, C2 and C3 do not run until a later
+  amendment of the MADR has read those releases, and this plan is re-read against the newest one.
+* **D27:** "Do it now, records only (Recommended)", with a re-check of gobble's pin. That is C4,
+  which depends on no SDK version.
+
+### C4, 2026-10-27: record corrections
+
+* **gobble's pins,** re-read through `gh api repos/maccavelli/gobble-cli/contents/go.mod` at its
+  default branch, `6ee20140` (2026-10-23): `acp-go-sdk2 v1.20.0`, as Magic; `go-selfupdate-lib
+  v1.17.0`.
+* **Steps 1 to 3, the dated notes:**
+  * [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md),
+    under "The SDK does not gate these variants": no longer true since `v1.15.2` (0184 G3); the
+    deferral stands.
+  * [0167-REPORT-acp-go-sdk2-integration-assessment.md](../reports/0167-REPORT-acp-go-sdk2-integration-assessment.md):
+    L3's `providers/*` row, and L4's "Outbound requests are not validated" (0184 PLAN A5).
+  * The MADR: the one-pin fact under "acp-go-sdk2, `v1.15.0` → `v1.19.0`", G6, and the
+    Consequences' one-pin line.
+* **Step 4:** `make check-records`, `make markdownlint-docs` and the guard's preview, with the 0207
+  records' gates (the sibling plan's U6b record).
+
+The plan is `in-progress`: C4 is done, and C1 to C3 wait for the assessment.

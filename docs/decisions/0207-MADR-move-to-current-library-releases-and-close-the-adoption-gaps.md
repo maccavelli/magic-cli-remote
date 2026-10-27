@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-24
+status: accepted
+date: 2026-10-27
 decision-makers: Project Owner
 consulted: "go-selfupdate-lib v1.17.1–v1.17.2, acp-go-sdk2 v1.15.0–v1.19.0 and go-llmprovider-sdk v1.21.0, read from full clones at their tags; their GitHub release notes; a scratch copy of this repository at 707d300d with both pins moved; gobble-cli's go.mod on its default branch. Amendment of 2026-10-22: acp-go-sdk2 v1.20.0 from the Go module proxy and its release notes; a scratch copy at 6a4ef48d with both pins moved and agentproc run against Magic's command; gobble-cli at 53565a1. Amendment C (2026-10-24): go-selfupdate-lib v1.20.0 and v1.21.0, their CHANGELOG entries, migration guide §20 and §21, and `git diff v1.19.0 v1.21.0` in a local clone; the Go module proxy; a scratch copy of this repository at 793b8f5b with the pin moved. Amendment E (2026-10-24): go-selfupdate-lib v1.22.0 from the Go module proxy and a local clone; acp-go-sdk2 through the GitHub compare API; go-llmprovider-sdk v1.22.0 to v1.22.2 in a local clone; gobble-cli's go.mod; a scratch copy at 793b8f5b with the pin moved to v1.22.0"
 informed: anyone who changes this module's dependencies, its service code or its ACP provider
@@ -128,6 +128,9 @@ or run. The scanner does not see struct fields, so a release's notes were read f
 * **The one-pin rule with gobble already does not hold.** 0184 D12 has Magic and gobble pin the same
   tag. gobble-cli's `go.mod` pins `acp-go-sdk2 v1.16.3` (and `go-selfupdate-lib v1.17.0`,
   `go-llmprovider-sdk v1.17.0`); Magic pins `v1.15.0`. gobble's move is gobble's own (0184 F4, G5).
+  * *Note, 2026-10-27, D27, decided by the owner:* no longer true. gobble-cli's `go.mod`, at its
+    default branch's `6ee20140` (2026-10-23), pins `acp-go-sdk2 v1.20.0`, as Magic does, so 0184
+    D12 holds. gobble pins `go-selfupdate-lib v1.17.0`, which D12 does not cover.
 
 ### go-llmprovider-sdk `v1.21.0`, against what Magic does
 
@@ -262,6 +265,30 @@ the one gap with a correctness cost, F1, and the one with an operator-visible co
 on Windows. It finishes two accepted pieces of work that remove duplicated code (F3, F4). And it
 adopts nothing that would cost Magic something it relies on, which rules out C and D.
 
+*Accepted 2026-10-27.* The owner asked "what is pending in the madr?", and answered the questions
+that could be decided then; for those that could not, the owner said to take the recommended first
+option, which was to accept with them deferred:
+
+* **Decided and carried out:** D1 to D23, D27 and D29 to D44, through these plans:
+  * [0207-PLAN-pin-go-selfupdate-lib-v1-17-2.md](0207-PLAN-pin-go-selfupdate-lib-v1-17-2.md);
+  * [0207-PLAN-adopt-acp-go-sdk2-v1-20-0-and-agentproc.md](0207-PLAN-adopt-acp-go-sdk2-v1-20-0-and-agentproc.md);
+  * [0207-PLAN-finish-full-semver-pins-and-check-libs.md](0207-PLAN-finish-full-semver-pins-and-check-libs.md);
+  * [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md),
+    whose last steps are U6, U6b and U1c;
+  * 0210, for D3 and D23;
+  * [0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md](0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md)'s
+    C4 alone, for D27.
+* **Deferred: D24, D25 and D26.** D24 says `acp-go-sdk2 v1.20.0` is the newest tag. Since
+  2026-10-24, `v1.21.0`, `v1.22.0`, `v1.23.0` and `v1.24.0` have shipped (`git ls-remote --tags`,
+  2026-10-27), and D25 and D26 were read against `v1.20.0`. The owner chose "Assess v1.21–v1.24
+  first (Recommended)":
+  * a later amendment of this record reads those releases against Magic, as amendment E did for
+    the other libraries, and re-proposes the pin, D25 and D26 on the newest release;
+  * until then, the SDK-gaps plan's C1 to C3 do not run, and 0184's PLAN keeps its one open item.
+* **D28:** question 12 answered "None yet (Recommended)". Each feature takes its own MADR when
+  wanted, `ResumeSession` first.
+* **Question 4** (order) was never put. It is moot: every phase it ordered has run.
+
 ### The decisions (proposed)
 
 * **D1 — Pin `go-selfupdate-lib v1.17.2`.** `go.mod` and both `ci.yml` pins move together, the pins
@@ -355,7 +382,8 @@ adopts nothing that would cost Magic something it relies on, which rules out C a
 * Bad, because D2 is not done until `make live-grok` spends the owner's quota.
 * Bad, because D3 and D4 change service behaviour the release contract and the live runs exercise,
   so each needs its own live check on Linux and Windows, like S9d and S10b.
-* Bad, because D12's one-pin rule with gobble keeps not holding until gobble moves.
+* Bad, because D12's one-pin rule with gobble keeps not holding until gobble moves. *Note,
+  2026-10-27, D27: no longer true; gobble moved to `v1.20.0` (G6).*
 
 ### Confirmation
 
@@ -604,6 +632,8 @@ Checked against the source, items 3 and 4 were wrong as stated (G4, G5).
     side, and stays.
 * **G6 — The one-pin rule with gobble still does not hold.** gobble pins `acp-go-sdk2 v1.16.3`
   (`go.mod:15` at `53565a1`). Moving it is gobble's (0184 F4, G5).
+  * *Note, 2026-10-27, D27:* no longer true; gobble pins `v1.20.0` at `6ee20140` (the note under
+    "acp-go-sdk2, `v1.15.0` → `v1.19.0`" above).
 
 ### The pin move and `agentproc`, proven on a scratch copy [2026-10-22]
 
@@ -791,6 +821,8 @@ These continue the numbering of "Questions for the owner" above.
 ## Amendment — 2026-10-23 (B): `go-selfupdate-lib v1.19.0`, and the fullest use of both libraries
 
 **Status of this amendment: proposed.** The owner answered questions 8 to 11 on 2026-10-23 (below).
+*Accepted 2026-10-27 with the record, D24 to D26 deferred (the note under the Decision
+Outcome).*
 It becomes decided when the owner approves its PLANs.
 
 *Note, 2026-10-23.* The owner approved the `go-selfupdate-lib` PLAN's U0 to U2 ("committed,
@@ -1004,6 +1036,8 @@ policy first); stdio MCP servers (0179, deferred); grouped select options (0208 
   default. A console window shows for about 50 ms when the hop starts (migration guide §19).
 * **D24 — `acp-go-sdk2` stays on `v1.20.0`;** it is the newest tag, and nothing after it matters
   (above). D12 holds again with gobble.
+  * *Deferred 2026-10-27, with D25 and D26:* `v1.21.0` to `v1.24.0` have shipped since. A later
+    amendment assesses them first (the note under the Decision Outcome).
 * **D25 — Per-turn token usage from `PromptResponse.Usage` (H1).** At a turn's end, Magic maps the
   standard usage to `event.Usage`, unless the turn already reported xAI usage, so grok is never
   counted twice. A shape-pin test holds the unstable field, as the plan tests do. The accounting
@@ -1016,6 +1050,8 @@ policy first); stdio MCP servers (0179, deferred); grouped select options (0208 
   updates.
 * **D27 — Record corrections.** A dated note on 0195; a dated note on 0167-REPORT L3 and L4; G6
   and the Consequences here noted as no longer true.
+  * *Decided and carried out 2026-10-27,* records only, as the SDK-gaps plan's C4 alone. gobble's
+    pin was re-read for it: `v1.20.0` at `6ee20140`.
 * **D28 — The product features the SDK enables are not decided here** (the list above). Each takes
   its own MADR when the owner wants it (question 12).
 * **D9, re-checked at `v1.19.0`.** `archive`, `service/scm`, `verify/signednote` and
@@ -1087,6 +1123,7 @@ These continue the numbering above.
 
 Questions 7 and 12 were not put separately. Their proposals are what the PLANs carry: two
 PLANs, and no product-feature MADR yet. Either can still be changed at the plans' review.
+*Question 12 answered 2026-10-27: "None yet (Recommended)".*
 
 ### Evidence index of the amendment
 
@@ -1663,7 +1700,8 @@ the product's probe". U6's first step read each call site against go-selfupdate-
 
 ## Amendment — 2026-10-27 (G): `go-selfupdate-lib v1.22.2`
 
-*Proposed 2026-10-27.* The owner asked, verbatim: "update the pin for go-selfupdate-lib to
+*~~Proposed~~ decided 2026-10-27,* when the owner approved U1c ("Approve, proceed"), and carried
+out with U6 (`59bcadad`). The owner asked, verbatim: "update the pin for go-selfupdate-lib to
 current."
 
 ### Facts [observed 2026-10-27, `git ls-remote` and the GitHub compare and contents APIs]

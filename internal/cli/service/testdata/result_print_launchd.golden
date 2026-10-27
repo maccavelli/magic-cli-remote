@@ -5,7 +5,7 @@ Scope:             launchd-agent (session — stops on logout)
 Config:            /Users/dev/.config/mcremote/config.yaml (default written)
                    Edit this file, then: launchctl kickstart -k gui/501/com.maccavelli.mcremote
 Enabled:           yes (launchctl enable)
-Started:           yes (bootstrap + kickstart)
+Started:           yes (booted out, then bootstrapped and kickstarted)
 Linger:            n/a on macOS (LaunchAgent is session-bound; no sudo system daemon)
 Logs dir:          /Users/dev/Library/Logs/mcremote
 

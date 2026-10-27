@@ -593,6 +593,11 @@ the grok vendor surface (`_x.ai/*` methods and `_meta` fallbacks). That surface 
 | `session/fork` | unstable | vendor `_x.ai/session/fork` instead | as L2 |
 | `document/*`, `nes/*`, `providers/*` | unstable | not used | decline: editor-centric features with no phone counterpart |
 
+*Note, 2026-10-27, from
+[0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](../decisions/0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
+D27, decided by the owner:* `providers/*` is not editor-centric: those methods configure an
+agent's LLM providers. The outcome stands, since no engine Magic runs advertises them.
+
 #### Session-update variants
 
 | Variant | Stability | Today | Full-adoption target |
@@ -632,6 +637,13 @@ the grok vendor surface (`_x.ai/*` methods and `_meta` fallbacks). That surface 
   methods validate their params and decoded results. Magic's request builders then cannot emit a
   schema-invalid frame without a test noticing. Until that SDK change ships, a Magic test can call
   `Validate()` on each request its builders produce.
+  - *Note, 2026-10-27, from
+    [0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](../decisions/0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
+    D27, decided by the owner:* not true by `v0.17.1`. Every typed client call validates its
+    params before marshalling (`validateOutbound`), and its decoded result after
+    (`checkInbound`), as
+    [0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](../decisions/0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+    A5 read it on 2026-10-13. The recommended SDK change was not needed.
 - **Capability honesty** remains Magic's invariant (see above). L3's matrices are its expected
   table.
 - **Wire fixtures** per engine stay acceptance gates, because stricter decoding meets real peer

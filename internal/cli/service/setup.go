@@ -115,6 +115,10 @@ type Result struct {
 	// KeptLogs is where a removed runit, s6 or OpenRC service's logs stay;
 	// Remove keeps them (MADR 0212 PLAN P4b). Empty when there are none.
 	KeptLogs string
+	// StopFailure is why Remove's stop failed, when it went on to remove the
+	// definition anyway; empty when the service stopped, or was not running
+	// (MADR 0207 PLAN U6b).
+	StopFailure string
 	// ConfigPath is the config file path used/ensured for this product.
 	ConfigPath string
 	// ConfigCreated is true when setup wrote a new default config.yaml.
@@ -225,17 +229,24 @@ func watchThrough(kind Kind, opts Options, res Result) (Result, error) {
 // that is gone: a backend that cannot be built, as for a wait it refuses, and a
 // stop refused because this process runs inside the service. A stop that fails
 // otherwise is tolerated, as Remove always has: the definition goes either way.
-func stopForRemoval(kind Kind, opts Options) error {
+// That failure is returned as failure, for the result to report, so the result
+// does not say the service was stopped (MADR 0207 PLAN U6b). A service that is
+// not installed had nothing to stop, and is no failure.
+func stopForRemoval(kind Kind, opts Options) (failure string, err error) {
 	b, err := setupBackend(kind, opts.Product, opts.UnitName, opts.Health)
 	if err != nil {
-		return fmt.Errorf("not removed: its service manager could not be reached: %w", err)
+		return "", fmt.Errorf("not removed: its service manager could not be reached: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
 	defer cancel()
-	if err := b.Stop(ctx, opts.Product); errors.Is(err, libservice.ErrInsideService) {
-		return fmt.Errorf("not removed: %w; run setup-service --remove from a shell outside the service", err)
+	switch err := b.Stop(ctx, opts.Product); {
+	case err == nil, errors.Is(err, libservice.ErrNotInstalled):
+		return "", nil
+	case errors.Is(err, libservice.ErrInsideService):
+		return "", fmt.Errorf("not removed: %w; run setup-service --remove from a shell outside the service", err)
+	default:
+		return err.Error(), nil
 	}
-	return nil
 }
 
 type templateData struct {
@@ -847,7 +858,8 @@ func removeSystemd(opts Options) (Result, error) {
 	res := Result{UnitName: opts.UnitName, UnitPath: unitPath, Scope: "systemd-user", Label: opts.UnitName}
 
 	svc := opts.UnitName + ".service"
-	if err := stopForRemoval(KindSystemdUser, opts); err != nil {
+	var err error
+	if res.StopFailure, err = stopForRemoval(KindSystemdUser, opts); err != nil {
 		return res, err
 	}
 	_ = runSystemctl("--user", "disable", svc)
@@ -916,7 +928,7 @@ func removeLaunchdAgent(opts Options) (Result, error) {
 
 	// The same Job.Stop as setup and the update: one teardown path to reason
 	// about, not two.
-	if err := stopForRemoval(KindLaunchdAgent, opts); err != nil {
+	if res.StopFailure, err = stopForRemoval(KindLaunchdAgent, opts); err != nil {
 		return res, err
 	}
 	_ = runLaunchctl("disable", svc)

@@ -954,7 +954,8 @@ func removeScript(kind Kind, opts Options) (Result, error) {
 	// The adapter's stop first, as the update stops it: bounded, killed at 45 s
 	// on runit, and refused from inside the service (MADR 0207 D4). The
 	// supervisor's own exit follows.
-	if err := stopForRemoval(kind, opts); err != nil {
+	var err error
+	if res.StopFailure, err = stopForRemoval(kind, opts); err != nil {
 		return res, err
 	}
 	switch kind {

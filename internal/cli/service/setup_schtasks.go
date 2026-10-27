@@ -108,7 +108,7 @@ func removeSchtasks(opts Options) (Result, error) {
 		// The library's Task.Stop disables the task, so its watchdog trigger
 		// cannot start it again, and asks the daemon to drain before it ends
 		// it (MADR 0207 D4, D40).
-		if err := stopForRemoval(KindWindowsTask, opts); err != nil {
+		if res.StopFailure, err = stopForRemoval(KindWindowsTask, opts); err != nil {
 			return res, err
 		}
 		if err := task.Delete(ctx, name); err != nil {

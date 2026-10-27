@@ -178,6 +178,24 @@ func TestDarwinRemoveStopsBeforeDisable(t *testing.T) {
 	}
 }
 
+// TestDarwinRemoveRecordsAFailedStop is MADR 0207 PLAN U6b: a job the Job's
+// Stop could not stop is removed anyway, as Remove always did, and the result
+// carries why, so it does not say the job stopped.
+func TestDarwinRemoveRecordsAFailedStop(t *testing.T) {
+	defer service.OverrideInstallOS("darwin")()
+	src, plistDir, cfg := newSetupDir(t)
+	withJob(t, false)
+	if _, err := service.Setup(service.Options{UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	log := withJob(t, true)
+	log.stopErr = errors.New("selfupdate: launchd: bootout gui/501/com.magiccliremote.mcremote: " + libservice.ErrTimeout.Error())
+	res, err := service.Remove(service.Options{UnitDir: plistDir})
+	if err != nil || !res.Removed || !strings.Contains(res.StopFailure, "bootout") {
+		t.Fatalf("Remove: %+v, %v; want removed, with the stop's failure recorded", res, err)
+	}
+}
+
 // TestDarwinRemoveFromInsideTheJobRemovesNothing: a stop refused because this
 // process runs inside the job leaves the plist, since the job would keep
 // running from a definition that is gone (MADR 0207 D4).

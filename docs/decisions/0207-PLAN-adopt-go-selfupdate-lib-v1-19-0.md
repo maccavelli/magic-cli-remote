@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-27
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
@@ -400,6 +400,33 @@ record, "U6 Deviation 1".
 
 *Note, 2026-10-27:* 0212's P5 landed as `5c499ad0`, and its P6 live tests (`dcd7b31f`) passed on
 runit, s6 and OpenRC. U6's wait is over. It still needs the owner's approval to start.
+
+### U6b — setup-service's result says what U6 does (D4) — ~~proposed~~ approved and done 2026-10-27
+
+The owner asked, after U6 was pushed as `59bcadad`: "scope in fixing result print output". U6's
+record had left `result_print.go` stale, since it was outside U6's files.
+
+**Files:** `internal/cli/service/result_print.go`, `setup.go` (`Result`, `stopForRemoval`),
+`setup_schtasks.go` and `supervisor.go` (their removals record a tolerated stop failure), and
+their tests; this plan.
+
+1. **The "Started:" line names what setup did** (`result_print.go:119-127`):
+   * systemd: "yes (stopped, then started)" in place of "(systemctl --user restart/start)";
+   * launchd: "yes (booted out, then bootstrapped and kickstarted)" in place of "(bootstrap +
+     kickstart)";
+   * Windows: "yes (enabled, then started; --force stops it first)" in place of "(schtasks /run)".
+2. **`--remove` reports a stop that failed.** `stopForRemoval` tolerates any stop failure but the
+   inside refusal, and the printer still said "The daemon was stopped". So:
+   * it returns the tolerated error, and each removal records it on a new `Result.StopFailure`;
+   * `PrintRemoveResult` prints "The daemon could not be stopped: <why>. Its definition is removed;
+     end the process yourself if it still runs." in that case. Otherwise it prints, as today, that
+     the daemon was stopped and the service disabled.
+3. **Unchanged:** the operator commands the result prints (`Status:`, `Start:`, `Stop:`), which
+   are still how a person does each by hand. D30 kept the Windows `Start:` hint.
+4. **Tests first:** each "Started:" line per scope, and `--remove` with a tolerated stop failure on
+   systemd, launchd, Windows and a script kind, each seen failing on a scratch copy.
+5. Gates, as the rules above. No host run: the wording is unit-tested, and U6's host runs
+   exercised the paths.
 
 ### U7 — The script backend's contract (D20)
 
@@ -2174,3 +2201,67 @@ outside U6's files.
 
 **U6 and U1c are complete once the owner commits them.** The plan becomes `complete` when CI on
 that push passes.
+
+### U6 and U1c, 2026-10-27: CI on the push
+
+The owner committed U6 and U1c as `59bcadad` and pushed them. CI on that commit,
+[run 40570546247](https://github.com/maccavelli/magic-cli-remote/actions/runs/40570546247),
+concluded `success`:
+
+* `Go (test)`, `Go (darwin/arm64)`, `Go (linux/arm64)` and `Go (windows/amd64)`;
+* `Live supervisors (runit, s6)`, its second run on GitHub, now on `v1.22.2` and U6's setup;
+* both Flutter jobs.
+
+The release and APK jobs were skipped, as on any push without a tag.
+
+### U6b, 2026-10-27: approval
+
+The owner asked "scope in fixing result print output, mark 0207 complete", and chose "Do U6b, then
+complete (Recommended)": U6b as written above, with the plan marked complete in its record.
+
+### U6b, 2026-10-27: what was built
+
+| File | Change |
+| :--- | :--- |
+| `result_print.go` | "Started:" names what setup did: "(stopped, then started)", "(booted out, then bootstrapped and kickstarted)", "(enabled, then started; --force stops it first)". `PrintRemoveResult` says "The daemon could not be stopped: <why>. Its definition is removed; end the process yourself if it still runs." when the stop failed |
+| `setup.go` | `Result.StopFailure`; `stopForRemoval` returns the failure it tolerates. `ErrNotInstalled` is no failure: there was nothing to stop |
+| `setup.go`, `setup_schtasks.go`, `supervisor.go` | each removal records it |
+| `testdata/result_print_systemd.golden`, `result_print_launchd.golden` | the one "Started:" line in each, recaptured with `-update`; `git diff` shows that line and nothing else |
+
+**Tests:**
+
+* `TestPrintSetupResultNamesWhatTheStartDid`, new;
+* `TestPrintRemoveResult`, with a failed stop;
+* `TestRemoveRecordsAFailedStop`, new, for systemd, runit and a service not installed;
+* a "failed stop, recorded" case in `TestRemoveSchtasksStopsThroughTheTask`;
+* `TestDarwinRemoveRecordsAFailedStop`, new.
+
+**Seen failing first** (`m207u6/u6b_plants.py`, the same driver as U6's). The unplanted copy
+passed every test named:
+
+| Plant | Its tests | The failure |
+| :--- | :--- | :--- |
+| the old Windows "Started:" line | `TestPrintSetupResultNamesWhatTheStartDid` | `windows-task: no "Started:           yes (enabled, then started; --force stops it first)"` |
+| the old systemd "Started:" line | it, and `TestPrintSetupResultUnixUnchanged` | both; `systemd summary changed` |
+| `--remove` says stopped after a failed stop | `TestPrintRemoveResult` | `with a failed stop:` and the old line |
+| a tolerated failure dropped | `TestRemoveRecordsAFailedStop`, `TestRemoveSchtasksStopsThroughTheTask`, `TestDarwinRemoveRecordsAFailedStop` | all three; `StopFailure:` empty |
+| a service not installed reported as a failure | `TestRemoveRecordsAFailedStop` | `Remove of a service not installed: … want no failure` |
+
+**Gates** (`m207u6/u6_gates.py`, over U6b's eight Go files, with D27's records in the tree):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` | "8 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `make check-records`, `actionlint`, `make vulncheck`, the pin tests | exit 0; vulncheck "clear" |
+| `make markdownlint-docs` | the first run failed: "0167-REPORT…:640:3 MD004/ul-style Unordered list style [Expected: dash; Actual: asterisk]", in D27's note, mine. Fixed; exit 0, "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host | exit 0; 44 packages ok |
+
+No host run: the wording is unit-tested, and U6's host runs exercised the paths, as U6b's step 5
+said.
+
+**The plan is complete** once the owner commits U6b. Every phase has run (U7 was retired into 0212,
+and U1c folded into U6), and this plan's Verification holds. CI ran on `59bcadad` for U6 and U1c;
+U6b's own CI follows its push.
