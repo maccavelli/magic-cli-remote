@@ -326,8 +326,11 @@ exists but the process is down, the update starts it when it is enabled
 
 The steps above are systemd's. On a runit, s6 or OpenRC user service that
 `setup-service` set up, `update` swaps the binary first in the same way, stops the
-service through its supervisor, refreshes the run script, starts it, and confirms it with
-`setup-service`'s verified start. A runit or s6 service with a `down` file,
+service through its supervisor, refreshes the run script, starts it, and confirms it as on
+systemd: a new process, up for 10 seconds, then the daemon's own health check. It waits up to 75
+seconds, or `MCREMOTE_SVC_WAIT_SECS` when set, which must then be above 10 (above 45 on runit). A
+daemon still up 45 seconds after the stop is killed: by `sv kill` on runit, by s6 itself, and by
+OpenRC's stop. A runit or s6 service with a `down` file,
 or an OpenRC service outside the `default` runlevel, is disabled: if it was
 stopped, it stays stopped.
 
@@ -337,10 +340,14 @@ runs inside the service it updates, so it must pass `--yes`: `mcremote update
 transient unit `<unit>-selfupdate-<id>.service`, and returns at once with
 `update handed off: …`. The daemon then restarts on the new release, which ends
 the session. `mcremote doctor` then shows the handoff's outcome: its ID, when it
-started and finished, its exit code, and any error. Under
-runit, s6 and OpenRC there is no handoff yet: the update refuses from inside the
-service and leaves it running, so update from a shell instead
-([MADR 0210](../decisions/0210-MADR-hand-off-agent-run-updates-outside-the-service.md)).
+started and finished, its exit code, and any error
+([MADR 0210](../decisions/0210-MADR-hand-off-agent-run-updates-outside-the-service.md)). Under
+runit, s6 and OpenRC the update hands itself off the same way, as a detached process in a session
+of its own
+([MADR 0212](../decisions/0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)).
+OpenRC is the exception: when the agent shares the daemon's OpenRC cgroup, named `openrc.…`,
+the update refuses and leaves the service running, because OpenRC can kill everything in that
+cgroup when it stops the service. Update from a shell there.
 
 The refresh reports one of four outcomes and never fails the update:
 

@@ -971,7 +971,8 @@ policy first); stdio MCP servers (0179, deferred); grouped select options (0208 
     `Job.Start` where it matches setup's path. The PLAN measures each call site first.
   * A start is confirmed by the backend's `WaitHealthy`, with the product's probe, for systemd,
     launchd and Task Scheduler, and by `service.PollHealthy` over the existing samplers for runit,
-    s6 and OpenRC.
+    s6 and OpenRC. *Amended 2026-10-27 by 0212-MADR amendment D (D22), decided: for runit, s6 and OpenRC,
+    by the adapter's `WaitHealthy` once 0212's P5 builds it, with U6 after that phase.*
   * `stopAndWaitDarwin`, `launchdJobRunning`, `startWindows`, `stopWindows` and the settle loops go
     when nothing calls them.
 * **D20 — The script backend follows the backend contract (REPORT A4).** `Stop`, `Start` and

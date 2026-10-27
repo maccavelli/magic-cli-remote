@@ -245,8 +245,8 @@ var (
 	// newCommandDetacher is the update's handoff backend: the backend the
 	// managed installer drives, as a service.Detacher (MADR 0210 D1). It
 	// reports false where the command sets no handoff: for a backend that is
-	// not a Detacher, such as runit, s6 and OpenRC (D4), and when no backend
-	// can be built.
+	// not a Detacher, and when no backend can be built. Every backend Magic
+	// builds is one since MADR 0212 P5, runit, s6 and OpenRC included.
 	newCommandDetacher = func(product string, health service.HealthOptions) (libservice.Detacher, bool) {
 		b, err := newBackend(product, "", health)
 		if err != nil {
@@ -271,17 +271,19 @@ var (
 	commandArgs = func() []string { return os.Args[1:] }
 )
 
-// detacherFor returns backend as a Detacher: systemd's and launchd's, and
-// Task Scheduler's, whose detach since go-selfupdate-lib v1.19.0 is a one-shot
-// task outside Magic's kill-on-close jobs (#6; MADR 0210 D3, D11).
+// detacherFor returns backend as a Detacher: systemd's and launchd's; Task
+// Scheduler's, whose detach since go-selfupdate-lib v1.19.0 is a one-shot task
+// outside Magic's kill-on-close jobs (#6; MADR 0210 D3, D11); and the runit,
+// s6 and OpenRC adapter's, a hop into a session of its own (MADR 0212 P5).
 func detacherFor(backend any) (libservice.Detacher, bool) {
 	d, ok := backend.(libservice.Detacher)
 	return d, ok
 }
 
 // insider is a backend that can tell whether this process runs inside the
-// service and cannot hand off: Magic's runit, s6 and OpenRC backend (MADR
-// 0210 D4).
+// service and cannot hand off (MADR 0210 D4). Magic's runit, s6 and OpenRC
+// backend was one until MADR 0212 P5 made it the library's adapter, which
+// hands off; the refusal stays for any backend that cannot.
 type insider interface {
 	Inside(ctx context.Context) (bool, error)
 }
@@ -351,10 +353,11 @@ Progress, prompts and the outcome are written to stderr. Stdout is empty
 unless --json is given, which writes JSON Lines ending in one result object.
 
 Run from inside the service, such as by an agent in a phone session, the
-update hands itself off to the service manager (systemd, launchd or Task
-Scheduler) and needs --yes, since the detached run cannot prompt. Under runit,
-s6 and OpenRC it refuses before downloading and leaves the service running;
-run it from a shell there.
+update hands itself off and needs --yes, since the detached run cannot prompt:
+to the service manager under systemd, launchd and Task Scheduler, and to a
+detached process under runit, s6 and OpenRC. Under OpenRC, when this process
+shares the service's OpenRC cgroup, which a stop can kill, it refuses instead
+and leaves the service running; run it from a shell there.
 
 Exit status: 0 up to date, declined, installed or handed off; 10 an update is
 available (with --check); 1 any error. Set GH_TOKEN or GITHUB_TOKEN to raise API rate

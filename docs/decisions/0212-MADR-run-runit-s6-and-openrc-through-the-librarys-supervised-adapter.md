@@ -1,8 +1,8 @@
 ---
 status: proposed
-date: 2026-10-24
+date: 2026-10-27
 decision-makers: Project Owner
-consulted: "issue #27 of this repository and go-selfupdate-lib issue #2 with its comments, read 2026-10-24; go-selfupdate-lib's 0035-MADR-serve-supervisors-through-a-supervised-adapter.md and 0035-REPORT-library-backends-or-consumer-api-for-runit-s6-and-openrc.md at 9a10708 (committed, not pushed), its selfupdate/service code at that commit, and its published tags to v1.21.0; OpenRC's NEWS.md, user-guide.md and etc/rc.conf on master, read 2026-10-24; this repository at 793b8f5b, with its 0054, 0207 and 0210 records. Amendment A: go-selfupdate-lib at fff0940 (its 0011, 0015, 0020, 0023, 0025, 0033 and 0035 records, its service package, systemd backend, internal/testproc and extending guide); OpenRC's service-script and supervise-daemon guides, openrc-run(8) and start-stop-daemon(8); s6's servicedir page; runit's sv(8) and runsv(8); all read 2026-10-24. Amendment B: go-selfupdate-lib at v1.22.0 (8480556), its CHANGELOG, migration guide §22, service package and 0035 records; library issue #2 and #27, read 2026-10-24"
+consulted: "issue #27 of this repository and go-selfupdate-lib issue #2 with its comments, read 2026-10-24; go-selfupdate-lib's 0035-MADR-serve-supervisors-through-a-supervised-adapter.md and 0035-REPORT-library-backends-or-consumer-api-for-runit-s6-and-openrc.md at 9a10708 (committed, not pushed), its selfupdate/service code at that commit, and its published tags to v1.21.0; OpenRC's NEWS.md, user-guide.md and etc/rc.conf on master, read 2026-10-24; this repository at 793b8f5b, with its 0054, 0207 and 0210 records. Amendment A: go-selfupdate-lib at fff0940 (its 0011, 0015, 0020, 0023, 0025, 0033 and 0035 records, its service package, systemd backend, internal/testproc and extending guide); OpenRC's service-script and supervise-daemon guides, openrc-run(8) and start-stop-daemon(8); s6's servicedir page; runit's sv(8) and runsv(8); all read 2026-10-24. Amendment B: go-selfupdate-lib at v1.22.0 (8480556), its CHANGELOG, migration guide §22, service package and 0035 records; library issue #2 and #27, read 2026-10-24. Amendment D: go-selfupdate-lib at v1.22.1 (4d9ae41) and 20e7cc7, its 0035 MADR and REPORT, architecture.md, extending guide, supervised adapter and systemd backend, read 2026-10-27"
 informed: anyone who changes the service backends, setup-service, the update command, or Magic's go-selfupdate-lib pin
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -334,6 +334,9 @@ two 0210 records changed since then.
   bump carries only the adapter.
 * **D8-B.** Jump from `v1.19.0` to the adapter's release here.
 
+*Amendment D (D20), 2026-10-27: stage 2 starts from `v1.22.1`, which fixes the adapter's restore
+after a failed stop.*
+
 ## Decision Outcome
 
 The owner answered the five questions on 2026-10-24 (see "Questions for the owner"):
@@ -596,7 +599,8 @@ Each change is a dated note. No history is rewritten.
 * **0054-MADR S5-3:** the script backends move onto the library's adapter here.
 * **0207-MADR D20 and 0207-PLAN U7:** retired into this record (R2).
 * **0207-MADR D4 and 0207-PLAN U6:** the script-kind start confirmation is built on this record's
-  state functions (D6).
+  state functions (D6). *Amendment D (D22), decided 2026-10-27: U6 runs after P5, and confirms these
+  kinds by the adapter's `WaitHealthy`.*
 * **0210-MADR D4 and question 2:** the handoff on these supervisors comes through the adapter,
   with OpenRC's check (D3).
 * **Issue #27:** a comment with R6's four corrections.
@@ -1089,3 +1093,175 @@ what D10-A and D9-A assert. The owner decided both, recorded in the PLAN as P4 D
   `src/start-stop-daemon/start-stop-daemon.c`, `src/openrc-run/openrc-run.c`,
   `src/librc/librc.c` and `sh/supervise-daemon.sh`.
 * The PLAN's P4 step 3 execution record, and its raw output in the session scratchpad.
+
+## Amendment — 2026-10-27 (D): where the service stack lives, and what is left to adopt
+
+P4 left one question open: how stage 2 keeps the log-service adoption on the update path. The owner
+first chose to ask the library for a hook. Then, on 2026-10-27, the owner set the frame, verbatim:
+
+* "we need to look at this from the perspective of moving the service stack out of magic and into
+  the selfupdate library."
+* "i want to keep the library as lean and idempotent as possible. find the best way to ensure
+  magic-cli-remote will leverage go-selfupdate-lib without building too many functions and features
+  into the library."
+
+This amendment records the assessment that followed, and the decisions it proposes.
+
+### Facts [read 2026-10-27, go-selfupdate-lib at `v1.22.1` (`4d9ae41`, 2026-10-26) and `20e7cc7`; this repository at `f5082636`]
+
+* **F1. `v1.22.1` is tagged.**
+  * It carries the library's 0035 amendment A3: a failed `Supervised.Stop` now restores with `Up`
+    on a context of its own (`selfupdate/service/supervised_lifecycle.go:108-115`).
+  * The pin P4 left proposed needs no wait. Magic is on `v1.22.0` (`go.mod:12`).
+* **F2. The library already holds the line the owner asks for.** Its records say:
+  * "The library owns the contract … stopping and starting under `ctx`, the typed errors, proving a
+    new instance, the inside check and the handoff."
+  * "The program owns its supervisor … its scripts, its session supervisors, its PID-file layout and
+    the forms its tools print." (Both from the library's
+    `docs/decisions/0035-MADR-serve-supervisors-through-a-supervised-adapter.md:238-245`.)
+  * A first-party backend comes "only where a supervisor documents a stable interface, today s6.
+    Even then, only when a second consumer, or the owner, asks." runit and OpenRC "stay with the
+    program" (its `0035-REPORT-…:262-266`).
+  * "The library parses none of your supervisor's output, so the parsing is yours" (its
+    `docs/guides/extending-selfupdate.md:936-937`).
+  * No backend renders, writes or deletes a definition. Task Scheduler stores XML the program
+    renders, and nothing more.
+  * The API is "additive only", and "an interface a caller implements never gains a method" (its
+    `docs/architecture.md:492-497`).
+* **F3. `SupervisedOptions.Up` is the program's own function.** It "asks the supervisor to start the
+  service and keep it up … It may first start a supervisor for the session. It does not wait: the
+  adapter does" (`selfupdate/service/supervised.go:70-73`).
+  * The adapter's `Start` calls it, after leaving alone an instance other than the one `Stop`
+    recorded (`supervised_lifecycle.go:163-178`).
+  * So does the restore after a failed stop, while the daemon still runs (`:108-115`).
+* **F4. The library's starts differ in how far they can be repeated.**
+  * systemd's `Start` records the unit's current invocation, then runs `systemctl start`
+    (`selfupdate/service/systemd/lifecycle.go:138-166`). On a unit already active, the start
+    changes nothing. A `WaitHealthy` after it then waits for a new invocation that never comes.
+  * Task Scheduler's `Stop` leaves the task disabled, so the start must enable it first. That is
+    0207 amendment C's D30.
+  * `Supervised.Start` is as repeatable as the program's `Up` (the library's 0035 D5-A).
+* **F5. What Magic still does itself, where the library has the job** (non-test lines, at
+  `f5082636`):
+
+  | Magic's code | The library's | Planned in |
+  | :--- | :--- | :--- |
+  | `scriptbackend.go` (233), `scriptbackend_inside_linux.go` (32), `scriptbackend_inside_other.go` (8) | `NewSupervised` | this record's P5 |
+  | `launchd_wait.go` (187) | `launchd.Job.Stop`, `Start` | 0207 U6 |
+  | `control_schtasks.go` (73) | `taskscheduler.Task.Enable`, `Start`, `Stop` | 0207 U6 |
+  | `settle.go`'s per-kind loops (about 95 of its 319) and setup's `systemctl --user restart` and `stop` (`setup.go:494`, `:777`) | each backend's `Stop`, `Start`, `WaitHealthy` | 0207 U6 |
+
+* **F6. What stays Magic's, by the library's design** (F2):
+  * every definition and its rendering, recovery and refresh;
+  * the unit-name and backend records, the Windows folder move, and the installer hooks;
+  * the health probe's content;
+  * for runit, s6 and OpenRC, the tool paths, the parsing (P2, P3), the session supervisors, and
+    the log service and its adoption (P4).
+* **F7. Nothing Magic needs is missing from the library.** The four gaps the 0207 REPORT filed on
+  2026-10-21 are closed:
+  * runit, s6 and OpenRC: `NewSupervised` (`v1.22.0`);
+  * Task Scheduler definitions: `Register`, `Definition`, `Delete`, `SameDefinition` (adopted in
+    0207 U4);
+  * launchd's loaded probe: `Job.Loaded`, `Job.Status` (adopted in 0207 U5);
+  * the default HTTP client: not re-checked here, and outside the service stack.
+
+### Considered options
+
+#### D19: what moves into the library
+
+* **D19-A. Nothing.** Magic finishes adopting what `v1.22.1` has, and asks the library for nothing.
+* **D19-B. Magic's supervisor plumbing becomes library helpers:** the tool paths and message
+  classification (P2), and the state readers (P3), about 570 lines. Every `NewSupervised` program
+  would gain them. But the library would then parse runit's and OpenRC's undocumented output, which
+  its own 0035 records refuse (F2), and its API would grow.
+* **D19-C. A first-party s6 backend,** which the library's 0035 report allows when the owner asks.
+  runit and OpenRC would stay Magic's, so Magic keeps the same plumbing for two of the three.
+
+#### D20: the pin
+
+* **D20-A. `v1.22.1`, as P5's first step.**
+* **D20-B. Stay on `v1.22.0`.** A failed stop under the adapter can then leave the service down
+  (F1).
+
+#### D21: where the log-service adoption lives on the update path
+
+* **D21-A. In Magic's `Up`, when the service is down.** `Up` adopts the log service if it needs it
+  (P4 Deviations 3 and 4), then runs the up command.
+  * The adoption checks first and does nothing once the logger is connected, so `Up` stays
+    repeatable (F4).
+  * The restore after a failed stop finds the service up and leaves it.
+* **D21-B. A library before-start hook.** It duplicates what `Up` already allows (F3), adds API the
+  library must keep for good (F2), and waits on a release.
+* **D21-C. Setup only.** An existing install gets its log service only when someone runs
+  setup, or the guide's commands.
+
+#### D22: the order of this record's P5 and 0207's U6
+
+* **D22-A. U6 after P5, on one path.**
+  * Once P5 builds the adapter, every one of the six kinds has a library backend.
+  * U6 moves setup's stop, start and start confirmation onto each backend's `Stop`, `Start` and
+    `WaitHealthy`, with no kind-specific loop.
+  * For runit, s6 and OpenRC that is `Supervised.WaitHealthy`, which already runs `PollHealthy`
+    over `State`. This amends 0207 D4, which confirms these kinds by `PollHealthy` over Magic's
+    samplers.
+* **D22-B. U6 first, as 0207 D4 says.** U6 builds `PollHealthy` over the samplers for the three
+  script kinds, and P5 then replaces it.
+
+### The decisions this amendment proposes
+
+* **D19: "D19-A".** It is the owner's frame read against F2. The library already owns the
+  contract, and every piece D19-B or D19-C would move is the program's by the library's own
+  records. Each Magic copy in F5 is removed by adopting what exists.
+* **D20: "D20-A".** *Decided by the owner on 2026-10-27, "Pin v1.22.1 first", before F1 showed the
+  tag already exists.*
+* **D21: "D21-A".** It keeps the adoption beside the `log/run` that Magic renders, and asks nothing
+  of the library. It replaces the owner's first answer, "Ask the library for a hook", which was
+  given before F3 was put to them.
+* **D22: "D22-A".** Nothing is built that P5 would replace. Setup, the update and the installer
+  hook then confirm a start one way on every kind.
+
+### Consequences of the amendment
+
+* Good, because the library gains no function, option or method for Magic's sake (D19, D21).
+* Good, because about 600 lines of Magic's service code go: F5's files, through P5 and U6.
+* Good, because setup gains what the backends do:
+  * a drain instead of a hard kill on Windows `--remove`;
+  * the refusal to stop the service from inside it;
+  * one definition of "started", with the product's probe.
+* Neutral, because Magic keeps its supervisor plumbing (P2 to P4). The library's records place it
+  there, and P1 to P4 measured it.
+* Bad, because U6 now waits on P5, and P5 on this amendment's approval.
+* Bad, because a later second consumer of `NewSupervised` would write its own runit, s6 and OpenRC
+  parsing. That is the cost the library's 0035 already accepted.
+
+### Confirmation of the amendment
+
+* After P5 and U6, `git grep -n -e stopAndWaitDarwin -e launchdJobRunning -e startWindows -e
+  stopWindows -e scriptBackend -- internal/cli/service` finds nothing outside tests and records.
+* P5's tests:
+  * `Up` adopts a log service on a down service, and not on one that is up;
+  * a second `Up` after an adoption changes nothing.
+* U6's tests: setup never calls a backend's `Start` on a systemd unit that is already active before
+  its `WaitHealthy` (F4).
+* `go.mod` pins `go-selfupdate-lib v1.22.1`, and `TestWorkflowPinsMatchGoMod` passes.
+
+### Questions this amendment adds
+
+* **10. D19, D21 and D22.** Move nothing into the library; adopt the log service in Magic's `Up`;
+  and run 0207's U6 after P5, on one path for all six kinds?
+
+  *Answered 2026-10-27: "approved to proceed".* D19-A, D20-A, D21-A and D22-A are decided, and P5
+  runs as amended.
+
+### Evidence index of the amendment
+
+* go-selfupdate-lib, read only, at `v1.22.1` and `20e7cc7`:
+  * `selfupdate/service/supervised.go`, `supervised_lifecycle.go` and
+    `systemd/lifecycle.go`;
+  * `docs/decisions/0035-MADR-serve-supervisors-through-a-supervised-adapter.md`,
+    `docs/reports/0035-REPORT-library-backends-or-consumer-api-for-runit-s6-and-openrc.md`,
+    `docs/architecture.md` and `docs/guides/extending-selfupdate.md`;
+  * `git log -1 v1.22.1`, and the `CHANGELOG.md` entries for `v1.20.0` to `v1.22.1`.
+* This repository at `f5082636`: `go.mod`, `internal/cli/service/backend.go`, `setup.go`,
+  `launchd_wait.go`, `control_schtasks.go`, `settle.go` and `scriptbackend*.go`; the 0207 REPORT
+  (A2, A3, A9, A10) and the 0212 REPORT; the 0207 PLAN's U6.

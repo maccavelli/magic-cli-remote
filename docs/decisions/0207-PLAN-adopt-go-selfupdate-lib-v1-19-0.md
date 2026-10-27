@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-25
+date: 2026-10-27
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -354,6 +354,24 @@ measurement finds); this plan. *U4 Deviation 1, 2026-10-25:* `health.go` and `he
   is seen failing against a start that only calls `Task.Start`, which returns `ErrTaskDisabled`.
 * After U6, `git grep -n '"/change"' -- internal/cli/service` finds nothing outside tests.
   `result_print.go:174`'s printed hint stays.
+
+*Note, 2026-10-27, from
+[0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)'s
+amendment D (D22), decided by the owner the same day ("approved to proceed"):*
+
+* **U6 waits for 0212's P5,** not only its P3. P5 gives runit, s6 and OpenRC a library backend,
+  `*libservice.Supervised`, so U6 then works on one path for all six kinds.
+* **Step 2's start confirmation, amended.**
+  * ~~by `PollHealthy` over the samplers for runit, s6 and OpenRC~~ For runit, s6 and OpenRC, by
+    the 0212 P5 backend's `WaitHealthy`, which runs `PollHealthy` over `State` itself.
+  * `ErrTimeout` still maps to starting, and `ErrUnhealthy` to failed.
+* **A test added to step 2:** setup does not call a backend's `Start` on a systemd unit that is
+  already active, then wait on it. systemd's `Start` records the unit's current invocation first,
+  so its `WaitHealthy` would wait for a new one that never comes (go-selfupdate-lib
+  `selfupdate/service/systemd/lifecycle.go:138-166`, at `v1.22.1`). It is seen failing against a
+  setup that does.
+* **Files:** unchanged. `scriptbackend.go` is gone by then, deleted in 0212's P5.
+* **Nothing is asked of the library** (0212 amendment D, D19). U6 uses only what `v1.22.1` has.
 
 ### U7 — The script backend's contract (D20)
 

@@ -32,10 +32,8 @@ func NewBackend(product, unitName string) (Backend, error) {
 }
 
 // NewBackendWith is NewBackend with the product's health wiring: h.Probe as
-// the systemd, launchd and Task Scheduler backends' Options.Probe, and on
-// Windows h.RequestStop and h.StopGrace (MADR 0054 D5, A1, A2). The runit, s6
-// and OpenRC backends confirm a start with setup-service's verified start
-// instead.
+// every backend's Probe, and on Windows h.RequestStop and h.StopGrace (MADR
+// 0054 D5, A1, A2).
 func NewBackendWith(product, unitName string, h HealthOptions) (Backend, error) {
 	names, err := namesFor(product, unitName)
 	if err != nil {
@@ -50,14 +48,19 @@ func NewBackendWith(product, unitName string, h HealthOptions) (Backend, error) 
 	switch osName {
 	case "linux":
 		ensureUserRuntimeDir()
-		// runit, s6 and OpenRC have this product's own backend; systemd has
-		// the library's (MADR 0054 amendment S5-3, PLAN S5f).
+		// runit, s6 and OpenRC have the library's adapter over this
+		// package's state and commands; systemd has the library's backend
+		// (MADR 0212 stage 2).
 		kind, err := ResolveBackend(product)
 		if err != nil {
 			return nil, err
 		}
 		if kind.isScriptKind() {
-			return newScriptBackend(kind, strings.TrimSuffix(names.Unit, ".service")), nil
+			s, err := newSupervisedBackend(kind, strings.TrimSuffix(names.Unit, ".service"), h, product, unitName)
+			if err != nil {
+				return nil, err
+			}
+			return s, nil
 		}
 		u, err := systemd.New(systemd.Options{
 			Unit:  names.Unit,

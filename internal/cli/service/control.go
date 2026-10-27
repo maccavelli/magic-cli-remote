@@ -63,7 +63,7 @@ func IsInstalled(product string) (bool, error) {
 		if kind, err := ResolveBackend(product); err != nil {
 			return false, err
 		} else if kind.isScriptKind() {
-			return newScriptBackend(kind, strings.TrimSuffix(names.Unit, ".service")).Installed(context.Background(), product)
+			return scriptInstalled(scriptDefFor(kind, strings.TrimSuffix(names.Unit, ".service"), ""))
 		}
 		unit := names.Unit
 		if out, err := runSystemctlCapture("--user", "show", "-p", "LoadState", "--value", unit); err == nil {

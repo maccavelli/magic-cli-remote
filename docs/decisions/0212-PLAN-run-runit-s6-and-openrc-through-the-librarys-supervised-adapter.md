@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-26
+date: 2026-10-27
 associated-madr: "0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -8,7 +8,8 @@ associated-madr: "0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervi
 # Implement runit, s6 and OpenRC through go-selfupdate-lib's supervised adapter
 
 Associated MADR: [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md),
-with its amendments A and B.
+with its amendments A to D. Amendment C records P4's deviations. Amendment D (2026-10-27) is
+proposed; it reshapes P5 and orders 0207's U6 after it.
 
 **Decided by the owner, 2026-10-24:**
 
@@ -273,6 +274,27 @@ goldens, `docs/guides/ops-linux-install.md`, this plan.
 *Held 2026-10-27 by the owner, until an assessment of moving the service stack out of Magic and into
 go-selfupdate-lib, and the decision it leads to. See the owner decisions of 2026-10-27 in the
 execution record.*
+
+*Amended 2026-10-27 by the MADR's amendment D. Approved the same day: "approved to proceed". The
+hold is lifted.*
+
+* **Step 0 (D20):** move the pin to go-selfupdate-lib `v1.22.1`. Before the bump, read the tag's
+  diff against `v1.22.0`, and confirm it changes only `Supervised.Stop`'s restore and its
+  records.
+* **`Up` (D21):** in this order:
+  1. start the session supervisor when none watches the scan directory, as today's `Start`;
+  2. adopt the log service with `adoptLogService` (P4 Deviations 3 and 4), only when `State`
+     reports the service down;
+  3. run `sv up`, `s6-svc -u`, or `rc-service --user -- <name> start`.
+* **Tests added to step 1:**
+  * `Up` adopts a log service on a down service, and does not on one that is up: the restore after
+    a failed stop;
+  * a second `Up` after an adoption runs no adoption command.
+* **Files:** `supervisor.go` joins, for `adoptLogService`'s caller. `go.mod` and `go.sum` join, for
+  step 0.
+* **Nothing moves into the library (D19).** No library issue is filed for this phase.
+* **0207's U6 follows P5 (D22),** and confirms the script kinds' starts by this phase's
+  `WaitHealthy`.
 
 **Files:** `backend.go`, a new `supervisedbackend.go` and its test, `control.go`, `scriptbackend.go`
 and `scriptbackend_inside_linux.go` (deleted), their tests; `internal/updateclient/client.go`
@@ -1339,3 +1361,173 @@ Every container was removed, and the Podman machine stopped again.
     service stack out of magic and into the selfupdate library."
   * So P5 is held until that assessment, and the decision it leads to, which may change this
     record's direction. P4 and P4b stand either way: they change what Magic writes today.
+
+### The assessment, 2026-10-27
+
+The owner asked, verbatim: "assess the current state of the go-selfupdate-lib functionality
+regarding services. evaluate what is already built in magic-cli-remote. i want to keep the library
+as lean and idempotent as possible. find the best way to ensure magic-cli-remote will leverage
+go-selfupdate-lib without building too many functions and features into the library."
+
+* It was read-only. The library was surveyed at `v1.22.1` and `20e7cc7`, leaving its uncommitted
+  work untouched. This repository was read at `f5082636`.
+* The facts and decisions are the MADR's amendment D:
+  * D19: nothing moves into the library;
+  * D20: pin `v1.22.1`;
+  * D21: adopt the log service in Magic's `Up`;
+  * D22: 0207's U6 after P5.
+* The owner then said: "committed, write the 0212 amendment and 0207 U6 note". Amendment D, the P5
+  note above, and the U6 note in
+  [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md) are
+  that writing. They wait for the owner's approval.
+* The owner approved them, verbatim: "approved to proceed". P5 runs as amended.
+
+### P5 step 0, 2026-10-27: the tag, read before the bump
+
+* **The tag:** `v1.22.1` is annotated tag `56f5f20e`, whose commit is
+  `4d9ae417f61c4cdd0a7bccd1d342d773d9cc34cd`. Read with `git ls-remote origin` from the library's
+  clone.
+* **What changed against `v1.22.0`** (`git diff --stat v1.22.0 v1.22.1`): 29 files.
+  * One non-test Go file, `selfupdate/service/supervised_lifecycle.go`: 27 lines in, 20 out. The
+    restore after a failed `Stop` calls `Up` on its own `Poll.Timeout`, and the stop's bound
+    counts from before `Down`. "A failed Stop can take twice" `Poll.Timeout`.
+  * The rest are tests, records (its 0035 amendment A3, and a docs-gates record numbered 0036),
+    guides, CI and scripts.
+* **Library workflows:** `build-selfupdate-release.yml` and `publish-selfupdate-release.yml` are
+  byte-identical between the tags.
+* **For P5:** a failed stop can now take up to 150 s, twice D17's 75 s. `adoptLogService`'s 60 s
+  bound fits inside `Up`'s own 75 s.
+
+### P5 Deviation 1, 2026-10-27 — the pin moves `ci.yml` too. The owner decided: "Add ci.yml to P5 (Recommended)"
+
+* **Found at step 0.** `TestWorkflowPinsMatchGoMod` (`internal/updateclient/spec_test.go:132-138`)
+  requires `.github/workflows/ci.yml`'s two library workflow pins (`:711`, `:732`) to name the
+  release `go.mod` requires, as MADR 0054 D1 does. `ci.yml` is not on P5's list.
+* **The resolutions put to the owner:**
+  1. **Chosen:** `ci.yml` joins P5 for those two lines only. The SHA moves from `84805563…` to
+     `4d9ae417…`, and the comment from `v1.22.0` to `v1.22.1`.
+  2. A separate 0207 pin step, a U1c, committed before P5's code.
+* **File added to P5:** `.github/workflows/ci.yml`, those two lines.
+
+### P5 Deviation 2, 2026-10-27 — the runit update test runs real processes, on Linux. The owner decided: "Real processes, Linux only (Recommended)"
+
+* **Found** once the adapter was in, run on this Mac and on the Linux test host. Only
+  `TestUpdateRestartsARunitService` (`internal/updateclient/managed_script_unix_test.go`, not on
+  P5's list) failed, on both:
+  * "a mcremote service is installed, but its service manager cannot be reached:
+    MCREMOTE_SVC_WAIT_SECS=3 is not above the 10s settle window" (`:121`, `:133`, `:146`). Its bound,
+    `:59`, is below D17's.
+  * Its fake `sv` invents PIDs no process has (`:31`, `:41`, `:83`). The adapter takes an instance
+    only from a live `/proc/<pid>` (the library's `supervised.go:202-211`). Its health wait ignores
+    an empty instance once a previous one is set (`poll.go:39-41`). So with any valid bound it
+    would wait out 75 s.
+  * Its `unix` build tag runs it on macOS, where the library builds no adapter
+    (`supervised.go:153-156`).
+* **The resolutions put to the owner:**
+  1. **Chosen:** rename the file `managed_script_linux_test.go`, and give it real processes.
+     * The fake `sv up` starts `/bin/sleep` and records its PID. `sv down` kills it, and cleanup
+       kills any left.
+     * `MCREMOTE_SVC_WAIT_SECS=15`. *Corrected while writing it: 50. On runit D17 also requires a
+       bound above the 45 s `KillAfter`, so 15 is refused.*
+     * The four cases stay.
+  2. Give the managed update a fake `Lifecycle` in place of the adapter, and keep the test portable.
+* **Deleting the test** was not offered. It is the only test of the update's whole cycle on runit.
+* **File added to P5:** that test file, renamed.
+
+### P5, 2026-10-27: the adapter
+
+**Step 0, the pin.** `go.mod` and `go.sum` move to go-selfupdate-lib `v1.22.1`, and `ci.yml`'s two
+library workflow pins move with them (Deviation 1). `TestWorkflowPinsMatchGoMod` passes.
+
+**The backend** (`supervisedbackend.go`, new). For runit, s6 and OpenRC, `NewBackendWith` now
+returns the library's `*libservice.Supervised`, built by `newSupervisedBackend`:
+
+| Option | What Magic hands the adapter |
+| :--- | :--- |
+| `State` | P3's `observe`, its `SupervisedState` as it is |
+| `Up` | `supervisedUp`, in D21's order: a session supervisor when none watches; then, on runit and s6, `adoptLogService` when `State` reports the service down; then `sv up`, `s6-svc -u`, or `rc-service --user -- <name> start` (OpenRC starting the user session first, as before) |
+| `Down` | `supervisedDown`: `sv down`, `s6-svc -d`, `rc-service --user -- <name> stop`, with no wait |
+| `Kill`, `KillAfter` | runit only: `sv kill <dir>`, at 45 s (D17) |
+| `Poll` | `supervisedPoll`: `Timeout` 75 s and `Settle` 10 s. `MCREMOTE_SVC_WAIT_SECS`, when set, is the timeout, refused when not above 10 s, or on runit not above 45 s |
+| `Probe` | `HealthOptions.backendProbe`, the product's check, as on every backend |
+| `DetachCheck` | OpenRC only: `openRCDetachCheck` (D3-B). It refuses when this process and the daemon share a cgroup, read per hierarchy from `/proc/<pid>/cgroup`, whose last element starts with `openrc.` |
+
+* **Deleted:** `scriptbackend.go`, `scriptbackend_inside_linux.go`, `scriptbackend_inside_other.go`
+  and `scriptbackend_unix_test.go`. With them go `scriptBackend`, its `Inside`, `parentOf`,
+  `procParent`, `maxAncestry`, `stopTimeout` and the script `WaitHealthy`.
+  * The library's adapter now does the inside check, the stop's wait and kill, the health wait and
+    the handoff.
+  * `settle` stays, for setup's start (D6-A).
+* **`IsInstalled`** reads the definition through `scriptInstalled`, the check the deleted
+  `scriptBackend.Installed` made.
+* **The update hands off on these supervisors.** The adapter is a `Detacher`, so `update` takes the
+  handoff path there, as on systemd. `refuseInside` stays for any backend that is not one.
+  * The help text says so, and names OpenRC's refusal under a shared OpenRC cgroup.
+  * `client.go`'s comments on the backends that cannot hand off are brought up to date.
+  * `ops-linux-install.md` says the same, with the bounds and the kill.
+  * `command_test.go`'s comments still name the script backend as its example of one that cannot
+    hand off. That file is not on P5's list, and its tests pass unchanged.
+
+**The tests:**
+
+| Test | File | Pins |
+| :--- | :--- | :--- |
+| `TestSupervisedPollIsD17` | `supervisedbackend_unix_test.go` | 75 s and 10 s; the variable's bounds per kind; a value that is not a number refused |
+| `TestSupervisedOptionsPerKind` | the same | `Kill` and 45 s on runit alone, running `sv kill <dir>`; `DetachCheck` on OpenRC alone; the product's probe, and none without one |
+| `TestSupervisedDownStopsAndDoesNotWait` | the same | each kind's stop command, alone |
+| `TestSupervisedUp` | the same | `sv up` through a watching runsvdir; a session s6-svscan; OpenRC's session, then `rc-service start` |
+| `TestSupervisedUpAdoptsALogService` | the same | runit and s6: adopted on a service that is down, then up; a second `Up` adopts nothing; on a service that is up, the restore, nothing is adopted |
+| `TestSupervisedCommandsPrintNothing` | the same | `Up`, `Down`, `State` and `Kill` write nothing to stdout, the update's `--json` stream |
+| `TestOpenRCDetachCheckIsD3B` | the same | refused in a shared `openrc.` cgroup, cgroup v2 and a v1 hybrid; allowed in `0::/` as P1 measured, in another service's OpenRC cgroup, in a shared cgroup that is not OpenRC's, and with the daemon down |
+| `TestIsInstalledReadsTheScriptDefinition` | the same | each kind's definition found, and not once it is gone |
+| `TestSupervisedOptionsAreAccepted` | `supervisedbackend_linux_test.go` | `NewSupervised` accepts each kind's options, and refuses s6's with a `KillAfter` |
+| `TestNewBackendFollowsTheRecord` | the same | the adapter, a `Detacher`, for each recorded script kind; the systemd backend otherwise; a refused bound fails the build |
+| `TestProbeStatusOnRunit` | the same | doctor through the adapter: installed, enabled, not running, and the `sv up` hint |
+| `TestUpdateRestartsARunitService` | `internal/updateclient/managed_script_linux_test.go` (Deviation 2) | the update's whole cycle on runit, over real processes: restarted; started when enabled; left stopped when disabled; rolled back on a crash loop |
+
+* **The setup tests** are unchanged. `setup-service` still starts through `startScript` and
+  confirms through `settle` (D6-A).
+* **On the Linux test host,** every test above passes, verbose. The runit update test takes 41.6 s:
+  two settle windows, and the rollback's.
+
+**Seen failing first** (`m212/p5_plants.py`, session scratchpad). Fourteen plants, each on its own
+scratch copy of the working tree. Two ran on the Linux test host, where the adapter is built. All
+failed on their named tests:
+
+| Plant | Where | The failure |
+| :--- | :--- | :--- |
+| s6 given a `KillAfter` | this Mac | `TestSupervisedOptionsPerKind/s6`: "KillAfter = 45s, want none" |
+| the same, against the library | Linux | `TestSupervisedOptionsAreAccepted/s6`: "SupervisedOptions.KillAfter is set, but Kill is not" |
+| runit with no `Kill` | this Mac | "Kill set = false; want it on runit only" |
+| no application check | this Mac | "options {… Probe:<nil> …}: want the name, State, Up, Down and the probe" |
+| OpenRC with no `DetachCheck` | this Mac | "DetachCheck set = false; want it on OpenRC only" |
+| the check always allows | this Mac | `…/a_shared_OpenRC_cgroup`: "openRCDetachCheck = <nil>; want refused true" |
+| the check refuses any shared cgroup | this Mac | `…/the_root_cgroup,_as_P1_measured`: refused in `/` |
+| runit's bound not above 45 s | this Mac | "runit, MCREMOTE_SVC_WAIT_SECS=45: … <nil>; want a refusal" |
+| a bound not above the settle window | this Mac | "s6, MCREMOTE_SVC_WAIT_SECS=10: … <nil>; want a refusal" |
+| `Up` adopts on a service that is up | this Mac | `…/up:_the_restore_adopts_nothing`: an adoption attempted, then timed out |
+| `Up` never adopts | this Mac | `…/down:_adopted,_then_up`: "calls [sv status … sv up …]" |
+| `Up` prints | this Mac | `TestSupervisedCommandsPrintNothing/runit`: "stdout got "up\n"" |
+| a missing definition read as installed | this Mac | "IsInstalled after removal = true, <nil>; want false" |
+| runit's `Down` does nothing | Linux | `TestUpdateRestartsARunitService/running_is_restarted`: "managed install failed" |
+
+* **Two mistakes of mine, caught before they counted:**
+  * `TestSupervisedOptionsPerKind` would have called a nil `Kill` and panicked under the "no `Kill`"
+    plant. It now guards the call, and the plant fails it cleanly.
+  * One plant did not compile ("declared and not used: fi"). It was rewritten to the one
+    replacement it needs, and fails its test.
+
+**Gates** (`m212/p5_gates.py`, over the seven changed and added Go files and five records):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the seven Go files | "7 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, every file tracked | exit 0; 44 packages ok |
+| `internal/cli/service` and `internal/updateclient`, verbose, on the Linux test host | 639 `--- PASS` lines; no failure; one skip, `TestLiveReplaceFirstProbeFailure`, a live test that runs only when its variables are set |
+
+**P5 is complete** once the owner commits it. Next by this record: P4b and P6, each on the owner's
+word; then 0207's U6, after P5 (D22).
