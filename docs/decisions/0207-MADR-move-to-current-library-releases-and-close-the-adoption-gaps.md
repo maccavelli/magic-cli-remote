@@ -973,11 +973,19 @@ policy first); stdio MCP servers (0179, deferred); grouped select options (0208 
     launchd and Task Scheduler, and by `service.PollHealthy` over the existing samplers for runit,
     s6 and OpenRC. *Amended 2026-10-27 by 0212-MADR amendment D (D22), decided: for runit, s6 and OpenRC,
     by the adapter's `WaitHealthy` once 0212's P5 builds it, with U6 after that phase.*
+    *Note, 2026-10-27: 0212's P5 landed (`5c499ad0`), and its P6 live runs passed on all three
+    (`dcd7b31f`). Nothing U6 waits on remains.*
   * `stopAndWaitDarwin`, `launchdJobRunning`, `startWindows`, `stopWindows` and the settle loops go
     when nothing calls them.
 * **D20 — The script backend follows the backend contract (REPORT A4).** `Stop`, `Start` and
   `WaitHealthy` honour their context, and their errors wrap `service.ErrTimeout`, `ErrUnhealthy`
   and `ErrNotInstalled`.
+  * *Note, 2026-10-27: retired into
+    [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)
+    (its R2), and met there rather than by changing the script backend.* 0212's P5 (`5c499ad0`)
+    deleted `scriptBackend`. runit, s6 and OpenRC now run through the library's
+    `service.NewSupervised`, whose `Stop`, `Start` and `WaitHealthy` honour their context and
+    return the library's sentinel errors. The PLAN's U7 is not run.
 * **D21 — The Windows CI script stamps `buildinfo` (REPORT A7).** `ci-windows-local.ps1:132` takes
   the `Makefile`'s `-X …/buildinfo.version=` and `….kind=local` pair.
 * **D22 — mcrelay tells systemd it is ready (REPORT A8; question 10).** `Type=notify` in its unit

@@ -1058,6 +1058,13 @@ owner decided each on 2026-10-19, choosing the recommended option every time.
     as it does on systemd.
   - This extends D5 ("the backends own health") to backends this product writes, because the
     library has none for these supervisors.
+  - *Note, 2026-10-27, from
+    [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md):*
+    the library now has one. Since 0212's P5 (`5c499ad0`), the update runs runit, s6 and OpenRC
+    through go-selfupdate-lib's `service.NewSupervised` (`v1.22.1`). Magic supplies only `State`,
+    `Up` and `Down`, and keeps its definitions, tool paths, parsing and session supervisors. The
+    product backend this item describes, `scriptBackend`, is deleted. D5 holds unextended: the
+    library's backend owns the stop, start and health wait, with the product's probe.
 - **S5-4: D9's migration copies, switches, then cleans up.** When `setup-service --refresh` on
   Windows finds the task running a binary from `%LOCALAPPDATA%\Programs\<product>\`:
   - It copies each product's `.exe` that is present into `%LOCALAPPDATA%\Programs\magic-cli-remote\`.

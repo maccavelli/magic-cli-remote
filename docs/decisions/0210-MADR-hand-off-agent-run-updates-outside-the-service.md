@@ -217,6 +217,14 @@ when #6 ships, an amendment here turns the Windows handoff on.
     So what kills an inside update is Magic's own teardown, `mgr.CloseAll`, which ends the
     agents' and terminals' process groups (`daemon.go:701`; `terminal.go:31-47`). The guard is
     what prevents it.
+  * *Note, 2026-10-27, from
+    [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md):*
+    these supervisors now hand off. Since 0212's P5 (`5c499ad0`), the update runs them through
+    go-selfupdate-lib's `service.NewSupervised`, which is a `Detacher`. `scriptBackend` and its
+    ancestry guard are deleted. Under OpenRC, while the update shares the service's OpenRC cgroup,
+    which a stop can kill, the update refuses and leaves the service running (0212 D3-B). 0212's P6
+    (`dcd7b31f`) runs R1 in the tree: an agent-run update hands off and completes on runit, s6 and
+    OpenRC.
 * **D5 — The outcome is reported.**
   * Under JSON, the agent sees `update handed off: <detail>` or `handed_off`, with exit 0, from
     the library.
@@ -366,6 +374,12 @@ After the change:
      process. OpenRC's `rc_cgroup_cleanup` is off by default.
    * The comment proposes descent from the supervised process as the inside check, the same check
      D4 implements.
+   * *Note, 2026-10-27:* go-selfupdate-lib#2 closed on 2026-10-25. The library shipped
+     `service.NewSupervised`, a consumer adapter with a `Detacher`, rather than backends of its
+     own. Magic adopted it in
+     [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md),
+     and the handoff this answer waited for runs on all three supervisors since that plan's P5
+     (`5c499ad0`). Magic still writes no `Detacher` of its own: the adapter is the library's.
 3. **The Linux reproduction.** Move a shell into the unit's cgroup (no quota, the recommendation),
    or run a real grok session (quota)?
 

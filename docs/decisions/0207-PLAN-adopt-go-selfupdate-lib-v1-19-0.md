@@ -373,6 +373,9 @@ amendment D (D22), decided by the owner the same day ("approved to proceed"):*
 * **Files:** unchanged. `scriptbackend.go` is gone by then, deleted in 0212's P5.
 * **Nothing is asked of the library** (0212 amendment D, D19). U6 uses only what `v1.22.1` has.
 
+*Note, 2026-10-27:* 0212's P5 landed as `5c499ad0`, and its P6 live tests (`dcd7b31f`) passed on
+runit, s6 and OpenRC. U6's wait is over. It still needs the owner's approval to start.
+
 ### U7 — The script backend's contract (D20)
 
 **Files:** `internal/cli/service/scriptbackend.go`, its tests; this plan.
@@ -382,6 +385,12 @@ amendment D (D22), decided by the owner the same day ("approved to proceed"):*
 2. **Code** as tested.
 3. **The three containers,** on the owner's word: install, `--force` and `--remove`, as 0210 R1.
 4. Gates.
+
+*Retired, noted 2026-10-27:* U7 is retired into
+[0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)
+(its R2), and is not run. 0212's P5 (`5c499ad0`) deleted `scriptbackend.go`. The library's
+`service.NewSupervised` now gives runit, s6 and OpenRC the contract D20 asks for. 0212's P6
+(`dcd7b31f`) runs the three containers in the tree, as `make live-supervisors`.
 
 ### U8 — mcrelay tells systemd it is ready (D22)
 

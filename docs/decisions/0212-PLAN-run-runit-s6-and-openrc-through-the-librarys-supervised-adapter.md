@@ -9,7 +9,8 @@ associated-madr: "0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervi
 
 Associated MADR: [0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md),
 with its amendments A to D. Amendment C records P4's deviations. Amendment D (2026-10-27) is
-proposed; it reshapes P5 and orders 0207's U6 after it.
+~~proposed~~ decided ("approved to proceed", 2026-10-27); it reshapes P5 and orders 0207's U6 after
+it.
 
 **Decided by the owner, 2026-10-24:**
 
@@ -1877,3 +1878,60 @@ whose own driver built and ran runit:
 
 **P6 is complete** once the owner commits it. The CI job runs on the push. Next by this record: P7,
 the records; then 0207's U6 (D22).
+
+### P7, 2026-10-27: the records
+
+The owner committed P6 as `dcd7b31f` and answered "committed, proceed". P7 has no host or container
+runs.
+
+**Step 1, the dated notes** (each points here, and none rewrites history):
+
+| Record | Where | The note |
+| :--- | :--- | :--- |
+| [0054-MADR-standardize-self-update-on-go-selfupdate-lib.md](0054-MADR-standardize-self-update-on-go-selfupdate-lib.md) | S5-3 | the update runs these supervisors through the library's `NewSupervised` since P5; `scriptBackend` is deleted, so D5 holds unextended |
+| [0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md) | D20 | retired into this record (R2), and met by the library's adapter |
+| the same | D4 | P5 and P6 have landed; nothing U6 waits on remains |
+| [0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md](0207-PLAN-adopt-go-selfupdate-lib-v1-19-0.md) | U7 | retired, not run; P6 runs the three containers |
+| the same | U6 | the wait is over; U6 still needs the owner's approval |
+| [0210-MADR-hand-off-agent-run-updates-outside-the-service.md](0210-MADR-hand-off-agent-run-updates-outside-the-service.md) | D4 | these supervisors hand off; OpenRC refuses in a shared OpenRC cgroup (D3-B); P6 runs R1 in the tree |
+| the same | question 2 | go-selfupdate-lib#2 closed on 2026-10-25 with the adapter; Magic writes no `Detacher` of its own |
+
+* The amendment-D note already on 0207-MADR D4 and 0207-PLAN U6 (D22) stays. The new notes record
+  only that P5 and P6 have landed.
+* This plan's opening line called amendment D "proposed". It is now struck through and marked
+  decided.
+
+**Step 2, the #27 comment: not done.** The step runs on the owner's ask, which has not been given.
+Issue #27 is open. The comment would carry the MADR's R6 corrections and this plan's outcome.
+
+**Step 3, the statuses: not yet.** Every Verification item was checked against `dcd7b31f`:
+
+| Item | Result |
+| :--- | :--- |
+| P1's probe results, per supervisor | held: "P1, 2026-10-26" above |
+| each phase's fail-first tests, quoted | held: in each phase's record |
+| `git grep -n -e 'exec.LookPath' -e 'os.Stdout' -- internal/cli/service` | held. It finds `detect.go:77` (`lookPath`, for `launchctl` and `systemctl` only), `setup.go:681`, `:865` and `:891` (`plutil`, `systemctl`, `launchctl`), `setup.go:1380` (`runCmd`, whose only callers run `launchctl`, `systemctl` and `loginctl`), and three test files. No script-kind tool call |
+| `git grep -n -e scriptBackend -e stopTimeout -e procParent -- internal` | held: no output |
+| `make live-supervisors` in all three containers | held: P6's final run |
+| CI's runit and s6 job | **open.** `master` is 10 commits ahead of `origin/master`, so the job has never run on GitHub |
+| an agent-run update hands off and completes on all three | held: P6's step 5, on each kind |
+
+So the MADR stays `proposed` and this plan `in-progress`. Both change when the CI job passes, after
+the owner pushes. Pushing is the owner's ask.
+
+**Gates** (no Go file changed, so the Go gates do not apply):
+
+| Gate | Result |
+| :--- | :--- |
+| `make check-records` | exit 0 |
+| `make markdownlint-docs` | exit 0, "0 issues". It lints guides and reports only, not `docs/decisions/` |
+| `markdownlint-cli2` over the five changed records, at `HEAD` and in the tree (`m212/p7_lint_compare.py`) | 129 findings in each, none only in the tree. Every one predates P7: list style and one unspaced list in 0054, a doubled blank line at 0210's end, and four in this plan's earlier execution records |
+| the guard's redact preview, from the repository root | "would edit 0 file(s)" |
+
+* **The lint comparison, seen failing first.** My first draft of step 2 began a line with "#27",
+  which renders as a heading. The direct lint caught it (MD018), and the line now begins "Issue
+  #27". `m212/p7_lint_plant.py` put the old line back in a scratch copy, and the comparison then
+  exited 1: "only in the tree: 1 … MD018: #27 is open."
+
+**P7 is done except step 3,** which waits for CI's first `live-supervisors` run. Next, on the
+owner's word: 0207's U6 (D22).
