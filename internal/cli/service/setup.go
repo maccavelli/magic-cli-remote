@@ -140,6 +140,9 @@ type Result struct {
 	// replacedPid is the process a restart replaces, when known: the
 	// verified start does not take it for the restarted service.
 	replacedPid int
+	// replacedToken is replacedPid's start token, when it could be read, so a
+	// new process that reuses the PID is not taken for it (MADR 0212 D12-A).
+	replacedToken string
 }
 
 type templateData struct {

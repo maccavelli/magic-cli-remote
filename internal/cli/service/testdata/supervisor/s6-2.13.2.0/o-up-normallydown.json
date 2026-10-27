@@ -1,0 +1,10 @@
+{
+ "cmd": [
+  "s6-svstat",
+  "-o",
+  "up,wantedup,normallyup,ready,pid,exitcode,updownfor",
+  "/home/<user>/p1/s6-service/p1svc"
+ ],
+ "exit": 0,
+ "stderr": ""
+}

@@ -1,0 +1,9 @@
+{
+ "cmd": [
+  "sv",
+  "status",
+  "/srv/p1root/svc"
+ ],
+ "exit": 1,
+ "stderr": ""
+}

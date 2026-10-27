@@ -1,0 +1,8 @@
+{
+ "cmd": [
+  "s6-svstat",
+  "/home/<user>/p1/s6-service/absent"
+ ],
+ "exit": 1,
+ "stderr": "s6-svstat: fatal: unable to read status for /home/<user>/p1/s6-service/absent: s6-supervise not running\n"
+}

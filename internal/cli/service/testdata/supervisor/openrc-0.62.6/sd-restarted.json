@@ -1,0 +1,10 @@
+{
+ "cmd": [
+  "rc-service",
+  "--user",
+  "p1sd",
+  "status"
+ ],
+ "exit": 0,
+ "stderr": ""
+}

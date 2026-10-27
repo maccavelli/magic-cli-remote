@@ -221,15 +221,15 @@ func withAncestry(t *testing.T, parents map[int]int) {
 }
 
 // supervise makes b's supervisor report the service up as pid: `sv status`
-// and `s6-svstat` print it, and OpenRC's pidfile holds it, at the path the
-// OpenRC script renders.
+// and `s6-svstat -o` print it (MADR 0212 D7-A), and OpenRC's pidfile holds
+// it, at the path the OpenRC script renders.
 func supervise(t *testing.T, b *scriptBackend, pid int) {
 	t.Helper()
 	switch b.kind {
 	case KindRunit:
 		fakeOutput(t, "sv", "run: "+b.def.Dir+": (pid "+strconv.Itoa(pid)+") 40s")
 	case KindS6:
-		fakeOutput(t, "s6-svstat", "up (pid "+strconv.Itoa(pid)+" pgid "+strconv.Itoa(pid)+") 40 seconds")
+		fakeOutput(t, "s6-svstat", "true true true false "+strconv.Itoa(pid)+" -1 40")
 	case KindOpenRCUser:
 		rd := t.TempDir()
 		t.Setenv("XDG_RUNTIME_DIR", rd)

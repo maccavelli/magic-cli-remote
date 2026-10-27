@@ -1,0 +1,10 @@
+{
+ "cmd": [
+  "rc-service",
+  "--user",
+  "p1ssd",
+  "status"
+ ],
+ "exit": 1,
+ "stderr": " * You are attempting to run an openrc service on a\n * system which openrc did not boot.\n * You may be inside a chroot or you may have used\n * another initialization system to boot this system.\n * In this situation, you will get unpredictable results!\n * If you really want to do this, issue the following command:\n * touch /run/user/1000/openrc/softlevel\n"
+}

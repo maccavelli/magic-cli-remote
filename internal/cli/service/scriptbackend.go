@@ -7,8 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
@@ -74,10 +72,11 @@ func (b *scriptBackend) Enabled(context.Context, string) (bool, error) {
 	return false, err
 }
 
-// Running reports whether the service's process is up.
-func (b *scriptBackend) Running(context.Context, string) (bool, error) {
-	s, err := sampler(b.kind, b.result())()
-	return s.up, err
+// Running reports whether the service's process is up, by its supervisor's
+// state (MADR 0212 D16).
+func (b *scriptBackend) Running(ctx context.Context, _ string) (bool, error) {
+	obs, err := observe(ctx, b.kind, b.def, b.name)
+	return obs.state.Up, err
 }
 
 // parentOf returns a process's parent PID: procParent, which reads /proc on
@@ -89,36 +88,15 @@ var parentOf = procParent
 const maxAncestry = 4096
 
 // supervisedPID is the PID of the service's own process, or 0 when it is not
-// running or cannot be read. runit and s6 report it in their status, as the
-// settle reads it. OpenRC's start-stop-daemon writes it to
-// "${XDG_RUNTIME_DIR:-/tmp}/<name>.pid" (supervisor.go), resolved in the
-// environment OpenRC started the service with, so each candidate directory is
-// tried in turn.
-func (b *scriptBackend) supervisedPID() int {
-	if b.kind != KindOpenRCUser {
-		s, err := sampler(b.kind, b.result())()
-		if err != nil || !s.up {
-			return 0
-		}
-		return s.pid
+// running or cannot be read, from its supervisor's state (MADR 0212 D16).
+// OpenRC's comes from the pidfile in the runtime directory only: there is no
+// /tmp fallback (D12-A).
+func (b *scriptBackend) supervisedPID(ctx context.Context) int {
+	obs, err := observe(ctx, b.kind, b.def, b.name)
+	if err != nil || !obs.state.Up {
+		return 0
 	}
-	var dirs []string
-	if rd := os.Getenv("XDG_RUNTIME_DIR"); rd != "" {
-		dirs = append(dirs, rd)
-	}
-	if rd, ok := userRuntimeDir(); ok {
-		dirs = append(dirs, rd)
-	}
-	for _, dir := range append(dirs, "/tmp") {
-		raw, err := os.ReadFile(filepath.Join(dir, b.name+".pid"))
-		if err != nil {
-			continue
-		}
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 {
-			return pid
-		}
-	}
-	return 0
+	return obs.state.PID
 }
 
 // Inside reports whether this process descends from the service's own
@@ -129,11 +107,11 @@ func (b *scriptBackend) supervisedPID() int {
 // The 0210 PLAN's R1 reproduced that under runit, s6 and OpenRC. A service
 // with no running process has no inside, and off Linux there is no parent to
 // read. An error reading the ancestry is returned, never read as "outside".
-func (b *scriptBackend) Inside(context.Context) (bool, error) {
+func (b *scriptBackend) Inside(ctx context.Context) (bool, error) {
 	if parentOf == nil {
 		return false, nil
 	}
-	pid := b.supervisedPID()
+	pid := b.supervisedPID(ctx)
 	if pid <= 0 {
 		return false, nil
 	}

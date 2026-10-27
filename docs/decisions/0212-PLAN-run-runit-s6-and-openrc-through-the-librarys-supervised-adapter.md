@@ -187,7 +187,9 @@ also carries `XDG_CONFIG_HOME` when set, and `--` goes to `rc-service` only (exe
 
 **Files:** a new `internal/cli/service/supervisorstate.go` and its test; `testdata/supervisor/`
 (P1's fixtures, named by supervisor, version and state); `scriptbackend.go`; `settle.go`;
-`health.go`; this plan.
+`health.go`; this plan. *P3 Deviations 1 and 2, 2026-10-26:* `supervisor_unix_test.go`,
+`scriptbackend_unix_test.go`, `settle_test.go`, `setup.go` and `supervisor.go` join (execution
+record below).
 
 1. **Tests first,** replaying P1's fixtures:
    * one `state<Kind>(ctx) (libservice.SupervisedState, error)` per kind:
@@ -645,3 +647,213 @@ CI log the same way.
 * **The re-run.** The guard and the resolver test pass, and every gate above is from the second run.
 
 P2 is complete once the owner commits it. P3 is next, on the owner's word.
+
+### The library, assessed 2026-10-26, at the owner's ask
+
+The owner committed P2 and asked to "assess the current state of the go-selfupdate-lib sdk sibling
+repo to ensure it aligns with this work". The sibling checkout was read only.
+
+* **The pin is current.** go-selfupdate-lib's newest tag is still `v1.22.0`. Its `main`, at
+  `96115f8`, is nine commits past it. Those commits touch only docs, CI, the records tooling and
+  three test files, and no production code. `supervised.go`, `errors.go` and `runner.go` are as
+  `v1.22.0` has them.
+* **A fix to the adapter is in progress there, uncommitted.** The library's 0035-MADR Amendment A3
+  and its PLAN's phase M11 carry it, decided by its owner as "fix the bug now":
+  * In `v1.22.0`, `Supervised.Stop` runs its restoring `Up`, after a stop that failed with the
+    process still running, on the stop's own context. The wait has always spent that context, so
+    the `Up` never starts its command, and the service is left down and not wanted up. The wait's
+    timeout error also loses its last observation.
+  * The fix gives `Up` a context of its own, so a failed `Stop` can take twice `Poll.Timeout`. It
+    also counts `Poll.Timeout` from before `Down`, so a `Down` that blocks spends part of it.
+    `v1.22.1` releases it, on its owner's word.
+* **What it means here:**
+  * **Stage 1, P2 to P4, is unaffected.** It uses `SupervisedState`, `CommandError` and the
+    sentinels, which are unchanged, and nothing calls `Supervised.Stop` until P5.
+  * **P5 should not adopt the adapter at `v1.22.0`.** A hung OpenRC or runit daemon whose stop
+    fails would be left down. With the bound from before `Down`, OpenRC's `Down`, which P1 measured
+    blocking 48 s, leaves 27 s of D17's 75 s for the wait. That still covers it.
+  * **Proposed, for the owner at P5:** an amendment moving the pin to `v1.22.1` before P5, as 0207's
+    U1b moved it to `v1.22.0`. It is not part of P3.
+* **P2 and P3 agree with the library's guide** (`extending-selfupdate.md`, the supervised section):
+  * a `State` that finds no supervisor returns an error wrapping `ErrNoSupervisor`, with
+    `Installed` and `NormallyUp` still set, which P2's classification and P3 provide;
+  * `Ready` stays nil for s6 without a `notification-fd` (D18).
+  * The adapter takes any other `State` error as a failure, so P3 reports a missing definition as
+    `Installed: false`, not as an error.
+
+### P3 Deviations 1 and 2, 2026-10-26 — the s6 fakes, and the replaced process's start token. The owner decided both as recommended
+
+**Found by measuring before any edit:**
+
+* **1. Three tests feed s6's human form.** D7-A reads s6 with
+  `s6-svstat -o up,wantedup,normallyup,ready,pid,exitcode,updownfor`. These tests print the human
+  form ("up (pid 81 pgid 81) 40 seconds") through their fakes:
+  * `supervisor_unix_test.go:775` (`TestSetupNotesTheProcessARestartReplaces`);
+  * `scriptbackend_unix_test.go:232` (`supervise`);
+  * `settle_test.go`'s `TestSamplersReadTheirManagers`, whose s6 rows test the human-form regular
+    expression.
+
+  Step 1 says the existing settle tests "pass unedited", and the first two files are not on P3's
+  list.
+* **2. The replaced process is known by PID alone.** D12-A has `settle` compare PID and start token.
+  `settle.go` can do that for a restart while watched. Its other PID check, which skips the process
+  a restart replaces, reads `res.replacedPid`. That is recorded at `supervisor.go:439` and declared
+  at `setup.go:142`, neither on P3's list.
+
+**The resolutions put to the owner, and chosen:**
+
+1. **The three test files join P3.**
+   * Their s6 fakes print the `-o` form P1 captured.
+   * `TestSamplersReadTheirManagers`' s6 rows parse `-o` lines into the same expected samples.
+   * The human-form s6 expression is deleted, since nothing reads it. No expected value changes.
+
+   The alternatives put were two s6 parsers, a workaround, and stopping P3.
+2. **Both checks compare the start token.**
+   * `Result` gains `replacedToken` beside `replacedPid` (`setup.go`), and `startScript` records it
+     with the PID (`supervisor.go`).
+   * `settle` skips the replaced process only when PID and token both match.
+
+   The alternative put was the watched restart alone.
+
+**Files added to P3:** `internal/cli/service/supervisor_unix_test.go`, `scriptbackend_unix_test.go`,
+`settle_test.go`, `setup.go` (the `Result` field) and `supervisor.go` (recording it).
+
+### P3, 2026-10-26: state, in the library's type
+
+**The new code** (`internal/cli/service/supervisorstate.go`):
+
+* **`observe(ctx, kind, def, name)`** returns an `observation`: a `libservice.SupervisedState`,
+  plus the uptime `settle` needs, which the library's type does not carry. P5's `State` is
+  `observe`'s state, wrapped where P5 first calls it.
+* **What every kind shares:**
+  * `Installed` is the definition's existence.
+  * A missing definition is `Installed: false` and no error, as the library's adapter needs (the
+    assessment above).
+  * No supervisor is `ErrNoSupervisor`, with `Installed` and `NormallyUp` still set.
+* **runit:** `sv status <dir>`, parsed by `parseRunitStatus`.
+  * "run: … (pid N) Ns" is up, with that PID and uptime, and wanted up unless ", want down".
+  * "down: … want up" is `WantUp` and `Restarting`.
+  * `NormallyUp` is the absence of `<dir>/down`.
+* **s6:** `s6-svstat -o up,wantedup,normallyup,ready,pid,exitcode,updownfor <dir>` (D7-A), parsed
+  by `parseS6Status`.
+  * Up, wanted up and the PID come from their fields, and the uptime from `updownfor`.
+  * `Restarting` is down and wanted up. `ready` is read into `Detail` and not mapped, so `Ready`
+    stays nil (D18).
+  * `NormallyUp` is the down file's absence, which also answers when no supervisor does.
+  * Seven fields or an error.
+* **OpenRC:** `rc-service --user -- <name> status`.
+  * Exit 0 is up and wanted up, 3 is stopped, and 32 is `Failed`.
+  * No session, and no runtime directory, are `ErrNoSupervisor`, by P2's classification.
+  * `NormallyUp` is the `default` runlevel link.
+  * **The PID** (`openRCPID`) is the pidfile's, in the runtime directory only, with no `/tmp`
+    fallback (D12-A). When the process it names is `supervise-daemon`, the D10-A form P1 measured,
+    the PID is that process's child, read from a scratchable `/proc` root (`stateProcRoot`,
+    `statParent`).
+* **`startToken`** wraps `procutil.ProcessStartToken`, as a variable for tests.
+
+**The change, by site:**
+
+| Site | Before | After |
+| :--- | :--- | :--- |
+| the runit, s6 and OpenRC samplers (`settle.go`) | each tool's output, parsed per kind; OpenRC sampled with no PID | `observe`, through `sampleOf`: up, PID, uptime, `exited` from `Restarting`, `failed` from `Failed`, and the start token |
+| `settle`'s check for a restart while watched | the PID changed | the PID changed, or stayed the same with another start token |
+| `settle`'s skip of the replaced process | the PID matched | the PID and, where both were read, the token matched |
+| `startScript` (`supervisor.go`), `Result` (`setup.go`) | `replacedPid` | `replacedPid` and `replacedToken` |
+| `scriptBackend.Running`, `supervisedPID` (`scriptbackend.go`) | the sampler; OpenRC's pidfile tried in `XDG_RUNTIME_DIR`, the user's runtime directory, then `/tmp` | `observe`, with the caller's context; no `/tmp` |
+| `readServeArgs` (`health.go`) | the systemd unit only, on Linux | a script kind's definition through `recoverScript` (D4-A) |
+| `runitStatusRe`, `s6StatusRe`, `downWantUpRe`, `parseStatus` | `settle.go` | `runitStatusRe` moved to `supervisorstate.go`; the rest deleted, since nothing reads them |
+
+* **What a sample now says that it did not.** An OpenRC sample carries the daemon's PID. So
+  `settle` now sees an OpenRC restart while it watches, which it could not before. No sample that was
+  up is now down, or the other way.
+* **One D12-A item stays for P4.** The rendered OpenRC script still reads
+  `pidfile="${XDG_RUNTIME_DIR:-/tmp}"…`. The reader no longer falls back, and `openrc --user` refuses
+  to run without `XDG_RUNTIME_DIR` (P1), so `/tmp` is never where the file is. The rendered line is
+  the definition, which P4 rewrites for D10-A, so it changes there, in one refresh rather than two.
+
+**The tests:**
+
+| Test | Pins |
+| :--- | :--- |
+| `TestStateReplaysTheProbes` | 24 of P1's fixtures, from `testdata/supervisor/`, through each kind's state: runit's up, down, wanted up, down file both ways, wanted down, no supervisor, missing definition and permission; s6's `-o` forms of the same; OpenRC's stopped, crashed, no session, no runtime directory and missing definition. It checks the whole state, the uptime and a nil `Ready` |
+| `TestOpenRCStartedReadsThePIDFile` | started: the pidfile's PID; under supervise-daemon, started and restarted: the supervisor's child |
+| `TestOpenRCPIDFileHasNoTmpFallback` | a pidfile of the service's name in `/tmp`, with none in the runtime directory, gives PID 0 |
+| `TestSettleTellsAReusedPIDByItsStartToken` | the same PID with a new token while watched is a restart; a new process with the replaced PID counts; the replaced process itself is still skipped |
+| `TestSamplerCarriesTheStartToken` | the sampler's sample is the state's, with the up process's token |
+| `TestReadServeArgsReadsScriptDefinitions` | runit, s6 and OpenRC definitions, rendered by setup's template, give the baked serve arguments |
+
+* **The fixtures.** `testdata/supervisor/runit-2.3.1/`, `s6-2.13.2.0/` and `openrc-0.62.6/` hold 27
+  of P1's captures: each command's stdout byte for byte in `<state>.stdout`, and its command, exit
+  code and stderr in `<state>.json`. The containers' test account is written as `/home/<user>`, as the
+  tree's guard requires (`internal/homepaths_test.go`); nothing parses those paths.
+* **Deviation 1's test changes, as chosen:**
+  * the s6 fakes print `-o` lines;
+  * `TestSamplersReadTheirManagers`' s6 rows are `-o` lines with the same expected samples, and its
+    helpers call `parseRunitStatus`, `parseS6Status` and `sampleOf`;
+  * `TestSetupS6RescansAndRestarts` expects the `s6-svstat -o …` call it now makes;
+  * `TestSetupNotesTheProcessARestartReplaces` also checks `replacedToken`.
+
+**Seen failing first** (`m212/p3_plants.py`, session scratchpad). Each plant ran on its own scratch
+copy of the working tree. All fourteen fail on their named tests:
+
+| Plant | The failure |
+| :--- | :--- |
+| s6's `ready` mapped to `Ready` | `…/s6-2.13.2.0/o-up`: "Ready = false; D18 leaves it nil" |
+| runit's `Restarting` not set | `…/runit-2.3.1/down-wantup`: `Restarting:false` |
+| `NormallyUp` ignores the down file | `…/up-normallydown`, `…/down-downfile`, and s6's: `NormallyUp:true` |
+| a missing definition is an error | `…/runit-2.3.1/absent`: "observe: selfupdate: runit: sv status …: exit 1: fail: …" |
+| exit 32 not `Failed` | `…/openrc-0.62.6/crashed`: `Failed:false` |
+| no supervisor loses the state | `…/s6-2.13.2.0/o-nosupervisor`: `Installed:false … NormallyUp:false` |
+| supervise-daemon's PID taken for the daemon's | `TestOpenRCStartedReadsThePIDFile/sd-started`: "PID:306 …; want up, pid 307" |
+| the pidfile read from `/tmp` too | "PID = 4242, read from /tmp/p3probe….pid; want 0: there is no /tmp fallback" |
+| a restart while watched ignores the token | "settle = running, ""; want a restart while watched" |
+| the replaced process told by PID alone | "settle = failed, "it was not seen running in 5s"; want running: PID 81 is a new process" |
+| the replaced process never skipped | "settle took the process the restart replaces for the new one" |
+| the sampler drops the token | "sample {… token:}, want {… token:token-of-20}" |
+| setup records no token | "replacedToken = "", want process 81's" |
+| `readServeArgs` ignores the script kinds | each kind: "read the mcrelay unit: open …" |
+
+One plant was miswritten on its first run, and rebuilt. Removing the watched-restart case left
+`lastToken` unread, so the copy did not compile, and a failure to build proves nothing. The plant
+now keeps the comparison and never takes it, and it fails as above.
+
+**The first gate run failed three ways, each fixed:**
+
+* **`make staticcheck`:** "internal/cli/service/supervisorstate.go:51:6: func stateOf is unused
+  (U1000)". The tree's staticcheck does not count a test as a caller. `stateOf` is gone, and P5 wraps
+  `observe` where it first calls it.
+* **`make pre-add-check`:** `supervisorstate_test.go` was not gofmt'd. It is now.
+* **`go test -race ./...` on the Linux test host:** `TestTrackedFilesUseOnlyPlaceholderHomes`, once
+  per fixture: the home path's account "is not a placeholder: write <user>".
+  * The fixtures held the containers' test-account home paths.
+  * The Linux copy tracks every file, so the guard saw them there. Here they were untracked, and it
+    did not.
+  * The fixtures are now written with `/home/<user>` by the copy script, and no fixture names the
+    test account.
+  * The guard passes here with P3's new files marked as intended (`git add -N`).
+* **The plants were run again** on the final code, and all fourteen fail as above.
+
+**Gates** (`m212/p3_gates.py`, the second run):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the ten changed and added Go files | "10 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, every file tracked | exit 0; 44 packages ok, `TestTrackedFilesUseOnlyPlaceholderHomes` included |
+| P3's and P2's tests, and the script-kind setup, backend, settle and update tests, on the Linux test host, verbose | 89 `--- PASS` lines, tests and subtests; no failure or skip. The copy was deleted |
+
+**Found at staging, after the gates: the fixtures' stdout files were ignored.** They were first
+named `<state>.out`, and `.gitignore:14` ignores `*.out`. Every gate passed only because the files
+were on disk. The Linux copy's `git add -A` honours `.gitignore` too, so a commit would have left the
+replay test without its input.
+
+* **The fix.** They are `<state>.stdout`, which no rule ignores (`git check-ignore` exits 1), and the
+  test reads that.
+* **The check.** The staged index, exported with `git checkout-index -a` into a scratch directory,
+  passes `internal/cli/service`, `internal/updateclient` and `internal/testexec`, fixtures included.
+
+P3 is complete once the owner commits it. P4, the definitions, is next, on the owner's word. Its
+container run needs the owner's word too.

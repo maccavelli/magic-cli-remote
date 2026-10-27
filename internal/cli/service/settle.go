@@ -67,6 +67,9 @@ type sample struct {
 	// exited is true when the supervisor reports the service down while it
 	// wants it up: it exited and is being restarted.
 	exited bool
+	// token is pid's start token, when it can be read, so a reused PID is
+	// not taken for the process it once named (MADR 0212 D12-A).
+	token string
 }
 
 // sampleFunc takes one sample of the service setup just started.
@@ -86,9 +89,10 @@ func settle(kind Kind, res Result, secs int) (string, string) {
 	probe := newSampler(kind, res)
 	seenUp := false
 	lastPid, ok, exits := 0, 0, 0
+	lastToken := ""
 	for range secs {
 		s, err := probe()
-		if s.up && res.replacedPid != 0 && s.pid == res.replacedPid {
+		if s.up && res.replacedPid != 0 && s.pid == res.replacedPid && sameToken(s.token, res.replacedToken) {
 			// Still the process the restart replaces.
 			s = sample{}
 		}
@@ -109,6 +113,8 @@ func settle(kind Kind, res Result, secs int) (string, string) {
 			}
 		case seenUp && s.pid != 0 && lastPid != 0 && s.pid != lastPid:
 			return HealthFailed, fmt.Sprintf("it restarted while watched (pid %d, then %d)", lastPid, s.pid)
+		case seenUp && s.pid != 0 && s.pid == lastPid && !sameToken(s.token, lastToken):
+			return HealthFailed, fmt.Sprintf("it restarted while watched (pid %d, then a new process with the same pid)", s.pid)
 		default:
 			seenUp = true
 			ok++
@@ -117,7 +123,7 @@ func settle(kind Kind, res Result, secs int) (string, string) {
 			}
 		}
 		if s.up {
-			lastPid = s.pid
+			lastPid, lastToken = s.pid, s.token
 		}
 		time.Sleep(settleTick)
 	}
@@ -178,14 +184,6 @@ func settleSystemd(unit string, secs int) (string, string) {
 }
 
 var (
-	// runitStatusRe reads `sv status`: "run: DIR: (pid 87) 7s".
-	runitStatusRe = regexp.MustCompile(`^run: .*\(pid (\d+)\) (\d+)s`)
-	// s6StatusRe reads `s6-svstat`: "up (pid 45 pgid 45) 8 seconds".
-	s6StatusRe = regexp.MustCompile(`^up \(pid (\d+)[^)]*\) (\d+) seconds`)
-	// downWantUpRe is a service down that its supervisor wants up: runit's
-	// "down: DIR: 1s, normally up, want up", and s6's
-	// "down (exitcode 1) 0 seconds, normally up, want up".
-	downWantUpRe = regexp.MustCompile(`^down[: ].*want up`)
 	// launchdPidRe and launchdStateRe read `launchctl print`.
 	launchdPidRe   = regexp.MustCompile(`(?m)^\s*pid = (\d+)`)
 	launchdStateRe = regexp.MustCompile(`(?m)^\s*state = (.+)$`)
@@ -197,27 +195,17 @@ var newSampler = sampler
 // sampler returns how kind's service is sampled.
 func sampler(kind Kind, res Result) sampleFunc {
 	switch kind {
-	case KindRunit, KindS6:
-		dir := filepath.Dir(res.UnitPath)
+	case KindRunit, KindS6, KindOpenRCUser:
+		// The supervisor's state, in the library's type (MADR 0212 D16).
+		// OpenRC's start-stop-daemon restarts nothing: a process that died is
+		// "crashed" for good, which the live probe showed as the only sign.
+		def := scriptDefOf(kind, res)
 		return func() (sample, error) {
-			name, args, re := "sv", []string{"status", dir}, runitStatusRe
-			if kind == KindS6 {
-				name, args, re = "s6-svstat", []string{dir}, s6StatusRe
-			}
-			out, err := runBounded(toolFor(kind, dir, name, args...))
+			obs, err := observeBounded(kind, def, res.UnitName)
 			if err != nil {
 				return sample{}, err
 			}
-			return parseStatus(re, string(out.Stdout)), nil
-		}
-	case KindOpenRCUser:
-		// start-stop-daemon restarts nothing: a process that died is
-		// "crashed" for good, which the live probe showed as the only sign.
-		return func() (sample, error) {
-			out, err := runBounded(toolFor(kind, res.UnitName, "rc-service", "--user", "--", res.UnitName, "status"))
-			// "status: crashed" is on stderr (0212 PLAN P1).
-			text := string(out.Stdout) + string(out.Stderr)
-			return sample{up: err == nil, failed: strings.Contains(text, "status: crashed")}, nil
+			return sampleOf(obs), nil
 		}
 	case KindLaunchdAgent:
 		return func() (sample, error) {
@@ -242,17 +230,21 @@ func sampler(kind Kind, res Result) sampleFunc {
 	}
 }
 
-// parseStatus reads `sv status` or `s6-svstat` output with re, whose groups
-// are the pid and the seconds up. Any other line is a service that is not up.
-func parseStatus(re *regexp.Regexp, out string) sample {
-	out = strings.TrimSpace(out)
-	m := re.FindStringSubmatch(out)
-	if m == nil {
-		return sample{exited: downWantUpRe.MatchString(out)}
+// sampleOf is a supervisor's state as settle reads it: a service down while
+// its supervisor wants it up has exited and is being restarted.
+func sampleOf(obs observation) sample {
+	st := obs.state
+	s := sample{up: st.Up, failed: st.Failed, exited: st.Restarting}
+	if st.Up {
+		s.pid, s.uptime, s.token = st.PID, obs.uptime, startToken(st.PID)
 	}
-	pid, _ := strconv.Atoi(m[1])
-	secs, _ := strconv.Atoi(m[2])
-	return sample{up: true, pid: pid, uptime: time.Duration(secs) * time.Second}
+	return s
+}
+
+// sameToken reports whether two start tokens can name the same process: they
+// match, or one of them could not be read, which leaves the PID to decide.
+func sameToken(a, b string) bool {
+	return a == "" || b == "" || a == b
 }
 
 // parseLaunchctlPrint reads `launchctl print`. Only "state = running" is up:

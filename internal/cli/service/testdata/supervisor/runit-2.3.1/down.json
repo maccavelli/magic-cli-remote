@@ -1,0 +1,9 @@
+{
+ "cmd": [
+  "sv",
+  "status",
+  "/home/<user>/p1/runit-service/p1svc"
+ ],
+ "exit": 0,
+ "stderr": ""
+}

@@ -4,6 +4,7 @@ package service
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -337,7 +338,7 @@ func TestSetupS6RescansAndRestarts(t *testing.T) {
 	if _, err := scriptSetup(t, root, bin, nil); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"s6-svscanctl -a " + root, "s6-svstat " + def.Dir, "s6-svc -r " + def.Dir, "s6-svc -u " + def.Dir}
+	want := []string{"s6-svscanctl -a " + root, "s6-svstat -o " + s6Fields + " " + def.Dir, "s6-svc -r " + def.Dir, "s6-svc -u " + def.Dir}
 	if calls := fakeCalls(t); !slices.Equal(calls, want) || len(*starts) != 0 {
 		t.Fatalf("calls %v, starts %v; want %v", calls, *starts, want)
 	}
@@ -772,16 +773,25 @@ func TestSetupNotesTheProcessARestartReplaces(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(def.Dir, "supervise"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// s6-svstat -o's form, which the state reads (MADR 0212 D7-A).
 	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "s6-svstat.out"),
-		[]byte("up (pid 81 pgid 81) 40 seconds\n"), 0o644); err != nil {
+		[]byte("true true true false 81 -1 40\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	prev := startToken
+	startToken = func(pid int) string { return fmt.Sprintf("token-of-%d", pid) }
+	t.Cleanup(func() { startToken = prev })
 	res, err := scriptSetup(t, root, bin, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.replacedPid != 81 {
 		t.Fatalf("replacedPid = %d, want the 81 s6-svstat reported before the restart", res.replacedPid)
+	}
+	// Its start token too, so a new process that reuses PID 81 still counts
+	// (MADR 0212 D12-A, PLAN P3 Deviation 2).
+	if res.replacedToken != "token-of-81" {
+		t.Fatalf("replacedToken = %q, want process 81's", res.replacedToken)
 	}
 }
 

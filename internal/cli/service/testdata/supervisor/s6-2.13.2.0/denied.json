@@ -1,0 +1,8 @@
+{
+ "cmd": [
+  "s6-svstat",
+  "/srv/p1root/svc"
+ ],
+ "exit": 111,
+ "stderr": "s6-svstat: fatal: unable to check /srv/p1root/svc: Permission denied\n"
+}

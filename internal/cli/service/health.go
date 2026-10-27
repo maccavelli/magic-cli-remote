@@ -86,6 +86,19 @@ func readServeArgs(product, unitName string) (ServeArgs, string, error) {
 	)
 	switch osName {
 	case "linux":
+		// runit, s6 and OpenRC: the script definition, read by the parser
+		// the refresh uses (MADR 0212 D4-A).
+		if kind, err := ResolveBackend(product); err == nil && kind.isScriptKind() {
+			def := scriptDefFor(kind, unitName, "")
+			body, err := os.ReadFile(def.Path)
+			if err != nil {
+				return ServeArgs{}, "", fmt.Errorf("read the %s %s definition: %w", product, kind, err)
+			}
+			var rec recovery
+			rec, why, ok = recoverScript(kind, product, unitName, string(body))
+			opts = rec.Opts
+			break
+		}
 		dir, err := systemdUserDir()
 		if err != nil {
 			return ServeArgs{}, "", err

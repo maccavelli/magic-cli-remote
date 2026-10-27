@@ -436,7 +436,7 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 			// live probe confirmed a crash-looping definition that way. Note
 			// the process the restart replaces (MADR 0054 PLAN S5c).
 			if s, err := sampler(def.Kind, res)(); err == nil && s.up {
-				res.replacedPid = s.pid
+				res.replacedPid, res.replacedToken = s.pid, s.token
 			}
 			if _, err := runBounded(ctl); err != nil {
 				return res, fmt.Errorf("definition installed at %s, but %s failed: %w", def.Path,

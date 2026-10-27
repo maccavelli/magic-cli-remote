@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
 // fastSettle makes the settle loop tick without waiting, for one test.
@@ -137,8 +139,12 @@ func TestSettleOtherKinds(t *testing.T) {
 }
 
 // TestSamplersReadTheirManagers parses the status lines the 2026-10-19 live
-// probes printed, and launchctl's.
+// probes printed, and launchctl's. s6's are `s6-svstat -o`'s, the form the
+// state reads (MADR 0212 D7-A), with the same samples the human form gave.
 func TestSamplersReadTheirManagers(t *testing.T) {
+	prev := startToken
+	startToken = func(int) string { return "" } // fixture PIDs name no process here
+	t.Cleanup(func() { startToken = prev })
 	cases := []struct {
 		name, out string
 		re        func(string) (sample, bool)
@@ -146,9 +152,9 @@ func TestSamplersReadTheirManagers(t *testing.T) {
 	}{
 		{"runit up", "run: /home/user/.local/share/runit/service/mcremote: (pid 87) 7s", parseRunit, sample{up: true, pid: 87, uptime: 7 * time.Second}},
 		{"runit down", "down: /home/user/.local/share/runit/service/mcremote: 3s, normally up", parseRunit, sample{}},
-		{"s6 up", "up (pid 45 pgid 45) 8 seconds", parseS6, sample{up: true, pid: 45, uptime: 8 * time.Second}},
-		{"s6 down, want up", "down (exitcode 1) 0 seconds, normally up, want up, ready 0 seconds", parseS6, sample{exited: true}},
-		{"s6 down, want down", "down (exitcode 0) 9 seconds, normally up", parseS6, sample{}},
+		{"s6 up", "true true true false 45 -1 8", parseS6, sample{up: true, pid: 45, uptime: 8 * time.Second}},
+		{"s6 down, want up", "false true true false -1 1 0", parseS6, sample{exited: true}},
+		{"s6 down, want down", "false false true false -1 0 9", parseS6, sample{}},
 		{"runit down, want up", "down: /home/user/.local/share/runit/service/mcremote: 1s, normally up, want up", parseRunit, sample{exited: true}},
 		{"launchd running", "gui/501/x = {\n\tstate = running\n\tpid = 123\n}", parseLaunchd, sample{up: true, pid: 123}},
 		{"launchd waiting", "gui/501/x = {\n\tstate = waiting\n}", parseLaunchd, sample{}},
@@ -162,8 +168,14 @@ func TestSamplersReadTheirManagers(t *testing.T) {
 	}
 }
 
-func parseRunit(out string) (sample, bool)   { return parseStatus(runitStatusRe, out), true }
-func parseS6(out string) (sample, bool)      { return parseStatus(s6StatusRe, out), true }
+func parseRunit(out string) (sample, bool) {
+	return sampleOf(parseRunitStatus(libservice.SupervisedState{}, out)), true
+}
+
+func parseS6(out string) (sample, bool) {
+	obs, err := parseS6Status(libservice.SupervisedState{}, out)
+	return sampleOf(obs), err == nil
+}
 func parseLaunchd(out string) (sample, bool) { return parseLaunchctlPrint(out), true }
 
 // TestVerifyStart: running sets the health; still starting is a warning; not
