@@ -241,7 +241,7 @@ U3b has landed; this plan. *Re-read 2026-10-26:* U3b has landed, and its guard i
      Magic wrote.
 4. Gates.
 
-### P4b — A log directory per unit (owner decision, 2026-10-27; proposed)
+### P4b — A log directory per unit (owner decision, 2026-10-27; ~~proposed~~ approved and done 2026-10-27)
 
 *Added 2026-10-27 at the owner's word: "Commit P4, then a P4b phase". Runs after the owner commits
 P4, on approval of this phase.*
@@ -1531,3 +1531,145 @@ failed on their named tests:
 
 **P5 is complete** once the owner commits it. Next by this record: P4b and P6, each on the owner's
 word; then 0207's U6, after P5 (D22).
+
+### P4b, 2026-10-27: start, and step 1
+
+**Approval.** The owner committed P5 (`5c499ad0`) and answered "committed, proceed". P4b is next by
+the record, and that answer is the word for step 1's reproduction.
+
+**Files named at the phase's start** (P4b's list leaves them to be named): the removal output is
+`PrintRemoveResult` in `internal/cli/service/result_print.go`. The kept directory it is to print
+needs a field on `Result`, in `internal/cli/service/setup.go`.
+
+**Step 1, the reproduction** (`m212/p4c_drive.py`, `m212/p4c_in.py`, session scratchpad).
+* Run in the runit and s6 images, local Podman, with the build of `5c499ad0`.
+* Two services of one product were set up, `mcremote-a` on port 17661 and `mcremote-b` on 17662,
+  each with its own config and data directory. Both log services render
+  `exec svlogd -tt '<home>/.local/state/mcremote/log'` (`s6-log T` on s6). Raw output:
+  `m212/p4c-<kind>.jsonl`.
+
+| After 8 s | runit | s6 |
+| :--- | :--- | :--- |
+| `mcremote-a`'s log service | "run: …/mcremote-a/log: (pid 19) 16s" | "up (pid 17 pgid 17) 10 seconds" |
+| `mcremote-b`'s log service | "down: …/mcremote-b/log: 1s, normally up, want up" | "down (exitcode 111) 0 seconds, normally up, want up" |
+| `svlogd` or `s6-log` processes | one, in `mcremote-a/log` | one, in `mcremote-a/log` |
+| the shared `current` | `mcremote-a`'s lines only (17661), none of `mcremote-b`'s | the same |
+
+* The reading is confirmed: the second logger cannot take the directory, and its supervisor
+  restarts it without end. The second daemon's output reaches no file.
+* The loggers' own messages were not captured: `podman logs` was empty in both.
+* **Not measured:** the second daemon writes into a pipe its supervisor holds open with no reader.
+  Once that pipe's buffer fills, about 64 KiB of output, the daemon may block on its own logging.
+
+### P4b Deviation 1, 2026-10-27 — how an existing install moves to its own directory. The owner decided: "Next start restarts the logger (Recommended)"
+
+* **Found while designing step 2.** An install from P4 or P5 runs a logger writing to
+  `<product>/log`. A refresh rewrites its `log/run` to `<product>/log/<unit>`. But a running logger
+  keeps the directory it started with.
+  * Neither of Magic's starts restarts it: they restart the daemon, and adopt a log service only
+    when none runs (P4 Deviation 3).
+  * The adapter's `Up` is in `supervisedbackend.go`, which postdates P4b's file list.
+* **The resolutions put to the owner:**
+  1. **Chosen:** setup's start and the adapter's `Up` restart the log service alone, with
+     `sv restart <dir>/log` or `s6-svc -r <dir>/log`.
+     * This happens only when `log/run` is newer than that service's start, read from the uptime
+       the state readers already parse.
+     * The daemon is untouched. The supervisor holds the pipe, so no output is lost.
+     * After one restart the times agree, so it does not run again.
+  2. The refresh restarts the logger when it rewrites `log/run`. Refresh would then no longer be
+     write-only, which amendment D's C3 relies on.
+  3. New installs only. Existing installs keep the shared directory until a
+     `setup-service --force`.
+* **Files added to P4b:** `internal/cli/service/supervisedbackend.go` and its tests.
+* **The log files under the old `<product>/log`** stay where they are, as removal keeps logs (owner
+  decision, 2026-10-27). The guide says where they are.
+
+### P4b, 2026-10-27: steps 2 to 4
+
+**What changed** (`supervisor.go` unless named):
+
+* **`unitLogDir`:** runit's and s6's `log/run` log into `$XDG_STATE_HOME/<product>/log/<unit>`.
+  * The unit's name is the service directory's.
+  * `mkdir -p -m 0700` names both the product's log directory and the unit's, so both are private,
+    as the single directory was.
+  * OpenRC's `<unit>.log` in the product's directory is unchanged.
+  * The goldens `runit.log-run.golden` and `s6.log-run.golden` changed in those two lines only.
+    P4's forms are kept as `*.log-run.p4.golden`, for the refresh test.
+* **`restartStaleLogService`** (Deviation 1) restarts the log service alone: `sv restart <dir>/log`
+  or `s6-svc -r <dir>/log`.
+  * It runs only when the logger is up and `log/run` is newer than its start: now, less the uptime
+    the readers parse.
+  * Setup's start calls it when it adopted nothing, and so does the adapter's `Up` on a service
+    that is down (`supervisedbackend.go`).
+* **`--remove` names the kept logs.**
+  * `keptLogs` finds the unit's directory, the product's (an install from before P4b), or OpenRC's
+    `<unit>.log`. It reads them from the definition's own pinned environment, before the
+    definition goes.
+  * `Result.KeptLogs` (`setup.go`) carries it, and `PrintRemoveResult` (`result_print.go`) prints
+    "Logs kept: <path> (delete them yourself when no longer needed)".
+* **The guide** gives the per-unit directory, why each unit needs its own, how an older install
+  moves, and the new `tail -f` paths.
+
+**The tests** (step 2):
+
+| Test | File | Pins |
+| :--- | :--- | :--- |
+| `TestEachUnitLogsIntoItsOwnDirectory` | `scriptdefs_unix_test.go` | two units, two directories, both made private; OpenRC's `<unit>.log` unchanged |
+| `TestRefreshMovesLogRunToTheUnitsDirectory` | the same | P4's `log/run` rewritten to the unit's directory; a second refresh unchanged |
+| `TestRestartStaleLogService` | the same | restarted when newer; not when older, when the logger is down, or with no log service; never the daemon's service |
+| `TestSetupRestartsAStaleLogService` | the same | setup's path: the log service restarted, then the daemon, as before |
+| `TestRemoveNamesTheKeptLogs` | the same | each kind: none named with no logs; the kept path named, and still there, with them |
+| `TestSupervisedUpRestartsAStaleLogService` | `supervisedbackend_unix_test.go` | `Up` restarts it on a service that is down, and not on one that is up |
+
+* `restartStaleLogService` is a variable for that last test. The fakes print one output per tool,
+  so they cannot show the daemon down and its logger up at once.
+* `TestSetupRunitRestartsThroughTheUsersSupervisor` and `TestSetupS6RescansAndRestarts` now see
+  the check's status read. Their logger is not up, so nothing is restarted.
+
+**Seen failing first** (`m212/p4bx_plants.py`). Ten plants, each on its own scratch copy, run on
+this Mac. All failed on their named tests:
+
+| Plant | The failure |
+| :--- | :--- |
+| one directory for every unit | "runit mcremote-a: log/run does not make and log into …/log/mcremote-a"; "both units' log/run are the same" |
+| the product's directory not made private | the same test: the `mkdir` line names only the unit's |
+| refresh leaves `log/run` | `TestRefreshMovesLogRunToTheUnitsDirectory/runit`: "log/run after the refresh" differs |
+| restart when older | "restartStaleLogService = false, <nil>; want true" and "= true … want false" |
+| restart a logger that is down | `…/runit_the_logger_not_up`: "= true, <nil>; want false" |
+| restart the daemon, not the logger | the calls show `sv restart <dir>`, not `<dir>/log` |
+| setup does not restart the logger | `TestSetupRestartsAStaleLogService`: the calls lack `sv restart …/log` |
+| `Up` does not restart the logger | "log service restarts [], want […/mcremote]" |
+| remove names no logs | "Remove: KeptLogs "", <nil>; want …/log/mcremote" |
+| the output omits them | "output … does not name …" |
+
+* **Three mistakes of mine, caught before they counted:**
+  * The first `TestRemoveNamesTheKeptLogs` wrote a file where the log directory goes.
+  * It also installed with `writeDefinition`, which pins a placeholder home. The fix installs
+    through `Setup` in a scratch home, as a real install does.
+  * `TestRestartStaleLogService`'s "logger not up" case would have passed with the up check
+    planted out: a down logger's start reads as now. Its `log/run` is now dated in the future.
+
+**Step 4, the containers** (`m212/p4d_drive.py`, `m212/p4d_in.py`). Builds: old, P5's `5c499ad0`;
+new, the working tree. Raw output: `m212/p4d-<kind>.jsonl`.
+
+| Check | runit | s6 |
+| :--- | :--- | :--- |
+| A: two services of one product at once | both loggers up (pids 19 and 43); `log/mcremote-a/current` has 17661 only, `log/mcremote-b/current` 17662 only; both directories and `log` 0700 | the same (pids 17 and 41) |
+| B: `--remove` of each | "Logs kept: …/log/mcremote-a" and "…/mcremote-b"; both directories still there | the same |
+| C: an install by P5's build, refreshed, then the update's cycle (`--from-installer`) | `log/run` rewritten to `log/mcremote`; the logger restarted (pid 86, then 126); the daemon replaced (87, then 129); `log/mcremote/current` has its lines; the old `log/current` kept | the same (95, then 144; daemon 94, then 134) |
+| H: the same, then `setup-service` with the new build | the logger restarted (160, then 189); `log/mcremote/current` has the daemon's lines; the old `log/current` kept | the same (176, then 209) |
+
+**Step 5, the gates** (`m212/p5_gates.py`, over the seven changed Go files and three records):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the seven Go files | "7 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, every file tracked | exit 0; 44 packages ok |
+| `internal/cli/service` and `internal/updateclient`, verbose, on the Linux test host | 662 `--- PASS` lines; no failure; one skip, the opt-in live `TestLiveReplaceFirstProbeFailure` |
+
+**P4b is complete** once the owner commits it. Next by this record: P6, the live tests in the tree,
+on the owner's word; then 0207's U6 (D22).

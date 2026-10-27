@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
 // The definitions of MADR 0212 D9-A and D10-A, and D15-A's reading of the
@@ -596,6 +598,208 @@ func TestSetupAdoptsALogServiceThenBringsItUp(t *testing.T) {
 			}
 			if calls := fakeCalls(t); !slices.Equal(calls, want) {
 				t.Fatalf("calls %v, want %v", calls, want)
+			}
+		})
+	}
+}
+
+// TestEachUnitLogsIntoItsOwnDirectory is the PLAN's P4b: two runit or s6
+// services of one product log into two directories below the product's, as
+// svlogd and s6-log each lock theirs (step 1 reproduced the second logging
+// nowhere). OpenRC's <unit>.log stays in the product's directory.
+func TestEachUnitLogsIntoItsOwnDirectory(t *testing.T) {
+	env := pinnedEnv()
+	logs := filepath.Join(env.XDGStateHome, "mcremote", "log")
+	for _, kind := range []Kind{KindRunit, KindS6} {
+		var bodies []string
+		for _, unit := range []string{"mcremote-a", "mcremote-b"} {
+			body := scriptAuxFor(kind, scriptDefFor(kind, unit, "/svc"), "mcremote", env)[0].body
+			dir := filepath.Join(logs, unit)
+			if !strings.Contains(body, "\nmkdir -p -m 0700 "+shq(logs)+" "+shq(dir)+" || exit 1\n") ||
+				!strings.HasSuffix(body, " "+shq(dir)+"\n") {
+				t.Errorf("%s %s: log/run does not make and log into %s:\n%s", kind, unit, dir, body)
+			}
+			bodies = append(bodies, body)
+		}
+		if bodies[0] == bodies[1] {
+			t.Errorf("%s: both units' log/run are the same", kind)
+		}
+	}
+	opts := parityOpts()
+	opts.UnitName = "mcremote-a"
+	body, err := renderScript(KindOpenRCUser, opts, &env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "\noutput_log=" + shq(filepath.Join(logs, "mcremote-a.log")) + "\n"; !strings.Contains(body, want) {
+		t.Errorf("OpenRC: no %q in:\n%s", want, body)
+	}
+}
+
+// TestRefreshMovesLogRunToTheUnitsDirectory is P4b: a refresh rewrites the
+// log/run P4 wrote, into the product's shared directory, to the unit's own,
+// and a second refresh changes nothing. *.log-run.p4.golden are P4's, kept
+// from before P4b.
+func TestRefreshMovesLogRunToTheUnitsDirectory(t *testing.T) {
+	for _, kind := range []Kind{KindRunit, KindS6} {
+		t.Run(string(kind), func(t *testing.T) {
+			root, bin := supervisorHost(t, kind)
+			recordSessionStarts(t)
+			if _, err := scriptSetup(t, root, bin, nil); err != nil {
+				t.Fatal(err)
+			}
+			def := scriptDefFor(kind, "mcremote", root)
+			logRun := logServiceDef(def).Path
+			if err := os.WriteFile(logRun, []byte(readGolden(t, string(kind)+".log-run.p4")), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			got, err := RefreshUnit(Options{Product: "mcremote", UnitDir: root}, RefreshOptions{})
+			if err != nil || got.Verdict != VerdictRefreshed {
+				t.Fatalf("refresh of P4's log/run: %+v, %v; want refreshed", got, err)
+			}
+			want := scriptAuxFor(kind, def, "mcremote", currentRenderEnv("mcremote"))[0].body
+			if b, _ := os.ReadFile(logRun); string(b) != want {
+				t.Fatalf("log/run after the refresh:\n%s", diffLines(want, string(b)))
+			}
+			if again, err := RefreshUnit(Options{Product: "mcremote", UnitDir: root}, RefreshOptions{}); err != nil ||
+				again.Verdict != VerdictUnchanged {
+				t.Fatalf("a second refresh: %+v, %v; want unchanged", again, err)
+			}
+		})
+	}
+}
+
+// TestRestartStaleLogService is P4b Deviation 1: the log service alone is
+// restarted when its run script is newer than its start, and not when it is
+// older, when the logger is not up, or when there is no log service.
+func TestRestartStaleLogService(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	prev := logClock
+	logClock = func() time.Time { return now }
+	t.Cleanup(func() { logClock = prev })
+	for _, kind := range []Kind{KindRunit, KindS6} {
+		up, down := "run: x/log: (pid 19) 100s", "down: x/log: 3s, normally up"
+		tool, restart := "sv", "sv restart "
+		if kind == KindS6 {
+			up, down = "true true true false 19 -1 100", "false false true false -1 0 3"
+			tool, restart = "s6-svstat", "s6-svc -r "
+		}
+		for _, tc := range []struct {
+			name    string
+			out     string
+			age     time.Duration // of log/run; 0 means no log/run
+			restart bool
+		}{
+			{"newer than the logger's start", up, 10 * time.Second, true},
+			{"older than the logger's start", up, 200 * time.Second, false},
+			// Newer than any start, so only the logger being down stops it.
+			{"the logger not up", down, -10 * time.Second, false},
+			{"no log service", up, 0, false},
+		} {
+			t.Run(string(kind)+" "+tc.name, func(t *testing.T) {
+				def := supervisedHost(t, kind)
+				fakeOutput(t, tool, tc.out)
+				logRun := logServiceDef(def).Path
+				if tc.age != 0 {
+					writeLogRun(t, def)
+					if err := os.Chtimes(logRun, now.Add(-tc.age), now.Add(-tc.age)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				got, err := restartStaleLogService(ctx, def)
+				if err != nil || got != tc.restart {
+					t.Fatalf("restartStaleLogService = %v, %v; want %v", got, err, tc.restart)
+				}
+				restarted := slices.Contains(fakeCalls(t), restart+logServiceDef(def).Dir)
+				if restarted != tc.restart {
+					t.Fatalf("calls %v; want a restart of the log service: %v", fakeCalls(t), tc.restart)
+				}
+				if slices.ContainsFunc(fakeCalls(t), func(c string) bool { return c == restart+def.Dir }) {
+					t.Fatalf("calls %v: the daemon's service was restarted", fakeCalls(t))
+				}
+			})
+		}
+	}
+}
+
+// TestSetupRestartsAStaleLogService is P4b Deviation 1 on setup's path: a
+// setup over a running install whose log/run it rewrote restarts the log
+// service, then restarts the daemon as before.
+func TestSetupRestartsAStaleLogService(t *testing.T) {
+	root, bin := supervisorHost(t, KindRunit)
+	recordSessionStarts(t)
+	fakeProc(t, []string{"/usr/bin/runsvdir", "-P", root})
+	def := scriptDefFor(KindRunit, "mcremote", root)
+	if err := os.MkdirAll(filepath.Join(def.Dir, "supervise"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(def.Dir, "supervise", "ok"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Both up for 100 s, so the log/run setup writes now is newer.
+	fakeOutput(t, "sv", "run: x: (pid 20) 100s")
+	if _, err := scriptSetup(t, root, bin, nil); err != nil {
+		t.Fatal(err)
+	}
+	log := def.Dir + "/log"
+	want := []string{"sv status " + def.Dir, "sv status " + log, "sv status " + log, "sv restart " + log, "sv restart " + def.Dir}
+	if calls := fakeCalls(t); !slices.Equal(calls, want) {
+		t.Fatalf("calls %v, want %v", calls, want)
+	}
+}
+
+// TestRemoveNamesTheKeptLogs is the owner's decision recorded in the PLAN's
+// P4b: --remove keeps the logs and says where they are; with none, it says
+// nothing about them.
+func TestRemoveNamesTheKeptLogs(t *testing.T) {
+	for _, kind := range scriptKinds {
+		t.Run(string(kind), func(t *testing.T) {
+			// A scratch home: the logs are found from the environment setup
+			// pins in the definition, which is this process's.
+			uninstallHost(t, "linux")
+			fakeHost(t, fakeStub(t), map[string]map[string]int{
+				"sv": {}, "s6-svc": {}, "s6-svscanctl": {}, "s6-svstat": {}, "rc-service": {}, "rc-update": {}, "openrc": {},
+			})
+			t.Cleanup(OverrideDetectedKind(kind))
+			bin := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "mcremote"), "")
+			setup := func() {
+				t.Helper()
+				o := Options{Product: "mcremote", Binary: bin, NoStart: true, NoEnable: true,
+					ConfigPath: filepath.Join(t.TempDir(), "config.yaml")}
+				if _, err := Setup(o); err != nil {
+					t.Fatal(err)
+				}
+			}
+			setup()
+			if res, err := Remove(Options{Product: "mcremote"}); err != nil || res.KeptLogs != "" {
+				t.Fatalf("with no logs: %+v, %v; want no kept logs", res, err)
+			}
+			setup()
+			renv := currentRenderEnv("mcremote")
+			kept := unitLogDir("mcremote", "mcremote", renv)
+			if kind == KindOpenRCUser {
+				kept = filepath.Join(scriptLogDir("mcremote", renv), "mcremote.log")
+				if err := os.MkdirAll(filepath.Dir(kept), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(kept, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.MkdirAll(kept, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			res, err := Remove(Options{Product: "mcremote"})
+			if err != nil || res.KeptLogs != kept {
+				t.Fatalf("Remove: KeptLogs %q, %v; want %s", res.KeptLogs, err, kept)
+			}
+			if _, err := os.Stat(kept); err != nil {
+				t.Fatalf("the logs at %s went: %v", kept, err)
+			}
+			var out strings.Builder
+			PrintRemoveResult(&out, res, "daemon")
+			if !strings.Contains(out.String(), "Logs kept:         "+kept) {
+				t.Fatalf("output %q does not name %s", out.String(), kept)
 			}
 		})
 	}

@@ -103,9 +103,10 @@ func newSupervisedBackend(kind Kind, name string, h HealthOptions, product, unit
 //     does: after a logout or a reboot the session's runsvdir, s6-svscan or
 //     OpenRC user session is gone. A new scanner starts the service itself.
 //   - On runit and s6, a service that is down has its log service adopted
-//     first, when a refresh added it (MADR 0212 D21; P4 Deviations 3 and 4).
-//     One that is up is left alone: that is the adapter's restore after a
-//     failed stop, and the daemon there still runs.
+//     first, when a refresh added it (MADR 0212 D21; P4 Deviations 3 and 4),
+//     or restarted alone, when a refresh moved it to the unit's own
+//     directory (P4b Deviation 1). One that is up is left alone: that is the
+//     adapter's restore after a failed stop, and the daemon there still runs.
 //   - Then the up command.
 //
 // It can run again: an adopted log service is not adopted twice, and the up
@@ -122,8 +123,16 @@ func supervisedUp(ctx context.Context, def scriptDef, name string) error {
 			return err
 		}
 		if obs, err := observe(ctx, def.Kind, def, name); err == nil && obs.state.Supervised && !obs.state.Up {
-			if _, err := adoptLogService(ctx, def); err != nil {
+			adopted, err := adoptLogService(ctx, def)
+			if err != nil {
 				return err
+			}
+			// A log service a refresh moved to the unit's own directory
+			// (MADR 0212 PLAN P4b Deviation 1).
+			if !adopted {
+				if _, err := restartStaleLogService(ctx, def); err != nil {
+					return err
+				}
 			}
 		}
 		_, err := up.run(ctx)

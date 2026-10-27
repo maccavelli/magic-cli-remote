@@ -106,6 +106,9 @@ type Result struct {
 	// refresh keeps and which can hold --env secrets; empty when there was
 	// none (MADR 0210 D9).
 	RemovedBackup string
+	// KeptLogs is where a removed runit, s6 or OpenRC service's logs stay;
+	// Remove keeps them (MADR 0212 PLAN P4b). Empty when there are none.
+	KeptLogs string
 	// ConfigPath is the config file path used/ensured for this product.
 	ConfigPath string
 	// ConfigCreated is true when setup wrote a new default config.yaml.

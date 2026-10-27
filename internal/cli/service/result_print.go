@@ -9,11 +9,15 @@ import (
 
 // PrintRemoveResult writes what --remove did, for mcremote ("daemon") or
 // mcrelay ("relay"): the definition, the backup it deleted when there was one
-// (MADR 0210 D9), and what was stopped.
+// (MADR 0210 D9), the logs it kept (MADR 0212 PLAN P4b), and what was
+// stopped.
 func PrintRemoveResult(out io.Writer, res Result, what string) {
 	fmt.Fprintf(out, "Removed:           %s\n", res.UnitPath)
 	if res.RemovedBackup != "" {
 		fmt.Fprintf(out, "Removed backup:    %s\n", res.RemovedBackup)
+	}
+	if res.KeptLogs != "" {
+		fmt.Fprintf(out, "Logs kept:         %s (delete them yourself when no longer needed)\n", res.KeptLogs)
 	}
 	fmt.Fprintf(out, "The %s was stopped and the service disabled.\n", what)
 }

@@ -231,11 +231,19 @@ func shWords(words []string) string {
 	return strings.Join(q, " ")
 }
 
-// scriptLogDir is where a runit, s6 or OpenRC service of product logs, as
-// the systemd unit's journal stands in for: $XDG_STATE_HOME/<product>/log
-// (MADR 0212 D9-A, D10-A).
+// scriptLogDir is where the services of product log, as the systemd unit's
+// journal stands in for: $XDG_STATE_HOME/<product>/log (MADR 0212 D9-A,
+// D10-A). OpenRC writes <unit>.log there; runit and s6 log into a directory
+// of each unit's own below it (unitLogDir).
 func scriptLogDir(product string, renv renderEnv) string {
 	return filepath.Join(renv.XDGStateHome, product, "log")
+}
+
+// unitLogDir is the directory a runit or s6 service named unit logs into:
+// one per unit, since svlogd and s6-log each lock theirs, and a second
+// service of the product would otherwise log nowhere (the PLAN's P4b step 1).
+func unitLogDir(product, unit string, renv renderEnv) string {
+	return filepath.Join(scriptLogDir(product, renv), unit)
 }
 
 // shellWords splits one line the way renderScript quotes it: whitespace
@@ -493,7 +501,7 @@ type scriptAux struct {
 // scriptAuxFor is kind's files beside def, for product's environment.
 //
 //   - log/run: the service's own logger, svlogd for runit and s6-log for s6,
-//     into scriptLogDir. The run script's output, 2>&1, is its input, as the
+//     into unitLogDir. The run script's output, 2>&1, is its input, as the
 //     unit's goes to the journal.
 //   - timeout-kill, for s6: s6 kills a daemon still alive 45000 ms after
 //     s6-svc -d (P1: 45.3 s). runit has no such file; its kill is the
@@ -507,6 +515,7 @@ func scriptAuxFor(kind Kind, def scriptDef, product string, renv renderEnv) []sc
 		logger = "s6-log T"
 	}
 	marker := managedMarker(product)
+	logDir := unitLogDir(product, filepath.Base(def.Dir), renv)
 	logRun := scriptAux{
 		path: filepath.Join(def.Dir, "log", "run"),
 		body: "#!/bin/sh\n" + marker + "\n# Do not hand-edit if you re-run setup (use --force to overwrite).\n" +
@@ -514,8 +523,10 @@ func scriptAuxFor(kind Kind, def scriptDef, product string, renv renderEnv) []sc
 			"PATH=" + toolPath + "\nexport PATH\n" +
 			// Made at each start, so a log directory removed since still
 			// logs, and setup writes nothing outside the definition.
-			"mkdir -p -m 0700 " + shq(scriptLogDir(product, renv)) + " || exit 1\n" +
-			"exec " + logger + " " + shq(scriptLogDir(product, renv)) + "\n",
+			// Both named, so the product's log directory is private too, as
+			// it was when the unit logged into it.
+			"mkdir -p -m 0700 " + shq(filepath.Dir(logDir)) + " " + shq(logDir) + " || exit 1\n" +
+			"exec " + logger + " " + shq(logDir) + "\n",
 		mode: 0o755,
 		managed: func(s string) bool {
 			lines := strings.SplitN(s, "\n", 3)
@@ -779,6 +790,52 @@ func adoptLogService(ctx context.Context, def scriptDef) (bool, error) {
 	return true, nil
 }
 
+// logClock is the time restartStaleLogService compares a log service's start
+// with. It is a variable for tests.
+var logClock = time.Now
+
+// restartStaleLogService restarts the log service beside def, and only it,
+// when its run script is newer than that service's start, and reports
+// whether it did. A refresh moves log/run to the unit's own directory (the
+// PLAN's P4b), and a running logger keeps the directory it started with.
+//
+// The daemon is not touched: its supervisor holds the pipe to the logger, so
+// nothing written meanwhile is lost. A log service that is not up restarts on
+// its own, with the new script, and one with no supervisor is
+// adoptLogService's. Once restarted, the script is no longer newer, so a
+// second call does nothing (P4b Deviation 1). It is a variable for tests.
+var restartStaleLogService = func(ctx context.Context, def scriptDef) (bool, error) {
+	if def.Kind != KindRunit && def.Kind != KindS6 {
+		return false, nil
+	}
+	logDef := logServiceDef(def)
+	fi, err := os.Stat(logDef.Path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	obs, err := observe(ctx, def.Kind, logDef, "")
+	if errors.Is(err, libservice.ErrNoSupervisor) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !obs.state.Up || !fi.ModTime().After(logClock().Add(-obs.uptime)) {
+		return false, nil
+	}
+	restart := toolFor(def.Kind, logDef.Dir, "sv", "restart", logDef.Dir)
+	if def.Kind == KindS6 {
+		restart = toolFor(def.Kind, logDef.Dir, "s6-svc", "-r", logDef.Dir)
+	}
+	if _, err := restart.run(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // startScript enables and starts an installed definition.
 //
 // runit and s6 enable a service by its directory having no `down` file. They
@@ -843,6 +900,8 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 				if def.Kind == KindS6 {
 					ctl = toolFor(def.Kind, def.Dir, "s6-svc", "-u", def.Dir)
 				}
+			} else if _, err := restartStaleLogService(context.Background(), def); err != nil {
+				return res, fmt.Errorf("definition installed at %s, but its log service was not restarted: %w", def.Path, err)
 			}
 			if _, err := runBounded(ctl); err != nil {
 				return res, fmt.Errorf("definition installed at %s, but %s failed: %w", def.Path,
@@ -866,10 +925,39 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 	return res, fmt.Errorf("no script definition for %s", def.Kind)
 }
 
+// keptLogs is where the logs of kind's service unit stay after its removal,
+// which keeps them, as a removed systemd unit keeps its journal (owner
+// decision, the PLAN's P4b): its own directory on runit and s6, or the
+// product's for an install from before P4b; its <unit>.log on OpenRC. The
+// environment is the definition's own, as setup pinned it. Empty when there
+// are none.
+func keptLogs(kind Kind, def scriptDef, product, unit string) string {
+	renv := currentRenderEnv(product)
+	if body, err := os.ReadFile(def.Path); err == nil {
+		if rec, _, ok := recoverScript(kind, product, unit, string(body)); ok {
+			renv = rec.Env
+		}
+	}
+	candidates := []string{unitLogDir(product, unit, renv), filepath.Join(scriptLogDir(product, renv), "current")}
+	if kind == KindOpenRCUser {
+		candidates = []string{filepath.Join(scriptLogDir(product, renv), unit+".log")}
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			if filepath.Base(p) == "current" {
+				return filepath.Dir(p)
+			}
+			return p
+		}
+	}
+	return ""
+}
+
 // removeScript stops, disables and deletes kind's definition.
 func removeScript(kind Kind, opts Options) (Result, error) {
 	def := scriptDefFor(kind, opts.UnitName, opts.UnitDir)
 	res := Result{UnitName: opts.UnitName, UnitPath: def.Path, Scope: string(kind), Label: opts.UnitName}
+	res.KeptLogs = keptLogs(kind, def, opts.Product, opts.UnitName)
 	switch kind {
 	case KindRunit, KindS6:
 		// The supervisor keeps writing into supervise/ while it runs, which

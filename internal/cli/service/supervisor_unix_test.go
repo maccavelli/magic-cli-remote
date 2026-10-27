@@ -324,8 +324,9 @@ func TestSetupRunitRestartsThroughTheUsersSupervisor(t *testing.T) {
 	}
 	// The status first notes the process the restart replaces (PLAN S5c). The
 	// log service answers, so there is nothing to adopt (0212 PLAN P4
-	// Deviation 3).
-	want := []string{"sv status " + def.Dir, "sv status " + def.Dir + "/log", "sv restart " + def.Dir}
+	// Deviation 3); it is not up, so there is no stale logger to restart
+	// (P4b Deviation 1).
+	want := []string{"sv status " + def.Dir, "sv status " + def.Dir + "/log", "sv status " + def.Dir + "/log", "sv restart " + def.Dir}
 	if calls := fakeCalls(t); !slices.Equal(calls, want) || !res.Started {
 		t.Fatalf("calls %v, started %v; want %v", calls, res.Started, want)
 	}
@@ -356,10 +357,16 @@ func TestSetupS6RescansAndRestarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	s6Logged(t)
+	// Down, as the fake reports every service: no stale logger to restart
+	// (0212 PLAN P4b Deviation 1).
+	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "s6-svstat.out"), []byte("false false true false -1 0 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := scriptSetup(t, root, bin, nil); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"s6-svscanctl -a " + root, "s6-svstat -o " + s6Fields + " " + def.Dir, "s6-svc -r " + def.Dir, "s6-svc -u " + def.Dir}
+	status := "s6-svstat -o " + s6Fields + " "
+	want := []string{"s6-svscanctl -a " + root, status + def.Dir, status + def.Dir + "/log", "s6-svc -r " + def.Dir, "s6-svc -u " + def.Dir}
 	if calls := fakeCalls(t); !slices.Equal(calls, want) || len(*starts) != 0 {
 		t.Fatalf("calls %v, starts %v; want %v", calls, *starts, want)
 	}

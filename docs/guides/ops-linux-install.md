@@ -183,8 +183,15 @@ D10-A). The definitions give these supervisors what the systemd unit has:
 
 - **Logs** go to `~/.local/state/mcremote/log` (`mcrelay` for the relay).
   runit and s6 run a log service beside the daemon, `svlogd` or `s6-log`,
-  which writes `current` there and rotates it. OpenRC writes
-  `mcremote.log` there.
+  which writes `current` into a directory of the service's own,
+  `log/<unit>` (`log/mcremote` by default), and rotates it. Each logger locks
+  its directory, so a second service of the product, under another
+  `--unit-name`, needs its own. OpenRC writes `<unit>.log` in `log`.
+- **Logs from before this layout** stay in `log` itself. An install that logged
+  there moves to `log/<unit>` with its next update or `setup-service`: the
+  refresh rewrites `log/run`, and the next start restarts the log service
+  alone, not the daemon. `setup-service --remove` keeps the logs too, and
+  names where they are.
 - **A daemon that ignores its stop** is killed 45 seconds after it on s6, which
   kills it itself, and on OpenRC, whose stop sends `TERM`, waits 45 seconds,
   then sends `KILL`. runit has no such setting; end one with
@@ -232,12 +239,12 @@ launchctl kickstart -k gui/$(id -u)/com.magiccliremote.mcremote
 
 # runit
 SVDIR=~/.local/share/runit/service sv status|up|down mcremote
-tail -f ~/.local/state/mcremote/log/current
+tail -f ~/.local/state/mcremote/log/mcremote/current
 
 # s6
 s6-svstat ~/.local/share/s6/service/mcremote      # status ("up (pid N) …")
 s6-svc -u|-d ~/.local/share/s6/service/mcremote   # bring up / take down
-tail -f ~/.local/state/mcremote/log/current
+tail -f ~/.local/state/mcremote/log/mcremote/current
 
 # OpenRC user service
 rc-service --user mcremote status|restart|stop

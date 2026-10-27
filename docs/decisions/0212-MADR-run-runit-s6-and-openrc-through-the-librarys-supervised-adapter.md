@@ -709,7 +709,10 @@ Its findings are cited here as B1 to B12, and its recommendations as R1 to R10.
 
 * **D9-A.** Parity with the unit:
   * a `log/run` service directory, `svlogd` for runit and `s6-log` for s6, writing to
-    `$XDG_STATE_HOME/<product>/log`;
+    `$XDG_STATE_HOME/<product>/log`; *amended 2026-10-27 by the owner (the PLAN's P4b): to
+    `$XDG_STATE_HOME/<product>/log/<unit>`, since two services of one product sharing one
+    directory left the second unlogged. An existing install moves at Magic's next start, which
+    restarts only the log service when its run script is newer than its start (P4b Deviation 1);*
   * for s6, a `timeout-kill` file of 45000 ms, so s6 itself kills a daemon still alive 45 s after
     `s6-svc -d`;
   * for runit, which has no such file, `Kill` (`sv kill <dir>`) passed to the adapter in stage 2.

@@ -281,6 +281,54 @@ func TestSupervisedUpAdoptsALogService(t *testing.T) {
 	}
 }
 
+// TestSupervisedUpRestartsAStaleLogService is the PLAN's P4b Deviation 1 on
+// the update's path: Up, on a service that is down and whose log service
+// needs no adoption, restarts a log service a refresh moved, then brings the
+// service up. On a service that is up, the restore, it does not.
+func TestSupervisedUpRestartsAStaleLogService(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range []Kind{KindRunit, KindS6} {
+		for _, up := range []bool{false, true} {
+			t.Run(string(kind)+map[bool]string{false: " down", true: " up"}[up], func(t *testing.T) {
+				def := supervisedHost(t, kind)
+				t.Cleanup(OverrideSupervisorWatching(func(string, string) bool { return true }))
+				writeLogRun(t, def)
+				switch {
+				case kind == KindRunit && up:
+					fakeOutput(t, "sv", "run: "+def.Dir+": (pid 4242) 40s")
+				case kind == KindRunit:
+					fakeOutput(t, "sv", "down: "+def.Dir+": 1s, normally up")
+				case up:
+					fakeOutput(t, "s6-svstat", "true true true false 4242 -1 40")
+				default:
+					fakeOutput(t, "s6-svstat", "false false true false -1 0 1")
+				}
+				// The logger runs and the daemon writes to it: nothing to adopt.
+				adoptionSeams(t, "", "")
+				logServiceSupervised = func(context.Context, scriptDef) (bool, error) { return true, nil }
+				s6LoggerConnected = func(scriptDef) bool { return true }
+				var restarts []string
+				prev := restartStaleLogService
+				restartStaleLogService = func(_ context.Context, d scriptDef) (bool, error) {
+					restarts = append(restarts, d.Dir)
+					return true, nil
+				}
+				t.Cleanup(func() { restartStaleLogService = prev })
+				if err := supervisedUp(ctx, def, "mcremote"); err != nil {
+					t.Fatal(err)
+				}
+				want := []string{def.Dir}
+				if up {
+					want = nil
+				}
+				if !slices.Equal(restarts, want) {
+					t.Fatalf("log service restarts %v, want %v", restarts, want)
+				}
+			})
+		}
+	}
+}
+
 // TestSupervisedCommandsPrintNothing: the update's stdout carries only
 // --json's output, so a supervisor tool's chatter never reaches it.
 func TestSupervisedCommandsPrintNothing(t *testing.T) {
