@@ -1781,6 +1781,34 @@ copy of the working tree. All eleven fail on their named tests:
 | `go test -race -count=1 ./...` on the Linux test host | exit 0; 44 packages ok |
 | U8's tests on the Linux test host, verbose | all pass; `TestSocketSends/abstract` runs there, where macOS skips it. The copy was deleted |
 
-**Not done in U8 yet.** Step 4, on the owner's word: on the Linux test host, a scratch mcrelay unit
-rendered by this tree, where `systemctl --user start` returns after `READY=1`, and `systemctl --user
-stop` leaves `STOPPING=1` in the journal.
+### U8 step 4, 2026-10-26: a scratch mcrelay unit on the Linux test host. The owner said: "you may run the linux host check"
+
+`m207u8/u8_linux.py`, which drives `u8_host.py` on the host, session scratchpad.
+
+* **Binaries.** It built two linux/amd64 mcrelay binaries:
+  * U8's, from the owner's commit of U8, `2d6efd62`;
+  * a control from `dc97fb01`, the commit before U8, which sends no `READY=1`.
+* **The unit.** U8's own `mcrelay setup-service --print-only` rendered a user unit named
+  `mcrelay-u8probe`, a name nothing else uses. It runs on loopback with TLS off, at `--log-level
+  debug` so each send is logged, and with its config and data in a scratch kit.
+* **Cleanup.** It ran whatever happened, and the kit was deleted after the unit was confirmed gone.
+
+| Step | Result |
+| :--- | :--- |
+| the rendered unit | has `Type=notify`, `TimeoutStartSec=240`, `--log-level debug` and its port |
+| `systemctl --user show`, once it started | `Type=notify`, `NotifyAccess=main`, `TimeoutStartUSec=4min`, `active`/`running` |
+| `systemctl --user start` | exit 0 after 0.106 s. The journal logged "sd_notify sent … state="READY=1"" 0.102 s after the start began, and the start returned 0.004 s after that |
+| the listener, as the start returned | accepted a connection |
+| `systemctl --user stop` | exit 0 after 0.027 s, `inactive`, `Result=success`. "sd_notify sent … state="STOPPING=1"" was logged 0.011 s after the stop began |
+| control: the `dc97fb01` binary in the same unit, with a 5 s `TimeoutStartSec` drop-in | exit 1 after 5.145 s, `Result=timeout`, still `activating`: "Job for mcrelay-u8probe.service failed because a timeout was exceeded." |
+| clean | the unit and the drop-in removed, the manager reloaded and reset; `systemctl --user cat` no longer knows the unit |
+
+* **The control is what makes the first rows mean something.** A unit that ignored `READY=1` would
+  report `active` as early. Without `READY=1`, this unit's start waited out its timeout and failed.
+* **A mistake in the first run, fixed.** The first run built the control from `HEAD`, which was
+  already the owner's commit of U8. That control sent `READY=1`, went `active`, and the control step
+  failed. The driver now names `dc97fb01`, and the run above is the second, complete one. The first
+  run also cleaned up, and its notify rows matched the second's.
+
+With this, U8's five steps are done. U8 is complete once the next CI run on `2d6efd62` passes. Of
+this plan's phases, only U6 remains, which waits for 0212's P3. The plan stays `in-progress`.
