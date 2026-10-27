@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-10-25
+date: 2026-10-26
 associated-madr: "0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -83,6 +83,20 @@ D18. The owner asked for this plan, verbatim: "U1b, then write 0212 PLAN".
 | `IsInstalled` builds a backend | `control.go:23`, `:45` |
 | Both `main`s complete the handoff hop first | `cmd/mcremote/main.go:24`, `cmd/mcrelay/main.go:25` |
 | The adapter refuses `KillAfter` without `Kill` | library `selfupdate/service/supervised.go:170-177` at `v1.22.0` |
+
+*Re-read 2026-10-26, at `95ca8b91`, before approval.* 0207's U3b, U4, U5 and U8 have landed since
+`793b8f5b`. Every fact above still holds. Only these locations moved:
+
+* `IsInstalled` is at `control.go:44`, and builds the script backend at `:66` (U5 added the launchd
+  status reader above it).
+* `readServeArgs` is at `health.go:71`. On Linux it still reads only the systemd unit.
+* The samplers are at `settle.go:203-217`, and the status expressions at `:182-191`.
+* P5's help text is the update command's `Long`, at `internal/updateclient/client.go:355-356`
+  ("Under runit, s6 and OpenRC it refuses before downloading …"). `:290-294` is now a comment on
+  `insiderFor`.
+* G2, 0207 U3b's definition guard, landed in `internal/cli/service/definitions_once_test.go`. It
+  covers today's runit, s6 and OpenRC forms (`:88-94`), so P4 adds the new forms there, as "Order
+  across plans" provides.
 
 ## Implementation Steps
 
@@ -195,7 +209,8 @@ samplers' calls only); `testdata/` as needed; this plan.
 
 **Files:** `supervisor.go` (`renderScript`, `recoverScript`, `setupScript`, `removeScript`), their
 tests, `testdata/` goldens; `docs/guides/ops-linux-install.md`; the 0207 U3b definition guard, if
-U3b has landed; this plan.
+U3b has landed; this plan. *Re-read 2026-10-26:* U3b has landed, and its guard is
+`definitions_once_test.go`.
 
 1. **Tests first:**
    * **runit and s6:** a `log/run` service directory, `svlogd` for runit and `s6-log` for s6, into
@@ -218,7 +233,8 @@ U3b has landed; this plan.
 
 **Files:** `backend.go`, a new `supervisedbackend.go` and its test, `control.go`, `scriptbackend.go`
 and `scriptbackend_inside_linux.go` (deleted), their tests; `internal/updateclient/client.go`
-(the help text at `:290-294`); `docs/guides/ops-linux-install.md`; this plan.
+(the help text at ~~`:290-294`~~ `:355-356`, re-read 2026-10-26); `docs/guides/ops-linux-install.md`;
+this plan.
 
 1. **Tests first:**
    * Each kind's `SupervisedOptions` are accepted by `NewSupervised`. Plant: `KillAfter` set on s6
@@ -305,3 +321,8 @@ MADR's status.
 ## Execution record
 
 Not started. The plan waits for the owner's approval, after 0207's U1b.
+
+*2026-10-26:* 0207's U1b, U3, U3b, U4, U5 and U8 are done, and U7 is retired here. The facts were
+re-read at `95ca8b91` (the note under the facts table). The plan still waits for the owner's
+approval. P1 needs the owner's word for its container and host runs, and the 0210 kit's three
+containers on the Linux test host, which were last used in 0207 U3b step 5.
