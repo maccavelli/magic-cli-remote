@@ -240,7 +240,39 @@ U3b has landed; this plan. *Re-read 2026-10-26:* U3b has landed, and its guard i
      Magic wrote.
 4. Gates.
 
+### P4b — A log directory per unit (owner decision, 2026-10-27; proposed)
+
+*Added 2026-10-27 at the owner's word: "Commit P4, then a P4b phase". Runs after the owner commits
+P4, on approval of this phase.*
+
+**Why.** runit's and s6's `log/run` write into `$XDG_STATE_HOME/<product>/log`, one directory per
+product (`scriptLogDir`). Two services of one product (two `--unit-name`s) would run two loggers
+there, and the second could not take its lock. This was found by reading the code, and step 1
+reproduces it before any fix. OpenRC writes `<unit>.log`, one file per unit, and is unaffected.
+
+**Files:** `supervisor.go` (`scriptLogDir`, `scriptAuxFor`, `recoverScript` if the path is read
+back, `removeScript`'s result), the CLI's removal output (`internal/cli/setup_service.go` or the
+result printer it calls, named at the phase's start), their tests, `testdata/definitions/`
+goldens, `docs/guides/ops-linux-install.md`, this plan.
+
+1. **Reproduce, in the runit and s6 containers, on the owner's word:** two services of one
+   product, both running at once, under P4. Record what each logger does.
+2. **Tests first:**
+   * runit and s6 log into `$XDG_STATE_HOME/<product>/log/<unit>/`. OpenRC's `<unit>.log` stays.
+   * A refresh moves an install's `log/run` from P4's path onto the new one, and `Unchanged`
+     holds after.
+   * `--remove` keeps the log files and names the kept directory in its output (owner decision
+     2026-10-27, "Keep them").
+3. **Code** as tested.
+4. **Containers, on the owner's word:** two units of one product running at once, each logging to
+   its own directory; a refresh from P4's path, adopted by the next start.
+5. Gates.
+
 ### P5 — The adapter (stage 2; D3-B, D5-B, D17, D6-A)
+
+*Held 2026-10-27 by the owner, until an assessment of moving the service stack out of Magic and into
+go-selfupdate-lib, and the decision it leads to. See the owner decisions of 2026-10-27 in the
+execution record.*
 
 **Files:** `backend.go`, a new `supervisedbackend.go` and its test, `control.go`, `scriptbackend.go`
 and `scriptbackend_inside_linux.go` (deleted), their tests; `internal/updateclient/client.go`
@@ -1285,6 +1317,25 @@ Every container was removed, and the Podman machine stopped again.
 | P4's tests, the new ones included, and the script-kind setup, refresh, remove, backend and update tests, on the Linux test host, verbose | 112 `--- PASS` lines, tests and subtests; no failure or skip |
 | the `eval` check under the Linux test host's `/bin/sh` | exit 0. The copy was deleted |
 
-**P4 is complete** once the owner commits it. Still open for the owner, from P4 steps 1 and 2:
-whether `--remove` should also delete the log files, which it now keeps. Before P5, the pin to the
-library's `v1.22.1` is proposed. P5's adapter carries Deviation 3's adoption into its start command.
+**P4 is complete** once the owner commits it.
+
+### Owner decisions, 2026-10-27, on the questions P4 left open
+
+* **`--remove` and the log files: "Keep them".** Removal keeps `$XDG_STATE_HOME/<product>/log`, as
+  a removed systemd unit keeps its journal. Its output is to name the kept directory, and the guide
+  how to delete it. That lands in P4b.
+* **The library pin: "Pin v1.22.1 first".** P5 starts by moving the pin to go-selfupdate-lib
+  `v1.22.1` once its owner tags it, after the tag's contents are checked. `v1.22.0`'s
+  `Supervised.Stop` restores the service on a spent context and leaves it down (the library's 0035
+  amendment A3). The MADR's D8 is to be amended with P5.
+* **The log directory: a per-unit directory, in a P4b phase after P4's commit.** See P4b above.
+* **How P5 keeps the log-service adoption on the update path: held.**
+  * First answer: "Ask the library for a hook".
+  * Then I found that `SupervisedOptions.Up` is already a function Magic supplies. The adapter's
+    `Start` calls it, as does its restore after a failed stop (go-selfupdate-lib
+    `selfupdate/service/supervised_lifecycle.go:112` and `:174`, read-only). I put that to the
+    owner.
+  * The owner's answer, verbatim: "we need to look at this from the perspective of moving the
+    service stack out of magic and into the selfupdate library."
+  * So P5 is held until that assessment, and the decision it leads to, which may change this
+    record's direction. P4 and P4b stand either way: they change what Magic writes today.
