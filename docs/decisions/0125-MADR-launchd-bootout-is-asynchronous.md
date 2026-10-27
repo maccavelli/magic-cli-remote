@@ -172,6 +172,16 @@ definition on disk is byte-identical to what is wanted and the job is loaded,
 `kickstart -k` and do not bootout at all. This removes the window entirely for
 the common `update` case, where only the binary changed.
 
+*Note, 2026-10-27, from
+[0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
+amendment F, D43, decided by the owner:* setup-service no longer restarts in place.
+The update stopped doing so earlier, when it moved to go-selfupdate-lib's
+`launchd.Job` (0054). Setup now does as the update does: `Job.Stop`, which boots
+the job out and waits until it and its process are gone (D1, in the library),
+then `Job.Start`. `Job.Start` retries `bootstrap`'s 5 and 37 only after that
+wait, so D6's objection, a retry in place of a wait, does not apply. D7 still
+holds: the owner's Mac confirms it.
+
 **D5 — A failed operation must leave the service running or report that it
 could not.** The rollback restart must use the same D1 wait, and its failure
 must reach the user rather than a log line. "Rolled back and stopped" is a

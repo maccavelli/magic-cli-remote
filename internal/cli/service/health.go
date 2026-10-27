@@ -67,8 +67,11 @@ var (
 )
 
 // readServeArgs recovers the serve arguments from product's definition, with
-// the refresh's own parsers, so the probe looks where the service runs.
-func readServeArgs(product, unitName string) (ServeArgs, string, error) {
+// the refresh's own parsers, so the probe looks where the service runs. On
+// Linux, kind says which definition; empty means the recorded backend's. Setup
+// passes the kind it set up, which a record from an earlier setup can
+// contradict (MADR 0207 D40).
+func readServeArgs(kind Kind, product, unitName string) (ServeArgs, string, error) {
 	if unitName == "" {
 		var err error
 		if unitName, err = ResolveUnitName(product); err != nil {
@@ -86,9 +89,12 @@ func readServeArgs(product, unitName string) (ServeArgs, string, error) {
 	)
 	switch osName {
 	case "linux":
+		if kind == "" {
+			kind, _ = ResolveBackend(product)
+		}
 		// runit, s6 and OpenRC: the script definition, read by the parser
 		// the refresh uses (MADR 0212 D4-A).
-		if kind, err := ResolveBackend(product); err == nil && kind.isScriptKind() {
+		if kind.isScriptKind() {
 			def := scriptDefFor(kind, unitName, "")
 			body, err := os.ReadFile(def.Path)
 			if err != nil {
@@ -147,17 +153,18 @@ func readServeArgs(product, unitName string) (ServeArgs, string, error) {
 	}, "", nil
 }
 
-// backendProbe is h.Probe for product's backend. It reads the definition on
-// each check, so it follows the one the update has just refreshed. A
-// definition whose arguments cannot be recovered gets no application check:
-// probing the defaults instead could fail every update of a service that does
-// not run with them (MADR 0054 amendment S8, S1).
-func (h HealthOptions) backendProbe(product, unitName string) libservice.HealthProbe {
+// backendProbe is h.Probe for product's backend of kind. It reads the
+// definition on each check, so it follows the one the update has just
+// refreshed, or setup has just written. A definition whose arguments cannot be
+// recovered gets no application check: probing the defaults instead could fail
+// every update of a service that does not run with them (MADR 0054 amendment
+// S8, S1).
+func (h HealthOptions) backendProbe(kind Kind, product, unitName string) libservice.HealthProbe {
 	if h.Probe == nil {
 		return nil
 	}
 	return func(ctx context.Context) (libservice.Health, error) {
-		args, why, err := installedServeArgs(product, unitName)
+		args, why, err := installedServeArgs(kind, product, unitName)
 		if err != nil {
 			return libservice.Health{}, err
 		}
@@ -177,7 +184,7 @@ func (h HealthOptions) backendRequestStop(product, unitName string) func(context
 		return nil
 	}
 	return func(ctx context.Context, _ uint32) error {
-		args, why, err := installedServeArgs(product, unitName)
+		args, why, err := installedServeArgs(KindWindowsTask, product, unitName)
 		if err != nil {
 			return err
 		}

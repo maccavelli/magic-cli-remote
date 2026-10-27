@@ -29,6 +29,13 @@ func updateHealth() service.HealthOptions {
 	return service.HealthOptions{Probe: healthzProbe}
 }
 
+// SetupHealth is the same wiring, for the relay mcremote's setup-service sets
+// up beside its own (MCREMOTE_WITH_RELAY_SERVICE=1), so that start is
+// confirmed with the relay's /healthz too (MADR 0207 D40).
+func SetupHealth() service.HealthOptions {
+	return updateHealth()
+}
+
 // loadProbeConfig loads the configuration of the relay run with args: the
 // file its --config names, or the default one, with its baked --listen-host,
 // --listen-port and --data-dir, as serve binds them. It is a variable for

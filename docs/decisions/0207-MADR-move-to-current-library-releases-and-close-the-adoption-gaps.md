@@ -1580,3 +1580,132 @@ its execution record is in the PLAN.
   0061 MADRs.
 * gobble-cli's `go.mod`, in a local clone.
 * The scratch probe `m207e/pin_probe.py` and its logs, as quoted.
+
+## Amendment — 2026-10-27 (F): what setup-service needs from the backends, as U6's first step measured it
+
+*Decided by the owner, 2026-10-27,* in U6's Deviation 1 (the PLAN's execution record). The four
+answers were each the recommended one.
+
+D4, as amended, says setup-service stops, starts and confirms a start through the backends, "with
+the product's probe". U6's first step read each call site against go-selfupdate-lib `v1.22.1`, at
+`f5d9af5a`. Four facts stand in the way of doing that inside U6's files:
+
+* **F-1. setup-service has no product probe.** The probe and Windows' stop request come from each
+  product's command layer (`internal/cli/health.go:24-30`, `internal/relay/health.go:29`), and
+  only the update passes them. On Linux, `NewBackendWith` and the probe take the kind from the
+  recorded backend, and detect it only when there is none (`backendrecord.go:51-57`). `Setup`
+  detects its own kind and records it after the start, so a record an earlier setup left on another
+  supervisor names the wrong kind for both.
+* **F-2. The adapter knows the old instance only from its own `Stop`.** `Supervised.WaitHealthy`
+  counts an instance other than the one `Stop` recorded (`supervised_lifecycle.go:199-206`). A
+  restart that setup's own script commands made would leave it nothing to compare.
+* **F-3. The backends' limits are not setup's.** Setup waits up to `MCREMOTE_SVC_WAIT_SECS`, 15 s by
+  default. The backends need 10 s of one instance up, within a 60 s timeout
+  (`service/poll.go:46-48`).
+* **F-4. No library call restarts a loaded launchd job in place.** `Job.Start` kickstarts without
+  `-k` (`launchd/lifecycle.go:248-279`), so the unchanged-plist path of
+  [0125-MADR-launchd-bootout-is-asynchronous.md](0125-MADR-launchd-bootout-is-asynchronous.md) D4
+  has no equivalent.
+
+### The decisions this amendment makes
+
+* **D40 — setup-service gets each product's health wiring, and builds its backend by kind.** The
+  setup options carry the same `HealthOptions` the update passes. `Setup` builds the backend for
+  the kind it detected, not the one recorded. So every start check runs the product's probe, and
+  Windows `--remove` asks the daemon to stop and drains, as D4's consequences said.
+* **D41 — setup starts the script kinds through the adapter.** Setup keeps what enables a service
+  on these supervisors: the down file, `rc-update add`, OpenRC's runlevels and s6's rescan. A start
+  is then the adapter's `Stop`, `Start` and `WaitHealthy`, as in the update and the installer hook.
+  `settle` and its samplers go.
+* **D42 — the start check takes the backends' limits.** A 10 s settle window and a 60 s timeout.
+  `MCREMOTE_SVC_WAIT_SECS`, when set, becomes the timeout, and must be above 10, and above 45 on
+  runit, as the update already requires (0212 D17). This replaces setup's default of 15 s, and its
+  acceptance of any positive value.
+* **D43 — on macOS, setup restarts with `Job.Stop`, then `Job.Start`.** It is one path for every
+  case, with the bootout wait 0125 D1 asked for, in the library. `Job.Start` then retries
+  `bootstrap`'s errors 5 and 37, but only after that wait has seen the job gone, which is not the
+  retry 0125 D6 rejected. Its `enable` runs on every start, so `--no-enable` no longer skips it.
+
+### Consequences of the amendment
+
+* Good, because setup, the update and the installer hook confirm a start one way, with the
+  product's probe, on all six kinds.
+* Good, because Windows `--remove` drains the daemon instead of ending it.
+* Good, because setup refuses to stop the service from inside it, on every backend.
+* Neutral, because each kind keeps when setup restarts. systemd, launchd and the script kinds
+  restart on every start. Windows restarts only with `--force`.
+* Bad, because a healthy start now takes at least 10 s, against about 3 s before. A start that
+  never settles reports `starting` after 60 s, not 15.
+* Bad, because a `MCREMOTE_SVC_WAIT_SECS` of 10 or less, which setup accepted, is now refused.
+* Bad, because the unchanged-plist restart on macOS goes through a bootout again, the window 0125
+  D4 avoided. The library's wait and retry stand in for it, and only the owner's Mac can show
+  whether they hold (0125 D7).
+
+### Confirmation of the amendment
+
+* U6's step 2 tests, and these as well:
+  * `Setup` passes `Options.Health` to the backend, and a first install builds it by kind;
+  * a script-kind start that restarts is stopped and started through one adapter;
+  * the start check's timeout follows `MCREMOTE_SVC_WAIT_SECS`, and a value of 10 is refused;
+  * an unchanged plist with a running job is stopped and started, with no `kickstart -k`.
+* U6's step 4 host runs, with a `--force` on the macOS scratch service whose plist is unchanged.
+
+*Note, 2026-10-27, from U6's Deviations 2 and 3, decided by the owner:*
+
+* **D40 covers the relay set up beside mcremote** (`MCREMOTE_WITH_RELAY_SERVICE=1`). The relay
+  exports its health wiring (`relay.SetupHealth`), and `SetupRelayBeside` takes it from mcremote's
+  command, so that start is confirmed with the relay's `/healthz`, not mcremote's admin socket.
+* **D42 has a Windows rule.** mcremote's task is given 30 s to drain, which must fit inside the
+  timeout (`taskscheduler/task.go:149-150`). So on Windows, with mcremote's stop request, setup
+  refuses a `MCREMOTE_SVC_WAIT_SECS` of 30 or less before anything is written.
+* **D30 is met in full.** With `startWindows` and `stopWindows` gone, nothing called `runSchtasks`
+  or `taskName`. Both are deleted, so no code path can run `schtasks.exe`.
+
+## Amendment — 2026-10-27 (G): `go-selfupdate-lib v1.22.2`
+
+*Proposed 2026-10-27.* The owner asked, verbatim: "update the pin for go-selfupdate-lib to
+current."
+
+### Facts [observed 2026-10-27, `git ls-remote` and the GitHub compare and contents APIs]
+
+* **G-1. `v1.22.2` is the newest tag.** It peels to `50deb3f1317bcd9142f2c91be2b5609957c677c9`,
+  six commits after `v1.22.1` (`4d9ae417…`), which Magic pins (`go.mod:12`; `ci.yml:743`, `:764`).
+  `main` is at `08e41cba`, past the tag; a pin follows tags.
+* **G-2. What it changes** (its `CHANGELOG.md`, "v1.22.2 - 2026-10-27"; 21 files):
+  * systemd's `Stop` runs `systemctl stop --no-block`, so its bound holds: under
+    `TimeoutStopSec=infinity` a program that ignored TERM held `Stop` for as long as it ran. A stop
+    that outlives the bound is `ErrTimeout`.
+  * launchd's `Stop` runs `bootout` on a context the caller cannot end, so a cancellation during it
+    no longer returns before the job has gone. A `bootstrap` its bound ends mid-run is
+    `ErrTimeout`.
+  * Task Scheduler's stop timeout always says `<path> still runs after it was stopped`.
+  * `CommandError.Backend`'s documentation covers a program's own commands, as Magic's runit, s6
+    and OpenRC commands use it (0212 P2).
+* **G-3. Nothing Magic calls changes shape.** No exported API changed: the one non-test API file,
+  `selfupdate/service/errors.go`, gains three comment lines. No file under `.github/workflows`
+  changed, so the release workflows the two `ci.yml` pins name are unchanged.
+* **G-4. `Supervised` is unchanged** since `v1.22.1`: no file of the adapter is in the diff. 0212's
+  live tests ran on `v1.22.1`'s adapter, which is `v1.22.2`'s.
+* **G-5. U6 gains from it.** setup's systemd and launchd stops go through these `Stop`s once U6
+  lands (D4, D43), so its bounds and its launchd cancellation come with this pin.
+
+### The decisions this amendment proposes
+
+* **D44 — Pin `go-selfupdate-lib v1.22.2`.** `go.mod` requires it, and both `ci.yml` pins name
+  `50deb3f1317bcd9142f2c91be2b5609957c677c9`. No source changes. The PLAN's step U1c carries it out.
+
+### Consequences of the amendment
+
+* Good, because the update's systemd stop is bounded under `TimeoutStopSec=infinity`, and its
+  launchd stop is not cut short by a cancellation.
+* Good, because U6 builds on the fixed stops rather than on the ones they replace.
+* Neutral, because Magic's unit sets no `TimeoutStopSec`, so its stop already had systemd's finite
+  default, 90 s. The systemd fix is a guard here.
+* Bad, because U6's work is in the working tree, uncommitted and with its tests not yet compiling.
+  The pin must land without it, or wait for it (the PLAN's U1c says how).
+
+### Confirmation of the amendment
+
+* `go list -m github.com/maccavelli/go-selfupdate-lib` gives `v1.22.2`. Both `ci.yml` pins name
+  `50deb3f1…`, and `TestWorkflowPinsMatchGoMod` passes.
+* U1b's gates, run on the commit as it will land.

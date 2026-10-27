@@ -24,7 +24,6 @@ func TestUninstallOnWindows(t *testing.T) {
 	}
 	s := withTaskScheduler(t)
 	s.xml["mcremote"] = xml
-	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	res, err := Uninstall()
 	if err != nil || len(res.Removed) != 1 || res.Removed[0].Kind != KindWindowsTask || res.Removed[0].Product != "mcremote" {
 		t.Fatalf("Uninstall: %+v, %v; want mcremote's task removed", res, err)
@@ -55,7 +54,6 @@ func TestUninstallLeavesAnotherFoldersTask(t *testing.T) {
 	}
 	s := withTaskScheduler(t)
 	s.xml["mcremote"] = xml
-	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	res, err := Uninstall()
 	if err != nil {
 		t.Fatal(err)

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
+	"github.com/maccavelli/magic-cli-remote/internal/relay"
 	"github.com/spf13/cobra"
 )
 
@@ -54,6 +55,9 @@ func (f *setupServiceFlags) toOptions() service.Options {
 		NoEnable:         f.noEnable,
 		NoStart:          f.noStart,
 		NoLinger:         f.noLinger,
+		// The update's health wiring: setup confirms a start with the same
+		// probe, and a Windows --remove drains the daemon (MADR 0207 D40).
+		Health: updateHealth(),
 	}
 }
 
@@ -199,7 +203,7 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags) error {
 	if withRelay && !res.NotConfigured {
 		fmt.Fprintln(out)
 		fmt.Fprintf(out, "mcrelay (%s=1):\n", service.EnvWithRelayService)
-		rres, err := service.SetupRelayBeside(res, opts)
+		rres, err := service.SetupRelayBeside(res, opts, relay.SetupHealth())
 		if err != nil {
 			return err
 		}

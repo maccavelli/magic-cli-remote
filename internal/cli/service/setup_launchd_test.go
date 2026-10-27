@@ -29,15 +29,9 @@ func TestDarwinSetupAgentOrder(t *testing.T) {
 	})
 	defer restoreLC()
 
-	// The teardown wait probes launchd through seams of its own: launchdLoaded,
-	// the library's Job.Loaded (MADR 0207 D19), and runLaunchctlCapture.
-	// Stubbing only the runner above leaves those probes talking to the real
-	// system, so on a macOS host where
-	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
-	// the developer's own live job and fails (MADR 0125 P5). These tests assert
-	// the "nothing was loaded" path in prose already; this makes it true on
-	// every host instead of only on Linux CI, where launchctl is absent and the
-	// same answer fell out by accident.
+	// Setup stops and starts through the backend TestMain replaces, so no
+	// test reaches the developer's own launchd (MADR 0207 D43). The probes
+	// below answer for what setup still reads itself.
 	restoreCap := service.OverrideRunLaunchctlCapture(
 		func(...string) (string, error) {
 			return "", errors.New("launchctl: no such service")
@@ -82,56 +76,18 @@ func TestDarwinSetupAgentOrder(t *testing.T) {
 		t.Fatal("LogDir empty")
 	}
 
-	// Order: enable, bootstrap, kickstart (no bootout — see below).
-	var kinds []string
+	// enable, bootstrap and kickstart are Job.Start's, and the teardown before
+	// them Job.Stop's (MADR 0207 D43; TestDarwinSetupStopsThenStartsThroughTheJob
+	// in launchd_sequence_test.go). Setup runs none of them itself, and no
+	// command of its own touches the system domain.
 	for _, c := range calls {
-		if len(c) == 0 {
-			continue
-		}
-		kinds = append(kinds, c[0])
 		joined := strings.Join(c, " ")
 		if strings.Contains(joined, "bootstrap system") || strings.Contains(joined, "/Library/LaunchDaemons") {
 			t.Fatalf("must not touch system domain: %v", c)
 		}
-	}
-	// No bootout: nothing was loaded, so there is nothing to tear down. This
-	// used to be unconditional, which meant "bootout failed" could not be told
-	// apart from "there was no job" and was discarded wholesale (MADR 0125 D3).
-	// The loaded case — where teardown must happen and must precede bootstrap —
-	// is covered in launchd_sequence_test.go, which is not build-tagged so it
-	// runs on every host.
-	for _, k := range kinds {
-		if k == "bootout" {
-			t.Fatalf("fresh install must not bootout an absent job: %v", kinds)
+		if len(c) > 0 && (c[0] == "bootout" || c[0] == "bootstrap" || c[0] == "kickstart") {
+			t.Fatalf("setup ran launchctl %v itself; the Job does", c)
 		}
-	}
-	wantSeq := []string{"enable", "bootstrap", "kickstart"}
-	if len(kinds) < len(wantSeq) {
-		t.Fatalf("calls=%v, want at least %v", kinds, wantSeq)
-	}
-	// Find first occurrence sequence
-	i := 0
-	for _, k := range kinds {
-		if i < len(wantSeq) && k == wantSeq[i] {
-			i++
-		}
-	}
-	if i != len(wantSeq) {
-		t.Fatalf("call order %v does not contain sequence %v", kinds, wantSeq)
-	}
-
-	// enable before bootstrap
-	en, bs := -1, -1
-	for i, k := range kinds {
-		if k == "enable" && en < 0 {
-			en = i
-		}
-		if k == "bootstrap" && bs < 0 {
-			bs = i
-		}
-	}
-	if en < 0 || bs < 0 || en > bs {
-		t.Fatalf("enable must precede bootstrap: %v", kinds)
 	}
 }
 
@@ -146,15 +102,9 @@ func TestDarwinSetupNeverTouchesSystemDomain(t *testing.T) {
 	})
 	defer restoreLC()
 
-	// The teardown wait probes launchd through seams of its own: launchdLoaded,
-	// the library's Job.Loaded (MADR 0207 D19), and runLaunchctlCapture.
-	// Stubbing only the runner above leaves those probes talking to the real
-	// system, so on a macOS host where
-	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
-	// the developer's own live job and fails (MADR 0125 P5). These tests assert
-	// the "nothing was loaded" path in prose already; this makes it true on
-	// every host instead of only on Linux CI, where launchctl is absent and the
-	// same answer fell out by accident.
+	// Setup stops and starts through the backend TestMain replaces, so no
+	// test reaches the developer's own launchd (MADR 0207 D43). The probes
+	// below answer for what setup still reads itself.
 	restoreCap := service.OverrideRunLaunchctlCapture(
 		func(...string) (string, error) {
 			return "", errors.New("launchctl: no such service")
@@ -201,15 +151,9 @@ func TestDarwinRemoveAgent(t *testing.T) {
 	})
 	defer restoreLC()
 
-	// The teardown wait probes launchd through seams of its own: launchdLoaded,
-	// the library's Job.Loaded (MADR 0207 D19), and runLaunchctlCapture.
-	// Stubbing only the runner above leaves those probes talking to the real
-	// system, so on a macOS host where
-	// mcremote is genuinely installed this test waits out launchdWaitTimeout on
-	// the developer's own live job and fails (MADR 0125 P5). These tests assert
-	// the "nothing was loaded" path in prose already; this makes it true on
-	// every host instead of only on Linux CI, where launchctl is absent and the
-	// same answer fell out by accident.
+	// Setup stops and starts through the backend TestMain replaces, so no
+	// test reaches the developer's own launchd (MADR 0207 D43). The probes
+	// below answer for what setup still reads itself.
 	restoreCap := service.OverrideRunLaunchctlCapture(
 		func(...string) (string, error) {
 			return "", errors.New("launchctl: no such service")
@@ -257,15 +201,11 @@ func TestDarwinRemoveAgent(t *testing.T) {
 		t.Errorf("RemovedBackup = %q, want %q", res.RemovedBackup, backup)
 	}
 
-	// Remove tears down only what is actually loaded. Nothing is here — no
-	// launchctl on this host, so the job was never in the domain — and booting
-	// out an absent job is what made a real bootout failure indistinguishable
-	// from "there was no job" (MADR 0125 D3). `disable` and the plist removal
-	// are unconditional and are what this test guards.
-	//
-	// The loaded case, where bootout must happen and must be waited on, is
-	// covered by TestDarwinRemoveWaitsForTeardownWhenLoaded in
-	// launchd_sequence_test.go — which is untagged and so runs on every host.
+	// The stop is Job.Stop's, which boots out only what is loaded and waits
+	// for it (MADR 0125 D1, D3, in the library; MADR 0207 D43). Setup runs no
+	// bootout itself. `disable` and the plist removal are what this test
+	// guards; the stop's order against them is TestDarwinRemoveStopsBeforeDisable
+	// in launchd_sequence_test.go, which is untagged and so runs on every host.
 	var hasBootout, hasDisable bool
 	for _, c := range calls {
 		if len(c) == 0 {
@@ -282,7 +222,7 @@ func TestDarwinRemoveAgent(t *testing.T) {
 		}
 	}
 	if hasBootout {
-		t.Fatalf("must not bootout an absent job: %v", calls)
+		t.Fatalf("setup ran a bootout itself; the Job does: %v", calls)
 	}
 	if !hasDisable {
 		t.Fatalf("expected disable, got %v", calls)

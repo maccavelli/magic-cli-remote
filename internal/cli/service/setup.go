@@ -20,6 +20,8 @@ import (
 	"text/template"
 	"time"
 
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
+
 	"github.com/maccavelli/magic-cli-remote/internal/appdirs"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
@@ -85,6 +87,10 @@ type Options struct {
 	NoLinger bool
 	// UnitDir overrides ~/.config/systemd/user (tests).
 	UnitDir string
+	// Health is the product's health wiring, the one the update passes: the
+	// start check runs Health.Probe, and a Windows --remove sends
+	// Health.RequestStop before it ends the task (MADR 0207 D40).
+	Health HealthOptions
 }
 
 // Result is what Setup wrote/did.
@@ -140,12 +146,96 @@ type Result struct {
 	// written is set once the definition is on disk, so a setup that fails
 	// afterwards still records it and --remove can find it.
 	written bool
-	// replacedPid is the process a restart replaces, when known: the
-	// verified start does not take it for the restarted service.
-	replacedPid int
-	// replacedToken is replacedPid's start token, when it could be read, so a
-	// new process that reuses the PID is not taken for it (MADR 0212 D12-A).
-	replacedToken string
+	// started is the backend that started the service, which the start check
+	// waits on: its Stop recorded the instance a restart replaces (MADR 0207
+	// D41).
+	started *startedBy
+}
+
+// startedBy is the backend that started a service, and the product it was
+// asked for.
+type startedBy struct {
+	b       Backend
+	product string
+}
+
+// setupTimeout bounds setup's stop and start through a backend. Each backend
+// bounds its own wait first, at most twice its poll timeout for a stop that
+// fails and puts the service back. It is a variable for tests.
+var setupTimeout = 5 * time.Minute
+
+// taskEnabler is the Task Scheduler backend's Enable.
+type taskEnabler interface {
+	Enable(ctx context.Context, product string) error
+}
+
+// startThrough starts opts' service through kind's backend, and keeps that
+// backend on res for the start check (MADR 0207 D4). With stop set it stops a
+// running service first, through the same backend, whose Stop records the
+// instance the start replaces, so the check does not take that one for the new
+// one (D41). On Windows it enables the task before the start: Task.Start runs
+// no task that another process disabled, an earlier stop included (D18, D30).
+func startThrough(kind Kind, opts Options, res Result, stop bool) (Result, error) {
+	b, err := setupBackend(kind, opts.Product, opts.UnitName, opts.Health)
+	if err != nil {
+		return res, fmt.Errorf("its service manager could not be reached: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
+	defer cancel()
+	if stop {
+		if err := b.Stop(ctx, opts.Product); err != nil {
+			return res, fmt.Errorf("the running service could not be stopped: %w", err)
+		}
+	}
+	if kind == KindWindowsTask {
+		en, ok := b.(taskEnabler)
+		if !ok {
+			return res, fmt.Errorf("the %s backend cannot enable the task", kind)
+		}
+		if err := en.Enable(ctx, opts.Product); err != nil {
+			return res, fmt.Errorf("the task could not be enabled: %w", err)
+		}
+	}
+	if err := b.Start(ctx, opts.Product); err != nil {
+		return res, fmt.Errorf("the service could not be started: %w", err)
+	}
+	res.Started = true
+	res.started = &startedBy{b: b, product: opts.Product}
+	return res, nil
+}
+
+// watchThrough keeps kind's backend on res for the start check of a service
+// that a supervisor setup has just started brings up by itself: a new runsvdir
+// or s6-svscan, a scanner taking up a new directory, or a new OpenRC session's
+// default runlevel. Nothing ran before, so no instance is replaced, and the
+// check counts the first one up.
+func watchThrough(kind Kind, opts Options, res Result) (Result, error) {
+	b, err := setupBackend(kind, opts.Product, opts.UnitName, opts.Health)
+	if err != nil {
+		return res, fmt.Errorf("its service manager could not be reached: %w", err)
+	}
+	res.Started = true
+	res.started = &startedBy{b: b, product: opts.Product}
+	return res, nil
+}
+
+// stopForRemoval stops opts' service through kind's backend before its
+// definition is deleted (MADR 0207 D4). Two failures stop the removal before
+// anything is changed, since the service would keep running from a definition
+// that is gone: a backend that cannot be built, as for a wait it refuses, and a
+// stop refused because this process runs inside the service. A stop that fails
+// otherwise is tolerated, as Remove always has: the definition goes either way.
+func stopForRemoval(kind Kind, opts Options) error {
+	b, err := setupBackend(kind, opts.Product, opts.UnitName, opts.Health)
+	if err != nil {
+		return fmt.Errorf("not removed: its service manager could not be reached: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
+	defer cancel()
+	if err := b.Stop(ctx, opts.Product); errors.Is(err, libservice.ErrInsideService) {
+		return fmt.Errorf("not removed: %w; run setup-service --remove from a shell outside the service", err)
+	}
+	return nil
 }
 
 type templateData struct {
@@ -253,18 +343,6 @@ func OverrideRunLaunchctl(fn func(args ...string) error) (restore func()) {
 	return func() { runLaunchctl = prev }
 }
 
-// OverrideLaunchdWaitTimings shortens the teardown wait for tests.
-// Restore with the returned func.
-//
-// Without it a test for the stuck-teardown path would really sleep
-// launchdTeardownTimeout — fifteen seconds of wall clock to assert an error
-// message. The production constants are unchanged; only tests move them.
-func OverrideLaunchdWaitTimings(timeout, interval time.Duration) (restore func()) {
-	prevT, prevI := launchdWaitTimeout, launchdWaitInterval
-	launchdWaitTimeout, launchdWaitInterval = timeout, interval
-	return func() { launchdWaitTimeout, launchdWaitInterval = prevT, prevI }
-}
-
 // OverrideRunLaunchctlCapture replaces the capturing launchctl runner for
 // tests. Restore with the returned func.
 //
@@ -314,14 +392,6 @@ func Setup(opts Options) (Result, error) {
 		UnitName: opts.UnitName,
 	}
 
-	// A wait the verified start cannot use is refused before anything is
-	// written (MADR 0054 PLAN S5c, answer A3).
-	if !opts.PrintOnly && !opts.NoStart {
-		if _, err := waitSeconds(); err != nil {
-			return res, err
-		}
-	}
-
 	// A host with no service manager setup-service installs under gets advice
 	// and success, and nothing is written: not the definition, not a default
 	// config, not a record (MADR 0054 amendment 4, PLAN S5a).
@@ -339,6 +409,20 @@ func Setup(opts Options) (Result, error) {
 			res.NotConfigured = true
 			res.Advice = unsupervisedAdvice(kind, detectEnvironment(), pid1Comm(), opts.Product, opts.Binary, opts.UnitName)
 			return res, nil
+		}
+	}
+
+	// A wait the start check cannot use is refused before anything is
+	// written (MADR 0054 PLAN S5c, answer A3; MADR 0207 D42).
+	if !opts.PrintOnly && !opts.NoStart {
+		poll, err := setupPoll(kind)
+		if err != nil {
+			return res, err
+		}
+		// Task Scheduler refuses a drain that is not shorter than the
+		// timeout (taskscheduler/task.go:149-150): mcremote's is 30 s.
+		if kind == KindWindowsTask && opts.Health.RequestStop != nil && poll.Timeout > 0 && poll.Timeout <= opts.Health.StopGrace {
+			return res, fmt.Errorf("%s=%d is not above the %s the daemon is given to drain", waitEnv, int(poll.Timeout/time.Second), opts.Health.StopGrace)
 		}
 	}
 
@@ -494,10 +578,14 @@ func setupSystemd(opts Options, body string, res Result) (Result, error) {
 	}
 
 	if !opts.NoStart {
-		if err := runSystemctl("--user", "restart", opts.UnitName+".service"); err != nil {
-			return res, fmt.Errorf("unit installed at %s, but systemctl restart failed: %w (%s)", unitPath, err, manual)
+		// A stop, then a start, as `systemctl restart` did: the library's
+		// Start on a unit already active changes nothing, and its WaitHealthy
+		// would then wait for a new invocation that never comes (MADR 0207
+		// amendment D, F4).
+		var err error
+		if res, err = startThrough(KindSystemdUser, opts, res, true); err != nil {
+			return res, fmt.Errorf("unit installed at %s, but %w (%s)", unitPath, err, manual)
 		}
-		res.Started = true
 	}
 
 	if !opts.NoLinger {
@@ -578,63 +666,45 @@ func setupLaunchdAgent(opts Options, body string, res Result) (Result, error) {
 	manual := fmt.Sprintf("finish manually with: launchctl bootout %s; launchctl enable %s; launchctl bootstrap %s %s; launchctl kickstart -k %s",
 		svc, svc, domain, plistPath, svc)
 
-	// D4: when the plist on disk is already exactly what we want and the job is
-	// loaded, there is nothing to reload. Restarting in place skips the
-	// bootout/bootstrap cycle entirely, which is the window that produced
-	// error 5 here and error 37 in update. The common `update` case changes
-	// the binary, not the plist, so this is the path it takes (MADR 0125 D4).
-	if res.Unchanged && !opts.NoStart && launchdJobRunning(svc) {
-		if err := runLaunchctl("kickstart", "-k", svc); err != nil {
-			return res, fmt.Errorf("plist unchanged at %s, but launchctl kickstart failed: %w (%s)", plistPath, err, manual)
-		}
-		res.Enabled = !opts.NoEnable
-		res.Started = true
-		if note := launchdLastExitNote(svc); note != "" {
-			fmt.Fprintln(os.Stderr, note)
-		}
-		return res, nil
-	}
-
-	// Teardown is asynchronous. Bootstrapping before the job has left the
-	// domain is what returned 5 here on a real Mac; the error used to be
-	// discarded outright, so a genuine failure walked straight into a
-	// bootstrap that could not succeed (MADR 0125 D1/D3/F3).
-	//
 	// --no-start writes the definition and touches no running instance: the
 	// teardown used to run regardless, so --no-start stopped a running job
 	// and left it stopped (MADR 0201 D22).
 	if opts.NoStart {
-		if !res.Unchanged && launchdJobRunning(svc) {
-			fmt.Fprintf(os.Stderr, "note: %s is running; the running job keeps its current definition until restarted\n", svc)
-		}
-	} else if err := stopAndWaitDarwin(svc); err != nil {
-		return res, fmt.Errorf("plist installed at %s, but the existing job could not be torn down: %w (%s)", plistPath, err, manual)
-	}
-
-	if !opts.NoEnable {
-		if err := runLaunchctl("enable", svc); err != nil {
-			return res, fmt.Errorf("plist installed at %s, but launchctl enable failed: %w (%s)", plistPath, err, manual)
-		}
-		res.Enabled = true
-	}
-
-	if !opts.NoStart {
-		if err := runLaunchctl("bootstrap", domain, plistPath); err != nil {
-			// Common when already bootstrapped after enable-only path; try kickstart.
-			if err2 := runLaunchctl("kickstart", "-k", svc); err2 != nil {
-				hint := bootstrapFailHint(err)
-				return res, fmt.Errorf("plist installed at %s, but launchctl bootstrap failed: %w%s (%s)", plistPath, err, hint, manual)
+		if !res.Unchanged {
+			if loaded, err := launchdLoaded(svc); err == nil && loaded {
+				fmt.Fprintf(os.Stderr, "note: %s is loaded; the running job keeps its current definition until restarted\n", svc)
 			}
-		} else if err := runLaunchctl("kickstart", "-k", svc); err != nil {
-			return res, fmt.Errorf("plist installed at %s, but launchctl kickstart failed: %w (%s)", plistPath, err, manual)
 		}
-		res.Started = true
-		// Best-effort: surface a non-zero last exit if the job failed immediately.
-		if note := launchdLastExitNote(svc); note != "" {
-			fmt.Fprintln(os.Stderr, note)
+		if !opts.NoEnable {
+			if err := runLaunchctl("enable", svc); err != nil {
+				return res, fmt.Errorf("plist installed at %s, but launchctl enable failed: %w (%s)", plistPath, err, manual)
+			}
+			res.Enabled = true
 		}
+		return res, nil
 	}
 
+	// The library's Job.Stop boots the job out and waits until it and its
+	// process have gone; teardown is asynchronous, and bootstrapping into it
+	// returned 5 and 37 on a real Mac (MADR 0125 D1). Job.Start then enables
+	// the label, which a bootstrap needs, bootstraps it, and kickstarts it. A
+	// plist that did not change goes the same way: no library call restarts a
+	// loaded job in place (MADR 0207 D43, replacing 0125 D4 here).
+	var serr error
+	if res, serr = startThrough(KindLaunchdAgent, opts, res, true); serr != nil {
+		// The hint reads launchctl's words, and every launchd error names the
+		// gui/ target, so it is for a bootstrap that failed only.
+		hint := ""
+		if strings.Contains(serr.Error(), "bootstrap") {
+			hint = bootstrapFailHint(serr)
+		}
+		return res, fmt.Errorf("plist installed at %s, but %w%s (%s)", plistPath, serr, hint, manual)
+	}
+	res.Enabled = true
+	// Best-effort: surface a non-zero last exit if the job failed immediately.
+	if note := launchdLastExitNote(svc); note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
 	return res, nil
 }
 
@@ -777,7 +847,9 @@ func removeSystemd(opts Options) (Result, error) {
 	res := Result{UnitName: opts.UnitName, UnitPath: unitPath, Scope: "systemd-user", Label: opts.UnitName}
 
 	svc := opts.UnitName + ".service"
-	_ = runSystemctl("--user", "stop", svc)
+	if err := stopForRemoval(KindSystemdUser, opts); err != nil {
+		return res, err
+	}
 	_ = runSystemctl("--user", "disable", svc)
 
 	if err := os.Remove(unitPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -842,9 +914,11 @@ func removeLaunchdAgent(opts Options) (Result, error) {
 		Scope:    "launchd-agent",
 	}
 
-	// Benign here — the plist is deleted next — but it goes through the same
-	// helper so there is one teardown path to reason about, not two.
-	_ = stopAndWaitDarwin(svc)
+	// The same Job.Stop as setup and the update: one teardown path to reason
+	// about, not two.
+	if err := stopForRemoval(KindLaunchdAgent, opts); err != nil {
+		return res, err
+	}
 	_ = runLaunchctl("disable", svc)
 
 	if err := os.Remove(plistPath); err != nil && !errors.Is(err, fs.ErrNotExist) {

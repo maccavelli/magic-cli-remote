@@ -10,21 +10,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 )
-
-// withSchtasks substitutes the schtasks runner so the Windows branch is
-// exercised on any host, the same way OverrideRunLaunchctl drives the launchd
-// path off Darwin. Only the enable, run and end that remain go through it
-// (MADR 0207 D30).
-func withSchtasks(t *testing.T, fn func(args ...string) (string, error)) {
-	t.Helper()
-	prev := runSchtasks
-	runSchtasks = fn
-	t.Cleanup(func() { runSchtasks = prev })
-}
 
 // fakeTaskScheduler stands in for Task Scheduler behind newTaskClient, so the
 // Windows branch runs on any host (MADR 0207 D17). Tasks are kept by name as
@@ -43,25 +33,17 @@ type fakeTaskScheduler struct {
 	calls []string
 	// registered are the definitions handed to Register, in order.
 	registered []string
-	// schtasks are the schtasks.exe commands run, as their joined arguments.
-	schtasks []string
 }
 
 // withTaskScheduler makes newTaskClient open tasks in a new fake, and returns
-// it. It also records schtasks.exe, which succeeds, so no test reaches the
-// real one: a regression on a Windows host would otherwise enable, run or end
-// the host's real task. A test that needs another answer calls withSchtasks
-// after it.
+// it. No path runs schtasks.exe (MADR 0207 D30), and setup's stop and start go
+// through the backend TestMain replaces, so no test reaches the real task.
 func withTaskScheduler(t *testing.T) *fakeTaskScheduler {
 	t.Helper()
 	s := &fakeTaskScheduler{xml: map[string]string{}, running: map[string]bool{}, switchOff: map[string]bool{}}
 	prev := newTaskClient
 	newTaskClient = func(name string) (taskClient, error) { return fakeTaskClient{s: s, name: name}, nil }
 	t.Cleanup(func() { newTaskClient = prev })
-	withSchtasks(t, func(args ...string) (string, error) {
-		s.schtasks = append(s.schtasks, strings.Join(args, " "))
-		return "", nil
-	})
 	return s
 }
 
@@ -233,7 +215,6 @@ func TestSetupSchtasksRegistersAnAbsentTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := withTaskScheduler(t)
-	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	res, err := setupSchtasks(opts, body, Result{})
 	if err != nil {
 		t.Fatalf("setupSchtasks: %v", err)
@@ -261,7 +242,6 @@ func TestSetupSchtasksIdempotent(t *testing.T) {
 	// The task engine re-formats what it stores; the comparison must survive
 	// that or every run would re-register.
 	s.xml["mcremote"] = strings.ReplaceAll(body, "\n", "\r\n")
-	withSchtasks(t, func(...string) (string, error) { return "", nil })
 
 	res, err := setupSchtasks(opts, body, Result{})
 	if err != nil {
@@ -288,7 +268,6 @@ func TestSetupSchtasksRegistersWhenChanged(t *testing.T) {
 	}
 	s := withTaskScheduler(t)
 	s.xml["mcremote"] = strings.Replace(body, opts.Binary, `C:\old\mcremote.exe`, 1)
-	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	res, err := setupSchtasks(opts, body, Result{})
 	if err != nil {
 		t.Fatalf("setupSchtasks: %v", err)
@@ -329,9 +308,8 @@ func TestSetupSchtasksNamesWhatDiffers(t *testing.T) {
 		}
 	}
 	if !strings.Contains(err.Error(), "exists with different content") || !strings.Contains(err.Error(), "--force") ||
-		len(s.registered) != 0 || len(s.schtasks) != 0 {
-		t.Errorf("err = %v, %d registrations, schtasks %q; want the refusal, nothing registered and nothing started",
-			err, len(s.registered), s.schtasks)
+		len(s.registered) != 0 {
+		t.Errorf("err = %v, %d registrations; want the refusal, and nothing registered", err, len(s.registered))
 	}
 }
 
@@ -349,8 +327,8 @@ func TestSetupSchtasksPropagatesAFailedRead(t *testing.T) {
 	if _, err := setupSchtasks(opts, body, Result{}); !errors.Is(err, libservice.ErrPermission) {
 		t.Fatalf("err = %v, want the read's permission error", err)
 	}
-	if len(s.registered) != 0 || len(s.schtasks) != 0 {
-		t.Errorf("registered %d and ran schtasks %q after a failed read; want neither", len(s.registered), s.schtasks)
+	if len(s.registered) != 0 {
+		t.Errorf("registered %d after a failed read; want none", len(s.registered))
 	}
 }
 
@@ -373,11 +351,6 @@ func TestRemoveSchtasksIdempotent(t *testing.T) {
 func TestRemoveSchtasksDeletesThroughTheLibrary(t *testing.T) {
 	s := withTaskScheduler(t)
 	s.xml["mcremote"] = "<Task/>"
-	var schtasks []string
-	withSchtasks(t, func(args ...string) (string, error) {
-		schtasks = append(schtasks, strings.Join(args, " "))
-		return "", nil
-	})
 	withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
 	res, err := removeSchtasks(windowsOpts())
 	if err != nil || !res.Removed {
@@ -385,9 +358,6 @@ func TestRemoveSchtasksDeletesThroughTheLibrary(t *testing.T) {
 	}
 	if s.called("delete") != 1 || len(s.xml) != 0 {
 		t.Errorf("calls %q, tasks %v; want one delete", s.calls, s.xml)
-	}
-	if slices.ContainsFunc(schtasks, func(c string) bool { return strings.HasPrefix(c, "/delete") || strings.HasPrefix(c, "/query") }) {
-		t.Errorf("schtasks ran %q; the delete and the query are the library's", schtasks)
 	}
 }
 
@@ -414,7 +384,6 @@ func TestRemoveSchtasksDeletesTheBackup(t *testing.T) {
 	}
 	s := withTaskScheduler(t)
 	s.xml["mcremote"] = "<Task/>"
-	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	withTaskBackupFile(t, backup)
 	res, err := removeSchtasks(windowsOpts())
 	if err != nil || !res.Removed {
@@ -432,7 +401,6 @@ func TestRemoveSchtasksDeletesTheBackup(t *testing.T) {
 func TestRemoveSchtasksWithNoBackup(t *testing.T) {
 	s := withTaskScheduler(t)
 	s.xml["mcremote"] = "<Task/>"
-	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
 	res, err := removeSchtasks(windowsOpts())
 	if err != nil || !res.Removed || res.RemovedBackup != "" {
@@ -480,56 +448,102 @@ func TestTaskBackupFileCreatesNothing(t *testing.T) {
 	}
 }
 
-// TestStopDisablesThenEnds pins stop's sequence (MADR 0159 D5): disable first,
-// so the watchdog trigger cannot relaunch a daemon that was stopped on purpose,
-// then /end only if Task Scheduler reports the task running. /end is still the
-// ungraceful termination MADR 0116 D9 recorded.
-func TestStopDisablesThenEnds(t *testing.T) {
+// TestWindowsStartsThroughTheTask is MADR 0207 D4 and D30: setup enables the
+// task, then starts it, through the library's Task, whose Stop disables it so
+// the watchdog trigger cannot undo a stop (MADR 0159 D5). --force stops it
+// first, so the task runs the definition just registered. No schtasks.exe runs.
+func TestWindowsStartsThroughTheTask(t *testing.T) {
 	for _, tc := range []struct {
-		name                string
-		registered, running bool
-		want                []string
+		name  string
+		force bool
+		want  []string
 	}{
-		{"running", true, true, []string{"/change /tn mcremote /disable", "/end /tn mcremote"}},
-		{"ready", true, false, []string{"/change /tn mcremote /disable"}},
-		{"absent", false, false, []string{"/change /tn mcremote /disable"}},
+		{"plain", false, []string{"enable", "start"}},
+		{"--force", true, []string{"stop", "enable", "start"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := withTaskScheduler(t)
-			if tc.registered {
-				s.xml["mcremote"] = "<Task/>"
-			}
-			s.running["mcremote"] = tc.running
-			var calls []string
-			withSchtasks(t, func(args ...string) (string, error) {
-				calls = append(calls, strings.Join(args, " "))
-				return "", nil
-			})
-			if err := stopWindows("mcremote"); err != nil {
+			opts := windowsOpts()
+			opts.Force = tc.force
+			body, err := renderTaskXML(opts, `CORP\dev`)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Join(calls, " | ") != strings.Join(tc.want, " | ") {
-				t.Errorf("stopWindows issued %q, want %q", calls, tc.want)
+			withTaskScheduler(t)
+			f := &setupFake{running: true}
+			builds := withSetupBackend(t, f)
+			res, err := setupSchtasks(opts, body, Result{})
+			if err != nil || !res.Started {
+				t.Fatalf("setupSchtasks: %+v, %v", res, err)
+			}
+			if !slices.Equal(f.got(), tc.want) {
+				t.Errorf("calls %q, want %q", f.got(), tc.want)
+			}
+			if len(*builds) != 1 || (*builds)[0].Kind != KindWindowsTask {
+				t.Errorf("builds %+v, want one Task Scheduler backend", *builds)
 			}
 		})
 	}
 }
 
-// TestStartEnablesThenRuns: start undoes a stop's disable before /run, so the
-// watchdog is live again (MADR 0159 D5).
-func TestStartEnablesThenRuns(t *testing.T) {
-	var calls []string
-	withSchtasks(t, func(args ...string) (string, error) {
-		calls = append(calls, strings.Join(args, " "))
-		return "", nil
-	})
-	if err := startWindows("mcremote"); err != nil {
+// TestWindowsStartEnablesATaskAnotherProcessDisabled is MADR 0207 D30: a stop
+// in another process, an update's or an earlier setup's, leaves the task
+// disabled, and Task.Start refuses a task its own Stop did not disable. Setup
+// enables it first.
+func TestWindowsStartEnablesATaskAnotherProcessDisabled(t *testing.T) {
+	opts := windowsOpts()
+	opts.Force = false
+	body, err := renderTaskXML(opts, `CORP\dev`)
+	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/change /tn mcremote /enable", "/run /tn mcremote"}
-	if strings.Join(calls, " | ") != strings.Join(want, " | ") {
-		t.Errorf("startWindows issued %q, want %q", calls, want)
+	withTaskScheduler(t)
+	f := &setupFake{disabled: true}
+	withSetupBackend(t, f)
+	if _, err := setupSchtasks(opts, body, Result{}); err != nil {
+		t.Fatalf("a task another process disabled was not started: %v", err)
 	}
+	if want := []string{"enable", "start"}; !slices.Equal(f.got(), want) {
+		t.Errorf("calls %q, want %q", f.got(), want)
+	}
+}
+
+// TestRemoveSchtasksStopsThroughTheTask is MADR 0207 D4 and D40: the task is
+// stopped through the library's Task, built with the product's health wiring,
+// so the daemon is asked to drain before the task is ended; then it is
+// deleted. A stop refused from inside the task deletes nothing.
+func TestRemoveSchtasksStopsThroughTheTask(t *testing.T) {
+	opts := windowsOpts()
+	opts.Health = HealthOptions{StopGrace: 30 * time.Second, RequestStop: func(context.Context, ServeArgs) error { return nil }}
+	t.Run("stopped, then deleted", func(t *testing.T) {
+		s := withTaskScheduler(t)
+		s.xml["mcremote"] = "<Task/>"
+		withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
+		registered := false
+		f := &setupFake{running: true, onStop: func() { _, registered = s.xml["mcremote"] }}
+		builds := withSetupBackend(t, f)
+		res, err := removeSchtasks(opts)
+		if err != nil || !res.Removed {
+			t.Fatalf("removeSchtasks: %+v, %v", res, err)
+		}
+		if !slices.Equal(f.got(), []string{"stop"}) || !registered {
+			t.Errorf("calls %q, the task registered at the stop: %v; want one stop before the delete", f.got(), registered)
+		}
+		if len(*builds) != 1 || (*builds)[0].Health.RequestStop == nil || (*builds)[0].Health.StopGrace != 30*time.Second {
+			t.Errorf("builds %+v, want the product's stop request and grace", *builds)
+		}
+	})
+	t.Run("refused from inside", func(t *testing.T) {
+		s := withTaskScheduler(t)
+		s.xml["mcremote"] = "<Task/>"
+		withTaskBackupFile(t, filepath.Join(t.TempDir(), "mcremote-task.prev.xml"))
+		withSetupBackend(t, &setupFake{stopErr: fmt.Errorf("%w: mcremote", libservice.ErrInsideService)})
+		if _, err := removeSchtasks(opts); !errors.Is(err, libservice.ErrInsideService) {
+			t.Fatalf("err = %v, want the inside refusal", err)
+		}
+		if s.called("delete") != 0 {
+			t.Errorf("calls %q: the task was deleted after a refused stop", s.calls)
+		}
+	})
 }
 
 // TestRenderTaskXMLHasTheWatchdogTrigger: the task carries the repeating
@@ -653,18 +667,13 @@ func TestSetupFailsBeforeTaskSchedulerWithoutAPrincipal(t *testing.T) {
 	defer OverrideInstallOS("windows")()
 	withTaskPrincipal(t, "", errors.New("no token"), "", nil)
 	s := withTaskScheduler(t)
-	var calls int
-	withSchtasks(t, func(args ...string) (string, error) {
-		calls++
-		return "", nil
-	})
 	opts := windowsOpts()
 	opts.PrintOnly = true
 	if _, err := Setup(opts); err == nil {
 		t.Fatal("Setup succeeded with no principal")
 	}
-	if calls != 0 || len(s.calls) != 0 {
-		t.Errorf("schtasks ran %d times and Task Scheduler was called %q before the principal error", calls, s.calls)
+	if len(s.calls) != 0 {
+		t.Errorf("Task Scheduler was called %q before the principal error", s.calls)
 	}
 }
 

@@ -35,6 +35,12 @@ func TestMain(m *testing.M) {
 		res.Health = HealthRunning
 		return res, nil
 	}
+	// Setup stops and starts through the library's backends (MADR 0207 D4),
+	// which run the real systemctl, launchctl, Task Scheduler or supervisor,
+	// and no test may touch the host's services. Each setup gets a fake that
+	// does nothing; tests of the calls use their own (setupFake).
+	realSetupBackend = setupBackend
+	setupBackend = func(Kind, string, string, HealthOptions) (Backend, error) { return &setupFake{}, nil }
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
@@ -42,6 +48,9 @@ func TestMain(m *testing.M) {
 
 // realVerifyStart is the verified start TestMain replaced.
 var realVerifyStart func(Kind, Result) (Result, error)
+
+// realSetupBackend is the backend constructor TestMain replaced.
+var realSetupBackend func(Kind, string, string, HealthOptions) (Backend, error)
 
 // realTaskBackupFile is the backup lookup TestMain replaced.
 var realTaskBackupFile func(product, name string) (string, error)

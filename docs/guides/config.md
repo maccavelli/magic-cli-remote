@@ -651,9 +651,16 @@ nothing and exits 0. It prints:
 
 `--print-only` still prints the systemd unit there.
 
-**The verified start** (PLAN S5c). A start command that returns 0 means the start was accepted,
-not that the daemon stayed up. After starting, `setup-service` watches the service for up to
-`MCREMOTE_SVC_WAIT_SECS` seconds (default `15`) and reports one of three outcomes:
+**The verified start** (PLAN S5c; MADR 0207 D4). A start command that returns 0 means the start
+was accepted, not that the daemon stayed up. `setup-service` starts the service through the same
+backend `update` uses, and confirms the start the same way:
+
+- A new instance of the daemon must stay up for 10 seconds.
+- Then the daemon's own health check must answer: `mcremote`'s admin socket, or `mcrelay`'s
+  `/healthz`.
+
+It waits up to 60 seconds, 75 on runit, s6 and OpenRC, or `MCREMOTE_SVC_WAIT_SECS` seconds when set.
+Then it reports one of three outcomes:
 
 | Output | Meaning | Exit |
 |--------|---------|------|
@@ -661,15 +668,20 @@ not that the daemon stayed up. After starting, `setup-service` watches the servi
 | `Running:           not yet confirmed — still starting when the wait ended`, and a `warning:` | Still coming up when the wait ended. Check it with the printed status command | 0 |
 | `<name> is not running after setup: <why>. The definition is installed; see why with:`, then the command | Confirmed not running: failed, never seen up, or restarting over and over | non-zero |
 
-- **systemd** must be `active` on three consecutive samples. A rise in `NRestarts` while watched,
-  `auto-restart` with two or more restarts, or `failed` is not running. For systemd the failure
-  also prints the journal's last lines.
-- **The other managers** must show the service up on two consecutive samples with the same
-  process, or report it up for two seconds. A process that changes while watched is a restart,
-  and counts as not running. So does runit or s6 reporting it down while wanting it up, and OpenRC
-  reporting it `crashed`. launchd's `waiting` does not count as up.
-- `--no-start` skips the wait. A value of `MCREMOTE_SVC_WAIT_SECS` that is not a positive whole
-  number is refused before anything is written.
+- **A restart.** On systemd, launchd, runit, s6 and OpenRC, a service that is running is stopped,
+  then started. Only an instance other than the one stopped counts, so the old daemon, still
+  draining, is not taken for the new one. On Windows a running task is stopped first only with
+  `--force`.
+- **Not running** is what the service manager reports as failed, or a daemon that exits or
+  restarts while it is watched: OpenRC's `crashed`, or runit or s6 reporting it down while
+  wanting it up. For systemd the failure also prints the journal's last lines.
+- **Still starting** includes a daemon that is up but whose health check has not answered when the
+  wait ends.
+- **From inside the service**, such as from an agent in a phone session, `setup-service` refuses
+  to stop it, and so does `--remove`. Run it from a shell.
+- `--no-start` skips the wait. `MCREMOTE_SVC_WAIT_SECS` must be a whole number of seconds above
+  10, above 45 on runit, and for `mcremote` on Windows above its 30-second drain. Any other value
+  is refused before anything is written.
 
 **The installer's options as environment variables** (PLAN S5d). The release installer passes
 its environment to `setup-service --from-installer`, so a variable set on the installer's command
@@ -680,7 +692,7 @@ line, such as `curl … | MCREMOTE_WITH_RELAY_SERVICE=1 sh`, reaches it:
 | `MCREMOTE_NO_LINGER` | Same as `--no-linger` | `mcremote` and `mcrelay` |
 | `MCREMOTE_FORCE_SERVICE` | Same as `--force` | `mcremote` and `mcrelay` |
 | `MCREMOTE_WITH_RELAY_SERVICE` | Once `mcremote`'s service is set up, set up `mcrelay` from the same folder as `--binary` | `mcremote` |
-| `MCREMOTE_SVC_WAIT_SECS` | Seconds the verified start waits (default `15`) | `mcremote` and `mcrelay` |
+| `MCREMOTE_SVC_WAIT_SECS` | Seconds the verified start waits at most (default `60`; `75` on runit, s6 and OpenRC) | `mcremote` and `mcrelay` |
 
 - `1` turns an option on, and unset or `0` leaves it off. Any other value, empty included, is
   refused with an error naming the variable, before anything is written. A flag also turns its

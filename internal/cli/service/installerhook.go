@@ -48,6 +48,9 @@ type HookPlan struct {
 	Name string
 	// Item is the definition found, for HookUpgrade and HookForeign.
 	Item UninstallItem
+	// Health is the product's health wiring, as Options carries it (MADR
+	// 0207 D40).
+	Health HealthOptions
 }
 
 // HookResult is what an upgrade did.
@@ -70,7 +73,7 @@ func PlanInstallerHook(opts Options) (HookPlan, error) {
 	if product == "" {
 		product = "mcremote"
 	}
-	plan := HookPlan{Product: product, Action: HookSetup}
+	plan := HookPlan{Product: product, Action: HookSetup, Health: opts.Health}
 	osName := installOS
 	if osName == "" {
 		osName = runtime.GOOS
@@ -134,16 +137,14 @@ func hookOwns(osName, product, program, dir string) bool {
 	return osName == "windows" && inOldLayout(product, program) && samePath(dir, newWindowsDir())
 }
 
-// newHookBackend is NewBackend. It is a variable for tests.
-var newHookBackend = NewBackend
-
 // hookTimeout bounds the cycle's service-manager calls.
 var hookTimeout = 5 * time.Minute
 
 // UpgradeFromInstaller refreshes the definition plan found, then cycles the
 // service onto the new binary as update does: a running service is restarted,
 // a stopped one is started only when it is enabled, and each start is
-// confirmed by the verified start (MADR 0054 PLAN S5c, S5f).
+// confirmed by the backend that made it, with the product's probe (MADR 0054
+// PLAN S5c, S5f; MADR 0207 D4, D40).
 func UpgradeFromInstaller(plan HookPlan) (HookResult, error) {
 	var res HookResult
 	rr, err := RefreshUnit(Options{Product: plan.Product, UnitName: plan.Name}, RefreshOptions{})
@@ -151,7 +152,7 @@ func UpgradeFromInstaller(plan HookPlan) (HookResult, error) {
 		return res, fmt.Errorf("refresh the %s service: %w", plan.Product, err)
 	}
 	res.Refresh = rr
-	b, err := newHookBackend(plan.Product, plan.Name)
+	b, err := setupBackend(plan.Kind, plan.Product, plan.Name, plan.Health)
 	if err != nil {
 		return res, fmt.Errorf("reach the %s service manager: %w", plan.Product, err)
 	}
@@ -181,7 +182,7 @@ func UpgradeFromInstaller(plan HookPlan) (HookResult, error) {
 	if err := b.Start(ctx, plan.Product); err != nil {
 		return res, fmt.Errorf("start the %s service: %w", plan.Product, err)
 	}
-	vr, err := verifyStart(plan.Kind, hookStartResult(plan))
+	vr, err := verifyStart(plan.Kind, hookStartResult(plan, b))
 	res.Health = vr.Health
 	res.Warnings = append(res.Warnings, vr.Warnings...)
 	if err != nil {
@@ -195,9 +196,11 @@ func UpgradeFromInstaller(plan HookPlan) (HookResult, error) {
 	return res, nil
 }
 
-// hookStartResult is the Result the verified start samples.
-func hookStartResult(plan HookPlan) Result {
-	r := Result{UnitName: plan.Name, UnitPath: plan.Item.Path, Label: plan.Name, Scope: string(plan.Kind)}
+// hookStartResult is the Result the verified start reads: the backend b that
+// stopped and started the service, which it waits on.
+func hookStartResult(plan HookPlan, b Backend) Result {
+	r := Result{UnitName: plan.Name, UnitPath: plan.Item.Path, Label: plan.Name, Scope: string(plan.Kind),
+		started: &startedBy{b: b, product: plan.Product}}
 	if plan.Kind == KindLaunchdAgent {
 		if label, err := LaunchdLabel(plan.Product, plan.Name); err == nil {
 			r.Label = label

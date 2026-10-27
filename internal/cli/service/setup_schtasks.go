@@ -78,12 +78,14 @@ func setupSchtasks(opts Options, body string, res Result) (Result, error) {
 	if opts.NoStart {
 		return res, nil
 	}
-	if err := startWindows(opts.Product); err != nil {
-		// A task that registers but will not start is worth reporting, but it
-		// is registered — the same posture the systemd path takes.
-		return res, err
+	// The library's Task: Enable, then Start, which leaves a running instance
+	// alone, as /run did. --force stops it first, so the task runs the
+	// definition just registered; the stop drains the daemon (MADR 0207 D4).
+	// A task that registers but will not start is worth reporting, but it is
+	// registered: the same posture the systemd path takes.
+	if res, err = startThrough(KindWindowsTask, opts, res, opts.Force); err != nil {
+		return res, fmt.Errorf("scheduled task %q is registered, but %w", name, err)
 	}
-	res.Started = true
 	return res, nil
 }
 
@@ -102,9 +104,13 @@ func removeSchtasks(opts Options) (Result, error) {
 		return res, fmt.Errorf("query scheduled task %q: %w", name, err)
 	}
 	if st.Installed {
-		// Best-effort stop first: a deleted task's running instance outlives
-		// the deletion.
-		_ = stopWindows(opts.Product)
+		// Stop first: a deleted task's running instance outlives the deletion.
+		// The library's Task.Stop disables the task, so its watchdog trigger
+		// cannot start it again, and asks the daemon to drain before it ends
+		// it (MADR 0207 D4, D40).
+		if err := stopForRemoval(KindWindowsTask, opts); err != nil {
+			return res, err
+		}
 		if err := task.Delete(ctx, name); err != nil {
 			return res, fmt.Errorf("delete scheduled task %q: %w", name, err)
 		}

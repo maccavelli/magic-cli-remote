@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // hookHost is uninstallHost with product's backend recorded as kind, so the
@@ -174,6 +175,33 @@ func TestFromInstallerCyclesAsUpdateDoes(t *testing.T) {
 				t.Fatalf("calls %v, cycle %q, health %q; want %v, %q, %q", fb.calls, res.Cycle, res.Health, tc.calls, tc.cycle, tc.health)
 			}
 		})
+	}
+}
+
+// TestFromInstallerConfirmsOnTheBackendItCycled is MADR 0207 D4 and D40: the
+// hook's backend is built with the product's health wiring, and the start
+// check waits on that same backend, whose Stop recorded the instance the
+// restart replaces.
+func TestFromInstallerConfirmsOnTheBackendItCycled(t *testing.T) {
+	bin, _ := hookHost(t, KindRunit)
+	writeDefinition(t, KindRunit, "mcremote", "mcremote", filepath.Join(bin, "mcremote"))
+	withRealVerifyStart(t)
+	f := &setupFake{running: true}
+	builds := withSetupBackend(t, f)
+	health := HealthOptions{StopGrace: 7 * time.Second}
+	plan, err := PlanInstallerHook(Options{Product: "mcremote", Health: health})
+	if err != nil || plan.Action != HookUpgrade {
+		t.Fatalf("plan %+v, %v; want an upgrade", plan, err)
+	}
+	res, err := UpgradeFromInstaller(plan)
+	if err != nil || res.Health != HealthRunning {
+		t.Fatalf("res %+v, %v; want a confirmed restart", res, err)
+	}
+	if want := []string{"stop", "start", "wait"}; !slices.Equal(f.got(), want) {
+		t.Fatalf("calls %q, want %q on one backend", f.got(), want)
+	}
+	if len(*builds) != 1 || (*builds)[0].Kind != KindRunit || (*builds)[0].Health.StopGrace != health.StopGrace {
+		t.Fatalf("builds %+v, want one runit backend with the plan's health", *builds)
 	}
 }
 

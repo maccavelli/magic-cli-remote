@@ -49,7 +49,7 @@ func TestReadServeArgsFromEachDefinition(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "mcrelay.service"), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got, why, err := readServeArgs("mcrelay", "")
+		got, why, err := readServeArgs("", "mcrelay", "")
 		if err != nil || why != "" || got != wantBaked {
 			t.Fatalf("readServeArgs = %+v, %q, %v; want %+v", got, why, err, wantBaked)
 		}
@@ -66,7 +66,7 @@ func TestReadServeArgsFromEachDefinition(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "com.magiccliremote.mcrelay.plist"), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got, why, err := readServeArgs("mcrelay", "")
+		got, why, err := readServeArgs("", "mcrelay", "")
 		if err != nil || why != "" || got != wantBaked {
 			t.Fatalf("readServeArgs = %+v, %q, %v; want %+v", got, why, err, wantBaked)
 		}
@@ -83,11 +83,7 @@ func TestReadServeArgsFromEachDefinition(t *testing.T) {
 		// schtasks export (MADR 0207 D17, U4 Deviation 1).
 		s := withTaskScheduler(t)
 		s.xml["mcrelay"] = body
-		withSchtasks(t, func(args ...string) (string, error) {
-			t.Errorf("schtasks %q", args)
-			return "", nil
-		})
-		got, why, err := readServeArgs("mcrelay", "")
+		got, why, err := readServeArgs("", "mcrelay", "")
 		if err != nil || why != "" || got != wantBaked {
 			t.Fatalf("readServeArgs = %+v, %q, %v; want %+v", got, why, err, wantBaked)
 		}
@@ -109,7 +105,7 @@ func withDefinitionDir(t *testing.T, dirFn *func() (string, error)) string {
 }
 
 // withServeArgs replaces the definition reader for one test.
-func withServeArgs(t *testing.T, fn func(product, unitName string) (ServeArgs, string, error)) {
+func withServeArgs(t *testing.T, fn func(kind Kind, product, unitName string) (ServeArgs, string, error)) {
 	t.Helper()
 	prev := installedServeArgs
 	installedServeArgs = fn
@@ -119,7 +115,7 @@ func withServeArgs(t *testing.T, fn func(product, unitName string) (ServeArgs, s
 // TestBackendProbePassesTheDefinitionsArgs: the product's check gets the
 // definition's arguments on each call.
 func TestBackendProbePassesTheDefinitionsArgs(t *testing.T) {
-	withServeArgs(t, func(product, unitName string) (ServeArgs, string, error) {
+	withServeArgs(t, func(_ Kind, product, unitName string) (ServeArgs, string, error) {
 		return ServeArgs{DataDir: "/srv/" + product}, "", nil
 	})
 	var seen ServeArgs
@@ -127,7 +123,7 @@ func TestBackendProbePassesTheDefinitionsArgs(t *testing.T) {
 		seen = args
 		return libservice.Health{Ready: true}, nil
 	}}
-	got, err := h.backendProbe("mcremote", "")(context.Background())
+	got, err := h.backendProbe(KindSystemdUser, "mcremote", "")(context.Background())
 	if err != nil || !got.Ready || seen.DataDir != "/srv/mcremote" {
 		t.Fatalf("probe = %+v, %v; the check saw %+v", got, err, seen)
 	}
@@ -137,14 +133,14 @@ func TestBackendProbePassesTheDefinitionsArgs(t *testing.T) {
 // cannot be read back, such as one edited by hand, gets no application check,
 // so its update is not rolled back for a socket nobody serves.
 func TestBackendProbeSkipsAnUnreadableDefinition(t *testing.T) {
-	withServeArgs(t, func(string, string) (ServeArgs, string, error) {
+	withServeArgs(t, func(Kind, string, string) (ServeArgs, string, error) {
 		return ServeArgs{}, "has an unrecognised ExecStart= argument \"--verbose\"", nil
 	})
 	h := HealthOptions{Probe: func(context.Context, ServeArgs) (libservice.Health, error) {
 		t.Error("the check ran on a definition that could not be read back")
 		return libservice.Health{}, nil
 	}}
-	got, err := h.backendProbe("mcremote", "")(context.Background())
+	got, err := h.backendProbe(KindSystemdUser, "mcremote", "")(context.Background())
 	if err != nil || !got.Ready || !strings.Contains(got.Detail, "no application check") {
 		t.Fatalf("probe = %+v, %v; want ready, with the reason", got, err)
 	}
@@ -154,11 +150,11 @@ func TestBackendProbeSkipsAnUnreadableDefinition(t *testing.T) {
 // an error, which the backend keeps and reports if the wait times out.
 func TestBackendProbeErrorsWithNoDefinition(t *testing.T) {
 	missing := errors.New("read the mcremote unit: no such file")
-	withServeArgs(t, func(string, string) (ServeArgs, string, error) { return ServeArgs{}, "", missing })
+	withServeArgs(t, func(Kind, string, string) (ServeArgs, string, error) { return ServeArgs{}, "", missing })
 	h := HealthOptions{Probe: func(context.Context, ServeArgs) (libservice.Health, error) {
 		return libservice.Health{Ready: true}, nil
 	}}
-	if _, err := h.backendProbe("mcremote", "")(context.Background()); !errors.Is(err, missing) {
+	if _, err := h.backendProbe(KindSystemdUser, "mcremote", "")(context.Background()); !errors.Is(err, missing) {
 		t.Fatalf("probe error = %v, want %v", err, missing)
 	}
 }
@@ -167,7 +163,7 @@ func TestBackendProbeErrorsWithNoDefinition(t *testing.T) {
 // wires no probe, as before.
 func TestNoProbeWithoutTheProducts(t *testing.T) {
 	var h HealthOptions
-	if h.backendProbe("mcremote", "") != nil || h.backendRequestStop("mcremote", "") != nil {
+	if h.backendProbe(KindSystemdUser, "mcremote", "") != nil || h.backendRequestStop("mcremote", "") != nil {
 		t.Fatal("empty HealthOptions built a probe or a stop request")
 	}
 }
@@ -175,7 +171,7 @@ func TestNoProbeWithoutTheProducts(t *testing.T) {
 // TestBackendRequestStopPassesTheDefinitionsArgs: the Task Scheduler
 // backend's request goes to the daemon the definition runs, not to a PID.
 func TestBackendRequestStopPassesTheDefinitionsArgs(t *testing.T) {
-	withServeArgs(t, func(string, string) (ServeArgs, string, error) {
+	withServeArgs(t, func(Kind, string, string) (ServeArgs, string, error) {
 		return ServeArgs{DataDir: `C:\srv\data`}, "", nil
 	})
 	var seen ServeArgs

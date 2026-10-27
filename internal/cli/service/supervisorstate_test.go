@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -273,64 +272,6 @@ func TestOpenRCPIDFileHasNoTmpFallback(t *testing.T) {
 	}
 }
 
-// TestSettleTellsAReusedPIDByItsStartToken is MADR 0212 D12-A: a process with
-// the PID of the one before it, but another start token, is a new process.
-// While watched, that is a restart; and the process a restart replaces is
-// skipped only when PID and token both match (P3 Deviation 2).
-func TestSettleTellsAReusedPIDByItsStartToken(t *testing.T) {
-	fastSettle(t)
-	samples := func(ss ...sample) {
-		i := 0
-		prev := newSampler
-		newSampler = func(Kind, Result) sampleFunc {
-			return func() (sample, error) {
-				s := ss[min(i, len(ss)-1)]
-				i++
-				return s, nil
-			}
-		}
-		t.Cleanup(func() { newSampler = prev })
-	}
-	t.Run("a restart while watched", func(t *testing.T) {
-		samples(sample{up: true, pid: 81, token: "old"}, sample{up: true, pid: 81, token: "new"})
-		health, why := settle(KindRunit, Result{UnitName: "mcremote"}, 5)
-		if health != HealthFailed || !strings.Contains(why, "restarted while watched") {
-			t.Fatalf("settle = %s, %q; want a restart while watched", health, why)
-		}
-	})
-	t.Run("a new process with the replaced one's PID", func(t *testing.T) {
-		samples(sample{up: true, pid: 81, token: "new", uptime: 3 * time.Second})
-		res := Result{UnitName: "mcremote", replacedPid: 81, replacedToken: "old"}
-		if health, why := settle(KindRunit, res, 5); health != HealthRunning {
-			t.Fatalf("settle = %s, %q; want running: PID 81 is a new process", health, why)
-		}
-	})
-	t.Run("the replaced process itself", func(t *testing.T) {
-		samples(sample{up: true, pid: 81, token: "old", uptime: 3 * time.Second})
-		res := Result{UnitName: "mcremote", replacedPid: 81, replacedToken: "old"}
-		if health, _ := settle(KindRunit, res, 3); health == HealthRunning {
-			t.Fatal("settle took the process the restart replaces for the new one")
-		}
-	})
-}
-
-// TestSamplerCarriesTheStartToken: the sample settle reads is the state's,
-// with the up process's start token, so settle's comparisons see it.
-func TestSamplerCarriesTheStartToken(t *testing.T) {
-	def := stateHost(t, KindRunit, false, false, false)
-	answer(t, KindRunit, fixture(t, "runit-2.3.1", "up"))
-	prev := startToken
-	startToken = func(pid int) string { return fmt.Sprintf("token-of-%d", pid) }
-	t.Cleanup(func() { startToken = prev })
-	s, err := sampler(KindRunit, Result{UnitName: "mcremote", UnitPath: def.Path})()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := (sample{up: true, pid: 20, uptime: 2 * time.Second, token: "token-of-20"}); s != want {
-		t.Fatalf("sample %+v, want %+v", s, want)
-	}
-}
-
 // TestReadServeArgsReadsScriptDefinitions is MADR 0212 D4-A: the probe reads
 // what setup baked into a runit, s6 or OpenRC definition, with the refresh's
 // parser, as it does for a systemd unit.
@@ -356,9 +297,23 @@ func TestReadServeArgsReadsScriptDefinitions(t *testing.T) {
 			if err := os.WriteFile(def.Path, []byte(body), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			got, why, err := readServeArgs("mcrelay", "")
+			got, why, err := readServeArgs("", "mcrelay", "")
 			if err != nil || why != "" || got != wantBaked {
 				t.Fatalf("readServeArgs = %+v, %q, %v; want %+v", got, why, err, wantBaked)
+			}
+			// MADR 0207 D40: setup passes the kind it set up, which a record an
+			// earlier setup left on another supervisor contradicts. The kind
+			// given wins; with none, the record decides, and names a systemd
+			// unit that is not there.
+			if err := recordBackend("mcrelay", KindSystemdUser); err != nil {
+				t.Fatal(err)
+			}
+			got, why, err = readServeArgs(kind, "mcrelay", "")
+			if err != nil || why != "" || got != wantBaked {
+				t.Fatalf("readServeArgs(%s) under a systemd record = %+v, %q, %v; want %+v", kind, got, why, err, wantBaked)
+			}
+			if _, _, err := readServeArgs("", "mcrelay", ""); err == nil {
+				t.Fatal("with no kind, a systemd record still read the script definition")
 			}
 		})
 	}

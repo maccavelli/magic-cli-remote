@@ -1,11 +1,13 @@
-// Deliberately NOT build-tagged. The launchd path shells out through the
-// runLaunchctl / runLaunchctlCapture seams and probes through launchdLoaded's,
-// and touches no Darwin API, so it compiles and runs everywhere — the same reasoning schtasks.go gives for
-// exercising the Windows branch from a Unix host (MADR 0116 D12).
+// Deliberately NOT build-tagged. The launchd path runs launchctl through the
+// runLaunchctl seam and stops and starts through the backend setup builds, and
+// touches no Darwin API, so it compiles and runs everywhere — the same
+// reasoning schtasks.go gives for exercising the Windows branch from a Unix
+// host (MADR 0116 D12).
 //
-// That matters here specifically: the teardown race this file pins was
-// reported from a Mac, and the developer host is Windows. A test that only
-// runs on Unix would have been unrunnable by the person fixing it.
+// The teardown race MADR 0125 pinned here is the library's to wait out now:
+// setup stops with launchd.Job.Stop and starts with Job.Start, as the update
+// does (MADR 0207 D43). These tests pin what setup asks of the Job, and in
+// what order against its own launchctl calls.
 
 package service_test
 
@@ -15,54 +17,55 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
-	"time"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 )
 
-// scriptedLaunchd answers launchd's two probes from one queue, in call order,
-// so a test can model a job that is loaded and then finishes tearing down:
-// launchdLoaded, which reads the library's Job.Loaded (MADR 0207 D19), and
-// `launchctl print`, which launchdJobRunning still reads. The last value
-// repeats. Restore with the returned func.
-func scriptedLaunchd(loaded ...bool) (restore func()) {
-	i := 0
-	next := func() bool {
-		v := loaded[len(loaded)-1]
-		if i < len(loaded) {
-			v = loaded[i]
-		}
-		i++
-		return v
-	}
-	restorePrint := service.OverrideRunLaunchctlCapture(func(args ...string) (string, error) {
-		if len(args) == 0 || args[0] != "print" {
-			return "", nil
-		}
-		if next() {
-			return "state = running\npid = 42\n", nil
-		}
-		return "", errors.New("could not find service")
-	})
-	restoreLoaded := service.OverrideLaunchdLoaded(func(context.Context, string) (bool, error) {
-		return next(), nil
-	})
-	return func() {
-		restoreLoaded()
-		restorePrint()
-	}
+// jobLog records, in one order, what setup asks of the backend ("job stop",
+// "job start") and the launchctl commands it runs itself.
+type jobLog struct {
+	calls   []string
+	stopErr error
 }
 
-func kindsOf(calls [][]string) []string {
-	var out []string
-	for _, c := range calls {
-		if len(c) > 0 {
-			out = append(out, c[0])
+// jobFake is the launchd backend setup builds, answering into log.
+type jobFake struct{ log *jobLog }
+
+func (f jobFake) Installed(context.Context, string) (bool, error) { return true, nil }
+func (f jobFake) Enabled(context.Context, string) (bool, error)   { return true, nil }
+func (f jobFake) Running(context.Context, string) (bool, error)   { return true, nil }
+func (f jobFake) Stop(context.Context, string) error {
+	f.log.calls = append(f.log.calls, "job stop")
+	return f.log.stopErr
+}
+func (f jobFake) Start(context.Context, string) error {
+	f.log.calls = append(f.log.calls, "job start")
+	return nil
+}
+func (f jobFake) WaitHealthy(context.Context, string) error { return nil }
+
+// withJob makes setup build a jobFake, records setup's launchctl commands in
+// the same log, and answers launchdLoaded with loaded.
+func withJob(t *testing.T, loaded bool) *jobLog {
+	t.Helper()
+	log := &jobLog{}
+	t.Cleanup(service.OverrideSetupBackend(func(kind service.Kind, _, _ string, _ service.HealthOptions) (service.Backend, error) {
+		if kind != service.KindLaunchdAgent {
+			t.Errorf("setup built a %s backend on macOS", kind)
 		}
-	}
-	return out
+		return jobFake{log: log}, nil
+	}))
+	t.Cleanup(service.OverrideRunLaunchctl(func(args ...string) error {
+		log.calls = append(log.calls, "launchctl "+strings.Join(args, " "))
+		return nil
+	}))
+	t.Cleanup(service.OverrideLaunchdLoaded(func(context.Context, string) (bool, error) { return loaded, nil }))
+	return log
 }
 
 func newSetupDir(t *testing.T) (src, plistDir, cfg string) {
@@ -82,13 +85,12 @@ func newSetupDir(t *testing.T) (src, plistDir, cfg string) {
 	return src, filepath.Join(dir, "LaunchAgents"), filepath.Join(dir, "config.yaml")
 }
 
-// A loaded job must be torn down and observed gone before bootstrap.
-// Bootstrapping into an unfinished teardown is what returned error 5 on a real
-// Mac (MADR 0125 F3).
-func TestDarwinSetupWaitsForTeardownBeforeBootstrap(t *testing.T) {
-	restoreOS := service.OverrideInstallOS("darwin")
-	defer restoreOS()
-
+// TestDarwinSetupStopsThenStartsThroughTheJob: a changed plist is applied by
+// the Job's Stop, which boots the job out and waits until it has gone (MADR
+// 0125 D1, in the library), then its Start. Setup runs no bootout, bootstrap
+// or kickstart of its own.
+func TestDarwinSetupStopsThenStartsThroughTheJob(t *testing.T) {
+	defer service.OverrideInstallOS("darwin")()
 	src, plistDir, cfg := newSetupDir(t)
 	if err := os.MkdirAll(plistDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -98,197 +100,100 @@ func TestDarwinSetupWaitsForTeardownBeforeBootstrap(t *testing.T) {
 		[]byte("<plist>stale</plist>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
-	// Loaded when asked, loaded once more mid-wait, then gone.
-	restoreCap := scriptedLaunchd(true, true, false, false)
-	defer restoreCap()
-
-	var calls [][]string
-	restoreLC := service.OverrideRunLaunchctl(func(args ...string) error {
-		calls = append(calls, append([]string{}, args...))
-		return nil
-	})
-	defer restoreLC()
-
-	if _, err := service.Setup(service.Options{
-		UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	kinds := kindsOf(calls)
-	bo, bs := -1, -1
-	for i, k := range kinds {
-		if k == "bootout" && bo < 0 {
-			bo = i
-		}
-		if k == "bootstrap" && bs < 0 {
-			bs = i
-		}
-	}
-	if bo < 0 {
-		t.Fatalf("a loaded job must be booted out: %v", kinds)
-	}
-	if bs < 0 || bo > bs {
-		t.Fatalf("bootout must precede bootstrap: %v", kinds)
-	}
-}
-
-// D4: an unchanged plist over a running job needs no reload. Skipping the
-// bootout/bootstrap cycle removes the race window rather than surviving it,
-// and this is the shape `update` takes — the binary changed, the plist did not.
-func TestDarwinSetupRestartsInPlaceWhenPlistUnchanged(t *testing.T) {
-	restoreOS := service.OverrideInstallOS("darwin")
-	defer restoreOS()
-
-	src, plistDir, cfg := newSetupDir(t)
-
-	// First render the plist so the second call sees identical content.
-	restoreCap := scriptedLaunchd(false)
-	restoreLC := service.OverrideRunLaunchctl(func(args ...string) error { return nil })
-	first, err := service.Setup(service.Options{
-		UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true,
-	})
-	restoreLC()
-	restoreCap()
+	log := withJob(t, true)
+	res, err := service.Setup(service.Options{UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Unchanged {
-		t.Fatal("first Setup should have written the plist")
+	if want := []string{"job stop", "job start"}; !slices.Equal(log.calls, want) || !res.Started || !res.Enabled {
+		t.Fatalf("calls %q, res %+v; want %q, started and enabled", log.calls, res, want)
+	}
+}
+
+// TestDarwinSetupRestartsAnUnchangedPlistThroughTheJob is MADR 0207 D43: an
+// unchanged plist over a running job is no longer restarted in place with
+// kickstart -k (0125 D4). No library call does that, so it goes the same way
+// as any other start.
+func TestDarwinSetupRestartsAnUnchangedPlistThroughTheJob(t *testing.T) {
+	defer service.OverrideInstallOS("darwin")()
+	src, plistDir, cfg := newSetupDir(t)
+	opts := service.Options{UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true}
+	withJob(t, false)
+	if first, err := service.Setup(opts); err != nil || first.Unchanged {
+		t.Fatalf("first Setup: %+v, %v; want the plist written", first, err)
 	}
 
-	// Now: same plist, job loaded and running.
-	restoreCap = scriptedLaunchd(true)
-	defer restoreCap()
-	var calls [][]string
-	restoreLC = service.OverrideRunLaunchctl(func(args ...string) error {
-		calls = append(calls, append([]string{}, args...))
-		return nil
-	})
-	defer restoreLC()
-
-	res, err := service.Setup(service.Options{
-		UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true,
-	})
+	log := withJob(t, true)
+	res, err := service.Setup(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Unchanged {
-		t.Fatalf("second Setup should see an unchanged plist: %+v", res)
+	if !res.Unchanged || !res.Started {
+		t.Fatalf("second Setup %+v; want an unchanged plist, started", res)
 	}
-	if !res.Started {
-		t.Fatal("an in-place restart still leaves the service started")
-	}
-
-	kinds := kindsOf(calls)
-	for _, k := range kinds {
-		if k == "bootout" || k == "bootstrap" {
-			t.Fatalf("unchanged plist must not reload the job: %v", kinds)
-		}
-	}
-	if len(kinds) == 0 || kinds[len(kinds)-1] != "kickstart" {
-		t.Fatalf("expected an in-place kickstart: %v", kinds)
+	if want := []string{"job stop", "job start"}; !slices.Equal(log.calls, want) {
+		t.Fatalf("calls %q, want %q and no kickstart -k", log.calls, want)
 	}
 }
 
-// A teardown that never completes must be reported as such, not walked into a
-// bootstrap that cannot succeed.
-func TestDarwinSetupReportsAStuckTeardown(t *testing.T) {
-	restoreOS := service.OverrideInstallOS("darwin")
-	defer restoreOS()
-
+// TestDarwinSetupReportsAFailedStop: a job the Job's Stop could not stop is
+// reported as that, and is not started over: bootstrapping into a job still
+// there cannot succeed (MADR 0125 D2).
+func TestDarwinSetupReportsAFailedStop(t *testing.T) {
+	defer service.OverrideInstallOS("darwin")()
 	src, plistDir, cfg := newSetupDir(t)
-	if err := os.MkdirAll(plistDir, 0o755); err != nil {
-		t.Fatal(err)
+	log := withJob(t, true)
+	log.stopErr = errors.New("selfupdate: launchd: bootout gui/501/com.magiccliremote.mcremote: " + libservice.ErrTimeout.Error())
+	_, err := service.Setup(service.Options{UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true})
+	if err == nil || !strings.Contains(err.Error(), "could not be stopped") {
+		t.Fatalf("err = %v, want the stop named", err)
 	}
-	if err := os.WriteFile(filepath.Join(plistDir, "com.magiccliremote.mcremote.plist"),
-		[]byte("<plist>stale</plist>"), 0o600); err != nil {
-		t.Fatal(err)
+	if strings.Contains(err.Error(), "log in via the GUI") {
+		t.Errorf("a failed stop got the bootstrap hint: %v", err)
 	}
-
-	restoreCap := scriptedLaunchd(true) // never leaves
-	defer restoreCap()
-	// Shrink the wait: this asserts an error message, not fifteen seconds of
-	// patience. Production timings are untouched.
-	restoreT := service.OverrideLaunchdWaitTimings(20*time.Millisecond, time.Millisecond)
-	defer restoreT()
-	var calls [][]string
-	restoreLC := service.OverrideRunLaunchctl(func(args ...string) error {
-		calls = append(calls, append([]string{}, args...))
-		return nil
-	})
-	defer restoreLC()
-
-	_, err := service.Setup(service.Options{
-		UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true,
-	})
-	if err == nil {
-		t.Fatal("want an error when the job never leaves the domain")
-	}
-	// Any error would satisfy "err != nil" — including a fixture mistake that
-	// never reached the launchd path at all. Pin the reason.
-	if !strings.Contains(err.Error(), "could not be torn down") {
-		t.Fatalf("error must name the teardown, got: %v", err)
-	}
-	for _, k := range kindsOf(calls) {
-		if k == "bootstrap" {
-			t.Fatalf("must not bootstrap over a job that is still loaded: %v", kindsOf(calls))
-		}
+	if !slices.Equal(log.calls, []string{"job stop"}) {
+		t.Fatalf("calls %q, want the stop alone", log.calls)
 	}
 }
 
-// Remove must still tear a *loaded* job down, and wait for it. This lives here
-// rather than beside the other Remove test because that file is //go:build
-// unix and cannot run on the host this bug was fixed from (MADR 0125).
-func TestDarwinRemoveWaitsForTeardownWhenLoaded(t *testing.T) {
-	restoreOS := service.OverrideInstallOS("darwin")
-	defer restoreOS()
-
+// TestDarwinRemoveStopsBeforeDisable: Remove stops the job through the same
+// Job.Stop, then disables the label, then deletes the plist.
+func TestDarwinRemoveStopsBeforeDisable(t *testing.T) {
+	defer service.OverrideInstallOS("darwin")()
 	src, plistDir, cfg := newSetupDir(t)
-
-	restoreCap := scriptedLaunchd(false)
-	restoreLC := service.OverrideRunLaunchctl(func(args ...string) error { return nil })
-	if _, err := service.Setup(service.Options{
-		UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true,
-	}); err != nil {
+	withJob(t, false)
+	if _, err := service.Setup(service.Options{UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true}); err != nil {
 		t.Fatal(err)
 	}
-	restoreLC()
-	restoreCap()
-
-	// Loaded when Remove looks, gone after the bootout.
-	restoreCap = scriptedLaunchd(true, false)
-	defer restoreCap()
-	var calls [][]string
-	restoreLC = service.OverrideRunLaunchctl(func(args ...string) error {
-		calls = append(calls, append([]string{}, args...))
-		return nil
-	})
-	defer restoreLC()
-
+	log := withJob(t, true)
 	res, err := service.Remove(service.Options{UnitDir: plistDir})
-	if err != nil {
+	if err != nil || !res.Removed {
+		t.Fatalf("Remove: %+v, %v", res, err)
+	}
+	stop, disable := slices.Index(log.calls, "job stop"), slices.IndexFunc(log.calls, func(c string) bool {
+		return strings.HasPrefix(c, "launchctl disable ")
+	})
+	if stop < 0 || disable < 0 || stop > disable {
+		t.Fatalf("calls %q; want the job stopped, then disabled", log.calls)
+	}
+}
+
+// TestDarwinRemoveFromInsideTheJobRemovesNothing: a stop refused because this
+// process runs inside the job leaves the plist, since the job would keep
+// running from a definition that is gone (MADR 0207 D4).
+func TestDarwinRemoveFromInsideTheJobRemovesNothing(t *testing.T) {
+	defer service.OverrideInstallOS("darwin")()
+	src, plistDir, cfg := newSetupDir(t)
+	withJob(t, false)
+	if _, err := service.Setup(service.Options{UnitName: "mcremote", Binary: src, UnitDir: plistDir, ConfigPath: cfg, Force: true}); err != nil {
 		t.Fatal(err)
 	}
-	if !res.Removed {
-		t.Fatal("expected Removed")
+	log := withJob(t, true)
+	log.stopErr = libservice.ErrInsideService
+	if _, err := service.Remove(service.Options{UnitDir: plistDir}); !errors.Is(err, libservice.ErrInsideService) {
+		t.Fatalf("Remove = %v, want the inside refusal", err)
 	}
-
-	kinds := kindsOf(calls)
-	bo, dis := -1, -1
-	for i, k := range kinds {
-		if k == "bootout" && bo < 0 {
-			bo = i
-		}
-		if k == "disable" && dis < 0 {
-			dis = i
-		}
-	}
-	if bo < 0 {
-		t.Fatalf("a loaded job must be booted out before removal: %v", kinds)
-	}
-	if dis < 0 || bo > dis {
-		t.Fatalf("bootout must precede disable: %v", kinds)
+	if _, err := os.Stat(filepath.Join(plistDir, "com.magiccliremote.mcremote.plist")); err != nil {
+		t.Fatalf("the plist was removed after a refused stop: %v", err)
 	}
 }

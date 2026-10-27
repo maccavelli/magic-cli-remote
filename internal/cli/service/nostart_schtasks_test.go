@@ -18,19 +18,14 @@ func TestNoStartDoesNotStartTheWindowsTask(t *testing.T) {
 	}
 	s := withTaskScheduler(t)
 	s.xml["mcremote"] = strings.Replace(body, opts.Binary, `C:\old\mcremote.exe`, 1)
-	var calls []string
-	withSchtasks(t, func(args ...string) (string, error) {
-		calls = append(calls, strings.Join(args, " "))
-		return "", nil
-	})
+	f := &setupFake{}
+	withSetupBackend(t, f)
 	res, err := setupSchtasks(opts, body, Result{})
 	if err != nil {
 		t.Fatalf("setupSchtasks: %v", err)
 	}
-	for _, c := range calls {
-		if strings.HasPrefix(c, "/run ") {
-			t.Errorf("--no-start ran schtasks %s", c)
-		}
+	if len(f.got()) != 0 {
+		t.Errorf("--no-start asked the task backend for %q", f.got())
 	}
 	if len(s.registered) != 1 {
 		t.Errorf("--no-start registered %d definitions, want 1", len(s.registered))
@@ -72,11 +67,8 @@ func TestNoStartKeepsAStoppedWindowsTaskStopped(t *testing.T) {
 	}
 	s := withTaskScheduler(t)
 	s.xml["mcremote"] = stoppedCopy(t, body, opts.Binary, true)
-	var calls []string
-	withSchtasks(t, func(args ...string) (string, error) {
-		calls = append(calls, strings.Join(args, " "))
-		return "", nil
-	})
+	f := &setupFake{}
+	withSetupBackend(t, f)
 	res, err := setupSchtasks(opts, body, Result{})
 	if err != nil {
 		t.Fatalf("setupSchtasks: %v", err)
@@ -84,10 +76,8 @@ func TestNoStartKeepsAStoppedWindowsTaskStopped(t *testing.T) {
 	if res.Enabled {
 		t.Error("Result.Enabled = true for a task registered disabled; setup would print \"Enabled: yes\"")
 	}
-	for _, c := range calls {
-		if strings.HasPrefix(c, "/run ") || strings.Contains(c, "/enable") {
-			t.Errorf("--no-start on a stopped task ran schtasks %s", c)
-		}
+	if len(f.got()) != 0 {
+		t.Errorf("--no-start on a stopped task asked the task backend for %q", f.got())
 	}
 	if len(s.registered) != 1 {
 		t.Fatalf("the changed definition was registered %d times, want once", len(s.registered))
@@ -112,7 +102,6 @@ func TestAStoppedUnchangedTaskNeedsNoForce(t *testing.T) {
 			}
 			s := withTaskScheduler(t)
 			s.xml["mcremote"] = stoppedCopy(t, body, opts.Binary, false)
-			withSchtasks(t, func(...string) (string, error) { return "", nil })
 			res, err := setupSchtasks(opts, body, Result{})
 			if err != nil {
 				t.Fatalf("setupSchtasks on a stopped, current task: %v", err)
@@ -141,7 +130,6 @@ func TestNoStartReadsTheSwitchFromTaskScheduler(t *testing.T) {
 		s := withTaskScheduler(t)
 		s.xml["mcremote"] = changed
 		s.switchOff["mcremote"] = true
-		withSchtasks(t, func(...string) (string, error) { return "", nil })
 		if _, err := setupSchtasks(opts, body, Result{}); err != nil {
 			t.Fatal(err)
 		}
@@ -152,7 +140,6 @@ func TestNoStartReadsTheSwitchFromTaskScheduler(t *testing.T) {
 	t.Run("reported enabled", func(t *testing.T) {
 		s := withTaskScheduler(t)
 		s.xml["mcremote"] = changed
-		withSchtasks(t, func(...string) (string, error) { return "", nil })
 		if _, err := setupSchtasks(opts, body, Result{}); err != nil {
 			t.Fatal(err)
 		}

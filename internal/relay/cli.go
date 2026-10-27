@@ -438,6 +438,9 @@ func runSetupService(cmd *cobra.Command, f setupServiceFlags, cfgFile, logLevel,
 		NoEnable:         f.noEnable,
 		NoStart:          f.noStart,
 		NoLinger:         f.noLinger,
+		// The update's health wiring: setup confirms a start with the same
+		// /healthz probe (MADR 0207 D40).
+		Health: updateHealth(),
 	}
 
 	// The installer's hook (MADR 0054 amendment S7, PLAN S7a). For mcrelay

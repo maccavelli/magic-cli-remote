@@ -3,6 +3,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -23,23 +24,19 @@ func TestNoStartLeavesARunningLaunchdJobAlone(t *testing.T) {
 	defer restore()
 
 	var calls [][]string
-	booted := false
 	restoreLC := service.OverrideRunLaunchctl(func(args ...string) error {
 		calls = append(calls, append([]string{}, args...))
-		if len(args) > 0 && args[0] == "bootout" {
-			booted = true
-		}
 		return nil
 	})
 	defer restoreLC()
-	// The job is loaded and running until something boots it out.
-	restoreCap := service.OverrideRunLaunchctlCapture(func(...string) (string, error) {
-		if booted {
-			return "", errors.New("launchctl: no such service")
-		}
-		return "state = running\n", nil
-	})
-	defer restoreCap()
+	// The job is loaded. The note reads launchdLoaded, which a test must stub,
+	// or it reads the host's own launchd (MADR 0207 D19).
+	defer service.OverrideLaunchdLoaded(func(context.Context, string) (bool, error) { return true, nil })()
+	// Nothing may stop or start it: a backend call fails the test.
+	defer service.OverrideSetupBackend(func(service.Kind, string, string, service.HealthOptions) (service.Backend, error) {
+		t.Error("--no-start built a backend to stop or start the job")
+		return nil, errors.New("no backend under --no-start")
+	})()
 
 	dir := t.TempDir()
 	src := testexec.WriteShellStub(t, filepath.Join(dir, "mcremote"), "")

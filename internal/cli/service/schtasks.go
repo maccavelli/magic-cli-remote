@@ -3,8 +3,8 @@ package service
 // This file is deliberately NOT build-tagged for Windows. Nothing in the
 // Task Scheduler path touches a Windows API directly: it reaches Task
 // Scheduler through go-selfupdate-lib's taskscheduler package behind the
-// newTaskClient seam, and runs schtasks.exe through the runSchtasks seam for
-// the enable, run and end that remain (MADR 0207 D17, D30). Compiling it
+// newTaskClient seam, and setup stops and starts the task through its
+// lifecycle, so no path runs schtasks.exe (MADR 0207 D17, D30). Compiling it
 // everywhere is what lets the Windows branch be exercised from a Unix
 // development host via OverrideInstallOS, the same way OverrideRunLaunchctl
 // drives the launchd path off Darwin (MADR 0116 D12).
@@ -17,13 +17,6 @@ import (
 
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
 )
-
-// runSchtasks runs schtasks.exe and returns its combined output. It is a
-// variable so tests can drive the Windows branch without a task engine,
-// mirroring runLaunchctlCapture and runSystemctlCapture.
-var runSchtasks = func(args ...string) (string, error) {
-	return runCmdOutput("schtasks", args...)
-}
 
 // taskClient is the part of go-selfupdate-lib's *taskscheduler.Task that
 // setup, refresh, remove, uninstall and health use: one Task Scheduler read
@@ -115,10 +108,6 @@ func taskDiffPaths(stored, wanted string) ([]string, error) {
 	}
 	return paths, nil
 }
-
-// taskName is the scheduled-task name for a product. Bare product, matching
-// the systemd unit name and the launchd label mapping.
-func taskName(product string) string { return taskNameFor(product) }
 
 // taskDefinition is the Task Scheduler 2.0 XML this project registers. This
 // package renders it; go-selfupdate-lib registers, reads and compares it

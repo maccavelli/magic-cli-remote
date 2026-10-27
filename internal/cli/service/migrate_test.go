@@ -94,7 +94,6 @@ func migrationHost(t *testing.T, products []string, tasks ...string) (*fakeTaskS
 	for _, p := range tasks {
 		ft.xml[p] = taskXMLRunning(t, p, filepath.Join(oldWindowsDir(p), p+".exe"))
 	}
-	withSchtasks(t, func(...string) (string, error) { return "", nil })
 	prevBackup := taskBackupPath
 	backup := filepath.Join(t.TempDir(), "task.prev.xml")
 	taskBackupPath = func(string, string) (string, error) { return backup, nil }

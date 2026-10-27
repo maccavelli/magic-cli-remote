@@ -369,9 +369,11 @@ describes it in full:
   session only, which nothing starts at boot.
 - **Hosts with nothing to supervise** (`systemd-broken`, `openrc-system`, `none`) get advice, no
   definition, and exit 0.
-- **The verified start** waits up to `MCREMOTE_SVC_WAIT_SECS` seconds (default `15`) and reports
-  running, still starting (exit 0, with a warning), or not running (non-zero, with the command
-  that shows why).
+- **The verified start** confirms the start with the relay's own `/healthz`, as `mcrelay update`
+  does. It waits up to 60 seconds (75 on runit, s6 and OpenRC), or `MCREMOTE_SVC_WAIT_SECS` when
+  set. It reports running, still starting (exit 0, with a warning), or not running (non-zero, with
+  the command that shows why). A relay set up beside `mcremote`'s, with
+  `MCREMOTE_WITH_RELAY_SERVICE=1`, is confirmed the same way.
 - **The environment variables** `MCREMOTE_NO_LINGER=1` and `MCREMOTE_FORCE_SERVICE=1` act as
   `--no-linger` and `--force`. The names keep the `MCREMOTE_` prefix because they are the
   installer's. `MCREMOTE_WITH_RELAY_SERVICE` is read by `mcremote setup-service`, which sets up

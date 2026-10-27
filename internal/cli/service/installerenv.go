@@ -57,9 +57,11 @@ func ApplyInstallerEnv(opts Options) (Options, error) {
 // mcrelay binary in the same folder as the mcremote one the service runs, as
 // install.sh did with --with-relay-service (:706-718). It takes mcremote's
 // enable, start, linger and force choices; mcrelay's own options are its
-// defaults, as `mcrelay setup-service` with no flags would use. When the
-// relay fails, mcremote is left as it is, and the error says so.
-func SetupRelayBeside(remote Result, base Options) (Result, error) {
+// defaults, as `mcrelay setup-service` with no flags would use. relay is the
+// relay's health wiring, so its start is confirmed with its own /healthz probe,
+// as `mcrelay setup-service` confirms it (MADR 0207 D40). When the relay fails,
+// mcremote is left as it is, and the error says so.
+func SetupRelayBeside(remote Result, base Options, relay HealthOptions) (Result, error) {
 	exe := "mcrelay"
 	if runtime.GOOS == "windows" || installOS == "windows" {
 		exe += ".exe"
@@ -76,6 +78,7 @@ func SetupRelayBeside(remote Result, base Options) (Result, error) {
 		NoEnable: base.NoEnable,
 		NoStart:  base.NoStart,
 		NoLinger: base.NoLinger,
+		Health:   relay,
 	})
 	if err != nil {
 		return res, fmt.Errorf("mcremote is set up; mcrelay is not: %w", err)

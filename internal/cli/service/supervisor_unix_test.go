@@ -4,7 +4,7 @@ package service
 
 import (
 	"bytes"
-	"fmt"
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -275,6 +275,8 @@ func scriptSetup(t *testing.T, root, bin string, mut func(*Options)) (Result, er
 func TestSetupRunitStartsASessionSupervisor(t *testing.T) {
 	root, bin := supervisorHost(t, KindRunit)
 	starts := recordSessionStarts(t)
+	f := &setupFake{}
+	withSetupBackend(t, f)
 	res, err := scriptSetup(t, root, bin, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -302,6 +304,11 @@ func TestSetupRunitStartsASessionSupervisor(t *testing.T) {
 	if calls := fakeCalls(t); len(calls) != 0 {
 		t.Fatalf("calls %v, want none: the new runsvdir starts the service", calls)
 	}
+	// Nothing ran before, so nothing is stopped or started: the start check
+	// watches the adapter for the first instance (MADR 0207 D41).
+	if len(f.got()) != 0 || res.started == nil || res.started.b != f {
+		t.Fatalf("adapter calls %q, started %+v; want none, and the adapter kept for the check", f.got(), res.started)
+	}
 }
 
 func TestSetupRunitRestartsThroughTheUsersSupervisor(t *testing.T) {
@@ -315,6 +322,8 @@ func TestSetupRunitRestartsThroughTheUsersSupervisor(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(def.Dir, "supervise", "ok"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	f := &setupFake{running: true}
+	builds := withSetupBackend(t, f)
 	res, err := scriptSetup(t, root, bin, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -322,13 +331,14 @@ func TestSetupRunitRestartsThroughTheUsersSupervisor(t *testing.T) {
 	if len(*starts) != 0 || res.SupervisorStarted {
 		t.Fatalf("started a session runsvdir %v although one watches %s", *starts, root)
 	}
-	// The status first notes the process the restart replaces (PLAN S5c). The
-	// log service answers, so there is nothing to adopt (0212 PLAN P4
-	// Deviation 3); it is not up, so there is no stale logger to restart
-	// (P4b Deviation 1).
-	want := []string{"sv status " + def.Dir, "sv status " + def.Dir + "/log", "sv status " + def.Dir + "/log", "sv restart " + def.Dir}
-	if calls := fakeCalls(t); !slices.Equal(calls, want) || !res.Started {
-		t.Fatalf("calls %v, started %v; want %v", calls, res.Started, want)
+	// The restart is the adapter's: its Stop records the daemon it replaces,
+	// and its Start's Up adopts or restarts the log service, then brings the
+	// service up (MADR 0207 D41; 0212 D21-A). Setup runs no sv of its own.
+	if calls := fakeCalls(t); len(calls) != 0 || !res.Started {
+		t.Fatalf("calls %v, started %v; want no sv from setup", calls, res.Started)
+	}
+	if !slices.Equal(f.got(), []string{"stop", "start"}) || len(*builds) != 1 || (*builds)[0].Kind != KindRunit {
+		t.Fatalf("adapter calls %q, builds %+v; want a stop and a start on one runit adapter", f.got(), *builds)
 	}
 }
 
@@ -362,13 +372,17 @@ func TestSetupS6RescansAndRestarts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "s6-svstat.out"), []byte("false false true false -1 0 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	f := &setupFake{running: true}
+	withSetupBackend(t, f)
 	if _, err := scriptSetup(t, root, bin, nil); err != nil {
 		t.Fatal(err)
 	}
-	status := "s6-svstat -o " + s6Fields + " "
-	want := []string{"s6-svscanctl -a " + root, status + def.Dir, status + def.Dir + "/log", "s6-svc -r " + def.Dir, "s6-svc -u " + def.Dir}
+	want := []string{"s6-svscanctl -a " + root}
 	if calls := fakeCalls(t); !slices.Equal(calls, want) || len(*starts) != 0 {
 		t.Fatalf("calls %v, starts %v; want %v", calls, *starts, want)
+	}
+	if !slices.Equal(f.got(), []string{"stop", "start"}) {
+		t.Fatalf("adapter calls %q, want a stop and a start", f.got())
 	}
 }
 
@@ -430,19 +444,27 @@ func TestSetupOpenRCStartsTheUserSession(t *testing.T) {
 	if calls := fakeCalls(t); !slices.Equal(calls, want) || !res.Enabled || !res.Started || !res.SupervisorStarted {
 		t.Fatalf("calls %v, res %+v; want %v and the session started", calls, res, want)
 	}
+	if res.started == nil {
+		t.Fatal("the start the session made has no adapter to confirm it")
+	}
 }
 
 func TestSetupOpenRCRestartsInARunningSession(t *testing.T) {
 	root, bin := supervisorHost(t, KindOpenRCUser)
 	initd := openRCRoot(t, root)
 	openRCSession(t)
+	f := &setupFake{running: true}
+	withSetupBackend(t, f)
 	res, err := scriptSetup(t, initd, bin, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"rc-update --user add mcremote default", "rc-service --user -- mcremote restart"}
+	want := []string{"rc-update --user add mcremote default"}
 	if calls := fakeCalls(t); !slices.Equal(calls, want) || res.SupervisorStarted {
 		t.Fatalf("calls %v, res %+v; want %v in the running session", calls, res, want)
+	}
+	if !slices.Equal(f.got(), []string{"stop", "start"}) {
+		t.Fatalf("adapter calls %q, want a stop and a start", f.got())
 	}
 }
 
@@ -450,11 +472,33 @@ func TestSetupOpenRCNoEnable(t *testing.T) {
 	root, bin := supervisorHost(t, KindOpenRCUser)
 	initd := openRCRoot(t, root)
 	openRCSession(t)
+	f := &setupFake{running: true}
+	withSetupBackend(t, f)
 	if _, err := scriptSetup(t, initd, bin, func(o *Options) { o.NoEnable = true }); err != nil {
 		t.Fatal(err)
 	}
-	if calls := fakeCalls(t); !slices.Equal(calls, []string{"rc-service --user -- mcremote restart"}) {
-		t.Fatalf("calls %v, want only the start", calls)
+	if calls := fakeCalls(t); len(calls) != 0 {
+		t.Fatalf("calls %v, want no rc-update", calls)
+	}
+	if !slices.Equal(f.got(), []string{"stop", "start"}) {
+		t.Fatalf("adapter calls %q, want a stop and a start", f.got())
+	}
+}
+
+// TestSetupOpenRCNoEnableInANewSession: a session setup starts runs only the
+// enabled services, so a service that is not enabled is started, with nothing
+// to stop.
+func TestSetupOpenRCNoEnableInANewSession(t *testing.T) {
+	root, bin := supervisorHost(t, KindOpenRCUser)
+	initd := openRCRoot(t, root)
+	f := &setupFake{}
+	withSetupBackend(t, f)
+	res, err := scriptSetup(t, initd, bin, func(o *Options) { o.NoEnable = true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.got(), []string{"start"}) || !res.SupervisorStarted || !res.Started {
+		t.Fatalf("adapter calls %q, res %+v; want one start in the new session", f.got(), res)
 	}
 }
 
@@ -789,11 +833,12 @@ func TestRestoreScriptBackupRunsNoSystemctl(t *testing.T) {
 	}
 }
 
-// TestSetupNotesTheProcessARestartReplaces: the pid the user's supervisor
-// reports before the restart is kept, so the verified start cannot take the
-// old daemon, still draining, for the restarted one (PLAN S5c; the live
-// probe's s6 crash loop was confirmed running that way).
-func TestSetupNotesTheProcessARestartReplaces(t *testing.T) {
+// TestSetupConfirmsTheRestartOnTheAdapterThatMadeIt is MADR 0207 D41: the
+// old daemon drains after the stop and still looks up for a while, which is
+// how the 2026-10-19 live probe saw an s6 crash loop confirmed as running
+// (PLAN S5c). The adapter's Stop records that instance, and its WaitHealthy
+// counts only another, so setup stops, starts and confirms on one adapter.
+func TestSetupConfirmsTheRestartOnTheAdapterThatMadeIt(t *testing.T) {
 	root, bin := supervisorHost(t, KindS6)
 	recordSessionStarts(t)
 	fakeProc(t, []string{"s6-svscan", root})
@@ -801,26 +846,15 @@ func TestSetupNotesTheProcessARestartReplaces(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(def.Dir, "supervise"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// s6-svstat -o's form, which the state reads (MADR 0212 D7-A).
-	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "s6-svstat.out"),
-		[]byte("true true true false 81 -1 40\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	prev := startToken
-	startToken = func(pid int) string { return fmt.Sprintf("token-of-%d", pid) }
-	t.Cleanup(func() { startToken = prev })
-	s6Logged(t)
+	withRealVerifyStart(t)
+	f := &setupFake{running: true}
+	builds := withSetupBackend(t, f)
 	res, err := scriptSetup(t, root, bin, nil)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || res.Health != HealthRunning {
+		t.Fatalf("res %+v, %v; want a confirmed restart", res, err)
 	}
-	if res.replacedPid != 81 {
-		t.Fatalf("replacedPid = %d, want the 81 s6-svstat reported before the restart", res.replacedPid)
-	}
-	// Its start token too, so a new process that reuses PID 81 still counts
-	// (MADR 0212 D12-A, PLAN P3 Deviation 2).
-	if res.replacedToken != "token-of-81" {
-		t.Fatalf("replacedToken = %q, want process 81's", res.replacedToken)
+	if want := []string{"stop", "start", "wait"}; !slices.Equal(f.got(), want) || len(*builds) != 1 {
+		t.Fatalf("calls %q on %d backends; want %q on one", f.got(), len(*builds), want)
 	}
 }
 
@@ -832,8 +866,8 @@ func TestOpenRCCrashedIsFailed(t *testing.T) {
 		[]byte(" * status: crashed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := sampler(KindOpenRCUser, Result{UnitName: "mcremote"})()
-	if s.up || !s.failed {
-		t.Fatalf("sample %+v, want failed and not up", s)
+	obs, err := observe(context.Background(), KindOpenRCUser, scriptDefFor(KindOpenRCUser, "mcremote", t.TempDir()), "mcremote")
+	if err != nil || obs.state.Up || !obs.state.Failed {
+		t.Fatalf("state %+v, %v; want failed and not up", obs.state, err)
 	}
 }

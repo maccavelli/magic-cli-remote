@@ -211,9 +211,9 @@ func TestUnreadableNeverComparesUnchanged(t *testing.T) {
 		s := withTaskScheduler(t)
 		s.xml["mcremote"] = bad
 		_, err := setupSchtasks(opts, want, Result{})
-		if err == nil || !strings.Contains(err.Error(), "--force") || len(s.registered) != 0 || len(s.schtasks) != 0 {
-			t.Errorf("setup over %q: err %v, %d registrations, schtasks %q; want the --force refusal, nothing registered and nothing started",
-				bad, err, len(s.registered), s.schtasks)
+		if err == nil || !strings.Contains(err.Error(), "--force") || len(s.registered) != 0 {
+			t.Errorf("setup over %q: err %v, %d registrations; want the --force refusal, and nothing registered",
+				bad, err, len(s.registered))
 		}
 	}
 }

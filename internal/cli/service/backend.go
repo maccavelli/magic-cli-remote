@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/launchd"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/systemd"
 	"github.com/maccavelli/go-selfupdate-lib/selfupdate/service/taskscheduler"
@@ -35,10 +36,6 @@ func NewBackend(product, unitName string) (Backend, error) {
 // every backend's Probe, and on Windows h.RequestStop and h.StopGrace (MADR
 // 0054 D5, A1, A2).
 func NewBackendWith(product, unitName string, h HealthOptions) (Backend, error) {
-	names, err := namesFor(product, unitName)
-	if err != nil {
-		return nil, err
-	}
 	// installOS, not runtime.GOOS: the same dispatch as Setup, Remove,
 	// IsInstalled and ProbeStatus, so a test can pin it (PLAN S5f).
 	osName := installOS
@@ -47,31 +44,54 @@ func NewBackendWith(product, unitName string, h HealthOptions) (Backend, error) 
 	}
 	switch osName {
 	case "linux":
-		ensureUserRuntimeDir()
-		// runit, s6 and OpenRC have the library's adapter over this
-		// package's state and commands; systemd has the library's backend
-		// (MADR 0212 stage 2).
 		kind, err := ResolveBackend(product)
 		if err != nil {
 			return nil, err
 		}
-		if kind.isScriptKind() {
-			s, err := newSupervisedBackend(kind, strings.TrimSuffix(names.Unit, ".service"), h, product, unitName)
-			if err != nil {
-				return nil, err
-			}
-			return s, nil
+		return newBackendFor(kind, product, unitName, h, libservice.PollOptions{})
+	case "darwin":
+		return newBackendFor(KindLaunchdAgent, product, unitName, h, libservice.PollOptions{})
+	case "windows":
+		return newBackendFor(KindWindowsTask, product, unitName, h, libservice.PollOptions{})
+	default:
+		return nil, fmt.Errorf("service control unsupported on %s", osName)
+	}
+}
+
+// newBackendFor is NewBackendWith for kind. Setup passes the kind it detected,
+// since a record an earlier setup left can name another (MADR 0207 D40), and
+// poll, its own bounds (D42). A zero poll is the backend's defaults, the
+// update's. The runit, s6 and OpenRC adapter takes its bounds from
+// supervisedPoll either way.
+func newBackendFor(kind Kind, product, unitName string, h HealthOptions, poll libservice.PollOptions) (Backend, error) {
+	names, err := namesFor(product, unitName)
+	if err != nil {
+		return nil, err
+	}
+	probe := h.backendProbe(kind, product, unitName)
+	switch {
+	case kind.isScriptKind():
+		// runit, s6 and OpenRC have the library's adapter over this package's
+		// state and commands (MADR 0212 stage 2).
+		ensureUserRuntimeDir()
+		s, err := newSupervisedBackend(kind, strings.TrimSuffix(names.Unit, ".service"), h, product, unitName)
+		if err != nil {
+			return nil, err
 		}
+		return s, nil
+	case kind == KindSystemdUser:
+		ensureUserRuntimeDir()
 		u, err := systemd.New(systemd.Options{
 			Unit:  names.Unit,
 			Scope: systemd.User,
-			Probe: h.backendProbe(product, unitName),
+			Poll:  poll,
+			Probe: probe,
 		})
 		if err != nil {
 			return nil, err
 		}
 		return u, nil
-	case "darwin":
+	case kind == KindLaunchdAgent:
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("home dir: %w", err)
@@ -80,21 +100,43 @@ func NewBackendWith(product, unitName string, h HealthOptions) (Backend, error) 
 			Label:  names.Label,
 			Domain: launchd.GUI(os.Getuid()),
 			Plist:  filepath.Join(home, "Library", "LaunchAgents", names.Label+".plist"),
-			Probe:  h.backendProbe(product, unitName),
+			Poll:   poll,
+			Probe:  probe,
 		})
 		if err != nil {
 			return nil, err
 		}
 		return j, nil
-	case "windows":
-		t, err := taskscheduler.New(taskOptions(product, unitName, names.Task, h))
+	case kind == KindWindowsTask:
+		o := taskOptions(product, unitName, names.Task, h)
+		o.Poll = poll
+		t, err := taskscheduler.New(o)
 		if err != nil {
 			return nil, err
 		}
 		return t, nil
 	default:
-		return nil, fmt.Errorf("service control unsupported on %s", osName)
+		return nil, fmt.Errorf("service control unsupported for %s", kind)
 	}
+}
+
+// setupBackend is the backend setup-service stops, starts and confirms a start
+// through: kind's, with the product's health wiring and setup's bounds (MADR
+// 0207 D40, D42). It is a variable for tests.
+var setupBackend = func(kind Kind, product, unitName string, h HealthOptions) (Backend, error) {
+	poll, err := setupPoll(kind)
+	if err != nil {
+		return nil, err
+	}
+	return newBackendFor(kind, product, unitName, h, poll)
+}
+
+// OverrideSetupBackend replaces the backend setup-service builds, for tests
+// outside this package. Restore with the returned func.
+func OverrideSetupBackend(fn func(kind Kind, product, unitName string, h HealthOptions) (Backend, error)) (restore func()) {
+	prev := setupBackend
+	setupBackend = fn
+	return func() { setupBackend = prev }
 }
 
 // taskOptions are the Task Scheduler backend's options for product.
@@ -103,7 +145,7 @@ func NewBackendWith(product, unitName string, h HealthOptions) (Backend, error) 
 func taskOptions(product, unitName, task string, h HealthOptions) taskscheduler.Options {
 	return taskscheduler.Options{
 		Name:        task,
-		Probe:       h.backendProbe(product, unitName),
+		Probe:       h.backendProbe(KindWindowsTask, product, unitName),
 		RequestStop: h.backendRequestStop(product, unitName),
 		StopGrace:   h.StopGrace,
 	}

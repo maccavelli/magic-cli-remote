@@ -189,6 +189,25 @@ for the newest pins. The struck values are D29's.
    U1b stages no Go file, so `make vulncheck` and the pin tests stand in for the per-file pre-add
    check, as in U1.
 
+### U1c — Pin `v1.22.2` (amendment G, D44) — ~~proposed~~ approved 2026-10-27, folded into U6
+
+**Files:** `go.mod`, `go.sum`, `.github/workflows/ci.yml`; this plan and the MADR's amendment G.
+
+1. `git ls-remote https://github.com/maccavelli/go-selfupdate-lib 'refs/tags/v1.22.2^{}'` gives
+   `50deb3f1317bcd9142f2c91be2b5609957c677c9`, and no tag above `v1.22.2` exists. Otherwise stop
+   and prompt.
+2. `go get github.com/maccavelli/go-selfupdate-lib@v1.22.2`, then `go mod tidy`.
+3. Both `ci.yml` pins: `@50deb3f1317bcd9142f2c91be2b5609957c677c9 # go-selfupdate-lib v1.22.2`.
+4. **The diff** is `go.mod`'s one line, `go.sum`'s module lines, and the two pins. No Go source
+   changes. `git grep 4d9ae417` then finds nothing in `.github`, `go.mod` or `go.sum`.
+5. **Gates:** U1b's, on the commit as it will land: the rules above, `go test -race ./...` on the
+   Linux test host, `TestWorkflowPinsMatchGoMod` and `TestReleaseJobsReadTheSpec`, and
+   `make vulncheck`. `make ci-windows` on the Windows host, on the owner's word.
+
+**U6 is in the working tree, uncommitted** (its execution record, "U6 Deviation 1"), and its tests
+do not compile yet. So the working tree cannot pass these gates, and U1c's commit must not carry
+U6's code. How U1c lands beside it is the owner's to decide when approving U1c.
+
 ### U3 — The update's guards (D16) — done
 
 **Files:** `internal/updateclient/client.go`, `client_test.go` or `command_test.go` (whichever
@@ -325,7 +344,7 @@ measurement finds); this plan. *U4 Deviation 1, 2026-10-25:* `health.go` and `he
    before, read-only.
 4. Gates.
 
-### U6 — Stop, start and start confirmation on the backends (D4)
+### U6 — Stop, start and start confirmation on the backends (D4) — done 2026-10-27, with Deviations 1 to 3
 
 **Files:** `internal/cli/service/setup.go`, `setup_schtasks.go`, `control_schtasks.go`,
 `launchd_wait.go`, `settle.go`, `installerhook.go`, and their tests; this plan.
@@ -370,8 +389,14 @@ amendment D (D22), decided by the owner the same day ("approved to proceed"):*
   so its `WaitHealthy` would wait for a new one that never comes (go-selfupdate-lib
   `selfupdate/service/systemd/lifecycle.go:138-166`, at `v1.22.1`). It is seen failing against a
   setup that does.
-* **Files:** unchanged. `scriptbackend.go` is gone by then, deleted in 0212's P5.
+* **Files:** ~~unchanged~~ widened by Deviation 1 (2026-10-27, below). `scriptbackend.go` is gone
+  by then, deleted in 0212's P5.
 * **Nothing is asked of the library** (0212 amendment D, D19). U6 uses only what `v1.22.1` has.
+
+*Deviation 1, 2026-10-27, decided by the owner:* U6 also wires the product's health into setup,
+builds a backend by kind, starts the script kinds through the adapter, takes the backends' wait
+limits, and drops macOS's in-place `kickstart -k`. The files and the reasons are in the execution
+record, "U6 Deviation 1".
 
 *Note, 2026-10-27:* 0212's P5 landed as `5c499ad0`, and its P6 live tests (`dcd7b31f`) passed on
 runit, s6 and OpenRC. U6's wait is over. It still needs the owner's approval to start.
@@ -1839,3 +1864,313 @@ copy of the working tree. All eleven fail on their named tests:
 
 With this, U8's five steps are done. U8 is complete once the next CI run on `2d6efd62` passes. Of
 this plan's phases, only U6 remains, which waits for 0212's P3. The plan stays `in-progress`.
+
+### U6 start, 2026-10-27
+
+0212 is complete (`12be09c2`, `f5d9af5a`), so U6's wait (amendment D, D22) is over. The owner
+answered "committed proceed" when U6 was named next. That approves U6, and is taken as the word for
+its step 4 host runs, as for earlier phases.
+
+### U6 step 1, 2026-10-27: each call site, measured [read at `f5d9af5a`; go-selfupdate-lib at `v1.22.1`]
+
+| Call site | What setup does today | What the backend does | Where they differ |
+| :--- | :--- | :--- | :--- |
+| systemd start, `setup.go:496-501` | `systemctl --user restart`, on a stopped or a running unit | `Unit.Stop`: refuses inside, then stops and waits for inactive (`systemd/lifecycle.go:72-105`). `Unit.Start`: records `InvocationID`, then `systemctl start` (`:138-166`). `WaitHealthy`: a new invocation, the settle window, then the product's probe (`:176-214`) | A running unit needs `Stop` before `Start`, or `WaitHealthy` waits for an invocation that never comes (amendment D's F4). The library has no enable for systemd, so `setup.go:489-494` keeps `systemctl enable` |
+| systemd remove, `setup.go:780-781` | `stop` and `disable`, errors discarded | `Unit.Stop`, bounded, with the inside refusal | The stop is bounded and reported; `disable` stays setup's |
+| launchd, unchanged plist and running job, `setup.go:586-596` | `kickstart -k`, restarting in place (0125-MADR D4) | `Job.Start` runs `enable`, `bootstrap` only when not loaded, then `kickstart` without `-k` (`launchd/lifecycle.go:248-279`). A loaded running job is not restarted | No library call restarts in place (Deviation 1d) |
+| launchd, other starts, `setup.go:606-636` | `stopAndWaitDarwin`, `enable` unless `--no-enable`, `bootstrap`, `kickstart -k` | `Job.Stop`: refuses inside; returns nil when not loaded; else `bootout`, then waits for the job and its PID to go (`:150-235`). `Job.Start` as above, retrying `bootstrap`'s 5, 37 and in-progress within its bound (`:288-320`). `WaitHealthy`: a new PID for at least `ThrottleInterval`, then the probe (`:329-363`) | `Job.Start` always runs `enable`, so `--no-enable` no longer skips it there. The plist's `RunAtLoad` does not read `NoEnable` (`git grep NoEnable` finds no plist use) |
+| launchd remove, `setup.go:847-848` | `stopAndWaitDarwin`, then `disable` | `Job.Stop` | Same wait; `disable` stays setup's |
+| Windows start, `setup_schtasks.go:81`, `control_schtasks.go:29-38` | `/change /enable`, `/run` | `Task.Enable` (`taskscheduler/lifecycle.go:333`), then `Task.Start`, which leaves a running instance alone and returns `ErrTaskDisabled` for a task another process disabled (`:284-323`) | Today `--force` re-registers and runs `/run`, which leaves a running instance on the old definition. Step 2 has `--force` call `Stop` first |
+| Windows remove, `setup_schtasks.go:107`, `control_schtasks.go:57-73` | `/change /disable`, then `/end`, a hard kill (0116-MADR D9) | `Task.Stop`: refuses inside, disables, sends `RequestStop` and waits `StopGrace`, then ends and waits (`:138-211`) | A drain, when the product's `RequestStop` is passed (Deviation 1a) |
+| script kinds' start, `supervisor.go:850-931` (`startScript`) | the down file or `rc-update add`; a session supervisor when none watches; an s6 rescan; log adoption; `sv restart`, `s6-svc -r` or `rc-service restart` | `Supervised.Start` runs `Up`, which starts a session supervisor, adopts a log service and runs the up command (`supervisedbackend.go`, 0212 D21-A). It leaves alone a running instance other than the one `Stop` recorded (`supervised_lifecycle.go:163-178`). `WaitHealthy` counts only an instance other than the one `Stop` recorded (`:199-206`) | Only `Stop` records the old instance, so a restart confirmed by the adapter must be stopped and started through it (Deviation 1b) |
+| script kinds' remove, `supervisor.go:962-1018` | the down file, `sv down` then `sv exit` (`s6-svc -d`, `-x`), and `rc-service stop`, errors discarded | `Supervised.Stop`: `Down`, the wait, and on runit `sv kill` at 45 s | The adapter's stop is bounded; the supervisor's exit stays setup's |
+| the installer hook, `installerhook.go:154`, `:184` | `NewBackend`, with no health wiring; `Stop` and `Start` on it; then `verifyStart` | `WaitHealthy` on the same backend | The hook's backend has no product probe and no drain (Deviation 1a) |
+| the start check, `setup.go:439-441`, `settle.go:303-319` | `verifyStart`: `settle`, up to `MCREMOTE_SVC_WAIT_SECS`, default 15 (`settle.go:22-40`); any positive value | `WaitHealthy`, by `Poll`: a 10 s settle window and a 60 s timeout by default (`service/poll.go:46-48`). The adapter refuses a timeout not above the settle window (0212 D17) | A healthy start takes at least 10 s. A value of 10 or less cannot work (Deviation 1c) |
+| the backend's kind, `backend.go:54` | `Setup` detects the kind itself (`setup.go:336`), and records it only after the start (`:433-437`) | `NewBackendWith` on Linux takes the recorded kind, and detects one only when there is no record (`backendrecord.go:51-57`). The probe finds the definition the same way (`health.go:91`) | A record that an earlier setup left on another supervisor names the wrong kind for both (Deviation 1a) |
+
+### U6 Deviation 1, 2026-10-27 — four gaps step 1 found. The owner decided all four as recommended
+
+U6 named six files. Step 1 shows that D4 as amended cannot be met inside them. The owner was asked
+four questions, each with three options, and chose the recommended one each time:
+
+* **(a) "Pass health in, build by kind".**
+  * `Options` gains `Health HealthOptions`. `internal/cli/setup_service.go` and
+    `internal/relay/cli.go` set it from each product's health wiring, as the update does
+    (`internal/cli/health.go:24-30`, `internal/relay/health.go:29`). The installer hook builds its
+    backend with it.
+  * `backend.go` gains a constructor that takes the kind. `NewBackendWith` calls it after
+    `ResolveBackend`, and `Setup` calls it with the kind it detected. The probe takes that kind
+    too, so it reads the definition setup just wrote.
+  * So every start check runs the product's probe, and Windows `--remove` drains.
+  * *Corrected the same day, before any code:* the question put to the owner said a first install
+    has no recorded backend, so `NewBackendWith` could not build one. With no record it detects the
+    kind, as `Setup` does, so a first install gets the right backend. The gap is a record left by an
+    earlier setup on another supervisor. The answer stands, since building by kind closes that gap
+    as well.
+* **(b) "Through the adapter".** `startScript` keeps its enable steps: the down file, `rc-update
+  add`, OpenRC's runlevels and s6's rescan of a new directory. A start then goes through the
+  adapter: `Stop`, then `Start`, then its `WaitHealthy`. `removeScript` stops through the adapter
+  first, then makes the supervisor exit as before. `settle` goes.
+* **(c) "The backends' limits".** A 10 s settle window and a 60 s timeout. `MCREMOTE_SVC_WAIT_SECS`,
+  when set, is the timeout, and must be above 10 (above 45 on runit), as the update already
+  requires. `ErrTimeout` reads `starting`; `ErrUnhealthy` reads `failed`. The guides' default of 15
+  becomes 60.
+* **(d) "Job.Stop then Job.Start".** One path on macOS. The in-place `kickstart -k` goes, with a
+  dated note on 0125-MADR D4. `--no-enable` no longer skips `launchctl enable` when setup starts
+  the job.
+
+**The rule each kind keeps.** A start restarts a running service, as setup does today on systemd,
+launchd and the script kinds. On Windows, only `--force` stops a running task first. Without it,
+an unchanged task that runs is left running, as `/run` leaves it today.
+
+**Files added to U6:** `internal/cli/service/backend.go`, `supervisor.go`, `health.go` if the
+constructor needs it, `internal/cli/setup_service.go`, `internal/relay/cli.go`, and their tests;
+`docs/guides/config.md`, `config-mcrelay.md` and `ops-linux-install.md`; and the records:
+[0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
+(amendment F) and
+[0125-MADR-launchd-bootout-is-asynchronous.md](0125-MADR-launchd-bootout-is-asynchronous.md) (a
+note on D4). U6's note above said "Files: unchanged". That was before step 1.
+
+### U6 paused, 2026-10-27
+
+The owner said "stop" while U6's tests were being written. U6's source edits and the records above
+are in the working tree, unstaged. The service package's tests do not compile against them yet
+(`go vet ./internal/...`: `settle_test.go`, `health_test.go`). Nothing of U6 is staged.
+
+### U1c, 2026-10-27: the `v1.22.2` pin, folded into U6
+
+**Approval.** The owner asked "update the pin for go-selfupdate-lib to current", and was asked two
+questions:
+
+* "Approve U1c?": "Approve, proceed (Recommended)". That includes `make ci-windows` on the Windows
+  host.
+* "How should the pin land?": "Fold into U6". The pin moves in the working tree now, and lands with
+  U6 once U6 is finished and gated. Nothing is staged until then.
+
+**Steps 1 to 4:**
+
+* `git ls-remote … 'refs/tags/v1.22.2^{}'` gave `50deb3f1317bcd9142f2c91be2b5609957c677c9`, and
+  `git ls-remote --tags --refs` listed no tag above `v1.22.2`.
+* `go get github.com/maccavelli/go-selfupdate-lib@v1.22.2`: "upgraded … v1.22.1 => v1.22.2". Then
+  `go mod tidy`.
+* `go.mod`'s one line. `go.sum`'s two: the module's `h1:` changes to
+  `h1:05J2BTJUQm4gdCqBor+eA/LXwDVbi+RG1Z5Y7q9zm/w=`, and its `/go.mod` hash does not.
+* Both `ci.yml` pins name `@50deb3f1317bcd9142f2c91be2b5609957c677c9 # go-selfupdate-lib v1.22.2`.
+  `git grep 4d9ae417 -- .github go.mod go.sum` finds nothing. No Go source changed for the pin.
+
+**Step 5, what could run with U6 in the tree:**
+
+| Gate | Result |
+| :--- | :--- |
+| `go build ./...` | exit 0 |
+| `go mod tidy -diff` | exit 0, no output |
+| `TestWorkflowPinsMatchGoMod`, `TestReleaseJobsReadTheSpec` | both pass |
+| `make vulncheck` | "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `actionlint .github/workflows/ci.yml` | exit 0 |
+
+**Waiting for U6:** `make test`, `make race`, `make staticcheck`, `go vet` for the three targets,
+`go test -race ./...` on the Linux test host, and `make ci-windows` on the Windows host. They run
+on the tree that holds both, at U6's end. *Ran 2026-10-27, all passing: "U6, 2026-10-27: the
+gates" below.*
+
+### U6 resumed, 2026-10-27, and Deviation 2 — the files beyond Deviation 1, and the relay's probe. The owner decided: "Widen to these (Recommended)", "Pass a relay probe in"
+
+The owner answered "resume U6". Two questions were put before any further edit, each with three
+options:
+
+* **The file scope.** Deviation 1's list did not hold what the change reaches:
+  * `supervisedbackend.go`, one line, already made: the probe takes the kind (D40);
+  * `supervisorstate.go`: `scriptDefOf`, `observeBounded` and `startToken`, which only `settle`
+    used, go with it;
+  * test files of sources outside the list: `TestMain` in `unitrecord_test.go`,
+    `supervisorstate_test.go`, `uninstall_unix_test.go`, `installerenv_unix_test.go`, and any other
+    test in `internal/cli/service` that the build or a run shows U6 breaks.
+
+  Answer: "Widen to these (Recommended)". Each file is named below with why.
+* **The relay set up beside mcremote** (`MCREMOTE_WITH_RELAY_SERVICE=1`) got the service manager's
+  check but no `/healthz`, since `SetupRelayBeside` builds its options in the service package.
+  Answer: "Pass a relay probe in".
+  * The option said the probe would move somewhere both commands could import. That proved
+    unnecessary: `internal/cli` already links `internal/relay`, through `internal/relayhost`, and
+    the relay imports nothing of `internal/cli`.
+  * So `internal/relay/health.go` exports `SetupHealth`, `installerenv.go`'s `SetupRelayBeside`
+    takes the relay's `HealthOptions`, and `internal/cli/setup_service.go` passes it. No new
+    dependency enters mcremote's binary.
+
+**One more check, made within D42 without a question.** On Windows, mcremote's 30 s drain must fit
+inside the timeout, or the library refuses to build the task backend. Without a check, `setup`
+would fail late, and `--remove` would skip its stop and delete a running task. So:
+
+* `Setup` refuses a `MCREMOTE_SVC_WAIT_SECS` that is not above `Health.StopGrace` on Windows,
+  before anything is written;
+* `stopForRemoval` refuses the removal when the backend cannot be built, instead of tolerating it.
+
+### U6 Deviation 3, 2026-10-27 — `schtasks.go`. The owner decided: "Delete both (Recommended)"
+
+The first gate run's `make staticcheck` failed: "internal/cli/service/schtasks.go:121:6: func
+taskName is unused (U1000)". `startWindows` and `stopWindows` were its only callers, and
+`runSchtasks` had no production caller left either, only the tests' recorder. `schtasks.go` was
+outside the widened scope. The owner chose to delete both, so that no path can run `schtasks.exe`
+(D30). The tests' `withSchtasks` recorder and their "no schtasks ran" checks went with it, in
+`schtasks_test.go`, `health_test.go`, `migrate_test.go`, `uninstall_test.go`,
+`nostart_schtasks_test.go` and `task_compare_test.go`. The two `--no-start` tests now check that
+setup asks the task backend for nothing instead.
+
+### U6, 2026-10-27: what was built
+
+**Source** (D40 to D43, and Deviations 2 and 3):
+
+| File | Change |
+| :--- | :--- |
+| `backend.go` | `newBackendFor(kind, …, poll)`, which `NewBackendWith` calls after `ResolveBackend`; `setupBackend`, setup's constructor with its bounds, and `OverrideSetupBackend` for external tests |
+| `health.go` | `readServeArgs` and `backendProbe` take the kind; empty means the record's |
+| `settle.go` | `settle` and its samplers are gone. `verifyStart` waits on the backend that started the service: `nil` is running, `ErrTimeout` is starting, anything else failed. `setupPoll` is D42 |
+| `setup.go` | `Options.Health`; `startThrough`, `watchThrough` and `stopForRemoval`; systemd starts with `Stop` and `Start`; launchd's in-place `kickstart -k`, teardown and bootstrap give way to `Job.Stop` and `Job.Start`; the D42 checks, before anything is written |
+| `setup_schtasks.go`, `control_schtasks.go` | Windows starts with `Task.Enable` and `Task.Start`, `--force` stops first, and `--remove` stops through `Task.Stop`; `startWindows` and `stopWindows` are deleted |
+| `launchd_wait.go` | `stopAndWaitDarwin`, `launchdJobRunning` and their timings are deleted; `launchdLoaded` stays, for `--no-start`'s note |
+| `supervisor.go` | `startScript` and `startOpenRC` keep the enable steps, restart a supervised service through the adapter, and only watch one a new scanner or session brings up; `removeScript` stops through the adapter first |
+| `supervisedbackend.go` | the probe takes the kind |
+| `supervisorstate.go` | `scriptDefOf`, `observeBounded` and `startToken` are deleted |
+| `installerhook.go` | the hook builds through `setupBackend` with the plan's health, and the start check waits on that backend |
+| `installerenv.go`, `internal/relay/health.go`, `internal/cli/setup_service.go`, `internal/relay/cli.go` | each product's health reaches setup, the relay set up beside mcremote included |
+| `schtasks.go` | `runSchtasks` and `taskName` are deleted |
+
+**Guides:** `config.md`, `config-mcrelay.md` and `ops-linux-install.md` describe the start check
+as the update's, with its new limits.
+
+**Tests.**
+
+* **`TestMain`** makes every setup build a fake backend that does nothing. Without that, setup's
+  tests would run the real `systemctl`, `launchctl` or supervisor on the host.
+* **`setupFake`**, in `settle_test.go`, models the two things setup must get right: a running
+  service that `Start` leaves alone, whose `WaitHealthy` then times out; and a task another process
+  disabled, which `Start` refuses until `Enable`.
+* **New:** `setup_backend_unix_test.go`, and new tests in `settle_test.go`, `schtasks_test.go`,
+  `installerenv_unix_test.go`, `installerhook_unix_test.go`, `supervisor_unix_test.go`,
+  `supervisorstate_test.go` and `launchd_sequence_test.go`.
+* **Rewritten** over the fake: setup's restart tests in `supervisor_unix_test.go`,
+  `settle_unix_test.go`, `launchd_sequence_test.go` and `setup_launchd_test.go`, and the two
+  log-service tests in `scriptdefs_unix_test.go`, folded into
+  `TestSetupLeavesTheLogServiceToTheAdaptersUp`.
+* **Removed, with the code they tested:**
+  * `settle`'s tests: `TestSettleSystemd`, `TestSettleOtherKinds`, `TestSamplersReadTheirManagers`,
+    `TestSettleIgnoresTheReplacedProcess`;
+  * the two start-token tests in `supervisorstate_test.go`; the adapter keys an instance by PID and
+    start time itself;
+  * `stopAndWaitDarwin`'s seven tests in `launchd_wait_test.go`; that wait is `Job.Stop`'s now;
+  * `TestStopDisablesThenEnds` and `TestStartEnablesThenRuns`.
+* **Fixed in other files:** `health_test.go` and `nostart_launchd_test.go`.
+
+**Seen failing first** (`m207u6/u6_plants.py`). Each plant was a single replacement, on a scratch
+copy of the tree, made once and restored after its run. The unplanted copy passed every test named:
+
+| Plant | Its tests | The failure |
+| :--- | :--- | :--- |
+| systemd starts without stopping | `TestSetupVerifiesTheStart` | `calls ["start" "wait"], want ["stop" "start" "wait"]` |
+| Windows starts without enabling | `TestWindowsStartEnablesATaskAnotherProcessDisabled` | `… the service could not be started: selfupdate: taskscheduler: the task is disabled` |
+| `--force` does not stop the task | `TestWindowsStartsThroughTheTask` | `calls ["enable" "start"], want ["stop" "enable" "start"]` |
+| remove ignores the inside refusal | `TestRemoveStopsThroughTheBackend`, `TestRemoveSchtasksStopsThroughTheTask`, `TestDarwinRemoveFromInsideTheJobRemovesNothing` | all three; first `err = <nil>, want the inside refusal` |
+| the probe reads the recorded kind | `TestReadServeArgsReadsScriptDefinitions` | `readServeArgs(runit) under a systemd record = {…}, "", read the mcrelay unit: open …/mcrelay.service` |
+| setup drops the product's health | `TestSetupBuildsItsBackendByKindWithTheProductsHealth` | `built {Kind:systemd-user … Health:{Probe:<nil> RequestStop:<nil> StopGrace:0s}}` |
+| a script restart does not stop first | `TestSetupConfirmsTheRestartOnTheAdapterThatMadeIt`, `TestSetupRunitRestartsThroughTheUsersSupervisor` | `adapter calls ["start"] …; want a stop and a start on one runit adapter` |
+| macOS restarts an unchanged plist in place | `TestDarwinSetupRestartsAnUnchangedPlistThroughTheJob` | `calls ["launchctl kickstart -k gui/…"], want ["job stop" "job start"]` |
+| the wait is not checked against the settle window | `TestSetupPollIsD42`, `TestSetupVerifiesTheStart` | `10, systemd-user: <nil>; want a refusal naming the settle window` |
+| the wait is not checked against the drain | `TestSetupRefusesAWaitShorterThanTheDrain` | `a 30 s wait with a 30 s drain: <nil>, want a refusal naming the drain` |
+| a timed-out check reads failed | `TestVerifyStart` | `health "failed", err … timed out` |
+| the relay beside gets mcremote's health | `TestSetupRelayBesideConfirmsWithTheRelaysProbe` | `mcremote's probe was given to the relay` |
+| the hook drops the plan's health | `TestFromInstallerConfirmsOnTheBackendItCycled` | `builds [{Kind:runit … StopGrace:0s}], want one runit backend with the plan's health` |
+| setup restarts the log service itself | `TestSetupLeavesTheLogServiceToTheAdaptersUp` | `calls [sv status …/log sv restart …]` |
+| Windows `--no-start` starts the task | `TestNoStartDoesNotStartTheWindowsTask`, `TestNoStartKeepsAStoppedWindowsTaskStopped` | both |
+| macOS `--no-start` stops and starts the job | `TestNoStartLeavesARunningLaunchdJobAlone` | `--no-start built a backend to stop or start the job` |
+| a failed stop gets the bootstrap hint | `TestDarwinSetupReportsAFailedStop` | `a failed stop got the bootstrap hint` |
+
+* **Two plants corrected, before the final run.**
+  * The first "timed-out" plant left `errors` unused, and the copy did not build. It proved
+    nothing, and was re-planted as `errors.Is(err, nil)`.
+  * The first "drain" plant failed on a missing task principal further on, not on the missing
+    refusal. The test now sets a principal first, so the plant reaches registration.
+
+**Two test faults the Linux test host found, both mine:**
+
+* `TestRemoveStopsThroughTheBackend/systemd-user` put only the fake tools on `PATH`, so setup's
+  preflight found no `systemctl` there. macOS skips that check. The systemd case now keeps the
+  host's `PATH`.
+* `TestNoStartLeavesARunningLaunchdJobAlone` did not stub `launchdLoaded`, which `--no-start`'s
+  note now reads. On this Mac it read the real launchd, where a job by that label is loaded, and
+  passed by accident. It now stubs it.
+
+### U6, 2026-10-27: the gates
+
+`m207u6/u6_gates.py`, second run, over the 36 changed and added Go files:
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows. The first run failed on `taskName` (Deviation 3), and on `fastSettle` and `withRealVerifyStart`, which were in an untagged test file but used only by unix ones; they moved to `settle_unix_test.go` |
+| `make pre-add-check` | "36 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `make check-records`, `make markdownlint-docs`, `actionlint` | exit 0 |
+| `make vulncheck` | "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `TestWorkflowPinsMatchGoMod`, `TestReleaseJobsReadTheSpec` | pass |
+| `go test -race -count=1 ./...` on the Linux test host | exit 0; 44 packages ok (the first run failed on the two test faults above) |
+| `make ci-windows` on the Windows test host, on a scratch copy | "ci-windows-local: ALL SELECTED CHECKS PASSED"; the Windows-path tests: 119 passed, none skipped |
+
+* `git grep -n -e stopAndWaitDarwin -e launchdJobRunning -e startWindows -e stopWindows -e
+  scriptBackend -e runSchtasks -- internal/cli/service`, outside tests: nothing (amendment D's
+  confirmation).
+* The same search for `powershell`, `"/create"`, `"/query"`, `"/delete"`, `"/change"`, `"/run"`
+  and `"/end"`: nothing (this plan's Verification, with D30).
+
+### U6 step 4, 2026-10-27: the host runs
+
+**macOS and the Linux test host** (`m207u6/u6_hosts.py`, which runs `u6_run.py`). They used the
+scratch service `mcremote-d3probe`, port 17631, under `~/mcr-u6probe`, deleted afterwards:
+
+| Host | Install | `--force`, definition unchanged | `--remove` |
+| :--- | :--- | :--- | :--- |
+| macOS (launchd) | exit 0, 11.1 s, "confirmed after the start", `/healthz` ok | 10.7 s, confirmed, pid 42384 → 42637, plist unchanged | 0.4 s, pid gone, `/healthz` gone |
+| Linux (systemd) | exit 0, 10.9 s, confirmed, `/healthz` ok | 11.0 s, confirmed, pid 4001610 → 4001691, unit unchanged | 0.9 s, pid gone, unit and its enable link removed |
+
+* The macOS `--force` is amendment F's case, an unchanged plist over a running job. The job was
+  stopped and started, on a new PID, as D43 decided.
+* **A mistake of mine, first run.** `u6_run.py` read `/health`; the daemon serves `/healthz`. Every
+  setup step behaved the same as in the second run, but the script's own health check reported
+  "NOT ok". It was corrected, and the second run is the one above.
+
+**runit, s6 and OpenRC** (`make live-supervisors`, local Podman, on the owner's word). The machine
+was started for the run and stopped again:
+
+| Kind | Result | Install | The handoff |
+| :--- | :--- | :--- | :--- |
+| runit | PASS, 60.2 s | 11.3 s | "update handed off: 7f1019fe…" |
+| s6 | PASS, 57.9 s | 10.3 s | "update handed off: fa6cf791…" |
+| OpenRC | PASS, 60.5 s | 10.4 s | "update handed off: 2f08d1af…" |
+
+The install step took 1.1 to 3.1 s in 0212's P6, and now takes about 10. That is setup's start
+check, waiting out the adapter's settle window (D41, D42).
+
+**Windows, the real task** (`m207u6/u6_win.py`, which runs `u6_win_host.py`, on the owner's word).
+The run follows W1 to W4, as U4 did:
+
+* W1 recorded the installed `v0.23.0 (release)`, the binary, config and task export, and one
+  refresh backup. The tree's build only ran `setup-service`, with the flags recovered from the task.
+* The daemon's exit code was read from a handle opened before each stop.
+
+| Phase | Result |
+| :--- | :--- |
+| plain setup over the running task | exit 0, 10.3 s, "confirmed after the start"; pid 43944 unchanged; export identical |
+| `--force` | exit 0, 10.7 s, confirmed; the old daemon 43944 exited with code 0, the drain; pid → 9680; `/healthz` answers; export identical |
+| `--remove` | exit 0, 0.3 s; daemon 9680 exited with code 0; the task absent, and its refresh backup removed |
+| fresh install | exit 0, 10.2 s, confirmed; pid 56236; export identical to W1's |
+| final | the refresh backup put back; binary, config, export and backup as W1; the task Running; `/healthz` answers; the kit deleted |
+
+`--remove` on Windows now ends the daemon with exit code 0, a drain, as 0054 S9d did by hand.
+Before U6 it was `schtasks /end`, a kill.
+
+**Not changed, and noted for its own record.** `result_print.go` still prints "Started: yes
+(schtasks /run)" for a Windows setup, and "The daemon was stopped …" after any `--remove`, even
+when a tolerated stop failed. The first is no longer how the task starts. `result_print.go` is
+outside U6's files.
+
+**U6 and U1c are complete once the owner commits them.** The plan becomes `complete` when CI on
+that push passes.

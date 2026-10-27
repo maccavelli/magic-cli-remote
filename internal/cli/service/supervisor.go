@@ -864,11 +864,9 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 		if opts.NoStart {
 			return res, nil
 		}
-		scanner, ctl := "runsvdir", toolFor(def.Kind, def.Dir, "sv", "restart", def.Dir)
-		supervised := filepath.Join(def.Dir, "supervise", "ok")
+		scanner, supervised := "runsvdir", filepath.Join(def.Dir, "supervise", "ok")
 		if def.Kind == KindS6 {
-			scanner, ctl = "s6-svscan", toolFor(def.Kind, def.Dir, "s6-svc", "-r", def.Dir)
-			supervised = filepath.Join(def.Dir, "supervise")
+			scanner, supervised = "s6-svscan", filepath.Join(def.Dir, "supervise")
 		}
 		if !supervisorWatching(scanner, def.ScanDir) {
 			pid, err := startSessionSupervisor(scanner, def.ScanDir)
@@ -876,8 +874,8 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 				return res, fmt.Errorf("definition installed at %s, but %s could not be started: %w", def.Path, scanner, err)
 			}
 			res.SupervisorStarted, res.SupervisorPID = true, pid
-			res.Started = !opts.NoEnable
-			return res, nil
+			// The new scanner starts the service unless it is down.
+			return watchScript(def, opts, res)
 		}
 		if def.Kind == KindS6 {
 			// s6-svscan picks a new directory up on a rescan.
@@ -886,48 +884,38 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 			}
 		}
 		if _, err := os.Stat(supervised); err == nil {
-			// s6-svc -r returns at once, and the old daemon drains after
-			// SIGTERM, so a sample taken then sees it still up: the 2026-10-19
-			// live probe confirmed a crash-looping definition that way. Note
-			// the process the restart replaces (MADR 0054 PLAN S5c).
-			if s, err := sampler(def.Kind, res)(); err == nil && s.up {
-				res.replacedPid, res.replacedToken = s.pid, s.token
+			// A supervised service restarts through the adapter, as the update
+			// restarts it (MADR 0207 D41). Its Stop records the daemon the
+			// restart replaces, which drains after SIGTERM and so still looks
+			// up for a while: the 2026-10-19 live probe confirmed a
+			// crash-looping definition that way (MADR 0054 PLAN S5c). Its Up
+			// takes up a log service this setup added, or restarts one it
+			// moved, before the up command (MADR 0212 D21-A).
+			if res, err = startThrough(def.Kind, opts, res, true); err != nil {
+				return res, fmt.Errorf("definition installed at %s, but %w", def.Path, err)
 			}
-			// A log service this setup added is taken up by restarting the
-			// supervisor, which restarts the daemon too: then it is only
-			// brought up, not restarted again.
-			adopted, err := adoptLogService(context.Background(), def)
-			if err != nil {
-				return res, fmt.Errorf("definition installed at %s, but its log service was not started: %w", def.Path, err)
-			}
-			if adopted {
-				ctl = toolFor(def.Kind, def.Dir, "sv", "up", def.Dir)
-				if def.Kind == KindS6 {
-					ctl = toolFor(def.Kind, def.Dir, "s6-svc", "-u", def.Dir)
-				}
-			} else if _, err := restartStaleLogService(context.Background(), def); err != nil {
-				return res, fmt.Errorf("definition installed at %s, but its log service was not restarted: %w", def.Path, err)
-			}
-			if _, err := runBounded(ctl); err != nil {
-				return res, fmt.Errorf("definition installed at %s, but %s failed: %w", def.Path,
-					strings.Join(append([]string{ctl.tool}, ctl.args...), " "), err)
-			}
-			if def.Kind == KindS6 && !adopted {
-				if _, err := runBounded(toolFor(def.Kind, def.Dir, "s6-svc", "-u", def.Dir)); err != nil {
-					return res, fmt.Errorf("definition installed at %s, but s6-svc -u failed: %w", def.Path, err)
-				}
-			}
-			res.Started = true
 			return res, nil
 		}
 		// A new directory: the scanner starts its supervisor, which starts
 		// the service unless it is down.
-		res.Started = !opts.NoEnable
-		return res, nil
+		return watchScript(def, opts, res)
 	case KindOpenRCUser:
 		return startOpenRC(def, opts, res)
 	}
 	return res, fmt.Errorf("no script definition for %s", def.Kind)
+}
+
+// watchScript is watchThrough for a runit or s6 service its supervisor starts
+// by itself, unless a down file holds it: then nothing is started.
+func watchScript(def scriptDef, opts Options, res Result) (Result, error) {
+	if opts.NoEnable {
+		return res, nil
+	}
+	res, err := watchThrough(def.Kind, opts, res)
+	if err != nil {
+		return res, fmt.Errorf("definition installed at %s, but %w", def.Path, err)
+	}
+	return res, nil
 }
 
 // keptLogs is where the logs of kind's service unit stay after its removal,
@@ -963,6 +951,12 @@ func removeScript(kind Kind, opts Options) (Result, error) {
 	def := scriptDefFor(kind, opts.UnitName, opts.UnitDir)
 	res := Result{UnitName: opts.UnitName, UnitPath: def.Path, Scope: string(kind), Label: opts.UnitName}
 	res.KeptLogs = keptLogs(kind, def, opts.Product, opts.UnitName)
+	// The adapter's stop first, as the update stops it: bounded, killed at 45 s
+	// on runit, and refused from inside the service (MADR 0207 D4). The
+	// supervisor's own exit follows.
+	if err := stopForRemoval(kind, opts); err != nil {
+		return res, err
+	}
 	switch kind {
 	case KindRunit, KindS6:
 		// The supervisor keeps writing into supervise/ while it runs, which
@@ -1128,18 +1122,20 @@ func startOpenRC(def scriptDef, opts Options, res Result) (Result, error) {
 		}
 		res.SupervisorStarted = true
 		if !opts.NoEnable {
-			res.Started = true
+			if res, err = watchThrough(def.Kind, opts, res); err != nil {
+				return res, fmt.Errorf("definition installed at %s, but %w", def.Path, err)
+			}
 			return res, nil
 		}
 	}
-	verb := "restart"
-	if res.SupervisorStarted {
-		verb = "start"
+	// Through the adapter, as the update starts it (MADR 0207 D41): a service
+	// in a session that was already running is restarted, its Stop recording
+	// the daemon it replaces; one in the session setup just started, and not
+	// enabled, is only started.
+	var err error
+	if res, err = startThrough(def.Kind, opts, res, !res.SupervisorStarted); err != nil {
+		return res, fmt.Errorf("definition installed at %s, but %w", def.Path, err)
 	}
-	if _, err := runBounded(toolFor(def.Kind, opts.UnitName, "rc-service", "--user", "--", opts.UnitName, verb).withEnv(envs...)); err != nil {
-		return res, fmt.Errorf("definition installed at %s, but rc-service --user %s %s failed: %w", def.Path, opts.UnitName, verb, err)
-	}
-	res.Started = true
 	return res, nil
 }
 

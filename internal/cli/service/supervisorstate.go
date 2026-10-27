@@ -13,8 +13,6 @@ import (
 	"time"
 
 	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
-
-	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 )
 
 // The state of a runit, s6 or OpenRC user service, in the library's type
@@ -45,20 +43,6 @@ func observe(ctx context.Context, kind Kind, def scriptDef, name string) (observ
 		return observeOpenRC(ctx, def, name)
 	}
 	return observation{}, fmt.Errorf("no supervisor state for %s", kind)
-}
-
-// scriptDefOf locates a result's definition, as setup recorded it.
-func scriptDefOf(kind Kind, res Result) scriptDef {
-	d := scriptDef{Kind: kind, Path: res.UnitPath}
-	switch kind {
-	case KindRunit, KindS6:
-		d.Dir = filepath.Dir(res.UnitPath)
-		d.ScanDir = filepath.Dir(d.Dir)
-	case KindOpenRCUser:
-		d.Dir = filepath.Dir(res.UnitPath)
-		d.ScanDir = d.Dir
-	}
-	return d
 }
 
 // fileExists reports whether path exists, as a file or a link.
@@ -308,22 +292,4 @@ func statParent(path string) (int, error) {
 		return 0, fmt.Errorf("%s: too few fields", path)
 	}
 	return strconv.Atoi(fields[1])
-}
-
-// startToken is a process's start token, for telling a reused PID from the
-// process it once named (D12-A). It is a variable for tests.
-var startToken = func(pid int) string {
-	if pid <= 0 {
-		return ""
-	}
-	t, _ := procutil.ProcessStartToken(pid)
-	return t
-}
-
-// observeBounded is observe for a caller with no context, the samplers,
-// bounded by cmdTimeout as runCmd was.
-func observeBounded(kind Kind, def scriptDef, name string) (observation, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer cancel()
-	return observe(ctx, kind, def, name)
 }

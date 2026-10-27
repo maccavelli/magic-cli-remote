@@ -72,7 +72,7 @@ func supervisedOptions(kind Kind, name string, h HealthOptions, product, unitNam
 		Up:    func(ctx context.Context) error { return supervisedUp(ctx, def, name) },
 		Down:  func(ctx context.Context) error { return supervisedDown(ctx, def, name) },
 		Poll:  poll,
-		Probe: h.backendProbe(product, unitName),
+		Probe: h.backendProbe(kind, product, unitName),
 	}
 	switch kind {
 	case KindRunit:

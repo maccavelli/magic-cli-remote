@@ -62,7 +62,7 @@ environment to `setup-service`, which reads these (`1` on; unset or `0` off):
 | `MCREMOTE_WITH_RELAY_SERVICE=1` | also set up `mcrelay` as a service, beside `mcremote`'s |
 | `MCREMOTE_NO_LINGER=1` | skip `loginctl enable-linger` |
 | `MCREMOTE_FORCE_SERVICE=1` | overwrite an existing service definition from defaults |
-| `MCREMOTE_SVC_WAIT_SECS` | seconds to wait for the service to confirm it is running (default `15`) |
+| `MCREMOTE_SVC_WAIT_SECS` | seconds to wait at most for the service to confirm it is running (default `60`, or `75` on runit, s6 and OpenRC; above `10`, and above `45` on runit) |
 
 ```bash
 curl -fsSL <url>/install.sh | MCREMOTE_WITH_RELAY_SERVICE=1 sh
@@ -220,7 +220,8 @@ D10-A). The definitions give these supervisors what the systemd unit has:
   s6-svc -dx ~/.local/share/s6/service/mcremote          # then the daemon's supervisor
   ```
 
-`MCREMOTE_SVC_WAIT_SECS` bounds the verified start. `MCREMOTE_NO_LINGER`,
+`MCREMOTE_SVC_WAIT_SECS` bounds the verified start, which confirms a start as
+`update` does. `MCREMOTE_NO_LINGER`,
 `MCREMOTE_FORCE_SERVICE` and `MCREMOTE_WITH_RELAY_SERVICE` act on
 `setup-service` whether the installer runs it or you do (`1` on; unset or `0`
 off; anything else refused). See

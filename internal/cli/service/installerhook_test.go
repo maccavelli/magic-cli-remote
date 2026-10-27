@@ -55,12 +55,13 @@ func (f *fakeHookBackend) Start(context.Context, string) error {
 
 func (f *fakeHookBackend) WaitHealthy(context.Context, string) error { return nil }
 
-// withHookBackend makes fb the backend --from-installer cycles.
+// withHookBackend makes fb the backend --from-installer cycles: setup's, since
+// the hook builds its backend as setup does (MADR 0207 D40).
 func withHookBackend(t *testing.T, fb *fakeHookBackend) {
 	t.Helper()
-	prev := newHookBackend
-	newHookBackend = func(string, string) (Backend, error) { return fb, nil }
-	t.Cleanup(func() { newHookBackend = prev })
+	prev := setupBackend
+	setupBackend = func(Kind, string, string, HealthOptions) (Backend, error) { return fb, nil }
+	t.Cleanup(func() { setupBackend = prev })
 }
 
 // newRelease puts release's binaries in the new folder, as the library's

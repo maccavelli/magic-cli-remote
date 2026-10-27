@@ -568,10 +568,13 @@ func TestS6LoggerConnectedComparesThePipes(t *testing.T) {
 	}
 }
 
-// TestSetupAdoptsALogServiceThenBringsItUp is P4 Deviation 3 on setup's path:
-// the supervisor's restart restarts the daemon, so setup brings it up rather
-// than restarting it again.
-func TestSetupAdoptsALogServiceThenBringsItUp(t *testing.T) {
+// TestSetupLeavesTheLogServiceToTheAdaptersUp is P4 Deviation 3 and P4b
+// Deviation 1 on setup's path, as MADR 0207 D41 moved it: setup restarts a
+// supervised service through the adapter, whose Up adopts a log service a
+// refresh added, or restarts one it moved, before the up command
+// (TestSupervisedUpAdoptsALogService, TestSupervisedUpRestartsAStaleLogService).
+// Setup itself runs none of it.
+func TestSetupLeavesTheLogServiceToTheAdaptersUp(t *testing.T) {
 	for _, kind := range []Kind{KindRunit, KindS6} {
 		t.Run(string(kind), func(t *testing.T) {
 			root, bin := supervisorHost(t, kind)
@@ -587,23 +590,23 @@ func TestSetupAdoptsALogServiceThenBringsItUp(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(sup, "ok"), nil, 0o600); err != nil {
 					t.Fatal(err)
 				}
-				adoptionSeams(t, "sv exit "+def.Dir, "")
-				want = []string{"sv status " + def.Dir, "sv exit " + def.Dir, "sv up " + def.Dir}
 			} else {
 				fakeProc(t, []string{"s6-svscan", root})
-				if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "s6-svstat.out"), []byte("true true true false 18 -1 2\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				adoptionSeams(t, "s6-svscanctl -an "+root, "s6-svc -dx "+def.Dir)
-				status := "s6-svstat -o " + s6Fields + " " + def.Dir
-				want = []string{"s6-svscanctl -a " + root, status, "s6-svscanctl -an " + root, "s6-svc -dx " + def.Dir, status, "s6-svc -u " + def.Dir}
+				want = []string{"s6-svscanctl -a " + root}
 			}
+			// Up for 100 s, so the log/run setup writes now is newer.
+			fakeOutput(t, "sv", "run: x: (pid 20) 100s")
+			f := &setupFake{running: true}
+			withSetupBackend(t, f)
 			res, err := scriptSetup(t, root, bin, nil)
 			if err != nil || !res.Started {
 				t.Fatalf("setup: %+v, %v", res, err)
 			}
 			if calls := fakeCalls(t); !slices.Equal(calls, want) {
-				t.Fatalf("calls %v, want %v", calls, want)
+				t.Fatalf("calls %v, want %v: the log service is the adapter's", calls, want)
+			}
+			if !slices.Equal(f.got(), []string{"stop", "start"}) {
+				t.Fatalf("adapter calls %q, want a stop and a start", f.got())
 			}
 		})
 	}
@@ -726,32 +729,6 @@ func TestRestartStaleLogService(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-// TestSetupRestartsAStaleLogService is P4b Deviation 1 on setup's path: a
-// setup over a running install whose log/run it rewrote restarts the log
-// service, then restarts the daemon as before.
-func TestSetupRestartsAStaleLogService(t *testing.T) {
-	root, bin := supervisorHost(t, KindRunit)
-	recordSessionStarts(t)
-	fakeProc(t, []string{"/usr/bin/runsvdir", "-P", root})
-	def := scriptDefFor(KindRunit, "mcremote", root)
-	if err := os.MkdirAll(filepath.Join(def.Dir, "supervise"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(def.Dir, "supervise", "ok"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Both up for 100 s, so the log/run setup writes now is newer.
-	fakeOutput(t, "sv", "run: x: (pid 20) 100s")
-	if _, err := scriptSetup(t, root, bin, nil); err != nil {
-		t.Fatal(err)
-	}
-	log := def.Dir + "/log"
-	want := []string{"sv status " + def.Dir, "sv status " + log, "sv status " + log, "sv restart " + log, "sv restart " + def.Dir}
-	if calls := fakeCalls(t); !slices.Equal(calls, want) {
-		t.Fatalf("calls %v, want %v", calls, want)
 	}
 }
 
