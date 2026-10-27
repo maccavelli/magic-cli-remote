@@ -204,18 +204,20 @@ func sampler(kind Kind, res Result) sampleFunc {
 			if kind == KindS6 {
 				name, args, re = "s6-svstat", []string{dir}, s6StatusRe
 			}
-			out, err := runCmdOutput(name, args...)
+			out, err := runBounded(toolFor(kind, dir, name, args...))
 			if err != nil {
 				return sample{}, err
 			}
-			return parseStatus(re, out), nil
+			return parseStatus(re, string(out.Stdout)), nil
 		}
 	case KindOpenRCUser:
 		// start-stop-daemon restarts nothing: a process that died is
 		// "crashed" for good, which the live probe showed as the only sign.
 		return func() (sample, error) {
-			out, err := runCmdOutput("rc-service", "--user", res.UnitName, "status")
-			return sample{up: err == nil, failed: strings.Contains(out, "status: crashed")}, nil
+			out, err := runBounded(toolFor(kind, res.UnitName, "rc-service", "--user", "--", res.UnitName, "status"))
+			// "status: crashed" is on stderr (0212 PLAN P1).
+			text := string(out.Stdout) + string(out.Stderr)
+			return sample{up: err == nil, failed: strings.Contains(text, "status: crashed")}, nil
 		}
 	case KindLaunchdAgent:
 		return func() (sample, error) {

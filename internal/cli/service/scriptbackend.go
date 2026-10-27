@@ -169,11 +169,11 @@ func (b *scriptBackend) Stop(ctx context.Context, product string) error {
 	}
 	switch b.kind {
 	case KindRunit:
-		err = runCmd("sv", "down", b.def.Dir)
+		_, err = toolFor(b.kind, b.def.Dir, "sv", "down", b.def.Dir).run(ctx)
 	case KindS6:
-		err = runCmd("s6-svc", "-d", b.def.Dir)
+		_, err = toolFor(b.kind, b.def.Dir, "s6-svc", "-d", b.def.Dir).run(ctx)
 	case KindOpenRCUser:
-		err = runCmd("rc-service", "--user", b.name, "stop")
+		_, err = toolFor(b.kind, b.name, "rc-service", "--user", "--", b.name, "stop").run(ctx)
 	}
 	if err != nil {
 		return err
@@ -195,12 +195,12 @@ func (b *scriptBackend) Stop(ctx context.Context, product string) error {
 // for this session, as setup-service does: after a logout or a reboot the
 // session's runsvdir, s6-svscan or OpenRC user session is gone, and the
 // service could not otherwise be started.
-func (b *scriptBackend) Start(context.Context, string) error {
+func (b *scriptBackend) Start(ctx context.Context, _ string) error {
 	switch b.kind {
 	case KindRunit, KindS6:
-		scanner, up := "runsvdir", []string{"sv", "up", b.def.Dir}
+		scanner, up := "runsvdir", toolFor(b.kind, b.def.Dir, "sv", "up", b.def.Dir)
 		if b.kind == KindS6 {
-			scanner, up = "s6-svscan", []string{"s6-svc", "-u", b.def.Dir}
+			scanner, up = "s6-svscan", toolFor(b.kind, b.def.Dir, "s6-svc", "-u", b.def.Dir)
 		}
 		if !supervisorWatching(scanner, b.def.ScanDir) {
 			if _, err := startSessionSupervisor(scanner, b.def.ScanDir); err != nil {
@@ -210,7 +210,8 @@ func (b *scriptBackend) Start(context.Context, string) error {
 			// service needs its supervisor first, which it does not have yet.
 			return nil
 		}
-		return runCmd(up[0], up[1:]...)
+		_, err := up.run(ctx)
+		return err
 	case KindOpenRCUser:
 		rd := os.Getenv("XDG_RUNTIME_DIR")
 		if rd == "" {
@@ -219,12 +220,13 @@ func (b *scriptBackend) Start(context.Context, string) error {
 		envs := []string{"XDG_RUNTIME_DIR=" + rd}
 		if _, err := os.Stat(filepath.Join(rd, "openrc", "softlevel")); err != nil {
 			for _, lvl := range []string{"boot", "default"} {
-				if err := runCmdEnv(envs, "openrc", "--user", lvl); err != nil {
+				if _, err := toolFor(b.kind, lvl, "openrc", "--user", lvl).withEnv(envs...).run(ctx); err != nil {
 					return err
 				}
 			}
 		}
-		return runCmdEnv(envs, "rc-service", "--user", b.name, "start")
+		_, err := toolFor(b.kind, b.name, "rc-service", "--user", "--", b.name, "start").withEnv(envs...).run(ctx)
+		return err
 	}
 	return fmt.Errorf("no start for %s", b.kind)
 }

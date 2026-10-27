@@ -63,7 +63,11 @@ var supervisorWatching = func(scanner, dir string) bool {
 // output goes nowhere, as install.sh's `runsvdir "$DIR" >/dev/null 2>&1 &`.
 // Nothing starts it at boot; the result says so.
 var startSessionSupervisor = func(scanner, dir string) (int, error) {
-	cmd := procutil.Command(context.Background(), scanner, dir)
+	path, err := resolveTool(scanner)
+	if err != nil {
+		return 0, fmt.Errorf("start %s %s: %w", scanner, dir, err)
+	}
+	cmd := procutil.Command(context.Background(), path, dir)
 	// A new session, not only a new process group: a process group still
 	// receives the hangup when the session's terminal closes.
 	cmd.SysProcAttr.Setpgid = false

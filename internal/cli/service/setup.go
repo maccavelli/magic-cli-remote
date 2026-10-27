@@ -1386,26 +1386,7 @@ func runCmd(name string, args ...string) error {
 
 // runCmdOutput runs a command capturing combined stdout+stderr (no terminal
 // stream). Used by service control queries (is-active / launchctl print).
-// runCmdEnv is runCmd with extra KEY=VALUE entries, which win over the
-// inherited ones.
-func runCmdEnv(extra []string, name string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer cancel()
-	var stderr bytes.Buffer
-	cmd := procutil.Command(ctx, name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
-	cmd.Env = append(withUserRuntimeEnv(os.Environ()), extra...)
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg != "" {
-			return fmt.Errorf("%s %s: %w (%s)", name, strings.Join(args, " "), err, msg)
-		}
-		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
-	}
-	return nil
-}
-
+// The supervisor tools run through toolCall instead (MADR 0212 D2-A).
 func runCmdOutput(name string, args ...string) (string, error) {
 	return runCmdOutputEnv(nil, name, args...)
 }

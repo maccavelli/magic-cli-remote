@@ -409,10 +409,10 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 		if opts.NoStart {
 			return res, nil
 		}
-		scanner, ctl := "runsvdir", []string{"sv", "restart", def.Dir}
+		scanner, ctl := "runsvdir", toolFor(def.Kind, def.Dir, "sv", "restart", def.Dir)
 		supervised := filepath.Join(def.Dir, "supervise", "ok")
 		if def.Kind == KindS6 {
-			scanner, ctl = "s6-svscan", []string{"s6-svc", "-r", def.Dir}
+			scanner, ctl = "s6-svscan", toolFor(def.Kind, def.Dir, "s6-svc", "-r", def.Dir)
 			supervised = filepath.Join(def.Dir, "supervise")
 		}
 		if !supervisorWatching(scanner, def.ScanDir) {
@@ -426,7 +426,7 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 		}
 		if def.Kind == KindS6 {
 			// s6-svscan picks a new directory up on a rescan.
-			if err := runCmd("s6-svscanctl", "-a", def.ScanDir); err != nil {
+			if _, err := runBounded(toolFor(def.Kind, def.ScanDir, "s6-svscanctl", "-a", def.ScanDir)); err != nil {
 				return res, fmt.Errorf("definition installed at %s, but s6-svscanctl -a failed: %w", def.Path, err)
 			}
 		}
@@ -438,11 +438,12 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 			if s, err := sampler(def.Kind, res)(); err == nil && s.up {
 				res.replacedPid = s.pid
 			}
-			if err := runCmd(ctl[0], ctl[1:]...); err != nil {
-				return res, fmt.Errorf("definition installed at %s, but %s failed: %w", def.Path, strings.Join(ctl, " "), err)
+			if _, err := runBounded(ctl); err != nil {
+				return res, fmt.Errorf("definition installed at %s, but %s failed: %w", def.Path,
+					strings.Join(append([]string{ctl.tool}, ctl.args...), " "), err)
 			}
 			if def.Kind == KindS6 {
-				if err := runCmd("s6-svc", "-u", def.Dir); err != nil {
+				if _, err := runBounded(toolFor(def.Kind, def.Dir, "s6-svc", "-u", def.Dir)); err != nil {
 					return res, fmt.Errorf("definition installed at %s, but s6-svc -u failed: %w", def.Path, err)
 				}
 			}
@@ -469,10 +470,10 @@ func removeScript(kind Kind, opts Options) (Result, error) {
 		// is how the live probe's first removal failed ("directory not
 		// empty"). A down file stops the scanner restarting the service
 		// meanwhile; down then exit stop the service and its supervisor.
-		ctl := [][]string{{"sv", "down", def.Dir}, {"sv", "exit", def.Dir}}
+		ctl := []toolCall{toolFor(kind, def.Dir, "sv", "down", def.Dir), toolFor(kind, def.Dir, "sv", "exit", def.Dir)}
 		supervised := filepath.Join(def.Dir, "supervise", "ok")
 		if kind == KindS6 {
-			ctl = [][]string{{"s6-svc", "-d", def.Dir}, {"s6-svc", "-x", def.Dir}}
+			ctl = []toolCall{toolFor(kind, def.Dir, "s6-svc", "-d", def.Dir), toolFor(kind, def.Dir, "s6-svc", "-x", def.Dir)}
 			supervised = filepath.Join(def.Dir, "supervise")
 		}
 		if _, err := os.Stat(def.Dir); err == nil {
@@ -480,7 +481,7 @@ func removeScript(kind Kind, opts Options) (Result, error) {
 		}
 		if _, err := os.Stat(supervised); err == nil {
 			for _, c := range ctl {
-				_ = runCmd(c[0], c[1:]...)
+				_, _ = runBounded(c)
 			}
 		}
 		if err := removeAllRetry(def.Dir); err != nil {
@@ -488,11 +489,11 @@ func removeScript(kind Kind, opts Options) (Result, error) {
 		}
 		if kind == KindS6 && supervisorWatching("s6-svscan", def.ScanDir) {
 			// Reap the supervisor of the directory that is gone.
-			_ = runCmd("s6-svscanctl", "-an", def.ScanDir)
+			_, _ = runBounded(toolFor(kind, def.ScanDir, "s6-svscanctl", "-an", def.ScanDir))
 		}
 	case KindOpenRCUser:
-		_ = runCmd("rc-service", "--user", opts.UnitName, "stop")
-		_ = runCmd("rc-update", "--user", "del", opts.UnitName, "default")
+		_, _ = runBounded(toolFor(kind, opts.UnitName, "rc-service", "--user", "--", opts.UnitName, "stop"))
+		_, _ = runBounded(toolFor(kind, opts.UnitName, "rc-update", "--user", "del", opts.UnitName, "default"))
 		if err := os.Remove(def.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return res, fmt.Errorf("remove %s: %w", def.Path, err)
 		}
@@ -587,7 +588,7 @@ func startOpenRC(def scriptDef, opts Options, res Result) (Result, error) {
 		}
 	}
 	if !opts.NoEnable {
-		if err := runCmdEnv(envs, "rc-update", "--user", "add", opts.UnitName, "default"); err != nil {
+		if _, err := runBounded(toolFor(def.Kind, opts.UnitName, "rc-update", "--user", "add", opts.UnitName, "default").withEnv(envs...)); err != nil {
 			return res, fmt.Errorf("definition installed at %s, but rc-update --user add failed: %w", def.Path, err)
 		}
 		res.Enabled = true
@@ -599,7 +600,7 @@ func startOpenRC(def scriptDef, opts Options, res Result) (Result, error) {
 		// No session: start one. Its default runlevel starts the service
 		// when it is enabled.
 		for _, lvl := range []string{"boot", "default"} {
-			if err := runCmdEnv(envs, "openrc", "--user", lvl); err != nil {
+			if _, err := runBounded(toolFor(def.Kind, lvl, "openrc", "--user", lvl).withEnv(envs...)); err != nil {
 				return res, fmt.Errorf("definition installed at %s, but openrc --user %s failed: %w", def.Path, lvl, err)
 			}
 		}
@@ -613,7 +614,7 @@ func startOpenRC(def scriptDef, opts Options, res Result) (Result, error) {
 	if res.SupervisorStarted {
 		verb = "start"
 	}
-	if err := runCmdEnv(envs, "rc-service", "--user", opts.UnitName, verb); err != nil {
+	if _, err := runBounded(toolFor(def.Kind, opts.UnitName, "rc-service", "--user", "--", opts.UnitName, verb).withEnv(envs...)); err != nil {
 		return res, fmt.Errorf("definition installed at %s, but rc-service --user %s %s failed: %w", def.Path, opts.UnitName, verb, err)
 	}
 	res.Started = true

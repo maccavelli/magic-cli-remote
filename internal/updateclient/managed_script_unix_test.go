@@ -17,9 +17,11 @@ import (
 
 // fakeSV is a stateful runit `sv`: up and down change a state file, up gives
 // the service a new pid, and status reports them as `sv status` does. With
-// $FAKE_SV/broken the service crash-loops: up leaves it down while runit
-// wants it up. Shell builtins only, since PATH holds nothing else.
-const fakeSV = `d="$FAKE_SV"
+// <dir>/broken the service crash-loops: up leaves it down while runit wants it
+// up. <dir> is the "fake" directory beside it: sv runs with a built
+// environment, which carries no variable a test sets (MADR 0212 D2-A). Shell
+// builtins only, since PATH holds nothing else.
+const fakeSV = `d="${0%/*}/fake"
 echo "$*" >> "$d/calls"
 case "$1" in
 status)
@@ -57,9 +59,12 @@ func runitHost(t *testing.T, state string) (svDir, serviceDir string) {
 	t.Setenv("MCREMOTE_SVC_WAIT_SECS", "3")
 	bin := t.TempDir()
 	testexec.WriteShellStub(t, filepath.Join(bin, "sv"), fakeSV)
-	svDir = t.TempDir()
-	t.Setenv("FAKE_SV", svDir)
+	svDir = filepath.Join(bin, "fake")
+	if err := os.Mkdir(svDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", bin)
+	t.Cleanup(service.OverrideSupervisorToolDirs(bin))
 
 	// Setup checks only the executable bit; the stub is never run here.
 	placeholder := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "mcremote"), "")

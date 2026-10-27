@@ -70,7 +70,9 @@ func OverrideDetectedKind(k Kind) (restore func()) {
 	return func() { detectKind = prev }
 }
 
-// lookPath reports whether name resolves on PATH. It is a variable for tests.
+// lookPath reports whether name resolves on PATH. It finds launchctl and
+// systemctl; the supervisor tools resolve through resolveTool instead (MADR
+// 0212 D2-A). It is a variable for tests.
 var lookPath = func(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
@@ -103,17 +105,19 @@ func detectLinux() Kind {
 		}
 		return KindSystemdBroken
 	}
-	if lookPath("runsvdir") && lookPath("sv") {
+	// The supervisors' tools resolve in fixed directories, as the update runs
+	// them, never on PATH (MADR 0212 D2-A).
+	if haveTools("runsvdir", "sv") {
 		return KindRunit
 	}
 	// s6-svstat is required, not optional: the running probe needs it, so a
 	// partial s6 install is none rather than a backend that cannot tell
 	// whether its service is up (MADR 0099 F1).
-	if lookPath("s6-svscan") && lookPath("s6-svc") && lookPath("s6-svstat") {
+	if haveTools("s6-svscan", "s6-svc", "s6-svstat") {
 		return KindS6
 	}
-	if lookPath("rc-service") {
-		if _, err := runCmdOutput("rc-service", "--user", "--help"); err == nil {
+	if haveTools("rc-service") {
+		if _, err := runBounded(toolFor(KindOpenRCUser, "", "rc-service", "--user", "--help")); err == nil {
 			return KindOpenRCUser
 		}
 		return KindOpenRCSystem

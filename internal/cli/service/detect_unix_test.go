@@ -15,19 +15,21 @@ import (
 )
 
 // fakeStub is one shell stub that stands in for every service-manager binary.
-// It appends "<name> <args>" to "$FAKE_CFG/calls", prints
-// "$FAKE_CFG/<name>.out" when there is one (keyed by name, since arguments can
-// hold a path), then exits with the status
-// in "$FAKE_CFG/<name> <args>", or 0, using shell builtins only, since PATH
-// holds nothing else. It is written and warmed once per test, and each name is
+// It appends "<name> <args>" to "<cfg>/calls", prints "<cfg>/<name>.out" when
+// there is one (keyed by name, since arguments can hold a path), then exits
+// with the status in "<cfg>/<name> <args>", or 0, using shell builtins only,
+// since PATH holds nothing else. <cfg> is the ".fake" directory beside the
+// name it runs as: the supervisor tools run with a built environment, which
+// carries no variable a test sets (MADR 0212 D2-A, PLAN P2 Deviation 1). It is written and warmed once per test, and each name is
 // a symlink to it, so macOS scans one new file rather than one per probe (MADR
 // 0193).
 func fakeStub(t *testing.T) string {
 	t.Helper()
 	return testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "stub"),
-		`echo "${0##*/} $*" >> "$FAKE_CFG/calls"
-f="$FAKE_CFG/${0##*/} $*"
-o="$FAKE_CFG/${0##*/}.out"
+		`c="${0%/*}/.fake"
+echo "${0##*/} $*" >> "$c/calls"
+f="$c/${0##*/} $*"
+o="$c/${0##*/}.out"
 if [ -f "$o" ]; then while IFS= read -r l || [ -n "$l" ]; do echo "$l"; done < "$o"; fi
 if [ -f "$f" ]; then read code < "$f"; exit "$code"; fi
 exit 0`)
@@ -46,12 +48,18 @@ func fakeCalls(t *testing.T) []string {
 	return strings.Split(strings.TrimRight(string(b), "\n"), "\n")
 }
 
-// fakeHost puts the named fakes on an otherwise empty PATH. Each exits with
-// the status given for its full argument list, or 0, so a test says exactly
-// which probes succeed (MADR 0054 PLAN S5a).
+// fakeHost puts the named fakes on an otherwise empty PATH, and makes their
+// directory the one the supervisor tools resolve in. Each exits with the
+// status given for its full argument list, or 0, so a test says exactly which
+// probes succeed (MADR 0054 PLAN S5a). FAKE_CFG names their ".fake"
+// directory, for the test's own reads and writes.
 func fakeHost(t *testing.T, stub string, fakes map[string]map[string]int) {
 	t.Helper()
-	dir, cfg := t.TempDir(), t.TempDir()
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, ".fake")
+	if err := os.Mkdir(cfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for name, exits := range fakes {
 		if err := os.Symlink(stub, filepath.Join(dir, name)); err != nil {
 			t.Fatal(err)
@@ -63,6 +71,7 @@ func fakeHost(t *testing.T, stub string, fakes map[string]map[string]int) {
 		}
 	}
 	t.Setenv("PATH", dir)
+	t.Cleanup(OverrideSupervisorToolDirs(dir))
 	t.Setenv("FAKE_CFG", cfg)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 }

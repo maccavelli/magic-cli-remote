@@ -411,7 +411,7 @@ func TestSetupOpenRCRestartsInARunningSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"rc-update --user add mcremote default", "rc-service --user mcremote restart"}
+	want := []string{"rc-update --user add mcremote default", "rc-service --user -- mcremote restart"}
 	if calls := fakeCalls(t); !slices.Equal(calls, want) || res.SupervisorStarted {
 		t.Fatalf("calls %v, res %+v; want %v in the running session", calls, res, want)
 	}
@@ -424,7 +424,7 @@ func TestSetupOpenRCNoEnable(t *testing.T) {
 	if _, err := scriptSetup(t, initd, bin, func(o *Options) { o.NoEnable = true }); err != nil {
 		t.Fatal(err)
 	}
-	if calls := fakeCalls(t); !slices.Equal(calls, []string{"rc-service --user mcremote restart"}) {
+	if calls := fakeCalls(t); !slices.Equal(calls, []string{"rc-service --user -- mcremote restart"}) {
 		t.Fatalf("calls %v, want only the start", calls)
 	}
 }
@@ -589,7 +589,7 @@ func TestRemoveScript(t *testing.T) {
 	cases := map[Kind][]string{
 		KindRunit:      {"sv down DIR", "sv exit DIR"},
 		KindS6:         {"s6-svc -d DIR", "s6-svc -x DIR", "s6-svscanctl -an ROOT"},
-		KindOpenRCUser: {"rc-service --user mcremote stop", "rc-update --user del mcremote default"},
+		KindOpenRCUser: {"rc-service --user -- mcremote stop", "rc-update --user del mcremote default"},
 	}
 	for kind, want := range cases {
 		t.Run(string(kind), func(t *testing.T) {
@@ -788,7 +788,7 @@ func TestSetupNotesTheProcessARestartReplaces(t *testing.T) {
 // TestOpenRCCrashedIsFailed: OpenRC restarts nothing, so "status: crashed" is
 // the only sign of a daemon that died, and it is a failure.
 func TestOpenRCCrashedIsFailed(t *testing.T) {
-	fakeHost(t, fakeStub(t), map[string]map[string]int{"rc-service": {"--user mcremote status": 32}})
+	fakeHost(t, fakeStub(t), map[string]map[string]int{"rc-service": {"--user -- mcremote status": 32}})
 	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "rc-service.out"),
 		[]byte(" * status: crashed\n"), 0o644); err != nil {
 		t.Fatal(err)

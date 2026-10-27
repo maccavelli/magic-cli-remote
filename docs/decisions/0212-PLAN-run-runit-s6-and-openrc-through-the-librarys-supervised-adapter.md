@@ -156,7 +156,10 @@ Linux test host.
 **Files:** `internal/cli/service/`: a new `supervisortool.go` (the fixed list, the resolver and
 the runner), its test, `detect.go`, `setup.go` (`runCmd`, `runCmdEnv`, `runCmdOutput` callers on
 script paths), `supervisor.go`, `supervisor_unix.go`, `scriptbackend.go`, `settle.go` (the
-samplers' calls only); `testdata/` as needed; this plan.
+samplers' calls only); `testdata/` as needed; this plan. *P2 Deviation 1, 2026-10-26:*
+`detect_unix_test.go`, `supervisor_unix_test.go`, `scriptbackend_unix_test.go` and
+`internal/updateclient/managed_script_unix_test.go` join. *Deviations 2 and 3:* the built environment
+also carries `XDG_CONFIG_HOME` when set, and `--` goes to `rc-service` only (execution record below).
 
 1. **Tests first:**
    * The resolver returns an absolute path from the fixed list, and an error naming every
@@ -227,6 +230,9 @@ U3b has landed; this plan. *Re-read 2026-10-26:* U3b has landed, and its guard i
 3. **Containers, on the owner's word:** a fresh install and a `--refresh` from the current form,
    in each container. Logs are written; s6 and OpenRC kill a TERM-ignoring daemon at 45 s; OpenRC
    restarts a crashed one under D10-A.
+   * *Added 2026-10-26, P2 Deviation 2:* in the OpenRC container, an install and a start with
+     `XDG_CONFIG_HOME` set to a non-default directory, where `rc-service --user` finds the script
+     Magic wrote.
 4. Gates.
 
 ### P5 — The adapter (stage 2; D3-B, D5-B, D17, D6-A)
@@ -486,3 +492,156 @@ touched. The phases take these facts, all within their steps as written:
 * **P5:** OpenRC's stop of a hung daemon takes about 48 s.
 
 P1 is complete once the owner commits this record. P2 is next, on the owner's word.
+
+### P2 Deviations 1 to 3, 2026-10-26 — the tests' fakes, the built environment, and `--`. The owner decided all three as recommended
+
+**Approval.** The owner committed P1's record and answered "committed, proceed".
+
+**Found by measuring before any edit:**
+
+* **1. The tests fake the tools on `PATH`.**
+  * `fakeHost` (`detect_unix_test.go:52-65`) symlinks one stub under each tool's name into a
+    directory, and makes that directory the whole `PATH`. Four test files use it:
+    `detect_unix_test.go`, `supervisor_unix_test.go`, `scriptbackend_unix_test.go` and
+    `uninstall_unix_test.go`.
+  * `internal/updateclient/managed_script_unix_test.go:59-62` puts its own fake `sv` on `PATH`.
+  * A resolver that never reads `PATH`, which is D2-A's point, finds none of them. On a host with
+    the real tools it would find those instead.
+  * None of these test files is on P2's list.
+* **2. The built environment would split OpenRC from Magic.** Magic writes OpenRC user scripts under
+  `$XDG_CONFIG_HOME/rc/init.d` (`supervisor.go:63`). OpenRC's user mode reads its init.d from
+  `XDG_CONFIG_HOME`, by its documentation; P1 did not probe a non-default value. The tools inherit
+  the variable today. Step 1's list (`PATH`, `LC_ALL`, `XDG_RUNTIME_DIR`, `HOME`, `USER`) drops it.
+* **3. Where `--` guards anything.**
+  * Unit names can begin with `-` (`unitNameRe`, `setup.go:172`).
+  * runit and s6 tools are always passed absolute directories, which cannot.
+  * P1 showed `rc-service --user` and `s6-svstat` accept `--`, and `sv` does not. `rc-update` was not
+    probed.
+
+**The resolutions put to the owner, and chosen:**
+
+1. **The test files join P2:**
+   * `detect_unix_test.go`: `fakeHost` also points the resolver's directories at its fake
+     directory, which covers its four users;
+   * `internal/updateclient/managed_script_unix_test.go`: the same, through an exported
+     `OverrideSupervisorToolDirs`;
+   * `supervisor_unix_test.go` and `scriptbackend_unix_test.go`: only the expected calls and exit
+     keys that gain `--`, by 3.
+
+   No assertion is loosened. The alternatives put were a test-only fallback to `PATH`, a workaround
+   that tests a lookup production never uses, and stopping P2.
+2. **The runner also passes `XDG_CONFIG_HOME` when it is set.** A test pins it. P4's container run
+   checks it with a non-default value.
+3. **`--` goes before the service name for `rc-service` only.** The s6 and runit tools' arguments are
+   absolute paths, and `rc-update`'s acceptance is unprobed.
+
+**Files added to P2:** `internal/cli/service/detect_unix_test.go`, `supervisor_unix_test.go`,
+`scriptbackend_unix_test.go`, and `internal/updateclient/managed_script_unix_test.go`.
+
+### P2, 2026-10-26: the command layer
+
+**The new code** (`internal/cli/service/supervisortool.go`):
+
+* `supervisorTools` is the thirteen tools P1 probed. `supervisorToolDirs` is `/usr/sbin`, `/usr/bin`,
+  `/sbin`, `/bin`, in `toolPath`'s order.
+* `resolveTool(name)` returns the first executable file of that name in those directories. It never
+  consults `PATH`, refuses a name not on the list, and its error names every directory searched.
+* `toolEnv` is the built environment: `PATH=/usr/sbin:/usr/bin:/sbin:/bin`, `LC_ALL=C`, the runtime
+  directory (as `withUserRuntimeEnv` derives it), `HOME`, `USER`, `XDG_CONFIG_HOME` when set
+  (Deviation 2), then a call's extra entries.
+* `toolCall.run(ctx)` runs the resolved tool through `toolRunner`, by default the library's
+  `ExecRunner`, so a cancelled context kills it and both streams are captured.
+  * A non-zero exit is a `*libservice.CommandError`: `Backend` the kind, `Step` the tool and its
+    arguments, `Name` the service directory or name, `ExitCode`, and `Message` from stderr, or
+    stdout when that is empty, cut at 4 KiB.
+  * `classifyTool` wraps it with `ErrNotInstalled`, `ErrNoSupervisor`, `ErrPermission` or
+    `ErrTimeout` by P1's table, or with nothing.
+* `runBounded` gives callers with no context, setup-service and the samplers, `cmdTimeout`, as
+  `runCmd` did. `OverrideSupervisorToolDirs` lets tests outside the package fake the tools.
+
+**The change, by site:**
+
+| Site | Before | After |
+| :--- | :--- | :--- |
+| `detectLinux` | `lookPath` (`exec.LookPath`) for runit, s6 and OpenRC; `runCmdOutput("rc-service", "--user", "--help")` | `haveTools` (the resolver); the same probe through the runner |
+| `startScript`, `removeScript`, `startOpenRC` (`supervisor.go`) | `runCmd`, `runCmdEnv`: output streamed to the terminal, inherited environment, no context | `runBounded`, captured; `rc-service --user -- <name>` (Deviation 3) |
+| `scriptBackend.Stop`, `Start` | `runCmd`, `runCmdEnv`, the context ignored | `toolCall.run(ctx)` |
+| the runit, s6 and OpenRC samplers (`settle.go`) | `runCmdOutput`, stdout and stderr combined | `runBounded`; runit and s6 parse stdout; OpenRC reads "status: crashed" from both streams, since P1 found it on stderr |
+| `startSessionSupervisor` | the scanner found on `PATH` | at the resolved path; still detached, with its environment as before |
+| `runCmdEnv` (`setup.go`) | called only on these paths | deleted |
+
+* **What stays.** `lookPath` still finds `launchctl` and `systemctl`. `runCmd` still streams for
+  `systemctl`, `launchctl` and `loginctl`, which are not script kinds.
+* **The Verification check holds:** `git grep -n -e 'exec.LookPath' -e 'os.Stdout' -- internal/cli/service`,
+  outside tests, finds only `lookPath`, `plutil`, `systemctl`, `launchctl` and `runCmd`'s stream.
+  No supervisor tool goes through `runCmd`, `runCmdOutput` or `runCmdEnv` any more.
+* **What an operator sees change.** setup-service no longer echoes the tools' own lines, such as
+  OpenRC's "* Starting mcremote ... [ ok ]". It prints its own result as before, and a failure's
+  error now carries the `CommandError`'s kind, step, exit code and message.
+
+**The tests:**
+
+| Test | Pins |
+| :--- | :--- |
+| `TestResolveToolNeverReadsPATH` | the directories in order, a non-executable file skipped; a tool only on `PATH` not found, the error naming every directory; a program not on the list refused |
+| `TestToolRunnerBuildsItsEnvironment` | the absolute path, and exactly the built environment, with and without `XDG_CONFIG_HOME`; nothing else of the caller's |
+| `TestToolRunHonoursItsContext` | a tool still running when the context ends is killed, and the run returns `context.Canceled` |
+| `TestToolOutputNeverReachesTheTerminal` | a tool's stdout and stderr are captured and returned, and neither reaches this process's |
+| `TestToolFailuresAreClassified` | thirteen rows of P1's table, verbatim: the `CommandError`'s fields, and each class or none |
+| `TestDetectionAndTheUpdateResolveAlike` | with runit in the fixed directories and s6 on `PATH`, detection says runit, and the update runs runit's `sv` from there |
+
+The existing tests pass, adapted only by Deviation 1:
+
+* the fakes find their state beside themselves, from `${0%/*}`;
+* `fakeHost` and `runitHost` point the resolver at their fakes;
+* four expected `rc-service` calls and one exit key gain `--`.
+
+**Seen failing first** (`m212/p2_plants.py`, session scratchpad). Each plant ran on its own scratch
+copy of the working tree. All nine fail on their named tests:
+
+| Plant | The failure |
+| :--- | :--- |
+| the resolver falls back to `exec.LookPath` | "resolveTool(s6-svc) = "…/s6-svc"; want an error: it is only on PATH" |
+| the caller's `PATH` | "missing ["PATH=/usr/sbin:/usr/bin:/sbin:/bin"]; unexpected (names only) ["PATH"]" |
+| the caller's whole environment | "unexpected (names only) [" and the caller's variable names |
+| `XDG_CONFIG_HOME` dropped | `…/XDG_CONFIG_HOME_set`: "missing ["XDG_CONFIG_HOME=/home/u/cfg"]" |
+| `context.Background()` for the run | "the run took 30.056887958s after its context ended" |
+| the output copied to `os.Stdout` | "the tool's output reached the terminal: stdout " * Starting mcremote ... [ ok ]\n"" |
+| `classifyTool` classifies nothing | "errors.Is(err, selfupdate: service: not installed) = false", and each class after it |
+| detection back on `lookPath` | "detectLinux = s6; want runit, whose tools are where the update resolves them" |
+| the OpenRC sampler without `--` | `TestOpenRCCrashedIsFailed`: "sample {up:true … failed:true …}, want failed and not up" |
+
+**The plants found a hazard in a test, now closed.** In the whole-environment plant's first run,
+`TestToolRunnerBuildsItsEnvironment` printed the leaked environment's values, and with them a session
+token from the agent's own environment. A regression in CI would print the runner's secrets into the
+CI log the same way.
+
+* **The fix.** The test now reports a difference through `envDiff`: the expected entries it misses,
+  which the test set itself, and only the *names* of the entries it did not expect.
+* **The re-run.** The three environment plants were run again, and fail with names only, as above.
+* **Clean-up.** The plant's log, and two older scratch logs that held the same value, were deleted,
+  and no file in the scratchpad or the tree holds it.
+
+**Gates** (`m212/p2_gates.py`):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the twelve changed and added Go files | "12 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host | exit 0; 44 packages ok |
+| P2's tests and the script-kind setup, backend, settle and update tests on the Linux test host, verbose | 66 `--- PASS` lines, tests and subtests; no failure or skip. The copy was deleted |
+
+**The first gate run failed on the tree's own guard, now fixed.** `make test` failed in
+`internal/testexec`'s `TestRunFixturesAreWarmed`:
+"internal/cli/service/supervisortool_test.go:58 writes a #!/bin/sh script by hand" (MADR 0193 D5).
+
+* **Cause.** It was the resolver test's decoy: a file that is never run, written non-executable so
+  the resolver skips it. The guard is about the `#!/bin/sh` literal, whether or not the script runs.
+* **The fix.** The decoy now holds "not executable" and no shebang. It was never meant to run, so
+  nothing it tests changed.
+* **The re-run.** The guard and the resolver test pass, and every gate above is from the second run.
+
+P2 is complete once the owner commits it. P3 is next, on the owner's word.

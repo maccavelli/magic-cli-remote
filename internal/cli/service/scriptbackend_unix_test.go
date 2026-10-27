@@ -137,7 +137,7 @@ func TestScriptBackendStart(t *testing.T) {
 		if err := b.Start(ctx, "mcremote"); err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"openrc --user boot", "openrc --user default", "rc-service --user mcremote start"}
+		want := []string{"openrc --user boot", "openrc --user default", "rc-service --user -- mcremote start"}
 		if calls := fakeCalls(t); !slices.Equal(calls, want) {
 			t.Fatalf("calls %v, want %v", calls, want)
 		}
