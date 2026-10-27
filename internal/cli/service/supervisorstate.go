@@ -105,13 +105,32 @@ func observeRunit(ctx context.Context, def scriptDef) (observation, error) {
 		return observation{state: st}, err
 	}
 	out, err := toolFor(KindRunit, def.Dir, "sv", "status", def.Dir).run(ctx)
-	if err != nil {
+	own := runitOwnStatus(string(out.Stdout))
+	if err != nil && !runitStatusLineRe.MatchString(own) {
 		if !st.Installed && errors.Is(err, libservice.ErrNotInstalled) {
 			return observation{state: st}, nil
 		}
 		return observation{state: st}, err
 	}
-	return parseRunitStatus(st, string(out.Stdout)), nil
+	return parseRunitStatus(st, own), nil
+}
+
+// runitLogStatusRe starts what `sv status` prints for a service's log
+// service, after the service's own: "; run: log: (pid 54) 0s", or, when no
+// runsv runs it, "; warning: DIR/log: unable to open supervise/ok", and then
+// sv exits 1 (0212 PLAN P4 Deviation 4a).
+var runitLogStatusRe = regexp.MustCompile(`; (run|down|finish): log: |; warning: `)
+
+// runitStatusLineRe is a status sv printed for the service itself.
+var runitStatusLineRe = regexp.MustCompile(`^(run|down|finish): `)
+
+// runitOwnStatus is the service's own status, without its log service's.
+func runitOwnStatus(out string) string {
+	line := strings.TrimSpace(out)
+	if loc := runitLogStatusRe.FindStringIndex(line); loc != nil {
+		line = line[:loc[0]]
+	}
+	return line
 }
 
 // runitStatusRe reads a running service: "run: DIR: (pid 87) 7s".

@@ -205,12 +205,20 @@ func TestRecoverScriptRefusesWhatItDidNotWrite(t *testing.T) {
 	}
 }
 
+// s6Logged makes an s6 service's daemon already write to its log service, so
+// a setup over it has nothing to adopt (0212 PLAN P4 Deviations 3 and 4b).
+func s6Logged(t *testing.T) {
+	t.Helper()
+	prev := s6LoggerConnected
+	s6LoggerConnected = func(scriptDef) bool { return true }
+	t.Cleanup(func() { s6LoggerConnected = prev })
+}
+
 // supervisorHost is a Linux host with kind detected, the fakes on PATH, no
 // scanner running, and the records and definitions in scratch directories.
 // It returns the scan root and the placeholder binary.
 func supervisorHost(t *testing.T, kind Kind) (string, string) {
 	t.Helper()
-	withOpenRCNotify(t, false)
 	t.Cleanup(OverrideInstallOS("linux"))
 	t.Cleanup(OverrideDetectedKind(kind))
 	withUnitRecord(t, "mcremote", "")
@@ -314,9 +322,12 @@ func TestSetupRunitRestartsThroughTheUsersSupervisor(t *testing.T) {
 	if len(*starts) != 0 || res.SupervisorStarted {
 		t.Fatalf("started a session runsvdir %v although one watches %s", *starts, root)
 	}
-	// The status first notes the process the restart replaces (PLAN S5c).
-	if calls := fakeCalls(t); !slices.Equal(calls, []string{"sv status " + def.Dir, "sv restart " + def.Dir}) || !res.Started {
-		t.Fatalf("calls %v, started %v; want sv status then sv restart %s", calls, res.Started, def.Dir)
+	// The status first notes the process the restart replaces (PLAN S5c). The
+	// log service answers, so there is nothing to adopt (0212 PLAN P4
+	// Deviation 3).
+	want := []string{"sv status " + def.Dir, "sv status " + def.Dir + "/log", "sv restart " + def.Dir}
+	if calls := fakeCalls(t); !slices.Equal(calls, want) || !res.Started {
+		t.Fatalf("calls %v, started %v; want %v", calls, res.Started, want)
 	}
 }
 
@@ -344,6 +355,7 @@ func TestSetupS6RescansAndRestarts(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(def.Dir, "supervise"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	s6Logged(t)
 	if _, err := scriptSetup(t, root, bin, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -790,6 +802,7 @@ func TestSetupNotesTheProcessARestartReplaces(t *testing.T) {
 	prev := startToken
 	startToken = func(pid int) string { return fmt.Sprintf("token-of-%d", pid) }
 	t.Cleanup(func() { startToken = prev })
+	s6Logged(t)
 	res, err := scriptSetup(t, root, bin, nil)
 	if err != nil {
 		t.Fatal(err)

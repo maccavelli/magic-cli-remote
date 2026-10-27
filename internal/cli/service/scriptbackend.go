@@ -188,6 +188,12 @@ func (b *scriptBackend) Start(ctx context.Context, _ string) error {
 			// service needs its supervisor first, which it does not have yet.
 			return nil
 		}
+		// A refresh during the update may have added the log service; the
+		// supervisor takes it up only when the service is taken up again
+		// (MADR 0212 amendment C). The daemon is down here, after Stop.
+		if _, err := adoptLogService(ctx, b.def); err != nil {
+			return err
+		}
 		_, err := up.run(ctx)
 		return err
 	case KindOpenRCUser:

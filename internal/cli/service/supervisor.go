@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
 )
 
 // runit, s6 and OpenRC user services, as setup-service writes them (MADR 0054
@@ -163,6 +166,12 @@ func renderScript(kind Kind, opts Options, penv *renderEnv) (string, error) {
 		// a daemon that dies and kills one that will not stop (MADR 0212
 		// D10-A, measured in its PLAN's P1).
 		//
+		// There is no notify="socket:ready". supervise-daemon never removes
+		// the service's notify socket, so every start after the first fails
+		// with "bind: Address in use", and it waits for READY=1 with no
+		// timeout (MADR 0212 amendment C, C1; OpenRC 0.62.6 and master).
+		// Readiness is setup's check after the start, as on runit and s6.
+		//
 		// openrc-run sources this script, and so does its dependency scan.
 		// An export here would replace the PATH it finds its own helpers on
 		// (ebegin, eend, shell_var) and break every command, which the
@@ -191,9 +200,6 @@ func renderScript(kind Kind, opts Options, penv *renderEnv) (string, error) {
 		line("respawn_max=30")
 		line("respawn_period=300")
 		line(`retry="TERM/45/KILL/5"`)
-		if openRCSupportsNotify() {
-			line(`notify="socket:ready"`)
-		}
 		// The log directory, made at each start, as runit's and s6's
 		// log/run make theirs.
 		line("")
@@ -230,31 +236,6 @@ func shWords(words []string) string {
 // (MADR 0212 D9-A, D10-A).
 func scriptLogDir(product string, renv renderEnv) string {
 	return filepath.Join(renv.XDGStateHome, product, "log")
-}
-
-// openRCMinNotify is the first OpenRC whose supervise-daemon takes
-// notify=socket:ready (MADR 0212 D10-A; 0.62.6 measured in its PLAN's P1).
-var openRCMinNotify = [2]int{0, 62}
-
-// openRCVersionRe reads `openrc --version`: "openrc (OpenRC) 0.62.6 …".
-var openRCVersionRe = regexp.MustCompile(`\b(\d+)\.(\d+)(?:\.\d+)?\b`)
-
-// openRCSupportsNotify reports whether this host's OpenRC is 0.62 or later.
-// An OpenRC it cannot read is taken as older: a script without notify starts
-// on any OpenRC, and one with it starts nowhere older. It is a variable for
-// tests.
-var openRCSupportsNotify = func() bool {
-	out, err := runBounded(toolFor(KindOpenRCUser, "", "openrc", "--version"))
-	if err != nil {
-		return false
-	}
-	m := openRCVersionRe.FindStringSubmatch(string(out.Stdout))
-	if m == nil {
-		return false
-	}
-	major, _ := strconv.Atoi(m[1])
-	minor, _ := strconv.Atoi(m[2])
-	return major > openRCMinNotify[0] || major == openRCMinNotify[0] && minor >= openRCMinNotify[1]
 }
 
 // shellWords splits one line the way renderScript quotes it: whitespace
@@ -473,7 +454,8 @@ func recoverScript(kind Kind, product, unitName, body string) (recovery, string,
 }
 
 // openRCFixedLines are the supervise-daemon form's lines that hold no option
-// (MADR 0212 D10-A).
+// (MADR 0212 D10-A). notify is no longer written, but a script P4 first wrote
+// has it, and recovering that script lets a refresh move it off (amendment C).
 var openRCFixedLines = map[string]bool{
 	"supervisor=supervise-daemon": true,
 	"respawn_delay=5":             true,
@@ -638,6 +620,165 @@ func setupScript(kind Kind, opts Options, body string, res Result) (Result, erro
 	return startScript(def, opts, res)
 }
 
+// adoptTimeout bounds adoptLogService: the daemon's 45 s drain when it runs,
+// then runsvdir's scan, every 5 s (MADR 0212 PLAN P4 Deviation 3: a new runsv
+// in 3.8 s with the daemon down, 5.1 s with it up). It is a variable for tests.
+var adoptTimeout = 60 * time.Second
+
+// logServiceDef locates the log service beside def as a service of its own.
+func logServiceDef(def scriptDef) scriptDef {
+	dir := filepath.Join(def.Dir, "log")
+	return scriptDef{Kind: def.Kind, ScanDir: def.Dir, Dir: dir, Path: filepath.Join(dir, "run")}
+}
+
+// logServiceSupervised reports whether the log service beside def answers its
+// supervisor's status. A supervisor that is not running it is false, not an
+// error. On runit that settles adoption, since the one runsv runs both; s6
+// needs s6LoggerConnected. It is a variable for tests.
+var logServiceSupervised = func(ctx context.Context, def scriptDef) (bool, error) {
+	obs, err := observe(ctx, def.Kind, logServiceDef(def), "")
+	if errors.Is(err, libservice.ErrNoSupervisor) {
+		return false, nil
+	}
+	return obs.state.Supervised, err
+}
+
+// s6SupervisorPID is the PID of the s6-supervise that runs def's service, or
+// 0: the process named s6-supervise whose working directory is the service
+// directory, which s6-supervise changes into. The log service's has the log
+// directory. It is a variable for tests.
+var s6SupervisorPID = func(def scriptDef) int {
+	want, err := filepath.EvalSymlinks(def.Dir)
+	if err != nil {
+		return 0
+	}
+	entries, err := os.ReadDir(stateProcRoot)
+	if err != nil {
+		return 0
+	}
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		dir := filepath.Join(stateProcRoot, e.Name())
+		comm, err := os.ReadFile(filepath.Join(dir, "comm"))
+		if err != nil || strings.TrimSpace(string(comm)) != "s6-supervise" {
+			continue
+		}
+		if cwd, err := filepath.EvalSymlinks(filepath.Join(dir, "cwd")); err == nil && cwd == want {
+			return pid
+		}
+	}
+	return 0
+}
+
+// s6LoggerConnected reports whether the daemon's s6-supervise writes into the
+// pipe its log service's s6-supervise reads. s6-svscan makes that pipe when
+// it takes the log service up, and hands it to the service's s6-supervise
+// only when it starts one; a supervised log service is no proof, since any
+// rescan takes it up (0212 PLAN P4 Deviation 4b). It is a variable for tests.
+var s6LoggerConnected = func(def scriptDef) bool {
+	svc, lg := s6SupervisorPID(def), s6SupervisorPID(logServiceDef(def))
+	if svc == 0 || lg == 0 {
+		return false
+	}
+	out, err := os.Readlink(filepath.Join(stateProcRoot, strconv.Itoa(svc), "fd", "1"))
+	if err != nil {
+		return false
+	}
+	in, err := os.Readlink(filepath.Join(stateProcRoot, strconv.Itoa(lg), "fd", "0"))
+	return err == nil && strings.HasPrefix(out, "pipe:") && out == in
+}
+
+// pollUntil checks cond every settleTick until it holds, or ctx ends.
+func pollUntil(ctx context.Context, cond func() (bool, error)) error {
+	for {
+		ok, err := cond()
+		if err != nil || ok {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(settleTick):
+		}
+	}
+}
+
+// adoptLogService has the supervisor take up a log service setup added to a
+// service it already supervises, and reports whether it had to. runsv and
+// s6-svscan read a service's log directory only when they first take the
+// service up (MADR 0212 amendment C, C2), so a refreshed install from before
+// P4 would never log. The starts Magic drives call it, never the refresh: the
+// update runs the refresh between its stop and its start (C3).
+//
+//   - runit, when no runsv runs the log service: `sv exit`. runsv stops the
+//     daemon and exits, and runsvdir starts a new runsv, which runs the
+//     service and its log.
+//   - s6, when the daemon's s6-supervise does not write into the log
+//     service's pipe: a rescan first, which takes the log service and its
+//     pipe up, then `s6-svc -dx`, so s6-svscan starts the service's
+//     s6-supervise again, onto that pipe. In the other order the daemon is
+//     back before the logger exists, and logs nothing (P4 Deviation 3).
+//
+// Either way the new supervisor starts the daemon unless a down file says
+// not to; the caller then brings it up as before.
+func adoptLogService(ctx context.Context, def scriptDef) (bool, error) {
+	if def.Kind != KindRunit && def.Kind != KindS6 {
+		return false, nil
+	}
+	if ok, err := fileExists(logServiceDef(def).Path); err != nil || !ok {
+		return false, err
+	}
+	if def.Kind == KindRunit {
+		if ok, err := logServiceSupervised(ctx, def); err != nil || ok {
+			return false, err
+		}
+	} else if s6LoggerConnected(def) {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, adoptTimeout)
+	defer cancel()
+	switch def.Kind {
+	case KindRunit:
+		if _, err := toolFor(def.Kind, def.Dir, "sv", "exit", def.Dir).run(ctx); err != nil {
+			return false, err
+		}
+		logUp := func() (bool, error) { return logServiceSupervised(ctx, def) }
+		if err := pollUntil(ctx, logUp); err != nil {
+			return true, fmt.Errorf("%s: runsvdir did not start its log service within %s: %w", def.Dir, adoptTimeout, err)
+		}
+	case KindS6:
+		if _, err := toolFor(def.Kind, def.ScanDir, "s6-svscanctl", "-an", def.ScanDir).run(ctx); err != nil {
+			return false, err
+		}
+		// The log service's s6-supervise, by its process: its status can read
+		// "No such file or directory" while it starts (P4 Deviation 4b).
+		logUp := func() (bool, error) { return s6SupervisorPID(logServiceDef(def)) != 0, nil }
+		if err := pollUntil(ctx, logUp); err != nil {
+			return false, fmt.Errorf("%s: s6-svscan did not start its log service within %s: %w", def.Dir, adoptTimeout, err)
+		}
+		if _, err := toolFor(def.Kind, def.Dir, "s6-svc", "-dx", def.Dir).run(ctx); err != nil {
+			return false, err
+		}
+		// An s6-supervise on the log service's pipe, which only one started
+		// after the rescan has, and answering, so the caller's s6-svc -u
+		// reaches it.
+		renewed := func() (bool, error) {
+			if !s6LoggerConnected(def) {
+				return false, nil
+			}
+			obs, err := observe(ctx, def.Kind, def, "")
+			return err == nil && obs.state.Supervised, nil
+		}
+		if err := pollUntil(ctx, renewed); err != nil {
+			return true, fmt.Errorf("%s: s6-svscan did not start its s6-supervise again onto the log service within %s: %w", def.Dir, adoptTimeout, err)
+		}
+	}
+	return true, nil
+}
+
 // startScript enables and starts an installed definition.
 //
 // runit and s6 enable a service by its directory having no `down` file. They
@@ -690,11 +831,24 @@ func startScript(def scriptDef, opts Options, res Result) (Result, error) {
 			if s, err := sampler(def.Kind, res)(); err == nil && s.up {
 				res.replacedPid, res.replacedToken = s.pid, s.token
 			}
+			// A log service this setup added is taken up by restarting the
+			// supervisor, which restarts the daemon too: then it is only
+			// brought up, not restarted again.
+			adopted, err := adoptLogService(context.Background(), def)
+			if err != nil {
+				return res, fmt.Errorf("definition installed at %s, but its log service was not started: %w", def.Path, err)
+			}
+			if adopted {
+				ctl = toolFor(def.Kind, def.Dir, "sv", "up", def.Dir)
+				if def.Kind == KindS6 {
+					ctl = toolFor(def.Kind, def.Dir, "s6-svc", "-u", def.Dir)
+				}
+			}
 			if _, err := runBounded(ctl); err != nil {
 				return res, fmt.Errorf("definition installed at %s, but %s failed: %w", def.Path,
 					strings.Join(append([]string{ctl.tool}, ctl.args...), " "), err)
 			}
-			if def.Kind == KindS6 {
+			if def.Kind == KindS6 && !adopted {
 				if _, err := runBounded(toolFor(def.Kind, def.Dir, "s6-svc", "-u", def.Dir)); err != nil {
 					return res, fmt.Errorf("definition installed at %s, but s6-svc -u failed: %w", def.Path, err)
 				}

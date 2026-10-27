@@ -1,0 +1,9 @@
+{
+ "cmd": [
+  "sv",
+  "status",
+  "/home/<user>/.local/share/runit/service/mcremote-p4b"
+ ],
+ "exit": 0,
+ "stderr": ""
+}

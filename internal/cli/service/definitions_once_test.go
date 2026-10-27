@@ -54,19 +54,8 @@ type g2Definition struct {
 	isStart func(before []string, line string) bool
 }
 
-// withOpenRCNotify pins whether this host's OpenRC takes notify=socket:ready,
-// so a test's render does not depend on the OpenRC it runs beside (MADR 0212
-// PLAN P4 Deviation 1).
-func withOpenRCNotify(t *testing.T, ok bool) {
-	t.Helper()
-	prev := openRCSupportsNotify
-	openRCSupportsNotify = func() bool { return ok }
-	t.Cleanup(func() { openRCSupportsNotify = prev })
-}
-
 func g2Definitions(t *testing.T, product string) []g2Definition {
 	t.Helper()
-	withOpenRCNotify(t, true) // every line the OpenRC script can carry
 	env := g2Env()
 	opts := g2Opts(product)
 	unit, err := renderWith(opts, &env)

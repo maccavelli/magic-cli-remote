@@ -690,7 +690,7 @@ Its findings are cited here as B1 to B12, and its recommendations as R1 to R10.
   * no restart after a crash, on OpenRC.
 * **OpenRC is held back by Magic's own `start()` and `stop()`, which turn off
   `supervise-daemon`** (B2). From 0.62, `notify=socket:ready` accepts the `READY=1` Magic's daemon
-  already sends.
+  already sends. *Corrected by amendment C (C1): for a service's first start only.*
 * **The library's command rules** (its 0011 §2 and 0025 D2) add three things to stage 1 (B5):
   * a built environment with `LC_ALL=C` and a fixed `PATH`;
   * `--` before names;
@@ -720,7 +720,7 @@ Its findings are cited here as B1 to B12, and its recommendations as R1 to R10.
     set to the unit's `StartLimitBurst=30` in 300 s;
   * `retry="TERM/45/KILL/5"`;
   * `output_log` and `error_log`;
-  * on OpenRC 0.62 or later, `notify=socket:ready`.
+  * on OpenRC 0.62 or later, `notify=socket:ready`. *Dropped by amendment C.*
 
   The environment goes through `supervise_daemon_args`. Probes first (B2): whether
   `supervise-daemon`, `notify` and `--env` work under `openrc --user` on 0.62.6, and which PID the
@@ -1015,3 +1015,77 @@ D18 had no question. It goes to the owner with the PLAN, with D2, D4, D6, D7, D1
   `git diff --stat v1.21.0 v1.22.0` and `git diff --stat fff0940 v1.22.0` over the files V7 names.
 * `git ls-remote --tags` of the library. `gh issue view` of library issue #2 and of #27, both open.
 * This repository at `793b8f5b`: `cmd/mcremote/main.go` and `cmd/mcrelay/main.go`.
+
+## Amendment — 2026-10-26 (C): OpenRC's `notify`, and adopting a log service
+
+The PLAN's P4 step 3 ran the new definitions in the three containers. Two of its findings change
+what D10-A and D9-A assert. The owner decided both, recorded in the PLAN as P4 Deviations 2 and 3.
+
+### Corrections to the facts above, dated 2026-10-26
+
+* **C1. `notify=socket:ready` works for a service's first start only** [read, OpenRC 0.62.6 and
+  master; measured, P4 step 3]. This corrects amendment A's "From 0.62, `notify=socket:ready`
+  accepts the `READY=1` Magic's daemon already sends", and P1's record of it.
+  * `supervise-daemon` binds `$RC_SVCDIR/supervise-<service>.sock`, and after `READY=1` unlinks a
+    path built from its own program name instead (`src/shared/misc.c:557-566` and `:612`;
+    `src/supervise-daemon/supervise-daemon.c:1088` and `:1253`).
+  * The service's socket stays, and every later start fails at once with "bind: Address in use".
+  * The wait for `READY=1` has no timeout (`misc.c:587-619`), so a daemon that never sends it
+    blocks the start for good.
+* **C2. runsv and s6-svscan read a service's `log` directory only when they first take the
+  service up** [measured, P4 step 3]. A `log/run` added to a supervised service does not run on
+  that service's restart (`sv down`/`up`, `s6-svc -d`/`-u`).
+* **C3. The update runs refresh as its reconcile step**, between stopping the old daemon and
+  starting the new one [read, `internal/updateclient/managed.go:34`]. The installer hook also runs
+  it before its own stop and start (`internal/cli/service/installerhook.go:149`).
+
+### The decisions this amendment makes
+
+* **D10-A is amended: no `notify`.** The other lines stand. OpenRC's readiness is read as runit's
+  and s6's is: setup's check after the start, and the update's health wait.
+  * The `openrc --version` probe that gated it goes too.
+  * Recovery still reads a script with the line, so a refresh moves one written by P4's first
+    form off it.
+  * *Decided by the owner, 2026-10-26: "Drop notify (Recommended)".* The alternative put to the
+    owner was to keep the version gate, set past every release, for an upstream fix.
+* **D9-A is amended: Magic's next start adopts a log service added to an existing install.**
+  * When `log/run` exists and the daemon's output does not reach it, setup's start and the script
+    backend's start restart the service's supervision. On runit, that is when the log service is
+    not supervised: `sv exit`, then a wait for runsvdir's new runsv. On s6, it is when the daemon's
+    s6-supervise does not write into the pipe the log's reads: `s6-svscanctl -an` first, then
+    `s6-svc -dx`. The probe found that order, and the PLAN's P4 Deviation 4 the pipe test.
+  * Refresh stays write-only, because of C3.
+  * Stage 2 carries the same adoption into the adapter's start command.
+  * *Decided by the owner, 2026-10-26: "At Magic's next start (Recommended)".* The owner had
+    first chosen adoption inside refresh, then chose this once C3 was put to them. The other route
+    was refresh only telling the user.
+
+### Consequences of the amendment
+
+* Good, because every OpenRC start works, not only the first, and none can block on a readiness
+  message.
+* Good, because an existing runit or s6 install gets its logs at the first restart Magic drives,
+  with no extra restart.
+* Bad, because `rc-service start` on OpenRC returns once `supervise-daemon` has forked, not once
+  the daemon serves. Magic's own checks wait for that, but a person running `rc-service start` gets
+  no such wait.
+* Neutral, because a start that adopts a log service restarts the service's supervisor too. On
+  setup's start over a running install, that stop and start of the supervisor takes the place of
+  the restart command.
+
+### Confirmation of the amendment
+
+* No `notify` line in any OpenRC script, pinned by the definition tests.
+* In the OpenRC container: repeated starts of one service, a crash restarted, and a TERM-ignoring
+  daemon killed at 45 s.
+* In the runit and s6 containers: an install from before P4, refreshed, then started by the
+  update's cycle, with its log service supervised and `current` written.
+* Each new test seen failing first.
+
+### Evidence index of the amendment
+
+* OpenRC 0.62.6's source, from its GitHub tag archive, and its master branch, read 2026-10-26:
+  `src/shared/misc.c`, `src/supervise-daemon/supervise-daemon.c`,
+  `src/start-stop-daemon/start-stop-daemon.c`, `src/openrc-run/openrc-run.c`,
+  `src/librc/librc.c` and `sh/supervise-daemon.sh`.
+* The PLAN's P4 step 3 execution record, and its raw output in the session scratchpad.

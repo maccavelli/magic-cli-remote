@@ -191,13 +191,27 @@ D10-A). The definitions give these supervisors what the systemd unit has:
   `sv kill ~/.local/share/runit/service/mcremote`.
 - **OpenRC** runs the daemon under `supervise-daemon`. A daemon that crashes is
   started again after 5 seconds, up to 30 times in 300 seconds, as the systemd
-  unit allows. On OpenRC 0.62 or later, `rc-service start` returns once the
-  daemon is ready, as `systemctl --user start` does.
+  unit allows. `rc-service start` returns once `supervise-daemon` has started
+  the daemon, not once it serves; `setup-service` and `update` check that it
+  serves themselves. OpenRC's own readiness setting, `notify`, is not used:
+  with it, only a service's first start works (MADR 0212 amendment C).
 - **An existing install** moves to these definitions on the next update, which
   runs `setup-service --refresh`, or when you run it yourself. The previous
   OpenRC script is kept beside `init.d`, as `~/.config/rc/mcremote.prev`. A
   `log/run` you wrote yourself is left alone, and `setup-service` refuses to
   replace it without `--force`.
+- **On runit and s6, the log service of an existing install starts with the
+  next start `setup-service` or `update` makes.** runsv and s6-svscan take a
+  service's log service up only when they take the service up, so that start
+  restarts the service's supervisor: `sv exit` on runit, and on s6 a rescan
+  and `s6-svc -dx`. A restart you run yourself with `sv restart` or `s6-svc -r`
+  does not start it. These do, and restart the daemon:
+
+  ```sh
+  sv exit ~/.local/share/runit/service/mcremote          # runit
+  s6-svscanctl -an ~/.local/share/s6/service             # s6: the log service first,
+  s6-svc -dx ~/.local/share/s6/service/mcremote          # then the daemon's supervisor
+  ```
 
 `MCREMOTE_SVC_WAIT_SECS` bounds the verified start. `MCREMOTE_NO_LINGER`,
 `MCREMOTE_FORCE_SERVICE` and `MCREMOTE_WITH_RELAY_SERVICE` act on

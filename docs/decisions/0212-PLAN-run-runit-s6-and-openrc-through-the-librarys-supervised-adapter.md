@@ -216,15 +216,17 @@ record below).
 tests, `testdata/` goldens; `docs/guides/ops-linux-install.md`; the 0207 U3b definition guard, if
 U3b has landed; this plan. *Re-read 2026-10-26:* U3b has landed, and its guard is
 `definitions_once_test.go`. *P4 Deviation 1, 2026-10-26:* `scriptbackend_unix_test.go` joins
-(execution record below).
+(execution record below). *P4 Deviation 3, 2026-10-26:* `scriptbackend.go` joins. *P4 Deviation
+4:* `supervisorstate.go`, its test, and runit fixtures join.
 
 1. **Tests first:**
    * **runit and s6:** a `log/run` service directory, `svlogd` for runit and `s6-log` for s6, into
      `$XDG_STATE_HOME/<product>/log`. **s6:** a `timeout-kill` file holding `45000`.
    * **OpenRC, D10-A** (or D10-B, by P1's decision point): `command`, `command_args`,
      `directory`; `supervisor=supervise-daemon`; `respawn_delay=5`, `respawn_max=30`,
-     `respawn_period=300`; `retry="TERM/45/KILL/5"`; `output_log` and `error_log`; on OpenRC 0.62
-     or later, `notify=socket:ready`; the environment through `supervise_daemon_args`.
+     `respawn_period=300`; `retry="TERM/45/KILL/5"`; `output_log` and `error_log`; ~~on OpenRC 0.62
+     or later, `notify=socket:ready`~~ *(dropped 2026-10-26, P4 Deviation 2)*; the environment
+     through `supervise_daemon_args`.
    * `recoverScript` reads both the current and the new form of each definition (D15-A). Plant: a
      reader of the new form only, against a current-form fixture.
    * `removeScript` removes the `log` directory too.
@@ -491,7 +493,8 @@ touched. The phases take these facts, all within their steps as written:
     under today's start-stop-daemon form;
   * s6's missing-definition and missing-supervisor states are told apart by the definition, not the
     tool.
-* **P4:** D10-A, with `notify=socket:ready` available from 0.62.
+* **P4:** D10-A, with `notify=socket:ready` available from 0.62. *Corrected 2026-10-26, P4
+  Deviation 2: only a service's first start works with it, so it is dropped.*
 * **P5:** OpenRC's stop of a hung daemon takes about 48 s.
 
 P1 is complete once the owner commits this record. P2 is next, on the owner's word.
@@ -721,6 +724,9 @@ repo to ensure it aligns with this work". The sibling checkout was read only.
 
 ### P3, 2026-10-26: state, in the library's type
 
+*Note, 2026-10-26: P4 Deviation 4a corrects P3's runit reader for a service with a log service. Its
+fixtures had none.*
+
 **The new code** (`internal/cli/service/supervisorstate.go`):
 
 * **`observe(ctx, kind, def, name)`** returns an `observation`: a `libservice.SupervisedState`,
@@ -860,6 +866,8 @@ P3 is complete once the owner commits it. P4, the definitions, is next, on the o
 container run needs the owner's word too.
 
 ### P4 Deviation 1, 2026-10-26 — how the renderer learns OpenRC's version. The owner decided: "Probe the version (Recommended)"
+
+*Superseded 2026-10-26 by P4 Deviation 2: `notify` is dropped, and the probe with it.*
 
 **Approval.** The owner committed P3 and answered "committed, proceed". Steps 1, 2 and 4 run now.
 Step 3, the containers, waits for the owner's word, as the rules provide.
@@ -1013,3 +1021,270 @@ code:
   supervise-daemon form;
 * the P2 Deviation 2 check: `XDG_CONFIG_HOME` at a non-default directory, where `rc-service --user`
   finds the script setup wrote.
+
+### P4 step 3, 2026-10-26: the containers, first run
+
+**Approval.** The owner committed P4's steps 1, 2 and 4 and answered "committed, proceed", the word
+for step 3. `m212/p4_drive.py` and `m212/p4_in.py` (session scratchpad) ran it in the 0210 kit's three
+images on local Podman, linux/arm64. Two builds: P4 (`d07bca78`) and the commit before it
+(`caa96e43`). Raw output: `m212/p4-<kind>.jsonl`. Every container was removed after, and the Podman
+machine stopped again.
+
+| Check | runit | s6 | OpenRC |
+| :--- | :--- | :--- | :--- |
+| A, then B: an install by the build before P4, refreshed by P4 | `log/run` added, no backup; the daemon from A still ran, same PID | `log/run` and `timeout-kill` added, no backup; the daemon from A still ran | the script rewritten, the old one kept as the backup; the daemon from A still ran |
+| C: the update's restart after the refresh | the daemon restarted; **the log service did not start**: "unable to open supervise/ok" (Deviation 3) | the daemon restarted; **the log service did not start**: "s6-supervise not running" (Deviation 3) | the start-stop-daemon form's daemon stopped in 0.179 s; the new form started in 0.014 s, the daemon's parent `supervise-daemon`; `checkpath` made the log directory, 0700, and the log was written |
+| D: `--remove` | every file gone: `run`, `log/run`, the backup | every file gone, `timeout-kill` too | the script and its backup gone |
+| D: then a fresh install | 6.05 s; the log service up; `current` written; the directory 0700 | 1.01 s; the log service up; `current` written; the directory 0700 | **failed at once**: "mcremote-p4: bind: Address in use" (Deviation 2) |
+| E: OpenRC's start, and a crash restarted | — | — | the start failed the same way; the crash restart was **not reached** |
+| F: a daemon that ignores TERM | after `sv down`, "want down, got TERM"; `sv kill` ended it | down **45.27 s** after `s6-svc -d`, "down (signal SIGKILL)" | setup's restart blocked to its 35 s bound; the stop after it ran past the probe's 120 s (Deviation 2). The 45 s kill was **not measured** |
+| G: `XDG_CONFIG_HOME` elsewhere | — | — | the script written at the other location, the start found it, and the service ran |
+
+* `openrc --version` printed "openrc (OpenRC [PODMAN]) 0.62.6", which the parser read as 0.62.
+  Deviation 2 removes the parser.
+* C's daemon ran from `/home/<user>/p4/my apps/mcremote`. The path with a space survived OpenRC's own
+  `supervise-daemon.sh` `eval`.
+* G's `rc-service status` read "started" under either `XDG_CONFIG_HOME`. That tells the locations
+  apart from nothing: OpenRC finds a started service through `$RC_SVCDIR/started/<name>` before
+  its script directories (`src/librc/librc.c:748`, 0.62.6). The start, which had no such link,
+  found the script at the other location.
+* **A mistake of mine, caught before recording.** The driver's digest printed "present" for a file
+  the raw output records as `false`, and so first read the removal as leaving files. The raw lines
+  show every file gone.
+
+### P4 Deviations 2 and 3, 2026-10-26 — OpenRC's `notify`, and adopting a log service. The owner decided both as recommended
+
+**Deviation 2: OpenRC's `notify=socket:ready` cannot be used.** Found in step 3, and explained from
+OpenRC 0.62.6's source. Its master branch, read 2026-10-26, is unchanged.
+
+* `supervise-daemon` binds `$RC_SVCDIR/supervise-<service>.sock` before it forks the daemon
+  (`src/shared/misc.c:557-566`, called with the service's name at
+  `src/supervise-daemon/supervise-daemon.c:1088`).
+* After `READY=1` it unlinks `supervise-<program>.sock`, built from its own program name
+  (`supervise-daemon.c:1253`, `misc.c:612`). The service's socket stays. `start-stop-daemon` has the
+  same mismatch (`src/start-stop-daemon/start-stop-daemon.c:636` and `:1213`).
+* So a service's first start works, and every later one fails at once. That is step 3's D and E,
+  after C's start under the new form.
+* The wait for `READY=1` has no timeout (`misc.c:587-619`). A daemon that never sends it blocks the
+  start for good, as F's stand-in did.
+* P1's probes used a new service name for each, so none started twice.
+
+The resolutions put to the owner:
+
+1. **Chosen:** drop `notify`.
+   * Readiness comes from setup's check after the start and the update's health wait, as on runit
+     and s6.
+   * `openRCSupportsNotify`, its version probe and their tests go, and Deviation 1 is superseded.
+   * Recovery still reads a script with `notify`, so a refresh moves a P4 script off it.
+2. Drop it, and keep the version gate, set past every release, for an upstream fix. No shipped
+   OpenRC could reach that code, so nothing could test it.
+
+Removing the leftover socket in `start_pre` was not offered. It rests on a path internal to OpenRC,
+and leaves the start unbounded.
+
+**Deviation 3: runit and s6 do not start a log service added to an existing install.** Step 3's C:
+after the refresh, the update's restart left the log service unsupervised. runsv and s6-svscan read
+a service's `log` directory only when they first take the service up.
+
+* **Asked twice.** The owner first chose "Refresh adopts it": refresh restarts the service's
+  supervision.
+  * Before any code, I found that the update runs refresh as its reconcile step, between stopping
+    the old daemon and starting the new one (`internal/updateclient/managed.go:34`). The installer
+    hook also runs it before its own stop and start (`installerhook.go:149`).
+  * A restart inside refresh would start the daemon mid-update, ahead of the update's own start
+    and its checks. I put the choice to the owner again.
+* **Chosen:** "At Magic's next start".
+  * When `log/run` exists and its log service is not supervised, setup's start (`startScript`) and
+    the script backend's `Start` restart the service's supervision: runit `sv exit`, then a wait
+    for runsvdir's new runsv; s6 `s6-svc -x`, then `s6-svscanctl -an`.
+  * On the update path the daemon is already down there, so no restart is added. Refresh stays
+    write-only, as its contract says.
+  * P5 carries it into the adapter's start command.
+* The commands are probed in the containers before any code. The owner's answer approves that run,
+  and the re-run of step 3.
+
+**File added to P4:** `internal/cli/service/scriptbackend.go`. Its test joined with Deviation 1.
+
+**What these change elsewhere.** P1's `notify` row held for one start per service. Its line "P4:
+D10-A, with `notify=socket:ready` available from 0.62" no longer holds. The MADR's
+[amendment C](0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md#amendment--2026-10-26-c-openrcs-notify-and-adopting-a-log-service)
+records both.
+
+**Still to do in P4:** the adoption probe, the code and tests of both deviations, the gates, and
+step 3 again in all three containers. OpenRC's crash restart and 45 s kill are measured in that run.
+
+### P4 Deviation 3's probe, 2026-10-26: which commands adopt a log service
+
+`m212/p4b_drive.py` and `m212/p4b_in.py` (session scratchpad) ran in the runit and s6 images. Each
+probe installs with the build before P4, refreshes with P4, and then adopts. It runs once with the
+daemon stopped first, as the update's cycle does (U), and once with it running, as setup's start
+does (S). Raw output: `m212/p4b-<kind>.jsonl`, and `p4b-s6-rescan-first.jsonl`.
+
+| Kind, order | U: the log service supervised | S | The daemon's output in `current` |
+| :--- | :--- | :--- | :--- |
+| runit, `sv exit` | 3.8 s, by a new runsv | 5.1 s | yes, both |
+| s6, `s6-svc -x`, then a rescan | 60.4 s | 60.5 s | **no**, both: `current` empty |
+| s6, a rescan, then `s6-svc -x` (`-dx` for S) | 0.003 s | 0.25 s | yes, both, within 0.5 s |
+
+* In the first s6 order, s6-svscan started the service's s6-supervise again at once, before the log
+  service existed. The daemon came back with no pipe to the logger. The rescan, 60 s later, started
+  the logger alone.
+* In both kinds the new supervisor started the daemon itself, since there was no `down` file. The
+  `sv up` or `s6-svc -u` after it found the daemon up.
+
+### P4 Deviations 2 and 3, 2026-10-26: what was built
+
+* **Deviation 2.** The `notify` line, `openRCSupportsNotify`, its version probe and its test are
+  gone. The golden `openrc-user.no-notify.golden` is now `openrc-user.golden`. `openRCFixedLines`
+  still reads the line, so a refresh moves a P4 script off it (`TestRefreshMovesAScriptOffNotify`).
+* **Deviation 3.** `adoptLogService` (`supervisor.go`) takes a log service up, in the order the
+  probe found.
+  * It runs only when `log/run` exists and the log service is not supervised.
+  * runit: `sv exit`, then a wait until the log service answers. s6: a rescan, a wait for the log
+    service, `s6-svc -dx`, then a wait for a new s6-supervise that answers. Each wait is bounded by
+    `adoptTimeout`, 60 s.
+  * `startScript` calls it over a supervised service; when it adopts, setup brings the daemon up
+    with `sv up` or `s6-svc -u` rather than restarting it again. `scriptBackend.Start` calls it
+    before its up command.
+  * The guide names the commands for a person who restarts the service by hand.
+* **The plants** (`m212/p4d_plants.py`): eleven, each on its own scratch copy. All failed on their
+  named tests, after one fix of mine below.
+
+| Plant | The failure |
+| :--- | :--- |
+| `notify` rendered again | "the supervise-daemon form has "notify"" |
+| recovery drops the `notify` line | the refresh of a script with it: `Verdict:kept` |
+| the backend's start skips adoption | calls `[sv up …]`, want `[sv exit …` |
+| setup's start skips adoption | calls `[… sv restart …]` |
+| setup restarts again after adopting | calls `[… sv exit … sv restart …]` |
+| s6: `-x` before the rescan | "s6-svscan did not start its log service"; calls `[s6-svc -dx …]`, want `s6-svscanctl -an` first |
+| runit does not wait | "adoptLogService: <nil>; want a timeout naming the log service" |
+| s6 does not wait for a new s6-supervise | "adoptLogService: <nil>; want a timeout naming s6-supervise" |
+| "not supervised" read as an error | "logServiceSupervised = false, selfupdate: runit: sv status …/log: exit 1" |
+| s6's PID matched by a prefix of the directory | "s6SupervisorPID = 10 with only the log's and another process; want 0" |
+| adoption with no `log/run` | "adoptLogService = true, … runsvdir did not start its log service" |
+
+* **A mistake of mine, caught by the plants.** The three timeout tests first bounded the adoption
+  at 100 ms. That bound covers the fake tools' own runs too, which take longer on macOS. So the s6
+  test timed out on the fake `s6-svstat`, not on the missing new s6-supervise, and passed with the
+  wait planted out. The bound is now 2 s (`adoptTestTimeout`), and the plant fails.
+
+### P4 step 3, 2026-10-26: the containers, second run
+
+Step 3 again, with the working tree's build. C now runs the update's cycle through
+`setup-service --from-installer`: the refresh, the script backend's `Stop` and `Start`, then the
+verified start. The first run used the raw supervisor commands. H is new: setup with P4 over a
+refreshed install from before P4. Raw output: `m212/p4r-<kind>.jsonl`.
+
+| Check | runit | s6 | OpenRC |
+| :--- | :--- | :--- | :--- |
+| C: the update's cycle after the refresh | **failed**: "read whether the mcremote service is running: … nothing supervises the service" (Deviation 4a) | **failed** after 1.0 s: the log service's status right after the rescan, "No such file or directory", exit 111 (Deviation 4b) | worked; the daemon's parent `supervise-daemon`; the log written |
+| D: `--remove`, then a fresh install | every file gone; the log service up, `current` written | the same | the script and backup gone; the fresh install started |
+| E: repeated starts, and a crash | — | — | starts 2, 3 and 4 of one service all worked; a `SIGKILL`ed daemon back in **5.14 s** |
+| F: a daemon that ignores TERM | `sv kill` ended it | down **45.04 s** after `s6-svc -d`, by `SIGKILL` | `rc-service stop` took **50.1 s**, the daemon gone |
+| G: `XDG_CONFIG_HOME` elsewhere | — | — | as in the first run |
+| H: setup with P4 over a refreshed install | adopted; the daemon replaced; `current` has its output | the log service up, but **`current` empty** (Deviation 4b) | — |
+
+### P4 Deviation 4, 2026-10-26 — runit's state with a log service, and s6's adoption test. The owner decided both as recommended
+
+**4a: P3's runit state reader misreads a service that has a log service.**
+
+* With the log service unsupervised, `sv status <dir>` exits 1. It prints the service's status,
+  then "; warning: <dir>/log: unable to open supervise/ok: file does not exist". The classifier
+  reads the whole output as `ErrNoSupervisor`, so the update's `Running` failed (C).
+* With it supervised, `sv status` exits 0 with
+  "run: <dir>: (pid 55) 0s; run: log: (pid 54) 0s". `runitStatusRe`'s greedy `.*` takes the log's
+  PID, 54, as the daemon's. That reaches `Inside` and the replaced-process check, and the
+  adapter in P5.
+* P3's fixtures were captured with no log service, so they had neither line.
+* **Chosen:** "Fix it in P4".
+  * Read only the service's own segment, the text before "; ".
+  * Classify a failure only when that segment is not a status line.
+  * Add fixtures of the two outputs, from this run, with the home path redacted.
+  * The other choice put to the owner was the same fix recorded as a P3 follow-up.
+
+**4b: on s6, a supervised log service does not mean the daemon writes to it.**
+
+* Setup's own `s6-svscanctl -a`, run before the adoption check, took the log service up while the
+  daemon's s6-supervise kept its old output (H). Any other rescan does the same. And the first
+  status read after a rescan can fail while the log's supervisor starts (C).
+* **Chosen:** "The pipe itself".
+  * Adopt unless the daemon's s6-supervise writes into the pipe the log's s6-supervise reads:
+    `/proc/<pid>/fd/1` against `/proc/<pid>/fd/0`, each process found by its working directory.
+  * The waits treat a supervisor still starting as not ready yet.
+* The other choice put to the owner was to decide before setup's rescan. Any other rescan would
+  then still leave the daemon unlogged, with no error.
+
+**Files added to P4:** `internal/cli/service/supervisorstate.go`, its test, and fixtures under
+`testdata/supervisor/runit-2.3.1/`. The owner's answer approves the third run of step 3.
+
+### P4 Deviation 4, 2026-10-26: what was built
+
+* **4a.** `observeRunit` reads `runitOwnStatus`: `sv status`'s output up to "; run: log: ",
+  "; down: log: ", "; finish: log: " or "; warning: ".
+  * A failure counts only when that segment is not a status line ("run: ", "down: ", "finish: ").
+  * Three fixtures join `testdata/supervisor/runit-2.3.1/`, each a real output from these runs with
+    the home path redacted: `up-log` (the probe's U), `up-lognosupervisor` (the second run's C,
+    exit 1) and `run-wantdown-log` (the second run's F). `TestStateReplaysTheProbes` reads them.
+* **4b.** `s6LoggerConnected` compares `/proc/<pid>/fd/1` of the service's s6-supervise with
+  `/proc/<pid>/fd/0` of the log service's: the same `pipe:[…]`. `s6SupervisorPID` finds each by its
+  working directory.
+  * On s6, adoption runs unless the two are connected.
+  * The wait after the rescan looks for the log service's s6-supervise as a process, not its
+    status.
+  * The wait after `s6-svc -dx` looks for the connection, then a status that answers. A PID
+    compare was dropped: the old s6-supervise was not on the pipe, and only one started after the
+    rescan is, so the connection already proves a new one.
+  * `logServiceSupervised` stays for runit, where the one runsv runs both.
+* **The tests:** `TestS6LoggerConnectedComparesThePipes`; a subtest where s6's log service runs but
+  not for the daemon; `s6Logged` for the setup tests over a supervised s6 service. All are in
+  `scriptdefs_unix_test.go` and `supervisor_unix_test.go`.
+* **The plants** (`m212/p4d_plants.py`): fifteen, each on its own scratch copy. All failed on their
+  named tests. Deviation 3's "s6 does not wait for a new s6-supervise" became "s6 does not wait for
+  the pipe", and four are new:
+
+| Plant | The failure |
+| :--- | :--- |
+| s6 does not wait for the pipe | "adoptLogService: <nil>; want a timeout naming s6-supervise" |
+| s6 adopts only an unsupervised log service | `…/s6's_log_service_runs,_but_not_for_the_daemon`: not adopted |
+| s6's pipes compared by kind only | `TestS6LoggerConnectedComparesThePipes/another_pipe` |
+| runit reads the whole status line | `…/runit-2.3.1/up-log`: the log's PID, 54, for the daemon's 55 |
+| runit takes the log's warning for its own | `…/runit-2.3.1/up-lognosupervisor`: `ErrNoSupervisor` |
+
+* **A mistake of mine, caught by the plants.** The runit "does not wait" plant failed to compile once
+  4b moved `logUp` into runit's case. It is now written to compile, and fails its test.
+
+### P4 step 3, 2026-10-26: the containers, third run
+
+The same driver as the second run, with the working tree's build after Deviation 4. Raw output:
+`m212/p4t-<kind>.jsonl`.
+
+| Check | runit | s6 | OpenRC |
+| :--- | :--- | :--- | :--- |
+| C: the update's cycle after the refresh | 5.03 s; the log service adopted; `current` has the daemon's output | 4.05 s; the same | 1.24 s; the daemon under `supervise-daemon`; logged |
+| D: `--remove`, then a fresh install | every file gone; logged | every file gone; logged | the script and backup gone; logged |
+| E: repeated starts, and a crash | — | — | starts 2, 3 and 4 worked; a crash back in **5.40 s** |
+| F: a daemon that ignores TERM | `sv kill` ended it | down **45.05 s** after `s6-svc -d`, by `SIGKILL` | `rc-service stop` **50.14 s**, the daemon gone |
+| G: `XDG_CONFIG_HOME` elsewhere | — | — | the start found the script there; the service ran |
+| H: setup with P4 over a refreshed install | adopted; the daemon replaced; logged | adopted; the daemon replaced; logged | — |
+
+Every container was removed, and the Podman machine stopped again.
+
+### P4 Deviations 2 to 4, 2026-10-26: the gates
+
+`m212/p4_gates.py`, over the eight changed Go files and three records, on the final code:
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the eight Go files | "8 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, every file tracked | exit 0; 44 packages ok, the home-path and fixture guards included |
+| P4's tests, the new ones included, and the script-kind setup, refresh, remove, backend and update tests, on the Linux test host, verbose | 112 `--- PASS` lines, tests and subtests; no failure or skip |
+| the `eval` check under the Linux test host's `/bin/sh` | exit 0. The copy was deleted |
+
+**P4 is complete** once the owner commits it. Still open for the owner, from P4 steps 1 and 2:
+whether `--remove` should also delete the log files, which it now keeps. Before P5, the pin to the
+library's `v1.22.1` is proposed. P5's adapter carries Deviation 3's adoption into its start command.

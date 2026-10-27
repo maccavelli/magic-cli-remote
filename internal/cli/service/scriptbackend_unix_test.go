@@ -22,10 +22,9 @@ import (
 // mcremote installed, the fakes on PATH, and a fast settle.
 func scriptBackendHost(t *testing.T, kind Kind) *scriptBackend {
 	t.Helper()
-	withOpenRCNotify(t, false) // no `openrc --version` among the calls (0212 PLAN P4 Deviation 1)
 	uninstallHost(t, "linux")
 	fakeHost(t, fakeStub(t), map[string]map[string]int{
-		"sv": {}, "s6-svc": {}, "s6-svstat": {}, "rc-service": {}, "openrc": {},
+		"sv": {}, "s6-svc": {}, "s6-svscanctl": {}, "s6-svstat": {}, "rc-service": {}, "openrc": {},
 	})
 	fastSettle(t)
 	writeDefinition(t, kind, "mcremote", "mcremote", "/opt/mc/mcremote")
@@ -143,6 +142,34 @@ func TestScriptBackendStart(t *testing.T) {
 			t.Fatalf("calls %v, want %v", calls, want)
 		}
 	})
+}
+
+// TestScriptBackendStartAdoptsALogService is 0212 PLAN P4 Deviation 3 on the
+// update's path: a log service the update's refresh added is taken up at the
+// start, after the stop, and the service is then brought up as before.
+func TestScriptBackendStartAdoptsALogService(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range []Kind{KindRunit, KindS6} {
+		t.Run(string(kind), func(t *testing.T) {
+			b := scriptBackendHost(t, kind)
+			t.Cleanup(OverrideSupervisorWatching(func(string, string) bool { return true }))
+			writeLogRun(t, b.def)
+			fakeOutput(t, "s6-svstat", "true true true false 18 -1 2")
+			d := b.def.Dir
+			want := []string{"sv exit " + d, "sv up " + d}
+			adoptionSeams(t, "sv exit "+d, "")
+			if kind == KindS6 {
+				want = []string{"s6-svscanctl -an " + b.def.ScanDir, "s6-svc -dx " + d, "s6-svstat -o " + s6Fields + " " + d, "s6-svc -u " + d}
+				adoptionSeams(t, "s6-svscanctl -an "+b.def.ScanDir, "s6-svc -dx "+d)
+			}
+			if err := b.Start(ctx, "mcremote"); err != nil {
+				t.Fatal(err)
+			}
+			if calls := fakeCalls(t); !slices.Equal(calls, want) {
+				t.Fatalf("calls %v, want %v", calls, want)
+			}
+		})
+	}
 }
 
 // TestScriptBackendWaitHealthy is S5c's settle: confirmed running is healthy;

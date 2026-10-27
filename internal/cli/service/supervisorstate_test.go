@@ -146,6 +146,12 @@ func TestStateReplaysTheProbes(t *testing.T) {
 		{KindRunit, "runit-2.3.1", "absent", true, false, false, want{st: libservice.SupervisedState{NormallyUp: true}}},
 		{KindRunit, "runit-2.3.1", "denied", false, false, false,
 			want{st: libservice.SupervisedState{Installed: true, NormallyUp: true}, class: libservice.ErrPermission}},
+		// With a log service (0212 PLAN P4 Deviation 4a): the service's own
+		// segment, its PID and not the log's, and a log with no runsv is no
+		// failure of the service's.
+		{KindRunit, "runit-2.3.1", "up-log", false, false, false, want{st: up(55, true)}},
+		{KindRunit, "runit-2.3.1", "up-lognosupervisor", false, false, false, want{st: up(19, true), uptime: 2 * time.Second}},
+		{KindRunit, "runit-2.3.1", "run-wantdown-log", false, false, false, want{st: up(169, false), uptime: 6 * time.Second}},
 
 		{KindS6, "s6-2.13.2.0", "o-up", false, false, false, want{st: up(18, true), uptime: 2 * time.Second}},
 		{KindS6, "s6-2.13.2.0", "o-down", false, false, false, want{st: down}},

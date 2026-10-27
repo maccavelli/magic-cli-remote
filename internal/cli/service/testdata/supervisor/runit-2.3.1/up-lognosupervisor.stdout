@@ -1,0 +1,1 @@
+run: /home/<user>/.local/share/runit/service/mcremote-p4: (pid 19) 2s; warning: /home/<user>/.local/share/runit/service/mcremote-p4/log: unable to open supervise/ok: file does not exist

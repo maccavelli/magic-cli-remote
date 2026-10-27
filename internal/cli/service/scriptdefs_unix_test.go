@@ -3,15 +3,14 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
-
-	libservice "github.com/maccavelli/go-selfupdate-lib/selfupdate/service"
-
-	"github.com/maccavelli/magic-cli-remote/internal/testexec"
+	"time"
 )
 
 // The definitions of MADR 0212 D9-A and D10-A, and D15-A's reading of the
@@ -43,21 +42,11 @@ func goldenDefinitions(t *testing.T) map[string]string {
 	opts, env := parityOpts(), pinnedEnv()
 	out := map[string]string{}
 	for _, kind := range scriptKinds {
-		for _, notify := range []bool{true, false} {
-			if kind != KindOpenRCUser && !notify {
-				continue
-			}
-			withOpenRCNotify(t, notify)
-			body, err := renderScript(kind, opts, &env)
-			if err != nil {
-				t.Fatal(err)
-			}
-			name := string(kind)
-			if kind == KindOpenRCUser && !notify {
-				name += ".no-notify"
-			}
-			out[name] = body
+		body, err := renderScript(kind, opts, &env)
+		if err != nil {
+			t.Fatal(err)
 		}
+		out[string(kind)] = body
 		for _, a := range scriptAuxFor(kind, scriptDefFor(kind, "mcremote", "/svc"), "mcremote", env) {
 			out[string(kind)+"."+strings.ReplaceAll(strings.TrimPrefix(a.path, "/svc/mcremote/"), "/", "-")] = a.body
 		}
@@ -76,11 +65,10 @@ func readGolden(t *testing.T, name string) string {
 
 // TestDefinitionsMatchTheirGoldens pins each form byte for byte: runit's and
 // s6's run scripts, their log services' run scripts and s6's timeout-kill
-// (D9-A), and the OpenRC script under supervise-daemon, with and without
-// notify (D10-A).
+// (D9-A), and the OpenRC script under supervise-daemon (D10-A).
 func TestDefinitionsMatchTheirGoldens(t *testing.T) {
 	got := goldenDefinitions(t)
-	want := []string{"runit", "runit.log-run", "s6", "s6.log-run", "s6.timeout-kill", "openrc-user", "openrc-user.no-notify"}
+	want := []string{"runit", "runit.log-run", "s6", "s6.log-run", "s6.timeout-kill", "openrc-user"}
 	var names []string
 	for n := range got {
 		names = append(names, n)
@@ -106,33 +94,29 @@ func TestDefinitionsMatchTheirGoldens(t *testing.T) {
 }
 
 // TestOpenRCDefinitionIsD10A names D10-A's lines, so a golden re-captured by
-// mistake cannot drop one unseen.
+// mistake cannot drop one unseen. It has no notify: OpenRC's supervise-daemon
+// never removes the service's notify socket, so only a first start works with
+// it (MADR 0212 amendment C, C1).
 func TestOpenRCDefinitionIsD10A(t *testing.T) {
 	logDir := "'/home/u/.local/state/mcremote/log"
-	for _, notify := range []bool{true, false} {
-		withOpenRCNotify(t, notify)
-		opts, env := parityOpts(), pinnedEnv()
-		body, err := renderScript(KindOpenRCUser, opts, &env)
-		if err != nil {
-			t.Fatal(err)
+	opts, env := parityOpts(), pinnedEnv()
+	body, err := renderScript(KindOpenRCUser, opts, &env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"supervisor=supervise-daemon", "respawn_delay=5", "respawn_max=30", "respawn_period=300",
+		`retry="TERM/45/KILL/5"`, `pidfile="${XDG_RUNTIME_DIR}"'/mcremote.pid'`,
+		"output_log=" + logDir + "/mcremote.log'", "error_log=" + logDir + "/mcremote.log'",
+		"start_pre() {", "\tcheckpath -d -m 0700 " + logDir + "'",
+	} {
+		if !strings.Contains(body, "\n"+want+"\n") {
+			t.Errorf("no line %q in:\n%s", want, body)
 		}
-		for _, want := range []string{
-			"supervisor=supervise-daemon", "respawn_delay=5", "respawn_max=30", "respawn_period=300",
-			`retry="TERM/45/KILL/5"`, `pidfile="${XDG_RUNTIME_DIR}"'/mcremote.pid'`,
-			"output_log=" + logDir + "/mcremote.log'", "error_log=" + logDir + "/mcremote.log'",
-			"start_pre() {", "\tcheckpath -d -m 0700 " + logDir + "'",
-		} {
-			if !strings.Contains(body, "\n"+want+"\n") {
-				t.Errorf("notify %v: no line %q in:\n%s", notify, want, body)
-			}
-		}
-		if got := strings.Contains(body, "\nnotify=\"socket:ready\"\n"); got != notify {
-			t.Errorf("notify line present = %v, want %v", got, notify)
-		}
-		for _, gone := range []string{"start-stop-daemon", "start() {", "stop() {", ":-/tmp"} {
-			if strings.Contains(body, gone) {
-				t.Errorf("notify %v: the supervise-daemon form still has %q", notify, gone)
-			}
+	}
+	for _, gone := range []string{"notify", "ready=", "start-stop-daemon", "start() {", "stop() {", ":-/tmp"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the supervise-daemon form has %q", gone)
 		}
 	}
 }
@@ -141,7 +125,6 @@ func TestOpenRCDefinitionIsD10A(t *testing.T) {
 // and each form it writes now, recovers to the same options and environment,
 // so a refresh moves an install onto the new form.
 func TestRecoverScriptReadsBothForms(t *testing.T) {
-	withOpenRCNotify(t, false)
 	placeholderHome(t)
 	for _, kind := range scriptKinds {
 		t.Run(string(kind), func(t *testing.T) {
@@ -251,7 +234,7 @@ func TestRefreshBringsAnInstallFromBefore0212On(t *testing.T) {
 				t.Fatalf("refresh of an install from before P4: %+v, %v; want refreshed", got, err)
 			}
 			if kind == KindOpenRCUser {
-				if b, _ := os.ReadFile(def.Path); string(b) != readGolden(t, "openrc-user.no-notify") {
+				if b, _ := os.ReadFile(def.Path); string(b) != readGolden(t, "openrc-user") {
 					t.Fatalf("the refreshed script is not the supervise-daemon form:\n%s", b)
 				}
 				if b, _ := os.ReadFile(def.Backup); string(b) != before || got.BackupPath != def.Backup {
@@ -304,36 +287,351 @@ func TestRemoveStopsS6sLogService(t *testing.T) {
 	}
 }
 
-// TestOpenRCNotifyFollowsTheVersion is P4 Deviation 1: notify only from
-// OpenRC 0.62, read from `openrc --version`, and never when that cannot be
-// read.
-func TestOpenRCNotifyFollowsTheVersion(t *testing.T) {
+// writeLogRun puts a log service beside def's run script. It is never run
+// here (MADR 0193 D5: no shebang).
+func writeLogRun(t *testing.T, def scriptDef) {
+	t.Helper()
+	path := logServiceDef(def).Path
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("exec svlogd .\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// adoptionSeams stands in for the supervisor while the fakes run. The log
+// service is supervised (runit), or has its s6-supervise (s6), once the call
+// after is among the fakes' calls. s6's supervisor of the service is on the
+// log service's pipe once the call renew is. An empty call never happens.
+func adoptionSeams(t *testing.T, after, renew string) {
+	t.Helper()
+	called := func(c string) bool { return c != "" && slices.Contains(fakeCalls(t), c) }
+	prevLog, prevPID, prevPipe := logServiceSupervised, s6SupervisorPID, s6LoggerConnected
+	logServiceSupervised = func(context.Context, scriptDef) (bool, error) { return called(after), nil }
+	s6SupervisorPID = func(def scriptDef) int {
+		if filepath.Base(def.Dir) == "log" && called(after) {
+			return 9
+		}
+		return 0
+	}
+	s6LoggerConnected = func(scriptDef) bool { return called(renew) }
+	t.Cleanup(func() { logServiceSupervised, s6SupervisorPID, s6LoggerConnected = prevLog, prevPID, prevPipe })
+}
+
+// adoptTestTimeout bounds an adoption that is meant to time out. The bound
+// covers the fakes' own runs too, so it must hold them: with 100 ms the fake
+// s6-svstat itself ran out of time, and the test passed without the wait it
+// pins (P4 Deviation 3's plants).
+const adoptTestTimeout = 2 * time.Second
+
+// adoptHost is a supervised kind service with a log service beside it.
+func adoptHost(t *testing.T, kind Kind) scriptDef {
+	t.Helper()
+	root, _ := supervisorHost(t, kind)
+	def := scriptDefFor(kind, "mcremote", root)
+	if err := os.MkdirAll(def.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(def.Path, []byte("exec true\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLogRun(t, def)
+	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "s6-svstat.out"), []byte("true true true false 18 -1 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return def
+}
+
+// TestAdoptLogService is P4 Deviation 3: a log service its supervisor does
+// not run is taken up by restarting the service's supervision, runit's by
+// `sv exit`, s6's by a rescan and then `s6-svc -dx`, in that order, and each
+// waits for the supervisor to have done it.
+func TestAdoptLogService(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range []Kind{KindRunit, KindS6} {
+		t.Run(string(kind), func(t *testing.T) {
+			adopt := "sv exit "
+			if kind == KindS6 {
+				adopt = "s6-svscanctl -an "
+			}
+			t.Run("adopts", func(t *testing.T) {
+				def := adoptHost(t, kind)
+				want := []string{"sv exit " + def.Dir}
+				adoptionSeams(t, "sv exit "+def.Dir, "")
+				if kind == KindS6 {
+					want = []string{"s6-svscanctl -an " + def.ScanDir, "s6-svc -dx " + def.Dir, "s6-svstat -o " + s6Fields + " " + def.Dir}
+					adoptionSeams(t, "s6-svscanctl -an "+def.ScanDir, "s6-svc -dx "+def.Dir)
+				}
+				adopted, err := adoptLogService(ctx, def)
+				if err != nil || !adopted {
+					t.Fatalf("adoptLogService = %v, %v; want adopted", adopted, err)
+				}
+				if calls := fakeCalls(t); !slices.Equal(calls, want) {
+					t.Fatalf("calls %v, want %v", calls, want)
+				}
+			})
+			t.Run("no log service", func(t *testing.T) {
+				def := adoptHost(t, kind)
+				adoptionSeams(t, "", "")
+				if err := os.Remove(logServiceDef(def).Path); err != nil {
+					t.Fatal(err)
+				}
+				if adopted, err := adoptLogService(ctx, def); err != nil || adopted || len(fakeCalls(t)) != 0 {
+					t.Fatalf("adoptLogService = %v, %v, calls %v; want nothing", adopted, err, fakeCalls(t))
+				}
+			})
+			t.Run("already supervised", func(t *testing.T) {
+				def := adoptHost(t, kind)
+				adoptionSeams(t, "", "")
+				logServiceSupervised = func(context.Context, scriptDef) (bool, error) { return kind == KindRunit, nil }
+				s6LoggerConnected = func(scriptDef) bool { return kind == KindS6 }
+				if adopted, err := adoptLogService(ctx, def); err != nil || adopted || len(fakeCalls(t)) != 0 {
+					t.Fatalf("adoptLogService = %v, %v, calls %v; want nothing", adopted, err, fakeCalls(t))
+				}
+			})
+			t.Run("the supervisor never takes it up", func(t *testing.T) {
+				def := adoptHost(t, kind)
+				prev := adoptTimeout
+				adoptTimeout = adoptTestTimeout
+				t.Cleanup(func() { adoptTimeout = prev })
+				adoptionSeams(t, "", "")
+				if _, err := adoptLogService(ctx, def); err == nil || !strings.Contains(err.Error(), "did not start its log service") {
+					t.Fatalf("adoptLogService: %v; want a timeout naming the log service", err)
+				}
+				if calls := fakeCalls(t); len(calls) == 0 || !strings.HasPrefix(calls[0], adopt) {
+					t.Fatalf("calls %v; want %s first", calls, adopt)
+				}
+			})
+		})
+	}
+	t.Run("s6's log service runs, but not for the daemon", func(t *testing.T) {
+		// Taken up by some other rescan (P4 Deviation 4b): adopt all the same.
+		def := adoptHost(t, KindS6)
+		adoptionSeams(t, "s6-svscanctl -an "+def.ScanDir, "s6-svc -dx "+def.Dir)
+		logServiceSupervised = func(context.Context, scriptDef) (bool, error) { return true, nil }
+		if adopted, err := adoptLogService(ctx, def); err != nil || !adopted {
+			t.Fatalf("adoptLogService = %v, %v; want adopted", adopted, err)
+		}
+	})
+	t.Run("s6's s6-supervise never comes back", func(t *testing.T) {
+		def := adoptHost(t, KindS6)
+		prev := adoptTimeout
+		adoptTimeout = adoptTestTimeout
+		t.Cleanup(func() { adoptTimeout = prev })
+		adoptionSeams(t, "s6-svscanctl -an "+def.ScanDir, "")
+		if _, err := adoptLogService(ctx, def); err == nil || !strings.Contains(err.Error(), "did not start its s6-supervise again onto the log service") {
+			t.Fatalf("adoptLogService: %v; want a timeout naming s6-supervise", err)
+		}
+	})
+}
+
+// TestLogServiceSupervisedReadsTheSupervisor: the log service's status is
+// read as the service's is, and "not supervised" is false, not an error.
+func TestLogServiceSupervisedReadsTheSupervisor(t *testing.T) {
+	ctx := context.Background()
 	for _, tc := range []struct {
+		kind Kind
 		name string
-		out  libservice.Output
+		args string
+		code int
+		out  string
 		want bool
+		err  bool
 	}{
-		{"0.62.6", libservice.Output{Stdout: []byte("openrc (OpenRC) 0.62.6 (Alpine Linux)\n")}, true},
-		{"0.63", libservice.Output{Stdout: []byte("openrc (OpenRC) 0.63\n")}, true},
-		{"1.0.1", libservice.Output{Stdout: []byte("openrc (OpenRC) 1.0.1\n")}, true},
-		{"0.61.3", libservice.Output{Stdout: []byte("openrc (OpenRC) 0.61.3\n")}, false},
-		{"0.60", libservice.Output{Stdout: []byte("openrc (OpenRC) 0.60 (Gentoo)\n")}, false},
-		{"unreadable", libservice.Output{Stdout: []byte("openrc: unrecognised option\n")}, false},
-		{"failed", libservice.Output{ExitCode: 1, Stderr: []byte("openrc: no\n")}, false},
+		{KindRunit, "runs", "status", 0, "run: x/log: (pid 54) 3s", true, false},
+		{KindRunit, "no runsv for it", "status", 1, "warning: x/log: unable to open supervise/ok: file does not exist", false, false},
+		{KindRunit, "denied", "status", 1, "warning: x/log: access denied", false, true},
+		{KindS6, "runs", "-o " + s6Fields, 0, "true true true false 38 -1 0", true, false},
+		{KindS6, "no s6-supervise for it", "-o " + s6Fields, 1, "s6-svstat: fatal: unable to read status for x/log: s6-supervise not running", false, false},
+		{KindS6, "denied", "-o " + s6Fields, 111, "s6-svstat: fatal: unable to read status for x/log: Permission denied", false, true},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dirs := toolDirs(t, 1)
-			testexec.WriteShellStub(t, filepath.Join(dirs[0], "openrc"), "exit 0")
-			recordRunner(t, tc.out)
-			if got := openRCSupportsNotify(); got != tc.want {
-				t.Fatalf("openRCSupportsNotify = %v, want %v", got, tc.want)
+		t.Run(string(tc.kind)+" "+tc.name, func(t *testing.T) {
+			def := adoptHost(t, tc.kind)
+			tool := "sv"
+			if tc.kind == KindS6 {
+				tool = "s6-svstat"
+			}
+			cfg := os.Getenv("FAKE_CFG")
+			if err := os.WriteFile(filepath.Join(cfg, tool+".out"), []byte(tc.out+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			args := tool + " " + tc.args + " " + logServiceDef(def).Dir
+			// The fake reads its exit status from a file named by its arguments,
+			// which hold a path here.
+			code := filepath.Join(cfg, args)
+			if err := os.MkdirAll(filepath.Dir(code), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(code, []byte(strconv.Itoa(tc.code)+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := logServiceSupervised(ctx, def)
+			if got != tc.want || (err != nil) != tc.err {
+				t.Fatalf("logServiceSupervised = %v, %v; want %v, error %v", got, err, tc.want, tc.err)
+			}
+			if calls := fakeCalls(t); !slices.Equal(calls, []string{args}) {
+				t.Fatalf("calls %v, want %v", calls, []string{args})
 			}
 		})
 	}
-	t.Run("no openrc", func(t *testing.T) {
-		toolDirs(t, 1)
-		if openRCSupportsNotify() {
-			t.Fatal("notify with no openrc to ask")
+}
+
+// TestS6SupervisorPIDIsTheServicesOwn: the s6-supervise working in the
+// service directory, not the log service's, nor another process there.
+func TestS6SupervisorPIDIsTheServicesOwn(t *testing.T) {
+	def := scriptDefFor(KindS6, "mcremote", t.TempDir())
+	if err := os.MkdirAll(logServiceDef(def).Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proc := t.TempDir()
+	prev := stateProcRoot
+	stateProcRoot = proc
+	t.Cleanup(func() { stateProcRoot = prev })
+	add := func(pid int, comm, cwd string) {
+		dir := filepath.Join(proc, strconv.Itoa(pid))
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
 		}
-	})
+		if err := os.WriteFile(filepath.Join(dir, "comm"), []byte(comm+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(cwd, filepath.Join(dir, "cwd")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(10, "s6-supervise", logServiceDef(def).Dir)
+	add(11, "mcremote", def.Dir)
+	if got := s6SupervisorPID(def); got != 0 {
+		t.Fatalf("s6SupervisorPID = %d with only the log's and another process; want 0", got)
+	}
+	add(12, "s6-supervise", def.Dir)
+	if got := s6SupervisorPID(def); got != 12 {
+		t.Fatalf("s6SupervisorPID = %d, want 12", got)
+	}
+}
+
+// TestS6LoggerConnectedComparesThePipes is P4 Deviation 4b: connected only
+// when the service's s6-supervise writes into the very pipe the log
+// service's s6-supervise reads, not merely when both run.
+func TestS6LoggerConnectedComparesThePipes(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		out, in    string
+		withLogger bool
+		want       bool
+	}{
+		{"the same pipe", "pipe:[4242]", "pipe:[4242]", true, true},
+		{"another pipe", "pipe:[4242]", "pipe:[77]", true, false},
+		{"no pipe at all", "/dev/null", "/dev/null", true, false},
+		{"no log service", "pipe:[4242]", "", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def := scriptDefFor(KindS6, "mcremote", t.TempDir())
+			if err := os.MkdirAll(logServiceDef(def).Dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			proc := t.TempDir()
+			prev := stateProcRoot
+			stateProcRoot = proc
+			t.Cleanup(func() { stateProcRoot = prev })
+			add := func(pid int, cwd, fd, target string) {
+				dir := filepath.Join(proc, strconv.Itoa(pid))
+				if err := os.MkdirAll(filepath.Join(dir, "fd"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "comm"), []byte("s6-supervise\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				for link, to := range map[string]string{"cwd": cwd, filepath.Join("fd", fd): target} {
+					if err := os.Symlink(to, filepath.Join(dir, link)); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			add(20, def.Dir, "1", tc.out)
+			if tc.withLogger {
+				add(21, logServiceDef(def).Dir, "0", tc.in)
+			}
+			if got := s6LoggerConnected(def); got != tc.want {
+				t.Fatalf("s6LoggerConnected = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSetupAdoptsALogServiceThenBringsItUp is P4 Deviation 3 on setup's path:
+// the supervisor's restart restarts the daemon, so setup brings it up rather
+// than restarting it again.
+func TestSetupAdoptsALogServiceThenBringsItUp(t *testing.T) {
+	for _, kind := range []Kind{KindRunit, KindS6} {
+		t.Run(string(kind), func(t *testing.T) {
+			root, bin := supervisorHost(t, kind)
+			recordSessionStarts(t)
+			def := scriptDefFor(kind, "mcremote", root)
+			sup := filepath.Join(def.Dir, "supervise")
+			if err := os.MkdirAll(sup, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			var want []string
+			if kind == KindRunit {
+				fakeProc(t, []string{"/usr/bin/runsvdir", "-P", root})
+				if err := os.WriteFile(filepath.Join(sup, "ok"), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				adoptionSeams(t, "sv exit "+def.Dir, "")
+				want = []string{"sv status " + def.Dir, "sv exit " + def.Dir, "sv up " + def.Dir}
+			} else {
+				fakeProc(t, []string{"s6-svscan", root})
+				if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_CFG"), "s6-svstat.out"), []byte("true true true false 18 -1 2\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				adoptionSeams(t, "s6-svscanctl -an "+root, "s6-svc -dx "+def.Dir)
+				status := "s6-svstat -o " + s6Fields + " " + def.Dir
+				want = []string{"s6-svscanctl -a " + root, status, "s6-svscanctl -an " + root, "s6-svc -dx " + def.Dir, status, "s6-svc -u " + def.Dir}
+			}
+			res, err := scriptSetup(t, root, bin, nil)
+			if err != nil || !res.Started {
+				t.Fatalf("setup: %+v, %v", res, err)
+			}
+			if calls := fakeCalls(t); !slices.Equal(calls, want) {
+				t.Fatalf("calls %v, want %v", calls, want)
+			}
+		})
+	}
+}
+
+// TestRefreshMovesAScriptOffNotify is P4 Deviation 2: a script P4 first wrote,
+// with notify="socket:ready", recovers, and the refresh rewrites it without
+// the line, keeping the old one as the backup.
+func TestRefreshMovesAScriptOffNotify(t *testing.T) {
+	root, bin := supervisorHost(t, KindOpenRCUser)
+	root = openRCRoot(t, root)
+	openRCSession(t)
+	recordSessionStarts(t)
+	if _, err := scriptSetup(t, root, bin, nil); err != nil {
+		t.Fatal(err)
+	}
+	def := scriptDefFor(KindOpenRCUser, "mcremote", root)
+	current, err := os.ReadFile(def.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withNotify := strings.Replace(string(current), "retry=\"TERM/45/KILL/5\"\n", "retry=\"TERM/45/KILL/5\"\nnotify=\"socket:ready\"\n", 1)
+	if withNotify == string(current) {
+		t.Fatalf("no retry line to put notify after:\n%s", current)
+	}
+	if err := os.WriteFile(def.Path, []byte(withNotify), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := RefreshUnit(Options{Product: "mcremote", UnitDir: root}, RefreshOptions{})
+	if err != nil || got.Verdict != VerdictRefreshed {
+		t.Fatalf("refresh of a script with notify: %+v, %v; want refreshed", got, err)
+	}
+	if b, _ := os.ReadFile(def.Path); string(b) != string(current) {
+		t.Fatalf("the refreshed script:\n%s", diffLines(string(current), string(b)))
+	}
+	if b, _ := os.ReadFile(def.Backup); string(b) != withNotify {
+		t.Fatalf("the backup is not the script with notify:\n%s", b)
+	}
 }
