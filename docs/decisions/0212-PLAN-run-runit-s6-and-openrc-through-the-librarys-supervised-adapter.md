@@ -215,7 +215,8 @@ record below).
 **Files:** `supervisor.go` (`renderScript`, `recoverScript`, `setupScript`, `removeScript`), their
 tests, `testdata/` goldens; `docs/guides/ops-linux-install.md`; the 0207 U3b definition guard, if
 U3b has landed; this plan. *Re-read 2026-10-26:* U3b has landed, and its guard is
-`definitions_once_test.go`.
+`definitions_once_test.go`. *P4 Deviation 1, 2026-10-26:* `scriptbackend_unix_test.go` joins
+(execution record below).
 
 1. **Tests first:**
    * **runit and s6:** a `log/run` service directory, `svlogd` for runit and `s6-log` for s6, into
@@ -857,3 +858,158 @@ replay test without its input.
 
 P3 is complete once the owner commits it. P4, the definitions, is next, on the owner's word. Its
 container run needs the owner's word too.
+
+### P4 Deviation 1, 2026-10-26 — how the renderer learns OpenRC's version. The owner decided: "Probe the version (Recommended)"
+
+**Approval.** The owner committed P3 and answered "committed, proceed". Steps 1, 2 and 4 run now.
+Step 3, the containers, waits for the owner's word, as the rules provide.
+
+**Found while writing step 2.**
+
+* D10-A sets `notify=socket:ready` "on OpenRC 0.62 or later", so the renderer must know the host's
+  version. The plan does not say how, and P1 did not probe `openrc --version`.
+* A probe run at render time adds an `openrc --version` call. Tests that pin OpenRC's exact calls see
+  it, and one of them, `scriptbackend_unix_test.go`, is not on P4's list.
+
+**The resolutions put to the owner:**
+
+1. **Chosen:** render `notify` only when `openrc --version` reads 0.62 or later, and leave it out when
+   the output cannot be read.
+   * A script without `notify` starts on any OpenRC; one with it starts on none older.
+   * Step 3 checks that the real output parses.
+   * `scriptbackend_unix_test.go` joins P4, to stub the probe, as `supervisor_unix_test.go`'s
+     tests do.
+2. Always render `notify`. An OpenRC 0.60 or 0.61 host would get a script whose start fails.
+3. Never render it. `rc-service start` would return before the daemon is ready, on every host.
+
+**File added to P4:** `internal/cli/service/scriptbackend_unix_test.go`.
+
+### P4, 2026-10-26: the definitions, steps 1, 2 and 4
+
+**runit and s6 (D9-A).** The run script is unchanged. Beside it, setup now writes:
+
+* `log/run`, the log service: `svlogd -tt` for runit, `s6-log T` for s6, into
+  `$XDG_STATE_HOME/<product>/log`. It sets `PATH` to the supervisor tools' fixed directories (D2-A),
+  and makes the log directory with `mkdir -p -m 0700` at each start.
+* for s6, `timeout-kill` holding `45000`.
+
+**OpenRC (D10-A).** The script uses OpenRC's default functions:
+
+* `supervisor=supervise-daemon`, `command`, `command_args`, `directory`;
+* the environment through `supervise_daemon_args`, as `--env` pairs;
+* `pidfile="${XDG_RUNTIME_DIR}"'/<name>.pid'`, with no `/tmp` fallback, which closes the D12-A item
+  P3 left here;
+* `output_log` and `error_log`, both `$XDG_STATE_HOME/<product>/log/<name>.log`, as `2>&1` does;
+* `respawn_delay=5`, `respawn_max=30`, `respawn_period=300` (the unit's `StartLimitBurst=30` in 300 s)
+  and `retry="TERM/45/KILL/5"`;
+* `notify="socket:ready"` when `openrc --version` reads 0.62 or later (Deviation 1);
+* a `start_pre` that runs `checkpath -d -m 0700` on the log directory.
+
+**Two design points the plan did not settle, and how P4 settles them:**
+
+* **`supervise-daemon.sh` passes `command`, `command_args`, `directory`, the logs and
+  `supervise_daemon_args` through `eval`.** So each value is shell words, quoted once more for the
+  assignment. A word the shell reads as itself stays bare, so a plain path stays readable.
+  * Sourced as `openrc-run` sources it, and `eval`'d as `supervise-daemon.sh` does, every word comes
+    back byte for byte. That includes the parity options' `/opt/my apps/it's/mcremote`, a
+    `TOKEN=a 'quoted' $value` and an `EMPTY=` (`m212/p4_eval_check.py`, session scratchpad), under
+    macOS's `/bin/sh` and the Linux test host's (gates).
+  * That OpenRC's own `supervise-daemon.sh` evals exactly so is step 3's to confirm.
+* **The definitions make their log directory, not setup.** A setup that made it would write into
+  `$XDG_STATE_HOME` outside the definition. The package's tests do not isolate `XDG_STATE_HOME`, so
+  every setup test would have made one in the home of whoever runs them. A log directory removed
+  later would also stop the logger. `log/run`'s `mkdir` and OpenRC's `start_pre` make it at each
+  start instead.
+
+**Setup, refresh and remove:**
+
+* **Setup** writes the files beside the run script with it, and `Unchanged` means they are unchanged
+  too. A `log/run` without setup's managed marker is refused without `--force`, and replaced with it.
+* **Refresh (D15-A).**
+  * It reads both OpenRC forms: today's start-stop-daemon form, and the supervise-daemon form.
+  * A pre-P4 install moves on. For runit and s6, the missing files are added, with no backup, since
+    the run script is unchanged. For OpenRC, the script is rewritten, and the old one kept as the
+    backup.
+  * A foreign `log/run` keeps the definition: `VerdictKept`, naming it.
+* **Remove** also stops s6's log service and its supervisor (`s6-svc -d`, `-x` on `<dir>/log`). The
+  service directory goes as before, the log service in it.
+  * *For the owner to confirm:* the log files under `$XDG_STATE_HOME/<product>/log` stay, as a
+    removed systemd unit's journal does. The plan's "`removeScript` removes the `log` directory too"
+    is read as the log service's directory.
+
+**The tests** (step 1; `scriptdefs_unix_test.go`, and the guard in `definitions_once_test.go`):
+
+| Test | Pins |
+| :--- | :--- |
+| `TestDefinitionsMatchTheirGoldens` | seven forms byte for byte, in `testdata/definitions/`: runit's and s6's run scripts, their `log/run`, s6's `timeout-kill`, and the OpenRC script with and without `notify` |
+| `TestOpenRCDefinitionIsD10A` | D10-A's lines by name, `notify` only when OpenRC takes it, and none of the start-stop-daemon form |
+| `TestRecoverScriptReadsBothForms` | each kind's form from before P4 (`*.pre-0212.golden`, rendered by `HEAD` before P4) and its new form recover to the same options and environment, and the old one re-renders to the new |
+| `TestSetupWritesTheFilesBesideTheScript` | runit and s6: the files written; a second setup `Unchanged`; a foreign `log/run` refused without `--force`, replaced with it |
+| `TestRefreshBringsAnInstallFromBefore0212On` | each kind's pre-P4 install refreshed onto the new form, OpenRC's backup the old script, and a second refresh unchanged |
+| `TestRemoveStopsS6sLogService` | s6's removal stops both services, then the directory goes |
+| `TestOpenRCNotifyFollowsTheVersion` | `notify` for 0.62.6, 0.63 and 1.0.1; none for 0.61.3, 0.60, unreadable output, a failed run or no `openrc` |
+| `TestFilesBesideTheScriptsNeverRunTheBinary` | G2: no file beside a run script names the binary |
+
+* **The existing tests,** adapted for the new forms:
+  * the G2 guard reads OpenRC's start command from `command=`;
+  * `scriptEnvAndArgv` reads the supervise-daemon form;
+  * the refresh test's "older script" drops `XDG_CACHE_HOME` from `supervise_daemon_args`;
+  * `withOpenRCNotify` pins the version probe in `supervisorHost`, `scriptBackendHost` and the guard.
+* **Two of my mistakes, caught before staging:**
+  * **Goldens carrying the account name.** `TestTrackedFilesUseOnlyPlaceholderHomes` failed on four
+    goldens: the home path's account "is not a placeholder".
+    * The runit and s6 scripts' comment names the service directory from this process's XDG
+      directories, not the pinned environment. So a render on this Mac named this Mac's home.
+    * The goldens, both new and pre-P4, are now rendered with `HOME` and the XDG variables at the
+      placeholder home (`placeholderHome`). No golden names a real home.
+    * The comment's source is unchanged; it is the renderer's, from before 0212.
+  * **A shebang in a test.** A test's foreign `log/run` was written with a `#!/bin/sh` literal, which
+    MADR 0193 D5's guard refuses. It is never run, and now has none.
+
+**Seen failing first** (`m212/p4_plants.py`, session scratchpad). Each plant ran on its own scratch
+copy of the working tree. All fourteen fail on their named tests, and were run again on the final
+code:
+
+| Plant | The failure |
+| :--- | :--- |
+| recovery reads the new OpenRC form only | "the form from before P4 does not recover: carries a line setup-service never writes: start-stop-daemon --start …" |
+| runit has no log service | "forms [… runit s6 s6.log-run s6.timeout-kill], want [… runit runit.log-run …]" |
+| s6's `timeout-kill` at 30000 | `…/s6.timeout-kill` differs from its golden |
+| the log directory not made at start | `…/runit.log-run` and `…/s6.log-run` differ from their goldens |
+| no `supervisor=supervise-daemon` | "no line "supervisor=supervise-daemon"", with and without `notify` |
+| `retry` at 30 s | "no line "retry=\"TERM/45/KILL/5\""" |
+| `notify` always | "notify line present = true, want false" |
+| no `start_pre` | "no line "start_pre() {"" |
+| `notify` from 0.61 | `…/0.61.3`: "openRCSupportsNotify = true, want false" |
+| `command` quoted once, not for `eval` | `TestScriptMatchesTheSystemdUnit/openrc-user`: the binary lost from the argv |
+| setup replaces a foreign `log/run` | "setup over an operator's log/run: <nil>; want a refusal naming --force" |
+| refresh ignores the files beside the script | runit and s6: "Verdict:unchanged"; want refreshed |
+| remove leaves s6's log service | the calls without the two on `<dir>/log` |
+| a `log/run` naming the binary | "… log/run names the binary", each product and kind |
+
+**Gates** (`m212/p4_gates.py`):
+
+| Gate | Result |
+| :--- | :--- |
+| `make staticcheck` | exit 0, linux, darwin and windows |
+| `make pre-add-check` on the five changed and added Go files | "5 file(s) clean (gofmt, golint, govulncheck)" |
+| `go mod tidy -diff`; `go build ./...`; `go vet ./...` darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok; no `FAIL`, panic or `DATA RACE` line |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| `go test -race -count=1 ./...` on the Linux test host, every file tracked | exit 0; 44 packages ok, the home-path and fixture guards included |
+| P4's tests, and the script-kind setup, refresh, remove, backend and update tests, on the Linux test host, verbose | 89 `--- PASS` lines, tests and subtests; no failure or skip |
+| the `eval` check under the Linux test host's `/bin/sh` | "every word survives the eval, byte for byte". The copy was deleted |
+
+**Not done in P4 yet.** Step 3, the containers, on the owner's word. A fresh install and a
+`--refresh` from the current form, in each container, and with them:
+
+* `openrc --version`'s real output read as 0.62, so `notify` is rendered;
+* OpenRC's own `supervise-daemon.sh` evals the values as the shell check does, with a binary path
+  holding a space;
+* `checkpath` makes the log directory as the user;
+* the log services write `current` under runit and s6;
+* s6 and OpenRC kill a TERM-ignoring daemon at 45 s, and OpenRC restarts a crashed one;
+* a refresh over a running start-stop-daemon-started daemon, then a restart under the
+  supervise-daemon form;
+* the P2 Deviation 2 check: `XDG_CONFIG_HOME` at a non-default directory, where `rc-service --user`
+  finds the script setup wrote.

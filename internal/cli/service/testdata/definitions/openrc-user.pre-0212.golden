@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+# Managed by `mcremote setup-service` / `mcremote --setup-service`.
+# Do not hand-edit if you re-run setup (use --force to overwrite).
+# OpenRC user service: rc-service --user mcremote status
+description='mcremote multi-CLI remote control daemon'
+pidfile="${XDG_RUNTIME_DIR:-/tmp}"'/mcremote.pid'
+
+start() {
+	ebegin "Starting ${RC_SVCNAME}"
+	start-stop-daemon --start --background --make-pidfile --pidfile "$pidfile" --chdir '/home/u/work' --env 'HOME=/home/u' --env 'USER=u' --env 'LOGNAME=u' --env 'PATH=/home/u/.local/bin:/usr/bin:/bin' --env 'XDG_CONFIG_HOME=/home/u/.config' --env 'XDG_DATA_HOME=/home/u/.local/share' --env 'XDG_STATE_HOME=/home/u/.local/state' --env 'XDG_CACHE_HOME=/home/u/.cache' --env 'XDG_RUNTIME_DIR=/run/user/1000' --env 'TOKEN=a '\''quoted'\'' $value' --env 'EMPTY=' --exec '/opt/my apps/it'\''s/mcremote' -- 'serve' '--config' '/home/u/.config/mcremote/config.yaml' '--data-dir' '/home/u/data dir' '--listen-host' '127.0.0.1' '--listen-port' '7531' '--log-level' 'debug' '--log-format' 'json'
+	eend $?
+}
+
+stop() {
+	ebegin "Stopping ${RC_SVCNAME}"
+	start-stop-daemon --stop --pidfile "$pidfile"
+	eend $?
+}

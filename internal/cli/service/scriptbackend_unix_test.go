@@ -22,6 +22,7 @@ import (
 // mcremote installed, the fakes on PATH, and a fast settle.
 func scriptBackendHost(t *testing.T, kind Kind) *scriptBackend {
 	t.Helper()
+	withOpenRCNotify(t, false) // no `openrc --version` among the calls (0212 PLAN P4 Deviation 1)
 	uninstallHost(t, "linux")
 	fakeHost(t, fakeStub(t), map[string]map[string]int{
 		"sv": {}, "s6-svc": {}, "s6-svstat": {}, "rc-service": {}, "openrc": {},

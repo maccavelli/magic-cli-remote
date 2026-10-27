@@ -145,7 +145,7 @@ a launchd LaunchAgent, not systemd; Full Disk Access is a separate grant, see
 | `launchd-agent` | yes | **no** (login session) | macOS LaunchAgent in `~/Library/LaunchAgents` |
 | `runit` | yes | only if `runsvdir` is started at boot | run script in `~/.local/share/runit/service` |
 | `s6` | yes | only if `s6-svscan` is started at boot | run script in `~/.local/share/s6/service` |
-| `openrc-user` | yes | only if `pam_openrc` starts user sessions | OpenRC 0.60+, user `default` runlevel |
+| `openrc-user` | yes | only if `pam_openrc` starts user sessions | OpenRC 0.60+, `supervise-daemon`, user `default` runlevel |
 | `openrc-system`, `systemd-broken`, `none` | no | no | nothing written; prints how to run the daemon yourself |
 
 **Why only systemd gets boot persistence.** For a user service to start at
@@ -178,6 +178,27 @@ PLAN S5b and S5f). What it reports:
   to run the daemon yourself, and exits 0. On `openrc-system` it also prints
   the root steps for a system service that runs the daemon as you.
 
+**Logs, restarts, and a daemon that will not stop** (MADR 0212 D9-A and
+D10-A). The definitions give these supervisors what the systemd unit has:
+
+- **Logs** go to `~/.local/state/mcremote/log` (`mcrelay` for the relay).
+  runit and s6 run a log service beside the daemon, `svlogd` or `s6-log`,
+  which writes `current` there and rotates it. OpenRC writes
+  `mcremote.log` there.
+- **A daemon that ignores its stop** is killed 45 seconds after it on s6, which
+  kills it itself, and on OpenRC, whose stop sends `TERM`, waits 45 seconds,
+  then sends `KILL`. runit has no such setting; end one with
+  `sv kill ~/.local/share/runit/service/mcremote`.
+- **OpenRC** runs the daemon under `supervise-daemon`. A daemon that crashes is
+  started again after 5 seconds, up to 30 times in 300 seconds, as the systemd
+  unit allows. On OpenRC 0.62 or later, `rc-service start` returns once the
+  daemon is ready, as `systemctl --user start` does.
+- **An existing install** moves to these definitions on the next update, which
+  runs `setup-service --refresh`, or when you run it yourself. The previous
+  OpenRC script is kept beside `init.d`, as `~/.config/rc/mcremote.prev`. A
+  `log/run` you wrote yourself is left alone, and `setup-service` refuses to
+  replace it without `--force`.
+
 `MCREMOTE_SVC_WAIT_SECS` bounds the verified start. `MCREMOTE_NO_LINGER`,
 `MCREMOTE_FORCE_SERVICE` and `MCREMOTE_WITH_RELAY_SERVICE` act on
 `setup-service` whether the installer runs it or you do (`1` on; unset or `0`
@@ -197,13 +218,16 @@ launchctl kickstart -k gui/$(id -u)/com.magiccliremote.mcremote
 
 # runit
 SVDIR=~/.local/share/runit/service sv status|up|down mcremote
+tail -f ~/.local/state/mcremote/log/current
 
 # s6
 s6-svstat ~/.local/share/s6/service/mcremote      # status ("up (pid N) …")
 s6-svc -u|-d ~/.local/share/s6/service/mcremote   # bring up / take down
+tail -f ~/.local/state/mcremote/log/current
 
 # OpenRC user service
 rc-service --user mcremote status|restart|stop
+tail -f ~/.local/state/mcremote/log/mcremote.log
 ```
 
 ## Environment-specific notes

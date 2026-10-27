@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -135,7 +136,6 @@ func renderScript(kind Kind, opts Options, penv *renderEnv) (string, error) {
 	case KindOpenRCUser:
 		line("# OpenRC user service: rc-service --user " + opts.UnitName + " status")
 		line("description=" + shq(opts.Description))
-		line(`pidfile="${XDG_RUNTIME_DIR:-/tmp}"` + shq("/"+opts.UnitName+".pid"))
 	}
 	// The environment the systemd unit sets with Environment=, in its order.
 	// systemd names its runtime directory with %t when none was known; a
@@ -159,31 +159,102 @@ func renderScript(kind Kind, opts Options, penv *renderEnv) (string, error) {
 		line("cd " + shq(opts.WorkingDirectory) + " || exit 1")
 		line("exec " + shJoin(serveArgv(opts)) + " 2>&1")
 	case KindOpenRCUser:
-		// openrc-run sources this script, and so does its dependency
-		// scan. An export here would replace the PATH it finds its own
-		// helpers on (ebegin, eend, shell_var) and break every command,
-		// which the 2026-10-19 live probe showed. The environment and the
-		// working directory go to start-stop-daemon instead.
-		ssd := []string{"start-stop-daemon", "--start", "--background", "--make-pidfile", "--pidfile", `"$pidfile"`,
-			"--chdir", shq(opts.WorkingDirectory)}
+		// OpenRC's default functions under supervise-daemon, which restarts
+		// a daemon that dies and kills one that will not stop (MADR 0212
+		// D10-A, measured in its PLAN's P1).
+		//
+		// openrc-run sources this script, and so does its dependency scan.
+		// An export here would replace the PATH it finds its own helpers on
+		// (ebegin, eend, shell_var) and break every command, which the
+		// 2026-10-19 live probe showed. The environment goes to
+		// supervise-daemon instead.
+		//
+		// supervise-daemon.sh passes command, command_args, directory, the
+		// logs and supervise_daemon_args through eval, so each value is
+		// shell words, quoted once more for the assignment.
+		var envArgs []string
 		for _, kv := range env {
-			ssd = append(ssd, "--env", shq(kv))
+			envArgs = append(envArgs, "--env", kv)
 		}
-		ssd = append(ssd, "--exec", shq(opts.Binary), "--", shJoin(serveArgv(opts)[1:]))
+		argv := serveArgv(opts)
+		logFile := filepath.Join(scriptLogDir(opts.Product, renv), opts.UnitName+".log")
+		line("supervisor=supervise-daemon")
+		line("command=" + shq(shWord(argv[0])))
+		line("command_args=" + shq(shWords(argv[1:])))
+		line("directory=" + shq(shWord(opts.WorkingDirectory)))
+		line("supervise_daemon_args=" + shq(shWords(envArgs)))
+		line(`pidfile="${XDG_RUNTIME_DIR}"` + shq("/"+opts.UnitName+".pid"))
+		line("output_log=" + shq(shWord(logFile)))
+		line("error_log=" + shq(shWord(logFile)))
+		// The unit's StartLimitBurst=30 in StartLimitIntervalSec=300.
+		line("respawn_delay=5")
+		line("respawn_max=30")
+		line("respawn_period=300")
+		line(`retry="TERM/45/KILL/5"`)
+		if openRCSupportsNotify() {
+			line(`notify="socket:ready"`)
+		}
+		// The log directory, made at each start, as runit's and s6's
+		// log/run make theirs.
 		line("")
-		line("start() {")
-		line(`	ebegin "Starting ${RC_SVCNAME}"`)
-		line("	" + strings.Join(ssd, " "))
-		line("	eend $?")
-		line("}")
-		line("")
-		line("stop() {")
-		line(`	ebegin "Stopping ${RC_SVCNAME}"`)
-		line(`	start-stop-daemon --stop --pidfile "$pidfile"`)
-		line("	eend $?")
+		line("start_pre() {")
+		line("	checkpath -d -m 0700 " + shq(scriptLogDir(opts.Product, renv)))
 		line("}")
 	}
 	return b.String(), nil
+}
+
+// safeWordRe is a word the shell reads as itself, unquoted.
+var safeWordRe = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)
+
+// shWord is s as one shell word: as it is when the shell reads it so, and
+// quoted otherwise, so a plain path stays readable.
+func shWord(s string) string {
+	if safeWordRe.MatchString(s) {
+		return s
+	}
+	return shq(s)
+}
+
+// shWords is words as shell words, for a value eval reads.
+func shWords(words []string) string {
+	q := make([]string, len(words))
+	for i, w := range words {
+		q[i] = shWord(w)
+	}
+	return strings.Join(q, " ")
+}
+
+// scriptLogDir is where a runit, s6 or OpenRC service of product logs, as
+// the systemd unit's journal stands in for: $XDG_STATE_HOME/<product>/log
+// (MADR 0212 D9-A, D10-A).
+func scriptLogDir(product string, renv renderEnv) string {
+	return filepath.Join(renv.XDGStateHome, product, "log")
+}
+
+// openRCMinNotify is the first OpenRC whose supervise-daemon takes
+// notify=socket:ready (MADR 0212 D10-A; 0.62.6 measured in its PLAN's P1).
+var openRCMinNotify = [2]int{0, 62}
+
+// openRCVersionRe reads `openrc --version`: "openrc (OpenRC) 0.62.6 …".
+var openRCVersionRe = regexp.MustCompile(`\b(\d+)\.(\d+)(?:\.\d+)?\b`)
+
+// openRCSupportsNotify reports whether this host's OpenRC is 0.62 or later.
+// An OpenRC it cannot read is taken as older: a script without notify starts
+// on any OpenRC, and one with it starts nowhere older. It is a variable for
+// tests.
+var openRCSupportsNotify = func() bool {
+	out, err := runBounded(toolFor(KindOpenRCUser, "", "openrc", "--version"))
+	if err != nil {
+		return false
+	}
+	m := openRCVersionRe.FindStringSubmatch(string(out.Stdout))
+	if m == nil {
+		return false
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	return major > openRCMinNotify[0] || major == openRCMinNotify[0] && minor >= openRCMinNotify[1]
 }
 
 // shellWords splits one line the way renderScript quotes it: whitespace
@@ -250,6 +321,23 @@ func recoverScript(kind Kind, product, unitName, body string) (recovery, string,
 	}
 	seen := map[string]bool{}
 	execs := 0
+	addEnv := func(kv string) (string, bool) {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || !envKeyRe.MatchString(k+"=") {
+			return "has a malformed --env", false
+		}
+		if managedEnvKeys[k] {
+			seen[k] = true
+			assignManagedEnv(&rec.Env, k, v)
+		} else {
+			rec.Opts.ExtraEnviron = append(rec.Opts.ExtraEnviron, k+"="+v)
+		}
+		return "", true
+	}
+	// The supervise-daemon form (MADR 0212 D10-A), read beside the
+	// start-stop-daemon form it replaces (D15-A).
+	var sdBin string
+	var sdArgs []string
 	for _, raw := range lines[2:] {
 		line := strings.TrimSpace(raw)
 		switch {
@@ -309,15 +397,8 @@ func recoverScript(kind Kind, product, unitName, body string) (recovery, string,
 				case "--chdir":
 					rec.Opts.WorkingDirectory = words[i+1]
 				case "--env":
-					k, v, ok := strings.Cut(words[i+1], "=")
-					if !ok || !envKeyRe.MatchString(k+"=") {
-						return rec, "has a malformed --env", false
-					}
-					if managedEnvKeys[k] {
-						seen[k] = true
-						assignManagedEnv(&rec.Env, k, v)
-					} else {
-						rec.Opts.ExtraEnviron = append(rec.Opts.ExtraEnviron, k+"="+v)
+					if why, ok := addEnv(words[i+1]); !ok {
+						return rec, why, false
 					}
 				}
 			}
@@ -333,6 +414,43 @@ func recoverScript(kind Kind, product, unitName, body string) (recovery, string,
 				return rec, "has a description that is not one quoted word", false
 			}
 			rec.Opts.Description = words[0]
+		case kind == KindOpenRCUser && strings.HasPrefix(line, "command="):
+			execs++
+			words, ok := evalWords(strings.TrimPrefix(line, "command="))
+			if !ok || len(words) != 1 {
+				return rec, "has a command that is not one word", false
+			}
+			sdBin = words[0]
+		case kind == KindOpenRCUser && strings.HasPrefix(line, "command_args="):
+			words, ok := evalWords(strings.TrimPrefix(line, "command_args="))
+			if !ok {
+				return rec, "has command_args that do not parse", false
+			}
+			sdArgs = words
+		case kind == KindOpenRCUser && strings.HasPrefix(line, "directory="):
+			words, ok := evalWords(strings.TrimPrefix(line, "directory="))
+			if !ok || len(words) != 1 {
+				return rec, "has a directory that is not one word", false
+			}
+			rec.Opts.WorkingDirectory = words[0]
+		case kind == KindOpenRCUser && strings.HasPrefix(line, "supervise_daemon_args="):
+			words, ok := evalWords(strings.TrimPrefix(line, "supervise_daemon_args="))
+			if !ok || len(words)%2 != 0 {
+				return rec, "has supervise_daemon_args that are not --env pairs", false
+			}
+			for i := 0; i < len(words); i += 2 {
+				if words[i] != "--env" {
+					return rec, "has supervise_daemon_args other than --env", false
+				}
+				if why, ok := addEnv(words[i+1]); !ok {
+					return rec, why, false
+				}
+			}
+		case kind == KindOpenRCUser && (strings.HasPrefix(line, "output_log=") || strings.HasPrefix(line, "error_log=") ||
+			openRCFixedLines[line] || line == "start_pre() {" || strings.HasPrefix(line, "checkpath -d -m 0700 ")):
+			// What setup writes the same for every install: the logs follow
+			// the recovered environment's XDG_STATE_HOME.
+			continue
 		case kind == KindOpenRCUser && (strings.HasPrefix(line, "pidfile=") ||
 			line == "start() {" || line == "stop() {" || line == "}" ||
 			strings.HasPrefix(line, "ebegin ") || line == "eend $?" ||
@@ -345,8 +463,129 @@ func recoverScript(kind Kind, product, unitName, body string) (recovery, string,
 	if execs != 1 {
 		return rec, fmt.Sprintf("has %d command lines, want 1", execs), false
 	}
+	if sdBin != "" {
+		if why, ok := applyServeArgv(&rec.Opts, append([]string{sdBin}, sdArgs...), "command line"); !ok {
+			return rec, why, false
+		}
+	}
 	rec.Warnings = fillMissingEnv(product, &rec.Env, seen)
 	return rec, "", true
+}
+
+// openRCFixedLines are the supervise-daemon form's lines that hold no option
+// (MADR 0212 D10-A).
+var openRCFixedLines = map[string]bool{
+	"supervisor=supervise-daemon": true,
+	"respawn_delay=5":             true,
+	"respawn_max=30":              true,
+	"respawn_period=300":          true,
+	`retry="TERM/45/KILL/5"`:      true,
+	`notify="socket:ready"`:       true,
+}
+
+// evalWords reads an assignment's value as supervise-daemon.sh's eval does:
+// one quoted word, which holds shell words.
+func evalWords(value string) ([]string, bool) {
+	outer, err := shellWords(value)
+	if err != nil || len(outer) != 1 {
+		return nil, false
+	}
+	inner, err := shellWords(outer[0])
+	if err != nil {
+		return nil, false
+	}
+	return inner, true
+}
+
+// scriptAux is a file setup-service writes beside a definition (MADR 0212
+// D9-A): runit's and s6's log service, and s6's timeout-kill.
+type scriptAux struct {
+	path string
+	body string
+	mode os.FileMode
+	// managed reports whether an existing body is one setup-service wrote,
+	// which it may replace.
+	managed func(existing string) bool
+}
+
+// scriptAuxFor is kind's files beside def, for product's environment.
+//
+//   - log/run: the service's own logger, svlogd for runit and s6-log for s6,
+//     into scriptLogDir. The run script's output, 2>&1, is its input, as the
+//     unit's goes to the journal.
+//   - timeout-kill, for s6: s6 kills a daemon still alive 45000 ms after
+//     s6-svc -d (P1: 45.3 s). runit has no such file; its kill is the
+//     adapter's, in stage 2.
+func scriptAuxFor(kind Kind, def scriptDef, product string, renv renderEnv) []scriptAux {
+	if kind != KindRunit && kind != KindS6 {
+		return nil
+	}
+	logger := "svlogd -tt"
+	if kind == KindS6 {
+		logger = "s6-log T"
+	}
+	marker := managedMarker(product)
+	logRun := scriptAux{
+		path: filepath.Join(def.Dir, "log", "run"),
+		body: "#!/bin/sh\n" + marker + "\n# Do not hand-edit if you re-run setup (use --force to overwrite).\n" +
+			// The supervisor tools' fixed directories (MADR 0212 D2-A).
+			"PATH=" + toolPath + "\nexport PATH\n" +
+			// Made at each start, so a log directory removed since still
+			// logs, and setup writes nothing outside the definition.
+			"mkdir -p -m 0700 " + shq(scriptLogDir(product, renv)) + " || exit 1\n" +
+			"exec " + logger + " " + shq(scriptLogDir(product, renv)) + "\n",
+		mode: 0o755,
+		managed: func(s string) bool {
+			lines := strings.SplitN(s, "\n", 3)
+			return len(lines) >= 2 && lines[1] == marker
+		},
+	}
+	aux := []scriptAux{logRun}
+	if kind == KindS6 {
+		aux = append(aux, scriptAux{
+			path: filepath.Join(def.Dir, "timeout-kill"), body: "45000\n", mode: 0o644,
+			managed: func(string) bool { return true },
+		})
+	}
+	return aux
+}
+
+// pendingAux returns the files of aux that differ from what is on disk, and
+// the first that exists but setup-service did not write.
+func pendingAux(aux []scriptAux) (pending []scriptAux, foreign string, err error) {
+	for _, a := range aux {
+		existing, err := os.ReadFile(a.path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			pending = append(pending, a)
+		case err != nil:
+			return nil, "", fmt.Errorf("read %s: %w", a.path, err)
+		case string(existing) == a.body:
+		case !a.managed(string(existing)):
+			if foreign == "" {
+				foreign = a.path
+			}
+			pending = append(pending, a)
+		default:
+			pending = append(pending, a)
+		}
+	}
+	return pending, foreign, nil
+}
+
+// writeScriptFiles writes the pending files, each atomically. The log
+// directory is the definition's to make, at each start.
+func writeScriptFiles(pending []scriptAux) error {
+	for _, a := range pending {
+		dir := filepath.Dir(a.path)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create %s: %w", dir, err)
+		}
+		if err := writeUnitAtomic(dir, a.path, []byte(a.body), a.mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // scriptMode is a definition's mode: executable, and private when --env
@@ -367,21 +606,34 @@ func setupScript(kind Kind, opts Options, body string, res Result) (Result, erro
 	if err := os.MkdirAll(def.Dir, 0o755); err != nil {
 		return res, fmt.Errorf("create %s: %w", def.Dir, err)
 	}
+	renv := currentRenderEnv(opts.Product)
+	pending, foreign, err := pendingAux(scriptAuxFor(kind, def, opts.Product, renv))
+	if err != nil {
+		return res, err
+	}
+	if foreign != "" && !opts.Force {
+		return res, fmt.Errorf("%s already exists and setup-service did not write it (pass --force to overwrite)", foreign)
+	}
+	mainSame := false
 	if existing, err := os.ReadFile(def.Path); err == nil {
 		res.AlreadyExisted = true
 		if bytes.Equal(existing, []byte(body)) {
-			res.Unchanged = true
+			mainSame = true
 		} else if !opts.Force {
 			return res, fmt.Errorf("definition already exists at %s with different content (pass --force to overwrite)", def.Path)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return res, fmt.Errorf("stat definition: %w", err)
 	}
-	if !res.Unchanged {
+	if !mainSame {
 		if err := writeUnitAtomic(def.Dir, def.Path, []byte(body), scriptMode(opts)); err != nil {
 			return res, err
 		}
 	}
+	if err := writeScriptFiles(pending); err != nil {
+		return res, err
+	}
+	res.Unchanged = mainSame && len(pending) == 0
 	res.written = true
 	return startScript(def, opts, res)
 }
@@ -484,6 +736,14 @@ func removeScript(kind Kind, opts Options) (Result, error) {
 				_, _ = runBounded(c)
 			}
 		}
+		// s6 supervises the log service on its own (MADR 0212 D9-A): stop it
+		// and its supervisor too. runit's runsv runs both, and exits with
+		// both.
+		logDir := filepath.Join(def.Dir, "log")
+		if _, err := os.Stat(filepath.Join(logDir, "supervise")); kind == KindS6 && err == nil {
+			_, _ = runBounded(toolFor(kind, logDir, "s6-svc", "-d", logDir))
+			_, _ = runBounded(toolFor(kind, logDir, "s6-svc", "-x", logDir))
+		}
 		if err := removeAllRetry(def.Dir); err != nil {
 			return res, fmt.Errorf("remove %s: %w", def.Dir, err)
 		}
@@ -539,7 +799,17 @@ func refreshScript(kind Kind, opts Options, ro RefreshOptions) (RefreshResult, e
 		return res, err
 	}
 	res.Body = want
-	if want == text {
+	// The files beside it too: an install from before MADR 0212 has none,
+	// and the refresh brings them (D15-A).
+	pending, foreign, err := pendingAux(scriptAuxFor(kind, def, opts.Product, rec.Env))
+	if err != nil {
+		return res, err
+	}
+	if foreign != "" {
+		res.Verdict, res.Reason = VerdictKept, foreign+" was not written by "+opts.Product+" setup-service"
+		return res, nil
+	}
+	if want == text && len(pending) == 0 {
 		res.Verdict = VerdictUnchanged
 		return res, nil
 	}
@@ -547,12 +817,17 @@ func refreshScript(kind Kind, opts Options, ro RefreshOptions) (RefreshResult, e
 	if ro.PrintOnly {
 		return res, nil
 	}
-	mode := scriptMode(rec.Opts)
-	if err := os.WriteFile(def.Backup, current, mode); err != nil {
-		return res, fmt.Errorf("write %s: %w", def.Backup, err)
+	if want != text {
+		mode := scriptMode(rec.Opts)
+		if err := os.WriteFile(def.Backup, current, mode); err != nil {
+			return res, fmt.Errorf("write %s: %w", def.Backup, err)
+		}
+		res.BackupPath = def.Backup
+		if err := writeUnitAtomic(def.Dir, def.Path, []byte(want), mode); err != nil {
+			return res, err
+		}
 	}
-	res.BackupPath = def.Backup
-	if err := writeUnitAtomic(def.Dir, def.Path, []byte(want), mode); err != nil {
+	if err := writeScriptFiles(pending); err != nil {
 		return res, err
 	}
 	return res, nil

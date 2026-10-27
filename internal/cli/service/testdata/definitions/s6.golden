@@ -1,0 +1,17 @@
+#!/bin/sh
+# Managed by `mcremote setup-service` / `mcremote --setup-service`.
+# Do not hand-edit if you re-run setup (use --force to overwrite).
+# s6 service: s6-svstat /home/u/.local/share/s6/service/mcremote
+export HOME='/home/u'
+export USER='u'
+export LOGNAME='u'
+export PATH='/home/u/.local/bin:/usr/bin:/bin'
+export XDG_CONFIG_HOME='/home/u/.config'
+export XDG_DATA_HOME='/home/u/.local/share'
+export XDG_STATE_HOME='/home/u/.local/state'
+export XDG_CACHE_HOME='/home/u/.cache'
+export XDG_RUNTIME_DIR='/run/user/1000'
+export TOKEN='a '\''quoted'\'' $value'
+export EMPTY=''
+cd '/home/u/work' || exit 1
+exec '/opt/my apps/it'\''s/mcremote' 'serve' '--config' '/home/u/.config/mcremote/config.yaml' '--data-dir' '/home/u/data dir' '--listen-host' '127.0.0.1' '--listen-port' '7531' '--log-level' 'debug' '--log-format' 'json' 2>&1

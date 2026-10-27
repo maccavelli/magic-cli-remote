@@ -18,8 +18,9 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
-// regexpCache drops the XDG_CACHE_HOME --env from an OpenRC script.
-var regexpCache = regexp.MustCompile(` --env 'XDG_CACHE_HOME=[^']*'`)
+// regexpCache drops the XDG_CACHE_HOME --env from an OpenRC script's
+// supervise_daemon_args (MADR 0212 D10-A).
+var regexpCache = regexp.MustCompile(` --env XDG_CACHE_HOME=[^ ']*`)
 
 // scriptKinds are the supervisors S5b writes a script for.
 var scriptKinds = []Kind{KindRunit, KindS6, KindOpenRCUser}
@@ -51,7 +52,7 @@ func scriptEnvAndArgv(t *testing.T, kind Kind, body string) (map[string]string, 
 	t.Helper()
 	env := map[string]string{}
 	var dir string
-	var argv []string
+	var argv, bin, args []string
 	for raw := range strings.SplitSeq(body, "\n") {
 		line := strings.TrimSpace(raw)
 		words, err := shellWords(line)
@@ -70,21 +71,28 @@ func scriptEnvAndArgv(t *testing.T, kind Kind, body string) (map[string]string, 
 			dir = words[1]
 		case kind != KindOpenRCUser && strings.HasPrefix(line, "exec "):
 			argv = words[1 : len(words)-1] // drop "exec" and "2>&1"
-		case kind == KindOpenRCUser && strings.HasPrefix(line, "start-stop-daemon --start"):
-			j := slices.Index(words, "--")
-			for i := range j {
-				switch words[i] {
-				case "--env":
-					k, v, _ := strings.Cut(words[i+1], "=")
-					env[k] = v
-				case "--chdir":
-					dir = words[i+1]
-				case "--exec":
-					argv = []string{words[i+1]}
-				}
+		case kind == KindOpenRCUser && strings.HasPrefix(line, "supervise_daemon_args="):
+			// supervise-daemon.sh evals these values (MADR 0212 D10-A).
+			inner, ok := evalWords(strings.TrimPrefix(line, "supervise_daemon_args="))
+			if !ok {
+				t.Fatalf("supervise_daemon_args do not parse: %s", line)
 			}
-			argv = append(argv, words[j+1:]...)
+			for i := 0; i+1 < len(inner); i += 2 {
+				k, v, _ := strings.Cut(inner[i+1], "=")
+				env[k] = v
+			}
+		case kind == KindOpenRCUser && strings.HasPrefix(line, "directory="):
+			inner, _ := evalWords(strings.TrimPrefix(line, "directory="))
+			dir = strings.Join(inner, " ")
+		case kind == KindOpenRCUser && strings.HasPrefix(line, "command="):
+			inner, _ := evalWords(strings.TrimPrefix(line, "command="))
+			bin = inner
+		case kind == KindOpenRCUser && strings.HasPrefix(line, "command_args="):
+			args, _ = evalWords(strings.TrimPrefix(line, "command_args="))
 		}
+	}
+	if kind == KindOpenRCUser {
+		argv = append(bin, args...)
 	}
 	return env, dir, argv
 }
@@ -202,6 +210,7 @@ func TestRecoverScriptRefusesWhatItDidNotWrite(t *testing.T) {
 // It returns the scan root and the placeholder binary.
 func supervisorHost(t *testing.T, kind Kind) (string, string) {
 	t.Helper()
+	withOpenRCNotify(t, false)
 	t.Cleanup(OverrideInstallOS("linux"))
 	t.Cleanup(OverrideDetectedKind(kind))
 	withUnitRecord(t, "mcremote", "")

@@ -6,7 +6,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -55,8 +54,19 @@ type g2Definition struct {
 	isStart func(before []string, line string) bool
 }
 
+// withOpenRCNotify pins whether this host's OpenRC takes notify=socket:ready,
+// so a test's render does not depend on the OpenRC it runs beside (MADR 0212
+// PLAN P4 Deviation 1).
+func withOpenRCNotify(t *testing.T, ok bool) {
+	t.Helper()
+	prev := openRCSupportsNotify
+	openRCSupportsNotify = func() bool { return ok }
+	t.Cleanup(func() { openRCSupportsNotify = prev })
+}
+
 func g2Definitions(t *testing.T, product string) []g2Definition {
 	t.Helper()
+	withOpenRCNotify(t, true) // every line the OpenRC script can carry
 	env := g2Env()
 	opts := g2Opts(product)
 	unit, err := renderWith(opts, &env)
@@ -92,10 +102,8 @@ func g2Definitions(t *testing.T, product string) []g2Definition {
 		}
 		isStart := func(_ []string, line string) bool { return strings.HasPrefix(line, "exec ") }
 		if kind == KindOpenRCUser {
-			isStart = func(before []string, line string) bool {
-				return strings.HasPrefix(strings.TrimSpace(line), "start-stop-daemon --start ") &&
-					slices.Contains(before, "start() {")
-			}
+			// supervise-daemon runs command (MADR 0212 D10-A).
+			isStart = func(_ []string, line string) bool { return strings.HasPrefix(line, "command=") }
 		}
 		defs = append(defs, g2Definition{string(kind) + " script", body, isStart})
 	}
@@ -127,6 +135,25 @@ func TestDefinitionsRunTheBinaryOnlyToStart(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+// TestFilesBesideTheScriptsNeverRunTheBinary is G2 for the files runit's
+// and s6's definitions gain beside the run script (MADR 0212 D9-A): the log
+// service's run script and s6's timeout-kill. None names the binary.
+func TestFilesBesideTheScriptsNeverRunTheBinary(t *testing.T) {
+	for _, product := range []string{"mcremote", "mcrelay"} {
+		for _, kind := range []Kind{KindRunit, KindS6} {
+			aux := scriptAuxFor(kind, scriptDefFor(kind, product, "/svc"), product, g2Env())
+			if len(aux) == 0 {
+				t.Fatalf("%s %s: no files beside the run script", product, kind)
+			}
+			for _, a := range aux {
+				if strings.Contains(a.body, g2Binary(product)) {
+					t.Errorf("%s %s: %s names the binary:\n%s", product, kind, a.path, a.body)
+				}
+			}
 		}
 	}
 }
