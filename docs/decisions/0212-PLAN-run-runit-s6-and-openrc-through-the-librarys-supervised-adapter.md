@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-26
 associated-madr: "0212-MADR-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md"
 ---
@@ -326,3 +326,163 @@ Not started. The plan waits for the owner's approval, after 0207's U1b.
 re-read at `95ca8b91` (the note under the facts table). The plan still waits for the owner's
 approval. P1 needs the owner's word for its container and host runs, and the 0210 kit's three
 containers on the Linux test host, which were last used in 0207 U3b step 5.
+
+*Approved 2026-10-26.* The owner committed the re-read as `d2eca29a` and answered "committed,
+approve 0212, proceed". That approves this plan, and with it D2-A, D4-A, D6-A, D7-A, D12-A, D14-A,
+D15-A and D18, as "Proposed, and accepted by approving this plan" provides. P1 is a probe phase, all
+container and host runs, so "proceed" is taken as the word for P1's runs. Each later phase's runs
+still need their own.
+
+* **Correction to the note above.** 0207 U3b step 5 ran the 0210 kit's three images in local
+  Podman on this Mac (linux/arm64), not on the Linux test host. P1 runs them there, and its tool-path
+  probe also on the Linux test host (linux/amd64), as P1 says.
+
+### P1, 2026-10-26: Magic's probes
+
+**How it ran** (`m212/p1_drive.py` and `m212/p1_in.py`, session scratchpad):
+
+* The local Podman machine was started for the run and stopped again afterwards, as it was before.
+* Each supervisor got a fresh container from the 0210 kit's images, as the non-root `tester` user.
+  Root made only `/run/user/1000`, and a root-owned `0700` directory for the permission probes.
+* The scratch services lived under `~/p1`. For OpenRC's D10-A probe, Magic's daemon was built for
+  linux/arm64 from `d2eca29a`, with its own loopback config.
+* Each container was removed; `podman ps -a` lists none. The Linux test host ran the tool-path probe
+  in a scratch directory, deleted afterwards.
+
+| Image | Versions |
+| :--- | :--- |
+| `d3probe-runit` | Void Linux (musl), `runit-2.3.1_2` |
+| `d3probe-s6` | Alpine 3.22.6, `s6` 2.13.2.0, `execline` 2.9.7.0 |
+| `d3probe-openrc` | Alpine 3.22.6, `openrc` 0.62.6, `busybox` 1.37.0 |
+| the Linux test host | Ubuntu 26.04.1 LTS, systemd; of the list, only `start-stop-daemon` |
+
+**Two mistakes in the first run, fixed:**
+
+* **OpenRC's probes never ran.** The script did not create `~/.config/rc/runlevels/{boot,default,shutdown}`,
+  which `startOpenRC` creates first (`supervisor.go:584`). So `openrc --user boot` failed with
+  "boot: not a valid runlevel". A `start` tried before the session existed then left each service
+  "already starting" for the rest of the run.
+* **s6's version line was wrong.** `apk info` read a repository cache the image does not have.
+* **The fix.** The script creates the runlevels as Magic does, drops the start before the session,
+  and reads versions from `/lib/apk/db/installed`.
+* **What counts.** s6 and OpenRC ran again in full, and their rows below are from that second run.
+  runit's first run had neither problem, and counts. Both runs' logs are kept in the scratchpad.
+
+**1. Tool paths (D2).**
+
+| Tool | runit (Void) | s6 (Alpine) | OpenRC (Alpine) | Linux test host |
+| :--- | :--- | :--- | :--- | :--- |
+| `sv`, `runsvdir`, `svlogd` | `/usr/bin` (`/bin`, `/sbin`, `/usr/sbin` link to it) | absent | absent | absent |
+| `s6-svc`, `s6-svstat`, `s6-svscan`, `s6-svscanctl`, `s6-log` | absent | `/usr/bin` | absent | absent |
+| `rc-service`, `rc-update`, `openrc`, `start-stop-daemon`, `supervise-daemon` | absent | absent | `/sbin` | `start-stop-daemon` in `/usr/sbin` (`/sbin` links to it) |
+
+* **Decision point: no change.** Every tool found is in `/usr/bin`, `/bin`, `/usr/sbin` or `/sbin`.
+  The fixed list stays those four directories, which P2's built `PATH`,
+  `/usr/sbin:/usr/bin:/sbin:/bin`, also covers.
+* Nothing was found in `/usr/local/*`, and `tester`'s `PATH` on Void is only
+  `/usr/local/sbin:/usr/local/bin:/usr/bin`. So a resolver that read `PATH` would differ by host,
+  and the fixed list does not.
+
+**2. What the tools print (M9).**
+
+* **runit** prints its failures and warnings on **stdout**: "fail: …", "warning: …", "timeout: …".
+  Only its usage goes to stderr.
+* `sv up`, `sv down`, `sv kill` and `sv exit` print nothing on success. `sv restart` prints
+  "ok: run: <dir>: (pid 30) 0s".
+* `sv restart` waits. Into a run that keeps failing, it returned after **7.6 s** with exit 1 and
+  "timeout: down: <dir>: 1s, normally up, want up". That is sv's default 7 s wait. Magic's
+  `startScript` calls `sv restart` (`supervisor.go:412`).
+* **s6** prints nothing on success, and its errors go to stderr.
+* **OpenRC** prints progress on stdout ("* Starting p1ssd ... [ ok ]", "* Caching service
+  dependencies ... [ ok ]"), and its errors and warnings on stderr. `status` goes to stdout, except
+  "crashed", which goes to stderr.
+* So no tool's output can be streamed to the update's stdout. P2 captures all of it.
+
+**3. Exit codes (D12), the classification table for P2:**
+
+| Case | runit `sv` | s6 | OpenRC `rc-service --user` |
+| :--- | :--- | :--- | :--- |
+| success | 0 | 0 | 0 |
+| no definition | 1, stdout "fail: <dir>: unable to change to service directory: file does not exist" | `s6-svstat` 1, "s6-supervise not running", the same as no supervisor | 1, stderr "service \`p1absent' does not exist" |
+| no supervisor | 1, stdout "warning: <dir>: unable to open supervise/ok" (status), or "supervise/control" (`up`, `down`) | `s6-svstat` 1, "s6-supervise not running"; `s6-svc` and `s6-svscanctl` **100**, "supervisor not listening" | no session: 1, "You are attempting to run an openrc service on a system which openrc did not boot"; no `XDG_RUNTIME_DIR`: 1, "XDG_RUNTIME_DIR unset." |
+| permission denied | 1, stdout "fail: <dir>: unable to change to service directory: access denied" | **111**, "unable to check <dir>: Permission denied" (`s6-svc`: "unable to control") | not produced (below) |
+| usage | 100 | — | — |
+| a wait timed out | 1, stdout "timeout: …" (`sv restart`) | — | — |
+
+* **runit exits 1 for every failure,** so its class comes from the message, not the code.
+* **s6 tells a missing definition from a missing supervisor by neither code nor message.**
+  `Installed` comes from the definition's existence, as P3 already provides.
+* **OpenRC's permission case was not produced.** As `tester`, a system service only reported
+  "WARNING: local is already starting", because the container's system OpenRC was never booted. User
+  services run as their own user, so this is the case least likely to arise. P2 classifies it by
+  message if it does.
+* **`--` before a name** (P2): `s6-svstat` and `rc-service --user` accept it. **`sv` does not:**
+  `sv status -- <dir>` exits 1 with "fail: --: unable to change to service directory". The runner
+  passes no `--` to `sv`.
+
+**4. State fixtures (D7, D16),** saved in the scratchpad for P3's `testdata/supervisor/`, each command's
+stdout as it was, with its exit code and stderr beside it:
+
+* **runit:** up ("run: <dir>: (pid 20) 2s"), down ("down: <dir>: 0s, normally up"), down and wanted up
+  ("…, normally up, want up"), up with a down file ("…, normally down"), down with a down file, up
+  and wanted down ("run: … 4s, want down, got TERM"), no supervisor, no definition, permission
+  denied.
+* **s6:** both the default and the `-o up,wantedup,normallyup,ready,pid,exitcode,updownfor` form of
+  up, down, down and wanted up, up and down with a down file, and up and wanted down; no supervisor;
+  no definition; permission denied.
+  * `-o` prints the fields in order: up, `true true true false 18 -1 2`; down,
+    `false false true false -1 0 0`; down and wanted up, `false true true false -1 0 0`; up with a
+    down file, `true true false false 39 -1 1`; up and wanted down, `true false true false 46 -1 4`.
+  * `ready` is `false` even when up, because there is no `notification-fd`. That is D18: `Ready`
+    stays nil.
+* **OpenRC:** no `XDG_RUNTIME_DIR`, no session, no definition; the start-stop-daemon form stopped
+  (**3**, "status: stopped"), started (**0**) and crashed (**32**, "status: crashed"); the
+  supervise-daemon form started, stopped, and started again after a crash.
+
+**5. D10-A, in the OpenRC container, against Magic's daemon:**
+
+| Check | Result |
+| :--- | :--- |
+| `supervisor=supervise-daemon` under `openrc --user` | runs: "status: started" |
+| `notify=socket:ready` | with Magic's daemon, `rc-service start` returned in 0.047 s and `/healthz` answered at once. With a stand-in that sends `READY=1` after 3 s, it returned in **3.027 s**. The daemon's `NOTIFY_SOCKET` was `/run/user/1000/openrc/supervise-p1sd.sock` |
+| `supervise_daemon_args` with `--env` | `P1_ENV`, `XDG_STATE_HOME` and `XDG_DATA_HOME` reached the daemon's environment |
+| which PID the `pidfile` holds | **`supervise-daemon`'s** (306), not the daemon's (307), whose parent is 306 |
+| a crash, with `respawn_delay=5` | `SIGKILL` to the daemon; a new daemon after **5.3 s**; "status: started" |
+| a TERM-ignoring daemon, `retry="TERM/45/KILL/5"` | `rc-service stop` blocked **48.1 s**, then "status: stopped", with none left |
+| `output_log`, `error_log` | both written; the daemon's log is in `error_log` |
+
+* **Decision point: D10-A stands.** Every check held, on OpenRC 0.62.6.
+* **For P3:** under D10-A the `pidfile` names the supervisor. The daemon's PID is its child.
+* **For P5:** the 48 s stop is within D17's 75 s `Poll.Timeout`.
+
+**6. D9-A:**
+
+* **s6**, with `timeout-kill` holding `45000`: a daemon that ignores TERM was down **45.3 s** after
+  `s6-svc -d`, then "down (signal SIGKILL)". Both runs gave 45.3 s.
+* **runit:** after `sv down` the daemon stayed "run: …, want down, got TERM". `sv kill` ended it in
+  0.21 s.
+
+**7. D3:** under `openrc --user`, the daemon, its detached child, `supervise-daemon`, this process
+and PID 1 were all in `0::/`. `rc_cgroup_mode` is unset in `/etc/rc.conf`, and `/sys/fs/cgroup` is
+not writable to the container. That matches amendment B's V6 on OpenRC 0.63.2: a user service has no
+service cgroup there, so D3-B's check allows (E3). A system service, and a real OpenRC host, stay
+unmeasured, as E3 says.
+
+**What P1 changes for the later phases.** No decision changes, and no file outside P1's list was
+touched. The phases take these facts, all within their steps as written:
+
+* **P2:**
+  * runit failures are classified by message;
+  * no `--` for `sv`;
+  * `sv restart` can block for 7 s and exit 1 on a service that will not stay up, so a start
+    through it is bounded by the runner's context.
+* **P3:**
+  * the fixtures above;
+  * OpenRC's daemon PID is the child of the PID in the `pidfile` under D10-A, and the PID in it
+    under today's start-stop-daemon form;
+  * s6's missing-definition and missing-supervisor states are told apart by the definition, not the
+    tool.
+* **P4:** D10-A, with `notify=socket:ready` available from 0.62.
+* **P5:** OpenRC's stop of a hung daemon takes about 48 s.
+
+P1 is complete once the owner commits this record. P2 is next, on the owner's word.
