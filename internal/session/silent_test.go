@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -40,7 +41,7 @@ func (p *silentProvider) setVersion(v string) {
 }
 
 func (p *silentProvider) Start(_ context.Context, opts provider.StartOptions) (provider.Session, error) {
-	s := &silentSession{id: opts.LocalSessionID, events: make(chan event.Event, 32)}
+	s := &silentSession{id: opts.LocalSessionID, events: make(chan event.Event, 32), done: make(chan struct{})}
 	p.mu.Lock()
 	p.live = append(p.live, s)
 	p.mu.Unlock()
@@ -49,9 +50,15 @@ func (p *silentProvider) Start(_ context.Context, opts provider.StartOptions) (p
 	return s, nil
 }
 
+// silentSession's turns send from a goroutine of their own, so Close stops
+// them (done) and waits for them (turns) before it closes events: a turn
+// still running at the test's cleanup can neither race the close nor send on
+// a closed channel (MADR 0208 PLAN P4c).
 type silentSession struct {
 	id     string
 	events chan event.Event
+	done   chan struct{}
+	turns  sync.WaitGroup
 	mu     sync.Mutex
 	closed bool
 }
@@ -70,30 +77,49 @@ func (s *silentSession) advertise() {
 
 func (s *silentSession) Prompt(_ context.Context, parts []provider.Content) error {
 	text := parts[0].Text
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New("silent session closed")
+	}
+	s.turns.Add(1)
+	s.mu.Unlock()
 	go func() {
-		s.events <- event.Event{Type: event.TypeSessionStatus, SessionID: s.id, Status: "running"}
-		s.events <- event.Event{Type: event.TypeUserMessage, SessionID: s.id, Text: text}
+		defer s.turns.Done()
+		// send gives up once Close has begun, so a turn never outlives it.
+		send := func(ev event.Event) {
+			select {
+			case s.events <- ev:
+			case <-s.done:
+			}
+		}
+		send(event.Event{Type: event.TypeSessionStatus, SessionID: s.id, Status: "running"})
+		send(event.Event{Type: event.TypeUserMessage, SessionID: s.id, Text: text})
 		switch {
 		case strings.HasPrefix(text, "/loud"):
-			s.events <- event.Event{Type: event.TypeAssistantChunk, SessionID: s.id, Text: "done"}
+			send(event.Event{Type: event.TypeAssistantChunk, SessionID: s.id, Text: "done"})
 		case strings.HasPrefix(text, "/modeonly"):
-			s.events <- event.Event{Type: event.TypeMode, SessionID: s.id, CurrentModeID: "plan"}
+			send(event.Event{Type: event.TypeMode, SessionID: s.id, CurrentModeID: "plan"})
 		default: // /quiet, /loop: bookkeeping only
-			s.events <- event.Event{Type: event.TypeUsage, SessionID: s.id, Usage: &event.Usage{}}
+			send(event.Event{Type: event.TypeUsage, SessionID: s.id, Usage: &event.Usage{}})
 		}
-		s.events <- event.Event{Type: event.TypeTurnComplete, SessionID: s.id, StopReason: "end_turn"}
-		s.events <- event.Event{Type: event.TypeSessionStatus, SessionID: s.id, Status: "idle"}
+		send(event.Event{Type: event.TypeTurnComplete, SessionID: s.id, StopReason: "end_turn"})
+		send(event.Event{Type: event.TypeSessionStatus, SessionID: s.id, Status: "idle"})
 	}()
 	return nil
 }
 
 func (s *silentSession) Close(context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.closed {
-		s.closed = true
-		close(s.events)
+	if s.closed {
+		s.mu.Unlock()
+		return nil
 	}
+	s.closed = true
+	close(s.done)
+	s.mu.Unlock()
+	s.turns.Wait()
+	close(s.events)
 	return nil
 }
 

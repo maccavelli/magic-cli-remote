@@ -193,6 +193,40 @@ the four providers' `commandtable.go`, the phone's composer, and their tests.
 
 Verification: the Go and Dart rules. The live run above is P4b's acceptance.
 
+### P4c — The silent-command test's fake no longer races its close (owner's decision, 2026-10-28; approved and done)
+
+*Added 2026-10-28 from
+[0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md](0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md)
+C0 Deviation 2. The owner chose "Fix under 0208, first (Recommended)": its own commit, before
+C0's.*
+
+**Why.** `TestSilentCommandIsMarked` races about once in 300 `-race` runs on the Linux test host,
+at `f2e5aa43` and after. P4a's fake session (`internal/session/silent_test.go`) sends a turn's
+events from a goroutine without its mutex (`:73-86`), ending with an `idle` status. The test waits
+only for the turn's `turn_complete`, so the cleanup's `Close` (`:90-98`) can close the channel
+while that last send is still running. The race detector reports `closechan` at `:95` against
+`chansend` at `:85`. If the close came first, the send would panic.
+
+**Files:** `internal/session/silent_test.go`; this plan.
+
+1. **Reproduce first,** on a scratch copy of `HEAD`: a delay before the last send makes the close
+   come first, and the unchanged test must fail.
+2. **The fix, test only.**
+   * The fake's turn goroutine sends with `select` on a `done` channel.
+   * `Close` marks the session closed, closes `done`, waits for any turn goroutine to return, and
+     only then closes `events`.
+   * `Prompt` refuses to start a turn on a closed session, so nothing is added to the wait once
+     `Close` has begun.
+   * The events a turn sends, and their order, are unchanged.
+3. **Seen to pass where it failed:** step 1's copy with the fix.
+4. **Repeated runs:**
+   `go test -race -count=300 -run '^TestSilentCommandIsMarked$' ./internal/session/`, on the Linux
+   test host, in a scratch copy of `HEAD` with the fix. This also shows whether the one "timed out
+   waiting for /quiet turn" seen in C0's 300 runs is a separate fault.
+5. **Gates:** `make pre-add-check FILES=internal/session/silent_test.go`, `go test -race
+   ./internal/session/` here, `go test -race ./...` on the Linux test host on the same copy,
+   `make check-records`, and the guard's redact preview.
+
 ### P5 — Engine answers pass through as JSON (D12)
 
 Files, per operation: the provider's `runtime.go` or `usage.go`, `internal/session/commands.go`,
@@ -952,3 +986,45 @@ pre-add-check` is clean on all eleven Go files.
   payload. The guide is outside P4's files.
 - The phone's composer, which P4's file list names. Nothing in P4b needed it: a mark reaches the
   phone as an unavailable `remote_commands` entry, which it already renders.
+
+### P4c, 2026-10-28: the silent-command test's fake no longer races its close
+
+**Step 1, reproduced** on a scratch copy of `HEAD` (`f2e5aa43`; `leftovers/p4c.py` in the session
+scratchpad). With a 100 ms delay before the turn's last send, `go test -race -run
+'^TestSilentCommandIsMarked$' ./internal/session/` failed: one "WARNING: DATA RACE" with the
+recorded frames (`silent_test.go:96`, `:86`, moved one line by the plant), then "panic: send on
+closed channel" at `:86`.
+
+**Step 2, the fix,** in `internal/session/silent_test.go` alone:
+
+* `silentSession` gains `done` and `turns`, with a comment citing this phase.
+* A turn's goroutine sends through `send`, a `select` on `events` and `done`.
+* `Prompt` adds to `turns` under the mutex, and refuses a closed session.
+* `Close` marks the session closed and closes `done` under the mutex, waits on `turns`, then
+  closes `events`.
+* The events a turn sends, and their order, are unchanged.
+
+**Step 3.** The same delay on a copy carrying the fix: exit 0, no race and no panic. The fixed
+copy without the delay: exit 0.
+
+**Step 4, the Linux test host,** on a scratch copy of `HEAD` with only this file changed, as the
+commit holds it (`leftovers/p4c_linux.py`; the copy was removed and its absence checked):
+`go test -race -count=300 -timeout=40m -run '^TestSilentCommandIsMarked$' ./internal/session/`
+gave exit 0, "ok … internal/session 21.659s", with no race, failure, panic or timeout line. The
+one "timed out waiting for /quiet turn" in the 0207 C0 run did not recur in 300 runs. It is not
+pursued further here.
+
+**Step 5, the gates:**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=internal/session/silent_test.go` | "1 file(s) clean (gofmt, golint, govulncheck)" |
+| `go test -race -count=1 ./internal/session/`, here | exit 0 |
+| `go test -race -count=1 ./...` on the Linux test host, the same copy | exit 0, 44 packages ok |
+| `make check-records`; the guard's redact preview | exit 0; "would edit 0 file(s)" |
+
+* **The first Linux full run** failed `TestTrackedFilesUseOnlyPlaceholderHomes`: "no git index …
+  the guard cannot read the tracked files". My copy was not a git tree. Rerun after `git init` and
+  `git add -A` in the copy: exit 0, as above.
+
+**Files for this commit:** `internal/session/silent_test.go`, this plan.
