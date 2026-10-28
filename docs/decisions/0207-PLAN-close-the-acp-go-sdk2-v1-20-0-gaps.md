@@ -361,3 +361,79 @@ the five `internal/provider/acpagent` files above, the 0170 MADR, the 0207 MADR,
 
 **C0 is done** once the owner commits it. Next by this plan: C1, then C1b and C2. C3's live run
 waits for the owner's word.
+
+### C1, 2026-10-28: conformance and the SDK's helpers (D26)
+
+The owner committed C0 as `cb6781dc` and answered "committed proceed". Every site was re-read at
+`cb6781dc` first. They had moved again with C0's directives: permission outcomes at
+`session.go:2476-2490` and `:2616-2630`, config requests at `:1108-1114` and `:1165-1180`, the
+subagent branches at `:2074-2082`, `ReadTextFile` at `:2655`.
+
+**Step 1, the tests,** in two new files beside the package's own:
+
+| Test | What it holds |
+| :--- | :--- |
+| `TestMcpServersKeepTheirBytes`, `TestPermissionOutcomesKeepTheirBytes`, `TestConfigRequestsKeepTheirBytes` (`protocolvalues_test.go`) | the JSON of the MCP entries, both permission outcomes (from auto-approval and from a person), and the three `session/set_config_option` requests as the agent reads them off the wire |
+| `TestReadTextFileMissingIsResourceNotFound` (`conformance_test.go`) | a missing file answers `acp.IsResourceNotFound`, a `*acp.RequestError` naming the path |
+| `TestReadTextFilePermissionKeepsItsMessage` | an unreadable file still says the daemon "lacks OS permission" |
+| `TestCloseCaptureNamesDroppedBytes` | a capture that lost output warns with `dropped_bytes`; a whole one logs nothing |
+| `TestInitializeNamesAProtocolVersionMismatch` | through a real client connection, an agent answering protocol version 2 is named, with both versions and "update", and the `*acp.ProtocolVersionError` stays in the chain |
+| `TestSubagentUpdatesStopAtTheSDK` | on a wire session with Magic's own initialize, the three subagent variants never reach Magic's handler, and `Connection().RefusedMessages()` rises by 3 |
+
+* **The golden bytes were captured from the code before the change.** The golden test was written
+  first and run against `cb6781dc`'s code. My first guess at the bytes had the wrong key order (the
+  SDK writes keys in alphabetical order). The constants were set to what that code wrote, and the
+  test then passed before any code changed.
+* **`ReadTextFile` had no test before.** The permission case is the first.
+
+**Step 2, the code:**
+
+* `ReadTextFile` returns `acp.NewResourceNotFound(path)` for `os.ErrNotExist`, after the
+  permission check, which is unchanged.
+* `NewMcpServerHttp`, `NewMcpServerSse`, `NewRequestPermissionOutcomeCancelled`, `…Selected`,
+  `NewSetSessionConfigOptionRequestValueId` (two sites) and `…Boolean` replace the hand-built
+  values.
+* `closeCapture(log, wire, dropped)` closes the capture and warns when `proc.DroppedTapBytes()`
+  reports lost output, at both places the capture closed: the exit watcher after `Wait`, and
+  `killTree`.
+* `initializeError` wraps a failed `initialize`. An answered `*acp.ProtocolVersionError` reads:
+  "acp initialize: the agent answered ACP protocol version 2, and Magic speaks 1; update the agent
+  or mcremote so they speak one version: …".
+* **The subagent branches are gone,** with their three directives. `default` now declines by
+  `u.Kind()`, which names every variant, unstable ones too, without reading a deprecated field.
+  * This keeps 0184 A4's `TestEverySessionUpdateIsMappedOrDeclined` as it was. It hands each
+    variant to Magic's handler directly, past the SDK, and requires a decline *by name*. Without
+    `Kind`, the three would have been declined as "empty".
+  * It is within C1's files. `Unknown` keeps its own branch and its "unknown:" name until C1b.
+
+**Seen failing** (`leftovers/c1_plants.py`; a scratch copy of `HEAD` with the working tree's four
+files, one break each):
+
+| Plant | The failure |
+| :--- | :--- |
+| the `ErrNotExist` branch removed | "err = open …/missing.txt: no such file or directory, want resource-not-found (-32002)" |
+| the SSE entry built with `NewMcpServerHttp` | "MCP servers:" with the differing bytes |
+| `closeCapture` never warns | "records = 0, want 1" |
+| `initializeError` never names the mismatch | "message \"acp initialize: acp: agent answered protocol version 2 to a request for 1\" does not say \"speaks 1\"", and "… \"update\"" |
+| the client advertises `subagents` | "Magic's handler saw and declined [subagent_update session_message session_message_chunk]; the SDK should have refused them" |
+| `default` declines "empty" | `sessionupdate_test.go:156: declined [empty], want [subagent_update] (once each)` |
+| none (the control) | exit 0 |
+
+The fourth plant shows what was there before: the SDK's own message already named both versions,
+but not which side, or what to do.
+
+**Step 3, the gates:**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES=…` (the four Go files) | "4 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0; the gate: "55 ignored finding(s), each an acp-go-sdk2 unstable-schema name", 3 fewer than C0's 58 |
+| `go build ./...`; `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `go test -race -count=1 ./...` on the Linux test host, in a scratch copy removed afterwards | exit 0; 44 packages ok |
+| `make check-records`, `make markdownlint-docs`; the guard's redact preview | exit 0; "0 issues"; "would edit 0 file(s)" |
+
+**Files for this commit:** `internal/provider/acpagent/session.go`, `acpagent.go`,
+`conformance_test.go` (new), `protocolvalues_test.go` (new); this plan.
+
+**C1 is done** once the owner commits it. Next: C1b, then C2.

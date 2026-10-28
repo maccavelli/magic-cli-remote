@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -526,7 +527,8 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	// closes the capture the watcher would have closed.
 	killTree := func() {
 		_ = proc.Kill()
-		s.wire.Close()
+		dropped, _ := proc.DroppedTapBytes()
+		closeCapture(s.log, s.wire, dropped)
 	}
 
 	parent := ctx
@@ -541,7 +543,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	initResp, err := conn.Initialize(initCtx, p.initializeRequest())
 	if err != nil {
 		killTree()
-		return nil, fmt.Errorf("acp initialize: %w", err)
+		return nil, initializeError(err)
 	}
 
 	p.applyInitializeResponse(s, initResp)
@@ -604,7 +606,8 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			}
 		}()
 		err := proc.Wait()
-		s.wire.Close()
+		dropped, _ := proc.DroppedTapBytes()
+		closeCapture(s.log, s.wire, dropped)
 		msg := fmt.Sprintf("%s process exited", p.spec.ID)
 		if err != nil {
 			msg = fmt.Sprintf("%s process exited: %v", p.spec.ID, err)
@@ -618,6 +621,30 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	go s.watchConnClose(conn)
 
 	return s, nil
+}
+
+// closeCapture closes the session's wire capture once the agent's process has
+// been reaped, and warns when the capture lost part of the agent's output:
+// dropped is agentproc's DroppedTapBytes for the output, final once Wait has
+// returned (MADR 0207 amendment H, D26).
+func closeCapture(log *slog.Logger, wire *wirecap.Capture, dropped uint64) {
+	wire.Close()
+	if dropped > 0 {
+		log.Warn("wire capture is incomplete: the tap lost part of the agent's output",
+			slog.Uint64("dropped_bytes", dropped))
+	}
+}
+
+// initializeError reports a failed initialize. An agent that answers another
+// ACP protocol version is named as such, with both versions and what to do;
+// the *acp.ProtocolVersionError stays in the chain (D26).
+func initializeError(err error) error {
+	var pv *acp.ProtocolVersionError
+	if errors.As(err, &pv) && pv.Answered != 0 {
+		return fmt.Errorf("acp initialize: the agent answered ACP protocol version %d, and Magic speaks %d; "+
+			"update the agent or mcremote so they speak one version: %w", pv.Answered, pv.Requested, err)
+	}
+	return fmt.Errorf("acp initialize: %w", err)
 }
 
 // buildMcpServers converts the configured MCP servers into ACP form, dropping
@@ -636,17 +663,13 @@ func (p *Provider) buildMcpServers(caps acp.AgentCapabilities, log *slog.Logger)
 				log.Warn("dropping http MCP server: agent lacks mcpCapabilities.http", slog.String("name", m.Name))
 				continue
 			}
-			out = append(out, acp.McpServer{Http: &acp.McpServerHttpInline{
-				Type: "http", Name: m.Name, Url: m.URL, Headers: headers,
-			}})
+			out = append(out, acp.NewMcpServerHttp(m.Name, m.URL, headers))
 		case McpSSE:
 			if !caps.McpCapabilities.Sse {
 				log.Warn("dropping sse MCP server: agent lacks mcpCapabilities.sse", slog.String("name", m.Name))
 				continue
 			}
-			out = append(out, acp.McpServer{Sse: &acp.McpServerSseInline{
-				Type: "sse", Name: m.Name, Url: m.URL, Headers: headers,
-			}})
+			out = append(out, acp.NewMcpServerSse(m.Name, m.URL, headers))
 		default:
 			log.Warn("dropping MCP server with unknown transport",
 				slog.String("name", m.Name), slog.String("transport", string(m.Transport)))

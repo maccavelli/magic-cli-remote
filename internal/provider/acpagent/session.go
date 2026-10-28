@@ -1105,13 +1105,8 @@ func (s *session) setSelectOption(ctx context.Context, category acp.SessionConfi
 	if !ok {
 		return "", false, nil
 	}
-	resp, err := s.conn.SetSessionConfigOption(ctx, acp.SetSessionConfigOptionRequest{
-		ValueId: &acp.SetSessionConfigOptionValueId{
-			ConfigId:  acp.SessionConfigId(id),
-			SessionId: acp.SessionId(agentID),
-			Value:     acp.SessionConfigValueId(value),
-		},
-	})
+	resp, err := s.conn.SetSessionConfigOption(ctx, acp.NewSetSessionConfigOptionRequestValueId(
+		acp.SessionId(agentID), acp.SessionConfigId(id), acp.SessionConfigValueId(value)))
 	if err != nil {
 		return "", true, err
 	}
@@ -1165,18 +1160,9 @@ func (s *session) SetConfigOption(ctx context.Context, optionID, kind, value str
 	var req acp.SetSessionConfigOptionRequest
 	switch kind {
 	case "boolean":
-		req.Boolean = &acp.SetSessionConfigOptionBoolean{
-			Type:      "boolean",
-			ConfigId:  acp.SessionConfigId(optionID),
-			SessionId: acp.SessionId(agentID),
-			Value:     value == "true",
-		}
+		req = acp.NewSetSessionConfigOptionRequestBoolean(acp.SessionId(agentID), acp.SessionConfigId(optionID), value == "true")
 	default:
-		req.ValueId = &acp.SetSessionConfigOptionValueId{
-			ConfigId:  acp.SessionConfigId(optionID),
-			SessionId: acp.SessionId(agentID),
-			Value:     acp.SessionConfigValueId(value),
-		}
+		req = acp.NewSetSessionConfigOptionRequestValueId(acp.SessionId(agentID), acp.SessionConfigId(optionID), acp.SessionConfigValueId(value))
 	}
 	_, err := s.conn.SetSessionConfigOption(ctx, req)
 	return err
@@ -2071,15 +2057,6 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		s.onCompactionUpdate(u.CompactionUpdate, now)
 	case u.CompactionSummaryChunk != nil:
 		s.onCompactionChunk(u.CompactionSummaryChunk, now)
-	//lint:ignore SA1019 declines the unstable ACP schema's subagent variants until C1 removes it (MADR 0195); 0207 amendment H
-	case u.SubagentUpdate != nil:
-		s.declineUpdate("subagent_update")
-	//lint:ignore SA1019 declines the unstable ACP schema's subagent variants until C1 removes it (MADR 0195); 0207 amendment H
-	case u.SessionMessage != nil:
-		s.declineUpdate("session_message")
-	//lint:ignore SA1019 declines the unstable ACP schema's subagent variants until C1 removes it (MADR 0195); 0207 amendment H
-	case u.SessionMessageChunk != nil:
-		s.declineUpdate("session_message_chunk")
 	case u.Unknown != nil:
 		// A variant this SDK does not know, named by its discriminator.
 		var d struct {
@@ -2088,9 +2065,15 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		_ = json.Unmarshal(u.Unknown, &d)
 		s.declineUpdate("unknown:" + d.SessionUpdate)
 	default:
-		// No variant and no Unknown: an update object with no discriminator
-		// the SDK could place.
-		s.declineUpdate("empty")
+		// A variant Magic does not map, named by its discriminator: the subagent
+		// variants, which the SDK refuses before this handler since Magic does
+		// not advertise subagents (MADR 0207 amendment H, D26), and no variant at
+		// all. Kind reads no deprecated field.
+		if k := u.Kind(); k != "" {
+			s.declineUpdate(k)
+		} else {
+			s.declineUpdate("empty")
+		}
 	}
 	return nil
 }
@@ -2474,20 +2457,9 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 		Status:       "pending",
 	})
 	if res.cancelled || res.optionID == "" {
-		return acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{
-				Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
-			},
-		}, nil
+		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 	}
-	return acp.RequestPermissionResponse{
-		Outcome: acp.RequestPermissionOutcome{
-			Selected: &acp.RequestPermissionOutcomeSelected{
-				OptionId: acp.PermissionOptionId(res.optionID),
-				Outcome:  "selected",
-			},
-		},
-	}, nil
+	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(acp.PermissionOptionId(res.optionID))}, nil
 }
 
 // awaitDecision emits req (a permission_request already carrying permID) and
@@ -2614,20 +2586,9 @@ func autoAllow(params acp.RequestPermissionRequest) acp.RequestPermissionRespons
 		chosen = &params.Options[0]
 	}
 	if chosen == nil {
-		return acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{
-				Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
-			},
-		}
+		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}
 	}
-	return acp.RequestPermissionResponse{
-		Outcome: acp.RequestPermissionOutcome{
-			Selected: &acp.RequestPermissionOutcomeSelected{
-				OptionId: chosen.OptionId,
-				Outcome:  "selected",
-			},
-		},
-	}
+	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(chosen.OptionId)}
 }
 
 // pickAllowOptionID is the event.PermissionOption twin of autoAllow: which
@@ -2667,6 +2628,11 @@ func (s *session) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest
 			return acp.ReadTextFileResponse{}, fmt.Errorf(
 				"%w — the mcremote daemon lacks OS permission for this path "+
 					"(macOS: grant Full Disk Access; see docs/guides/ops-macos-tcc.md)", err)
+		}
+		// A missing file is ACP's resource-not-found, not an internal error
+		// (MADR 0207 amendment H, D26).
+		if errors.Is(err, os.ErrNotExist) {
+			return acp.ReadTextFileResponse{}, acp.NewResourceNotFound(path)
 		}
 		return acp.ReadTextFileResponse{}, err
 	}
