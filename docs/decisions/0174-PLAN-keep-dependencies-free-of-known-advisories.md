@@ -1,6 +1,6 @@
 ---
-status: complete
-date: 2026-10-13
+status: in-progress
+date: 2026-10-27
 associated-madr: "0174-MADR-keep-dependencies-free-of-known-advisories.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -312,6 +312,80 @@ nothing.
   clone of `68e348a1`, and the commit holds exactly what was verified.
 - **History is the owner's to keep or split before push.** At this entry the commit was unpushed
   (`master` 4 ahead of `origin`).
+
+## Amendment — 2026-10-27: P6, `golang.org/x/net` again
+
+**Found by:** the pre-add gate of
+[0077-PLAN-signed-receipts-permission-handoffs.md](0077-PLAN-signed-receipts-permission-handoffs.md)
+§13 (P10) and
+[0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md)
+P8, both test-only.
+
+- `make pre-add-check` failed: "vulncheck: GO-2026-6866 affects a required module and is not in
+  scripts/vulncheck-allow.txt", and the same for GO-2026-6860.
+- Both are in `golang.org/x/net v0.61.0`'s `html` package and fixed in `v0.62.0`, published
+  2026-10-27 19:00Z. govulncheck: "Your code is affected by 0 vulnerabilities". Neither is imported
+  or called.
+- The gate is right to fail, as in P5: the advisories are new, and `HEAD` carries `v0.61.0`, so
+  CI's `make vulncheck` fails on `master` too. `x/net` is required through `internal/certs` and
+  certmagic (`go mod why -m golang.org/x/net`).
+- The allowlist is not the answer: its one entry has no fixed version, and these have one.
+
+**Owner's decision (2026-10-27):** "Bump x/net under 0174 (Recommended)": this phase's own commit,
+staged first; 0077's P10 and 0212's P8 are staged on top.
+
+- D1 applied as written, as in P5. The MADR is unchanged.
+- The scope rule is widened, for this phase only, to what `go mod tidy` moves with `x/net`.
+
+### P6 — x/net v0.62.0, the newest release (D1)
+
+1. On a scratch clone of `HEAD`: `go get golang.org/x/net@v0.62.0`, then `go mod tidy`. Record the
+   modules that move, and check that a second `tidy` changes nothing.
+2. Run `./scripts/vulncheck.sh`. Only GO-2026-5932 may remain, at the required-module level.
+3. Run `go build ./...`, `go vet ./...` for darwin/arm64, linux/amd64 and windows/amd64, and
+   `go test -count=1 -race ./...` on that clone.
+4. Copy the clone's `go.mod` and `go.sum` into the working tree, whose own are `HEAD`'s, and check
+   they are byte-identical to the clone's. Stage them with this PLAN, alone.
+5. `make ci-windows` on the Windows host, on the owner's word. Until it has run, this PLAN stays
+   `in-progress`.
+
+#### P6 execution (2026-10-27)
+
+Approved by the owner: "Bump x/net under 0174 (Recommended)".
+
+The scratch clone of `HEAD` was at `5d1e7e2c`. `go get golang.org/x/net@v0.62.0` reported one
+module: "go: upgraded golang.org/x/net v0.61.0 => v0.62.0". Nothing else moved. `go.mod` changed 1
+line and `go.sum` 2; a second `tidy` changed nothing.
+
+| Gate (scratch clone) | Result |
+| --- | --- |
+| `./scripts/vulncheck.sh` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `go build ./...` | exit 0 |
+| `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `go test -count=1 -race ./...` | exit 0, 44 ok |
+
+**Step 4.** The working tree's `go.mod` and `go.sum` were `HEAD`'s (`git diff --quiet HEAD`, exit
+0). The clone's were copied in, and `cmp` found both byte-identical to the clone's.
+
+**The working tree's gates,** with 0077's P10 and 0212's P8 in it too:
+
+| Gate (working tree: 0174 P6, 0077 P10 and 0212 P8) | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (the two test files) | exit 0, "go-precheck: 2 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0 |
+| `go build ./...` | exit 0 |
+| `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `go mod tidy -diff` | exit 0, no diff |
+| `make test` | exit 0, 44 ok |
+| `make race` | exit 0, 44 ok |
+| `go test -race -count=1 ./...` on the Linux test host, in a scratch copy removed afterwards | exit 0, 44 ok |
+| `make check-records` | exit 0 |
+| `make markdownlint-docs` | exit 0, "0 issues" |
+| the guard's redact preview, from the repository root | "would edit 0 file(s)" |
+
+- **Staged** for this phase's own commit: `go.mod`, `go.sum` and this PLAN.
+- **Not done:** step 5, `make ci-windows` on the Windows host, which waits for the owner's word.
+  This PLAN stays `in-progress` until it has run.
 
 ## Rollout and Rollback
 
