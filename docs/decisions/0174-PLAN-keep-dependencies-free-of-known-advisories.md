@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-27
+status: complete
+date: 2026-10-28
 associated-madr: "0174-MADR-keep-dependencies-free-of-known-advisories.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
@@ -383,9 +383,24 @@ line and `go.sum` 2; a second `tidy` changed nothing.
 | `make markdownlint-docs` | exit 0, "0 issues" |
 | the guard's redact preview, from the repository root | "would edit 0 file(s)" |
 
-- **Staged** for this phase's own commit: `go.mod`, `go.sum` and this PLAN.
-- **Not done:** step 5, `make ci-windows` on the Windows host, which waits for the owner's word.
-  This PLAN stays `in-progress` until it has run.
+- **Staged** for this phase's own commit: `go.mod`, `go.sum` and this PLAN. The owner committed it
+  as `71439913`, then 0077's P10 (`045724be`) and 0212's P8 (`3cc402fb`), and pushed all three. CI
+  passed on `3cc402fb`
+  ([run 40701782196](https://github.com/maccavelli/magic-cli-remote/actions/runs/40701782196)):
+  every job, including "Go (test)", which runs `make vulncheck`.
+- ~~**Not done:** step 5, `make ci-windows` on the Windows host, which waits for the owner's word.
+  This PLAN stays `in-progress` until it has run.~~ Done 2026-10-28, below.
+
+**Step 5, 2026-10-28.** The owner: "proceed with 0174 p6". `git archive` of `3cc402fb` was copied
+to the Windows host, made a git tree, and removed afterwards, its absence checked.
+
+- `go version`: "go1.27.3 windows/amd64". `make -n ci-windows` showed
+  `[ "windows" != "windows" ]`, as AGENTS.md asks.
+- `make ci-windows`: exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED". A3 go.mod toolchain,
+  A2 symlink probe (`MC_REQUIRE_SYMLINK=1`), A4 `go build ./...`, A5 `go vet ./...` and A6
+  `go test ./...` each printed `PASS`; A6's packages: 44 ok.
+
+P6 is complete, and so is this PLAN.
 
 ## Rollout and Rollback
 
