@@ -2265,3 +2265,17 @@ said.
 **The plan is complete** once the owner commits U6b. Every phase has run (U7 was retired into 0212,
 and U1c folded into U6), and this plan's Verification holds. CI ran on `59bcadad` for U6 and U1c;
 U6b's own CI follows its push.
+
+### U6b, 2026-10-27: CI on the push
+
+The owner committed U6b as `5d1e7e2c` and pushed it. CI on that commit,
+[run 40585331665](https://github.com/maccavelli/magic-cli-remote/actions/runs/40585331665),
+concluded `success`:
+
+* `Go (test)`, `Go (darwin/arm64)`, `Go (linux/arm64)` and `Go (windows/amd64)`;
+* `Live supervisors (runit, s6)`;
+* both Flutter jobs.
+
+The release and APK jobs were skipped, as on any push without a tag. The Docs workflow on the same
+commit, [run 40585330893](https://github.com/maccavelli/magic-cli-remote/actions/runs/40585330893),
+also concluded `success`. Every phase of this plan has now passed CI.

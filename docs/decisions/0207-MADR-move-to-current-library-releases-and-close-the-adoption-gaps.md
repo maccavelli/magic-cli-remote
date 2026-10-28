@@ -285,6 +285,8 @@ option, which was to accept with them deferred:
   * a later amendment of this record reads those releases against Magic, as amendment E did for
     the other libraries, and re-proposes the pin, D25 and D26 on the newest release;
   * until then, the SDK-gaps plan's C1 to C3 do not run, and 0184's PLAN keeps its one open item.
+  * *Note, 2026-10-28:* amendment H, below, is that assessment, read to `v1.25.0`. The owner
+    decided it the same day: D24 is superseded by D45, and D25, D26, D45 to D47 are decided.
 * **D28:** question 12 answered "None yet (Recommended)". Each feature takes its own MADR when
   wanted, `ResumeSession` first.
 * **Question 4** (order) was never put. It is moot: every phase it ordered has run.
@@ -1747,3 +1749,222 @@ current."
 * `go list -m github.com/maccavelli/go-selfupdate-lib` gives `v1.22.2`. Both `ci.yml` pins name
   `50deb3f1…`, and `TestWorkflowPinsMatchGoMod` passes.
 * U1b's gates, run on the commit as it will land.
+
+## Amendment — 2026-10-28 (H): `acp-go-sdk2 v1.21.0` to `v1.25.0`, and D24 to D26 again
+
+*~~Proposed~~ decided 2026-10-28* (the answers below). The owner asked, verbatim: "do 1 and 2.
+note: acp-go-sdk2 has moved past 1.24". This is the assessment the Decision Outcome's deferral
+calls for. It re-proposes the pin (D24), D25 and D26 on the newest release. It also proposes D45 to
+D47, for what the five releases add.
+
+### Facts [observed 2026-10-28: `git ls-remote --tags`, the GitHub releases API, the Go module proxy, and a scratch clone of `ac964b31`]
+
+* **H-1. Five releases since the pin.** Each one's notes say `make api` found compatible
+  additions only, and none changes what is sent or accepted on the wire unless a side opts in.
+  The ACP schema is `1.25.0` in all five.
+
+  | Tag | Commit | Published | What it adds |
+  | :--- | :--- | :--- | :--- |
+  | `v1.21.0` | `7f3b2100` | 2026-10-25 | constructors for every stable `SessionUpdate` variant; `SessionUpdate.Kind()`; `ClientRefusals` |
+  | `v1.22.0` | `67c7a8eb` | 2026-10-25 | consumer helpers: `AllSessions`, `PickPermissionOption`, `ConfigOptionByCategory`, `SessionConfigSelectOptions.All`, `MetaObject`, `DecodeMeta`, `IsMethodNotFound`, `IsAuthRequired`, `IsCancelled`, `Kind()` on four unions, `RefusedMessages` |
+  | `v1.23.0` | `9e0baace` | 2026-10-27 | the unstable boundary (H-3); `CompactionTimeline`; `ExtensionMux`; package `acptest` |
+  | `v1.24.0` | `22009896` | 2026-10-27 | elicitation: `Fields`, `Check`, `CheckSchema`, `ParseValue`, `ParseElicitationURL`, `WithElicitationCheck` |
+  | `v1.25.0` | `8505722c` | 2026-10-28 | package `clienthost` (`Terminals`, `Files`); `ToolCallTimeline`; `agentproc.LineTap`, `ExitedFirst`, `WaitContext`; `EndedCleanly`; `AllowsValue`; `IsResourceNotFound`; an `agentproc` close fix |
+
+* **H-2. The pin move, proven on a scratch clone** (`leftovers/sdk_pin_probe.py` in the session
+  scratchpad; the clone was removed):
+  * `go get github.com/maccavelli/acp-go-sdk2@v1.25.0` moved that module alone; a second `tidy`
+    changed nothing.
+  * `go build ./...`, `go vet ./...` for darwin/arm64, linux/amd64 and windows/amd64,
+    `./scripts/vulncheck.sh`, the workflow pin tests, and `go test -count=1 -race ./...`
+    (44 packages ok) all passed.
+  * **`make staticcheck` failed:** 58 SA1019 uses, each reported once for each of its three GOOS
+    runs (174 lines), all in `internal/provider/acpagent`. 23 are outside tests:
+    * `acpagent.go:1110`, the client's `Plan: &acp.PlanCapabilities{}` advertisement;
+    * `plans.go:21-46`, the identified plans of
+      [0192-MADR-show-an-agents-identified-plans-on-the-phone.md](0192-MADR-show-an-agents-identified-plans-on-the-phone.md);
+    * `session.go:1960-1964`, their dispatch;
+    * `session.go:2070-2075`, the subagent decline branches (H5 of amendment B).
+
+    35 are in tests: `plans_test.go`, and `advertise_test.go:68`.
+* **H-3. The deprecations are permanent, and have no replacement.** From `v1.23.0` every
+  declaration `acp` took from the ACP *unstable* schema carries "Deprecated: this declaration comes
+  from the unstable ACP schema; it stays under v1 for compatibility only". There are 202 such
+  notices. The names are frozen and still work. Package `unstable` receives only what a *later*
+  unstable schema adds; at schema `1.25.0` it holds documentation only. The release notes' advice
+  is to suppress SA1019 for those uses. Magic's
+  [0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md)
+  D5 says "No `staticcheck.conf`, no `//lint:ignore`". Its reason was that each SA1019 finding then
+  had a direct replacement (its F9). These have none.
+* **H-4. D25's field is among them.** `PromptResponse.Usage` is deprecated at `v1.25.0`
+  (`types_gen.go:11385-11391`), and so is the `Usage` type. Its shape is unchanged since `v1.20.0`:
+  input, output, total, cached-read, cached-write and thought tokens. Magic does not read it today,
+  so it is not among H-2's 58. D25 would add uses.
+* **H-5. Two behaviour faults the new helpers would fix,** each re-read at `ac964b31`:
+  * **Auto-approval can pick a reject option.** `autoAllow` (`session.go:2593-2624`), used when
+    `always_approve` or the session's auto mode is on (`:2422-2428`), and `pickAllowOptionID`
+    (`:2628-2642`) both take the first option whose kind *or name* contains "allow" or "approve".
+    An option named "Don't allow" of kind `reject_once` matches. With no match, the first option
+    is taken, whatever its kind. `PickPermissionOption` (`helpers.go:634`) reads only the kind,
+    and reports false when nothing matches.
+  * **Grouped select values never reach the phone.** `emitConfigOptions` (`session.go:2288-2292`)
+    reads only `Options.Ungrouped`. An agent that sends grouped values shows an empty list.
+    `SessionConfigSelectOptions.All()` (`helpers.go:701`) flattens both. This one is already
+    decided elsewhere:
+    [0208-MADR-make-the-provider-layer-agent-neutral.md](0208-MADR-make-the-provider-layer-agent-neutral.md)
+    D3 forwards grouped selects *with their groups* and categories, in its PLAN's P7, not yet run
+    (its N3 names this fault). So it is not part of D46; P7 can use `All()` or the groups.
+* **H-6. Helpers that would replace code Magic wrote for itself,** with no change of behaviour
+  unless noted. This is from an inventory by a read-only subagent; the rows marked ✓ were re-read
+  here:
+
+  | SDK | Magic today |
+  | :--- | :--- |
+  | `ConfigOptionByCategory` ✓ | `selectOption`, `session_meta.go:73-80` |
+  | `MetaObject` | `metaObject`, `grok/fallback.go:138-145` |
+  | `IsMethodNotFound`, `IsAuthRequired` | `sessioncaps.go:188-193`, `runtime.go:344-349`; the SDK's also covers a method the peer did not advertise |
+  | `IsCancelled` | the first part of `isBenignPromptErr`, `session.go:2836-2858` |
+  | `ContentBlock.Kind()`, `SessionUpdate.Kind()` | `blockKind`, `compaction.go:89-102`, and the hand decode at `session.go:2076-2081`. An unknown variant's decline names its discriminator, where Magic says "unknown" |
+  | `AllSessions`, `SessionInfo.Updated` | the paging loop and `parseACPTime`, `sessioncaps.go:76-104`, `:207-216`. `AllSessions` catches any repeated cursor, not only the last; Magic's 20-page cap would move to the context |
+  | `agentproc.LineTap` | `wirecap`'s `tapWriter`, `wirecap.go:181-209` |
+  | `Process.ExitedFirst` | the 500 ms `exitPreference` timer, `session.go:1304`, `:1331-1339` |
+
+* **H-7. Larger adoptions that change behaviour, each needing its own decision:**
+  * `clienthost.Files` would serve `fs/*` and answer a missing file `-32002`. It refuses `line` 0,
+    which Magic reads as the start, keeps a file's mode where Magic writes `0644`, and creates no
+    directory where Magic always does.
+  * `clienthost.Terminals`, about 330 lines of `terminal.go`. Magic keeps its `bash -lc` routing
+    through a custom `Command`. An unknown terminal id would answer `-32002`, and output would be
+    cut at a character boundary.
+  * Elicitation's `Check`, against Magic's checker (`elicitation.go:302-392`). Magic trims
+    whitespace, refuses `5.0` for an integer, and checks email with `net/mail`; `Check` does none
+    of these.
+  * `CompactionTimeline`, `ExtensionMux`, `ToolCallTimeline`, `AllowsValue`, `WaitContext`,
+    `EndedCleanly`, `RefusedMessages`, and `acptest` in Magic's tests.
+* **H-8. The `agentproc` close fix does not reach Magic's capture.** `v1.25.0`'s `Close` reads
+  the agent's last output before closing. Magic stops the agent with `Kill` (`acpagent.go:528`),
+  which closes at once in both versions, and never calls `Close`.
+* **H-9. Amendment B's other facts, re-read at `ac964b31`:**
+  * Magic still reads only `StopReason` (`session.go:537-543`).
+  * `xaiusage.go:14-18` still says the standard `usage_update` has no cache fields. That is true of
+    the `usage_update` (`v1.25.0` `types_gen.go:14896`), not of the unstable `Usage`. It cites
+    `acp-go-sdk@v0.13.5`, a module Magic no longer uses.
+  * The hand-built values D26 replaces have moved slightly: permission outcomes are at
+    `session.go:2470-2483` and `:2610-2623`, and the second config request at `:1165-1180`. The
+    rest hold where amendment B put them.
+  * Every helper D26 names exists at `v1.25.0`, `NewResourceNotFound` at `errors.go:290`.
+  * `grok/testdata/wire/` holds `1.0.13` and `1.0.50` only.
+* **H-10. gobble.** gobble-cli's `go.mod`, at its default branch's `6ee20140`, still pins
+  `acp-go-sdk2 v1.20.0` (and `go-selfupdate-lib v1.17.0`). It lists staticcheck as a `tool`, so
+  H-3 would reach it too.
+  [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+  D12 has the two repositories pin the same tag and bump together.
+
+### The decisions this amendment proposes
+
+* **D24, superseded by D45.**
+* **D45 — The pin, and the unstable names (question 13).** Proposed: pin `v1.25.0`, and amend 0170
+  D5 with one narrow exception. A use of an `acp` declaration whose only deprecation is the
+  unstable-schema notice may carry `//lint:ignore SA1019`, with its reason and the MADR that
+  chose the feature. That covers 0192's plans, the plan and subagent capabilities, and D25's
+  usage.
+  * The scope stays narrow:
+    * line by line in non-test code;
+    * file-wide (`//lint:file-ignore`) only in `plans.go` and `plans_test.go`, whose whole subject
+      is the unstable plan;
+    * no `staticcheck.conf`, and no other check or deprecation suppressed.
+  * A planted use of any other deprecated name in those files must still fail `make staticcheck`.
+  * The alternatives:
+    * **`v1.22.0`,** the newest tag without the notices. It has H-5's fixes and most of H-6. It
+      lacks `LineTap`, `ExitedFirst` and everything in H-7, and stays one minor version from where
+      a later bump meets H-3 anyway.
+    * **Stay on `v1.20.0`,** and give up H-5's fixes.
+* **D25, re-proposed at `v1.25.0`.** Unchanged in substance: at a turn's end, map
+  `PromptResponse.Usage` to `event.Usage` unless the turn already reported xAI usage. Its uses take
+  D45's exception. `xaiusage.go`'s comment is corrected (H-9).
+* **D26, re-proposed at `v1.25.0`.** Unchanged, at H-9's line numbers. Two of its parts gain from
+  the new releases:
+  * the missing file's `-32002`, with `IsResourceNotFound` in its test;
+  * H5's dead branches, which also clears 3 of H-2's uses.
+* **D46 — Take the helpers that fix (H-5) or replace (H-6) Magic's own code (question 14).**
+  * Auto-approval picks by kind alone: `allow_once`, then `allow_always`. When neither is offered
+    it answers cancelled, rather than taking the first option. The proposal is to fail closed.
+  * H-6's rows, each with a test of the behaviour it keeps or changes.
+  * Not grouped select values, which 0208's P7 carries (H-5).
+* **D47 — H-7 is not decided here.** `clienthost`, elicitation's `Check`, the timelines,
+  `ExtensionMux` and `acptest` each change behaviour Magic chose (H-7), and each takes its own
+  MADR when wanted. This is D28's rule, applied to the new releases.
+* **D12 and gobble (question 15).** Proposed: Magic moves first, with this amendment's gates. gobble
+  follows in its own repository, where H-3 meets its staticcheck. D12 does not hold until it does,
+  as on 2026-10-21.
+
+### Consequences of the amendment
+
+* Good, because auto-approval can no longer select a reject option by its name (H-5).
+* Good, because about a dozen hand-written protocol helpers give way to the SDK's, which its own
+  consumer tests exercise.
+* Good, because the pin is current, and a later bump starts from the deprecation boundary rather
+  than meeting it.
+* Neutral, because nothing on the wire changes except the decline names H-6 notes and D26's
+  `-32002`.
+* Bad, because D45 makes 0170 D5's rule one exception less strict. The exception's bound is the
+  unstable-schema notice, which a planted test keeps honest.
+* Bad, because the features D45 suppresses for, 0192's plans and D25's usage, rest on a schema the
+  SDK calls compatibility-only. A later SDK that drops them would be a major version, which Magic
+  would see at the bump.
+* Bad, because D12 does not hold until gobble moves.
+
+### Confirmation of the amendment
+
+* `go list -m github.com/maccavelli/acp-go-sdk2` gives `v1.25.0`.
+* `make staticcheck` passes. Every `//lint:ignore SA1019` and `//lint:file-ignore SA1019` names
+  this amendment and a feature MADR. A planted use of a deprecated name outside the exception fails
+  it.
+* Fail-first tests, each seen failing on a scratch copy:
+  * an option named "Don't allow" of kind `reject_once` is never auto-selected;
+  * no allow kind answers cancelled;
+  * plus D25's and D26's tests, as amendment B listed them.
+* The SDK-gaps plan's gates; C3's live run on the owner's word.
+
+### Questions this amendment adds
+
+These continue the numbering above.
+
+* **13. The pin (D45).** `v1.25.0` with the narrow 0170 exception (proposed)? Or `v1.22.0`, with no
+  exception? Or stay on `v1.20.0`?
+* **14. Auto-approval with no allow option (D46).** Answer cancelled (proposed, fail closed)?
+  Or keep today's first option?
+* **15. gobble (D12).** Magic first, gobble after in its own repository (proposed)? Or both
+  together, which waits on gobble?
+
+*Answered 2026-10-28:*
+
+* **13.** The owner first asked for the comparison: "change the sdk records and allow suppression,
+  vs change the plan and do not suppress, without exceptions. pros vs cons. most flexible and
+  extensible option. explain." Four no-suppression routes were set against D45's exception:
+  * drop the features (0192's plans, the plan capability, D25);
+  * freeze at `v1.22.0`;
+  * decode around the names, which cannot set the deprecated `ClientCapabilities.Plan`;
+  * give the names a non-deprecated route in the SDK first, which needs SDK accessors and a release
+    against its own 0039.
+
+  The owner chose "Path 1: narrow suppression (Recommended)". D45 stands as proposed. If the SDK
+  ever adds a non-deprecated route, the suppressions are what is removed.
+* **14.** "Answer cancelled (Recommended)". D46's auto-approval fails closed.
+* **15.** "Magic first (Recommended)". D12 does not hold until gobble moves in its own repository.
+
+The owner then chose "Stage records, then C0 (Recommended)": this amendment and the SDK-gaps
+plan's revision are committed first, and C0 runs after.
+
+### Evidence index of the amendment
+
+* `acp-go-sdk2` `v1.21.0` to `v1.25.0`: the releases API's notes, saved as
+  `leftovers/sdk_release_notes.md`; `v1.25.0` from the module proxy (`h1:xJ02C/fy…`, origin
+  `8505722c`).
+* The pin probe and its logs: `leftovers/sdk_pin_probe.py`, `leftovers/sdkprobe/`. The SA1019
+  summary: `leftovers/sa1019_summary.py`.
+* The capability inventory (H-6, H-7, H-8, H-9) came from a read-only subagent working in its own
+  scratch clone. Its load-bearing claims were re-read here: `PromptResponse.Usage`'s notice; both
+  H-5 faults; `PickPermissionOption`'s and `All`'s source; `Kill` at `acpagent.go:528`; 0184 D12.
+  Its other line citations were not each re-read.
+* gobble-cli's `go.mod`, from the contents API.

@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-27
+date: 2026-10-28
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -16,7 +16,8 @@ The two touch no file in common. This one runs after 0210's L2 (that plan's "Ord
 
 ## Goal
 
-* The pin stays `acp-go-sdk2 v1.20.0` (D24); nothing here moves it.
+* ~~The pin stays `acp-go-sdk2 v1.20.0` (D24); nothing here moves it.~~ *Revised 2026-10-28:* the
+  pin moves to `v1.25.0` (amendment H, D45, proposed). See "Revision for amendment H".
 * A turn's standard token usage reaches the phone once, and never beside grok's xAI usage (D25).
 * A missing file answers -32002; the SDK constructs the protocol values Magic builds by hand; a
   truncated wire capture and a protocol-version refusal are named; the unreachable subagent
@@ -45,6 +46,78 @@ The two touch no file in common. This one runs after 0210's L2 (that plan's "Ord
 
 Every line number is re-read before its phase starts, since the `go-selfupdate-lib` plan and
 0210 may have landed first.
+
+## Revision for amendment H (~~proposed~~ approved 2026-10-28)
+
+The MADR's amendment H reads `v1.21.0` to `v1.25.0`, and re-proposes D25 and D26 there with D45
+and D46. ~~If the owner approves it as proposed, this plan runs C0, C1, C1b, C2 and C3 below, in
+that order. C4 is done. If the owner chooses `v1.22.0` (question 13), C0 pins that tag and skips
+C0's step 3, and C2 needs no exception. If the owner chooses to stay on `v1.20.0`, C0 and C1b do not
+run.~~ *Approved 2026-10-28, as proposed* (amendment H's answers: D45's exception, auto-approval
+answers cancelled, Magic before gobble). This plan runs C0, C1, C1b, C2 and C3 below, in that
+order; C4 is done. C3 still waits for the owner's word for its run.
+
+**Facts re-read 2026-10-28, at `ac964b31`.** The table above holds, except these lines, which have
+moved: permission outcomes at `session.go:2470-2483` and `:2610-2623`; the second config request
+at `:1165-1180`. Each phase re-reads its lines again at its start.
+
+### C0 — The pin and the unstable-name exception (D45)
+
+**Files:** `go.mod`, `go.sum`; `internal/provider/acpagent/acpagent.go`, `plans.go`,
+`plans_test.go`, `advertise_test.go`, `session.go` (the suppressions only);
+`0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md` (a dated
+amendment naming the exception); this plan.
+
+1. `go get github.com/maccavelli/acp-go-sdk2@v1.25.0`, then `go mod tidy`; a second `tidy` changes
+   nothing.
+2. `make staticcheck` lists the SA1019 uses. They must be amendment H's H-2 list: 23 outside
+   tests, 35 in them. A use not on it is a deviation.
+3. Each gets its suppression, as D45 bounds it: `//lint:file-ignore SA1019 …` in `plans.go` and
+   `plans_test.go`, and `//lint:ignore SA1019 …` on each other line. Each reason names "unstable
+   ACP schema", the feature's MADR (0192 for plans, 0195 for subagents), and 0207 amendment H.
+   The three uses in `session.go:2070-2075` are left for C1, which deletes them; until C1, they
+   take the line form.
+4. **Seen to fail,** on scratch copies:
+   * a use of another deprecated name in `plans.go` still fails `make staticcheck`;
+   * so does one in `acpagent.go` beside a suppressed line.
+5. The 0170 MADR gets its dated amendment, which cites D45 and says D5 otherwise stands.
+6. Gates: the sibling plan's set, with `make staticcheck` for all three GOOS.
+
+### C1, revised (D26)
+
+As written above, at the moved lines. Steps 1 and 2 gain:
+
+* the missing-file test asserts `acp.IsResourceNotFound(err)`;
+* removing the decline branches removes their suppressions too, and `make staticcheck` shows 3
+  fewer uses.
+
+### C1b — The helpers that fix and replace (D46)
+
+**Files:** `internal/provider/acpagent/session.go`, `session_meta.go`, `sessioncaps.go`,
+`runtime.go`, `compaction.go`; `internal/provider/grok/fallback.go`; `internal/wirecap/wirecap.go`
+(or wherever `tapWriter` lives, measured first); their tests; this plan.
+
+1. **Tests first,** each seen failing on a scratch copy:
+   * an option named "Don't allow" of kind `reject_once`, listed first, is not auto-selected;
+     `allow_once` is preferred to `allow_always`;
+   * options with no allow kind answer cancelled (question 14, answered 2026-10-28);
+   * `pickAllowOptionID` agrees with `autoAllow` on the same options;
+   * each H-6 replacement keeps its current test green, and its changed case (the decline names
+     of an unknown variant; any repeated cursor) gets one.
+2. **Code** as tested: `PickPermissionOption`; `ConfigOptionByCategory`; `MetaObject`; `IsMethodNotFound`, `IsAuthRequired`, `IsCancelled`;
+   `ContentBlock.Kind`, `SessionUpdate.Kind`; `AllSessions`, `SessionInfo.Updated`;
+   `agentproc.LineTap`; `Process.ExitedFirst`. Grouped select values are not here: 0208's P7
+   carries them (amendment H, H-5).
+3. Gates.
+
+### C2, revised (D25)
+
+As written above. Its reads of `PromptResponse.Usage` take D45's line exception. Step 2 gains:
+`make staticcheck` passes with them.
+
+### C3
+
+Unchanged: one capture-enabled `make live-grok`, on the owner's word. It runs after C2.
 
 ## Implementation Steps
 
