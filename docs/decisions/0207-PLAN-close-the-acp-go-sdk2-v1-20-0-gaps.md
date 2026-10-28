@@ -569,3 +569,88 @@ of the working tree, taken from `leftovers/c1b_code.py`'s own pairs:
 `internal/wirecap/wirecap.go`; the 0207 MADR; this plan.
 
 **C1b is done** once the owner commits it. Next: C2, per-turn token usage (D25).
+
+### C2, 2026-10-28: per-turn token usage (D25)
+
+The owner committed C1b as `3ccaf700` and answered "committed proceed".
+
+**Step 1, measured** (`leftovers/c2_frames.py`, over `internal/provider/grok/testdata/wire/`):
+
+* **grok 1.0.13:** three whole turns. In each, grok's own usage, `_x.ai/session_notification`
+  `turn_completed` (frames 82, 162, 242), comes before the prompt's answer (85, 165, 245). The
+  answer's keys are `_meta` and `stopReason`: no standard `usage`.
+* **grok 1.0.50:** the committed frames hold no prompt answer, only selected answers and three
+  replayed `turn_completed`. Its order is not measurable from the tree; C3's live run is where it
+  is seen.
+* So "the turn already reported xAI usage" is known when the answer arrives: a flag set by the live
+  `turn_completed`, and cleared when the turn starts. The SDK hands Magic a response only after
+  the notifications before it.
+
+**Two facts read on the way:**
+
+* **The schema contradicts itself.** `PromptResponse.usage` is "Token usage for this turn", but the
+  `Usage` fields say "Total input tokens across all turns" and "Sum of all token types across
+  session" (`schema/schema.unstable.json` at `v1.25.0`). D25 reads it as one turn's.
+* **gobble, the one engine known to send it, sends a turn's.** `acpUsage` "is the turn's usage for
+  the prompt response", from the turn's last `agent.Usage`, and the context gauge goes separately
+  on `usage_update` (gobble-cli `acpserver/prompt.go:294-306`, `:312-319`, read through the
+  contents API at its default branch).
+
+**Step 2, the tests** (`turnusage_test.go`, new):
+
+| Test | What it holds |
+| :--- | :--- |
+| `TestTurnUsageReachesThePhoneOnce` | an answer with every field decodes through `acp.PromptResponse` (the shape pin) and gives one usage event: input 1000, output 200, reasoning 50, cache read 700, cache write 30; used 1200 of 0 before any context report |
+| `TestTurnUsageIsNotCountedBesideXAIUsage` | after a live xAI report, the answer's usage adds nothing; the next turn's answer is reported |
+| `TestReplayedXAIUsageDoesNotSilenceTheTurn` | a replayed xAI record does not count as this turn's |
+| `TestTurnWithoutUsageReportsNone` | an answer without usage gives no event |
+| `TestTurnUsageArrivesOverTheWire` | on a real connection, the answer's split is reported before `turn_complete` |
+| `TestTurnUsageKeepsTheContextGauge` | after a `usage_update` of 5300 of 200000, the turn's report carries 5300 of 200000 |
+
+**Step 3, the code:**
+
+* `emitTurnUsage` in `xaiusage.go` maps `PromptResponse.Usage` to `event.Usage`'s split, and is
+  called before `turn_complete`.
+* **The gauge.** The phone replaces its usage with each report's
+  (`apps/mobile/lib/data/chat/transcript_reducer.dart:80-92`), so a report with no gauge would
+  blank the context indicator. The `usage_update` handler now keeps the last `used` and `size`, and
+  the turn's report carries them. Before any, it reports the turn's total of 0, as
+  `emitXAIUsage` does.
+* `turnXAIUsage` is set by `emitXAIUsage` for a live report and cleared by `beginTurnUsage` at
+  the turn's start.
+* `xaiusage.go`'s comment no longer says ACP's usage has no cache fields. It names the unstable
+  `PromptResponse.usage`, which has them, and why grok stays on its own channel.
+* One line takes D45's exception: `u := resp.Usage`. `make staticcheck` then counts 56 ignored
+  uses, C1's 55 and this one. Reading the fields of the deprecated type is not reported.
+
+**Seen failing** (`leftovers/c2_plants.py`; a scratch copy of `HEAD` with the working tree's
+three files, one break each):
+
+| Plant | The failure |
+| :--- | :--- |
+| the xAI flag never set | "usage events = [… …], want only grok's own, input 900" |
+| the flag set by a replay too | "usage events = [one], want the replay's and then the answer's" |
+| no reset at the turn's start | "next turn's usage events = [], want the answer's, input 1000" |
+| `emitTurnUsage` not called in the turn | "turn_complete came with usage <nil> before it, want the answer's split" |
+| the gauge not kept | "turn report = {Used:1200 Size:0 …}, want used 5300 of 200000 with input 1000" |
+| the cache read dropped | "split = {… CacheRead:0 …}, want … cache read 700 …" |
+| an answer without usage reported | "usage events = [one], want none" |
+| none (the control) | exit 0 |
+
+**Step 4, the gates:**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES=…` (the three Go files) | the first run failed: "gofmt: these files are not formatted … session.go". The new fields' alignment group took in `pending`. A blank line after the new fields keeps them a group of their own; then "3 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0; the gate: "56 ignored finding(s) …" |
+| `go build ./...`; `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok; and `go test -race ./internal/provider/acpagent/` again after the gofmt fix |
+| `go test -race -count=1 ./...` on the Linux test host, in a scratch copy removed afterwards | exit 0; 44 packages ok |
+| `make check-records`, `make markdownlint-docs`; the guard's redact preview | exit 0; "0 issues"; "would edit 0 file(s)" |
+
+**Files for this commit:** `internal/provider/acpagent/session.go`, `xaiusage.go`,
+`turnusage_test.go` (new); this plan.
+
+**C2 is done** once the owner commits it. Next by this plan: C3, one capture-enabled
+`make live-grok`, which waits for the owner's word. It also shows whether grok 1.0.50's answers
+carry the standard `usage`, and that no turn's usage is doubled.

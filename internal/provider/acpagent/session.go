@@ -209,7 +209,14 @@ type session struct {
 	costTicks   int64
 	costPrompts map[string]bool
 	costUnknown bool
-	pending     map[string]*permWaiter // permissionID -> waiter
+	// turnXAIUsage is set once grok has reported this turn's usage on its own
+	// channel, so the answer's standard usage is not counted beside it;
+	// gaugeUsed and gaugeSize are the context gauge the last usage_update set,
+	// which a turn's report carries (MADR 0207 amendment H, D25).
+	turnXAIUsage         bool
+	gaugeUsed, gaugeSize int
+
+	pending map[string]*permWaiter // permissionID -> waiter
 	// questions holds outstanding multi-question forms (grok's
 	// _x.ai/ask_user_question). Kept separate from pending because the answer is
 	// a label list per question rather than one option id; released on the same
@@ -423,6 +430,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	s.limitNotified = false
 	s.limitRaw = ""
 	s.mu.Unlock()
+	s.beginTurnUsage()
 
 	// Stall watchdog: a wedged agent otherwise pins "running" silently and
 	// the user has no way to tell "thinking hard" from "dead".
@@ -534,6 +542,9 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			s.emitClassifiedTurnErrorConfirmed(err.Error())
 			return
 		}
+		// The turn's token split, when the answer carries one and grok's own
+		// channel has not reported it (D25), before the turn ends.
+		s.emitTurnUsage(resp)
 		s.emit(event.Event{
 			Type:       event.TypeTurnComplete,
 			SessionID:  s.localID,
@@ -1960,6 +1971,9 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Used: saturatingInt(u.UsageUpdate.Used),
 			Size: saturatingInt(u.UsageUpdate.Size),
 		}
+		s.mu.Lock()
+		s.gaugeUsed, s.gaugeSize = usage.Used, usage.Size
+		s.mu.Unlock()
 		if c := u.UsageUpdate.Cost; c != nil {
 			usage.SessionCost = sessionCost(c)
 			if usage.SessionCost == nil {
