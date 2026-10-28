@@ -351,6 +351,43 @@ behind `MCREMOTE_REQUIRE_RUNIT`, `MCREMOTE_REQUIRE_S6` and `MCREMOTE_REQUIRE_OPE
    through the target only, since it needs a container booted with its init.
 5. Gates.
 
+### P8 — The handoff tests' comments (owner's ask, 2026-10-27; ~~proposed~~ approved and done 2026-10-27)
+
+*Added 2026-10-27 at the owner's ask: "work on these, fix them both", naming "stale comments in
+command_test.go". It runs on the owner's approval of this phase. The plan went back to
+`in-progress` for it, and returns to `complete` when it is done.*
+
+**Why.** P5 made every backend Magic builds a `Detacher`, runit, s6 and OpenRC included. It updated
+`internal/updateclient/client.go`'s comments (`:245-249`, `:274-277`, `:283-286`), but not the
+test file's, which still say the opposite. Read at `5d1e7e2c`:
+
+| `command_test.go` | What it says | What is true since P5 |
+| :--- | :--- | :--- |
+| `:284-285` | `commandTestDetacher` nil means "none, as for the script backends and Windows" | Task Scheduler hands off since go-selfupdate-lib `v1.19.0`, and the adapter since P5. Nil is "no backend could be built" |
+| `:409-410` | `insiderService` is "as Magic's runit, s6 and OpenRC backend is" | it was, until P5; no backend Magic builds is one now |
+| `:416-422` | "The library's three backends Magic builds hand off", with three compile checks | four do: the adapter, `*libservice.Supervised`, has no compile check here |
+| `:424-435` | `TestDetacherForGatesScriptBackends`, with a case named "a script backend" | the case is any backend that answers `Inside` and cannot hand off |
+| `:451-452` | `fakeInsider` is "such as the script backends" | as above |
+
+The library defines `Supervised.Inside` and `Supervised.Detach` in files with no build constraint
+(`selfupdate/service/supervised.go:289`; `supervised_lifecycle.go`), so a compile check compiles on
+every OS.
+
+**Files:** `internal/updateclient/command_test.go`; this plan.
+
+1. **The comments** say what is true since P5, citing it, as `client.go`'s do.
+2. **A fourth compile check,** `_ libservice.Detacher = (*libservice.Supervised)(nil)`, so the
+   comment's count is checked by the compiler.
+3. **The test and its case are renamed:** `TestDetacherForGatesBackendsThatCannotHandOff`, and "a
+   backend that answers Inside and cannot hand off". The test's assertions are unchanged. The old
+   name stays in 0210's PLAN, as the history it is.
+4. **Seen to fail:** a scratch copy where `Supervised` is not a `Detacher` (its `Detach` renamed
+   in a copied module, through a `replace`) fails to compile at the new check. The renamed test
+   still fails on its earlier planted input, a `detacherFor` that never reports a `Detacher`.
+5. **Gates:** `make pre-add-check FILES=internal/updateclient/command_test.go`, `make test`,
+   `make race`, `go vet` for the three targets, `make check-records`, `make markdownlint-docs`, and
+   the guard's redact preview.
+
 ### P7 — The records
 
 **Files:** the records named in the MADR's "What this record changes in others"; this plan; the
@@ -1997,3 +2034,56 @@ carries:
 
 Every claim in it was read against the tree or the library's pinned source before posting. The
 issue is closed as completed.
+
+### P8, 2026-10-27: the handoff tests' comments
+
+**Approval.** The owner answered "Approve both (Recommended)", for this phase and
+[0077-PLAN-signed-receipts-permission-handoffs.md](0077-PLAN-signed-receipts-permission-handoffs.md)
+§13.
+
+**Steps 1 to 3,** in `internal/updateclient/command_test.go`:
+
+* `commandTestDetacher`: nil is "none, as when no backend can be built", and every backend Magic
+  builds hands off since P5.
+* `insiderService` and `fakeInsider`: runit, s6 and OpenRC were such a backend until P5.
+* The compile checks: four, with `_ libservice.Detacher = (*libservice.Supervised)(nil)`.
+* `TestDetacherForGatesScriptBackends` is `TestDetacherForGatesBackendsThatCannotHandOff`. Its
+  cases are "a Detacher (systemd, launchd, Task Scheduler, the supervised adapter)" and "a backend
+  that answers Inside and cannot hand off". The assertions are unchanged.
+* `git grep -n -i -E 'script backend|ScriptBackends' -- internal/updateclient/command_test.go`:
+  no output.
+
+**Step 4, the plants,** each in a scratch copy of `HEAD` with the edited test, removed afterwards
+(`leftovers/p8.py` in the session scratchpad):
+
+| Plant | Result |
+| --- | --- |
+| the library copied and wired in by `replace`, `Supervised.Detach` renamed | `go vet ./internal/updateclient/`, exit 1: "command_test.go:424:26: cannot use (*libservice.Supervised)(nil) … does not implement … Detacher (missing method Detach)" |
+| `detacherFor` never reports a Detacher | exit 1: "command_test.go:443: a Detacher (systemd, launchd, Task Scheduler, the supervised adapter): detacherFor = false, want true", and ":446: … insiderFor = true, want false" |
+
+* **The first plant needed a second change.** With only `Detach` renamed, the copied library
+  failed first, at its own check (`selfupdate/service/supervised.go:99`, "*Supervised does not
+  implement Detacher"). The copy then dropped that line too, so the failure is this phase's check.
+
+**Step 5, the gates.** The first `make pre-add-check` failed on two new `golang.org/x/net`
+advisories, which this phase does not touch. The owner decided "Bump x/net under 0174
+(Recommended)":
+[0174-PLAN-keep-dependencies-free-of-known-advisories.md](0174-PLAN-keep-dependencies-free-of-known-advisories.md)
+P6, its own commit, first: `71439913`. With it in the working tree:
+
+| Gate (working tree: 0174 P6, 0077 P10 and 0212 P8) | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (the two test files) | exit 0, "go-precheck: 2 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0 |
+| `go build ./...` | exit 0 |
+| `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `go mod tidy -diff` | exit 0, no diff |
+| `make test` | exit 0, 44 ok |
+| `make race` | exit 0, 44 ok |
+| `go test -race -count=1 ./...` on the Linux test host, in a scratch copy removed afterwards | exit 0, 44 ok |
+| `make check-records` | exit 0 |
+| `make markdownlint-docs` | exit 0, "0 issues" |
+| the guard's redact preview, from the repository root | "would edit 0 file(s)" |
+
+**Files for this commit:** `internal/updateclient/command_test.go`, this PLAN. P8 is done, and the
+plan is `complete` again.

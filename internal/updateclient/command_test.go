@@ -282,7 +282,8 @@ func TestUpdateOnAHostWithNoServiceInstallsStandalone(t *testing.T) {
 }
 
 // commandTestDetacher is the handoff backend runCommandContext gives the
-// command; nil means none, as for the script backends and Windows.
+// command; nil means none, as when no backend can be built. Every backend
+// Magic builds hands off since MADR 0212 P5.
 var commandTestDetacher libservice.Detacher
 
 // fakeDetacher records the handoffs the command asks for.
@@ -407,32 +408,35 @@ type detacherService struct {
 }
 
 // insiderService is a backend that answers Inside and is not a Detacher, as
-// Magic's runit, s6 and OpenRC backend is.
+// Magic's runit, s6 and OpenRC backend was until MADR 0212 P5 made it the
+// library's adapter. No backend Magic builds is one now.
 type insiderService struct {
 	fakeService
 	fakeInsider
 }
 
-// The library's three backends Magic builds hand off (MADR 0210 D1, D11),
-// checked on every OS this compiles for.
+// The library's four backends Magic builds hand off (MADR 0210 D1, D11; MADR
+// 0212 P5), checked on every OS this compiles for.
 var (
 	_ libservice.Detacher = (*systemd.Unit)(nil)
 	_ libservice.Detacher = (*launchd.Job)(nil)
 	_ libservice.Detacher = (*taskscheduler.Task)(nil)
+	_ libservice.Detacher = (*libservice.Supervised)(nil)
 )
 
-// TestDetacherForGatesScriptBackends is MADR 0210 D1, D4, D8 and D11: the
-// handoff is set wherever the backend is a Detacher, Windows' Task Scheduler
-// backend included since go-selfupdate-lib v1.19.0 (#6). Where it is not set,
-// a backend that answers Inside gets the refusal instead.
-func TestDetacherForGatesScriptBackends(t *testing.T) {
+// TestDetacherForGatesBackendsThatCannotHandOff is MADR 0210 D1, D4, D8 and
+// D11: the handoff is set wherever the backend is a Detacher, Windows' Task
+// Scheduler backend included since go-selfupdate-lib v1.19.0 (#6), and the
+// runit, s6 and OpenRC adapter since MADR 0212 P5. Where it is not set, a
+// backend that answers Inside gets the refusal instead.
+func TestDetacherForGatesBackendsThatCannotHandOff(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		backend        any
 		detach, refuse bool
 	}{
-		{"a Detacher (systemd, launchd, Task Scheduler)", &detacherService{}, true, false},
-		{"a script backend", &insiderService{}, false, true},
+		{"a Detacher (systemd, launchd, Task Scheduler, the supervised adapter)", &detacherService{}, true, false},
+		{"a backend that answers Inside and cannot hand off", &insiderService{}, false, true},
 		{"a backend that answers neither", &fakeService{}, false, false},
 	} {
 		if _, ok := detacherFor(tc.backend); ok != tc.detach {
@@ -448,8 +452,8 @@ func TestDetacherForGatesScriptBackends(t *testing.T) {
 // command; nil means none, as where a handoff is set.
 var commandTestInsider insider
 
-// fakeInsider is a backend that answers Inside and cannot hand off, such as
-// the script backends.
+// fakeInsider is a backend that answers Inside and cannot hand off, as Magic's
+// runit, s6 and OpenRC backend did before MADR 0212 P5.
 type fakeInsider struct {
 	inside bool
 	err    error
