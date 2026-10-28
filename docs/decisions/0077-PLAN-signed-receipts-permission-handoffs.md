@@ -13,8 +13,11 @@ Associated MADR: [0077-MADR-signed-receipts-permission-handoffs.md](0077-MADR-si
   three real defects found and fixed with regression tests (statement
   substitution, receipt-waiter hijack, replay re-entry), one test-coverage
   gap closed (phone-side refuse-to-sign rules), and the wire/CLI doc
-  registries brought up to date.
-- **Date**: 2026-08-08
+  registries brought up to date. **Amended 2026-10-27 (§13, P10, done 2026-10-27):**
+  `TestReceiptEndToEndOverRealWS` reads the next frame after
+  `permission.receipt`, and a late `permission_resolved` broadcast can be that
+  frame; P10 reads the reply by its id.
+- **Date**: 2026-08-08; amended 2026-10-27
 - **Scope**: Everything required to take `receipts.enabled: true` from config to a
   durable, verifiable, tamper-evident record of a human's permission decision —
   event/wire plumbing, JWS signing (Go + Dart), the in-toto-style Statement
@@ -983,3 +986,135 @@ Also fixed on the follow-up: the pre-existing `staticcheck` U1000
 — confirmed dead code, both of its responsibilities are handled inline in
 `applySandboxBrokenPolicy` and at config load; removed. `staticcheck ./...`
 is now fully clean.
+
+## 13. Amendment, 2026-10-27 — P10: the receipt test reads its reply by id (~~proposed~~ approved and done 2026-10-27)
+
+*Added 2026-10-27 at the owner's ask: "work on these, fix them both", naming "the pre-existing ws
+test flake". It runs on the owner's approval of this section. It changes a test, and no decision
+of the MADR, so the MADR is not amended.*
+
+### What was found
+
+- **The failure.** `TestReceiptEndToEndOverRealWS` failed once during 0212 P6, with "want ok for
+  permission.receipt, got event payload={"event":{"type":"permission_resolved"…". On the tree
+  before P6 (`5cacbd01`) it failed once in 100 race runs on the Linux test host, with the same
+  message (`go test -race -count=100 -run '^TestReceiptEndToEndOverRealWS$' ./internal/ws/`).
+  [0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md](0212-PLAN-run-runit-s6-and-openrc-through-the-librarys-supervised-adapter.md),
+  "P6, 2026-10-27", records it and leaves it for a record of its own. This is that record.
+- **The cause: the test assumes an order the server does not promise.** Read at `5d1e7e2c`:
+  - `handlePermissionRespond` (`internal/ws/server.go:1610-1623`) hands the answer to the session
+    and writes `ok` at once.
+  - The session's `permission_resolved` event comes back through the manager's event pump, a
+    goroutine of its own (`internal/session/manager.go:1374`, `:1415`). The pump broadcasts it,
+    and its receipt hook sends `permission.receipt_request`.
+  - So that event is not ordered against the `ok` replies on the same connection. Step 5's loop
+    (`receipt_e2e_test.go:250-267`) already tolerates events, but it stops as soon as it has the
+    `ok` and the `receipt_request`. Step 6 then takes the next frame as the reply to
+    `permission.receipt` (`:293-296`). When the broadcast is late, the next frame is that event.
+- **Not the same shape:** `TestSessionHandoffReceiptsEndToEnd` (`handoff_receipt_e2e_test.go`)
+  reads replies by id through its `signingConn` pump already. Its one failure under full-suite
+  load, in
+  [0186-MADR-integrate-current-library-releases-and-prepare-gobble.md](0186-MADR-integrate-current-library-releases-and-prepare-gobble.md),
+  is not this. P10 does not touch it.
+
+### Files
+
+`internal/ws/receipt_e2e_test.go`; this plan.
+
+### Steps
+
+1. **Reproduce first, on a scratch copy of the tree,** never in the working tree. In the copy:
+   - the test's `onEvent` bridge sends `permission_resolved` 50 ms late;
+   - the test waits 200 ms before it writes `permission.receipt`.
+
+   This puts the event between `receipt_request` and the `ok`, the order the Linux run saw. The
+   unchanged test must fail there with the recorded message.
+2. **The fix, test only.** A helper `readReply(ctx, t, conn, id)` reads until the envelope whose
+   id is `id`. It skips `event` broadcasts, as `readUntilType` and step 5 already do, and fails on
+   any other envelope. Step 6 reads the reply to `"4"` through it, and still requires `ok`. No
+   assertion is loosened: the reply must still be `ok`, and the chain must still verify through
+   the built binary.
+3. **Seen to pass where it failed,** and to fail where it must:
+   - the step 1 copy, with the helper: passes;
+   - a second copy that corrupts the JWS: fails ~~with "want ok for permission.receipt, got error
+     …"~~ at the built binary's verify step (corrected 2026-10-27, below);
+   - a third copy whose reply carries another id: the helper fails, rather than skipping a reply
+     it was not waiting for.
+4. **Repeated runs:** `go test -race -count=200 -run '^TestReceiptEndToEndOverRealWS$' ./internal/ws/`
+   on this Mac. On the Linux test host the same, in a scratch copy, on the owner's word for that
+   run.
+5. **Gates,** as 0212's rules for every phase set them: `make pre-add-check FILES=…`,
+   `make test`, `make race`, `go vet` for darwin/arm64, linux/amd64 and windows/amd64,
+   `make check-records`, `make markdownlint-docs`, and the guard's redact preview.
+
+### Acceptance
+
+- The step 1 reproduction fails before the fix and passes after it.
+- All three plants behave as step 3 says.
+- No failure in the repeated runs.
+- The execution record below quotes each of these.
+
+### Execution record
+
+**Approval, 2026-10-27.** The owner answered "Approve both (Recommended)", for this section and
+0212's P8, and "Run it on Linux too (Recommended)" for step 4's Linux run.
+
+**Step 1, the reproduction.** A scratch copy of `HEAD` (`5d1e7e2c`), unplanted, passed: "ok …
+internal/ws 7.922s". With the step's two plants, the unchanged test failed as the Linux run had:
+
+```text
+--- FAIL: TestReceiptEndToEndOverRealWS (0.32s)
+    receipt_e2e_test.go:300: want ok for permission.receipt, got event payload={"event":{"type":"permission_resolved",…,"status":"resolved","permission_id":"perm-e2e-1",…,"option_id":"once"}}
+```
+
+(`:300` is `:296` moved by the plants' added lines.)
+
+**Step 2, the fix,** in `internal/ws/receipt_e2e_test.go`: `readReply`, beside `readUntilType`,
+and step 6 reads the reply to `"4"` through it, with a comment citing this section.
+
+**Step 3, the plants,** each in a scratch copy of `HEAD` with the fixed test:
+
+| Copy | Result |
+| --- | --- |
+| step 1's plants | exit 0, "ok … internal/ws 6.175s" |
+| a reply under id `"5"` | "receipt_e2e_test.go:295: unexpected envelope while waiting for the reply to 4: ok id=5 payload=" |
+| a corrupted JWS | "receipt_e2e_test.go:304: mcremote receipts verify: exit status 1 … BROKEN: device … chain broken at line 1." |
+
+**Correction, 2026-10-27 — step 3's second plant fails at verify, not at the reply.** The plan
+expected the daemon to answer a bad signature with an error. It answers `ok` by design
+(`internal/ws/server.go:1675-1680`: the reply does not leak whether a waiter took the JWS). The
+manager then rejects the signature (`internal/session/manager.go:3067-3071`) and appends a
+daemon-signed receipt-unavailable marker instead (`:3098-3108`, MADR 0077 D8). The test's daemon
+key is in memory only, so the built binary cannot verify that marker against the data
+directory's key, and reports the chain broken. The plant is still caught, by the test's last
+step. The step is annotated above; nothing in the code or the test changed for it.
+
+**Step 4, the repeated runs:**
+
+| Where | Result |
+| --- | --- |
+| this Mac, `go test -race -count=200 -run '^TestReceiptEndToEndOverRealWS$' ./internal/ws/` | exit 0, "ok … internal/ws 388.955s", no "--- FAIL" |
+| the Linux test host, the same in a scratch copy, first try | "panic: test timed out after 10m0s": `go test`'s default timeout, with run 197 two seconds in. The 196 runs before it passed; none printed "--- FAIL". My command lacked a `-timeout` |
+| the Linux test host, again with `-timeout=40m` | exit 0, 645 s, 200 runs, no "--- FAIL". The copy was removed, and its absence checked |
+
+**Step 5, the gates.** The first `make pre-add-check` failed on two new `golang.org/x/net`
+advisories, which no file of this section touches. The owner decided "Bump x/net under 0174
+(Recommended)":
+[0174-PLAN-keep-dependencies-free-of-known-advisories.md](0174-PLAN-keep-dependencies-free-of-known-advisories.md)
+P6, committed on its own first as `71439913`. This section is staged on top. With P6 in the working tree:
+
+| Gate (working tree: 0174 P6, 0077 P10 and 0212 P8) | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (the two test files) | exit 0, "go-precheck: 2 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0 |
+| `go build ./...` | exit 0 |
+| `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `go mod tidy -diff` | exit 0, no diff |
+| `make test` | exit 0, 44 ok |
+| `make race` | exit 0, 44 ok |
+| `go test -race -count=1 ./...` on the Linux test host, in a scratch copy removed afterwards | exit 0, 44 ok |
+| `make check-records` | exit 0 |
+| `make markdownlint-docs` | exit 0, "0 issues" |
+| the guard's redact preview, from the repository root | "would edit 0 file(s)" |
+
+**Files for this commit:** `internal/ws/receipt_e2e_test.go`, this PLAN. P10 is done.

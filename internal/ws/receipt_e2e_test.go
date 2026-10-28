@@ -290,7 +290,9 @@ func TestReceiptEndToEndOverRealWS(t *testing.T) {
 		JWS:          jws,
 	})
 	writeEnv(ctx, t, conn, reply)
-	got = readEnv(ctx, t, conn)
+	// The permission_resolved broadcast is not ordered against the replies,
+	// so it can still be on its way here (MADR 0077 PLAN §13).
+	got = readReply(ctx, t, conn, "4")
 	if got.Type != protocol.TypeOK {
 		t.Fatalf("want ok for permission.receipt, got %s payload=%s", got.Type, string(got.Payload))
 	}
@@ -315,6 +317,26 @@ func readUntilType(ctx context.Context, t *testing.T, conn *websocket.Conn, want
 		}
 	}
 	t.Fatalf("never saw an envelope of type %s", want)
+	return protocol.Envelope{}
+}
+
+// readReply drains envelopes until the reply to the request with the given
+// envelope id, skipping the `event` broadcasts that can arrive before it.
+// Any other envelope fails the test, so a reply to some other request is
+// never skipped as noise.
+func readReply(ctx context.Context, t *testing.T, conn *websocket.Conn, id string) protocol.Envelope {
+	t.Helper()
+	for range 20 {
+		env := readEnv(ctx, t, conn)
+		switch {
+		case env.ID == id:
+			return env
+		case env.Type == protocol.TypeEvent:
+		default:
+			t.Fatalf("unexpected envelope while waiting for the reply to %s: %s id=%s payload=%s", id, env.Type, env.ID, string(env.Payload))
+		}
+	}
+	t.Fatalf("never saw the reply to %s", id)
 	return protocol.Envelope{}
 }
 
