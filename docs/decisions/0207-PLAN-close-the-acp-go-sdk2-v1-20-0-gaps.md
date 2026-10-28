@@ -66,7 +66,8 @@ at `:1165-1180`. Each phase re-reads its lines again at its start.
 **Files:** `go.mod`, `go.sum`; `internal/provider/acpagent/acpagent.go`, `plans.go`,
 `plans_test.go`, `advertise_test.go`, `session.go` (the suppressions only);
 `0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md` (a dated
-amendment naming the exception); this plan.
+amendment naming the exception); this plan. *Added by Deviation 1:* `Makefile` (the `staticcheck`
+target) and `scripts/check_staticcheck_ignored.py` (new).
 
 1. `go get github.com/maccavelli/acp-go-sdk2@v1.25.0`, then `go mod tidy`; a second `tidy` changes
    nothing.
@@ -236,3 +237,127 @@ The owner asked "what is pending in the madr?", and answered two questions:
   records' gates (the sibling plan's U6b record).
 
 The plan is `in-progress`: C4 is done, and C1 to C3 wait for the assessment.
+
+### C0 start, 2026-10-28
+
+The owner committed amendment H and this revision as `f2e5aa43` and answered "committed proceed".
+
+* **Step 1.** `go get github.com/maccavelli/acp-go-sdk2@v1.25.0`: "go: upgraded
+  github.com/maccavelli/acp-go-sdk2 v1.20.0 => v1.25.0". `go mod tidy`, then `go mod tidy -diff`:
+  no diff. `go.mod` 1 line, `go.sum` 2.
+* **Step 2.** `make staticcheck` (`leftovers/c0_staticcheck_before.log`), compared by
+  `leftovers/sa1019_compare.py` with the pin probe's log: "58 distinct SA1019 uses (23 outside
+  tests, 35 in tests); other findings: 0", the same set as H-2's, on 37 distinct lines. No
+  deviation.
+
+### C0 Deviation 1, 2026-10-28 — a file-wide ignore hides every SA1019 in its file. The owner decided: "File-wide + gate (Recommended)"
+
+* **What was found,** before step 3, on scratch copies of the working tree
+  (`leftovers/c0_directive_probe.py`), each with a planted `strings.Title` in `plans.go`:
+  * `//lint:file-ignore SA1019` at the top of `plans.go`: the planted use was **not** reported;
+    staticcheck said only "func plantedTitle is unused (U1000)";
+  * `//lint:ignore SA1019` above `plans.go:21` alone: that one line was silenced, and
+    "strings.Title has been deprecated since Go 1.18 …" was still reported.
+
+  So D45's file-wide form in `plans.go` and `plans_test.go`, and its rule that a planted use of
+  another deprecated name there still fails, could not both hold. Step 4's first plant would have
+  passed.
+* **What makes a gate possible.** `staticcheck -show-ignored -f json` reports each ignored
+  finding with `"severity": "ignored"` and its full message
+  (`leftovers/c0_showignored_probe.py`): the planted `strings.Title` came back as
+  `{"code": "SA1019", "severity": "ignored", … "strings.Title has been deprecated …"}`.
+* **Offered:** file-wide plus a gate (recommended); line directives only, 37 of them, within C0's
+  files; or both.
+* **Decided:** file-wide plus a gate. `make staticcheck` runs, for each GOOS, a new
+  `scripts/check_staticcheck_ignored.py` after staticcheck. It fails on:
+  * any ignored finding other than SA1019 on an `acp-go-sdk2` declaration carrying the
+    unstable-schema notice;
+  * any `//lint:ignore` or `//lint:file-ignore` in a tracked Go file whose checks are not exactly
+    `SA1019`, or whose reason does not name "0207 amendment H".
+* **Files added to C0:** `Makefile` and `scripts/check_staticcheck_ignored.py`. CI's step runs
+  `make staticcheck` on Ubuntu, where `python3` is present, so `ci.yml` is unchanged. Python's
+  ignore rules are already in `.gitignore` (0174 P4).
+* **Step 4 grows:** the gate is seen failing on the plants, and on a directive with a wrong check
+  or reason. The MADR's D45 has a dated note.
+
+### C0 Deviation 2, 2026-10-28 — the Linux race gate fails on a race older than C0. The owner decided: "Fix under 0208, first (Recommended)"
+
+* **What was found.** Step 6's `go test -race ./...` on the Linux test host (a scratch copy of the
+  C0 tree) failed: "WARNING: DATA RACE", "--- FAIL: TestSilentCommandIsMarked (0.08s)". The
+  write is `closechan` in the fake session's `Close` (`internal/session/silent_test.go:95`, called
+  from the test's cleanup through `Manager.CloseAll`). The read is the `chansend` of its `Prompt`
+  goroutine (`:85`).
+* **It is not C0's.**
+  * The fake never touches `acp-go-sdk2`, and C0 changes nothing it uses.
+  * On the Linux test host (`leftovers/silent_race_linux.py`, 300 `-race` runs of the one test):
+    * at `f2e5aa43`, before C0: one failure, the same race with the same frames;
+    * on the C0 tree: the same race once, plus one "silent_test.go:203: timed out waiting for
+      /quiet turn", not seen at `f2e5aa43`.
+* **Decided:** the race is fixed under
+  [0208-PLAN-make-the-provider-layer-agent-neutral.md](0208-PLAN-make-the-provider-layer-agent-neutral.md),
+  whose P4a wrote the fake, as its new P4c. It is staged and committed before C0, as 0174 P6 was
+  before 0077's P10. P4c's repeated runs also show whether the timeout is a separate fault. C0's
+  files are unchanged, and its Linux race gate runs again on top of P4c.
+
+### C0, 2026-10-28: the pin and the unstable-name exception, steps 3 to 6
+
+0208's P4c was committed as `7abe6956` ("committed proceed"), and C0's gates ran again on top of
+it.
+
+**Step 3, the directives,** each reason naming its feature MADR and "0207 amendment H":
+
+| File | Form | Lines |
+| :--- | :--- | :--- |
+| `plans.go` | `//lint:file-ignore SA1019`, after the package clause | its 11 |
+| `plans_test.go` | `//lint:file-ignore SA1019`, after the package clause | its 17 |
+| `acpagent.go` | `//lint:ignore SA1019` | the `Plan` advertisement |
+| `session.go` | `//lint:ignore SA1019`, one per line | the 4 plan dispatch lines; the 3 subagent declines, which C1 deletes |
+| `advertise_test.go` | `//lint:ignore SA1019` | the `subagents` example |
+
+* A line directive covers only the line after it, so each case line and each call line has its
+  own.
+* The gate, `scripts/check_staticcheck_ignored.py` (Deviation 1), is run by `make staticcheck`
+  after each GOOS pass. It prints, for linux, darwin and windows: "check_staticcheck_ignored: 58
+  ignored finding(s), each an acp-go-sdk2 unstable-schema name". That is H-2's 58, every one now
+  ignored and none left reported.
+
+**Step 4, seen to fail** (`leftovers/c0_plants.py`). Each plant was in a scratch copy of the
+working tree, made a git tree, through `make staticcheck`:
+
+| Plant | `make staticcheck` | The line |
+| :--- | :--- | :--- |
+| `strings.Title` inside the file-wide-ignored `plans.go` | exit 2 | "ignored finding outside MADR 0207 amendment H (D45): …plans.go:83: ignored SA1019: strings.Title has been deprecated …". staticcheck itself reported nothing; the gate alone caught it |
+| `strings.Title` in `acpagent.go`, beside the line-ignored `Plan` | exit 2 | "acpagent.go:1100:6: strings.Title has been deprecated …", from staticcheck |
+| `//lint:ignore SA1019 … 0207 amendment H` over `strings.Title` in `session.go` | exit 2 | "ignored finding outside … session.go:2602: ignored SA1019: strings.Title …" |
+| `//lint:ignore U1000 … 0207 amendment H` | exit 2 | "lint directive outside MADR 0207 amendment H (D45): …plans.go:61: //lint:ignore U1000 …" |
+| a directive whose reason drops "0207 amendment H" | exit 2 | "lint directive outside … session.go:2074: //lint:ignore SA1019 declines …" |
+| none (the control) | exit 0 | "58 ignored finding(s), each an acp-go-sdk2 unstable-schema name" |
+
+* **The first plant needed a second try.** My first version used `strings` in `plans.go` without
+  importing it, and failed for that: "undefined: strings (compile)". With the import it failed as
+  listed.
+
+**Step 5.**
+[0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md)
+has its amendment of 2026-10-28, F15 and D5 amended, with a pointer from D5's own line. The MADR's
+D45 has Deviation 1's note.
+
+**Step 6, the gates,** on the tree that will be committed, with `7abe6956` beneath it:
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES=…` (the five Go files) | "5 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0, the gate's line for each of the three GOOS |
+| `go build ./...`; `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `go mod tidy -diff` | exit 0, no diff |
+| the workflow pin tests | ok |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `go test -race -count=1 ./...` on the Linux test host, in a scratch copy removed afterwards | exit 0; 44 packages ok. The run before P4c failed (Deviation 2) |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+| the guard's redact preview | "would edit 0 file(s)" |
+
+**Files for this commit:** `go.mod`, `go.sum`, `Makefile`, `scripts/check_staticcheck_ignored.py`,
+the five `internal/provider/acpagent` files above, the 0170 MADR, the 0207 MADR, this plan.
+
+**C0 is done** once the owner commits it. Next by this plan: C1, then C1b and C2. C3's live run
+waits for the owner's word.

@@ -65,6 +65,7 @@ func TestCapabilityHonesty(t *testing.T) {
 		"elicitation.url": {Elicitation: &acp.ElicitationCapabilities{Url: &acp.ElicitationUrlCapabilities{}}},
 		"auth.terminal":   {Auth: acp.AuthCapabilities{Terminal: true}},
 		// Deferred until an engine Magic runs sends it (MADR 0195 S1).
+		//lint:ignore SA1019 the unstable ACP schema's subagent capability, as an example (MADR 0195); 0207 amendment H
 		"subagents": {Subagents: &acp.SubagentCapabilities{}},
 	}
 	for name, c := range dishonest {

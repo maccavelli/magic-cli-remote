@@ -1,5 +1,7 @@
 package acpagent
 
+//lint:file-ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
+
 import (
 	"encoding/json"
 	"reflect"

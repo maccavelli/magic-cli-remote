@@ -1107,6 +1107,7 @@ func defaultClientCapabilities() acp.ClientCapabilities {
 		},
 		Elicitation: &acp.ElicitationCapabilities{Form: &acp.ElicitationFormCapabilities{}},
 		// UNSTABLE in ACP: may change in an SDK bump, which the plan tests pin.
+		//lint:ignore SA1019 advertises the unstable ACP schema's plan capability (MADR 0192); 0207 amendment H
 		Plan: &acp.PlanCapabilities{},
 	}
 }

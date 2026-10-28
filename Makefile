@@ -613,11 +613,14 @@ $(STATICCHECK_BIN):
 	mv -f "$(STATICCHECK_STEM).d/staticcheck$(if $(filter windows,$(HOST_GOOS)),.exe,)" "$@"
 	rm -rf "$(STATICCHECK_STEM).d"
 
+# Each GOOS pass is followed by the ignore-directive bound: the only ignore allowed
+# is SA1019 on acp-go-sdk2's unstable-schema names (MADR 0207 amendment H, D45).
 staticcheck: $(STATICCHECK_BIN)
 	@set -e; rc=0; \
 	for goos in linux darwin windows; do \
 		echo "staticcheck $(STATICCHECK_VERSION) GOOS=$$goos"; \
 		GOOS=$$goos CGO_ENABLED=0 ./$(STATICCHECK_BIN) ./... || rc=1; \
+		GOOS=$$goos CGO_ENABLED=0 python3 scripts/check_staticcheck_ignored.py ./$(STATICCHECK_BIN) || rc=1; \
 	done; \
 	exit $$rc
 

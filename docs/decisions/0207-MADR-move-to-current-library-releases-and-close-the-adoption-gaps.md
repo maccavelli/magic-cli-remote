@@ -1874,6 +1874,12 @@ D47, for what the five releases add.
       is the unstable plan;
     * no `staticcheck.conf`, and no other check or deprecation suppressed.
   * A planted use of any other deprecated name in those files must still fail `make staticcheck`.
+  * *Amended 2026-10-28, the SDK-gaps plan's C0 Deviation 1, decided by the owner ("File-wide +
+    gate (Recommended)"):* a file-wide `//lint:file-ignore SA1019` hides *every* SA1019 in its
+    file, so the bullet above could not hold by the directive alone. `make staticcheck` also runs
+    `staticcheck -show-ignored -f json` and fails on any ignored finding that is not SA1019 with
+    the unstable-schema notice on an `acp-go-sdk2` declaration, and on any directive whose reason
+    does not name this amendment. That bounds every directive, line or file.
   * The alternatives:
     * **`v1.22.0`,** the newest tag without the notices. It has H-5's fixes and most of H-6. It
       lacks `LineTap`, `ExitedFirst` and everything in H-7, and stays one minor version from where

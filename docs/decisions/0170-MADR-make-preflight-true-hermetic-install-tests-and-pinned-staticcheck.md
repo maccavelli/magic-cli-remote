@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-09-24
+date: 2026-10-28
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -200,6 +200,7 @@ each fix covered by a gate that actually runs.
     `maxCommandLineBatch` moves to `launch_windows.go`.
   - **SA1019:** replaced as in F9.
   - No `staticcheck.conf`, no `//lint:ignore`, and no check removed from preflight.
+    *One exception since 2026-10-28; see the amendment of that date.*
 - **D6 — The store-reality explanation is wired, not deleted (F8).** `describeReality` becomes
   the exported `DescribeReality`. `mcremote doctor`'s codex entry prints the observed store and,
   for a store mcremote cannot protect, the explanation. It reads no values and names no
@@ -350,3 +351,36 @@ For this record:
 - **D4–D6** are unchanged.
 
 The text above stays as written: it records the decision as it was made. Where it and 0054 differ, 0054 governs.
+
+## Amendment — 2026-10-28: one exception to D5, for `acp-go-sdk2`'s unstable-schema names
+
+[0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md),
+amendment H, D45, decided by the owner on 2026-10-28.
+
+**F15 — some SA1019 findings have no replacement.** From `acp-go-sdk2 v1.23.0`, every
+declaration the SDK took from ACP's *unstable* schema is marked deprecated with "this declaration
+comes from the unstable ACP schema; it stays under v1 for compatibility only". The names are frozen
+and still work, and the SDK offers no other name for them. Pinning `v1.25.0` gave 58 SA1019 uses
+on 37 lines of `internal/provider/acpagent`: the identified plans of
+[0192-MADR-show-an-agents-identified-plans-on-the-phone.md](0192-MADR-show-an-agents-identified-plans-on-the-phone.md),
+their capability, and the subagent declines of
+[0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md).
+D5's rule rested on F9, that each SA1019 finding then had a direct replacement. These have none.
+
+**D5, amended:** D5 stands, with one exception.
+
+- **What may be ignored.** A use of an `acp-go-sdk2` declaration whose deprecation is that
+  unstable-schema notice may carry `//lint:ignore SA1019` or `//lint:file-ignore SA1019`. Its reason
+  names the feature's MADR and "0207 amendment H".
+- **File-wide** only where the file's subject is the unstable feature: today `plans.go` and
+  `plans_test.go`.
+- **The bound is checked, not trusted.** A file-wide directive hides every SA1019 in its file, so
+  `make staticcheck` also runs `scripts/check_staticcheck_ignored.py` for each GOOS. It fails on:
+  - a directive for any check but SA1019, or whose reason does not name the amendment;
+  - any ignored finding that is not SA1019 on an `acp-go-sdk2` declaration carrying the notice.
+
+  It reads `staticcheck -show-ignored -f json`
+  ([0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md](0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md),
+  C0 Deviation 1).
+- **Still no `staticcheck.conf`,** and no other check or deprecation is suppressed.
+- When the SDK gives these features stable names, or drops them, their directives go.

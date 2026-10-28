@@ -1957,10 +1957,14 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 			Timestamp: now,
 			Entries:   acpcommon.PlanEntries(u.Plan.Entries),
 		})
+	//lint:ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
 	case u.PlanUpdate != nil:
+		//lint:ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
 		s.onPlanUpdate(u.PlanUpdate, now)
+	//lint:ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
 	case u.PlanRemoved != nil:
 		// Removes one identified plan, never the stable plan (MADR 0192 D2).
+		//lint:ignore SA1019 identified plans are the unstable ACP schema's plan_update (MADR 0192); 0207 amendment H
 		s.onPlanRemoved(u.PlanRemoved, now)
 	case u.UsageUpdate != nil:
 		// Token/context report → advisory usage event (droppable telemetry).
@@ -2067,10 +2071,13 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 		s.onCompactionUpdate(u.CompactionUpdate, now)
 	case u.CompactionSummaryChunk != nil:
 		s.onCompactionChunk(u.CompactionSummaryChunk, now)
+	//lint:ignore SA1019 declines the unstable ACP schema's subagent variants until C1 removes it (MADR 0195); 0207 amendment H
 	case u.SubagentUpdate != nil:
 		s.declineUpdate("subagent_update")
+	//lint:ignore SA1019 declines the unstable ACP schema's subagent variants until C1 removes it (MADR 0195); 0207 amendment H
 	case u.SessionMessage != nil:
 		s.declineUpdate("session_message")
+	//lint:ignore SA1019 declines the unstable ACP schema's subagent variants until C1 removes it (MADR 0195); 0207 amendment H
 	case u.SessionMessageChunk != nil:
 		s.declineUpdate("session_message_chunk")
 	case u.Unknown != nil:
