@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -105,42 +104,27 @@ func TestExtensionCallsFailClosedOnAClosedSession(t *testing.T) {
 	}
 }
 
+// acp.IsMethodNotFound replaced Magic's own reader (MADR 0207 amendment H, H-6); this pins
+// the two meanings Magic relies on.
 func TestIsMethodNotFoundReadsTheJSONRPCCode(t *testing.T) {
 	// grok publishes no list of its seventy ext methods, so "unsupported" can
 	// only be answered by calling and reading -32601. Mistaking any other
 	// failure for it would silently hide a real error as a missing feature.
-	if !isMethodNotFound(acp.NewMethodNotFound("_x.ai/nope")) {
+	if !acp.IsMethodNotFound(acp.NewMethodNotFound("_x.ai/nope")) {
 		t.Fatal("-32601 must read as method-not-found")
 	}
-	if isMethodNotFound(errors.New("connection reset")) {
+	if acp.IsMethodNotFound(errors.New("connection reset")) {
 		t.Fatal("a transport failure is not a missing method")
 	}
-	if isMethodNotFound(&acp.RequestError{Code: -32602, Message: "Invalid params"}) {
+	if acp.IsMethodNotFound(&acp.RequestError{Code: -32602, Message: "Invalid params"}) {
 		t.Fatal("invalid params is not a missing method")
 	}
 	// The SDK refusing to send an unadvertised method means the same thing
 	// (MADR 0184 D5); a refused property or variant does not.
-	if !isMethodNotFound(&acp.CapabilityError{Method: "session/delete", Capability: "sessionCapabilities.delete"}) {
+	if !acp.IsMethodNotFound(&acp.CapabilityError{Method: "session/delete", Capability: "sessionCapabilities.delete"}) {
 		t.Fatal("an unadvertised method must read as method-not-found")
 	}
-	if isMethodNotFound(&acp.CapabilityError{Method: "session/prompt", Capability: "promptCapabilities.image", Variant: "image"}) {
+	if acp.IsMethodNotFound(&acp.CapabilityError{Method: "session/prompt", Capability: "promptCapabilities.image", Variant: "image"}) {
 		t.Fatal("a refused variant is not a missing method")
-	}
-}
-
-func TestParseACPTimeNeverInventsATimestamp(t *testing.T) {
-	// An unknown timestamp went on the wire as year 1 once, and the session
-	// picker rendered it as an age of about two thousand years (MADR 0046 L-13).
-	if got := parseACPTime(nil); !got.IsZero() {
-		t.Fatalf("nil = %v, want the zero time", got)
-	}
-	bad := "not a time"
-	if got := parseACPTime(&bad); !got.IsZero() {
-		t.Fatalf("unparseable = %v, want the zero time", got)
-	}
-	good := "2026-09-04T04:44:41Z"
-	got := parseACPTime(&good)
-	if got.IsZero() || got.Year() != 2026 || got.Location() != time.UTC {
-		t.Fatalf("parsed = %v, want 2026 in UTC", got)
 	}
 }

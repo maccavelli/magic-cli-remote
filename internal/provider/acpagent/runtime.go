@@ -331,19 +331,10 @@ func unavailableReason(err error) string {
 	switch {
 	case errors.Is(err, provider.ErrNotImplemented):
 		return "this grok build does not have the method."
-	case isAuthRequired(err):
+	case acp.IsAuthRequired(err):
 		return "it requires grok.com authentication (run `grok login`); " +
 			"an API-key install cannot read it."
 	default:
 		return sanitizeUserFacingErr(err)
 	}
-}
-
-// isAuthRequired reports whether err is ACP's -32000 "Authentication required",
-// which is what grok's require_xai_auth gate returns.
-func isAuthRequired(err error) bool {
-	if re, ok := errors.AsType[*acp.RequestError](err); ok {
-		return re.Code == -32000
-	}
-	return false
 }

@@ -96,7 +96,9 @@ As written above, at the moved lines. Steps 1 and 2 gain:
 
 **Files:** `internal/provider/acpagent/session.go`, `session_meta.go`, `sessioncaps.go`,
 `runtime.go`, `compaction.go`; `internal/provider/grok/fallback.go`; `internal/wirecap/wirecap.go`
-(or wherever `tapWriter` lives, measured first); their tests; this plan.
+(or wherever `tapWriter` lives, measured first); their tests; this plan. ~~*Added by Deviation 1:*
+`internal/provider/acpagent/acpagent.go` (the exit watcher).~~ *Withdrawn by Deviation 2:* C1b leaves
+`acpagent.go` as C1 left it.
 
 1. **Tests first,** each seen failing on a scratch copy:
    * an option named "Don't allow" of kind `reject_once`, listed first, is not auto-selected;
@@ -437,3 +439,133 @@ but not which side, or what to do.
 `conformance_test.go` (new), `protocolvalues_test.go` (new); this plan.
 
 **C1 is done** once the owner commits it. Next: C1b, then C2.
+
+### C1b Deviation 1, 2026-10-28 — `ExitedFirst` needs the exit watcher. The owner decided: "Adopt it, add acpagent.go (Recommended)"
+
+The owner committed C1 as `d4a45c4d` and answered "committed, proceed".
+
+* **What was found,** measuring C1b's sites at `d4a45c4d` before any change. H-6 lists
+  `Process.ExitedFirst` as a replacement for the 500 ms `exitPreference` timer in
+  `watchConnClose` (`session.go:1287-1327`). It is not like for like. Read in `agentproc` at
+  `v1.25.0`:
+  * `ExitedFirst` "is false until Wait has returned, and final from then on" (`agentproc.go:367-381`);
+  * when the connection ends while the agent runs, `monitor` stops the agent (`:302-310`), so
+    `Wait` returns only after that stop, within the grace, `agentGrace`, 2 s;
+  * so a `watchConnClose` that waited on `Wait` would race the exit watcher
+    (`acpagent.go:598-613`), which returns from `Wait` at the same moment and reports "process
+    exited". The message would depend on which ran first.
+* **Offered:** adopt it, with the exit watcher deciding the message, which needs `acpagent.go`
+  (recommended); or keep the timer and move `ExitedFirst` to D47's list.
+* **Decided:** adopt it.
+  * The exit watcher, after `Wait`, reports once: "process exited …" when `ExitedFirst`, and
+    "agent connection lost: …" with `Conn().Err()` otherwise.
+  * `watchConnClose` stays only for a session with no process, as in the wire tests.
+  * `exitPreference` goes.
+  * A connection lost while the agent lives is reported once `agentproc` has stopped the agent,
+    up to 2 s later than today's 500 ms.
+* **Files added to C1b:** `internal/provider/acpagent/acpagent.go`. The MADR's H-6 row has a
+  dated correction.
+
+### C1b Deviation 2, 2026-10-28 — `ExitedFirst` misreports an agent's death. The owner decided: "Withdraw it; keep the timer (Recommended)"
+
+* **What was found.** With Deviation 1's change in the working tree (the exit watcher choosing
+  "process exited" or "agent connection lost" from `ExitedFirst`), the existing
+  `TestSpawnedAgentDeathIsOneDisconnect` (`agentproc_test.go:242`), which kills the agent from
+  outside, failed: "the agent's death was reported as \"testagent agent connection lost: acp: peer
+  disconnected: peer connection closed\"; want its exit status from the exit watcher". Run 30
+  times, it failed 25.
+* **Why.** An agent's death closes its output, and the connection's end is usually recorded
+  before `agentproc`'s watch sees the exit. Then `ExitedFirst` is false, the case it gives a lost
+  connection. `agentproc`'s own documentation says the two ends "can come together, and either can
+  be seen first". This is the ordering 0207 PLAN S4 Deviation 1 measured (28 of 30 runs), and it
+  is why the 500 ms timer exists.
+* **Offered:** withdraw it and keep the timer (recommended); the same, plus an `acp-go-sdk2`
+  issue; or investigate combining `ExitedFirst` with `Wait`'s error.
+* **Decided:** withdrawn. The edits were undone by their exact inverse
+  (`leftovers/c1b_undo_exitedfirst.py`), not a checkout. `git diff --stat HEAD` then showed
+  nothing for `acpagent.go` or `agentproc_test.go`; `exitPreference` and `watchConnClose` are as
+  they were. The three touched packages then passed under `-race`.
+* **Records.** The MADR's H-6 row carries this correction, D46 a note, and D47 gains
+  `ExitedFirst`. No SDK issue was filed; the owner did not choose that option.
+
+### C1b, 2026-10-28: the helpers that fix and replace (D46)
+
+**Step 1, the tests** (`sdkhelpers_test.go`, new):
+
+| Test | What it holds |
+| :--- | :--- |
+| `TestAutoApprovalPicksByKindOnly` | six option sets. A reject named "Don't allow" is never chosen; `allow_once` is chosen before `allow_always`, in either order; with no allow kind the answer is cancelled (question 14). The sweep's `pickAllowOptionID` agrees on every set |
+| `TestBlockKindNamesAnUnknownVariant` | a block of an unknown kind is named by its own discriminator ("video"), an empty one "unknown" |
+| `TestPromptCancelledIsBenign` | `acp.ErrPromptCancelled` is benign, as `-32800` and a deadline stay |
+| `TestListAgentSessionsStopsAtAnyRepeatedCursor` | an agent whose third page sends the first page's cursor is listed once, s1 to s3, and the listing stops |
+| `TestAgentSessionMetaReadsTheTimeOrNone` | an `updatedAt` absent, not a time, or with spaces around it is the zero time; an RFC 3339 one is kept, in UTC |
+
+The existing tests of the helpers that went now name the SDK's: `TestIsMethodNotFoundReadsTheJSONRPCCode`
+(`acp.IsMethodNotFound`, with both meanings Magic relies on), `runtime_test.go` and
+`live_runtime_test.go` (`acp.IsAuthRequired`). `TestParseACPTimeNeverInventsATimestamp` is replaced
+by `TestAgentSessionMetaReadsTheTimeOrNone`. `wirecap`'s `TestTapFramesLinesAcrossWrites` and
+`TestTapDoesNotRetainTheCallersSlice` hold the tap unchanged.
+
+**Step 2, the code:**
+
+* `autoAllow` and `pickAllowOptionID` use `acp.PickPermissionOption` over `allow_once`, then
+  `allow_always`, and answer cancelled, or "" for the sweep, which cancels, when neither is offered.
+* `selectOption` reads `acp.ConfigOptionByCategory`.
+* `acp.IsMethodNotFound`, `acp.IsAuthRequired` and `acp.MetaObject` replace `isMethodNotFound`,
+  `isAuthRequired` and grok's `metaObject`, which are deleted.
+* `isBenignPromptErr` asks `acp.IsCancelled` first, then a deadline, then its string fallback.
+* `blockKind` is `ContentBlock.Kind()`, or "unknown" for an empty block. The unknown session
+  update is declined as "unknown:" + `SessionUpdate.Kind()`.
+* `ListAgentSessions` ranges over `acp.AllSessions` and stops, with a warning, on
+  `acp.ErrRepeatedCursor`. The 20-page cap went; `extCallTimeout` bounds the call. `parseACPTime`
+  went, for `agentSessionMeta`, which reads `SessionInfo.Updated()`.
+* `wirecap.Capture.Tap` is `agentproc.LineTap(c.Frame)`; `tapWriter` and `lines` went.
+* **Not** `Process.ExitedFirst` (Deviations 1 and 2).
+
+**The behaviour that changed,** each pinned by its test:
+
+* auto-approval and the sweep, by kind and failing closed;
+* a compaction block of an unknown kind declined by its own name;
+* `acp.ErrPromptCancelled` benign;
+* a listing that repeats any earlier cursor stopped, where the old loop listed its sessions again
+  to the page cap;
+* an `updatedAt` with spaces around it read as no time;
+* an unknown session update with no discriminator declined as "unknown:unknown", where it was
+  "unknown:". No test pins that edge.
+
+**Seen failing** (`leftovers/c1b_plants.py`). Each plant put the old code back in a scratch copy
+of the working tree, taken from `leftovers/c1b_code.py`'s own pairs:
+
+| Plant | The failure |
+| :--- | :--- |
+| the old `autoAllow` | "auto-approval chose \"no\", want \"yes\"", "… \"always\", want \"once\"", "… \"no\", want \"\"" |
+| the old `blockKind` | "blockKind = \"unknown\", want \"video\"" |
+| the old `isBenignPromptErr` | "acp.ErrPromptCancelled must be benign" |
+| the old paging loop | "sessions = [s1 s2 s3 s2 s3 … s2], want s1, s2 and s3, each once": twenty pages |
+| the time trimmed, as `parseACPTime` did | "--- FAIL: TestAgentSessionMetaReadsTheTimeOrNone/spaces_around_it" |
+| none (the control) | exit 0 |
+
+* **Two plant scripts of mine needed a second try.**
+  * The first run of the plant script re-executed `c1b_code.py` with that script's own `sub`, not
+    the capturing one. Its first assert stopped it before any write; `git status` showed the tree
+    unchanged.
+  * The paging plant first restored too much: the old loop without `agentSessionMeta`, which the
+    test calls. It was narrowed to the loop alone.
+
+**Step 3, the gates:**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES=…` (the eleven Go files) | "11 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0; the gate: "55 ignored finding(s) …" |
+| `go build ./...`; `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64; `go vet -tags live_grok` for `acpagent`, `grok`, `session` | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `go test -race -count=1 ./...` on the Linux test host, in a scratch copy removed afterwards | exit 0; 44 packages ok |
+| `make check-records`, `make markdownlint-docs`; the guard's redact preview | exit 0; "0 issues"; "would edit 0 file(s)" |
+
+**Files for this commit:** `internal/provider/acpagent/session.go`, `session_meta.go`,
+`sessioncaps.go`, `runtime.go`, `compaction.go`, `sdkhelpers_test.go` (new), `sessioncaps_test.go`,
+`runtime_test.go`, `live_runtime_test.go`; `internal/provider/grok/fallback.go`;
+`internal/wirecap/wirecap.go`; the 0207 MADR; this plan.
+
+**C1b is done** once the owner commits it. Next: C2, per-turn token usage (D25).

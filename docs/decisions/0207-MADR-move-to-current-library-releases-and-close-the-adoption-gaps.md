@@ -1827,7 +1827,7 @@ D47, for what the five releases add.
   | `ContentBlock.Kind()`, `SessionUpdate.Kind()` | `blockKind`, `compaction.go:89-102`, and the hand decode at `session.go:2076-2081`. An unknown variant's decline names its discriminator, where Magic says "unknown" |
   | `AllSessions`, `SessionInfo.Updated` | the paging loop and `parseACPTime`, `sessioncaps.go:76-104`, `:207-216`. `AllSessions` catches any repeated cursor, not only the last; Magic's 20-page cap would move to the context |
   | `agentproc.LineTap` | `wirecap`'s `tapWriter`, `wirecap.go:181-209` |
-  | `Process.ExitedFirst` | the 500 ms `exitPreference` timer, `session.go:1304`, `:1331-1339` |
+  | `Process.ExitedFirst` | the 500 ms `exitPreference` timer, `session.go:1304`, `:1331-1339`. *Corrected 2026-10-28 (the SDK-gaps PLAN's C1b Deviation 1): not like for like. It is final only once `Wait` returns, after `agentproc` has stopped an agent whose connection ended first, so the exit watcher decides the message, and a lost connection is reported up to the 2 s grace later. Corrected again the same day (C1b Deviation 2): withdrawn. An agent's death closes its output, so the connection's end is usually seen first, and `ExitedFirst` is false for most real deaths: 25 of 30 runs of `TestSpawnedAgentDeathIsOneDisconnect` reported a killed agent as a lost connection. The timer stays; `ExitedFirst` moves to D47* |
 
 * **H-7. Larger adoptions that change behaviour, each needing its own decision:**
   * `clienthost.Files` would serve `fs/*` and answer a missing file `-32002`. It refuses `line` 0,
@@ -1897,9 +1897,12 @@ D47, for what the five releases add.
     it answers cancelled, rather than taking the first option. The proposal is to fail closed.
   * H-6's rows, each with a test of the behaviour it keeps or changes.
   * Not grouped select values, which 0208's P7 carries (H-5).
+  * *Amended 2026-10-28, the SDK-gaps PLAN's C1b Deviation 2:* not `Process.ExitedFirst`, which joins D47.
 * **D47 — H-7 is not decided here.** `clienthost`, elicitation's `Check`, the timelines,
   `ExtensionMux` and `acptest` each change behaviour Magic chose (H-7), and each takes its own
   MADR when wanted. This is D28's rule, applied to the new releases.
+  * *Added 2026-10-28 (C1b Deviation 2):* `Process.ExitedFirst`. It cannot tell an agent's own death from a
+    lost connection when the death closes the agent's output first, which is the common case.
 * **D12 and gobble (question 15).** Proposed: Magic moves first, with this amendment's gates. gobble
   follows in its own repository, where H-3 meets its staticcheck. D12 does not hold until it does,
   as on 2026-10-21.

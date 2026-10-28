@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
@@ -99,7 +100,7 @@ func harvestSessionMeta(meta map[string]any) (model, effort string) {
 }
 
 func appliedModelFromMeta(meta map[string]any) string {
-	if det := metaObject(meta, "x.ai/sessionDetail"); det != nil {
+	if det := acp.MetaObject(meta, "x.ai/sessionDetail"); det != nil {
 		if id, _ := det["currentModelId"].(string); id != "" {
 			return id
 		}
@@ -112,7 +113,7 @@ func appliedEffortFromMeta(meta map[string]any) string {
 }
 
 func selectedConfigID(meta map[string]any, category string) string {
-	cfg := metaObject(meta, "x.ai/sessionConfig")
+	cfg := acp.MetaObject(meta, "x.ai/sessionConfig")
 	if cfg == nil {
 		return ""
 	}
@@ -132,13 +133,4 @@ func selectedConfigID(meta map[string]any, category string) string {
 		}
 	}
 	return ""
-}
-
-// metaObject returns parent[key] as an object, or nil.
-func metaObject(parent map[string]any, key string) map[string]any {
-	if parent == nil {
-		return nil
-	}
-	m, _ := parent[key].(map[string]any)
-	return m
 }

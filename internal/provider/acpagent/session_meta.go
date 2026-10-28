@@ -71,10 +71,9 @@ func (s *session) recordConfigOptions(opts []acp.SessionConfigOption) (model, ef
 // selectOption returns the id and current value of the first select config
 // option in category, and false when opts has none.
 func selectOption(opts []acp.SessionConfigOption, category acp.SessionConfigOptionCategory) (id, current string, ok bool) {
-	for _, o := range opts {
-		if o.Select != nil && o.Select.Category != nil && *o.Select.Category == category {
-			return string(o.Select.Id), string(o.Select.CurrentValue), true
-		}
+	sel, ok := acp.ConfigOptionByCategory(opts, category)
+	if !ok {
+		return "", "", false
 	}
-	return "", "", false
+	return string(sel.Id), string(sel.CurrentValue), true
 }

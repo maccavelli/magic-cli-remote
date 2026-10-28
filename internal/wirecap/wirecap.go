@@ -26,12 +26,13 @@
 package wirecap
 
 import (
-	"bytes"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/maccavelli/acp-go-sdk2/agentproc"
 )
 
 // EnvDir names the directory to write fixtures into. Unset disables capture
@@ -172,36 +173,9 @@ func (c *Capture) Tap() io.Writer {
 	if c == nil {
 		return nil
 	}
-	return &tapWriter{lines: lines{cap: c}}
-}
-
-// tapWriter is the writer Tap returns. It is written from one goroutine, as
-// agentproc writes a tap. Write always reports success: the capture is
-// best-effort, and agentproc ignores a tap's error.
-type tapWriter struct{ lines lines }
-
-func (w *tapWriter) Write(p []byte) (int, error) {
-	w.lines.add(p)
-	return len(p), nil
-}
-
-// lines splits a stream into newline-terminated frames. It copies what it
-// holds, so the caller's slice is never retained (agentproc: a tap "must not
-// retain p"). A last line with no newline is held, and written only once its
-// newline arrives.
-type lines struct {
-	cap *Capture
-	buf []byte
-}
-
-func (l *lines) add(p []byte) {
-	l.buf = append(l.buf, p...)
-	for {
-		i := bytes.IndexByte(l.buf, '\n')
-		if i < 0 {
-			return
-		}
-		l.cap.Frame(l.buf[:i])
-		l.buf = l.buf[i+1:]
-	}
+	// agentproc.LineTap splits the stream into newline-terminated frames, each a
+	// copy, so the caller's slice is never retained; a last line with no newline
+	// is held, and written only once its newline arrives. It never fails: the
+	// capture is best-effort (MADR 0207 amendment H, H-6).
+	return agentproc.LineTap(c.Frame)
 }

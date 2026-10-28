@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
@@ -146,7 +147,7 @@ func TestLiveGrokBillingDecodesStrictly(t *testing.T) {
 				"drifted from the installed binary: %v", decErr)
 		}
 		t.Logf("OUTCOME: authenticated. /status would show: %s", formatBilling(res))
-	case isAuthRequired(err):
+	case acp.IsAuthRequired(err):
 		t.Logf("OUTCOME: this install cannot read billing (ACP -32000): %v", err)
 		msg, statusErr := s.RuntimeStatus(ctx)
 		if statusErr != nil {

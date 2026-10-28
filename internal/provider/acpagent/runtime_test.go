@@ -223,13 +223,13 @@ func TestUnavailableReasonNamesTheAuthGate(t *testing.T) {
 	// an API-key install gets from x.ai/billing every time.
 	authErr := error(acp.NewAuthRequired(
 		"Billing data requires auth with grok.com. Run `grok login` to authenticate."))
-	if !isAuthRequired(authErr) {
+	if !acp.IsAuthRequired(authErr) {
 		t.Fatal("a -32000 response was not recognised as an auth requirement")
 	}
 	if got := unavailableReason(authErr); !strings.Contains(got, "grok login") {
 		t.Errorf("reason = %q, want it to name the command that fixes it", got)
 	}
-	if isAuthRequired(provider.ErrNotImplemented) {
+	if acp.IsAuthRequired(provider.ErrNotImplemented) {
 		t.Error("a missing method was read as an auth failure; they need different advice")
 	}
 	if got := unavailableReason(provider.ErrNotImplemented); !strings.Contains(got, "build") {

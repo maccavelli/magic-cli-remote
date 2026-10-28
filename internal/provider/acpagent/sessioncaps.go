@@ -73,36 +73,34 @@ func (s *session) ListAgentSessions(ctx context.Context) ([]provider.AgentSessio
 	callCtx, cancel := context.WithTimeout(ctx, extCallTimeout)
 	defer cancel()
 
-	const maxPages = 20
+	// acp.AllSessions follows the cursor, and stops at any cursor the agent has
+	// sent before, which is an agent looping, not a long list; extCallTimeout
+	// bounds an agent that answers new cursors forever (H-6).
 	out := make([]provider.AgentSessionMeta, 0, 32)
-	var cursor *string
-	for range maxPages {
-		res, err := conn.ListSessions(callCtx, acp.ListSessionsRequest{Cursor: cursor})
-		if err != nil {
-			return nil, fmt.Errorf("session/list: %w", err)
-		}
-		for _, si := range res.Sessions {
-			out = append(out, provider.AgentSessionMeta{
-				ID:        string(si.SessionId),
-				CWD:       si.Cwd,
-				Title:     derefString(si.Title),
-				UpdatedAt: parseACPTime(si.UpdatedAt),
-			})
-		}
-		if res.NextCursor == nil || strings.TrimSpace(*res.NextCursor) == "" {
-			return out, nil
-		}
-		// A cursor that does not move is an agent looping, not a long list.
-		if cursor != nil && *res.NextCursor == *cursor {
+	for si, err := range acp.AllSessions(callCtx, conn, acp.ListSessionsRequest{}) {
+		if errors.Is(err, acp.ErrRepeatedCursor) {
 			s.log.Warn("session/list returned a repeating cursor; stopping",
 				slog.Int("sessions", len(out)))
 			return out, nil
 		}
-		cursor = res.NextCursor
+		if err != nil {
+			return nil, fmt.Errorf("session/list: %w", err)
+		}
+		out = append(out, agentSessionMeta(si))
 	}
-	s.log.Warn("session/list did not terminate within the page bound",
-		slog.Int("pages", maxPages), slog.Int("sessions", len(out)))
 	return out, nil
+}
+
+// agentSessionMeta is one listed session as Magic carries it. An updatedAt that
+// is absent or not RFC 3339 is the zero time, which AgentSessionMeta serialises
+// away: the alternative is a session dated to the year 1, which the picker once
+// rendered as an age of about two thousand years (MADR 0046 L-13).
+func agentSessionMeta(si acp.SessionInfo) provider.AgentSessionMeta {
+	m := provider.AgentSessionMeta{ID: string(si.SessionId), CWD: si.Cwd, Title: derefString(si.Title)}
+	if t, ok := si.Updated(); ok {
+		m.UpdatedAt = t.UTC()
+	}
+	return m
 }
 
 // Purge implements provider.PurgeSession over `session/delete` where the agent
@@ -173,7 +171,7 @@ func callAgentExtension(ctx context.Context, s *session, method string, params a
 	defer cancel()
 
 	if err := s.rawRequest(callCtx, "_"+method, params, out); err != nil {
-		if isMethodNotFound(err) {
+		if acp.IsMethodNotFound(err) {
 			return fmt.Errorf("%w: agent has no %s", provider.ErrNotImplemented, method)
 		}
 		return fmt.Errorf("%s: %w", method, err)
@@ -181,38 +179,11 @@ func callAgentExtension(ctx context.Context, s *session, method string, params a
 	return nil
 }
 
-// isMethodNotFound reports whether err is JSON-RPC method-not-found, from the
-// agent, or the SDK's refusal to send a method the agent did not advertise
-// (MADR 0184 D5). Both mean the agent has no such method; neither is a
-// failure worth showing anyone.
-func isMethodNotFound(err error) bool {
-	if re, ok := errors.AsType[*acp.RequestError](err); ok {
-		return re.Code == int(acp.ErrorCodeMethodNotFound)
-	}
-	var ce *acp.CapabilityError
-	return errors.As(err, &ce) && ce.Field == "" && ce.Variant == ""
-}
-
 func derefString(p *string) string {
 	if p == nil {
 		return ""
 	}
 	return strings.TrimSpace(*p)
-}
-
-// parseACPTime reads an optional RFC3339 timestamp. An unparseable or absent
-// value yields the zero time, which AgentSessionMeta serialises away — the
-// alternative is a session dated to the year 1, which the picker once rendered
-// as an age of about two thousand years (MADR 0046 L-13).
-func parseACPTime(p *string) time.Time {
-	if p == nil {
-		return time.Time{}
-	}
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(*p))
-	if err != nil {
-		return time.Time{}
-	}
-	return t.UTC()
 }
 
 // CurrentModel implements provider.ModelReporter.

@@ -85,20 +85,13 @@ func (s *session) appendCompactionBlocks(e *compactionEntry, blocks []acp.Conten
 	}
 }
 
-// blockKind names a content block's variant, for a decline.
+// blockKind names a content block's variant, for a decline: its discriminator,
+// a kind no SDK knows included, or "unknown" for an empty block (H-6).
 func blockKind(b acp.ContentBlock) string {
-	switch {
-	case b.Image != nil:
-		return "image"
-	case b.Audio != nil:
-		return "audio"
-	case b.ResourceLink != nil:
-		return "resource_link"
-	case b.Resource != nil:
-		return "resource"
-	default:
-		return "unknown"
+	if k := b.Kind(); k != "" {
+		return k
 	}
+	return "unknown"
 }
 
 // onCompactionUpdate applies a compaction_update and emits the compaction's

@@ -2058,12 +2058,9 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	case u.CompactionSummaryChunk != nil:
 		s.onCompactionChunk(u.CompactionSummaryChunk, now)
 	case u.Unknown != nil:
-		// A variant this SDK does not know, named by its discriminator.
-		var d struct {
-			SessionUpdate string `json:"sessionUpdate"`
-		}
-		_ = json.Unmarshal(u.Unknown, &d)
-		s.declineUpdate("unknown:" + d.SessionUpdate)
+		// A variant this SDK does not know, named by its discriminator, which
+		// Kind reads from the payload (H-6).
+		s.declineUpdate("unknown:" + u.Kind())
 	default:
 		// A variant Magic does not map, named by its discriminator: the subagent
 		// variants, which the SDK refuses before this handler since Magic does
@@ -2569,44 +2566,33 @@ func (s *session) awaitDecision(ctx context.Context, permID string, req event.Ev
 	}
 }
 
+// autoAllowKinds are the option kinds auto-approval may choose, in order: an
+// allow for this request before an allow for every request like it.
+var autoAllowKinds = []acp.PermissionOptionKind{acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways}
+
+// autoAllow answers a permission request when auto-approval is on. It reads an
+// option's kind, never its name, so an option named "Don't allow" is never
+// taken as an allow; with no allow option it answers cancelled, failing closed
+// (MADR 0207 amendment H, D46 and question 14).
 func autoAllow(params acp.RequestPermissionRequest) acp.RequestPermissionResponse {
-	// Prefer option kind containing "allow" / "approve", else first option.
-	var chosen *acp.PermissionOption
-	for i := range params.Options {
-		o := &params.Options[i]
-		k := strings.ToLower(string(o.Kind))
-		n := strings.ToLower(o.Name)
-		if strings.Contains(k, "allow") || strings.Contains(n, "allow") ||
-			strings.Contains(k, "approve") || strings.Contains(n, "approve") {
-			chosen = o
-			break
-		}
+	if o, ok := acp.PickPermissionOption(params.Options, autoAllowKinds...); ok {
+		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(o.OptionId)}
 	}
-	if chosen == nil && len(params.Options) > 0 {
-		chosen = &params.Options[0]
-	}
-	if chosen == nil {
-		return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}
-	}
-	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(chosen.OptionId)}
+	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}
 }
 
 // pickAllowOptionID is the event.PermissionOption twin of autoAllow: which
-// option id a sweep should select for an already-open permission sheet.
+// option id a sweep should select for an already-open permission sheet, or ""
+// to cancel it, by the same rule.
 func pickAllowOptionID(opts []event.PermissionOption) string {
-	var first string
+	acpOpts := make([]acp.PermissionOption, 0, len(opts))
 	for _, o := range opts {
-		if first == "" {
-			first = o.OptionID
-		}
-		k := strings.ToLower(o.Kind)
-		n := strings.ToLower(o.Name)
-		if strings.Contains(k, "allow") || strings.Contains(n, "allow") ||
-			strings.Contains(k, "approve") || strings.Contains(n, "approve") {
-			return o.OptionID
-		}
+		acpOpts = append(acpOpts, acp.PermissionOption{OptionId: acp.PermissionOptionId(o.OptionID), Name: o.Name, Kind: acp.PermissionOptionKind(o.Kind)})
 	}
-	return first
+	if o, ok := acp.PickPermissionOption(acpOpts, autoAllowKinds...); ok {
+		return string(o.OptionId)
+	}
+	return ""
 }
 
 // ReadTextFile serves fs/read_text_file. The SDK has already refused a
@@ -2810,19 +2796,14 @@ func isBenignPromptErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	// The SDK maps a cancelled request to *RequestError{Code: -32800}
-	// (JSON-RPC "request cancelled"). Since acp-go-sdk2 v1.14.0 a local
-	// failure's RequestError also unwraps to its cause, so errors.Is below
-	// finds context.Canceled through it (MADR 0184 amendment of 2026-10-15,
-	// E5). String matching is only a fallback.
+	// acp.IsCancelled covers context.Canceled, the SDK's ErrPromptCancelled and
+	// a -32800 "request cancelled" answer (H-6). A deadline is not a
+	// cancellation to the SDK, and is benign here. String matching is only a
+	// fallback.
 	// An acp-go-sdk2 agent answers a cancelled turn with stopReason "cancelled"
 	// instead, which needs nothing here: it is a successful answer, and its stop
 	// reason reaches turn_complete unchanged (MADR 0184 D8).
-	var reqErr *acp.RequestError
-	if errors.As(err, &reqErr) && reqErr.Code == int(acp.ErrorCodeRequestCancelled) {
-		return true
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if acp.IsCancelled(err) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
