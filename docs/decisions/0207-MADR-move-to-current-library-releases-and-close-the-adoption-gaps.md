@@ -1984,3 +1984,157 @@ plan's revision are committed first, and C0 runs after.
   H-5 faults; `PickPermissionOption`'s and `All`'s source; `Kill` at `acpagent.go:528`; 0184 D12.
   Its other line citations were not each re-read.
 * gobble-cli's `go.mod`, from the contents API.
+
+## Amendment — 2026-10-29 (I): `acp-go-sdk2 v1.26.0` and `go-selfupdate-lib v1.22.3`
+
+*D48 and D49 decided by the owner, 2026-10-29; D50 ~~proposed~~ decided the same day (question 16,
+below).* The owner asked, verbatim: "assess
+the current lib/sdk dependency versions. they have been updated. evaluate how this changes our
+current madr/plans and docs. pin newest versions." Its plan is
+[0207-PLAN-pin-acp-go-sdk2-v1-26-0-and-go-selfupdate-lib-v1-22-3.md](0207-PLAN-pin-acp-go-sdk2-v1-26-0-and-go-selfupdate-lib-v1-22-3.md).
+
+### Facts [observed 2026-10-29: `git ls-remote`, the GitHub releases, compare and contents APIs, scratch clones of both libraries, and a scratch copy of `d4f22efc`]
+
+* **I-1. One new tag each.**
+
+  | Library | Pinned | Newest | Peeled commit | Published |
+  | :--- | :--- | :--- | :--- | :--- |
+  | `acp-go-sdk2` | `v1.25.0` | `v1.26.0` | `59a43be7c0db69da245bfea798b975cd2fba08b2` | 2026-10-29, with release notes |
+  | `go-selfupdate-lib` | `v1.22.2` | `v1.22.3` | `0620e96ba7eb47d45cc94b474dc2db87d029ce40` | tagged 2026-10-28; no GitHub release, a `CHANGELOG.md` entry |
+
+  Magic pins them at `go.mod:11-12`, and the second also at `ci.yml:743` and `:764`. No other
+  library of the owner's is a dependency: `go-llmprovider-sdk` is not in `go.mod`.
+* **I-2. `acp-go-sdk2 v1.26.0` adds and changes nothing Magic uses.**
+  * Its notes: the ACP schema is still `1.25.0`; `make api` reports eighteen compatible additions
+    and no incompatible change; "Nothing sent or accepted on the wire changes".
+  * `go doc -all` of every exported package at both tags (`leftovers/libs_assess.py`): no line
+    removed, 28 added. The additions are `agentproc.InProcess`, `Command.StderrTail`,
+    `StderrTailLines`, `JoinStderrTail`, `Process.StderrTail`, `StderrError`, `NewTranscript`,
+    `ErrAbandoned`; `Connection.Shutdown`, `ServeAgent`, `ErrShutdown`; and in `acptest`,
+    `ReadRecords`, `WriteRecords`, `Decode`, `Golden`, `ReplayAgent` and `ConnectReplay`.
+  * `agentproc`'s `Process` now drives its agent through an unexported interface that a child and
+    an in-process agent each implement. Its taps take any `io.ReadCloser` and `io.WriteCloser`
+    (`agentproc/tap.go`). The notes say every existing `agentproc` test passes unchanged.
+  * `go.mod` is unchanged between the tags.
+* **I-3. `go-selfupdate-lib v1.22.3` changes code, not API.**
+  * Its `CHANGELOG.md`: "The module's own tests only. No exported identifier and no behaviour a
+    program can see changes: `make apicheck` reports `v1.22.3` compatible with `v1.22.2`."
+  * `go doc -all`: no line removed or added.
+  * But 30 non-test Go files change, 311 lines in and 252 out. `selfupdate`'s seams move from
+    package variables onto the values that use them, and the `service` backends drop their test
+    clocks. Of the packages Magic imports, `selfupdate`, `service`, `launchd`, `systemd` and
+    `taskscheduler` are among them. So "no behaviour" is the library's claim, and Magic's tests are
+    the check of it.
+  * No file under `.github/workflows` and no `go.mod` line changes, so the reusable release
+    workflows the two `ci.yml` pins name are the same.
+* **I-4. What `go-selfupdate-lib` has decided for its next minor release.** Its
+  `0038-MADR-pinned-plans-lifecycle-conformance-and-bubble-tests.md`, accepted 2026-10-27, puts
+  only the bubbles and per-session seams in `v1.22.3`. The rest ships in `v1.23.0`:
+  * root-relative replacement on Unix;
+  * an exported lifecycle conformance check, `selfupdate/service/servicetest`;
+  * a pinned update plan, `Plan` and `Apply`;
+  * `Supervised.Start` returning `ErrNotInstalled` for a service its supervisor reports as not
+    installed, where it runs `Up` today. Magic's runit, s6 and OpenRC backends run through
+    `Supervised` (0212), so that bump will need a look at their `Start`.
+* **I-5. The move, proven on a scratch copy of `d4f22efc`** (`leftovers/libs_pin_probe.py`; the
+  copy was removed):
+  * `go get` of both tags, then `go mod tidy`; `go mod tidy -diff` shows nothing.
+  * The diff is `go.mod` 2 lines, `go.sum` 4, and `ci.yml` 2: the two pins and their comments.
+  * `go build ./...`, and `go vet ./...` for darwin/arm64, linux/amd64 and windows/amd64: exit 0.
+  * `make staticcheck`: exit 0, "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name",
+    the count before the move. `v1.26.0` adds no deprecation Magic meets, and D45 is unchanged.
+  * `./scripts/vulncheck.sh`: "clear", with the allowlisted `GO-2026-5932` as before.
+  * `go test -race -count=1 ./...`: 44 packages ok, `TestWorkflowPinsMatchGoMod` among them.
+* **I-6. What `v1.26.0` offers that Magic wrote itself, or lacks:**
+  * **The agent's stderr, at its death.** Magic logs an agent's stderr at debug level and scans it
+    for provider limits (`slogWriter`, `acpagent.go:496-501`, `:973-1014`). The exit message is
+    "\<agent\> process exited: \<err\>", with no stderr (`:608-615`). `JoinStderrTail` would add the
+    last lines to that error, and `Cmd.Stderr` would still get every byte.
+  * **Both ways of the wire.** `wirecap` records only the agent's output (`OutputTap`,
+    `acpagent.go:518`). `Command.InputTap` has existed since before `v1.25.0` and is unused. C3 of
+    the SDK-gaps plan could not tell a `session/load` answer from a `session/resume` answer, because
+    Magic's own requests were not in the capture (its Deviation 3). `NewTranscript` records both
+    ways as `{"direction","frame"}` lines. Either way, the input side would need 0151's redaction
+    and guard, and the committed fixtures' readers would need the new form.
+  * **Replay.** `acptest.ReadRecords`, `Golden`, `ReplayAgent` and `ConnectReplay` replay a
+    recorded agent against a client under test. They need two-way records, so they follow the item
+    above. They would sit beside Magic's own `wireAgent` (`wireagent_test.go`), not replace it.
+  * **A graceful close.** `Connection.Shutdown` answers the requests in flight before closing.
+    Magic closes with `session/close` and then `Kill` (H-8).
+  * **An agent in Magic's own process.** `InProcess` and `ServeAgent` are for running an agent
+    written in Go as a goroutine. They would matter only if Magic ran gobble in its own process,
+    which no record proposes. gobble's native integration is
+    [0208-MADR-make-the-provider-layer-agent-neutral.md](0208-MADR-make-the-provider-layer-agent-neutral.md)'s.
+* **I-7. gobble.** gobble-cli is still at `6ee20140` (2026-10-23), pinning `acp-go-sdk2 v1.20.0` and
+  `go-selfupdate-lib v1.17.0`. D12 holds no more than amendment H said.
+* **I-8. The records and docs this touches:**
+  * No page outside the records names either version: not `README.md`, `docs/architecture.md` or
+    any guide. The code comments that name a version name where a behaviour began, and stay.
+  * Every 0207 plan is `complete`, so this amendment takes a plan of its own, and `docs/README.md`'s
+    index gains it.
+  * [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md)
+    is complete and unchanged. The captures its amendment of 2026-10-29 moved on (delete, resume,
+    a turn ended by `session/cancel`) would gain from I-6's second item.
+  * [0151-MADR-wirecap-redaction-does-not-know-what-the-wire-carries.md](0151-MADR-wirecap-redaction-does-not-know-what-the-wire-carries.md)
+    is unchanged. A capture of both ways would be its subject.
+  * [0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md](0170-MADR-make-preflight-true-hermetic-install-tests-and-pinned-staticcheck.md)'s
+    exception (D45) is unchanged, at 56 uses.
+  * 0208 is unchanged; I-6's last item is noted there only if a record proposes it.
+
+### The decisions this amendment makes
+
+* **D48 — Pin `acp-go-sdk2 v1.26.0`.** `go.mod` and `go.sum` only; no source changes. D45's
+  exception stands as it is. *Carried out 2026-10-29 by the plan's P1.*
+* **D49 — Pin `go-selfupdate-lib v1.22.3`.** `go.mod`, `go.sum`, and both `ci.yml` pins, to
+  `0620e96ba7eb47d45cc94b474dc2db87d029ce40` with the comment `# go-selfupdate-lib v1.22.3`
+  (`TestWorkflowPinsMatchGoMod`). No source changes. I-3's production changes are checked by
+  Magic's own tests on all three GOOS before it lands. *Carried out 2026-10-29 by the plan's P1,
+  with the gates passing on macOS and on the Linux and Windows test hosts. Its Windows run
+  first found two tests of the SDK-gaps plan failing there, on master too; they were fixed
+  first, in `b0219278`.*
+* **D50 — I-6's items are not decided here (~~proposed~~ decided, question 16).** Each changes behaviour Magic
+  chose, so each takes its own MADR when wanted, as D28 and D47 already rule. The proposed order:
+  1. the stderr tail in an agent's exit message, the smallest and the one an operator sees;
+  2. a capture of both ways, under 0151, so a fixture holds Magic's requests;
+  3. replay tests from such captures.
+
+  `Shutdown`, `InProcess` and `ServeAgent` wait for a record that needs them.
+
+### Consequences of the amendment
+
+* Good, because both pins are current, and the next bump starts from them.
+* Good, because the move changes no source, and the probe shows every gate passing.
+* Neutral, because nothing on the wire changes, and no exported API Magic uses changes.
+* Bad, because `go-selfupdate-lib v1.22.3` rewrites the internals of the update and service paths
+  under a "tests only" heading. Magic's own suites, and the Windows and Linux hosts, are what check
+  that.
+* Bad, because D12 still does not hold: gobble is six `acp-go-sdk2` minors behind.
+
+### Confirmation of the amendment
+
+* `go list -m github.com/maccavelli/acp-go-sdk2 github.com/maccavelli/go-selfupdate-lib` gives
+  `v1.26.0` and `v1.22.3`.
+* Both `ci.yml` pins name `0620e96b…`, and `TestWorkflowPinsMatchGoMod` passes.
+* `make staticcheck` reports 56 ignored findings, as before.
+* The plan's gates, on macOS, the Linux test host and the Windows test host.
+
+### Questions this amendment adds
+
+* **16. D50's order.** The stderr tail first, then a two-way capture under 0151, then replay
+  (proposed)? Or a different order, or none yet?
+
+*Answered 2026-10-29:*
+
+* **16.** "Stderr, capture, replay (Recommended)". D50's order stands. None of the three starts
+  until the owner asks for its record.
+* **The plan:** "Approve, both hosts (Recommended)". P1 runs, with its gates on the Linux and
+  Windows test hosts.
+
+### Evidence index of the amendment
+
+* The release notes of `acp-go-sdk2 v1.26.0`, from the releases API; `go-selfupdate-lib`'s
+  `CHANGELOG.md` and 0038 MADR at `v1.22.3`, from a scratch clone.
+* `leftovers/libs_assess.py` and its notes, `leftovers/libs/*-notes.md`: the logs, the non-test
+  diffs and the `go doc` comparison of both libraries.
+* `leftovers/libs_pin_probe.py` and its logs, `leftovers/libs_probe/`.
+* gobble-cli's `go.mod`, from the contents API.
