@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-19
+status: complete
+date: 2026-10-29
 associated-madr: "0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md"
 ---
 <!-- markdownlint-disable MD013 MD024 MD060 -->
@@ -1115,7 +1115,8 @@ Still `in-progress`, and this is what remains, checked against the tree and CI:
 * **A6, the capability records, are done or deferred.** Items 1–6 are 0187–0192, all
   `complete` on 2026-10-18. Item 7 is deferred by
   [0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md](0195-MADR-defer-acp-subagent-sessions-until-an-engine-sends-them.md).
-* **One confirmation item is open.** The MADR asks for wire captures of initialize, new,
+* **One confirmation item is open.** *Closed 2026-10-29: see the status note of that date, at
+  the end.* The MADR asks for wire captures of initialize, new,
   load, resume, prompt, permission, cancel, terminal, filesystem and delete. The committed
   captures, `internal/provider/grok/testdata/wire/1.0.13/` and `1.0.50/`, hold new, load,
   prompt turns, config options, titles and replayed turns. They hold no permission request,
@@ -1163,3 +1164,20 @@ it by name ("do B3"). It changes Go code in `internal/provider/acpagent` only, p
    - `make live-grok` only with the owner's quota approval (G6). Until it passes, B3 is not done.
 5. **Records.** An execution record here. Update the 2026-10-18 status note's last bullet: #7 is
    closed, and `submitPrompt`'s check is gone. gobble's pin stays gobble's (G5).
+
+## Status note — 2026-10-29: complete
+
+The last item, the wire captures, was taken by
+[0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md](0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md)
+C3, and closed by the MADR's amendment of 2026-10-29.
+
+* **The run,** 2026-10-28: `make live-grok` with wire capture, against grok 1.0.70. 105 tests
+  passed, none failed, and one was skipped by design.
+* **The captures:** `internal/provider/grok/testdata/wire/1.0.70/`, 16 frames: initialize,
+  permission, two cancelled turns, the terminal methods, file system reads and writes, and a turn's
+  usage. New and load are in `1.0.50/`.
+* **Delete and resume,** which grok 1.0.70 cannot give through Magic, are confirmed by
+  `purge_test.go` and `TestSetThinkingFallbackReadsBackFromResume`, as the amendment records.
+* **B3 never ran.** Its amendment says so: 0207 D2 moved the pin instead.
+
+Every phase is done or superseded, so the PLAN is `complete`.

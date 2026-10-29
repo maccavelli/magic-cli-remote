@@ -1,0 +1,10 @@
+{
+  "provider": "grok",
+  "version": "1.0.70",
+  "kind": "in-daemon",
+  "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap)",
+  "captured_at": "2026-10-28T19:19:09Z",
+  "frames": 16,
+  "redacted": "operator home -> /home/user; capturing host's name -> <host> (MADR 0151 D8); macOS per-user temp root -> /var/folders/<id>/<user>/T, and its URL-encoded form",
+  "note": "selected verbatim agent frames from a make live-grok run (0207 SDK-gaps PLAN C3), kept in capture order; by kind: the initialize answer (sessionCapabilities list, resume and close, no delete); the first terminal cycle (terminal/create, wait_for_exit, output, release); all three session/request_permission requests; both prompt answers with stopReason cancelled, each cancelTrigger session_close; an fs/read_text_file in a test's temp directory and all three fs/write_text_file requests; and the last live _x.ai/session_notification turn_completed with usage, with the end_turn prompt answer that follows it. No prompt answer in the run carried the standard usage; grok reports it under _meta only"
+}

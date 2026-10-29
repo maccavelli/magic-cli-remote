@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-10-28
+status: complete
+date: 2026-10-29
 associated-madr: "0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -178,6 +178,7 @@ first); this plan.
 2. **Expected:**
    * the suite passes;
    * the capture holds permission, cancel, terminal, file-system, delete and resume frames;
+     *not delete or resume, which grok 1.0.70 cannot give through Magic (Deviations 3 and 4)*;
    * whether grok's prompt answers carry the standard `usage`, and that the session's usage
      events are not doubled.
 3. The captures are redacted by `wirecap`'s rules and the guard's preview, then committed under
@@ -654,3 +655,182 @@ three files, one break each):
 **C2 is done** once the owner commits it. Next by this plan: C3, one capture-enabled
 `make live-grok`, which waits for the owner's word. It also shows whether grok 1.0.50's answers
 carry the standard `usage`, and that no turn's usage is doubled.
+
+### C3 Deviation 1, 2026-10-28 — the capturing host's name is in committed fixtures. The owner decided: "Fix under 0151, first (Recommended)"
+
+The owner committed C2 as `5acbd2d3` and answered "committed proceed", the word for C3's run.
+
+* **What was found.** Reading the frames selected from C3's capture before committing them, the
+  identifier scan (`leftovers/c3_curate.py`) found the capturing Mac's name in grok's initialize
+  answer, `_meta.hostname`. `wirecap` redacts the home directory, not this. The committed fixtures
+  then turned out to carry it too (`leftovers/c3_fixture_scan.py`, counts only): grok 1.0.13's 4
+  times and codex 0.152.1's once, public since 2026-09-03. The account name is in no tracked file.
+* **Offered:** fix under 0151, first, with `wirecap` and the guard (recommended); scrub the two
+  fixtures only; or leave them and redact C3's capture alone.
+* **Decided:** 0151's amendment of 2026-10-28 and its PLAN's P5, committed before C3. C3's own
+  frames carry `<host>` already, from `c3_curate.py`, and will match what P5's `wirecap` writes.
+  Git history keeps the old values (0151 D5).
+
+### C3 Deviation 2, 2026-10-29 — the fixture guard reads a JSON escape as a Windows path. The owner decided: "option 2, but determine the best way to ensure the guard will work with a raw windows path"
+
+The owner committed 0151 P5 as `0fd8c9ba` and answered "committed proceed".
+
+* **What was found.** The curated frames were copied to
+  `internal/provider/grok/testdata/wire/1.0.70/` (`cmp`: identical), and `meta.json` written. Then
+  `TestCommittedFixturesCarryNoIdentifiers` failed on the new fixture: "line 10: unredacted
+  Windows path starting \"e:\\n\" (MADR 0151 F1)", and the same for line 12. The two lines hold a
+  PLAN that grok wrote in a test's temp directory. Its "In scope:" and "Out of scope:", each
+  followed by a newline, reach the file as `scope:\n`. The guard's pattern makes the second
+  backslash optional, so a JSON escape after a colon counts as a drive path. There is no identifier
+  in either line. The guard has had this flaw since 0151 P3; this is the first fixture to trip it.
+* **Offered:** decode each JSON line and scan the decoded strings (recommended); or require the
+  doubled backslash.
+* **Decided:** the doubled backslash, with the guard still catching a raw Windows path. That is 0151's
+  amendment of 2026-10-29 (F10, D11) and its PLAN's P6, committed before C3. A JSON line is
+  searched for the escaped forms only, `\\` and `\u005c`. Any other line, which `Tap` records
+  verbatim from an agent's stdout, is searched with the guard's pattern, unchanged. The fixture
+  is not changed.
+
+### C3 Deviation 3, 2026-10-29 — two of 0184's confirmation captures cannot be taken. The owner decided: "Close with an amendment (Recommended)"
+
+* **What was found** (`leftovers/c3_analyse.py`, `leftovers/c3_resume_probe.py`). Step 2 expects
+  delete and resume frames. The capture holds neither, and neither can be taken from grok 1.0.70
+  through Magic:
+  * **delete:** grok advertises `sessionCapabilities` list, resume and close, not delete. So
+    `Purge` closes the session instead (`sessioncaps.go:106-142`).
+  * **resume:** grok advertises it, but Magic has no typed resume, and grok's own fallback sends
+    `session/resume` only when no standard option is offered (`internal/provider/grok/fallback.go`).
+    All 42 `session/new` answers offer `model` and `thought_level`, so the fallback never ran. The
+    two answers shaped like a resume answer, `_meta`, `configOptions` and `models`, follow replayed
+    `session/update` frames, as a `session/load` answer does, and have the shape of 1.0.50's
+    committed load answer.
+  * **cancel:** both cancelled answers carry `cancelTrigger: session_close`. None comes from a
+    `session/cancel`.
+* **Offered:** close with an amendment to the 0184 MADR's Confirmation (recommended); or keep 0184
+  open until an engine sends them through Magic.
+* **Decided:** close with an amendment. Delete and resume are confirmed by their unit tests
+  (`sessioncaps_test.go`, `fallback_test.go`), and their live captures move to the record that first
+  sends them through Magic. **Files added to C3:**
+  `0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md`.
+  *Corrected the same day, Deviation 4: no unit test confirmed delete.*
+
+### C3 Deviation 4, 2026-10-29 — no test runs `Purge`. The owner decided: "Add a wire test of Purge (Recommended)"
+
+* **What was found,** reading the tests Deviation 3's option cited, before writing the 0184
+  amendment. The offer was mine and it was wrong for delete:
+  * resume holds: `TestSetThinkingFallbackReadsBackFromResume` (`grok/fallback_test.go:142`)
+    checks the fallback's `session/set_model`, then `session/resume`;
+  * delete does not. No test calls `Purge` (`sessioncaps.go:115-142`). `sessioncaps_test.go` has
+    only `TestSupportsReadsTheAdvertisedCapabilities`, which checks that delete is not assumed
+    when it is not advertised, and an interface-conformance line. So the `session/delete`
+    request, the plain close when delete is not advertised, and the close after a failed delete
+    have never run, against a fake agent or a real one.
+* **Offered:** a wire test of `Purge` in C3's commit (recommended); or record delete as untested.
+* **Decided:** the wire test. Over a real connection to the package's `wireAgent`:
+  * delete advertised: one `session/delete` naming the agent's session id, then the session
+    closes;
+  * not advertised: no `session/delete`, and the session closes;
+  * the delete fails: the session still closes, and `Purge` returns the error.
+
+  Each is seen failing on a scratch copy first. The 0184 amendment cites it. **Files added to
+  C3:** `internal/provider/acpagent/purge_test.go` (new). No product code changes.
+
+### C3, 2026-10-28 and 2026-10-29: one live grok run, with wire capture
+
+The owner's word for the run was "committed proceed" on 2026-10-28, after C2's commit. 0151's P5
+(`0fd8c9ba`) and P6 (`cca28a1a`) were committed before this, by Deviations 1 and 2.
+
+**Step 1, the run** (`leftovers/c3_live.py`, log `leftovers/c3_live.log`):
+
+* The switch is `MCREMOTE_WIRE_CAPTURE_DIR` (`internal/wirecap`), set to a scratch directory, never
+  the tree.
+* `grok 1.0.70 (f50904eaee6c) [stable]`. `make live-grok`: exit 0. 105 top-level tests passed and
+  none failed. One was skipped, `TestLiveRawOutputSamples`, which needs `MCREMOTE_RAW_OUTPUT_DIR`.
+* It took 596 s, and `go test` reported 593.292 s for the package. The target's timeout is 600 s, so
+  the next run may hit it on duration alone.
+
+**Step 2, what the capture shows** (`leftovers/c3_analyse.py`, `leftovers/c3_resume_probe.py`):
+
+| Expected | Observed |
+| :--- | :--- |
+| the suite passes | yes |
+| permission frames | 3 `session/request_permission` |
+| cancel frames | 2 prompt answers `cancelled`, each `cancelTrigger: session_close` |
+| terminal frames | `create` 2, `wait_for_exit` 2, `output` 3, `release` 2 |
+| file-system frames | `fs/read_text_file` 15, `fs/write_text_file` 3 |
+| delete and resume frames | none; not obtainable (Deviation 3) |
+| whether prompt answers carry the standard `usage` | none of 13. grok reports usage only under `_meta`, and 8 of the 13 were preceded by a live `turn_completed` carrying usage |
+| no turn's usage doubled | none can be: C2's path never fires for grok, since no answer carries `usage` |
+
+Also seen: 4 answers `-32602 Invalid params`, of the kind 1.0.50's fixture already holds.
+
+**Step 3, the captures committed:**
+
+* `internal/provider/grok/testdata/wire/1.0.70/frames.jsonl`: 16 frames selected by
+  `leftovers/c3_curate.py`, capture lines 2, 580, 582, 585, 586, 673, 679, 950, 954, 960, 964,
+  965, 2076, 2095, 2457 and 2460, in that order. `cmp` with the curated file: identical.
+* Redacted: the home and the host's name by `wirecap`'s rules (0151 D8), and the macOS per-user
+  temp root, as 1.0.50's `meta.json` records it, in its plain and URL-encoded forms. Every frame was
+  read in full before it was committed.
+* `meta.json` in the existing fixtures' form.
+* **Not done:** the grok known-good pin stays `1.0.13`. The run logged "engine version differs
+  from known-good pin" throughout; moving the pin is that pin's own decision (0137), and needs the
+  wire-shape tests re-read against 1.0.70.
+
+**Deviation 4's test** (`internal/provider/acpagent/purge_test.go`, new):
+
+| Test | What it holds |
+| :--- | :--- |
+| `TestPurgeDeletesWhenTheAgentAdvertisesDelete` | the first request is `session/delete`, naming `agent-1`; then `session/close`; `Purge` returns nil and the session is closed |
+| `TestPurgeClosesWhenDeleteIsNotAdvertised` | the first request is `session/close`; no delete |
+| `TestPurgeClosesAfterAFailedDelete` | a delete answered `-32603` still closes the session, and `Purge` returns the `session/delete` error |
+
+`go test -race -count=100 -run '^TestPurge'`: ok.
+
+**Seen failing** (`leftovers/c3_purge_plants.py`; scratch copies of the working tree, one break to
+`Purge` each):
+
+| Plant | The failure |
+| :--- | :--- |
+| never delete | "first request = \"session/close\", want session/delete" |
+| delete whatever is advertised | "Purge = session/delete: session/delete: capability sessionCapabilities.delete not advertised, want nil" |
+| the local session id sent | "session/delete named \"local-1\", want the agent's session, agent-1" |
+| a failed delete returns before closing | "wireAgent: nothing from the client within 5s" |
+| a failed delete's error dropped | "Purge = <nil>, want the session/delete failure" |
+| a successful delete never closes | "wireAgent: nothing from the client within 4.999999958s" |
+| none (the control) | exit 0 |
+
+* **My prediction for the second plant was wrong.** I expected the agent to see the delete. The
+  SDK refuses an unadvertised method locally, so nothing reached the wire. `Purge` closed and
+  returned that refusal, and the test failed on it.
+
+**Step 4, the records:**
+
+* [0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-MADR-adopt-acp-go-sdk2-and-offload-protocol-handling.md):
+  the amendment of 2026-10-29, and a pointer from its Confirmation's last bullet.
+* [0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md](0184-PLAN-adopt-acp-go-sdk2-and-offload-protocol-handling.md):
+  `complete`, with a status note of 2026-10-29.
+* The 0207 MADR: dated notes on the Decision Outcome's deferral, H-9's fixture line, question 11's
+  answer, and amendment H's Confirmation.
+
+**Step 5, the gates** (`leftovers/c3_gates.py`):
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES=internal/provider/acpagent/purge_test.go` | "1 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" |
+| `go build ./...`; `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64, with `CGO_ENABLED=0` | exit 0, each |
+| `TestCommittedFixturesCarryNoIdentifiers`, `-race -v` | ok, grok 1.0.70's capture among the six it read |
+| `go test -race` of `wirecap`, `grok` and `acpagent`, whose tests read the fixtures | ok, each |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `make check-records`, `make markdownlint-docs`; the guard's redact preview | exit 0; "0 issues"; "would edit 0 file(s)" |
+
+No run on the Linux test host: the commit adds test data, one test file and records, none
+platform-specific.
+
+**Files for this commit:** `internal/provider/grok/testdata/wire/1.0.70/frames.jsonl` and
+`meta.json` (new); `internal/provider/acpagent/purge_test.go` (new); the 0184 MADR and PLAN; the
+0207 MADR; this plan.
+
+**C3 is done, and so is this plan.** C0 to C4 have run; D25, D26, D27, D45 and D46 are carried out,
+and D47's items wait for their own records. The plan is `complete`.

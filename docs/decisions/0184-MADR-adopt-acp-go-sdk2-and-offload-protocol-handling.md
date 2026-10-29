@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-19
+date: 2026-10-29
 decision-makers: Project Owner
 consulted: none
 informed: operators of ACP providers (grok today; gobble when registered); maintainers of acp-go-sdk2 and gobble-cli
@@ -298,6 +298,8 @@ follows only when an engine it runs speaks v2.
   silent default.
 * `make live-grok` passes at acceptance, with wire captures of initialize, new, load, resume,
   prompt, permission, cancel, terminal, filesystem and delete.
+  *Amended 2026-10-29 (the amendment of that date, below): delete and resume are confirmed by
+  tests instead of captures, which grok 1.0.70 cannot give through Magic.*
 
 ## Pros and Cons of the Options
 
@@ -669,3 +671,46 @@ was read-only. The bump waits for the owner's approval, and so does any provider
   - **`make live-grok` spends quota.** The pre-approval in 0186's answer Q7 covered 0184's
     acceptance run, which ran on 2026-10-18. So B3's run waits for the owner's word, and under D12
     B3 is done only when it passes.
+
+## Amendment — 2026-10-29: the confirmation's captures, as grok 1.0.70 allows them
+
+*Decided by the owner, 2026-10-29: "Close with an amendment (Recommended)", then, for delete, "Add a
+wire test of Purge (Recommended)".* Found by
+[0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md](0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md)
+C3, its Deviations 3 and 4.
+
+- **The run.** On 2026-10-28, one capture-enabled `make live-grok` against `grok 1.0.70
+  (f50904eaee6c) [stable]`: 105 top-level tests passed and none failed. One was skipped,
+  `TestLiveRawOutputSamples`, which needs `MCREMOTE_RAW_OUTPUT_DIR`.
+- **What the capture holds:** 2498 frames of grok's output, among them:
+  - 46 initialize answers, 42 `session/new` answers, and 2 answers with the shape of a
+    `session/load` answer, each after the session's replay (the capture holds grok's output only,
+    not Magic's requests);
+  - 13 prompt answers, 2 of them `cancelled`;
+  - 3 `session/request_permission`;
+  - the four terminal methods, `create`, `wait_for_exit`, `output` and `release`;
+  - 15 `fs/read_text_file` and 3 `fs/write_text_file`.
+
+  Sixteen of these frames are committed as `internal/provider/grok/testdata/wire/1.0.70/`.
+- **What it cannot hold, and why:**
+  - **delete.** grok 1.0.70 advertises session capabilities `list`, `resume` and `close`, and not
+    `delete`, so `Purge` closes instead.
+  - **resume.** grok advertises it, but Magic sends it only through grok's thinking fallback,
+    which runs only when no standard option is offered. Every `session/new` answer offered `model`
+    and `thought_level`.
+  - **cancel, as `session/cancel`.** Both cancelled answers carry `cancelTrigger: session_close`.
+    Neither comes from a `session/cancel`.
+- **The confirmation, amended.** Its last bullet is met so:
+  - captured: initialize, new, load, prompt, permission, cancel (by a session's close), terminal
+    and the file system;
+  - **delete,** by `internal/provider/acpagent/purge_test.go`, over a real connection:
+    - when delete is advertised, one `session/delete` names the agent's session, then the session
+      closes;
+    - when it is not, no delete is sent, and the session closes;
+    - when the delete fails, the session still closes, and the error is returned;
+  - **resume,** by `TestSetThinkingFallbackReadsBackFromResume`
+    (`internal/provider/grok/fallback_test.go`): the fallback sends `session/set_model`, then
+    `session/resume`, and reads the effort back.
+- **Moved, not dropped.** A live capture of delete, of resume, and of a turn ended by
+  `session/cancel` goes to the record that first sends each through Magic: an engine that
+  advertises delete; the `ResumeSession` MADR that 0207 D28 puts first.

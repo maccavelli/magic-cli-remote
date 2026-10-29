@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-27
+date: 2026-10-29
 decision-makers: Project Owner
 consulted: "go-selfupdate-lib v1.17.1–v1.17.2, acp-go-sdk2 v1.15.0–v1.19.0 and go-llmprovider-sdk v1.21.0, read from full clones at their tags; their GitHub release notes; a scratch copy of this repository at 707d300d with both pins moved; gobble-cli's go.mod on its default branch. Amendment of 2026-10-22: acp-go-sdk2 v1.20.0 from the Go module proxy and its release notes; a scratch copy at 6a4ef48d with both pins moved and agentproc run against Magic's command; gobble-cli at 53565a1. Amendment C (2026-10-24): go-selfupdate-lib v1.20.0 and v1.21.0, their CHANGELOG entries, migration guide §20 and §21, and `git diff v1.19.0 v1.21.0` in a local clone; the Go module proxy; a scratch copy of this repository at 793b8f5b with the pin moved. Amendment E (2026-10-24): go-selfupdate-lib v1.22.0 from the Go module proxy and a local clone; acp-go-sdk2 through the GitHub compare API; go-llmprovider-sdk v1.22.0 to v1.22.2 in a local clone; gobble-cli's go.mod; a scratch copy at 793b8f5b with the pin moved to v1.22.0"
 informed: anyone who changes this module's dependencies, its service code or its ACP provider
@@ -287,6 +287,8 @@ option, which was to accept with them deferred:
   * until then, the SDK-gaps plan's C1 to C3 do not run, and 0184's PLAN keeps its one open item.
   * *Note, 2026-10-28:* amendment H, below, is that assessment, read to `v1.25.0`. The owner
     decided it the same day: D24 is superseded by D45, and D25, D26, D45 to D47 are decided.
+  * *Note, 2026-10-29:* the SDK-gaps plan ran C0 to C3 and is `complete`. C3's live run closed
+    0184's open item, with the 0184 MADR's amendment of 2026-10-29.
 * **D28:** question 12 answered "None yet (Recommended)". Each feature takes its own MADR when
   wanted, `ResumeSession` first.
 * **Question 4** (order) was never put. It is moot: every phase it ordered has run.
@@ -1122,6 +1124,9 @@ These continue the numbering above.
 * **10.** "In scope (Recommended)". D22 stands.
 * **11.** "Once, after D25 (Recommended)". One capture-enabled `make live-grok` after D25 lands,
   run on the owner's word for that run. It also closes 0184's wire-capture item.
+  *Done: run 2026-10-28 against grok 1.0.70, with 105 tests passed. No prompt answer carried the
+  standard `usage`, so none was counted twice. 0184's item closed 2026-10-29, with delete and
+  resume confirmed by tests (the 0184 MADR's amendment of that date).*
 
 Questions 7 and 12 were not put separately. Their proposals are what the PLANs carry: two
 PLANs, and no product-feature MADR yet. Either can still be changed at the plans' review.
@@ -1853,7 +1858,8 @@ D47, for what the five releases add.
     `session.go:2470-2483` and `:2610-2623`, and the second config request at `:1165-1180`. The
     rest hold where amendment B put them.
   * Every helper D26 names exists at `v1.25.0`, `NewResourceNotFound` at `errors.go:290`.
-  * `grok/testdata/wire/` holds `1.0.13` and `1.0.50` only.
+  * `grok/testdata/wire/` holds `1.0.13` and `1.0.50` only. *Since 2026-10-29 it also holds
+    `1.0.70`, from the SDK-gaps plan's C3.*
 * **H-10. gobble.** gobble-cli's `go.mod`, at its default branch's `6ee20140`, still pins
   `acp-go-sdk2 v1.20.0` (and `go-selfupdate-lib v1.17.0`). It lists staticcheck as a `tool`, so
   H-3 would reach it too.
@@ -1933,7 +1939,8 @@ D47, for what the five releases add.
   * an option named "Don't allow" of kind `reject_once` is never auto-selected;
   * no allow kind answers cancelled;
   * plus D25's and D26's tests, as amendment B listed them.
-* The SDK-gaps plan's gates; C3's live run on the owner's word.
+* The SDK-gaps plan's gates; C3's live run on the owner's word. *Met: C0 to C2's gates, and C3's
+  run of 2026-10-28.*
 
 ### Questions this amendment adds
 
