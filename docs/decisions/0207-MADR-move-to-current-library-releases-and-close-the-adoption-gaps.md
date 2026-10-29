@@ -2091,7 +2091,7 @@ current madr/plans and docs. pin newest versions." Its plan is
   Magic's own tests on all three GOOS before it lands. *Carried out 2026-10-29 by the plan's P1,
   with the gates passing on macOS and on the Linux and Windows test hosts. Its Windows run
   first found two tests of the SDK-gaps plan failing there, on master too; they were fixed
-  first, in `b0219278`.*
+  first, in `b0219278`, on origin `1566fd06` after the push's rebase (the plan's correction of 2026-10-29).*
 * **D50 — I-6's items are not decided here (~~proposed~~ decided, question 16).** Each changes behaviour Magic
   chose, so each takes its own MADR when wanted, as D28 and D47 already rule. The proposed order:
   1. the stderr tail in an agent's exit message, the smallest and the one an operator sees;

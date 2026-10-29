@@ -110,7 +110,7 @@ not on Windows.
 
 ### P1, 2026-10-29: the pins
 
-The owner committed the SDK-gaps plan's Windows follow-up as `b0219278` and answered "committed,
+The owner committed the SDK-gaps plan's Windows follow-up as `b0219278` (on origin `1566fd06`; see the correction of 2026-10-29) and answered "committed,
 proceed".
 
 **Steps 1 and 2** (`leftovers/i_p1_pins.py`):
@@ -125,7 +125,7 @@ proceed".
 * `go list -m`: `acp-go-sdk2 v1.26.0`, `go-selfupdate-lib v1.22.3`.
 
 **Step 3, the macOS gates** (`leftovers/i_gates.py`), run first before Deviation 1 and again on
-`b0219278`, passing both times:
+`b0219278` (on origin `1566fd06`; see the correction of 2026-10-29), passing both times:
 
 | Gate | Result |
 | :--- | :--- |
@@ -136,7 +136,7 @@ proceed".
 | `make test`, `make race` | exit 0; 44 packages ok |
 | `make check-records`, `make markdownlint-docs`; the guard's redact preview | exit 0; "0 issues"; "would edit 0 file(s)" |
 
-**Step 4, the test hosts** (`leftovers/i_hosts.py`), on `b0219278` with the pins, each in a
+**Step 4, the test hosts** (`leftovers/i_hosts.py`), on `b0219278` (on origin `1566fd06`; see the correction of 2026-10-29) with the pins, each in a
 scratch copy removed afterwards and its absence checked:
 
 | Host | Gate | Result |
@@ -144,7 +144,7 @@ scratch copy removed afterwards and its absence checked:
 | Linux | `go test -race -count=1 -timeout=40m ./...`, go1.27.3 linux/amd64 | exit 0; 44 packages ok |
 | Windows | `make ci-windows`, go1.27.3 windows/amd64, after the `make -n` check | exit 0; "ci-windows-local: ALL SELECTED CHECKS PASSED"; 44 packages ok |
 
-The first run of step 4, before `b0219278`, is Deviation 1: Linux passed, and Windows failed on
+The first run of step 4, before `b0219278` (on origin `1566fd06`; see the correction of 2026-10-29), is Deviation 1: Linux passed, and Windows failed on
 the two tests that commit fixed.
 
 **Step 5.** `scripts/check_records.py --write-index` added this plan's row to `docs/README.md`,
@@ -154,3 +154,18 @@ and nothing else. The MADR's D48 and D49 are marked carried out.
 `docs/README.md`.
 
 P1 is done, and so is this plan.
+
+### Correction, 2026-10-29 — the fix's commit id
+
+The owner pushed both commits, and the push rebased them onto `84d35609`, a row the CI flake
+ledger had added on origin
+([0143-MADR-ci-retries-once-and-records-every-retry.md](0143-MADR-ci-retries-once-and-records-every-retry.md)).
+On origin:
+
+* the SDK-gaps plan's Windows follow-up, cited above as `b0219278`, is `1566fd06`;
+* this plan's commit is `0edeffba`.
+
+`git diff --stat b0219278 1566fd06` shows only `ci-flakes.tsv`, one line. So the gates above ran
+on the content that was pushed, apart from that row. `b0219278` was the local commit id when this
+record was written; it is on no branch of origin. The citations above are annotated, not rewritten.
+The disclosure guard passed over `d4f22efc..0edeffba`.
