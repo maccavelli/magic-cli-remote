@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-18
+date: 2026-10-28
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -333,3 +333,36 @@ go test ./internal/wirecap/ -count=1
 Found by the record audit in [0200-REPORT-record-status-audit.md](../reports/0200-REPORT-record-status-audit.md).
 
 ~~`proposed`~~ `accepted`. The PLAN was executed and the change is on `master` (`12bebe69`, `5f863a84`, `79d1de6d`, `6b78e3f1`; the PLAN is `completed`). The record never wrote down an acceptance. On 2026-10-18 the owner chose to mark such records accepted with this note, so the acceptance here is inferred from the shipped change. No decision in this record changes.
+
+## Amendment — 2026-10-28: the host's name (F9; D8 to D10)
+
+*Decided by the owner, 2026-10-28: "Fix under 0151, first (Recommended)".* Found by
+[0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md](0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md)
+C3, reading a new grok capture before committing it.
+
+**F9 — F8's hostname is realised, in two fixtures.** The capturing Mac's name is in:
+
+- grok 1.0.13's capture, 4 times: `_meta.hostname` in each initialize answer (lines 1, 20, 101,
+  179), public since `b0fecd9f` and `fc5b75ec` (2026-09-03). P2 (`5f863a84`) scrubbed the account
+  metadata beside it and not this;
+- codex 0.152.1's capture, once: `serverName` in a `remoteControl/status/changed` notification
+  (line 2).
+
+Every new grok capture carries it too: grok 1.0.70's initialize answer has the same field. The
+account name appears in no tracked file. Open question 3 above ("do the other four fixtures carry
+anything the keyword guard will not name?") was this.
+
+- **D8 — `wirecap` redacts the host's name.** `For` records `os.Hostname()`, and its short form
+  before the first dot. `redact` replaces each with `<host>`, as written and JSON-escaped, as the
+  home's two forms are. A name shorter than four characters is not replaced, since it would mangle
+  frames that merely contain it.
+- **D9 — The two fixtures are scrubbed in place,** the name replaced with `<host>`, as P2 did the
+  account metadata.
+- **D10 — The fixture guard also fails on the running host's name.** On CI the name differs, so
+  this guards a capturing host, not CI. That is its honest reach, as the existing guard's comment
+  says of email.
+- **D5 stands.** Git history keeps the old values; nothing is force-pushed. The commits that
+  carried them are named above.
+- **Not decided here:** grok's `agentId` and codex's `installationId`, per-installation UUIDs in
+  the same frames. Neither is a hostname, account name, path, address or SID. grok's `agentId` is
+  already public in 1.0.13 and is unchanged in 1.0.70.

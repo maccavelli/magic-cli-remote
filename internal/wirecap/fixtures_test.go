@@ -53,6 +53,12 @@ func TestCommittedFixturesCarryNoIdentifiers(t *testing.T) {
 		t.Fatalf("glob matched %d fixtures, want at least 4: the guard is not reading what it claims to", len(paths))
 	}
 
+	// The running host's name, in the forms redact replaces (MADR 0151
+	// amendment of 2026-10-28, D10). On CI it is the runner's, which no fixture
+	// holds, so this guards the host that captures, not CI.
+	host, _ := os.Hostname()
+	hosts := hostNames(host)
+
 	for _, path := range paths {
 		t.Run(filepath.ToSlash(path), func(t *testing.T) {
 			b, err := os.ReadFile(path)
@@ -68,6 +74,12 @@ func TestCommittedFixturesCarryNoIdentifiers(t *testing.T) {
 				}
 				if m := driveAbsolute.FindString(line); m != "" {
 					t.Errorf("line %d: unredacted Windows path starting %q (MADR 0151 F1)", i+1, m)
+				}
+				for _, h := range hosts {
+					if strings.Contains(strings.ToLower(line), strings.ToLower(h)) {
+						t.Errorf("line %d: this host's name, unredacted (MADR 0151 F9)", i+1)
+						break
+					}
 				}
 			}
 		})

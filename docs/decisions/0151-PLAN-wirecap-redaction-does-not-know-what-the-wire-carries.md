@@ -1,6 +1,6 @@
 ---
 status: completed
-date: 2026-09-07
+date: 2026-10-28
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -339,3 +339,84 @@ replace is the wrong tool, and a compiler is not a sufficient check on one.
 
 `gofmt` clean; `go test ./...` and `go test -race ./...` green; the Windows
 gate reports `ALL SELECTED CHECKS PASSED`.
+
+## Amendment — 2026-10-28: P5, the host's name (MADR amendment of 2026-10-28, D8 to D10)
+
+*Approved by the owner, 2026-10-28: "Fix under 0151, first (Recommended)". Its own commit, before
+the commit of 0207's C3.*
+
+### P5 — redact the host's name, scrub two fixtures, guard
+
+**Files:** `internal/wirecap/wirecap.go`, `wirecap_test.go`, `fixtures_test.go`;
+`internal/provider/grok/testdata/wire/1.0.13/frames.jsonl`;
+`internal/provider/codex/testdata/wire/0.152.1/frames.jsonl`; this plan; the MADR.
+
+1. **Tests first,** each seen failing on a scratch copy:
+   - `redact` replaces a host name, as written and JSON-escaped, and its short form, with
+     `<host>`; it leaves a name shorter than four characters alone, and redacts with no home set;
+   - `TestCommittedFixturesCarryNoIdentifiers` fails on a fixture holding the running host's name.
+2. **Code** as tested: `Capture.host`, set in `For`; `redact` gains the replacement.
+3. **The fixtures:** the name replaced with `<host>`, five occurrences, and no other byte changed
+   (`git diff --word-diff`).
+4. **Gates:** `make pre-add-check FILES=…`, `make test`, `make race`, `go vet` for the three targets,
+   `make check-records`, the guard's redact preview, and `go test ./internal/provider/grok/
+   ./internal/provider/codex/ ./internal/provider/acpagent/`, whose tests read these fixtures.
+
+### P5 execution — 2026-10-28
+
+**Step 1, the tests.**
+
+- In `wirecap_test.go`:
+  - `TestRedactHostName`: a host name and its FQDN, as written and lowercased, are replaced with
+    `<host>`, four times in one JSON frame, the full name before the short one; a two-letter name
+    is left alone; an unconfigured capture changes nothing;
+  - `TestForRecordsTheHostName`: `For` records `hostNames` of the running host.
+- `fixtures_test.go`: `TestCommittedFixturesCarryNoIdentifiers` also fails on the running host's
+  name, naming the line and not the value.
+
+**The guard's first run was on the real fixtures,** before the scrub. It failed on exactly the
+five occurrences: "line 2: this host's name, unredacted (MADR 0151 F9)" in codex 0.152.1, and
+lines 1, 20, 101 and 179 in grok 1.0.13.
+
+**Step 2, the code** (`wirecap.go`): `Capture.hosts`, set in `For` from `os.Hostname()` through
+`hostNames`, which returns the full name, the short one and each lowercased, longest first, none
+under four characters. `redact` replaces them with `<host>` before the home, whatever the home.
+The package comment now says redaction covers the home and the host's name, and nothing else.
+
+**Step 3, the fixtures** (`leftovers/p5_scrub.py`): the name replaced with `<host>`, 4 times in
+grok 1.0.13 and once in codex 0.152.1. The script asserted the counts, that the name was then
+absent, and that no `<host>` was there before. `git diff --numstat` shows `4 4` and `1 1`: those
+lines and no others.
+
+**Seen failing** (`leftovers/p5_plants.py`; scratch copies of the working tree):
+
+| Plant | The failure |
+| :--- | :--- |
+| `redact` without the host loop | "the host's name leaked after redact: {…\"hostname\":\"Build-Box-7\"…}" |
+| no lowercase forms | "… \"lower\":\"build-box-7.corp.example\" …" |
+| the short name replaced first | "… \"fqdn\":\"<host>.corp.example\" …" |
+| no length floor | "hostNames(\"ab\") = [\"ab\"], want none" |
+| `For` without the host | "hosts = 0 name(s), want hostNames of this host, 2" |
+| the name put back into grok 1.0.13's first line | "line 1: this host's name, unredacted (MADR 0151 F9)" |
+| none (the control) | exit 0 |
+
+**Step 4, the gates:**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (the three Go files) | "3 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0 |
+| `go build ./...`; `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64 | exit 0, each |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `go test -race ./internal/wirecap/ ./internal/provider/grok/ ./internal/provider/codex/ ./internal/provider/acpagent/` | ok, each; the tests that read the two fixtures pass with `<host>` |
+| `go test -race -count=1 ./...` on the Linux test host, in a scratch copy removed afterwards | exit 0; 44 packages ok |
+| `make check-records`, `make markdownlint-docs`; the guard's redact preview | exit 0; "0 issues"; "would edit 0 file(s)" |
+
+**Files for this commit:** `internal/wirecap/wirecap.go`, `wirecap_test.go`, `fixtures_test.go`;
+`internal/provider/grok/testdata/wire/1.0.13/frames.jsonl`;
+`internal/provider/codex/testdata/wire/0.152.1/frames.jsonl`; the MADR; this plan.
+
+**Not done, by D5:** the old values stay in git history, in `b0fecd9f`, `fc5b75ec` and the commits
+that added and touched codex 0.152.1's capture. Nothing is force-pushed.
+
+P5 is complete, and the plan is `completed` again.

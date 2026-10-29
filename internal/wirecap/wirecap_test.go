@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -158,6 +159,56 @@ func TestRedactAbsoluteAndRelativeHome(t *testing.T) {
 			t.Fatalf("root home should not redact, got %q", g)
 		}
 	})
+}
+
+// TestRedactHostName is MADR 0151 amendment of 2026-10-28, D8: the capturing
+// host's name, which grok sends as _meta.hostname and codex as serverName, is
+// replaced with <host> in every form an engine may carry it: the full name, the
+// short one before the first dot, and either lowercased. The longest is replaced
+// first, so a full name never leaves its domain behind.
+func TestRedactHostName(t *testing.T) {
+	c := &Capture{hosts: hostNames("Build-Box-7.corp.example")}
+	frame, err := json.Marshal(map[string]string{
+		"hostname": "Build-Box-7", "fqdn": "Build-Box-7.corp.example", "lower": "build-box-7.corp.example",
+		"serverName": "build-box-7",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := c.redact(string(frame))
+	if strings.Contains(strings.ToLower(got), "build-box-7") || strings.Contains(got, "corp.example") {
+		t.Fatalf("the host's name leaked after redact: %s", got)
+	}
+	if n := strings.Count(got, "<host>"); n != 4 {
+		t.Fatalf("redact = %s, want <host> 4 times", got)
+	}
+
+	// A name that short would be replaced inside unrelated words, so it is not.
+	if names := hostNames("ab"); len(names) != 0 {
+		t.Fatalf("hostNames(\"ab\") = %q, want none", names)
+	}
+	if g := (&Capture{hosts: hostNames("ab")}).redact(`{"x":"abc"}`); g != `{"x":"abc"}` {
+		t.Fatalf("a short host name changed a frame: %q", g)
+	}
+	// No name configured, no change.
+	if g := (&Capture{}).redact(`{"hostname":"Build-Box-7"}`); g != `{"hostname":"Build-Box-7"}` {
+		t.Fatalf("an unconfigured capture changed a frame: %q", g)
+	}
+}
+
+// TestForRecordsTheHostName: a capture redacts the host it runs on, without
+// being told (D8).
+func TestForRecordsTheHostName(t *testing.T) {
+	t.Setenv(EnvDir, t.TempDir())
+	c := For("p")
+	if c == nil {
+		t.Fatal("For returned nil with capture enabled")
+	}
+	defer c.Close()
+	host, _ := os.Hostname()
+	if want := hostNames(host); !slices.Equal(c.hosts, want) {
+		t.Fatalf("hosts = %d name(s), want hostNames of this host, %d", len(c.hosts), len(want))
+	}
 }
 
 // TestTapOfNilCaptureIsNilWriter: a disabled capture must hand agentproc no

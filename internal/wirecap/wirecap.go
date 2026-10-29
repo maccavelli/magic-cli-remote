@@ -15,20 +15,22 @@
 // verbatim, so a fixture reproduces the engine's own bytes.
 //
 // What redaction covers, and what it does not: [Capture.redact] replaces the
-// operator's home directory and nothing else. A frame may carry any other
-// identifier the engine chooses to send — an email address, an account id, a
-// hostname, a project name — and none of it is removed. That is not a gap
-// waiting to be closed by a longer list; the committed grok fixture carried an
-// email address and an account UUID for four days on exactly this basis
-// (MADR 0151 F5, F8). A capture bound for a public repository needs reading,
-// not just redacting. TestCommittedFixturesCarryNoIdentifiers guards the two
-// shapes that have actually reached a fixture.
+// operator's home directory and the capturing host's name, and nothing else. A
+// frame may carry any other identifier the engine chooses to send — an email
+// address, an account id, an installation id, a project name — and none of it is
+// removed. That is not a gap waiting to be closed by a longer list; the
+// committed grok fixture carried an email address and an account UUID for four
+// days on exactly this basis (MADR 0151 F5, F8), and the host's name for eight
+// weeks (F9). A capture bound for a public repository needs reading, not just
+// redacting. TestCommittedFixturesCarryNoIdentifiers guards the shapes that have
+// actually reached a fixture.
 package wirecap
 
 import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -42,9 +44,10 @@ const EnvDir = "MCREMOTE_WIRE_CAPTURE_DIR"
 // Capture appends raw frames for one provider. The zero value and a nil
 // *Capture are both safe and do nothing, so call sites need no branch.
 type Capture struct {
-	mu   sync.Mutex
-	f    *os.File
-	home string
+	mu    sync.Mutex
+	f     *os.File
+	home  string
+	hosts []string // hostNames of the capturing host
 }
 
 // For returns a capture for provider, or nil when capture is disabled.
@@ -66,12 +69,34 @@ func For(provider string) *Capture {
 		return nil
 	}
 	home, _ := os.UserHomeDir()
-	return &Capture{f: f, home: home}
+	host, _ := os.Hostname()
+	return &Capture{f: f, home: home, hosts: hostNames(host)}
+}
+
+// minHostName is the shortest host name redact replaces: a shorter one would be
+// replaced inside words that merely contain it, mangling the frame.
+const minHostName = 4
+
+// hostNames returns the forms of a host's name redact replaces, longest first,
+// so a full name is never left with its domain behind: the name as given, its
+// short form before the first dot, and each lowercased, as an engine may report
+// it (MADR 0151 amendment of 2026-10-28, D8). grok sends it as _meta.hostname,
+// codex as serverName.
+func hostNames(name string) []string {
+	name = strings.TrimSpace(name)
+	short, _, _ := strings.Cut(name, ".")
+	var out []string
+	for _, n := range []string{name, strings.ToLower(name), short, strings.ToLower(short)} {
+		if len(n) >= minHostName && !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // Frame records one raw frame. Newlines inside the frame are escaped so the
 // file stays one-frame-per-line; everything else is byte-verbatim apart from
-// the home-path redaction below.
+// the home-path and host-name redaction below.
 func (c *Capture) Frame(b []byte) {
 	if c == nil || len(b) == 0 {
 		return
@@ -115,7 +140,14 @@ func stripRoot(p string) string {
 // replacing only the absolute one leaves the username behind — found by
 // grepping a fixture that had already been "redacted" (MADR 0137 Phase 1), and
 // again on Windows by this package's own test (MADR 0144 amendment).
+//
+// It replaces the capturing host's name first, whatever the home, and before the
+// home's placeholder is written, so the placeholder is never itself rewritten
+// (MADR 0151 amendment of 2026-10-28, D8).
 func (c *Capture) redact(s string) string {
+	for _, h := range c.hosts {
+		s = replaceBothForms(s, h, "<host>")
+	}
 	if c.home == "" || c.home == "/" {
 		return s
 	}
