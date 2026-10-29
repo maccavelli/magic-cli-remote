@@ -1,6 +1,6 @@
 ---
 status: completed
-date: 2026-10-28
+date: 2026-10-29
 ---
 <!-- markdownlint-disable MD013 MD024 MD033 MD036 MD060 -->
 
@@ -420,3 +420,74 @@ lines and no others.
 that added and touched codex 0.152.1's capture. Nothing is force-pushed.
 
 P5 is complete, and the plan is `completed` again.
+
+## Amendment — 2026-10-29: P6, the drive-path check reads a line by its encoding (MADR amendment of 2026-10-29, D11)
+
+*Approved by the owner, 2026-10-29: "option 2, but determine the best way to ensure the guard will
+work with a raw windows path". Its own commit, before the commit of 0207's C3.*
+
+### P6 — the drive-path check reads a line by its encoding
+
+**Files:** `internal/wirecap/fixtures_test.go`; this plan; the MADR.
+
+1. **Test first,** seen failing on a scratch copy: `TestWindowsPathByEncoding`.
+   - Hits: a JSON line holding a path as `json.Marshal` writes it; a JSON line holding one escaped
+     as `\u005c`; a line that is not JSON holding a raw path; and one holding an escaped path.
+   - No hit: a JSON line whose text has a colon followed by a newline and a tab.
+2. **Code** as tested: `windowsPath(line)` searches a JSON line with `escapedDrive`, and any other
+   line with `driveAbsolute`, unchanged. The guard calls it.
+3. **Plants,** each on a scratch copy:
+   - D6's pattern for every line;
+   - the escaped pattern for every line;
+   - the escaped pattern without `\u005c`;
+   - the guard calling `driveAbsolute` again, with grok 1.0.70's capture present.
+4. **Gates:** `make pre-add-check FILES=internal/wirecap/fixtures_test.go`, `make staticcheck`,
+   `go vet` for the three targets, `make test`, `make race`, `make check-records`,
+   `make markdownlint-docs`, and the guard's redact preview. They run with grok 1.0.70's capture in
+   the working tree, which this commit does not include.
+
+### P6 execution — 2026-10-29
+
+**Measured first** (`leftovers/p6_measure.py`): every line of the five committed fixtures, and of
+grok 1.0.70's capture, is JSON. D6's pattern matches nothing in the five. In grok 1.0.70's capture
+it matches four times, `e:\n` twice on each of lines 10 and 12. The escaped pattern matches nothing
+in any of the six.
+
+**Steps 1 and 2, the test and the code** (`fixtures_test.go`):
+
+- `escapedDrive`, `[A-Za-z]:(\\\\|\\u005[cC])[A-Za-z]`; `driveAbsolute` is unchanged, and its
+  comment says what it misreads in a JSON line.
+- `windowsPath(line)` searches a line that `json.Valid` accepts with `escapedDrive`, and any other
+  line with `driveAbsolute`. `TestCommittedFixturesCarryNoIdentifiers` calls it.
+- `TestWindowsPathByEncoding`, five cases: a path as `json.Marshal` writes it, one escaped as
+  `\u005c`, a raw path in a line that is not JSON, and an escaped one there, are each found; a
+  JSON line holding "In scope:", a newline, "Out of scope:" and a tab is not.
+
+**Step 3, seen failing** (`leftovers/p6_plants.py`; scratch copies of the working tree, grok
+1.0.70's capture included):
+
+| Plant | The failure |
+| :--- | :--- |
+| D6's pattern for every line | "windowsPath({\"v\":\"In scope:\\nOut of scope:\\tx\"}) = \"e:\\\\n\", want a path: false", and the guard's "line 10" and "line 12" on grok 1.0.70 |
+| the escaped pattern for every line | "windowsPath(stderr: C:\\Users\\alice\\proj) = \"\", want a path: true" |
+| the escaped pattern without `\u005c` | "windowsPath({\"v\":\"C:\\u005cUsers\\u005calice\"}) = \"\", want a path: true" |
+| the guard calling `driveAbsolute` again | "line 10: unredacted Windows path starting \"e:\\\\n\" (MADR 0151 F1)", and line 12 |
+| none (the control) | exit 0 |
+
+**Step 4, the gates** (`leftovers/p6_gates.py`), with grok 1.0.70's capture in the working tree:
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=internal/wirecap/fixtures_test.go` | "1 file(s) clean (gofmt, golint, govulncheck)" |
+| `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" |
+| `go build ./...`; `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64, with `CGO_ENABLED=0` | exit 0, each. The first run left `CGO_ENABLED` unset, and linux/amd64's vet failed on cgo against the macOS SDK; the earlier phases' gate scripts set it |
+| `make test`, `make race` | exit 0; 44 packages ok |
+| `make check-records`, `make markdownlint-docs`; the guard's redact preview | exit 0; "0 issues"; "would edit 0 file(s)" |
+
+No run on the Linux test host: the change is one test file, and `json.Valid` and `regexp` behave
+the same on every GOOS.
+
+**Files for this commit:** `internal/wirecap/fixtures_test.go`; the MADR; this plan. Not grok
+1.0.70's capture, which is C3's.
+
+P6 is complete, and the plan is `completed` again.

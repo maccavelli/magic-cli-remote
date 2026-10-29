@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-28
+date: 2026-10-29
 decision-makers: Project Owner
 consulted: none
 informed: none
@@ -366,3 +366,37 @@ anything the keyword guard will not name?") was this.
 - **Not decided here:** grok's `agentId` and codex's `installationId`, per-installation UUIDs in
   the same frames. Neither is a hostname, account name, path, address or SID. grok's `agentId` is
   already public in 1.0.13 and is unchanged in 1.0.70.
+
+## Amendment — 2026-10-29: the drive-path check misreads a JSON escape (F10; D11)
+
+*Decided by the owner, 2026-10-29: "option 2, but determine the best way to ensure the guard will
+work with a raw windows path".* Found by
+[0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md](0207-PLAN-close-the-acp-go-sdk2-v1-20-0-gaps.md)
+C3: its grok 1.0.70 capture failed `TestCommittedFixturesCarryNoIdentifiers`.
+
+**F10 — D6's Windows-path check fires on a JSON escape.** `driveAbsolute`,
+`[A-Za-z]:\\\\?[A-Za-z]`, makes the second backslash optional, so it also matches one backslash and
+a letter. In a JSON line a single backslash always begins an escape.
+
+- grok 1.0.70's capture holds a PLAN that grok wrote in a test's temp directory. Its "In scope:"
+  and "Out of scope:", each followed by a newline, reach the file as `scope:\n`. The check reports
+  each as a path starting "e:\n", on lines 10 and 12. Neither line holds an identifier.
+- The flaw is P3's. This is the first fixture with a letter, a colon and an escape in a row.
+
+**What can reach a fixture, measured** (`leftovers/p6_measure.py`):
+
+- Every line of the five committed fixtures, and of grok 1.0.70's capture, is a JSON document.
+- A line that is not JSON can still be written. `Capture.Tap` records every line an ACP agent
+  writes to its stdout, JSON or not, and `Frame` writes a frame's own newlines as `\n`. So a raw
+  path such as `C:\Users\alice` can reach a fixture only on a line that is not JSON.
+
+**D11 — The check reads a line by its encoding.**
+
+- A line that is a JSON document (`json.Valid`) is searched for a drive path in its escaped forms
+  only: the backslash written `\\`, as every encoder writes it, or `\u005c`, as an encoder that
+  escapes more may.
+- Any other line is searched with D6's pattern, unchanged. It matches a raw path and an escaped
+  one. It stays fail-closed: on such a line `X:\n` may be `Frame`'s escaped newline or a raw path,
+  and a line in a fixture that is not JSON is worth reading either way.
+- **Not covered,** as before: a drive path written with forward slashes (`C:/Users/alice`), and a
+  UNC path.

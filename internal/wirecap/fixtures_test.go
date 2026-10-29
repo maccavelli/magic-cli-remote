@@ -1,6 +1,7 @@
 package wirecap
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,7 +39,27 @@ var docDomains = []string{"@example.com", "@example.org", "@example.net"}
 // JSON-escaped form that is what actually reaches a fixture (0151 F1). Any
 // occurrence means a capture was taken on a Windows host and the home was not
 // redacted — which is the exact defect 0151 P1 fixed, seen from the other end.
+//
+// It is for a line that is not JSON. In a JSON line its optional second
+// backslash also matches an escape: "scope:\n" reads as a path starting
+// "e:\n" (MADR 0151 F10).
 var driveAbsolute = regexp.MustCompile(`[A-Za-z]:\\\\?[A-Za-z]`)
+
+// escapedDrive matches a Windows absolute path inside a JSON document, where a
+// backslash can only appear escaped: as `\\`, which every encoder writes, or as
+// `\u005c`, which an encoder that escapes more may.
+var escapedDrive = regexp.MustCompile(`[A-Za-z]:(\\\\|\\u005[cC])[A-Za-z]`)
+
+// windowsPath returns the start of a Windows absolute path in one fixture line,
+// or "" (MADR 0151 D11). A JSON line is searched for the escaped forms only. Any
+// other line is searched with driveAbsolute, since Tap records every line an
+// agent writes to stdout, JSON or not, and a raw path can reach a fixture there.
+func windowsPath(line string) string {
+	if json.Valid([]byte(line)) {
+		return escapedDrive.FindString(line)
+	}
+	return driveAbsolute.FindString(line)
+}
 
 func TestCommittedFixturesCarryNoIdentifiers(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("..", "provider", "*", "testdata", "wire", "*", "frames.jsonl"))
@@ -72,7 +93,7 @@ func TestCommittedFixturesCarryNoIdentifiers(t *testing.T) {
 					}
 					t.Errorf("line %d: email address %q — redaction covers the home directory only (MADR 0151 F8)", i+1, hit)
 				}
-				if m := driveAbsolute.FindString(line); m != "" {
+				if m := windowsPath(line); m != "" {
 					t.Errorf("line %d: unredacted Windows path starting %q (MADR 0151 F1)", i+1, m)
 				}
 				for _, h := range hosts {
@@ -81,6 +102,36 @@ func TestCommittedFixturesCarryNoIdentifiers(t *testing.T) {
 						break
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestWindowsPathByEncoding pins D11: a Windows path is found in each encoding
+// that can reach a fixture, and a JSON escape after a colon is not one (F10).
+func TestWindowsPathByEncoding(t *testing.T) {
+	marshal := func(s string) string {
+		b, err := json.Marshal(map[string]string{"v": s})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{"JSON, a path as json.Marshal writes it", marshal(`C:\Users\alice\proj`), true},
+		{"JSON, a path escaped as \\u005c", `{"v":"C:\u005cUsers\u005calice"}`, true},
+		{"JSON, a newline and a tab after colons", marshal("In scope:\nOut of scope:\tx"), false},
+		{"not JSON, a raw path", `stderr: C:\Users\alice\proj`, true},
+		{"not JSON, an escaped path", `partial {"v":"C:\\Users\\alice`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := windowsPath(tc.line); (got != "") != tc.want {
+				t.Fatalf("windowsPath(%s) = %q, want a path: %v", tc.line, got, tc.want)
 			}
 		})
 	}
