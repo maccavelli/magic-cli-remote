@@ -19,3 +19,4 @@ run_id	job_name	commit_sha	first_attempt_result	retry_result	failing_test	timest
 39481886172	Go (linux/arm64)	8802be5ecc9be9ca463c7a0a1f888da61da1bbab	fail	pass	TestReapOrphanEnginesKillsOrphan	2026-10-20T19:16:19Z
 39631382484	Go (windows/amd64)	a5737c44f99636e05e7a0e138fd3db5fc9152d5c	fail	pass	TestOnlyOneConcurrentClaimWins	2026-10-21T16:07:44Z
 40113049697	Go (windows/amd64)	7d2a3ecfd8a97ebc4ab41ae73d3896119e28f736	fail	pass	TestPromptFailsAfterDisconnectAutoClose	2026-10-24T16:50:10Z
+40890754513	Go (windows/amd64)	d4f22efcf764322886550f3e9aaf4865679cc882	fail	fail	TestReadTextFileMissingIsResourceNotFound	2026-10-29T14:27:04Z
