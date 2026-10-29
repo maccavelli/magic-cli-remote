@@ -36,8 +36,20 @@ func TestReadTextFileMissingIsResourceNotFound(t *testing.T) {
 	if !errors.As(err, &re) || re.Data == nil {
 		t.Fatalf("err = %#v, want a *acp.RequestError naming the file", err)
 	}
-	if b, _ := json.Marshal(re.Data); !strings.Contains(string(b), filepath.ToSlash(path)) && !strings.Contains(string(b), path) {
-		t.Errorf("data = %s, want it to name %s", b, path)
+	// Compared decoded, not as JSON text: JSON doubles a Windows path's
+	// backslashes, so the raw path never appears in the encoded data.
+	b, err := json.Marshal(re.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(b, &data); err != nil {
+		t.Fatalf("data = %s: %v", b, err)
+	}
+	if data.URI != path {
+		t.Errorf("data's uri = %q, want the missing file, %q", data.URI, path)
 	}
 }
 

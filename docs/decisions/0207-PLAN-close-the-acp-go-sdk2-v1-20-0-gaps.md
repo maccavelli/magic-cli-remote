@@ -834,3 +834,46 @@ platform-specific.
 
 **C3 is done, and so is this plan.** C0 to C4 have run; D25, D26, D27, D45 and D46 are carried out,
 and D47's items wait for their own records. The plan is `complete`.
+
+### C1 and C1b follow-up, 2026-10-29 — two of their tests fail on Windows
+
+Found by `0207-PLAN-pin-acp-go-sdk2-v1-26-0-and-go-selfupdate-lib-v1-22-3.md` (committed after
+this) P1 Deviation 1, and by master's Windows CI (run `40890754513`, at `d4f22efc`). The owner decided:
+"Fix under the gaps plan, first (Recommended)". The plan is `in-progress` until this is done.
+
+* **The faults, both in the tests:**
+  * `TestReadTextFileMissingIsResourceNotFound` (C1) searched the error's `data`, marshalled to
+    JSON, for the raw path. JSON doubles a Windows path's backslashes, so the path never appeared.
+    The code is right: the `uri` is the path.
+  * `TestListAgentSessionsStopsAtAnyRepeatedCursor` (C1b) gave each listed session `cwd: "/w"`.
+    The SDK requires an absolute path, and on Windows `/w` is not one, so the listing failed
+    before the cursor was checked.
+* **Why it was missed.** C1's and C1b's gates ran on macOS and the Linux test host, and not on the
+  Windows test host. Their execution records say so by their tables; this entry says it outright.
+* **The fix:**
+  * the first test decodes `data` and compares its `uri` with the path;
+  * the second builds the sessions' `cwd` from `t.TempDir()`, absolute on every OS, encoded as JSON.
+* **Files:** `internal/provider/acpagent/conformance_test.go`, `sdkhelpers_test.go`; this plan.
+
+**Seen failing** (`leftovers/win_fix_plants.py`; scratch copies of `HEAD` with the two fixed files
+and not the pins, one break each to the code the tests cover):
+
+| Plant | The failure |
+| :--- | :--- |
+| `ReadTextFile` names another file | "data's uri = \"…/missing.txt.other\", want the missing file, \"…/missing.txt\"" |
+| a repeated cursor returned as an error | "sdkhelpers_test.go:126: acp: session/list answered a cursor it already gave" |
+| none (the control) | exit 0 |
+
+The fault each fix removes was already seen failing on Windows: on the Windows test host and in
+master's CI, with the messages quoted above.
+
+**Gates:**
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check FILES=…` (the two files) | "2 file(s) clean (gofmt, golint, govulncheck)" |
+| the two tests, `-race`, on macOS | ok |
+| `make ci-windows` on the Windows test host, in a scratch copy of `HEAD` with the two files only, removed afterwards (`leftovers/i_hosts.py`) | exit 0; "ci-windows-local: ALL SELECTED CHECKS PASSED"; 44 packages ok |
+
+**Files for this commit:** `internal/provider/acpagent/conformance_test.go`, `sdkhelpers_test.go`;
+this plan. Master's Windows CI should pass with it. The plan is `complete` again.

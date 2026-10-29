@@ -92,11 +92,16 @@ func TestPromptCancelledIsBenign(t *testing.T) {
 // with what it had, and lists nothing twice (acp.AllSessions, H-6).
 func TestListAgentSessionsStopsAtAnyRepeatedCursor(t *testing.T) {
 	s, a := newWireSession(t, `{"sessionCapabilities":{"list":{}}}`)
-	pages := map[string]string{
-		"":   `{"sessions":[{"sessionId":"s1","cwd":"/w"}],"nextCursor":"c1"}`,
-		"c1": `{"sessions":[{"sessionId":"s2","cwd":"/w"}],"nextCursor":"c2"}`,
-		"c2": `{"sessions":[{"sessionId":"s3","cwd":"/w"}],"nextCursor":"c1"}`,
+	// The SDK refuses a cwd that is not absolute on this OS, which "/w" is not
+	// on Windows, so the cwd is a real directory's.
+	cwd, err := json.Marshal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
+	page := func(id, next string) string {
+		return `{"sessions":[{"sessionId":"` + id + `","cwd":` + string(cwd) + `}],"nextCursor":"` + next + `"}`
+	}
+	pages := map[string]string{"": page("s1", "c1"), "c1": page("s2", "c2"), "c2": page("s3", "c1")}
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
