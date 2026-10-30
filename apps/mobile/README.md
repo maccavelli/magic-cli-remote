@@ -19,7 +19,7 @@ Documentation: [docs/README.md](docs/README.md).
 
 ## Prerequisites
 
-- Flutter **3.47.2** / Dart **3.13.2** — the CI pin (`FLUTTER_VERSION` in
+- Flutter **3.47.9** / Dart **3.13.7** — the CI pin (`FLUTTER_VERSION` in
   `.github/workflows/ci.yml`). Use exactly this version: CI fails when
   `flutter pub get` changes `pubspec.lock`.
 - One of:

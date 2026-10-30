@@ -425,6 +425,10 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0215 | PLAN | Implement a native darwin/arm64 CI leg | [0215-PLAN-test-darwin-arm64-natively-in-ci.md](decisions/0215-PLAN-test-darwin-arm64-natively-in-ci.md) |
 | 0216 | MADR | Show an agent's last stderr when it dies, and record and replay both ways of the ACP wire | [0216-MADR-show-an-agents-last-stderr-and-record-and-replay-both-ways-of-the-acp-wire.md](decisions/0216-MADR-show-an-agents-last-stderr-and-record-and-replay-both-ways-of-the-acp-wire.md) |
 | 0216 | PLAN | Implement the stderr tail for every supported agent, and the phone's view of it (0216 item 1) | [0216-PLAN-show-an-agents-last-stderr-when-it-dies.md](decisions/0216-PLAN-show-an-agents-last-stderr-when-it-dies.md) |
+| 0217 | MADR | Update every pin to its current release, security fixes first | [0217-MADR-update-every-pin-to-its-current-release.md](decisions/0217-MADR-update-every-pin-to-its-current-release.md) |
+| 0217 | PLAN | Implement updating every pin to its current release, security fixes first | [0217-PLAN-update-every-pin-to-its-current-release.md](decisions/0217-PLAN-update-every-pin-to-its-current-release.md) |
+| 0218 | MADR | Report a session as not live when it closes during a call | [0218-MADR-report-not-live-when-a-session-closes-during-a-call.md](decisions/0218-MADR-report-not-live-when-a-session-closes-during-a-call.md) |
+| 0218 | PLAN | Implement reporting a session as not live when it closes during a call | [0218-PLAN-report-not-live-when-a-session-closes-during-a-call.md](decisions/0218-PLAN-report-not-live-when-a-session-closes-during-a-call.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

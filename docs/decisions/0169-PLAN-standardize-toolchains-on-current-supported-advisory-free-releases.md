@@ -1740,3 +1740,14 @@ WSL leg.
 - go1.27.2 stays installed on all four hosts (C4).
 
 **Files for this commit:** this PLAN.
+
+## 0217 status note
+
+This plan's open items are carried by
+[0217-PLAN-update-every-pin-to-its-current-release.md](0217-PLAN-update-every-pin-to-its-current-release.md).
+Each line is added in the 0217 phase that closes it.
+
+- **2026-10-30, 0217 P1 (D2):** CI's `FLUTTER_VERSION` and this Mac's Flutter are 3.47.9, with
+  Dart 3.13.7. That fixes GHSA-frr6-h895-5pxp. `standard.json`'s Flutter row, magic-git's
+  `build_macos.sh` pin and the other hosts' Flutter move under magic-git's own pair, so D3's
+  lockstep waits on it.
