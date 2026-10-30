@@ -673,6 +673,48 @@ advisory"). `leftovers/guard_range.py` over `origin/master..HEAD` (`0e84b1f0..a5
 `07ee60b2` and `533a6055`, 0218's `1a6abb37`, and `a5ccd412`) gave exit 0, with no output. The push
 and the tag are the owner's (C3).
 
+**The release** (2026-10-30, after P2's step 8 below). The owner pushed the annotated tag
+**`v0.24.0`** (tag object `1a1f431c`) on `5ca4a3b1`, the commit P2's step 8 shows green on master.
+
+Its run is CI `41094433851`.
+
+* **Attempt 1: failure, from GitHub runner capacity.**
+  * Every gate job passed: Go (test), Go (windows/amd64), Go (darwin/arm64), Go (linux/arm64),
+    Flutter (analyze & test), Flutter (test on windows), and Live supervisors (runit, s6).
+  * Android APK (release arm64) passed, as did the self-update build and its six Linux and
+    Windows identity jobs.
+  * The two darwin/arm64 identity jobs (`mcrelay` and `mcremote`, `macos-15`) were cancelled
+    after 15m1s with no step run. Each one's annotation reads "The job was not acquired by
+    Runner of type hosted even after multiple attempts". The run carried GitHub's notice that
+    "jobs targeting macOS arm64 runners may experience longer queue times".
+  * Publish was skipped, so no release existed.
+* **Attempt 2: success.** Under C2's dispatch, `gh run rerun --failed` re-ran the two identity
+  jobs, which passed, and then the publish they gate.
+  * `gh run watch` twice exited on an HTTP 502 from the jobs API while the run went on.
+    `leftovers/wait_run.py` waits through those errors.
+  * Each job's latest result was read from the check-runs API, because the jobs API kept
+    returning 502. Every job is `success` except "Publish self-update release / sign", which is
+    `skipped`, as it is on `v0.23.0`.
+
+**Step 4's checks, from the Android APK job's log (`124201755019`):**
+
+* Flutter is set up from `stable-3.47.9-x64` at framework `c197ca5199`, and the build prints
+  "✓ Built build/app/outputs/flutter-apk/app-release.apk (41.2MB)".
+* "Assert Flutter release mode" passes ("android:debuggable is not set (release-compatible)").
+* "Assert release signature" passes, with "signer digest matches pinned certificate".
+
+**The release `v0.24.0`** was published at 2026-10-30T17:37:09Z (not a draft, not a
+prerelease). It has 12 assets:
+
+* `magic-cli-remote-v0.24.0-arm64.apk` (41,222,202 bytes);
+* the eight `mcremote` and `mcrelay` binaries;
+* `install.sh`, `install.ps1` and `SHA256SUMS`.
+
+`SHA256SUMS` lists the eight binaries and not the APK. `v0.23.0`'s has the same eight entries, so
+this is not a change.
+
+P1's verification is met, and with it **A1** and **A2**.
+
 ### P2 — Node 26, the CI actions and the tool pins
 
 **P0.** The tree was clean at `a5ccd412`.
@@ -769,6 +811,34 @@ taken verbatim from the workflow, under this Mac's Node v26.10.0):
 | `ci.yml` fixed, `NODE_VERSION=26` | exit 0 |
 
 The CI log shows `NODE_VERSION: 26` in the step's environment, from the workflow's `env`.
+
+**Committed** as `5ca4a3b1` ("fix(ci): assert Node major version against NODE_VERSION").
+
+* The owner's first push of it did not reach origin. The owner saw many errors, which were not
+  captured here.
+* `leftovers/guard_range.py` over `1a25019a..5ca4a3b1` gave exit 0, and a `git push --dry-run
+  --verbose` (`leftovers/push_dryrun.py`) reported `1a25019a..5ca4a3b1  master -> master`, exit 0.
+* The owner then pushed through this session's `!`, with the result
+  `1a25019a..5ca4a3b1  master -> master` and no error.
+
+**Step 8, CI on `5ca4a3b1`:**
+
+* **Docs, run `41071671813`.** Attempt 1 failed with no job. The run page's one annotation was
+  "Docs: Internal server error", a GitHub fault, not a workflow one. `actionlint` was clean on
+  `docs.yml`, and CI started every job with the same line in `ci.yml`. Under C2's dispatch, `gh run
+  rerun` gave attempt 2, which was a **success**: "Assert Node.js major version" printed
+  `v26.13.0`, and markdownlint printed `markdownlint-cli2 v0.24.0` and "Summary: 0 issues in 0
+  files".
+* **CI, run `41071672275`: success.** These jobs passed: Go (test), Go (windows/amd64), Go
+  (darwin/arm64), Go (linux/arm64), Flutter (analyze & test), Flutter (test on windows), and Live
+  supervisors (runit, s6). Android APK and the self-update jobs were skipped, as on every push.
+  * Go (test)'s Node is `v26.13.0`, and its markdownlint is `markdownlint-cli2 v0.24.0`.
+  * Its vulnerability check installs `govulncheck@v1.9.0` and prints "vulncheck: clear;
+    allowlisted required-module findings: GO-2026-5932".
+  * Flutter (analyze & test) set up `stable-3.47.9-x64` at framework `c197ca5199`, this Mac's
+    build. That meets **P1's A1** in CI.
+
+P2's verification is met. P1's release followed on the owner's tag: see "The release" under P1.
 
 **Files staged for the P2 commit (before the push, `1a25019a`):**
 
