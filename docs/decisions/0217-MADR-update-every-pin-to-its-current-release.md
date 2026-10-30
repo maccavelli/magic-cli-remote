@@ -47,7 +47,7 @@ the host standard and the host installs are in scope only where an advisory is a
 | :--- | :--- | :--- |
 | `github.com/caddyserver/certmagic` | v0.25.4 | v0.25.6 |
 | `golang.org/x/mod` | v0.41.0 | v0.42.0 |
-| `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | **v1.23.0** (F3) |
+| `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | ~~v1.23.0~~ **v1.23.1** (F3, F3a) |
 | `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | v1.26.0, current |
 
 * `go list -m -u all` lists 33 indirect modules with a newer version. They include the AWS SDK used
@@ -77,6 +77,23 @@ Magic already treats `ErrNotInstalled` as "not installed" on the supervisor path
 (`internal/cli/service/supervisortool.go:209`, `:227`; `supervisorstate.go:94`, `:206`;
 `setup.go:243`). Both `ci.yml` pins (`:743`, `:764`) name v1.22.3's commit, and
 `TestWorkflowPinsMatchGoMod` ties them to `go.mod`.
+
+**F3a. `go-selfupdate-lib` v1.23.1 is current, and adds nothing Magic can see.** *Observed
+2026-10-30, after the inventory (`leftovers/gsl_peel.py`).*
+
+* It is tagged 2026-10-30. Its annotated tag `b0c08a0e…` peels to commit
+  `c24f5919cd9e9e3ba3736e64bcf18a6e2a51489e`. The Go proxy lists it, and `go list -m -u` now offers
+  it as the newest version.
+* It is four commits past v1.23.0, with nothing behind. Only `go.mod`, `go.sum` and documents
+  change. No file under `.github/` changes, so the two reusable workflows are v1.23.0's.
+* Its `CHANGELOG.md`: it requires `golang.org/x/sys v0.49.0`, `x/term v0.47.0` and `x/mod v0.42.0`,
+  and "No exported identifier and no behaviour a program can see changes: `make apicheck` reports
+  `v1.23.1` compatible with `v1.23.0`".
+* Its `go.mod` says `go 1.26.10`, below Magic's `go 1.27.3`.
+* Magic already requires `x/sys` v0.49.0 and `x/term` v0.47.0, and D4 already moves `x/mod` to
+  v0.42.0. So v1.23.1 moves no module that D4 would not.
+
+F3's behaviour changes all come from v1.23.0, and v1.23.1 carries them unchanged.
 
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
@@ -372,8 +389,11 @@ Chosen option: **"B — Tiered by risk"**, because:
   * `go get -u ./...`, then `go mod tidy`. That moves `certmagic`, `x/mod` and every indirect
     module in the build. `acp-go-sdk2` is already current.
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
-* **D5 — `go-selfupdate-lib` v1.23.0, as an amendment to 0207 (F3).**
-  * `go.mod`, `go.sum`, and both `ci.yml` pins move to v1.23.0's commit, with its comment.
+* **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
+  *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*
+  v1.23.1 was tagged after the inventory, and is its current release (F3a).
+  * `go.mod`, `go.sum`, and both `ci.yml` pins move to ~~v1.23.0's~~ v1.23.1's commit, with its
+    comment.
   * Its behaviour changes are checked by:
     * Magic's service tests;
     * the runit/s6 live supervisors job;
@@ -658,6 +678,10 @@ proceed", in answer to "Approve the MADR and I'll write the five-phase PLAN".* T
 * `go list -m -u all`; OSV `GET /v1/vulns/GO-2026-5932`.
 * `gh api repos/dart-lang/sdk/security-advisories/GHSA-frr6-h895-5pxp`.
 * `go-selfupdate-lib`'s `CHANGELOG.md` at `v1.23.0`, from the contents API.
+* `leftovers/gsl_peel.py v1.23.0 v1.23.1`, 2026-10-30 (F3a): both tags peeled through `gh api`,
+  the compare between them, `CHANGELOG.md` at `v1.23.1`, and `go list -m -versions`. Also
+  `go.mod` at `v1.23.1` from the contents API, and `go list -m -u` for `x/sys`, `x/term`, `x/mod`
+  and `go-selfupdate-lib` in this repository.
 * magic-git `scripts/tools/devenv/version_audit.py` against its `standard.json`, run read-only on
   2026-10-29: "4 ADVISORY, 1 ERROR, 1 REVIEW, 8 STALE". The ERROR is that this Mac has no probe
   documents.

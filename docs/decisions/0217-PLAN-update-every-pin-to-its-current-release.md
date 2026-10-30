@@ -16,7 +16,7 @@ that has an active advisory ends fixed. The order is the MADR's D12:
 
 1. Flutter 3.47.9 and a release, which closes GHSA-frr6-h895-5pxp in the shipped app;
 2. Node 26 and the CI action and tool pins;
-3. the Go modules and `go-selfupdate-lib` v1.23.0;
+3. the Go modules and `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1 (Deviation 6);
 4. the Dart packages, both majors included, and the Android build tools;
 5. magic-git's host standard, the audit's held Python line, and the hosts.
 
@@ -186,7 +186,9 @@ and 8 pass.
 
 **Rollback:** revert the phase commit, and reinstall `govulncheck@v1.8.0` on this Mac.
 
-### P3 — Go modules and `go-selfupdate-lib` v1.23.0 (D4, D5)
+### P3 — Go modules and `go-selfupdate-lib` v1.23.1 (D4, D5)
+
+*Amended 2026-10-30 by Deviation 6: the target was v1.23.0. The steps below strike the old values.*
 
 **Files:** `go.mod`, `go.sum`, `.github/workflows/ci.yml`, the 0207 MADR (amendment J), and this
 plan.
@@ -194,18 +196,22 @@ plan.
 1. `go get -u ./...`, then `go mod tidy`. Then:
    * `go.mod` still says `go 1.27.3`, and has gained no `toolchain` line. A raised directive is a
      stop, because it means some dependency needs a newer Go;
-   * `go-selfupdate-lib` is v1.23.0, `acp-go-sdk2` v1.26.0, `certmagic` v0.25.6 and `x/mod`
-     v0.42.0;
+   * `go-selfupdate-lib` is ~~v1.23.0~~ v1.23.1, `acp-go-sdk2` v1.26.0, `certmagic` v0.25.6 and
+     `x/mod` v0.42.0. `x/sys` stays at v0.49.0 or newer and `x/term` at v0.47.0 or newer, the
+     floors v1.23.1 requires (F3a);
    * `go list -m -u` shows no newer version for any direct module.
 
    The diff of `go.mod`'s `require` blocks is recorded, indirect modules included.
 2. **`ci.yml:743` and `:764`:**
-   `@67520be8af1ad1b6228c29e4b1aa3e61e1ca7ae4 # go-selfupdate-lib v1.23.0`. That is v1.23.0's
-   commit, peeled through its annotated tag `e28ca1a1…`; re-peel it at P0.
+   ~~`@67520be8af1ad1b6228c29e4b1aa3e61e1ca7ae4 # go-selfupdate-lib v1.23.0`. That is v1.23.0's
+   commit, peeled through its annotated tag `e28ca1a1…`; re-peel it at P0.~~
+   `@c24f5919cd9e9e3ba3736e64bcf18a6e2a51489e # go-selfupdate-lib v1.23.1`. That is v1.23.1's
+   commit, peeled through its annotated tag `b0c08a0e…`; re-peel it at P0
+   (`leftovers/gsl_peel.py v1.23.0 v1.23.1`).
    `TestWorkflowPinsMatchGoMod` (`internal/updateclient/spec_test.go:138`) holds both pins to
    `go.mod`.
 3. **Read every caller of the changed behaviour** (F3). For each, record what v1.23.0 now returns
-   and what Magic does with it:
+   (v1.23.1 carries it unchanged, F3a) and what Magic does with it:
    * `internal/cli/service/setup.go:203` and its `ErrNotInstalled` case at `:243`;
    * `internal/cli/service/installerhook.go:182`;
    * the supervised backends' state and tool paths, `supervisorstate.go:94`, `:206` and
@@ -230,8 +236,9 @@ plan.
 5. **Gates on the test hosts** (C2): the Linux test host runs `go test -race ./...`, and
    `go test -count=1 ./internal/cli/service/... ./internal/updateclient/...`. The Windows test host
    runs `make ci-windows`.
-6. **0207, amendment J:** "`go-selfupdate-lib v1.23.0`". It records:
-   * F3's changes;
+6. **0207, amendment J:** ~~"`go-selfupdate-lib v1.23.0`"~~ "`go-selfupdate-lib v1.23.1`". It
+   records:
+   * F3's changes, and F3a's: that v1.23.1 adds only the `golang.org/x` floors;
    * step 3's reading of each caller;
    * step 4's and step 5's results;
    * that `Plan`, `Apply` and `servicetest` are not adopted (D5).
@@ -849,3 +856,20 @@ P2's verification is met. P1's release followed on the owner's tag: see "The rel
 * `Makefile`;
 * the 0169 PLAN;
 * this PLAN.
+
+### P3 — Go modules and `go-selfupdate-lib` v1.23.1
+
+#### Deviation 6 (2026-10-30): `go-selfupdate-lib` v1.23.1 replaces v1.23.0
+
+**Found** before P3 started. `go-selfupdate-lib` v1.23.1 was tagged on 2026-10-30, after the
+inventory (MADR F3a). `go list -m -u` now offers it, so step 1's `go get -u` would have landed on
+v1.23.1, and step 1's "v1.23.0" check would have stopped the phase.
+
+**Decision (owner, 2026-10-30): "pin go-selfupdate-lib to current v1.23.1".**
+
+* Steps 1, 2 and 6 name v1.23.1. Step 2's pin is `c24f5919…`, peeled through tag `b0c08a0e…`.
+* Step 3's caller reading is unchanged. F3's behaviour comes from v1.23.0, and v1.23.1 carries it
+  unchanged.
+* The MADR's F2 and D5 are amended, and F3a records the facts behind them.
+
+**Scope.** No file is added. P3's files are as listed.
