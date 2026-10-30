@@ -1751,3 +1751,5 @@ Each line is added in the 0217 phase that closes it.
   Dart 3.13.7. That fixes GHSA-frr6-h895-5pxp. `standard.json`'s Flutter row, magic-git's
   `build_macos.sh` pin and the other hosts' Flutter move under magic-git's own pair, so D3's
   lockstep waits on it.
+- **2026-10-30, 0217 P2 (D3):** CI's `NODE_VERSION`, `.node-version` and `.nvmrc` say `26`, which
+  closes the CI half of P6b. The hosts' half is 0217's P5.

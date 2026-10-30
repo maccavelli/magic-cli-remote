@@ -312,7 +312,7 @@ MARKDOWNLINT_DOCS_ROOTS := README.md docs/README.md docs/architecture.md \
 markdownlint-docs:
 	@echo "==> markdownlint (user-facing docs)"; \
 	find $(MARKDOWNLINT_DOCS_ROOTS) -name '*.md' -type f -print0 \
-		| xargs -0 npx markdownlint-cli2 --no-globs
+		| xargs -0 npx --yes markdownlint-cli2@0.24.0 --no-globs
 
 install: check-host-target
 	@$(MAKE) build

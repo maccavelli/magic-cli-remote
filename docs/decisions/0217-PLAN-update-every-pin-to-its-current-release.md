@@ -667,3 +667,69 @@ so step 5 is not repeated.
 * `docs/README.md`;
 * the 0169 PLAN;
 * this pair.
+
+**Committed** as `a5ccd412` ("chore(deps): update pins to current releases, fixing Flutter
+advisory"). `leftovers/guard_range.py` over `origin/master..HEAD` (`0e84b1f0..a5ccd412`: 0216's
+`07ee60b2` and `533a6055`, 0218's `1a6abb37`, and `a5ccd412`) gave exit 0, with no output. The push
+and the tag are the owner's (C3).
+
+### P2 — Node 26, the CI actions and the tool pins
+
+**P0.** The tree was clean at `a5ccd412`.
+
+* `leftovers/peel_tags.py` peeled every pinned and target tag to its commit. Each matched step 1's
+  table, and each target is its repository's latest release.
+* `leftovers/pins_latest.py` showed every other target unchanged since 2026-10-30: Node LTS
+  `v26.13.0`, govulncheck v1.9.0, markdownlint-cli2 0.24.0.
+
+**Step 2.** `leftovers/p2_edits.py` asserted each old string's count first (`--check`), then wrote
+eight files. Each count is as the step expects: `upload-artifact` 2, the `flutter-action` comment 3,
+every other edit 1. The diff was read in full.
+
+#### Deviation 4 (2026-10-30): two step labels still say "LTS 24"
+
+**Found** reading step 2's diff. Both workflows name the step "Set up Node.js (LTS 24)"
+(`ci.yml:68`, `docs.yml:38`). Step 2's list omitted them, so with `NODE_VERSION: "26"` every CI log
+would label the step wrongly.
+
+**Decision (owner, 2026-10-30): "Add to P2 (Recommended)".** Both become "Set up Node.js (LTS 26)",
+asserted like step 2's edits. Declined: a version-free label, and leaving them.
+
+**Scope.** No file is added. Step 2 gains the two labels.
+
+**Deviation 4, executed:** `leftovers/p2_labels.py` found each label once and replaced it.
+
+**Step 3.** `go install golang.org/x/vuln/cmd/govulncheck@v1.9.0`. `govulncheck -version` now gives
+`Scanner: govulncheck@v1.9.0` (it was v1.8.0).
+
+**Step 4, this Mac** (logs `leftovers/0217-p2-*.log`):
+
+| Gate | Result |
+| :--- | :--- |
+| `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `make markdownlint-docs` | exit 0, "markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)", 56 files, 0 issues |
+| `make preflight` | exit 0, "✅ preflight passed", the same sections as P1's. "assert-flutter-pin: OK … (3.47.9)", 158 hosted packages with no advisories, `flutter analyze` "No issues found!", `flutter test` "+1501 ~3: All tests passed!" |
+
+**Step 5, the test hosts** (`PINS_PHASE=p2`, with `PINS_LINUX_MAKE=markdownlint-docs`; HEAD
+`a5ccd412` plus the nine changed files):
+
+* **the Linux test host:** `go1.27.3`. `go test -race -count=1 ./...` exit 0, 45 `ok` lines.
+  `make markdownlint-docs` exit 0, running `markdownlint-cli2 v0.24.0` under that host's Node
+  v24.21.0, with 56 files and 0 issues;
+* **the Windows test host:** `go1.27.3`, and `make ci-windows` exit 0, "ci-windows-local: ALL
+  SELECTED CHECKS PASSED".
+
+**Step 6.** 0169's status note has the P2 line.
+
+**Step 8** waits for the owner's push. CI's `setup-node` must resolve a 26.x, and the Docs workflow
+must pass.
+
+**Files staged for the P2 commit:**
+
+* `.github/workflows/ci.yml`, `docs.yml` and `ci-flake-ledger.yml`;
+* `.node-version` and `.nvmrc`;
+* `README.md`;
+* `scripts/vulncheck.sh`;
+* `Makefile`;
+* the 0169 PLAN;
+* this PLAN.

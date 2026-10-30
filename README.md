@@ -1476,8 +1476,8 @@ Three workflows run there
 tags (`CGO_ENABLED=0` already gets there). `make verify-build-metadata` checks
 both.
 
-**Node.js:** CI pins **Node.js 24 LTS** via `actions/setup-node`, `.node-version`,
-and `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`.
+**Node.js:** CI pins **Node.js 26 LTS** via `actions/setup-node`, `.node-version` and
+`.nvmrc`. JavaScript actions themselves run on Node 24 (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`).
 
 Download binaries/APK from Actions **Artifacts**, or from a Release after tagging:
 

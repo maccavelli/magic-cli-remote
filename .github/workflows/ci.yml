@@ -26,7 +26,7 @@ concurrency:
 # Do not use Node 20 — it is past LTS for this project.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  NODE_VERSION: "24"
+  NODE_VERSION: "26"
   # Pinned so a Flutter stable bump cannot change analyzer results or APK
   # output without a repo change. Bump deliberately; keep in step with the
   # version developers run locally.
@@ -65,8 +65,8 @@ jobs:
           # This job pushes nothing (MADR 0054 S4), so the token is not kept.
           persist-credentials: false
 
-      - name: Set up Node.js (LTS 24)
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Set up Node.js (LTS 26)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           check-latest: true
@@ -124,7 +124,7 @@ jobs:
       - name: Vulnerability check (govulncheck, every level)
         run: |
           set -euo pipefail
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           gobin="$(go env GOPATH)/bin"
           export PATH="$gobin:$PATH"
           make vulncheck
@@ -303,7 +303,7 @@ jobs:
 
       - name: Upload flake ledger row
         if: always() && steps.test.outputs.total_attempts != '1'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           # matrix.label contains '/', which artifact names forbid.
           name: ci-flake-${{ github.run_id }}-${{ matrix.runner }}
@@ -361,7 +361,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -428,7 +428,7 @@ jobs:
       # cannot drift in toolchain and disagree for a reason that is not the
       # platform.
       - name: Set up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -468,13 +468,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Java
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "25"
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -711,7 +711,7 @@ jobs:
           ASSERT_REQUIRE_AAPT=1 ../../scripts/assert-flutter-release-apk.sh "$out"
 
       - name: Upload APK
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: magic-cli-remote-android-arm64
           path: |

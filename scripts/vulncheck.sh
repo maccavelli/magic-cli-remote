@@ -28,7 +28,7 @@ if [ -n "${GO_VULNCHECK_INPUT:-}" ]; then
 else
   if ! command -v govulncheck >/dev/null 2>&1; then
     echo "vulncheck: govulncheck not found in PATH." >&2
-    echo "  install: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0" >&2
+    echo "  install: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0" >&2
     exit 2
   fi
   out="$(govulncheck -show verbose ./... 2>&1)"
