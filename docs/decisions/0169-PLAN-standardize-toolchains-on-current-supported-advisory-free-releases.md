@@ -1753,3 +1753,8 @@ Each line is added in the 0217 phase that closes it.
   lockstep waits on it.
 - **2026-10-30, 0217 P2 (D3):** CI's `NODE_VERSION`, `.node-version` and `.nvmrc` say `26`, which
   closes the CI half of P6b. The hosts' half is 0217's P5.
+- **2026-10-30, 0217 P5 (D11, D13, D14):** every host runs Node 26.13.0, which closes P6b, and
+  Python 3.14.10, which closes "Python 3.14.8 when it ships". magic-git's `standard.json` says Go
+  1.27.3, Node 26.13.0 and Python 3.14.10 held on 3.14, which closes P12 step 3 and P14 step 4.
+  Each host's Go tools are rebuilt with go1.27.3, and the old Go installs are removed. The hosts'
+  git 2.55.0 stays this plan's D7 item.

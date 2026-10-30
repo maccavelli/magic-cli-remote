@@ -472,8 +472,8 @@ and P5d step 2 show only the rows named.
 | A7 | On the emulator, a pairing made with the P3 APK survives the P4 APK: no re-pair, and both fingerprints unchanged | D7 |
 | A8 | The held-line plants were each seen to do what the table says, the pre-change copy included | D13 |
 | A9 | `standard.json` says Go 1.27.3, Node 26.13.0 and Python 3.14.10 held on 3.14, and the audit on it shows only the rows named | D11, D13 |
-| A10 | Every host reads go1.27.3, Node v26.13.0 and Python 3.14.10, and its npm globals still answer. The audit over all four shows only the rows named | D14 |
-| A11 | Every host change was made with a backup and the owner's word | C2, C4 |
+| A10 | Every host reads go1.27.3, Node v26.13.0 and Python 3.14.10, and its npm globals still answer. The audit over all four shows only the rows named. *Amended by Deviation 13:* its Go tools are built with go1.27.3 and no old Go install is left; the named rows include each host's Flutter, Dart, Java and git rows | D14 |
+| A11 | Every host change was made with a backup and the owner's word. *Except, by Deviation 11:* this Mac's `node 26.10.0_1` keg was autoremoved; its cached bottle is the rollback | C2, C4 |
 
 The criterion most likely to be dropped quietly is **A7**. Every gate before it passes whether or
 not `flutter_secure_storage` 11 can read the store. Only installing over a paired app shows it.
@@ -504,6 +504,8 @@ not `flutter_secure_storage` 11 can read the store. Only installing over a paire
 * Removing the old toolchains: `~/sdk/node-v24.21.0` and `~/sdk/python-3.14.7`, Homebrew's old kegs,
   and `go1.27.2` (0169 C4).
 * Adopting `go-selfupdate-lib`'s new APIs (D5).
+* magic-git's file-watcher tests, which fail on this Mac at magic-git's own `HEAD` (Deviation 9).
+  They are an item for a MADR/PLAN in magic-git.
 
 ## Execution record
 
@@ -1171,3 +1173,390 @@ substitution, and changed nothing. Every other script in the phase is a `leftove
 `apps/mobile/android/settings.gradle.kts`, and this PLAN. The 0219 pair stays untracked.
 
 P4's verification is met: steps 3, 4, 6 and 7 pass.
+
+**Committed** as `896834a5` ("chore(mobile): update dependencies and gradle to current releases"),
+with the five staged files. `leftovers/guard_range.py` over `c2fcd3db..896834a5`: exit 0, no
+output. The owner pushes it. CI on the push is recorded when it has run.
+
+### P5 — The host standard, the held line, and the hosts
+
+**P0.** `leftovers/p5_latest.py`: Node line 26's newest is still `v26.13.0` (2026-10-28, LTS
+Lithium), and Python 3.14's `latest` is still `3.14.10` (2026-10-25, end of life 2030-10-31).
+magic-git was clean on `master` at `5458472`, with no `.flutter-sdk`. Its `.gitignore:53` is
+`/.flutter-sdk/`, and `build_macos.sh:46` still pins `FLUTTER_VERSION="3.47.5"`, cloned at `:177`.
+magic-git's `AGENTS.md` asks for `git commit --no-edit` and no commit unless asked.
+
+#### P5a — the audit learns a held line
+
+**Step 1.** `git clone --depth 1 --branch 3.47.5 https://github.com/flutter/flutter.git .flutter-sdk`
+in magic-git (C2): checkout `6a19cca5…`, 16 074 files. `./.flutter-sdk/bin/flutter --version`
+(`leftovers/0217-p5-mg-flutter-version.log`): "Flutter 3.47.5", framework `6a19cca564`, Dart
+3.13.4. That first run fetched the tool's 215 MB engine bundle, as `build_macos.sh`'s first run
+does. magic-git's `git status` stayed empty.
+
+**Step 2.** `version_audit.py`:
+
+* the docstring lists `HELD`, and says it changes no exit status. `FAIL_STATES` and `exit_code`
+  are unchanged;
+* `s_python` calls a new `held_python` when the standard's `python` entry has `held_line`, and
+  otherwise does what it did, through `newest_python_line`, which is the old inline search;
+* `held_python`: `ERROR` when `held_line` differs from `line` or from `version`'s line, or is not
+  in the lifecycle feed; `UNSUPPORTED` when the held cycle's `eol` is on or before `--today`;
+  `STALE` against the held cycle's `latest` when it is newer; otherwise `HELD`, naming the newest
+  supported line, its `latest` and `held_reason`;
+* `python_advisories` is unchanged, and still runs for the standard's version.
+
+A scratch copy of the script and the standard before the change is at `leftovers/0217-p5/before/`.
+
+**Step 3.** The devenv `README.md` has the `HELD` row ("none" for its exit), a note that `HELD`
+alone leaves the exit at 0, and a paragraph on `held_line` and `held_reason`. It says how the hold
+is checked, and that it ends at its line's end of life.
+
+**Step 4, seen failing first** (C6; `leftovers/held_line_plants.py`, planted standards under
+`leftovers/0217-p5/plants/`, an empty probe directory; logs `0217-p5-plants-py314.log` and
+`-py39.log`). Under Python 3.14.10 and under `/usr/bin/python3` 3.9.6 the rows were the same:
+
+| Plant | `standard python` rows |
+| :--- | :--- |
+| `held_line` 3.14, version 3.14.9 | `STALE 3.14.9 -> 3.14.10 (the newest patch of held line 3.14)`; `ADVISORY 3.14.9: 2 advisories fixed by 3.14.10: CVE-2026-114583, CVE-2026-115557` |
+| `held_line` 3.14, 3.14.10, `--today 2030-11-01` | `UNSUPPORTED 3.14.10: held line 3.14 ended 2030-10-31` |
+| `held_line` 3.13, `line` 3.14 | `ERROR held_line 3.13 does not match line 3.14 and version 3.14.10` |
+| no `held_line`, 3.14.10 | `STALE 3.14.10 -> 3.15.2`, as before the change |
+| `held_line` 3.14, 3.14.10 | `HELD 3.14.10 on held line 3.14; newest line 3.15 (3.15.2): plant`, and nothing else |
+| the last row, against the script before the change | `STALE 3.14.10 -> 3.15.2` |
+
+`exit_code`, loaded from the changed script by `leftovers/held_exit_code.py`: `0` for one `HELD`
+row, `1` for `HELD` and `STALE`. The script compiles under 3.9 (`py_compile`). The probe's
+import left a `__pycache__` beside the script, which git ignores; it was removed.
+
+**Step 5, magic-git's gates** (`leftovers/mg_gates.py`, `PATH` led by `.flutter-sdk/bin`):
+`python3 dependencies.py` exit 0, "The Python tooling can run here."; `flutter pub get
+--enforce-lockfile` "Got dependencies!"; `flutter analyze` "No issues found!"; `dart run
+scripts/tools/records.dart check` "0 finding(s)". `flutter test` failed: see Deviation 9.
+
+#### Deviation 9 (2026-10-30): magic-git's file-watcher tests fail on this Mac at its `HEAD`
+
+**Found** at P5a step 5.
+
+* `flutter test` in magic-git, run 1: "+4762 ~3 -6: Some tests failed". The six were in
+  `remote_edit_service_test.dart`, `worktree_invalidation_test.dart`,
+  `local_watch_bounded_test.dart` (2), `fswatch_arm_exec_test.dart` and
+  `local_watch_worktree_test.dart`. Each reads the real filesystem watcher: "no matching watch
+  event within 0:00:15", "FSEvents watches every subtree; the arm must not report one", a diff
+  loaded three times where once was expected, an atomic save not seen.
+* Run 2: "+4766 ~3 -2", `local_watch_bounded_test.dart` and `local_watch_worktree_test.dart`.
+* Alone, in the tree (`leftovers/mg_watch_rerun.py`): the five files failed 3, 3, 3, 3 and 1 times
+  of 3. Later, `fswatch_arm_exec` and `worktree_invalidation` passed 2 of 2.
+* **Pre-existing.** A clean clone of magic-git's `HEAD` `5458472` in the scratchpad, with none of
+  P5's changes and no `.flutter-sdk` (`leftovers/mg_head_rerun.py`): `local_watch_bounded` failed
+  3 of 3, `local_watch_worktree` 3 of 3, and `fswatch_arm_exec` 1 of 2.
+* No Dart file under magic-git's `lib/` or `test/` reads `devenv`, `standard.json` or
+  `version_audit`. `fswatch` is 1.22.0, installed 2026-09-02, so P1's Homebrew upgrade did not move
+  it.
+
+**Decision (owner, 2026-10-30): "Record, stage, own item (Recommended)".** The failure is recorded
+here as pre-existing. The three magic-git files are staged. The watcher failures are an item for
+magic-git's own MADR/PLAN, under "Not done by this plan". Declined: fixing the watchers before
+P5's magic-git commit, and leaving magic-git unstaged while the hosts go on.
+
+**Scope.** No file is added.
+
+#### P5b — `standard.json`
+
+**Step 1.** `leftovers/p5b_standard.py` replaced the `go`, `node` and `python` blocks, each
+asserted to occur once, and checked that only those keys changed:
+
+* `go`: `version` 1.27.3, `verified` 2026-10-30;
+* `node`: `version` 26.13.0, `line` "26", `verified` 2026-10-30, and the note "The newest Active LTS
+  line, 26 (Lithium), since 2026-10-28 (magic-cli-remote MADR 0169 D4, 0217 D11).";
+* `python`: `version` 3.14.10, `held_line` "3.14", `held_reason` "The owner holds 3.14
+  (magic-cli-remote MADR 0217 D13); 3.15 is not adopted.", `verified` 2026-10-30, and the note
+  now says 3.14.10 has no published advisory (MADR F15).
+
+**Step 2.** The audit on the moved standard with no probe documents
+(`leftovers/0217-p5b-audit.log`), "-- 1 ADVISORY, 1 ERROR, 1 HELD, 1 REVIEW, 5 STALE; exit 1":
+
+* no Go or Node row;
+* `HELD … python 3.14.10 on held line 3.14; newest line 3.15 (3.15.2): The owner holds 3.14 …`;
+* `STALE`: Flutter 3.47.5 → 3.47.9, Java 25.0.4.1 → 25.0.5, Git for Windows 2.56.0.windows.1 →
+  2.56.0.windows.4, gh 2.102.0 → 2.103.3, glab 1.120.0 → 1.126.0;
+* `ADVISORY`: Java 25.0.4.1, the OpenJDK advisory of 2026-10-24;
+* `REVIEW`: Dart's GHSA-frr6-h895-5pxp;
+* `ERROR`: "no probe documents", from the empty directory this step uses.
+
+Each row is one the MADR names (D1, D2, D9).
+
+**Step 3.** magic-git's disclosure preview (`leftovers/guard_preview_repo.py`): "would edit 0
+file(s)". No host alias or real path is in its diff. `version_audit.py`, `README.md` and
+`standard.json` are staged there, for the owner's commit.
+
+#### P5c — the hosts
+
+**This Mac, read before anything moved** (`leftovers/p5c_read.py`, saved as
+`leftovers/0217-p5/mac-before.json`):
+
+* `go1.27.3 darwin/arm64`;
+* `node` v26.10.0, from Homebrew's `node 26.10.0_1`;
+* npm globals: `@kilocode/cli` 7.8.18 (`kilo`, `kilocode` answer 7.8.18), `@openai/codex` 0.166.0
+  ("codex-cli 0.166.0"), `@xai-official/grok` 1.0.70;
+* the developer `python3`, Homebrew's `python@3.14` 3.14.10, already the target; `/usr/bin/python3`
+  3.9.6; no `~/default-venv`.
+
+`leftovers/p5c_mac_brew.py dry-run` (`HOMEBREW_NO_INSTALL_CLEANUP=1`; log
+`leftovers/0217-p5/mac-brew-dry-run.log`):
+
+* "Warning: python@3.14 3.14.10 already installed";
+* `node 26.10.0_1 -> 26.13.0_1`, installing `icu4c@79` 79.1, and upgrading its own dependencies
+  `simdutf`, `ada-url`, `brotli`, `c-ares`, `hdrhistogram_c` 0.11.10 → 0.12.1, `merve` and
+  `simdjson` 4.6.11 → 5.0.7;
+* "Would upgrade 1 dependent: gemini-cli 0.46.0 -> 0.66.0", marked deprecated.
+
+#### Deviation 10 (2026-10-30): the Node upgrade would move `gemini-cli`, a dependent
+
+**Found** in the dry run. No unrelated formula moves to a new major: `simdjson`'s major is `node`'s
+own dependency. But `gemini-cli`, an agent CLI this plan does not name, would move 0.46.0 → 0.66.0
+as a side effect, which the owner's scope rule keeps out.
+
+* `brew uses --installed gemini-cli`: nothing.
+* `brew info`: installed on request; "Deprecated because it is not supported upstream! It will be
+  disabled on 2026-12-18", replacement the `antigravity-cli` cask.
+* Magic never runs a `gemini` binary. Its mentions (`internal/agenterr/agenterr.go:70`, `:102`,
+  `:131`, `:769`) read Gemini API error bodies.
+
+The owner asked "can we not just remove gemini-cli?".
+
+**Decision (owner, 2026-10-30): "Yes, uninstall it (Recommended)".** `brew uninstall gemini-cli`,
+then `HOMEBREW_NO_INSTALL_CLEANUP=1 brew upgrade node`. `brew uninstall` removes the keg only;
+`~/.gemini` stays. A reinstall would get 0.66.0 or the cask, not 0.46.0. Declined: upgrading `node`
+with dependents skipped, and letting `gemini-cli` move too.
+
+**Scope.** No file is added. This Mac loses the `gemini-cli` formula.
+
+#### Deviation 11 (2026-10-30): the uninstall autoremoved `node` (the agent's error)
+
+**Found** in the uninstall's own output (`leftovers/0217-p5/mac-brew-uninstall-gemini.log`):
+"Autoremoving 8 unneeded formulae: abseil, ada-url, fmt, libffi, merve, nbytes, node, simdutf",
+with `node 26.10.0_1` uninstalled. Homebrew had `node` recorded as a dependency of `gemini-cli`,
+not as installed on request, so removing its only dependent made it "unneeded". The agent ran the
+uninstall without `HOMEBREW_NO_AUTOREMOVE=1`. That breaks C4: the old keg is gone.
+
+* This Mac then had no `node`. `/opt/homebrew/lib/node_modules` still held `@kilocode`, `@openai`,
+  `@xai-official` and `npm`, which could not run without it.
+* `brew list --versions` was saved first (`leftovers/0217-p5/mac-brew-list-versions-before.txt`).
+* The `node--26.10.0_1` bottle (`b0f45417…arm64_tahoe.bottle.tar.gz`) is still in Homebrew's
+  download cache.
+
+**Decision (owner, 2026-10-30): "Install 26.13.0 now (Recommended)".**
+`HOMEBREW_NO_AUTOREMOVE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install node`, which installs the
+target and records `node` as installed on request. Every npm global is checked afterwards. The
+cached 26.10.0_1 bottle stands in for C4's old keg as the rollback. `leftovers/p5c_mac_brew.py`
+now always sets `HOMEBREW_NO_AUTOREMOVE=1` beside `HOMEBREW_NO_INSTALL_CLEANUP=1`. Declined:
+restoring 26.10.0_1 first and then upgrading, and restoring 26.10.0_1 only.
+
+**Scope.** No file is added.
+
+**Deviation 11, executed; this Mac's result.**
+
+* `leftovers/p5c_mac_brew.py install-node` (`leftovers/0217-p5/mac-brew-install-node.log`): exit 0.
+  "Pouring node--26.13.0_1", with the eight removed dependencies reinstalled (`icu4c@79` 79.1 new,
+  `simdutf` 9.3.3, `ada-url` 4.0.0_1, `merve` 1.2.2_4) and `brotli`, `c-ares`,
+  `hdrhistogram_c` 0.12.1 and `simdjson` 5.0.7 upgraded. Homebrew checks each bottle against its
+  formula's SHA-256 (C5).
+* `brew leaves --installed-on-request` now lists `node`, and still `node@24`.
+* `leftovers/p5c_read.py` in a new login shell (`leftovers/0217-p5/mac-after.json`):
+  `go1.27.3`; `node` v26.13.0 at `/opt/homebrew/bin/node`; `kilo` and `kilocode` 7.8.18, "codex-cli
+  0.166.0", "grok 1.0.70 (f50904eaee6c) [stable]", each as before; `npm` 11.19.1 → 11.20.0, which
+  ships with `node`; `python3` 3.14.10; `/usr/bin/python3` 3.9.6.
+
+**The Linux test host, read before anything moved** (`leftovers/p5c_remote.py` running
+`p5c_read.py`, `p5c_layout.py` and `p5c_where.py` there; saved as `leftovers/0217-p5/linux-*.txt`
+and `linux-before.json`):
+
+* `go1.27.3 linux/amd64`;
+* `node` v26.10.0 from `~/sdk/node-v26.10.0`; no npm global package but `npm` 11.19.1;
+* the developer `python3` is `~/default-venv/bin/python3`, 3.14.10. Its `pyvenv.cfg` names
+  `~/sdk/python-3.14.10`. `/usr/bin/python3` is the distribution's 3.14.4. The freeze lists 84
+  packages (`leftovers/freeze_count.py`);
+* `~/sdk` holds `node-v24.21.0`, `node-v26.10.0` (created 2026-09-21), `python-3.14.7` and
+  `python-3.14.10` (created 2026-10-30 17:31);
+* the login PATH's Node comes from `~/dotfiles/bash/.bashrc.d/00-paths.sh:27`,
+  `path_prepend "$HOME/sdk/node-v26.10.0/bin"`, an uncommitted change in the dotfiles repository,
+  whose last commits are `7bc78b9` (2026-10-21, Go 1.27.3) and `32b064b` (2026-09-30, Node 24.21.0);
+* the `mcremote` unit's drop-in `path.conf:22` (a link into the dotfiles, committed) names
+  `~/sdk/node-v24.21.0/bin`, and `systemctl --user show mcremote` confirms it.
+
+#### Deviation 12 (2026-10-30): the Linux test host was already partly moved, by the owner
+
+**Found** in the read above. MADR F14 and F15 said the host ran Node 24.21.0 and Python 3.14.7. The
+login PATH was on 26.10.0, through an uncommitted dotfiles edit, and the daemon's drop-in on
+24.21.0. Python 3.14.10 had been installed and the venv rebuilt on 2026-10-30, not by this
+session.
+
+**Decision (owner, 2026-10-30): "Mine; build on it (Recommended)".**
+
+* The MADR's F14 and F15 are corrected to the observed facts.
+* Python is already at the target on this host, so its row's Python move is done. The venv is
+  not rebuilt again.
+* Node: `node-v26.13.0-linux-x64.tar.xz` (SHA-256 `d28a96af…`, from `SHASUMS256.txt`) goes to
+  `~/sdk/node-v26.13.0`. `00-paths.sh:27` (on top of the owner's uncommitted edit) and
+  `path.conf:22` both name `~/sdk/node-v26.13.0/bin`, each backed up first, then `systemctl --user
+  daemon-reload`. The daemon takes the new PATH at its next restart, which is the owner's.
+* The owner commits the dotfiles.
+
+Declined: pausing the host, and leaving it to the owner.
+
+**Scope.** No file is added here. On the host: `00-paths.sh` and `path.conf` in the dotfiles.
+
+**The Linux test host, moved** (`leftovers/p5c_linux_node.py`, run there through `p5c_remote.py`;
+`--check` first, then the move; `leftovers/0217-p5/linux-node-move.txt`):
+
+* backups of both files in `~/.local/state/mcr-0217-backup-20261030-220316/` (SHA-256
+  `d84ee4d2…` and `d6254990…`);
+* `node-v26.13.0-linux-x64.tar.xz`: SHA-256 `d28a96af…`, equal to `SHASUMS256.txt` (C5); unpacked
+  to `~/sdk/node-v26.13.0`, whose `node --version` is v26.13.0;
+* `00-paths.sh:27` and `path.conf:22` now name `node-v26.13.0`, each read back;
+* `systemctl --user daemon-reload` exit 0; the unit's `Environment` names `sdk/node-v26.13.0/bin`
+  and no longer `node-v24.21.0`. The running daemon takes it at its next restart, which is the
+  owner's;
+* read again in a new login shell (`linux-after.json`): `go1.27.3`, `node` v26.13.0 with `npm`
+  11.20.0, `python3` 3.14.10 (the venv), `/usr/bin/python3` 3.14.4.
+
+The dotfiles' `00-paths.sh` (the owner's earlier edit and this one) and `path.conf` are the owner's
+to commit.
+
+**WSL (`Ubuntu-24.04`), read** (`leftovers/p5c_wsl.py`; `--find-devenv` found `~/.config/devenv.sh`
+only there; `wsl-before.json`, `wsl-layout.txt`, `wsl-where.txt`): `go1.27.3`; `node` v26.10.0 from
+`~/sdk/node-v26.10.0`, named by `devenv.sh:7`, with the owner's backup `devenv.sh.bak-20261030`
+naming `node-v24.21.0`; `~/sdk/python-3.14.10` created 2026-10-30, and `~/default-venv` built on
+it, with an empty `pip freeze`; `/usr/bin/python3` 3.12.3; no npm global but `npm`; no `mcremote`
+unit. The same state as the Linux host's, so it was moved under Deviation 12's decision. The empty
+venv is reported to the owner and not changed.
+
+**WSL, moved** (`leftovers/p5c_wsl_node.py`; `wsl-node-move.txt`): `devenv.sh` backed up to
+`~/.local/state/mcr-0217-backup-20261030-170616/` (`e163ade0…`); the tarball's SHA-256 `d28a96af…`
+matched; `~/sdk/node-v26.13.0` reports v26.13.0; `devenv.sh:7` names `$HOME/sdk/node-v26.13.0/bin`.
+Read again (`wsl-after.json`): `node` v26.13.0, `npm` 11.20.0, `python3` 3.14.10,
+`/usr/bin/python3` 3.12.3, `go1.27.3`.
+
+**The Windows test host, read** (`windows-before.json`): `go1.27.3`; `node.exe` v26.10.0 from
+`C:\Program Files\nodejs` (the owner's earlier MSI move); `python` 3.14.10, `py list` "3.14[-64] *
+Python 3.14.10"; no `default-venv`; npm globals in the user prefix, `markdownlint-cli2` 0.23.2,
+`prettier` 3.9.9, `tsx` 4.23.15, `typescript` 7.0.2 and `npm` 12.1.0, each answering. Python is at
+the target; only Node moves, under Deviation 12's decision.
+
+**Windows, moved** (`leftovers/p5c_windows_node.py`; `--check`, then the move;
+`windows-node-move.txt`):
+
+* the User `Path` value (`REG_SZ`) and `py list` saved in `~\mcr-0217-staging\`;
+* `node-v26.13.0-x64.msi` SHA-256 `0e5ee99c…`, equal to `SHASUMS256.txt`; for the rollback,
+  `node-v26.10.0-x64.msi` `ee07551f…`, equal to v26.10.0's `SHASUMS256.txt`, kept in the staging
+  folder;
+* `msiexec /i … /qn /norestart /l*v` exit 0; `node.exe --version` v26.13.0; the User `Path`
+  unchanged;
+* read again in a new ssh session (`windows-after.json`): every npm global answers as before, and
+  `tsx` reports `node v26.13.0`; `python` 3.14.10; `go1.27.3`.
+
+#### P5d — the audit over every host
+
+**Step 1.** magic-git's `run_probe.py local ssh:<Linux> ssh:<Windows>` from this Mac, and
+`wsl:Ubuntu-24.04` on the Windows host (`leftovers/p5d_wsl_probe.py`, remote copies removed), into
+`leftovers/0217-p5/probes/`: four documents, each "snapshot: UNCHANGED". `version_audit.py
+--probes` that directory, against the moved standard (`leftovers/0217-p5d-audit.log`): "-- 11
+ADVISORY, 14 DRIFT, 1 HELD, 1 REVIEW, 5 STALE; exit 1".
+
+* No Node row on any host. No Python row on any host; the standard's Python is `HELD`.
+* The standard's rows are P5b step 2's.
+* Every host: `DRIFT go`, the Go bin directory's tools built with go1.27.2 (13 of 14 on this Mac,
+  12 of 12 on the Linux and Windows hosts, 11 of 11 on WSL); `ADVISORY go 1.27.2: GO-2026-6809`, a
+  kept install; on the Windows host also `ADVISORY go 1.27.1`, 16 advisories.
+* Every host: `DRIFT flutter 3.47.9 (standard 3.47.5)` and `DRIFT dart 3.13.7 (standard 3.13.4)`.
+* Every host: `ADVISORY java 25.0.4.1`, the OpenJDK advisory of 2026-10-24; on WSL also the
+  distribution's Java 21.0.12.1.
+* The Linux host and WSL: `DRIFT git 2.55.0 (standard 2.56.0)`, the distribution's git.
+
+Step 2 expected P5b's rows and this Mac's Flutter drift only.
+
+#### Deviation 13 (2026-10-30): the audit shows Go, Flutter, Java and git rows on the hosts
+
+**Found** at P5d step 2. None comes from P5's changes, which moved Node only. The Go rows carry
+active advisories, which D1's rule brings into scope.
+
+**Decision (owner, 2026-10-30): "Fix the Go rows in P5".** The MADR's D14 is amended. A new step,
+P5e:
+
+* on each host, every tool in the Go bin directory not built with go1.27.3 is rebuilt with it,
+  `GOTOOLCHAIN=local go install <path>@<version>`, at the module version the binary records
+  (`go version -m`), and read back;
+* each old Go install (this Mac's `~/.local/go1.27.2`, the Linux host's and WSL's
+  `~/sdk/go1.27.2`, the Windows host's `sdk\go1.27.1` and `sdk\go1.27.2`) is removed once no shell
+  file, unit, User `Path` or `PATH` on that host names it;
+* P5d is run again.
+
+The Flutter and Dart rows wait for magic-git's pair (D2), the Java rows are D9's, and the
+~~distribution's git is left to the distribution (0169 D6)~~ git 2.55.0 rows are 0169 D7's own open
+item, with no advisory, so the scope rule keeps them out (*corrected 2026-10-30: the question to the
+owner cited 0169 D6, which is Python; git is D7*). P5d's step 2 and A10 name them. Declined: naming
+every row and moving the Go work to its own pair, and recording the rows without acting.
+
+**Scope.** No file is added here. On each host: its Go bin directory and its old Go installs.
+
+#### P5e — the Go tools and the old Go installs (Deviation 13)
+
+`leftovers/p5e_go.py` on each host: `--check`, then `rebuild`, then `remove` (logs
+`leftovers/0217-p5/go-<host>-*.txt`).
+
+* **What blocks a removal.** The first check matched the bare string `go1.27.2`, which the dotfiles'
+  `go/.config/go/apply-go-env.py:40` and `check-go-env.py` use as a `GOTOOLCHAIN` value, not a
+  path. The active `GOTOOLCHAIN` is go1.27.3. The check was narrowed to the install's directory
+  (`sdk/go1.27.N`, `.local/go1.27.N`, `sdk\go1.27.N`) in shell files, the dotfiles, systemd units,
+  Go's env file, the login `PATH`, and on Windows the User and Machine `Path` and `GOROOT`.
+  References in backups (`*.bak*`, `*.prev`) and in records (`*.md`, `docs/`) are listed as
+  inactive. The two dotfiles scripts are left to the owner: their go1.27.2 tables are stale against
+  the go1.27.3 the hosts already ran.
+* **`rebuild`** asserts the `go` on `PATH` is go1.27.3, then `GOTOOLCHAIN=local go install
+  <path>@<version>` at the version each binary records, and reads each back with `go version`.
+* **`treefmt` v2.5.0** failed on every host: "create zip: test/examples/emoji 🕰️/README.md:
+  malformed file path". The proxy lists v2.5.0 and answers 404 for it. The installed binary was
+  built from a checkout (`vcs.revision=7ab41ba4…`). `leftovers/p5e_treefmt.py` rebuilt it the
+  same way: a shallow clone of tag v2.5.0, checked to be `7ab41ba4…`, `GOTOOLCHAIN=local go install
+  .`, then `go version -m` showing go1.27.3, module v2.5.0 and that revision; the clone removed.
+
+| Host | Tools rebuilt with go1.27.3 | Old install removed | Active references |
+| :--- | :--- | :--- | :--- |
+| This Mac | 13 (`govulncheck` already go1.27.3), `treefmt` from its tag | `~/.local/go1.27.2` | none; the dotfiles' `0011-PLAN` record only |
+| Linux test host | 12, `treefmt` from its tag | `~/sdk/go1.27.2` | none; `s8b-live.service.prev:50`, a backup |
+| WSL | 11, `treefmt` from its tag | `~/sdk/go1.27.2` | none |
+| Windows test host | 12, `treefmt.exe` from its tag | `sdk\go1.27.1`, `sdk\go1.27.2` | none |
+
+Each removal printed "gone", and each host's `go version` stayed go1.27.3 with its `GOROOT` at
+`go1.27.3`.
+
+**P5d, again.** The four probes again, each "snapshot: UNCHANGED"; the audit
+(`leftovers/0217-p5d-audit-2.log`): "-- 6 ADVISORY, 10 DRIFT, 1 HELD, 1 REVIEW, 5 STALE; exit 1".
+
+* No Go, Node or Python row on any host.
+* The standard's rows are P5b step 2's, with Python `HELD`.
+* Every host: `DRIFT flutter 3.47.9` and `DRIFT dart 3.13.7` (magic-git's pair, D2);
+  `ADVISORY java 25.0.4.1` (D9), and on WSL the distribution's Java 21.0.12.1.
+* The Linux host and WSL: `DRIFT git 2.55.0` (0169 D7).
+
+Each row is one Deviation 13 names. **A10 is met** as amended there.
+
+**P5d step 3, 0169's records:** its PLAN's "0217 status note" has the P5 line, and its MADR has a
+pointer under D1 and under D6. The 0169 PLAN's markdownlint count is 42 issues before and after
+this edit, the same under the repository's config in a scratch clone of `HEAD`; none is on the new
+lines.
+
+**P5's verification is met:** P5a step 4's plants behave as the table says; P5a step 5's gates pass
+but for Deviation 9's pre-existing watcher tests; P5b step 2 and P5d show only the rows named.
+
+**Left with the owner:**
+
+* magic-git: `version_audit.py`, `README.md` and `standard.json`, staged there;
+* the Linux test host's dotfiles: `bash/.bashrc.d/00-paths.sh` and the `mcremote` drop-in
+  `path.conf`, then a restart of its `mcremote` daemon, which still runs on Node 24.21.0 until then;
+* the push of `896834a5` (P4) and of P5's commit here, and CI on each;
+* this plan becomes `complete` when those land and their CI is recorded.
+
+**Files staged for the P5 commit here:** this PLAN, the 0217 MADR, and the 0169 PLAN and MADR. The
+0219 pair stays untracked.

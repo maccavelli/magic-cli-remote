@@ -288,10 +288,17 @@ standard's row is behind.
   `node@24` 24.21.0 that 0169's P6a linked, which is still installed. 26.10.0 predates 26.12.1's
   security release, so the advisory is active here. Homebrew's stable `node` is 26.13.0.
 * **The other hosts** run 24.21.0, as 0169's P6a left them:
-  * the Linux test host from `~/sdk/node-v24.21.0`, on PATH through the dotfiles' `00-paths.sh` and
-    the `mcremote` drop-in;
+  * ~~the Linux test host from `~/sdk/node-v24.21.0`, on PATH through the dotfiles' `00-paths.sh` and
+    the `mcremote` drop-in;~~ *Corrected 2026-10-30, at PLAN P5c (Deviation 12):* on the Linux
+    test host, the login PATH names `~/sdk/node-v26.10.0` (created 2026-09-21), through an owner's
+    uncommitted edit to the dotfiles' `00-paths.sh:27`. The `mcremote` drop-in, `path.conf:22`, still
+    names `~/sdk/node-v24.21.0`, so the daemon runs 24.21.0;
   * WSL from `~/sdk/node-v24.21.0`, through `~/.config/devenv.sh`;
   * the Windows test host from the `node-v24.21.0-x64.msi` install.
+
+  *Corrected 2026-10-30, at PLAN P5c (Deviation 12):* WSL's `devenv.sh` named
+  `~/sdk/node-v26.10.0`, and the Windows test host's MSI install was v26.10.0. Each is the owner's
+  earlier move.
 
   The PLAN re-reads each before it moves anything.
 * npm global packages live under each host's own prefix (for example `markdownlint-cli2` under
@@ -317,6 +324,10 @@ standard's row is behind.
   stable is 3.14.10. By 0169's records (P0, P7, Deviation 20), the Linux test host and WSL run
   python-build-standalone 3.14.7 from `~/sdk/python-3.14.7`, with `~/default-venv` built on it, and
   the Windows test host runs the `py` install manager's 3.14.7. The PLAN re-reads each.
+  *Corrected 2026-10-30, at PLAN P5c:* this Mac's `python@3.14` is 3.14.10 by then. On the Linux
+  test host the owner installed `~/sdk/python-3.14.10` on 2026-10-30 and rebuilt `~/default-venv` on
+  it (Deviation 12); `python-3.14.7` is still there. WSL is the same, and the Windows test host's
+  `py` install manager already has 3.14.10.
 * **0169 D1 would take 3.15.** Its rule is "the newest stable patch of the newest line". The owner
   holds 3.14.
 * **The audit cannot express a held line.** `s_python` (`version_audit.py:569-578`) compares the
@@ -533,6 +544,13 @@ Chosen option: **"B — Tiered by risk"**, because:
   it, with a dated backup first and the old version left installed until nothing needs it (0169
   C4):
   * **Go:** none moves. Each host's `go version` is read, and must say `go1.27.3`.
+    *Amended 2026-10-30, at PLAN P5d (Deviation 13), by the owner: "Fix the Go rows in P5".* The
+    audit over the hosts found every Go bin directory's tools built with go1.27.2 (`DRIFT`), and
+    the kept go1.27.2 installs, with go1.27.1 on the Windows test host, carrying advisories
+    (`ADVISORY` GO-2026-6809; 16 on go1.27.1). Those advisories bring them into scope (D1's rule).
+    So on each host every tool not built with go1.27.3 is rebuilt with it, at the module version
+    it already records (`go install <path>@<version>`), and the old Go installs are removed once
+    nothing on the host names them.
   * **Node 26.13.0,** each archive or installer checked against nodejs.org's `SHASUMS256.txt`:
     * this Mac: `brew upgrade node`;
     * the Linux test host: `~/sdk/node-v26.13.0`, with PATH swapped in the dotfiles'

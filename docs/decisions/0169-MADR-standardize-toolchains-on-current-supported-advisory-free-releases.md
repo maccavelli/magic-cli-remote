@@ -226,7 +226,9 @@ happened.
   line that is inside its support window, is the LTS line where the publisher designates one
   (Node, Java), and has no published advisory affecting it. A newer version with an advisory is
   skipped for the newest one without. A line is adopted only after this project's gates pass on
-  it (D12).
+  it (D12). *Pointer, 2026-10-30:*
+  [0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md)
+  D13 holds Python on 3.14, where this rule alone would take 3.15.
 - **D2 — Go: 1.27.1** on every host and in CI, with the `go` directive of Go modules moved to
   1.27 repository by repository after each passes its own gates. Until a repository has
   passed, the floor is **1.26.8**: the same security level as 1.26.6, with two later rounds of
@@ -245,6 +247,8 @@ happened.
   forward at each Critical Patch Update or out-of-band fix (next: 2026-10-20).
 - **D6 — Python: 3.14.7** as the developer Python on every host. Distribution system Pythons
   (WSL's 3.12.3) are left to the distribution's security updates and are not replaced.
+  *Pointer, 2026-10-30:* 0217 D11 and D13 move the developer Python to 3.14.10, held on the 3.14
+  line.
 - **D7 — git: 2.55.x, newest maintenance build.** On Windows that is Git for Windows
   **2.55.0.windows.5**; elsewhere **2.55.0**. WSL gets it from the Ubuntu git-core PPA
   maintained by git's Ubuntu packagers, replacing 2.43. 2.56 is adopted by D1 once it is final.
