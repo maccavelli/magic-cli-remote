@@ -1554,9 +1554,22 @@ but for Deviation 9's pre-existing watcher tests; P5b step 2 and P5d show only t
 
 * magic-git: `version_audit.py`, `README.md` and `standard.json`, staged there;
 * the Linux test host's dotfiles: `bash/.bashrc.d/00-paths.sh` and the `mcremote` drop-in
-  `path.conf`, then a restart of its `mcremote` daemon, which still runs on Node 24.21.0 until then;
+  `path.conf`;
 * the push of `896834a5` (P4) and of P5's commit here, and CI on each;
 * this plan becomes `complete` when those land and their CI is recorded.
+
+**The Linux host's daemon, restarted** (the owner's word, 2026-10-30: "you have access and
+permissions to restart mcremote on the linux host"). `leftovers/p5c_linux_restart.py`:
+`systemctl --user restart mcremote` exit 0. Before, `MainPID` 1356, active since 2026-10-22, with
+`node-v24.21.0` on its `PATH`. After, `MainPID` 2399574, active and running.
+
+* The script's own `PATH` check reported neither Node directory. It read
+  `/proc/<pid>/environ` the moment the unit turned active, and the value it compared was not
+  looked at first.
+* `leftovers/p5c_linux_daemon_env.py` then read the running process: its `PATH` names
+  `~/sdk/node-v26.13.0/bin`, `node` resolves there, and the unit's `Environment` `PATH` is the same.
+
+The daemon runs on Node 26.13.0.
 
 **Files staged for the P5 commit here:** this PLAN, the 0217 MADR, and the 0169 PLAN and MADR. The
 0219 pair stays untracked.
