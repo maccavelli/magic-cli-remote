@@ -1029,7 +1029,7 @@ func (m *Manager) handleUnsandboxedBang(ctx context.Context, id, deviceID, text 
 			result, runErr := execution.RunUnsandboxedShell(ctx, candidate)
 			if runErr != nil {
 				m.emitNotice(id, "Unsandboxed shell start failed or has an unknown outcome; refresh /ps before retrying.")
-				return runErr
+				return m.providerErr(id, sess, runErr)
 			}
 			m.echoUser(id, "!"+candidate)
 			m.emitNotice(id, result.Label+" started.")
@@ -2664,6 +2664,29 @@ func (m *Manager) liveSession(id string) (provider.Session, error) {
 	return e.sess, nil
 }
 
+// providerErr is err, unless the session the call went to is no longer id's
+// live session: closed and removed (closeMatching deletes before it closes),
+// replaced, or marked dead by a disconnect. Then the call failed because the
+// session ended, and it is reported as ErrNotLive, wrapping err (MADR 0218 D1).
+//
+// Every caller of liveSession routes the errors of its calls on the session
+// through here. liveSession's answer is stale as soon as m.mu is released, and
+// a close in that window otherwise surfaces as the provider's own
+// "session closed" rather than as session_not_live.
+func (m *Manager) providerErr(id string, sess provider.Session, err error) error {
+	if err == nil {
+		return nil
+	}
+	m.mu.RLock()
+	e, ok := m.sessions[id]
+	gone := !ok || e.dead || e.sess != sess
+	m.mu.RUnlock()
+	if gone {
+		return fmt.Errorf("%w: %q: %w", ErrNotLive, id, err)
+	}
+	return err
+}
+
 // Prompt sends a text prompt to a live session owned by (or claimable by)
 // deviceID. A leading built-in slash command (see [BuiltinCommands]) is
 // intercepted and handled by the daemon; every other prompt — including
@@ -2729,7 +2752,7 @@ func (m *Manager) Prompt(ctx context.Context, id, text string, attachments []pro
 	m.markPromptStart(id)
 	if err := sess.Prompt(ctx, parts); err != nil {
 		m.clearPromptStart(id)
-		return err
+		return m.providerErr(id, sess, err)
 	}
 	return nil
 }
@@ -2779,7 +2802,7 @@ func (m *Manager) setMode(ctx context.Context, id, modeID string) error {
 	if !ok {
 		return fmt.Errorf("session does not support modes")
 	}
-	return ms.SetMode(ctx, modeID)
+	return m.providerErr(id, sess, ms.SetMode(ctx, modeID))
 }
 
 // SetCollaborationMode switches the independent Plan/Default axis.
@@ -2804,7 +2827,7 @@ func (m *Manager) SetExecutionEnvironment(ctx context.Context, id string, select
 	if !ok {
 		return provider.ErrNativeUnavailable
 	}
-	return environment.SetExecutionEnvironment(ctx, selection)
+	return m.providerErr(id, sess, environment.SetExecutionEnvironment(ctx, selection))
 }
 
 func (m *Manager) setCollaborationMode(ctx context.Context, id, modeID string) error {
@@ -2816,7 +2839,7 @@ func (m *Manager) setCollaborationMode(ctx context.Context, id, modeID string) e
 	if !ok {
 		return provider.ErrCollaborationUnsupported
 	}
-	return cs.SetCollaborationMode(ctx, modeID)
+	return m.providerErr(id, sess, cs.SetCollaborationMode(ctx, modeID))
 }
 
 // SetConfigOption changes an agent-defined session config option (ACP session
@@ -2833,7 +2856,7 @@ func (m *Manager) SetConfigOption(ctx context.Context, id, optionID, kind, value
 	if !ok {
 		return fmt.Errorf("session does not support config options")
 	}
-	return cs.SetConfigOption(ctx, optionID, kind, value)
+	return m.providerErr(id, sess, cs.SetConfigOption(ctx, optionID, kind, value))
 }
 
 // Rename changes a user-visible session label only after the provider-native
@@ -2894,7 +2917,8 @@ func (m *Manager) Diagnostics(ctx context.Context, id, deviceID string) (provide
 	if !ok {
 		return provider.Diagnostics{}, fmt.Errorf("session %q does not support diagnostics", id)
 	}
-	return ds.Diagnostics(ctx)
+	d, err := ds.Diagnostics(ctx)
+	return d, m.providerErr(id, sess, err)
 }
 
 // ModelCatalog returns the model picker catalog scoped to one live session:
@@ -2918,7 +2942,8 @@ func (m *Manager) ModelCatalog(ctx context.Context, id, deviceID, scope string) 
 	if !ok {
 		return picker.Catalog{}, fmt.Errorf("session %q does not report a model catalog", id)
 	}
-	return mc.ModelCatalog(ctx, scope)
+	c, err := mc.ModelCatalog(ctx, scope)
+	return c, m.providerErr(id, sess, err)
 }
 
 // Cancel cancels the in-flight turn on a session.
@@ -2930,7 +2955,7 @@ func (m *Manager) Cancel(ctx context.Context, id, deviceID string) error {
 	if err != nil {
 		return err
 	}
-	return sess.Cancel(ctx)
+	return m.providerErr(id, sess, sess.Cancel(ctx))
 }
 
 // RespondPermission forwards a permission decision to the session.
@@ -2946,7 +2971,7 @@ func (m *Manager) RespondPermission(ctx context.Context, sessionID, permissionID
 	if !ok {
 		return fmt.Errorf("session %q does not support remote permissions", sessionID)
 	}
-	return ps.RespondPermission(ctx, permissionID, optionID, cancelled, deviceID)
+	return m.providerErr(sessionID, sess, ps.RespondPermission(ctx, permissionID, optionID, cancelled, deviceID))
 }
 
 // maybeCreateReceipt triggers the signed-receipt round trip for one resolved
@@ -3173,7 +3198,7 @@ func (m *Manager) RespondQuestion(ctx context.Context, sessionID, questionID str
 	if !ok {
 		return fmt.Errorf("session %q does not support remote questions", sessionID)
 	}
-	return qs.RespondQuestion(ctx, questionID, answers, cancelled)
+	return m.providerErr(sessionID, sess, qs.RespondQuestion(ctx, questionID, answers, cancelled))
 }
 
 // DeclineQuestion forwards the user's explicit "no" to a form that offered it
@@ -3188,13 +3213,13 @@ func (m *Manager) DeclineQuestion(ctx context.Context, sessionID, questionID, de
 		return err
 	}
 	if ds, ok := sess.(provider.QuestionDeclineSession); ok {
-		return ds.DeclineQuestion(ctx, questionID)
+		return m.providerErr(sessionID, sess, ds.DeclineQuestion(ctx, questionID))
 	}
 	qs, ok := sess.(provider.QuestionSession)
 	if !ok {
 		return fmt.Errorf("session %q does not support remote questions", sessionID)
 	}
-	return qs.RespondQuestion(ctx, questionID, nil, true)
+	return m.providerErr(sessionID, sess, qs.RespondQuestion(ctx, questionID, nil, true))
 }
 
 // Fork branches the provider-native conversation into a new live session
@@ -3279,7 +3304,7 @@ func (m *Manager) Revert(ctx context.Context, id, messageID, partID, deviceID st
 		return fmt.Errorf("session %q does not support revert", id)
 	}
 	if err := rs.Revert(ctx, messageID, partID); err != nil {
-		return err
+		return m.providerErr(id, sess, err)
 	}
 	m.emitNotice(id, "Reverted message "+messageID)
 	return nil
@@ -3299,7 +3324,7 @@ func (m *Manager) Unrevert(ctx context.Context, id, deviceID string) error {
 		return fmt.Errorf("session %q does not support unrevert", id)
 	}
 	if err := rs.Unrevert(ctx); err != nil {
-		return err
+		return m.providerErr(id, sess, err)
 	}
 	m.emitNotice(id, "Restored reverted messages")
 	return nil
@@ -3321,7 +3346,7 @@ func (m *Manager) Diff(ctx context.Context, id, messageID, deviceID string) (pro
 	}
 	res, err := ds.Diff(ctx, messageID)
 	if err != nil {
-		return provider.DiffResult{}, err
+		return provider.DiffResult{}, m.providerErr(id, sess, err)
 	}
 	if res.Summary != "" {
 		m.emitNotice(id, res.Summary)
@@ -3360,7 +3385,7 @@ func (m *Manager) Shell(ctx context.Context, id, command, deviceID string) error
 	if !ok {
 		return fmt.Errorf("session %q does not support direct shell", id)
 	}
-	return sh.Shell(ctx, command)
+	return m.providerErr(id, sess, sh.Shell(ctx, command))
 }
 
 // shareSession resolves an owned, live session that can report share state.
@@ -3385,7 +3410,8 @@ func (m *Manager) CurrentShare(ctx context.Context, id, deviceID string) (provid
 	if err != nil {
 		return provider.ShareState{}, err
 	}
-	return sh.CurrentShare(ctx)
+	st, err := sh.CurrentShare(ctx)
+	return st, m.providerErr(id, sh, err)
 }
 
 // Share publishes an owned session.
@@ -3394,7 +3420,8 @@ func (m *Manager) Share(ctx context.Context, id, deviceID string) (provider.Shar
 	if err != nil {
 		return provider.ShareState{}, err
 	}
-	return sh.Share(ctx)
+	st, err := sh.Share(ctx)
+	return st, m.providerErr(id, sh, err)
 }
 
 // Unshare revokes an owned session's share.
@@ -3403,7 +3430,7 @@ func (m *Manager) Unshare(ctx context.Context, id, deviceID string) error {
 	if err != nil {
 		return err
 	}
-	return sh.Unshare(ctx)
+	return m.providerErr(id, sh, sh.Unshare(ctx))
 }
 
 // RefreshSkills recycles an owned session's idle engine instance.
@@ -3419,7 +3446,7 @@ func (m *Manager) RefreshSkills(ctx context.Context, id, deviceID string) error 
 	if !ok {
 		return fmt.Errorf("session %q does not support skill refresh", id)
 	}
-	return rs.RefreshSkills(ctx)
+	return m.providerErr(id, sess, rs.RefreshSkills(ctx))
 }
 
 // ListWorkspace lists one directory of an owned session's workspace.
@@ -3428,7 +3455,8 @@ func (m *Manager) ListWorkspace(ctx context.Context, id, path, deviceID string) 
 	if err != nil {
 		return nil, err
 	}
-	return ws.ListWorkspace(ctx, path)
+	entries, err := ws.ListWorkspace(ctx, path)
+	return entries, m.providerErr(id, ws, err)
 }
 
 // ReadWorkspace reads one text file from an owned session's workspace.
@@ -3437,7 +3465,8 @@ func (m *Manager) ReadWorkspace(ctx context.Context, id, path, deviceID string) 
 	if err != nil {
 		return provider.WorkspaceContent{}, err
 	}
-	return ws.ReadWorkspace(ctx, path)
+	content, err := ws.ReadWorkspace(ctx, path)
+	return content, m.providerErr(id, ws, err)
 }
 
 // SearchWorkspace searches an owned session's workspace.
@@ -3446,7 +3475,8 @@ func (m *Manager) SearchWorkspace(ctx context.Context, id, kind, query, deviceID
 	if err != nil {
 		return provider.WorkspaceSearch{}, err
 	}
-	return ws.SearchWorkspace(ctx, kind, query)
+	found, err := ws.SearchWorkspace(ctx, kind, query)
+	return found, m.providerErr(id, ws, err)
 }
 
 // Close closes and removes a live session; persistence is updated to disconnected
@@ -3491,6 +3521,9 @@ func (m *Manager) closeMatching(ctx context.Context, id string, expect provider.
 			copy(histSnap, e.history)
 		}
 		histGen, lastSeq = e.histGen, e.seq
+		// Deleted here, under m.mu, before Close below. providerErr relies on
+		// that order: a call that fails because Close ran finds the entry gone
+		// and reports ErrNotLive (MADR 0218 D3).
 		delete(m.sessions, id)
 	}
 	m.mu.Unlock()
