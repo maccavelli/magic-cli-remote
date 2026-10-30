@@ -724,7 +724,53 @@ asserted like step 2's edits. Declined: a version-free label, and leaving them.
 **Step 8** waits for the owner's push. CI's `setup-node` must resolve a 26.x, and the Docs workflow
 must pass.
 
-**Files staged for the P2 commit:**
+**Committed and pushed** as `1a25019a` ("chore(ci): move Node to 26 LTS and bump action and tool
+pins"). The owner's push carried `07ee60b2` to `1a25019a` together.
+
+#### Deviation 5 (2026-10-30): both workflows assert Node 24 by literal
+
+**Found** at step 8. The push's Docs run, `41070855767`, failed in "Assert Node.js major version":
+
+```text
+v26.13.0
+expected Node 24, got v26.13.0
+```
+
+`setup-node` resolved v26.13.0 as intended. The step itself hardcodes the major:
+`test "$major" = "24"` at `docs.yml:48` and at `ci.yml:78`, so CI's Go job fails the same way.
+`ci.yml:82`'s comment also says "Node 24 is already on PATH for npx". Step 2's list omitted all
+three lines, and the search for pins before it looked for action and tool names, not for a bare
+`"24"`. `ci.yml:25`, `:28` and `:90` concern the runtime the actions run on, which stays Node 24, and
+are correct.
+
+**Decision (owner, 2026-10-30): "Assert against NODE_VERSION (Recommended)".**
+
+* Both steps compare the major with `"${NODE_VERSION}"` and say "expected Node ${NODE_VERSION}",
+  so the env pin is the one source and the two cannot drift apart again.
+* `ci.yml:82`'s comment drops its version.
+* The changed comparison is shown failing on a mismatch and passing on a match, by running the
+  step's own script, extracted from the workflow file, under this Mac's Node.
+* It lands as a new commit, which the owner pushes.
+
+Declined: a literal "26", and reverting P2.
+
+**Scope.** No file is added: `ci.yml`, `docs.yml` and this PLAN.
+
+**Deviation 5, executed** (`leftovers/p2_node_assert.py`, each old line asserted once;
+`leftovers/node_assert_plant.py` runs the `run: |` block under "Assert Node.js major version",
+taken verbatim from the workflow, under this Mac's Node v26.10.0):
+
+| Workflow and version | Result |
+| :--- | :--- |
+| `docs.yml` as pushed, `NODE_VERSION=26` (the CI failure, reproduced) | exit 1, "expected Node 24, got v26.10.0" |
+| `docs.yml` fixed, `NODE_VERSION=24` (a mismatch) | exit 1, "expected Node 24, got v26.10.0" |
+| `docs.yml` fixed, `NODE_VERSION=26` | exit 0 |
+| `ci.yml` fixed, `NODE_VERSION=24` | exit 1, "expected Node 24, got v26.10.0" |
+| `ci.yml` fixed, `NODE_VERSION=26` | exit 0 |
+
+The CI log shows `NODE_VERSION: 26` in the step's environment, from the workflow's `env`.
+
+**Files staged for the P2 commit (before the push, `1a25019a`):**
 
 * `.github/workflows/ci.yml`, `docs.yml` and `ci-flake-ledger.yml`;
 * `.node-version` and `.nvmrc`;
