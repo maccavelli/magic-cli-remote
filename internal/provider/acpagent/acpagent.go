@@ -14,6 +14,8 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"os"
+	"os/exec"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -28,6 +30,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/stderrtail"
 	"github.com/maccavelli/magic-cli-remote/internal/wirecap"
 )
 
@@ -150,6 +153,11 @@ type Spec struct {
 	// its own tools (MADR 0184, amendment, owner answer Q3). It must never
 	// advertise more; the capability-honesty test checks every Spec.
 	ClientCapabilities *acp.ClientCapabilities
+	// CredentialEnv names environment variables whose values are removed from
+	// the agent's stderr tail, beyond those stderrtail.Secrets already knows by
+	// the endings of their names (MADR 0216 D27). grok sets none: XAI_API_KEY
+	// ends in _API_KEY.
+	CredentialEnv []string
 
 	// The three hooks below are vendor fallbacks for model and thinking. The
 	// standard path is a session config option of category `model` or
@@ -492,13 +500,22 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		synthesizeAuto:          p.spec.SynthesizeAutoMode,
 	}
 	// Bound stderr noise and scrape provider 429/quota lines mid-turn so a
-	// silent agent retry does not leave the phone stuck on "running".
-	cmd.Stderr = &slogWriter{
+	// silent agent retry does not leave the phone stuck on "running". In front
+	// of that, keep the end of stderr for a failure to start and for the
+	// agent's death; it forwards every byte, and the SDK's own tail stays unset
+	// (MADR 0216 D22, D23).
+	tail := stderrtail.New(&slogWriter{
 		log:    log,
 		level:  slog.LevelDebug,
 		prefix: string(p.spec.ID) + "-stderr",
 		onLine: s.noteEngineLogLine,
-	}
+	})
+	cmd.Stderr = tail
+	secrets := stderrtail.Secrets(envOf(cmd), p.spec.CredentialEnv, p.mcpHeaderValues())
+	// stderrTail is the tail without the secrets Magic holds (D4, D27). It is
+	// final once the agent is reaped: Wait, and Kill, which returns Wait's
+	// error, return only after os/exec's copy into tail has.
+	stderrTail := func() string { return stderrtail.Scrub(tail.Tail(), secrets) }
 	// agentproc starts the agent in a process group of its own on Unix, and in
 	// a kill-on-close job on Windows, started suspended until it is in the job,
 	// so its descendants end with it (MADR 0150 D2; 0207 D10). On Linux it also
@@ -530,6 +547,15 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		dropped, _ := proc.DroppedTapBytes()
 		closeCapture(s.log, s.wire, dropped)
 	}
+	// startFailed is the error for a failure after killTree, with what the
+	// agent last wrote to stderr: an agent that cannot start usually says why
+	// there (MADR 0216 D3). It is logged as codex and httpagent log theirs
+	// (MADR 0069 D7).
+	startFailed := func(err error) error {
+		t := stderrTail()
+		provider.LogStderrTail(p.log, p.cfg.Bin, t)
+		return stderrtail.Wrap(err, t)
+	}
 
 	parent := ctx
 	if parent == nil {
@@ -543,7 +569,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	initResp, err := conn.Initialize(initCtx, p.initializeRequest())
 	if err != nil {
 		killTree()
-		return nil, initializeError(err)
+		return nil, startFailed(initializeError(err))
 	}
 
 	p.applyInitializeResponse(s, initResp)
@@ -557,12 +583,12 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		id, err := selectACPAuthMethod(advertised, p.cfg.AuthMethodID, p.spec.SafeAuthMethodIDs, hasKey)
 		if err != nil {
 			killTree()
-			return nil, err
+			return nil, startFailed(err)
 		}
 		if id != "" {
 			if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(id)}); err != nil {
 				killTree()
-				return nil, fmt.Errorf("acp authenticate (%s): %w", id, err)
+				return nil, startFailed(fmt.Errorf("acp authenticate (%s): %w", id, err))
 			}
 			s.log.Info("acp authenticated", slog.String("method_id", id))
 		} else {
@@ -573,7 +599,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			MethodId: acp.AuthMethodId(p.cfg.AuthMethodID),
 		}); err != nil {
 			killTree()
-			return nil, fmt.Errorf("acp authenticate (%s): %w", p.cfg.AuthMethodID, err)
+			return nil, startFailed(fmt.Errorf("acp authenticate (%s): %w", p.cfg.AuthMethodID, err))
 		}
 		s.log.Info("acp authenticated", slog.String("method_id", p.cfg.AuthMethodID))
 	} else if len(advertised) > 0 {
@@ -612,6 +638,15 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		if err != nil {
 			msg = fmt.Sprintf("%s process exited: %v", p.spec.ID, err)
 		}
+		// The death carries what the agent last wrote, whatever its exit status
+		// (MADR 0216 D2). An agent Magic stopped did not die: its session is
+		// closed and reports nothing, so its tail is not logged either.
+		if !errors.Is(err, agentproc.ErrKilled) && !errors.Is(err, agentproc.ErrTerminated) {
+			if t := stderrTail(); t != "" {
+				provider.LogStderrTail(p.log, p.cfg.Bin, t)
+				msg = stderrtail.Message(msg, t)
+			}
+		}
 		s.signalDisconnected(msg)
 	}()
 
@@ -633,6 +668,28 @@ func closeCapture(log *slog.Logger, wire *wirecap.Capture, dropped uint64) {
 		log.Warn("wire capture is incomplete: the tap lost part of the agent's output",
 			slog.Uint64("dropped_bytes", dropped))
 	}
+}
+
+// envOf is the environment cmd starts its process with: its Env, or the
+// daemon's own when Env is nil, as os/exec does. Neither launch nor procutil
+// sets Env, so for an ACP agent it is the daemon's (MADR 0216 D27).
+func envOf(cmd *exec.Cmd) []string {
+	if cmd.Env != nil {
+		return cmd.Env
+	}
+	return os.Environ()
+}
+
+// mcpHeaderValues are the configured MCP servers' header values, which
+// session/new and session/load hand the agent (MADR 0216 D4).
+func (p *Provider) mcpHeaderValues() []string {
+	var out []string
+	for _, m := range p.cfg.McpServers {
+		for _, v := range m.Headers {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // initializeError reports a failed initialize. An agent that answers another

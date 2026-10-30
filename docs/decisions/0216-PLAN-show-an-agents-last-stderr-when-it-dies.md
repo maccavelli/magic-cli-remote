@@ -452,3 +452,98 @@ and nothing else.
 **Files for P1's commit:** `internal/provider/stderrtail/stderrtail.go`,
 `internal/provider/stderrtail/stderrtail_test.go`, the MADR, this plan, `docs/README.md`. No
 caller uses the package yet; P2 is the first.
+
+The owner committed P1 as `07ee60b2` and answered "committed, proceed".
+
+### P2, 2026-10-29: `acpagent`, for grok and gobble
+
+**What was built** (`acpagent.go`):
+
+* `Spec.CredentialEnv []string`, after `ClientCapabilities`. grok's Spec is unchanged, since
+  `XAI_API_KEY` matches D27's pattern.
+* In `spawnAgent`, `cmd.Stderr` is `stderrtail.New(&slogWriter{…})`, with the `slogWriter` as
+  before. `secrets` is built from `envOf(cmd)`, `Spec.CredentialEnv` and `mcpHeaderValues()`. A
+  closure, `stderrTail()`, returns the scrubbed tail.
+* A closure, `startFailed`, wraps the four returns after `killTree()` (`initializeError`,
+  `selectACPAuthMethod`'s error, and both `acp authenticate` errors) with `stderrtail.Wrap`, and
+  logs the tail with `provider.LogStderrTail`.
+* The exit watcher appends the tail with `stderrtail.Message`, and logs it, before
+  `signalDisconnected`.
+* `envOf(*exec.Cmd)` and `(*Provider).mcpHeaderValues()` are new functions beside `closeCapture`.
+
+**Where it differs from the steps as written:**
+
+* Step 2 said the tail and secrets would be "held on the session beside `s.wire`". They are
+  locals of `spawnAgent`, which its exit watcher closes over, so `session` has no new field and
+  `session.go` is unchanged.
+* The watcher skips the tail when Wait's error has `agentproc.ErrKilled` or
+  `agentproc.ErrTerminated`, that is, when Magic stopped the agent. Its session is closed then,
+  and `signalDisconnected` reports nothing, so the only effect would have been an
+  `"engine stderr tail (phone-visible)"` warning on every ordinary close. The steps did not name
+  this. It has its own test and plant (`TestStoppedAgentLogsNoTail`).
+* Step 5's `"serve-die"` agent dies when the test creates a trigger file
+  (`MCREMOTE_TEST_ACP_DIE_WHEN`), not 50 ms after `initialize`. So it never dies before
+  `initialize`'s answer reaches Magic, however loaded the host. A third variable,
+  `MCREMOTE_TEST_ACP_STDERR_FIRST`, makes it also write its stderr as it starts, for the stopped
+  agent's test.
+* The helper's stderr is described by a mode, not passed whole: `lines:N`, `long:N`, `panic`, or
+  `raw:a|b`. A 64 KiB environment variable is over Windows' limit. `panic` is a real Go panic, eight
+  frames deep, which the runtime ends with status 2.
+
+**The tests** (`acpagent/stderrtail_test.go`, new; `agentproc_test.go` gains the two modes in
+`TestMain`):
+
+| Test | What it holds |
+| :--- | :--- |
+| `TestDeathMessageCarriesTheTail` | 70 lines and status 3: the first line is `"testagent process exited: exit status 3"`; the separator appears once; lines 6 to 69 are there and line 5 is not |
+| `TestDeathOfStatusZeroCarriesTheTail` | status 0: `"testagent process exited"`, then the separator and the tail |
+| `TestDeathWithNoStderrIsUnchanged` | no stderr: exactly `"testagent process exited: exit status 3"` |
+| `TestTailRemovesKnownSecrets` | an `_API_KEY` variable, a `Spec.CredentialEnv` variable and an MCP header value each become `<redacted>`, 3 in all; a 7-byte `_TOKEN` value stays |
+| `TestDeathTailIsBounded` | one 64 KiB line: the message is at most its first line, plus the separator, plus 4096 bytes |
+| `TestGoPanicMessageSurvivesTheTail` | a real panic: status 2, and its `panic: testagent: the session store is corrupt` line is in the tail (D24, D30) |
+| `TestStoppedAgentLogsNoTail` | an agent that wrote to stderr, whose line is first seen in the debug log, is closed by Magic: no tail warning is logged |
+| `TestStartFailureCarriesTheTail` | an agent that writes two lines and exits before `initialize`: the error starts `"acp initialize: "`, and `errors.As` finds a `*stderrtail.Error` holding both lines |
+
+`TestSpawnedAgentDeathIsOneDisconnect`, `TestSpawnAgentStartsThroughAgentproc` and
+`TestAgentDeathMidTurnShowsOneError` pass unchanged.
+
+**Seen failing** (`leftovers/st_plants.py p2`): each plant on a fresh scratch module of `go.mod`,
+`go.sum` and `internal/`, by exact replaces asserted to match once, each copy removed and its
+absence checked.
+
+* The first run had two plants that were wrong, not tests that were blind:
+  * "Scrub skipped" left `secrets` unused, so the package did not build. It now passes
+    `secrets[:0]`.
+  * "Message adds a separator to no tail" removed one of two guards, either of which keeps a death
+    with no stderr unchanged: the watcher's empty check, and `Message`'s. It now removes both.
+* The third run: all eleven failed the test named.
+
+| Plant | Failure |
+| :--- | :--- |
+| the tail left off the message | `stderrtail_test.go:135: message has no tail after the separator` |
+| `Scrub` skipped | `:181: the tail still holds "sk-test-0123456789"` |
+| `Spec.CredentialEnv` ignored | `:181: the tail still holds "odd-credential-42"` |
+| MCP header values ignored | `:181: the tail still holds "mcp-header-value"` |
+| the tail read before `Wait` | `:135: message has no tail after the separator` |
+| only a non-nil exit error gets the tail | `:150: message = "testagent process exited", want the bare exit, then the tail` |
+| both no-tail guards removed | `:160: message = "testagent process exited: exit status 3\nlast stderr:\n", want today's` |
+| the start path not wrapped | `:270: err = acp initialize: {"code":-32603,…"input ended before a response"}; want a *stderrtail.Error with the agent's two lines` |
+| a stopped agent's tail logged | `:252: a stopped agent's tail was logged as a death` |
+| D1's 10-line cap restored | `:213: the panic's message is not in the tail` — A-5 on Magic's own spawn path |
+| the byte cap off | `:200: message is 8247 bytes, want a tail and at most 4149` |
+
+**Gates** (`leftovers/st_gates.py p2 …`; logs `leftovers/st_gates/p2/`):
+
+| Gate | Result |
+| :--- | :--- |
+| `gofmt -l` on the three files | no output |
+| `make pre-add-check FILES=…` | "go-precheck: 3 file(s) clean (gofmt, golint, govulncheck)." |
+| `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" |
+| `go build ./...`; `go vet ./...` for darwin/arm64, linux/amd64, windows/amd64, `CGO_ENABLED=0` | exit 0, each |
+| `go test -race -count=20 -run 'Tail\|Death\|StartFailure\|Stopped\|SpawnedAgent\|SpawnAgent' ./internal/provider/acpagent/` | ok, 37.9 s |
+| `make test`, `make race` | exit 0; 45 packages ok. In `make race`, 32 came from Go's test cache, which keys on each package's inputs. `acpagent`, `grok` and `daemon`, which import the change, re-ran |
+| `make check-records`, `make markdownlint-docs` | exit 0; "0 issues" |
+
+**Files for P2's commit:** `internal/provider/acpagent/acpagent.go`,
+`internal/provider/acpagent/agentproc_test.go`, `internal/provider/acpagent/stderrtail_test.go`,
+this plan.

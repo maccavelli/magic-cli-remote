@@ -21,7 +21,9 @@ import (
 // start a real process through agentproc (MADR 0207 D10). "serve" answers
 // initialize over stdio, and goes on running for a minute after its input ends,
 // as a wedged agent would, so only a kill ends it promptly. "exit" exits at
-// once.
+// once. "die" writes to stderr and exits before it reads its input, and
+// "serve-die" answers initialize and then does the same, as testStderrEnv and
+// testExitEnv say (MADR 0216 D5).
 const testAgentEnv = "MCREMOTE_TEST_ACP_AGENT"
 
 // testAgentPIDFileEnv, when set, names a file the "serve" agent writes its PID
@@ -35,6 +37,10 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	case "exit":
 		os.Exit(0)
+	case "die":
+		os.Exit(writeStderrForTest())
+	case "serve-die":
+		serveThenDieTestAgent()
 	}
 	os.Exit(m.Run())
 }
