@@ -48,7 +48,7 @@ the host standard and the host installs are in scope only where an advisory is a
 | `github.com/caddyserver/certmagic` | v0.25.4 | v0.25.6 |
 | `golang.org/x/mod` | v0.41.0 | v0.42.0 |
 | `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | ~~v1.23.0~~ **v1.23.1** (F3, F3a) |
-| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | v1.26.0, current |
+| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ **v1.27.0** (F3b) |
 
 * `go list -m -u all` lists 33 indirect modules with a newer version. They include the AWS SDK used
   by `libdns/route53` (`aws-sdk-go-v2` v1.39.1 → v1.47.5, `service/route53` v1.58.3 → v1.70.6),
@@ -94,6 +94,25 @@ Magic already treats `ErrNotInstalled` as "not installed" on the supervisor path
   v0.42.0. So v1.23.1 moves no module that D4 would not.
 
 F3's behaviour changes all come from v1.23.0, and v1.23.1 carries them unchanged.
+
+**F3b. `acp-go-sdk2` v1.27.0 is current, and adds a package Magic does not import.** *Observed
+2026-10-30, at PLAN P3 step 1 (`leftovers/release_diff.py`, and the release notes at the tag,
+`docs/reports/0043-REPORT-release-notes-v1-27-0.md` in that repository).*
+
+* It is tagged 2026-10-30T17:01Z, after the inventory. Its annotated tag `7c89dd4b…` peels to
+  commit `913575f6c7fbf4c67ada357a3597293f43e09d2b`. P3's `go get -u ./...` took it.
+* It is 13 commits past v1.26.0, with nothing behind. It adds one package, `remote` (ACP over
+  Streamable HTTP and WebSocket), and `example/remote`. The release notes say `agentproc/`,
+  `acptest/`, `clienthost/`, `internal/`, the schema and every generated file are unchanged, and
+  that "nothing the root package, `agentproc`, `acptest` or `clienthost` sends or accepts changes".
+* Its `make api` against v1.26.0: "0 incompatible, 11 compatible", each one in `remote`. `remote`
+  is outside its compatibility promise.
+* Its `go.mod` gains `github.com/coder/websocket v1.8.15`, "compiled only into a program that
+  imports `remote`". Magic already requires `github.com/coder/websocket v1.8.15` directly
+  (`go.mod:7` before P3), with the same two `go.sum` lines, so the requirement adds nothing here.
+  The `go` lines are unchanged.
+* 0216's design reads `acp-go-sdk2 v1.26.0`'s `agentproc` and `acptest`. Those are unchanged in
+  v1.27.0, so 0216 is unaffected.
 
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
@@ -387,7 +406,9 @@ Chosen option: **"B — Tiered by risk"**, because:
   * The only thing CI runs on Node is `markdownlint-cli2` (D6).
 * **D4 — Go modules to their newest, with `go-selfupdate-lib` as D5 says (F2).**
   * `go get -u ./...`, then `go mod tidy`. That moves `certmagic`, `x/mod` and every indirect
-    module in the build. `acp-go-sdk2` is already current.
+    module in the build. ~~`acp-go-sdk2` is already current.~~ *Amended 2026-10-30, at PLAN P3
+    step 1 (Deviation 7), by the owner: "Take v1.27.0".* It also moves `acp-go-sdk2` to v1.27.0
+    (F3b).
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*
@@ -682,6 +703,10 @@ proceed", in answer to "Approve the MADR and I'll write the five-phase PLAN".* T
   the compare between them, `CHANGELOG.md` at `v1.23.1`, and `go list -m -versions`. Also
   `go.mod` at `v1.23.1` from the contents API, and `go list -m -u` for `x/sys`, `x/term`, `x/mod`
   and `go-selfupdate-lib` in this repository.
+* `leftovers/release_diff.py maccavelli/acp-go-sdk2 v1.26.0 v1.27.0`, 2026-10-30 (F3b): both
+  tags peeled, the compare between them, and its `go.mod` and `go.sum` patch. Also that
+  repository's `docs/reports/0043-REPORT-release-notes-v1-27-0.md` at `v1.27.0`, from the contents
+  API.
 * magic-git `scripts/tools/devenv/version_audit.py` against its `standard.json`, run read-only on
   2026-10-29: "4 ADVISORY, 1 ERROR, 1 REVIEW, 8 STALE". The ERROR is that this Mac has no probe
   documents.

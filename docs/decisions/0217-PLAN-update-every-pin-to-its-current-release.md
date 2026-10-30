@@ -188,7 +188,8 @@ and 8 pass.
 
 ### P3 — Go modules and `go-selfupdate-lib` v1.23.1 (D4, D5)
 
-*Amended 2026-10-30 by Deviation 6: the target was v1.23.0. The steps below strike the old values.*
+*Amended 2026-10-30 by Deviation 6: the target was v1.23.0. Amended again by Deviation 7:
+`acp-go-sdk2` moves to v1.27.0. The steps below strike the old values.*
 
 **Files:** `go.mod`, `go.sum`, `.github/workflows/ci.yml`, the 0207 MADR (amendment J), and this
 plan.
@@ -196,7 +197,7 @@ plan.
 1. `go get -u ./...`, then `go mod tidy`. Then:
    * `go.mod` still says `go 1.27.3`, and has gained no `toolchain` line. A raised directive is a
      stop, because it means some dependency needs a newer Go;
-   * `go-selfupdate-lib` is ~~v1.23.0~~ v1.23.1, `acp-go-sdk2` v1.26.0, `certmagic` v0.25.6 and
+   * `go-selfupdate-lib` is ~~v1.23.0~~ v1.23.1, `acp-go-sdk2` ~~v1.26.0~~ v1.27.0, `certmagic` v0.25.6 and
      `x/mod` v0.42.0. `x/sys` stays at v0.49.0 or newer and `x/term` at v0.47.0 or newer, the
      floors v1.23.1 requires (F3a);
    * `go list -m -u` shows no newer version for any direct module.
@@ -239,6 +240,7 @@ plan.
 6. **0207, amendment J:** ~~"`go-selfupdate-lib v1.23.0`"~~ "`go-selfupdate-lib v1.23.1`". It
    records:
    * F3's changes, and F3a's: that v1.23.1 adds only the `golang.org/x` floors;
+   * F3b: `acp-go-sdk2` v1.27.0, which 0207's amendment I pinned at v1.26.0, and what it adds;
    * step 3's reading of each caller;
    * step 4's and step 5's results;
    * that `Plan`, `Apply` and `servicetest` are not adopted (D5).
@@ -873,3 +875,138 @@ v1.23.1, and step 1's "v1.23.0" check would have stopped the phase.
 * The MADR's F2 and D5 are amended, and F3a records the facts behind them.
 
 **Scope.** No file is added. P3's files are as listed.
+
+**P0.** The tree was clean at `cd2245ea`. `leftovers/gsl_peel.py v1.23.0 v1.23.1` peeled v1.23.1 to
+`c24f5919…` again, with nothing new upstream. `go.mod` and `go.sum` were copied to the scratchpad
+(`p3-base/`) before step 1.
+
+**Step 1, `go get -u ./...`** (`leftovers/0217-p3-goget.log`): exit 0. `go.mod` still says
+`go 1.27.3`, with no `toolchain` line. The direct moves:
+
+* `certmagic` v0.25.4 → v0.25.6;
+* `go-selfupdate-lib` v1.22.3 → v1.23.1;
+* `x/mod` v0.41.0 → v0.42.0;
+* `acp-go-sdk2` v1.26.0 → **v1.27.0**, which the step did not expect.
+
+#### Deviation 7 (2026-10-30): `go get -u` moves `acp-go-sdk2` to v1.27.0
+
+**Found** at step 1. `acp-go-sdk2` v1.27.0 was tagged 2026-10-30T17:01Z, after the inventory, and
+step 1 expected v1.26.0 (MADR F2, D4). Read only with `leftovers/release_diff.py` and its release
+notes (MADR F3b):
+
+* it adds the package `remote` and `example/remote`, and changes no package that existed in v1.26.0;
+* its `make api` reports "0 incompatible";
+* its new requirement, `github.com/coder/websocket v1.8.15`, is one Magic already requires
+  directly at that version (`go.mod:7` and its two `go.sum` lines, in the `p3-base/` copy).
+
+**Decision (owner, 2026-10-30): "Take v1.27.0 (Recommended)".**
+
+* Step 1 keeps `go get`'s result and names v1.27.0.
+* The MADR's F2 and D4 are amended, and F3b records the facts.
+* Step 6's amendment J records it, since 0207's amendment I pinned v1.26.0.
+* P3's gates cover it. 0216's plan, which resumes after this one, is unaffected: `agentproc` and
+  `acptest` are unchanged.
+
+Declined: holding `acp-go-sdk2` at v1.26.0, and stopping P3 for a record of its own.
+
+**Scope.** No file is added.
+
+*Corrected 2026-10-30, at step 1's tidy:* the question put to the owner said `coder/websocket`
+would add only `go.sum` lines. Magic already required it directly, at v1.8.15, before P3, so it
+adds nothing (F3b, as corrected). The decision does not change.
+
+**Step 1, continued.** `go mod tidy` (`leftovers/0217-p3-tidy.log`): exit 0, no output. `go.mod`
+still says `go 1.27.3` with no `toolchain` line. `go list -m -u` shows no newer version for any
+direct module. The `require` diff, from the `p3-base/` copy:
+
+* direct: `certmagic` v0.25.4 → v0.25.6, `acp-go-sdk2` v1.26.0 → v1.27.0, `go-selfupdate-lib`
+  v1.22.3 → v1.23.1, `x/mod` v0.41.0 → v0.42.0;
+* indirect, moved: `aws-sdk-go-v2` v1.39.1 → v1.47.5, with `config`, `credentials`,
+  `feature/ec2/imds`, `internal/configsources`, `internal/endpoints/v2`,
+  `service/internal/accept-encoding`, `service/internal/presigned-url`, `service/route53`
+  (v1.58.3 → v1.70.6), `service/sso`, `service/ssooidc` and `service/sts`; `smithy-go`
+  v1.23.0 → v1.28.7; `caddyserver/zerossl` v0.1.5 → v0.1.6; `go-viper/mapstructure/v2` v2.4.0 →
+  v2.5.0; `klauspost/cpuid/v2` v2.3.0 → v2.4.1; `mholt/acmez/v3` v3.1.6 → v3.1.7; `miekg/dns`
+  v1.1.72 → v1.1.73; `pelletier/go-toml/v2` v2.2.4 → v2.4.3; `sagikazarmark/locafero` v0.11.0 →
+  v0.12.0;
+* indirect, added: `aws-sdk-go-v2/internal/v4a` v1.5.8, `aws-sdk-go-v2/service/signin` v1.12.0;
+* indirect, dropped by tidy as no longer needed: `aws-sdk-go-v2/internal/ini`, `sourcegraph/conc`,
+  `golang.org/x/sync`, `golang.org/x/tools`.
+
+`go list -m -u all` still offers newer versions of ten modules in the graph that `go.mod` does not
+list, such as `stretchr/testify` and `x/tools`. They are other modules' requirements, outside the
+build, which D4 does not move.
+
+**Step 2.** `leftovers/p3_pins.py` asserted the old pin twice and the new one not at all, then
+wrote `ci.yml:743` and `:764`:
+`@c24f5919cd9e9e3ba3736e64bcf18a6e2a51489e # go-selfupdate-lib v1.23.1`.
+
+* `TestWorkflowPinsMatchGoMod`: PASS.
+* The test checks the pin's form and its comment, not that the commit is the tag's. Its doc
+  leaves that to `git ls-remote`, which gave `refs/tags/v1.23.1^{}` at `c24f5919…`.
+
+**Step 3, every caller read** (module cache, `v1.22.3` against `v1.23.1`; 0207 amendment J, J-2 and
+J-4, holds the file and line of each):
+
+* **Supervised (runit, s6, OpenRC).** `Start`'s one new check: `Installed` false is
+  `ErrNotInstalled`, and `Up` does not run. Magic's `State` sets `Installed` from the definition
+  file. `startThrough` and the installer hook start only after the definition is written or
+  refreshed, so the error means a missing definition, and their wrapped message stays true.
+  `stopForRemoval`, the tool paths and the state readers already handle `ErrNotInstalled`.
+* **launchd.** A missing property list is `ErrNotInstalled` at once. `Stop`'s one deadline only
+  shortens the worst case, and no caller relies on the old one.
+* **systemd `Type=notify`.** A start that ran and failed was an error already, and now also wraps
+  `ErrUnhealthy`. No Magic code branches on it, and `verifyStart` reads only `WaitHealthy`.
+* **The managed update.** The library's own recovery takes `Start`'s errors, and
+  `internal/updateclient` checks none.
+* **scm.** Not imported by Magic.
+
+No caller reports wrongly. C8's stop did not arise, and no `.go` file changes.
+
+**Step 4, this Mac** (logs `leftovers/0217-p3-*.log`):
+
+| Gate | Result |
+| :--- | :--- |
+| `make pre-add-check` | exit 0, "992 file(s) clean (gofmt, golint, govulncheck)" |
+| `go vet ./...` (`leftovers/vet_goos.py`) | darwin/arm64, windows/amd64 cgo off, linux/amd64 cgo off: exit 0 each |
+| `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" for each GOOS, the count of P2's CI run |
+| `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+| `make race` | exit 0; 45 `ok`, no FAIL, panic or data race |
+| `make preflight` | exit 0, "✅ preflight passed": every Go package `ok`, the hermetic install tests, "assert-flutter-pin: OK … (3.47.9)", 158 hosted packages with no advisories, `flutter analyze` "No issues found!", `flutter test` "+1501 ~3: All tests passed!" |
+| `make check-libs` on `HEAD` | `make` exit 2, from `check_libs.py`'s exit 1 ("2 failing checks"): `acp-go-sdk2` (v1.26.0 → v1.27.0) every check ok; `go-selfupdate-lib` (v1.22.3 → v1.23.1) "modules: FAIL new or changed module: golang.org/x/mod" and "test: FAIL", `TestWorkflowPinsMatchGoMod` on the old `ci.yml` pins |
+| check-libs on the phase's content (`leftovers/check_libs_staged.py`) | exit 0, "0 failing checks; scratch removed"; both libraries "pinned at" their tag, "nothing to compare" |
+| `make live-supervisors KINDS="runit s6 openrc"` | exit 0: `TestLiveRunit` (61.46s), `TestLiveS6` (59.23s), `TestLiveOpenRC` (60.48s); "failed: none" |
+
+* `make check-libs` checks the committed `HEAD`. It moves one library and nothing else, so a run
+  before the phase commit fails as
+  [0207-PLAN-pin-go-selfupdate-lib-v1-17-2.md](0207-PLAN-pin-go-selfupdate-lib-v1-17-2.md)'s did
+  before its commit.
+  * `leftovers/check_libs_staged.py` clones `HEAD` into the scratchpad and copies `go.mod`, `go.sum`
+    and `ci.yml` over the clone. It commits them there with `git commit-tree`, which runs no hook,
+    in a clone that is never pushed. Then it runs go-shared's `check_libs.py --repo` on the clone.
+  * The real tree's status and `HEAD` were unchanged after it.
+  * `make check-libs` is run again on the owner's commit (step 8).
+* The live run's first attempt stopped before any test, at "unable to connect to Podman socket":
+  this Mac's Podman machine was stopped. Under C2 it was started (`podman machine start`), the run
+  repeated, and the machine stopped again after it.
+* In each live run the update moved the service from this tree's build to `v0.23.0`, with
+  `service_was_running` and `service_started` true and `rolled_back` false, through the library's
+  `Supervised` adapter.
+
+**Step 5, the test hosts** (`PINS_PHASE=p3`, with
+`PINS_LINUX_GO="./internal/cli/service/... ./internal/updateclient/..."`, a new option of
+`leftovers/pins_hosts.py`; HEAD `cd2245ea` plus `go.mod`, `go.sum` and `ci.yml`):
+
+* **the Linux test host:** `go1.27.3 linux/amd64`. `go test -race -count=1 ./...` exit 0, 45 `ok`
+  lines. `go test -count=1` of the two package trees: exit 0, `internal/cli/service` and
+  `internal/updateclient` `ok`.
+* **the Windows test host:** `go1.27.3 windows/amd64`. The `make -n` check saw Windows, and
+  `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 45 `ok` lines.
+* Both scratch trees were removed, and their absence checked.
+
+**Step 6.** 0207's MADR has "Amendment — 2026-10-30 (J): `go-selfupdate-lib v1.23.1` and
+`acp-go-sdk2 v1.27.0`", with D51 to D53. Its date is now 2026-10-30.
+
+**Step 7.** No page outside the records names either old version, and no code, script or workflow
+does. `docs/README.md` names them only in amendment I's plan title, which stays. No `.go` file is
+staged.

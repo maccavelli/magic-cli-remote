@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-29
+date: 2026-10-30
 decision-makers: Project Owner
 consulted: "go-selfupdate-lib v1.17.1–v1.17.2, acp-go-sdk2 v1.15.0–v1.19.0 and go-llmprovider-sdk v1.21.0, read from full clones at their tags; their GitHub release notes; a scratch copy of this repository at 707d300d with both pins moved; gobble-cli's go.mod on its default branch. Amendment of 2026-10-22: acp-go-sdk2 v1.20.0 from the Go module proxy and its release notes; a scratch copy at 6a4ef48d with both pins moved and agentproc run against Magic's command; gobble-cli at 53565a1. Amendment C (2026-10-24): go-selfupdate-lib v1.20.0 and v1.21.0, their CHANGELOG entries, migration guide §20 and §21, and `git diff v1.19.0 v1.21.0` in a local clone; the Go module proxy; a scratch copy of this repository at 793b8f5b with the pin moved. Amendment E (2026-10-24): go-selfupdate-lib v1.22.0 from the Go module proxy and a local clone; acp-go-sdk2 through the GitHub compare API; go-llmprovider-sdk v1.22.0 to v1.22.2 in a local clone; gobble-cli's go.mod; a scratch copy at 793b8f5b with the pin moved to v1.22.0"
 informed: anyone who changes this module's dependencies, its service code or its ACP provider
@@ -2138,3 +2138,129 @@ current madr/plans and docs. pin newest versions." Its plan is
   diffs and the `go doc` comparison of both libraries.
 * `leftovers/libs_pin_probe.py` and its logs, `leftovers/libs_probe/`.
 * gobble-cli's `go.mod`, from the contents API.
+
+## Amendment — 2026-10-30 (J): `go-selfupdate-lib v1.23.1` and `acp-go-sdk2 v1.27.0`
+
+*Decided by the owner, 2026-10-30, under
+[0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md)'s
+D4 and D5.* The owner's words: "pin go-selfupdate-lib to current v1.23.1", and, when P3's `go get -u`
+also moved `acp-go-sdk2`, "Take v1.27.0 (Recommended)". It is carried out by
+[0217-PLAN-update-every-pin-to-its-current-release.md](0217-PLAN-update-every-pin-to-its-current-release.md)'s
+P3, with its Deviations 6 and 7. I-4 predicted this bump.
+
+### Facts [observed 2026-10-30: `git ls-remote`, the GitHub compare and contents APIs, the Go module proxy, the module cache, and the gates named in J-5]
+
+* **J-1. One new minor each, both tagged after 0217's inventory.**
+
+  | Library | Pinned | Newest | Tag object | Peeled commit |
+  | :--- | :--- | :--- | :--- | :--- |
+  | `go-selfupdate-lib` | `v1.22.3` | `v1.23.1` | `b0c08a0e…` | `c24f5919cd9e9e3ba3736e64bcf18a6e2a51489e` |
+  | `acp-go-sdk2` | `v1.26.0` | `v1.27.0`, tagged 2026-10-30T17:01Z | `7c89dd4b…` | `913575f6c7fbf4c67ada357a3597293f43e09d2b` |
+
+  Neither has a newer tag. `go-selfupdate-lib` has no GitHub release (the releases API answers
+  404), only its `CHANGELOG.md` entry. `acp-go-sdk2`'s notes are its
+  `docs/reports/0043-REPORT-release-notes-v1-27-0.md` at the tag.
+* **J-2. `go-selfupdate-lib v1.23.0` changes behaviour Magic can see, and `v1.23.1` adds none.**
+  0217's F3 lists `v1.23.0`'s changes from its `CHANGELOG.md`. Read in the module cache at
+  `v1.23.1`, against `v1.22.3`:
+  * `Supervised.Start` gains one check before `Up`: a `State` answered without error and with
+    `Installed` false is `ErrNotInstalled` (`supervised_lifecycle.go:171-173`). With no supervisor
+    to ask, `Up` still runs.
+  * launchd's `Start` returns `ErrNotInstalled` before anything runs when the property list is
+    missing (`launchd/lifecycle.go:279-283`). Its `Stop` bounds `bootout` and the wait with one
+    deadline, not one each (`:179-186`).
+  * systemd's `Start` of a unit that ran and failed before the start completed, as a `Type=notify`
+    program that exits before it is ready, wraps `ErrUnhealthy` as well as the command's error
+    (`systemd/lifecycle.go:184-198`). It was already an error.
+  * `v1.23.1` changes only `go.mod`, `go.sum` and documents. It requires `golang.org/x/sys v0.49.0`,
+    `x/term v0.47.0` and `x/mod v0.42.0`, and "`make apicheck` reports `v1.23.1` compatible with
+    `v1.23.0`". No file under `.github/` changes in either release step, so the reusable release
+    workflows are `v1.23.0`'s.
+* **J-3. `acp-go-sdk2 v1.27.0` adds a package Magic does not import.** It adds `remote`, ACP over
+  Streamable HTTP and WebSocket, and `example/remote`. Its notes: `make api` against `v1.26.0` is
+  "0 incompatible, 11 compatible", each in `remote`; `agentproc/`, `acptest/`, `clienthost/`,
+  `internal/` and the schema are unchanged. Its new requirement, `github.com/coder/websocket
+  v1.8.15`, is one Magic already requires directly at that version. 0216's design, which reads
+  `v1.26.0`'s `agentproc` and `acptest`, is unaffected.
+* **J-4. Magic's callers of the changed behaviour, read at `cd2245ea`.**
+  * The runit, s6 and OpenRC backends are `*libservice.Supervised` (`supervisedbackend.go:91-97`).
+    Their `State` sets `Installed` from the definition file's existence (`supervisorstate.go:65-80`).
+    Setup's `startThrough` (`setup.go:182-209`) starts only after setup wrote that definition, and
+    the installer hook (`installerhook.go:148-197`) refreshes it before it starts. So `Start` is
+    `ErrNotInstalled` only for a definition that is really missing, where `Up` ran and failed with
+    a tool error before. Both callers wrap the error ("the service could not be started",
+    "start the … service"), which stays true.
+  * `stopForRemoval` (`setup.go:235-250`) already takes a `Stop` `ErrNotInstalled` as nothing to
+    stop. The supervisor tool paths (`supervisortool.go:209`, `:227`) and the state readers
+    (`supervisorstate.go:94`, `:206`) already map a missing definition to it.
+  * launchd: the backend (`backend.go:94-109`) gives the property list setup writes. A missing one
+    now fails at once rather than after `launchctl`'s retries. No caller of `Stop` relies on the
+    old doubled bound: `setup.go:190` and `installerhook.go:166` fail on any error, and
+    `setup.go:242` tolerates any but `ErrInsideService`.
+  * systemd: no code in Magic branches on `ErrUnhealthy` from `Start`. `verifyStart`
+    (`settle.go:116-135`) classifies only `WaitHealthy`'s errors.
+  * The managed update calls `Start` inside the library (`selfupdate/managed.go:213`, `:351`), whose
+    recovery handles any error. `internal/updateclient` checks no specific error.
+  * Magic does not import `service/scm`, so its `Start` change does not reach Magic.
+
+  No caller reports wrongly, so 0217's C8 stop did not arise.
+* **J-5. The move, gated** (0217's P3 record holds each command and its output):
+  * `go get -u ./...` and `go mod tidy`: `go 1.27.3` with no `toolchain` line, and no direct module
+    behind. Both `ci.yml` pins name `c24f5919…` with `# go-selfupdate-lib v1.23.1`, and
+    `git ls-remote` peels `v1.23.1^{}` to that commit. `TestWorkflowPinsMatchGoMod` passes.
+  * This Mac: `make pre-add-check` (992 files), `go vet` for darwin/arm64, windows/amd64 and
+    linux/amd64, `make staticcheck` (56 ignored findings, as I-5 counted), `make vulncheck`
+    ("clear", with `GO-2026-5932`), `make race` (45 packages ok), `make preflight`, and
+    `make live-supervisors KINDS="runit s6 openrc"` ("failed: none") all pass.
+  * `make check-libs` on `HEAD` fails two checks for `go-selfupdate-lib`, as a move run before its
+    commit does
+    ([0207-PLAN-pin-go-selfupdate-lib-v1-17-2.md](0207-PLAN-pin-go-selfupdate-lib-v1-17-2.md),
+    before its plan): the library moved alone fails `TestWorkflowPinsMatchGoMod`, and moves
+    `x/mod`. `acp-go-sdk2 v1.27.0` passes every check there. Run on a scratch clone of `HEAD` with the phase's three files committed there, it
+    reports "0 failing checks", each library "pinned at" its tag.
+  * The Linux test host: `go test -race ./...` (45 ok), and `go test -count=1` of
+    `internal/cli/service/...` and `internal/updateclient/...`. The Windows test host:
+    `make ci-windows`, "ALL SELECTED CHECKS PASSED".
+* **J-6. What the releases offer, and Magic does not take here.** `go-selfupdate-lib`'s pinned
+  update plans (`Updater.Plan`, `Apply`, `ErrPlanStale`) and its `selfupdate/service/servicetest`
+  conformance check; `acp-go-sdk2`'s `remote`. Each would change what Magic does, or how its
+  backends are tested.
+
+### The decisions this amendment makes
+
+* **D51 — Pin `go-selfupdate-lib v1.23.1`.** `go.mod`, `go.sum`, and both `ci.yml` pins, to
+  `c24f5919cd9e9e3ba3736e64bcf18a6e2a51489e` with the comment `# go-selfupdate-lib v1.23.1`. No
+  source changes: J-4 finds no caller to fix.
+* **D52 — Pin `acp-go-sdk2 v1.27.0`.** `go.mod` and `go.sum` only. D45's exception stands, at 56
+  uses.
+* **D53 — J-6's items are not adopted here.** Each takes its own record when wanted, as D28, D47
+  and D50 already rule; 0217's D5 says the same for `Plan`, `Apply` and `servicetest`.
+
+### Consequences of the amendment
+
+* Good, because both pins are current again, and the next bump starts from them.
+* Good, because a supervised or launchd start of a missing definition now says "not installed" at
+  once, where it ran a tool or retried `launchctl` and then failed with a less direct error.
+* Neutral, because `acp-go-sdk2 v1.27.0` adds only a package Magic does not import, and no
+  requirement Magic did not already have.
+* Bad, because `v1.23.0` changes how `Start` fails on every supervised backend and on launchd.
+  J-4's reading and the live and host runs are what show Magic still reports it rightly.
+
+### Confirmation of the amendment
+
+* `go list -m github.com/maccavelli/acp-go-sdk2 github.com/maccavelli/go-selfupdate-lib` gives
+  `v1.27.0` and `v1.23.1`.
+* Both `ci.yml` pins name `c24f5919…`, and `TestWorkflowPinsMatchGoMod` passes.
+* `make check-libs` exits 0 on the committed `HEAD`.
+* After the push, CI's Go jobs and "Live supervisors (runit, s6)" pass (0217's P3 step 8).
+
+### Evidence index of the amendment
+
+* 0217's MADR, F3, F3a and F3b, and its PLAN's P3 record, with the logs `leftovers/0217-p3-*.log`.
+* `leftovers/gsl_peel.py` and `leftovers/release_diff.py`: both libraries' tags peeled, the compares,
+  `go-selfupdate-lib`'s `CHANGELOG.md` at `v1.23.1`, and `acp-go-sdk2`'s release notes at
+  `v1.27.0`.
+* `go-selfupdate-lib` at `v1.22.3` and `v1.23.1` in the module cache: `supervised_lifecycle.go`,
+  `launchd/lifecycle.go`, `systemd/lifecycle.go` and `managed.go`.
+* `leftovers/check_libs_staged.py`: go-shared's `check_libs.py` on a scratch clone of `HEAD` with
+  the phase's files committed there.
