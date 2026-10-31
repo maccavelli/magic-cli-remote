@@ -333,4 +333,12 @@ removed.
    that wrote this section dropped the trailing newline. Restored, it reports "0 issues in 0
    files".
 3. **Staged** under C1: the three test files and this pair. `check_records.py --check-all` ran on the
-   staged tree, exported with `git checkout-index`. The owner commits.
+   staged tree, exported with `git checkout-index`. The owner commits. With deviation 2,
+   `reality_lock_test.go` was staged too: six files. `--check-all` on that staged tree: exit 0.
+   The owner committed `85e10fb0`.
+
+### S6 — 2026-10-31
+
+1. `leftovers/guard_range.py origin/master HEAD`: exit 0, no output, over `c12e6e37..85e10fb0`. That
+   range is the two unpushed commits: `c10d8208` (this pair, proposed, and 0224's close) and
+   `85e10fb0` (this change).
