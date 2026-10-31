@@ -38,7 +38,11 @@ val hasReleaseSigning = keystorePropertiesFile.exists() &&
     keystoreProperties.getProperty("storeFile") != null &&
     keystoreProperties.getProperty("keyAlias") != null
 
-android {
+// The `android` extension, configured through its new-DSL interface. Under
+// android.newDsl=false AGP generates a deprecated `android { }` accessor typed
+// to the old BaseAppModuleExtension; this form avoids it, and stays valid once
+// newDsl is on (MADR 0222 D3).
+configure<com.android.build.api.dsl.ApplicationExtension> {
     namespace = "com.maccavelli.magic_cli_remote"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion

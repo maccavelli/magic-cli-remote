@@ -460,6 +460,12 @@ jobs:
     needs: [go, flutter]
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # MADR 0222 D4: grant Gradle's launcher the native access the JDK asks
+    # for, or every Gradle run prints "A restricted method in
+    # java.lang.System has been called". org.gradle.jvmargs only reaches the
+    # daemon; GRADLE_OPTS reaches the launcher.
+    env:
+      GRADLE_OPTS: --enable-native-access=ALL-UNNAMED
     defaults:
       run:
         working-directory: apps/mobile
@@ -658,7 +664,8 @@ jobs:
           set -euo pipefail
           APK="build/app/outputs/flutter-apk/app-release.apk"
           BT="$ANDROID_HOME/build-tools/$(find -H "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 ! -name '.*' -exec basename {} \; | sort -V | tail -1)"
-          certs="$("$BT/apksigner" verify --print-certs "$APK")"
+          # -J passes the JDK's native-access grant to apksigner's JVM (MADR 0222 D4).
+          certs="$("$BT/apksigner" -J-enable-native-access=ALL-UNNAMED verify --print-certs "$APK")"
           printf '%s\n' "$certs"
           if grep -qi 'Android Debug' <<<"$certs"; then
             echo "error: APK is debug-signed — key.properties was not honoured" >&2

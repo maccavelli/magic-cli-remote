@@ -11,10 +11,21 @@ java_version: "17"
 
 ## Build configuration
 
-The Android project uses Kotlin DSL (`build.gradle.kts`, `settings.gradle.kts`), AGP 9.0+,
-Kotlin 2.3+, Java 17 source/target compatibility, and core-library desugaring (`desugar_jdk_libs:2.1.4`)
+The Android project uses Kotlin DSL (`build.gradle.kts`, `settings.gradle.kts`), AGP 9.1+,
+Kotlin 2.4+, Java 17 source/target compatibility, and core-library desugaring (`desugar_jdk_libs:2.1.4`)
 for `java.time`. Plugin versions are managed centrally in `android/settings.gradle.kts`;
-do not duplicate plugin version declarations in app module files. Release builds use a private
+do not duplicate plugin version declarations in app module files.
+
+`gradle.properties` sets `android.builtInKotlin=true` and keeps `android.newDsl=false`. Keep
+both lines: Flutter's migrator re-adds `=false` for a missing one. The new DSL waits until a
+Flutter release sets `android.newDsl=true` (flutter/flutter#189236), since Flutter 3.47.9's Gradle
+plugin fails under it. Until then, `app/build.gradle.kts` configures the app through
+`configure<com.android.build.api.dsl.ApplicationExtension> { }` rather than the deprecated
+`android { }` accessor. The JDK warns about a restricted method on every Gradle run unless
+`GRADLE_OPTS` carries `--enable-native-access=ALL-UNNAMED`. CI's APK job, the `Makefile`'s
+Android targets and `scripts/build-apk.sh` set it. For a bare `flutter build` or `flutter run`,
+export it in the shell. See
+[0222-MADR-clear-the-android-build-warnings-this-repository-owns.md](../../../decisions/0222-MADR-clear-the-android-build-warnings-this-repository-owns.md). Release builds use a private
 keystore specified in `android/key.properties` when present. The debug-key fallback is for local
 development only and MUST NOT be distributed.
 

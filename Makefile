@@ -485,6 +485,12 @@ verify-units:
 	done; \
 	exit $$rc
 
+# Gradle's launcher loads native code, and the JDK prints "A restricted method
+# in java.lang.System has been called" on every Gradle run unless that access is
+# granted. GRADLE_OPTS reaches the launcher (org.gradle.jvmargs only reaches the
+# daemon), so the Android targets add the grant to it (MADR 0222 D4).
+manifest-surface apk profile-apk: export GRADLE_OPTS += --enable-native-access=ALL-UNNAMED
+
 # Check the shipped Android permission / exported-component surface against
 # apps/mobile/android/manifest-surface.allow (MADR 0126 D4). Nothing else in
 # this repo reads the merged manifest, which is how a plugin injected WAKE_LOCK,
