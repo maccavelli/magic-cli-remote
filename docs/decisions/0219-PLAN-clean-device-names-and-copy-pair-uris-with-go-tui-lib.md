@@ -405,6 +405,18 @@ deleted after the first run, and again after the later ones.
   The 0220 report and the 0221 MADR are untracked, and their rows unstaged.
 * `check_records.py --check-all` on the staged tree (`git checkout-index` into a scratch
   directory, which holds neither the 0220 nor the 0221 file): exit 0, no output.
+* The owner committed it as `99d41897`, whose message resolves issue #30.
+* `make check-libs` on `HEAD`: exit 0, every check of `acp-go-sdk2` and `go-selfupdate-lib` ok,
+  "0 failing checks" (`leftovers/0219-s5-checklibs-head.log`). go-tui-lib is not checked yet
+  (deviation 5, V3).
+* `leftovers/guard_range.py origin/master HEAD` over `814a8bd9..99d41897`: exit 0, no output.
+* The owner pushed `99d41897` together with the owner's own docs commit `e5d655d5` (the 0220
+  report and the 0221 MADR), so CI ran on `e5d655d5`:
+  * Docs run 41208616363: success.
+  * CI run 41208616894: success for Go (test), Go (linux/arm64), Go (windows/amd64),
+    Go (darwin/arm64), Flutter (analyze & test), Flutter (test on windows) and Live supervisors
+    (runit, s6). The APK and self-update release jobs were skipped, as on every push.
+* V1, V2, V4, V5 and V6 are met. V3 is open, so this plan stays `in-progress`.
 
 ### Deviations
 
