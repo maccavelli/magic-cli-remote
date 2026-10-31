@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-31
 associated-madr: "0223-MADR-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md"
 ---
@@ -262,6 +262,17 @@ files named, since its default would miss the three untracked tests):
   remaining diff is the 0221 and 0222 rows, which are not this plan's.
 * `check_records.py --check-all` on the staged tree (`git checkout-index` into a scratch
   directory, removed afterwards): exit 0, no output.
+* The owner committed it as `04ffc6d2`.
+* `make check-libs` on `HEAD`: exit 0, every check of `acp-go-sdk2` and `go-selfupdate-lib` ok,
+  "0 failing checks; scratch removed" (`leftovers/0223-s5-checklibs-head.log`).
+* `leftovers/guard_range.py origin/master HEAD` over `e5d655d5..04ffc6d2`, the five unpushed
+  commits: exit 0, no output. The owner pushed.
+* Docs run 41222903686: success.
+* CI run 41222903993: success for Go (test), Go (linux/arm64), Go (windows/amd64),
+  Go (darwin/arm64), Flutter (analyze & test), Flutter (test on windows) and Live supervisors
+  (runit, s6). Android APK and the self-update jobs were skipped, as on every push.
+
+**Acceptance, 2026-10-31.** V1 to V5 are met, as recorded above. This plan is `complete`.
 
 ### Deviations
 
