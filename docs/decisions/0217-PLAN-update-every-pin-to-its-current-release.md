@@ -1755,3 +1755,16 @@ What remains is named as upstream in that pair's MADR, D7, as decided in Deviati
 * Gradle's Gradle-10 summary, from three plugins' Groovy scripts (their maintainers).
 
 The plan stays `in-progress` only for P5's two owner items above.
+
+**magic-git committed, 2026-10-31.** The owner reported magic-git committed and pushed. Read in
+magic-git:
+
+* `git status --short --branch`: `master...origin/master`, clean, so the commit is pushed;
+* `878783a` ("feat(devenv): report held Python line and bump standard toolchains") changes the
+  three files P5 staged, `scripts/tools/devenv/version_audit.py`, `README.md` and `standard.json`;
+* its `standard.json` reads Go 1.27.3, Node 26.13.0, and Python 3.14.10 with `held_line` "3.14"
+  and its `held_reason`, as P5b wrote them.
+
+One item stays open: the Linux test host's dotfiles (`bash/.bashrc.d/00-paths.sh` and the
+`mcremote` drop-in `path.conf`). This plan becomes `complete` when the owner reports them
+committed.
