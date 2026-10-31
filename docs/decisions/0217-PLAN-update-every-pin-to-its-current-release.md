@@ -1623,3 +1623,116 @@ newest. A step P3b, P3's steps for this one module:
   `go1.27.3`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 45 `ok`
   lines; both scratch trees removed and checked gone.
 * **Step 5.** 0207's amendment K (D54, D55). `make check-libs` runs again on the owner's commit.
+
+**Committed** as `814a8bd9` ("chore(deps): update acp-go-sdk2 to v1.28.0"). `make check-libs` on
+it: exit 0, `acp-go-sdk2` "pinned v1.28.0, checking v1.28.0", "0 failing checks; scratch removed"
+(`leftovers/0217-p3b-checklibs-head.log`). The owner pushed it.
+
+### CI on the pushes after P3
+
+* **P4, `896834a5`:** CI run 41123912950, success. Go (test), Go (linux/arm64), Go
+  (windows/amd64), Go (darwin/arm64), Flutter (analyze & test), Flutter (test on windows) and
+  Live supervisors (runit, s6) passed. Android APK and the self-update jobs were skipped, as on
+  every push.
+* **P3b, `814a8bd9`:** CI run 41149479528, success, with the same jobs passed and skipped.
+
+### The APK dispatch (2026-10-31)
+
+P4 changed AGP, Kotlin and Gradle after P1's tag run, and CI builds the APK only on a tag or a
+dispatch (`ci.yml:459`). The dispatch was held until 0219 landed. Under C2, on the owner's word
+"run the held dispatch": `gh workflow run ci.yml --ref master`, run 41210038095
+(`workflow_dispatch`, `e5d655d5`), success. Every job passed, Android APK (release arm64) and the
+self-update build with its eight identity jobs included. Publish was skipped, as it is without a
+tag.
+
+From the Android APK job's log (`124564856862`, `leftovers/0217-apk-dispatch-job.log`):
+
+* `flutter-version: 3.47.9`;
+* "✓ Built build/app/outputs/flutter-apk/app-release.apk (41.3MB)";
+* `assert-flutter-release-apk` "OK release-mode APK", for the build and for the staged artifact;
+* `assert-android-manifest-surface` "OK surface matches the allowlist";
+* the release-signature step passed;
+* none of P4 step 6's four patterns ("flutter support for your project", "Kotlin Gradle Plugin",
+  "will soon be dropped", "is not supported").
+
+The log also shows the warnings in Deviation 15.
+
+#### Deviation 15 (2026-10-31): CI's APK job shows AGP 9 migration warnings (A6)
+
+**Found** in the dispatch's Android APK log. A6, and the MADR's Confirmation for D7 and D8, say
+the APK build shows no AGP, Gradle or Kotlin warning. The log shows:
+
+* **AGP, in the Android lint step:** "The option setting 'android.builtInKotlin=false' is
+  deprecated" and the same for `android.newDsl=false`. Both come from the Flutter template's
+  lines in `apps/mobile/android/gradle.properties:11,13`.
+* **The Kotlin DSL, in the same step:** "'fun Project.android(…)' is deprecated", each followed
+  by "This class is not used … when android.newDsl=true, which is the default in AGP 9.0, and will
+  be removed in AGP 10.0". It is reported for `app/build.gradle.kts:41`, and for the build scripts
+  of seven plugins under the pub cache (`file_selector_android`, `flutter_plugin_android_lifecycle`,
+  `image_picker_android`, `mobile_scanner`, `package_info_plus`, `shared_preferences_android`,
+  `url_launcher_android`). With them come "Solution: Remove both `android.builtInKotlin=true` and
+  `android.newDsl=false` from `gradle.properties`, then migrate to built-in Kotlin." 23 lines match
+  either message.
+* **Gradle on the JDK,** in the lint step and in the build step: "A restricted method in
+  java.lang.System has been called", from Gradle 9.3.1's `native-platform`, three times.
+
+**Not caused by this plan.** P1's tag-run APK job (`124201755019`, AGP 9.0.1, before P4) shows the
+same two option warnings, 22 lines of the migration messages, and the same three restricted-method
+warnings (`leftovers/0217-p1-apk-tagjob.log`). P4 step 6's local `make apk` did not show them,
+because `flutter build apk` does not print Gradle's configure-time warnings. CI's lint step runs
+Gradle directly, and its build step shows the JDK's own warning.
+
+**Not reachable within this repository alone.** The seven plugins' warnings are in their own
+build scripts. They end only when their maintainers migrate.
+
+**Options put to the owner:** a new MADR and PLAN that moves this app's build to AGP 9's built-in
+Kotlin and new DSL (recommended); the same migration as a P6 of this plan; record it and stop.
+Each leaves this plan `in-progress`. Doing nothing leaves A6 unmet, and AGP 10 removes both flags
+and the old DSL.
+
+**Decision (owner, 2026-10-31):** "New pair for AGP 9 migration (Recommended)". A new pair moves
+this app's own build to AGP 9's defaults, with an emulator re-proof. It records what it cannot
+clear as upstream. This plan stays `in-progress`, and A6 stays open until that pair lands. No step
+of this plan changes.
+
+**Found next, before the pair was written.** Flutter 3.47.9's own tooling still needs the old
+DSL:
+
+* `flutter_tools/templates/app/android.tmpl/gradle.properties.tmpl` writes both flags as `false`.
+* `lib/src/android/migrations/disable_new_dsl_migration.dart` adds `android.newDsl=false` to a
+  project that lacks it.
+* `lib/src/android/gradle_errors.dart` (`useNewAgpDslErrorHandler`) says "we still depend on old
+  DSL types".
+
+The owner chose "Probe first, then scope (Recommended)". `leftovers/agp9_probe.py` ran three
+variants, each in a `git archive` copy of `HEAD`, never the tree. Each ran the CI lint step's two
+commands, then `flutter build apk --release --target-platform android-arm64`:
+
+| Variant | Lint | Release APK | Warnings left |
+| :--- | :--- | :--- | :--- |
+| as committed | exit 0 | built | Both flags' deprecations. "The 'org.jetbrains.kotlin.android' plugin … is no longer required" and its "Solution" for `:app` and 14 plugins |
+| `builtInKotlin=true` | exit 0 | built | The `newDsl=false` deprecation, and the old `android {}` DSL lines for `app/build.gradle.kts:41` and the seven plugins. The `builtInKotlin` deprecation and the 15 Kotlin-plugin messages are gone |
+| both `true` | exit 1 | not built | "Failed to apply plugin 'dev.flutter.flutter-gradle-plugin'", "`ApplicationExtensionImpl` … cannot be cast to … `AbstractAppExtension`", then Flutter's box "Starting AGP 9+, only the new DSL interface will be read … update flutter or opt out of `android.newDsl`" |
+
+The `builtInKotlin=true` variant needed no other file change, and Flutter left the flag as set.
+The committed variant's local lint showed no old-DSL lines only because Gradle's script cache
+already held those scripts. The `builtInKotlin=true` variant recompiled them and shows the same
+eight as CI. Logs: `leftovers/agp9-{baseline,kotlin,both}-{pubget,config,lint,build}.log`. Each
+copy was removed after its run.
+
+**Scope of the new pair, therefore:** `android.builtInKotlin=true`, with an emulator re-proof.
+`android.newDsl` stays `false`, and the old-DSL warnings stay, until a Flutter release whose Gradle
+plugin reads the new DSL. The seven plugins' own lines wait on their maintainers as well.
+
+**Records changed.** The MADR's Confirmation line for D7 and D8 (amended). Here: this entry.
+
+### Acceptance, 2026-10-31
+
+Each phase's verification is met, as recorded under it, and CI on every push of this plan's
+commits here is recorded above. Still open:
+
+* **A6** (Deviation 15), until the new pair lands;
+* what P5 left with the owner: magic-git's staged files, and the Linux test host's dotfiles. Their
+  commits are not recorded here.
+
+This plan stays `in-progress`.

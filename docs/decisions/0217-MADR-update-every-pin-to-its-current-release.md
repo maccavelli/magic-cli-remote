@@ -641,6 +641,17 @@ Chosen option: **"B — Tiered by risk"**, because:
 * **D7, D8:** `flutter pub outdated` shows no direct dependency behind. `flutter build apk` shows
   no AGP, Gradle or Kotlin warning. On the emulator, a pairing made with the previous APK survives
   the upgrade, with the same client key and pinned fingerprint.
+
+  *Amended 2026-10-31 (PLAN Deviation 15).* CI's APK job, on the dispatch after P4 (run
+  41210038095), shows AGP 9's deprecation of `android.builtInKotlin=false` and
+  `android.newDsl=false`. It shows the old `android {}` DSL warning for this app and for seven
+  plugins, and Gradle's JDK restricted-method warning. P1's tag run, before D8, shows the same
+  warnings. The local `flutter build apk` did not print them, so the line above was not true of
+  CI. On the owner's decision, a new MADR and PLAN move this app's build to built-in Kotlin.
+  A probe in scratch copies showed Flutter 3.47.9's Gradle plugin fails to apply under
+  `android.newDsl=true`, so the new DSL, and the old-DSL warnings, wait on Flutter. The plugins'
+  own warnings wait on their maintainers. D7 and D8 are unchanged; this check stays open until
+  that pair lands.
 * ~~After all four phases, magic-git's `version_audit.py` is run again, and every flag it still
   raises is one D9, D10 or D11 names.~~
 * **D13:** the held-line logic is seen failing first, on scratch copies of the standard, never in
