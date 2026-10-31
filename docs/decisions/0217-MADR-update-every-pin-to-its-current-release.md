@@ -48,7 +48,7 @@ the host standard and the host installs are in scope only where an advisory is a
 | `github.com/caddyserver/certmagic` | v0.25.4 | v0.25.6 |
 | `golang.org/x/mod` | v0.41.0 | v0.42.0 |
 | `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | ~~v1.23.0~~ **v1.23.1** (F3, F3a) |
-| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ **v1.27.0** (F3b) |
+| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ **v1.28.0** (F3c) |
 
 * `go list -m -u all` lists 33 indirect modules with a newer version. They include the AWS SDK used
   by `libdns/route53` (`aws-sdk-go-v2` v1.39.1 → v1.47.5, `service/route53` v1.58.3 → v1.70.6),
@@ -113,6 +113,24 @@ F3's behaviour changes all come from v1.23.0, and v1.23.1 carries them unchanged
   The `go` lines are unchanged.
 * 0216's design reads `acp-go-sdk2 v1.26.0`'s `agentproc` and `acptest`. Those are unchanged in
   v1.27.0, so 0216 is unaffected.
+
+**F3c. `acp-go-sdk2` v1.28.0 is current, and changes nothing Magic sees.** *Observed 2026-10-30,
+after P5 (`leftovers/release_diff.py`, and `docs/reports/0042-REPORT-release-notes-v1-28-0.md` at
+the tag in that repository).*
+
+* Tagged 2026-10-30T23:34Z. Its annotated tag `d376db9a…` peels to commit
+  `b390bdf7d3046a7d28899190b7a15dbbbf18e8ff`, 11 commits past v1.27.0, with nothing behind.
+* `make api` against v1.27.0: "0 incompatible, 3 compatible": `acp.ErrHandlersRunning`,
+  `(*agentproc.Process).CloseContext` and `KillContext`. Nothing on the wire changes. `go.mod`,
+  `go.sum`, the schema, `acptest/`, `clienthost/` and `remote/` are unchanged.
+* Two behaviours change. `Process.Wait`'s error no longer repeats its cause for an **in-process**
+  agent whose error already wraps `ErrKilled` or `ErrTerminated`; "a child's error … unchanged".
+  And `ServeAgent`'s error gains `ErrHandlersRunning` when its 5 s bounds pass.
+* Magic runs every agent as a child (`agentproc.Command`, `internal/provider/acpagent/acpagent.go:531`),
+  tests the sentinels with `errors.Is` (`:644`), and calls no `ServeAgent` and no `InProcess`. Its
+  one text check, `agentproc_test.go:247`, is of a child's error. So neither change reaches Magic.
+* `CloseContext` and `KillContext`, a close bounded against a client handler that ignores its
+  context, are available and not adopted here (0207 D53's rule).
 
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
@@ -419,7 +437,8 @@ Chosen option: **"B — Tiered by risk"**, because:
   * `go get -u ./...`, then `go mod tidy`. That moves `certmagic`, `x/mod` and every indirect
     module in the build. ~~`acp-go-sdk2` is already current.~~ *Amended 2026-10-30, at PLAN P3
     step 1 (Deviation 7), by the owner: "Take v1.27.0".* It also moves `acp-go-sdk2` to v1.27.0
-    (F3b).
+    (F3b). *Amended again 2026-10-30 (PLAN Deviation 14), by the owner: "acp-go-sdk2 just got a new
+    tagged release. we need to update the pin."* Then to v1.28.0 (F3c).
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*

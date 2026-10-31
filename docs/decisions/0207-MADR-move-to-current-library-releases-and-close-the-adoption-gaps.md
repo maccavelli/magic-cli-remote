@@ -2264,3 +2264,39 @@ P3, with its Deviations 6 and 7. I-4 predicted this bump.
   `launchd/lifecycle.go`, `systemd/lifecycle.go` and `managed.go`.
 * `leftovers/check_libs_staged.py`: go-shared's `check_libs.py` on a scratch clone of `HEAD` with
   the phase's files committed there.
+
+## Amendment — 2026-10-30 (K): `acp-go-sdk2 v1.28.0`
+
+*Decided by the owner, 2026-10-30,* under
+[0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md)'s
+D4: "acp-go-sdk2 just got a new tagged release. we need to update the pin." It is carried out by
+[0217-PLAN-update-every-pin-to-its-current-release.md](0217-PLAN-update-every-pin-to-its-current-release.md)'s
+P3b (Deviation 14).
+
+### Facts [observed 2026-10-30: `git ls-remote`, the GitHub compare and contents APIs, and this repository at `a7ca1f0d`]
+
+* **K-1.** `v1.28.0`, annotated tag `d376db9a…`, peels to
+  `b390bdf7d3046a7d28899190b7a15dbbbf18e8ff`, 11 commits past `v1.27.0`. Its notes are
+  `docs/reports/0042-REPORT-release-notes-v1-28-0.md` at the tag.
+* **K-2.** `make api` against `v1.27.0`: "0 incompatible, 3 compatible": `acp.ErrHandlersRunning`,
+  `(*agentproc.Process).CloseContext` and `KillContext`. Nothing on the wire changes, and neither
+  `go.mod` nor `go.sum` does.
+* **K-3.** `Process.Wait`'s error stops repeating its cause for an in-process agent, and
+  `ServeAgent`'s error gains `ErrHandlersRunning`. Magic runs its agents as children
+  (`internal/provider/acpagent/acpagent.go:531`), tests the sentinels with `errors.Is` (`:644`),
+  and calls neither `ServeAgent` nor `InProcess`, so neither change reaches it (0217 F3c).
+* **K-4.** `CloseContext` and `KillContext` bound a close that a hung client handler would hold.
+  Magic stops an agent with `Kill` (`internal/provider/acpagent/session.go:1267`, in a goroutine,
+  and `acpagent.go:546`) and waits for it with `Wait` (`acpagent.go:634`); it calls no `Close`.
+
+### The decisions this amendment makes
+
+* **D54 — Pin `acp-go-sdk2 v1.28.0`.** `go.mod` and `go.sum` only. D45's exception stands.
+* **D55 — K-4's API is not adopted here.** A bounded close changes how Magic ends a session, so it
+  takes its own record when wanted, as D28, D47, D50 and D53 rule.
+
+### Confirmation of the amendment
+
+* `go list -m github.com/maccavelli/acp-go-sdk2` gives `v1.28.0`; `make staticcheck` reports 56
+  ignored findings; `make race` and both test hosts pass; `make check-libs` exits 0 on the
+  committed `HEAD`.

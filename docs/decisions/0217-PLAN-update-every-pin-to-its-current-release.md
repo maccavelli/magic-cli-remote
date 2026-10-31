@@ -1573,3 +1573,53 @@ The daemon runs on Node 26.13.0.
 
 **Files staged for the P5 commit here:** this PLAN, the 0217 MADR, and the 0169 PLAN and MADR. The
 0219 pair stays untracked.
+
+### P3b — `acp-go-sdk2` v1.28.0
+
+#### Deviation 14 (2026-10-30): `acp-go-sdk2` v1.28.0 is tagged after P5
+
+**Found** by the owner: "acp-go-sdk2 just got a new tagged release. we need to update the pin." At
+`a7ca1f0d`, `go.mod:11` requires v1.27.0. The tag and what it changes are the MADR's F3c: three
+compatible additions, nothing on the wire, and no change Magic sees.
+
+**Decision (owner, 2026-10-30): update the pin.** D4 already takes every direct module to its
+newest. A step P3b, P3's steps for this one module:
+
+1. P0: the tree clean but for 0219's record edits, which are not staged; `v1.28.0^{}` re-peeled to
+   `b390bdf7…`, and the newest tag.
+2. `go get github.com/maccavelli/acp-go-sdk2@v1.28.0`, `go mod tidy`. `go.mod` changes only that
+   line, `go 1.27.3` stays, and `go list -m -u` shows no direct module behind.
+3. The gates of P3 step 4 that a Go module bump touches: `make pre-add-check`, `go vet` on three
+   GOOS, `make staticcheck` (56 ignored findings), `make vulncheck`, `make race`, and check-libs on
+   the step's content (`leftovers/check_libs_staged.py`); then `make check-libs` on the owner's
+   commit. The live supervisors are not run: `go-selfupdate-lib` does not move.
+4. P3 step 5's host runs (C2): `go test -race ./...` on the Linux test host and `make ci-windows`
+   on the Windows test host.
+5. 0207 gains amendment K. Stage `go.mod`, `go.sum`, this PLAN, the 0217 MADR and the 0207 MADR.
+
+**Scope.** No file is added.
+
+**P3b, executed.**
+
+* **Step 1.** `git status`: only the 0219 pair's record edits (its acceptance), unstaged.
+  `git ls-remote`: `v1.28.0` is the newest tag, `v1.28.0^{}` `b390bdf7…`. `go.mod` and `go.sum`
+  copied to `p3-base/` first.
+* **Step 2** (`leftovers/0217-p3b-goget.log`): "go: upgraded github.com/maccavelli/acp-go-sdk2
+  v1.27.0 => v1.28.0". After `go mod tidy`, `go.mod` changes only line 11, and `go.sum` only the
+  module's two lines. `go 1.27.3` is unchanged, and `go list -m -u` shows no direct module behind.
+* **Step 3, this Mac** (logs `leftovers/0217-p3b-*.log`):
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check` | exit 0, "992 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...` (`vet_goos.py`) | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" for each GOOS |
+  | `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; 45 `ok`, no FAIL, panic or data race |
+  | check-libs on the step's content (`check_libs_staged.py go.mod go.sum`) | exit 0, "0 failing checks; scratch removed"; `acp-go-sdk2` "pinned at v1.28.0; nothing to compare", every check ok |
+
+* **Step 4** (`PINS_PHASE=p3b`; `HEAD` `a7ca1f0d` plus `go.mod` and `go.sum`): the Linux test host,
+  `go1.27.3`, `go test -race -count=1 ./...` exit 0, 45 `ok` lines; the Windows test host,
+  `go1.27.3`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 45 `ok`
+  lines; both scratch trees removed and checked gone.
+* **Step 5.** 0207's amendment K (D54, D55). `make check-libs` runs again on the owner's commit.
