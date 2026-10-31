@@ -432,6 +432,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0219 | MADR | Clean device names and copy pair URIs with go-tui-lib | [0219-MADR-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md](decisions/0219-MADR-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md) |
 | 0219 | PLAN | Implement cleaning device names and copying pair URIs with go-tui-lib | [0219-PLAN-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md](decisions/0219-PLAN-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md) |
 | 0220 | REPORT | OpenCode v2.2.3 parity assessment for the magic-cli-remote OpenCode provider | [0220-REPORT-opencode-v2-parity-assessment.md](../docs/reports/0220-REPORT-opencode-v2-parity-assessment.md) |
+| 0223 | MADR | Raise the Codex transport and mcrelay reader limits to 10 MiB, matching acp-go-sdk2 | [0223-MADR-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md](decisions/0223-MADR-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md) |
+| 0223 | PLAN | Implement raising the Codex transport and mcrelay reader limits to 10 MiB | [0223-PLAN-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md](decisions/0223-PLAN-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
