@@ -700,7 +700,7 @@ works without a subcommand.
 
 | Subcommand | Flags |
 |------------|--------|
-| `pair` / `pair code` | `--name`, `--qr`, `--host`, `--ttl` (default `5m`), `--data-dir` |
+| `pair` / `pair code` | `--name`, `--qr`, `--host`, `--ttl` (default `5m`), `--copy` (the pair URI to the clipboard through the terminal, OSC 52, or `tmux load-buffer -w` inside tmux; unconfirmed; needs a terminal), `--data-dir` |
 | `pair create` | `--name`, `--qr`, `--host`, `--data-dir` |
 | `pair list` / `pair revoke <id\|name>` | `--data-dir` |
 | `pair prune` | `--keyless`, `--stale <duration>`, `--data-dir` (at least one of keyless/stale) |

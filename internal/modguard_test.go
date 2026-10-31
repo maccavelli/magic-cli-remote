@@ -1,13 +1,21 @@
 package internal
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The ACP SDK is a direct requirement of a released tag (MADR 0184 D1):
@@ -198,6 +206,147 @@ func TestGoModProblemsRejectsWhatItMust(t *testing.T) {
 		got := goModProblems(tc.gomod)
 		if tc.bad && len(got) == 0 {
 			t.Errorf("%s: accepted, but the guard must reject it:\n%s", tc.name, tc.gomod)
+		}
+		if !tc.bad && len(got) != 0 {
+			t.Errorf("%s: rejected, but it is acceptable: %v", tc.name, got)
+		}
+	}
+}
+
+// go-tui-lib is required for three packages that suit any CLI, imported only
+// where check_libs.json names it, and links nothing from Charm but x/ansi
+// (MADR 0219 D1, D6; issue #30). The rules read `go list -deps -test`, so an
+// import of a full-screen package, or an allowed package that one day links
+// Bubble Tea, fails here rather than passing every gate.
+const (
+	thisModule = "github.com/maccavelli/magic-cli-remote"
+	tuiModule  = "github.com/maccavelli/go-tui-lib/v2"
+	// tuiV1 is the library's v1 module path, which only a v1 user keeps.
+	tuiV1 = "github.com/maccavelli/go-tui-lib"
+)
+
+var (
+	tuiAllowed   = []string{tuiModule + "/safetext", tuiModule + "/termcap", tuiModule + "/termsvc"}
+	tuiImporters = []string{thisModule + "/internal/auth", thisModule + "/internal/cli"}
+	charmAllowed = []string{"github.com/charmbracelet/x/ansi", "github.com/charmbracelet/x/ansi/parser"}
+)
+
+// goPackage is the part of a `go list -json` package the rules read.
+type goPackage struct {
+	ImportPath string
+	Imports    []string
+	Deps       []string
+}
+
+// basePath strips go list's test decorations: "p [p.test]" is p built for
+// its tests, "p_test" is p's external tests, and "p.test" is their main.
+func basePath(path string) string {
+	if i := strings.IndexByte(path, ' '); i >= 0 {
+		path = path[:i]
+	}
+	return strings.TrimSuffix(strings.TrimSuffix(path, ".test"), "_test")
+}
+
+func within(path, root string) bool { return path == root || strings.HasPrefix(path, root+"/") }
+
+func isCharm(path string) bool {
+	return within(path, "charm.land") || within(path, "github.com/charmbracelet")
+}
+
+// tuiProblems returns every package of this module that breaks D6, naming
+// the package and what it imports or links.
+func tuiProblems(pkgs []goPackage) []string {
+	var problems []string
+	for _, p := range pkgs {
+		from := basePath(p.ImportPath)
+		if !within(from, thisModule) {
+			continue
+		}
+		for _, imp := range p.Imports {
+			imp = basePath(imp)
+			switch {
+			case within(imp, tuiModule) && !slices.Contains(tuiAllowed, imp):
+				problems = append(problems, from+" imports "+imp+": only safetext, termcap and termsvc are allowed")
+			case within(imp, tuiModule) && !slices.ContainsFunc(tuiImporters, func(r string) bool { return within(from, r) }):
+				problems = append(problems, from+" imports "+imp+": only internal/auth and internal/cli may import go-tui-lib")
+			case within(imp, tuiV1) && !within(imp, tuiModule):
+				problems = append(problems, from+" imports "+imp+": the v1 module path; require "+tuiModule)
+			}
+		}
+		for _, dep := range p.Deps {
+			if dep = basePath(dep); isCharm(dep) && !slices.Contains(charmAllowed, dep) {
+				problems = append(problems, from+" links "+dep+": nothing from Charm but x/ansi and x/ansi/parser")
+			}
+		}
+	}
+	slices.Sort(problems)
+	return slices.Compact(problems)
+}
+
+// listPackages runs `go list -deps -test -json ./...` from the module root.
+func listPackages(t *testing.T) []goPackage {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-test", "-json", "./...")
+	cmd.Dir = ".."
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v\n%s", err, stderr.String())
+	}
+	var pkgs []goPackage
+	for dec := json.NewDecoder(bytes.NewReader(out)); ; {
+		var p goPackage
+		if err := dec.Decode(&p); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatalf("decode go list: %v", err)
+		}
+		pkgs = append(pkgs, p)
+	}
+	if len(pkgs) == 0 {
+		t.Fatal("go list returned no packages")
+	}
+	return pkgs
+}
+
+// TestGoTUILibStaysBounded guards the real module.
+func TestGoTUILibStaysBounded(t *testing.T) {
+	for _, p := range tuiProblems(listPackages(t)) {
+		t.Error(p)
+	}
+}
+
+// TestTUIProblemsRejectsWhatItMust shows each D6 rule can fail.
+func TestTUIProblemsRejectsWhatItMust(t *testing.T) {
+	const (
+		auth    = thisModule + "/internal/auth"
+		cli     = thisModule + "/internal/cli"
+		session = thisModule + "/internal/session"
+	)
+	cases := []struct {
+		name string
+		pkg  goPackage
+		bad  bool
+	}{
+		{"safetext from internal/auth", goPackage{ImportPath: auth, Imports: []string{tuiModule + "/safetext"}}, false},
+		{"termsvc from internal/cli's tests", goPackage{ImportPath: cli + " [" + cli + ".test]", Imports: []string{tuiModule + "/termsvc"}}, false},
+		{"termcap from an external test", goPackage{ImportPath: cli + "_test [" + cli + ".test]", Imports: []string{tuiModule + "/termcap"}}, false},
+		{"x/ansi and its parser linked", goPackage{ImportPath: cli, Deps: charmAllowed}, false},
+		{"a package of another module", goPackage{ImportPath: "example.com/x", Imports: []string{tuiModule + "/palette"}}, false},
+		{"ask outside the importers", goPackage{ImportPath: session, Imports: []string{tuiModule + "/ask"}}, true},
+		{"palette inside the importers", goPackage{ImportPath: cli, Imports: []string{tuiModule + "/palette"}}, true},
+		{"safetext outside the importers", goPackage{ImportPath: session, Imports: []string{tuiModule + "/safetext"}}, true},
+		{"the v1 module path", goPackage{ImportPath: cli, Imports: []string{tuiV1 + "/safetext"}}, true},
+		{"Bubble Tea linked", goPackage{ImportPath: cli, Deps: []string{"charm.land/bubbletea/v2"}}, true},
+		{"Lip Gloss linked by a test", goPackage{ImportPath: auth + " [" + auth + ".test]", Deps: []string{"github.com/charmbracelet/lipgloss"}}, true},
+	}
+	for _, tc := range cases {
+		got := tuiProblems([]goPackage{tc.pkg})
+		if tc.bad && len(got) == 0 {
+			t.Errorf("%s: accepted, but the guard must reject it: %+v", tc.name, tc.pkg)
 		}
 		if !tc.bad && len(got) != 0 {
 			t.Errorf("%s: rejected, but it is acceptable: %v", tc.name, got)

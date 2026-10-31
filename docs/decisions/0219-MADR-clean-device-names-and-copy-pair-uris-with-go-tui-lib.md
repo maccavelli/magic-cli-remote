@@ -1,8 +1,8 @@
 ---
-status: proposed
-date: 2026-10-30
+status: accepted
+date: 2026-10-31
 decision-makers: Project Owner
-consulted: "go-tui-lib v2.6.2 (README.md; go doc of safetext, termcap and termsvc, from the module cache); gobble-cli's go.mod; this repository at cd2245ea: internal/auth/store.go, internal/ws/server.go, internal/cli/pair.go, internal/picker, internal/command, check_libs.json; apps/mobile/lib/features/connect/connect_screen.dart; scratch probes leftovers/tuilib_probe.py and leftovers/tuilib_clean_probe.py"
+consulted: "go-tui-lib v2.7.0 (the v2.6.2...v2.7.0 compare; docs/guides/migrating.md at v2.7.0); go-tui-lib v2.6.2 (README.md; go doc of safetext, termcap and termsvc, from the module cache); gobble-cli's go.mod; this repository at cd2245ea: internal/auth/store.go, internal/ws/server.go, internal/cli/pair.go, internal/picker, internal/command, check_libs.json; apps/mobile/lib/features/connect/connect_screen.dart; scratch probes leftovers/tuilib_probe.py and leftovers/tuilib_clean_probe.py"
 informed: anyone who prints text Magic did not write to the operator's terminal
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -19,9 +19,24 @@ a copy of the pair URI to the clipboard.
 
 ### What go-tui-lib is [observed 2026-10-30, `git ls-remote`, its README at `v2.6.2`, and `go doc` from the module cache]
 
-**F1. `v2.6.2` is current.** It was tagged 2026-10-29 at `696f4af`, under the module path
+**F1. `v2.6.2` is current** (*on 2026-10-30; see the amendment below*). It was tagged 2026-10-29 at `696f4af`, under the module path
 `github.com/maccavelli/go-tui-lib/v2`. The repository has no published security advisory (the
 GitHub API answers an empty list). gobble-cli already requires it (`go.mod:19`).
+
+*Amended 2026-10-31 (PLAN deviation 1).* The owner wrote on 2026-10-30, "hold up. i am about to
+tag a new go-tui-lib release. we need to wait so we can update the pin.", and on 2026-10-31,
+"go-tui-lib v2.7.0 tagged, proceed". **`v2.7.0` is now current.** It was tagged on 2026-10-31 at
+`b8a2021e`, 11 commits after `v2.6.2`. No release object was published, and the advisories API
+still answers an empty list. Its `docs/guides/migrating.md` calls it a minor release. It adds four
+names to `termcap`, deprecates `WithDisabled`, and removes or retypes nothing, and `make apicheck`
+against `v2.6.2` reports 0 incompatible changes. For the three packages D1 names:
+
+* `termsvc` is unchanged;
+* `safetext.Clean` returns printable ASCII as it is, without parsing it, so its output is the same;
+* `termcap` reads a probe's environment by the system the probe is given. For
+  `EnvCaps(…, runtime.GOOS)` that is what it read before.
+
+go-tui-lib's own `go.mod` is unchanged.
 
 **F2. Most of the library is for interactive programs.** It is a TUI layer that stacks on a
 program's own CLI. `workspace`, `layout`, `palette`, `launch` and `keymap` are for a full-screen TUI.
@@ -72,6 +87,10 @@ the daemon sends. The phone draws it (`picker.go:1-4`, `command.go:1-13`).
 | `"c1\u009b31mtext"` (C1 introducer) | `"c131mtext"` | `"c1text"` |
 | `"plain name"` | unchanged | unchanged |
 
+*Re-run 2026-10-31 at `v2.7.0`*, in a scratch copy of `814a8bd9`, whose `internal/auth`,
+`internal/cli` and `internal/ws` are byte for byte `cd2245ea`'s. Every row is as above, and so is
+the probe's line separator row, which both turn into one space.
+
 `unicode.IsControl` is only Cc. So the bidi overrides and isolates (Cf) pass, and can make a name
 in `pair list` read as another, or reorder the columns after it. An escape sequence loses its ESC
 but leaves its parameters as visible residue. `safetext` keeps the zero-width joiner, which emoji
@@ -101,6 +120,11 @@ with one probe package using `safetext.Clean`, `termcap.EnvCaps` and `termsvc.Co
   `termsvc`, `glyph`, `internal/enum` and `internal/sanitize`. Nothing from Bubble Tea, Lip
   Gloss or Bubbles.
 * `go build ./...` and `go vet` exit 0. `govulncheck` over the probe: "No vulnerabilities found."
+* *Re-run 2026-10-31 at `v2.7.0`, on a scratch copy of `814a8bd9`
+  (`leftovers/tuilib_probe-v2.7.0.log`):* the library at `v2.7.0` and the same five indirect
+  modules at the same versions; no other `go.mod` line changes. The same twelve packages are
+  linked. `go build ./...` and `go vet`
+  exit 0, and `govulncheck` finds no vulnerabilities.
 
 **F9. `make check-libs` checks the owner's libraries that `check_libs.json` names:**
 `acp-go-sdk2` and `go-selfupdate-lib`. A new library of the owner's would not be checked unless it
@@ -146,20 +170,44 @@ proposed; each point re-read on 2026-10-30, at `896834a5`).
 
 ## Decision Outcome
 
-Chosen option (proposed): "A", because it closes F6's gap where names are stored and where they
+Chosen option: "A", because it closes F6's gap where names are stored and where they
 are printed, with the implementation the owner's other programs use, for F8's small cost, and
 F7's copy is opt-in on the URI that carries no long-lived token.
 
-### The decisions (proposed)
+### The decisions (accepted 2026-10-30)
 
-* **D1 — Require `go-tui-lib/v2 v2.6.2`, for `safetext`, `termcap` and `termsvc` only.** Magic
+* **D1 — Require `go-tui-lib/v2` ~~`v2.6.2`~~ `v2.7.0` (*amended 2026-10-31, F1*), for
+  `safetext`, `termcap` and `termsvc` only.** Magic
   imports no other package of it. `check_libs.json` names it, with the packages that import it, so
   `make check-libs` checks each new tag (F9). D6 holds the limit.
+  * *Amended 2026-10-31 (PLAN deviation 5).* go-shared's `check_libs.py`, which
+    `make check-libs` runs, cannot name a major-version module yet. Its config accepts only
+    `github.com/<owner>/<repo>` (`scripts/check_libs.py:134`, at go-shared `d62e2a23`). The entry
+    `github.com/maccavelli/go-tui-lib/v2` stops the whole run with exit 2, for every library.
+    gobble-cli's own `check_libs.py` names the library with `path=` and `major=2` (`:88`). The
+    owner chose "Fix go-shared, hold the entry (Recommended)". A go-shared record adds `/vN`
+    support, and `check_libs.json` names go-tui-lib in a follow-up change once it is in. Until
+    then, `make check-libs` does not check go-tui-lib's new tags. D6 holds the import limit in
+    the meantime. Declined: fixing go-shared before any of this lands, and dropping the check.
 * **D2 — Clean a name where it is stored.** `sanitizeDeviceName` takes its character pass from
   `safetext.Clean(name, safetext.Line())`, in place of its `unicode.IsControl` loop. Its other
   duties stay as they are: collapsing white space, the 64-byte cut on a rune boundary, the UUID
   deflection and the "device" fallback. A new name is then clean wherever it goes, the phone and
   `pair revoke <name>` included.
+  * *Amended 2026-10-31 (PLAN deviations 3 and 4), on the owner's answers.* Two consequences
+    that D2 carries were not stated:
+    * An escape sequence is removed whole. `TestCreateSanitizesDeviceName`
+      (`internal/auth/store_test.go:355-360`) asserted the residue that F6 names. It now asserts
+      D2's result, `"evil name"` for `"  ev\x1b[31mil\x00  name\n  "`. "Update to D2's result
+      (Recommended)". A printable `"device [work]"` is unchanged under both rules.
+    * Invalid UTF-8 becomes U+FFFD, as F3 says `safetext` does, where the old pass dropped it
+      and also dropped a literal U+FFFD (`store.go:43`). "U+FFFD, as safetext does
+      (Recommended)". A phone's name reaches the store through `encoding/json`
+      (`internal/ws/server.go:2251`), which already turns invalid UTF-8 into U+FFFD, so the
+      change is felt through `--name`, a legacy record, and one edge: `server.go:1321-1322`
+      cuts a name at `maxNameLen` (256) bytes, which can split a rune. The 64-byte cut
+      removes the resulting U+FFFD unless `safetext` first shrinks the name below 64 bytes.
+      Declined: dropping invalid bytes as before, and dropping them and every U+FFFD.
 * **D3 — Clean a name where it is printed.** Each of F5's five prints passes the name through one
   helper in `internal/cli` that calls `safetext.Clean(…, safetext.Line())`. That covers names
   stored before D2, and any later path that prints a name. A clean name passes through unchanged
@@ -172,6 +220,24 @@ F7's copy is opt-in on the URI that carries no long-lived token.
     a file would be noise there, and would put the code in a log.
   * `pair create` gets no `--copy`, because its URI carries the device's long-lived token (Q1).
   * The copy is never written without the flag.
+  * *Amended 2026-10-31 (PLAN deviation 6), on the owner's answer "Add the tmux-buffer route
+    (Recommended)".*
+    * **Inside tmux** (`termcap`'s `Mux` is tmux, set from a non-empty `TMUX`), Magic first
+      runs `termsvc.TmuxLoadBuffer()`, which is `tmux load-buffer -w -`, with the URI on
+      standard input and a timeout. tmux keeps the URI in its buffer, and itself sends it on to
+      the outer terminal's clipboard. That is `termsvc.CopyPlan`'s `RouteTmuxBuffer`. The line
+      printed after it says the terminal does not confirm the copy.
+    * **If that command fails**, Magic warns, names tmux's error, and writes the OSC 52
+      sequence as before.
+    * **Outside tmux**, nothing changes.
+    * **Why.** A tmux with no config file (tmux 3.7c: `set-clipboard external`,
+      `allow-passthrough off`) ignores a program's OSC 52, and drops the passthrough copy. Both
+      sequences `CopySequence` writes inside tmux were lost when the owner tried them. The
+      owner's probe in that tmux, `printf probe-0219 | tmux load-buffer -w -` then `pbpaste`,
+      printed `probe-0219`.
+    * **Cost.** Magic now starts one process, `tmux`, only with `--copy` and only inside tmux.
+      The URI goes on its standard input, never in its arguments, so no process listing shows
+      the code.
 * **D5 — What is not adopted.**
   * `termsvc.Link`, because an OSC 8 link of the pair URI opens on the desktop, not on the phone.
   * `glyph`, for `doctor`'s lines, which is style and no fix.
@@ -208,7 +274,10 @@ F7's copy is opt-in on the URI that carries no long-lived token.
 * Neutral, because `go.mod` gains one direct and five indirect requirements, and `make check-libs`
   one more library (F8, F9).
 * Bad, because OSC 52 is unconfirmed: a terminal that refuses it, or a tmux without
-  `set-clipboard`, drops the copy silently. The line D4 prints says so.
+  `set-clipboard`, drops the copy silently. The line D4 prints says so. *(Amended 2026-10-31,
+  D4: inside tmux, Magic goes through tmux's buffer first, which works under tmux's defaults.
+  The outer terminal still does not confirm the copy.)*
+* Neutral, because inside tmux `--copy` starts one `tmux` process (D4's amendment).
 * Bad, because a pair code's URI in a desktop clipboard can be read by anything with clipboard
   access, and may sync to other devices, for the code's lifetime. The code is one-time and
   expires, and the flag is opt-in.
@@ -231,13 +300,14 @@ F7's copy is opt-in on the URI that carries no long-lived token.
 * D6's test passes in the tree, and was seen failing first on a scratch copy for each of: a
   planted `ask` import outside `internal/auth` and `internal/cli`, a planted `palette` import inside
   them, a planted Bubble Tea import, and a planted v1-path import.
-* `make check-libs` checks `go-tui-lib/v2`, and passes.
+* `make check-libs` checks `go-tui-lib/v2`, and passes. *(Amended 2026-10-31: after the go-shared
+  change of D1's amendment, and the follow-up that names the library.)*
 * The gates of the phase: `make pre-add-check`, vet on three GOOS, `make staticcheck`,
   `make vulncheck`, `make race`, `make preflight`, and the Linux and Windows test hosts.
 
 ## Pros and Cons of the Options
 
-### A — `safetext` at the store and at every print, and `pair code --copy` (proposed)
+### A — `safetext` at the store and at every print, and `pair code --copy` (chosen)
 
 * Good, because it closes F6 for new names everywhere and for old ones in the CLI.
 * Good, because the escape-sequence and bidi rules are maintained once, in the library.
@@ -284,7 +354,8 @@ F7's copy is opt-in on the URI that carries no long-lived token.
   and a `doctor` report of such names.
 * **Q4** (the PLAN's host runs). "Yes, both hosts (Recommended)".
 
-The decisions stay proposed until the owner accepts this record.
+~~The decisions stay proposed until the owner accepts this record.~~ *Accepted by the owner,
+2026-10-30: "proceed, approved and accepted", with D6.*
 
 ### Evidence index
 
@@ -294,6 +365,9 @@ The decisions stay proposed until the owner accepts this record.
   advisories API.
 * `leftovers/tuilib_probe.py` and `tuilib_probe.log`: F8.
 * `leftovers/tuilib_clean_probe.py`: F6, run in the same scratch copy.
+* The F1 amendment: `git ls-remote --tags` on 2026-10-31; the GitHub compare `v2.6.2...v2.7.0`,
+  with the patches of `safetext/clean.go`, `internal/sanitize/sanitize.go`, `termcap/env.go`,
+  `envcaps.go` and `options.go`, and `docs/guides/migrating.md`; `leftovers/tuilib_patches.py`.
 * This repository at `cd2245ea`: `internal/auth/store.go:24-67`, `:482-499`;
   `internal/ws/server.go:1304-1325`; `internal/cli/pair.go:60-162`, `:220-310`, `:340-370`;
   `internal/picker/picker.go:1-12`; `internal/command/command.go:1-25`; `check_libs.json`;

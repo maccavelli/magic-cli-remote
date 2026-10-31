@@ -77,6 +77,7 @@ const pairExample = `
   mcremote pair code --name phone --host devbox.ts.lallygag.net:7531 --qr   # letsencrypt
   mcremote pair code --name phone --host 100.64.0.1:7531 --qr               # selfsigned only
   mcremote pair code --name phone --ttl 5m --qr
+  mcremote pair code --name phone --copy     # URI to the clipboard via the terminal (OSC 52)
   mcremote pair          # same as pair code (default subcommand)
 
   # Long-lived device token (shown once)
@@ -103,6 +104,7 @@ const pairCodeExample = `
   mcremote pair code --name phone --ttl 5m
   mcremote pair code --name phone --ttl 10m --qr
   mcremote pair code --name android --host devbox.ts.lallygag.net:7531
+  mcremote pair code --name android --copy   # paste the URI into the app; over SSH and in tmux too
   mcremote pair code --name phone --data-dir ~/.local/share/mcremote
 `
 

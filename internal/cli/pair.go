@@ -1,22 +1,27 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/maccavelli/go-tui-lib/v2/termcap"
+	"github.com/maccavelli/go-tui-lib/v2/termsvc"
 	"github.com/maccavelli/magic-cli-remote/internal/admin"
 	"github.com/maccavelli/magic-cli-remote/internal/auth"
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/daemon"
 	"github.com/maccavelli/magic-cli-remote/internal/pairuri"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/tailnet"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/spf13/cobra"
@@ -58,6 +63,7 @@ func newPairCmd() *cobra.Command {
 		showQR   bool
 		pairHost string
 		ttlStr   string
+		copyURI  bool
 	)
 
 	createFn := func(cmd *cobra.Command, args []string) error {
@@ -77,7 +83,7 @@ func newPairCmd() *cobra.Command {
 			return err
 		}
 		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Device: %s (id=%s)\n", dev.Name, dev.ID)
+		fmt.Fprintf(out, "Device: %s (id=%s)\n", termLine(dev.Name), dev.ID)
 		fmt.Fprintf(out, "Token:  %s\n", token)
 		fmt.Fprintf(out, "Host:   %s\n", host)
 		fmt.Fprintf(out, "WS URL: %s://%s/v1/ws\n", cfg.TLS.Scheme(), host)
@@ -99,6 +105,12 @@ func newPairCmd() *cobra.Command {
 	}
 
 	codeFn := func(cmd *cobra.Command, args []string) error {
+		// Refused before anything is minted: in a pipe or a file the sequence
+		// is noise, and would put a live code in a log (MADR 0219 D4).
+		if copyURI && !stdoutIsTerminal(cmd.OutOrStdout()) {
+			return errors.New("--copy needs stdout to be a terminal: it writes an OSC 52 sequence, " +
+				"which a pipe or a file would only record")
+		}
 		cfg, err := loadConfigFromFlags(cmd)
 		if err != nil {
 			return err
@@ -140,7 +152,7 @@ func newPairCmd() *cobra.Command {
 		}
 		out := cmd.OutOrStdout()
 		remain := max(time.Until(info.ExpiresAt).Round(time.Second), 0)
-		fmt.Fprintf(out, "Device name: %s\n", info.Name)
+		fmt.Fprintf(out, "Device name: %s\n", termLine(info.Name))
 		fmt.Fprintf(out, "Pair code:   %s\n", info.Display)
 		fmt.Fprintf(out, "Expires in:  %s (at %s)\n", remain, info.ExpiresAt.Local().Format(time.Kitchen))
 		fmt.Fprintf(out, "Host:        %s\n", host)
@@ -152,6 +164,9 @@ func newPairCmd() *cobra.Command {
 			return err
 		}
 		fmt.Fprintf(out, "Pair URI:    %s\n", uri)
+		if copyURI {
+			copyPairURI(out, cmd.ErrOrStderr(), uri)
+		}
 		printRelayLines(out, cfg)
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "On the phone: Magic CLI Remote → Enter code (or Scan QR).")
@@ -180,6 +195,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 	cmd.Flags().BoolVar(&showQR, "qr", false, "print ASCII QR; default on when stdout is a TTY")
 	cmd.Flags().StringVar(&pairHost, "host", "", "host:port the phone should dial; overrides pair.advertise_host / auto-detect")
 	cmd.Flags().StringVar(&ttlStr, "ttl", "5m", "pair code lifetime (e.g. 5m)")
+	cmd.Flags().BoolVar(&copyURI, "copy", false, copyFlagUsage)
 	cmd.Flags().String("data-dir", "", "data directory (overrides config)")
 
 	createCmd := &cobra.Command{
@@ -205,6 +221,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 	codeCmd.Flags().BoolVar(&showQR, "qr", false, "print ASCII QR (default on when stdout is a TTY)")
 	codeCmd.Flags().StringVar(&pairHost, "host", "", "host:port the phone should dial; overrides pair.advertise_host / auto-detect")
 	codeCmd.Flags().StringVar(&ttlStr, "ttl", "5m", "pair code lifetime")
+	codeCmd.Flags().BoolVar(&copyURI, "copy", false, copyFlagUsage)
 	codeCmd.Flags().String("data-dir", "", "data directory (overrides config)")
 
 	listCmd := &cobra.Command{
@@ -243,7 +260,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 					}
 				}
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					d.ID, d.Name, key, d.CreatedAt.Format("2006-01-02T15:04:05Z"), last)
+					d.ID, termLine(d.Name), key, d.CreatedAt.Format("2006-01-02T15:04:05Z"), last)
 			}
 			return w.Flush()
 		},
@@ -264,7 +281,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Revoked device %s (%s)\n", dev.Name, dev.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "Revoked device %s (%s)\n", termLine(dev.Name), dev.ID)
 			notifyDeviceKick(cmd, cfg.Paths.AdminSocket, dev.ID)
 			return nil
 		},
@@ -302,7 +319,7 @@ Running "mcremote pair" with no subcommand is the same as "mcremote pair code".`
 			}
 			ids := make([]string, 0, len(removed))
 			for _, d := range removed {
-				fmt.Fprintf(cmd.OutOrStdout(), "Pruned %s (%s)\n", d.Name, d.ID)
+				fmt.Fprintf(cmd.OutOrStdout(), "Pruned %s (%s)\n", termLine(d.Name), d.ID)
 				ids = append(ids, d.ID)
 			}
 			notifyDeviceKick(cmd, cfg.Paths.AdminSocket, ids...)
@@ -337,16 +354,76 @@ func notifyDeviceKick(cmd *cobra.Command, adminSocket string, deviceIDs ...strin
 	}
 }
 
+// copyFlagUsage is --copy's help on `pair` and `pair code`. `pair create` has
+// no --copy: its URI carries the device's long-lived token (MADR 0219 Q1).
+const copyFlagUsage = "copy the pair URI to the clipboard through the terminal (OSC 52, or tmux's " +
+	"buffer inside tmux; the terminal does not confirm it)"
+
+// stdoutIsTerminal reports whether out is a terminal. It is a variable so a
+// test can stand in for one.
+var stdoutIsTerminal = func(out io.Writer) bool {
+	f, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
+	st, err := f.Stat()
+	return err == nil && st.Mode()&os.ModeCharDevice != 0
+}
+
+// tmuxLoadTimeout bounds the run of `tmux load-buffer`.
+const tmuxLoadTimeout = 5 * time.Second
+
+// runTmuxLoadBuffer runs termsvc.TmuxLoadBuffer, `tmux load-buffer -w -`,
+// with text on its standard input, never in its arguments, so no process
+// listing shows a pair code. It is a variable so a test can stand in for tmux.
+var runTmuxLoadBuffer = func(text string) error {
+	argv := termsvc.TmuxLoadBuffer()
+	ctx, cancel := context.WithTimeout(context.Background(), tmuxLoadTimeout)
+	defer cancel()
+	cmd := procutil.Command(ctx, argv[0], argv[1:]...)
+	cmd.Stdin = strings.NewReader(text)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %w: %s", strings.Join(argv, " "), err, termLine(strings.TrimSpace(string(out))))
+	}
+	return nil
+}
+
+// copyPairURI copies uri to the clipboard by termsvc.CopyPlan's routes, then
+// says the copy is unconfirmed: the outer terminal never replies (MADR 0219
+// D4). Inside tmux, whose defaults ignore a program's OSC 52, tmux's buffer
+// comes first; if tmux fails, the OSC 52 sequence follows, which a tmux that
+// passes it still delivers. If nothing can be sent, the code stays valid and
+// only a warning is printed.
+func copyPairURI(out, errOut io.Writer, uri string) {
+	caps := termcap.EnvCaps(termcap.Env(os.Environ()), runtime.GOOS)
+	for _, route := range termsvc.CopyPlan(caps) {
+		switch route {
+		case termsvc.RouteTmuxBuffer:
+			if err := runTmuxLoadBuffer(uri); err != nil {
+				fmt.Fprintf(errOut, "warning: tmux did not take the pair URI (%v); writing OSC 52 instead\n", err)
+				continue
+			}
+			fmt.Fprintln(out, "Copied the pair URI through tmux (tmux load-buffer -w); the terminal does not confirm it.")
+			return
+		case termsvc.RouteOSC52, termsvc.RouteOSC52Tmux:
+			seq, _, err := termsvc.CopySequence(caps, uri)
+			if err != nil {
+				fmt.Fprintf(errOut, "warning: the pair URI was not copied: %v\n", err)
+				return
+			}
+			fmt.Fprint(out, seq)
+			fmt.Fprintln(out, "Copied the pair URI through the terminal (OSC 52); the terminal does not confirm it.")
+			return
+		}
+	}
+}
+
 func printPairQR(cmd *cobra.Command, out interface {
 	Write([]byte) (int, error)
 }, showQR bool, uri string) {
 	printQR := showQR
 	if !cmd.Flags().Changed("qr") {
-		if f, ok := out.(*os.File); ok {
-			if st, err := f.Stat(); err == nil {
-				printQR = (st.Mode() & os.ModeCharDevice) != 0
-			}
-		}
+		printQR = stdoutIsTerminal(out)
 	}
 	if printQR {
 		fmt.Fprintln(out)

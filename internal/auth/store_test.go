@@ -348,16 +348,16 @@ func TestCreateSanitizesDeviceName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The ESC control byte (and NUL, newline) are stripped, defanging the ANSI
-	// escape; the residual printable "[31m" is harmless without its ESC. Spaces
-	// collapse. Stripping the printable residue too would mangle real names like
-	// "device [work]", so only the control bytes are removed.
+	// The ANSI escape is removed whole, read as a terminal reads it, so no
+	// "[31m" residue is left; NUL goes, and the newline becomes a space.
+	// Spaces collapse. A printable "device [work]" is text, not a sequence,
+	// and is kept (MADR 0219 D2).
 	dev, _, err := store.Create("  ev\x1b[31mil\x00  name\n  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dev.Name != "ev[31mil name" {
-		t.Fatalf("name=%q want %q", dev.Name, "ev[31mil name")
+	if dev.Name != "evil name" {
+		t.Fatalf("name=%q want %q", dev.Name, "evil name")
 	}
 	if strings.ContainsRune(dev.Name, '\x1b') || strings.ContainsRune(dev.Name, '\x00') {
 		t.Fatalf("control bytes survived sanitization: %q", dev.Name)

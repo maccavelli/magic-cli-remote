@@ -14,10 +14,10 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/maccavelli/go-tui-lib/v2/safetext"
 	"github.com/maccavelli/magic-cli-remote/internal/fsutil"
 )
 
@@ -25,8 +25,10 @@ const deviceNameMaxLen = 64
 
 // sanitizeDeviceName makes a client- or CLI-supplied device name safe to store,
 // render in `pair list`, and disambiguate from device ids:
-//   - strips control characters (C0/C1, including the ANSI escape introducer)
-//     that would otherwise corrupt terminal output;
+//   - removes what a terminal would act on, through safetext's Line rules:
+//     escape sequences whole, control characters, bidirectional and invisible
+//     format characters; line breaks and tabs become a space, and invalid
+//     UTF-8 becomes U+FFFD (MADR 0219 D2);
 //   - collapses whitespace runs and trims;
 //   - truncates on a rune boundary (a byte cut splits a multi-byte rune);
 //   - deflects a UUID-shaped name, which would otherwise collide with a device
@@ -34,19 +36,7 @@ const deviceNameMaxLen = 64
 //
 // An empty (or fully stripped) name falls back to "device".
 func sanitizeDeviceName(name string) string {
-	var b strings.Builder
-	b.Grow(len(name))
-	for _, r := range name {
-		switch {
-		case r == '\t' || r == ' ':
-			b.WriteByte(' ')
-		case unicode.IsControl(r) || r == utf8.RuneError:
-			// drop control chars and invalid UTF-8 bytes
-		default:
-			b.WriteRune(r)
-		}
-	}
-	name = strings.Join(strings.Fields(b.String()), " ")
+	name = strings.Join(strings.Fields(safetext.Clean(name, safetext.Line())), " ")
 	if name == "" {
 		return "device"
 	}

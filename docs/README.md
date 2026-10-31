@@ -429,6 +429,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0217 | PLAN | Implement updating every pin to its current release, security fixes first | [0217-PLAN-update-every-pin-to-its-current-release.md](decisions/0217-PLAN-update-every-pin-to-its-current-release.md) |
 | 0218 | MADR | Report a session as not live when it closes during a call | [0218-MADR-report-not-live-when-a-session-closes-during-a-call.md](decisions/0218-MADR-report-not-live-when-a-session-closes-during-a-call.md) |
 | 0218 | PLAN | Implement reporting a session as not live when it closes during a call | [0218-PLAN-report-not-live-when-a-session-closes-during-a-call.md](decisions/0218-PLAN-report-not-live-when-a-session-closes-during-a-call.md) |
+| 0219 | MADR | Clean device names and copy pair URIs with go-tui-lib | [0219-MADR-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md](decisions/0219-MADR-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md) |
+| 0219 | PLAN | Implement cleaning device names and copying pair URIs with go-tui-lib | [0219-PLAN-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md](decisions/0219-PLAN-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
