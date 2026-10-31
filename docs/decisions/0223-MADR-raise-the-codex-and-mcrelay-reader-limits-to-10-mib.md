@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-31
 decision-makers: Project Owner
 consulted: "acp-go-sdk2 v1.28.0 (connection.go: defaultMaxMessageSize, readBufferSize, readLine, receive; remote/client.go); this repository at 0f6d27a6: internal/provider/codex/transport.go and transport_p3_test.go, internal/provider/acpagent/acpagent.go, internal/relay/config.go and server.go, internal/relayhost/client.go and deadline_test.go, internal/config/config.go, apps/mobile/lib/data/ws/relay_transport.dart, the configs and docs that state the defaults"
@@ -110,6 +110,13 @@ relay's by a comment (D-2); C leaves the relay out, which the owner named.
   `defaults_mcremote.yaml` and the three `configs/config*.yaml`, `docs/guides/config-mcrelay.md`,
   `docs/guides/config.md`, and `README.md`'s relay-limits row. The guide's bridge note then reads
   "raised above 10 MiB".
+
+  *Amended 2026-10-31 (PLAN Deviation 1).* Nine places, in comments, a test and a guide, gave the
+  relay as the reason for a 1 MiB budget: catalog caps in `internal/ws`, `opencode` and `kilo`,
+  `docs/guides/protocol-v1.md`, and the relay's own pre-auth test. That reason is wrong after D3.
+  The bound they defend is the daemon's 1 MiB protocol frame limit (F3), which this decision does
+  not change. On the owner's decision, each now names that limit. The test constant
+  `relayFrameLimit` becomes `protocolFrameLimit`, with the same value.
 
 ### Consequences
 

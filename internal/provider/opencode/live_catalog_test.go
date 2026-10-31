@@ -19,7 +19,7 @@ import (
 // TestLiveOpenCodeCatalogIsScoped is the acceptance test for MADR 0043 D2/D8
 // against a real engine. It asserts the three properties the unscoped catalog
 // violated: the default set is the user's configured providers, the reply fits
-// comfortably inside the relay's 1 MiB frame, and the full provider list is
+// comfortably inside the daemon's 1 MiB protocol frame, and the full provider list is
 // still reachable for the search path.
 //
 // Run: make live-opencode, or

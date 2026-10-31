@@ -74,7 +74,7 @@ the unit’s `ExecStart`. Edit `hosts` / TLS before exposing the public edge.
 | `trusted_proxies` | `[]` | `MCRELAY_TRUSTED_PROXIES` | `--trusted-proxy` (repeatable) |
 | `limits.max_hosts` | `32` | `MCRELAY_LIMITS_MAX_HOSTS` | *(yaml/env only)* |
 | `limits.max_phones_per_host` | `8` | `MCRELAY_LIMITS_MAX_PHONES_PER_HOST` | *(yaml/env only)* |
-| `limits.max_message_bytes` | `1048576` | `MCRELAY_LIMITS_MAX_MESSAGE_BYTES` | *(yaml/env only)* |
+| `limits.max_message_bytes` | `10485760` | `MCRELAY_LIMITS_MAX_MESSAGE_BYTES` | *(yaml/env only)* |
 | `limits.max_concurrent_join` | `64` | `MCRELAY_LIMITS_MAX_CONCURRENT_JOIN` | *(yaml/env only)* |
 | `limits.max_conns` | `1024` | `MCRELAY_LIMITS_MAX_CONNS` | *(yaml/env only)* |
 | `limits.accept_per_minute` | `120` | `MCRELAY_LIMITS_ACCEPT_PER_MINUTE` | *(yaml/env only)* |
@@ -205,7 +205,7 @@ export MCRELAY_TRUSTED_PROXIES='127.0.0.1/32'
   relay evicts the oldest window deterministically; TTL-expired windows are
   always pruned first.
 - **Host bridge frame cap.** If `limits.max_message_bytes` is raised above
-  1 MiB, set `relay.max_frame_bytes` to the same value in each mcremote
+  10 MiB, set `relay.max_frame_bytes` to the same value in each mcremote
   host's config — the host-side bridge enforces its own cap.
 
 ## Host allowlist

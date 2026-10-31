@@ -230,8 +230,8 @@ const maxDefaultCatalogModels = 150
 // providers' models, not every model the engine has heard of.
 //
 // The unscoped version of this call flattened 172 providers × 5,788 models into
-// one alphabetically-sorted list — a 532 KB frame, over half the relay's 1 MiB
-// message cap, whose first rows were a provider called `302ai`. Everything else
+// one alphabetically-sorted list — a 532 KB frame, over half the daemon's 1 MiB
+// protocol frame cap, whose first rows were a provider called `302ai`. Everything else
 // is still reachable through ListModelProvidersLive + ListModelsForLive
 // (MADR 0043 D2/D8).
 func (d *httpDialect) ListModelsLive(ctx context.Context, api httpagent.API) (picker.Catalog, error) {

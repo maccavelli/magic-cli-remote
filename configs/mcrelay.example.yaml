@@ -71,7 +71,7 @@ trusted_proxies: []
 limits:
   max_hosts: 32                        # MCRELAY_LIMITS_MAX_HOSTS
   max_phones_per_host: 8               # MCRELAY_LIMITS_MAX_PHONES_PER_HOST
-  max_message_bytes: 1048576           # MCRELAY_LIMITS_MAX_MESSAGE_BYTES
+  max_message_bytes: 10485760          # MCRELAY_LIMITS_MAX_MESSAGE_BYTES
   max_concurrent_join: 64              # MCRELAY_LIMITS_MAX_CONCURRENT_JOIN
   accept_per_minute: 120               # MCRELAY_LIMITS_ACCEPT_PER_MINUTE
   join_per_minute: 30                  # MCRELAY_LIMITS_JOIN_PER_MINUTE

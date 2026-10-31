@@ -54,7 +54,7 @@ func DefaultLimits() Limits {
 	return Limits{
 		MaxHosts:             32,
 		MaxPhonesPerHost:     8,
-		MaxMessageBytes:      1 << 20, // 1 MiB
+		MaxMessageBytes:      10 << 20, // 10 MiB, acp-go-sdk2's message bound (MADR 0223 D3)
 		MaxConcurrentJoin:    64,
 		MaxConns:             1024,
 		AcceptPerMinute:      120,

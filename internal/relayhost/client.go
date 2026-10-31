@@ -24,8 +24,10 @@ import (
 // bridgeBufSize matches mcrelay splice CopyBuffer (MADR 0017 E2).
 const bridgeBufSize = 32 * 1024
 
-// Default max WebSocket frame from mcrelay splice (1 MiB default limit).
-const bridgeWSReadLimit = 1 << 20
+// bridgeWSReadLimit is the bridge's frame cap when relay.max_frame_bytes is 0:
+// mcrelay's own default splice limit, by reference, so the two cannot drift
+// apart (MADR 0223 D4).
+var bridgeWSReadLimit = int64(relay.DefaultLimits().MaxMessageBytes)
 
 var bridgeBufPool = sync.Pool{
 	New: func() any {
@@ -47,8 +49,8 @@ type Config struct {
 	// InsecureSkipVerify skips verification of the relay TLS certificate.
 	InsecureSkipVerify bool
 	// MaxFrameBytes caps a relayed WS frame on the tunnel bridge (0115 F6).
-	// Must track the relay's limits.max_message_bytes when that is raised.
-	// 0 = the relay default (1 MiB).
+	// Must track the relay's limits.max_message_bytes when that is set.
+	// 0 = the relay default (10 MiB, bridgeWSReadLimit).
 	MaxFrameBytes int
 }
 

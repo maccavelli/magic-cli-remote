@@ -104,8 +104,8 @@ type RelayConfig struct {
 	// (dev/tests only). Does not affect mcremote's own TLS identity.
 	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"`
 	// MaxFrameBytes caps a relayed WS frame on the host bridge (0115 F6).
-	// Must match the relay's limits.max_message_bytes when that is raised.
-	// 0 = 1 MiB (the relay default).
+	// Must match the relay's limits.max_message_bytes when that is set.
+	// 0 = 10 MiB (the relay default, MADR 0223).
 	MaxFrameBytes int `mapstructure:"max_frame_bytes"`
 }
 

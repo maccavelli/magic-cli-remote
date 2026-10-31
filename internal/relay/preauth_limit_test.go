@@ -88,7 +88,7 @@ func TestPreAuthFrameCapTunnel(t *testing.T) {
 
 // TestPostAuthSpliceKeepsFullLimit guards against capping the wrong side:
 // after a real join, a 200 KiB frame (over the 64 KiB control limit, under
-// the 1 MiB splice limit) must still splice through and echo back.
+// the 10 MiB default splice limit) must still splice through and echo back.
 func TestPostAuthSpliceKeepsFullLimit(t *testing.T) {
 	const hostID = "devbox-1"
 	const secret = "sixteen-chars-min-secret"

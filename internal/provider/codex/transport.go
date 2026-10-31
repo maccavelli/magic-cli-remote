@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,7 +15,15 @@ import (
 	"github.com/coder/websocket"
 )
 
-const maxTransportFrameBytes = 1 << 20
+// maxTransportFrameBytes bounds one Codex message, in either direction, on
+// every transport. It is acp-go-sdk2's defaultMaxMessageSize, the bound
+// Magic's ACP providers already read under (MADR 0223 D1).
+const maxTransportFrameBytes = 10 << 20
+
+// jsonlReadBufferSize is the JSONL reader's buffer, acp-go-sdk2's
+// readBufferSize: a line longer than it grows in Read, up to
+// maxTransportFrameBytes, so memory follows the line (MADR 0223 D2).
+const jsonlReadBufferSize = 128 << 10
 
 type transport interface {
 	Send(context.Context, []byte) error
@@ -34,7 +43,7 @@ type jsonlTransport struct {
 
 func newJSONLTransport(writer io.Writer, reader io.Reader) transport {
 	t := &jsonlTransport{
-		reader: bufio.NewReaderSize(reader, maxTransportFrameBytes+2),
+		reader: bufio.NewReaderSize(reader, jsonlReadBufferSize),
 		writer: writer,
 	}
 	seen := make(map[io.Closer]struct{})
@@ -68,21 +77,34 @@ func (t *jsonlTransport) Send(_ context.Context, frame []byte) error {
 func (t *jsonlTransport) Read(_ context.Context) ([]byte, error) {
 	t.readMu.Lock()
 	defer t.readMu.Unlock()
-	line, err := t.reader.ReadSlice('\n')
-	if errors.Is(err, bufio.ErrBufferFull) || len(line) > maxTransportFrameBytes+1 {
-		for err == bufio.ErrBufferFull {
-			_, err = t.reader.ReadSlice('\n')
+	// As acp-go-sdk2's readLine: append chunks to the newline, and stop
+	// keeping them once the line passes the bound, still reading through its
+	// newline so the next Read starts on the next line.
+	var line []byte
+	tooLong := false
+	for {
+		chunk, err := t.reader.ReadSlice('\n')
+		if !tooLong {
+			line = append(line, chunk...)
+			if len(bytes.TrimSuffix(line, []byte("\n"))) > maxTransportFrameBytes {
+				line, tooLong = nil, true
+			}
 		}
-		return nil, fmt.Errorf("codex transport frame exceeds %d bytes", maxTransportFrameBytes)
-	}
-	if err != nil {
-		return nil, err
-	}
-	line = line[:len(line)-1]
-	if len(line) > 0 && line[len(line)-1] == '\r' {
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if tooLong {
+			return nil, fmt.Errorf("codex transport frame exceeds %d bytes", maxTransportFrameBytes)
+		}
+		if err != nil {
+			return nil, err
+		}
 		line = line[:len(line)-1]
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+		return line, nil
 	}
-	return append([]byte(nil), line...), nil
 }
 
 func (t *jsonlTransport) Close() error {

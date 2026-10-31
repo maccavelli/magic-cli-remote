@@ -101,7 +101,7 @@ func TestCapDefaultCatalogModelsKeepsDefault(t *testing.T) {
 
 // TestDefaultCatalogFitsTheFrame is the regression guard for the reason this
 // work exists. The unscoped catalog serialized to 531,554 bytes — 51% of the
-// relay's 1 MiB per-message cap — and grew with models.dev. The default reply
+// daemon's 1 MiB protocol frame cap — and grew with models.dev. The default reply
 // must now be a small fraction of that.
 func TestDefaultCatalogFitsTheFrame(t *testing.T) {
 	api := routedAPI(map[string]string{

@@ -9,7 +9,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/protocol"
 )
 
-// TestCapCatalogOptions pins the frame-budget guard. The relay caps one message
+// TestCapCatalogOptions pins the frame-budget guard. The daemon caps one frame
 // at 1 MiB; an uncapped OpenCode catalog was already using half of that, and
 // the failure mode past the cap is a dropped connection, not a long list.
 func TestCapCatalogOptions(t *testing.T) {
@@ -46,7 +46,7 @@ func TestCapCatalogOptionsLeavesSmallCatalogAlone(t *testing.T) {
 }
 
 // TestCappedCatalogFitsTheFrame is the reason the cap number is what it is:
-// a maximally-capped reply must stay well inside the 1 MiB relay message limit
+// a maximally-capped reply must stay well inside the 1 MiB protocol frame limit
 // even with realistically long ids, labels and descriptions.
 func TestCappedCatalogFitsTheFrame(t *testing.T) {
 	opts := make([]picker.Option, maxCatalogOptions)
@@ -70,10 +70,10 @@ func TestCappedCatalogFitsTheFrame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const relayFrameLimit = 1 << 20
-	if len(b) > relayFrameLimit/2 {
-		t.Fatalf("capped reply is %d bytes, over half the %d-byte relay frame limit",
-			len(b), relayFrameLimit)
+	const protocolFrameLimit = 1 << 20
+	if len(b) > protocolFrameLimit/2 {
+		t.Fatalf("capped reply is %d bytes, over half the %d-byte protocol frame limit",
+			len(b), protocolFrameLimit)
 	}
 	t.Logf("capped reply: %d bytes", len(b))
 }

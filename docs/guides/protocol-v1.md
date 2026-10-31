@@ -409,7 +409,7 @@ multi-select schema-ready).
 
 **Scoping is not optional politeness.** An unscoped OpenCode catalog is 5,788
 models across 172 model providers, which serializes to ~532 KB — over half the
-relay's 1 MiB per-message cap (MADR 0043). The default set is therefore the
+1 MiB protocol frame cap (MADR 0043). The default set is therefore the
 model providers the host actually has credentials for; everything else is
 reached through the `providers` scope plus `model_provider`.
 

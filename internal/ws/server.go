@@ -2859,8 +2859,8 @@ func (s *Server) pushProviderAuthStatus(ctx context.Context, providerID string) 
 
 // maxCatalogOptions bounds one models.list reply. Nothing reaches it today —
 // the largest single model provider on this host is 60 models — but the reply
-// is a single WebSocket frame and the relay caps a message at 1 MiB
-// (internal/relay/config.go). The cap is the guard for a future catalog that
+// is a single WebSocket frame, and the daemon caps an outbound frame at 1 MiB
+// (maxOutboundFrameBytes). The cap is the guard for a future catalog that
 // grows past the frame, where the failure mode without it is not a long list
 // but a dropped connection (MADR 0043 D4).
 const maxCatalogOptions = 500

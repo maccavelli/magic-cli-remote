@@ -1355,7 +1355,7 @@ See **[docs/guides/config-mcrelay.md](docs/guides/config-mcrelay.md)** for every
 |---------|---------|-----|
 | `limits.max_hosts` | 32 | 1024 |
 | `limits.max_phones_per_host` | 8 | 256 |
-| `limits.max_message_bytes` | 1048576 (1 MiB) | 16777216 (16 MiB) |
+| `limits.max_message_bytes` | 10485760 (10 MiB) | 16777216 (16 MiB) |
 | `limits.max_concurrent_join` | 64 | 4096 |
 | All per-minute rate limits | varies | 100000/min |
 | Duration fields | varies | 604800 (7 days) |

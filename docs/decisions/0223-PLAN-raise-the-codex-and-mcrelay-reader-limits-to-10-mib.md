@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-31
 associated-madr: "0223-MADR-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md"
 ---
@@ -108,8 +108,10 @@ Every red is the stated failure, and not a compile error.
      appending, keeps reading through the newline, and returns the existing error. It trims `\n`,
      then `\r`, as now. The `readMu` locking stays.
 2. `relay/config.go:57`: `MaxMessageBytes: 10 << 20, // 10 MiB, acp-go-sdk2's message bound (MADR 0223 D3)`.
-3. `relayhost/client.go`: the `bridgeWSReadLimit` constant goes. Line 287 takes
-   `int64(relay.DefaultLimits().MaxMessageBytes)`. The comments at `:27` and `:49-51` say the default
+3. `relayhost/client.go`: ~~the `bridgeWSReadLimit` constant goes. Line 287 takes
+   `int64(relay.DefaultLimits().MaxMessageBytes)`.~~ *As done:* `bridgeWSReadLimit` becomes a
+   package `var` set to `int64(relay.DefaultLimits().MaxMessageBytes)`, so S1's tests compile
+   against `HEAD` (see the execution record). The comments at `:27` and `:49-51` say the default
    is the relay's. `deadline_test.go`'s two uses move to the same expression, or to a small
    unexported helper both use.
 4. `config.go:106-108`: "0 = the relay default (10 MiB)".
@@ -170,4 +172,127 @@ Every red is the stated failure, and not a compile error.
 
 ## Execution record
 
-None yet.
+**Approval, 2026-10-31.** The pair was committed as `722dffa7`. The owner then wrote "proceed,
+approved, yes to both hosts": the MADR is accepted, this plan is approved, and Q1 is answered yes.
+
+**P0.** `HEAD` `722dffa7`. `git status --short` held this pair's acceptance edits, the untracked
+0222 pair, and `docs/README.md`'s index rows for 0221 and 0222. None of the last three is this
+plan's, and they are left alone. Every line reference in P0 step 2 held.
+
+**S1, red** (`leftovers/tree_copy.py 0223-red`: `HEAD` plus the three new test files only;
+`leftovers/0223-s1-red.log`). Exit 1. Each test failed as stated, and none failed to compile:
+
+* `TestJSONLTransportReadsTwoMiB`: "codex transport frame exceeds 1048576 bytes".
+* `TestJSONLTransportReaderIs128KiB`: "JSONL read buffer is 1048578 bytes, want 131072".
+* `TestJSONLTransportSendsTwoMiB`: "codex transport frame exceeds 1048576 bytes".
+* `TestWebSocketTransportReadsTwoMiB`: "websocket: message too big: read limited at 1048577
+  bytes".
+* `TestDefaultMaxMessageBytesIsTenMiB`: "DefaultLimits().MaxMessageBytes = 1048576, want
+  10485760".
+* `TestSpliceCarriesTwoMiBUnderDefaults`: "received close frame: status = StatusMessageTooBig and
+  reason = \"read limited at 1048577 bytes\"".
+* `TestBridgeCarriesTwoMiBByDefault`: "1048577 bytes crossed, want 2097152 intact".
+* The two guards passed at `HEAD`, as S1 says they must: `TestJSONLTransportRefusesOverLimitAndContinues`
+  and `TestBridgeDefaultIsRelayDefault`.
+
+**S1, the guards' plants** (`leftovers/0223_plants.py`, each a copy of the changed tree with one
+asserted edit, removed afterwards).
+
+* **First run** (`leftovers/0223-s1-plants.log`): the bridge plant, a fixed `1 << 20` default,
+  failed `TestBridgeDefaultIsRelayDefault`, "bridge default 1048576, relay default 10485760". The
+  drain plant, which returns as soon as a line passes the bound, was **not caught**. The test's
+  line was one byte over the bound, so the chunk that crossed it also held the newline, and there
+  was nothing left to drain.
+* **The test was corrected.** It now runs two cases: one byte over, and 256 KiB over, a read buffer
+  and more before the newline.
+* **Second run** (`leftovers/0223-s1-plants-2.log`): both plants failed their tests. The drain
+  plant gave "line after the over-limit one = \"xxxx…\", want the next line". The corrected test
+  passes at `HEAD`, both cases (`leftovers/0223-s1-red-guard.log`, a clean copy of `HEAD` plus that
+  file). Both red copies were removed.
+
+**S2.**
+
+* `transport.go`:
+  * `maxTransportFrameBytes = 10 << 20`, and `jsonlReadBufferSize = 128 << 10`, each commented
+    with its SDK counterpart;
+  * `newJSONLTransport` uses the 128 KiB buffer;
+  * `Read` follows the SDK's `readLine`. Over the bound it keeps reading through the newline,
+    then returns the existing error. A partial last line before EOF still returns the EOF, and the
+    returned slice is still a copy.
+* `relay/config.go:57`: `10 << 20`.
+* `relayhost/client.go` (*step 3, as done*): `bridgeWSReadLimit` stays as a name, now a package
+  `var` set to `int64(relay.DefaultLimits().MaxMessageBytes)`, rather than being removed. It is the
+  "small unexported helper" step 3 allows. Keeping the name let S1's tests compile against
+  `HEAD`, and `deadline_test.go` needs no change. The `MaxFrameBytes` comment says 10 MiB.
+* `config/config.go:106-108`: "0 = 10 MiB (the relay default, MADR 0223)".
+* `leftovers/0223_d5_edits.py`: the ten files of D5, 12 edits, each asserted once. Then Deviation 1.
+* `gofmt -l` on the 14 changed Go files: none.
+* Green (`leftovers/0223-s2-green.log`): `go test -count=1` on `codex`, `relay`, `relayhost`, `ws`,
+  `opencode`, `kilo`, `config` and `cli/service` (the template-parity test): all `ok`. The nine new
+  tests and their three neighbours, verbose (`leftovers/0223-s2-green-v.log`): 12 PASS, 0 FAIL.
+
+**S3** (logs `leftovers/0223-s3-*.log`):
+
+* `make pre-add-check` on the 14 Go files: "14 file(s) clean (gofmt, golint, govulncheck)".
+* `leftovers/vet_goos.py`: darwin/arm64, windows/amd64 and linux/amd64, exit 0 each.
+* `make staticcheck`: exit 0, "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name"
+  for each system.
+* `make vulncheck`: "vulncheck: clear; allowlisted required-module findings: GO-2026-5932".
+* `leftovers/nonascii_scan.py`: none in the three new test files or in `transport.go`. In the
+  added lines of the other edited files, only three em dashes that were already on the re-worded
+  lines.
+* `make check-records`: exit 0. `make markdownlint-docs`: 57 files, "0 issues in 0 files".
+* `make race`: exit 0, 45 `ok` packages, and no FAIL, panic or DATA RACE line
+  (`leftovers/0223-s3-race.log`).
+
+**S4** (`PINS_PHASE=0223 leftovers/pins_hosts.py`, the 20 changed and new code, test and config
+files named, since its default would miss the three untracked tests):
+
+* Linux test host, go1.27.3 linux/amd64: `go test -race -count=1 ./...` exit 0, 45 `ok` lines.
+* Windows test host, go1.27.3 windows/amd64: the dry run, then `make ci-windows` exit 0,
+  "ci-windows-local: ALL SELECTED CHECKS PASSED", 45 `ok` lines.
+* Both scratch trees removed, and their absence checked.
+
+**S5.**
+
+* `leftovers/guard_preview.py` before staging: exit 0, "would edit 0 file(s), 0 path(s) need a
+  rename by hand". `make check-records`: exit 0.
+* Staged: the four code files, the three new tests, Deviation 1's eight files, D5's ten files, and
+  this pair. `docs/README.md` is not staged: this pair's rows went in with `722dffa7`, and its
+  remaining diff is the 0221 and 0222 rows, which are not this plan's.
+* `check_records.py --check-all` on the staged tree (`git checkout-index` into a scratch
+  directory, removed afterwards): exit 0, no output.
+
+### Deviations
+
+**Deviation 1, 2026-10-31: comments and a guide name the relay as the 1 MiB cap (S2 step 5).**
+
+* **Found.** After S2's code and D5 edits, a sweep of tracked files outside `docs/decisions` and
+  `docs/reports` for "1 MiB" and `1048576` found nine places that give the relay as the reason for
+  a 1 MiB budget:
+  * `internal/ws/server.go:2862`: the models.list cap exists because "the relay caps a message at
+    1 MiB (internal/relay/config.go)";
+  * `internal/ws/models_cap_test.go:49`, `:73-76`: a test constant `relayFrameLimit = 1 << 20`;
+  * `internal/provider/opencode/http.go:416`, `:425`, `internal/provider/kilo/catalog_live.go:233`,
+    `internal/provider/opencode/catalog_size_test.go:104` and
+    `internal/provider/opencode/live_catalog_test.go:22`;
+  * `docs/guides/protocol-v1.md:412`;
+  * `internal/relay/preauth_limit_test.go:91`: "under the 1 MiB splice limit".
+
+  The budgets they defend still hold: the daemon's own protocol limits, `maxWSMessageBytes` and
+  `maxOutboundFrameBytes` (`internal/ws/server.go:310`, `:3608`), are 1 MiB (MADR F3). Only the
+  reason they name is wrong after D3, and the relay never carried a protocol frame whole
+  (MADR F1). None is in Scope.
+* **Options put to the owner.** Re-attribute all nine (recommended); fix only the relay's own test
+  comment; leave all and record them.
+* **Decision.** "Re-attribute all nine (Recommended)". Comment and doc wording only. Each names the
+  daemon's 1 MiB protocol frame limit. `relayFrameLimit` is renamed `protocolFrameLimit`, with its
+  value unchanged. `preauth_limit_test.go:91` says 10 MiB. No behaviour changes, and the existing
+  tests are the check.
+* **Files added to Scope.** The eight files above.
+* **Done** by `leftovers/0223_dev1_edits.py`, which asserts each old text once. A wider sweep
+  afterwards (`relay` within 40 characters of `1 MiB`, `1048576` or `1 << 20`) found one more line
+  of the same kind, `models_cap_test.go:12` ("The relay caps one message at 1 MiB"), in a file
+  already listed. It was re-attributed under the same decision. The sweep then matched only the
+  new `10485760` values.
+* **Records changed.** MADR D5 (amended). Here: this entry.
