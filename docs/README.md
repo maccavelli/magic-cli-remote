@@ -431,6 +431,7 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0218 | PLAN | Implement reporting a session as not live when it closes during a call | [0218-PLAN-report-not-live-when-a-session-closes-during-a-call.md](decisions/0218-PLAN-report-not-live-when-a-session-closes-during-a-call.md) |
 | 0219 | MADR | Clean device names and copy pair URIs with go-tui-lib | [0219-MADR-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md](decisions/0219-MADR-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md) |
 | 0219 | PLAN | Implement cleaning device names and copying pair URIs with go-tui-lib | [0219-PLAN-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md](decisions/0219-PLAN-clean-device-names-and-copy-pair-uris-with-go-tui-lib.md) |
+| 0220 | REPORT | OpenCode v2.2.3 parity assessment for the magic-cli-remote OpenCode provider | [0220-REPORT-opencode-v2-parity-assessment.md](../docs/reports/0220-REPORT-opencode-v2-parity-assessment.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
