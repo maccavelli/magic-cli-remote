@@ -439,6 +439,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0223 | PLAN | Implement raising the Codex transport and mcrelay reader limits to 10 MiB | [0223-PLAN-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md](decisions/0223-PLAN-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md) |
 | 0224 | MADR | Pause the ACP reader instead of dropping notifications: adopt acp-go-sdk2 v1.29.0's OverflowBlock | [0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md](decisions/0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md) |
 | 0224 | PLAN | Implement pausing the ACP reader instead of dropping notifications | [0224-PLAN-pause-the-acp-reader-instead-of-dropping-notifications.md](decisions/0224-PLAN-pause-the-acp-reader-instead-of-dropping-notifications.md) |
+| 0225 | MADR | Fix the two codex tests that raced in CI: hold the probe stub open, and read the engine under its lock | [0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md](decisions/0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md) |
+| 0225 | PLAN | Implement fixing the two codex tests that raced in CI | [0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md](decisions/0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

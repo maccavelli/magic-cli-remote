@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-31
 associated-madr: "0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md"
 ---
@@ -454,3 +454,57 @@ internal/provider/acpagent/droppednotice_test.go".
 6. **Staged** under C1: Scope's files, this pair, the three amended records, and `docs/README.md` as
    this pair's two rows (`leftovers/stage_index_rows.py 0224`). `check_records.py --check-all` ran
    on the staged tree, exported with `git checkout-index`. The owner commits.
+
+   Done: 14 files staged, nothing unstaged; `--check-all` on the export, run by the export's own
+   script, exit 0; the export removed. The owner committed `c12e6e37`.
+
+### S6 — 2026-10-31
+
+1. `make check-libs` on `HEAD` `c12e6e37`: exit 0; `acp-go-sdk2` "pinned v1.30.0, checking
+   v1.30.0", `go-selfupdate-lib` at v1.23.1, "0 failing checks".
+2. `leftovers/guard_range.py origin/master HEAD`: exit 0, no output, over `fd70cfaf..c12e6e37`. That
+   range is the four unpushed commits: `92e5e2b6`, `7ed38787`, `dd62a24d` and `c12e6e37`.
+3. The owner pushed. `origin/master` is `c12e6e37`. Docs run `41248953457`: success. CI run
+   `41248953620`: failure, in two codex tests; deviation 2.
+
+### Deviation 2 — 2026-10-31: two codex tests failed in CI on `c12e6e37`
+
+* **Found:**
+  * `Go (test)`, ubuntu, "Test (race, all packages)": `TestNonBlockingProbeRunsNoBinaryOnAColdCache`
+    failed at `nonblocking_reality_test.go:43`, "the binary ran before the call returned: the probe
+    is still synchronous on the caller's goroutine", in 0.01 s.
+  * `Go (darwin/arm64)`, "Test (race, darwin, cgo-free)": `WARNING: DATA RACE` in
+    `TestEngineGenerationResetsCollaborationProbe`. The write was `handleUnexpectedEngineExit`
+    (`provider.go:1009`, under `p.mu`), on the engine's exit goroutine. The read was the test, at
+    `collaboration_test.go:340`, without `p.mu`.
+  * Every other job passed: Windows, linux/arm64, Flutter and the supervisors. The APK and
+    self-update release jobs were skipped. *(Corrected 2026-10-31: first written as "because the
+    run failed". They run only on a tag or a `workflow_dispatch` (`ci.yml:459`, `:746`, `:765`), so a
+    push skips them whatever the tests do. The last green run before this one, `41228371489`, was a
+    `workflow_dispatch`.)*
+* **Why not this commit (evidence):**
+  * `c12e6e37` changes no codex file.
+  * Codex reaches acp-go-sdk2 only through `agentproc` and `internal/proctree`. Between v1.28.0 and
+    v1.30.0 `internal/` is identical, and `agentproc` differs only in `ties_test.go`.
+  * Neither test file has changed since `a5737c44` (2026-10-21).
+  * The two tests, `-race -count=50`, at default `GOMAXPROCS` and at 2, in `git archive` copies of
+    `c12e6e37` and of its pre-bump ancestor `fd70cfaf` (`leftovers/0224_codex_flake.py`): 200 of 200
+    passes each revision, 0 data races.
+* **Pre-existing defects in the tests:**
+  * The first checks for the stub's marker after the non-blocking call returns. The background
+    refresh it starts can run the stub before that check.
+  * The second reads `p.eng` without the lock that the exit goroutine writes it under.
+* **Decision (owner, "re-run+new pair"):** the failed jobs were re-run (`gh run rerun --failed`).
+  The two test defects get their own MADR/PLAN pair, grounded in the current Codex sources. This
+  plan is complete when the re-run passes.
+* **The re-run:** CI run `41248953620`, attempt 2, "completed success". `Go (test)` (`124682825504`)
+  and `Go (darwin/arm64)` (`124682825717`) passed. The jobs that passed in attempt 1 kept their
+  result: `Go (windows/amd64)`, `Go (linux/arm64)`, `Live supervisors (runit, s6)`, `Flutter
+  (analyze & test)` and `Flutter (test on windows)`. The APK and release jobs were skipped, as on
+  every push.
+* **The pair for the two tests:**
+  [0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md](0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md)
+  and its PLAN, `proposed`.
+
+**This plan is complete.** V1 to V7 are met: V7's CI by attempt 2 of run `41248953620` and Docs run
+`41248953457`, both on `c12e6e37`.
