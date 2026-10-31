@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-31
 associated-madr: "0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md"
 ---
@@ -342,3 +342,19 @@ removed.
 1. `leftovers/guard_range.py origin/master HEAD`: exit 0, no output, over `c12e6e37..85e10fb0`. That
    range is the two unpushed commits: `c10d8208` (this pair, proposed, and 0224's close) and
    `85e10fb0` (this change).
+2. The owner also committed this S6 note as `ddf4ddfd`, then pushed. `origin/master` is `ddf4ddfd`.
+   That commit was not in step 1's range, so the guard ran over `85e10fb0..ddf4ddfd` after the push:
+   exit 0, no output.
+3. **CI on `ddf4ddfd`:** run `41253370960`, "success", attempt 1. Every job passed:
+   * `Go (test)` (`124691326316`);
+   * `Go (darwin/arm64)` (`124691326312`);
+   * `Go (windows/amd64)` (`124691326336`);
+   * `Go (linux/arm64)` (`124691326285`);
+   * `Live supervisors (runit, s6)` (`124691326356`);
+   * `Flutter (analyze & test)` (`124691326199`) and `Flutter (test on windows)` (`124691326346`).
+
+   The APK and release jobs were skipped, as on every push (`ci.yml:459`, `:746`, `:765`). Docs run
+   `41253370462`: "success".
+
+**This plan is complete.** V1 to V7 and V3a are met. The two tests that raced in CI run `41248953620`
+passed in `Go (test)` and `Go (darwin/arm64)` on the first attempt.
