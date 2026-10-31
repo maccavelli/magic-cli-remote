@@ -16,8 +16,10 @@ import (
 // marker before it sleeps, so a test knows a probe is running without
 // guessing from a fixed delay.
 
-// waitForFile fails the test unless path exists within 10 s.
-func waitForFile(t *testing.T, path string) {
+// waitForFile fails the test unless path exists within 10 s. why is what a
+// missing file means to the caller, since a marker can mean a probe started
+// or that it finished (MADR 0225, PLAN deviation 2).
+func waitForFile(t *testing.T, path, why string) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -25,7 +27,7 @@ func waitForFile(t *testing.T, path string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("%s never appeared: the probe did not start", filepath.Base(path))
+			t.Fatalf("%s never appeared within 10 s: %s", filepath.Base(path), why)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -67,7 +69,7 @@ func TestNonBlockingProbeDoesNotWaitForARunningProbe(t *testing.T) {
 	if got := ObserveCredentialStoreCachedNonBlocking(stub, time.Minute); got != RealityUnknown {
 		t.Fatalf("cold cache returned %v, want RealityUnknown", got)
 	}
-	waitForFile(t, running)
+	waitForFile(t, running, "the probe did not start")
 
 	start := time.Now()
 	got := ObserveCredentialStoreCachedNonBlocking(stub, time.Minute)
@@ -149,7 +151,7 @@ func TestInvalidationDiscardsAProbeStartedBeforeIt(t *testing.T) {
 			defer close(ch)
 			_, _ = ObserveCredentialStoreCached(context.Background(), bin, time.Minute)
 		}()
-		waitForFile(t, running)
+		waitForFile(t, running, "the probe did not start")
 		// A sign-in lands while that probe runs.
 		setDoctorFixture(t, control, "file-protected.json")
 		InvalidateRealityCache()

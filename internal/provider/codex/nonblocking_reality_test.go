@@ -3,59 +3,80 @@ package codex
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
-// TestNonBlockingProbeRunsNoBinaryOnAColdCache is MADR 0137 F1.
+// TestNonBlockingProbeReturnsWhileTheProbeRuns is MADR 0137 F1, as MADR 0225
+// D1 restates it.
 //
 // ObserveCredentialStoreCached runs `codex doctor --json` when the cache is
 // cold — a subprocess plus a network-dependent call, measured at ~1.4 s. That
 // was reachable from providers.list, which the phone issues on every connect,
 // so a routine screen refresh could block on codex talking to its backend.
 //
-// The stub records every invocation to a file, so "no binary ran" is observed
-// rather than inferred from timing.
-func TestNonBlockingProbeRunsNoBinaryOnAColdCache(t *testing.T) {
+// The stub stands in for a doctor that has not finished: it records that it
+// started, then waits until the test releases it. A call that returns while the
+// stub still waits cannot have waited for the probe, however the goroutines are
+// scheduled, and a call that waited for it cannot return within the bound. The
+// test this replaces asserted instead that the stub had not started when the
+// call returned; the background refresh is free to start it first, and in CI it
+// did (MADR 0225 F1).
+func TestNonBlockingProbeReturnsWhileTheProbeRuns(t *testing.T) {
 	testexec.SkipIfNoPOSIXModes(t)
-	codexHome := t.TempDir()
-	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CODEX_HOME", t.TempDir())
 	InvalidateRealityCache()
 
-	marker := filepath.Join(t.TempDir(), "invoked")
+	const (
+		// callBound is far above a non-blocking call and far below
+		// providerauth.ProbeTimeout, which would end a probe the call waited on.
+		callBound = 5 * time.Second
+		// stubWait bounds the stub's own wait, so a stub the test never
+		// releases cannot outlive the run.
+		stubWait = 30 * time.Second
+	)
+	dir := t.TempDir()
+	started := filepath.Join(dir, "started")
+	release := filepath.Join(dir, "release")
+	finished := filepath.Join(dir, "finished")
 	stub := testexec.WriteShellStub(t, filepath.Join(t.TempDir(), "codex-stub"),
-		"echo ran >> "+marker+"\nexit 1")
+		"echo ran >> "+started+"\n"+
+			"i=0\n"+
+			"while [ ! -e "+release+" ] && [ $i -lt "+strconv.Itoa(int(stubWait/(50*time.Millisecond)))+" ]; do\n"+
+			"\tsleep 0.05\n\ti=$((i+1))\ndone\n"+
+			"echo done >> "+finished+"\nexit 1")
+	// However the test ends, a waiting stub is let go.
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 
-	start := time.Now()
-	got := ObserveCredentialStoreCachedNonBlocking(stub, time.Minute)
-	elapsed := time.Since(start)
-
-	if got != RealityUnknown {
-		t.Fatalf("cold cache returned %v, want RealityUnknown: the caller must "+
-			"get an answer now, not a correct one later", got)
-	}
-	if elapsed > 500*time.Millisecond {
-		t.Fatalf("the call took %v; it must not wait for a probe", elapsed)
-	}
-	if _, err := os.Stat(marker); err == nil {
-		t.Fatal("the binary ran before the call returned: the probe is still " +
-			"synchronous on the caller's goroutine")
-	}
-
-	// The background refresh does run, so the next caller gets a real answer.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(marker); err == nil {
-			break
+	got := make(chan StoreReality, 1)
+	go func() { got <- ObserveCredentialStoreCachedNonBlocking(stub, time.Minute) }()
+	select {
+	case r := <-got:
+		if r != RealityUnknown {
+			t.Fatalf("cold cache returned %v, want RealityUnknown: the caller must "+
+				"get an answer now, not a correct one later", r)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("the background refresh never ran; a non-blocking probe that " +
-				"never probes would leave the cache cold forever")
-		}
-		time.Sleep(20 * time.Millisecond)
+	case <-time.After(callBound):
+		t.Fatalf("the call had not returned after %v with the probe still running: "+
+			"it waits for the probe on the caller's goroutine", callBound)
 	}
+	// The stub cannot finish before it is released, so the call above returned
+	// while the probe was unfinished, whether or not the probe had started.
+	if _, err := os.Stat(finished); err == nil {
+		t.Fatal("the stub finished before it was released: it did not stand in for a running probe")
+	}
+
+	// The background refresh does run, and runs to its end once released, so
+	// the next caller gets a real answer.
+	waitForFile(t, started, "the background refresh never started the probe; a "+
+		"non-blocking probe that never probes would leave the cache cold forever")
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitForFile(t, finished, "the released probe never finished")
 }
 
 // TestNonBlockingProbeCoalescesConcurrentCallers proves a burst of

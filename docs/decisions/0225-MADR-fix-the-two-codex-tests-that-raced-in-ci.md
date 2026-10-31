@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-31
 decision-makers: Project Owner
 consulted: "CI run 41248953620 on c12e6e37 (attempts 1 and 2); this repository at c12e6e37 (internal/provider/codex, internal/testexec); the Codex sources at b91cedc080 (2026-10-30), read locally (codex-rs/cli/src/doctor.rs and doctor/, codex-rs/app-server-transport/src/transport/stdio.rs); 0137-MADR; 0224-PLAN deviation 2; scratch probes leftovers/0224_codex_flake.py, 0225_repro.py, 0225_validate.py and 0225_mu_scan.py"
@@ -79,8 +79,13 @@ makes each test assert its property without depending on how goroutines are sche
   * `collaboration_test.go` reads a live engine's `p.eng` without the lock in three more places:
     `:161`, `:183` and `:275-276`. In each, the engine stays up until the deferred `Shutdown`, so no
     write runs concurrently today, but an engine that died early would race exactly as F2 did.
-  * `live_contract_test.go:86-88` does the same under the `live` tag, which runs a real Codex and
-    spends quota.
+  * ~~`live_contract_test.go:86-88` does the same under the `live` tag, which runs a real Codex and
+    spends quota.~~ *Corrected 2026-10-31 (PLAN deviation 1):* `live_contract_test.go:85-89` takes
+    `p.mu` before it reads `p.eng` and releases it after. The grep behind the struck sentence dropped
+    every line naming `p.mu`, and the file was not read. The test has no race. It does read `p.eng`
+    without a nil check, so an engine that died between `ensureEngine` and the lock would panic the
+    test rather than fail it. It builds only under the `live_codex_contract` tag and runs against a
+    real Codex, spending quota.
 * **F6 — The package already has a stub that waits.** `reality_lock_test.go:15-17`: "Each stub writes
   a marker before it sleeps, so a test knows a probe is running without guessing from a fixed
   delay". Its `waitForFile` (`:19-32`) waits up to 10 s for a file and fails naming it.
@@ -181,8 +186,14 @@ are exactly what E1 and E2 used to make the old tests fail or pass at will.
     `Kill`, and the generation through it after the replacement (`:339-340`, `:357-358`).
   * `:161`, `:183` and `:275-276` read the engine through it too.
 * **D3 — No production change.** `store_reality.go` and `provider.go` stay as they are (F1, F4).
-* **D4 — `live_contract_test.go:86-88` is left as it is.** It runs only under the `live` tag against
-  a real Codex, and no live run is in scope. It is named here so the pattern is not lost.
+* ~~**D4 — `live_contract_test.go:86-88` is left as it is.** It runs only under the `live` tag
+  against a real Codex, and no live run is in scope. It is named here so the pattern is not lost.~~
+* **D4, as amended 2026-10-31 — `live_contract_test.go` reads the engine through `liveEngine` too,
+  and fails clearly when there is none.** The owner added it to scope, then, on the corrected F5,
+  chose this form. Its locked read (`:85-89`) becomes `eng, _ := liveEngine(p)`, then a `t.Fatal`
+  if `eng` is nil, then the same three reads from `eng`. One pattern holds across the package, and a
+  dead engine fails the test instead of panicking it. It is compiled and vetted under its tag on
+  darwin, linux and windows, and not run: no live run is in scope.
 * **D5 — Each fix is seen failing first, in scratch copies:**
   * on the unchanged tree, with E1's and E2's perturbations;
   * the rewritten probe test on the synchronous plant (P1);
@@ -200,7 +211,9 @@ are exactly what E1 and E2 used to make the old tests fail or pass at will.
   the stub started, when the scheduler let it.
 * Good, because `collaboration_test.go` has no unlocked read of a live engine left (D-4).
 * Neutral, because the probe test takes about 100 ms longer, waiting on the released stub.
-* Bad, because `live_contract_test.go` keeps the pattern until a live run is in scope (D4).
+* ~~Bad, because `live_contract_test.go` keeps the pattern until a live run is in scope (D4).~~
+  Bad, because D4's change to `live_contract_test.go` is compiled but not run until a live run is in
+  scope.
 * Bad, because CI cannot prove the absence of a race, only fail to find one. P2 and the
   perturbations are the evidence that this one is gone.
 
@@ -211,6 +224,8 @@ are exactly what E1 and E2 used to make the old tests fail or pass at will.
 * The synchronous plant fails the probe test. Undoing D2's locked reads, with E2's pause, fails the
   collaboration test with a data race.
 * No `p.eng` or `p.generation` read without `p.mu` remains in `collaboration_test.go`.
+* `live_contract_test.go` reads the engine through `liveEngine`, fails on a nil engine, and builds
+  and vets under `live_codex_contract` on darwin, linux and windows (D4 as amended).
 * `make race`, the Linux and Windows test hosts, and CI on the push pass.
 
 ## Pros and Cons of the Options
@@ -243,6 +258,12 @@ are exactly what E1 and E2 used to make the old tests fail or pass at will.
   pauses to make the old tests fail or pass at will.
 
 ## More Information
+
+### The owner's answers
+
+*Answered by the owner, 2026-10-31:* "approve scope 1" (option A: every live-engine read in
+`collaboration_test.go`), "test hosts 2" (the PLAN's S4 runs), "but also add the live contract
+test". On the corrected F5, "Use liveEngine, add nil check" (D4 as amended).
 
 ### Evidence index
 

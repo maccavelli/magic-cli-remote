@@ -82,11 +82,16 @@ func TestLiveContractNoModelTurn(t *testing.T) {
 		t.Fatalf("initialize: %v", err)
 	}
 	defer p.Shutdown()
-	p.mu.Lock()
-	snapshot := p.eng.capabilities.Snapshot()
-	metadata := p.eng.initialize
-	fr := p.eng.conn
-	p.mu.Unlock()
+	// liveEngine takes p.mu, which the exit goroutine writes the engine under;
+	// an engine that has already exited fails the test rather than panicking it
+	// (MADR 0225 D4).
+	eng, _ := liveEngine(p)
+	if eng == nil {
+		t.Fatal("no engine after initialize: it exited before its state could be read")
+	}
+	snapshot := eng.capabilities.Snapshot()
+	metadata := eng.initialize
+	fr := eng.conn
 	if exact && !snapshot.EvidenceMatched {
 		t.Fatalf("exact mode: binary identity differs from the fixture: %+v", snapshot.Sanitized())
 	}
