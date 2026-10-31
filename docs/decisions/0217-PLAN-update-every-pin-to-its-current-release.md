@@ -1731,8 +1731,27 @@ plugin reads the new DSL. The seven plugins' own lines wait on their maintainers
 Each phase's verification is met, as recorded under it, and CI on every push of this plan's
 commits here is recorded above. Still open:
 
-* **A6** (Deviation 15), until the new pair lands;
+* ~~**A6** (Deviation 15), until the new pair lands;~~ *closed, see below;*
 * what P5 left with the owner: magic-git's staged files, and the Linux test host's dotfiles. Their
   commits are not recorded here.
 
 This plan stays `in-progress`.
+
+**A6 closed, 2026-10-31.** The new pair,
+[0222-PLAN-clear-the-android-build-warnings-this-repository-owns.md](../../apps/mobile/docs/decisions/0222-PLAN-clear-the-android-build-warnings-this-repository-owns.md),
+landed as `fd70cfaf`. Its CI dispatch, run 41228371489, passed every job. Its Android APK job
+shows none of the warnings this repository owns, where the dispatch after P4 (run 41210038095)
+showed them:
+
+* the `android.builtInKotlin=false` deprecation and the Kotlin-plugin messages: 0;
+* the JDK's restricted-method warning, in Gradle and in `apksigner`: 0;
+* the old `android { }` DSL line for `app/build.gradle.kts`: 0.
+
+What remains is named as upstream in that pair's MADR, D7, as decided in Deviation 15:
+
+* the `android.newDsl=false` deprecation and seven plugins' old-DSL lines (Flutter);
+* thirteen compiler warnings in two plugins' code (their maintainers);
+* nine in Flutter's own Gradle plugin (Flutter);
+* Gradle's Gradle-10 summary, from three plugins' Groovy scripts (their maintainers).
+
+The plan stays `in-progress` only for P5's two owner items above.

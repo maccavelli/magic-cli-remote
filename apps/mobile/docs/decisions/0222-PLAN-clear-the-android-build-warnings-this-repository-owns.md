@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-31
 associated-madr: "0222-MADR-clear-the-android-build-warnings-this-repository-owns.md"
 ---
@@ -278,6 +278,42 @@ six files, and `docs/README.md`'s rows, which are not this step's.
   this plan's, stays unstaged.
 * `check_records.py --check-all` on the staged tree (`git checkout-index` into a scratch
   directory, removed afterwards): exit 0, no output.
+* The owner committed it as `fd70cfaf`. `leftovers/guard_range.py origin/master HEAD` over
+  `04ffc6d2..fd70cfaf`, with 0223's completion record `6df89cc6`: exit 0, no output. The owner
+  pushed.
+* Push runs: Docs 41227413011, success. CI 41227413296, success for every Go and Flutter job and
+  Live supervisors. Android APK and the self-update jobs were skipped, as on every push. The
+  dispatch waited for it: `ci.yml`'s concurrency group is per ref with `cancel-in-progress` off
+  only for tags, so a dispatch on master would have cancelled the push run.
+* **The dispatch (C2, Q2).** `gh workflow run ci.yml --ref master`, run 41228371489
+  (`workflow_dispatch`, `fd70cfaf`), success. Every job passed, Android APK (release arm64) and
+  the self-update build with its eight identity jobs included. Publish was skipped, as it is
+  without a tag.
+* **Its APK job** (`124619781385`, `leftovers/0222-dispatch-apk-job.log`), counted by
+  `leftovers/0222_ci_kinds.py` against the dispatch before this change (run 41210038095):
+
+  | Kind | Before | After |
+  | :--- | :--- | :--- |
+  | W1 | 16 messages, and 15 "Deprecated 'org.jetbrains.kotlin.android' plugin usage" headers | **0** |
+  | W4 | 3: lint, build and `apksigner` | **0** |
+  | W3, `app/build.gradle.kts` | 1 | **0** |
+  | W3, the plugins (each with its "This class is not used…" line) | 7 | 7 |
+  | W2 | 1 | 1 |
+  | W5 | 13 | 13 |
+  | W6 | 9 | 9 |
+  | W7 | 1 | 1 |
+
+  `flutter-version: 3.47.9`; "✓ Built … app-release.apk (41.3MB)"; the release-mode assert OK for
+  the build and the staged artifact; "assert-android-manifest-surface: OK"; the signature step
+  passed. Six other warning-like lines are in both runs, and none is an Android build warning:
+  * git's default-branch hint;
+  * pub's "4 packages have newer versions incompatible with dependency constraints", three times;
+  * a changelog line, "Error and warning improvements";
+  * the artifact upload's "Retention days cannot be greater than the maximum allowed retention".
+* Recorded in 0217's PLAN, where A6 closes.
+
+**Acceptance, 2026-10-31.** V1 to V5 are met: V5 with the kinds the two deviations added, all
+named in MADR D7. This plan is `complete`.
 
 ### Deviations
 
