@@ -437,6 +437,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0222 | PLAN | Implement clearing the Android build warnings this repository owns | [0222-PLAN-clear-the-android-build-warnings-this-repository-owns.md](../apps/mobile/docs/decisions/0222-PLAN-clear-the-android-build-warnings-this-repository-owns.md) |
 | 0223 | MADR | Raise the Codex transport and mcrelay reader limits to 10 MiB, matching acp-go-sdk2 | [0223-MADR-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md](decisions/0223-MADR-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md) |
 | 0223 | PLAN | Implement raising the Codex transport and mcrelay reader limits to 10 MiB | [0223-PLAN-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md](decisions/0223-PLAN-raise-the-codex-and-mcrelay-reader-limits-to-10-mib.md) |
+| 0224 | MADR | Pause the ACP reader instead of dropping notifications: adopt acp-go-sdk2 v1.29.0's OverflowBlock | [0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md](decisions/0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md) |
+| 0224 | PLAN | Implement pausing the ACP reader instead of dropping notifications | [0224-PLAN-pause-the-acp-reader-instead-of-dropping-notifications.md](decisions/0224-PLAN-pause-the-acp-reader-instead-of-dropping-notifications.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…

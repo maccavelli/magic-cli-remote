@@ -24,6 +24,32 @@ func newQueueTestSession() *session {
 	}
 }
 
+// turnEvents drives one real turn through Prompt -> beginTurn, with submit
+// standing in for the agent, and returns the session's events up to and
+// including turn_complete.
+func turnEvents(t *testing.T, s *session, submit func(context.Context) (acp.PromptResponse, error)) []event.Event {
+	t.Helper()
+	s.testSubmit = func(ctx context.Context, _ []acp.ContentBlock) (acp.PromptResponse, error) {
+		return submit(ctx)
+	}
+	if err := s.Prompt(context.Background(), []provider.Content{{Type: "text", Text: "go"}}); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	var got []event.Event
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev := <-s.events:
+			got = append(got, ev)
+			if ev.Type == event.TypeTurnComplete {
+				return got
+			}
+		case <-deadline:
+			t.Fatalf("no turn_complete; events so far: %d", len(got))
+		}
+	}
+}
+
 func TestPromptQueuesWhileTurnActive(t *testing.T) {
 	s := newQueueTestSession()
 	hold := make(chan struct{})

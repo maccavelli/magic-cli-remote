@@ -1045,7 +1045,8 @@ fork's default is `OverflowCloseConnection`, byte-identical to upstream. The ben
 when the connection opts in to `OverflowDropNewest`. That makes it a product decision, not a
 build detail: it trades a dead transport — every session on the engine lost, 13/20 and 18/20 in
 PLAN P4's null and real-handler runs — for occasional dropped updates, 0–199 per run in the same
-measurement.
+measurement. *(Read with 0166's amendment of 2026-10-31: the connection is per session, so a dead
+transport lost one session, not every session on the engine.)*
 
 **Surfacing loss without touching the reader goroutine (resolves F29's open half).** The turn
 goroutine already has the right seam: `submitPrompt` returns at `session.go:443`, on our
@@ -1059,7 +1060,8 @@ response, so every drop that preceded the response has been counted by the time 
 drop during a window when two sessions were mid-turn cannot be attributed to one of them without
 parsing `params` on the reader, which F29 rules out. Both sessions are therefore told their output
 *may* be incomplete. That over-reports rather than under-reports, which is the right direction for
-a truncation warning.
+a truncation warning. *(Read with 0166's amendment of 2026-10-31: the connection is per session,
+so a drop belonged to the one session on it, and the limit did not arise.)*
 
 ### New decisions
 
@@ -1082,11 +1084,22 @@ dropped notification's method in an atomic value, with no I/O, no lock and nothi
 so D17's reason holds. D18 still counts from `DroppedNotifications()`, and its notice now names
 the method.*
 
+*Note, 2026-10-31: amended by
+[0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md](0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md)
+D2. The client names `OverflowBlock`, acp-go-sdk2's default since v1.29.0: a full queue pauses the
+reader, so nothing is dropped or closed. The drop handler is gone, since under `OverflowBlock` it
+never fires.*
+
 **D18 — Tell the user, per turn, when their output may be incomplete.** Snapshot
 `DroppedNotifications()` when a turn starts and compare it after `submitPrompt` returns. If it
 rose, emit one `TypeNotice` on that session before `TypeTurnComplete`, on every exit path: done,
 cancelled and errored. The text names the count and says the output *may* be incomplete. It never
 claims more than the counter supports.
+
+*Note, 2026-10-31: retired by
+[0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md](0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md)
+D3, on the owner's answer to its Q1. Under `OverflowBlock` the counter cannot rise, so the notice,
+its recorder and their tests are removed. D19 stands.*
 
 **D19 — Reinstate the transport-survival assertion 0166 retired.** 0166 D1 retired it because no
 code could satisfy it at upstream v0.13.5. With D17 it is satisfiable, and PLAN P4 measured 20/20

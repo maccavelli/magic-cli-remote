@@ -1107,19 +1107,27 @@ type grokInitializeMeta struct {
 	} `json:"_meta"`
 }
 
-// clientConnOptions are the options every engine connection is built with.
+// clientConnOptions are the options every agent connection is built with.
 //
-// OverflowDropNewest keeps the engine's transport alive when the SDK's bounded
-// notification queue fills, dropping the arriving notification instead of
-// closing the connection — which would end every session on this engine
-// (MADR 0166 F3, MADR 0167 D17). Loss is surfaced per turn from
-// DroppedNotifications (D18).
+// OverflowBlock is the SDK's default since acp-go-sdk2 v1.29.0, named here so
+// these options state what production builds (MADR 0224 D2). When the SDK's
+// notification queue is full, at its count or at its byte budget (64 MiB by
+// default, which Magic takes: MADR 0224 D10), the reader pauses until a
+// notification handler returns, so the agent's writes wait and nothing is
+// dropped or closed. The SDK reads on, and past twice the queue's size or
+// budget closes, only while a handler's own request or the initialize is in
+// flight; no notification handler here sends a request (SessionUpdate). A
+// request from the agent that would take what the connection holds past the
+// budget is refused by the SDK with -32603, and its handler here does not run
+// (MADR 0224 F13, F14).
 //
-// The drop handler and the inbound validation hook record onto s (MADR 0207
-// D12, D13). The drop handler runs on the SDK's reader goroutine, which is why
-// 0167 D17 first had none: both hooks only store, and the per-turn notices
-// read what they stored. A nil s records nothing, as the stalled-pump fixture
-// builds its options before its session.
+// A pause holds only this session: each Magic session has its own agent
+// process and connection (spawnAgent; MADR 0224 F6).
+//
+// The inbound validation hook records onto s (MADR 0207 D13). It runs in the
+// SDK's dispatch, so it only stores, and the per-turn notice reads what it
+// stored. A nil s records nothing, as the stalled-pump fixture builds its
+// options before its session.
 //
 // The logger and the message bound are set here too (MADR 0184 D2). log goes
 // to WithLogger, which applies it before any message is read; nil keeps the
@@ -1128,12 +1136,11 @@ type grokInitializeMeta struct {
 // skipped, not fatal to the connection.
 //
 // One definition, shared with the stalled-pump and wire tests, so they exercise
-// what production runs: removing the overflow option here turns the survival
-// test red (D19).
+// what production runs: naming another policy here turns
+// TestABlockedHandlerPausesTheAgentAndLosesNothing red (MADR 0224 D4).
 func clientConnOptions(log *slog.Logger, s *session) []acp.ConnectionOption {
 	return []acp.ConnectionOption{
-		acp.WithNotificationOverflowPolicy(acp.OverflowDropNewest),
-		acp.WithNotificationDropHandler(s.recordDropped),
+		acp.WithNotificationOverflowPolicy(acp.OverflowBlock),
 		acp.WithInboundValidation(s.noteInbound),
 		acp.WithLogger(log),
 		acp.WithMaxMessageSize(maxACPMessageSize),

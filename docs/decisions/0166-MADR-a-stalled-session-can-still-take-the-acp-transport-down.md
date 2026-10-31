@@ -76,7 +76,9 @@ it as a flake, which is why it survived until it was traced.
 **F3 — The blast radius is larger than one session.** The connection is per engine,
 not per session. A single stalled consumer therefore ends every session on that
 engine, which is precisely what 0138 F5 called out and what the parked overflow was
-built to prevent.
+built to prevent. *(Corrected 2026-10-31 by the amendment "the connection is per
+session" below: the connection was, and is, per session, so the blast radius was one
+session.)*
 
 **F4 — The test is currently correct and should stay failing.** It asserts the
 connection survives. Under load it does not. Bounding the writer or relaxing the
@@ -170,7 +172,8 @@ GOMAXPROCS=1 go test ./internal/provider/acpagent/ -count=20
 
 * Good, because engine reconnection already exists and is exercised.
 * Bad, because it accepts that one bad session ends every session on the engine,
-  which is the outcome 0138 F5 rejected.
+  which is the outcome 0138 F5 rejected. *(Read with the amendment of 2026-10-31: it
+  ends one session.)*
 
 ## More Information
 
@@ -264,7 +267,8 @@ already turned into an orderly per-session teardown: `watchConnClose`
 (`:1057`), which emits the terminal error and disconnected status so the session
 manager reaps the session. It is wired per session at `acpagent.go:655`. So nothing
 zombies — but every session on that engine is torn down, which is **F3**'s blast
-radius, unchanged.
+radius, unchanged. *(Read with the amendment of 2026-10-31: the session torn down is
+the one whose connection closed.)*
 
 **F12 — The property MADR 0138 F5 promised is unachievable at SDK v0.13.5.** Taken
 together, F6, F9 and F10 mean no client-side change can keep the transport alive
@@ -382,3 +386,27 @@ session whose consumer will never drain. The per-engine blast radius (F3) is now
 through that deliberate containment, not through the SDK closing the shared connection. If the
 fork is ever retired without an upstream equivalent, this amendment's premise lapses and D1
 applies again.
+
+## Amendment — 2026-10-31: the connection is per session
+
+[0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md](0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md)
+F6 found that F3 was not true when it was written, and is not now.
+
+* **The facts** (0224 F6, at `7ed38787`):
+  * `Provider.Start` takes its `*session` from `claimWarm`, a spare spawned by `EnsureWarm`, or from
+    `spawnAgent`. `spawnAgent` starts one agent process with one connection whose client is that
+    session.
+  * `Start` then opens exactly one ACP session on it, `LoadSession` or `NewSession`. No other non-test
+    code opens a session on a connection.
+  * `git log -S "spawnAgent("` dates this shape to `91757927`, 2026-07-22, two months before this
+    record.
+* **So F3's "The connection is per engine, not per session" is wrong.** A stalled consumer, or a
+  closed connection, ended one session: the one whose agent and connection they were. It never ended
+  every session on the engine.
+* **What builds on F3** is read with this correction: the option D bullet and F11's last sentence,
+  annotated in place, and the consequence "one stalled consumer ends every session on that engine",
+  the deferred item "Per-engine blast radius (F3)" and the last amendment's "per-engine blast
+  radius", which are not. None of D1 to D7 changes: containment is still what ends a session whose
+  consumer will never drain.
+* Under 0224's `OverflowBlock`, a full queue pauses that one session's agent instead of closing or
+  dropping (0224 D2).

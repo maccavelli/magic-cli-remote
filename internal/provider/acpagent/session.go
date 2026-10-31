@@ -109,22 +109,21 @@ type session struct {
 	// Control-event overflow (MADR 0138 F5, amended; MADR 0166).
 	//
 	// deliver runs on the ACP SDK's single notification-consumer goroutine, and
-	// that goroutine must never block: the SDK queues notifications in a
-	// channel of 1024 whose overflow closes the whole connection rather than
-	// dropping. Measured, with the consumer blocked, the SDK tears the
-	// connection down in 7.16 ms — so no time-based bound can win that race.
-	// A control event that cannot be handed over immediately is parked here,
-	// and a per-session drainer does the blocking instead.
+	// that goroutine must never block: the SDK queues notifications behind it,
+	// 1024 deep, and when that queue is full its reader pauses under
+	// OverflowBlock (clientConnOptions), so a blocked consumer would stall this
+	// session's agent. Before acp-go-sdk2 v1.29.0 the full queue closed the whole
+	// connection instead, measured at 7.16 ms with the consumer blocked, so no
+	// time-based bound could win. A control event that cannot be handed over
+	// immediately is parked here, and a per-session drainer does the blocking
+	// instead.
 	//
-	// What this does NOT do is keep the connection alive. It bounds memory and
-	// ends a stalled session deliberately, and that is all. The SDK's queue sits
-	// UPSTREAM of us, between its reader and its consumer, so when the reader
-	// outpaces the consumer — CPU starvation is enough — that queue overflows and
-	// the transport dies before deliver is ever called. Measured under
-	// GOMAXPROCS=1: a handler doing nothing at all loses the transport 3 times in
-	// 5, with this overflow never touched. The depth is an unexported constant and
-	// the reader never blocks, so no client-side change can prevent it at
-	// acp-go-sdk v0.13.5 (MADR 0166 F6/F9/F10/F12).
+	// What this does is bound memory and end a stalled session deliberately.
+	// Keeping the connection alive is the SDK's part: with acp-go-sdk v0.13.5's
+	// close, the reader outpacing the consumer under CPU starvation lost the
+	// transport 3 times in 5 with this overflow never touched (MADR 0166
+	// F6/F9/F10/F12); under OverflowBlock the reader waits for the consumer
+	// instead (MADR 0224).
 	//
 	// overflowWake is nil until the first overflow; creating it under
 	// overflowMu is what starts the drainer, so a healthy session never spawns
@@ -237,12 +236,6 @@ type session struct {
 	testSubmit func(ctx context.Context, blocks []acp.ContentBlock) (acp.PromptResponse, error)
 	// testCancel, when non-nil, replaces s.conn.Cancel (unit tests only).
 	testCancel func(ctx context.Context) error
-	// testDropped, when non-nil, replaces s.conn.DroppedNotifications (unit
-	// tests only), so the per-turn loss notice can be driven without a transport.
-	testDropped func() uint64
-	// lastDropped is the method of the notification the connection last
-	// dropped under OverflowDropNewest, stored by recordDropped (MADR 0207 D12).
-	lastDropped atomic.Pointer[string]
 	// refused counts the agent messages the SDK refused, and lastRefused holds
 	// the last one's method, both stored by noteInbound (MADR 0207 D13).
 	refused     atomic.Uint64
@@ -439,7 +432,6 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	if s.cfg.TurnStallNotice > 0 {
 		go s.watchStall(turnDone)
 	}
-	droppedAtStart := s.droppedNotifications()
 	refusedAtStart := s.refused.Load()
 
 	go func() {
@@ -497,7 +489,6 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		s.clearSubagents()
 		// Before any exit path emits turn_complete, so the notice belongs to
 		// this turn on the done, cancelled, errored and limit paths alike.
-		s.noticeDroppedUpdates(droppedAtStart)
 		s.noticeRefusedUpdates(refusedAtStart)
 		if err != nil {
 			// Stderr scrape aborted the wait for a provider limit.
@@ -620,28 +611,6 @@ func (s *session) submitPrompt(ctx context.Context, blocks []acp.ContentBlock) (
 	})
 }
 
-// droppedNotifications is how many inbound ACP notifications the engine
-// connection has dropped under OverflowDropNewest (MADR 0167 D17).
-func (s *session) droppedNotifications() uint64 {
-	if s.testDropped != nil {
-		return s.testDropped()
-	}
-	if s.conn == nil {
-		return 0
-	}
-	return s.conn.DroppedNotifications()
-}
-
-// recordDropped is the connection's drop handler (MADR 0207 D12). It runs on
-// the SDK's reader goroutine, so it only stores the method: no I/O, no lock,
-// nothing that waits (MADR 0167 D17's reason). A nil session records nothing.
-func (s *session) recordDropped(method string, _ uint64) {
-	if s == nil {
-		return
-	}
-	s.lastDropped.Store(&method)
-}
-
 // noteInbound is the connection's inbound validation hook (MADR 0207 D13). It
 // returns the SDK's verdict unchanged, so nothing the SDK refuses is accepted,
 // and counts each refusal with its method for noticeRefusedUpdates. It runs in
@@ -655,44 +624,13 @@ func (s *session) noteInbound(_ context.Context, method string, _ any, err error
 	return err
 }
 
-// noticeDroppedUpdates tells the user when notifications were dropped while
-// this turn ran (MADR 0167 D18). It runs on the turn goroutine, never on the
-// SDK's reader, and the caller runs it before the turn's turn_complete. It
-// names the last dropped method when the drop handler recorded one (0207 D12).
-//
-// It is complete for the turn: the SDK counts a drop on its reader before that
-// reader handles the prompt's response, so every drop that preceded the
-// response is counted by the time Prompt returns.
-//
-// The connection is per engine (MADR 0166 F3), so a drop cannot be pinned to
-// one session without parsing params on the reader, which D17 rules out. Every
-// session whose turn overlapped the drop is told its output may be incomplete:
-// that over-reports, and never under-reports.
-func (s *session) noticeDroppedUpdates(atStart uint64) {
-	now := s.droppedNotifications()
-	if now <= atStart { // no drops, or the connection was replaced mid-turn
-		return
-	}
-	n := now - atStart
-	verb := "were"
-	if n == 1 {
-		verb = "was"
-	}
-	s.emit(event.Event{
-		Type:      event.TypeNotice,
-		SessionID: s.localID,
-		Timestamp: time.Now().UTC(),
-		Text: fmt.Sprintf("The agent sent updates faster than they could be processed and %d %s dropped%s, "+
-			"so this turn's output may be incomplete.", n, verb, lastMethod(&s.lastDropped)),
-	})
-}
-
 // noticeRefusedUpdates tells the user when the SDK refused messages the agent
 // sent while this turn ran, as the protocol does not allow them (MADR 0207
-// D13). Today such a message is only logged. Like noticeDroppedUpdates it runs
-// on the turn goroutine before turn_complete, and is complete for the turn:
-// the hook runs in the dispatch of each notification, and Prompt returns only
-// once the notifications queued before its response have been dispatched.
+// D13). Today such a message is only logged. It runs on the turn goroutine,
+// never on the SDK's reader, before the turn's turn_complete, and is complete
+// for the turn: the hook runs in the dispatch of each notification, and Prompt
+// returns only once the notifications queued before its response have been
+// dispatched.
 func (s *session) noticeRefusedUpdates(atStart uint64) {
 	now := s.refused.Load()
 	if now <= atStart {
@@ -1305,9 +1243,11 @@ const exitPreference = 500 * time.Millisecond
 // process. Its message says why the connection ended, from conn.Err().
 //
 // The connection can end while the agent lives: a read error, or the agent
-// closing its output. A queue overflow cannot end it: Magic runs
-// OverflowDropNewest, which drops a notification instead (MADR 0167 D17;
-// 0207 F6). Without this watcher such a session would zombie.
+// closing its output. A queue overflow ends it only past OverflowBlock's
+// read-on limit, twice the queue, which the SDK reads to only while a
+// notification handler's own request or the initialize is in flight; no
+// notification handler here sends a request (MADR 0224 D2, D5). Without this
+// watcher such a session would zombie.
 //
 // An agent's death ends the connection too, and that end is nearly always seen
 // first, because agentproc's Wait returns only once the connection's goroutines
@@ -1664,18 +1604,18 @@ func (s *session) deliver(ev event.Event, control bool) {
 	// Control path (R5=A): never drop once a consumer is attached — and never
 	// block here either.
 	//
-	// This runs on the ACP SDK's single notification-consumer goroutine, and
-	// the SDK queues notifications in a channel of 1024 whose overflow does not
-	// drop: it closes the whole connection (acp-go-sdk@v0.13.5
-	// connection.go:108, :446, errNotificationQueueOverflow). Driven directly,
-	// with the consumer blocked, the SDK tears the connection down in 7.16 ms —
-	// so the 30-second bound this replaced lost that race by three orders of
-	// magnitude and protected nothing (MADR 0138 F5, amended).
+	// This runs on the ACP SDK's single notification-consumer goroutine. When
+	// it stops, the SDK's queue of 1024 fills and, under OverflowBlock
+	// (clientConnOptions), the reader pauses: a deliver that blocked would
+	// pause this session's agent until the consumer drained. Before
+	// acp-go-sdk2 v1.29.0 that queue closed the whole connection instead, in
+	// 7.16 ms with the consumer blocked, so the 30-second bound this replaced
+	// lost that race by three orders of magnitude and protected nothing (MADR
+	// 0138 F5, amended; MADR 0224).
 	//
-	// Not blocking here is necessary but not sufficient: it keeps US from filling
-	// that queue, and cannot stop the SDK's reader filling it on its own under CPU
-	// starvation. See the overflow fields' comment and MADR 0166 — the transport
-	// can still die, and the session is contained rather than saved when it does.
+	// Not blocking here keeps US from filling that queue. A consumer that never
+	// drains is contained, not waited on: the overflow cap faults the session
+	// (see the overflow fields' comment and MADR 0166).
 	//
 	// Every path below returns in O(1): the channel takes it, the overflow
 	// takes it, or the session is faulted. The waiting is done by the
@@ -1811,6 +1751,12 @@ func isHighFrequencyEvent(t event.Type) bool {
 // from inside a notification handler (the SDK's B1; MADR 0186 D6); v1.14.0
 // fixed that, and the rule stays because nothing here needs to send one (MADR
 // 0184 amendment of 2026-10-15, E5).
+//
+// Under OverflowBlock (clientConnOptions) a notification handler must also not
+// wait for a request or a $/cancel_request the agent sends later, nor for code
+// that waits for one, nor take a lock held across such a wait: with the queue
+// full the SDK's reader is paused, nothing the agent sends next is read, and
+// this session would deadlock (MADR 0224 D5; the SDK's 0044 D7).
 func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
 	u := params.Update
 	now := time.Now().UTC()

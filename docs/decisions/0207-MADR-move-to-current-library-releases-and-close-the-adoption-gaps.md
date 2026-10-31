@@ -742,6 +742,10 @@ B3 premise on v1.15.0, mitigation removed:  lifecycle_test.go:77: a prompt with 
     owner. It does no I/O, takes no lock, and calls nothing that can wait, which keeps D17's reason.
   * D18's per-turn notice names the method.
   * 0167 D17's "with no drop handler" becomes "with a handler that only records".
+  * *Note, 2026-10-31: superseded by
+    [0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md](0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md)
+    D2 and D3. The client names `OverflowBlock`, under which nothing is dropped, so the drop handler,
+    its recorder and D18's notice are gone. D13 stands.*
 * **D13 — Refused agent messages reach the phone (item 5, second half).**
   * A `WithInboundValidation` hook returns the SDK's verdict unchanged, so nothing the SDK refuses
     is accepted.

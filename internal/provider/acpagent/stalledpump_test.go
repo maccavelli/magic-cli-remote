@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,21 +16,20 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
-// sdkNotificationQueueDepth is the SDK's notification queue capacity
-// (acp-go-sdk@v0.13.5 connection.go:19, defaultMaxQueuedNotifications).
+// sdkNotificationQueueDepth is the SDK's notification queue capacity, still its
+// default at acp-go-sdk2 v1.30.0 (connection.go, defaultMaxQueuedNotifications).
 //
-// Written down here because the failure this file guards is entirely about that
-// number: the queue does not drop on overflow, it closes the whole connection
-// (connection.go:432-447, errNotificationQueueOverflow → shutdownReceive). A
-// client handler that blocks forever therefore does not merely stall its own
-// session — it takes the engine's transport down with it (MADR 0138 F5).
+// Written down here because what this file guards happens at that number. Under
+// OverflowBlock, which clientConnOptions names, a queue this deep and full
+// pauses the SDK's reader until a notification handler returns: the agent's
+// writes wait, and nothing is dropped or closed (MADR 0224). The SDK also bounds
+// the queue in bytes, 64 MiB by default, but these tests' frames are far below
+// that, so the count is what they reach (MADR 0224 P4).
 //
-// And a client handler that blocks for no time at all can lose it too. The queue
-// is between the SDK's reader and its single consumer, both of which are the
-// SDK's; when the reader wins that race the connection closes whatever we do.
-// Not blocking is still worth doing — it keeps us from being the cause — but it
-// is not a guarantee, which is why this file no longer asserts one
-// (MADR 0166 F6/F12).
+// At acp-go-sdk v0.13.5 the same overflow closed the whole connection, and a
+// handler that blocked for no time at all could lose it when the reader won the
+// race with the consumer (MADR 0138 F5; MADR 0166 F6/F12). That is why the
+// containment test below asserts what it does.
 const sdkNotificationQueueDepth = 1024
 
 // toolCallFrame is one ACP `session/update` carrying a tool_call.
@@ -140,6 +140,12 @@ func stalledSession(t *testing.T, opts ...acp.ConnectionOption) (*session, *acp.
 // production builds. This test keeps asserting containment, which still matters:
 // the policy is what keeps the transport up, containment is what ends a session
 // whose consumer will never drain.
+//
+// The condition above was met at acp-go-sdk2 v1.29.0, whose reader pauses at a
+// full queue (OverflowBlock, its default, which this test's connection takes).
+// It is answered as 0167 answered it: survival is asserted with production's
+// options by TestACPConnectionSurvivesAStalledPump, and the pause itself by
+// TestABlockedHandlerPausesTheAgentAndLosesNothing (MADR 0224 D4, deviation 1).
 func TestAStalledPumpIsContainedNotHung(t *testing.T) {
 	s, _, agentIn := stalledSession(t)
 
@@ -248,17 +254,21 @@ func waitForContainment(s *session, budget time.Duration) bool {
 // TestACPConnectionSurvivesAStalledPump is MADR 0167 D19: the assertion MADR 0166
 // D1 retired, reinstated because it is now achievable.
 //
-// With the SDK's default policy a full notification queue closes the whole
-// connection, taking every session on the engine with it; 0166 measured that
-// even a handler doing nothing loses it 3 times in 5 under GOMAXPROCS=1. With
-// OverflowDropNewest the reader drops the arriving notification and keeps
-// reading, so the transport survives however far the consumer falls behind.
+// With the old SDK's default policy a full notification queue closed the
+// connection, and with it this session; 0166 measured that even a handler doing
+// nothing lost it 3 times in 5 under GOMAXPROCS=1. 0167 named OverflowDropNewest,
+// which dropped the arriving notification instead. clientConnOptions now names
+// OverflowBlock: the reader pauses while the queue is full and resumes as the
+// consumer, here deliver parking in O(1), catches up, so the transport survives
+// and every frame is read (MADR 0224 D2; P2 measured 20 of 20 under
+// GOMAXPROCS=1).
 //
-// Built from clientConnOptions, the same options spawnAgent uses: removing the
-// policy from production turns this test red, which is the point of sharing them.
-// Seen red before it was relied on: with the option removed it failed under
-// GOMAXPROCS=1 (PLAN 0167 P12, execution record), and again on acp-go-sdk2
-// (PLAN 0184 A1 step 7, execution record).
+// Built from clientConnOptions, the same options spawnAgent uses, which is the
+// point of sharing them. Seen red before it was relied on: with the policy
+// option removed, when the default still closed, it failed under GOMAXPROCS=1
+// (PLAN 0167 P12, execution record), and again on acp-go-sdk2 (PLAN 0184 A1
+// step 7, execution record). Under OverflowBlock the policy itself is pinned by
+// TestABlockedHandlerPausesTheAgentAndLosesNothing (MADR 0224 D4).
 func TestACPConnectionSurvivesAStalledPump(t *testing.T) {
 	_, conn, agentIn := stalledSession(t, clientConnOptions(nil, nil)...)
 	const frames = sdkNotificationQueueDepth + 200
@@ -275,8 +285,9 @@ func TestACPConnectionSurvivesAStalledPump(t *testing.T) {
 		}
 	}()
 
-	// With the policy the reader never stops, so every frame is read. A writer
-	// still blocked here means the connection stopped reading: it closed.
+	// Under OverflowBlock the reader pauses only until the consumer catches up,
+	// so every frame is read. A writer still blocked here means the connection
+	// stopped reading for good: it closed, or the consumer never resumed.
 	select {
 	case <-writerDone:
 	case <-time.After(10 * time.Second):
@@ -290,66 +301,131 @@ func TestACPConnectionSurvivesAStalledPump(t *testing.T) {
 	// And it is still open once the storm is over, not merely slow to close.
 	select {
 	case <-conn.Done():
-		t.Fatalf("the ACP connection closed under a stalled pump (%d notifications dropped); "+
-			"the overflow policy is not in effect", conn.DroppedNotifications())
+		t.Fatalf("the ACP connection closed under a stalled pump: %v; "+
+			"the overflow policy is not in effect", conn.Err())
 	case <-time.After(500 * time.Millisecond):
 	}
 }
 
-// blockingClient is an ACP client whose session/update handler blocks until
-// release closes: the SDK's single notification consumer stops, so its queue
-// fills and every notification past it is dropped under OverflowDropNewest.
-type blockingClient struct {
+// recordingBlockedClient is an ACP client whose session/update handler blocks
+// until release closes, then records the tool call id it was handed: the SDK's
+// single notification consumer stops, so its queue fills.
+type recordingBlockedClient struct {
 	acp.Client
 	release chan struct{}
+	mu      sync.Mutex
+	seen    []string
 }
 
-func (c blockingClient) SessionUpdate(ctx context.Context, _ acp.SessionNotification) error {
+func (c *recordingBlockedClient) SessionUpdate(ctx context.Context, n acp.SessionNotification) error {
 	select {
 	case <-c.release:
 	case <-ctx.Done():
 	}
+	if tc := n.Update.ToolCall; tc != nil {
+		c.mu.Lock()
+		c.seen = append(c.seen, string(tc.ToolCallId))
+		c.mu.Unlock()
+	}
 	return nil
 }
 
-// TestDropHandlerRecordsTheDroppedMethod is MADR 0207 D12 against the SDK's
-// real drops: with the consumer blocked, a flood past the queue's depth is
-// dropped, and clientConnOptions' drop handler records the method on the
-// session it was given. The survival test above drops only now and then on a
-// fast host, so it cannot carry this check.
-func TestDropHandlerRecordsTheDroppedMethod(t *testing.T) {
-	rec := &session{}
-	release := make(chan struct{})
+func (c *recordingBlockedClient) handled() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.seen...)
+}
+
+// TestABlockedHandlerPausesTheAgentAndLosesNothing is MADR 0224 D4, the
+// property OverflowBlock gives clientConnOptions: with the consumer blocked, a
+// flood past the queue's depth pauses the agent's writes instead of dropping or
+// closing, and once the consumer resumes every notification arrives, in order.
+// The writer runs on its own goroutine because it is now expected to wait.
+// Seen red before it was relied on: with OverflowDropNewest named it failed,
+// "the writer was never paused" (PLAN 0224 S1 and S3, execution record).
+func TestABlockedHandlerPausesTheAgentAndLosesNothing(t *testing.T) {
+	const (
+		frames = sdkNotificationQueueDepth + 200
+		// The writer counts as stopped when its count is unchanged for
+		// stillChecks checks, checkEvery apart.
+		stillChecks = 5
+		checkEvery  = 100 * time.Millisecond
+		// How long the writer, then the handler, may take after release.
+		drainBound = 30 * time.Second
+	)
+	c := &recordingBlockedClient{release: make(chan struct{})}
 	agentOut, agentIn := io.Pipe()
 	clientWritesR, clientWritesW := io.Pipe()
 	go answerInitialize(clientWritesR, agentIn)
-	conn := acp.NewClientSideConnection(blockingClient{release: release}, clientWritesW, agentOut,
-		clientConnOptions(nil, rec)...)
+	conn := acp.NewClientSideConnection(c, clientWritesW, agentOut, clientConnOptions(nil, nil)...)
+	released := false
 	t.Cleanup(func() {
-		close(release)
+		if !released {
+			close(c.release)
+		}
 		_ = conn.Close()
 		_ = agentIn.Close()
 		_ = clientWritesW.Close()
 	})
 	initializeForTest(t, conn)
 
-	const frames = sdkNotificationQueueDepth + 50
-	for i := range frames {
-		if _, err := agentIn.Write(toolCallFrame("agent-1", i)); err != nil {
-			t.Fatalf("write %d: %v", i, err)
+	var written atomic.Int64
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for i := range frames {
+			if _, err := agentIn.Write(toolCallFrame("agent-1", i)); err != nil {
+				return
+			}
+			written.Add(1)
+		}
+	}()
+
+	// Let the writer run until it stops making progress: the reader paused.
+	last, still := int64(-1), 0
+	for still < stillChecks {
+		time.Sleep(checkEvery)
+		if n := written.Load(); n == last {
+			still++
+		} else {
+			last, still = n, 0
 		}
 	}
-	deadline := time.After(5 * time.Second)
-	for conn.DroppedNotifications() == 0 {
-		select {
-		case <-deadline:
-			t.Fatal("no notification was dropped with the consumer blocked")
-		case <-time.After(10 * time.Millisecond):
+	paused := written.Load()
+	if paused >= frames {
+		t.Fatalf("the writer was never paused: %d frames written", paused)
+	}
+	if isClosed(conn) {
+		t.Fatalf("the connection closed while paused after %d frames: %v", paused, conn.Err())
+	}
+	if d := conn.DroppedNotifications(); d != 0 {
+		t.Fatalf("%d notifications were dropped while paused after %d frames", d, paused)
+	}
+
+	close(c.release)
+	released = true
+	select {
+	case <-writerDone:
+	case <-time.After(drainBound):
+		t.Fatalf("after release only %d of %d frames were written", written.Load(), frames)
+	}
+	deadline := time.Now().Add(drainBound)
+	for len(c.handled()) < frames {
+		if time.Now().After(deadline) {
+			t.Fatalf("after release %d of %d notifications were handled", len(c.handled()), frames)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	for i, id := range c.handled() {
+		if want := fmt.Sprintf("tool-%d", i); id != want {
+			t.Fatalf("notification %d is %s, want %s: order was not kept", i, id, want)
 		}
 	}
-	if m := rec.lastDropped.Load(); m == nil || *m != "session/update" {
-		t.Fatalf("%d notifications were dropped, but the drop handler recorded %v; want session/update",
-			conn.DroppedNotifications(), m)
+	if d := conn.DroppedNotifications(); d != 0 {
+		t.Fatalf("%d notifications were dropped", d)
+	}
+	if isClosed(conn) {
+		t.Fatalf("the connection closed: %v", conn.Err())
 	}
 }
 

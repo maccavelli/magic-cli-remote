@@ -79,6 +79,11 @@ var _ provider.QuestionSession = (*session)(nil)
 // reports method-not-found for the rest, which is what the SDK would have done
 // on its own. Extension *notifications* registered via Spec are dispatched to
 // their handlers.
+//
+// Those notification handlers run on the SDK's notification loop, as
+// SessionUpdate does, and keep its rule under OverflowBlock: none waits for a
+// request or a $/cancel_request the agent sends later, nor for code that waits
+// for one, nor takes a lock held across such a wait (MADR 0224 D5).
 func (s *session) HandleExtensionMethod(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case methodExitPlanMode:
