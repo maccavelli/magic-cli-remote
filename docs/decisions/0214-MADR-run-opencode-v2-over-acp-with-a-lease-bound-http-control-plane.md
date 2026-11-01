@@ -1,8 +1,8 @@
 ---
-status: proposed
-date: 2026-10-25
+status: accepted
+date: 2026-11-01
 decision-makers: Project Owner
-consulted: none
+consulted: "0220-REPORT-opencode-v2-parity-assessment.md (v2.2.3 probes and the work breakdown); the opencode source at b44b7164ba, 'release: v2.2.3'"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD033 MD036 MD060 -->
 
@@ -743,3 +743,63 @@ drive the shared service over HTTP.
 This record takes 0214, the number `scripts/check_records.py --next` returned.
 The adoption pair for acp-go-sdk2 issue #28, previously discussed as 0214, takes
 the next free number when it is written.
+
+## Amendment — 2026-11-01 (A): accepted, against opencode 2.2.3
+
+### Acceptance
+
+*The owner, 2026-11-01, answering
+[0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md](0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md)
+Q1:* "Do 0214 now". Option C and D1 to D13 are accepted as written, except where this amendment
+changes them. The gates G1 to G6 still come before the parts they gate, each on the owner's word.
+
+### What 2.2.3 changes [0220-REPORT §3; probed against the installed v2.2.3, and read at `b44b7164ba`]
+
+* **A1 — The pin.** The installed engine is 2.2.3, not 2.1.4. Its source is the commit
+  `b44b7164ba` ("release: v2.2.3", 2026-10-30), which has no local tag. The surface grew from 124
+  paths / 149 operations to 134 / 162, with 46 experimental operations.
+* **A2 — The catalog arrives with the session.** `session/new` returns `configOptions` in its
+  result, so G6 measures that result as well as later `config_option_update`s.
+* **A3 — A plugin gate.** `GET /api/agent` can answer `503 ServiceUnavailableError` while plugins
+  load (probed on an empty home).
+* **A4 — A fixed service port.** The managed background service binds a fixed default port (49374
+  here). An isolated-home CLI run with the owner's service up tried to start a second one on that
+  port and failed.
+* **A5 — ACP is per directory.** `session/load`, `session/resume` and `session/fork` reject a `cwd`
+  other than the session's `location.directory`
+  (`packages/cli/src/acp/service.ts:100-101`), so one `opencode acp` child serves one project
+  directory.
+* **A6 — Cold starts are slow.** `initialize` took 6.7 s on one run and 43.7 s on another, and
+  `session/new` about 45 s, with no credentials (probed).
+* **A7 — acpagent declines the keys opencode's extensions ride on.** `session_info_update._meta`
+  (`internal/provider/acpagent/session.go:1972`), `usage_update.cost._meta` (`:1928`) and
+  `compaction_update._meta` (`compaction.go:104`) are declined, and frames for a session other
+  than the live one are dropped (`session.go:1778-1784`). Line numbers as of `c9865be7`; 0220
+  cited earlier ones.
+
+### Decisions changed
+
+* **D1, amended:** the Spec's process model is one `opencode acp` child per project directory
+  (A5). Prewarm and the first-prompt deadline are sized from A6's measurements.
+* **D2, amended:** the control plane retries a `503` from `GET /api/agent` with a bounded back-off
+  (A3), and sends the `x-opencode-directory` header as well as `location[directory]`.
+* **D3, amended:** `KnownGoodVersion` becomes **2.2.3** (A1). The floor stays **2.1.0**.
+* **D13, amended:** the isolated-home recipe also sets a distinct service port, or never boots the
+  managed service, so a live test cannot collide with the owner's own service (A4).
+* **D14 (new) — acpagent grows per-Spec extension hooks first.** Per-Spec `_meta` handlers for
+  `session_info_update`, `usage_update.cost`, `compaction_update` and projected `tool_call_update`,
+  and per-Spec vendor notification methods (`opencode/session/child_update`), each opt-in for the
+  Spec that registers it (A7). This extends the pattern grok's notification map already follows
+  (`internal/provider/grok/grok.go`), and it is compatible with
+  [0208-PLAN-make-the-provider-layer-agent-neutral.md](0208-PLAN-make-the-provider-layer-agent-neutral.md)
+  P6, which moves grok's operations into its own Spec.
+
+### Settled with the owner, 2026-11-01
+
+* **`stream_coalesce_ms` (D4): retired.** Validation fails naming the key and this record;
+  acpagent's coalescing already applies. *Owner: "Retire it".*
+* **Full-text search in the workspace (D10): dropped by name for now.** *Owner: "open an issue in
+  this repo listing the need for research, and a madr/plan pair for full text search. then drop it
+  by name as recommended for now."* The issue is
+  [#34](https://github.com/maccavelli/magic-cli-remote/issues/34); the decision on how to restore
+  it is that research's own MADR/PLAN pair.

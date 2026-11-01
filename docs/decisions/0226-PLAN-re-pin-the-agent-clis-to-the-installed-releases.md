@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-01
 associated-madr: "0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md"
 ---
@@ -370,3 +370,24 @@ names the old tests, as the record of the 0108 run it is.
 `testdata/0.166.0/` (four files, new); `testdata/0.155.1/` (removed);
 `testdata/wire/0.166.0/frames.jsonl` and `meta.json`; `testdata/wire/0.152.1/frames.jsonl` and
 `meta.json`; `scripts/codex-contract.ps1`; `docs/guides/ops-codex-contract.md`; and this plan.
+
+*The owner committed R3 as `c9865be7`.*
+
+### R4 — 2026-11-01: opencode, handed to 0214
+
+Under Q1 option B:
+[0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md)
+is `accepted`, with an amendment carrying 0220's 2.2.3 deltas (A1 to A7, D14), and its PLAN,
+[0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md),
+is written and presented, `proposed`. Its source is opencode at `b44b7164ba` ("release: v2.2.3"),
+which the owner's checkout now holds; the five 0220 paths it cites were checked there. The
+opencode pin moves in that PLAN's P4, not here.
+
+While R4 was prepared, the MADR was found not to cite 0217 D10 ("each its own record"); the MADR
+carries a dated note. *The owner, 2026-11-01: "Keep 0226 as is".*
+
+**This plan is complete:** V1 to V4 are met in R1 to R3, and V5 is met by R4's hand-off. V6 held
+at each phase.
+
+**Files for this commit:** this pair; the 0214 pair (MADR amended, PLAN new); `docs/README.md`'s
+index row for the 0214 PLAN.

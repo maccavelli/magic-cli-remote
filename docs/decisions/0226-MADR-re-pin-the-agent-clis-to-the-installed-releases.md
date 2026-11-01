@@ -189,8 +189,20 @@ approved with "all live runs" (C2). Under option B, D4 is: accept
 write its PLAN from 0220's breakdown, and present it on its own before any opencode code changes.
 The opencode pin moves under that PLAN, not this one. 0208-PLAN P5 waits for it.
 
+### Note, 2026-11-01: 0217 D10 was not cited
+
+[0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md)
+D10, accepted on 2026-10-29, says the engine pins are "each its own decision, with its own live
+run", on the owner's answer "Each its own record". This record moved grok, kilo and codex under one
+record, though each in its own phase, commit and live run. It was written and approved without
+citing D10; that was found after R3, while R4 was being prepared. *The owner, 2026-11-01: "Keep
+0226 as is".* Each pin kept its own phase, commit and live run.
+
 ### Related records
 
+* [0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md):
+  F11 listed these same four pins as behind, and D10 left each to its own record (see the note
+  above).
 * [0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md](0163-MADR-codex-jank-is-stale-pins-not-upstream-churn.md):
   the codex re-pin procedure this follows (D3). Its PLAN is still `in-progress`.
 * [0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md)
