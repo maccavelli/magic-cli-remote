@@ -1165,3 +1165,125 @@ named parameter with the name 'resultMethod'". On scratch copies of the change, 
 `apps/mobile/lib/data/chat/chat_models.dart`, `apps/mobile/lib/data/chat/transcript_reducer.dart`,
 `apps/mobile/lib/features/chat/chat_bubble.dart`, `apps/mobile/test/engine_result_test.dart`
 (new), this plan.
+
+*The owner committed this as `ad588bb0`. Before P5 continued, the owner chose to fix the codex
+live-build break first: amendment A of
+[0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md](0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md),
+committed and pushed as `b85cfec3`.*
+
+### P5 Deviation 3, 2026-11-01 — codex has no single answer to pass through. The owner decided: "Approve the mapping" and "One short turn"
+
+- **Found** while naming the codex commit's files, before any change. codex's `/status` and `/usage`
+  call nothing: they format `RuntimeSnapshot`, which Magic assembles from cached reads
+  (`account/read`, `account/rateLimits/read`, `account/usage/read` and three more, in
+  `RefreshRuntime`) and from notifications (`internal/provider/codex/runtime.go:432-466`). No
+  engine body answers either command.
+- **Found, the schema.** codex 0.166.0's export (`generate-json-schema`, read during the issue #31
+  assessment) has `account/usage/read` take an optional `threadId`, "read estimated usage for this
+  thread instead of account-wide token activity", answering `threadUsage` with per-model tokens and
+  cost: the counterpart of grok's session ledger. `account/rateLimits/read` answers the account's
+  windows, credits and plan: the counterpart of grok's billing. Its answer carries `accountId`.
+- **Found, the capture.** The one codex capture (0.152.1) holds only an
+  `account/rateLimits/updated` notification. codex's `KnownGoodVersion` is 0.152.1, and 0.166.0 is
+  installed: issue #31's re-pin, which this deviation does not do.
+- **Resolution, the mapping.** `/usage` calls `account/usage/read` with the session's thread id,
+  and `/status` calls `account/rateLimits/read`. Each is gated on the engine's capability, as
+  `RefreshRuntime`'s reads are, and its body passes through unchanged. A missing capability or a
+  failed call is a notice saying why. `RuntimeSnapshot` and the codex surface it feeds do not
+  change.
+- **Resolution, the capture.** codex 0.166.0, run live with `MCREMOTE_WIRE_CAPTURE_DIR` in a
+  scratch directory, through a scratch-only test in a scratch copy of the tree: start a thread,
+  one short turn, then both reads. The two answers go to a new
+  `internal/provider/codex/testdata/wire/0.166.0/` (`frames.jsonl`, `meta.json`), verbatim except
+  that `accountId`'s value is replaced by a placeholder, as the grok 1.0.13 capture carries a zero
+  UUID (MADR 0151 F5). The owner chose one turn, so `threadUsage` carries real figures; it spends a
+  little codex quota.
+- **Files for the codex commit:** `internal/provider/codex/runtime.go`, its tests, the new capture
+  directory, this plan.
+- **Not taken:** `/status` only, with `/usage` deferred to the re-pin; skipping codex in P5.
+- **The MADR is unchanged:** D12 already covers it.
+
+### P5 Deviation 4, 2026-11-01 — codex's thread usage read answers null. The owner decided: "Last tokenUsage notice"
+
+- **Found** in Deviation 3's capture, before any source change. codex 0.166.0, one turn
+  (`end_turn`), both capabilities advertised. `account/usage/read` with the thread's id answered
+  199 bytes, every field `null`, `threadUsage` included: the schema gives it only "when a thread
+  was requested and its billing route is available", and the account is on a ChatGPT plan. The
+  same turn pushed one `thread/tokenUsage/updated` carrying `total`, `last` and
+  `modelContextWindow` (16,858 tokens, 258,400 window). `account/rateLimits/read` answered 1,540
+  bytes; besides `accountId`, each reset credit carries a 53-character `id`.
+- **Resolution:** codex `/usage` returns the session's latest `thread/tokenUsage/updated` params,
+  exactly as codex pushed them, with that method as the result's method. Before any is received,
+  it is a notice that codex has reported no usage yet. `/status` stays Deviation 3's
+  `account/rateLimits/read`. The committed frames are the `thread/tokenUsage/updated` notification
+  and the rate-limits answer. In the rate-limits answer, `accountId` and each credit `id` are
+  replaced by placeholders; the credits' titles and descriptions are generic text and stay.
+- **Files added to the codex commit:** `internal/provider/codex/session.go`, which keeps the raw
+  params where it already reads the notification.
+- **Not taken:** passing the null thread read through; the read with a fallback to the
+  notification, which puts two sources behind one command.
+- **The MADR is unchanged.**
+
+### P5, codex commit, 2026-11-01: codex `/status` and `/usage`
+
+**The capture (Deviations 3 and 4).** codex-cli 0.166.0, from a scratch-only test in a scratch copy
+of the tree (`p5codex/run_capture.py` in the session scratchpad; the copy was removed), with
+`MCREMOTE_WIRE_CAPTURE_DIR` set: one turn ("Reply with exactly 'hello'"), `end_turn`; both
+capabilities advertised; `account/usage/read` 181 bytes and `account/rateLimits/read` 1,521 bytes,
+no error. The bodies were judged by shape before any value was shown (`scan.py`, `idshape.py`):
+`accountId` is a UUID and each credit `id` a 20-character prefix and 32 hex digits.
+`write_capture.py` wrote `internal/provider/codex/testdata/wire/0.166.0/` with two frames in
+capture order, each count asserted: the `thread/tokenUsage/updated` notification, verbatim, and the
+rate-limits answer, verbatim except `<account-id>`, `<credit-id-1>` and `<credit-id-2>`. The guard's
+redact preview: "would edit 0 file(s)".
+
+**What changed.**
+
+* `session.go`: `lastTokenUsage` keeps the latest `thread/tokenUsage/updated` params as codex
+  pushed them, under `s.mu`, before Magic decodes them. The decode and its `usage_update` event are
+  unchanged.
+* `runtime.go`: `RuntimeStatus` sends `account/rateLimits/read` (gated on
+  `CapabilityAccountRateLimits`, bounded at 15 s) and returns codex's answer unchanged.
+  `RuntimeUsage` returns `lastTokenUsage`. A missing capability, a stopped engine, a failed read or
+  no report yet is one line saying why.
+* **Deleted with the formatter (step 3):** both snapshot sentences, and the text assertions of
+  `TestStatusAndUsageCommandsAreMappedAndReadable`, which keeps its command-table check as
+  `TestStatusAndUsageCommandsAreMapped`. `RuntimeSnapshot` and the codex surface it feeds are
+  unchanged.
+* `runtime_passthrough_test.go` (new): `TestUsagePassesCodexTokenUsageThrough`,
+  `TestStatusPassesCodexRateLimitsThrough` (a fake engine over a pipe answering with the captured
+  result) and `TestStatusWithoutTheCapabilityIsALine` (a running engine without the capability
+  must not be asked).
+
+**Tests, each seen failing** (`p5codex/plants.py`). On a `git archive` copy of `b85cfec3` with only
+the tests and the capture added, all three fail: "body = null … text = \"Codex usage is
+unavailable.\""; "codex was never asked for account/rateLimits/read"; and the snapshot sentence
+where a refusal was wanted. On copies of the change, one plant each:
+
+| Plant | Fails |
+| --- | --- |
+| the rate-limits answer decoded and re-encoded | `TestStatusPassesCodexRateLimitsThrough` (keys reordered, `<` escaped) |
+| the capability gate removed | `TestStatusWithoutTheCapabilityIsALine` (the read was sent) |
+| the session keeps a re-marshalled map, not codex's params | `TestUsagePassesCodexTokenUsageThrough` |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 45 packages ok |
+| the four new and changed tests, `-race -count=3` | ok |
+| `make pre-add-check FILES=…` (the four Go files) | "4 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags` | exit 0; exit 0, 56 ignored SDK names; exit 0, eight tags ok |
+| `make check-records`; the guard's redact preview | exit 0; "would edit 0 file(s)" |
+
+**Not done:** the live check of codex's operations (step 4), which needs the owner's word. The
+capture run exercised both reads on 0.166.0, but not through the new `RuntimeStatus`.
+
+**Also in this commit:** the close of
+[0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md](0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md)
+amendment A (its A4 and A5, and `status: complete`), after CI on `b85cfec3`.
+
+**Files for this commit:** `internal/provider/codex/runtime.go`, `internal/provider/codex/session.go`,
+`internal/provider/codex/runtime_p4_test.go`, `internal/provider/codex/runtime_passthrough_test.go`
+(new), `internal/provider/codex/testdata/wire/0.166.0/frames.jsonl` and `meta.json` (new), this
+plan, and the 0225 plan.

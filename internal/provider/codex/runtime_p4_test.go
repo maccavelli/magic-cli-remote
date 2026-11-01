@@ -1,10 +1,8 @@
 package codex
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/maccavelli/magic-cli-remote/internal/command"
@@ -63,23 +61,11 @@ func TestRuntimeSnapshotBoundsMCPDiagnostics(t *testing.T) {
 	}
 }
 
-func TestStatusAndUsageCommandsAreMappedAndReadable(t *testing.T) {
+// TestStatusAndUsageCommandsAreMapped. What they answer is pinned against the
+// 0.166.0 capture in runtime_passthrough_test.go (0208-PLAN P5).
+func TestStatusAndUsageCommandsAreMapped(t *testing.T) {
 	if commandTable["status"].Op != command.OpStatus || commandTable["usage"].Op != command.OpUsage {
 		t.Fatalf("command mappings: status=%+v usage=%+v", commandTable["status"], commandTable["usage"])
-	}
-	p := New(Config{Transport: TransportWS})
-	p.version = "0.149.1"
-	p.runtime.usage = RuntimeUsage{Tokens: 10, ContextWindow: 100}
-	p.runtime.rates.Primary.UsedPercent = 20
-	s := p4Session()
-	s.p = p
-	status, err := s.RuntimeStatus(context.Background())
-	if err != nil || !strings.Contains(status.Text, "0.149.1") || !strings.Contains(status.Text, "transport ws") {
-		t.Fatalf("status=%+v err=%v", status, err)
-	}
-	usage, err := s.RuntimeUsage(context.Background())
-	if err != nil || !strings.Contains(usage.Text, "10 tokens") || !strings.Contains(usage.Text, "20%") {
-		t.Fatalf("usage=%+v err=%v", usage, err)
 	}
 }
 

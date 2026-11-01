@@ -56,6 +56,11 @@ type session struct {
 	turnsBackwardsCursor string
 	itemsBackwardsCursor string
 
+	// lastTokenUsage is the params of the latest thread/tokenUsage/updated,
+	// exactly as codex pushed them, guarded by mu. /usage passes it through
+	// (0208-PLAN P5 Deviation 4); nil until the first turn reports.
+	lastTokenUsage json.RawMessage
+
 	// lastActivity is the unix-nanosecond timestamp of the most recent
 	// notification on this session. The stall ticker reads this on each
 	// tick (MADR 0035 D8) — one atomic store per notification replaces
@@ -1665,6 +1670,12 @@ func (s *session) handleDecodedNotification(method string, params json.RawMessag
 		// fail, so the `err == nil` guard skipped the emit entirely and codex
 		// reported NO usage at all: no /context for the phone, and no
 		// cold/warm signal for the latency record.
+		//
+		// The raw params are kept first, whatever the decode below makes of
+		// them: /usage shows codex's own answer, not Magic's reading of it.
+		s.mu.Lock()
+		s.lastTokenUsage = append(json.RawMessage(nil), params...)
+		s.mu.Unlock()
 		var p struct {
 			TokenUsage struct {
 				Total              codexTokenCounts `json:"total"`

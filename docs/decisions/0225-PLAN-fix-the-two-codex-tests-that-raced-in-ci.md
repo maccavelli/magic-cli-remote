@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-11-01
 associated-madr: "0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md"
 ---
@@ -466,3 +466,16 @@ The plant copies were removed and their absence checked. No live run (C2).
 
 **Not done:** `make preflight` as a whole, which now includes `vet-tags`. Its parts that this change
 touches ran on their own above.
+
+**A4.** Staged: the five Scope files and this pair. The owner committed `b85cfec3` and pushed it.
+
+**A5 — after the push.** The guard over `ddf4ddfd..b85cfec3` (the pre-push form, run after the
+push): exit 0, no output. CI run `41326569369` on `b85cfec3`: "success". Every Go and Flutter job
+passed: `Go (test)` (`124907651770`), `Go (darwin/arm64)`, `Go (windows/amd64)`,
+`Go (linux/arm64)`, `Live supervisors (runit, s6)`, `Flutter (analyze & test)` and
+`Flutter (test on windows)`. The APK and release jobs were skipped, as on every push. In
+`Go (test)`, the new `Vet (every build tag)` step logged "vet-tags: 8 opt-in tag(s): debugpprof,
+live_codex, live_codex_contract, live_codex_review, live_codex_turn, live_grok, live_kilo,
+live_opencode", each "ok". Docs run `41326568935`: "success".
+
+**This plan is complete again.** VA1 to VA5 are met.

@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
@@ -429,38 +429,45 @@ func clipRuntime(s string) string {
 	return s
 }
 
-func (s *session) RuntimeStatus(context.Context) (provider.Result, error) {
-	if s.p == nil {
-		return provider.Result{Text: "Codex runtime status is unavailable."}, nil
+// runtimeReadTimeout bounds `/status`'s read. codex answers it from its
+// backend, so it can wait on the network.
+const runtimeReadTimeout = 15 * time.Second
+
+// RuntimeStatus implements [provider.RuntimeSession]: codex's
+// account/rateLimits/read, passed through as codex sent it (MADR 0208 D12;
+// 0208-PLAN P5 Deviation 3). A read the engine does not advertise, or that
+// fails, is one line saying why.
+func (s *session) RuntimeStatus(ctx context.Context) (provider.Result, error) {
+	const method, what = "account/rateLimits/read", "Codex rate limits"
+	if s.p == nil || !s.p.supportsCapability(CapabilityAccountRateLimits) {
+		return provider.Result{Text: what + " are unavailable: this codex does not advertise " + method + "."}, nil
 	}
-	runtime := s.p.RuntimeSnapshot()
-	message := fmt.Sprintf("Codex %s · transport %s · generation %d", firstNonEmpty(runtime.CodexVersion, "unknown"), runtime.Transport, runtime.Generation)
-	if runtime.Account.Plan != "" {
-		message += " · plan " + runtime.Account.Plan
+	framer := s.p.framer()
+	if framer == nil {
+		return provider.Result{Text: what + " are unavailable: the codex engine is not running."}, nil
 	}
-	if runtime.Model.ID != "" {
-		message += " · model " + runtime.Model.ID
+	callCtx, cancel := context.WithTimeout(ctx, runtimeReadTimeout)
+	defer cancel()
+	body, err := framer.sendReadOnlyRequest(callCtx, method, map[string]any{})
+	if err != nil {
+		return provider.Result{Text: what + " are unavailable: " + clipRuntime(err.Error())}, nil
 	}
-	if len(runtime.MCPServers) > 0 {
-		message += fmt.Sprintf(" · MCP %d server(s)", len(runtime.MCPServers))
+	if len(body) == 0 {
+		return provider.Result{Text: what + " returned no answer."}, nil
 	}
-	return provider.Result{Text: message}, nil
+	return provider.Result{Method: method, Body: body}, nil
 }
 
+// RuntimeUsage implements [provider.RuntimeSession]: the latest
+// thread/tokenUsage/updated codex pushed for this session, as it pushed it.
+// account/usage/read was the first choice, but for a ChatGPT-plan account it
+// answers null even after a turn (0208-PLAN P5 Deviation 4).
 func (s *session) RuntimeUsage(context.Context) (provider.Result, error) {
-	if s.p == nil {
-		return provider.Result{Text: "Codex usage is unavailable."}, nil
+	s.mu.Lock()
+	body := append(json.RawMessage(nil), s.lastTokenUsage...)
+	s.mu.Unlock()
+	if len(body) == 0 {
+		return provider.Result{Text: "Codex has reported no usage for this session yet."}, nil
 	}
-	runtime := s.p.RuntimeSnapshot()
-	message := fmt.Sprintf("Usage: %d tokens", runtime.Usage.Tokens)
-	if runtime.Usage.ContextWindow > 0 {
-		message += fmt.Sprintf(" of %d context", runtime.Usage.ContextWindow)
-	}
-	if used := runtime.RateLimits.Primary.UsedPercent; used > 0 {
-		message += fmt.Sprintf(" · primary rate window %d%% used", used)
-	}
-	if runtime.Account.Plan != "" {
-		message += " · plan " + runtime.Account.Plan
-	}
-	return provider.Result{Text: message}, nil
+	return provider.Result{Method: "thread/tokenUsage/updated", Body: body}, nil
 }
