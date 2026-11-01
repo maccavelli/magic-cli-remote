@@ -2352,7 +2352,9 @@ P3c (Deviation 16). `v1.29.0` and `v1.30.0` came by
 * **D56 — Pin `acp-go-sdk2 v1.31.1`.** `go.mod` and `go.sum` only. D45's exception stands.
 * **D57 — L-3's API is not adopted here.** The observer takes its own record when wanted; receiving
   middleware is weighed in 0214 P2's design, by that PLAN's rules, as D28, D47, D50, D53 and D55
-  rule for earlier additions.
+  rule for earlier additions. *Note, 2026-11-01:* 0214 P2 adopts `WithReceivingMiddleware` to
+  deliver vendor notification methods whose names lack `_`, which the SDK's extension dispatch
+  does not route (0214 PLAN P2 Deviation 2).
 
 ### Confirmation of the amendment
 

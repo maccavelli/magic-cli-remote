@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -72,6 +73,42 @@ const planContentLimit = 8000
 // ExtensionNotificationHandler is invoked for extension notifications registered by a Spec.
 type ExtensionNotificationHandler func(ctx context.Context, s *session, params json.RawMessage)
 
+// MetaSource names the message a `_meta` key arrived in.
+type MetaSource string
+
+// The messages whose `_meta` keys a Spec can register handlers for.
+const (
+	MetaFromSessionInfo  MetaSource = "session_info_update"
+	MetaFromPromptResult MetaSource = "prompt_result"
+)
+
+// MetaHandler is invoked with the value of a `_meta` key a Spec registered, as
+// the agent sent it: a key the agent clears with null arrives as `null`. It
+// runs where the message is handled: a session_info_update's on the SDK's
+// notification loop, under HandleExtensionMethod's rule, and a prompt
+// result's on the turn goroutine, before turn_complete.
+type MetaHandler func(ctx context.Context, s *session, from MetaSource, value json.RawMessage)
+
+// handleMeta passes each key of meta the Spec registered a handler for to that
+// handler, in key order, and reports whether any key had none.
+func (s *session) handleMeta(ctx context.Context, from MetaSource, meta map[string]any) (unhandled bool) {
+	for _, key := range slices.Sorted(maps.Keys(meta)) {
+		h, ok := s.metaHandlers[key]
+		if !ok {
+			unhandled = true
+			continue
+		}
+		// A value decoded from JSON always encodes.
+		value, err := json.Marshal(meta[key])
+		if err != nil {
+			unhandled = true
+			continue
+		}
+		h(ctx, s, from, value)
+	}
+	return unhandled
+}
+
 var _ acp.ExtensionMethodHandler = (*session)(nil)
 var _ provider.QuestionSession = (*session)(nil)
 
@@ -98,6 +135,40 @@ func (s *session) HandleExtensionMethod(ctx context.Context, method string, para
 			}
 		}
 		return nil, acp.NewMethodNotFound(method)
+	}
+}
+
+// hasVendorNotifications reports whether the Spec registered a notification
+// method whose name lacks the leading `_`, such as opencode's
+// `opencode/session/child_update`.
+func (s *session) hasVendorNotifications() bool {
+	for method := range s.extNotificationHandlers {
+		if !isExtensionMethod(method) {
+			return true
+		}
+	}
+	return false
+}
+
+// vendorNotifications is receiving middleware that hands a notification whose
+// method the Spec registered, and whose name lacks the leading `_`, to that
+// handler. acp-go-sdk2 routes only `_` names to HandleExtensionMethod and
+// drops the rest as unknown, so without it such a notification never reaches
+// Magic (MADR 0214 D14, corrected again; acp-go-sdk2 extensions.go:181-197 at
+// v1.31.1). Requests, `_` names and unregistered methods pass through.
+//
+// It runs on the SDK's notification worker, so a handler keeps
+// HandleExtensionMethod's rule under OverflowBlock (MADR 0224 D5), and must
+// not keep params after it returns.
+func (s *session) vendorNotifications(next acp.MethodHandler) acp.MethodHandler {
+	return func(ctx context.Context, method string, params json.RawMessage) (any, *acp.RequestError) {
+		if acp.IsNotification(ctx) && !isExtensionMethod(method) {
+			if h, ok := s.extNotificationHandlers[method]; ok {
+				h(ctx, s, params)
+				return nil, nil
+			}
+		}
+		return next(ctx, method, params)
 	}
 }
 

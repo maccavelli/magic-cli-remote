@@ -794,6 +794,40 @@ changes them. The gates G1 to G6 still come before the parts they gate, each on 
   [0208-PLAN-make-the-provider-layer-agent-neutral.md](0208-PLAN-make-the-provider-layer-agent-neutral.md)
   P6, which moves grok's operations into its own Spec.
 
+### A7 and D14, corrected 2026-11-01 (PLAN P2 Deviation 1)
+
+Read against opencode's ACP source at `b44b7164ba`, with the client capabilities D1 advertises,
+three of A7's four declined keys never reach Magic:
+
+* **Child sessions.** With `_meta["opencode/child-session-updates"]` advertised, a child's output
+  arrives only as the extension notification `opencode/session/child_update`
+  (`packages/cli/src/acp/translate.ts:418-428`, `turn.ts:142-146`), which `Spec.ExtensionNotifications`
+  already routes. Without that capability, it is projected onto the parent's own session id. Either
+  way, the drop of frames for another session (`session.go:1778-1784`) is not met.
+* **Cost.** `usage_update` carries the standard `cost: {amount, currency: "USD"}` with no `_meta`
+  (`turn.ts:336-343`), which Magic already maps.
+* **Compaction.** With `session.compaction` advertised, opencode sends standard
+  `compaction_update` frames; its `_meta["opencode/compaction"]` marker is only for a client that
+  does not advertise it (`compaction.ts:112-131`).
+* **Retry: the one gap.** `session_info_update._meta["opencode/retry"]`
+  (`{attempt, nextRetryAt, error}`, cleared with `null`; `translate.ts:265`, `:275`) is declined
+  (`session.go:1971-1973`), and the prompt result's `_meta["opencode/retry"]`
+  (`translate.ts:166`) is not read.
+
+**D14, as corrected:** acpagent gains per-Spec, opt-in handlers for keys in
+`session_info_update._meta` and in the prompt result's `_meta`, with a conformance row per key. A
+Spec that registers none behaves as today. ~~Child updates use `Spec.ExtensionNotifications`.~~ No
+hook for `usage_update.cost._meta` or `compaction_update._meta`, and no routing of other-session
+frames. *Owner, 2026-11-01: "Narrow P2".*
+
+**Corrected again, 2026-11-01, from G1's recording (PLAN P2 Deviation 2).** G1 recorded seven
+`opencode/session/child_update` notifications, and a handler registered in
+`Spec.ExtensionNotifications` received none: acp-go-sdk2 routes a method to the extension handler
+only when its name starts with `_` (`extensions.go:181-197` at v1.31.1), and opencode's does not.
+**D14 also** delivers a Spec's vendor notification methods whose names lack `_`, through the SDK's
+receiving middleware (`WithReceivingMiddleware`, v1.31.0), installed only for a Spec that
+registers one. *Owner: "SDK receiving middleware".*
+
 ### Settled with the owner, 2026-11-01
 
 * **`stream_coalesce_ms` (D4): retired.** Validation fails naming the key and this record;

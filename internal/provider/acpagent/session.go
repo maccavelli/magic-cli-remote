@@ -62,6 +62,7 @@ type session struct {
 	xaiCompactionOpen       acp.CompactionId
 	provider                *Provider
 	extNotificationHandlers map[string]ExtensionNotificationHandler
+	metaHandlers            map[string]MetaHandler
 	localID                 string
 	agentID                 string
 	// cwd is the ACP session working directory (session/new|load Cwd).
@@ -532,6 +533,12 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			// copy; fall back to the sanitizer for unclassified failures.
 			s.emitClassifiedTurnErrorConfirmed(err.Error())
 			return
+		}
+		// The answer's _meta keys the Spec registered (MADR 0214 D14, as
+		// corrected), before the turn ends. A key with no handler is not
+		// read, as before.
+		if len(resp.Meta) > 0 {
+			s.handleMeta(turnCtx, MetaFromPromptResult, resp.Meta)
 		}
 		// The turn's token split, when the answer carries one and grok's own
 		// channel has not reported it (D25), before the turn ends.
@@ -1757,7 +1764,7 @@ func isHighFrequencyEvent(t event.Type) bool {
 // that waits for one, nor take a lock held across such a wait: with the queue
 // full the SDK's reader is paused, nothing the agent sends next is read, and
 // this session would deadlock (MADR 0224 D5; the SDK's 0044 D7).
-func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
+func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotification) error {
 	u := params.Update
 	now := time.Now().UTC()
 	s.lastActivity.Store(now.UnixNano())
@@ -1963,12 +1970,14 @@ func (s *session) SessionUpdate(_ context.Context, params acp.SessionNotificatio
 	case u.SessionInfoUpdate != nil:
 		// The agent's own title for the session. It is generated, so the
 		// manager never lets it replace a name the user set (MADR 0187 D1).
-		// updatedAt and _meta are not used, whether a value or a null.
+		// updatedAt is not used, whether a value or a null. A _meta key goes
+		// to the Spec's handler for it, and one with no handler is declined
+		// (MADR 0214 D14, as corrected).
 		info := u.SessionInfoUpdate
 		if !info.UpdatedAt.IsZero() {
 			s.declineUpdate("session_info_update.updated_at")
 		}
-		if len(info.Meta) > 0 {
+		if len(info.Meta) > 0 && s.handleMeta(ctx, MetaFromSessionInfo, info.Meta) {
 			s.declineUpdate("session_info_update._meta")
 		}
 		raw, ok := info.Title.Value()

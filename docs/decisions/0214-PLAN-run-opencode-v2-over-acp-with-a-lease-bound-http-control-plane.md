@@ -100,7 +100,8 @@ Each runs under C4, records what it shows in the execution record, and pins what
 
 * **G1** — one ACP turn on a free model: text and thinking, a tool call with a permission, a form
   elicitation, a subagent, usage, and a forced retry if one can be provoked. Frames captured under
-  C6 into `internal/provider/opencode/testdata/acp/2.2.3/`.
+  C6 into ~~`internal/provider/opencode/testdata/acp/2.2.3/`~~
+  `internal/provider/opencode/testdata/wire/2.2.3/` (P2 execution record).
 * **G2** — `session/load` and `session/resume` after a restart, rebuilding the transcript and cost.
 * **G3** — the `--stdio` lease, the environment password and `opencode acp` on the Linux and
   Windows test hosts: exit codes, signals, pipes and the service port.
@@ -306,3 +307,156 @@ environment) belongs to the control plane, P5.
 `internal/provider/httpagent/contenttype_test.go` (new),
 `internal/provider/httpagent/supervise_wiring_test.go`, `internal/provider/opencode/http.go`,
 `internal/provider/opencode/version_test.go`, and this plan.
+
+*The owner committed P1 as `72abd42f` and pushed it.*
+
+### P2 Deviation 1, 2026-11-01 — P2's premises, read against the source; G1 first. The owner decided: "Narrow P2" and "Run G1 first"
+
+- **Found** before any P2 change, reading opencode's ACP source at `b44b7164ba` with D1's client
+  capabilities: three of the four keys P2 was to hook never reach Magic. Child output arrives as
+  the extension notification `opencode/session/child_update`, which `Spec.ExtensionNotifications`
+  already routes, not as frames for another session; cost arrives in the standard
+  `usage_update.cost`; compaction arrives as standard `compaction_update` frames. The one gap is
+  the retry marker, `_meta["opencode/retry"]` in `session_info_update` (declined at
+  `session.go:1971-1973`) and in the prompt result (not read). The MADR's A7 and D14 are corrected
+  with the citations ("A7 and D14, corrected 2026-11-01").
+- **Found:** P2 step 1 calls for recorded frames, and no opencode ACP recording exists before G1.
+- **Resolution, scope:** P2 builds per-Spec, opt-in handlers for keys in `session_info_update._meta`
+  and in the prompt result's `_meta`, with a conformance row per key; steps 1 to 4 are narrowed to
+  that. The other-session routing and the cost and compaction hooks are not built.
+- **Resolution, order:** G1 runs now, ahead of P2, on the owner's choice ("Ask for G1 now … and
+  build P2's tests from its recording"), and P2's tests are built from its recording. G1 runs from
+  a scratch-only harness in a scratch copy of the tree; its frames are read under C6 before any is
+  committed. The rest of P3 stays where it is.
+- **Not taken:** building all four hooks; folding P2 into P4; frames transcribed from source.
+- **The MADR is amended** (A7, D14).
+
+### P2 Deviation 2, 2026-11-01 — G1's recording: child updates never reach acpagent, and no retry. The owner decided: "SDK receiving middleware" and "Transcribe from source"
+
+- **G1, run 2026-11-01** (scratch-only harness `g1/zz_g1capture_test.go` in a scratch copy of the
+  tree, removed; isolated home per C4; `opencode v2.2.3`; D1's client capabilities with
+  `_meta["opencode/child-session-updates"]`). Runs 1 and 2: every prompt answered `-32603` "Add
+  credits to continue, or switch to a free model": the session's default model was a paid one, and
+  the harness's `StartOptions.Model` was not applied (below). Run 3 set
+  `opencode/deepseek-v4.1-flash-free` through `SetModel`: four turns, each `end_turn`, 53 frames:
+  text and thinking chunks, three `tool_call`s with eight updates, one `elicitation/create` form
+  (answered), four `usage_update`s, four prompt results with `usage` and `_meta: {}`, and seven
+  `opencode/session/child_update` notifications.
+- **Found, child updates:** the harness registered `opencode/session/child_update` in
+  `Spec.ExtensionNotifications` and counted 0 calls for 7 frames. acp-go-sdk2 hands a method to the
+  extension handler only when its name starts with `_` (`extensions.go:181-197` at v1.31.1);
+  opencode's has none, so the generated dispatch answers it as an unknown method and the
+  notification is dropped. Deviation 1's statement that `Spec.ExtensionNotifications` already
+  routes child updates was wrong.
+- **Found, retry:** no retry occurred; every `_meta` was `{}`, and none can be provoked on demand.
+- **Found, for P4:** acpagent sends a start model only through grok's paths (`_meta`, `ModelArgs`;
+  `acpagent.go:915-930`), so the opencode Spec must set it with `session/set_config_option`; and
+  "build" mode asked no permission for `ls -la`.
+- **Resolution, child updates:** P2 also delivers a Spec's vendor notification methods whose names
+  lack `_` through acp-go-sdk2 v1.31.1's `WithReceivingMiddleware`: a registered method goes to
+  the Spec's handler, everything else passes through untouched, and a Spec that registers no such
+  method installs no middleware. Its test uses G1's recorded `child_update` frames.
+- **Resolution, retry:** the retry tests use frames transcribed from opencode's source
+  (`packages/cli/src/acp/translate.ts:166`, `:265`, `:275` at `b44b7164ba`), each marked as from
+  source; a later recording replaces them when one occurs.
+- **The capture:** G1's run-3 frames, read under C6, go to
+  ~~`internal/provider/opencode/testdata/acp/2.2.3/`~~ `internal/provider/opencode/testdata/wire/2.2.3/`
+  as P2's fixture (moved; P2 execution record).
+- **Not taken:** changing acp-go-sdk2 first; dropping the child-updates capability; more turns to
+  provoke a retry.
+- **The MADR is amended** (A7 and D14 again); 0207's amendment L notes the middleware's adoption.
+
+### P2 — 2026-11-01: acpagent extension hooks, as narrowed
+
+**What changed.**
+
+* `acpagent.go`:
+  * `Spec.MetaHandlers map[string]MetaHandler`, carried onto the session at start beside
+    `ExtensionNotifications`.
+  * `clientConnOptions` appends `acp.WithReceivingMiddleware(s.vendorNotifications)` only when the
+    Spec registered a notification method whose name lacks `_`. Every other Spec's connection,
+    grok's included, has the four options it had.
+* `extensions.go`:
+  * `vendorNotifications`: a notification, never a request, whose method lacks `_` and is
+    registered goes to its handler. Requests, `_` names and unregistered methods pass to the SDK's
+    dispatch unchanged, so a request under a registered name is still answered `-32601`, and an
+    unregistered vendor notification is still dropped.
+  * `MetaSource` (`session_info_update`, `prompt_result`), `MetaHandler`, and `handleMeta`, which
+    passes each registered key's value, as sent, to its handler in key order. A key cleared with
+    `null` arrives as `null`.
+* `session.go`:
+  * `session_info_update._meta`: registered keys go to their handlers. The update is declined, as
+    every `_meta` was before, only when a key has no handler. A `_meta`-only update sets no title.
+  * The prompt result's `_meta`: registered keys go to their handlers on the turn goroutine, after
+    a successful answer and before the usage report and `turn_complete`. A key with no handler is
+    not read, as before.
+* Tests:
+  * `vendorext_test.go` (new): G1's seven `child_update` frames reach the handler with their
+    params. A request under that name gets `-32601` and no call. An unregistered vendor
+    notification is dropped. A `_` name is delivered once. A Spec with no vendor name gets no
+    middleware.
+  * `metaext_test.go` (new): the retry marker, scheduled and cleared, reaches its handler and is
+    not declined. An unregistered key is declined, with handlers for other keys and with none. The
+    prompt result's marker reaches its handler before `turn_complete`. G1's four recorded prompt
+    results, each `_meta: {}`, call none. The retry frames are transcribed from `translate.ts:166`,
+    `:265` and `:275` at `b44b7164ba`, and are marked in the file as from source. Their values are
+    illustrative; their shape is `translate.ts:268-272` with `SessionStructuredError`
+    (`packages/client/src/promise/generated/types.ts:114-120`).
+  * `conformance_test.go`: `TestExtensionKeysConform`, step 4's rows. There is one row per key a
+    Spec can register: the `child_update` notification, `session_info_update._meta` `opencode/retry`,
+    and prompt-result `_meta` `opencode/retry`. Each row is driven over a connection with
+    production's options, names its evidence (recorded or transcribed), and must reach the
+    registered handler exactly once. A key gets a row before a Spec registers it.
+  * `wireagent_test.go`: `newWireSessionFor` carries the Spec's notification and `_meta` handlers
+    onto the session, as the provider's start does, before the connection is built.
+
+**The capture moved.** G1's frames were first written to `testdata/acp/2.2.3/`, which
+`internal/wirecap`'s `TestCommittedFixturesCarryNoIdentifiers` does not cover. It globs
+`provider/*/testdata/wire/*/frames.jsonl`. They now sit in `testdata/wire/2.2.3/`
+(`frames.jsonl`, 53 frames; `meta.json`), beside the kilo and codex captures, so that guard covers
+them. Read under C6, the capture had the operator's account name in 7 places: the shell's startup
+errors and the owner column of an `ls -la` tool result. Each is now `<user>`. The isolated home
+was already written as `/home/user` by `internal/wirecap`.
+
+**Tests, each seen failing.**
+
+* Against the code before the change, `TestVendorNotificationReachesItsSpecHandler` failed with
+  "the handler was called 0 time(s), want 7". The SDK logged `-32601` for each of the seven
+  frames. `TestNoVendorMethodInstallsNoMiddleware` failed with "vendor: 4 options, want 5".
+* With `MetaHandlers` declared but not dispatched, `TestRetryMetaReachesItsHandler/scheduled` and
+  `/cleared` failed with "the handler was called 0 time(s), want 1".
+  `TestPromptResultMetaReachesItsHandler` failed with "…0 time(s) before turn_complete, want 1".
+* The rows that pin today's behaviour passed before and after: the request answered `-32601`, the
+  unregistered vendor notification, the `_` name delivered once, the unregistered `_meta` key
+  declined, and G1's empty `_meta`.
+* `TestExtensionKeysConform` was written after the code. On scratch copies of the tree, one
+  dispatch point undone each (`p2/plant.py` in the session scratchpad), exactly one row failed:
+
+| Plant | Fails |
+| --- | --- |
+| no middleware | `notification opencode/session/child_update`: "called 0 time(s), want 1 (recorded: G1, opencode 2.2.3 (testdata/wire/2.2.3))" |
+| no `session_info_update` dispatch | `session_info_update._meta opencode/retry`: "called 0 time(s), want 1 (transcribed: opencode translate.ts:275 at b44b7164ba)" |
+| no prompt-result dispatch | `prompt result _meta opencode/retry`: "called 0 time(s), want 1 (transcribed: opencode translate.ts:166 at b44b7164ba)" |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 45 packages ok, `acpagent` and `grok` among them, no failure or race line |
+| `make pre-add-check FILES=…` (seven Go files) | "7 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+grok's unit, conformance and wire suites ran unchanged in the race run (step 5). The test hosts
+were not run: the change adds no process, path, signal or build-tag behaviour (C7 applies to those).
+
+**Not done:**
+
+* No Spec registers a handler yet. The opencode Spec's retry handler and child panel are P4.
+* G1 pinned no `live_opencode` test. P3 pins what is stable when the rest of its gates run.
+* No retry has been recorded. The transcribed frames stay until one is.
+
+**Files for this commit:** `internal/provider/acpagent/acpagent.go`, `extensions.go`, `session.go`,
+`conformance_test.go`, `wireagent_test.go`, `vendorext_test.go` (new), `metaext_test.go` (new);
+`internal/provider/opencode/testdata/wire/2.2.3/` (new); this plan; the MADR; and
+[0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
+(amendment L).

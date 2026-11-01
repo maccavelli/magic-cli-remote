@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -165,5 +166,75 @@ func TestSubagentUpdatesStopAtTheSDK(t *testing.T) {
 	}
 	if got := s.conn.Connection().RefusedMessages() - before; got != 3 {
 		t.Errorf("the SDK refused %d message(s), want the 3 subagent updates", got)
+	}
+}
+
+// TestExtensionKeysConform is MADR 0214 D14, as corrected (PLAN P2 step 4):
+// one row per extension key a Spec can register, each driven over a
+// connection with production's options and delivered to the Spec's handler
+// exactly once. A key gets a row before a Spec registers it.
+func TestExtensionKeysConform(t *testing.T) {
+	childUpdate := g1Frames(t, childUpdateMethod)[0]
+	for _, row := range []struct {
+		key      string
+		evidence string
+		register func(spec *Spec, hit func())
+		drive    func(t *testing.T, s *session, a *wireAgent)
+	}{
+		{
+			key:      "notification " + childUpdateMethod,
+			evidence: "recorded: G1, opencode 2.2.3 (testdata/wire/2.2.3)",
+			register: func(spec *Spec, hit func()) {
+				spec.ExtensionNotifications = map[string]ExtensionNotificationHandler{
+					childUpdateMethod: func(context.Context, *session, json.RawMessage) { hit() },
+				}
+			},
+			drive: func(t *testing.T, s *session, a *wireAgent) { a.sendRaw(childUpdate); barrier(t, s, a) },
+		},
+		{
+			key:      "session_info_update._meta " + retryKey,
+			evidence: "transcribed: opencode translate.ts:275 at b44b7164ba",
+			register: func(spec *Spec, hit func()) {
+				spec.MetaHandlers = map[string]MetaHandler{
+					retryKey: func(_ context.Context, _ *session, from MetaSource, _ json.RawMessage) {
+						if from == MetaFromSessionInfo {
+							hit()
+						}
+					},
+				}
+			},
+			drive: func(t *testing.T, s *session, a *wireAgent) {
+				a.sendRaw(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"agent-1","update":` + retryScheduled + `}}`)
+				barrier(t, s, a)
+			},
+		},
+		{
+			key:      "prompt result _meta " + retryKey,
+			evidence: "transcribed: opencode translate.ts:166 at b44b7164ba",
+			register: func(spec *Spec, hit func()) {
+				spec.MetaHandlers = map[string]MetaHandler{
+					retryKey: func(_ context.Context, _ *session, from MetaSource, _ json.RawMessage) {
+						if from == MetaFromPromptResult {
+							hit()
+						}
+					},
+				}
+			},
+			drive: func(t *testing.T, s *session, a *wireAgent) { promptOnce(t, s, a, retryAtInterrupt) },
+		},
+	} {
+		t.Run(row.key, func(t *testing.T) {
+			var mu sync.Mutex
+			hits := 0
+			p := &Provider{}
+			row.register(&p.spec, func() { mu.Lock(); hits++; mu.Unlock() })
+			s, a := newWireSessionFor(t, "{}", p)
+			row.drive(t, s, a)
+			mu.Lock()
+			defer mu.Unlock()
+			if hits != 1 {
+				t.Errorf("the handler was called %d time(s), want 1 (%s)", hits, row.evidence)
+			}
+		})
 	}
 }

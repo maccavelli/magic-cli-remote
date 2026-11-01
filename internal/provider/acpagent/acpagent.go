@@ -147,6 +147,11 @@ type Spec struct {
 	CommandCaveat string
 	// ExtensionNotifications registers handlers for extension notifications.
 	ExtensionNotifications map[string]ExtensionNotificationHandler
+	// MetaHandlers registers handlers for keys of the `_meta` object in a
+	// session_info_update and in the prompt result, such as opencode's
+	// "opencode/retry" (MADR 0214 D14, as corrected). A session_info_update
+	// `_meta` key with no handler is declined, as every key was before.
+	MetaHandlers map[string]MetaHandler
 	// ClientCapabilities, when non-nil, is what initialize advertises to this
 	// agent in place of defaultClientCapabilities: an agent can be given less
 	// than Magic implements, such as no fs or terminal for an agent that runs
@@ -486,6 +491,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		providerID:              p.spec.ID,
 		provider:                p,
 		extNotificationHandlers: p.spec.ExtensionNotifications,
+		metaHandlers:            p.spec.MetaHandlers,
 		procDir:                 procDir,
 		terms:                   newTerminalHost(),
 		log:                     log,
@@ -1139,12 +1145,18 @@ type grokInitializeMeta struct {
 // what production runs: naming another policy here turns
 // TestABlockedHandlerPausesTheAgentAndLosesNothing red (MADR 0224 D4).
 func clientConnOptions(log *slog.Logger, s *session) []acp.ConnectionOption {
-	return []acp.ConnectionOption{
+	opts := []acp.ConnectionOption{
 		acp.WithNotificationOverflowPolicy(acp.OverflowBlock),
 		acp.WithInboundValidation(s.noteInbound),
 		acp.WithLogger(log),
 		acp.WithMaxMessageSize(maxACPMessageSize),
 	}
+	// Only for a Spec that registers a vendor notification method (MADR 0214
+	// D14, corrected again): every other Spec's connection is as it was.
+	if s != nil && s.hasVendorNotifications() {
+		opts = append(opts, acp.WithReceivingMiddleware(s.vendorNotifications))
+	}
+	return opts
 }
 
 // maxACPMessageSize bounds one inbound ACP line, in bytes.
