@@ -553,17 +553,34 @@ func (m *Manager) cmdRuntime(ctx context.Context, id string, usage bool) error {
 		m.emitNotice(id, "This agent exposes no runtime status.")
 		return nil
 	}
-	var message string
+	var res provider.Result
 	if usage {
-		message, err = runtimeSession.RuntimeUsage(ctx)
+		res, err = runtimeSession.RuntimeUsage(ctx)
 	} else {
-		message, err = runtimeSession.RuntimeStatus(ctx)
+		res, err = runtimeSession.RuntimeStatus(ctx)
 	}
 	if err != nil {
 		return err
 	}
-	m.emitNotice(id, message)
+	m.emitResult(id, res)
 	return nil
+}
+
+// emitResult sends an engine's answer to the phone: its body unchanged in an
+// engine_result event, or Magic's own line as a notice when the engine sent no
+// body (MADR 0208 D12).
+func (m *Manager) emitResult(id string, res provider.Result) {
+	if len(res.Body) == 0 {
+		m.emitNotice(id, res.Text)
+		return
+	}
+	m.emitEvent(id, event.Event{
+		Type:         event.TypeEngineResult,
+		SessionID:    id,
+		Timestamp:    time.Now().UTC(),
+		Text:         string(res.Body),
+		ResultMethod: res.Method,
+	})
 }
 
 func (m *Manager) cmdApprovalsReviewer(ctx context.Context, id, arg string) error {

@@ -2709,6 +2709,7 @@ class SessionEvent {
     this.noticeSeverity,
     this.noticeTitle,
     this.noticeDescription,
+    this.resultMethod,
     this.compactionId,
     this.compactionStatus,
     this.compactionSummary,
@@ -2788,6 +2789,10 @@ class SessionEvent {
   final String? noticeSeverity;
   final String? noticeTitle;
   final String? noticeDescription;
+
+  /// The engine method whose answer is in [text], on `engine_result` events
+  /// (MADR 0208 D12). Null on every other event.
+  final String? resultMethod;
 
   /// One state of an agent's context compaction, on `compaction` events
   /// (MADR 0190): its ID, its status as the agent sent it, the summary text so
@@ -3022,6 +3027,7 @@ class SessionEvent {
       noticeSeverity: json['notice_severity'] as String?,
       noticeTitle: json['notice_title'] as String?,
       noticeDescription: json['notice_description'] as String?,
+      resultMethod: json['result_method'] as String?,
       compactionId: json['compaction_id'] as String?,
       compactionStatus: json['compaction_status'] as String?,
       compactionSummary: json['compaction_summary'] as String?,

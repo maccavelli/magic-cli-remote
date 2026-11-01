@@ -153,6 +153,14 @@ func TestIdentifiedPlanIsProgress(t *testing.T) {
 	}
 }
 
+// An engine result is retained as the notice it replaces is: telemetry,
+// restated by running the command again (0208-PLAN P5 Deviation 2).
+func TestEngineResultIsRetainedLikeANotice(t *testing.T) {
+	if got, want := ClassOf(TypeEngineResult), ClassOf(TypeNotice); got != want || got != ClassTelemetry {
+		t.Fatalf("engine_result is %s, notice is %s; want both telemetry", got, want)
+	}
+}
+
 func TestBytesTracksStructGrowth(t *testing.T) {
 	// A 45th field the budget does not count is how a budget silently stops
 	// bounding anything. eventHeaderBytes is derived from the type, so this

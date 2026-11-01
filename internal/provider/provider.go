@@ -160,12 +160,24 @@ type Session interface {
 	Close(ctx context.Context) error
 }
 
-// RuntimeSession exposes bounded human-readable provider-global runtime and
-// usage summaries for session slash commands.
+// RuntimeSession answers the `/status` and `/usage` session slash commands.
 type RuntimeSession interface {
 	Session
-	RuntimeStatus(context.Context) (string, error)
-	RuntimeUsage(context.Context) (string, error)
+	RuntimeStatus(context.Context) (Result, error)
+	RuntimeUsage(context.Context) (Result, error)
+}
+
+// Result is an engine's answer to an operation Magic drove (MADR 0208 D12).
+//
+// Body is the answer as the engine sent it, never decoded and re-encoded, so
+// the phone shows the engine's own JSON. Text is a line Magic wrote instead:
+// why the engine could not answer, or the summary of an adapter that has not
+// moved to pass-through yet (0208-PLAN P5). A Result carries one or the other.
+type Result struct {
+	// Method is the engine method that answered, as it went on the wire.
+	Method string
+	Body   json.RawMessage
+	Text   string
 }
 
 // CWDSession is optionally implemented by sessions that resolve a concrete

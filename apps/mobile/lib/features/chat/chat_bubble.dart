@@ -519,6 +519,10 @@ class _ChatBubble extends StatelessWidget {
         if (item.isAgentNotice) {
           return _AgentNotice(item: item);
         }
+        // An engine's answer is shown as the engine sent it (MADR 0208 D12).
+        if (item.isEngineResult) {
+          return _EngineResult(item: item);
+        }
         // Quota / rate-limit hits — and provider-side server failures, which
         // share the same "transient, retry in a moment" posture — get a
         // proper card with guidance, not a raw red provider dump.
@@ -670,6 +674,48 @@ class _AgentNotice extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Row for an engine's answer to a command (MADR 0208 D12): the method that
+/// answered, then the body through the one raw-output renderer (D13), which
+/// shows JSON pretty-printed and collapsible. Magic adds no labels.
+class _EngineResult extends StatelessWidget {
+  const _EngineResult({required this.item});
+
+  final ChatItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final method = item.resultMethod ?? '';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: scheme.outlineVariant, width: 3),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (method.isNotEmpty)
+              Text(
+                method,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            RawOutputView(text: item.text ?? '', color: scheme.onSurface),
+          ],
         ),
       ),
     );

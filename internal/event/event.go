@@ -51,6 +51,11 @@ const (
 	// (NoticeSeverity, NoticeTitle, NoticeDescription). Distinct from TypeNotice,
 	// which is the daemon's (MADR 0188 D1).
 	TypeAgentNotice Type = "agent_notice"
+	// TypeEngineResult carries an engine's answer to an operation Magic drove,
+	// such as `/usage` or `/status`: Text is the engine's response body exactly
+	// as it was sent, and ResultMethod the method that answered. The phone
+	// renders the body as JSON; Magic adds no labels (MADR 0208 D12, Q5).
+	TypeEngineResult Type = "engine_result"
 	// TypeCompaction carries the current state of one ACP context compaction
 	// (CompactionID, CompactionStatus, CompactionSummary, CompactionError,
 	// CompactionTruncated). Several events can describe one compaction; a client
@@ -156,6 +161,7 @@ func Types() []Type {
 		TypeIdentifiedPlan,
 		TypeNotice,
 		TypeAgentNotice,
+		TypeEngineResult,
 		TypeCompaction,
 		TypeUsage,
 		TypeMode,
@@ -204,6 +210,9 @@ func IsControl(t Type) bool {
 		// An agent's notice is a warning or error meant for the user; it is
 		// low-rate, and a drop loses it for good (MADR 0188 D2).
 		TypeAgentNotice,
+		// An engine result is the whole answer to a command the user ran; a
+		// drop leaves the command looking ignored (MADR 0208 D12).
+		TypeEngineResult,
 		// A compaction changes what the agent remembers; its few states per
 		// compaction must all arrive, or a row stays "in progress" (MADR 0190 D2).
 		TypeCompaction,
@@ -682,6 +691,10 @@ type Event struct {
 	NoticeSeverity    string `json:"notice_severity,omitempty"`
 	NoticeTitle       string `json:"notice_title,omitempty"`
 	NoticeDescription string `json:"notice_description,omitempty"`
+
+	// ResultMethod is set on engine_result events: the engine method whose
+	// response body is in Text (MADR 0208 D12).
+	ResultMethod string `json:"result_method,omitempty"`
 
 	// The Compaction fields are set on compaction events: the agent's ID for
 	// the compaction, its status (`in_progress`, `completed`, `failed`,

@@ -69,10 +69,10 @@ type RuntimeDialect interface {
 }
 
 // RuntimeStatus implements [provider.RuntimeSession].
-func (s *session) RuntimeStatus(ctx context.Context) (string, error) {
+func (s *session) RuntimeStatus(ctx context.Context) (provider.Result, error) {
 	callCtx, cancel := context.WithTimeout(ctx, runtimeProbeTimeout)
 	defer cancel()
-	return runtimeStatus(callCtx, s.p.dialect, s.p.api, s.engineLine()), nil
+	return provider.Result{Text: runtimeStatus(callCtx, s.p.dialect, s.p.api, s.engineLine())}, nil
 }
 
 // runtimeStatus is the dialect-dispatch half, split out from the method so it
@@ -125,19 +125,19 @@ func titleID(id provider.ID) string {
 
 // RuntimeUsage implements [provider.RuntimeSession] from the session object's
 // own totals.
-func (s *session) RuntimeUsage(ctx context.Context) (string, error) {
+func (s *session) RuntimeUsage(ctx context.Context) (provider.Result, error) {
 	agentID := s.AgentSessionID()
 	if agentID == "" {
-		return "Usage is unavailable: this session has no engine session id.", nil
+		return provider.Result{Text: "Usage is unavailable: this session has no engine session id."}, nil
 	}
 	callCtx, cancel := context.WithTimeout(ctx, runtimeProbeTimeout)
 	defer cancel()
 
 	totals, err := fetchSessionTotals(callCtx, s.p.api, agentID)
 	if err != nil {
-		return "Usage is unavailable: " + clipErr(err, 160), nil
+		return provider.Result{Text: "Usage is unavailable: " + clipErr(err, 160)}, nil
 	}
-	return formatSessionTotals(totals), nil
+	return provider.Result{Text: formatSessionTotals(totals)}, nil
 }
 
 // sessionUsagePath is the one endpoint these totals come from.

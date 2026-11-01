@@ -1418,6 +1418,8 @@ replace the card detail with non-empty incoming text snapshots.
   engine (codex). A client may ignore it.
 - `notice_severity`, `notice_title`, `notice_description` (MADR 0188): on `agent_notice` events.
   See [`agent_notice`](#agent_notice-event-an-agents-message-for-the-user).
+- `result_method` (MADR 0208 D12): on `engine_result` events, the engine method whose answer is in
+  `text`. See [`engine_result`](#engine_result-event-an-engines-answer-as-it-was-sent).
 - `compaction_id`, `compaction_status`, `compaction_summary`, `compaction_error`,
   `compaction_truncated` (MADR 0190): on `compaction` events. See
   [`compaction`](#compaction-event-an-agent-compacted-its-context).
@@ -1774,7 +1776,7 @@ mid-session without a restart. Attachment bytes and data URLs never appear in
 daemon logs, and `user_message` echoes carry descriptors only.
 
 Event `type` values: `session_status`, `user_message`, `assistant_message_chunk`, `thought_chunk`, `tool_call`, `tool_call_update`, `permission_request`, `permission_resolved`, `question_request`,
-`question_resolved`, `turn_complete`, `error`, `notice`, `agent_notice`, `compaction`, `available_commands`, `remote_commands`, `plan`, `identified_plan`, `usage_update`,
+`question_resolved`, `turn_complete`, `error`, `notice`, `agent_notice`, `engine_result`, `compaction`, `available_commands`, `remote_commands`, `plan`, `identified_plan`, `usage_update`,
 `session_mode`, `collaboration_mode`, `session_goal`, `session_config`,
 `session_capabilities`, `session_title`, `artifact`, `diagnostics_changed`, `transcript_remove`, `approval_summary`, `subagents`, `codex_progress`, `codex_warning`, `codex_model_reroute`,
 `codex_model_verification`, `codex_terminal_interaction`, `codex_unsupported_item`.
@@ -1924,6 +1926,31 @@ when it arrived sees it on replay. A notice identical to the one before it is dr
 notices only to a client that advertised `session.notices`. The daemon advertises it to every ACP
 agent that uses its default client capabilities (grok included), so the event appears whenever such
 an agent sends one.
+
+### `engine_result` event (an engine's answer, as it was sent)
+
+The engine's own answer to an operation the daemon ran for a slash command (MADR 0208 D12), such as
+`/usage` or `/status`. The daemon passes the engine's response body through unchanged and adds no
+labels.
+
+```json
+{
+  "type": "engine_result",
+  "session_id": "...",
+  "result_method": "_x.ai/session/usage",
+  "text": "{\"usage\":{\"inputTokens\":0,\"outputTokens\":0,\"numTurns\":0}}"
+}
+```
+
+- `text`: the engine's response body, byte for byte, as a string. It is JSON for every engine that
+  answers in JSON; a client renders it as the engine's JSON (MADR 0208 D13) and must not assume a
+  shape, since each engine has its own.
+- `result_method`: the method that answered, as it went on the wire.
+
+When the engine cannot answer (an old build, an account that cannot read it), the daemon sends a
+`notice` saying why instead. An adapter that has not moved to pass-through yet also still answers
+with a `notice` (0208-PLAN P5 moves them one at a time). Like `notice`, the event is must-deliver,
+and it is retained as telemetry: running the command again restates it.
 
 ### `compaction` event (an agent compacted its context)
 

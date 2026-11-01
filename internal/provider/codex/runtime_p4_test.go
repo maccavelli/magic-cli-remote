@@ -74,12 +74,12 @@ func TestStatusAndUsageCommandsAreMappedAndReadable(t *testing.T) {
 	s := p4Session()
 	s.p = p
 	status, err := s.RuntimeStatus(context.Background())
-	if err != nil || !strings.Contains(status, "0.149.1") || !strings.Contains(status, "transport ws") {
-		t.Fatalf("status=%q err=%v", status, err)
+	if err != nil || !strings.Contains(status.Text, "0.149.1") || !strings.Contains(status.Text, "transport ws") {
+		t.Fatalf("status=%+v err=%v", status, err)
 	}
 	usage, err := s.RuntimeUsage(context.Background())
-	if err != nil || !strings.Contains(usage, "10 tokens") || !strings.Contains(usage, "20%") {
-		t.Fatalf("usage=%q err=%v", usage, err)
+	if err != nil || !strings.Contains(usage.Text, "10 tokens") || !strings.Contains(usage.Text, "20%") {
+		t.Fatalf("usage=%+v err=%v", usage, err)
 	}
 }
 

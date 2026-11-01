@@ -1,8 +1,10 @@
 package acpagent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -97,93 +99,6 @@ func TestAZeroCentArrivesAsAnEmptyObject(t *testing.T) {
 	}
 }
 
-// usagePayload is grok's own wire shape, taken from the assertions in
-// extensions/usage.rs (response_serializes_ledger_as_prompt_usage_wire_shape).
-// Note that the token counts sit at the top level of `usage`, beside numTurns:
-// PromptUsage flattens its `totals`, so there is no `totals` object on the wire.
-const usagePayload = `{"usage":{
-	"inputTokens":100,"outputTokens":10,"totalTokens":110,
-	"cachedReadTokens":40,"cacheCreationTokens":0,"reasoningTokens":25,
-	"modelCalls":1,"apiDurationMs":900,
-	"numTurns":1,"costUsdTicks":20000000,
-	"modelUsage":{"grok-build":{"inputTokens":100,"outputTokens":10}}}}`
-
-// TestSessionUsageDecodesFlattenedTotals is P7.
-//
-// PromptUsage's `totals` is #[serde(flatten)]. A struct that nests them under a
-// `totals` key decodes to zeros with no error, and `/usage` then reports a
-// session that spent nothing.
-func TestSessionUsageDecodesFlattenedTotals(t *testing.T) {
-	var res sessionUsageResponse
-	if err := json.Unmarshal([]byte(usagePayload), &res); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if res.Usage.InputTokens != 100 || res.Usage.OutputTokens != 10 {
-		t.Fatalf("tokens = %d in / %d out, want 100/10 — the totals are flattened into "+
-			"`usage`, not nested under a `totals` key",
-			res.Usage.InputTokens, res.Usage.OutputTokens)
-	}
-	if res.Usage.NumTurns != 1 {
-		t.Errorf("numTurns = %d, want 1", res.Usage.NumTurns)
-	}
-	if res.Usage.CachedReadTokens != 40 || res.Usage.ReasoningTokens != 25 {
-		t.Errorf("cached = %d, reasoning = %d, want 40/25",
-			res.Usage.CachedReadTokens, res.Usage.ReasoningTokens)
-	}
-	if res.Usage.CostUsdTicks == nil || *res.Usage.CostUsdTicks != 20_000_000 {
-		t.Errorf("costUsdTicks = %v, want 20000000", res.Usage.CostUsdTicks)
-	}
-	if n := len(res.Usage.ModelUsage); n != 1 {
-		t.Errorf("modelUsage has %d entries, want 1", n)
-	}
-}
-
-// TestUsageNeverReportsAnAbsentCostAsFree is the other half of P3.
-//
-// grok omits costUsdTicks when the bill was scrubbed or partial. Formatting an
-// absent cost as $0.00 reports a session that spent money as free, which is a
-// wrong number rather than a missing one.
-func TestUsageNeverReportsAnAbsentCostAsFree(t *testing.T) {
-	base := promptUsage{
-		InputTokens: 900, OutputTokens: 100,
-		NumTurns: 3,
-	}
-
-	absent := formatSessionUsage(base)
-	if strings.Contains(absent, "$0.00") || strings.Contains(absent, "$0.0000") {
-		t.Errorf("summary = %q — an absent cost was rendered as zero", absent)
-	}
-	if !strings.Contains(absent, "cost unavailable") {
-		t.Errorf("summary = %q, want it to say the cost is unavailable", absent)
-	}
-
-	ticks := int64(20_000_000) // $0.002
-	partial := base
-	partial.CostUsdTicks = &ticks
-	partial.CostIsPartial = true
-	got := formatSessionUsage(partial)
-	if !strings.Contains(got, "partial") {
-		t.Errorf("summary = %q, want a partial bill marked as such", got)
-	}
-	if !strings.Contains(got, "at least") {
-		t.Errorf("summary = %q, want a partial cost stated as a floor", got)
-	}
-
-	complete := base
-	complete.CostUsdTicks = &ticks
-	got = formatSessionUsage(complete)
-	if !strings.Contains(got, "$0.0020") {
-		t.Errorf("summary = %q, want $0.0020 — 1e10 ticks to the dollar, and two "+
-			"decimals would render a real turn as $0.00", got)
-	}
-
-	incomplete := complete
-	incomplete.UsageIsIncomplete = true
-	if got := formatSessionUsage(incomplete); !strings.Contains(got, "under-count") {
-		t.Errorf("summary = %q, want the incomplete-bill warning", got)
-	}
-}
-
 // TestRuntimeStatusExplainsItselfRatherThanErroring is P4.
 //
 // internal/session's cmdRuntime returns a non-nil error to its caller instead
@@ -195,21 +110,21 @@ func TestRuntimeStatusExplainsItselfRatherThanErroring(t *testing.T) {
 	// gives.
 	s, _ := newScriptedSession(t, map[string]string{})
 
-	msg, err := s.RuntimeStatus(context.Background())
+	status, err := s.RuntimeStatus(context.Background())
 	if err != nil {
 		t.Fatalf("RuntimeStatus returned an error (%v); cmdRuntime would swallow it and /status "+
 			"would say nothing at all", err)
 	}
-	if !strings.Contains(msg, "unavailable") {
-		t.Errorf("message = %q, want it to say billing is unavailable", msg)
+	if !strings.Contains(status.Text, "unavailable") || len(status.Body) != 0 {
+		t.Errorf("status = %+v, want only text saying billing is unavailable", status)
 	}
 
 	usage, err := s.RuntimeUsage(context.Background())
 	if err != nil {
 		t.Fatalf("RuntimeUsage returned an error: %v", err)
 	}
-	if !strings.Contains(usage, "unavailable") {
-		t.Errorf("message = %q, want it to say usage is unavailable", usage)
+	if !strings.Contains(usage.Text, "unavailable") || len(usage.Body) != 0 {
+		t.Errorf("usage = %+v, want only text saying usage is unavailable", usage)
 	}
 }
 
@@ -393,39 +308,80 @@ func TestGrokImplementsRuntimeSession(t *testing.T) {
 	}
 }
 
-// TestRuntimeUsageReadsTheLedger is acceptance 1 over the wire.
-func TestRuntimeUsageReadsTheLedger(t *testing.T) {
-	s, agent := newScriptedSession(t, map[string]string{
-		"_x.ai/session/usage": usagePayload,
-	})
+// capturedResult returns the result of the one frame in grok 1.0.70's capture
+// whose result has the top-level key key, exactly as grok sent it.
+func capturedResult(t *testing.T, key string) string {
+	t.Helper()
+	f, err := os.Open("../grok/testdata/wire/1.0.70/frames.jsonl")
+	if err != nil {
+		t.Fatalf("open capture: %v", err)
+	}
+	defer func() { _ = f.Close() }()
 
-	msg, err := s.RuntimeUsage(context.Background())
+	var found []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
+	for sc.Scan() {
+		var frame struct {
+			Method string          `json:"method"`
+			Result json.RawMessage `json:"result"`
+		}
+		if json.Unmarshal(sc.Bytes(), &frame) != nil || frame.Method != "" || len(frame.Result) == 0 {
+			continue
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(frame.Result, &fields) != nil {
+			continue
+		}
+		if _, ok := fields[key]; ok {
+			found = append(found, string(frame.Result))
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("read capture: %v", err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("capture has %d results with a top-level %q, want 1", len(found), key)
+	}
+	return found[0]
+}
+
+// TestUsagePassesGrokAnswerThrough is 0208-PLAN P5 step 3 for `/usage`: the
+// result is grok 1.0.70's captured answer, byte for byte, with nothing added.
+func TestUsagePassesGrokAnswerThrough(t *testing.T) {
+	body := capturedResult(t, "usage")
+	s, agent := newScriptedSession(t, map[string]string{"_x.ai/session/usage": body})
+
+	res, err := s.RuntimeUsage(context.Background())
 	if err != nil {
 		t.Fatalf("RuntimeUsage: %v", err)
 	}
-	body := agent.paramsFor(t, "_x.ai/session/usage")
-	if body["sessionId"] != "agent-1" {
-		t.Errorf("sessionId = %v, want agent-1", body["sessionId"])
+	if string(res.Body) != body {
+		t.Errorf("body = %s\nwant grok's answer unchanged: %s", res.Body, body)
 	}
-	for _, want := range []string{"100 input", "10 output", "40 cached", "1 turn", "$0.0020"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("usage = %q, want it to contain %q", msg, want)
-		}
+	if res.Method != "_x.ai/session/usage" || res.Text != "" {
+		t.Errorf("method = %q, text = %q; want the wire method and no text", res.Method, res.Text)
+	}
+	if params := agent.paramsFor(t, "_x.ai/session/usage"); params["sessionId"] != "agent-1" {
+		t.Errorf("sessionId = %v, want agent-1", params["sessionId"])
 	}
 }
 
-// TestRuntimeStatusReadsBilling is acceptance 2 over the wire.
-func TestRuntimeStatusReadsBilling(t *testing.T) {
-	s, _ := newScriptedSession(t, map[string]string{"_x.ai/billing": liveBillingPayload})
+// TestStatusPassesGrokBillingThrough is 0208-PLAN P5 step 3 for `/status`.
+// The capture's `28.0` is the canary: a decode and re-encode writes `28`.
+func TestStatusPassesGrokBillingThrough(t *testing.T) {
+	body := capturedResult(t, "subscription_tier")
+	s, _ := newScriptedSession(t, map[string]string{"_x.ai/billing": body})
 
-	msg, err := s.RuntimeStatus(context.Background())
+	res, err := s.RuntimeStatus(context.Background())
 	if err != nil {
 		t.Fatalf("RuntimeStatus: %v", err)
 	}
-	for _, want := range []string{"SuperGrok Heavy", "99.4% used", "prepaid $5.00", "period"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("status = %q, want it to contain %q", msg, want)
-		}
+	if string(res.Body) != body {
+		t.Errorf("body = %s\nwant grok's answer unchanged: %s", res.Body, body)
+	}
+	if res.Method != "_x.ai/billing" || res.Text != "" {
+		t.Errorf("method = %q, text = %q; want the wire method and no text", res.Method, res.Text)
 	}
 }
 

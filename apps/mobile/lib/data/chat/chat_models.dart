@@ -185,6 +185,7 @@ class ChatItem {
     this.artifact,
     this.noticeSeverity,
     this.noticeDetail,
+    this.resultMethod,
     this.compactionError,
     this.compactionTruncated = false,
     this.toolTruncated = false,
@@ -287,6 +288,15 @@ class ChatItem {
   /// True for an agent's notice, which renders as its own row rather than as a
   /// daemon system line.
   bool get isAgentNotice => noticeSeverity != null;
+
+  /// Set only on a [ChatItemKind.system] row that is an engine's answer to a
+  /// command (MADR 0208 D12): the method that answered. The row's [text] is
+  /// the engine's response body, unchanged.
+  final String? resultMethod;
+
+  /// True for an engine's answer, which renders as the engine's JSON rather
+  /// than as a daemon system line.
+  bool get isEngineResult => resultMethod != null;
 
   /// Set only on a [ChatItemKind.compaction] row: the agent's error, which is
   /// drawn only while the status is `failed`, and whether the daemon cut the
@@ -403,6 +413,7 @@ class ChatItem {
     artifact: artifact ?? this.artifact,
     noticeSeverity: noticeSeverity,
     noticeDetail: noticeDetail,
+    resultMethod: resultMethod,
     compactionError: compactionError,
     compactionTruncated: compactionTruncated,
     toolTruncated: toolTruncated ?? this.toolTruncated,
@@ -440,6 +451,8 @@ class ChatItem {
     // cache entries read back unchanged.
     if (noticeSeverity != null) 'noticeSeverity': noticeSeverity,
     if (noticeDetail != null) 'noticeDetail': noticeDetail,
+    // An engine's answer (MADR 0208 D12). Absent on every other row.
+    if (resultMethod != null) 'resultMethod': resultMethod,
     // A compaction (MADR 0190 D3). Absent on every other row.
     if (compactionError != null) 'compactionError': compactionError,
     if (compactionTruncated) 'compactionTruncated': true,
@@ -477,6 +490,7 @@ class ChatItem {
       nativePartId: j['nativePartId'] as String?,
       noticeSeverity: j['noticeSeverity'] as String?,
       noticeDetail: j['noticeDetail'] as String?,
+      resultMethod: j['resultMethod'] as String?,
       compactionError: j['compactionError'] as String?,
       compactionTruncated: j['compactionTruncated'] == true,
       toolTruncated: j['toolTruncated'] == true,

@@ -1028,3 +1028,140 @@ pursued further here.
   `git add -A` in the copy: exit 0, as above.
 
 **Files for this commit:** `internal/session/silent_test.go`, this plan.
+
+### P5 Deviation 1, 2026-11-01 — the event's files, and a live capture. The owner decided: "Add the files" and "Capture with no turn"
+
+The owner said "do P5" (tracked as GitHub issue #33). Two gaps were found while naming the phase's
+files, before any change.
+
+- **Found, files.** Step 1 adds the structured-result event "in the daemon and the phone
+  together", but P5's file list names only each provider's runtime or usage file,
+  `internal/session/commands.go`, `internal/session/tokencost.go` and their tests. The shared
+  interface returns text (`provider.RuntimeSession`, `internal/provider/provider.go:163-168`), the
+  event model has no such event, and the phone has no row for it.
+- **Found, capture.** Step 3's fixture needs grok's `_x.ai/session/usage` and `_x.ai/billing`
+  responses from a committed capture. None of the three grok captures (1.0.13, 1.0.50, 1.0.70)
+  holds either response, by method or by body field.
+- **Resolution, files.** The first P5 commit adds `internal/provider/provider.go`,
+  `internal/event/event.go`, `docs/guides/protocol-v1.md` (where event fields are documented), and
+  on the phone `lib/data/protocol/models.dart`, `lib/data/chat/chat_models.dart`,
+  `lib/data/chat/transcript_reducer.dart`, `lib/features/chat/chat_bubble.dart` and their tests.
+  The interface changes for every adapter in that commit, so `codex/runtime.go`,
+  `httpagent/runtime.go` and `kilo/runtime.go` (already in P5's list, for later commits) change
+  signature only: they return their current text unchanged until their own commit.
+- **Resolution, capture.** The two existing quota-free live tests
+  (`internal/provider/acpagent/live_runtime_test.go`) are run against grok 1.0.70 with no turn and
+  with `MCREMOTE_WIRE_CAPTURE_DIR` set to a scratch directory. The two response frames are added
+  verbatim to the 1.0.70 capture, redacted as `internal/wirecap` redacts, and checked with the
+  disclosure guard's preview. No model tokens are spent; billing makes one authenticated account
+  request. The usage body therefore shows zero turns.
+- **Not taken:** a separate P5a for the event alone (same files, same end state); a capture after
+  one turn (spends model quota).
+- **The MADR is unchanged:** no decision or asserted fact moved.
+
+### P5 Deviation 2, 2026-11-01 — `retention.go` classes the event. The owner decided: "Add retention.go"
+
+- **Found** while mapping the event, before any change. Two existing tests bind every event type
+  and every string field: `TestClassOfIsExhaustive` (`internal/event/retention_test.go:78`) fails
+  for a type with no explicit class in `ClassOf`, and `TestBytesTracksStructGrowth` (`:156`) fails
+  for a string field `Bytes` does not count.
+- **Resolution:** `internal/event/retention.go` and its test join the first P5 commit.
+  `engine_result` is classed as telemetry, as the `notice` it replaces is, and `ResultMethod` is
+  counted in `Bytes`.
+- **Not taken:** classing it as content, which keeps it in history longer than the notice it
+  replaces.
+- **The MADR is unchanged.**
+
+### P5, first commit, 2026-11-01: the `engine_result` event, and grok's `/usage` and `/status`
+
+**The capture (Deviation 1).**
+`MCREMOTE_WIRE_CAPTURE_DIR=<scratch> go test -tags live_grok -run 'TestLiveGrok(SessionUsage|Billing)'
+./internal/provider/acpagent/ -count=1 -v`, against grok 1.0.70, before any source change:
+exit 0, both tests PASS, no prompt sent. The usage answer and the billing answer were appended
+verbatim to `internal/provider/grok/testdata/wire/1.0.70/frames.jsonl` (16 frames to 18), each
+chosen by its result's shape (`p5_append_capture.py` in the session scratchpad), and
+`meta.json`'s count and note say so. The usage ledger is empty (`numTurns` 0, no cost field).
+The billing answer carries `"creditUsagePercent":28.0`, which a decode and re-encode would write
+as `28`.
+
+**What changed.**
+
+* `provider.RuntimeSession` returns `provider.Result` (`Method`, `Body`, `Text`) instead of a
+  string. `Body` is the engine's answer, never decoded and re-encoded.
+* `event.TypeEngineResult` (`engine_result`) carries the body in `Text` and the method in
+  `ResultMethod`. It is a control type, like `notice`, and is retained as telemetry (Deviation 2).
+* `internal/session`'s `cmdRuntime` emits an `engine_result` when the result has a body, and a
+  notice with Magic's text when it does not.
+* grok: `RuntimeUsage` and `RuntimeStatus` return `_x.ai/session/usage` and `_x.ai/billing` as
+  grok sent them. An engine that cannot answer (an older build, an API-key install behind grok's
+  auth gate) still gets Magic's one-line reason as a notice: it is not the engine's answer, so D12
+  does not apply to it.
+* **Deleted with the formatter (step 3):** `formatSessionUsage`, `formatUSDTicks`,
+  `formatBilling`, `sessionUsageResponse`, `promptUsage`, `promptUsageModel`, and the tests
+  `TestSessionUsageDecodesFlattenedTotals`, `TestUsageNeverReportsAnAbsentCostAsFree`,
+  `TestRuntimeUsageReadsTheLedger` and `TestRuntimeStatusReadsBilling`.
+* **Kept:** the billing types, `billingPeriod`, `billingDate` and `formatCents`. `quota.go`'s
+  `confirmLimit` still decodes billing to annotate a quota error, and that moves in P6, not here.
+  The live billing test still decodes strictly for the same reason. The live usage test now
+  asserts that `RuntimeUsage` returns the installed binary's answer unchanged.
+* codex and httpagent: signature only. They return their text unchanged in `Text` until their own
+  commits.
+* The phone: `SessionEvent.resultMethod`; a system `ChatItem` with `resultMethod`, kept in the
+  transcript cache; the reducer appends the body untrimmed; `_EngineResult` shows the method and
+  the body through `RawOutputView`, which renders JSON pretty-printed and collapsible.
+* `docs/guides/protocol-v1.md` lists `engine_result`, documents `result_method`, and has a
+  section for the event.
+
+**Tests, each seen failing.** On a scratch copy of `HEAD` with only the new tests added, none
+builds: the Go tests fail to compile against the string interface, and the Dart test reports "No
+named parameter with the name 'resultMethod'". On scratch copies of the change, one plant each
+(`p5_plants.py`, `p5_plant_content.py`):
+
+| Plant | Fails |
+| --- | --- |
+| grok's body decoded and re-encoded in `extensionResult` | `TestUsagePassesGrokAnswerThrough`, `TestStatusPassesGrokBillingThrough` |
+| `emitResult` sends the body as a notice, as before | `TestUsageSendsTheEngineAnswerUnchanged` |
+| `engine_result` left out of `ClassOf` | `TestClassOfIsExhaustive` |
+| `engine_result` classed as content | `TestEngineResultIsRetainedLikeANotice`: "engine_result is content, notice is telemetry" |
+| the bubble draws it as a plain system line | "an engine result renders as its JSON under its method" |
+| the reducer ignores `engine_result` | "engine_result keeps the engine body byte for byte", and the widget test |
+
+`TestEventTypesAreDocumented` failed for real before the protocol guide was updated:
+`event type "engine_result" is emitted but missing`.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 45 packages ok |
+| `go vet` with each of `live_grok`, `live_kilo`, `live_opencode` | exit 0 |
+| `make pre-add-check FILES=…` (the 13 Go files) | "13 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck` | exit 0; exit 0, 56 ignored findings, each an acp-go-sdk2 unstable-schema name |
+| `make preflight` | dart format "230 files (0 changed)"; flutter analyze "No issues found!"; flutter test "+1506 ~3: All tests passed!" |
+| `make markdownlint-docs`; `make check-records` | 0 issues in 57 files; exit 0 |
+| the guard's redact preview | "would edit 0 file(s)" |
+
+**Not done in this commit.**
+
+* **Step 4, the live check of grok's operations.** The capture run used the live tests as they
+  were. The rewritten live usage assertion has not run against grok. It spends no model tokens,
+  but it waits for the owner's word.
+* **The rest of P5:** codex status and usage, kilo usage, opencode and kilo session totals, then
+  `/context`, one commit each.
+* **Found, out of scope:** `go vet -tags live_codex ./internal/provider/codex/` fails on `HEAD`
+  (`liveEngine redeclared`, `live_helpers_test.go:13` against `collaboration_test.go:451`). The
+  0225 commit `85e10fb0` added a second `liveEngine`, so the codex live suites do not build. This
+  belongs to [0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md](0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md),
+  and waits for that record's amendment and the owner's approval.
+
+**Files for this commit:** `internal/provider/provider.go`, `internal/event/event.go`,
+`internal/event/event_test.go`, `internal/event/retention.go`, `internal/event/retention_test.go`,
+`internal/session/commands.go`, `internal/session/engineresult_test.go` (new),
+`internal/provider/acpagent/runtime.go`, `internal/provider/acpagent/runtime_test.go`,
+`internal/provider/acpagent/live_runtime_test.go`, `internal/provider/codex/runtime.go`,
+`internal/provider/codex/runtime_p4_test.go`, `internal/provider/httpagent/runtime.go`,
+`internal/provider/grok/testdata/wire/1.0.70/frames.jsonl` and `meta.json`,
+`docs/guides/protocol-v1.md`, `apps/mobile/lib/data/protocol/models.dart`,
+`apps/mobile/lib/data/chat/chat_models.dart`, `apps/mobile/lib/data/chat/transcript_reducer.dart`,
+`apps/mobile/lib/features/chat/chat_bubble.dart`, `apps/mobile/test/engine_result_test.dart`
+(new), this plan.

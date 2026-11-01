@@ -97,23 +97,17 @@ func TestLiveGrokSessionUsageDecodesStrictly(t *testing.T) {
 	}
 	t.Logf("_x.ai/session/usage returned: %s", raw)
 
-	var res sessionUsageResponse
-	if err := strictDecode(t, raw, &res, "session usage"); err != nil {
-		t.Fatalf("the response does not match sessionUsageResponse — the transcribed shape has "+
-			"drifted from the installed binary: %v", err)
-	}
-
 	// A session that has never prompted has an empty ledger, which is the
-	// expected result here and is not a failure. What is asserted is that the
-	// shape decodes and that RuntimeUsage renders it without claiming a cost
-	// it was not given.
-	msg, err := s.RuntimeUsage(ctx)
+	// expected result here and is not a failure. `/usage` passes grok's answer
+	// through (MADR 0208 D12), so what is asserted is that the installed binary
+	// answers, and that RuntimeUsage hands that answer on unchanged.
+	res, err := s.RuntimeUsage(ctx)
 	if err != nil {
 		t.Fatalf("RuntimeUsage: %v", err)
 	}
-	t.Logf("/usage would show: %s", msg)
-	if res.Usage.CostUsdTicks == nil && !bytes.Contains([]byte(msg), []byte("cost unavailable")) {
-		t.Errorf("the ledger reported no cost but /usage said %q", msg)
+	if !bytes.Equal(res.Body, raw) || res.Method != "_x.ai/session/usage" {
+		t.Errorf("/usage carried method %q and body %s (text %q), want grok's answer unchanged: %s",
+			res.Method, res.Body, res.Text, raw)
 	}
 }
 
@@ -146,14 +140,14 @@ func TestLiveGrokBillingDecodesStrictly(t *testing.T) {
 			t.Fatalf("the response does not match billingResponse — the transcribed shape has "+
 				"drifted from the installed binary: %v", decErr)
 		}
-		t.Logf("OUTCOME: authenticated. /status would show: %s", formatBilling(res))
+		t.Log("OUTCOME: authenticated. /status shows grok's answer as it came")
 	case acp.IsAuthRequired(err):
 		t.Logf("OUTCOME: this install cannot read billing (ACP -32000): %v", err)
-		msg, statusErr := s.RuntimeStatus(ctx)
+		res, statusErr := s.RuntimeStatus(ctx)
 		if statusErr != nil {
 			t.Fatalf("RuntimeStatus turned an auth failure into an error: %v", statusErr)
 		}
-		t.Logf("/status would show: %s", msg)
+		t.Logf("/status would show: %s", res.Text)
 	case errors.Is(err, provider.ErrNotImplemented):
 		t.Fatalf("this grok build has no _x.ai/billing: %v", err)
 	default:

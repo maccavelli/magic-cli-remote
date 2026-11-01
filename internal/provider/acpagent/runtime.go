@@ -2,6 +2,7 @@ package acpagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,6 +26,9 @@ import (
 // MADR 0138 F9 named `x.ai/limit` for the second of these. No such method
 // exists — it is a `_meta` page-size key for session listing — and
 // `x.ai/session/usage` was not named at all. See the F9 amendment.
+//
+// `/usage` and `/status` pass both answers through as grok sent them (MADR 0208
+// D12). Only the quota check (quota.go) still decodes billing.
 
 var _ provider.RuntimeSession = (*session)(nil)
 
@@ -39,41 +43,6 @@ type sessionUsageRequest struct {
 	SessionID string `json:"sessionId"`
 }
 
-type sessionUsageResponse struct {
-	Usage promptUsage `json:"usage"`
-}
-
-// promptUsage is grok's `PromptUsage`. Its `totals` field is `#[serde(flatten)]`,
-// so every token count sits at the top level of `usage` beside `numTurns` —
-// there is no `totals` object on the wire despite the Rust field's name.
-type promptUsage struct {
-	promptUsageModel
-	ModelUsage map[string]promptUsageModel `json:"modelUsage"`
-	NumTurns   uint64                      `json:"numTurns"`
-	// UsageIsIncomplete means the bill may under-count: subagents still open,
-	// usage not applied, or a drain timeout.
-	UsageIsIncomplete bool `json:"usageIsIncomplete"`
-}
-
-type promptUsageModel struct {
-	// InputTokens is the full prompt including cache reads, not the uncached
-	// share. The headless shape projects it the other way; this is the ACP one.
-	InputTokens         uint64 `json:"inputTokens"`
-	OutputTokens        uint64 `json:"outputTokens"`
-	TotalTokens         uint64 `json:"totalTokens"`
-	CachedReadTokens    uint64 `json:"cachedReadTokens"`
-	CacheCreationTokens uint64 `json:"cacheCreationTokens"`
-	ReasoningTokens     uint64 `json:"reasoningTokens"`
-	ModelCalls          uint64 `json:"modelCalls"`
-	APIDurationMS       uint64 `json:"apiDurationMs"`
-	// CostUsdTicks is a pointer because absent is not zero: grok omits it when
-	// the bill was scrubbed or partial. Reporting a scrubbed bill as $0.00
-	// would be a wrong number rather than a missing one.
-	CostUsdTicks *int64 `json:"costUsdTicks"`
-	// CostIsPartial means "do not trust this row's cost".
-	CostIsPartial bool `json:"costIsPartial"`
-}
-
 // RuntimeUsage implements [provider.RuntimeSession] over grok's session ledger.
 //
 // This is cumulative and includes folded subagent spend, which is what makes it
@@ -84,69 +53,42 @@ type promptUsageModel struct {
 // (internal/provider/codex/runtime.go). internal/session's cmdRuntime
 // propagates a returned error instead of displaying it, so an error here makes
 // `/usage` fail silently rather than explain itself.
-func (s *session) RuntimeUsage(ctx context.Context) (string, error) {
+func (s *session) RuntimeUsage(ctx context.Context) (provider.Result, error) {
 	agentID := s.AgentSessionID()
 	if agentID == "" {
-		return "Grok usage is unavailable: this session has no agent session id.", nil
+		return provider.Result{Text: "Grok usage is unavailable: this session has no agent session id."}, nil
 	}
-
-	var res sessionUsageResponse
-	if err := callAgentExtension(ctx, s, "x.ai/session/usage",
-		sessionUsageRequest{SessionID: agentID}, &res); err != nil {
-		return "Grok usage is unavailable: " + unavailableReason(err), nil
-	}
-	return formatSessionUsage(res.Usage), nil
+	return extensionResult(ctx, s, "x.ai/session/usage",
+		sessionUsageRequest{SessionID: agentID}, "Grok usage"), nil
 }
 
-// formatSessionUsage renders the ledger, saying what it does not know.
-func formatSessionUsage(u promptUsage) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Usage: %d input + %d output tokens", u.InputTokens, u.OutputTokens)
-	if u.CachedReadTokens > 0 {
-		fmt.Fprintf(&b, " (%d cached)", u.CachedReadTokens)
-	}
-	if u.ReasoningTokens > 0 {
-		fmt.Fprintf(&b, " · %d reasoning", u.ReasoningTokens)
-	}
-
-	turns := "turns"
-	if u.NumTurns == 1 {
-		turns = "turn"
-	}
-	fmt.Fprintf(&b, " · %d %s", u.NumTurns, turns)
-
-	if n := len(u.ModelUsage); n > 1 {
-		fmt.Fprintf(&b, " · %d models", n)
-	}
-
-	// Three distinct states, and only one of them is a number. An absent cost
-	// on a session that spent money must not read as free.
-	switch {
-	case u.CostUsdTicks == nil:
-		b.WriteString(" · cost unavailable")
-	case u.CostIsPartial:
-		fmt.Fprintf(&b, " · at least %s (partial)", formatUSDTicks(*u.CostUsdTicks))
-	default:
-		fmt.Fprintf(&b, " · %s", formatUSDTicks(*u.CostUsdTicks))
-	}
-
-	if u.UsageIsIncomplete {
-		b.WriteString(" · totals may under-count (subagents still reporting)")
-	}
-	return b.String()
-}
-
-// formatUSDTicks renders grok's 1e10-ticks-per-dollar integer.
+// RuntimeStatus implements [provider.RuntimeSession] over grok's billing
+// config.
 //
-// Four decimals below a dollar: a turn commonly costs fractions of a cent, and
-// two decimals would render most real sessions as "$0.00" — the same wrong
-// number this code goes out of its way to avoid for an absent cost.
-func formatUSDTicks(ticks int64) string {
-	usd := float64(ticks) / usdTicksPerUSD
-	if usd >= 1 || usd <= -1 {
-		return fmt.Sprintf("$%.2f", usd)
+// Unlike every other extension call in this package, this one leaves the
+// machine: grok fetches it over HTTP from its CLI chat proxy using the
+// operator's credentials, behind a `require_xai_auth` gate. An install
+// authenticated by API key — which mcremote supports and lists in
+// SafeAuthMethodIDs — can never satisfy that gate, so "unavailable" is an
+// ordinary outcome here rather than a fault, and is reported as text.
+func (s *session) RuntimeStatus(ctx context.Context) (provider.Result, error) {
+	// The handler takes no params; an empty object is what grok's own clients
+	// send.
+	return extensionResult(ctx, s, "x.ai/billing", map[string]any{}, "Grok billing"), nil
+}
+
+// extensionResult calls one grok extension and returns its response body
+// exactly as grok sent it. A call that fails comes back as one line saying why,
+// named by what.
+func extensionResult(ctx context.Context, s *session, method string, params any, what string) provider.Result {
+	var body json.RawMessage
+	if err := callAgentExtension(ctx, s, method, params, &body); err != nil {
+		return provider.Result{Text: what + " is unavailable: " + unavailableReason(err)}
 	}
-	return fmt.Sprintf("$%.4f", usd)
+	if len(body) == 0 {
+		return provider.Result{Text: what + " returned no answer."}
+	}
+	return provider.Result{Method: "_" + method, Body: body}
 }
 
 // cent is the billing API's money unit — USD **cents**, not the ticks used by
@@ -213,74 +155,6 @@ type usagePeriod struct {
 	End   string `json:"end"`
 }
 
-// RuntimeStatus implements [provider.RuntimeSession] over grok's billing
-// config.
-//
-// Unlike every other extension call in this package, this one leaves the
-// machine: grok fetches it over HTTP from its CLI chat proxy using the
-// operator's credentials, behind a `require_xai_auth` gate. An install
-// authenticated by API key — which mcremote supports and lists in
-// SafeAuthMethodIDs — can never satisfy that gate, so "unavailable" is an
-// ordinary outcome here rather than a fault, and is reported as text.
-func (s *session) RuntimeStatus(ctx context.Context) (string, error) {
-	var res billingResponse
-	// The handler takes no params; an empty object is what grok's own clients
-	// send.
-	if err := callAgentExtension(ctx, s, "x.ai/billing", map[string]any{}, &res); err != nil {
-		return "Grok billing is unavailable: " + unavailableReason(err), nil
-	}
-	return formatBilling(res), nil
-}
-
-// formatBilling renders the account line.
-func formatBilling(res billingResponse) string {
-	var parts []string
-	if tier := strings.TrimSpace(res.SubscriptionTier); tier != "" {
-		parts = append(parts, "plan "+tier)
-	}
-
-	cfg := res.Config
-	if cfg == nil {
-		if len(parts) == 0 {
-			return "Grok billing reported no configuration."
-		}
-		return "Grok · " + strings.Join(parts, " · ") + " · no credit configuration reported"
-	}
-
-	switch {
-	case cfg.CreditUsagePercent != nil:
-		parts = append(parts, fmt.Sprintf("credits %.1f%% used", *cfg.CreditUsagePercent))
-	case cfg.MonthlyLimit != nil && cfg.Used != nil && cfg.MonthlyLimit.Val > 0:
-		// The deprecated shape, and only when the limit is non-zero: a zero
-		// limit would make the percentage a division by nothing rather than
-		// "nothing used".
-		parts = append(parts, fmt.Sprintf("credits %s of %s used",
-			formatCents(cfg.Used), formatCents(cfg.MonthlyLimit)))
-	}
-
-	if cfg.PrepaidBalance != nil && cfg.PrepaidBalance.Val > 0 {
-		parts = append(parts, "prepaid "+formatCents(cfg.PrepaidBalance))
-	}
-	if cfg.OnDemandCap != nil && cfg.OnDemandCap.Val > 0 {
-		used := ""
-		if cfg.OnDemandUsed != nil {
-			used = formatCents(cfg.OnDemandUsed) + " of "
-		}
-		parts = append(parts, "on-demand "+used+formatCents(cfg.OnDemandCap))
-	} else if res.OnDemandEnabled != nil && !*res.OnDemandEnabled {
-		parts = append(parts, "on-demand off")
-	}
-
-	if p := billingPeriod(cfg); p != "" {
-		parts = append(parts, p)
-	}
-
-	if len(parts) == 0 {
-		return "Grok billing reported no usable figures."
-	}
-	return "Grok · " + strings.Join(parts, " · ")
-}
-
 // billingPeriod prefers the current-period object over the two deprecated
 // timestamp fields, as grok's own comments direct.
 func billingPeriod(cfg *billingConfig) string {
@@ -301,7 +175,7 @@ func billingPeriod(cfg *billingConfig) string {
 // billingDate shortens a billing timestamp to its calendar date.
 //
 // grok sends full RFC 3339 with microseconds — measured live on 1.0.13:
-// "2026-09-02T11:15:25.027200+00:00". Two of those in a one-line status notice
+// "2026-09-02T11:15:25.027200+00:00". Two of those in a one-line limit notice
 // is 60 characters of precision nobody asked a billing period for. The raw
 // value is kept when it does not parse, rather than dropped: an unexpected
 // format is still information.

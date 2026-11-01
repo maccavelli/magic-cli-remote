@@ -233,6 +233,20 @@ SessionTranscript applySessionEvent(
       // output). Rendered as a neutral system message, not an error.
       final msg = (ev.text ?? '').trim();
       if (msg.isNotEmpty) t = _append(t, ChatItem.system(msg));
+    case 'engine_result':
+      // An engine's answer to a command, as it sent it (MADR 0208 D12). The
+      // body is kept exactly, untrimmed: the row renders the engine's JSON.
+      final body = ev.text ?? '';
+      if (body.trim().isNotEmpty) {
+        t = _append(
+          t,
+          ChatItem(
+            kind: ChatItemKind.system,
+            text: body,
+            resultMethod: (ev.resultMethod ?? '').trim(),
+          ),
+        );
+      }
     case 'agent_notice':
       // The agent's own message for the user (MADR 0188 D3). Kept apart from
       // the daemon's notice: it carries a severity and optional detail, and

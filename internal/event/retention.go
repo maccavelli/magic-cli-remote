@@ -99,6 +99,9 @@ func ClassOf(t Type) Class {
 	case TypeAvailableCommands,
 		TypeRemoteCommands,
 		TypeNotice,
+		// An engine result replaces the notice `/usage` and `/status` used to
+		// send, and running the command again restates it.
+		TypeEngineResult,
 		TypeUsage,
 		TypeMode,
 		TypeSessionConfig,
@@ -140,6 +143,7 @@ func Bytes(ev *Event) int {
 	n += len(ev.CurrentCollaborationModeID)
 	n += len(ev.NativeMessageID) + len(ev.NativePartID)
 	n += len(ev.NoticeSeverity) + len(ev.NoticeTitle) + len(ev.NoticeDescription)
+	n += len(ev.ResultMethod)
 	n += len(ev.CompactionID) + len(ev.CompactionStatus) + len(ev.CompactionSummary) + len(ev.CompactionError)
 	n += len(ev.PlanID) + len(ev.PlanKind) + len(ev.PlanContent) + len(ev.PlanURI)
 

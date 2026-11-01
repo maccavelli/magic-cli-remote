@@ -429,9 +429,9 @@ func clipRuntime(s string) string {
 	return s
 }
 
-func (s *session) RuntimeStatus(context.Context) (string, error) {
+func (s *session) RuntimeStatus(context.Context) (provider.Result, error) {
 	if s.p == nil {
-		return "Codex runtime status is unavailable.", nil
+		return provider.Result{Text: "Codex runtime status is unavailable."}, nil
 	}
 	runtime := s.p.RuntimeSnapshot()
 	message := fmt.Sprintf("Codex %s · transport %s · generation %d", firstNonEmpty(runtime.CodexVersion, "unknown"), runtime.Transport, runtime.Generation)
@@ -444,12 +444,12 @@ func (s *session) RuntimeStatus(context.Context) (string, error) {
 	if len(runtime.MCPServers) > 0 {
 		message += fmt.Sprintf(" · MCP %d server(s)", len(runtime.MCPServers))
 	}
-	return message, nil
+	return provider.Result{Text: message}, nil
 }
 
-func (s *session) RuntimeUsage(context.Context) (string, error) {
+func (s *session) RuntimeUsage(context.Context) (provider.Result, error) {
 	if s.p == nil {
-		return "Codex usage is unavailable.", nil
+		return provider.Result{Text: "Codex usage is unavailable."}, nil
 	}
 	runtime := s.p.RuntimeSnapshot()
 	message := fmt.Sprintf("Usage: %d tokens", runtime.Usage.Tokens)
@@ -462,5 +462,5 @@ func (s *session) RuntimeUsage(context.Context) (string, error) {
 	if runtime.Account.Plan != "" {
 		message += " · plan " + runtime.Account.Plan
 	}
-	return message, nil
+	return provider.Result{Text: message}, nil
 }
