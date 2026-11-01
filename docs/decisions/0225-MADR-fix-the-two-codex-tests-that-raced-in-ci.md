@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-31
+date: 2026-11-01
 decision-makers: Project Owner
 consulted: "CI run 41248953620 on c12e6e37 (attempts 1 and 2); this repository at c12e6e37 (internal/provider/codex, internal/testexec); the Codex sources at b91cedc080 (2026-10-30), read locally (codex-rs/cli/src/doctor.rs and doctor/, codex-rs/app-server-transport/src/transport/stdio.rs); 0137-MADR; 0224-PLAN deviation 2; scratch probes leftovers/0224_codex_flake.py, 0225_repro.py, 0225_validate.py and 0225_mu_scan.py"
 informed: anyone who reads CI on master
@@ -287,3 +287,77 @@ test". On the corrected F5, "Use liveEngine, add nil check" (D4 as amended).
   deviation 2, which found these failures and left them to this record.
 * [0137-MADR-prompt-to-first-token-latency-regression.md](0137-MADR-prompt-to-first-token-latency-regression.md):
   F1, the property the probe test pins.
+
+## Amendment — 2026-11-01 (A): D2's helper broke the codex live builds
+
+*Accepted by the owner, 2026-11-01:* D7 and the plan approved, and Q3 answered "Preflight and CI"
+(option A).
+
+### Context
+
+While verifying the first commit of
+[0208-PLAN-make-the-provider-layer-agent-neutral.md](0208-PLAN-make-the-provider-layer-agent-neutral.md)
+P5, `go vet -tags live_codex ./internal/provider/codex/` failed on `HEAD`. The cause is this
+record's D2. The owner chose to fix it before P5 continues. The amendment adds D7 and D8. D1 to D6
+stand, except that D2's and D4's helper takes a new name.
+
+### What broke [observed 2026-11-01 at `ad588bb0`, and on a `git archive` copy of it]
+
+* **F9 — Two functions named `liveEngine`.** `85e10fb0` added D2's
+  `liveEngine(p *Provider) (*engine, int)` to `collaboration_test.go:451`, which has no build tag.
+  `live_helpers_test.go:13` has declared `liveEngine(t *testing.T) (*conn, func())` since
+  2026-08-12, under `//go:build live_codex || live_codex_turn || live_codex_review`. Under any of
+  those three tags the package's tests do not compile: "liveEngine redeclared in this block".
+* **F10 — What it stops.** `make live-codex`, `make live-codex-turn` and `make live-codex-review`
+  fail at the build. Their other callers are `live_sandbox_test.go:23` and `live_turn_test.go`
+  (two). `make live-codex-contract` is unaffected: `live_codex_contract` does not select
+  `live_helpers_test.go`.
+* **F11 — Why it was missed.** S3 step 5 vetted and built only `live_codex_contract`, the tag of the
+  one tagged file D4 changed. It did not build the other tags whose files share the package. CI
+  builds no live tag, so the push went green (run `41253370960`).
+* **F12 — Nothing else is broken by a tag.** `go vet -tags <tag> ./...` for each opt-in tag in the
+  tree (`debugpprof`, `live_codex`, `live_codex_contract`, `live_codex_review`, `live_codex_turn`,
+  `live_grok`, `live_kilo`, `live_opencode`): only the three codex tags in F9 fail, all on F9. The
+  nine together took 48 s on this host.
+
+### Decisions added
+
+* **D7 — D2's helper is renamed `lockedEngine`.** The name says what it does, reads under `p.mu`,
+  and leaves `liveEngine` to the live helper that held it first. The rename touches only the two
+  files this record already changed: the definition and five calls in `collaboration_test.go`, and
+  one in `live_contract_test.go`. The older helper and its three callers do not change. Seen failing
+  first: on a copy of `HEAD`, the three tags fail, as F9 says; after the rename, every tag vets on
+  darwin, linux and windows. No live run.
+* **D8 — A gate that type-checks every build tag (owner's choice, Q3 below).** A script,
+  `scripts/vet_build_tags.py`, finds each opt-in tag in the tracked `//go:build` lines. It leaves
+  out platform and toolchain names, which the per-OS jobs already cover. It runs
+  `go vet -tags <tag> ./...` once per tag, and fails if any run fails. `make vet-tags` runs it, and
+  `make preflight` runs `make vet-tags`. Seen failing first on `HEAD`, where it must name the three
+  codex tags, and on a scratch copy with a planted new tag whose file does not compile.
+
+### Q3 — Where the gate runs
+
+* **A — `make preflight` and CI (recommended).** A CI step after `Vet` runs `make vet-tags`. F11 is
+  a push that went green, and only CI sees every push. Bad, because it edits `ci.yml`, which needs
+  the owner's permission. It adds about a minute to the `Go (test)` job.
+* **B — `make preflight` only.** No workflow change. Bad, because it holds only when someone runs
+  preflight, and F9 got through without that.
+* **C — No gate.** D7 alone. Bad, because the next shared name in a tagged file fails the same way,
+  unseen.
+
+### Consequences, amended
+
+* Good, because the three codex live suites build again.
+* Good, with D8, because a tag-gated file that no longer compiles fails a gate instead of waiting
+  for the next live run.
+* Neutral, because D2's and D4's property is unchanged: only the name differs.
+* Bad, because D8 vets the whole module once per tag, about 48 s here today, and more as tags are
+  added.
+
+### Confirmation, amended
+
+* `go vet` and `go test -c` under `live_codex`, `live_codex_turn`, `live_codex_review` and
+  `live_codex_contract` exit 0 for darwin, linux and windows.
+* No function named `liveEngine` remains in an untagged file of `internal/provider/codex`.
+* With D8: `make vet-tags` fails on a copy of `HEAD`, naming the three codex tags, and on the planted
+  tag. It passes on the change. Under Q3 option A, it also passes in CI on the push.

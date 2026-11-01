@@ -157,7 +157,7 @@ MOBILE_DIR := apps/mobile
 
 .PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-kilo live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
-	pre-add-check vet tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
+	pre-add-check vet vet-tags tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
 	check-libs
 
 build: check-cgo-off
@@ -440,6 +440,7 @@ preflight:
 	mv -f .go.mod.pre go.mod; mv -f .go.sum.pre go.sum; \
 	exit $$rc
 	@echo "==> go vet";        go vet ./...
+	@echo "==> go vet, every build tag"; $(MAKE) --no-print-directory vet-tags
 	@echo "==> staticcheck";   $(MAKE) --no-print-directory staticcheck
 	@echo "==> go test -race"; go test -race ./...
 	@echo "==> install/restart tests"; ./scripts/install-binary_test.sh
@@ -672,6 +673,11 @@ verify-build-metadata:
 
 vet:
 	go vet ./...
+
+# go vet once per opt-in build tag (live_*, debugpprof, ...), found in the tree's
+# //go:build lines. Plain vet and test never compile those files (MADR 0225 D8).
+vet-tags:
+	python3 scripts/vet_build_tags.py
 
 tidy:
 	go mod tidy

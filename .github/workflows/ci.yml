@@ -132,6 +132,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # MADR 0225 D8. Plain vet and test never compile a file behind an opt-in
+      # tag (live_codex, ...), so one can stop compiling unseen; 0225's D2 helper
+      # broke three codex live suites behind a green run. Vets once per tag.
+      - name: Vet (every build tag)
+        run: make vet-tags
+
       # Race-detected run over EVERY package. This replaces the previous
       # `go test ./...` + hand-maintained race allowlist: the allowlist silently
       # excluded new concurrent packages (procutil, admin), and one race pass is

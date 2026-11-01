@@ -1,6 +1,6 @@
 ---
-status: complete
-date: 2026-10-31
+status: in-progress
+date: 2026-11-01
 associated-madr: "0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -358,3 +358,111 @@ removed.
 
 **This plan is complete.** V1 to V7 and V3a are met. The two tests that raced in CI run `41248953620`
 passed in `Go (test)` and `Go (darwin/arm64)` on the first attempt.
+
+*Reopened 2026-11-01 by the amendment below: S3 step 5 checked one live tag, and D2's helper broke
+the other three (MADR F9 to F11).*
+
+## Amendment A — 2026-11-01: rename D2's helper, and type-check every build tag
+
+Implements the MADR's amendment A: D7, and D8 as the owner answers Q3. *Approved by the owner,
+2026-11-01: "Preflight and CI (Recommended)", so Q3 is option A and `ci.yml` is in scope.*
+
+### Scope
+
+* **D7:** `internal/provider/codex/collaboration_test.go` (the helper, its comment, five calls) and
+  `internal/provider/codex/live_contract_test.go` (one call) rename `liveEngine` to `lockedEngine`.
+  Nothing else in either file changes.
+* **D8:** `scripts/vet_build_tags.py` (new); `Makefile` (a `vet-tags` target, its `.PHONY` entry,
+  and one line in `preflight`). Under Q3 option A, also `.github/workflows/ci.yml`: one step after
+  `Vet` in the `Go (test)` job, running `make vet-tags`.
+* **Records:** this pair.
+* **Not in scope:** `live_helpers_test.go` and its callers; any live run; other packages' tests.
+
+### Constraints
+
+C1, C2, C3, C5 and C6 hold as written above. C4 does not apply: no step needs a test host, because
+every check is a compile and runs on this host with `GOOS` set.
+
+### Steps
+
+* **A1 — Seen failing first, on a `git archive` copy of `HEAD` (C3).**
+  * `go vet -tags <tag> ./internal/provider/codex/` for `live_codex`, `live_codex_turn` and
+    `live_codex_review`: each must fail with "liveEngine redeclared".
+  * With D8, `scripts/vet_build_tags.py` run on that copy must exit non-zero, naming those three
+    tags and no other.
+* **A2 — The change:** D7's rename, then D8's files.
+* **A3 — The checks.**
+  * For each of `live_codex`, `live_codex_turn`, `live_codex_review` and `live_codex_contract`, and
+    for each of darwin, linux and windows: `go vet -tags <tag>` and
+    `go test -c -tags <tag> -o <scratch>` on `./internal/provider/codex/`, each exit 0.
+  * No `func liveEngine` in an untagged file of `internal/provider/codex`.
+  * `make vet-tags`: exit 0, listing all eight tags.
+  * **Plants, on scratch copies of the change (C3):**
+    * a second `liveEngine` restored in `collaboration_test.go`: `make vet-tags` must fail, naming
+      the three codex tags;
+    * a new file under a new tag, `//go:build plant_tag`, that does not compile: the script must
+      find `plant_tag` and fail on it.
+  * `go test -race -count=1 ./internal/provider/codex/`; `make pre-add-check FILES="…"` on the two Go
+    files; `make lint`; `make staticcheck`; `make check-records`; the guard's redact preview.
+  * The script, run twice in a row, gives the same tag list, so its order is stable.
+* **A4 — Records and staging.** This amendment's execution record, with each failure quoted. Stage
+  Scope's files and this pair under C1. The owner commits.
+* **A5 — After the push** (with the owner's ask): CI passes. Under option A, the new step runs and
+  lists the eight tags. Then this plan is `complete` again.
+
+### Verification
+
+| # | Criterion | MADR |
+| :--- | :--- | :--- |
+| VA1 | The three codex live tags failed on `HEAD` (A1) | F9 |
+| VA2 | All four codex live tags vet and build on three OSes (A3) | D7 |
+| VA3 | No untagged `liveEngine` in the package | D7 |
+| VA4 | `make vet-tags` fails on `HEAD` and on both plants, and passes on the change | D8 |
+| VA5 | Under option A, CI runs the gate on the push and passes | D8, Q3 |
+
+### Rollout and Rollback
+
+* **Rollout:** tests and a developer gate; nothing ships.
+* **Rollback:** revert the commit. The codex live suites stop building again.
+
+### Execution record, amendment A
+
+**A1 — 2026-11-01, on a `git archive` copy of `ad588bb0`** (`a_checks.py a1` in the session
+scratchpad; the copy was removed and its absence checked):
+
+* `go vet -tags live_codex`, `live_codex_turn` and `live_codex_review` on
+  `./internal/provider/codex/`: each exit 1, "live_helpers_test.go:13:6: liveEngine redeclared in
+  this block".
+* `scripts/vet_build_tags.py`, copied in, on that copy made a git tree: exit 1, "8 opt-in tag(s):
+  debugpprof, live_codex, live_codex_contract, live_codex_review, live_codex_turn, live_grok,
+  live_kilo, live_opencode", ending "go vet failed under 3 tag(s): live_codex, live_codex_review,
+  live_codex_turn".
+
+**A2 — the change.**
+
+* D7: `liveEngine` became `lockedEngine` at its seven words in `collaboration_test.go` (the
+  definition, its comment, five calls) and its two in `live_contract_test.go` (a comment, one call),
+  each count asserted before the replace (`a2_rename.py`). The helper's comment gains one sentence
+  saying why it is not `liveEngine` (D7).
+* D8: `scripts/vet_build_tags.py` (new); the `Makefile`'s `vet-tags` target, its `.PHONY` entry,
+  and a preflight line after `go vet`; `ci.yml`'s `Vet (every build tag)` step after `Vet` in
+  `Go (test)`.
+
+**A3 — the checks.**
+
+| Check | Result |
+| --- | --- |
+| `go vet` and `go test -c` under the four codex live tags, for darwin, linux and windows (`a3_cross.py`) | 12 of 12: vet exit 0, build exit 0, binary written and removed |
+| no `func liveEngine` in an untagged file of `internal/provider/codex` | none |
+| `make vet-tags`, twice | exit 0 both times; the same eight tags, each "ok" |
+| plant: an untagged `liveEngine` restored in `collaboration_test.go` | exit 1, "go vet failed under 3 tag(s): live_codex, live_codex_review, live_codex_turn" |
+| plant: `internal/event/plant_tag_test.go` under `//go:build plant_tag`, not compiling | exit 1, "9 opt-in tag(s)" found, "plant_tag: FAILED … cannot use \"not an int\" (untyped string constant) as int value" |
+| `go test -race -count=1 ./internal/provider/codex/` | ok, 49.7 s |
+| `make pre-add-check FILES=…` (the two Go files) | "2 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck` | exit 0; exit 0, 56 ignored findings, each an acp-go-sdk2 unstable-schema name |
+| `actionlint .github/workflows/ci.yml` (installed here; not a repository gate) | exit 0, no findings; also none on `HEAD`'s copy |
+
+The plant copies were removed and their absence checked. No live run (C2).
+
+**Not done:** `make preflight` as a whole, which now includes `vet-tags`. Its parts that this change
+touches ran on their own above.

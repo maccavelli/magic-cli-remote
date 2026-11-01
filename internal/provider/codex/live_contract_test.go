@@ -82,10 +82,10 @@ func TestLiveContractNoModelTurn(t *testing.T) {
 		t.Fatalf("initialize: %v", err)
 	}
 	defer p.Shutdown()
-	// liveEngine takes p.mu, which the exit goroutine writes the engine under;
+	// lockedEngine takes p.mu, which the exit goroutine writes the engine under;
 	// an engine that has already exited fails the test rather than panicking it
 	// (MADR 0225 D4).
-	eng, _ := liveEngine(p)
+	eng, _ := lockedEngine(p)
 	if eng == nil {
 		t.Fatal("no engine after initialize: it exited before its state could be read")
 	}

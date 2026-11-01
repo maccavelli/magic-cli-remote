@@ -158,7 +158,7 @@ func TestInitializeSendsExperimentalApiTrue(t *testing.T) {
 			t.Fatalf("initialize did not send %s: %s", want, raw)
 		}
 	}
-	if eng, _ := liveEngine(p); eng == nil || !eng.experimental {
+	if eng, _ := lockedEngine(p); eng == nil || !eng.experimental {
 		t.Fatal("engine should keep the experimental initialize")
 	}
 }
@@ -180,7 +180,7 @@ func TestExperimentalInitializeRetriesOnce(t *testing.T) {
 	defer p.Shutdown()
 
 	waitLaunchCount(t, countPath, 2)
-	if eng, _ := liveEngine(p); eng == nil || eng.experimental {
+	if eng, _ := lockedEngine(p); eng == nil || eng.experimental {
 		t.Fatal("retry must publish a non-experimental engine")
 	}
 	ok, reason, _, _ := p.collaborationCapability()
@@ -272,7 +272,7 @@ func TestCollaborationProbeOncePerEngineGeneration(t *testing.T) {
 	}
 	defer p.Shutdown()
 
-	eng, _ := liveEngine(p)
+	eng, _ := lockedEngine(p)
 	p.probeCollaboration(ctx, eng)
 	p.probeCollaboration(ctx, eng)
 	waitLaunchCount(t, listPath, 1)
@@ -337,7 +337,7 @@ func TestEngineGenerationResetsCollaborationProbe(t *testing.T) {
 	if _, err := p.ensureEngine(ctx); err != nil {
 		t.Fatalf("first engine: %v", err)
 	}
-	first, firstGen := liveEngine(p)
+	first, firstGen := lockedEngine(p)
 	if err := first.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestEngineGenerationResetsCollaborationProbe(t *testing.T) {
 		t.Fatalf("replacement engine: %v", err)
 	}
 	defer p.Shutdown()
-	if _, gen := liveEngine(p); gen <= firstGen {
+	if _, gen := lockedEngine(p); gen <= firstGen {
 		t.Fatalf("generation %d did not advance from %d", gen, firstGen)
 	}
 	waitLaunchCount(t, listPath, 2)
@@ -443,12 +443,13 @@ func readLaunchLog(path string) (int, error) {
 	return n, nil
 }
 
-// liveEngine reads the provider's engine and generation under p.mu. The
+// lockedEngine reads the provider's engine and generation under p.mu. The
 // engine's exit goroutine writes both under that lock when the engine dies
 // (handleUnexpectedEngineExit), at a moment no test controls, so a test that
 // reads them while an engine runs takes it too, as reconnect_p3_test.go does
-// inline (MADR 0225 D2).
-func liveEngine(p *Provider) (*engine, int) {
+// inline (MADR 0225 D2). Not liveEngine: the live helper in
+// live_helpers_test.go has that name under the codex live tags (D7).
+func lockedEngine(p *Provider) (*engine, int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.eng, p.generation
