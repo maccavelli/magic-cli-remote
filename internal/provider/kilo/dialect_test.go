@@ -173,10 +173,10 @@ func TestOnHealthyRecordsVersion(t *testing.T) {
 // deliberate edit in two places, with a fixture to back it, rather than
 // something that drifts with whatever happens to be installed (MADR 0137
 // Phase 3).
-func TestKnownGoodVersionIs756(t *testing.T) {
-	if KnownGoodVersion != "7.5.6" {
-		t.Fatalf("KnownGoodVersion = %q, want 7.5.6 "+
-			"(MADR 0137 Phase 3; evidence: testdata/wire/7.5.6/)", KnownGoodVersion)
+func TestKnownGoodVersionIs7818(t *testing.T) {
+	if KnownGoodVersion != "7.8.18" {
+		t.Fatalf("KnownGoodVersion = %q, want 7.8.18 "+
+			"(MADR 0226 D2; evidence: testdata/wire/7.8.18/)", KnownGoodVersion)
 	}
 }
 

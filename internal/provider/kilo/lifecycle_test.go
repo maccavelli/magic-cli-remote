@@ -89,3 +89,40 @@ func TestSessionStatusRetryHardLimitEndsTurn(t *testing.T) {
 		t.Fatalf("EndTurn calls = %d, want 1", h.endTurnCount())
 	}
 }
+
+// Kilo 7.8 reports a session that is doing nothing now but has a future wakeup
+// as `scheduled`, and its own clients treat that as idle (MADR 0226 F4). The
+// turn must end on it exactly as it does on `idle`.
+func TestSessionStatusScheduledEndsTheTurnLikeIdle(t *testing.T) {
+	run := func(status string) (httpagent.NodeStatus, int, []event.Type) {
+		h := newStatusTestHost()
+		d := &httpDialect{log: slog.Default()}
+		s := d.NewSession(h).(*httpSession)
+		s.HandleEvent("session.status", json.RawMessage(`{"sessionID":"ses_test","status":{"type":"busy"}}`))
+		s.HandleEvent("session.status", json.RawMessage(`{"sessionID":"ses_test","status":`+status+`}`))
+		var types []event.Type
+		for _, ev := range h.events {
+			types = append(types, ev.Type)
+		}
+		return h.nodes["ses_test"], h.endTurnCount(), types
+	}
+	idleNode, idleEnds, idleEvents := run(`{"type":"idle"}`)
+	node, ends, events := run(`{"type":"scheduled","scheduledAt":"2026-11-01T18:00:00.000Z"}`)
+	if node != httpagent.NodeIdle || node != idleNode {
+		t.Errorf("node status after scheduled = %q, want %q as after idle", node, idleNode)
+	}
+	if ends != idleEnds || ends != 1 {
+		t.Errorf("EndTurn calls after scheduled = %d, want %d as after idle", ends, idleEnds)
+	}
+	if strings.Join(eventTypeNames(events), ",") != strings.Join(eventTypeNames(idleEvents), ",") {
+		t.Errorf("events after scheduled = %v, want %v as after idle", events, idleEvents)
+	}
+}
+
+func eventTypeNames(types []event.Type) []string {
+	out := make([]string, len(types))
+	for i, t := range types {
+		out[i] = string(t)
+	}
+	return out
+}

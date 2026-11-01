@@ -19,12 +19,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
 )
 
-const (
-	kilo7423Version = "7.4.23"
-	probeTailBytes  = 64 << 10
-)
+const probeTailBytes = 64 << 10
 
 var (
 	ansiCSI    = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
@@ -317,11 +316,11 @@ func canonicalEventTypes(t *testing.T, doc openAPIDocument) []string {
 	return out
 }
 
-func TestLiveKilo7423Surface(t *testing.T) {
+func TestLiveKiloSurface(t *testing.T) {
 	requireKilo(t)
 	k := newIsolatedKilo(t)
-	if got := strings.TrimSpace(string(k.run(t, 30*time.Second, "--version"))); got != kilo7423Version {
-		t.Fatalf("kilo --version = %q, want %q", got, kilo7423Version)
+	if got := strings.TrimSpace(string(k.run(t, 30*time.Second, "--version"))); got != kilo.KnownGoodVersion {
+		t.Fatalf("kilo --version = %q, want %q", got, kilo.KnownGoodVersion)
 	}
 
 	baseURL, server := k.startServer(t)
@@ -331,15 +330,18 @@ func TestLiveKilo7423Surface(t *testing.T) {
 		Version string `json:"version"`
 	}
 	getJSON(t, baseURL, "/global/health", &health)
-	if !health.Healthy || health.Version != kilo7423Version {
-		t.Fatalf("health = %+v, want healthy 7.4.23", health)
+	if !health.Healthy || health.Version != kilo.KnownGoodVersion {
+		t.Fatalf("health = %+v, want healthy %s", health, kilo.KnownGoodVersion)
 	}
 
 	var doc openAPIDocument
 	getJSON(t, baseURL, "/doc", &doc)
 	events := canonicalEventTypes(t, doc)
-	if len(doc.Paths) != 255 || len(doc.Components.Schemas) != 680 || len(events) != 119 {
-		t.Fatalf("OpenAPI paths/schemas/events = %d/%d/%d, want 255/680/119",
+	// kilo 7.8.18: 280 paths and 748 schemas, as the v7.8.18 tag's
+	// packages/sdk/openapi.json has them, and 121 event types (MADR 0226, R2
+	// Deviation 2a). 7.4.23 had 255/680/119 (MADR 0108).
+	if len(doc.Paths) != 280 || len(doc.Components.Schemas) != 748 || len(events) != 121 {
+		t.Fatalf("OpenAPI paths/schemas/events = %d/%d/%d, want 280/748/121",
 			len(doc.Paths), len(doc.Components.Schemas), len(events))
 	}
 	if _, ok := doc.Paths["/kilocode/agent/requirements"]; ok {
@@ -488,7 +490,7 @@ func (k isolatedKilo) probeACP(t *testing.T) json.RawMessage {
 	return found[0].result
 }
 
-func TestLiveKilo7423ACPInitialize(t *testing.T) {
+func TestLiveKiloACPInitialize(t *testing.T) {
 	requireKilo(t)
 	result := newIsolatedKilo(t).probeACP(t)
 	var got struct {
@@ -530,8 +532,8 @@ func TestLiveKilo7423ACPInitialize(t *testing.T) {
 	if len(got.AuthMethods) != 1 || got.AuthMethods[0].ID != "kilo-login" {
 		t.Errorf("ACP auth method ids = %+v, want kilo-login", got.AuthMethods)
 	}
-	if got.AgentInfo.Name != "Kilo" || got.AgentInfo.Version != kilo7423Version {
-		t.Errorf("ACP agent info = %+v, want Kilo 7.4.23", got.AgentInfo)
+	if got.AgentInfo.Name != "Kilo" || got.AgentInfo.Version != kilo.KnownGoodVersion {
+		t.Errorf("ACP agent info = %+v, want Kilo %s", got.AgentInfo, kilo.KnownGoodVersion)
 	}
 }
 

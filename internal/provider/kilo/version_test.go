@@ -17,11 +17,11 @@ func TestKnownGoodPinComparesFullSemver(t *testing.T) {
 		version string
 		drift   bool
 	}{
-		{"7.5.6", false},
-		{"v7.5.6", false},
-		{"7.5.6+build", false},
-		{"7.5.6-rc.1", true},
-		{"7.5.7", true},
+		{"7.8.18", false},
+		{"v7.8.18", false},
+		{"7.8.18+build", false},
+		{"7.8.18-rc.1", true},
+		{"7.8.19", true},
 		{"nonsense", true},
 	}
 	for _, c := range cases {

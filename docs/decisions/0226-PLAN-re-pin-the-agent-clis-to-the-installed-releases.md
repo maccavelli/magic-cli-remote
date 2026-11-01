@@ -169,3 +169,97 @@ on its own; and "Approve, all live runs", which covers every run named in C2.
 
 **Files for this commit:** `internal/provider/grok/version.go`, this pair, and `docs/README.md`'s
 two index rows for it.
+
+*The owner committed R1 as `b6022f4d`. The owner then had the grok sources checked: the local clone,
+the owner's fork and upstream `xai-org/grok-build` are the same commit, `2bdd1d6a63` (1.0.45,
+2026-09-29). Upstream has one branch, no tags and no releases, so no newer grok source exists to
+pull. R1's comment stands.*
+
+### R2 Deviation 1, 2026-11-01 — `version_test.go` names the pin. The owner decided: "Swap the literal to 7.8.18"
+
+- **Found** after the pin moved: `TestKnownGoodPinComparesFullSemver`
+  (`internal/provider/kilo/version_test.go:20-25`) lists `7.5.6`, `v7.5.6` and `7.5.6+build` as
+  releases that must not warn. With the pin at 7.8.18 they warn: "drift warning logged = true, want
+  false". Every other kilo test passed.
+- **Resolution:** `version_test.go` joins R2. Its cases become `7.8.18`, `v7.8.18` and
+  `7.8.18+build` (no warning), and `7.8.18-rc.1` and `7.8.19` (warning). `nonsense` is unchanged.
+- **Not taken:** deriving the cases from `KnownGoodVersion`, which would spare the next re-pin this
+  edit.
+- **The MADR is unchanged.**
+
+### R2 Deviation 2, 2026-11-01 — `make live-kilo` failed four tests. The owner decided: "Re-pin them to 7.8.18", "Test skips the current", "Re-run it alone"
+
+`make live-kilo` against kilo 7.8.18: exit 2, 182 passed, 4 failed, 3 skipped (203.5 s). None of
+the four comes from R2's changes.
+
+- **a. `TestLiveKilo7423Surface` and `TestLiveKilo7423ACPInitialize`** (`live_surface_test.go:25`,
+  `:324`, `:534`): "kilo --version = \"7.8.18\", want \"7.4.23\"" and "ACP agent info = {Name:Kilo
+  Version:7.8.18}, want Kilo 7.4.23". They pin 0108's 7.4.23 surface (version, 255/680/119 OpenAPI
+  paths/schemas/events, required event types, ACP capabilities and auth), stop at the version line,
+  and have failed on every kilo after 7.4.23; the 7.5.6 re-pin did not touch them. **Resolution:**
+  `live_surface_test.go` joins R2. The tests compare against `KnownGoodVersion`, take the
+  7.8.18 values from what the engine reports, and lose "7423" from their names.
+- **b. `TestLiveRecommendedRoutersRankFirst`** (`live_catalog_test.go:126-138`): "recommended
+  kilo/kilo-auto/efficient ranks below unrecommended kilo/kilo-auto/balanced". A catalog read
+  (`repin/kilocap/run_probe.py`, no turn) shows 321 options with default
+  `kilo/kilo-auto/balanced`, which the gateway sends with no `recommendedIndex`, then the nine
+  recommended ones in index order 0 to 8. The picker puts the current model first by design
+  (`internal/picker/order.go:43`); the test does not allow for it. The catalog comes from kilo's
+  gateway, so this tracks the gateway's data, not the binary. **Resolution:**
+  `live_catalog_test.go` joins R2, and the check starts after the catalog's current option. The
+  ordering code is unchanged.
+- **c. `TestLivePromptStream`** (`live_test.go:55`): "second create took 2.659783s, want <2s on a
+  shared engine". `make pre-add-check` (with govulncheck) and `make lint` ran during the suite.
+  **Resolution:** the test is re-run alone on a quiet machine. A pass records contention as the
+  cause; a failure is a stop.
+- **The MADR is unchanged.**
+
+### R2 — 2026-11-01: kilo to 7.8.18
+
+1. `kilo --version`: `7.8.18`.
+2. **The capture** (`repin/kilocap/run_capture.py`; a scratch-only test in a scratch copy of the
+   tree, removed afterwards). One turn, "Reply with exactly 'hello'", on
+   `openrouter/openrouter/free`: `end_turn` in 7.3 s, 108 frames.
+3. **Read before committing** (`scan.py`, `scan2.py`). The frames have the 7.5.6 capture's shape
+   (`directory`, `project`, `payload`), 18 `sync` frames carrying a `syncEvent`, and 18 lines with
+   `"cache"`. Every `project` is `global`. The only identifier is the macOS per-user temp root:
+   132 occurrences, 122 of them in the `/private/var/folders` form, none URL-encoded.
+   `write_capture.py` replaced its two segments as the grok captures do
+   (`/var/folders/<id>/<user>/T`) and wrote all 108 frames to `testdata/wire/7.8.18/`, with a
+   `meta.json`. The guard's redact preview: "would edit 0 file(s)";
+   `TestCommittedFixturesCarryNoIdentifiers`: ok.
+4. **`scheduled`.** `TestSessionStatusScheduledEndsTheTurnLikeIdle` (`lifecycle_test.go`) sends busy
+   then `scheduled`, and requires what busy then `idle` gives. On today's code: "node status after
+   scheduled = \"busy\", want \"idle\"", "EndTurn calls after scheduled = 0, want 1", and one event
+   where idle gives three. Then `case "idle", "scheduled":` in `lifecycle.go`, with a comment
+   citing F4: the test passes.
+5. `KnownGoodVersion = "7.8.18"`, with the comment naming the new capture and the surface
+   comparison. `TestKnownGoodVersionIs756` became `TestKnownGoodVersionIs7818`. `version_test.go`'s
+   cases moved to 7.8.18 (Deviation 1).
+6. **Checks.**
+   * Plants on scratch copies (`repin/r2_plant.py`): with the capture's `sync` frames removed,
+     `TestFixtureSyncFramesAdvanceContiguously` fails, "no sync frames in the fixture"; with the
+     `scheduled` case undone, the new test fails as in step 4. With the `cache` lines removed,
+     `TestFixtureConfirmsKiloReportsACacheRead` skips rather than fails. That is its existing design
+     (`usagedetail_test.go:116-119`); against the real capture it runs and passes.
+   * **`make live-kilo`, first run:** exit 2; 182 passed, 4 failed (Deviation 2).
+   * After Deviation 2: `TestLivePromptStream` alone, on a quiet machine, passed in 6.47 s. The
+     surface was measured live with only the version constant moved (`r2_surface_measure.py`):
+     paths, schemas and events 280/748/121. The v7.8.18 tag's `packages/sdk/openapi.json` has the
+     same 280 paths and 748 schemas. The ACP initialize and read-only-boundaries tests passed
+     unchanged apart from the version.
+   * **`make live-kilo`, second run:** exit 0. 186 passed, 0 failed, 3 skipped in 108.0 s, among
+     them `TestLiveKiloSurface`, `TestLiveKiloACPInitialize`, `TestLiveRecommendedRoutersRankFirst`
+     and `TestLivePromptStream`. The three skips each need an opt-in variable:
+     `MCREMOTE_KILO_ENGINE`, `MCREMOTE_LIVE_AUTH_WRITE` and `MCREMOTE_RAW_OUTPUT_DIR`.
+   * `go test -race -count=1 ./...`: exit 0, 45 packages ok. `make pre-add-check` on the seven Go
+     files: "7 file(s) clean". `make lint`, `make staticcheck`, `make vet-tags`,
+     `make check-records`: exit 0 each.
+
+**Not done:** `TestLiveKilo7423ReadOnlyAgentBoundaries` keeps its name. It passed against 7.8.18 and
+names no version; Deviation 2 renamed only the two that failed. `kilo-spike-7.4.23/README.md` still
+names the old tests, as the record of the 0108 run it is.
+
+**Files for this commit:** `internal/provider/kilo/version.go`, `lifecycle.go`,
+`lifecycle_test.go`, `dialect_test.go`, `version_test.go`, `live_catalog_test.go`,
+`live_surface_test.go`, `testdata/wire/7.8.18/frames.jsonl` and `meta.json` (new), and this plan.

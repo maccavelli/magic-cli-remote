@@ -174,7 +174,9 @@ func (o *httpSession) handleSessionStatus(props json.RawMessage) {
 			Type: event.TypeNotice,
 			Text: clipText(text, 300),
 		})
-	case "idle":
+	case "idle", "scheduled":
+		// `scheduled` (kilo 7.8) is a session doing nothing now with a future
+		// wakeup; kilo's own clients treat it as idle (MADR 0226 F4).
 		o.noteNodeIdle(sid)
 		o.tryTreeEndTurn()
 	}

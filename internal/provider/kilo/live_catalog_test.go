@@ -124,8 +124,17 @@ func TestLiveRecommendedRoutersRankFirst(t *testing.T) {
 	if len(cat.Options) == 0 {
 		t.Skip("engine reports no kilo models (logged out?)")
 	}
+	// The picker puts the current model first whatever its recommendation
+	// (picker.OrderModels, band 0), and here the current model is the
+	// engine's default. Kilo's gateway sends kilo-auto/balanced, the default,
+	// with no recommendedIndex (MADR 0226, R2 Deviation 2b), so the ranking
+	// is checked from the option after it.
+	opts := cat.Options
+	if len(cat.DefaultIDs) > 0 && opts[0].ID == cat.DefaultIDs[0] {
+		opts = opts[1:]
+	}
 	seenRecommended := false
-	for i, o := range cat.Options {
+	for i, o := range opts {
 		_, ok := o.Meta[picker.MetaRecommendedIndex]
 		if ok {
 			seenRecommended = true
@@ -133,7 +142,7 @@ func TestLiveRecommendedRoutersRankFirst(t *testing.T) {
 		}
 		// The first unrecommended option must come after every recommended
 		// one; anything recommended below it is a ranking regression.
-		for _, rest := range cat.Options[i+1:] {
+		for _, rest := range opts[i+1:] {
 			if _, isRec := rest.Meta[picker.MetaRecommendedIndex]; isRec {
 				t.Fatalf("recommended %s ranks below unrecommended %s", rest.ID, o.ID)
 			}
