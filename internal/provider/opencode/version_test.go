@@ -50,10 +50,15 @@ func TestOnHealthyAndVersionGate(t *testing.T) {
 	if err := d.CheckMinVersion(httpagent.Config{SessionTree: &off}); err != nil {
 		t.Fatalf("kill switch should allow old engine: %v", err)
 	}
-	// Empty version → allow (unknown).
+	// Empty version → refuse: an engine of unknown version is how OpenCode v2
+	// reached the 1.x session path unchecked (MADR 0214 D12). The kill switch
+	// still allows it, as it allows an old one.
 	d2 := &httpDialect{log: slogDefault()}
-	if err := d2.CheckMinVersion(httpagent.Config{}); err != nil {
-		t.Fatalf("unknown version must not block: %v", err)
+	if err := d2.CheckMinVersion(httpagent.Config{}); err == nil {
+		t.Fatal("an engine that reported no version passed the minimum check")
+	}
+	if err := d2.CheckMinVersion(httpagent.Config{SessionTree: &off}); err != nil {
+		t.Fatalf("kill switch should allow an unknown version: %v", err)
 	}
 }
 

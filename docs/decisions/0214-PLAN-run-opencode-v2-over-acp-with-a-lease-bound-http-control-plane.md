@@ -227,8 +227,11 @@ mobile docs' OpenCode rows, and tests.
 
 *Answered by the owner, 2026-11-01:*
 
-* The PLAN: "Approve, ask per gate". P1 and P2 start; each of G1 to G6, and every other named live
-  run, waits for the owner's word at its turn.
+* The PLAN: "Approve, ask per gate", whose option read "Start P1 and P2 now (no quota except P1's
+  make live-kilo). Stop before each of G1-G6 and P9's live runs for your word". So P1's
+  `make live-kilo` runs within P1 (on the free model, C2a); G1 to G6, P7's `make live-kilo` and
+  P9's live runs each wait for the owner's word. *Corrected 2026-11-01: this entry first said every
+  other named live run waits, which narrowed the option the owner chose.*
 * `stream_coalesce_ms`: "Retire it" (P7 step 2).
 * Full-text search: dropped by name in P6, with issue
   [#34](https://github.com/maccavelli/magic-cli-remote/issues/34) opened for the research and a
@@ -237,4 +240,69 @@ mobile docs' OpenCode rows, and tests.
 
 ## Execution record
 
-Not started.
+### P1 — 2026-11-01: shared hardening in `httpagent`
+
+C8: `opencode --version` printed `v2.2.3`, at `13834e36`.
+
+**What changed.**
+
+* `httpagent/provider.go`:
+  * A `200` health answer passes only as JSON naming the engine's version (`checkHealthBody`),
+    and anything else ends the start at once, killing the engine. Before, any `200` was health.
+  * The event stream must answer `text/event-stream`.
+  * An API answer that is decoded must be JSON (`application/json` or a `+json` type). An answer
+    that is not decoded is not checked.
+  * Each refusal names the request, the content type it got, the one it wanted, and up to 120 bytes
+    of the body (`contentTypeError`).
+  * The death monitor logs exits 0 and 130 as "engine stopped" at Info, and anything else as
+    before. Sessions fail either way (`orderlyExit`, `exitCode`).
+* `opencode/http.go`: `CheckMinVersion` refuses an engine that reported no version when
+  session-tree mode is on, where it used to pass. The kill switch still allows it.
+* Tests: `httpagent/contenttype_test.go` (new) covers the health probe through the real
+  `startServer` (an HTML page, and JSON without a version, from a helper engine), the event stream,
+  the API, and the exit classification. `supervise_wiring_test.go`'s helper engine now answers
+  JSON with a version. `opencode/version_test.go`'s "unknown version must not block" became the
+  refusal, with the kill-switch case kept.
+* The kilo and OpenCode 1.x dialects use the same `/global/health` and `/global/event` paths, so
+  the tests' one stub dialect with those paths covers both. No kilo or OpenCode unit fake needed a
+  change for the API check; the existing fakes already set JSON content types where they are
+  decoded.
+
+**Tests, each seen failing.** On `HEAD` the new file does not compile (it calls the new helpers).
+On scratch copies of the change, one check undone each (`p1_plants.py` in the session
+scratchpad):
+
+| Plant | Fails |
+| --- | --- |
+| the health body left unchecked | both `TestStartServerRefuses…` tests: "startServer accepted an HTML page as health", "…a health answer that names no version" |
+| the stream's content type unchecked | `TestEventStreamRefusesAnHTMLAnswer`: "the event stream accepted an HTML page" |
+| the API's content type unchecked | `TestAPIRefusesAnAnswerThatIsNotJSON`, for `text/html` and `text/plain` |
+| 130 not orderly | `TestOrderlyExit`: "orderlyExit(exit 130) = false, want true" |
+| opencode passing an unknown version | `TestOnHealthyAndVersionGate`: "an engine that reported no version passed the minimum check" |
+
+The first time the full suite ran on the change, `TestEngineTeardownSupervisesTheDescendantTree` and
+`TestOnHealthyAndVersionGate` failed, as the new rules require; both were updated as above.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 45 packages ok |
+| `make pre-add-check FILES=…` (five Go files) | "5 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags` | exit 0 each |
+| the Linux test host, `go test -race -count=1 ./...` (C7) | exit 0, 45 packages ok, no failure or race line |
+| the Windows test host, `make ci-windows` (C7) | exit 0, "ALL SELECTED CHECKS PASSED", 45 packages ok |
+| `MCREMOTE_LIVE_KILO_MODEL=openrouter/openrouter/free make live-kilo` (C2a) | exit 0; 185 passed, 0 failed, 4 skipped, 97.7 s; every turn on `openrouter/openrouter/free` |
+
+The four skips: three need an opt-in variable (`MCREMOTE_KILO_ENGINE`, `MCREMOTE_LIVE_AUTH_WRITE`,
+`MCREMOTE_RAW_OUTPUT_DIR`). The fourth, `TestLivePermissionRoundTrip`, is model-dependent: "model
+completed the turn without using a tool; no permission was requested". It passed in 0226 R2's run
+on the same model.
+
+**Not done:** 0220 §5 A's optional fourth item (passing a secret to an engine through its
+environment) belongs to the control plane, P5.
+
+**Files for this commit:** `internal/provider/httpagent/provider.go`,
+`internal/provider/httpagent/contenttype_test.go` (new),
+`internal/provider/httpagent/supervise_wiring_test.go`, `internal/provider/opencode/http.go`,
+`internal/provider/opencode/version_test.go`, and this plan.

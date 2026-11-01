@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -622,6 +624,16 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 			body, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
 			res.Body.Close()
 			if res.StatusCode == http.StatusOK {
+				// A 200 is not health unless it is the engine's JSON with its
+				// version. OpenCode v2 answers every 1.x path with its web
+				// shell's HTML and a 200, and a health probe that accepted that
+				// let the provider walk into an API that is not there
+				// (MADR 0214 D12). Either failure is final, not a retry.
+				if herr := checkHealthBody(res.Header.Get("Content-Type"), body); herr != nil {
+					killTree()
+					<-waitCh
+					return "", fmt.Errorf("%s health check %s: %w", p.cfg.Bin, p.dialect.HealthPath(), herr)
+				}
 				if hh, ok := p.dialect.(HealthyHook); ok {
 					if herr := hh.OnHealthy(body); herr != nil {
 						killTree()
@@ -714,7 +726,14 @@ func (p *Provider) startServer(ctx context.Context) (string, error) {
 		if closed {
 			return
 		}
-		p.log.Warn("engine exited", slog.String("bin", p.cfg.Bin), slog.Any("err", err))
+		// An engine that stops in order (0 after its lease closed, 130 after a
+		// SIGTERM) is not a crash, and the log says so; its sessions are gone
+		// either way (MADR 0214 D12).
+		if orderlyExit(err) {
+			p.log.Info("engine stopped", slog.String("bin", p.cfg.Bin), slog.Int("exit_code", exitCode(err)))
+		} else {
+			p.log.Warn("engine exited", slog.String("bin", p.cfg.Bin), slog.Any("err", err))
+		}
 		for _, s := range sessions {
 			s.serverDied()
 		}
@@ -769,6 +788,10 @@ func (p *Provider) streamOnce(url string, gen int) error {
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("sse status %d", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); !isMediaType(ct, "text/event-stream") {
+		head, _ := io.ReadAll(io.LimitReader(res.Body, bodyHeadBytes))
+		return contentTypeError("GET "+p.dialect.EventsPath(), ct, "text/event-stream", head)
 	}
 
 	// H4: frames emitted while the stream was down are gone — the engine does
@@ -1186,12 +1209,88 @@ func (p *Provider) apiAt(base string) API {
 			return fmt.Errorf("%s %s: HTTP %d: %s", method, path, res.StatusCode, msg)
 		}
 		if out != nil && len(data) > 0 {
+			if ct := res.Header.Get("Content-Type"); !isJSONContentType(ct) {
+				return contentTypeError(method+" "+path, ct, "application/json", data)
+			}
 			if err := json.Unmarshal(data, out); err != nil {
 				return fmt.Errorf("%s %s: decode: %w", method, path, err)
 			}
 		}
 		return nil
 	}
+}
+
+// bodyHeadBytes is how much of an unexpected body an error quotes: enough to
+// recognise an HTML page or an error message, short enough for one log line.
+const bodyHeadBytes = 120
+
+// isMediaType reports whether the Content-Type header ct names want, ignoring
+// its parameters (charset and the like).
+func isMediaType(ct, want string) bool {
+	mt, _, err := mime.ParseMediaType(ct)
+	return err == nil && mt == want
+}
+
+// isJSONContentType reports whether ct names JSON: application/json, or a
+// structured +json type.
+func isJSONContentType(ct string) bool {
+	mt, _, err := mime.ParseMediaType(ct)
+	return err == nil && (mt == "application/json" || strings.HasSuffix(mt, "+json"))
+}
+
+// contentTypeError names what an endpoint answered instead of what it should
+// have, with the start of the body, so an engine that changed underneath fails
+// as one clear line rather than as a decode error or not at all
+// (MADR 0214 D12).
+func contentTypeError(what, got, want string, body []byte) error {
+	if len(body) > bodyHeadBytes {
+		body = body[:bodyHeadBytes]
+	}
+	return fmt.Errorf("%s answered Content-Type %q, want %s; body starts %q", what, got, want, body)
+}
+
+// checkHealthBody accepts a 200 health answer only when it is JSON that names
+// the engine's version (MADR 0214 D12).
+func checkHealthBody(ct string, body []byte) error {
+	if !isJSONContentType(ct) {
+		return contentTypeError("health", ct, "application/json", body)
+	}
+	var h struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(body, &h); err != nil {
+		return fmt.Errorf("health body is not JSON: %w", err)
+	}
+	if strings.TrimSpace(h.Version) == "" {
+		head := body
+		if len(head) > bodyHeadBytes {
+			head = head[:bodyHeadBytes]
+		}
+		return fmt.Errorf("health reported no version; body starts %q", head)
+	}
+	return nil
+}
+
+// orderlyExit reports whether an engine's exit is the orderly kind: status 0,
+// as after its stdin lease closed, or 130, as OpenCode v2's Bun runtime
+// returns after a SIGTERM (MADR 0214 D2, D12).
+func orderlyExit(err error) bool {
+	code := exitCode(err)
+	return code == 0 || code == 130
+}
+
+// exitCode returns the exit status err carries: 0 for nil, the code for an
+// *exec.ExitError, and -1 for anything else, including a process killed by a
+// signal.
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
 }
 
 func freePort() (int, error) {

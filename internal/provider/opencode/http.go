@@ -714,8 +714,11 @@ func (d *httpDialect) CheckMinVersion(cfg httpagent.Config) error {
 	v := d.engineVersion
 	d.mu.Unlock()
 	if v == "" {
-		// Health probe has not reported yet (or body had no version).
-		return nil
+		// httpagent refuses a health answer without a version, so an empty one
+		// here means the engine was never checked. That is a refusal, not a
+		// pass: an engine of unknown version is how OpenCode v2 reached the
+		// 1.x session path unchecked (MADR 0214 D12).
+		return fmt.Errorf("opencode engine reported no version; cannot check it against the minimum %s", MinVersion)
 	}
 	if !VersionMeetsMin(v) {
 		return VersionPinError(v)

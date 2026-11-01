@@ -112,8 +112,10 @@ func TestHelperProcessServesHealth(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		// JSON with a version: startServer accepts nothing less (MADR 0214 D12).
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{"healthy":true,"version":"0.0.0-test"}`))
 	})
 	// pumpEvents starts as soon as the engine is published; serve it a stream
 	// that simply stays open, so it parks instead of reconnect-looping for the
