@@ -441,6 +441,8 @@ Records share one repository-wide `NNNN` sequence and keep the kind infix (`MADR
 | 0224 | PLAN | Implement pausing the ACP reader instead of dropping notifications | [0224-PLAN-pause-the-acp-reader-instead-of-dropping-notifications.md](decisions/0224-PLAN-pause-the-acp-reader-instead-of-dropping-notifications.md) |
 | 0225 | MADR | Fix the two codex tests that raced in CI: hold the probe stub open, and read the engine under its lock | [0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md](decisions/0225-MADR-fix-the-two-codex-tests-that-raced-in-ci.md) |
 | 0225 | PLAN | Implement fixing the two codex tests that raced in CI | [0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md](decisions/0225-PLAN-fix-the-two-codex-tests-that-raced-in-ci.md) |
+| 0226 | MADR | Re-pin grok, kilo and codex to the installed releases, and decide opencode's pin separately | [0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md](decisions/0226-MADR-re-pin-the-agent-clis-to-the-installed-releases.md) |
+| 0226 | PLAN | Implement re-pinning the agent CLIs to the installed releases | [0226-PLAN-re-pin-the-agent-clis-to-the-installed-releases.md](decisions/0226-PLAN-re-pin-the-agent-clis-to-the-installed-releases.md) |
 <!-- check_records.py ToC end -->
 
 ## I want to…
