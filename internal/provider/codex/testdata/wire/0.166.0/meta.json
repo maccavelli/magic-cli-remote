@@ -4,7 +4,7 @@
   "kind": "in-daemon",
   "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap)",
   "captured_at": "2026-11-01",
-  "frames": 2,
-  "redacted": "accountId and each rateLimitResetCredits credit id -> <account-id>, <credit-id-N>",
-  "note": "selected verbatim agent frames from a one-turn live run (0208-PLAN P5 Deviations 3 and 4), in capture order: the turn's thread/tokenUsage/updated notification, and the account/rateLimits/read answer read after it. A ChatGPT-plan account; account/usage/read with the thread's id answered null in every field, so it is not kept"
+  "frames": 31,
+  "redacted": "macOS per-user temp root -> /var/folders/<id>/<user>/T; installationId -> <installation-id>; in the rate-limits answer, accountId and each rateLimitResetCredits credit id -> <account-id>, <credit-id-N>",
+  "note": "the frames of one live turn (0226-PLAN R3), all but the config/read answer, which carries the operator's codex config (trusted-project paths, MCP server settings) and is left out: \"Reply with exactly 'hi'\", end_turn, with the initialize answer (userAgent mcremote/0.166.0), the turn's items and its thread/tokenUsage/updated; then, from 0208-PLAN P5 Deviations 3 and 4, a second session's thread/tokenUsage/updated and its account/rateLimits/read answer"
 }

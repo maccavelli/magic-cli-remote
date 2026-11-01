@@ -317,6 +317,14 @@ func responseSchema(method, params string, docs generatedSchemaDocs) string {
 		"remoteControl/enable":                     "RemoteControlEnableResponse",
 		"remoteControl/status/read":                "RemoteControlStatusReadResponse",
 		"windowsSandbox/readiness":                 "WindowsSandboxReadinessResponse",
+
+		// codex 0.166.0, from app-server-protocol/src/protocol/common.rs at
+		// rust-v0.166.0 (MADR 0226, R3 Deviation 2).
+		"account/gatewayOAuth/cancel": "GatewayOAuthCancelResponse",
+		"account/gatewayOAuth/login":  "GatewayOAuthLoginResponse",
+		"account/gatewayOAuth/read":   "GatewayOAuthReadResponse",
+		"accountSession/list":         "AccountSessionsResponse",
+		"rollout/compress":            "RolloutCompressResponse",
 	}
 	if response := overrides[method]; response != "" {
 		if _, ok := docs.definitions[response]; ok {

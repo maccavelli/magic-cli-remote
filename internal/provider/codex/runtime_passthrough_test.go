@@ -11,9 +11,11 @@ import (
 	"time"
 )
 
-// capture0166 returns the frames of codex 0.166.0's capture (0208-PLAN P5
-// Deviations 3 and 4): the turn's thread/tokenUsage/updated notification and
-// the account/rateLimits/read answer.
+// capture0166 returns two frames of codex 0.166.0's capture (0208-PLAN P5
+// Deviations 3 and 4): the last thread/tokenUsage/updated notification, and the
+// one answer that carries `rateLimits`. They are chosen by method and by
+// shape, because the capture also holds a whole turn with other answers, the
+// initialize answer among them (MADR 0226 D3).
 func capture0166(t *testing.T) (usageParams, limitsResult string) {
 	t.Helper()
 	f, err := os.Open("testdata/wire/0.166.0/frames.jsonl")
@@ -32,10 +34,15 @@ func capture0166(t *testing.T) (usageParams, limitsResult string) {
 		if err := json.Unmarshal(sc.Bytes(), &frame); err != nil {
 			t.Fatalf("capture frame: %v", err)
 		}
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(frame.Result, &fields)
 		switch {
 		case frame.Method == "thread/tokenUsage/updated":
 			usageParams = string(frame.Params)
-		case len(frame.Result) > 0:
+		case fields["rateLimits"] != nil:
+			if limitsResult != "" {
+				t.Fatal("the 0.166.0 capture has more than one rate-limits answer")
+			}
 			limitsResult = string(frame.Result)
 		}
 	}

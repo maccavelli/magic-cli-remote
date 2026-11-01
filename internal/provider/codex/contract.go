@@ -118,13 +118,13 @@ type SourceWatchManifest struct {
 	InstalledDelta []string        `json:"installed_delta"`
 }
 
-//go:embed testdata/0.155.1/manifest.json
+//go:embed testdata/0.166.0/manifest.json
 var embeddedContractManifest []byte
 
-//go:embed testdata/0.155.1/source-watch-manifest.json
+//go:embed testdata/0.166.0/source-watch-manifest.json
 var embeddedSourceWatchManifest []byte
 
-//go:embed testdata/0.155.1/fixtures.json
+//go:embed testdata/0.166.0/fixtures.json
 var embeddedContractFixtures []byte
 
 func loadEmbeddedContractManifest() (*ContractManifest, error) {

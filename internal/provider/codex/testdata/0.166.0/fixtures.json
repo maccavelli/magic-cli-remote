@@ -2,6 +2,17 @@
   {
     "kind": "client_request",
     "stability": "experimental",
+    "method": "account/bedrock/checkGovCloudRequirements",
+    "params_schema": "BedrockCheckGovCloudRequirementsParams",
+    "response_schema": "BedrockCheckGovCloudRequirementsResponse",
+    "required_result": [
+      "isGovCloud",
+      "shouldWarn"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
     "method": "account/bedrock/discover",
     "params_schema": "BedrockDiscoverParams",
     "response_schema": "BedrockDiscoverResponse",
@@ -16,6 +27,42 @@
     "method": "account/bedrock/setup",
     "params_schema": "BedrockSetupParams",
     "response_schema": "BedrockSetupResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/gatewayOAuth/cancel",
+    "params_schema": "none",
+    "response_schema": "GatewayOAuthCancelResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/gatewayOAuth/login",
+    "params_schema": "none",
+    "response_schema": "GatewayOAuthLoginResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "account/gatewayOAuth/read",
+    "params_schema": "none",
+    "response_schema": "GatewayOAuthReadResponse",
+    "required_result": [
+      "providerId",
+      "providerName",
+      "required"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "account/gcp/setup",
+    "params_schema": "GcpSetupParams",
+    "response_schema": "GcpSetupResponse",
+    "required_params": [
+      "projectId"
+    ]
   },
   {
     "kind": "client_request",
@@ -109,6 +156,27 @@
     "required_result": [
       "featureEnabled",
       "messages"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "accountSession/list",
+    "params_schema": "AccountSessionsListParams",
+    "response_schema": "AccountSessionsResponse",
+    "required_result": [
+      "sessions"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "accountSession/switch",
+    "params_schema": "AccountSessionsSwitchParams",
+    "response_schema": "AccountSessionsSwitchResponse",
+    "required_params": [
+      "accountId",
+      "sessionId"
     ]
   },
   {
@@ -364,6 +432,21 @@
     ],
     "required_result": [
       "importId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "feedback/save",
+    "params_schema": "FeedbackSaveParams",
+    "response_schema": "FeedbackSaveResponse",
+    "required_params": [
+      "classification",
+      "savePath"
+    ],
+    "required_result": [
+      "savedPath",
+      "threadId"
     ]
   },
   {
@@ -719,7 +802,6 @@
     "response_schema": "ModelProviderCapabilitiesReadResponse",
     "required_result": [
       "imageGeneration",
-      "namespaceTools",
       "webSearch"
     ]
   },
@@ -1124,6 +1206,13 @@
   {
     "kind": "client_request",
     "stability": "experimental",
+    "method": "rollout/compress",
+    "params_schema": "none",
+    "response_schema": "RolloutCompressResponse"
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
     "method": "server/diagnostics",
     "params_schema": "ServerDiagnosticsParams",
     "response_schema": "ServerDiagnosticsResponse",
@@ -1226,6 +1315,20 @@
       "attachmentType",
       "identityKey",
       "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "stable",
+    "method": "thread/attachmentOwner/list",
+    "params_schema": "ThreadAttachmentOwnerListParams",
+    "response_schema": "ThreadAttachmentOwnerListResponse",
+    "required_params": [
+      "attachmentType",
+      "identityKey"
+    ],
+    "required_result": [
+      "data"
     ]
   },
   {
@@ -1394,6 +1497,21 @@
   },
   {
     "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/items/read",
+    "params_schema": "ThreadItemsReadParams",
+    "response_schema": "ThreadItemsReadResponse",
+    "required_params": [
+      "itemIds",
+      "threadId",
+      "turnId"
+    ],
+    "required_result": [
+      "data"
+    ]
+  },
+  {
+    "kind": "client_request",
     "stability": "stable",
     "method": "thread/list",
     "params_schema": "ThreadListParams",
@@ -1410,6 +1528,16 @@
     "response_schema": "ThreadLoadedListResponse",
     "required_result": [
       "data"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/memory/read",
+    "params_schema": "ThreadMemoryReadParams",
+    "response_schema": "ThreadMemoryReadResponse",
+    "required_params": [
+      "threadId"
     ]
   },
   {
@@ -1444,6 +1572,17 @@
     "response_schema": "ThreadSetNameResponse",
     "required_params": [
       "name",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/prediction/request",
+    "params_schema": "ThreadPredictionRequestParams",
+    "response_schema": "ThreadPredictionRequestResponse",
+    "required_params": [
+      "sourceTurnId",
       "threadId"
     ]
   },
@@ -1539,6 +1678,21 @@
     ],
     "required_result": [
       "thread"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/readState/update",
+    "params_schema": "ThreadReadStateUpdateParams",
+    "response_schema": "ThreadReadStateUpdateResponse",
+    "required_params": [
+      "expectedRevision",
+      "operation",
+      "threadId"
+    ],
+    "required_result": [
+      "readState"
     ]
   },
   {
@@ -1640,16 +1794,28 @@
   },
   {
     "kind": "client_request",
-    "stability": "stable",
-    "method": "thread/rollback",
-    "params_schema": "ThreadRollbackParams",
-    "response_schema": "ThreadRollbackResponse",
+    "stability": "experimental",
+    "method": "thread/sample",
+    "params_schema": "ThreadSampleParams",
+    "response_schema": "ThreadSampleResponse",
     "required_params": [
-      "numTurns",
+      "expectedTurnId",
+      "prompt",
       "threadId"
     ],
     "required_result": [
-      "thread"
+      "responseId",
+      "sourceTurnId"
+    ]
+  },
+  {
+    "kind": "client_request",
+    "stability": "experimental",
+    "method": "thread/sample/cancel",
+    "params_schema": "ThreadSampleCancelParams",
+    "response_schema": "ThreadSampleCancelResponse",
+    "required_params": [
+      "requestId"
     ]
   },
   {
@@ -1950,6 +2116,17 @@
     ],
     "required_result": [
       "started"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "account/gatewayOAuth/changed",
+    "params_schema": "GatewayOAuthChangedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "providerId",
+      "status"
     ]
   },
   {
@@ -2606,6 +2783,18 @@
   {
     "kind": "server_notification",
     "stability": "stable",
+    "method": "thread/prediction/updated",
+    "params_schema": "ThreadPredictionUpdatedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "result",
+      "sourceTurnId",
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
     "method": "thread/project/updated",
     "params_schema": "ThreadProjectUpdatedNotification",
     "response_schema": "none",
@@ -2621,6 +2810,17 @@
     "params_schema": "ThreadQueueChangedNotification",
     "response_schema": "none",
     "required_params": [
+      "threadId"
+    ]
+  },
+  {
+    "kind": "server_notification",
+    "stability": "stable",
+    "method": "thread/readState/changed",
+    "params_schema": "ThreadReadStateChangedNotification",
+    "response_schema": "none",
+    "required_params": [
+      "readState",
       "threadId"
     ]
   },

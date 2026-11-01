@@ -15,10 +15,15 @@ introduced the manifest.
 ## The command
 
 ```powershell
-./scripts/codex-contract.ps1 -Version 0.155.1 `
-    -SourceCommit be2951ea3 `
-    -SourceTree C:\Users\you\codex-worktree
+./scripts/codex-contract.ps1 -Version 0.166.0 `
+    -SourceCommit 6ff1e1ca3b30fc8b914720681fcf5fe62e95f856 `
+    -SourceTree /path/to/codex-at-the-tag
 ```
+
+It runs under `pwsh` on Windows, macOS and Linux; 0.166.0 was captured on macOS. The
+source tree must be checked out at the release tag: a scratch `git clone --no-checkout`
+of an existing checkout, then `git checkout` of the tag's commit, leaves that checkout
+alone ([0226-PLAN](../decisions/0226-PLAN-re-pin-the-agent-clis-to-the-installed-releases.md) R3).
 
 Add `-DryRun` to print every resolved input and write nothing. Then:
 
@@ -60,8 +65,9 @@ and fields — never notifications — so *both* bundles list all of them, while
 runtime does suppress the experimental ones. Notification stability therefore
 comes from a scan of `#[experimental]` in
 `codex-rs/app-server-protocol/src/protocol/common.rs`, which is why
-`-SourceTree` is required and not optional. At 0.155.1 the capture reports
-**60 stable / 22 experimental of the 82 in the bundle** — 62/22 of 84 on the wire,
+`-SourceTree` is required and not optional. At 0.166.0 the capture reports
+**61 stable / 24 experimental of the 85 in the bundle**; at 0.155.1 it was 60/22 of
+82 — 62/22 of 84 on the wire,
 because `export.rs` also excludes `rawResponseItem/completed` and
 `rawResponse/completed` from the JSON entirely.
 
@@ -86,7 +92,9 @@ expected and **not** a bug to fix by deleting the call.
   resolves an npm install to a ~341-byte `.cmd` shim, so the recorded hash
   identifies the shim rather than the 300 MB engine, and npm regenerates that
   shim identically across releases. The capture logs a NOTE when it sees this;
-  version equality is the real evidence on such a host.
+  version equality is the real evidence on such a host. On macOS with a Homebrew
+  npm install, the generator follows `PATH` to the package's `bin/codex.js`
+  launcher, and that is what gets hashed (0.166.0).
 - **The `implemented` classification**, from this package's own code: the
   notification route table for notifications, a string literal passed to a call
   for client requests, and a `case` label for server requests. The hand-maintained
@@ -114,7 +122,7 @@ a byte comparison would report drift on every capture.
 notifications identically on the installed and the source side, so filtering only
 the installed surface reports all 22 experimental notifications as "in source,
 missing from installed" — a phantom delta that never clears. A correct capture at
-0.155.1 reports `installed_delta: 0`.
+0.155.1 and at 0.166.0 reports `installed_delta: 0`.
 
 ## Two installs, one PATH
 
@@ -123,7 +131,8 @@ reference host `%APPDATA%\npm` held 0.155.1 while
 `%LOCALAPPDATA%\OpenAI\Codex\bin\…` held 0.154.0-alpha.6.2, the second driven by
 the Codex desktop app. Only `PATH` order decides which one the daemon drives, so
 the script prints the resolved path, warns when it finds a second install at a
-different version, and refuses a version mismatch outright.
+different version, and refuses a version mismatch outright. The second-install
+check looks under `%LOCALAPPDATA%`, so it runs only on Windows.
 
 ## The drift gate
 

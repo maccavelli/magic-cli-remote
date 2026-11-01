@@ -1,8 +1,26 @@
 {
   "schema_version": 1,
-  "commit": "be2951ea3",
+  "commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
   "stable": {
     "client_requests": [
+      {
+        "method": "account/gatewayOAuth/cancel",
+        "params": "none",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "account/gatewayOAuth/login",
+        "params": "none",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "account/gatewayOAuth/read",
+        "params": "none",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
       {
         "method": "account/login/cancel",
         "params": "CancelLoginAccountParams",
@@ -162,6 +180,12 @@
       {
         "method": "externalAgentConfig/import/recordHistory",
         "params": "ExternalAgentConfigImportHistoryRecordParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "feedback/save",
+        "params": "FeedbackSaveParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -430,6 +454,12 @@
         "classification": "typed_deferred"
       },
       {
+        "method": "thread/attachmentOwner/list",
+        "params": "ThreadAttachmentOwnerListParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
         "method": "thread/compact/start",
         "params": "ThreadCompactStartParams",
         "response": "typed",
@@ -516,12 +546,6 @@
       {
         "method": "thread/revert",
         "params": "ThreadRevertParams",
-        "response": "typed",
-        "classification": "typed_deferred"
-      },
-      {
-        "method": "thread/rollback",
-        "params": "ThreadRollbackParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -617,6 +641,12 @@
       }
     ],
     "server_notifications": [
+      {
+        "method": "account/gatewayOAuth/changed",
+        "params": "GatewayOAuthChangedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
       {
         "method": "account/login/completed",
         "params": "AccountLoginCompletedNotification",
@@ -948,6 +978,12 @@
         "classification": "implemented"
       },
       {
+        "method": "thread/prediction/updated",
+        "params": "ThreadPredictionUpdatedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
         "method": "thread/project/updated",
         "params": "ThreadProjectUpdatedNotification",
         "response": "none",
@@ -956,6 +992,12 @@
       {
         "method": "thread/queue/changed",
         "params": "ThreadQueueChangedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/readState/changed",
+        "params": "ThreadReadStateChangedNotification",
         "response": "none",
         "classification": "implemented"
       },
@@ -1176,6 +1218,12 @@
   "experimental": {
     "client_requests": [
       {
+        "method": "account/bedrock/checkGovCloudRequirements",
+        "params": "BedrockCheckGovCloudRequirementsParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
         "method": "account/bedrock/discover",
         "params": "BedrockDiscoverParams",
         "response": "typed",
@@ -1184,6 +1232,30 @@
       {
         "method": "account/bedrock/setup",
         "params": "BedrockSetupParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "account/gatewayOAuth/cancel",
+        "params": "none",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "account/gatewayOAuth/login",
+        "params": "none",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "account/gatewayOAuth/read",
+        "params": "none",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "account/gcp/setup",
+        "params": "GcpSetupParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -1240,6 +1312,18 @@
         "params": "none",
         "response": "typed",
         "classification": "implemented"
+      },
+      {
+        "method": "accountSession/list",
+        "params": "AccountSessionsListParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "accountSession/switch",
+        "params": "AccountSessionsSwitchParams",
+        "response": "typed",
+        "classification": "typed_deferred"
       },
       {
         "method": "app/installed",
@@ -1370,6 +1454,12 @@
       {
         "method": "externalAgentConfig/import/recordHistory",
         "params": "ExternalAgentConfigImportHistoryRecordParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "feedback/save",
+        "params": "FeedbackSaveParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -1752,6 +1842,12 @@
         "classification": "implemented"
       },
       {
+        "method": "rollout/compress",
+        "params": "none",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
         "method": "server/diagnostics",
         "params": "ServerDiagnosticsParams",
         "response": "typed",
@@ -1802,6 +1898,12 @@
       {
         "method": "thread/attachment/remove",
         "params": "ThreadAttachmentRemoveParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "thread/attachmentOwner/list",
+        "params": "ThreadAttachmentOwnerListParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -1884,6 +1986,12 @@
         "classification": "implemented"
       },
       {
+        "method": "thread/items/read",
+        "params": "ThreadItemsReadParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
         "method": "thread/list",
         "params": "ThreadListParams",
         "response": "typed",
@@ -1894,6 +2002,12 @@
         "params": "ThreadLoadedListParams",
         "response": "typed",
         "classification": "implemented"
+      },
+      {
+        "method": "thread/memory/read",
+        "params": "ThreadMemoryReadParams",
+        "response": "typed",
+        "classification": "typed_deferred"
       },
       {
         "method": "thread/memoryMode/set",
@@ -1912,6 +2026,12 @@
         "params": "ThreadSetNameParams",
         "response": "typed",
         "classification": "implemented"
+      },
+      {
+        "method": "thread/prediction/request",
+        "params": "ThreadPredictionRequestParams",
+        "response": "typed",
+        "classification": "typed_deferred"
       },
       {
         "method": "thread/queue/add",
@@ -1954,6 +2074,12 @@
         "params": "ThreadReadParams",
         "response": "typed",
         "classification": "implemented"
+      },
+      {
+        "method": "thread/readState/update",
+        "params": "ThreadReadStateUpdateParams",
+        "response": "typed",
+        "classification": "typed_deferred"
       },
       {
         "method": "thread/realtime/appendAudio",
@@ -2004,8 +2130,14 @@
         "classification": "typed_deferred"
       },
       {
-        "method": "thread/rollback",
-        "params": "ThreadRollbackParams",
+        "method": "thread/sample",
+        "params": "ThreadSampleParams",
+        "response": "typed",
+        "classification": "typed_deferred"
+      },
+      {
+        "method": "thread/sample/cancel",
+        "params": "ThreadSampleCancelParams",
         "response": "typed",
         "classification": "typed_deferred"
       },
@@ -2161,6 +2293,12 @@
       }
     ],
     "server_notifications": [
+      {
+        "method": "account/gatewayOAuth/changed",
+        "params": "GatewayOAuthChangedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
       {
         "method": "account/login/completed",
         "params": "AccountLoginCompletedNotification",
@@ -2492,6 +2630,12 @@
         "classification": "implemented"
       },
       {
+        "method": "thread/prediction/updated",
+        "params": "ThreadPredictionUpdatedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
         "method": "thread/project/updated",
         "params": "ThreadProjectUpdatedNotification",
         "response": "none",
@@ -2500,6 +2644,12 @@
       {
         "method": "thread/queue/changed",
         "params": "ThreadQueueChangedNotification",
+        "response": "none",
+        "classification": "implemented"
+      },
+      {
+        "method": "thread/readState/changed",
+        "params": "ThreadReadStateChangedNotification",
         "response": "none",
         "classification": "implemented"
       },

@@ -66,9 +66,11 @@ if ($reported -notmatch [regex]::Escape($Version)) {
   Fail "codex reports '$reported' but -Version is '$Version'. Capture against the binary being pinned."
 }
 
-# A second install is not an error, but silence about it would be.
-$managed = Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'
-if (Test-Path $managed) {
+# A second install is not an error, but silence about it would be. The managed
+# install lives under %LOCALAPPDATA%, which only Windows has; elsewhere there is
+# nothing to look for (MADR 0226, R3 Deviation 1).
+$managed = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin' } else { $null }
+if ($managed -and (Test-Path $managed)) {
   Get-ChildItem $managed -Filter codex.exe -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
     $other = (& $_.FullName --version 2>&1 | Select-Object -First 1)
     if ($other -notmatch [regex]::Escape($Version)) {

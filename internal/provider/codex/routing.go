@@ -24,6 +24,7 @@ const (
 // releases — see MADR 0163 F12. The name is deliberately version-neutral: its
 // predecessor was called after 0.149.1 and outlived that pin (0163 F3).
 var notificationRoutes = map[string]notificationRoute{
+	"account/gatewayOAuth/changed":              notificationRouteProvider,
 	"account/login/completed":                   notificationRouteProvider,
 	"account/rateLimits/updated":                notificationRouteProvider,
 	"account/updated":                           notificationRouteProvider,
@@ -91,6 +92,8 @@ var notificationRoutes = map[string]notificationRoute{
 	"thread/realtime/item/completed":            notificationRouteProvider,
 	"thread/realtime/item/started":              notificationRouteProvider,
 	"thread/realtime/item/transcript/delta":     notificationRouteProvider,
+	"thread/prediction/updated":                 notificationRouteProvider,
+	"thread/readState/changed":                  notificationRouteProvider,
 	"thread/started":                            notificationRouteSession,
 	"thread/status/changed":                     notificationRouteSession,
 	"thread/tokenUsage/updated":                 notificationRouteSession,
@@ -184,11 +187,16 @@ func (p *Provider) handleProviderNotification(method string, params json.RawMess
 		"mcpServer/event/stream/notification",
 		"thread/realtime/item/started",
 		"thread/realtime/item/transcript/delta",
-		"thread/realtime/item/completed":
+		"thread/realtime/item/completed",
+		"account/gatewayOAuth/changed",
+		"thread/prediction/updated",
+		"thread/readState/changed":
 		// Declared and deliberately not consumed yet: thread attachments, MCP
-		// event streams and realtime voice items are Deferred in PLAN 0163. A
-		// declared drop is not the same as an unrouted one — it is greppable,
-		// tested, and cannot be mistaken for a notification nobody knew about.
+		// event streams and realtime voice items are Deferred in PLAN 0163, and
+		// gateway OAuth, predictions and read state are new in codex 0.166.0
+		// (MADR 0226, R3 Deviation 2). A declared drop is not the same as an
+		// unrouted one — it is greppable, tested, and cannot be mistaken for a
+		// notification nobody knew about.
 		p.log.Debug("codex: declared notification not consumed", slog.String("method", method))
 	default:
 		p.log.Debug("codex: provider notification observed", slog.String("method", method))

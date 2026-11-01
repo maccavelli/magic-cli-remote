@@ -263,3 +263,110 @@ names the old tests, as the record of the 0108 run it is.
 **Files for this commit:** `internal/provider/kilo/version.go`, `lifecycle.go`,
 `lifecycle_test.go`, `dialect_test.go`, `version_test.go`, `live_catalog_test.go`,
 `live_surface_test.go`, `testdata/wire/7.8.18/frames.jsonl` and `meta.json` (new), and this plan.
+
+*The owner committed R2 as `472d80b9`.*
+
+### R3 Deviation 1, 2026-11-01 — the contract script assumes Windows. The owner decided: "Guard the Windows check"
+
+- **Found** at R3 step 3, before anything was written. `scripts/codex-contract.ps1:70` builds
+  `Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'`, which has no value on macOS. With `-DryRun`:
+  exit 1, "Cannot bind argument to parameter 'Path' because it is null". The script has only run on
+  Windows, where 0.155.1 was captured. Lines 70-79, a check for a second, managed install, are its
+  only Windows-specific code; the rest uses `GetTempPath`, `git` and `node`.
+- **Resolution:** `scripts/codex-contract.ps1` and `docs/guides/ops-codex-contract.md` join R3. The
+  second-install check runs only when `LOCALAPPDATA` is set, and the guide says the capture runs on
+  macOS and Linux too. The capture then runs here against `/opt/homebrew/bin/codex`. ~~so the
+  recorded hash is the binary's own rather than a Windows npm shim's.~~ *Corrected after the
+  capture: the generator resolved `/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js`, the
+  npm package's JavaScript launcher, so the recorded hash is the launcher's, as on Windows it is
+  the `.cmd` shim's. Version equality stays the real evidence.*
+- **Not taken:** capturing on the Windows test host.
+- **The MADR is unchanged.**
+
+### R3 Deviation 2, 2026-11-01 — the new contract trips four tests, and the old capture holds identifiers. The owner decided: "Add all three" and "Strip it in R3, history stays"
+
+- **Found**, with the embed paths and `KnownGoodVersion` at 0.166.0 (`go test ./internal/provider/codex/`):
+  * `contract_test.go:16`, "codex version = \"0.166.0\", want 0.155.1", and `:94`, the source
+    commit: the test hard-codes the 0.155.1 manifest's version, digest, counts and commit.
+  * `contract_test.go:74`, "fixture \"account/gatewayOAuth/cancel\" has a generic response
+    classification". Five methods new since 0.155.1 have response types the generator cannot
+    derive from their names. codex's source at the tag names them
+    (`app-server-protocol/src/protocol/common.rs:746`, `:1155-1168`, `:1365-1369`):
+    `account/gatewayOAuth/{cancel,login,read}` → `GatewayOAuth{Cancel,Login,Read}Response`,
+    `rollout/compress` → `RolloutCompressResponse`, `accountSession/list` →
+    `AccountSessionsResponse`.
+  * `routing_test.go:63`: `account/gatewayOAuth/changed`, `thread/readState/changed` and
+    `thread/prediction/updated`, stable and new in 0.166.0, have no route. An unrouted notification
+    is logged at debug and dropped (`provider.go:1277-1279`).
+- **Found, already published:** the committed 0.152.1 capture
+  (`testdata/wire/0.152.1/frames.jsonl`) holds the operator's codex `installationId` (the same
+  value the 0.166.0 capture carried) and a `config/read` answer dumping the operator's codex config:
+  81 `trust_level` entries naming other repositories, and MCP server settings. Neither wirecap nor
+  the guard catches them. The new capture carries a placeholder for the id, and leaves the config
+  answer out (C4).
+- **Resolution:** `internal/provider/codex/contract_test.go`, `contract_generate_test.go` and
+  `routing.go` join R3. The generator's overrides gain the five types and the manifest is
+  regenerated; the contract test asserts the 0.166.0 manifest; the three notifications are routed
+  as declared drops, the same behaviour as today made explicit (MADR 0163 F12). The 0.152.1
+  capture's config answer is removed and its `installationId` replaced by `<installation-id>`,
+  with its `meta.json` saying so. The values remain in git history; removing them from history
+  would mean rewriting pushed commits, which was not asked for.
+- **Not taken:** stopping R3 here; leaving the 0.152.1 capture as it is; rewriting history.
+- **The MADR is unchanged.**
+
+### R3 — 2026-11-01: codex to 0.166.0
+
+1. `codex --version`: `codex-cli 0.166.0`. `rust-v0.166.0` is `6ff1e1ca3b30…`.
+2. **The source tree:** `git clone --no-checkout ~/gitrepos/codex <scratch>`, then
+   `git checkout 6ff1e1ca…`. `HEAD` at the tag; both schema blobs present. The owner's checkout was
+   read, not written.
+3. **The contract.** After Deviation 1, `codex-contract.ps1 -DryRun`: exit 0. The capture: exit 0,
+   "notifications: 85 declared; 61 stable, 24 experimental-only", and `manifest.json`,
+   `fixtures.json` and `source-watch-manifest.json` written to `testdata/0.166.0/`. Stable
+   106/85/10 and experimental 179/85/11, as MADR F5 expects. `installed_delta` is empty. No path or
+   account appears in the three files. After Deviation 2 the capture ran twice more: once with the
+   five overrides (`fixtures.json` 78,254 to 78,490 bytes), and once after `routing.go` changed,
+   because the generator derives each method's classification from this package's code. The last
+   run changed only the three new notifications, from `typed_deferred` to `implemented`.
+4. The three `//go:embed` directives name `testdata/0.166.0/`. `KnownGoodVersion = "0.166.0"`,
+   its comment naming the new capture and the manifest. `testdata/0.166.0/README.md` carries the
+   0.155.1 README's three notes with 0.166.0's numbers, and says the digest is the npm launcher's.
+   `testdata/0.155.1/` was removed with `git rm -r`; `make check-records` found no link into it.
+   `ops-codex-contract.md` now shows the 0.166.0 command, says the script runs on macOS and Linux and
+   how to make a tree at the tag without touching a checkout, and gives 0.166.0's figures beside
+   0.155.1's.
+5. **The capture** (`repin/codexcap/run_capture.py`; a scratch-only test in a scratch copy,
+   removed). One turn, "Reply with exactly 'hi'", `end_turn`, 30 frames. Read under C4
+   (`scan.py`, `same_install.py`, `projects.py`, `config_risk.py`): the temp root (57
+   occurrences) and the `installationId` became placeholders. The `config/read` answer was left
+   out. It listed 32 trusted-project paths naming other repositories, and the operator's MCP server
+   settings; no secret-shaped values. P5's two frames follow the 30, so the file has 31 frames
+   after the 30 became 29. `meta.json` says what was replaced and what was left out.
+   `capture0166` now picks the last `thread/tokenUsage/updated` and the one answer carrying
+   `rateLimits`, and fails if there are two.
+6. **Checks.**
+   * Seen failing first: on the embed and pin change alone, the four tests in Deviation 2. On
+     scratch copies (`repin/r3_plant.py`): `cliVersion` edited to 0.165.0 fails
+     `TestPinMatchesTheFixtureItCites` ("fixture reports cliVersion \"0.165.0\" but
+     KnownGoodVersion is \"0.166.0\""), and a second rate-limits answer fails
+     `TestStatusPassesCodexRateLimitsThrough`. A first version of the plant edited the
+     `userAgent` instead, and passed: the pin test reads `cliVersion`, not the `userAgent`.
+   * `make live-codex-contract`: exit 0. `CODEX_CONTRACT_EXACT=1 make live-codex-contract`: exit 2
+     the first time, "exact mode: installed stable surface differs from the 0.166.0 manifest", the
+     stale classifications above; exit 0 after the last regeneration.
+   * `make live-codex`: exit 0, 389 passed, 0 failed, 2 skipped (`TestGenerateContractManifest`,
+     which needs `CODEX_CONTRACT_GENERATE=1`, and `TestLiveRawOutputSamples`), in 62.8 s.
+   * `go test -race -count=1 ./...`: exit 0, 45 packages ok. `make pre-add-check` on the six Go
+     files: "6 file(s) clean". `make lint`, `make staticcheck`, `make vet-tags`,
+     `make check-records`, `make markdownlint-docs`: exit 0 each. The guard's redact preview:
+     "would edit 0 file(s)".
+   * The 0.152.1 capture after stripping: 37 frames, no `trust_level`, no `gitrepos`; the codex and
+     `wirecap` tests pass.
+
+**Not done:** the identifiers stay in the git history of the 0.152.1 capture (Deviation 2).
+
+**Files for this commit:** `internal/provider/codex/contract.go`, `version.go`, `routing.go`,
+`contract_test.go`, `contract_generate_test.go`, `runtime_passthrough_test.go`;
+`testdata/0.166.0/` (four files, new); `testdata/0.155.1/` (removed);
+`testdata/wire/0.166.0/frames.jsonl` and `meta.json`; `testdata/wire/0.152.1/frames.jsonl` and
+`meta.json`; `scripts/codex-contract.ps1`; `docs/guides/ops-codex-contract.md`; and this plan.
