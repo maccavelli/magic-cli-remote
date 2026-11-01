@@ -1845,3 +1845,8 @@ newest. Step 2 also moves `go.yaml.in/yaml/v3` to v3.0.6; the gates are unchange
 * **Step 5.** 0207's amendment L (D56, D57). `make check-libs` runs again on the owner's commit.
 
 **Files for this commit:** `go.mod`, `go.sum`, this PLAN, the 0217 MADR and the 0207 MADR.
+
+**Committed** as `5935b45a` ("chore(deps): bump acp-go-sdk2, go-tui-lib/v2, and yaml.v3 to current
+releases"). `make check-libs` on it: exit 0, `acp-go-sdk2` "pinned v1.31.1, checking v1.31.1",
+`go-selfupdate-lib` "pinned v1.23.1, checking v1.23.1", "0 failing checks; scratch removed"
+(`leftovers/0217-p3c-checklibs-head.log`).
