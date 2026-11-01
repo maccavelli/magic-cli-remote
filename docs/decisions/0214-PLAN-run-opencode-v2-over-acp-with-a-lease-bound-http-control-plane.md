@@ -49,7 +49,10 @@ The work breakdown is
   never by dirtying the tree.
 * **C4 — Isolated home for every live run** (D13 as amended): `HOME`, `XDG_*`, `OPENCODE_DB`,
   `OPENCODE_CONFIG_DIR`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_FILEWATCHER`, and a
-  distinct service port or no managed service (A4).
+  distinct service port or no managed service (A4). *Amended 2026-11-01 (MADR amendment B, B1):*
+  every credential-shaped variable (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`) and
+  `BASH_ENV` are also removed from the engine's environment; a run that needs a credential sets
+  it alone.
 * **C5 — The server password** (D2) is generated per launch, set only in the child's environment,
   and never in argv, a log, a capture or a file. A test asserts each.
 * **C6 — Captures are read before they are committed,** values judged by shape, identifiers made
@@ -115,6 +118,33 @@ Each runs under C4, records what it shows in the execution record, and pins what
 
 A gate whose result contradicts the MADR is a stop: amend the MADR, re-approve, continue.
 
+*Added 2026-11-01, after MADR amendment B was settled.* The pins, in
+`internal/provider/opencode/live_v2_gates_test.go` (new, `live_opencode`, under C4 as amended).
+Each is seen failing first on a scratch copy with its key assertion inverted (C3).
+
+* **G3:** `serve --stdio --port 0`:
+  * one `{"url"}` ready line;
+  * `/api/info` as JSON with a 2.x version, and `401` without the password;
+  * a shell the server runs sees neither the password nor its variable names;
+  * a lease close exits 0, and SIGTERM exits 130 on POSIX.
+
+  `opencode acp`: `initialize` names version 2.x, and a lease close exits 0. No prompt.
+* **G4:** after the control plane removes a throwaway key, the running engine still accepts an
+  OpenRouter model, and a fresh engine lists none. The test is D8's reason, and fails when
+  opencode clears it. No prompt. *Amended (P3 Deviation 1):* the running engine is left 20 s to
+  settle first. A settled engine must not list the added provider, and selecting its model
+  reloads the catalog.
+* **G2:**
+  * `session/resume` answers `configOptions` with ~~no update~~ no history replayed (P3
+    Deviation 1), and refuses another `cwd` with `-32602` (no prompt);
+  * `session/load` on a fresh engine replays the prompt as `user_message_chunk` and sends no
+    `usage_update` (one free-model turn).
+* **G5:** on an idle session the ACP engine owns, the control plane's `revert/stage` and
+  `revert/commit` of a turn drop its messages, and `session.shell` runs its command. The engine
+  sends no update for either (two free-model turns).
+* **G6** is not pinned, because it needs the owner's keys. G1 is pinned through P4's unit tests on
+  its capture.
+
 ### P4 — The OpenCode ACP Spec (D1, D3, D5, D6, D9; 0220 §5 C, G)
 
 Files: `internal/provider/opencode/` (a new Spec file beside the old dialect, which stays live until
@@ -132,7 +162,15 @@ P7), `internal/provider/opencode/version.go`, `internal/provider/opencode/comman
    `initialize.agentInfo.version`; a 1.x engine is refused with the version found and
    `https://opencode.ai/v2/install`. A pin test reads G1's capture.
 5. The command table: `goal` added, 1.x-only rows removed, KindNone reasons for D11's drops.
+   *Amended 2026-11-01 (MADR amendment B, D11):* revert, unrevert and `!` shell are no longer
+   drops; until P6 lands they are KindNone, and the reason names P6.
 6. Unit tests on G1's recorded frames for each of the above, each seen failing first.
+7. *Added 2026-11-01 (MADR amendment B, D1, B2):* in `internal/provider/acpagent/session.go`,
+   while a session loads, a replayed `user_message_chunk` is emitted as a replayed user message,
+   for every Spec. A live one is still skipped. Tested on G2's replay shape, seen failing first.
+   grok's suites must pass.
+8. *Added 2026-11-01 (D6, B3):* nothing is reported about cost at load. The total reappears with
+   the next turn's `usage_update`. A unit test pins that a load emits no usage.
 
 ### P5 — The control plane (D2; 0220 §5 D)
 
@@ -142,7 +180,8 @@ Files: `internal/provider/opencode/control/` (new), and tests.
    ready on one JSON stdout line, then `GET /api/info` answering JSON with a version; stdout drained
    after readiness.
 2. Lease on stdin; shutdown closes stdin, then SIGTERM, then kill after a bounded wait; exits 0 and
-   130 are orderly.
+   130 are orderly. *Amended 2026-11-01 (MADR amendment B, D2):* 130 on POSIX only; a Windows
+   forced stop exits 1 and is not orderly.
 3. Basic auth `opencode:<password>`; `location[directory]` and `x-opencode-directory` on every
    location-scoped call; `location.directory` in create bodies.
 4. Starts on first use, stops after an idle period; a bounded retry on `503` from `GET /api/agent`
@@ -158,11 +197,21 @@ Files: `internal/provider/opencode/auth.go`, `device_auth.go`, `upstream.go`, `m
 1. D7: the ACP `model` option, grouped into connected / not configured from `GET /api/provider`
    when the control plane is up; never the flat list (G6).
 2. D8: phone auth through `integration.connect*` and `credential.*`; the ACP engine restarts at its
-   next idle point after a removal unless G4 retired that; `auth.json` fingerprinting replaced by
-   the integration's connections.
+   next idle point after ~~a removal unless G4 retired that~~ an add or a removal (G4 confirmed
+   it; MADR amendment B, D8); a removal is confirmed from the integration's connections, not the
+   `DELETE` status; `auth.json` fingerprinting replaced by the integration's connections.
 3. D10: workspace on `fs.list/read/find`; full-text search as the owner decides (below);
    diagnostics and VCS on `mcp`, `skill`, `plugin`, `vcs`, `vcs/status` and `session.diff`;
    LSP and formatter dropped by name.
+4. *Added 2026-11-01 (MADR amendment B, D11, "Lift it"):* revert, unrevert and `!` shell go
+   through the control plane:
+   * `revert/stage`, `DELETE …/revert` and `revert/commit` for revert and unrevert;
+   * `session.shell` for `!`;
+   * on an idle session only, refused while a turn runs;
+   * Magic emits `transcript_remove` for reverted messages and shows the shell's output itself,
+     because the ACP engine sends no update for either (G5).
+
+   The files are named when P6 starts.
 
 ### P7 — Retire the 1.x dialect, and the configuration (D4, D11; 0220 §5 F)
 
@@ -238,6 +287,15 @@ mobile docs' OpenCode rows, and tests.
   [#34](https://github.com/maccavelli/magic-cli-remote/issues/34) opened for the research and a
   MADR/PLAN pair of its own.
 * Kilo: "i am out of kilo quota, so it needs to use a free model". Added as C2a.
+* The gates, 2026-11-01:
+  * G2, G3, G4 and G5 were chosen to run.
+  * G6: "my opencode api-key is exported into my shell env. capture it to a file but do NOT read
+    it into the session or echo it into the session."
+* MADR amendment B, 2026-11-01:
+  * replayed prompts: "All Specs" (P4 step 7);
+  * cost at load: "Next turn" (P4 step 8);
+  * revert and shell: "Lift it" (P6 step 4);
+  * the rest: "Accept all" (C4, P5 step 2, P6 step 2, D7).
 
 ## Execution record
 
@@ -460,3 +518,191 @@ were not run: the change adds no process, path, signal or build-tag behaviour (C
 `internal/provider/opencode/testdata/wire/2.2.3/` (new); this plan; the MADR; and
 [0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md](0207-MADR-move-to-current-library-releases-and-close-the-adoption-gaps.md)
 (amendment L).
+
+*The owner committed P2 as `f15af43e`.*
+
+### P3 — 2026-11-01: gates G2 to G6
+
+C8: `opencode --version` printed `v2.2.3` here, and on the Linux and Windows test hosts.
+
+**The owner's word.** The owner chose G2, G3, G4 and G5. For G6 the owner wrote: "my opencode
+api-key is exported into my shell env. capture it to a file but do NOT read it into the session
+or echo it into the session." Two variables matched, `OPENCODE_API_KEY` and
+`OPENCODE_ZEN_API_KEY`; only their names and lengths were printed. A script wrote their values to
+a mode-0600 file in the session scratchpad, and G6's harness read them from there into its own
+environment. The file was deleted after G6. A scan of every G2 to G6 log and capture, and of the
+committed G1 fixture, for each key (whole, and its first and last 12 characters) found 0.
+
+**Found first: G1 inherited the operator's credentials** (MADR amendment B, B1). G1's harness set
+the isolated-home variables and removed nothing, so its engine inherited opencode's keys and
+`BASH_ENV`. G2 to G6 removed every `*_API_KEY`, `*_TOKEN`, `*_SECRET` and `*_PASSWORD` variable (14
+on this host) and `BASH_ENV`. G6 then set the two keys alone.
+
+**How each ran.** Every harness ran in an isolated home and was scratch-only. Go harnesses ran
+under a build tag, in a scratch copy of the tree that was removed afterwards, as G1's did.
+Python harnesses spoke JSON-RPC and HTTP directly. Nothing in the tree changed.
+
+**G2 — `session/load` and `session/resume`** (`g2/zz_g2capture_test.go`, `g2/run_g2.py`).
+
+* Phase A ran two turns on a new session, "apple" then "banana", and closed the engine. Each turn
+  sent two `usage_update`s. Each carried `cost {amount: 0, currency: "USD"}`, so Magic's
+  `SessionCost` was 0 USD.
+* Phase B, on a fresh engine:
+  * `session/load` took 1.21 s;
+  * opencode replayed `user_message_chunk` ×2 and `agent_message_chunk` ×2, with the original
+    message ids, and no `usage_update`;
+  * Magic emitted 2 replayed `assistant_message_chunk` events and no `user_message`;
+  * a third turn named both earlier answers.
+* Resume, on a fresh engine:
+  * `session/resume` answered with `configOptions` only: model (8 options, the free model
+    current), effort, mode;
+  * ~~it sent no update within 8 s;~~ it replayed no history (P3 Deviation 1: the harness
+    dropped messages read with an answer, and `available_commands_update` and
+    `config_option_update` do follow);
+  * the same request with another `cwd` got `-32602`.
+
+**G3 — the lease, the password and `opencode acp`** (`g3/g3_probe.py`, copied to each test host,
+run there, and removed).
+
+| Check | macOS | Linux test host | Windows test host |
+| --- | --- | --- | --- |
+| launcher | binary | binary | `.exe` |
+| ready line | `{"url"}`, 0.20 s | `{"url"}`, 0.81 s | `{"url"}`, 0.17 s |
+| `/api/info` | 200 JSON, 2.2.3; 401 without the password | same | same |
+| a shell the server runs sees the password or its variable names | no | no | no |
+| lease close (stdin) | exit 0, 0.04 s | exit 0, 0.22 s | exit 0, 0.07 s |
+| terminate | 130 | 130 | 1 |
+| SIGINT | 130 | 130 | — |
+| `acp` initialize / session/new | 0.30 / 0.37 s | 0.94 / 1.48 s | 0.27 / 0.39 s |
+| `acp` lease close / terminate | 0 / 130 | 0 / 130 | 0 / 1 |
+| descendants alive after any stop | 0 | 0 | 0 |
+| service-registration files in the home | 0 | 0 | 0 |
+
+**G4 — credential removal under a running engine** (`g4/run_g4.py`). There was one `opencode
+acp` engine and one control plane on the same home. The throwaway key was random and never used
+in a request.
+
+* Before: new sessions listed 8 models, and the control plane's OpenRouter was `404`.
+* After `POST /api/credential` (`200`; OpenRouter activation `auto`):
+  * 95 s later, the running engine's new session still listed 16 models and no OpenRouter model;
+  * `set_config_option` to `openrouter/openai/gpt-4o-mini` was accepted, and the list became 367.
+* After `DELETE /api/credential/<id>` (`204`; a second `DELETE` also `204`; activation still
+  `auto`):
+  * 95 s later, the running engine's new session listed 367 models, 351 of them OpenRouter's;
+  * selecting an OpenRouter model was accepted, in a new session and in the earlier one;
+  * a fresh engine on the same home listed 16 models and no OpenRouter model.
+* The first run's harness read the credential id from the wrong level, and its `DELETE` removed
+  nothing. Only the second run is recorded.
+
+**G5 — revert and shell through the control plane** (`g5/run_g5.py`). The project was a git
+repository. Two ACP turns wrote `note.txt` as "one", then "one two". All control-plane calls were
+made with the session idle.
+
+| Control-plane call | Status | `note.txt` | Messages | ACP updates |
+| --- | --- | --- | --- | --- |
+| `revert/stage` at turn 2, files | 200 `{files, messageID, snapshot}` | "one" | 11 | none |
+| `DELETE …/revert` | 204 | "one two" | 12 | none |
+| `revert/stage` again | 200 | "one" | 12 | none |
+| `revert/commit` | 204 | "one" | 6 (turn 2 gone) | none |
+| `session.shell` `echo g5shell > shell.txt` | 204 | — | 7 (a `shell` message) | none |
+
+A third ACP turn listed the first request, the shell command and itself, and not turn 2. The
+first run staged at turn 1, because the message list is newest first. Every message and the file
+went, and the third turn named only the shell command.
+
+**G6 — catalog size on the phone wire** (`g6/zz_g6capture_test.go`, `g6/run_g6.py`). These are
+Magic's `session_config` events for a new session, encoded as JSON:
+
+| Credentials | Event | Models | Providers | Size |
+| --- | --- | --- | --- | --- |
+| none | 1 | 8 | opencode | 1,030 bytes |
+| none | 2 | 16 | opencode, ollama | 1,864 bytes |
+| the owner's two keys | 1 | 81 | opencode 43, opencode-go 30, ollama 8 | 5,932 bytes |
+
+The ACP frames were 1,188 bytes (`session/new` result) and 2,160 bytes (`config_option_update`)
+with no credential, and 6,309 bytes with the keys. The limits are the daemon's 1 MiB read limit
+and the relay's 10 MiB.
+
+**Stop (P3's rule).** G2 contradicts the MADR's statement that acpagent handles every standard
+kind, and G2 to G6 change D1, D2, D6, D7, D8, D11 and D13. The MADR's amendment B records the
+facts and proposes the changes. P3 waits for the owner's choices before its `live_opencode`
+pins, and before P4.
+
+**Not done:**
+
+* No `live_opencode` test is pinned yet. Which facts to pin depends on amendment B.
+* No G2 to G6 capture is committed. They hold the owner's catalog (G6) and nothing P4 reads
+  that G1's fixture does not.
+* No retry was provoked.
+* Revert during a running turn was not tried.
+
+*The owner settled amendment B on 2026-11-01 ("The owner's answers").*
+
+### P3 Deviation 1, 2026-11-01 — two pins disagreed with the gates. The owner decided: "Investigate further"
+
+- **Found, resume:** the first run of `TestLiveV2ResumeReplaysNothing` saw
+  `available_commands_update` and `config_option_update` follow `session/resume`, where G2
+  recorded none. G2's Python harness returned on finding the answer and dropped the rest of that
+  read. Its "no update" and its resume timing were artifacts. G4's and G5's harnesses read
+  results only from answers, or from separate reads, so their findings stand.
+- **Found, G4:** across all runs, the running engine's view after a removal varied. Python runs
+  kept the provider 3 of 3 times. The first Go pin kept it 2 of 6 times and dropped it within
+  1–10 s in the other 4.
+- **Investigated:** opencode's source at `b44b7164ba` gives the mechanism (MADR amendment B, B6
+  as corrected). An engine left 20 s to settle reflected neither the add (3 of 3 runs) nor the
+  removal (3 of 3).
+- **Resolution:**
+  * B4 and B6 are corrected in the MADR. D8 is unchanged.
+  * The resume pin asserts that no history is replayed (`TestLiveV2ResumeReplaysNoHistory`).
+  * The G4 pin settles the engine first, asserts that the settled engine does not list the
+    added provider, and reaches it by a selection that misses the cache.
+- **Not taken:** dropping the G4 pin; asserting either outcome on an unsettled engine.
+
+### P3 — 2026-11-01: the pins
+
+`internal/provider/opencode/live_v2_gates_test.go` (new, build tag `live_opencode`) holds six
+tests. Each starts `opencode acp` or `opencode serve --stdio` itself, under C4 as amended, and none
+uses Magic's provider code. Run with `go test -tags live_opencode ./internal/provider/opencode/
+-run LiveV2 -count=1 -v`:
+
+| Test | Gate | Prompts |
+| --- | --- | --- |
+| `TestLiveV2ServeStdioLease` | G3 | none |
+| `TestLiveV2AcpLease` | G3 | none |
+| `TestLiveV2RemovedCredentialStaysInRunningEngine` | G4 | none |
+| `TestLiveV2ResumeReplaysNoHistory` | G2 | none |
+| `TestLiveV2LoadReplaysPromptsAndNoUsage` | G2 | one, free model |
+| `TestLiveV2RevertAndShellFromControlPlane` | G5 | two, free model |
+
+**Runs on macOS.** All six passed in one run (54.7 s). The G4 pin, settled, passed 3 of 3 in
+one more run.
+
+**Seen failing.** On scratch copies, one key assertion inverted each (`p3/plant.py` in the session
+scratchpad), each test failed alone:
+
+| Test | Inverted | Failure |
+| --- | --- | --- |
+| `ServeStdioLease` | `401` without the password | "/api/info without the password = 401, want 401" |
+| `AcpLease` | lease close exits 0 | "lease close: exit 0, want 0" |
+| `RemovedCredentialStaysInRunningEngine` | the running engine keeps the removed provider | "the running engine refused … after the removal … <nil>" |
+| `ResumeReplaysNoHistory` | another `cwd` is `-32602` | "resume with another cwd: Invalid params: … does not belong to cwd …, want -32602 (A5)" |
+| `LoadReplaysPromptsAndNoUsage` | the prompt is replayed once | "load replayed 1 user_message_chunk with the prompt …" |
+| `RevertAndShellFromControlPlane` | commit drops the second turn | "after revert/commit the first turn kept true, the second kept false" |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (the new file) | "1 file(s) clean (gofmt, golint, govulncheck)" |
+| `make vet-tags`; `make staticcheck`; `make lint` | exit 0 each |
+
+**Not done:**
+
+* The pins have not run on the Linux and Windows test hosts. That is P9's `make live-opencode` on
+  three hosts. G3's host facts are in the gate record above.
+* `make live-opencode` still runs the 1.x dialect's live tests, which P7 retires.
+
+P3 is complete with this commit.
+
+**Files for this commit:** this plan, the MADR, and
+`internal/provider/opencode/live_v2_gates_test.go`.

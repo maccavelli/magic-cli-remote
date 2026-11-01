@@ -837,3 +837,127 @@ registers one. *Owner: "SDK receiving middleware".*
   by name as recommended for now."* The issue is
   [#34](https://github.com/maccavelli/magic-cli-remote/issues/34); the decision on how to restore
   it is that research's own MADR/PLAN pair.
+
+## Amendment — 2026-11-01 (B): the gates G1 to G6
+
+The gates ran on 2026-11-01 against opencode 2.2.3, each on the owner's word. G1 ran on the free
+model `opencode/deepseek-v4.1-flash-free` and is in PLAN P2 Deviation 2. G2 and G5 used the same
+model. G3 and G4 sent no prompt. G6 used the owner's opencode keys, on the owner's instruction.
+The evidence is in the PLAN's execution record ("P3"). The owner settled each change below on
+2026-11-01; the answer is quoted with each one.
+
+### What the gates showed
+
+* **B1 — G1 inherited the operator's credentials (C4 gap).** G1's harness set the isolated-home
+  variables but removed nothing. The engine inherited every credential-shaped variable in the
+  operator's environment, opencode's keys among them, and `BASH_ENV`. That variable made each
+  shell the agent ran try to load the operator's startup scripts, and its error lines are where
+  G1's capture picked up the account name. No key value occurs in the G1 capture or in the
+  committed fixture: a scan for each key, whole and by its first and last 12 characters, found 0.
+  G2 to G6 removed 14 such variables and `BASH_ENV`.
+* **B2 — G2: `session/load` rebuilds the conversation in opencode, but not in Magic's
+  transcript.**
+  * A fresh engine loaded the session in 1.2 s. It replayed each prompt as `user_message_chunk`
+    and each answer as `agent_message_chunk`, with the original message ids. The next turn
+    answered from the replayed history.
+  * acpagent emits the answers as replay but skips every `user_message_chunk`
+    (`internal/provider/acpagent/session.go:1820`). The skip is there because grok echoes a live
+    prompt that way, and Magic emits the prompt itself. So a loaded session's transcript has the
+    answers and no prompts.
+  * This contradicts "Context and Problem Statement", ACP surface: "acpagent already handles
+    every standard kind above".
+* **B3 — G2: no cost is replayed.** opencode's replay (`packages/cli/src/acp/replay.ts`) sends no
+  `usage_update`. Each turn's `usage_update.cost` is the session's total, `session.get().cost`
+  (`turn.ts:342`), so Magic's session cost reappears with the first turn after a load, not at the
+  load. G2 required the total to rebuild at load (0199's pattern).
+* **B4 — G2: `session/resume`** answers with `configOptions` only: model, effort and mode, with
+  their current values. ~~It replays nothing and sends no update.~~ A different `cwd` is refused
+  with `-32602`, which confirms A5. acpagent has no resume path; it reattaches with
+  `session/load`.
+
+  *Corrected 2026-11-01 (PLAN P3 Deviation 1):* resume replays no history. The
+  `available_commands_update` and `config_option_update` a new session gets do follow it. G2's
+  harness discarded any message read in the same batch as an answer, so it saw none.
+* **B5 — G3: the lease and the password hold on macOS, Linux and Windows.**
+  * `serve --stdio --port 0`:
+    * printed `{"url":"http://127.0.0.1:<random port>"}` in 0.17–0.81 s;
+    * answered `/api/info` as JSON with version 2.2.3, and `401` without the password;
+    * a shell it ran saw neither the password nor either password variable's name;
+    * closing stdin ended it with exit 0 in 0.04–0.22 s, leaving no descendant.
+  * `opencode acp` answered `initialize` in 0.26–1.01 s and `session/new` in 0.37–1.96 s, warm.
+    Closing stdin ended it with exit 0, and its private server ended with it.
+  * A forced stop exits 130 on macOS and Linux, from SIGTERM or SIGINT. On Windows,
+    `TerminateProcess` exits 1. No descendant outlived either, on any host.
+  * The Windows launcher is an `.exe`, not an npm shim. No service-registration file was written
+    in an isolated home.
+* **B6 — G4: a running engine keeps a removed provider.** A control plane stored a throwaway
+  OpenRouter key, and later removed it.
+  * 95 s after the removal, the running `opencode acp` still listed OpenRouter's 351 models in a
+    new session and accepted selecting one. A fresh engine on the same home listed none.
+  * The add did not reach the running engine's catalog in 95 s either. Its new sessions showed no
+    OpenRouter model until one was selected by id; that was accepted, and then the list held 367.
+  * The removing process's own `/api/provider/openrouter` kept `activation: "auto"`.
+  * `DELETE /api/credential/<id>` answers `204` for an id that does not exist.
+
+  *Corrected 2026-11-01 (PLAN P3 Deviation 1).* The first Go pin ran the same steps within
+  seconds of starting the engine. In 4 of 6 runs it saw the engine drop the removed provider
+  within 1–10 s. The mechanism, read at `b44b7164ba`:
+  * The engine caches its catalog per directory (`packages/cli/src/acp/catalog.ts`).
+  * It reloads the catalog only on its own server's `model.updated`, `agent.updated` or
+    `command.updated` events, or when a selection misses the cache (`service.ts:80-85`).
+  * A credential event is published on the bus of the process that changed it, `global` or
+    not, and does not reach another process (`packages/core/src/bus.ts`, `credential.ts`).
+  * A newly started engine's own provider discovery can still reload its catalog for a few
+    seconds (`catalog.ts:128`). A reload in that window reads the database after the removal.
+
+  An engine left 20 s to settle reflected neither the add nor the removal, in 3 of 3 runs each,
+  as in G4. D8's restart after an add or a removal stands. Without the restart, what a running
+  engine shows depends on timing.
+* **B7 — G5: revert and `!` shell work through the control plane on a session the ACP engine
+  owns.** The session was idle each time.
+  * `revert/stage` of the second turn put `note.txt` back to the first turn's content. `DELETE
+    …/revert` restored it, and `revert/commit` removed the turn's messages.
+  * `session.shell` ran its command and added a `shell` message.
+  * The engine's next turn listed the first request and the shell command, and not the reverted
+    turn. It sent no update for any of these actions, so Magic would have to change its own
+    transcript.
+  * Revert during a running turn was not tried.
+* **B8 — G6: the catalog is small on the wire.** For a new session, measured as Magic's
+  `session_config` event in JSON:
+
+  | Credentials | Models | Event size |
+  | --- | --- | --- |
+  | none | 8–16 | 1.0–1.9 KB |
+  | the owner's opencode keys | 81, from 3 providers | 5.9 KB (ACP result 6.3 KB) |
+
+  G4's OpenRouter case had 367 models, about 27 KB at the same rate. The "1,087" this record
+  measured on 2.1.x did not recur on 2.2.3. Every size is far below the daemon's 1 MiB read limit
+  (`internal/ws/server.go:310`) and the relay's 10 MiB.
+
+### Decisions changed
+
+* **D13 and PLAN C4, amended:** the isolated-home recipe also removes every credential-shaped
+  variable (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`) and `BASH_ENV` from the engine's
+  environment. A test that needs a credential sets it alone, as G6 did (B1). *Owner: "Accept
+  all".*
+* **D1, amended (B2):** while loading, acpagent emits a replayed `user_message_chunk` as a replayed
+  user message, for every Spec. A live `user_message_chunk` is still skipped. grok gains its
+  prompts on load too, if it replays them. *Owner: "All Specs".*
+* **D6, amended (B3):** the session cost reappears with the next turn's `usage_update`, and the
+  load says nothing about cost. Reading `session.cost` from the control plane at load was not
+  chosen. *Owner: "Next turn".*
+* **D2, amended (B5):** "orderly" is exit 0 after a lease close, and 130 after SIGTERM on POSIX
+  only. A Windows forced stop exits 1 and is not orderly. Shutdown closes stdin first everywhere,
+  so a normal stop is 0 on every host. *Owner: "Accept all".*
+* **D8, amended (B6):** the ACP engine is restarted at its next idle point after a credential is
+  **added or removed**, not only removed. A removal is confirmed by the integration's connections,
+  not by the `DELETE` status. *Owner: "Accept all".*
+* **D11, amended (B7):** the deferral of revert, unrevert and `!` shell is lifted.
+  * They go through the control plane, on an idle session only, and are refused while a turn
+    runs.
+  * Magic emits `transcript_remove` for reverted messages and shows the shell output itself.
+  * Share and the todo panel stay deferred.
+
+  *Owner: "Lift it".*
+* **D7, amended (B8):** wire size is no longer a reason for D7. Grouping by connected / not
+  configured stays for the drill-down (0079). *Owner: "Accept all".*
