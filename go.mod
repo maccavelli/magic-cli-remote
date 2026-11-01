@@ -8,15 +8,15 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/libdns/route53 v1.6.2
-	github.com/maccavelli/acp-go-sdk2 v1.30.0
+	github.com/maccavelli/acp-go-sdk2 v1.31.1
 	github.com/maccavelli/go-selfupdate-lib v1.23.1
-	github.com/maccavelli/go-tui-lib/v2 v2.7.0
+	github.com/maccavelli/go-tui-lib/v2 v2.9.0
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	go.uber.org/zap v1.28.0
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/mod v0.42.0
 	golang.org/x/sys v0.49.0
 )

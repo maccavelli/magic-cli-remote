@@ -1768,3 +1768,80 @@ magic-git:
 One item stays open: the Linux test host's dotfiles (`bash/.bashrc.d/00-paths.sh` and the
 `mcremote` drop-in `path.conf`). This plan becomes `complete` when the owner reports them
 committed.
+
+### P3c — `acp-go-sdk2` v1.31.1 and `go-tui-lib/v2` v2.9.0
+
+#### Deviation 16 (2026-11-01): two libraries tagged after acceptance
+
+**Found** by the owner: "assess acp-go-sdk2 and go-selfupdate-lib, and go-tui-lib. pin the current
+tagged versions." At `72abd42f`, `go.mod` requires `acp-go-sdk2 v1.30.0` (moved by 0224),
+`go-selfupdate-lib v1.23.1` and `go-tui-lib/v2 v2.7.0` (added by 0219). The newest tags and what
+they change are the MADR's F3d: `acp-go-sdk2 v1.31.1` and `go-tui-lib/v2 v2.9.0`, each additive,
+neither changing what Magic calls; `go-selfupdate-lib` is current.
+
+**Decision (owner, 2026-11-01): pin the current tagged versions.** D4 takes every direct module to
+its newest. A step P3c, P3b's steps for these two modules. *Approval to execute is the owner's word
+on this deviation; nothing in the tree moves before it.*
+
+1. P0: the tree clean; `v1.31.1^{}` (`151b6e8b…`) and `v2.9.0^{}` (`16349ecd…`) re-peeled with
+   `git ls-remote`, and each still the newest tag. `go.mod` and `go.sum` copied aside.
+2. `go get github.com/maccavelli/acp-go-sdk2@v1.31.1 github.com/maccavelli/go-tui-lib/v2@v2.9.0`,
+   `go mod tidy`. `go.mod` changes only those two lines, `go 1.27.3` stays, `go.sum` only their
+   lines, and `go list -m -u` shows no direct module behind.
+3. The gates of P3 step 4 that a Go module bump touches: `make pre-add-check`, `go vet` on three
+   GOOS, `make vet-tags`, `make staticcheck` (56 ignored findings), `make vulncheck`, `make race`
+   (with `internal/modguard_test.go` and `internal/cli`'s pair tests among them), and check-libs on
+   the step's content; then `make check-libs` on the owner's commit. The live supervisors are not
+   run: `go-selfupdate-lib` does not move.
+4. P3 step 5's host runs (C2): `go test -race ./...` on the Linux test host and `make ci-windows` on
+   the Windows test host.
+5. 0207 gains amendment L (D56, D57). Stage `go.mod`, `go.sum`, this PLAN, the 0217 MADR and the
+   0207 MADR.
+
+**Scope.** No file is added. No live agent run.
+
+#### Deviation 17 (2026-11-01): `go.yaml.in/yaml/v3` v3.0.6 is a direct module behind
+
+**Found** at P3c step 2, after the two pins moved: `go list -m -u` shows
+`go.yaml.in/yaml/v3 v3.0.5 -> v3.0.6`, a direct module (imported by
+`internal/config/prewarm_write.go`), so step 2's "no direct module behind" fails. v3.0.6 is dated
+2026-10-13, before this record's inventory and P3's `go get -u ./...`, yet P3's log
+(`leftovers/0217-p3-goget.log`) does not name it and the acceptance said no direct module was
+behind. Why it was missed then is not known. It is not retracted or deprecated. It is one commit
+on v3.0.5, "resolve: hint-class literal merge-key string "<<" so it's quoted on encode": a config
+value of exactly `<<` is written quoted.
+
+**Decision (owner, 2026-11-01): "Add it to P3c".** D4 already takes every direct module to its
+newest. Step 2 also moves `go.yaml.in/yaml/v3` to v3.0.6; the gates are unchanged.
+
+#### P3c, executed (2026-11-01; approved by the owner: "p3c approved")
+
+* **Step 1.** `git status`: only this record and the 0217 and 0207 MADRs, unstaged, at `72abd42f`.
+  `git ls-remote`: `v1.31.1^{}` `151b6e8b58d8…` and `v2.9.0^{}` `16349ecdc7dd…`, each still the
+  newest tag. `go.mod` and `go.sum` copied to `libs/p3c-base/`.
+* **Step 2** (`libs/p3c-goget.log`, `libs/p3c-goget2.log`): "upgraded …acp-go-sdk2 v1.30.0 =>
+  v1.31.1", "upgraded …go-tui-lib/v2 v2.7.0 => v2.9.0", then (Deviation 17) "upgraded
+  go.yaml.in/yaml/v3 v3.0.5 => v3.0.6". After `go mod tidy`, `go.mod` changes only those three
+  lines and `go.sum` only their six; `go 1.27.3` is unchanged, and `go list -m -u` shows no direct
+  module behind.
+* **Step 3, this Mac** (logs `leftovers/0217-p3c-*.log`):
+
+  | Gate | Result |
+  | :--- | :--- |
+  | `make pre-add-check` | exit 0, "1000 file(s) clean (gofmt, golint, govulncheck)" |
+  | `go vet ./...` (`vet_goos.py`) | darwin/arm64, windows/amd64, linux/amd64: exit 0 each |
+  | `make vet-tags` | exit 0, eight tags ok |
+  | `make staticcheck` | exit 0; "56 ignored finding(s), each an acp-go-sdk2 unstable-schema name" for each GOOS |
+  | `make vulncheck` | exit 0, "vulncheck: clear; allowlisted required-module findings: GO-2026-5932" |
+  | `make race` | exit 0; 45 `ok` (`internal`, with the module guard, and `internal/cli`, with the pair tests, among them), no FAIL, panic or data race |
+  | check-libs on the step's content (`check_libs_staged.py go.mod go.sum`) | exit 0, "0 failing checks; scratch removed"; `acp-go-sdk2` "pinned v1.31.1, checking v1.31.1", `go-selfupdate-lib` "pinned v1.23.1", every check ok |
+
+  go-shared's `check_libs.py` checks `acp-go-sdk2` and `go-selfupdate-lib` only; `go-tui-lib` is
+  covered by the build, vet, race and the apidiff in the MADR's F3d.
+* **Step 4** (`PINS_PHASE=p3c`; `HEAD` `72abd42f` plus `go.mod` and `go.sum`): the Linux test host,
+  `go1.27.3`, `go test -race -count=1 ./...` exit 0, 45 `ok` lines; the Windows test host,
+  `go1.27.3`, `make ci-windows` exit 0, "ci-windows-local: ALL SELECTED CHECKS PASSED", 45 `ok`
+  lines; no FAIL or race line in either; both scratch trees removed and checked gone.
+* **Step 5.** 0207's amendment L (D56, D57). `make check-libs` runs again on the owner's commit.
+
+**Files for this commit:** `go.mod`, `go.sum`, this PLAN, the 0217 MADR and the 0207 MADR.

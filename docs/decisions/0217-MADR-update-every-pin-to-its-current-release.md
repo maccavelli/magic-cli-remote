@@ -48,7 +48,8 @@ the host standard and the host installs are in scope only where an advisory is a
 | `github.com/caddyserver/certmagic` | v0.25.4 | v0.25.6 |
 | `golang.org/x/mod` | v0.41.0 | v0.42.0 |
 | `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | ~~v1.23.0~~ **v1.23.1** (F3, F3a) |
-| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ **v1.28.0** (F3c) |
+| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ ~~v1.28.0 (F3c)~~ **v1.31.1** (F3d; v1.30.0 came by 0224) |
+| `github.com/maccavelli/go-tui-lib/v2` | (not yet required; v2.7.0 since 0219) | **v2.9.0** (F3d) |
 
 * `go list -m -u all` lists 33 indirect modules with a newer version. They include the AWS SDK used
   by `libdns/route53` (`aws-sdk-go-v2` v1.39.1 → v1.47.5, `service/route53` v1.58.3 → v1.70.6),
@@ -131,6 +132,47 @@ the tag in that repository).*
   one text check, `agentproc_test.go:247`, is of a child's error. So neither change reaches Magic.
 * `CloseContext` and `KillContext`, a close bounded against a client handler that ignores its
   context, are available and not adopted here (0207 D53's rule).
+
+**F3d. On 2026-11-01, two of Magic's three libraries have newer tags, and neither changes what
+Magic uses.** *Observed 2026-11-01 (`libs/latest.py`, `libs/tui_apidiff.py` in the session
+scratchpad; each library's release notes and `git diff` at its tags).*
+
+| Module | Pinned | Newest tag | Peeled commit, date |
+| :--- | :--- | :--- | :--- |
+| `acp-go-sdk2` | v1.30.0 (0224) | **v1.31.1** (v1.31.0 between) | `151b6e8b…`, 2026-11-01 |
+| `go-selfupdate-lib` | v1.23.1 | v1.23.1, current | (no change) |
+| `go-tui-lib/v2` | v2.7.0 (0219) | **v2.9.0** (v2.7.1, v2.8.0 between) | `16349ecd…`, 2026-11-01 |
+
+* **`acp-go-sdk2` v1.31.0** adds sending and receiving middleware (`WithSendingMiddleware`,
+  `WithReceivingMiddleware`, `Middleware`, `RequestIDFromContext`, `ErrSendingMiddleware`) and an
+  observer for what the connection handles itself (`WithObserver`, `Observation`,
+  `ObservationKind` and six kinds). Its `make api` against v1.30.0: "0 incompatible, 14
+  compatible". A connection that registers neither sees no change on the wire and no added
+  allocation. **v1.31.1** changes nine comment lines in `observer.go`: "0 incompatible, 0
+  compatible". The schema stays 1.25.0, and `go.mod`/`go.sum` are unchanged across both
+  (`docs/reports/0046-REPORT-release-notes-v1-31-{0,1}.md` at the tag). Magic registers no
+  middleware and no observer, and calls none of the new names. Adopting them is 0207's amendment
+  L.
+* **`go-tui-lib` v2.7.1 to v2.9.0** (16 commits) add terminal view facts, a message catalogue,
+  opt-outs, a `Linker`, OSC 8 link bounds in `safetext`, and `inline`/`transcript` reprinting. Its
+  `go.mod` is unchanged. Magic imports three packages (`internal/modguard_test.go:216-271`):
+  * `safetext`: apidiff shows no change. Its one behaviour change, removing an OSC 8 whose body is
+    over 2,048 bytes, applies under `KeepSGR`; Magic calls `safetext.Clean(s, safetext.Line())`
+    (`internal/cli/termtext.go:9`, `internal/auth/store.go:39`), and `Line()` is
+    `Rules{Flatten: true}`, without `KeepSGR`.
+  * `termcap`: apidiff shows only compatible additions (six `Caps` fields, `Messages`,
+    `WithReportCatalog` and the `Msg…` catalogue).
+  * `termsvc`: apidiff shows only compatible additions (`Linker`, `WithBodyCells`,
+    `WithCopyRoute`, `WithTitleCells`, `WithoutBell`). `PrepareCopy` changed order, so a program's
+    own clipboard is no longer held to `MaxCopyBytes`; Magic does not call it. `CopyPlan` and
+    `CopySequence`, which `internal/cli/pair.go:398-409` calls, are unchanged.
+* **`go-selfupdate-lib`** is at its newest tag. Its checkout has records after v1.23.1 (its 0040)
+  and no newer tag.
+* **gobble** pins `acp-go-sdk2 v1.28.0`. 0184 D12's shared pin is needed only before
+  `live-gobble`, so Magic moving ahead changes nothing for it now.
+* **`go.yaml.in/yaml/v3`**, found behind at PLAN P3c step 2 (Deviation 17): v3.0.5 → v3.0.6, one
+  commit that quotes a literal `<<` string on encode. Dated 2026-10-13, so P3 should have taken it;
+  why it did not is not known.
 
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
@@ -438,7 +480,10 @@ Chosen option: **"B — Tiered by risk"**, because:
     module in the build. ~~`acp-go-sdk2` is already current.~~ *Amended 2026-10-30, at PLAN P3
     step 1 (Deviation 7), by the owner: "Take v1.27.0".* It also moves `acp-go-sdk2` to v1.27.0
     (F3b). *Amended again 2026-10-30 (PLAN Deviation 14), by the owner: "acp-go-sdk2 just got a new
-    tagged release. we need to update the pin."* Then to v1.28.0 (F3c).
+    tagged release. we need to update the pin."* Then to v1.28.0 (F3c). *Amended again 2026-11-01
+    (PLAN Deviation 16), by the owner: "assess acp-go-sdk2 and go-selfupdate-lib, and go-tui-lib.
+    pin the current tagged versions."* Then `acp-go-sdk2` to v1.31.1 and `go-tui-lib/v2` to
+    v2.9.0; `go-selfupdate-lib` is already current (F3d).
   * `make vulncheck` must stay "clear" apart from `GO-2026-5932`.
 * **D5 — `go-selfupdate-lib` ~~v1.23.0~~ v1.23.1, as an amendment to 0207 (F3, F3a).**
   *Amended 2026-10-30 by the owner, before phase 3: "pin go-selfupdate-lib to current v1.23.1".*

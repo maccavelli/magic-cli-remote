@@ -2304,3 +2304,58 @@ P3b (Deviation 14).
 * `go list -m github.com/maccavelli/acp-go-sdk2` gives `v1.28.0`; `make staticcheck` reports 56
   ignored findings; `make race` and both test hosts pass; `make check-libs` exits 0 on the
   committed `HEAD`.
+
+## Amendment — 2026-11-01 (L): `acp-go-sdk2 v1.31.1`
+
+*Asked by the owner, 2026-11-01:* "assess acp-go-sdk2 and go-selfupdate-lib, and go-tui-lib. pin
+the current tagged versions." The pin is
+[0217-MADR-update-every-pin-to-its-current-release.md](0217-MADR-update-every-pin-to-its-current-release.md)'s
+D4 (F3d), carried out by
+[0217-PLAN-update-every-pin-to-its-current-release.md](0217-PLAN-update-every-pin-to-its-current-release.md)'s
+P3c (Deviation 16). `v1.29.0` and `v1.30.0` came by
+[0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md](0224-MADR-pause-the-acp-reader-instead-of-dropping-notifications.md).
+`go-selfupdate-lib` is already at its newest tag, v1.23.1.
+
+### Facts [observed 2026-11-01: `git ls-remote`, and the library's records at the tags]
+
+* **L-1.** `v1.31.1`, annotated tag `39fe1cae…`, peels to
+  `151b6e8b58d8310ecd4df527c07d2df2f56668a9` (2026-11-01), 21 commits past `v1.30.0`, through
+  `v1.31.0` (`093649b1…`). Its notes are `docs/reports/0046-REPORT-release-notes-v1-31-0.md` and
+  `…-v1-31-1.md` at the tag.
+* **L-2.** `make api`: `v1.31.0` against `v1.30.0`, "0 incompatible, 14 compatible"; `v1.31.1`
+  against `v1.31.0`, "0 incompatible, 0 compatible" (nine comment lines in `observer.go`). The
+  schema stays 1.25.0; `go.mod` and `go.sum` are unchanged.
+* **L-3.** The additions are middleware around what a connection receives and sends
+  (`WithReceivingMiddleware`, `WithSendingMiddleware`, `Middleware`, `RequestIDFromContext`,
+  `ErrSendingMiddleware`) and an observer for what the connection handles itself and no
+  middleware sees (`WithObserver`, `Observation`, `ObservationKind`: a fault, a cancel received or
+  sent, a refusal, an unmatched response, a drop). With neither registered, nothing on the wire
+  changes and no allocation is added.
+* **L-4.** Magic's connection options (`internal/provider/acpagent/acpagent.go:1133-1150`)
+  register neither, and no code calls the new names. So the pin changes nothing Magic does.
+
+### Where the additions could serve Magic
+
+* **The observer.** Today a fault, a refusal, an unmatched response or a dropped notification is
+  handled inside the SDK and reaches Magic only through `WithLogger`. An observer could count them
+  for `doctor` or the phone's diagnostics, without parsing log lines.
+* **Receiving middleware.** It sees each method and its raw params before the side connections
+  decode them, which is where a per-Spec vendor-method route could sit:
+  [0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md)
+  P2 (D14) may use it if it replaces code there without changing behaviour. The `_meta` handlers
+  P2 also needs read decoded updates, so they stay in `acpagent`.
+* **Sending middleware.** Magic sends no trace context and has no outbound hook to replace;
+  `internal/wirecap` taps the raw stream below the connection, which middleware does not see.
+
+### The decisions this amendment makes
+
+* **D56 — Pin `acp-go-sdk2 v1.31.1`.** `go.mod` and `go.sum` only. D45's exception stands.
+* **D57 — L-3's API is not adopted here.** The observer takes its own record when wanted; receiving
+  middleware is weighed in 0214 P2's design, by that PLAN's rules, as D28, D47, D50, D53 and D55
+  rule for earlier additions.
+
+### Confirmation of the amendment
+
+* `go list -m github.com/maccavelli/acp-go-sdk2` gives `v1.31.1`; `make staticcheck` reports 56
+  ignored findings; `make race`, `make vet-tags` and both test hosts pass; `make check-libs` exits
+  0 on the committed `HEAD`.
