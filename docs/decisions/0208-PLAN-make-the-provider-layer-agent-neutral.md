@@ -1,6 +1,6 @@
 ---
 status: in-progress
-date: 2026-10-22
+date: 2026-11-01
 associated-madr: "0208-MADR-make-the-provider-layer-agent-neutral.md"
 ---
 <!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
@@ -273,6 +273,65 @@ Files: `internal/provider/provider.go`, `internal/session/commands.go`, every ad
    the owner's quota approval.
 
 Verification: the Go rules, and `make ci-windows` on the Windows test host.
+
+*Amended 2026-11-01 (MADR amendment "a Spec-facing surface, and no provider in `acpagent`").* P6
+runs now, ahead of P5's remainder. It is executed as P6a to P6d below. Steps 1 and 2 are P6d,
+step 3 is P6a and P6b, and step 4 is P6c. Each sub-phase is one commit, and each needs the owner's
+word to start.
+
+#### P6a — `Host`, and every hook takes it
+
+Files: `internal/provider/acpagent/` (new `host.go`; `acpagent.go`, `extensions.go`,
+`session.go`), `internal/provider/grok/grok.go`, and their tests.
+
+1. **Failing first.** A Spec in an external test package (`acpagent_test`) registers a vendor
+   notification, a `_meta` key and an extension request. Through `Host`, it puts a subagent in the
+   panel, posts a notice, ends a turn with a limit card and a retry time, and answers a request.
+   Before `Host` exists the test does not compile. With `Host` declared and its methods stubbed,
+   each assertion fails.
+2. `Host`, the method set the MADR's findings list. `*session` implements it.
+   * `ExtensionNotificationHandler`, `MetaHandler`, the model and thinking fallbacks
+     (`RawCaller` retired) and `Spec.Ops` take a `Host`.
+   * New: `Spec.ExtensionRequests`, `Spec.NewSessionState` with `Host.SpecState()`, and the
+     initialize `_meta` hook.
+3. grok's handlers are adapted in place to take `Host`, still in `acpagent`, so this commit
+   changes signatures, not behaviour.
+4. grok's unit, conformance and wire suites pass unchanged.
+
+#### P6b — grok out of `acpagent`
+
+Files: `internal/provider/acpagent/` (`xaiusage.go`, `xaicompaction.go`, `xaiextensions.go`,
+`subagents.go`, `extensions.go`, `fork.go`, `rewind.go`, `runtime.go`, `sessioncaps.go`,
+`quota.go`, `authselect.go`, `acpagent.go`), `internal/provider/grok/` (new files for the moved
+code), and the tests that move with them.
+
+1. The code the MADR's findings list moves to `internal/provider/grok`, on `Host`:
+   * the notification handlers and the cost and compaction state (into the Spec's session state);
+   * the two incoming requests (into `Spec.ExtensionRequests`);
+   * the seven operations and `ConfirmLimit` (into `Spec.Ops`);
+   * auth selection (a Spec policy, in today's order);
+   * the initialize `_meta` decoding.
+2. Their tests move with them, unchanged in what they assert.
+3. grok's wire fixtures (`testdata/wire/1.0.13`, `1.0.70`) replay with unchanged results.
+4. `make live-grok` at acceptance, on the owner's quota word.
+
+#### P6c — `acpagent` names no provider
+
+Files: `internal/provider/acpagent/` (comments, and the tests from 0214 P2), a new source test, and
+`internal/provider/opencode/` (the tests that move there).
+
+1. **Failing first.** The source test (MADR D2, as amended) fails on the tree before P6c, listing
+   each hit.
+2. Comments are rewritten without provider names. 0214 P2's tests use neutral vendor names and a
+   fixture under `acpagent/testdata/`. The tests of opencode's recorded frames move to
+   `internal/provider/opencode`, for 0214 P4 to build on.
+
+#### P6d — declared capabilities (D1)
+
+This is steps 1 and 2 above, after P6c, so the fixture Spec offers no vendor operation at all.
+
+Verification for each sub-phase: the Go rules; `make ci-windows` on the Windows test host for P6b,
+because grok's code moves; and `make vet-tags`.
 
 ### P7 — Standard ACP config options (D3)
 
@@ -1287,3 +1346,16 @@ amendment A (its A4 and A5, and `status: complete`), after CI on `b85cfec3`.
 `internal/provider/codex/runtime_p4_test.go`, `internal/provider/codex/runtime_passthrough_test.go`
 (new), `internal/provider/codex/testdata/wire/0.166.0/frames.jsonl` and `meta.json` (new), this
 plan, and the 0225 plan.
+
+### P6 brought forward, 2026-11-01 — a Spec-facing surface first. The owner decided: "0208 P6 now", "Amend 0208 and 0214", "Neutralize in P6"
+
+- **Found:** 0214 P4 was about to add opencode's handlers to `acpagent`, because a Spec's hooks
+  receive the unexported `*session` and cannot act on the session from another package. The owner
+  stopped it: "no, we need to keep provider specific code OUT of acpagent not in it. we need to
+  peel grok out of there as part of getting ready to adopt support for gobble."
+- **Decision:** the MADR's amendment of 2026-11-01. `acpagent` exports `Host`; every hook takes
+  it; grok moves to its package; `acpagent` names no provider. P6 runs now as P6a to P6d. P5's
+  remainder (kilo usage, opencode and kilo totals, `/context`, and the live checks of step 4)
+  follows 0214.
+- **Files added to P6's scope:** `internal/provider/acpagent/host.go` (new); in P6c,
+  `internal/provider/opencode/` for the tests that move there.

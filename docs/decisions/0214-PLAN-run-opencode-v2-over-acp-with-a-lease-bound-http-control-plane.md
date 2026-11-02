@@ -147,6 +147,16 @@ Each is seen failing first on a scratch copy with its key assertion inverted (C3
 
 ### P4 — The OpenCode ACP Spec (D1, D3, D5, D6, D9; 0220 §5 C, G)
 
+*Amended 2026-11-01 (MADR amendment C).* P4 starts after
+[0208-PLAN-make-the-provider-layer-agent-neutral.md](0208-PLAN-make-the-provider-layer-agent-neutral.md)
+P6.
+* Every opencode handler is written in `internal/provider/opencode`, on `acpagent.Host`.
+* `acpagent` gains only agent-neutral pieces: step 7's replayed prompts, and step 4's minimum
+  version as a Spec field.
+* Step 2's projected `_meta["opencode/child-session"]` and `_meta["opencode/compaction"]` are not
+  sent under D1's capabilities, and are not handled.
+* The tests of G1's recorded frames that P2 put in `acpagent` move here in 0208 P6c.
+
 Files: `internal/provider/opencode/` (a new Spec file beside the old dialect, which stays live until
 P7), `internal/provider/opencode/version.go`, `internal/provider/opencode/commandtable.go`,
 `internal/command/conformance_test.go`, and tests.
@@ -296,6 +306,9 @@ mobile docs' OpenCode rows, and tests.
   * cost at load: "Next turn" (P4 step 8);
   * revert and shell: "Lift it" (P6 step 4);
   * the rest: "Accept all" (C4, P5 step 2, P6 step 2, D7).
+* At P4's start, 2026-11-01: "no, we need to keep provider specific code OUT of acpagent not in
+  it. we need to peel grok out of there as part of getting ready to adopt support for gobble."
+  Then "0208 P6 now", "Amend 0208 and 0214" and "Neutralize in P6" (MADR amendment C; P4's note).
 
 ## Execution record
 

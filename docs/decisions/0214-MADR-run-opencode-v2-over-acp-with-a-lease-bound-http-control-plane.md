@@ -961,3 +961,24 @@ The evidence is in the PLAN's execution record ("P3"). The owner settled each ch
   *Owner: "Lift it".*
 * **D7, amended (B8):** wire size is no longer a reason for D7. Grouping by connected / not
   configured stays for the drill-down (0079). *Owner: "Accept all".*
+
+## Amendment — 2026-11-01 (C): opencode's code stays in its package
+
+P4 began by reading where opencode's handlers would go. They would have joined grok's in
+`acpagent`, because a Spec's hooks receive `acpagent`'s unexported `*session`. The owner stopped it:
+"no, we need to keep provider specific code OUT of acpagent not in it. we need to peel grok out of
+there as part of getting ready to adopt support for gobble."
+
+* **D14, amended again.** Per-Spec hooks receive `acpagent.Host`, the agent-neutral surface
+  defined in
+  [0208-MADR-make-the-provider-layer-agent-neutral.md](0208-MADR-make-the-provider-layer-agent-neutral.md)'s
+  amendment of 2026-11-01.
+  * opencode's handlers live in `internal/provider/opencode`: `child_update` to the subagent panel
+    (D5), and `opencode/retry` to a notice or the limit card (D6).
+  * The P2 hooks keep their behaviour; only their handler signatures change.
+* **Order.** P4 starts after 0208 P6. *Owner: "0208 P6 now", "Amend 0208 and 0214".*
+* **Found at P4's start, from G1's capture.** With D1's capabilities advertised, child output
+  arrives only as `opencode/session/child_update`; the parent's own frames carry no
+  `_meta["opencode/child-session"]`. Compaction arrives as standard `compaction_update`, as A7 and
+  D14's first correction said. So D5's "projected updates" and D6's
+  `_meta["opencode/compaction"]` are not met under D1, and P4 does not handle them.

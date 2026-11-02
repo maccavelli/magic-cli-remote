@@ -544,3 +544,90 @@ governs the two answers above where they differ.
 The first phase keeps today's 8,000-character cap, which opencode, kilo and the phone already share
 (`opencode/http.go:1844`, `kilo/session.go:944`, `chat_models.dart:95`), so nothing grows before
 the phone can page longer text.
+
+## Amendment — 2026-11-01: a Spec-facing surface, and no provider in `acpagent`
+
+### Why now
+
+[0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md)
+P4 was about to put opencode's child-update and retry handlers in `acpagent`, beside grok's. The
+owner stopped it: "no, we need to keep provider specific code OUT of acpagent not in it. we need to
+peel grok out of there as part of getting ready to adopt support for gobble."
+
+### Findings [read on `3f793e6f`]
+
+* **No Spec package can act on a session.**
+  * Every per-Spec hook receives `acpagent`'s unexported `*session`:
+    `ExtensionNotificationHandler` (`extensions.go:74`), and `MetaHandler` (`extensions.go:90`, added
+    by 0214 P2).
+  * The one exception is `RawCaller` (`acpagent.go:190`), which the model and thinking
+    fallbacks use. It can make an untyped call and nothing else.
+  * A handler that needs the subagent panel, a notice, the limit card or usage must therefore live
+    in `acpagent`. That is why grok's do.
+* **grok's code in `acpagent`'s non-test files:**
+  * the notification handlers: `HandleXAISessionNotification` (`subagents.go`),
+    `HandleXAISessionUpdate`, `addTurnCost` and `emitXAIUsage` (`xaiusage.go`), `onXAICompaction`
+    (`xaicompaction.go`), `HandleXAIMCPServersUpdated` and `HandleXAIMCPInitProgress`
+    (`xaiextensions.go`), and `HandleModelsUpdate`, `HandleMCPStatus` and `HandleMCPInit`
+    (`acpagent.go`);
+  * the incoming `_x.ai/exit_plan_mode` and `_x.ai/ask_user_question` requests (`extensions.go`);
+  * the operations, by name: `x.ai/session/fork` (`fork.go`), `x.ai/rewind/points` (`rewind.go`),
+    `x.ai/session/usage` and `x.ai/billing` (`runtime.go`), and `x.ai/compact_conversation` and
+    `x.ai/session/rename` (`sessioncaps.go`);
+  * grok's limit confirmation (`quota.go`), and its initialize `_meta` decoding
+    (`decodeGrokInitializeMeta`, `acpagent.go`).
+* **The handlers use these session members:**
+  * identity and the extension call;
+  * the replay flag, the event sink and declines;
+  * the subagent set;
+  * compaction state;
+  * the usage gauge and the turn's usage;
+  * the limit-abort path;
+  * MCP status and the model catalog;
+  * the plan-approval and question round trips;
+  * state of grok's own: cost ticks, counted prompts, and compaction counters.
+* **0214 P2's tests name opencode.** They use opencode's method and key names, and read
+  `../opencode/testdata/wire/2.2.3`.
+
+### Decisions
+
+* **D2, amended — `acpagent` exports `Host`, the session as a Spec sees it.**
+  * Every per-Spec hook receives a `Host` instead of `*session`: the notification handlers, the
+    `_meta` handlers, the extension-request handlers (below), D2's operations, and the model and
+    thinking fallbacks. `RawCaller` is folded into it.
+  * `Host` offers only agent-neutral calls:
+    * the session's identity, its logger, and the extension call;
+    * whether the session is replaying;
+    * emitting an event;
+    * declining an update by name;
+    * typed calls for the state `acpagent` holds: the subagent set, compaction, usage, a notice,
+      the limit (classify a line, or end the turn with a limit card and its retry time), MCP
+      status and the model catalog;
+    * the plan-approval and question round trips.
+
+    The PLAN fixes the method set from the findings above; a method added later needs a stated
+    reason.
+  * **`Spec.ExtensionRequests`** registers handlers for incoming extension requests, as
+    `ExtensionNotifications` does for notifications. grok's two requests move there.
+  * **`Spec.NewSessionState`** makes a Spec's own per-session state, which a hook reads with
+    `Host.SpecState()`. grok's cost ticks and compaction counters live there.
+  * **A Spec hook decodes initialize's `_meta`.** grok's version and model catalog decoding moves
+    there.
+* **D2's source test, widened.**
+  * `acpagent`'s non-test files name no vendor wire prefix (`x.ai`, `_gobble/`, `opencode/`) and
+    no provider (`grok`, `opencode`, `kilo`, `codex`, `gobble`), in code or in comments.
+  * Its tests use neutral vendor names and fixtures of their own.
+  * Tests of a provider's frames live in that provider's package.
+* **Order, owner's decision (2026-11-01):** P6 runs now, before P5's remainder. 0214 P4 waits for
+  it and builds opencode's handlers in `internal/provider/opencode` on `Host`. *Owner: "0208 P6
+  now", "Amend 0208 and 0214", "Neutralize in P6".*
+
+### Consequences of this amendment
+
+* Good, because opencode and gobble each live entirely in their own package, and `acpagent` holds
+  only the ACP machinery every Spec shares.
+* Good, because a new agent's handlers cannot reach into another agent's state.
+* Bad, because the move is large: grok's handlers, operations and their tests change package. The
+  wire is unchanged, and grok's wire and conformance suites are the guard.
+* Bad, because `Host` is an API that every Spec depends on. A method that names one vendor's
+  concept would put the coupling back, and the source test cannot see that. Review has to.
