@@ -173,7 +173,7 @@ func TestNoVendorMethodInstallsNoMiddleware(t *testing.T) {
 	base := len(clientConnOptions(nil, nil))
 	for name, handlers := range map[string]map[string]ExtensionNotificationHandler{
 		"none":       nil,
-		"underscore": {"_x.ai/models/update": HandleModelsUpdate},
+		"underscore": {"_vendor/models/update": func(context.Context, Host, json.RawMessage) {}},
 	} {
 		s := &session{extNotificationHandlers: handlers}
 		if got := len(clientConnOptions(nil, s)); got != base {

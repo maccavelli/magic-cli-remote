@@ -47,15 +47,19 @@ var staticModes = []event.SessionMode{
 
 // spec describes how to launch grok in ACP-stdio mode.
 var spec = acpagent.Spec{
-	ID:                    provider.IDGrok,
-	DefaultBin:            "grok",
-	KnownGoodVersion:      KnownGoodVersion,
-	DefaultArgs:           defaultArgs,
-	AuthStatus:            authStatus,
-	SetCredential:         setCredential,
-	ClearCredential:       clearCredential,
-	CredentialModel:       resolveCredentialModel,
-	SafeAuthMethodIDs:     []string{"cached_token", "xai.api_key"},
+	ID:                provider.IDGrok,
+	DefaultBin:        "grok",
+	KnownGoodVersion:  KnownGoodVersion,
+	DefaultArgs:       defaultArgs,
+	AuthStatus:        authStatus,
+	SetCredential:     setCredential,
+	ClearCredential:   clearCredential,
+	CredentialModel:   resolveCredentialModel,
+	SafeAuthMethodIDs: []string{"cached_token", "xai.api_key"},
+	// A cached token first, then a key, as grok's own login prefers
+	// (MADR 0085 D2).
+	AuthPreference:        []string{"cached_token", "xai.api_key"},
+	KeyAuthMethodID:       "xai.api_key",
 	HasHeadlessCredential: grokHasAPIKey,
 	StartDeviceAuth:       startDeviceAuth,
 	// Per-session model override rebuilds argv. Start no longer calls this
@@ -93,27 +97,27 @@ var spec = acpagent.Spec{
 		// 1.0.5 emits the slash form as a notification (no id). The
 		// underscore key is the 0039 name, kept so a spelling revert
 		// does not drop the catalog again (MADR 0081 P1.2).
-		"_x.ai/models/update":     acpagent.HandleModelsUpdate,
-		"_x.ai/models_update":     acpagent.HandleModelsUpdate,
-		"_x.ai/mcp/server_status": acpagent.HandleMCPStatus,
-		"_x.ai/mcp_initialized":   acpagent.HandleMCPInit,
+		"_x.ai/models/update":     handleModelsUpdate,
+		"_x.ai/models_update":     handleModelsUpdate,
+		"_x.ai/mcp/server_status": handleMCPStatus,
+		"_x.ai/mcp_initialized":   handleMCPInit,
 		// grok reports a full sub-agent lifecycle here — spawned / progress /
 		// finished, with a terminal status. Unregistered until MADR 0051, so
 		// every sub-agent grok ran was invisible while its output filled the
 		// transcript.
-		"_x.ai/session_notification": acpagent.HandleXAISessionNotification,
+		"_x.ai/session_notification": handleSessionNotification,
 		// session/load replays grok's own turn records here, each with its
 		// original cost; live turns use _x.ai/session_notification above. Read
 		// for those costs only, so a relaunched session's total rebuilds from
 		// its history (MADR 0199, amendment). It emits nothing, and declines
 		// every other variant by name.
-		"_x.ai/session/update": acpagent.HandleXAISessionUpdate,
+		"_x.ai/session/update": handleSessionUpdate,
 		// MADR 0137 F11. Measured live: grok emits ten `_x.ai/*` methods and
 		// mcremote handled three, leaving 52 of 247 frames in one `hi` turn
 		// unread. These two bear on first-token latency directly — MCP startup
 		// is work that happens between the prompt and the first token.
-		"_x.ai/mcp/servers_updated": acpagent.HandleXAIMCPServersUpdated,
-		"_x.ai/mcp/init_progress":   acpagent.HandleXAIMCPInitProgress,
+		"_x.ai/mcp/servers_updated": handleMCPServersUpdated,
+		"_x.ai/mcp/init_progress":   handleMCPInitProgress,
 		// The remaining four are DECLINED, not overlooked (MADR 0137 step 7.7):
 		//
 		//   _x.ai/announcements/update  vendor marketing/notice copy; the
@@ -139,19 +143,19 @@ var spec = acpagent.Spec{
 	// grok's plan approval and its question form are requests it makes of the
 	// client (MADR 0022 phase 2).
 	ExtensionRequests: map[string]acpagent.ExtensionRequestHandler{
-		acpagent.MethodGrokExitPlanMode:    acpagent.HandleGrokExitPlanMode,
-		acpagent.MethodGrokAskUserQuestion: acpagent.HandleGrokAskUserQuestion,
+		methodExitPlanMode:    handleExitPlanMode,
+		methodAskUserQuestion: handleAskUserQuestion,
 	},
-	NewSessionState: acpagent.NewGrokSessionState,
-	InitializeMeta:  acpagent.GrokInitializeMeta,
+	NewSessionState: newSessionState,
+	InitializeMeta:  initializeMeta,
 	Ops: acpagent.Ops{
-		Fork:          acpagent.GrokFork,
-		Compact:       acpagent.GrokCompact,
-		Rename:        acpagent.GrokRename,
-		UndoLast:      acpagent.GrokUndoLast,
-		RuntimeUsage:  acpagent.GrokRuntimeUsage,
-		RuntimeStatus: acpagent.GrokRuntimeStatus,
-		ConfirmLimit:  acpagent.GrokConfirmLimit,
+		Fork:          forkSession,
+		Compact:       compactSession,
+		Rename:        renameSession,
+		UndoLast:      undoLast,
+		RuntimeUsage:  runtimeUsage,
+		RuntimeStatus: runtimeStatus,
+		ConfirmLimit:  confirmLimit,
 	},
 }
 

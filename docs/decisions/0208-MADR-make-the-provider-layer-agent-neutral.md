@@ -631,3 +631,13 @@ peel grok out of there as part of getting ready to adopt support for gobble."
   wire is unchanged, and grok's wire and conformance suites are the guard.
 * Bad, because `Host` is an API that every Spec depends on. A method that names one vendor's
   concept would put the coupling back, and the source test cannot see that. Review has to.
+
+### Added at P6b, 2026-11-01: a fixture agent and `Provider.StartOn`
+
+A Spec's package tests its hooks on real sessions without reaching into `acpagent`:
+* `acpagent/acptest` holds a fixture ACP agent on in-memory pipes;
+* `Provider.StartOn` runs `Start`'s handshake and `session/new` or `session/load` on a connection it
+  is given, instead of a spawned process.
+
+Both are agent-neutral, and D7's conformance suite builds on the fixture agent. *Owner: "Fixture
+agent + StartOn"* (PLAN P6b Deviation 1).

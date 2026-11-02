@@ -1,9 +1,6 @@
 package acpagent
 
 import (
-	"context"
-	"encoding/json"
-	"log/slog"
 	"slices"
 	"time"
 
@@ -19,120 +16,6 @@ type subagentState struct {
 	name   string
 	task   string
 	status string
-}
-
-// HandleXAISessionNotification handles grok's `_x.ai/session_notification`.
-//
-// grok 0.2.114 reports a full sub-agent lifecycle on this channel, addressed to
-// the *parent* session — richer than anything the other three providers offer,
-// including a terminal status. Measured payloads (MADR 0051 §10.2):
-//
-//	subagent_spawned  {subagent_id, subagent_type, description, child_session_id,
-//	                   parent_session_id, role, model, capability_mode, …}
-//	subagent_progress {subagent_id, duration_ms, turn_count, tokens_used, …}
-//	subagent_finished {subagent_id, status, tool_calls, turns, output, …}
-//
-// Every other variant on this channel is ignored: `tool_call_delta_chunk` also
-// arrives here, including for the child, and it is not status this session
-// should publish. `turn_completed` is now read for its token accounting only
-// (MADR 0137, second correction) — never for status, which the ACP turn result
-// already owns.
-//
-// `subagent_finished.output` is deliberately dropped — it is the sub-agent's
-// full report, i.e. exactly the content MADR 0051 keeps out of the transcript.
-// The parent relays the conclusion itself.
-func HandleXAISessionNotification(ctx context.Context, h Host, params json.RawMessage) {
-	var env struct {
-		SessionID string `json:"sessionId"`
-		Update    struct {
-			SessionUpdate string `json:"sessionUpdate"`
-			SubagentID    string `json:"subagent_id"`
-			SubagentType  string `json:"subagent_type"`
-			Description   string `json:"description"`
-			Status        string `json:"status"`
-			// retry_state fields (captured live from grok 1.0.0, MADR 0073
-			// follow-up): {"sessionUpdate":"retry_state","type":"failed",
-			// "error_type":"auth","message":"Unauthorized (401) from …"}.
-			Type    string `json:"type"`
-			Message string `json:"message"`
-			// turn_completed carries grok's token accounting, including the
-			// cached share of the input. ACP's own SessionUsageUpdate has no
-			// cache fields at all (acp-go-sdk types_gen.go:5243), so this
-			// vendor channel is the ONLY place grok's cold/warm signal exists
-			// (MADR 0137, second correction).
-			Usage *xaiUsage `json:"usage"`
-			// PromptID names the turn, so its cost is counted once (MADR 0199 E1).
-			PromptID string `json:"prompt_id"`
-			// The auto_compact_* variants' own text: a failure's error, and a
-			// completion's summary preview (MADR 0208, P4b deviation 1).
-			Error          string  `json:"error"`
-			SummaryPreview *string `json:"summary_preview"`
-		} `json:"update"`
-		Meta struct {
-			// IsReplay marks a turn grok re-sends from history (MADR 0199 E2).
-			IsReplay bool `json:"isReplay"`
-		} `json:"_meta"`
-	}
-	if err := json.Unmarshal(params, &env); err != nil {
-		if log := h.Log(); log != nil {
-			log.Debug("x.ai session_notification: parse failed",
-				slog.String("err", err.Error()))
-		}
-		return
-	}
-	// Same origin rule as SessionUpdate: the child's own frames come down this
-	// channel too, and they are not this conversation.
-	if id := env.SessionID; id != "" {
-		if live := h.AgentSessionID(); live != "" && id != live {
-			return
-		}
-	}
-
-	u := env.Update
-	// retry_state is grok's structured channel for provider-API trouble
-	// mid-turn — the analog of stderr backoff lines (MADR 0073). A terminal
-	// "failed" is skipped on purpose: the session/prompt JSON-RPC error that
-	// carries the same cause (in its `data` field) arrives immediately after
-	// and owns the turn's error emission — handling both would double-post.
-	// Non-terminal states (silent retry sleeps) go through the same
-	// limit-abort machinery as stderr scraping, which dedupes via
-	// limitNotified and only ever acts on classified limit text.
-	if u.SessionUpdate == "turn_completed" && u.Usage != nil {
-		grokState(h).addTurnCost(u.PromptID, u.Usage)
-		emitXAIUsage(h, u.Usage, env.Meta.IsReplay)
-		return
-	}
-	if u.SessionUpdate == "retry_state" {
-		if u.Type != "failed" && u.Message != "" {
-			h.NoteLimitText(u.Message)
-		}
-		return
-	}
-	if _, ok := xaiCompactionStatus[u.SessionUpdate]; ok {
-		onXAICompaction(h, u.SessionUpdate, u.Error, u.SummaryPreview)
-		return
-	}
-	if u.SubagentID == "" {
-		return
-	}
-	switch u.SessionUpdate {
-	case "subagent_spawned":
-		h.NoteSubagent(u.SubagentID, u.SubagentType, u.Description,
-			event.SubagentStatusRunning)
-	case "subagent_progress":
-		// Refresh only; a progress frame for an agent we never saw spawn is
-		// still evidence it is running.
-		h.NoteSubagent(u.SubagentID, u.SubagentType, u.Description,
-			event.SubagentStatusRunning)
-	case "subagent_finished":
-		status := event.SubagentStatusFailed
-		if u.Status == "completed" {
-			status = event.SubagentStatusCompleted
-		}
-		h.NoteSubagent(u.SubagentID, u.SubagentType, u.Description, status)
-	default:
-		// Not sub-agent status; nothing to publish.
-	}
 }
 
 // noteSubagent records or updates one sub-agent and republishes the set.

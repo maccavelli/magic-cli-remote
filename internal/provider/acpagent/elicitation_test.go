@@ -302,23 +302,31 @@ func TestElicitationDeclineCancelAndTimeout(t *testing.T) {
 			t.Fatal("a timed-out form must say so")
 		}
 	})
-	t.Run("a grok question cannot be declined", func(t *testing.T) {
+	// A Spec's form shown with Host.AwaitAnswers has no decline to return, as
+	// grok's ask_user_question does not; the grok package pins grok's.
+	t.Run("an AwaitAnswers form cannot be declined", func(t *testing.T) {
 		s, _ := newFormSession(0)
-		out := callExtension(context.Background(), s, MethodGrokAskUserQuestion, askParams(t, false))
+		out := make(chan bool, 1)
+		go func() {
+			_, cancelled := s.AwaitAnswers(context.Background(), event.Event{
+				Questions: []event.QuestionItem{{ID: "0", Text: "Which greeting?"}},
+			})
+			out <- cancelled
+		}()
 		req := waitEvent(t, s, event.TypeQuestion)
 		if req.AllowDecline {
-			t.Fatal("grok's ask_user_question offered a decline it cannot return")
+			t.Fatal("an AwaitAnswers form offered a decline it cannot return")
 		}
 		if err := s.DeclineQuestion(context.Background(), req.QuestionID); err != nil {
 			t.Fatal(err)
 		}
 		select {
-		case got := <-out:
-			if res, ok := got.(askUserQuestionResult); !ok || res.Outcome != askOutcomeCancelled {
-				t.Fatalf("result = %+v, want a cancelled outcome", got)
+		case cancelled := <-out:
+			if !cancelled {
+				t.Fatal("a decline answered the form instead of cancelling it")
 			}
 		case <-time.After(3 * time.Second):
-			t.Fatal("a decline left grok's question unanswered")
+			t.Fatal("a decline left the form unanswered")
 		}
 	})
 }

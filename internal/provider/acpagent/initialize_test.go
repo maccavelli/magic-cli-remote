@@ -1,158 +1,69 @@
 package acpagent
 
 import (
-	"bufio"
 	"encoding/json"
 	"log/slog"
-	"os"
-	"reflect"
 	"slices"
 	"testing"
 
 	acp "github.com/maccavelli/acp-go-sdk2"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
 )
 
-// grokInitializeResult returns the `result` of the initialize response in
-// grok's recorded wire fixture — the first frame, agent to client.
-//
-// It fails rather than skips when the fixture is missing: the file is tracked,
-// and a skip would let the tests below pass by checking nothing.
-func grokInitializeResult(t *testing.T) json.RawMessage {
-	t.Helper()
-	f, err := os.Open("../grok/testdata/wire/1.0.13/frames.jsonl")
-	if err != nil {
-		t.Fatalf("open grok fixture: %v", err)
-	}
-	defer f.Close()
-
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
-	if !sc.Scan() {
-		t.Fatalf("grok fixture is empty: %v", sc.Err())
-	}
-	var frame struct {
-		Result json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(sc.Bytes(), &frame); err != nil {
-		t.Fatalf("decode first grok frame: %v", err)
-	}
-	if len(frame.Result) == 0 {
-		t.Fatal("first grok frame has no result; it is not the initialize response")
-	}
-	return frame.Result
-}
-
-// TestGrokInitializeMetaSurvivesTheTypedResponse pins MADR 0167 F15: the typed
-// InitializeResponse keeps grok's _meta block, so initialize needs no raw path.
-//
-// The response is decoded exactly as the SDK's SendRequest decodes it, then
-// compared field-for-field with the raw decode the typed call replaced. Equality
-// is the claim; the explicit values guard against both sides being empty.
-func TestGrokInitializeMetaSurvivesTheTypedResponse(t *testing.T) {
-	result := grokInitializeResult(t)
-
-	var typed acp.InitializeResponse
-	if err := json.Unmarshal(result, &typed); err != nil {
-		t.Fatalf("decode typed InitializeResponse: %v", err)
-	}
-	got := decodeGrokInitializeMeta(typed.Meta)
-
-	var raw grokInitializeMeta
-	if err := json.Unmarshal(result, &raw); err != nil {
-		t.Fatalf("decode raw result: %v", err)
-	}
-	if !reflect.DeepEqual(got, raw) {
-		t.Fatalf("typed path lost information the raw path had:\n typed: %+v\n   raw: %+v", got.Meta, raw.Meta)
-	}
-
-	if want := "cached_token"; got.Meta.DefaultAuthMethodID != want {
-		t.Errorf("defaultAuthMethodId = %q, want %q", got.Meta.DefaultAuthMethodID, want)
-	}
-	if want := "1.0.13"; got.Meta.AgentVersion != want {
-		t.Errorf("agentVersion = %q, want %q", got.Meta.AgentVersion, want)
-	}
-	if want := "grok-4.6"; got.Meta.ModelState.CurrentModelID != want {
-		t.Errorf("modelState.currentModelId = %q, want %q", got.Meta.ModelState.CurrentModelID, want)
-	}
-	models := got.Meta.ModelState.AvailableModels
-	if len(models) != 2 {
-		t.Fatalf("availableModels = %d, want 2", len(models))
-	}
-	for _, m := range models {
-		if m.Meta.TotalContextTokens <= 0 {
-			t.Errorf("%s: totalContextTokens = %d; a JSON number did not survive the map round trip",
-				m.ModelID, m.Meta.TotalContextTokens)
-		}
-	}
-}
-
-// TestApplyInitializeResponseRecordsWhatGrokReported is the wiring guard P2's
-// fail-first run found missing: before it, discarding grok's _meta at the call
-// site left the whole package green (PLAN 0167, deviation of 2026-09-22).
-//
-// It drives the real handler with grok's real initialize response and checks
-// every piece of state spawnAgent relies on afterwards.
-func TestApplyInitializeResponseRecordsWhatGrokReported(t *testing.T) {
+// TestApplyInitializeResponseRecordsWhatTheSpecRead is the wiring guard P2's
+// fail-first run found missing: before it, discarding an agent's _meta at the
+// call site left the whole package green (PLAN 0167, deviation of 2026-09-22).
+// What a Spec's InitializeMeta reads from `_meta` reaches the session and the
+// provider, with the capabilities and the advertised auth methods; the grok
+// package pins what grok's hook reads from grok's real response.
+func TestApplyInitializeResponseRecordsWhatTheSpecRead(t *testing.T) {
 	var resp acp.InitializeResponse
-	if err := json.Unmarshal(grokInitializeResult(t), &resp); err != nil {
+	if err := json.Unmarshal([]byte(`{"protocolVersion":1,"agentCapabilities":{"loadSession":true},`+
+		`"authMethods":[{"id":"vendor.key","name":"key"},{"id":"vendor.token","name":"token"}],`+
+		`"_meta":{"vendor":"block"}}`), &resp); err != nil {
 		t.Fatalf("decode typed InitializeResponse: %v", err)
 	}
-	p := &Provider{log: slog.Default(), spec: Spec{InitializeMeta: GrokInitializeMeta}}
+	var sawMeta map[string]any
+	catalog := picker.Catalog{Options: []picker.Option{{ID: "model-a"}, {ID: "model-b"}}}
+	p := &Provider{log: slog.Default(), spec: Spec{InitializeMeta: func(meta map[string]any) InitializeInfo {
+		sawMeta = meta
+		return InitializeInfo{Version: "9.9.9", CurrentModel: "model-a", Models: &catalog}
+	}}}
 	s := &session{log: slog.Default()}
 
 	p.applyInitializeResponse(s, resp)
 
+	if sawMeta["vendor"] != "block" {
+		t.Errorf("InitializeMeta saw %v, want initialize's _meta", sawMeta)
+	}
 	s.mu.Lock()
 	engineModel := s.engineModelID
 	s.mu.Unlock()
-	if want := "grok-4.6"; engineModel != want {
-		t.Errorf("engineModelID = %q, want %q (from _meta.modelState.currentModelId)", engineModel, want)
+	if want := "model-a"; engineModel != want {
+		t.Errorf("engineModelID = %q, want %q (the hook's CurrentModel)", engineModel, want)
 	}
 
 	p.catalogMu.RLock()
 	has, cat := p.catalogHas, p.catalogCache
 	p.catalogMu.RUnlock()
 	if !has {
-		t.Fatal("no model catalog recorded from _meta.modelState.availableModels")
+		t.Fatal("no model catalog recorded from the hook's Models")
 	}
 	ids := make([]string, 0, len(cat.Options))
 	for _, o := range cat.Options {
 		ids = append(ids, o.ID)
 	}
-	if !slices.Contains(ids, "grok-4.6") || !slices.Contains(ids, "grok-4.5") || len(ids) != 2 {
-		t.Errorf("catalog options = %v, want exactly grok-4.6 and grok-4.5", ids)
+	if !slices.Equal(ids, []string{"model-a", "model-b"}) {
+		t.Errorf("catalog options = %v, want model-a and model-b", ids)
 	}
 
-	if want := "1.0.13"; p.EngineVersion() != want {
-		t.Errorf("EngineVersion() = %q, want %q (from _meta.agentVersion)", p.EngineVersion(), want)
+	if want := "9.9.9"; p.EngineVersion() != want {
+		t.Errorf("EngineVersion() = %q, want %q (the hook's Version)", p.EngineVersion(), want)
 	}
 	if !s.agentCaps.LoadSession {
 		t.Error("agentCaps.LoadSession = false, want true")
 	}
-	if want := []string{"xai.api_key", "cached_token", "grok.com"}; !slices.Equal(s.advertisedAuth, want) {
+	if want := []string{"vendor.key", "vendor.token"}; !slices.Equal(s.advertisedAuth, want) {
 		t.Errorf("advertisedAuth = %v, want %v", s.advertisedAuth, want)
-	}
-}
-
-// TestDecodeGrokInitializeMetaIsBestEffort keeps the old raw decode's contract:
-// an agent that sends no vendor block, or an unexpected one, must not fail
-// initialize — it just yields no vendor fields.
-func TestDecodeGrokInitializeMetaIsBestEffort(t *testing.T) {
-	cases := []struct {
-		name string
-		meta map[string]any
-	}{
-		{"nil", nil},
-		{"empty", map[string]any{}},
-		{"unrelated keys only", map[string]any{"somethingElse": 1}},
-		{"wrong shape", map[string]any{"modelState": "not an object"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := decodeGrokInitializeMeta(tc.meta)
-			if got.Meta.ModelState.CurrentModelID != "" || len(got.Meta.ModelState.AvailableModels) != 0 {
-				t.Errorf("got model state %+v from %v, want none", got.Meta.ModelState, tc.meta)
-			}
-		})
 	}
 }

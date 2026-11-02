@@ -1,6 +1,6 @@
 //go:build live_grok
 
-package acpagent
+package grok
 
 import (
 	"bytes"
@@ -31,16 +31,10 @@ import (
 // acceptances exist to rule out.
 
 // startLiveGrok brings up a real grok in a temp directory, without prompting.
-func startLiveGrok(t *testing.T) *session {
+func startLiveGrok(t *testing.T) testSession {
 	t.Helper()
 
-	p := New(Spec{
-		ID:         provider.IDGrok,
-		DefaultBin: "grok",
-		DefaultArgs: func(Config) []string {
-			return []string{"--no-auto-update", "agent", "--no-leader", "stdio"}
-		},
-	}, Config{})
+	p := New(Config{Args: []string{"--no-auto-update", "agent", "--no-leader", "stdio"}})
 	if !p.Ready() {
 		t.Skip("grok not in PATH")
 	}
@@ -54,9 +48,9 @@ func startLiveGrok(t *testing.T) *session {
 	}
 	t.Cleanup(func() { _ = sess.Close(context.Background()) })
 
-	s, ok := sess.(*session)
+	s, ok := sess.(testSession)
 	if !ok {
-		t.Fatalf("grok session is %T, not *session", sess)
+		t.Fatalf("grok session is %T, not a testSession", sess)
 	}
 	if _, ok := sess.(provider.RuntimeSession); !ok {
 		t.Fatal("the live grok session does not satisfy provider.RuntimeSession")
@@ -78,7 +72,7 @@ func strictDecode(t *testing.T, raw json.RawMessage, into any, what string) erro
 
 // TestLiveGrokSessionUsageDecodesStrictly is acceptance 5.
 //
-// Run with: go test -tags live_grok ./internal/provider/acpagent/ -run LiveGrokSessionUsage -count=1
+// Run with: go test -tags live_grok ./internal/provider/grok/ -run LiveGrokSessionUsage -count=1
 //
 // Spends no model tokens and makes no network call: x.ai/session/usage reads
 // the agent's own in-memory UsageLedger.
@@ -113,7 +107,7 @@ func TestLiveGrokSessionUsageDecodesStrictly(t *testing.T) {
 
 // TestLiveGrokBillingDecodesStrictly is acceptance 6.
 //
-// Run with: go test -tags live_grok ./internal/provider/acpagent/ -run LiveGrokBilling -count=1
+// Run with: go test -tags live_grok ./internal/provider/grok/ -run LiveGrokBilling -count=1
 //
 // **This contacts xAI's backend with the operator's credentials.** It spends no
 // model tokens, but it is not a local read, and it runs only deliberately.

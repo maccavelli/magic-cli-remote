@@ -13,29 +13,26 @@ var ErrACPAuthRequired = errors.New("acp: authentication required")
 
 var errUnsafeOrMissing = errors.New("acp auth method is not advertised or not headless-safe")
 
-const (
-	acpAuthCachedToken = "cached_token"
-	acpAuthAPIKey      = "xai.api_key"
-)
-
-// selectACPAuthMethod picks a headless-safe ACP authenticate id (MADR 0085 D2).
-// An empty methodID with a nil error means the caller must apply D7 (do not
+// selectACPAuthMethod picks a headless-safe ACP authenticate id (MADR 0085 D2):
+// the pinned method, when it is advertised and safe; else the first method in
+// the Spec's preference that is advertised and safe; else the Spec's key
+// method, when a key exists and the method is safe, advertised or not. An
+// empty methodID with a nil error means the caller must apply D7 (do not
 // authenticate, do not call session/new).
-func selectACPAuthMethod(advertised []string, pin string, safe []string, hasKey bool) (methodID string, err error) {
+func selectACPAuthMethod(advertised []string, pin string, safe, preference []string, keyMethod string, hasKey bool) (methodID string, err error) {
 	if pin != "" {
 		if slices.Contains(advertised, pin) && slices.Contains(safe, pin) {
 			return pin, nil
 		}
 		return "", fmt.Errorf("acp auth method %q: %w", pin, errUnsafeOrMissing)
 	}
-	if slices.Contains(advertised, acpAuthCachedToken) && slices.Contains(safe, acpAuthCachedToken) {
-		return acpAuthCachedToken, nil
+	for _, id := range preference {
+		if slices.Contains(advertised, id) && slices.Contains(safe, id) {
+			return id, nil
+		}
 	}
-	if slices.Contains(advertised, acpAuthAPIKey) && slices.Contains(safe, acpAuthAPIKey) {
-		return acpAuthAPIKey, nil
-	}
-	if hasKey && slices.Contains(safe, acpAuthAPIKey) {
-		return acpAuthAPIKey, nil
+	if hasKey && keyMethod != "" && slices.Contains(safe, keyMethod) {
+		return keyMethod, nil
 	}
 	return "", nil
 }

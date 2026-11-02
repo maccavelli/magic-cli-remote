@@ -1,0 +1,231 @@
+package grok
+
+import (
+	"context"
+	"encoding/json"
+	"strconv"
+	"strings"
+
+	acp "github.com/maccavelli/acp-go-sdk2"
+	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
+)
+
+// grok's two extension requests: plan approval and its question form.
+
+// grok drives two client-side interactions over ACP *extension* methods rather
+// than standard ACP: presenting a finished plan for approval when its model
+// calls exit_plan_mode, and asking the user a multiple-choice question mid-turn.
+// Both are requests, so a client that answers method-not-found fails the tool
+// call — which is exactly what happened before MADR 0022 phase 2: plan mode was
+// enterable and usable, but the approval step at the end of it always failed.
+//
+// The names are vendor-scoped (`_x.ai/…`), so implementing them here is inert
+// for any other ACP agent: nothing else sends them, and anything we do not
+// recognise still gets method-not-found.
+const (
+	methodExitPlanMode    = "_x.ai/exit_plan_mode"
+	methodAskUserQuestion = "_x.ai/ask_user_question"
+)
+
+// Plan-approval option ids. This vocabulary is ours, not grok's: the phone
+// answers with one of these through the ordinary permission path and we
+// translate it to the wire outcome below.
+const (
+	planOptionApprove = "plan_approve"
+	planOptionChanges = "plan_changes"
+	planOptionAbandon = "plan_abandon"
+)
+
+// Wire outcomes for _x.ai/exit_plan_mode, verified live against grok 0.2.112:
+//
+//	approved  → plan mode exits, the agent is told to start implementing
+//	abandoned → plan mode is turned off and the agent is told not to re-enter it
+//	anything else → "the user wants to revise the plan", plan mode stays active,
+//	                and an optional feedback string is quoted back to the model
+//
+// The revise case is grok's *fallback*: an unrecognised outcome (or a reply it
+// cannot parse at all) lands there silently, with no error surfaced to the
+// agent. We therefore spell the value out rather than relying on the fallback,
+// so a future grok that does start validating outcomes keeps working.
+const (
+	planOutcomeApproved  = "approved"
+	planOutcomeAbandoned = "abandoned"
+	planOutcomeChanges   = "changes"
+)
+
+// Outcomes for _x.ai/ask_user_question. grok's deserializer enumerated the set
+// when handed a bogus one: accepted, chat_about_this, skip_interview, cancelled.
+// `accepted` additionally requires the answers map or the tool call fails.
+const (
+	askOutcomeAccepted  = "accepted"
+	askOutcomeCancelled = "cancelled"
+)
+
+// planContentLimit caps how much plan markdown travels in the approval event.
+// Plans are written for humans and occasionally run long; the phone shows this
+// text on the approval card, and the plan file itself stays on the agent host.
+const planContentLimit = 8000
+
+// exitPlanModeParams is grok's ExitPlanModeExtRequest. planContent is null when
+// the model left plan mode without writing (or with an unreadable) plan file —
+// grok still expects an answer, and the user can still approve.
+type exitPlanModeParams struct {
+	SessionID   string  `json:"sessionId"`
+	ToolCallID  string  `json:"toolCallId"`
+	PlanContent *string `json:"planContent"`
+}
+
+type exitPlanModeResult struct {
+	Outcome  string `json:"outcome"`
+	Feedback string `json:"feedback,omitempty"`
+}
+
+// handleExitPlanMode turns grok's plan approval into an ordinary
+// permission_request, so the phone's existing approval UI renders it with no
+// client change: three options, one answer, the same RespondPermission path.
+//
+// AlwaysApprove deliberately does NOT auto-approve here. It is a tool-permission
+// setting, and grok itself keeps plan mode armed underneath always-approve
+// ("file edits are blocked until you approve exiting plan mode"), so
+// auto-approving would silently defeat the mode the user asked for. This matches
+// the existing rule that always-approve does not auto-answer questions either.
+func handleExitPlanMode(ctx context.Context, h acpagent.Host, raw json.RawMessage) (any, error) {
+	var p exitPlanModeParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, acp.NewInvalidParams(map[string]any{"error": err.Error()})
+	}
+
+	plan := ""
+	if p.PlanContent != nil {
+		plan = strings.TrimSpace(*p.PlanContent)
+	}
+	detail := plan
+	if detail == "" {
+		detail = "The agent left plan mode without writing a plan. " +
+			"Approve to start implementing anyway, or ask for changes."
+	} else if len(detail) > planContentLimit {
+		detail = detail[:planContentLimit] + "\n\n… plan truncated for display."
+	}
+
+	optionID, cancelled := h.AwaitPermission(ctx, event.Event{
+		ToolID:   p.ToolCallID,
+		ToolName: "Plan ready for review",
+		Text:     detail,
+		Options: []event.PermissionOption{
+			{OptionID: planOptionApprove, Name: "Approve plan", Kind: "allow_once"},
+			{OptionID: planOptionChanges, Name: "Request changes", Kind: "reject_once"},
+			{OptionID: planOptionAbandon, Name: "Abandon plan", Kind: "reject_always"},
+		},
+	})
+
+	switch {
+	case cancelled || optionID == "":
+		// Nobody decided (turn cancelled, session closed, or the request timed
+		// out). Keep planning rather than approving or discarding work on the
+		// user's behalf: revise is the only outcome that changes nothing.
+		return exitPlanModeResult{
+			Outcome:  planOutcomeChanges,
+			Feedback: "The plan approval was dismissed without an answer. Plan mode is still on.",
+		}, nil
+	case optionID == planOptionApprove:
+		return exitPlanModeResult{Outcome: planOutcomeApproved}, nil
+	case optionID == planOptionAbandon:
+		return exitPlanModeResult{Outcome: planOutcomeAbandoned}, nil
+	default:
+		// Request changes. We have no free-text channel on the permission path,
+		// so say so plainly — grok's own next step is to ask what to change with
+		// ask_user_question, which we answer below.
+		return exitPlanModeResult{
+			Outcome:  planOutcomeChanges,
+			Feedback: "The user wants changes to the plan but did not say what. Ask what to change.",
+		}, nil
+	}
+}
+
+// askUserQuestionParams is grok's AskUserQuestionExtRequest.
+type askUserQuestionParams struct {
+	SessionID  string `json:"sessionId"`
+	ToolCallID string `json:"toolCallId"`
+	// Mode is the session mode the question was asked in ("plan" during plan
+	// mode). Informational only.
+	Mode      string `json:"mode"`
+	Questions []struct {
+		Question string `json:"question"`
+		Options  []struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		} `json:"options"`
+		MultiSelect *bool `json:"multiSelect"`
+	} `json:"questions"`
+}
+
+// askUserQuestionResult is grok's AskUserQuestionExtResponse. Answers is keyed
+// by the *question text* (grok mirrors the Claude Code tool shape here), and a
+// single string per question — a list is also accepted, but the string form is
+// what grok echoes back to the model verbatim.
+type askUserQuestionResult struct {
+	Outcome string            `json:"outcome"`
+	Answers map[string]string `json:"answers,omitempty"`
+}
+
+// handleAskUserQuestion maps grok's question form onto the daemon's existing
+// question flow (question_request → question.respond → question_resolved), the
+// one built for OpenCode's questions. Answers arrive as a label list per
+// question, in question order.
+func handleAskUserQuestion(ctx context.Context, h acpagent.Host, raw json.RawMessage) (any, error) {
+	var p askUserQuestionParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, acp.NewInvalidParams(map[string]any{"error": err.Error()})
+	}
+	if len(p.Questions) == 0 {
+		return askUserQuestionResult{Outcome: askOutcomeCancelled}, nil
+	}
+
+	items := make([]event.QuestionItem, 0, len(p.Questions))
+	headers := make([]string, 0, len(p.Questions))
+	for i, q := range p.Questions {
+		opts := make([]event.PermissionOption, 0, len(q.Options))
+		for _, o := range q.Options {
+			if o.Label == "" {
+				continue
+			}
+			// The label IS the answer on grok's wire, so it doubles as the id.
+			opts = append(opts, event.PermissionOption{
+				OptionID:    o.Label,
+				Name:        o.Label,
+				Description: o.Description,
+			})
+		}
+		items = append(items, event.QuestionItem{
+			ID:       strconv.Itoa(i),
+			Text:     q.Question,
+			Multiple: q.MultiSelect != nil && *q.MultiSelect,
+			Options:  opts,
+		})
+		headers = append(headers, truncateRunes(q.Question, 40))
+	}
+
+	got, cancelled := h.AwaitAnswers(ctx, event.Event{
+		ToolID:    p.ToolCallID,
+		Text:      strings.Join(headers, " · "),
+		Questions: items,
+	})
+	if cancelled {
+		return askUserQuestionResult{Outcome: askOutcomeCancelled}, nil
+	}
+
+	answers := make(map[string]string, len(p.Questions))
+	for i, q := range p.Questions {
+		if i >= len(got) || len(got[i]) == 0 {
+			continue
+		}
+		answers[q.Question] = strings.Join(got[i], ", ")
+	}
+	if len(answers) == 0 {
+		// An "accepted" outcome with no answers is rejected by grok, and an
+		// empty form is not an answer anyway.
+		return askUserQuestionResult{Outcome: askOutcomeCancelled}, nil
+	}
+	return askUserQuestionResult{Outcome: askOutcomeAccepted, Answers: answers}, nil
+}

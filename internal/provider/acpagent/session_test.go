@@ -2,7 +2,6 @@ package acpagent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +13,7 @@ import (
 
 	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/testexec"
 )
 
@@ -720,7 +720,9 @@ func TestSetModelClosedSessionReturnsError(t *testing.T) {
 
 func TestMCPStatusAndDiagnostics(t *testing.T) {
 	s := &session{}
-	HandleMCPStatus(t.Context(), s, json.RawMessage(`{"name":"server1","status":"ready"}`))
+	s.UpdateMCPStatus(func([]provider.MCPServerStatus) []provider.MCPServerStatus {
+		return []provider.MCPServerStatus{{Name: "server1", State: "ready"}}
+	})
 
 	status, err := s.MCPStatus(t.Context())
 	if err != nil {

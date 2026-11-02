@@ -57,13 +57,14 @@ func TestTurnUsageReachesThePhoneOnce(t *testing.T) {
 	}
 }
 
-// TestTurnUsageIsNotCountedBesideXAIUsage is D25: grok reports a turn's usage on
-// its own channel before the answer (frames 82 and 85 of grok 1.0.13's capture),
-// so an answer that also carries usage adds no second event.
+// TestTurnUsageIsNotCountedBesideXAIUsage is D25: a Spec that reports a turn's
+// usage on its own channel before the answer, as grok does (frames 82 and 85 of
+// grok 1.0.13's capture), reports it through Host.ReportUsage, so an answer that
+// also carries usage adds no second event.
 func TestTurnUsageIsNotCountedBesideXAIUsage(t *testing.T) {
 	s, _ := newUpdateSession()
 	s.beginTurnUsage()
-	emitXAIUsage(s, &xaiUsage{InputTokens: 900, OutputTokens: 100, TotalTokens: 1000}, false)
+	s.ReportUsage(&event.Usage{Used: 1000, Input: 900, Output: 100}, false)
 	s.emitTurnUsage(decodeAnswer(t, answerWithUsage))
 	got := usageEvents(s)
 	if len(got) != 1 || got[0].Input != 900 {
@@ -83,7 +84,7 @@ func TestTurnUsageIsNotCountedBesideXAIUsage(t *testing.T) {
 func TestReplayedXAIUsageDoesNotSilenceTheTurn(t *testing.T) {
 	s, _ := newUpdateSession()
 	s.beginTurnUsage()
-	emitXAIUsage(s, &xaiUsage{InputTokens: 900, OutputTokens: 100, TotalTokens: 1000}, true)
+	s.ReportUsage(&event.Usage{Used: 1000, Input: 900, Output: 100}, true)
 	s.emitTurnUsage(decodeAnswer(t, answerWithUsage))
 	if got := usageEvents(s); len(got) != 2 || got[1].Input != 1000 {
 		t.Fatalf("usage events = %+v, want the replay's and then the answer's", got)

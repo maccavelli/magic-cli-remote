@@ -25,10 +25,10 @@ var standardRawCallAllowed = map[string]bool{
 var rawCallees = map[string]bool{"rawRequest": true, "RawRequest": true, "SendRequest": true,
 	"CallExtension": true, "extensionResult": true}
 
-// rawWrappers are the functions whose method is a parameter they pass on; their
-// callers are checked instead.
-var rawWrappers = map[string]bool{"rawRequest": true, "RawRequest": true,
-	"CallExtension": true, "extensionResult": true}
+// rawWrappers are the functions whose method is a parameter they pass on, by
+// package; their callers are checked instead.
+var rawWrappers = map[string]bool{"acpagent.rawRequest": true, "acpagent.RawRequest": true,
+	"acpagent.CallExtension": true, "grok.extensionResult": true}
 
 // TestStandardMethodsAreTypedOutsideGrokFallbacks is PLAN 0184 A3 step 1: it
 // fails when a standard (not "_"-prefixed) ACP method reaches an untyped call
@@ -77,7 +77,7 @@ func standardRawCalls(t *testing.T, pkg, dir string, sites *int) []string {
 					return true
 				}
 				*sites++
-				if pkg == "acpagent" && rawWrappers[fn.Name.Name] {
+				if rawWrappers[where] {
 					return true // the transport and its wrappers; the method is a parameter
 				}
 				method, literal := methodArg(call)

@@ -1,6 +1,6 @@
 //go:build live_grok
 
-package acpagent
+package grok
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
-// Run with: go test -tags live_grok ./internal/provider/acpagent/ -run LiveGrokRewindPoints -count=1
+// Run with: go test -tags live_grok ./internal/provider/grok/ -run LiveGrokRewindPoints -count=1
 //
 // MADR 0138 Phase 9, acceptance 6. The shapes in rewind.go were transcribed
 // from grok's source; this is the only thing that can say whether the installed
@@ -28,13 +28,7 @@ import (
 // this acceptance exists to rule out. DisallowUnknownFields turns a shape drift
 // into a named failure.
 func TestLiveGrokRewindPointsDecodeStrictly(t *testing.T) {
-	p := New(Spec{
-		ID:         provider.IDGrok,
-		DefaultBin: "grok",
-		DefaultArgs: func(Config) []string {
-			return []string{"--no-auto-update", "agent", "--no-leader", "stdio"}
-		},
-	}, Config{})
+	p := New(Config{Args: []string{"--no-auto-update", "agent", "--no-leader", "stdio"}})
 	if !p.Ready() {
 		t.Skip("grok not in PATH")
 	}
@@ -48,9 +42,9 @@ func TestLiveGrokRewindPointsDecodeStrictly(t *testing.T) {
 	}
 	defer sess.Close(context.Background())
 
-	s, ok := sess.(*session)
+	s, ok := sess.(testSession)
 	if !ok {
-		t.Fatalf("grok session is %T, not *session", sess)
+		t.Fatalf("grok session is %T, not a testSession", sess)
 	}
 	if _, ok := sess.(provider.UndoSession); !ok {
 		t.Fatal("the live grok session does not satisfy provider.UndoSession")

@@ -7,11 +7,19 @@ import (
 )
 
 func TestSelectACPAuthMethod(t *testing.T) {
-	safe := []string{acpAuthCachedToken, acpAuthAPIKey}
-	host := []string{acpAuthCachedToken, "grok.com"}
-	cold := []string{"grok.com"}
-	coldKey := []string{acpAuthAPIKey, "grok.com"}
-	all := []string{acpAuthAPIKey, acpAuthCachedToken, "grok.com"}
+	// A Spec's policy, in neutral names: a token first, then a key, and a
+	// browser login that is never headless-safe.
+	const (
+		token   = "vendor.token"
+		key     = "vendor.key"
+		browser = "vendor.browser"
+	)
+	safe := []string{token, key}
+	preference := []string{token, key}
+	host := []string{token, browser}
+	cold := []string{browser}
+	coldKey := []string{key, browser}
+	all := []string{key, token, browser}
 
 	tests := []struct {
 		name       string
@@ -21,19 +29,19 @@ func TestSelectACPAuthMethod(t *testing.T) {
 		want       string
 		wantErr    bool
 	}{
-		{name: "launchagent", advertised: host, want: acpAuthCachedToken},
+		{name: "launchagent", advertised: host, want: token},
 		{name: "cold", advertised: cold},
-		{name: "cold+file key", advertised: cold, hasKey: true, want: acpAuthAPIKey},
-		{name: "cold+advertised key", advertised: coldKey, want: acpAuthAPIKey},
-		{name: "pin cached_token", advertised: host, pin: acpAuthCachedToken, want: acpAuthCachedToken},
-		{name: "pin grok.com", advertised: cold, pin: "grok.com", wantErr: true},
+		{name: "cold+file key", advertised: cold, hasKey: true, want: key},
+		{name: "cold+advertised key", advertised: coldKey, want: key},
+		{name: "pin token", advertised: host, pin: token, want: token},
+		{name: "pin browser", advertised: cold, pin: browser, wantErr: true},
 		{name: "pin unknown", advertised: host, pin: "envauth", wantErr: true},
-		{name: "pin unadvertised cached_token", advertised: cold, pin: acpAuthCachedToken, wantErr: true},
-		{name: "three methods prefer token", advertised: all, hasKey: true, want: acpAuthCachedToken},
+		{name: "pin unadvertised token", advertised: cold, pin: token, wantErr: true},
+		{name: "three methods prefer token", advertised: all, hasKey: true, want: token},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := selectACPAuthMethod(tc.advertised, tc.pin, safe, tc.hasKey)
+			got, err := selectACPAuthMethod(tc.advertised, tc.pin, safe, preference, key, tc.hasKey)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("got %q, want error", got)

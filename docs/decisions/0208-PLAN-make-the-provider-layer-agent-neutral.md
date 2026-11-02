@@ -1452,3 +1452,148 @@ test and comments (P6c), and declared capabilities (P6d).
 `sessioncaps.go`, `subagents.go`, `xaicompaction.go`, `xaiextensions.go`, `xaiusage.go`; tests
 `host_test.go`, `export_test.go`, `groktest_test.go` new, and 18 changed),
 `internal/provider/grok/grok.go`, `fallback.go`, `fallback_test.go`, and this plan.
+
+*The owner committed P6a as `83dd5548`.*
+
+### P6b Deviation 1, 2026-11-01 — grok's tests need a harness outside `acpagent`. The owner decided: "Fixture agent + StartOn"
+
+- **Found** before any P6b change: 68 of `acpagent`'s tests exercise grok's code, mostly the
+  rewind, runtime and extension tests.
+  * They build sessions with `acpagent`-internal helpers: a scripted ACP agent on pipes
+    (`newScriptedSession`, 15 tests), bare sessions (`newQueueTestSession`, `newExtSession`), and
+    event drains.
+  * Seven of them read session fields.
+  * Moved to `internal/provider/grok`, they can reach none of that. grok's package cannot be
+    imported into `acpagent`'s tests either, because it imports `acpagent`.
+  * Step 2 ("their tests move with them") names no harness.
+- **Resolution:**
+  * `internal/provider/acpagent/acptest` (new): a fixture ACP agent on in-memory pipes. It
+    answers each method from a script, records what it is sent, and can send notifications and
+    requests.
+  * `Provider.StartOn` (new, in `acpagent.go`) runs `Start`'s handshake and `session/new` or
+    `session/load` on a connection it is given, instead of on a spawned process. `Start` and
+    `StartOn` share one path after the connection exists.
+  * grok's tests run real sessions through these. Their assertions stay; their set-up changes;
+    the seven field reads become checks on events or on the session's own getters.
+  * P10's conformance suite reuses the fixture agent, which P10 already names as "the fixture
+    ACP agent from P6".
+- **Not taken:** a fake `Host` for unit tests, which would restate every event assertion as an
+  assertion on `Host` calls; and both together.
+- **Files added to P6b's scope:** `internal/provider/acpagent/acptest/` (new), and
+  `internal/provider/acpagent/acpagent.go` for `StartOn`.
+- **The MADR** gets a note, because `StartOn` is a new exported entry point.
+
+### P6b, 2026-11-01: grok out of `acpagent`
+
+**What changed.**
+
+* **The fixture agent and `StartOn`** (Deviation 1).
+  * `acpagent/acptest/acptest.go` (new) is the agent end of a connection on in-memory pipes.
+    * It answers `initialize`, `authenticate`, `session/new` and `session/load`, and any method
+      the test scripts; anything else gets `-32601`.
+    * It holds `session/prompt`, and any method named in `Hold`, for the test to answer.
+    * It records every message, sends notifications and requests, and returns the client's
+      answers.
+  * `acpagent.go`: `spawnAgent` and `Start` are split into `newAgentSession`, `handshake` and
+    `openSession`, unchanged in behaviour.
+  * `Provider.StartOn` runs `handshake` and `openSession` on a connection it is given.
+* **grok's code moved** to four new files in `internal/provider/grok`, renamed to that package's
+  unexported names (`handleSessionNotification`, `forkSession`, `confirmLimit`, and so on):
+  * `notifications.go`: the session notification and replay handlers, the cost ledger and
+    compaction numbering (`sessionState`), and the MCP and model-catalog handlers;
+  * `initialize.go`: the initialize `_meta` decoding and the model catalog;
+  * `requests.go`: plan approval and the question form;
+  * `ops.go`: fork, rewind, the usage and billing operations, compaction, rename and the
+    billing check, with the billing types. It carries private copies of `truncateRunes` and
+    `sanitizeUserFacingErr`, which `acpagent` keeps private.
+
+  Comment blocks describing grok's rewind and runtime surfaces moved with them.
+  `acpagent/xaicompaction.go` and `xaiextensions.go` are gone, and what was left of `xaiusage.go`
+  (the turn's own usage) is `turnusage.go`.
+* **The check that the move kept the code:** each of the 66 moved declarations, read with Go's
+  parser before and after, is equal once the renames and the `acpagent.` qualifiers are undone.
+* **Auth selection is a Spec policy** (step 1).
+  * `Spec.AuthPreference` gives the order to try advertised, safe methods, and
+    `Spec.KeyAuthMethodID` the method used when a key exists.
+  * grok's Spec carries today's order: `cached_token`, then `xai.api_key`, with `xai.api_key` as
+    its key method.
+  * `TestSelectACPAuthMethod` keeps its table, with neutral method names.
+* **Tests** (step 2). 62 tests changed package, from 13 `acpagent` test files to 7 in grok.
+  * They run real sessions through the fixture agent: `grok/session_test.go` builds them.
+  * A test that passed a session to grok's handler still does, as an `acpagent.Host`.
+  * Where a test set the session's private fields, it now does one of three things:
+    * runs a real turn: grok's panel clear at turn end, the two `retry_state` tests, and the
+      billing check's limit card;
+    * passes a `Host` that replaces one answer: the replayed cost (`Loading` and the agent id),
+      the decline record, and the missing-id checks of undo and fork;
+    * asks the session's own getter: `MCPStatus`.
+
+    What each test asserts is unchanged.
+  * Moved whole: the two grok live tests. They now start grok with grok's own Spec, on the same
+    argv, because `/usage`, `/status` and undo run through its `Ops`.
+  * Stayed in `acpagent`:
+    * the tests of `acpagent`'s own behaviour, on neutral hooks instead of grok's functions: MCP
+      status, the turn-usage interplay, the middleware's absence, fork's own checks, the
+      non-blocking limit funnel (a recording `ConfirmLimit`), and the "no decline" form (a form
+      from `Host.AwaitAnswers`);
+    * the two transport tests, on neutral vendor names. `TestCallAgentExtensionPrefixesTheMethod`
+      is now `TestCallExtensionSendsTheNameAsGiven`, since `CallExtension` has taken the full
+      name since P6a.
+  * Split: `TestApplyInitializeResponseRecordsWhatGrokReported` became
+    `TestApplyInitializeResponseRecordsWhatTheSpecRead` (`acpagent`, a neutral hook) and
+    `TestInitializeMetaReadsWhatGrokReported` (grok, grok's real response).
+  * New in grok: `TestAGrokQuestionCannotBeDeclined`, which was a subtest of `acpagent`'s
+    elicitation test.
+  * The underscore scan moved to `grok/scan_test.go`, where grok's vendor calls are, and still
+    allows only grok's two fallbacks a standard method. The standard-methods scan names its
+    wrappers with their package (`grok.extensionResult`).
+  * Two `acpagent` test helpers lost their last caller and are gone (`callExtension`,
+    `scriptedAgent.paramsFor`).
+* **Test names, before and after**, across both packages: 395 → 397. Two names are gone (the
+  split, the rename), four are new, none is duplicated.
+* **No `x.ai`, xAI or grok is named in `acpagent`'s production code** outside comments. The
+  comments are P6c's.
+
+**Tests, each seen failing** (`p6/plant_p6b.py` in the session scratchpad, on scratch copies):
+
+| Plant | Fails |
+| --- | --- |
+| HEAD, with `acptest` added | does not compile: "p.StartOn undefined" |
+| `StartOn` without its handshake | `TestStartOnRunsTheHandshake`, `TestStartOnAuthenticatesWithTheSpecsMethod`: "initialize has not completed" |
+| the initialize hook not applied | `TestApplyInitializeResponseRecordsWhatTheSpecRead` ("InitializeMeta saw map[]"), `TestStartOnRunsTheHandshake` |
+| grok's initialize hook dropping the version | `TestInitializeMetaReadsWhatGrokReported`: "Version = \"\", want \"1.0.13\"" |
+| auth selection ignoring the Spec's preference | `TestSelectACPAuthMethod`: "got \"\", want \"vendor.token\"", and two more cases |
+| a grok vendor call without its `_` | both scans: "grok.confirmLimit sends the standard method \"x.ai/billing\" untyped", and "CallExtension(\"x.ai/billing\") takes the standard-method raw path" |
+| the fixture agent answering a prompt instead of holding it | `TestAHeldPromptIsAnsweredByTheTest`: "no session/prompt within 5s" |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 46 packages ok (`acptest` is new), no race |
+| `make pre-add-check FILES=…` (the 39 changed and new Go files) | "39 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags` | exit 0 each (staticcheck after the two unused helpers went) |
+| `go vet -tags live_grok ./internal/provider/grok/` | exit 0 |
+| the Windows test host, `make ci-windows` (HEAD plus the 51 changed, new and deleted files) | exit 0, "ALL SELECTED CHECKS PASSED", 46 packages ok |
+
+**The live run** (step 4; `make live-grok`, the owner's word "1", run before P6b's commit; grok
+1.0.70, the pin):
+
+* `make live-grok` ended at the target's `-timeout 600s` with 158 PASS, 1 SKIP
+  (`TestLiveRawOutputSamples`, which needs `MCREMOTE_RAW_OUTPUT_DIR`) and no FAIL.
+  `TestLiveGrokSessionMetaDiscrimination` was 2 min 9 s in, and ten tests had not started.
+* The three tests that moved here passed: `TestLiveGrokRewindPointsDecodeStrictly` (6.00 s),
+  `TestLiveGrokSessionUsageDecodesStrictly` (3.31 s), `TestLiveGrokBillingDecodesStrictly`
+  (4.00 s).
+* The eleven left were run alone with the same flags, and all passed (342.7 s).
+  `TestLiveGrokSessionMetaDiscrimination` took 284.38 s; the others took 0.00 to 19.09 s.
+* In all: 169 PASS, 1 SKIP, no FAIL.
+* **Found:** the suite no longer fits the target's 600 s. 0184's run took 485.9 s for 144 tests,
+  and this one about 943 s across the two runs.
+  * The two longest tests, `TestLiveGrokSessionMetaDiscrimination` (284.38 s) and
+    `TestLiveGrokAutoDiscriminationPair` (153.73 s), are model turns; nothing P6b moved is among
+    them.
+  * The `Makefile` is not in P6's scope, so the target is unchanged; the owner decides.
+
+**Not done:** comments naming grok in `acpagent`, and the source test, are P6c. The
+`live-grok` timeout above.

@@ -78,8 +78,8 @@ func resumeSnapshotRequest(agentID, cwd string) map[string]any {
 // read-back needs.
 type resumeSnapshot struct {
 	Models struct {
-		CurrentModelID  string                        `json:"currentModelId"`
-		AvailableModels []acpagent.GrokAvailableModel `json:"availableModels"`
+		CurrentModelID  string           `json:"currentModelId"`
+		AvailableModels []availableModel `json:"availableModels"`
 	} `json:"models"`
 	Meta map[string]any `json:"_meta"`
 }

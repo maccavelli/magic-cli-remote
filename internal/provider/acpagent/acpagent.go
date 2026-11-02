@@ -99,6 +99,12 @@ type Spec struct {
 	// without an operator pin (MADR 0085 D2). Empty → today's
 	// AuthMethodID-only behaviour.
 	SafeAuthMethodIDs []string
+	// AuthPreference is the order in which advertised, safe methods are
+	// tried when no method is pinned (MADR 0085 D2; MADR 0208 D2).
+	AuthPreference []string
+	// KeyAuthMethodID is the safe method used, advertised or not, when
+	// HasHeadlessCredential reports a key.
+	KeyAuthMethodID string
 	// HasHeadlessCredential, when set, is D2 step 4: a usable API key
 	// exists on disk or in env even if xai.api_key was not advertised.
 	HasHeadlessCredential func() bool
@@ -487,23 +493,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	cmd.Dir = procDir
 	log := p.log
 
-	s := &session{
-		providerID:     p.spec.ID,
-		provider:       p,
-		procDir:        procDir,
-		terms:          newTerminalHost(),
-		log:            log,
-		events:         make(chan event.Event, 256),
-		done:           make(chan struct{}),
-		watched:        make(chan struct{}),
-		cfg:            p.cfg,
-		pending:        make(map[string]*permWaiter),
-		questions:      make(map[string]*questionWaiter),
-		staticModes:    p.spec.StaticModes,
-		defaultModeID:  p.spec.DefaultModeID,
-		synthesizeAuto: p.spec.SynthesizeAutoMode,
-	}
-	p.bindSpec(s)
+	s := p.newAgentSession(procDir)
 	// Bound stderr noise and scrape provider 429/quota lines mid-turn so a
 	// silent agent retry does not leave the phone stuck on "running". In front
 	// of that, keep the end of stderr for a failure to start and for the
@@ -562,61 +552,11 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		return stderrtail.Wrap(err, t)
 	}
 
-	parent := ctx
-	if parent == nil {
-		parent = context.Background()
-	}
-	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
-	defer initCancel()
-
-	// The typed call's response keeps the top-level _meta block in
-	// initResp.Meta, which is where grok's vendor fields live (MADR 0167 F15).
-	initResp, err := conn.Initialize(initCtx, p.initializeRequest())
-	if err != nil {
+	if err := p.handshake(ctx, s, conn, func(err error) error {
 		killTree()
-		return nil, startFailed(initializeError(err))
-	}
-
-	p.applyInitializeResponse(s, initResp)
-	advertised := s.advertisedAuth
-
-	if len(p.spec.SafeAuthMethodIDs) > 0 {
-		hasKey := false
-		if p.spec.HasHeadlessCredential != nil {
-			hasKey = p.spec.HasHeadlessCredential()
-		}
-		id, err := selectACPAuthMethod(advertised, p.cfg.AuthMethodID, p.spec.SafeAuthMethodIDs, hasKey)
-		if err != nil {
-			killTree()
-			return nil, startFailed(err)
-		}
-		if id != "" {
-			if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(id)}); err != nil {
-				killTree()
-				return nil, startFailed(fmt.Errorf("acp authenticate (%s): %w", id, err))
-			}
-			s.log.Info("acp authenticated", slog.String("method_id", id))
-		} else {
-			s.authRequired = true
-		}
-	} else if len(advertised) > 0 && p.cfg.AuthMethodID != "" {
-		if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{
-			MethodId: acp.AuthMethodId(p.cfg.AuthMethodID),
-		}); err != nil {
-			killTree()
-			return nil, startFailed(fmt.Errorf("acp authenticate (%s): %w", p.cfg.AuthMethodID, err))
-		}
-		s.log.Info("acp authenticated", slog.String("method_id", p.cfg.AuthMethodID))
-	} else if len(advertised) > 0 {
-		// Debug, not warn. This fires once per session start on any agent that
-		// advertises auth methods while auth_method_id is unset — 90 times in
-		// the operator's log, and true zero of those times: grok authenticates
-		// from its own credential store and session/new has never failed for
-		// this reason. A warning the operator is trained to ignore is how the
-		// next real warning gets missed (MADR 0138 F12). If session/new does
-		// fail, it fails loudly on its own.
-		s.log.Debug("agent advertises auth methods but none is configured",
-			slog.Int("count", len(advertised)))
+		return startFailed(err)
+	}); err != nil {
+		return nil, err
 	}
 
 	// Watch process exit from here on. The watcher's Wait reaps; later failure
@@ -661,6 +601,88 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	go s.watchConnClose(conn)
 
 	return s, nil
+}
+
+// newAgentSession is a session for an agent whose process runs in procDir,
+// bound to the Spec, with no connection yet.
+func (p *Provider) newAgentSession(procDir string) *session {
+	s := &session{
+		providerID:     p.spec.ID,
+		provider:       p,
+		procDir:        procDir,
+		terms:          newTerminalHost(),
+		log:            p.log,
+		events:         make(chan event.Event, 256),
+		done:           make(chan struct{}),
+		watched:        make(chan struct{}),
+		cfg:            p.cfg,
+		pending:        make(map[string]*permWaiter),
+		questions:      make(map[string]*questionWaiter),
+		staticModes:    p.spec.StaticModes,
+		defaultModeID:  p.spec.DefaultModeID,
+		synthesizeAuto: p.spec.SynthesizeAutoMode,
+	}
+	p.bindSpec(s)
+	return s
+}
+
+// handshake runs initialize and authentication on conn for s. A failure is
+// returned through fail, which ends the agent and adds what it said.
+func (p *Provider) handshake(ctx context.Context, s *session, conn *acp.ClientSideConnection, fail func(error) error) error {
+	parent := ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
+	defer initCancel()
+
+	// The typed call's response keeps the top-level _meta block in
+	// initResp.Meta, which is where grok's vendor fields live (MADR 0167 F15).
+	initResp, err := conn.Initialize(initCtx, p.initializeRequest())
+	if err != nil {
+		return fail(initializeError(err))
+	}
+
+	p.applyInitializeResponse(s, initResp)
+	advertised := s.advertisedAuth
+
+	if len(p.spec.SafeAuthMethodIDs) > 0 {
+		hasKey := false
+		if p.spec.HasHeadlessCredential != nil {
+			hasKey = p.spec.HasHeadlessCredential()
+		}
+		id, err := selectACPAuthMethod(advertised, p.cfg.AuthMethodID, p.spec.SafeAuthMethodIDs,
+			p.spec.AuthPreference, p.spec.KeyAuthMethodID, hasKey)
+		if err != nil {
+			return fail(err)
+		}
+		if id != "" {
+			if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(id)}); err != nil {
+				return fail(fmt.Errorf("acp authenticate (%s): %w", id, err))
+			}
+			s.log.Info("acp authenticated", slog.String("method_id", id))
+		} else {
+			s.authRequired = true
+		}
+	} else if len(advertised) > 0 && p.cfg.AuthMethodID != "" {
+		if _, err := conn.Authenticate(initCtx, acp.AuthenticateRequest{
+			MethodId: acp.AuthMethodId(p.cfg.AuthMethodID),
+		}); err != nil {
+			return fail(fmt.Errorf("acp authenticate (%s): %w", p.cfg.AuthMethodID, err))
+		}
+		s.log.Info("acp authenticated", slog.String("method_id", p.cfg.AuthMethodID))
+	} else if len(advertised) > 0 {
+		// Debug, not warn. This fires once per session start on any agent that
+		// advertises auth methods while auth_method_id is unset — 90 times in
+		// the operator's log, and true zero of those times: grok authenticates
+		// from its own credential store and session/new has never failed for
+		// this reason. A warning the operator is trained to ignore is how the
+		// next real warning gets missed (MADR 0138 F12). If session/new does
+		// fail, it fails loudly on its own.
+		s.log.Debug("agent advertises auth methods but none is configured",
+			slog.Int("count", len(advertised)))
+	}
+	return nil
 }
 
 // closeCapture closes the session's wire capture once the agent's process has
@@ -913,6 +935,12 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	// The cold first spare is armed by the daemon at startup, which is where
 	// EnsureWarm's own doc comment says the initial call belongs.
 
+	return p.openSession(ctx, s, opts, cwd, localID)
+}
+
+// openSession binds s to the session the client asked for, and completes
+// session/new or session/load on its connection.
+func (p *Provider) openSession(ctx context.Context, s *session, opts provider.StartOptions, cwd, localID string) (provider.Session, error) {
 	// Bind the session identity. Safe without external synchronization even
 	// on a warm claim: the agent emits no session-scoped callbacks before
 	// session/new|load below.
@@ -1032,6 +1060,38 @@ func (p *Provider) Start(ctx context.Context, opts provider.StartOptions) (provi
 	return s, nil
 }
 
+// StartOn is Start on a connection it is given instead of a spawned agent:
+// r is what the agent writes and w what it reads, and the caller owns both. It
+// runs the same handshake and session/new or session/load. It is for a Spec's
+// own tests and the conformance suite, on the fixture agent in acptest (MADR
+// 0208, P6b deviation 1); the daemon starts agents with Start.
+func (p *Provider) StartOn(ctx context.Context, opts provider.StartOptions, r io.Reader, w io.Writer) (provider.Session, error) {
+	cwd, err := p.resolveSessionCWD(opts.CWD)
+	if err != nil {
+		return nil, err
+	}
+	localID := opts.LocalSessionID
+	if localID == "" {
+		localID = uuid.NewString()
+	}
+	s := p.newAgentSession(cwd)
+	// No process, so no exit watcher.
+	close(s.watched)
+	s.conn = acp.NewClientSideConnection(s, w, r, clientConnOptions(p.log, s)...)
+	if err := p.handshake(ctx, s, s.conn, func(err error) error {
+		s.markClosedAndKill()
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	go s.watchConnClose(s.conn)
+	if err := rejectUnauthenticated(s); err != nil {
+		s.markClosedAndKill()
+		return nil, err
+	}
+	return p.openSession(ctx, s, opts, cwd, localID)
+}
+
 // slogWriter adapts process stderr lines into slog (bounded; no file growth).
 // Optional onLine fans complete lines to limit detection (MADR 0073 F1).
 type slogWriter struct {
@@ -1076,41 +1136,6 @@ func (w *slogWriter) Write(p []byte) (int, error) {
 }
 
 var _ io.Writer = (*slogWriter)(nil)
-
-// GrokAvailableModel represents an available model in grok's initialize response.
-type GrokAvailableModel struct {
-	ModelID string `json:"modelId"`
-	Name    string `json:"name"`
-	Meta    struct {
-		TotalContextTokens      int    `json:"totalContextTokens"`
-		SupportsReasoningEffort bool   `json:"supportsReasoningEffort"`
-		ReasoningEffort         string `json:"reasoningEffort"`
-		// ReasoningEfforts is the model's own ladder. Present only when
-		// SupportsReasoningEffort is true; measured on grok 0.2.114 as
-		// high (default), medium, low — expensive-first (MADR 0052 §2.2).
-		ReasoningEfforts []struct {
-			ID          string `json:"id"`
-			Value       string `json:"value"`
-			Label       string `json:"label"`
-			Description string `json:"description"`
-			Default     bool   `json:"default"`
-		} `json:"reasoningEfforts"`
-	} `json:"_meta"`
-}
-
-type grokInitializeMeta struct {
-	Meta struct {
-		DefaultAuthMethodID string `json:"defaultAuthMethodId"`
-		// AgentVersion is grok's engine version. It is a vendor extension:
-		// grok sends no standard ACP `agentInfo`, which the protocol permits
-		// (MADR 0137, ninth amendment).
-		AgentVersion string `json:"agentVersion"`
-		ModelState   struct {
-			CurrentModelID  string               `json:"currentModelId"`
-			AvailableModels []GrokAvailableModel `json:"availableModels"`
-		} `json:"modelState"`
-	} `json:"_meta"`
-}
 
 // clientConnOptions are the options every agent connection is built with.
 //
@@ -1308,157 +1333,6 @@ func (p *Provider) initializeRequest() acp.InitializeRequest {
 		ClientCapabilities: p.ClientCapabilities(),
 		ClientInfo:         &acp.Implementation{Name: clientName, Version: version},
 	}
-}
-
-// GrokInitializeMeta is grok's Spec.InitializeMeta: its engine version, the
-// model it runs and its catalog, from initialize's `_meta`.
-func GrokInitializeMeta(meta map[string]any) InitializeInfo {
-	m := decodeGrokInitializeMeta(meta).Meta
-	info := InitializeInfo{
-		Version:             m.AgentVersion,
-		CurrentModel:        m.ModelState.CurrentModelID,
-		DefaultAuthMethodID: m.DefaultAuthMethodID,
-	}
-	if len(m.ModelState.AvailableModels) > 0 {
-		cat := modelsToCatalog(m.ModelState.CurrentModelID, m.ModelState.AvailableModels)
-		info.Models = &cat
-	}
-	return info
-}
-
-// decodeGrokInitializeMeta reads grok's vendor block out of the _meta map the
-// SDK keeps on its typed InitializeResponse.
-//
-// The SDK decodes _meta as map[string]any, so the typed view is recovered by a
-// JSON round trip. Like the raw decode it replaces, it is best-effort: grok's
-// fields are optional extensions, and an agent that sends none of them — or
-// sends them in an unexpected shape — must not fail initialize.
-func decodeGrokInitializeMeta(meta map[string]any) grokInitializeMeta {
-	var out grokInitializeMeta
-	if len(meta) == 0 {
-		return out
-	}
-	b, err := json.Marshal(meta)
-	if err != nil {
-		return out
-	}
-	_ = json.Unmarshal(b, &out.Meta)
-	return out
-}
-
-func modelsToCatalog(currentID string, models []GrokAvailableModel) picker.Catalog {
-	opts := make([]picker.Option, 0, len(models))
-	for _, m := range models {
-		label := m.Name
-		if label == "" {
-			label = m.ModelID
-		}
-		opt := picker.Option{
-			ID:    m.ModelID,
-			Label: label,
-			Group: "xai",
-		}
-		// Gate on supportsReasoningEffort: if false, emit no levels even when
-		// a list is present — the CLI flag is the authority, not the array
-		// (MADR 0052 §2.2 / A3.1).
-		if m.Meta.SupportsReasoningEffort {
-			levels := make([]picker.ThinkingLevel, 0, len(m.Meta.ReasoningEfforts))
-			for _, e := range m.Meta.ReasoningEfforts {
-				// Prefer Value over ID for the wire value — Value is what
-				// --reasoning-effort takes; they are equal in the measured
-				// payload but Value is the documented flag argument.
-				id := e.Value
-				if id == "" {
-					id = e.ID
-				}
-				if id == "" {
-					continue
-				}
-				levels = append(levels, picker.ThinkingLevel{
-					ID:          id,
-					Label:       e.Label,
-					Description: e.Description,
-					Default:     e.Default,
-				})
-			}
-			opt.ThinkingLevels = picker.NormalizeThinkingLevels(levels)
-		}
-		opts = append(opts, opt)
-	}
-	var defaults []string
-	if currentID != "" {
-		defaults = []string{currentID}
-	}
-	return picker.Catalog{
-		Kind:        picker.KindSingle,
-		Source:      picker.SourceLive,
-		Options:     opts,
-		DefaultIDs:  defaults,
-		AllowCustom: true,
-		MaxSelect:   1,
-	}.Normalize()
-}
-
-// HandleModelsUpdate handles _x.ai/models/update (grok 1.0.3) and the
-// historical _x.ai/models_update spelling.
-func HandleModelsUpdate(ctx context.Context, h Host, params json.RawMessage) {
-	var p struct {
-		AvailableModels []GrokAvailableModel `json:"availableModels"`
-		CurrentModelID  string               `json:"currentModelId"`
-	}
-	if err := json.Unmarshal(params, &p); err != nil {
-		if log := h.Log(); log != nil {
-			log.Debug("models_update: parse failed", slog.String("err", err.Error()))
-		}
-		return
-	}
-	if len(p.AvailableModels) == 0 {
-		return
-	}
-	h.SetModelCatalog(modelsToCatalog(p.CurrentModelID, p.AvailableModels))
-}
-
-// HandleMCPStatus handles _x.ai/mcp/server_status notifications.
-func HandleMCPStatus(ctx context.Context, h Host, params json.RawMessage) {
-	var p struct {
-		Name   string `json:"name"`
-		Status string `json:"status"`
-		Reason string `json:"reason"`
-	}
-	if err := json.Unmarshal(params, &p); err != nil {
-		return
-	}
-	if p.Name == "" {
-		return
-	}
-	h.UpdateMCPStatus(func(cur []provider.MCPServerStatus) []provider.MCPServerStatus {
-		for i, st := range cur {
-			if st.Name == p.Name {
-				cur[i].State = p.Status
-				return cur
-			}
-		}
-		return append(cur, provider.MCPServerStatus{
-			Name:  p.Name,
-			State: p.Status,
-		})
-	})
-}
-
-// HandleMCPInit handles _x.ai/mcp_initialized notifications.
-func HandleMCPInit(ctx context.Context, h Host, params json.RawMessage) {
-	servers := h.Config().McpServers
-	h.UpdateMCPStatus(func(cur []provider.MCPServerStatus) []provider.MCPServerStatus {
-		if len(cur) == 0 && len(servers) > 0 {
-			for _, srv := range servers {
-				cur = append(cur, provider.MCPServerStatus{
-					Name:  srv.Name,
-					State: "ready",
-				})
-			}
-		}
-		return cur
-	})
 }
 
 // applyInitializeResponse records what the agent reported at initialize: the
