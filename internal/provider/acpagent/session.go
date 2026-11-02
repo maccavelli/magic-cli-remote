@@ -202,8 +202,13 @@ type session struct {
 	// loading is true while ACP session/load runs: the agent replays the
 	// whole prior conversation as ordinary updates then, and those events
 	// must be marked Replay so the manager keeps them out of live broadcast.
-	loading   bool
-	prompting bool
+	loading bool
+	// replayedUser is a replayed prompt being assembled from its
+	// user_message_chunks while the session loads, and replayedUserID its
+	// message id (0214 MADR amendment B, B2).
+	replayedUser   *event.Event
+	replayedUserID string
+	prompting      bool
 	// turnUsageReported is set once a Spec has reported this turn's usage on
 	// its own channel (Host.ReportUsage), so the answer's standard usage is
 	// not counted beside it; gaugeUsed and gaugeSize are the context gauge the
@@ -834,7 +839,9 @@ func (s *session) watchStall(turnDone <-chan struct{}) {
 // SetMode switches the agent's active operating mode (ACP session/set_mode).
 //
 // Real modes: the agent confirms via current_mode_update, which we forward as a
-// session_mode event (no local current-mode store for those).
+// session_mode event (no local current-mode store for those). An agent whose
+// mode is a mode-category config option is set through that option instead,
+// and its answer is the confirmation (setAgentMode).
 //
 // Synthetic auto (Spec.SynthesizeAutoMode): the daemon arms interception and
 // always announces current_mode_id=auto itself. Relying on the agent is wrong
@@ -870,10 +877,7 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 			return fmt.Errorf("unknown mode %q", modeID)
 		}
 	}
-	_, err := s.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
-		SessionId: acp.SessionId(agentID),
-		ModeId:    acp.SessionModeId(forwardID),
-	})
+	applied, confirmed, err := s.setAgentMode(ctx, agentID, forwardID)
 	if err == nil {
 		// Any real mode disarms auto. Only after the agent accepted: a failed
 		// switch must not leave the session claiming a mode it is not in.
@@ -890,8 +894,38 @@ func (s *session) SetMode(ctx context.Context, modeID string) error {
 		}
 		// Nothing further joins the approval card once auto is off.
 		s.finishApprovals()
+		if confirmed {
+			s.emitCurrentMode(applied)
+		}
 	}
 	return err
+}
+
+// setAgentMode switches the agent's mode. An agent that publishes its mode as
+// a mode-category config option is set through it, and its answer, which
+// carries the options, confirms the switch. Any other agent gets
+// session/set_mode and confirms with current_mode_update (0214 PLAN P4
+// Deviation 2).
+func (s *session) setAgentMode(ctx context.Context, agentID, modeID string) (applied string, confirmed bool, err error) {
+	applied, handled, err := s.setSelectOption(ctx, acp.SessionConfigOptionCategoryMode, modeID)
+	if handled {
+		return applied, err == nil, err
+	}
+	_, err = s.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
+		SessionId: acp.SessionId(agentID),
+		ModeId:    acp.SessionModeId(modeID),
+	})
+	return "", false, err
+}
+
+// emitCurrentMode reports the agent's current mode, through reportedModeID.
+func (s *session) emitCurrentMode(agentModeID string) {
+	s.emit(event.Event{
+		Type:          event.TypeMode,
+		SessionID:     s.localID,
+		Timestamp:     time.Now().UTC(),
+		CurrentModeID: s.reportedModeID(agentModeID),
+	})
 }
 
 // armAutoMode turns on daemon-side auto-approve and puts the agent into its
@@ -908,10 +942,7 @@ func (s *session) armAutoMode(ctx context.Context, agentID string) error {
 	s.mu.Unlock()
 
 	if target != "" {
-		if _, err := s.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
-			SessionId: acp.SessionId(agentID),
-			ModeId:    acp.SessionModeId(target),
-		}); err != nil {
+		if _, _, err := s.setAgentMode(ctx, agentID, target); err != nil {
 			// Disarm rather than report auto while the agent stayed in plan.
 			s.mu.Lock()
 			s.autoApprove = false
@@ -1559,6 +1590,44 @@ func (s *session) drainChunks() {
 	s.emitMu.Unlock()
 }
 
+// replayUserChunk adds a user_message_chunk the agent replayed while loading to
+// the prompt being assembled. A new message id releases the previous prompt; a
+// chunk with no id is a message of its own.
+func (s *session) replayUserChunk(c *acp.SessionUpdateUserMessageChunk, now time.Time) {
+	text := contentText(c.Content)
+	id := ""
+	if c.MessageId != nil {
+		id = string(*c.MessageId)
+	}
+	s.mu.Lock()
+	if s.replayedUser != nil && id != "" && id == s.replayedUserID {
+		s.replayedUser.Text += text
+		s.mu.Unlock()
+		return
+	}
+	prev := s.replayedUser
+	s.replayedUser = &event.Event{Type: event.TypeUserMessage, SessionID: s.localID, Timestamp: now, Text: text}
+	s.replayedUserID = id
+	s.mu.Unlock()
+	s.emitReplayedUser(prev)
+}
+
+// flushReplayedUser emits the replayed prompt being assembled, if any. Load
+// calls it before the session stops loading, so the prompt is marked replay.
+func (s *session) flushReplayedUser() {
+	s.mu.Lock()
+	ev := s.replayedUser
+	s.replayedUser, s.replayedUserID = nil, ""
+	s.mu.Unlock()
+	s.emitReplayedUser(ev)
+}
+
+func (s *session) emitReplayedUser(ev *event.Event) {
+	if ev != nil && ev.Text != "" {
+		s.emit(*ev)
+	}
+}
+
 func (s *session) prepareEvent(ev *event.Event) {
 	// Skip agent_session_id on high-frequency chunks to cut wire noise;
 	// include it on status/tool/permission/turn events for resume/debug.
@@ -1788,6 +1857,10 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 			return nil
 		}
 	}
+	if u.UserMessageChunk == nil {
+		// Any other update ends the replayed prompt being assembled.
+		s.flushReplayedUser()
+	}
 	switch {
 	case u.AgentMessageChunk != nil:
 		// Whitespace-only chunks are real content mid-message: token-granular
@@ -1816,6 +1889,12 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 			Text:      text,
 		})
 	case u.UserMessageChunk != nil:
+		// While the session loads, the agent is replaying the conversation,
+		// and its prompts are part of it (0214 MADR amendment B, B2).
+		if s.Loading() {
+			s.replayUserChunk(u.UserMessageChunk, now)
+			return nil
+		}
 		// Skip: Prompt() already emits a single user_message with the full
 		// text. ACP often echoes the same prompt as UserMessageChunk(s),
 		// which would duplicate bubbles in the client.
@@ -1958,9 +2037,15 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 		// The agent updated its config options mid-session. Re-emit the full
 		// set so the client can refresh its UI.
 		s.mu.Lock()
+		_, prevMode, _ := selectOption(s.configOptions, acp.SessionConfigOptionCategoryMode)
 		s.recordConfigOptions(u.ConfigOptionUpdate.ConfigOptions)
+		_, mode, _ := selectOption(s.configOptions, acp.SessionConfigOptionCategoryMode)
 		s.mu.Unlock()
 		s.emitConfigOptions(u.ConfigOptionUpdate.ConfigOptions)
+		// A mode published as a config option moving is a mode change.
+		if mode != "" && mode != prevMode {
+			s.emitCurrentMode(mode)
+		}
 
 	// Declined: schema 1.25 variants Magic does not map yet. Each is mapped by
 	// its own record (MADR 0184 D7, D10); until then it is named once per

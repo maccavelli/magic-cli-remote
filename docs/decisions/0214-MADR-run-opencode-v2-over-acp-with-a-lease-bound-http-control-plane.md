@@ -982,3 +982,23 @@ there as part of getting ready to adopt support for gobble."
   `_meta["opencode/child-session"]`. Compaction arrives as standard `compaction_update`, as A7 and
   D14's first correction said. So D5's "projected updates" and D6's
   `_meta["opencode/compaction"]` are not met under D1, and P4 does not handle them.
+
+### Added at P4, 2026-11-02 (PLAN P4 Deviation 1)
+
+* **A third agent-neutral piece for `acpagent`.** acpagent applied a session's starting model
+  and thinking level only through a Spec's `_meta` (grok). An agent that exposes them as standard
+  config options, as opencode does, never received them. After `session/new`, acpagent now sets
+  a requested value that differs from the agent's current option through
+  `session/set_config_option`, for every Spec. A refusal keeps the agent's value and posts a
+  notice. *Owner: "acpagent, for every Spec".*
+* **D3's constants.** The Spec's floor and pin are `ACPMinVersion` and `ACPKnownGoodVersion`
+  until P7, because `MinVersion` and `KnownGoodVersion` still gate the 1.x dialect. *Owner: "New
+  constants; P7 renames".*
+* **Two more agent-neutral pieces (PLAN P4 Deviation 2).**
+  * **Modes through a `mode` config option.** opencode publishes its mode only as a config option
+    and confirms nothing after `session/set_mode`. acpagent's `SetMode` now sets a `mode`-category
+    option through `session/set_config_option` when the agent has one, and reports the mode from
+    the answer; otherwise it sends `session/set_mode` as before. *Owner: "Config option first".*
+  * **A per-Spec start bound.** `Spec.StartTimeout` sizes `initialize` and `session/new` from A6's
+    measurements, as D1 (amended) asks; 30 s when unset, and 120 s for opencode. *Owner: "Spec
+    field, opencode 120 s".*

@@ -1,6 +1,7 @@
 package acpagent
 
 import (
+	"fmt"
 	"log/slog"
 
 	acp "github.com/maccavelli/acp-go-sdk2"
@@ -52,6 +53,26 @@ func (p *Provider) reportEngineVersion(resp *acp.InitializeResponse, metaVersion
 		slog.String("hint", "wire shapes were checked against the pinned release; "+
 			"re-record testdata/wire fixtures after upgrades"),
 	)
+}
+
+// checkMinVersion refuses an engine below the Spec's MinVersion, or one that
+// named no version when the Spec has a floor, since an engine of unknown version
+// is how an incompatible one gets half-driven (0214 MADR D3, D12). A prerelease
+// of the floor is below it (provider.CompareVersions).
+func (p *Provider) checkMinVersion(v string) error {
+	floor := p.spec.MinVersion
+	if floor == "" {
+		return nil
+	}
+	if v == "" {
+		return fmt.Errorf("%s reported no version at initialize; this provider needs %s or later (%s)",
+			p.spec.ID, floor, p.spec.UpgradeURL)
+	}
+	if provider.CompareVersions(v, floor) < 0 {
+		return fmt.Errorf("%s engine version %s is below the minimum %s; upgrade: %s",
+			p.spec.ID, v, floor, p.spec.UpgradeURL)
+	}
+	return nil
 }
 
 // EngineVersion returns the last version the agent reported at initialize, or

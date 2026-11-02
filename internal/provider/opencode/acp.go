@@ -1,0 +1,101 @@
+package opencode
+
+import (
+	"log/slog"
+	"time"
+
+	acp "github.com/maccavelli/acp-go-sdk2"
+
+	"github.com/maccavelli/magic-cli-remote/internal/event"
+	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
+)
+
+// The OpenCode v2 provider is this Spec over acpagent: sessions run on
+// `opencode acp` (0214 MADR D1). It stands beside the 1.x HTTP dialect, which
+// stays registered until 0214 PLAN P7 retires it and registers this.
+//
+// What the Spec does not need to say, because acpagent does it for every agent:
+//   - auth: opencode advertises one method, opencode-login, which runs
+//     `opencode auth login` in a terminal. No method is named safe, so acpagent
+//     never calls authenticate, and the engine uses its own credential store;
+//   - the model, effort and mode config options (model, thought_level and mode
+//     categories), set through session/set_config_option;
+//   - automatic permission choices, by option kind (0214 MADR D9);
+//   - one process per session, in its directory (amendment A, A5).
+
+// childSessionUpdatesKey is the client capability under which opencode sends a
+// child session's output as methodChildUpdate rather than projecting it onto
+// the parent (packages/cli/src/acp/capabilities.ts at b44b7164ba).
+const childSessionUpdatesKey = "opencode/child-session-updates"
+
+// acpStartTimeout bounds initialize and session/new: a cold start measured
+// 43.7 s and about 45 s (0214 MADR amendment A, A6).
+const acpStartTimeout = 120 * time.Second
+
+// acpStaticModels is the fallback catalog for when opencode cannot be started
+// to list its own. It is the free models opencode's catalog listed at G1
+// (testdata/wire/2.2.3); deepseek-v4.1-flash-free is the one G1, G2 and G5 ran
+// turns on. Once a session reports its model option, that list replaces this.
+var acpStaticModels = []picker.Option{
+	{ID: "opencode/deepseek-v4.1-flash-free", Label: "DeepSeek V4.1 Flash Free", Group: "opencode"},
+	{ID: "opencode/beam-free", Label: "Beam Free", Group: "opencode"},
+	{ID: "opencode/flint-40b-free", Label: "Flint 40B Free", Group: "opencode"},
+	{ID: "opencode/glm-5.3-flash-free", Label: "GLM-5.3-Flash Free", Group: "opencode"},
+	{ID: "opencode/mimo-v2.6-flash-free", Label: "MiMo-V2.6-Flash Free", Group: "opencode"},
+	{ID: "opencode/nemotron-3.5-lightning-free", Label: "Nemotron 3.5 Lightning Free", Group: "opencode"},
+	{ID: "opencode/nemotron-3.5-super-vl-free", Label: "Nemotron 3.5 Super VL Free", Group: "opencode"},
+}
+
+// acpStaticModes are opencode's two primary agents, the values of its mode
+// config option (G1). opencode sends no ACP modes, so without this list nothing
+// would advertise the switch. auto is appended by acpagent and enforced by
+// intercepting permission requests (0214 MADR D9).
+var acpStaticModes = []event.SessionMode{
+	{ID: "build", Name: "Build", Description: "Full tool access; edits allowed"},
+	{ID: "plan", Name: "Plan", Description: "Research and plan only; no edits"},
+}
+
+// acpClientCapabilities is acpagent's own set, which covers 0214 MADR D1's list
+// (fs, terminal, elicitation.form, session.compaction), plus the flag for
+// child-session notifications.
+func acpClientCapabilities() *acp.ClientCapabilities {
+	c := acpagent.New(acpagent.Spec{}, acpagent.Config{}).ClientCapabilities()
+	c.Meta = map[string]any{childSessionUpdatesKey: true}
+	return &c
+}
+
+// acpSpec is OpenCode v2 over ACP.
+var acpSpec = acpagent.Spec{
+	ID:                 provider.IDOpencode,
+	DefaultBin:         "opencode",
+	DefaultArgs:        func(acpagent.Config) []string { return []string{"acp"} },
+	KnownGoodVersion:   ACPKnownGoodVersion,
+	MinVersion:         ACPMinVersion,
+	UpgradeURL:         ACPUpgradeURL,
+	StartTimeout:       acpStartTimeout,
+	ClientCapabilities: acpClientCapabilities(),
+	StaticModels:       acpStaticModels,
+	StaticModes:        acpStaticModes,
+	DefaultModeID:      "build",
+	SynthesizeAutoMode: true,
+	Commands:           acpCommandTable(),
+	ExtensionNotifications: map[string]acpagent.ExtensionNotificationHandler{
+		methodChildUpdate: handleChildUpdate,
+	},
+	MetaHandlers: map[string]acpagent.MetaHandler{
+		metaRetry: handleRetry,
+	},
+}
+
+// NewACP creates the OpenCode v2 provider over ACP. Nothing registers it until
+// 0214 PLAN P7.
+func NewACP(cfg acpagent.Config) *acpagent.Provider {
+	return acpagent.New(acpSpec, cfg)
+}
+
+// NewACPWithLogger is like NewACP but sets a logger.
+func NewACPWithLogger(cfg acpagent.Config, log *slog.Logger) *acpagent.Provider {
+	return acpagent.NewWithLogger(acpSpec, cfg, log)
+}

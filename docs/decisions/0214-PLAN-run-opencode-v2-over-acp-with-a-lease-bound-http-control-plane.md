@@ -168,7 +168,8 @@ P7), `internal/provider/opencode/version.go`, `internal/provider/opencode/comman
    panel, through P2's hooks. D6: `_meta["opencode/retry"]` as a notice or the limit card;
    `_meta["opencode/compaction"]` into compaction state.
 3. D9: automatic permission choices select by kind, `allow_once` first, never `reject_*`.
-4. D3: `MinVersion = "2.1.0"`, `KnownGoodVersion = "2.2.3"`, read from
+4. D3: `MinVersion = "2.1.0"`, `KnownGoodVersion = "2.2.3"` (*named `ACPMinVersion` and
+   `ACPKnownGoodVersion` until P7; P4 Deviation 1*), read from
    `initialize.agentInfo.version`; a 1.x engine is refused with the version found and
    `https://opencode.ai/v2/install`. A pin test reads G1's capture.
 5. The command table: `goal` added, 1.x-only rows removed, KindNone reasons for D11's drops.
@@ -719,3 +720,177 @@ P3 is complete with this commit.
 
 **Files for this commit:** this plan, the MADR, and
 `internal/provider/opencode/live_v2_gates_test.go`.
+
+*The owner committed P3 as `3f793e6f`. 0208 P6, which P4 waits for, ended with `85b1447f`.*
+
+### P4 Deviation 1, 2026-11-02 — the version constants, and the starting model. The owner decided: "New constants; P7 renames" and "acpagent, for every Spec"
+
+C8: `opencode --version` printed `v2.2.3`, at `85b1447f`.
+
+- **Found** before the first write:
+  * **The version constants are the 1.x dialect's.** Step 4 sets `MinVersion` and
+    `KnownGoodVersion` in `internal/provider/opencode/version.go`. The 1.x HTTP dialect, registered
+    until P7, gates its engines on the same two constants (`http.go:677-724`). About twenty of its
+    unit tests pin the 1.18 floor or fake 1.18.x engines (`version_test.go:14-58` among them).
+    Changed as written, the dialect would refuse every engine it can drive, against this PLAN's
+    rollout.
+  * **A starting model or thinking level is never applied through config options.** acpagent
+    records the requested values (`acpagent/acpagent.go:949-961`), and grok applies them through
+    `_meta`. For an agent whose model and level are standard config options, nothing sends them,
+    and the agent's current values then replace the request (`acpagent/session_meta.go:54-69`). A
+    model chosen at create, or the configured `model`, would be silently ignored on opencode.
+- **Resolution:**
+  * `version.go` gains the Spec's own `ACPMinVersion = "2.1.0"` and
+    `ACPKnownGoodVersion = "2.2.3"`. `MinVersion` and `KnownGoodVersion` stay the 1.x dialect's.
+    P7, which deletes the dialect, renames the two.
+  * acpagent, for every Spec: after `session/new`, a requested model or thinking level that
+    differs from the agent's current `model` or `thought_level` option is set through standard
+    `session/set_config_option`, and the answer is recorded. A refusal keeps the agent's value and
+    posts a notice; the session still starts.
+- **Also within P4 as written:**
+  * acpagent's minimum-version field (MADR amendment C) comes with a second field for the upgrade
+    link, so the refusal can name `https://opencode.ai/v2/install`.
+  * Step 3's choice by kind already exists in acpagent (MADR 0207 amendment H). P4 pins it on
+    opencode's options.
+  * A5's one child per directory already holds: acpagent runs one process per session and claims
+    a spare only for a matching directory (`acpagent.go:831`).
+  * opencode needs no auth handling from the Spec: with no safe method named, acpagent does not
+    call `authenticate`, and the engine uses its own credential store.
+- **Files added to P4's scope:** `internal/provider/acpagent/acpagent.go`, `session_meta.go`,
+  `version.go`, and their tests. The MADR records the third acpagent piece under amendment C.
+
+### P4 Deviation 2, 2026-11-02 — modes, and the start timeout. The owner decided: "Config option first" and "Spec field, opencode 120 s"
+
+- **Found** while building the Spec, after Deviation 1's acpagent pieces landed in the tree:
+  * **`/plan` is never confirmed.** opencode publishes its mode only as a `mode`-category config
+    option, with no ACP modes (G1's `session/new` result). Its `session/set_mode` changes the
+    selection and sends nothing back: no `current_mode_update` and no `config_option_update`
+    (opencode `packages/cli/src/acp/sessions.ts:184-190` and `service.ts:233-237`, at
+    `b44b7164ba`). acpagent sends `session/set_mode` and waits for the agent's confirmation
+    (`acpagent/session.go:878-899`), so Magic would keep showing build mode. grok has no `mode`
+    option: the `"category":"mode"` entries in its fixtures are inside its `x.ai` `_meta` model
+    list.
+  * **Cold starts exceed the start bound.** A6 measured a cold `initialize` at 43.7 s and
+    `session/new` at about 45 s. acpagent bounds each with a fixed 30 s (`acpagent.go:40`, used at
+    `:641` and `:979`), and no Spec can size it as D1 (amended) asks.
+- **Resolution:**
+  * `SetMode` sets a `mode`-category select option, when the agent has one, through
+    `session/set_config_option`. Its answer carries the options: Magic records them and reports the
+    new mode. Otherwise `session/set_mode`, as today. A config update that changes the mode
+    option's value reports the new mode too.
+  * `Spec.StartTimeout` bounds `initialize` and `session/new`; zero keeps 30 s. opencode's Spec
+    sets 120 s.
+- **Files added to P4's scope:** `internal/provider/acpagent/session.go`, already step 7's, for
+  `SetMode`. The MADR's amendment C note lists both pieces.
+
+### P4 — 2026-11-02: the OpenCode ACP Spec
+
+**What changed in `acpagent`, for every Spec.**
+
+* **Replayed prompts (step 7).** While a session loads, a `user_message_chunk` is a replayed
+  prompt: chunks sharing a message id make one replayed user message. It is released when another
+  update arrives, or just before the load ends, so it is still marked replay. A live chunk is still
+  skipped.
+* **No cost at load (step 8).** Nothing new: the replay carries no usage, and none is reported. A
+  test pins it.
+* **The floor (step 4).** `Spec.MinVersion` and `Spec.UpgradeURL`. An engine below the floor, or
+  one that names no version at `initialize`, fails Start with the version found, the floor and the
+  link. A prerelease of the floor is below it. An empty floor starts any engine, as before.
+* **The starting model and level (Deviation 1).** After `session/new`, a requested value that
+  differs from the agent's current `model` or `thought_level` option is set through
+  `session/set_config_option`. The start's `session_config` event shows the recorded answer. A
+  refusal keeps the agent's value and posts a notice.
+* **Modes through a `mode` option (Deviation 2).** `SetMode`, and the arming of auto, use a
+  `mode`-category option when the agent has one, and report the mode from its answer. A
+  `config_option_update` that moves that option reports the new mode.
+* **The start bound (Deviation 2).** `Spec.StartTimeout`; zero keeps 30 s.
+
+**What changed in `internal/provider/opencode`.**
+
+* **`acp.go`:** the Spec, and `NewACP`, which nothing registers until P7.
+  * argv `opencode acp`;
+  * acpagent's client capabilities, plus `_meta["opencode/child-session-updates"]`;
+  * `ACPMinVersion` 2.1.0, `ACPKnownGoodVersion` 2.2.3, `https://opencode.ai/v2/install`;
+  * a 120 s start bound;
+  * static modes `build` and `plan`, with synthesized auto;
+  * seven free models from G1's catalog as the fallback.
+  * No auth hook and no safe auth method: acpagent then never calls `authenticate`.
+* **`acp_extensions.go`:**
+  * `opencode/session/child_update` → the subagent panel (D5). The status maps to running,
+    completed or failed (from failed or interrupted). An update only marks the child running; its
+    output stays out of the parent's transcript.
+  * `_meta["opencode/retry"]` (D6), by the 1.x dialect's rule: a quota error or a back-off of
+    `agenterr.LongBackoffMin` or more ends the turn with the limit card and opencode's retry time.
+    A short retry is a notice, except on a prompt result, where the turn is already over. A cleared
+    marker says nothing.
+* **`commandtable.go`:** `acpCommandTable` (step 5).
+  * opencode's own `compact`, `goal` and `review` forward.
+  * `model`, `thinking` and `context` are operations.
+  * `diff`, `undo` and `redo` are unavailable, naming P6; `fork` is unavailable.
+  * The rest have reasons.
+* **`version.go`:** `ACPMinVersion`, `ACPKnownGoodVersion`, `ACPUpgradeURL` (Deviation 1).
+* **`internal/command/conformance_test.go`:** the ACP Spec joins the four provider lists.
+
+**Not changed:** the 1.x dialect and its version constants, and their tests. D9's choice by kind
+already existed (MADR 0207 amendment H); it is pinned here on opencode's options.
+
+**Tests, each seen failing** (`p6/plant_p4.py` in the session scratchpad, 22 deliberate breaks on
+scratch copies; the acpagent tests also failed first on the tree before their change):
+
+| Break | Fails |
+| --- | --- |
+| replayed prompts skipped again | `TestLoadReplaysThePrompts`: "replayed prompts = [], want [\"write note.txt\" \"and again\"]"; `TestSessionLoadEmitsTheLastReplayedPrompt` |
+| the last prompt not released before the load ends | `TestSessionLoadEmitsTheLastReplayedPrompt`: "the replayed prompt was not emitted by the load" |
+| one prompt's chunks not merged | `TestLoadReplaysThePrompts`: `["write note" ".txt" "and again"]` |
+| a load reports usage | `TestLoadReplaysThePrompts`: "a load reported usage" |
+| the floor not enforced | `TestMinVersionRefusesAnOlderEngine`, `TestACPSpecRefusesA1xEngine`: "Start accepted the engine" |
+| no version accepted | both: the error "does not name \"no version\"" |
+| the starting model not applied | `TestStartAppliesTheRequestedModelAndLevel`: "set_config_option calls = \"\", want \"model=m2,effort=high\""; `TestACPStartAppliesTheRequestedModel` |
+| the start shows session/new's options | the same: "the start's session_config shows model \"m1\", want \"m2\"" |
+| a refusal says nothing | the same: "notice \"\" does not name \"m2\"" |
+| the Spec's start bound ignored | `TestStartTimeoutBoundsTheHandshake`: "Start gave up after 5.002s; the Spec bounds initialize at 200ms" |
+| modes through `session/set_mode` again | `TestModeIsSetThroughTheModeOption`: "reported modes [], want plan last"; `TestArmingAutoUsesTheModeOption`; `TestACPPlanSetsTheModeOption` |
+| a moved mode option not reported | `TestModeOptionUpdateReportsTheMode`: "reported modes [], want build then plan" |
+| the child-session flag not advertised | `TestACPSpecAdvertisesD1sCapabilities` |
+| a completed child shown running | `TestACPChildUpdatesFillTheSubagentPanel` |
+| an interrupted child not failed | `TestACPChildFailedOrInterruptedIsFailed` |
+| a child's output in the parent's transcript | `TestACPChildUpdatesFillTheSubagentPanel`: "the child's output reached the parent's transcript" |
+| a long back-off shown as a notice | `TestACPRetryLongEndsTheTurnWithTheLimitCard`: "the long back-off did not cancel the turn" |
+| a short retry says nothing | `TestACPRetryShortIsANotice`: "notices = [], want one naming the retry" |
+| a retry notice after the turn ended | `TestACPRetryOnAPromptResultSaysNothingShort`: "a retry notice after the turn ended: \"Retrying in 5s (attempt 3): Rate limited\"" |
+| opencode's `goal` not forwarded | `TestACPCommandTableOnG1sCommands` |
+| a row missing from the ACP table | `TestProvidersDeclareEveryCanonicalCommand/opencode#01`: "opencode declares no mapping for /ps" |
+| auto choosing `allow_always` first | `TestACPAutoAllowsOnceByKind`: "auto answered {Outcome:selected OptionID:always}, want once selected" |
+
+`TestACPRetryOnAPromptResultSaysNothingShort` first passed against its break: it waited for the
+turn's end with `acptest.Next`, which discards the events before it. It now keeps every event from
+the prompt on, and fails as shown.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 46 packages ok, no race |
+| `make pre-add-check FILES=…` (the 14 changed and new Go files) | "14 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+**Not done, and why.**
+
+* **No live run.** Nothing registers the Spec until P7, and P9's `make live-opencode` is the live
+  acceptance. `/plan` through the mode option, the starting model, the start bound and the
+  replayed prompts are tested on recorded and source-transcribed shapes only.
+* **G1 saw no retry and no permission.** The retry frames are transcribed from opencode's source,
+  as in P2, and the permission options from `packages/cli/src/acp/permission.ts:39-43`.
+* **Seen, not changed:** the phone's generic config-option control (`SetConfigOption`) ignores
+  the agent's answer, so a mode or model chosen there is shown only when the agent next sends its
+  options. opencode answers with them but sends no update. It is outside P4.
+* **C7's three hosts:** P4 changes no process, path, signal or pipe code, so it ran on macOS
+  only.
+
+P4 is complete with this commit. P5, the control plane, is next.
+
+**Files for this commit:** `internal/provider/acpagent/acpagent.go`, `session.go`,
+`session_meta.go`, `version.go`, and the tests `version_test.go`, `loadreplay_test.go`,
+`startoptions_test.go` and `modeoption_test.go` (new); `internal/provider/opencode/acp.go`,
+`acp_extensions.go` and `acp_spec_test.go` (new), `commandtable.go`, `version.go`;
+`internal/command/conformance_test.go`; the MADR; and this plan.

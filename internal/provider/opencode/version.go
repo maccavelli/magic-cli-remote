@@ -28,6 +28,20 @@ const MinVersion = "1.18.0"
 // `plugin.added` frames (MADR 0137 Phase 1).
 const KnownGoodVersion = "1.18.26"
 
+// ACPMinVersion is the oldest OpenCode the ACP Spec drives: 2.1.0 fixed the
+// message and event names v2 uses (0214 MADR D3). An older engine, or one that
+// names no version at initialize, is refused with ACPUpgradeURL. It sits beside
+// MinVersion, which gates the 1.x dialect, until 0214 PLAN P7 retires that
+// dialect and renames these (P4 Deviation 1).
+const ACPMinVersion = "2.1.0"
+
+// ACPKnownGoodVersion is the OpenCode release the ACP Spec was checked against:
+// G1's recording in testdata/wire/2.2.3 (0214 MADR amendment A, A1).
+const ACPKnownGoodVersion = "2.2.3"
+
+// ACPUpgradeURL is where a too-old engine's refusal sends the operator.
+const ACPUpgradeURL = "https://opencode.ai/v2/install"
+
 // VersionIsKnownGood reports whether engineVersion is exactly the release this
 // provider was assessed against, by full SemVer (provider.SameVersion): so
 // "v1.18.21" and "1.18.21+build" both match, a prerelease does not, and an

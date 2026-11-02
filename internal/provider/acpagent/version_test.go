@@ -1,9 +1,12 @@
 package acpagent
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	acp "github.com/maccavelli/acp-go-sdk2"
+	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
 // TestEngineVersionPrefersAgentInfoAndFallsBackToVendorMeta pins the shape of
@@ -63,6 +66,78 @@ func TestEngineVersionPrefersAgentInfoAndFallsBackToVendorMeta(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := engineVersionOf(c.resp, c.meta); got != c.want {
 				t.Fatalf("engineVersionOf = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestStartTimeoutBoundsTheHandshake pins Spec.StartTimeout (0214 PLAN P4
+// Deviation 2): it bounds initialize and session/new, each.
+func TestStartTimeoutBoundsTheHandshake(t *testing.T) {
+	for _, stalled := range []string{"initialize", "session/new"} {
+		t.Run(stalled, func(t *testing.T) {
+			began := time.Now()
+			_, err := startOnScript(t, New(Spec{ID: "vendor", StartTimeout: 200 * time.Millisecond}, Config{}),
+				provider.StartOptions{}, func(r scriptRequest, _ func(string)) {
+					switch {
+					case r.Method == stalled:
+					case r.Method == "initialize":
+						r.Answer(`{"protocolVersion":1,"agentCapabilities":{}}`)
+					}
+				})
+			if err == nil {
+				t.Fatal("Start succeeded against an agent that never answered " + stalled)
+			}
+			if took := time.Since(began); took > 2*time.Second {
+				t.Errorf("Start gave up after %v; the Spec bounds %s at 200ms", took.Round(time.Millisecond), stalled)
+			}
+		})
+	}
+}
+
+// TestMinVersionRefusesAnOlderEngine pins the Spec's floor (0214 MADR D3;
+// amendment C): an engine below MinVersion, or one that names no version, is
+// refused at Start with the version found and the upgrade link. A Spec without
+// a floor starts on any engine.
+func TestMinVersionRefusesAnOlderEngine(t *testing.T) {
+	spec := Spec{ID: "vendor", MinVersion: "2.1.0", UpgradeURL: "https://vendor.invalid/install"}
+	for _, c := range []struct {
+		name, agentInfo string
+		spec            Spec
+		refused         []string
+	}{
+		{"below the floor", `,"agentInfo":{"name":"Vendor","version":"1.18.26"}`, spec,
+			[]string{"1.18.26", "2.1.0", "https://vendor.invalid/install"}},
+		{"no version", ``, spec, []string{"no version", "2.1.0", "https://vendor.invalid/install"}},
+		{"a prerelease of the floor", `,"agentInfo":{"name":"Vendor","version":"2.1.0-rc.1"}`, spec,
+			[]string{"2.1.0-rc.1"}},
+		{"at the floor", `,"agentInfo":{"name":"Vendor","version":"2.1.0"}`, spec, nil},
+		{"above it", `,"agentInfo":{"name":"Vendor","version":"2.2.3"}`, spec, nil},
+		{"no floor", ``, Spec{ID: "vendor"}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := startOnScript(t, New(c.spec, Config{}), provider.StartOptions{},
+				func(r scriptRequest, _ func(string)) {
+					switch r.Method {
+					case "initialize":
+						r.Answer(`{"protocolVersion":1,"agentCapabilities":{}` + c.agentInfo + `}`)
+					case "session/new":
+						r.Answer(`{"sessionId":"agent-1"}`)
+					}
+				})
+			if c.refused == nil {
+				if err != nil {
+					t.Fatalf("Start refused: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Start accepted the engine")
+			}
+			for _, want := range c.refused {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not name %q", err, want)
+				}
 			}
 		})
 	}

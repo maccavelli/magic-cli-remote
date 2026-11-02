@@ -1,9 +1,53 @@
 package acpagent
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+
 	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
+
+// applyStartOptions sends a new session's requested model and thinking level
+// to an agent that exposes them as standard config options, where they differ
+// from its current values, and records its answers (0214 PLAN P4 Deviation 1).
+// A Spec that applies them through session `_meta` finds them current already,
+// so nothing is sent. A refusal keeps the agent's value and posts a notice; the
+// session still starts.
+func (s *session) applyStartOptions(ctx context.Context, model, level string) {
+	for _, want := range []struct {
+		category    acp.SessionConfigOptionCategory
+		value, what string
+	}{
+		{acp.SessionConfigOptionCategoryModel, model, "model"},
+		{acp.SessionConfigOptionCategoryThoughtLevel, level, "thinking level"},
+	} {
+		if want.value == "" {
+			continue
+		}
+		s.mu.Lock()
+		id, current, ok := selectOption(s.configOptions, want.category)
+		agentID := s.agentID
+		s.mu.Unlock()
+		if !ok || current == want.value {
+			continue
+		}
+		resp, err := s.conn.SetSessionConfigOption(ctx, acp.NewSetSessionConfigOptionRequestValueId(
+			acp.SessionId(agentID), acp.SessionConfigId(id), acp.SessionConfigValueId(want.value)))
+		if err != nil {
+			s.log.Warn("acp: the agent refused the session's starting "+want.what,
+				slog.String("requested", want.value), slog.String("kept", current), slog.Any("err", err))
+			s.Notice(fmt.Sprintf("The agent kept %s %s; it refused %s: %v", want.what, current, want.value, err))
+			continue
+		}
+		if len(resp.ConfigOptions) > 0 {
+			s.mu.Lock()
+			s.recordConfigOptions(resp.ConfigOptions)
+			s.mu.Unlock()
+		}
+	}
+}
 
 // attachSessionMeta returns meta or nil when empty so callers omit `_meta`.
 func attachSessionMeta(meta map[string]any) map[string]any {

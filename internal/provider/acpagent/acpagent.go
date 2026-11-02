@@ -77,6 +77,17 @@ type Spec struct {
 	// one warning per engine start and NEVER refuses to run: a routine
 	// upstream upgrade must not become an outage (MADR 0137 Phase 3).
 	KnownGoodVersion string
+	// MinVersion is the lowest agent release this Spec can drive. An engine
+	// below it, or one that names no version at initialize, fails Start with
+	// an error naming the version found and UpgradeURL. Empty starts any
+	// engine (0214 MADR D3, amendment C).
+	MinVersion string
+	// UpgradeURL is where MinVersion's refusal sends the operator.
+	UpgradeURL string
+	// StartTimeout bounds initialize, and session/new, each; zero is
+	// startTimeout. An agent whose cold start is slower sets it from measurement
+	// (0214 MADR D1, amended).
+	StartTimeout time.Duration
 	// StaticModels is the fallback model picker catalog when ListModels is
 	// nil or fails. Empty + AllowCustom on ListModels default still lets the
 	// user type a free-text model id.
@@ -631,7 +642,7 @@ func (p *Provider) handshake(ctx context.Context, s *session, conn *acp.ClientSi
 	if parent == nil {
 		parent = context.Background()
 	}
-	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
+	initCtx, initCancel := context.WithTimeout(parent, p.startTimeout())
 	defer initCancel()
 
 	// The typed call's response keeps the top-level _meta block in
@@ -642,6 +653,9 @@ func (p *Provider) handshake(ctx context.Context, s *session, conn *acp.ClientSi
 	}
 
 	p.applyInitializeResponse(s, initResp)
+	if err := p.checkMinVersion(p.EngineVersion()); err != nil {
+		return fail(err)
+	}
 	advertised := s.advertisedAuth
 
 	if len(p.spec.SafeAuthMethodIDs) > 0 {
@@ -966,7 +980,7 @@ func (p *Provider) openSession(ctx context.Context, s *session, opts provider.St
 	if parent == nil {
 		parent = context.Background()
 	}
-	initCtx, initCancel := context.WithTimeout(parent, startTimeout)
+	initCtx, initCancel := context.WithTimeout(parent, p.startTimeout())
 	defer initCancel()
 	conn := s.conn
 	killAndReap := s.markClosedAndKill
@@ -1004,6 +1018,8 @@ func (p *Provider) openSession(ctx context.Context, s *session, opts provider.St
 			Meta:       p.sessionOpenMeta(opts),
 		}
 		loadResp, err := conn.LoadSession(initCtx, loadReq)
+		// The last replayed prompt, while it still counts as replay.
+		s.flushReplayedUser()
 		s.mu.Lock()
 		s.loading = false
 		s.mu.Unlock()
@@ -1029,6 +1045,7 @@ func (p *Provider) openSession(ctx context.Context, s *session, opts provider.St
 		p.applySessionState(s, newSess.Meta, newSess.ConfigOptions)
 		s.mu.Unlock()
 		s.log.Info("acp session created", slog.String("agent_session_id", string(newSess.SessionId)))
+		s.applyStartOptions(initCtx, effectiveModel, effectiveThinking)
 
 		if p.spec.ConfigureSession != nil {
 			if err := p.spec.ConfigureSession(initCtx, conn, newSess, opts, p.cfg, s.log); err != nil {
@@ -1038,7 +1055,11 @@ func (p *Provider) openSession(ctx context.Context, s *session, opts provider.St
 		}
 		s.emitCapabilities()
 		s.emitModesOrStatic(newSess.Modes)
-		s.emitConfigOptions(newSess.ConfigOptions)
+		// The options as recorded, which include any applyStartOptions set.
+		s.mu.Lock()
+		configOptions := s.configOptions
+		s.mu.Unlock()
+		s.emitConfigOptions(configOptions)
 	}
 
 	s.emit(event.Event{
@@ -1056,6 +1077,14 @@ func (p *Provider) openSession(ctx context.Context, s *session, opts provider.St
 	s.mu.Unlock()
 
 	return s, nil
+}
+
+// startTimeout is the Spec's StartTimeout, or the package's when it sets none.
+func (p *Provider) startTimeout() time.Duration {
+	if p.spec.StartTimeout > 0 {
+		return p.spec.StartTimeout
+	}
+	return startTimeout
 }
 
 // StartOn is Start on a connection it is given instead of a spawned agent:
