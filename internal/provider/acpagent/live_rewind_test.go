@@ -57,7 +57,7 @@ func TestLiveGrokRewindPointsDecodeStrictly(t *testing.T) {
 	}
 
 	var raw json.RawMessage
-	if err := callAgentExtension(ctx, s, "x.ai/rewind/points",
+	if err := s.CallExtension(ctx, "_x.ai/rewind/points",
 		rewindPointsRequest{SessionID: s.AgentSessionID()}, &raw); err != nil {
 		if errors.Is(err, provider.ErrNotImplemented) {
 			t.Fatalf("this grok build has no _x.ai/rewind/points; Phase 9's undo cannot work on it: %v", err)

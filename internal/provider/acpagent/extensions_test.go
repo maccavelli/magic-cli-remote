@@ -29,6 +29,10 @@ func newExtSession(timeout time.Duration) *session {
 		questions:  make(map[string]*questionWaiter),
 		attached:   true,
 		cfg:        Config{PermissionTimeout: timeout},
+		extRequestHandlers: map[string]ExtensionRequestHandler{
+			MethodGrokExitPlanMode:    HandleGrokExitPlanMode,
+			MethodGrokAskUserQuestion: HandleGrokAskUserQuestion,
+		},
 	}
 }
 
@@ -82,7 +86,7 @@ func callExtension(ctx context.Context, s *session, method string, params json.R
 func TestExitPlanModeApproveAnswersApproved(t *testing.T) {
 	s := newExtSession(0)
 	plan := "# Plan\n\nDo the thing."
-	out := callExtension(context.Background(), s, methodExitPlanMode, planParams(t, &plan))
+	out := callExtension(context.Background(), s, MethodGrokExitPlanMode, planParams(t, &plan))
 
 	req := waitEvent(t, s, event.TypePermission)
 	if req.Text != plan {
@@ -135,7 +139,7 @@ func TestExitPlanModeOptionsMapToOutcomes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newExtSession(0)
 			plan := "# Plan"
-			out := callExtension(context.Background(), s, methodExitPlanMode, planParams(t, &plan))
+			out := callExtension(context.Background(), s, MethodGrokExitPlanMode, planParams(t, &plan))
 			req := waitEvent(t, s, event.TypePermission)
 			if err := s.RespondPermission(context.Background(), req.PermissionID, tc.optionID, false, "dev-1"); err != nil {
 				t.Fatal(err)
@@ -159,7 +163,7 @@ func TestExitPlanModeDismissedKeepsPlanning(t *testing.T) {
 		s := newExtSession(0)
 		s.testCancel = func(context.Context) error { return nil }
 		plan := "# Plan"
-		out := callExtension(context.Background(), s, methodExitPlanMode, planParams(t, &plan))
+		out := callExtension(context.Background(), s, MethodGrokExitPlanMode, planParams(t, &plan))
 		waitEvent(t, s, event.TypePermission)
 		if err := s.Cancel(context.Background()); err != nil {
 			t.Fatal(err)
@@ -176,7 +180,7 @@ func TestExitPlanModeDismissedKeepsPlanning(t *testing.T) {
 	t.Run("timeout", func(t *testing.T) {
 		s := newExtSession(30 * time.Millisecond)
 		plan := "# Plan"
-		out := callExtension(context.Background(), s, methodExitPlanMode, planParams(t, &plan))
+		out := callExtension(context.Background(), s, MethodGrokExitPlanMode, planParams(t, &plan))
 		res := (<-out).(exitPlanModeResult)
 		if res.Outcome != planOutcomeChanges {
 			t.Fatalf("outcome = %q, want %q", res.Outcome, planOutcomeChanges)
@@ -189,7 +193,7 @@ func TestExitPlanModeDismissedKeepsPlanning(t *testing.T) {
 // an explanation rather than an empty card.
 func TestExitPlanModeEmptyPlanStillAsks(t *testing.T) {
 	s := newExtSession(0)
-	out := callExtension(context.Background(), s, methodExitPlanMode, planParams(t, nil))
+	out := callExtension(context.Background(), s, MethodGrokExitPlanMode, planParams(t, nil))
 	req := waitEvent(t, s, event.TypePermission)
 	if !strings.Contains(req.Text, "without writing a plan") {
 		t.Fatalf("empty-plan text = %q", req.Text)
@@ -207,7 +211,7 @@ func TestExitPlanModeEmptyPlanStillAsks(t *testing.T) {
 func TestExitPlanModeTruncatesLongPlan(t *testing.T) {
 	s := newExtSession(0)
 	plan := strings.Repeat("x", planContentLimit+500)
-	out := callExtension(context.Background(), s, methodExitPlanMode, planParams(t, &plan))
+	out := callExtension(context.Background(), s, MethodGrokExitPlanMode, planParams(t, &plan))
 	req := waitEvent(t, s, event.TypePermission)
 	if len(req.Text) >= len(plan) {
 		t.Fatalf("plan text not truncated: %d bytes", len(req.Text))
@@ -266,7 +270,7 @@ func askParams(t *testing.T, multi bool) json.RawMessage {
 // into the one string grok echoes to the model.
 func TestAskUserQuestionAnswersKeyedByQuestionText(t *testing.T) {
 	s := newExtSession(0)
-	out := callExtension(context.Background(), s, methodAskUserQuestion, askParams(t, true))
+	out := callExtension(context.Background(), s, MethodGrokAskUserQuestion, askParams(t, true))
 
 	req := waitEvent(t, s, event.TypeQuestion)
 	if req.ToolID != "call-9" || len(req.Questions) != 1 {
@@ -308,7 +312,7 @@ func TestAskUserQuestionCancelledPaths(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newExtSession(0)
-			out := callExtension(context.Background(), s, methodAskUserQuestion, askParams(t, false))
+			out := callExtension(context.Background(), s, MethodGrokAskUserQuestion, askParams(t, false))
 			req := waitEvent(t, s, event.TypeQuestion)
 			if err := s.RespondQuestion(context.Background(), req.QuestionID, tc.answers, tc.cancelled); err != nil {
 				t.Fatal(err)
@@ -329,7 +333,7 @@ func TestAskUserQuestionCancelledPaths(t *testing.T) {
 // answered" from "the agent withdrew it" (MADR 0101 B).
 func TestAskUserQuestionTimeoutMarksTimedOut(t *testing.T) {
 	s := newExtSession(30 * time.Millisecond)
-	out := callExtension(context.Background(), s, methodAskUserQuestion, askParams(t, false))
+	out := callExtension(context.Background(), s, MethodGrokAskUserQuestion, askParams(t, false))
 	_ = waitEvent(t, s, event.TypeQuestion)
 
 	res := (<-out).(askUserQuestionResult)
@@ -349,7 +353,7 @@ func TestAskUserQuestionTimeoutMarksTimedOut(t *testing.T) {
 // the client the form is gone, exactly as for a pending permission.
 func TestCloseUnblocksPendingQuestion(t *testing.T) {
 	s := newExtSession(0)
-	out := callExtension(context.Background(), s, methodAskUserQuestion, askParams(t, false))
+	out := callExtension(context.Background(), s, MethodGrokAskUserQuestion, askParams(t, false))
 	_ = waitEvent(t, s, event.TypeQuestion)
 
 	if err := s.Close(context.Background()); err != nil {

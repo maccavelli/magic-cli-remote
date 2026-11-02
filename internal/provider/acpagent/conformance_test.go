@@ -186,7 +186,7 @@ func TestExtensionKeysConform(t *testing.T) {
 			evidence: "recorded: G1, opencode 2.2.3 (testdata/wire/2.2.3)",
 			register: func(spec *Spec, hit func()) {
 				spec.ExtensionNotifications = map[string]ExtensionNotificationHandler{
-					childUpdateMethod: func(context.Context, *session, json.RawMessage) { hit() },
+					childUpdateMethod: func(context.Context, Host, json.RawMessage) { hit() },
 				}
 			},
 			drive: func(t *testing.T, s *session, a *wireAgent) { a.sendRaw(childUpdate); barrier(t, s, a) },
@@ -196,7 +196,7 @@ func TestExtensionKeysConform(t *testing.T) {
 			evidence: "transcribed: opencode translate.ts:275 at b44b7164ba",
 			register: func(spec *Spec, hit func()) {
 				spec.MetaHandlers = map[string]MetaHandler{
-					retryKey: func(_ context.Context, _ *session, from MetaSource, _ json.RawMessage) {
+					retryKey: func(_ context.Context, _ Host, from MetaSource, _ json.RawMessage) {
 						if from == MetaFromSessionInfo {
 							hit()
 						}
@@ -213,7 +213,7 @@ func TestExtensionKeysConform(t *testing.T) {
 			evidence: "transcribed: opencode translate.ts:166 at b44b7164ba",
 			register: func(spec *Spec, hit func()) {
 				spec.MetaHandlers = map[string]MetaHandler{
-					retryKey: func(_ context.Context, _ *session, from MetaSource, _ json.RawMessage) {
+					retryKey: func(_ context.Context, _ Host, from MetaSource, _ json.RawMessage) {
 						if from == MetaFromPromptResult {
 							hit()
 						}

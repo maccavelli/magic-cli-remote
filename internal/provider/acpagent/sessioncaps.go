@@ -163,21 +163,6 @@ func (s *session) connOrNil() *acp.ClientSideConnection {
 // the only way the wire allows: call it, and read a JSON-RPC method-not-found
 // as "this build does not have it" rather than as a failure worth showing
 // anyone.
-func callAgentExtension(ctx context.Context, s *session, method string, params any, out any) error {
-	if s.connOrNil() == nil {
-		return errors.New("session is not connected")
-	}
-	callCtx, cancel := context.WithTimeout(ctx, extCallTimeout)
-	defer cancel()
-
-	if err := s.rawRequest(callCtx, "_"+method, params, out); err != nil {
-		if acp.IsMethodNotFound(err) {
-			return fmt.Errorf("%w: agent has no %s", provider.ErrNotImplemented, method)
-		}
-		return fmt.Errorf("%s: %w", method, err)
-	}
-	return nil
-}
 
 func derefString(p *string) string {
 	if p == nil {
@@ -214,26 +199,42 @@ func (s *session) CurrentModel() string {
 // agent can't compact its conversation" — which was mcremote's limitation, not
 // grok's.
 func (s *session) Compact(ctx context.Context) error {
-	agentID := s.AgentSessionID()
+	if s.ops.Compact == nil {
+		return errNotOffered("compaction")
+	}
+	return s.ops.Compact(ctx, s)
+}
+
+// GrokCompact is grok's Ops.Compact, over `x.ai/compact_conversation`.
+func GrokCompact(ctx context.Context, h Host) error {
+	agentID := h.AgentSessionID()
 	if agentID == "" {
 		return errors.New("session has no agent session id")
 	}
-	return callAgentExtension(ctx, s, "x.ai/compact_conversation", map[string]any{
+	return h.CallExtension(ctx, "_x.ai/compact_conversation", map[string]any{
 		"sessionId": agentID,
 	}, nil)
 }
 
 // Rename implements provider.RenameSession over grok's `x.ai/session/rename`.
 func (s *session) Rename(ctx context.Context, title string) error {
+	if s.ops.Rename == nil {
+		return errNotOffered("rename")
+	}
+	return s.ops.Rename(ctx, s, title)
+}
+
+// GrokRename is grok's Ops.Rename, over `x.ai/session/rename`.
+func GrokRename(ctx context.Context, h Host, title string) error {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return errors.New("title is empty")
 	}
-	agentID := s.AgentSessionID()
+	agentID := h.AgentSessionID()
 	if agentID == "" {
 		return errors.New("session has no agent session id")
 	}
-	return callAgentExtension(ctx, s, "x.ai/session/rename", map[string]any{
+	return h.CallExtension(ctx, "_x.ai/session/rename", map[string]any{
 		"sessionId": agentID,
 		"title":     title,
 	}, nil)

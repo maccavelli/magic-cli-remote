@@ -27,7 +27,7 @@ type setModelResponse struct {
 // setModelFallback switches the model with grok's session/set_model, which
 // schema 1.25 does not define (verified live against grok 0.2.112; MADR 0039
 // D1).
-func setModelFallback(ctx context.Context, rc acpagent.RawCaller, model string) (string, error) {
+func setModelFallback(ctx context.Context, rc acpagent.Host, model string) (string, error) {
 	var resp setModelResponse
 	if err := rc.RawRequest(ctx, "session/set_model",
 		map[string]any{"sessionId": rc.AgentSessionID(), "modelId": model}, &resp); err != nil {
@@ -45,7 +45,7 @@ func setModelFallback(ctx context.Context, rc acpagent.RawCaller, model string) 
 // setThinkingFallback applies grok 1.0.5 session/set_model
 // `_meta.reasoningEffort` and returns the effort session/resume reads back
 // (MADR 0106).
-func setThinkingFallback(ctx context.Context, rc acpagent.RawCaller, modelID, level string) (string, error) {
+func setThinkingFallback(ctx context.Context, rc acpagent.Host, modelID, level string) (string, error) {
 	var resp setModelResponse
 	if err := rc.RawRequest(ctx, "session/set_model",
 		setThinkingRequest(rc.AgentSessionID(), modelID, level), &resp); err != nil {

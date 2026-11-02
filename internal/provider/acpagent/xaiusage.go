@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 
 	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
@@ -35,30 +36,74 @@ type xaiUsage struct {
 	CostIsPartial bool `json:"costIsPartial"`
 }
 
+// GrokSessionState is grok's own state for one session (Spec.NewSessionState;
+// MADR 0208, amendment of 2026-11-01).
+//
+// The cost ledger is the session's cost so far, summed from every turn's
+// `costUsdTicks`, replayed or live. prompts holds the prompt_ids already
+// counted, and unknown is set once a turn's cost is missing or partial, after
+// which no total is reported (MADR 0199 E1, E3).
+//
+// The compaction counter numbers the compactions grok reports on its own
+// channel, which carry no ID, and open is the one grok has started and not yet
+// ended (MADR 0208, P4b deviation 1). Touched only from the notification
+// handler goroutine.
+type GrokSessionState struct {
+	mu      sync.Mutex
+	ticks   int64
+	prompts map[string]bool
+	unknown bool
+
+	compactions    int
+	compactionOpen string
+}
+
+// NewGrokSessionState is grok's Spec.NewSessionState.
+func NewGrokSessionState() any { return &GrokSessionState{} }
+
+// grokState returns h's grok state. A session built without grok's Spec has
+// none, and gets a fresh one that is not kept.
+func grokState(h Host) *GrokSessionState {
+	if st, ok := h.SpecState().(*GrokSessionState); ok {
+		return st
+	}
+	return &GrokSessionState{}
+}
+
 // addTurnCost folds one turn's cost into the session total (MADR 0199 E1, E3).
 // A prompt_id already counted adds nothing; a turn without one is counted,
 // because nothing could match it. A missing or partial cost makes the total
 // unknowable, and it stays so for the life of this agent process.
-func (s *session) addTurnCost(promptID string, u *xaiUsage) {
+func (st *GrokSessionState) addTurnCost(promptID string, u *xaiUsage) {
 	if u == nil {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	if u.CostUsdTicks == nil || u.CostIsPartial {
-		s.costUnknown = true
+		st.unknown = true
 		return
 	}
 	if promptID != "" {
-		if s.costPrompts[promptID] {
+		if st.prompts[promptID] {
 			return
 		}
-		if s.costPrompts == nil {
-			s.costPrompts = make(map[string]bool)
+		if st.prompts == nil {
+			st.prompts = make(map[string]bool)
 		}
-		s.costPrompts[promptID] = true
+		st.prompts[promptID] = true
 	}
-	s.costTicks += *u.CostUsdTicks
+	st.ticks += *u.CostUsdTicks
+}
+
+// sessionCost is the total so far, or nil once it is unknowable.
+func (st *GrokSessionState) sessionCost() *event.SessionCost {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.unknown {
+		return nil
+	}
+	return &event.SessionCost{Amount: float64(st.ticks) / usdTicksPerUSD, Currency: "USD"}
 }
 
 // emitXAIUsage publishes grok's token split, and on a live turn the session's
@@ -76,7 +121,7 @@ func (s *session) addTurnCost(promptID string, u *xaiUsage) {
 // A replayed turn reports no session cost: the daemon replaces its stored total
 // with any figure it is sent (MADR 0189 D2), so a sum taken partway through a
 // replay would briefly undercut it.
-func (s *session) emitXAIUsage(u *xaiUsage, replay bool) {
+func emitXAIUsage(h Host, u *xaiUsage, replay bool) {
 	if u == nil || u.TotalTokens <= 0 {
 		return
 	}
@@ -88,22 +133,10 @@ func (s *session) emitXAIUsage(u *xaiUsage, replay bool) {
 		CacheRead:  int64(u.CachedReadTokens),
 		CacheWrite: int64(u.CacheCreationTokens),
 	}
-	s.mu.Lock()
-	if !replay {
-		s.turnXAIUsage = true
+	if !replay && !h.Loading() {
+		usage.SessionCost = grokState(h).sessionCost()
 	}
-	if !replay && !s.loading && !s.costUnknown {
-		usage.SessionCost = &event.SessionCost{
-			Amount:   float64(s.costTicks) / usdTicksPerUSD,
-			Currency: "USD",
-		}
-	}
-	s.mu.Unlock()
-	s.emit(event.Event{
-		Type:      event.TypeUsage,
-		SessionID: s.localID,
-		Usage:     usage,
-	})
+	h.ReportUsage(usage, replay)
 }
 
 // HandleXAISessionUpdate handles grok's `_x.ai/session/update`, the channel a
@@ -115,7 +148,7 @@ func (s *session) emitXAIUsage(u *xaiUsage, replay bool) {
 // rebuild the session's total. Nothing is emitted from here — the history the
 // replay restores is the standard `session/update` stream's to deliver. Every
 // other variant is declined by name.
-func HandleXAISessionUpdate(_ context.Context, s *session, params json.RawMessage) {
+func HandleXAISessionUpdate(_ context.Context, h Host, params json.RawMessage) {
 	var env struct {
 		SessionID string `json:"sessionId"`
 		Update    struct {
@@ -125,38 +158,38 @@ func HandleXAISessionUpdate(_ context.Context, s *session, params json.RawMessag
 		} `json:"update"`
 	}
 	if err := json.Unmarshal(params, &env); err != nil {
-		if s.log != nil {
-			s.log.Debug("x.ai session/update: parse failed", slog.String("err", err.Error()))
+		if log := h.Log(); log != nil {
+			log.Debug("x.ai session/update: parse failed", slog.String("err", err.Error()))
 		}
 		return
 	}
 	// The same origin rule as the live channel: a child session's records are
 	// not this conversation's spend.
 	if id := env.SessionID; id != "" {
-		if live := s.AgentSessionID(); live != "" && id != live {
+		if live := h.AgentSessionID(); live != "" && id != live {
 			return
 		}
 	}
 	if env.Update.SessionUpdate == "turn_completed" {
-		s.addTurnCost(env.Update.PromptID, env.Update.Usage)
+		grokState(h).addTurnCost(env.Update.PromptID, env.Update.Usage)
 		return
 	}
-	s.declineUpdate("_x.ai/session/update." + env.Update.SessionUpdate)
+	h.Decline("_x.ai/session/update." + env.Update.SessionUpdate)
 }
 
 // beginTurnUsage starts a turn's usage accounting: nothing reported yet.
 func (s *session) beginTurnUsage() {
 	s.mu.Lock()
-	s.turnXAIUsage = false
+	s.turnUsageReported = false
 	s.mu.Unlock()
 }
 
 // emitTurnUsage publishes the token split an agent's prompt answer carries, the
-// unstable `PromptResponse.usage`, unless grok reported this turn on its own
-// channel first, which it does before the answer (frames 82 and 85 of grok
-// 1.0.13's wire capture), so grok is never counted twice (MADR 0207 amendment
-// H, D25). The accounting of MADR 0189 and 0199 is unchanged: no cost travels
-// here.
+// unstable `PromptResponse.usage`, unless the Spec reported this turn on its
+// own channel first (Host.ReportUsage), as grok does before the answer (frames
+// 82 and 85 of grok 1.0.13's wire capture), so a turn is never counted twice
+// (MADR 0207 amendment H, D25). The accounting of MADR 0189 and 0199 is
+// unchanged: no cost travels here.
 //
 // The phone replaces its usage with each report's, so this report carries the
 // context gauge the last usage_update set. Before any, Used is the turn's total
@@ -168,7 +201,7 @@ func (s *session) emitTurnUsage(resp acp.PromptResponse) {
 		return
 	}
 	s.mu.Lock()
-	reported, used, size := s.turnXAIUsage, s.gaugeUsed, s.gaugeSize
+	reported, used, size := s.turnUsageReported, s.gaugeUsed, s.gaugeSize
 	s.mu.Unlock()
 	if reported {
 		return

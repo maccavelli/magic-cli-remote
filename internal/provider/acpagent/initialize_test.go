@@ -97,7 +97,7 @@ func TestApplyInitializeResponseRecordsWhatGrokReported(t *testing.T) {
 	if err := json.Unmarshal(grokInitializeResult(t), &resp); err != nil {
 		t.Fatalf("decode typed InitializeResponse: %v", err)
 	}
-	p := &Provider{log: slog.Default()}
+	p := &Provider{log: slog.Default(), spec: Spec{InitializeMeta: GrokInitializeMeta}}
 	s := &session{log: slog.Default()}
 
 	p.applyInitializeResponse(s, resp)

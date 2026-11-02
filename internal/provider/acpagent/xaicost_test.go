@@ -65,7 +65,7 @@ func TestReplayedTurnCostsRebuildTheSessionTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	s := newQueueTestSession()
+	s := bindGrok(newQueueTestSession())
 	s.loading = true
 	replayed := 0
 	sc := bufio.NewScanner(f)
@@ -121,7 +121,7 @@ func TestReplayedTurnCostsRebuildTheSessionTotal(t *testing.T) {
 
 // TestARepeatedTurnCountsOnce is 0199 E1's dedupe by prompt_id.
 func TestARepeatedTurnCountsOnce(t *testing.T) {
-	s := newQueueTestSession()
+	s := bindGrok(newQueueTestSession())
 	liveTurn(t, s, "p1", new(int64(100)), false, false)
 	_ = drainUsage(t, s)
 	liveTurn(t, s, "p1", new(int64(100)), false, false)
@@ -134,7 +134,7 @@ func TestARepeatedTurnCountsOnce(t *testing.T) {
 // TestALiveTurnWithoutAPromptIDStillCounts: nothing can match such a turn, so
 // it is counted rather than lost.
 func TestALiveTurnWithoutAPromptIDStillCounts(t *testing.T) {
-	s := newQueueTestSession()
+	s := bindGrok(newQueueTestSession())
 	liveTurn(t, s, "", new(int64(100)), false, false)
 	_ = drainUsage(t, s)
 	liveTurn(t, s, "", new(int64(100)), false, false)
@@ -157,7 +157,7 @@ func TestAnUnknownTurnCostStopsTheSessionTotal(t *testing.T) {
 		{"partial cost", new(int64(50)), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newQueueTestSession()
+			s := bindGrok(newQueueTestSession())
 			liveTurn(t, s, "p1", new(int64(100)), false, false)
 			if u := drainUsage(t, s); u.SessionCost == nil {
 				t.Fatal("first turn reported no session cost")
@@ -179,7 +179,7 @@ func TestAnUnknownTurnCostStopsTheSessionTotal(t *testing.T) {
 // more than turns (a `background_tasks` in the 1.0.50 load capture). Those are
 // declined by name, not silently dropped, and nothing is emitted.
 func TestReplayChannelDeclinesOtherVariantsByName(t *testing.T) {
-	s := newQueueTestSession()
+	s := bindGrok(newQueueTestSession())
 	params := json.RawMessage(`{"sessionId":"agent-q","update":{"sessionUpdate":"background_tasks","tasks":[]},` +
 		`"_meta":{"isReplay":true}}`)
 	HandleXAISessionUpdate(context.Background(), s, params)

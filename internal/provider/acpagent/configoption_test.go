@@ -36,11 +36,11 @@ func parseConfigOptions(t *testing.T, raw string) []acp.SessionConfigOption {
 // refusingFallbacks is a Spec whose vendor hooks fail the test if they run.
 func refusingFallbacks(t *testing.T) Spec {
 	return Spec{
-		SetModelFallback: func(context.Context, RawCaller, string) (string, error) {
+		SetModelFallback: func(context.Context, Host, string) (string, error) {
 			t.Error("SetModelFallback ran although the agent offers a model option")
 			return "", errors.New("fallback")
 		},
-		SetThinkingFallback: func(context.Context, RawCaller, string, string) (string, error) {
+		SetThinkingFallback: func(context.Context, Host, string, string) (string, error) {
 			t.Error("SetThinkingFallback ran although the agent offers a thought_level option")
 			return "", errors.New("fallback")
 		},
@@ -140,20 +140,20 @@ func TestModelAndThinkingUseStandardConfigOptions(t *testing.T) {
 
 // TestModelAndThinkingFallBackOnlyWithoutStandardOptions: an agent that offers
 // no such option gets the Spec's fallbacks, with the session as their
-// RawCaller, and nothing goes on the wire from acpagent itself.
+// Host, and nothing goes on the wire from acpagent itself.
 func TestModelAndThinkingFallBackOnlyWithoutStandardOptions(t *testing.T) {
 	ctx := context.Background()
 	s, a := newWireSession(t, `{}`)
 	var models, levels []string
 	s.provider = &Provider{spec: Spec{
-		SetModelFallback: func(_ context.Context, rc RawCaller, model string) (string, error) {
+		SetModelFallback: func(_ context.Context, rc Host, model string) (string, error) {
 			if rc.AgentSessionID() != "agent-1" {
-				t.Errorf("fallback RawCaller session = %q", rc.AgentSessionID())
+				t.Errorf("fallback Host session = %q", rc.AgentSessionID())
 			}
 			models = append(models, model)
 			return model, nil
 		},
-		SetThinkingFallback: func(_ context.Context, _ RawCaller, modelID, level string) (string, error) {
+		SetThinkingFallback: func(_ context.Context, _ Host, modelID, level string) (string, error) {
 			levels = append(levels, modelID+"/"+level)
 			return level, nil
 		},

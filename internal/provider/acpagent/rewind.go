@@ -76,7 +76,15 @@ type rewindConflict struct {
 
 var _ provider.UndoSession = (*session)(nil)
 
-// UndoLast implements [provider.UndoSession] over grok's rewind extension.
+// UndoLast implements [provider.UndoSession] through the Spec's Ops.UndoLast.
+func (s *session) UndoLast(ctx context.Context) (string, error) {
+	if s.ops.UndoLast == nil {
+		return "", errNotOffered("undo")
+	}
+	return s.ops.UndoLast(ctx, s)
+}
+
+// GrokUndoLast is grok's Ops.UndoLast, over its rewind extension.
 //
 // UndoSession and not RevertSession: Revert takes a provider-native message id,
 // and grok emits none — its rewind is indexed by prompt position. UndoSession
@@ -86,14 +94,14 @@ var _ provider.UndoSession = (*session)(nil)
 // There is deliberately no Unrevert. grok has no un-rewind, so `/redo` stays
 // unavailable on it rather than being wired to something that only resembles
 // one.
-func (s *session) UndoLast(ctx context.Context) (string, error) {
-	agentID := s.AgentSessionID()
+func GrokUndoLast(ctx context.Context, h Host) (string, error) {
+	agentID := h.AgentSessionID()
 	if agentID == "" {
 		return "", errors.New("session has no agent session id")
 	}
 
 	var points rewindPointsResponse
-	if err := callAgentExtension(ctx, s, "x.ai/rewind/points",
+	if err := h.CallExtension(ctx, "_x.ai/rewind/points",
 		rewindPointsRequest{SessionID: agentID}, &points); err != nil {
 		return "", err
 	}
@@ -105,7 +113,7 @@ func (s *session) UndoLast(ctx context.Context) (string, error) {
 	}
 
 	var res rewindExecuteResponse
-	if err := callAgentExtension(ctx, s, "x.ai/rewind/execute", rewindExecuteRequest{
+	if err := h.CallExtension(ctx, "_x.ai/rewind/execute", rewindExecuteRequest{
 		SessionID:         agentID,
 		TargetPromptIndex: target.PromptIndex,
 		Force:             false,

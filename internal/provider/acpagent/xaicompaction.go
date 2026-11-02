@@ -2,8 +2,6 @@ package acpagent
 
 import (
 	"fmt"
-	"strings"
-	"time"
 
 	acp "github.com/maccavelli/acp-go-sdk2"
 )
@@ -29,29 +27,21 @@ var xaiCompactionStatus = map[string]acp.CompactionStatus{
 //
 // The summary is grok's `summary_preview` and the error is grok's `error`, as
 // sent. Nothing of Magic's own wording is added (MADR 0208 D11).
-func (s *session) onXAICompaction(variant, errText string, preview *string, now time.Time) {
+func onXAICompaction(h Host, variant, errText string, preview *string) {
 	status, ok := xaiCompactionStatus[variant]
 	if !ok {
 		return
 	}
-	id := s.xaiCompactionOpen
+	st := grokState(h)
+	id := st.compactionOpen
 	if id == "" {
-		s.xaiCompactions++
-		id = acp.CompactionId(fmt.Sprintf("xai-%d", s.xaiCompactions))
+		st.compactions++
+		id = fmt.Sprintf("xai-%d", st.compactions)
 	}
-	e, _ := s.compactions.entry(id)
-	e.status = string(status)
 	if status == acp.CompactionStatusInProgress {
-		s.xaiCompactionOpen = id
+		st.compactionOpen = id
 	} else {
-		s.xaiCompactionOpen = ""
+		st.compactionOpen = ""
 	}
-	if preview != nil {
-		e.summary, e.truncated = e.summary[:0], false
-		e.appendSummary(strings.TrimSpace(*preview))
-	}
-	if status == acp.CompactionStatusFailed {
-		e.err = strings.TrimSpace(errText)
-	}
-	s.emitCompaction(id, e, now)
+	h.UpdateCompaction(id, status, preview, errText)
 }

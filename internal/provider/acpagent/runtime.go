@@ -43,7 +43,25 @@ type sessionUsageRequest struct {
 	SessionID string `json:"sessionId"`
 }
 
-// RuntimeUsage implements [provider.RuntimeSession] over grok's session ledger.
+// RuntimeUsage implements [provider.RuntimeSession] through the Spec's
+// Ops.RuntimeUsage.
+func (s *session) RuntimeUsage(ctx context.Context) (provider.Result, error) {
+	if s.ops.RuntimeUsage == nil {
+		return provider.Result{Text: "Usage is unavailable: this agent offers no usage report."}, nil
+	}
+	return s.ops.RuntimeUsage(ctx, s)
+}
+
+// RuntimeStatus implements [provider.RuntimeSession] through the Spec's
+// Ops.RuntimeStatus.
+func (s *session) RuntimeStatus(ctx context.Context) (provider.Result, error) {
+	if s.ops.RuntimeStatus == nil {
+		return provider.Result{Text: "Status is unavailable: this agent offers no status report."}, nil
+	}
+	return s.ops.RuntimeStatus(ctx, s)
+}
+
+// GrokRuntimeUsage is grok's Ops.RuntimeUsage, over its session ledger.
 //
 // This is cumulative and includes folded subagent spend, which is what makes it
 // worth a call: the per-turn `turn_completed` notification this package already
@@ -53,17 +71,16 @@ type sessionUsageRequest struct {
 // (internal/provider/codex/runtime.go). internal/session's cmdRuntime
 // propagates a returned error instead of displaying it, so an error here makes
 // `/usage` fail silently rather than explain itself.
-func (s *session) RuntimeUsage(ctx context.Context) (provider.Result, error) {
-	agentID := s.AgentSessionID()
+func GrokRuntimeUsage(ctx context.Context, h Host) (provider.Result, error) {
+	agentID := h.AgentSessionID()
 	if agentID == "" {
 		return provider.Result{Text: "Grok usage is unavailable: this session has no agent session id."}, nil
 	}
-	return extensionResult(ctx, s, "x.ai/session/usage",
+	return extensionResult(ctx, h, "_x.ai/session/usage",
 		sessionUsageRequest{SessionID: agentID}, "Grok usage"), nil
 }
 
-// RuntimeStatus implements [provider.RuntimeSession] over grok's billing
-// config.
+// GrokRuntimeStatus is grok's Ops.RuntimeStatus, over its billing config.
 //
 // Unlike every other extension call in this package, this one leaves the
 // machine: grok fetches it over HTTP from its CLI chat proxy using the
@@ -71,24 +88,24 @@ func (s *session) RuntimeUsage(ctx context.Context) (provider.Result, error) {
 // authenticated by API key — which mcremote supports and lists in
 // SafeAuthMethodIDs — can never satisfy that gate, so "unavailable" is an
 // ordinary outcome here rather than a fault, and is reported as text.
-func (s *session) RuntimeStatus(ctx context.Context) (provider.Result, error) {
+func GrokRuntimeStatus(ctx context.Context, h Host) (provider.Result, error) {
 	// The handler takes no params; an empty object is what grok's own clients
 	// send.
-	return extensionResult(ctx, s, "x.ai/billing", map[string]any{}, "Grok billing"), nil
+	return extensionResult(ctx, h, "_x.ai/billing", map[string]any{}, "Grok billing"), nil
 }
 
 // extensionResult calls one grok extension and returns its response body
 // exactly as grok sent it. A call that fails comes back as one line saying why,
 // named by what.
-func extensionResult(ctx context.Context, s *session, method string, params any, what string) provider.Result {
+func extensionResult(ctx context.Context, h Host, method string, params any, what string) provider.Result {
 	var body json.RawMessage
-	if err := callAgentExtension(ctx, s, method, params, &body); err != nil {
+	if err := h.CallExtension(ctx, method, params, &body); err != nil {
 		return provider.Result{Text: what + " is unavailable: " + unavailableReason(err)}
 	}
 	if len(body) == 0 {
 		return provider.Result{Text: what + " returned no answer."}
 	}
-	return provider.Result{Method: "_" + method, Body: body}
+	return provider.Result{Method: method, Body: body}
 }
 
 // cent is the billing API's money unit — USD **cents**, not the ticks used by

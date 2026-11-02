@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 )
 
 func TestAppliedModelAndEffortFromMeta(t *testing.T) {
@@ -96,8 +98,10 @@ type rawCall struct {
 }
 
 // fakeRawCaller answers each method with a canned JSON result and records
-// what was sent.
+// what was sent. It is a Host by its embedded interface, which is nil: a
+// fallback that calls any other Host method panics.
 type fakeRawCaller struct {
+	acpagent.Host
 	answers map[string]string
 	fail    map[string]error
 	calls   []rawCall

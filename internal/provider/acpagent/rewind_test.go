@@ -97,6 +97,7 @@ func newScriptedSession(t *testing.T, replies map[string]string) (*session, *scr
 		done:     make(chan struct{}),
 		attached: true,
 	}
+	bindGrok(s)
 	s.conn = acp.NewClientSideConnection(s, clientWrites, clientReads)
 
 	go func() {
@@ -405,7 +406,7 @@ func TestCallAgentExtensionPrefixesTheMethod(t *testing.T) {
 	})
 
 	var points rewindPointsResponse
-	if err := callAgentExtension(context.Background(), s, "x.ai/rewind/points",
+	if err := s.CallExtension(context.Background(), "_x.ai/rewind/points",
 		rewindPointsRequest{SessionID: s.agentID}, &points); err != nil {
 		t.Fatalf("callAgentExtension: %v", err)
 	}
@@ -512,8 +513,11 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 	sites := 0
 	for _, file := range files {
 		ast.Inspect(file, func(n ast.Node) bool {
-			if fd, ok := n.(*ast.FuncDecl); ok && fd.Name.Name == "RawRequest" {
-				return false // the RawCaller wrapper; its method is a parameter
+			if fd, ok := n.(*ast.FuncDecl); ok {
+				switch fd.Name.Name {
+				case "rawRequest", "RawRequest", "CallExtension", "extensionResult":
+					return false // wrappers whose method is a parameter; their callers are checked
+				}
 			}
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -522,12 +526,13 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 			where := fset.Position(call.Pos())
 			switch fn := call.Fun.(type) {
 			case *ast.SelectorExpr:
-				if fn.Sel.Name != "rawRequest" {
+				switch fn.Sel.Name {
+				case "rawRequest", "RawRequest", "CallExtension":
+				default:
 					return true
 				}
-				// rawRequest(ctx, method, params, out)
-				// The one legitimately computed name is callAgentExtension's
-				// own `"_"+method`, which is prefixed by construction.
+				// rawRequest, RawRequest and CallExtension(ctx, method, params, out)
+				// take the method in full, as the wire carries it.
 				if bin, ok := call.Args[1].(*ast.BinaryExpr); ok {
 					if lit, ok := bin.X.(*ast.BasicLit); ok && bin.Op == token.ADD &&
 						lit.Kind == token.STRING && lit.Value == `"_"` {
@@ -537,29 +542,32 @@ func TestNoExtensionMethodIsWrittenWithoutItsUnderscore(t *testing.T) {
 				}
 				method := literalArg(call, 1)
 				if method == "" {
-					t.Errorf("%s: rawRequest is called with a computed method name that is not "+
-						"provably `\"_\"+…`; this check can only reason about literals", where)
+					t.Errorf("%s: %s is called with a computed method name that is not "+
+						"provably `\"_\"+…`; this check can only reason about literals", where, fn.Sel.Name)
 					return true
 				}
 				sites++
 				if !isExtensionMethod(method) && !standard[method] {
-					t.Errorf("%s: rawRequest(%q) takes the standard-method raw path, which no "+
+					t.Errorf("%s: %s(%q) takes the standard-method raw path, which no "+
 						"call in this package may use. If %q is a vendor extension it must be "+
-						"written with its leading underscore", where, method, method)
+						"written with its leading underscore", where, fn.Sel.Name, method, method)
 				}
 			case *ast.Ident:
-				if fn.Name != "callAgentExtension" {
+				if fn.Name != "extensionResult" {
 					return true
 				}
-				// callAgentExtension(ctx, s, method, params, out)
+				// extensionResult(ctx, h, method, params, what) passes method to
+				// CallExtension as it is.
 				method := literalArg(call, 2)
 				if method == "" {
+					t.Errorf("%s: extensionResult is called with a computed method name; "+
+						"this check can only reason about literals", where)
 					return true
 				}
 				sites++
-				if isExtensionMethod(method) {
-					t.Errorf("%s: callAgentExtension(%q) — the helper adds the underscore itself, "+
-						"so this would send a double-prefixed method", where, method)
+				if !isExtensionMethod(method) {
+					t.Errorf("%s: extensionResult(%q) sends a vendor extension without its "+
+						"leading underscore", where, method)
 				}
 			}
 			return true

@@ -1359,3 +1359,96 @@ plan, and the 0225 plan.
   follows 0214.
 - **Files added to P6's scope:** `internal/provider/acpagent/host.go` (new); in P6c,
   `internal/provider/opencode/` for the tests that move there.
+
+*The owner committed the amendment as `94bd486b`.*
+
+### P6a, 2026-11-01: `Host`, and every hook takes it
+
+**What changed.**
+
+* `acpagent/host.go` (new) defines `Host`, which `*session` implements. Its methods:
+  * identity: `AgentSessionID`, `CWD`, `Log`, `Config`, `Loading`, `SpecState`;
+  * the wire: `RawRequest`, and `CallExtension`, which takes the full wire name and keeps the
+    timeout and the method-not-found mapping of the retired `callAgentExtension`;
+  * events: `Emit`, `Decline`, `Notice`, `NoteSubagent`, `ReportUsage`, `UpdateCompaction`;
+  * limits: `NoteLimitText` (the stderr classifier's path), and `EndTurnWithLimit` (a limit
+    reported structurally, with its retry time);
+  * state `acpagent` holds: `UpdateMCPStatus`, `SetModelCatalog`;
+  * round trips: `AwaitPermission`, `AwaitAnswers`.
+* `Spec` gains `ExtensionRequests`, `NewSessionState`, `InitializeMeta` and `Ops` (`Fork`,
+  `Compact`, `Rename`, `UndoLast`, `RuntimeUsage`, `RuntimeStatus`, `ConfirmLimit`).
+  `ExtensionNotificationHandler`, `MetaHandler` and the two fallbacks take a `Host`, and
+  `RawCaller` is gone. `bindSpec` gives a session what its Spec registers, in `Start` and in the
+  wire-test helper.
+* Dispatch:
+  * `HandleExtensionMethod` serves the Spec's request and notification maps; the two grok names
+    are no longer in a `switch`.
+  * The session's `Fork`, `Compact`, `Rename`, `UndoLast`, `RuntimeUsage` and `RuntimeStatus`
+    call the Spec's `Ops`.
+  * The limit card's check calls `Ops.ConfirmLimit`.
+  * `applyInitializeResponse` reads `_meta` through `Spec.InitializeMeta`.
+  * A retry time from `EndTurnWithLimit` fills the card when the text names none.
+* grok's code, still in `acpagent`, now uses only `Host`:
+  * the notification handlers;
+  * `HandleGrokExitPlanMode` and `HandleGrokAskUserQuestion`;
+  * `GrokFork`, `GrokCompact`, `GrokRename`, `GrokUndoLast`, `GrokRuntimeUsage`,
+    `GrokRuntimeStatus` and `GrokConfirmLimit`;
+  * `GrokInitializeMeta`.
+
+  Its cost ledger and compaction counter moved from the session into `GrokSessionState`. The
+  session's `turnXAIUsage` is now `turnUsageReported`, set by `Host.ReportUsage`.
+  `internal/provider/grok/grok.go` registers all of it. P6b moves this code to the grok package
+  unchanged.
+* Tests:
+  * new: `host_test.go` (package `acpagent_test`, the fixture Spec), `export_test.go` (its wire
+    harness), and `groktest_test.go` (grok's acpagent-side hooks, for the grok tests here,
+    which cannot import the grok package);
+  * set-up only: the handler literals take `Host`, the grok tests' sessions are bound to grok's
+    hooks, and grok's `fakeRawCaller` embeds `acpagent.Host`.
+  * The two source scans (`rawpath_test.go`, and `rewind_test.go`'s underscore check) follow the
+    vendor calls to the callers of `CallExtension`, `RawRequest` and `extensionResult`. They
+    still assert that every vendor method is a literal with its leading `_`.
+
+**Differences from before, all small.**
+
+* A Spec with no `Ops` answers fork, compaction, rename and undo with
+  `provider.ErrNotImplemented` ("this agent offers no …"), and `/usage` and `/status` with one
+  line. Before, every ACP Spec sent grok's `x.ai` methods. grok is the only ACP Spec registered,
+  so no user sees a change (MADR D2: a nil operation is not offered).
+* grok's billing-probe log lines carry `agent_session_id` instead of Magic's session id, which
+  `Host` does not expose.
+* An extension call's error names the method with its leading `_`, as the wire spells it.
+
+**Tests, each seen failing** (`p6/plant_p6a.py` in the session scratchpad, on scratch copies):
+
+| Plant | Fails |
+| --- | --- |
+| HEAD, with the fixture tests added | does not compile: "unknown field NewSessionState in struct literal of type acpagent.Spec", "undefined: acpagent.Host" |
+| `NoteSubagent` stubbed | `TestHostDrivesTheSubagentPanel`: "no subagents event" |
+| `Notice` stubbed | `TestHostPostsANotice`: "no notice event" |
+| extension requests not dispatched | `TestHostAnswersAnExtensionRequestWithSpecState`: "answer 1 = null (code -32601)" |
+| `SpecState` stubbed | the same test, by a panic on the fixture's state assertion |
+| `EndTurnWithLimit` stubbed | `TestHostEndsATurnWithALimitAndItsRetryTime`: "no turn_complete event" |
+| the retry time dropped | the same test: "retry at 0001-01-01 …, want 2026-11-01 12:00:05" |
+| `_x.ai/billing` written without its `_` | both scans: "GrokConfirmLimit sends the standard method \"x.ai/billing\" untyped", and "CallExtension(\"x.ai/billing\") takes the standard-method raw path" |
+| `_x.ai/session/usage` written without its `_` | both scans, the second as "extensionResult(\"x.ai/session/usage\") sends a vendor extension without its leading underscore" |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 45 packages ok, `acpagent` and `grok` among them, no race |
+| `make pre-add-check FILES=…` (the 36 changed Go files) | "36 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags` | exit 0 each |
+
+grok's unit, conformance and wire suites pass (step 4). Their assertions are unchanged; only their
+set-up changed, as listed above.
+
+**Not done here:** moving grok's code (P6b), auth selection as a Spec policy (P6b), the source
+test and comments (P6c), and declared capabilities (P6d).
+
+**Files for this commit:** `internal/provider/acpagent/` (`host.go` new; `acpagent.go`,
+`extensions.go`, `fork.go`, `quota.go`, `rewind.go`, `runtime.go`, `session.go`,
+`sessioncaps.go`, `subagents.go`, `xaicompaction.go`, `xaiextensions.go`, `xaiusage.go`; tests
+`host_test.go`, `export_test.go`, `groktest_test.go` new, and 18 changed),
+`internal/provider/grok/grok.go`, `fallback.go`, `fallback_test.go`, and this plan.

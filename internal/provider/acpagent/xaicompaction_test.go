@@ -19,7 +19,7 @@ func xaiFrame(session, update string) json.RawMessage {
 // Magic dropped the variant, so the turn looked silent and `/compact` was
 // about to be marked unavailable.
 func TestXAIManualCompactShowsACompaction(t *testing.T) {
-	s := newQueueTestSession()
+	s := bindGrok(newQueueTestSession())
 	HandleXAISessionNotification(context.Background(), s, xaiFrame("agent-q",
 		`{"sessionUpdate":"auto_compact_completed","tokens_before":42000,"tokens_after":9000}`))
 
@@ -50,7 +50,7 @@ func TestXAIAutoCompactFoldsIntoOneCompaction(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newQueueTestSession()
+			s := bindGrok(newQueueTestSession())
 			HandleXAISessionNotification(context.Background(), s, xaiFrame("agent-q",
 				`{"sessionUpdate":"auto_compact_started","tokens_used":200000,`+
 					`"context_window":256000,"percentage":82,"reason":"Context window 82% full"}`))
@@ -73,7 +73,7 @@ func TestXAIAutoCompactFoldsIntoOneCompaction(t *testing.T) {
 // TestXAICompactionsAreNumbered proves a closed compaction is not reopened: the
 // next one grok reports is a new compaction, so the phone shows two.
 func TestXAICompactionsAreNumbered(t *testing.T) {
-	s := newQueueTestSession()
+	s := bindGrok(newQueueTestSession())
 	for _, u := range []string{
 		`{"sessionUpdate":"auto_compact_started","reason":"x"}`,
 		`{"sessionUpdate":"auto_compact_cancelled","reason":"user_cancelled"}`,
@@ -90,7 +90,7 @@ func TestXAICompactionsAreNumbered(t *testing.T) {
 // TestXAICompactionOfAnotherSessionIsNotShown keeps the channel's origin rule:
 // a sub-agent's frames arrive here too, and its compaction is not this one.
 func TestXAICompactionOfAnotherSessionIsNotShown(t *testing.T) {
-	s := newQueueTestSession()
+	s := bindGrok(newQueueTestSession())
 	HandleXAISessionNotification(context.Background(), s, xaiFrame("some-child",
 		`{"sessionUpdate":"auto_compact_completed","tokens_after":1}`))
 	if got := drainCompactions(s); len(got) != 0 {

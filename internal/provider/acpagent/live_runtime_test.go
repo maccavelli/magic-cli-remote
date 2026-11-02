@@ -88,7 +88,7 @@ func TestLiveGrokSessionUsageDecodesStrictly(t *testing.T) {
 	defer cancel()
 
 	var raw json.RawMessage
-	if err := callAgentExtension(ctx, s, "x.ai/session/usage",
+	if err := s.CallExtension(ctx, "_x.ai/session/usage",
 		sessionUsageRequest{SessionID: s.AgentSessionID()}, &raw); err != nil {
 		if errors.Is(err, provider.ErrNotImplemented) {
 			t.Fatalf("this grok build has no _x.ai/session/usage; /usage cannot work on it: %v", err)
@@ -131,7 +131,7 @@ func TestLiveGrokBillingDecodesStrictly(t *testing.T) {
 	defer cancel()
 
 	var raw json.RawMessage
-	err := callAgentExtension(ctx, s, "x.ai/billing", map[string]any{}, &raw)
+	err := s.CallExtension(ctx, "_x.ai/billing", map[string]any{}, &raw)
 	switch {
 	case err == nil:
 		t.Logf("_x.ai/billing returned: %s", raw)

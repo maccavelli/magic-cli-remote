@@ -200,7 +200,7 @@ func TestConfirmLimitIsNotAskedAboutRateLimits(t *testing.T) {
 	for _, kind := range []agenterr.Kind{
 		agenterr.KindRateLimit, agenterr.KindServer, agenterr.KindAuth, agenterr.KindNone,
 	} {
-		summary, confirmed := s.confirmLimit(context.Background(), kind)
+		summary, confirmed := GrokConfirmLimit(context.Background(), s, kind)
 		if summary != "" || confirmed {
 			t.Errorf("kind %q was confirmed against billing (%q)", kind, summary)
 		}
@@ -211,7 +211,7 @@ func TestConfirmLimitIsNotAskedAboutRateLimits(t *testing.T) {
 	}
 
 	// The one kind that is asked.
-	summary, confirmed := s.confirmLimit(context.Background(), agenterr.KindQuota)
+	summary, confirmed := GrokConfirmLimit(context.Background(), s, agenterr.KindQuota)
 	if !confirmed || summary == "" {
 		t.Fatalf("a quota limit was not confirmed: %q", summary)
 	}
@@ -228,7 +228,7 @@ func TestAnUnreachableProbeDoesNotSuppressTheLimit(t *testing.T) {
 	// No billing reply scripted: the probe fails with -32601.
 	s, _ := newScriptedSession(t, map[string]string{})
 
-	summary, confirmed := s.confirmLimit(context.Background(), agenterr.KindQuota)
+	summary, confirmed := GrokConfirmLimit(context.Background(), s, agenterr.KindQuota)
 	if confirmed || summary != "" {
 		t.Fatalf("a failed probe reported confirmation: %q", summary)
 	}

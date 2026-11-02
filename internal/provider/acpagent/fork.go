@@ -19,21 +19,28 @@ func forkRequest(agentID, cwd string) map[string]any {
 
 var _ provider.ForkSession = (*session)(nil)
 
-// Fork implements [provider.ForkSession] via _x.ai/session/fork.
-// LastTurnID is ignored: grok has no turn-boundary field. Manager.Create
-// session/loads the returned id on a new process.
+// Fork implements [provider.ForkSession] through the Spec's Ops.Fork.
+// Manager.Create session/loads the returned id on a new process.
 func (s *session) Fork(ctx context.Context, opts provider.ForkOptions) (provider.ForkResult, error) {
+	if s.ops.Fork == nil {
+		return provider.ForkResult{}, errNotOffered("fork")
+	}
 	if opts.DeferGoalContinuation {
 		return provider.ForkResult{}, fmt.Errorf("defer goal continuation not supported")
 	}
 	s.mu.Lock()
-	agentID := s.agentID
-	cwd := s.cwd
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
 		return provider.ForkResult{}, fmt.Errorf("session closed")
 	}
+	return s.ops.Fork(ctx, s, opts)
+}
+
+// GrokFork is grok's Ops.Fork, via _x.ai/session/fork. LastTurnID is ignored:
+// grok has no turn-boundary field.
+func GrokFork(ctx context.Context, h Host, _ provider.ForkOptions) (provider.ForkResult, error) {
+	agentID, cwd := h.AgentSessionID(), h.CWD()
 	if agentID == "" || cwd == "" {
 		return provider.ForkResult{}, fmt.Errorf("fork: missing session id or cwd")
 	}
@@ -41,7 +48,7 @@ func (s *session) Fork(ctx context.Context, opts provider.ForkOptions) (provider
 		NewSessionID    string `json:"newSessionId"`
 		ParentSessionID string `json:"parentSessionId"`
 	}
-	if err := s.rawRequest(ctx, "_x.ai/session/fork", forkRequest(agentID, cwd), &resp); err != nil {
+	if err := h.RawRequest(ctx, "_x.ai/session/fork", forkRequest(agentID, cwd), &resp); err != nil {
 		return provider.ForkResult{}, err
 	}
 	if resp.NewSessionID == "" {

@@ -304,7 +304,7 @@ func TestElicitationDeclineCancelAndTimeout(t *testing.T) {
 	})
 	t.Run("a grok question cannot be declined", func(t *testing.T) {
 		s, _ := newFormSession(0)
-		out := callExtension(context.Background(), s, methodAskUserQuestion, askParams(t, false))
+		out := callExtension(context.Background(), s, MethodGrokAskUserQuestion, askParams(t, false))
 		req := waitEvent(t, s, event.TypeQuestion)
 		if req.AllowDecline {
 			t.Fatal("grok's ask_user_question offered a decline it cannot return")

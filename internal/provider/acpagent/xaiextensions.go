@@ -20,7 +20,7 @@ import (
 // with no status frame yet is recorded as "connecting", not "ready" — claiming
 // a server is up because it was mentioned is exactly the guess this daemon's
 // status output must not make.
-func HandleXAIMCPServersUpdated(_ context.Context, s *session, params json.RawMessage) {
+func HandleXAIMCPServersUpdated(_ context.Context, h Host, params json.RawMessage) {
 	var p struct {
 		MCPServers []struct {
 			Name string `json:"name"`
@@ -29,8 +29,8 @@ func HandleXAIMCPServersUpdated(_ context.Context, s *session, params json.RawMe
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
-		if s.log != nil {
-			s.log.Debug("x.ai mcp/servers_updated: parse failed",
+		if log := h.Log(); log != nil {
+			log.Debug("x.ai mcp/servers_updated: parse failed",
 				slog.String("err", err.Error()))
 		}
 		return
@@ -38,24 +38,25 @@ func HandleXAIMCPServersUpdated(_ context.Context, s *session, params json.RawMe
 	if len(p.MCPServers) == 0 {
 		return
 	}
-	s.mcpMu.Lock()
-	defer s.mcpMu.Unlock()
-	known := make(map[string]struct{}, len(s.mcpStatus))
-	for _, st := range s.mcpStatus {
-		known[st.Name] = struct{}{}
-	}
-	for _, srv := range p.MCPServers {
-		if srv.Name == "" {
-			continue
+	h.UpdateMCPStatus(func(cur []provider.MCPServerStatus) []provider.MCPServerStatus {
+		known := make(map[string]struct{}, len(cur))
+		for _, st := range cur {
+			known[st.Name] = struct{}{}
 		}
-		if _, ok := known[srv.Name]; ok {
-			continue
+		for _, srv := range p.MCPServers {
+			if srv.Name == "" {
+				continue
+			}
+			if _, ok := known[srv.Name]; ok {
+				continue
+			}
+			cur = append(cur, provider.MCPServerStatus{
+				Name:  srv.Name,
+				State: "connecting",
+			})
 		}
-		s.mcpStatus = append(s.mcpStatus, provider.MCPServerStatus{
-			Name:  srv.Name,
-			State: "connecting",
-		})
-	}
+		return cur
+	})
 }
 
 // HandleXAIMCPInitProgress handles grok's `_x.ai/mcp/init_progress`.
@@ -70,23 +71,24 @@ func HandleXAIMCPServersUpdated(_ context.Context, s *session, params json.RawMe
 // detail — it belongs where an operator investigating latency will find it, not
 // in a conversation. Promoting it to a phone-visible event is a protocol and UI
 // decision that needs its own record.
-func HandleXAIMCPInitProgress(_ context.Context, s *session, params json.RawMessage) {
+func HandleXAIMCPInitProgress(_ context.Context, h Host, params json.RawMessage) {
 	var p struct {
 		Total     int    `json:"total"`
 		Connected int    `json:"connected"`
 		SessionID string `json:"sessionId"`
 	}
-	if err := json.Unmarshal(params, &p); err != nil || s.log == nil {
+	log := h.Log()
+	if err := json.Unmarshal(params, &p); err != nil || log == nil {
 		return
 	}
 	// Origin rule, as everywhere else on this channel: a child session's
 	// progress is not this conversation's.
 	if p.SessionID != "" {
-		if live := s.AgentSessionID(); live != "" && p.SessionID != live {
+		if live := h.AgentSessionID(); live != "" && p.SessionID != live {
 			return
 		}
 	}
-	s.log.Info("grok mcp startup progress",
+	log.Info("grok mcp startup progress",
 		slog.Int("connected", p.Connected),
 		slog.Int("total", p.Total))
 }

@@ -27,7 +27,7 @@ func TestForkRequestOmitsOptionalForkOptions(t *testing.T) {
 }
 
 func TestForkRejectsDeferGoalContinuation(t *testing.T) {
-	s := &session{agentID: "s", cwd: "/tmp"}
+	s := bindGrok(&session{agentID: "s", cwd: "/tmp"})
 	_, err := s.Fork(context.Background(), provider.ForkOptions{DeferGoalContinuation: true})
 	if err == nil || !strings.Contains(err.Error(), "defer goal continuation") {
 		t.Fatalf("err=%v", err)
@@ -35,7 +35,7 @@ func TestForkRejectsDeferGoalContinuation(t *testing.T) {
 }
 
 func TestForkClosedSession(t *testing.T) {
-	s := &session{agentID: "s", cwd: "/tmp", closed: true}
+	s := bindGrok(&session{agentID: "s", cwd: "/tmp", closed: true})
 	_, err := s.Fork(context.Background(), provider.ForkOptions{})
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("err=%v", err)
@@ -43,11 +43,11 @@ func TestForkClosedSession(t *testing.T) {
 }
 
 func TestForkMissingIDs(t *testing.T) {
-	s := &session{cwd: "/tmp"}
+	s := bindGrok(&session{cwd: "/tmp"})
 	if _, err := s.Fork(context.Background(), provider.ForkOptions{}); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("empty agentID err=%v", err)
 	}
-	s = &session{agentID: "s"}
+	s = bindGrok(&session{agentID: "s"})
 	if _, err := s.Fork(context.Background(), provider.ForkOptions{}); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("empty cwd err=%v", err)
 	}

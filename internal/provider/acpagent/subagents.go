@@ -41,7 +41,7 @@ type subagentState struct {
 // `subagent_finished.output` is deliberately dropped — it is the sub-agent's
 // full report, i.e. exactly the content MADR 0051 keeps out of the transcript.
 // The parent relays the conclusion itself.
-func HandleXAISessionNotification(ctx context.Context, s *session, params json.RawMessage) {
+func HandleXAISessionNotification(ctx context.Context, h Host, params json.RawMessage) {
 	var env struct {
 		SessionID string `json:"sessionId"`
 		Update    struct {
@@ -74,8 +74,8 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 		} `json:"_meta"`
 	}
 	if err := json.Unmarshal(params, &env); err != nil {
-		if s.log != nil {
-			s.log.Debug("x.ai session_notification: parse failed",
+		if log := h.Log(); log != nil {
+			log.Debug("x.ai session_notification: parse failed",
 				slog.String("err", err.Error()))
 		}
 		return
@@ -83,7 +83,7 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 	// Same origin rule as SessionUpdate: the child's own frames come down this
 	// channel too, and they are not this conversation.
 	if id := env.SessionID; id != "" {
-		if live := s.AgentSessionID(); live != "" && id != live {
+		if live := h.AgentSessionID(); live != "" && id != live {
 			return
 		}
 	}
@@ -98,18 +98,18 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 	// limit-abort machinery as stderr scraping, which dedupes via
 	// limitNotified and only ever acts on classified limit text.
 	if u.SessionUpdate == "turn_completed" && u.Usage != nil {
-		s.addTurnCost(u.PromptID, u.Usage)
-		s.emitXAIUsage(u.Usage, env.Meta.IsReplay)
+		grokState(h).addTurnCost(u.PromptID, u.Usage)
+		emitXAIUsage(h, u.Usage, env.Meta.IsReplay)
 		return
 	}
 	if u.SessionUpdate == "retry_state" {
 		if u.Type != "failed" && u.Message != "" {
-			s.noteEngineLogLine(u.Message)
+			h.NoteLimitText(u.Message)
 		}
 		return
 	}
 	if _, ok := xaiCompactionStatus[u.SessionUpdate]; ok {
-		s.onXAICompaction(u.SessionUpdate, u.Error, u.SummaryPreview, time.Now().UTC())
+		onXAICompaction(h, u.SessionUpdate, u.Error, u.SummaryPreview)
 		return
 	}
 	if u.SubagentID == "" {
@@ -117,19 +117,19 @@ func HandleXAISessionNotification(ctx context.Context, s *session, params json.R
 	}
 	switch u.SessionUpdate {
 	case "subagent_spawned":
-		s.noteSubagent(u.SubagentID, u.SubagentType, u.Description,
+		h.NoteSubagent(u.SubagentID, u.SubagentType, u.Description,
 			event.SubagentStatusRunning)
 	case "subagent_progress":
 		// Refresh only; a progress frame for an agent we never saw spawn is
 		// still evidence it is running.
-		s.noteSubagent(u.SubagentID, u.SubagentType, u.Description,
+		h.NoteSubagent(u.SubagentID, u.SubagentType, u.Description,
 			event.SubagentStatusRunning)
 	case "subagent_finished":
 		status := event.SubagentStatusFailed
 		if u.Status == "completed" {
 			status = event.SubagentStatusCompleted
 		}
-		s.noteSubagent(u.SubagentID, u.SubagentType, u.Description, status)
+		h.NoteSubagent(u.SubagentID, u.SubagentType, u.Description, status)
 	default:
 		// Not sub-agent status; nothing to publish.
 	}

@@ -63,7 +63,7 @@ func TestTurnUsageReachesThePhoneOnce(t *testing.T) {
 func TestTurnUsageIsNotCountedBesideXAIUsage(t *testing.T) {
 	s, _ := newUpdateSession()
 	s.beginTurnUsage()
-	s.emitXAIUsage(&xaiUsage{InputTokens: 900, OutputTokens: 100, TotalTokens: 1000}, false)
+	emitXAIUsage(s, &xaiUsage{InputTokens: 900, OutputTokens: 100, TotalTokens: 1000}, false)
 	s.emitTurnUsage(decodeAnswer(t, answerWithUsage))
 	got := usageEvents(s)
 	if len(got) != 1 || got[0].Input != 900 {
@@ -83,7 +83,7 @@ func TestTurnUsageIsNotCountedBesideXAIUsage(t *testing.T) {
 func TestReplayedXAIUsageDoesNotSilenceTheTurn(t *testing.T) {
 	s, _ := newUpdateSession()
 	s.beginTurnUsage()
-	s.emitXAIUsage(&xaiUsage{InputTokens: 900, OutputTokens: 100, TotalTokens: 1000}, true)
+	emitXAIUsage(s, &xaiUsage{InputTokens: 900, OutputTokens: 100, TotalTokens: 1000}, true)
 	s.emitTurnUsage(decodeAnswer(t, answerWithUsage))
 	if got := usageEvents(s); len(got) != 2 || got[1].Input != 1000 {
 		t.Fatalf("usage events = %+v, want the replay's and then the answer's", got)

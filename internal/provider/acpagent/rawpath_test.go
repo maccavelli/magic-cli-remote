@@ -20,8 +20,15 @@ var standardRawCallAllowed = map[string]bool{
 	"grok.setThinkingFallback": true,
 }
 
-// rawCallees are the calls that put an untyped method on the wire.
-var rawCallees = map[string]bool{"rawRequest": true, "RawRequest": true, "SendRequest": true}
+// rawCallees are the calls that put an untyped method on the wire, or pass
+// one on to such a call: Host.CallExtension, and grok's extensionResult.
+var rawCallees = map[string]bool{"rawRequest": true, "RawRequest": true, "SendRequest": true,
+	"CallExtension": true, "extensionResult": true}
+
+// rawWrappers are the functions whose method is a parameter they pass on; their
+// callers are checked instead.
+var rawWrappers = map[string]bool{"rawRequest": true, "RawRequest": true,
+	"CallExtension": true, "extensionResult": true}
 
 // TestStandardMethodsAreTypedOutsideGrokFallbacks is PLAN 0184 A3 step 1: it
 // fails when a standard (not "_"-prefixed) ACP method reaches an untyped call
@@ -70,8 +77,8 @@ func standardRawCalls(t *testing.T, pkg, dir string, sites *int) []string {
 					return true
 				}
 				*sites++
-				if pkg == "acpagent" && (fn.Name.Name == "rawRequest" || fn.Name.Name == "RawRequest") {
-					return true // the transport and its RawCaller wrapper; the method is a parameter
+				if pkg == "acpagent" && rawWrappers[fn.Name.Name] {
+					return true // the transport and its wrappers; the method is a parameter
 				}
 				method, literal := methodArg(call)
 				switch {
@@ -110,10 +117,7 @@ func calleeName(fun ast.Expr) string {
 // the second argument of rawRequest/RawRequest(ctx, method, …), or the third of
 // SendRequest(conn, ctx, method, …).
 func methodArg(call *ast.CallExpr) (string, bool) {
-	idx := 1
-	if calleeName(call.Fun) == "SendRequest" {
-		idx = 2
-	}
+	idx := methodIndex(call)
 	if len(call.Args) <= idx {
 		return "", false
 	}
@@ -125,12 +129,20 @@ func methodArg(call *ast.CallExpr) (string, bool) {
 	return v, err == nil
 }
 
+// methodIndex is the position of the call's method argument:
+// SendRequest(conn, ctx, method, …) and extensionResult(ctx, h, method, …) take
+// it third, the others (ctx, method, …) second.
+func methodIndex(call *ast.CallExpr) int {
+	switch calleeName(call.Fun) {
+	case "SendRequest", "extensionResult":
+		return 2
+	}
+	return 1
+}
+
 // isUnderscorePrefixed reports whether the call's method argument is `"_" + …`.
 func isUnderscorePrefixed(call *ast.CallExpr) bool {
-	idx := 1
-	if calleeName(call.Fun) == "SendRequest" {
-		idx = 2
-	}
+	idx := methodIndex(call)
 	if len(call.Args) <= idx {
 		return false
 	}

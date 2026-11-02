@@ -173,24 +173,24 @@ type Spec struct {
 
 	// SetModelFallback switches the model and returns the model the agent
 	// applied.
-	SetModelFallback func(ctx context.Context, rc RawCaller, model string) (applied string, err error)
+	SetModelFallback func(ctx context.Context, h Host, model string) (applied string, err error)
 	// SetThinkingFallback sets the thinking level for modelID and returns the
 	// level the agent reports applied.
-	SetThinkingFallback func(ctx context.Context, rc RawCaller, modelID, level string) (applied string, err error)
+	SetThinkingFallback func(ctx context.Context, h Host, modelID, level string) (applied string, err error)
 	// HarvestSessionMeta reads the model and thinking level from session/new
 	// or session/load `_meta`; either may be "".
 	HarvestSessionMeta func(meta map[string]any) (model, effort string)
-}
 
-// RawCaller is the session as a Spec's vendor fallback sees it: the untyped
-// JSON-RPC path, for a method the SDK's typed API does not carry, and the
-// identifiers such a method needs. The SDK does not check what is sent this
-// way against initialize, so only named fallbacks use it
-// (TestStandardMethodsAreTypedOutsideGrokFallbacks).
-type RawCaller interface {
-	RawRequest(ctx context.Context, method string, params, out any) error
-	AgentSessionID() string
-	CWD() string
+	// ExtensionRequests registers handlers for extension requests the agent
+	// sends, by method name with its leading `_`.
+	ExtensionRequests map[string]ExtensionRequestHandler
+	// NewSessionState, when non-nil, makes the Spec's own state for each
+	// session, which its hooks read with [Host.SpecState].
+	NewSessionState func() any
+	// InitializeMeta, when non-nil, reads initialize's `_meta`.
+	InitializeMeta func(meta map[string]any) InitializeInfo
+	// Ops are the session operations the Spec offers beyond standard ACP.
+	Ops Ops
 }
 
 // Provider is an ACP CLI agent adapter parameterized by a Spec.
@@ -488,23 +488,22 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	log := p.log
 
 	s := &session{
-		providerID:              p.spec.ID,
-		provider:                p,
-		extNotificationHandlers: p.spec.ExtensionNotifications,
-		metaHandlers:            p.spec.MetaHandlers,
-		procDir:                 procDir,
-		terms:                   newTerminalHost(),
-		log:                     log,
-		events:                  make(chan event.Event, 256),
-		done:                    make(chan struct{}),
-		watched:                 make(chan struct{}),
-		cfg:                     p.cfg,
-		pending:                 make(map[string]*permWaiter),
-		questions:               make(map[string]*questionWaiter),
-		staticModes:             p.spec.StaticModes,
-		defaultModeID:           p.spec.DefaultModeID,
-		synthesizeAuto:          p.spec.SynthesizeAutoMode,
+		providerID:     p.spec.ID,
+		provider:       p,
+		procDir:        procDir,
+		terms:          newTerminalHost(),
+		log:            log,
+		events:         make(chan event.Event, 256),
+		done:           make(chan struct{}),
+		watched:        make(chan struct{}),
+		cfg:            p.cfg,
+		pending:        make(map[string]*permWaiter),
+		questions:      make(map[string]*questionWaiter),
+		staticModes:    p.spec.StaticModes,
+		defaultModeID:  p.spec.DefaultModeID,
+		synthesizeAuto: p.spec.SynthesizeAutoMode,
 	}
+	p.bindSpec(s)
 	// Bound stderr noise and scrape provider 429/quota lines mid-turn so a
 	// silent agent retry does not leave the phone stuck on "running". In front
 	// of that, keep the end of stderr for a failure to start and for the
@@ -1311,6 +1310,22 @@ func (p *Provider) initializeRequest() acp.InitializeRequest {
 	}
 }
 
+// GrokInitializeMeta is grok's Spec.InitializeMeta: its engine version, the
+// model it runs and its catalog, from initialize's `_meta`.
+func GrokInitializeMeta(meta map[string]any) InitializeInfo {
+	m := decodeGrokInitializeMeta(meta).Meta
+	info := InitializeInfo{
+		Version:             m.AgentVersion,
+		CurrentModel:        m.ModelState.CurrentModelID,
+		DefaultAuthMethodID: m.DefaultAuthMethodID,
+	}
+	if len(m.ModelState.AvailableModels) > 0 {
+		cat := modelsToCatalog(m.ModelState.CurrentModelID, m.ModelState.AvailableModels)
+		info.Models = &cat
+	}
+	return info
+}
+
 // decodeGrokInitializeMeta reads grok's vendor block out of the _meta map the
 // SDK keeps on its typed InitializeResponse.
 //
@@ -1386,31 +1401,25 @@ func modelsToCatalog(currentID string, models []GrokAvailableModel) picker.Catal
 
 // HandleModelsUpdate handles _x.ai/models/update (grok 1.0.3) and the
 // historical _x.ai/models_update spelling.
-func HandleModelsUpdate(ctx context.Context, s *session, params json.RawMessage) {
+func HandleModelsUpdate(ctx context.Context, h Host, params json.RawMessage) {
 	var p struct {
 		AvailableModels []GrokAvailableModel `json:"availableModels"`
 		CurrentModelID  string               `json:"currentModelId"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
-		if s.log != nil {
-			s.log.Debug("models_update: parse failed", slog.String("err", err.Error()))
+		if log := h.Log(); log != nil {
+			log.Debug("models_update: parse failed", slog.String("err", err.Error()))
 		}
 		return
 	}
 	if len(p.AvailableModels) == 0 {
 		return
 	}
-	cat := modelsToCatalog(p.CurrentModelID, p.AvailableModels)
-	if s.provider != nil {
-		s.provider.catalogMu.Lock()
-		s.provider.catalogCache = cat
-		s.provider.catalogHas = true
-		s.provider.catalogMu.Unlock()
-	}
+	h.SetModelCatalog(modelsToCatalog(p.CurrentModelID, p.AvailableModels))
 }
 
 // HandleMCPStatus handles _x.ai/mcp/server_status notifications.
-func HandleMCPStatus(ctx context.Context, s *session, params json.RawMessage) {
+func HandleMCPStatus(ctx context.Context, h Host, params json.RawMessage) {
 	var p struct {
 		Name   string `json:"name"`
 		Status string `json:"status"`
@@ -1422,36 +1431,34 @@ func HandleMCPStatus(ctx context.Context, s *session, params json.RawMessage) {
 	if p.Name == "" {
 		return
 	}
-	s.mcpMu.Lock()
-	defer s.mcpMu.Unlock()
-	found := false
-	for i, st := range s.mcpStatus {
-		if st.Name == p.Name {
-			s.mcpStatus[i].State = p.Status
-			found = true
-			break
+	h.UpdateMCPStatus(func(cur []provider.MCPServerStatus) []provider.MCPServerStatus {
+		for i, st := range cur {
+			if st.Name == p.Name {
+				cur[i].State = p.Status
+				return cur
+			}
 		}
-	}
-	if !found {
-		s.mcpStatus = append(s.mcpStatus, provider.MCPServerStatus{
+		return append(cur, provider.MCPServerStatus{
 			Name:  p.Name,
 			State: p.Status,
 		})
-	}
+	})
 }
 
 // HandleMCPInit handles _x.ai/mcp_initialized notifications.
-func HandleMCPInit(ctx context.Context, s *session, params json.RawMessage) {
-	s.mcpMu.Lock()
-	defer s.mcpMu.Unlock()
-	if len(s.mcpStatus) == 0 && len(s.cfg.McpServers) > 0 {
-		for _, srv := range s.cfg.McpServers {
-			s.mcpStatus = append(s.mcpStatus, provider.MCPServerStatus{
-				Name:  srv.Name,
-				State: "ready",
-			})
+func HandleMCPInit(ctx context.Context, h Host, params json.RawMessage) {
+	servers := h.Config().McpServers
+	h.UpdateMCPStatus(func(cur []provider.MCPServerStatus) []provider.MCPServerStatus {
+		if len(cur) == 0 && len(servers) > 0 {
+			for _, srv := range servers {
+				cur = append(cur, provider.MCPServerStatus{
+					Name:  srv.Name,
+					State: "ready",
+				})
+			}
 		}
-	}
+		return cur
+	})
 }
 
 // applyInitializeResponse records what the agent reported at initialize: the
@@ -1463,30 +1470,32 @@ func HandleMCPInit(ctx context.Context, s *session, params json.RawMessage) {
 // was discarded — at HEAD or after the typed-Initialize change (PLAN 0167 P2,
 // deviation of 2026-09-22).
 func (p *Provider) applyInitializeResponse(s *session, initResp acp.InitializeResponse) {
-	initMeta := decodeGrokInitializeMeta(initResp.Meta)
-	if initMeta.Meta.DefaultAuthMethodID != "" {
+	var info InitializeInfo
+	if p.spec.InitializeMeta != nil {
+		info = p.spec.InitializeMeta(initResp.Meta)
+	}
+	if info.DefaultAuthMethodID != "" {
 		s.log.Debug("acp defaultAuthMethodId",
-			slog.String("default_auth_method_id", initMeta.Meta.DefaultAuthMethodID))
+			slog.String("default_auth_method_id", info.DefaultAuthMethodID))
 	}
 	// The model the agent says it is running, before any session exists. It is
 	// what ModelReporter falls back to: the per-session harvest only fires when
 	// grok sends `x.ai/sessionDetail`, and on the default-model path the
 	// requested model is empty — which is why all seven grok turn records in
 	// MADR 0138's table carried no model at all.
-	if id := strings.TrimSpace(initMeta.Meta.ModelState.CurrentModelID); id != "" {
+	if id := strings.TrimSpace(info.CurrentModel); id != "" {
 		s.mu.Lock()
 		s.engineModelID = id
 		s.mu.Unlock()
 	}
-	if len(initMeta.Meta.ModelState.AvailableModels) > 0 {
-		cat := modelsToCatalog(initMeta.Meta.ModelState.CurrentModelID, initMeta.Meta.ModelState.AvailableModels)
+	if info.Models != nil {
 		p.catalogMu.Lock()
-		p.catalogCache = cat
+		p.catalogCache = *info.Models
 		p.catalogHas = true
 		p.catalogMu.Unlock()
 	}
 
-	p.reportEngineVersion(&initResp, initMeta.Meta.AgentVersion)
+	p.reportEngineVersion(&initResp, info.Version)
 
 	s.agentCaps = initResp.AgentCapabilities
 	s.log.Info("acp initialized",

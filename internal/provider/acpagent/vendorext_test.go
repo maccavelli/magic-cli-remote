@@ -52,7 +52,7 @@ type paramsRecorder struct {
 	got []json.RawMessage
 }
 
-func (r *paramsRecorder) handle(_ context.Context, _ *session, params json.RawMessage) {
+func (r *paramsRecorder) handle(_ context.Context, _ Host, params json.RawMessage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.got = append(r.got, bytes.Clone(params))
@@ -157,7 +157,7 @@ func TestUnderscoreNotificationIsDeliveredOnce(t *testing.T) {
 	rec := &paramsRecorder{}
 	p := &Provider{spec: Spec{ExtensionNotifications: map[string]ExtensionNotificationHandler{
 		"_x.test/note":    rec.handle,
-		childUpdateMethod: func(context.Context, *session, json.RawMessage) {},
+		childUpdateMethod: func(context.Context, Host, json.RawMessage) {},
 	}}}
 	s, a := newWireSessionFor(t, "{}", p)
 	a.sendRaw(`{"jsonrpc":"2.0","method":"_x.test/note","params":{"n":1}}`)
@@ -181,7 +181,7 @@ func TestNoVendorMethodInstallsNoMiddleware(t *testing.T) {
 		}
 	}
 	s := &session{extNotificationHandlers: map[string]ExtensionNotificationHandler{
-		childUpdateMethod: func(context.Context, *session, json.RawMessage) {},
+		childUpdateMethod: func(context.Context, Host, json.RawMessage) {},
 	}}
 	if got := len(clientConnOptions(nil, s)); got != base+1 {
 		t.Errorf("vendor: %d options, want %d", got, base+1)

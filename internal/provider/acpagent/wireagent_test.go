@@ -69,10 +69,9 @@ func newWireSessionFor(t *testing.T, agentCaps string, p *Provider) (*session, *
 		pending:   make(map[string]*permWaiter),
 		questions: make(map[string]*questionWaiter),
 		terms:     newTerminalHost(),
-		// As Start sets them, before the connection is built.
-		extNotificationHandlers: p.spec.ExtensionNotifications,
-		metaHandlers:            p.spec.MetaHandlers,
 	}
+	// As Start does, before the connection is built.
+	p.bindSpec(s)
 	go a.read(agentReads, agentCaps)
 	s.conn = acp.NewClientSideConnection(s, &stallingWriter{w: clientWrites, a: a}, clientReads, clientConnOptions(nil, s)...)
 	t.Cleanup(func() {

@@ -42,7 +42,7 @@ type metaRecorder struct {
 	calls []metaCall
 }
 
-func (r *metaRecorder) handle(_ context.Context, _ *session, from MetaSource, value json.RawMessage) {
+func (r *metaRecorder) handle(_ context.Context, _ Host, from MetaSource, value json.RawMessage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, metaCall{from: from, value: append(json.RawMessage(nil), value...)})

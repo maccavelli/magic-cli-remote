@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	acp "github.com/maccavelli/acp-go-sdk2"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
@@ -27,8 +26,8 @@ import (
 // for any other ACP agent: nothing else sends them, and anything we do not
 // recognise still gets method-not-found.
 const (
-	methodExitPlanMode    = "_x.ai/exit_plan_mode"
-	methodAskUserQuestion = "_x.ai/ask_user_question"
+	MethodGrokExitPlanMode    = "_x.ai/exit_plan_mode"
+	MethodGrokAskUserQuestion = "_x.ai/ask_user_question"
 )
 
 // Plan-approval option ids. This vocabulary is ours, not grok's: the phone
@@ -71,7 +70,7 @@ const (
 const planContentLimit = 8000
 
 // ExtensionNotificationHandler is invoked for extension notifications registered by a Spec.
-type ExtensionNotificationHandler func(ctx context.Context, s *session, params json.RawMessage)
+type ExtensionNotificationHandler func(ctx context.Context, h Host, params json.RawMessage)
 
 // MetaSource names the message a `_meta` key arrived in.
 type MetaSource string
@@ -87,7 +86,7 @@ const (
 // runs where the message is handled: a session_info_update's on the SDK's
 // notification loop, under HandleExtensionMethod's rule, and a prompt
 // result's on the turn goroutine, before turn_complete.
-type MetaHandler func(ctx context.Context, s *session, from MetaSource, value json.RawMessage)
+type MetaHandler func(ctx context.Context, h Host, from MetaSource, value json.RawMessage)
 
 // handleMeta passes each key of meta the Spec registered a handler for to that
 // handler, in key order, and reports whether any key had none.
@@ -112,30 +111,23 @@ func (s *session) handleMeta(ctx context.Context, from MetaSource, meta map[stri
 var _ acp.ExtensionMethodHandler = (*session)(nil)
 var _ provider.QuestionSession = (*session)(nil)
 
-// HandleExtensionMethod answers the ACP extension requests we understand and
-// reports method-not-found for the rest, which is what the SDK would have done
-// on its own. Extension *notifications* registered via Spec are dispatched to
-// their handlers.
+// HandleExtensionMethod dispatches the extension requests and notifications a
+// Spec registered to their handlers, and reports method-not-found for the
+// rest, which is what the SDK would have done on its own.
 //
-// Those notification handlers run on the SDK's notification loop, as
+// The notification handlers run on the SDK's notification loop, as
 // SessionUpdate does, and keep its rule under OverflowBlock: none waits for a
 // request or a $/cancel_request the agent sends later, nor for code that waits
 // for one, nor takes a lock held across such a wait (MADR 0224 D5).
 func (s *session) HandleExtensionMethod(ctx context.Context, method string, params json.RawMessage) (any, error) {
-	switch method {
-	case methodExitPlanMode:
-		return s.handleExitPlanMode(ctx, params)
-	case methodAskUserQuestion:
-		return s.handleAskUserQuestion(ctx, params)
-	default:
-		if s.extNotificationHandlers != nil {
-			if h, ok := s.extNotificationHandlers[method]; ok {
-				h(ctx, s, params)
-				return nil, nil
-			}
-		}
-		return nil, acp.NewMethodNotFound(method)
+	if h, ok := s.extRequestHandlers[method]; ok {
+		return h(ctx, s, params)
 	}
+	if h, ok := s.extNotificationHandlers[method]; ok {
+		h(ctx, s, params)
+		return nil, nil
+	}
+	return nil, acp.NewMethodNotFound(method)
 }
 
 // hasVendorNotifications reports whether the Spec registered a notification
@@ -186,7 +178,7 @@ type exitPlanModeResult struct {
 	Feedback string `json:"feedback,omitempty"`
 }
 
-// handleExitPlanMode turns grok's plan approval into an ordinary
+// HandleGrokExitPlanMode turns grok's plan approval into an ordinary
 // permission_request, so the phone's existing approval UI renders it with no
 // client change: three options, one answer, the same RespondPermission path.
 //
@@ -195,7 +187,7 @@ type exitPlanModeResult struct {
 // ("file edits are blocked until you approve exiting plan mode"), so
 // auto-approving would silently defeat the mode the user asked for. This matches
 // the existing rule that always-approve does not auto-answer questions either.
-func (s *session) handleExitPlanMode(ctx context.Context, raw json.RawMessage) (any, error) {
+func HandleGrokExitPlanMode(ctx context.Context, h Host, raw json.RawMessage) (any, error) {
 	var p exitPlanModeParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, acp.NewInvalidParams(map[string]any{"error": err.Error()})
@@ -213,16 +205,10 @@ func (s *session) handleExitPlanMode(ctx context.Context, raw json.RawMessage) (
 		detail = detail[:planContentLimit] + "\n\n… plan truncated for display."
 	}
 
-	permID := uuid.NewString()
-	res := s.awaitDecision(ctx, permID, event.Event{
-		Type:         event.TypePermission,
-		SessionID:    s.localID,
-		Timestamp:    time.Now().UTC(),
-		PermissionID: permID,
-		ToolID:       p.ToolCallID,
-		ToolName:     "Plan ready for review",
-		Text:         detail,
-		Status:       "pending",
+	optionID, cancelled := h.AwaitPermission(ctx, event.Event{
+		ToolID:   p.ToolCallID,
+		ToolName: "Plan ready for review",
+		Text:     detail,
 		Options: []event.PermissionOption{
 			{OptionID: planOptionApprove, Name: "Approve plan", Kind: "allow_once"},
 			{OptionID: planOptionChanges, Name: "Request changes", Kind: "reject_once"},
@@ -231,7 +217,7 @@ func (s *session) handleExitPlanMode(ctx context.Context, raw json.RawMessage) (
 	})
 
 	switch {
-	case res.cancelled || res.optionID == "":
+	case cancelled || optionID == "":
 		// Nobody decided (turn cancelled, session closed, or the request timed
 		// out). Keep planning rather than approving or discarding work on the
 		// user's behalf: revise is the only outcome that changes nothing.
@@ -239,9 +225,9 @@ func (s *session) handleExitPlanMode(ctx context.Context, raw json.RawMessage) (
 			Outcome:  planOutcomeChanges,
 			Feedback: "The plan approval was dismissed without an answer. Plan mode is still on.",
 		}, nil
-	case res.optionID == planOptionApprove:
+	case optionID == planOptionApprove:
 		return exitPlanModeResult{Outcome: planOutcomeApproved}, nil
-	case res.optionID == planOptionAbandon:
+	case optionID == planOptionAbandon:
 		return exitPlanModeResult{Outcome: planOutcomeAbandoned}, nil
 	default:
 		// Request changes. We have no free-text channel on the permission path,
@@ -280,11 +266,11 @@ type askUserQuestionResult struct {
 	Answers map[string]string `json:"answers,omitempty"`
 }
 
-// handleAskUserQuestion maps grok's question form onto the daemon's existing
+// HandleGrokAskUserQuestion maps grok's question form onto the daemon's existing
 // question flow (question_request → question.respond → question_resolved), the
 // one built for OpenCode's questions. Answers arrive as a label list per
 // question, in question order.
-func (s *session) handleAskUserQuestion(ctx context.Context, raw json.RawMessage) (any, error) {
+func HandleGrokAskUserQuestion(ctx context.Context, h Host, raw json.RawMessage) (any, error) {
 	var p askUserQuestionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, acp.NewInvalidParams(map[string]any{"error": err.Error()})
@@ -317,27 +303,21 @@ func (s *session) handleAskUserQuestion(ctx context.Context, raw json.RawMessage
 		headers = append(headers, truncateRunes(q.Question, 40))
 	}
 
-	qID := uuid.NewString()
-	res := s.awaitAnswers(ctx, qID, event.Event{
-		Type:       event.TypeQuestion,
-		SessionID:  s.localID,
-		Timestamp:  time.Now().UTC(),
-		QuestionID: qID,
-		ToolID:     p.ToolCallID,
-		Status:     "pending",
-		Text:       strings.Join(headers, " · "),
-		Questions:  items,
+	got, cancelled := h.AwaitAnswers(ctx, event.Event{
+		ToolID:    p.ToolCallID,
+		Text:      strings.Join(headers, " · "),
+		Questions: items,
 	})
-	if res.cancelled {
+	if cancelled {
 		return askUserQuestionResult{Outcome: askOutcomeCancelled}, nil
 	}
 
 	answers := make(map[string]string, len(p.Questions))
 	for i, q := range p.Questions {
-		if i >= len(res.answers) || len(res.answers[i]) == 0 {
+		if i >= len(got) || len(got[i]) == 0 {
 			continue
 		}
-		answers[q.Question] = strings.Join(res.answers[i], ", ")
+		answers[q.Question] = strings.Join(got[i], ", ")
 	}
 	if len(answers) == 0 {
 		// An "accepted" outcome with no answers is rejected by grok, and an

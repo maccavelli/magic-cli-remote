@@ -19,7 +19,7 @@ import (
 // staring at a turn that has already failed.
 const quotaProbeTimeout = 6 * time.Second
 
-// confirmLimit asks grok for account billing after the prose classifier has
+// GrokConfirmLimit asks grok for account billing after the prose classifier has
 // flagged a limit, and returns a summary of what it found.
 //
 // Why this exists: the daemon reconstructs quota state from English in engine
@@ -37,7 +37,7 @@ const quotaProbeTimeout = 6 * time.Second
 // The second return reports whether billing confirmed the limit. A prose match
 // that billing does not confirm is logged at warn: that is the day a vendor
 // changed its wording, and it is the only signal there would be.
-func (s *session) confirmLimit(ctx context.Context, kind agenterr.Kind) (summary string, confirmed bool) {
+func GrokConfirmLimit(ctx context.Context, h Host, kind agenterr.Kind) (summary string, confirmed bool) {
 	if kind != agenterr.KindQuota {
 		return "", false
 	}
@@ -45,12 +45,12 @@ func (s *session) confirmLimit(ctx context.Context, kind agenterr.Kind) (summary
 	defer cancel()
 
 	var res billingResponse
-	if err := callAgentExtension(callCtx, s, "x.ai/billing", map[string]any{}, &res); err != nil {
+	if err := h.CallExtension(callCtx, "_x.ai/billing", map[string]any{}, &res); err != nil {
 		// Unreachable is not the same as unconfirmed: say so, and never treat a
 		// failed probe as evidence that the prose was wrong. An API-key install
 		// takes this path on every limit, by design.
-		s.log.Debug("grok billing probe failed",
-			slog.String("session_id", s.localID),
+		h.Log().Debug("grok billing probe failed",
+			slog.String("agent_session_id", h.AgentSessionID()),
 			slog.String("err", err.Error()))
 		return "", false
 	}
@@ -58,9 +58,9 @@ func (s *session) confirmLimit(ctx context.Context, kind agenterr.Kind) (summary
 		return out, true
 	}
 
-	s.log.Warn(
+	h.Log().Warn(
 		"engine reported a limit in prose that its billing API does not confirm",
-		slog.String("session_id", s.localID),
+		slog.String("agent_session_id", h.AgentSessionID()),
 		slog.String("kind", string(kind)),
 		slog.Bool("config_present", res.Config != nil),
 		slog.String("hint", "either the limit is not credit-level, or the vendor's wording changed "+

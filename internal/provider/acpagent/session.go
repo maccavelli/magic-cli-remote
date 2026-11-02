@@ -53,18 +53,17 @@ type session struct {
 	cmdDedupe event.CommandDeduper
 	// compactions folds ACP compaction updates by ID (MADR 0190 D1). Touched
 	// only from the notification handler goroutine, like cmdDedupe.
-	compactions compactionFold
-	// xaiCompactions numbers the compactions grok reports on its own
-	// channel, which carry no ID; xaiCompactionOpen is the one grok has
-	// started and not yet ended (MADR 0208, P4b deviation 1). Touched only
-	// from the notification handler goroutine, like compactions.
-	xaiCompactions          int
-	xaiCompactionOpen       acp.CompactionId
+	compactions             compactionFold
 	provider                *Provider
 	extNotificationHandlers map[string]ExtensionNotificationHandler
 	metaHandlers            map[string]MetaHandler
-	localID                 string
-	agentID                 string
+	extRequestHandlers      map[string]ExtensionRequestHandler
+	// ops and specState are the Spec's operations and its own state for this
+	// session (MADR 0208, amendment of 2026-11-01), set by bindSpec.
+	ops       Ops
+	specState any
+	localID   string
+	agentID   string
 	// cwd is the ACP session working directory (session/new|load Cwd).
 	cwd string
 	// procDir is the OS working directory of the agent process (cmd.Dir).
@@ -160,6 +159,9 @@ type session struct {
 	turnCancel    context.CancelFunc
 	limitNotified bool
 	limitRaw      string
+	// limitRetryAt is the retry time a Spec reported with a limit
+	// (Host.EndTurnWithLimit), used when limitRaw names none.
+	limitRetryAt time.Time
 
 	// subagents is this turn's sub-agent set, published as event.TypeSubagents
 	// (MADR 0051 D8). Populated from grok's _x.ai/session_notification; empty
@@ -202,18 +204,12 @@ type session struct {
 	// must be marked Replay so the manager keeps them out of live broadcast.
 	loading   bool
 	prompting bool
-	// costTicks is grok's session cost so far, summed from every turn's
-	// `costUsdTicks`, replayed or live; costPrompts holds the prompt_ids
-	// already counted, and costUnknown is set once a turn's cost is missing
-	// or partial, after which no total is reported (MADR 0199 E1, E3).
-	costTicks   int64
-	costPrompts map[string]bool
-	costUnknown bool
-	// turnXAIUsage is set once grok has reported this turn's usage on its own
-	// channel, so the answer's standard usage is not counted beside it;
-	// gaugeUsed and gaugeSize are the context gauge the last usage_update set,
-	// which a turn's report carries (MADR 0207 amendment H, D25).
-	turnXAIUsage         bool
+	// turnUsageReported is set once a Spec has reported this turn's usage on
+	// its own channel (Host.ReportUsage), so the answer's standard usage is
+	// not counted beside it; gaugeUsed and gaugeSize are the context gauge the
+	// last usage_update set, which a turn's report carries (MADR 0207
+	// amendment H, D25).
+	turnUsageReported    bool
 	gaugeUsed, gaugeSize int
 
 	pending map[string]*permWaiter // permissionID -> waiter
@@ -423,6 +419,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 	s.turnCancel = cancel
 	s.limitNotified = false
 	s.limitRaw = ""
+	s.limitRetryAt = time.Time{}
 	s.mu.Unlock()
 	s.beginTurnUsage()
 
@@ -449,6 +446,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			s.turnCancel = nil
 			s.limitNotified = false
 			s.limitRaw = ""
+			s.limitRetryAt = time.Time{}
 			s.mu.Unlock()
 			// Drain next queued prompt after the turn fully ends.
 			s.tryDrainQueue()
@@ -722,14 +720,16 @@ func (s *session) emitClassifiedTurnError(raw string) {
 // lost by that: a stderr limit line cancels the turn, and the turn goroutine
 // then arrives here with the same text (MADR 0138 Phase 10 deviation).
 func (s *session) emitClassifiedTurnErrorConfirmed(raw string) {
-	// grok reports account credits structurally, so a quota limit classified
-	// from prose is confirmed against billing rather than trusted on its
-	// wording alone (MADR 0138 F9). Rate limits are not asked about: billing
-	// reports credits, not request windows.
+	// An agent that reports its account data structurally confirms a limit
+	// classified from prose rather than trusting the wording alone (MADR 0138
+	// F9; the Spec's ConfirmLimit).
 	//
 	// A detached context: the turn's own is already cancelled by the time a
 	// limit abort lands here.
-	summary, _ := s.confirmLimit(context.Background(), agenterr.Present(raw, time.Now()).Kind)
+	summary := ""
+	if confirm := s.ops.ConfirmLimit; confirm != nil {
+		summary, _ = confirm(context.Background(), s, agenterr.Present(raw, time.Now()).Kind)
+	}
 	s.emitClassifiedTurnErrorWith(raw, summary)
 }
 
@@ -740,6 +740,11 @@ func (s *session) emitClassifiedTurnErrorWith(raw, planUsage string) {
 		msg = strings.TrimSpace(raw)
 	}
 	msg = annotateLimit(msg, planUsage)
+	if cls.ResetAt.IsZero() {
+		s.mu.Lock()
+		cls.ResetAt = s.limitRetryAt
+		s.mu.Unlock()
+	}
 	now := time.Now().UTC()
 	s.emit(event.Event{
 		Type:       event.TypeTurnComplete,
@@ -1077,12 +1082,10 @@ func (s *session) setSelectOption(ctx context.Context, category acp.SessionConfi
 	return applied, true, nil
 }
 
-// RawRequest is rawRequest for a Spec's vendor fallback (RawCaller).
+// RawRequest implements [Host].
 func (s *session) RawRequest(ctx context.Context, method string, params, out any) error {
 	return s.rawRequest(ctx, method, params, out)
 }
-
-var _ RawCaller = (*session)(nil)
 
 // MCPStatus implements provider.MCPStatusSession.
 func (s *session) MCPStatus(ctx context.Context) ([]provider.MCPServerStatus, error) {

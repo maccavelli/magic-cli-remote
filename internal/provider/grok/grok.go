@@ -136,6 +136,23 @@ var spec = acpagent.Spec{
 		// _x.ai/session_notification IS read (MADR 0137, second correction) —
 		// that carries data nothing else does; this one does not.
 	},
+	// grok's plan approval and its question form are requests it makes of the
+	// client (MADR 0022 phase 2).
+	ExtensionRequests: map[string]acpagent.ExtensionRequestHandler{
+		acpagent.MethodGrokExitPlanMode:    acpagent.HandleGrokExitPlanMode,
+		acpagent.MethodGrokAskUserQuestion: acpagent.HandleGrokAskUserQuestion,
+	},
+	NewSessionState: acpagent.NewGrokSessionState,
+	InitializeMeta:  acpagent.GrokInitializeMeta,
+	Ops: acpagent.Ops{
+		Fork:          acpagent.GrokFork,
+		Compact:       acpagent.GrokCompact,
+		Rename:        acpagent.GrokRename,
+		UndoLast:      acpagent.GrokUndoLast,
+		RuntimeUsage:  acpagent.GrokRuntimeUsage,
+		RuntimeStatus: acpagent.GrokRuntimeStatus,
+		ConfirmLimit:  acpagent.GrokConfirmLimit,
+	},
 }
 
 // Provider is the Grok Build ACP adapter.
