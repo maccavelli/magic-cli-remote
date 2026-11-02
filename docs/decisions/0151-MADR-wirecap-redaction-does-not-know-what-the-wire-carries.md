@@ -400,3 +400,24 @@ a letter. In a JSON line a single backslash always begins an escape.
   and a line in a fixture that is not JSON is worth reading either way.
 - **Not covered,** as before: a drive path written with forward slashes (`C:/Users/alice`), and a
   UNC path.
+
+## Amendment — 2026-11-02: another host's name in public data (F11; D12)
+
+*Decided by the owner, 2026-11-02: "Fix it inside P5".* Found by
+[0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md)
+P5 Deviation 1, running the whole suite on the Linux test host.
+
+**F11 — D10 fails on a host whose name is an ordinary word.** The Linux test host's short name
+occurs inside three public model ids in opencode 2.2.3's capture, which was taken on the Mac. On
+that host, the guard reports lines 2 and 4 as carrying "this host's name". Nothing identifying is
+there: the fixture was not captured on that host.
+
+**D12 — The guard checks a fixture against the host that captured it.**
+
+- A capture host is identified by a tag: the hash of a random key in the user's config directory.
+  A hash of the name itself would not hide a name that is a dictionary word.
+- `wirecap` writes the tag beside the frames it captures, when the key exists, and never creates
+  the key itself. The fixture's `meta.json` records it as `capture_host`.
+- The host-name rule applies to a fixture captured on the running host, and to one that records
+  no capture host, as D10 did for every fixture.
+- D8 stands: redaction still replaces the capturing host's name wherever it occurs.

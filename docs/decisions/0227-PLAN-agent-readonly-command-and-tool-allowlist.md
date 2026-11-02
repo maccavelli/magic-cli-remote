@@ -1,0 +1,96 @@
+---
+status: in-progress
+date: 2026-11-01
+associated-madr: "0227-MADR-agent-readonly-command-and-tool-allowlist.md"
+---
+<!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
+
+# Implement allow-list of read-only agent commands and tools
+
+Associated MADR: [0227-MADR-agent-readonly-command-and-tool-allowlist.md](0227-MADR-agent-readonly-command-and-tool-allowlist.md)
+
+## Goal
+
+Extend `.claude/settings.json` and `opencode.json`, and add
+`.gobble/settings.yaml`, so sane read-only tools and shell commands
+auto-allow, without widening mutate paths.
+
+## Scope
+
+In:
+
+* `.claude/settings.json` — `permissions.allow` (keep existing entries;
+  add tool names and read-only `Bash(…)` patterns).
+* `opencode.json` — `permission.bash` (keep existing; add the same
+  command patterns). OpenCode has no separate tool-name list in this
+  file; do not invent one.
+* `.gobble/settings.yaml` — gobble `permissions.rules` (new).
+
+Out:
+
+* Codex / Grok / Kilo in-repo permission files (none exist).
+* Changing `permission.bash` `"*": "ask"` default.
+* Revoking existing `go test` / `make test` / `go build` allows.
+* AGENTS.md unless a one-line pointer is needed after landing.
+
+## Implementation Steps
+
+### Phase 1 — Claude Code allow-list
+
+1. Keep every current `permissions.allow` entry.
+2. Prepend or append these **tool** entries (Claude Code syntax):
+   `Read`, `Grep`, `Glob`, `LS`, `Task`, `TodoRead`.
+3. Add `Bash(…)` patterns for the read-only git and inspection
+   commands named in the MADR "More Information" list. Use the same
+   `Bash(cmd *)` / exact-match style as the existing file. Do not add
+   `Bash(git *)` or `Bash(*)`.
+4. Add `Bash(make -n *)`, `Bash(make help)`,
+   `Bash(python3 scripts/check_records.py --next)`,
+   `Bash(python3 scripts/check_records.py --help)`.
+5. Validate JSON (`python3 -m json.tool .claude/settings.json`).
+
+### Phase 2 — OpenCode allow-list
+
+1. Keep `"*": "ask"` and every current allow.
+2. Add the same command patterns as Phase 1 (without the Claude tool
+   names). Include Windows `.\` spellings only where the existing file
+   already does that for `bin\`; do not invent extra Windows git
+   spellings.
+3. Validate JSON (`python3 -m json.tool opencode.json`).
+
+### Phase 3 — gobble `.gobble/settings.yaml`
+
+1. Create `.gobble/settings.yaml` with `permissions.allowBypass: false`
+   and `permissions.rules` covering gobble tools `read`, `grep`,
+   `find`, `tree`, `todo`, plus `bash(<pattern>)` for every command
+   prefix already allowed in the Claude/OpenCode files (including the
+   existing `go test` / `make test` / `go build` set). Do not add
+   `bash(*)` or `bash(git *)`.
+2. Do not put host paths, `external_directory`, or `allowBypass: true`
+   in the file.
+
+### Phase 4 — records
+
+1. Set both records to `status: accepted` (MADR) and `status: complete`
+   (PLAN) only after the owner confirms a read-only turn no longer
+   prompts. Until then leave `proposed` / mark `in-progress` when
+   executing.
+2. `python3 scripts/check_records.py` (or `make check-records`).
+
+## Verification
+
+* JSON parses.
+* `make check-records` pairs 0227.
+* Manual: Claude Code, OpenCode, and gobble run `git status` and a
+  read of `AGENTS.md` with no prompt; `git add` still prompts.
+
+## Rollout and Rollback
+
+Rollout is two JSON files and `.gobble/settings.yaml`. Rollback is
+revert those files. No runtime service.
+
+## Execution record
+
+* 2026-11-01 — Phases 1–2 landed (Claude and OpenCode JSON).
+* 2026-11-01 — Owner asked for gobble's own file. MADR amended; Phase 3
+  added. Phase 3 lands in the same working tree.

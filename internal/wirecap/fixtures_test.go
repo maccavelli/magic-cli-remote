@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -76,15 +77,25 @@ func TestCommittedFixturesCarryNoIdentifiers(t *testing.T) {
 
 	// The running host's name, in the forms redact replaces (MADR 0151
 	// amendment of 2026-10-28, D10). On CI it is the runner's, which no fixture
-	// holds, so this guards the host that captures, not CI.
+	// holds, so this guards the host that captures, not CI. A fixture that
+	// names its capture host is checked only on that host: elsewhere the name
+	// can occur in public data, as an ordinary word (D12).
 	host, _ := os.Hostname()
-	hosts := hostNames(host)
+	local, err := HostTag(false)
+	if err != nil {
+		t.Fatalf("host tag: %v", err)
+	}
 
 	for _, path := range paths {
 		t.Run(filepath.ToSlash(path), func(t *testing.T) {
 			b, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("read: %v", err)
+			}
+			hosts := hostNames(host)
+			if !hostRuleApplies(t, filepath.Join(filepath.Dir(path), "meta.json"), local) {
+				t.Logf("captured on another host: its host-name rule is that host's (MADR 0151 D12)")
+				hosts = nil
 			}
 			for i, line := range strings.Split(string(b), "\n") {
 				for _, hit := range addressRE.FindAllString(line, -1) {
@@ -104,6 +115,111 @@ func TestCommittedFixturesCarryNoIdentifiers(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// hostRuleApplies reports whether the running host's name is checked in the
+// fixture whose metadata is at metaPath: when the fixture was captured on this
+// host, by its tag local, or names no capture host (MADR 0151 D12).
+func hostRuleApplies(t *testing.T, metaPath, local string) bool {
+	t.Helper()
+	raw, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("fixture metadata: %v", err)
+	}
+	var meta struct {
+		CaptureHost string `json:"capture_host"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatalf("%s: %v", metaPath, err)
+	}
+	return meta.CaptureHost == "" || meta.CaptureHost == local
+}
+
+// TestHostRuleAppliesOnTheCaptureHost pins D12's choice, on metadata written
+// for the test.
+func TestHostRuleAppliesOnTheCaptureHost(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	none := write("none.json", `{"provider":"x"}`)
+	tagged := write("tagged.json", `{"provider":"x","capture_host":"aaaa"}`)
+	for _, c := range []struct {
+		name, meta, local string
+		want              bool
+	}{
+		{"no capture host, any host", none, "bbbb", true},
+		{"no capture host, no key", none, "", true},
+		{"captured here", tagged, "aaaa", true},
+		{"captured elsewhere", tagged, "bbbb", false},
+		{"captured elsewhere, no key here", tagged, "", false},
+	} {
+		if got := hostRuleApplies(t, c.meta, c.local); got != c.want {
+			t.Errorf("%s: applies = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestHostTagIsAKeyNotAName pins D12's tag: no tag and no key file until one is
+// asked for, then a stable tag that is not the host's name, from a key only its
+// owner can read.
+func TestHostTagIsAKeyNotAName(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "sub", "wirecap-host-key")
+	t.Setenv(EnvHostKey, key)
+	if tag, err := HostTag(false); err != nil || tag != "" {
+		t.Fatalf("without a key: %q, %v; want no tag", tag, err)
+	}
+	if _, err := os.Stat(key); !os.IsNotExist(err) {
+		t.Fatalf("asking without create made the key: %v", err)
+	}
+	tag, err := HostTag(true)
+	if err != nil || len(tag) != 64 {
+		t.Fatalf("created tag %q, %v", tag, err)
+	}
+	again, _ := HostTag(false)
+	if again != tag {
+		t.Errorf("tag changed between calls: %q then %q", tag, again)
+	}
+	host, _ := os.Hostname()
+	for _, h := range hostNames(host) {
+		if strings.Contains(tag, strings.ToLower(h)) {
+			t.Errorf("the tag carries the host's name")
+		}
+	}
+	if fi, err := os.Stat(key); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+		t.Errorf("key file %v, %v; want mode 0600", fi, err)
+	}
+}
+
+// TestCaptureWritesTheTagOnlyWhenAKeyExists: a capture names its host by tag
+// when this host has a key, and makes none on its own.
+func TestCaptureWritesTheTagOnlyWhenAKeyExists(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "wirecap-host-key")
+	t.Setenv(EnvHostKey, key)
+	dir := t.TempDir()
+	t.Setenv(EnvDir, dir)
+	c := For("vendor")
+	c.Close()
+	if _, err := os.Stat(filepath.Join(dir, "vendor", "capture_host")); !os.IsNotExist(err) {
+		t.Errorf("a capture without a key wrote a tag: %v", err)
+	}
+	if _, err := os.Stat(key); !os.IsNotExist(err) {
+		t.Errorf("a capture made the key: %v", err)
+	}
+	tag, err := HostTag(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = For("vendor")
+	c.Close()
+	got, err := os.ReadFile(filepath.Join(dir, "vendor", "capture_host"))
+	if err != nil || strings.TrimSpace(string(got)) != tag {
+		t.Errorf("capture_host = %q, %v; want the host's tag", got, err)
 	}
 }
 

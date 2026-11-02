@@ -4,6 +4,7 @@
   "kind": "acp",
   "source": "MCREMOTE_WIRE_CAPTURE_DIR (internal/wirecap), `opencode acp` driven by acpagent",
   "captured_at": "2026-11-01",
+  "capture_host": "06e8a1e84e90cc8b6d6c1b30fe70fd82f7a6ae3456012f61cf9576cad628c0ba",
   "frames": 53,
   "redacted": "the isolated home -> /home/user (wirecap); the operator's account name -> <user>, in the shell's startup errors and the ls listing of a tool result",
   "note": "every frame of 0214-PLAN P3's G1, run 3 (P2 Deviation 2): an isolated home, D1's client capabilities with opencode/child-session-updates, model opencode/deepseek-v4.1-flash-free set by session/set_config_option; four turns, each end_turn: text and thinking, `ls -la`, the question tool (one elicitation/create form, answered), and a task subagent (seven opencode/session/child_update notifications). No retry occurred; no permission was asked in build mode"

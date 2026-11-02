@@ -894,3 +894,127 @@ P4 is complete with this commit. P5, the control plane, is next.
 `startoptions_test.go` and `modeoption_test.go` (new); `internal/provider/opencode/acp.go`,
 `acp_extensions.go` and `acp_spec_test.go` (new), `commandtable.go`, `version.go`;
 `internal/command/conformance_test.go`; the MADR; and this plan.
+
+*The owner committed P4 as `98a62681`.*
+
+### P5 Deviation 1, 2026-11-02 — the fixture guard on the Linux test host. The owner decided: "Fix it inside P5"
+
+C8: `opencode --version` printed `v2.2.3`, at `98a62681`.
+
+- **Found** by C7's run of the whole suite on the Linux test host, with P5's package written and
+  passing there. One test outside P5 failed: `internal/wirecap`'s
+  `TestCommittedFixturesCarryNoIdentifiers`, on
+  `internal/provider/opencode/testdata/wire/2.2.3/frames.jsonl` lines 2 and 4, "this host's name,
+  unredacted (MADR 0151 F9)".
+  * It is not a leak. The guard fails on the running host's name anywhere in a fixture
+    (`internal/wirecap/fixtures_test.go:80-101`, MADR 0151 D10). The Linux test host's short name
+    is an ordinary word. It occurs, six times on each line, inside three public model ids in G1's
+    catalog: one from opencode's own models, one from kilo's and one from OpenRouter's.
+  * It predates P5: the fixture is `f15af43e` (0214 P2), and no phase since ran the whole suite
+    on that host. It passes on macOS, where G1 was captured.
+  * The Windows test host passed `make ci-windows` in the same run.
+- **Resolution:** the guard checks a fixture against the running host's name only when that host
+  captured it.
+  * A capture host is identified by a random key kept in the user's config directory, never by its
+    name: a hash of a name that is a dictionary word would name it.
+  * `wirecap` writes the key's tag (`capture_host`) beside the frames it captures, when the key
+    exists. It never creates the key on its own, so a test that turns capture on leaves nothing in
+    the operator's config directory.
+  * A fixture's `meta.json` carries `capture_host`. The guard applies the host-name rule when the
+    fixture's tag is this host's, or when the fixture has none, which keeps today's rule for every
+    other fixture.
+  * The 2.2.3 fixture gets this Mac's tag, where G1 captured it. The key is created on this Mac
+    once, for that.
+  * `wirecap`'s redaction is unchanged (the owner's option): a capture taken on that host still
+    writes those model ids with `<host>`.
+- **Files added to P5's scope:** `internal/wirecap/wirecap.go`, `internal/wirecap/fixtures_test.go`
+  and a new test for the tag, and `internal/provider/opencode/testdata/wire/2.2.3/meta.json`. MADR
+  0151 gets an amendment for D10.
+
+### P5 — 2026-11-02: the control plane
+
+**What changed.**
+
+* **`internal/provider/opencode/control` (new), `Plane`.** Nothing registers or calls it yet;
+  P6 does.
+  * **Launch (step 1).**
+    * `serve --stdio --port 0` through `launch.Command`, in its own process group under a job
+      object, registered in the engine registry like httpagent's engine.
+    * A 24-byte random password per launch, only in the child's `OPENCODE_PASSWORD`.
+    * Ready means one `{"url"}` line on stdout, then `/api/info` answering JSON with a version at
+      or above the floor, which the caller sets. stdout is drained after the ready line.
+  * **Lifetime (step 2).** Close ends the lease (stdin); after 5 s, SIGTERM; after 5 s more, the
+    kill. Exit 0, and 130 on POSIX only, are logged as orderly; anything else, a Windows forced
+    stop included, as an exit.
+  * **Requests (step 3).**
+    * HTTP Basic `opencode:<password>`.
+    * A directory travels as `location[directory]` and `x-opencode-directory`; `WithLocation`
+      adds `location.directory` to a create body.
+    * An answer with a body must be `application/json`, or the error names the content type and
+      the first bytes (D12).
+  * **On demand (step 4).**
+    * It starts on first use and stops after 10 idle minutes; a child that died is replaced on the
+      next use.
+    * `GET /api/agent` is retried on 503 up to 6 times, the wait doubling from 250 ms.
+    * `GET /api/credential` is refused before it is sent (`ErrCredentialRead`).
+  * **Captures.** The engine's answers go to `wirecap` as `opencode-control`, so P6 can record the
+    v2 HTTP surface; a request, and so its password, is never captured.
+* **The fixture guard (Deviation 1).**
+  * `wirecap.HostTag` is the hash of a random key in the user's config directory.
+    * `wirecap.For` writes it beside a capture as `capture_host` when the key exists, and never
+      creates the key.
+    * `EnvHostKey` points the key elsewhere, for tests.
+  * `TestCommittedFixturesCarryNoIdentifiers` checks the running host's name in a fixture captured
+    on this host, or in one that names no capture host.
+  * The 2.2.3 fixture names this Mac. Its key was created once, with `HostTag(true)` run from a
+    scratch copy of the module; it is the only file written outside the tree.
+
+**Tests, each seen failing.** The fake engine is the control package's test binary, re-run as
+`serve --stdio`; it is Go, so it runs on all three hosts. `p6/plant_p5.py` holds 19 deliberate
+breaks and `p6/plant_p5b.py` seven, in the session scratchpad, on scratch copies with a 90 s bound,
+so a hang counts as a failure.
+
+| Break | Fails |
+| --- | --- |
+| the password in argv | `TestPasswordIsNotInArgv` (C5) |
+| the Authorization header logged | `TestPasswordIsNotLogged`: "the log carries the Authorization header" (C5) |
+| the password captured | `TestPasswordIsNotCaptured`: "a capture carries the password" (C5) |
+| no password on a request | `TestRequestsCarryTheirPasswordAndLocation`: "/api/info answered 401" |
+| no `location[directory]`; no `x-opencode-directory`; no `location.directory` | `TestRequestsCarryTheirPasswordAndLocation`, each naming the missing one |
+| credentials read | `TestNeverReadsCredentials`: "err <nil>, want ErrCredentialRead" |
+| no 503 retry; one retry too many | `TestAgentsRetry503`: "after two 503s: 503, want 200"; "7 agent requests, want 6" |
+| any ready line, any answer, any version accepted | `TestStartRefusesWhatIsNotTheEngine`, `TestAnswerMustBeJSON` |
+| 130 orderly on the wrong hosts | `TestOrderly`: "Orderly(130) = false on darwin, want true"; `TestIgnoredLeaseIsTerminated` |
+| the lease not closed first | `TestLeaseCloseIsOrderly`: "want an orderly stop with 0" (the child got SIGTERM: 130) |
+| no terminate after the lease | `TestIgnoredTerminateIsKilled`: "Close did not return" |
+| no idle stop | `TestIdleStopsAndNextUseRestarts` |
+| a dead child reused | `TestRestartsAfterTheChildDies`: "connection refused" |
+| stdout not drained after the ready line | `TestStdoutIsDrainedAfterReady`: "a child that wrote 1 MiB to stdout stalled" |
+| the host rule applied whatever the tag; skipped on the capture host | `TestHostRuleAppliesOnTheCaptureHost` |
+| a capture makes the key; writes no tag | `TestCaptureWritesTheTagOnlyWhenAKeyExists` |
+| asking without create makes the key; a key others can read | `TestHostTagIsAKeyNotAName` |
+| the tagged 2.2.3 fixture carrying this Mac's name | `TestCommittedFixturesCarryNoIdentifiers`: "line 54: this host's name, unredacted" |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 47 packages ok, no race |
+| the Linux test host, `go test -race -count=1 ./...` (C7), HEAD plus the 5 changed and new files | exit 0, 47 packages ok; before Deviation 1, the one failure above |
+| the Windows test host, `make ci-windows` (C7), the same tree | exit 0, "ALL SELECTED CHECKS PASSED", 47 packages ok |
+| `make pre-add-check FILES=…` (the 4 Go files) | "4 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+**Not done, and why.**
+
+* **No live run.** G3's live pins already hold the real `serve --stdio` lease on three hosts;
+  this phase's lease tests run on the fake. P9's `make live-opencode` runs the real one.
+* **Not wired.** Nothing calls `Plane` until P6.
+* **The redaction side of Deviation 1 is unchanged**, as the owner chose: a capture taken on the
+  Linux test host would still write those model ids with `<host>`.
+
+P5 is complete with this commit. P6, the features on the control plane, is next.
+
+**Files for this commit:** `internal/provider/opencode/control/control.go` and
+`control_test.go` (new); `internal/wirecap/wirecap.go` and `fixtures_test.go`;
+`internal/provider/opencode/testdata/wire/2.2.3/meta.json`; MADR 0151; and this plan.

@@ -27,6 +27,11 @@
 package wirecap
 
 import (
+	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -68,9 +73,63 @@ func For(provider string) *Capture {
 	if err != nil {
 		return nil
 	}
+	// Which host captured these frames, without naming it (MADR 0151 D12).
+	// Written only where the host key already exists: For never creates it.
+	if tag, err := HostTag(false); err == nil && tag != "" {
+		_ = os.WriteFile(filepath.Join(dir, provider, "capture_host"), []byte(tag+"\n"), 0o644)
+	}
 	home, _ := os.UserHomeDir()
 	host, _ := os.Hostname()
 	return &Capture{f: f, home: home, hosts: hostNames(host)}
+}
+
+// EnvHostKey overrides where the host key lives, for tests.
+const EnvHostKey = "MCREMOTE_WIRECAP_HOST_KEY"
+
+// hostKeyPath is the host key's file: EnvHostKey, or mcremote's directory
+// under the user's config directory.
+func hostKeyPath() (string, error) {
+	if p := strings.TrimSpace(os.Getenv(EnvHostKey)); p != "" {
+		return p, nil
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "mcremote", "wirecap-host-key"), nil
+}
+
+// HostTag identifies this host as a fixture's capture host without naming it:
+// the hash of a random key kept on this host (MADR 0151 D12). A hash of the
+// host's name would not do, because a name that is an ordinary word is
+// recovered by trying words. It returns "" when there is no key and create is
+// false; with create, it makes the key first.
+func HostTag(create bool) (string, error) {
+	path, err := hostKeyPath()
+	if err != nil {
+		return "", err
+	}
+	key, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if !create {
+			return "", nil
+		}
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return "", err
+		}
+		key = []byte(hex.EncodeToString(raw))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(path, key, 0o600); err != nil {
+			return "", err
+		}
+	} else if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(append([]byte("mcremote wirecap host\n"), bytes.TrimSpace(key)...))
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // minHostName is the shortest host name redact replaces: a shorter one would be
