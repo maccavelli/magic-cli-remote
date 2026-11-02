@@ -155,7 +155,7 @@ RELAY_SERVICE_NAME ?= mcrelay
 DEVICE ?=
 MOBILE_DIR := apps/mobile
 
-.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-kilo live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
+.PHONY: build debug build-relay build-remote install install-relay test live-opencode live-codex live-codex-contract live-grok live-grok-discrimination live-grok-rest live-kilo live-replacefirst live-supervisors race test-all preflight apk manifest-surface \
 	verify-units verify-build-metadata profile profile-apk profile-devices run fmt lint staticcheck vulncheck \
 	pre-add-check vet vet-tags tidy clean check-host-target check-cgo-off check-records markdownlint-docs \
 	check-libs
@@ -371,8 +371,20 @@ live-codex-review:
 # grok's own writer honours, and proves an isolated device flow leaves the
 # operator's real credential byte-identical. It cancels rather than completing
 # an authorization, so it spends no tokens and mutates no real credential.
-live-grok:
-	go test -tags live_grok ./internal/provider/grok/ -count=1 -timeout 600s -v
+#
+# The whole suite needs more than one go test timeout, so it runs in two parts
+# of 900 s each (0208 PLAN, P6b deviation 2): the discrimination tests, which
+# drive several model turns each, and the rest. One regex selects the first
+# part with -run and the second with -skip, so every test runs in exactly one.
+LIVE_GROK_DISCRIMINATION := ^TestLiveGrok\w*Discrimination\w*$$
+
+live-grok: live-grok-discrimination live-grok-rest
+
+live-grok-discrimination:
+	go test -tags live_grok ./internal/provider/grok/ -count=1 -timeout 900s -v -run '$(LIVE_GROK_DISCRIMINATION)'
+
+live-grok-rest:
+	go test -tags live_grok ./internal/provider/grok/ -count=1 -timeout 900s -v -skip '$(LIVE_GROK_DISCRIMINATION)'
 
 # Live Kilo HTTP suite (MADR 0075/0088/0096/0108). Requires `kilo` on PATH.
 # The aggregate catalog test requires a non-empty catalog; dedicated catalog

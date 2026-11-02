@@ -1597,3 +1597,30 @@ test and comments (P6c), and declared capabilities (P6d).
 
 **Not done:** comments naming grok in `acpagent`, and the source test, are P6c. The
 `live-grok` timeout above.
+
+*The owner committed P6b as `b110cb50`.*
+
+### P6b Deviation 2, 2026-11-01 — the live grok suite outgrew its timeout. The owner decided: "split the suite and change the timeout to 900 sec"
+
+- **Found** at P6b's live run (above): `make live-grok` needs about 943 s, and the target allows
+  600 s. The two discrimination tests, which drive several model turns each, took 438 s of it.
+- **Resolution:**
+  * `make live-grok` runs two targets, each with `-timeout 900s`:
+    * `live-grok-discrimination`: `TestLiveGrokSessionMetaDiscrimination` and
+      `TestLiveGrokAutoDiscriminationPair`, about 438 s;
+    * `live-grok-rest`: every other grok live test, about 505 s.
+  * One regex, `^TestLiveGrok\w*Discrimination\w*$`, selects the first part with `-run` and the
+    second with `-skip`, so every test runs in exactly one part.
+  * The `make live-grok` that AGENTS.md names runs both.
+- **Files added to P6's scope:** `Makefile`.
+- **Checked without spending quota:**
+  * `make -n live-grok` prints the two `go test` commands, each with `-timeout 900s`, one with
+    `-run` and one with `-skip` on the regex.
+  * A check (`p6/split_check.py` in the session scratchpad) reads the regex from the `Makefile`
+    and applies it to `go test -list` of the live suite: "170 tests: 2 in
+    live-grok-discrimination, 168 in live-grok-rest", the two being the discrimination tests.
+  * On a copy whose regex names no test, it fails: "the first part selects [], want
+    ['TestLiveGrokAutoDiscriminationPair', 'TestLiveGrokSessionMetaDiscrimination']".
+  * `go test -list` with the regex lists the same two tests. `-list` does not apply `-skip`, so
+    the second part rests on `-skip` matching as `-run` does, which the check mirrors.
+- **Not run:** the split targets live. The suite passed in full at P6b, and a run spends quota.
