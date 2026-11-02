@@ -40,6 +40,7 @@ type e2ePermSession struct {
 	events chan event.Event
 }
 
+func (s *e2ePermSession) Capabilities() provider.Capabilities              { return nil }
 func (s *e2ePermSession) ID() string                                       { return s.id }
 func (s *e2ePermSession) ProviderID() provider.ID                          { return provider.ID("e2eperm") }
 func (s *e2ePermSession) AgentSessionID() string                           { return s.id }

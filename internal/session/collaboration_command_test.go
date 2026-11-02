@@ -69,11 +69,12 @@ type collabSession struct {
 	closed  bool
 }
 
-func (s *collabSession) ID() string                   { return s.id }
-func (s *collabSession) ProviderID() provider.ID      { return "collab" }
-func (s *collabSession) AgentSessionID() string       { return s.id }
-func (s *collabSession) Events() <-chan event.Event   { return s.events }
-func (s *collabSession) Cancel(context.Context) error { return nil }
+func (s *collabSession) Capabilities() provider.Capabilities { return nil }
+func (s *collabSession) ID() string                          { return s.id }
+func (s *collabSession) ProviderID() provider.ID             { return "collab" }
+func (s *collabSession) AgentSessionID() string              { return s.id }
+func (s *collabSession) Events() <-chan event.Event          { return s.events }
+func (s *collabSession) Cancel(context.Context) error        { return nil }
 func (s *collabSession) SetMode(context.Context, string) error {
 	return nil
 }

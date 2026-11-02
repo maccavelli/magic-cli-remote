@@ -673,6 +673,30 @@ func (s *session) UndoLast(ctx context.Context) (string, error) {
 	return u.UndoLast(ctx)
 }
 
+// Capabilities implements [provider.Session]: what the dialect's session
+// implements, and /status and /usage, which every dialect answers (MADR 0208
+// D1).
+func (s *session) Capabilities() provider.Capabilities {
+	return provider.Capabilities{
+		provider.CapStatus:           true,
+		provider.CapUsage:            true,
+		provider.CapCompact:          is[dialectCompact](s.ds),
+		provider.CapFork:             is[dialectFork](s.ds),
+		provider.CapRevert:           is[dialectRevert](s.ds),
+		provider.CapDiff:             is[dialectDiff](s.ds),
+		provider.CapSetModel:         is[dialectModel](s.ds),
+		provider.CapSetThinkingLevel: is[dialectThinking](s.ds),
+		provider.CapUndo:             is[dialectUndo](s.ds),
+		provider.CapRename:           is[dialectRename](s.ds),
+	}
+}
+
+// is reports whether v implements T.
+func is[T any](v any) bool {
+	_, ok := v.(T)
+	return ok
+}
+
 func (s *session) ID() string                 { return s.localID }
 func (s *session) ProviderID() provider.ID    { return s.p.dialect.ID() }
 func (s *session) AgentSessionID() string     { return s.agentID }

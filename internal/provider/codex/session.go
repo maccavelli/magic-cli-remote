@@ -1051,6 +1051,21 @@ func (s *session) Rename(ctx context.Context, title string) error {
 	return err
 }
 
+// Capabilities implements provider.Session. The app-server's surface is
+// fixed, so the set is too, except the Fast tier and personality, which
+// depend on the current model (MADR 0208 D1).
+func (s *session) Capabilities() provider.Capabilities {
+	caps := provider.NewCapabilities(
+		provider.CapCompact, provider.CapFork, provider.CapDiff, provider.CapRename,
+		provider.CapStatus, provider.CapUsage, provider.CapSetModel, provider.CapSetThinkingLevel,
+		provider.CapApprovalsReviewer, provider.CapGuardianApprove, provider.CapNativeThreadLifecycle,
+		provider.CapExecution, provider.CapGoal, provider.CapReview,
+	)
+	caps[provider.CapServiceTier] = s.HasFast()
+	caps[provider.CapPersonality] = s.PersonalitySupported()
+	return caps
+}
+
 // modelLister is the subset of *Provider that SetModel needs. Splitting it
 // out of *Provider lets tests substitute a fake without running an engine.
 type modelLister interface {

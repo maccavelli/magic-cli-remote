@@ -26,10 +26,11 @@ type gateSession struct {
 	closeN  atomic.Int32
 }
 
-func (s *gateSession) ID() string                 { return s.id }
-func (s *gateSession) ProviderID() provider.ID    { return "gate" }
-func (s *gateSession) AgentSessionID() string     { return s.id }
-func (s *gateSession) Events() <-chan event.Event { return s.events }
+func (s *gateSession) Capabilities() provider.Capabilities { return nil }
+func (s *gateSession) ID() string                          { return s.id }
+func (s *gateSession) ProviderID() provider.ID             { return "gate" }
+func (s *gateSession) AgentSessionID() string              { return s.id }
+func (s *gateSession) Events() <-chan event.Event          { return s.events }
 
 func (s *gateSession) Prompt(context.Context, []provider.Content) error { return s.gate("prompt") }
 func (s *gateSession) Cancel(context.Context) error                     { return s.gate("cancel") }

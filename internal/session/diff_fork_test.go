@@ -64,6 +64,10 @@ type forkSession struct {
 	events chan event.Event
 }
 
+func (s *forkSession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapFork)
+}
+
 func (s *forkSession) ID() string                 { return s.id }
 func (s *forkSession) ProviderID() provider.ID    { return "forker" }
 func (s *forkSession) AgentSessionID() string     { return s.agent }

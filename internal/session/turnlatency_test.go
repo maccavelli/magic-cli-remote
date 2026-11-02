@@ -77,11 +77,12 @@ type latencySession struct {
 	closed bool
 }
 
-func (s *latencySession) ID() string                   { return s.id }
-func (s *latencySession) ProviderID() provider.ID      { return "lat" }
-func (s *latencySession) AgentSessionID() string       { return s.id }
-func (s *latencySession) Cancel(context.Context) error { return nil }
-func (s *latencySession) Events() <-chan event.Event   { return s.events }
+func (s *latencySession) Capabilities() provider.Capabilities { return nil }
+func (s *latencySession) ID() string                          { return s.id }
+func (s *latencySession) ProviderID() provider.ID             { return "lat" }
+func (s *latencySession) AgentSessionID() string              { return s.id }
+func (s *latencySession) Cancel(context.Context) error        { return nil }
+func (s *latencySession) Events() <-chan event.Event          { return s.events }
 
 func (s *latencySession) Prompt(_ context.Context, _ []provider.Content) error {
 	base := time.Now().UTC()

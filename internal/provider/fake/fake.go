@@ -468,6 +468,13 @@ func (s *session) Diff(ctx context.Context, messageID string) (provider.DiffResu
 	}, nil
 }
 
+// Capabilities implements provider.Session: every operation the fake
+// implements (MADR 0208 D1).
+func (s *session) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapCompact, provider.CapSetModel,
+		provider.CapSetThinkingLevel, provider.CapUndo, provider.CapRevert, provider.CapDiff)
+}
+
 func (s *session) errIfClosed() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

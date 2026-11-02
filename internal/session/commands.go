@@ -40,6 +40,29 @@ func (m *Manager) resolveCommand(id, name string) (res command.Resolution, canon
 	return command.Resolve(name, tbl, state)
 }
 
+// opCapabilities is the session capability each operation needs.
+var opCapabilities = map[command.Op]provider.Capability{
+	command.OpCompact:           provider.CapCompact,
+	command.OpSetModel:          provider.CapSetModel,
+	command.OpSetThinkingLevel:  provider.CapSetThinkingLevel,
+	command.OpDiff:              provider.CapDiff,
+	command.OpStatus:            provider.CapStatus,
+	command.OpUsage:             provider.CapUsage,
+	command.OpApprovalsReviewer: provider.CapApprovalsReviewer,
+	command.OpGuardianApprove:   provider.CapGuardianApprove,
+	command.OpUndo:              provider.CapUndo,
+	command.OpRedo:              provider.CapRevert,
+	command.OpFork:              provider.CapFork,
+	command.OpArchive:           provider.CapNativeThreadLifecycle,
+	command.OpDelete:            provider.CapNativeThreadLifecycle,
+	command.OpPS:                provider.CapExecution,
+	command.OpStop:              provider.CapExecution,
+	command.OpGoal:              provider.CapGoal,
+	command.OpReview:            provider.CapReview,
+	command.OpServiceTier:       provider.CapServiceTier,
+	command.OpPersonality:       provider.CapPersonality,
+}
+
 // commandContext gathers everything command resolution needs for a session: the
 // provider's declared table, what the session reports (advertised commands,
 // modes, capabilities), and the provider's session-wide /help caveat.
@@ -60,31 +83,12 @@ func (m *Manager) commandContext(id string) (command.Table, command.SessionState
 	sess, prov := e.sess, e.meta.Provider
 	m.mu.RUnlock()
 
-	// Capabilities come from the live session's optional interfaces, so a
-	// provider cannot claim an op its transport does not implement.
+	// Operations are what the live session declares, never what its type
+	// happens to implement (MADR 0208 D1).
 	if sess != nil {
-		_, state.Ops[command.OpCompact] = sess.(provider.CompactSession)
-		_, state.Ops[command.OpSetModel] = sess.(provider.ModelSession)
-		_, state.Ops[command.OpSetThinkingLevel] = sess.(provider.ThinkingSession)
-		_, state.Ops[command.OpDiff] = sess.(provider.DiffSession)
-		_, state.Ops[command.OpStatus] = sess.(provider.RuntimeSession)
-		_, state.Ops[command.OpUsage] = sess.(provider.RuntimeSession)
-		_, state.Ops[command.OpApprovalsReviewer] = sess.(provider.PermissionProfileSession)
-		_, state.Ops[command.OpGuardianApprove] = sess.(provider.GuardianApprovalSession)
-		_, state.Ops[command.OpUndo] = sess.(provider.UndoSession)
-		_, state.Ops[command.OpRedo] = sess.(provider.RevertSession)
-		_, state.Ops[command.OpFork] = sess.(provider.ForkSession)
-		_, state.Ops[command.OpArchive] = sess.(provider.NativeThreadLifecycleSession)
-		_, state.Ops[command.OpDelete] = sess.(provider.NativeThreadLifecycleSession)
-		_, state.Ops[command.OpPS] = sess.(provider.ExecutionSession)
-		_, state.Ops[command.OpStop] = sess.(provider.ExecutionSession)
-		_, state.Ops[command.OpGoal] = sess.(provider.GoalSession)
-		_, state.Ops[command.OpReview] = sess.(provider.ReviewSession)
-		if ts, ok := sess.(provider.ServiceTierSession); ok {
-			state.Ops[command.OpServiceTier] = ts.HasFast()
-		}
-		if ps, ok := sess.(provider.PersonalitySession); ok {
-			state.Ops[command.OpPersonality] = ps.PersonalitySupported()
+		caps := sess.Capabilities()
+		for op, c := range opCapabilities {
+			state.Ops[op] = caps.Has(c)
 		}
 	}
 
@@ -688,15 +692,15 @@ func (m *Manager) cmdUndo(ctx context.Context, id string) error {
 
 // undoNotice builds the line shown after a successful undo.
 //
-// The redo hint is conditional on the same interface OpRedo is derived from
-// (see the capability block in State). grok can undo and cannot redo — its
-// rewind has no inverse — so offering /redo there would advertise a command the
-// daemon answers with "This agent can't redo a turn." Every UndoSession also
-// satisfied RevertSession until grok did not, which is why this was a plain
-// string until MADR 0138 Phase 9.
+// The redo hint is conditional on the capability OpRedo needs (see
+// opCapabilities). An agent whose rewind has no inverse can undo and cannot
+// redo, so offering /redo there would advertise a command the daemon answers
+// with "This agent can't redo a turn." Every UndoSession also satisfied
+// RevertSession until one did not, which is why this was a plain string until
+// MADR 0138 Phase 9; it reads the declaration since MADR 0208 D1.
 func undoNotice(sess provider.Session, summary string) string {
 	notice := fmt.Sprintf("Undid the last turn — %s.", summary)
-	if _, ok := sess.(provider.RevertSession); ok {
+	if sess.Capabilities().Has(provider.CapRevert) {
 		notice += " /redo restores it."
 	}
 	return notice

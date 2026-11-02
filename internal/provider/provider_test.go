@@ -103,6 +103,7 @@ func (m mockSession) Prompt(context.Context, []Content) error { return nil }
 func (m mockSession) Cancel(context.Context) error            { return nil }
 func (m mockSession) Events() <-chan event.Event              { return nil }
 func (m mockSession) Close(context.Context) error             { return nil }
+func (m mockSession) Capabilities() Capabilities              { return nil }
 
 func TestSessionInterfaceCompiles(t *testing.T) {
 	var s Session = mockSession{}

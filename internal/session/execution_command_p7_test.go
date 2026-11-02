@@ -41,6 +41,10 @@ type executionCommandSession struct {
 	resized   []string
 }
 
+func (s *executionCommandSession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapExecution)
+}
+
 func (s *executionCommandSession) ID() string                 { return s.id }
 func (s *executionCommandSession) ProviderID() provider.ID    { return "execution-command" }
 func (s *executionCommandSession) AgentSessionID() string     { return "native-1" }

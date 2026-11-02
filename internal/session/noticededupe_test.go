@@ -45,6 +45,7 @@ type noticeSession struct {
 	events chan event.Event
 }
 
+func (s *noticeSession) Capabilities() provider.Capabilities              { return nil }
 func (s *noticeSession) ID() string                                       { return s.id }
 func (s *noticeSession) ProviderID() provider.ID                          { return "noticer" }
 func (s *noticeSession) AgentSessionID() string                           { return s.id }

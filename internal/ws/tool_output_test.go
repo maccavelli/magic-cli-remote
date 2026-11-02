@@ -33,6 +33,7 @@ type toolOutputSession struct {
 	events chan event.Event
 }
 
+func (s *toolOutputSession) Capabilities() provider.Capabilities              { return nil }
 func (s *toolOutputSession) ID() string                                       { return s.id }
 func (s *toolOutputSession) ProviderID() provider.ID                          { return provider.IDFake }
 func (s *toolOutputSession) AgentSessionID() string                           { return s.id }

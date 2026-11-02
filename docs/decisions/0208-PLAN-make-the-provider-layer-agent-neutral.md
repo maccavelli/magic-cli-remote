@@ -258,9 +258,10 @@ Files: `internal/provider/provider.go`, `internal/session/commands.go`, every ad
 `internal/provider/acpagent/` (session operations, extensions, quota, auth selection) and
 `internal/provider/grok/`, with their tests.
 
-1. **Failing first.** A fixture ACP Spec with no operations: a recorded connection across
+1. ~~**Failing first.** A fixture ACP Spec with no operations: a recorded connection across
    `/compact`, `/fork`, `/undo`, `/thinking high`, a phone fork, a phone rename and a classified
-   quota error shows `_x.ai/*` frames on today's code. The test asserts none.
+   quota error shows `_x.ai/*` frames on today's code. The test asserts none.~~ *Replaced
+   2026-11-02 by P6d's step 1 (P6d Deviation 1).*
 2. `provider.Session.Capabilities()`; `commandContext` reads it; each adapter declares honestly
    (MADR D1).
 3. `acpagent.Spec.Ops` holds grok's seven operations, moved into `internal/provider/grok`
@@ -329,6 +330,32 @@ Files: `internal/provider/acpagent/` (comments, and the tests from 0214 P2), a n
 #### P6d — declared capabilities (D1)
 
 This is steps 1 and 2 above, after P6c, so the fixture Spec offers no vendor operation at all.
+
+*Amended 2026-11-02 (P6d Deviation 1).* Files: `internal/provider/provider.go`,
+`internal/session/commands.go` and `manager.go`, each adapter's session (`acpagent`, `httpagent`,
+`codex`, `fake`), and their tests.
+
+1. **Failing first.** A fixture ACP Spec through `acptest`, with no operations, no config
+   options and no fallbacks. Its command table maps `/compact`, `/fork`, `/undo`, `/usage`,
+   `/status`, `/thinking` and `/model` to operations, as a Spec author might before writing the
+   hooks:
+   * `/compact`, `/fork`, `/undo`, `/usage`, `/status` and `/thinking` resolve unavailable;
+   * `/model` resolves to the daemon's relaunch, not the agent's in-place switch;
+   * running each, a phone fork and a phone rename sends the agent no request after
+     `session/new`.
+   It fails on the tree before P6d, which reports the operations available.
+2. `provider.Capability`, one constant per operation, and `provider.Capabilities`, a set of them.
+   `provider.Session` gains `Capabilities()`. `commandContext` reads it. A type assertion stays
+   only to call an operation the session declared.
+3. Each adapter declares:
+   * `acpagent` from `Spec.Ops`, the model and thinking fallbacks, and its current config
+     options;
+   * `httpagent` and `codex` statically, with codex's fast tier and personality read live as
+     today;
+   * `fake` everything it implements.
+4. `manager.go`: the phone's rename, fork, revert and diff check the declaration before the call.
+   A session config event re-resolves the commands.
+5. A test per adapter that each declared capability's interface is implemented.
 
 Verification for each sub-phase: the Go rules; `make ci-windows` on the Windows test host for P6b,
 because grok's code moves; and `make vet-tags`.
@@ -1770,3 +1797,111 @@ P6c is complete with this commit. P6d, the declared capabilities, is next.
 **Files for this commit:** the thirty `acpagent` test files, `acpagent/neutral_test.go`,
 `acpagent/acptest/acptest.go`, `acpagent/testdata/vendor/` (`frames.jsonl`, `meta.json`),
 `grok/behaviour_test.go` and `grok/rawpath_test.go` (new), and this plan.
+
+*The owner committed this as `84c39872`.*
+
+### P6d Deviation 1, 2026-11-02 — the failing-first test, and `manager.go`. The owner decided: "Replace test, add manager.go"
+
+- **Found** before the first write. Step 1's assertion (no `_x.ai/*` frame from a Spec with no
+  operations) already holds on `84c39872`, so it cannot be seen failing:
+  * `acpagent`'s operations return "not offered" when the Spec's hook is nil, before the wire
+    (`acpagent/sessioncaps.go:177`, `:185`; `fork.go:15`; `rewind.go`; `runtime.go`);
+  * P6c's source test keeps `x.ai` out of `acpagent`.
+- What does fail is D1's subject. `internal/session/commands.go:66-80` reads availability from Go
+  types, and `acpagent`'s session has `Compact`, `Fork`, `UndoLast`, `RuntimeUsage`,
+  `RuntimeStatus`, `SetModel` and `SetThinkingLevel` whatever its Spec offers. A Spec with no
+  operations shows all of them available.
+- Two of D1's checks are outside the files listed:
+  * the phone's rename, fork, revert and diff are availability checks by type assertion
+    (`internal/session/manager.go:2885`, `:3244`, `:3302`, `:3343`);
+  * commands are re-resolved on agent commands, modes, collaboration modes, the first usage and
+    `/model` (`manager.go:1495-1565`), but not on a config option update, which is where an ACP
+    session's model and thinking capabilities change.
+- **Resolution:** step 1 is replaced by P6d's step 1 (above), and `manager.go` joins P6d's
+  files. One commit. The MADR's Confirmation is amended to match ("Added at P6d").
+- **Files added to P6's scope:** `internal/session/manager.go`.
+- **Added the same day, before the first code write. The owner decided: "Add the 3 ws tests".**
+  `Capabilities()` on `provider.Session` must be implemented by every session type. Besides the
+  four adapters, 24 test doubles in `internal/session`, one in `internal/provider` and three in
+  `internal/ws` implement it.
+  The `internal/ws` three (`receipt_e2e_test.go`, `setconfig_async_test.go`,
+  `tool_output_test.go`) are not tests of P6d's files. Each gains the method, declaring nothing,
+  and asserts nothing new. The files join P6d's scope.
+
+### P6d, 2026-11-02: declared capabilities
+
+**What changed.**
+
+* **`provider.go`.**
+  * `Capability`: one constant per operation, each documented with the interface that performs
+    it.
+  * `Capabilities`: a set of them, with `Has` and `NewCapabilities`.
+  * `Implements(s, c)`: whether `s` has `c`'s interface.
+  * `Session` gains `Capabilities()`.
+* **The adapters declare.**
+  * **`acpagent`:** from `Spec.Ops` (compact, fork, rename, undo, usage, status); a model or
+    thinking switch when the agent has the `model` or `thought_level` config option, or the Spec
+    a fallback. The answer changes with the agent's config options.
+  * **`httpagent`:** what the dialect's session implements, plus `/status` and `/usage`, which
+    every dialect answers.
+  * **`codex`:** its fixed surface. The Fast tier and personality are read from the current
+    model, as before. The approvals reviewer stays static, as step 3 says, although the engine
+    reports whether it can write the setting.
+  * **`fake`:** the six operations it implements.
+* **`commands.go`.**
+  * `commandContext` reads the declaration through `opCapabilities`, in place of nineteen type
+    assertions.
+  * `undoNotice` offers `/redo` only when revert is declared. It was an availability check by
+    type, in a file already in P6d's scope.
+* **`manager.go`.**
+  * Rename, fork, revert, unrevert and diff check the declaration before the call.
+  * A session config event re-resolves the commands.
+* **Test doubles.** 24 in `internal/session`, one in `internal/provider` and three in
+  `internal/ws` declare what they define (Deviation 1).
+
+**What it changes for today's providers: nothing visible.**
+* grok's Spec sets all six operations and both fallbacks, so it declares what its type
+  implemented.
+* codex and fake declare what they implement.
+* opencode's and kilo's dialect sessions implement every optional operation, except kilo's
+  thinking switch, which kilo's table already marks unavailable.
+* What changes is any ACP Spec that offers fewer operations: opencode over ACP (0214 P4), and
+  gobble.
+
+**Tests, each seen failing** (`p6/plant_p6d.py` in the session scratchpad, on scratch copies):
+
+| Test | Fails on |
+| --- | --- |
+| `session.TestUndeclaredOperationsAreUnavailable` (step 1) | the tree before P6d: "/compact resolves available ({Kind:op Op:compact …}); the session declared no such operation", the same for `/fork`, `/undo`, `/usage`, `/status` and `/thinking`, and "/model resolves to {Kind:op Op:set_model …}, want the daemon's relaunch" |
+| the same | `commandContext` inferring from types again (`\|\| provider.Implements(sess, c)`): the same six lines |
+| the same | the phone rename gate dropped, with `acpagent`'s `Rename` sending `_vendor/session/rename` when its hook is nil: "the agent was sent \"_vendor/session/rename\"; an undeclared operation reached the wire" |
+| `session.TestSessionConfigReresolvesCommands` | no re-resolution on a session config event: "/thinking was not advertised available after the agent's config options added it" |
+| `session.TestUndoNoticeOffersRedoOnlyWhenThereIsOne` (existing) | `undoNotice` reading undo instead of revert: "it offers /redo to a session that cannot redo" |
+| `acpagent.TestCapabilitiesFollowTheSpecAndTheAgent` | undo not declared when `Ops.UndoLast` is set: "want \"undo\" among them"; the `thought_level` option ignored: "declared map[set_model:true], want exactly [set_model set_thinking_level]" |
+| `httpagent.TestCapabilitiesFollowTheDialect` | fork declared whatever the dialect: "declared map[fork:true status:true usage:true], want exactly [status usage]" |
+| `codex.TestCapabilitiesAreTheFixedSurfaceAndTheModels` | the Fast tier no longer read: `gpt-5.6-sol` missing `service_tier`; `Implements` mapping diff to `UndoSession`: "declares \"diff\" without the interface that performs it" |
+| `fake.TestCapabilitiesAreWhatTheFakeImplements` | fork declared: "declares \"fork\" without the interface that performs it" |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 46 packages ok, no race |
+| `make pre-add-check FILES=…` (the 36 changed and new Go files) | "36 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+**Not done.**
+* No grok test pins that grok's session declares its operations. Its Spec sets all six and both
+  fallbacks (P6b), so by its code it declares every operation its type implements. A pin would
+  be a new grok test file, outside P6d's files.
+* `make ci-windows` was not run: the PLAN asks it only of P6b.
+* No live suite was run.
+
+P6d is complete with this commit, and with it P6. 0214 P4, opencode's ACP Spec, is next.
+
+**Files for this commit:** `internal/provider/provider.go` and `provider_test.go`;
+`acpagent/sessioncaps.go`; `httpagent/session.go`; `codex/session.go`; `fake/fake.go`;
+`internal/session/commands.go` and `manager.go`; the new `session/capabilities_internal_test.go`,
+`acpagent/capabilities_test.go`, `httpagent/capabilities_test.go`,
+`codex/declared_capabilities_test.go` and `fake/capabilities_test.go`; the test doubles in 21
+`internal/session` and three `internal/ws` test files; the MADR; and this plan.

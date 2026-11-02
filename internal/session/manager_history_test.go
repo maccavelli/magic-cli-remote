@@ -18,6 +18,7 @@ type scriptedSession struct {
 	events chan event.Event
 }
 
+func (s *scriptedSession) Capabilities() provider.Capabilities              { return nil }
 func (s *scriptedSession) ID() string                                       { return s.id }
 func (s *scriptedSession) ProviderID() provider.ID                          { return provider.IDFake }
 func (s *scriptedSession) AgentSessionID() string                           { return s.id }
@@ -38,6 +39,10 @@ type metadataSession struct {
 	renameTo    string
 	renameErr   error
 	diagnostics provider.Diagnostics
+}
+
+func (s *metadataSession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapRename)
 }
 
 func (s *metadataSession) ID() string                                       { return s.id }

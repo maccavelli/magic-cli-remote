@@ -38,6 +38,10 @@ type lifecycleSession struct {
 	deleteCalls  int
 }
 
+func (s *lifecycleSession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapNativeThreadLifecycle)
+}
+
 func (s *lifecycleSession) ID() string                 { return s.id }
 func (s *lifecycleSession) ProviderID() provider.ID    { return "lifecycle" }
 func (s *lifecycleSession) AgentSessionID() string     { return "native-1" }

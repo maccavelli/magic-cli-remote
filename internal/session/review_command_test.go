@@ -40,6 +40,10 @@ type reviewSession struct {
 	events chan event.Event
 }
 
+func (s *reviewSession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapReview)
+}
+
 func (s *reviewSession) ID() string                 { return s.id }
 func (s *reviewSession) ProviderID() provider.ID    { return "reviewer" }
 func (s *reviewSession) AgentSessionID() string     { return s.id }

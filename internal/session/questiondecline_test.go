@@ -24,6 +24,7 @@ type answerSession struct {
 	refuse    error
 }
 
+func (s *answerSession) Capabilities() provider.Capabilities              { return nil }
 func (s *answerSession) ID() string                                       { return s.id }
 func (s *answerSession) ProviderID() provider.ID                          { return "answers" }
 func (s *answerSession) AgentSessionID() string                           { return s.id }

@@ -187,3 +187,25 @@ func (s *session) Rename(ctx context.Context, title string) error {
 	}
 	return s.ops.Rename(ctx, s, title)
 }
+
+// Capabilities implements provider.Session: the operations the Spec's Ops
+// offer, and a model or thinking switch where the agent has the config option
+// or the Spec a fallback (MADR 0208 D1). It changes when the agent's config
+// options do.
+func (s *session) Capabilities() provider.Capabilities {
+	spec := s.spec()
+	s.mu.Lock()
+	_, _, modelOption := selectOption(s.configOptions, acp.SessionConfigOptionCategoryModel)
+	_, _, thinkingOption := selectOption(s.configOptions, acp.SessionConfigOptionCategoryThoughtLevel)
+	s.mu.Unlock()
+	return provider.Capabilities{
+		provider.CapCompact:          s.ops.Compact != nil,
+		provider.CapFork:             s.ops.Fork != nil,
+		provider.CapRename:           s.ops.Rename != nil,
+		provider.CapUndo:             s.ops.UndoLast != nil,
+		provider.CapUsage:            s.ops.RuntimeUsage != nil,
+		provider.CapStatus:           s.ops.RuntimeStatus != nil,
+		provider.CapSetModel:         modelOption || spec.SetModelFallback != nil,
+		provider.CapSetThinkingLevel: thinkingOption || spec.SetThinkingFallback != nil,
+	}
+}

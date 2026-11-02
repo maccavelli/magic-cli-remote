@@ -21,6 +21,7 @@ type feedSession struct {
 	events chan event.Event
 }
 
+func (s *feedSession) Capabilities() provider.Capabilities              { return nil }
 func (s *feedSession) ID() string                                       { return s.id }
 func (s *feedSession) ProviderID() provider.ID                          { return provider.IDFake }
 func (s *feedSession) AgentSessionID() string                           { return s.id }

@@ -1524,6 +1524,11 @@ func (m *Manager) pump(ctx context.Context, sess provider.Session) {
 						persistMeta = &meta
 					}
 				}
+				if ev.Type == event.TypeSessionConfig {
+					// An ACP agent's model and thinking switches follow its
+					// config options (MADR 0208 D1).
+					reresolve = true
+				}
 				if ev.Type == event.TypeCollaboration {
 					if len(ev.CollaborationModes) > 0 {
 						e.collabModes = ev.CollaborationModes
@@ -2883,7 +2888,7 @@ func (m *Manager) Rename(ctx context.Context, id, title, deviceID string) (Meta,
 		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	rs, ok := sess.(provider.RenameSession)
-	if !ok {
+	if !ok || !sess.Capabilities().Has(provider.CapRename) {
 		return Meta{}, fmt.Errorf("session %q does not support rename", id)
 	}
 	if err := rs.Rename(ctx, title); err != nil {
@@ -3242,7 +3247,7 @@ func (m *Manager) Fork(ctx context.Context, id, messageID, deviceID string) (Met
 		return Meta{}, fmt.Errorf("%w: %q", ErrNotLive, id)
 	}
 	fs, ok := sess.(provider.ForkSession)
-	if !ok {
+	if !ok || !sess.Capabilities().Has(provider.CapFork) {
 		return Meta{}, fmt.Errorf("session %q does not support fork", id)
 	}
 	deferGoal := false
@@ -3300,7 +3305,7 @@ func (m *Manager) Revert(ctx context.Context, id, messageID, partID, deviceID st
 		return err
 	}
 	rs, ok := sess.(provider.RevertSession)
-	if !ok {
+	if !ok || !sess.Capabilities().Has(provider.CapRevert) {
 		return fmt.Errorf("session %q does not support revert", id)
 	}
 	if err := rs.Revert(ctx, messageID, partID); err != nil {
@@ -3320,7 +3325,7 @@ func (m *Manager) Unrevert(ctx context.Context, id, deviceID string) error {
 		return err
 	}
 	rs, ok := sess.(provider.RevertSession)
-	if !ok {
+	if !ok || !sess.Capabilities().Has(provider.CapRevert) {
 		return fmt.Errorf("session %q does not support unrevert", id)
 	}
 	if err := rs.Unrevert(ctx); err != nil {
@@ -3341,7 +3346,7 @@ func (m *Manager) Diff(ctx context.Context, id, messageID, deviceID string) (pro
 		return provider.DiffResult{}, err
 	}
 	ds, ok := sess.(provider.DiffSession)
-	if !ok {
+	if !ok || !sess.Capabilities().Has(provider.CapDiff) {
 		return provider.DiffResult{}, fmt.Errorf("session %q does not support diff", id)
 	}
 	res, err := ds.Diff(ctx, messageID)

@@ -25,10 +25,11 @@ type trackingSession struct {
 	closed  atomic.Bool
 }
 
-func (s *trackingSession) ID() string                 { return s.id }
-func (s *trackingSession) ProviderID() provider.ID    { return "track" }
-func (s *trackingSession) AgentSessionID() string     { return s.id }
-func (s *trackingSession) Events() <-chan event.Event { return s.events }
+func (s *trackingSession) Capabilities() provider.Capabilities { return nil }
+func (s *trackingSession) ID() string                          { return s.id }
+func (s *trackingSession) ProviderID() provider.ID             { return "track" }
+func (s *trackingSession) AgentSessionID() string              { return s.id }
+func (s *trackingSession) Events() <-chan event.Event          { return s.events }
 
 func (s *trackingSession) Prompt(_ context.Context, _ []provider.Content) error {
 	if s.closed.Load() {
@@ -259,10 +260,11 @@ type blockingModeSession struct {
 	mu     sync.Mutex
 }
 
-func (s *blockingModeSession) ID() string                 { return s.id }
-func (s *blockingModeSession) ProviderID() provider.ID    { return "blockmode" }
-func (s *blockingModeSession) AgentSessionID() string     { return s.id }
-func (s *blockingModeSession) Events() <-chan event.Event { return s.events }
+func (s *blockingModeSession) Capabilities() provider.Capabilities { return nil }
+func (s *blockingModeSession) ID() string                          { return s.id }
+func (s *blockingModeSession) ProviderID() provider.ID             { return "blockmode" }
+func (s *blockingModeSession) AgentSessionID() string              { return s.id }
+func (s *blockingModeSession) Events() <-chan event.Event          { return s.events }
 func (s *blockingModeSession) Prompt(context.Context, []provider.Content) error {
 	return nil
 }

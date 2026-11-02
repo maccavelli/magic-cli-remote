@@ -63,11 +63,12 @@ type silentSession struct {
 	closed bool
 }
 
-func (s *silentSession) ID() string                   { return s.id }
-func (s *silentSession) ProviderID() provider.ID      { return "sil" }
-func (s *silentSession) AgentSessionID() string       { return s.id }
-func (s *silentSession) Events() <-chan event.Event   { return s.events }
-func (s *silentSession) Cancel(context.Context) error { return nil }
+func (s *silentSession) Capabilities() provider.Capabilities { return nil }
+func (s *silentSession) ID() string                          { return s.id }
+func (s *silentSession) ProviderID() provider.ID             { return "sil" }
+func (s *silentSession) AgentSessionID() string              { return s.id }
+func (s *silentSession) Events() <-chan event.Event          { return s.events }
+func (s *silentSession) Cancel(context.Context) error        { return nil }
 
 func (s *silentSession) advertise() {
 	s.events <- event.Event{Type: event.TypeAvailableCommands, SessionID: s.id, Commands: []event.AvailableCommand{

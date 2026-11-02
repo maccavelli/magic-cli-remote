@@ -49,11 +49,12 @@ type slowConfigSession struct {
 	closed bool
 }
 
-func (s *slowConfigSession) ID() string                   { return s.id }
-func (s *slowConfigSession) ProviderID() provider.ID      { return "slowcfg" }
-func (s *slowConfigSession) AgentSessionID() string       { return s.id }
-func (s *slowConfigSession) Cancel(context.Context) error { return nil }
-func (s *slowConfigSession) Events() <-chan event.Event   { return s.events }
+func (s *slowConfigSession) Capabilities() provider.Capabilities { return nil }
+func (s *slowConfigSession) ID() string                          { return s.id }
+func (s *slowConfigSession) ProviderID() provider.ID             { return "slowcfg" }
+func (s *slowConfigSession) AgentSessionID() string              { return s.id }
+func (s *slowConfigSession) Cancel(context.Context) error        { return nil }
+func (s *slowConfigSession) Events() <-chan event.Event          { return s.events }
 
 func (s *slowConfigSession) Prompt(_ context.Context, _ []provider.Content) error {
 	s.events <- event.Event{Type: event.TypeTurnComplete, SessionID: s.id,

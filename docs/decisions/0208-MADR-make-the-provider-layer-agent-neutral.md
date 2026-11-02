@@ -216,9 +216,10 @@ record.
 
 ### Confirmation
 
-* A resolver test: a fixture ACP Spec with no operations reports none, and `/compact`, `/fork`,
+* ~~A resolver test: a fixture ACP Spec with no operations reports none, and `/compact`, `/fork`,
   `/undo`, `/thinking`, a phone fork and a phone rename send no `_x.ai/*` frame. Seen failing on
-  today's code first.
+  today's code first.~~ *Amended 2026-11-02 (P6d; see "Added at P6d" below): a resolver test in
+  which a fixture ACP Spec with no operations reports none available and sends the agent nothing.*
 * The source tests of D2, D4 and D5 are each seen failing on today's tree, run on a scratch copy.
 * A grouped config option fixture reaches the phone with its values and category.
 * grok's, opencode's, kilo's and codex's unit, conformance and wire suites pass unchanged. Their
@@ -641,3 +642,25 @@ A Spec's package tests its hooks on real sessions without reaching into `acpagen
 
 Both are agent-neutral, and D7's conformance suite builds on the fixture agent. *Owner: "Fixture
 agent + StartOn"* (PLAN P6b Deviation 1).
+
+### Added at P6d, 2026-11-02: the resolver test checks availability
+
+The first Confirmation item could no longer fail. Since P6b, an `acpagent` operation whose Spec
+hook is nil returns "not offered" before anything reaches the wire, and P6c's source test keeps
+`x.ai` out of `acpagent`. So a Spec with no operations already sends no `_x.ai/*` frame.
+
+D1's failure is still there: `commandContext` reads availability from Go types, and `acpagent`'s
+session type has every operation. Two more facts follow from D1:
+* The phone's rename, fork, revert and diff are availability checks of the same kind, in
+  `internal/session/manager.go`.
+* An ACP session's model and thinking capabilities follow its config options, which the agent
+  can change during the session. Commands are re-resolved when it does.
+
+The Confirmation item is therefore a resolver test with a fixture ACP Spec that has no operations,
+though its command table maps commands to them:
+* `/compact`, `/fork`, `/undo`, `/usage`, `/status` and `/thinking` resolve as unavailable;
+* `/model` resolves to the daemon's relaunch rather than the agent's in-place switch;
+* running them, a phone fork and a phone rename sends the agent no request.
+
+It is seen failing on the tree before P6d. *Owner: "Replace test, add manager.go"* (PLAN P6d
+Deviation 1).

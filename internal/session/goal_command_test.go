@@ -53,6 +53,10 @@ type goalSession struct {
 	collab string
 }
 
+func (s *goalSession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapFork, provider.CapGoal)
+}
+
 func (s *goalSession) ID() string                 { return s.id }
 func (s *goalSession) ProviderID() provider.ID    { return "goaler" }
 func (s *goalSession) AgentSessionID() string     { return s.id }

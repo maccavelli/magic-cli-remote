@@ -35,6 +35,7 @@ type permSession struct {
 	events chan event.Event
 }
 
+func (s *permSession) Capabilities() provider.Capabilities              { return nil }
 func (s *permSession) ID() string                                       { return s.id }
 func (s *permSession) ProviderID() provider.ID                          { return provider.ID("permtest") }
 func (s *permSession) AgentSessionID() string                           { return s.id }

@@ -30,10 +30,11 @@ type p6AliasSession struct {
 	events  chan event.Event
 }
 
-func (s *p6AliasSession) ID() string                 { return s.id }
-func (s *p6AliasSession) ProviderID() provider.ID    { return provider.IDCodex }
-func (s *p6AliasSession) AgentSessionID() string     { return s.agentID }
-func (s *p6AliasSession) Events() <-chan event.Event { return s.events }
+func (s *p6AliasSession) Capabilities() provider.Capabilities { return nil }
+func (s *p6AliasSession) ID() string                          { return s.id }
+func (s *p6AliasSession) ProviderID() provider.ID             { return provider.IDCodex }
+func (s *p6AliasSession) AgentSessionID() string              { return s.agentID }
+func (s *p6AliasSession) Events() <-chan event.Event          { return s.events }
 func (s *p6AliasSession) Prompt(context.Context, []provider.Content) error {
 	return nil
 }

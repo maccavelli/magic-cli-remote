@@ -50,6 +50,13 @@ type fastSession struct {
 	events                   chan event.Event
 }
 
+func (s *fastSession) Capabilities() provider.Capabilities {
+	caps := provider.NewCapabilities(provider.CapSetModel)
+	caps[provider.CapServiceTier] = s.HasFast()
+	caps[provider.CapPersonality] = s.PersonalitySupported()
+	return caps
+}
+
 func (s *fastSession) ID() string                 { return s.id }
 func (s *fastSession) ProviderID() provider.ID    { return "fastie" }
 func (s *fastSession) AgentSessionID() string     { return s.id }

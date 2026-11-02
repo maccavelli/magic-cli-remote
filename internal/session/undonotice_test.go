@@ -13,6 +13,7 @@ import (
 // exactly one thing: whether they can redo.
 type stubSession struct{}
 
+func (stubSession) Capabilities() provider.Capabilities              { return nil }
 func (stubSession) ID() string                                       { return "s" }
 func (stubSession) ProviderID() provider.ID                          { return provider.IDFake }
 func (stubSession) AgentSessionID() string                           { return "a" }
@@ -25,6 +26,9 @@ func (stubSession) Close(context.Context) error                      { return ni
 type undoOnlySession struct{ stubSession }
 
 func (undoOnlySession) UndoLast(context.Context) (string, error) { return "", nil }
+func (undoOnlySession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapUndo)
+}
 
 // undoAndRedoSession is kilo's and opencode's shape.
 type undoAndRedoSession struct{ stubSession }
@@ -34,6 +38,9 @@ func (undoAndRedoSession) Revert(context.Context, string, string) error {
 	return nil
 }
 func (undoAndRedoSession) Unrevert(context.Context) error { return nil }
+func (undoAndRedoSession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapUndo, provider.CapRevert)
+}
 
 // TestUndoNoticeOffersRedoOnlyWhenThereIsOne.
 //

@@ -41,6 +41,10 @@ type runtimeSession struct {
 	p *runtimeProvider
 }
 
+func (s *runtimeSession) Capabilities() provider.Capabilities {
+	return provider.NewCapabilities(provider.CapStatus, provider.CapUsage)
+}
+
 func (s *runtimeSession) RuntimeStatus(context.Context) (provider.Result, error) {
 	return s.p.status, nil
 }

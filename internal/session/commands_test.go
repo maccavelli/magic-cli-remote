@@ -108,11 +108,12 @@ type recordingSession struct {
 	closed bool
 }
 
-func (s *recordingSession) ID() string                   { return s.id }
-func (s *recordingSession) ProviderID() provider.ID      { return "rec" }
-func (s *recordingSession) AgentSessionID() string       { return s.id }
-func (s *recordingSession) Events() <-chan event.Event   { return s.events }
-func (s *recordingSession) Cancel(context.Context) error { return nil }
+func (s *recordingSession) Capabilities() provider.Capabilities { return nil }
+func (s *recordingSession) ID() string                          { return s.id }
+func (s *recordingSession) ProviderID() provider.ID             { return "rec" }
+func (s *recordingSession) AgentSessionID() string              { return s.id }
+func (s *recordingSession) Events() <-chan event.Event          { return s.events }
+func (s *recordingSession) Cancel(context.Context) error        { return nil }
 
 // SetMode records the switch and echoes it back as the real transports do
 // (grok via current_mode_update, OpenCode via the transport's own echo).

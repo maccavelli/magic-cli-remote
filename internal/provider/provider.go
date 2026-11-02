@@ -158,6 +158,116 @@ type Session interface {
 	Cancel(ctx context.Context) error
 	Events() <-chan event.Event
 	Close(ctx context.Context) error
+	// Capabilities lists the operations the session supports now. Nothing
+	// else is offered for it, whatever interfaces its type implements
+	// (MADR 0208 D1).
+	Capabilities() Capabilities
+}
+
+// Capability is one operation a session can declare (MADR 0208 D1). Each names
+// the interface that performs it.
+type Capability string
+
+const (
+	// CapCompact is [CompactSession].
+	CapCompact Capability = "compact"
+	// CapSetModel is [ModelSession]: an in-place model switch.
+	CapSetModel Capability = "set_model"
+	// CapSetThinkingLevel is [ThinkingSession].
+	CapSetThinkingLevel Capability = "set_thinking_level"
+	// CapDiff is [DiffSession].
+	CapDiff Capability = "diff"
+	// CapStatus is [RuntimeSession]'s RuntimeStatus.
+	CapStatus Capability = "status"
+	// CapUsage is [RuntimeSession]'s RuntimeUsage.
+	CapUsage Capability = "usage"
+	// CapApprovalsReviewer is [PermissionProfileSession].
+	CapApprovalsReviewer Capability = "approvals_reviewer"
+	// CapGuardianApprove is [GuardianApprovalSession].
+	CapGuardianApprove Capability = "guardian_approve"
+	// CapUndo is [UndoSession].
+	CapUndo Capability = "undo"
+	// CapRevert is [RevertSession].
+	CapRevert Capability = "revert"
+	// CapFork is [ForkSession].
+	CapFork Capability = "fork"
+	// CapRename is [RenameSession].
+	CapRename Capability = "rename"
+	// CapNativeThreadLifecycle is [NativeThreadLifecycleSession].
+	CapNativeThreadLifecycle Capability = "native_thread_lifecycle"
+	// CapExecution is [ExecutionSession].
+	CapExecution Capability = "execution"
+	// CapGoal is [GoalSession].
+	CapGoal Capability = "goal"
+	// CapReview is [ReviewSession].
+	CapReview Capability = "review"
+	// CapServiceTier is [ServiceTierSession], with a Fast tier to switch to.
+	CapServiceTier Capability = "service_tier"
+	// CapPersonality is [PersonalitySession], on a model that has one.
+	CapPersonality Capability = "personality"
+)
+
+// Capabilities is the set of operations a session declares.
+type Capabilities map[Capability]bool
+
+// NewCapabilities is the set of cs.
+func NewCapabilities(cs ...Capability) Capabilities {
+	out := make(Capabilities, len(cs))
+	for _, c := range cs {
+		out[c] = true
+	}
+	return out
+}
+
+// Has reports whether x is declared.
+func (c Capabilities) Has(x Capability) bool { return c[x] }
+
+// Implements reports whether s has the interface that performs c. A session
+// declares only what this holds for; each adapter's tests check it.
+func Implements(s Session, c Capability) bool {
+	switch c {
+	case CapCompact:
+		return is[CompactSession](s)
+	case CapSetModel:
+		return is[ModelSession](s)
+	case CapSetThinkingLevel:
+		return is[ThinkingSession](s)
+	case CapDiff:
+		return is[DiffSession](s)
+	case CapStatus, CapUsage:
+		return is[RuntimeSession](s)
+	case CapApprovalsReviewer:
+		return is[PermissionProfileSession](s)
+	case CapGuardianApprove:
+		return is[GuardianApprovalSession](s)
+	case CapUndo:
+		return is[UndoSession](s)
+	case CapRevert:
+		return is[RevertSession](s)
+	case CapFork:
+		return is[ForkSession](s)
+	case CapRename:
+		return is[RenameSession](s)
+	case CapNativeThreadLifecycle:
+		return is[NativeThreadLifecycleSession](s)
+	case CapExecution:
+		return is[ExecutionSession](s)
+	case CapGoal:
+		return is[GoalSession](s)
+	case CapReview:
+		return is[ReviewSession](s)
+	case CapServiceTier:
+		return is[ServiceTierSession](s)
+	case CapPersonality:
+		return is[PersonalitySession](s)
+	}
+	return false
+}
+
+// is reports whether v implements T.
+func is[T any](v any) bool {
+	_, ok := v.(T)
+	return ok
 }
 
 // RuntimeSession answers the `/status` and `/usage` session slash commands.
