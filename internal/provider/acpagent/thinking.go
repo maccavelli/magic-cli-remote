@@ -12,8 +12,7 @@ import (
 // SetThinkingLevel sets the session's thinking level. The standard path is the
 // agent's `thought_level` config option, whose set_config_option answer is
 // the read-back (MADR 0184 D6); an agent that offers none gets its Spec's
-// SetThinkingFallback, which for grok is set_model `_meta.reasoningEffort`
-// confirmed by session/resume (MADR 0106). It does not return
+// SetThinkingFallback (MADR 0106). It does not return
 // ErrThinkingLevelFixed.
 func (s *session) SetThinkingLevel(ctx context.Context, level string) error {
 	level = strings.TrimSpace(level)

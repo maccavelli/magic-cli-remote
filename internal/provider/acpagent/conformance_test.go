@@ -174,7 +174,7 @@ func TestSubagentUpdatesStopAtTheSDK(t *testing.T) {
 // connection with production's options and delivered to the Spec's handler
 // exactly once. A key gets a row before a Spec registers it.
 func TestExtensionKeysConform(t *testing.T) {
-	childUpdate := g1Frames(t, childUpdateMethod)[0]
+	childUpdate := fixtureFrames(t, childUpdateMethod)[0]
 	for _, row := range []struct {
 		key      string
 		evidence string
@@ -183,7 +183,7 @@ func TestExtensionKeysConform(t *testing.T) {
 	}{
 		{
 			key:      "notification " + childUpdateMethod,
-			evidence: "recorded: G1, opencode 2.2.3 (testdata/wire/2.2.3)",
+			evidence: "fixture: testdata/vendor",
 			register: func(spec *Spec, hit func()) {
 				spec.ExtensionNotifications = map[string]ExtensionNotificationHandler{
 					childUpdateMethod: func(context.Context, Host, json.RawMessage) { hit() },
@@ -193,7 +193,7 @@ func TestExtensionKeysConform(t *testing.T) {
 		},
 		{
 			key:      "session_info_update._meta " + retryKey,
-			evidence: "transcribed: opencode translate.ts:275 at b44b7164ba",
+			evidence: "a scheduled retry marker",
 			register: func(spec *Spec, hit func()) {
 				spec.MetaHandlers = map[string]MetaHandler{
 					retryKey: func(_ context.Context, _ Host, from MetaSource, _ json.RawMessage) {
@@ -210,7 +210,7 @@ func TestExtensionKeysConform(t *testing.T) {
 		},
 		{
 			key:      "prompt result _meta " + retryKey,
-			evidence: "transcribed: opencode translate.ts:166 at b44b7164ba",
+			evidence: "a retry marker pending at an interrupt",
 			register: func(spec *Spec, hit func()) {
 				spec.MetaHandlers = map[string]MetaHandler{
 					retryKey: func(_ context.Context, _ Host, from MetaSource, _ json.RawMessage) {

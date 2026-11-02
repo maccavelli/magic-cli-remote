@@ -12,9 +12,8 @@ import (
 //
 // Two sources, in that order. `agentInfo.version` is the standard field; the protocol types it as optional and says a future
 // version will require it, so it is preferred wherever present. metaVersion is
-// the transport's vendor fallback — grok's `_meta.agentVersion` — because grok
-// 1.0.13 sends no agentInfo at all, verified across the whole of its 247-frame
-// fixture (MADR 0137, ninth amendment).
+// the Spec's InitializeMeta reading of the agent's `_meta`, for an agent that
+// sends no agentInfo at all (MADR 0137, ninth amendment).
 //
 // "" means the agent reported nothing, which is a valid answer and must never
 // be turned into a warning: an agent that does not name itself has not

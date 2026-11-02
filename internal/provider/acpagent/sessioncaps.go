@@ -12,16 +12,10 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
-// This file consumes the standard ACP `sessionCapabilities` block that grok has
-// been advertising and mcremote has never read.
-//
-// MADR 0138 F10 measured it: grok offers `list`, `resume` and `close`, and
-// mcremote referenced **none** of them.
-// F7's table then mapped grok's vendor `x.ai/session/*` methods onto the same
-// gaps — but where the standard surface exists it is the better answer, because
-// it is gated on what the agent advertised rather than on which vendor it is.
-//
-// This package is grok only.
+// This file consumes the standard ACP `sessionCapabilities` block (MADR 0138
+// F10). Where the standard surface exists it is the better answer than a
+// vendor's own methods, because it is gated on what the agent advertised rather
+// than on which vendor it is.
 //
 // Everything here is gated on what the agent advertised at `initialize`. An
 // agent that offers nothing gets asked for nothing, and the corresponding
@@ -109,9 +103,8 @@ func agentSessionMeta(si acp.SessionInfo) provider.AgentSessionMeta {
 // The fallback matters and is not a workaround: Close is what Purge did for
 // every ACP provider before this, so an agent without `delete` is no worse off,
 // and one with it now actually removes its native conversation instead of
-// leaving it behind. grok advertises `list`/`resume`/`close` and no `delete`,
-// so today this closes; a later grok that adds `delete` starts deleting with no
-// change here, because the branch reads the wire rather than the vendor's name.
+// leaving it behind. An agent that adds `delete` starts deleting with no change
+// here, because the branch reads the wire rather than the vendor's name.
 func (s *session) Purge(ctx context.Context) error {
 	conn := s.connOrNil()
 	if conn == nil || !s.supportsDelete() {
@@ -151,19 +144,6 @@ func (s *session) connOrNil() *acp.ClientSideConnection {
 	return s.conn
 }
 
-// callAgentExtension issues one grok `x.ai/*` extension request and decodes its
-// result into out.
-//
-// Outbound, client to agent — the mirror of HandleExtensionMethod, which serves
-// the requests grok makes of *us*. It adds the `_` the wire requires (grok's
-// own dispatch table spells these without it) and delegates the transport to
-// rawRequest, so there is one JSON-RPC path in this package rather than two.
-//
-// grok publishes no list of its seventy ext methods, so "supported" is answered
-// the only way the wire allows: call it, and read a JSON-RPC method-not-found
-// as "this build does not have it" rather than as a failure worth showing
-// anyone.
-
 func derefString(p *string) string {
 	if p == nil {
 		return ""
@@ -176,12 +156,12 @@ func derefString(p *string) string {
 // It answers with what the agent is actually running, which is not the same
 // question as "what did the client ask for". MADR 0137's eighth amendment made
 // "providers run on their own default model" the norm, so on the normal path
-// the client asks for nothing — and every one of the seven grok turn-latency
+// the client asks for nothing — and every one of the seven turn-latency
 // records in MADR 0138 carried no model as a result.
 //
-// Preference order: the model grok applied to this session (harvested from
-// `x.ai/sessionDetail` on session/new|load), then the model it reported at
-// `initialize`. Empty when it said neither, rather than guessed.
+// Preference order: the model the agent applied to this session (harvested
+// from session/new|load `_meta`), then the model it reported at `initialize`.
+// Empty when it said neither, rather than guessed.
 func (s *session) CurrentModel() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -191,13 +171,8 @@ func (s *session) CurrentModel() string {
 	return strings.TrimSpace(s.engineModelID)
 }
 
-// Compact implements provider.CompactSession over grok's
-// `x.ai/compact_conversation`.
-//
-// One of the seventy ext methods grok routes and mcremote did not call
-// (MADR 0138 F7). Before this, `/compact` on a grok session answered "this
-// agent can't compact its conversation" — which was mcremote's limitation, not
-// grok's.
+// Compact implements provider.CompactSession through the Spec's Ops.Compact
+// (MADR 0138 F7; MADR 0208 D2).
 func (s *session) Compact(ctx context.Context) error {
 	if s.ops.Compact == nil {
 		return errNotOffered("compaction")
@@ -205,7 +180,7 @@ func (s *session) Compact(ctx context.Context) error {
 	return s.ops.Compact(ctx, s)
 }
 
-// Rename implements provider.RenameSession over grok's `x.ai/session/rename`.
+// Rename implements provider.RenameSession through the Spec's Ops.Rename.
 func (s *session) Rename(ctx context.Context, title string) error {
 	if s.ops.Rename == nil {
 		return errNotOffered("rename")

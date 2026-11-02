@@ -56,6 +56,8 @@ var spec = acpagent.Spec{
 	ClearCredential:   clearCredential,
 	CredentialModel:   resolveCredentialModel,
 	SafeAuthMethodIDs: []string{"cached_token", "xai.api_key"},
+	// CredentialEnv is unset: XAI_API_KEY ends in _API_KEY, which
+	// stderrtail.Secrets already knows (MADR 0216 D27).
 	// A cached token first, then a key, as grok's own login prefers
 	// (MADR 0085 D2).
 	AuthPreference:        []string{"cached_token", "xai.api_key"},
@@ -190,6 +192,12 @@ func NewWithLogger(cfg Config, log *slog.Logger) *Provider {
 // `-m` and `--reasoning-effort` remain accepted globals (MADR 0050 placement)
 // and are ACP no-ops on 1.0.5; application is grokSessionMeta `_meta`
 // (MADR 0106).
+// --permission-mode takes default, acceptEdits, auto, dontAsk,
+// bypassPermissions or plan. --sandbox takes off, workspace, devbox, read-only,
+// strict, or a custom profile name resolved from ~/.grok/sandbox.toml or
+// .grok/sandbox.toml; without it grok keeps its own default (MADR 0050 D4).
+// Never pin the grok.com auth method: it opens a browser and hangs a headless
+// host (MADR 0085).
 func defaultArgs(cfg Config) []string {
 	var args []string
 	if cfg.Model != "" {

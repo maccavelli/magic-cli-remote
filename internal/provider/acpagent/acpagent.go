@@ -1,8 +1,9 @@
 // Package acpagent implements the shared ACP CLI agent provider machinery:
 // subprocess launch, the ACP client-side connection (initialize, session
 // new/load, prompt, cancel, close), streaming update → event mapping, remote
-// permissions, filesystem callbacks, and the terminal host. Concrete providers
-// (grok, opencode) supply a Spec and reuse everything here.
+// permissions, filesystem callbacks, and the terminal host. Each agent supplies
+// a Spec from its own package and reuses everything here; this package names
+// none of them (MADR 0208 D2).
 package acpagent
 
 import (
@@ -52,7 +53,7 @@ const loadTimeout = 120 * time.Second
 // lifecycle, the ACP handshake, event mapping, permissions, terminals — is
 // shared.
 type Spec struct {
-	// ID is the provider identity ("grok", "opencode").
+	// ID is the provider identity.
 	ID provider.ID
 	// DefaultBin is the executable name used when Config.Bin is empty.
 	DefaultBin string
@@ -69,8 +70,7 @@ type Spec struct {
 	// option. A failure aborts Start.
 	ConfigureSession func(ctx context.Context, conn *acp.ClientSideConnection, resp acp.NewSessionResponse, opts provider.StartOptions, cfg Config, log *slog.Logger) error
 	// SessionMeta, when non-nil, is copied onto session/new and session/load
-	// `_meta`. Empty/nil omits the field. Grok is the only Spec that sets this
-	// (MADR 0106).
+	// `_meta`. Empty/nil omits the field (MADR 0106).
 	SessionMeta func(opts provider.StartOptions, cfg Config) map[string]any
 	// KnownGoodVersion is the agent release this Spec's wire shapes were
 	// checked against. Empty disables the check entirely. A mismatch produces
@@ -106,7 +106,7 @@ type Spec struct {
 	// HasHeadlessCredential reports a key.
 	KeyAuthMethodID string
 	// HasHeadlessCredential, when set, is D2 step 4: a usable API key
-	// exists on disk or in env even if xai.api_key was not advertised.
+	// exists on disk or in env even if KeyAuthMethodID was not advertised.
 	HasHeadlessCredential func() bool
 	// CredentialModel resolves the single model id a store-keyed write should
 	// target (MADR 0085 D4). Called by Provider.SetCredential and
@@ -130,9 +130,9 @@ type Spec struct {
 	DefaultModeID string
 	// SynthesizeAutoMode appends a daemon-enforced `auto` mode to the
 	// advertised list, for agents whose own auto-approve is not settable per
-	// session. Grok is the case in point: its `--permission-mode auto` is a
-	// flag on the process, so honouring a per-session switch through it would
-	// mean restarting the engine under every other session (MADR 0049 D1).
+	// session: an auto that is a flag on the agent's process could follow a
+	// per-session switch only by restarting the engine under every other
+	// session (MADR 0049 D1).
 	//
 	// The id is never forwarded to the agent — SetMode intercepts it — and an
 	// agent that advertises its own `auto` is never shadowed. Off by default
@@ -148,14 +148,14 @@ type Spec struct {
 	// renders in its own terminal UI.
 	Commands command.Table
 	// CommandCaveat is an optional session-wide note appended to /help, for a
-	// quirk that is not per-command (grok: part of its advertised catalog is
-	// terminal-only).
+	// quirk that is not per-command, such as part of an agent's advertised
+	// catalog being usable only in its own terminal.
 	CommandCaveat string
 	// ExtensionNotifications registers handlers for extension notifications.
 	ExtensionNotifications map[string]ExtensionNotificationHandler
 	// MetaHandlers registers handlers for keys of the `_meta` object in a
-	// session_info_update and in the prompt result, such as opencode's
-	// "opencode/retry" (MADR 0214 D14, as corrected). A session_info_update
+	// session_info_update and in the prompt result, such as an agent's retry
+	// marker (MADR 0214 D14, as corrected). A session_info_update
 	// `_meta` key with no handler is declined, as every key was before.
 	MetaHandlers map[string]MetaHandler
 	// ClientCapabilities, when non-nil, is what initialize advertises to this
@@ -166,16 +166,14 @@ type Spec struct {
 	ClientCapabilities *acp.ClientCapabilities
 	// CredentialEnv names environment variables whose values are removed from
 	// the agent's stderr tail, beyond those stderrtail.Secrets already knows by
-	// the endings of their names (MADR 0216 D27). grok sets none: XAI_API_KEY
-	// ends in _API_KEY.
+	// the endings of their names (MADR 0216 D27).
 	CredentialEnv []string
 
 	// The three hooks below are vendor fallbacks for model and thinking. The
 	// standard path is a session config option of category `model` or
 	// `thought_level`, set with session/set_config_option and read back from
 	// its answer; a hook runs only for an agent that offers no such option
-	// (MADR 0184 D6). grok is the case: releases up to at least 1.0.13 offer
-	// none and have their own untyped methods; 1.0.50 offers both options.
+	// (MADR 0184 D6).
 
 	// SetModelFallback switches the model and returns the model the agent
 	// applied.
@@ -352,8 +350,8 @@ func (p *Provider) CommandTable() command.Table { return p.spec.Commands }
 func (p *Provider) CommandCaveat() string { return p.spec.CommandCaveat }
 
 // catalogProbeTimeout bounds the cold-start agent spawn used to harvest the
-// model catalog. Measured: a full grok start is ~3.8 s; initialize alone, which
-// is all this needs, is well inside that.
+// model catalog. A full agent start was measured at ~3.8 s (MADR 0137 F5);
+// initialize alone, which is all this needs, is well inside that.
 const catalogProbeTimeout = 30 * time.Second
 
 // ListModels implements [provider.ModelCatalog].
@@ -362,8 +360,8 @@ const catalogProbeTimeout = 30 * time.Second
 // provider-wide, so it exists only once an agent process has run. Before MADR
 // 0043 D7 that meant the create-session picker showed a hardcoded static list
 // until the user had already started a session — and that list disagreed with
-// the agent (it offered models grok no longer accepts and omitted the one it
-// defaults to). Harvest it instead: spawning one process to read `initialize`
+// the agent (it offered models the agent no longer accepted and omitted the
+// one it defaults to). Harvest it instead: spawning one process to read `initialize`
 // is the only way to have a truthful catalog before the first session.
 func (p *Provider) ListModels(ctx context.Context) (picker.Catalog, error) {
 	static := p.staticModelCatalog()
@@ -544,7 +542,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	}
 	// startFailed is the error for a failure after killTree, with what the
 	// agent last wrote to stderr: an agent that cannot start usually says why
-	// there (MADR 0216 D3). It is logged as codex and httpagent log theirs
+	// there (MADR 0216 D3). It is logged as the other adapters log theirs
 	// (MADR 0069 D7).
 	startFailed := func(err error) error {
 		t := stderrTail()
@@ -637,7 +635,7 @@ func (p *Provider) handshake(ctx context.Context, s *session, conn *acp.ClientSi
 	defer initCancel()
 
 	// The typed call's response keeps the top-level _meta block in
-	// initResp.Meta, which is where grok's vendor fields live (MADR 0167 F15).
+	// initResp.Meta, which is where an agent's vendor fields live (MADR 0167 F15).
 	initResp, err := conn.Initialize(initCtx, p.initializeRequest())
 	if err != nil {
 		return fail(initializeError(err))
@@ -674,9 +672,9 @@ func (p *Provider) handshake(ctx context.Context, s *session, conn *acp.ClientSi
 	} else if len(advertised) > 0 {
 		// Debug, not warn. This fires once per session start on any agent that
 		// advertises auth methods while auth_method_id is unset — 90 times in
-		// the operator's log, and true zero of those times: grok authenticates
-		// from its own credential store and session/new has never failed for
-		// this reason. A warning the operator is trained to ignore is how the
+		// the operator's log, and true zero of those times: the agent
+		// authenticated from its own credential store and session/new never
+		// failed for this reason. A warning the operator is trained to ignore is how the
 		// next real warning gets missed (MADR 0138 F12). If session/new does
 		// fail, it fails loudly on its own.
 		s.log.Debug("agent advertises auth methods but none is configured",
@@ -947,7 +945,7 @@ func (p *Provider) openSession(ctx context.Context, s *session, opts provider.St
 	//
 	// thinkingLevel / currentModelID start as the intended `_meta` values
 	// (opts then config). Harvest from session/new|load `_meta` overwrites
-	// them with what grok applied (MADR 0106).
+	// them with what the agent applied (MADR 0106).
 	effectiveThinking := strings.TrimSpace(opts.ThinkingLevel)
 	if effectiveThinking == "" {
 		effectiveThinking = p.cfg.ReasoningEffort
@@ -1353,10 +1351,10 @@ func (p *Provider) applyInitializeResponse(s *session, initResp acp.InitializeRe
 			slog.String("default_auth_method_id", info.DefaultAuthMethodID))
 	}
 	// The model the agent says it is running, before any session exists. It is
-	// what ModelReporter falls back to: the per-session harvest only fires when
-	// grok sends `x.ai/sessionDetail`, and on the default-model path the
-	// requested model is empty — which is why all seven grok turn records in
-	// MADR 0138's table carried no model at all.
+	// what ModelReporter falls back to: the per-session harvest fires only when
+	// the agent names its model in session `_meta`, and on the default-model
+	// path the requested model is empty — which is why all seven turn records
+	// in MADR 0138's table carried no model at all.
 	if id := strings.TrimSpace(info.CurrentModel); id != "" {
 		s.mu.Lock()
 		s.engineModelID = id

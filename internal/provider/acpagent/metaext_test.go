@@ -12,21 +12,19 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
-// retryKey is opencode's retry marker (translate.ts:19 at b44b7164ba).
-const retryKey = "opencode/retry"
+// retryKey is a vendor's retry marker in `_meta` (MADR 0214 D14, as
+// corrected).
+const retryKey = "vendor/retry"
 
-// Frames transcribed from opencode's source at b44b7164ba, not recorded: G1
-// saw no retry (0214-PLAN P2 Deviation 2). The shape is translate.ts:268-272
-// with SessionStructuredError (packages/client/src/promise/generated/types.ts:
-// 114-120); the values are illustrative. A recording replaces them when one
-// occurs.
+// The marker's frames, in the shape the 0214 records give one; the values are
+// illustrative. The vendor's own frames are tested in its package.
 const (
-	// translate.ts:275: a retry is scheduled.
+	// A retry is scheduled.
 	retryValue     = `{"attempt":2,"nextRetryAt":"2026-11-01T12:00:05.000Z","error":{"type":"api","message":"Rate limited","status":429,"retryAfterMs":5000}}`
 	retryScheduled = `{"sessionUpdate":"session_info_update","_meta":{"` + retryKey + `":` + retryValue + `}}`
-	// translate.ts:265: the next step started, so the retry is cleared.
+	// The next step started, so the retry is cleared.
 	retryCleared = `{"sessionUpdate":"session_info_update","_meta":{"` + retryKey + `":null}}`
-	// translate.ts:166: a turn interrupted while a retry was pending.
+	// A turn interrupted while a retry was pending.
 	retryAtInterrupt = `{"stopReason":"cancelled","_meta":{"` + retryKey + `":` + retryValue + `}}`
 )
 
@@ -147,11 +145,11 @@ func TestPromptResultMetaReachesItsHandler(t *testing.T) {
 	}
 }
 
-// TestG1PromptResultsCallNoMetaHandler: G1's four recorded prompt results,
+// TestEmptyPromptResultMetaCallsNoHandler: the fixture's two prompt results,
 // each with `_meta: {}`, call no handler.
-func TestG1PromptResultsCallNoMetaHandler(t *testing.T) {
+func TestEmptyPromptResultMetaCallsNoHandler(t *testing.T) {
 	var results []string
-	for _, f := range g1Frames(t, "") {
+	for _, f := range fixtureFrames(t, "") {
 		var m wireMsg
 		if err := json.Unmarshal([]byte(f), &m); err != nil {
 			t.Fatal(err)
@@ -163,8 +161,8 @@ func TestG1PromptResultsCallNoMetaHandler(t *testing.T) {
 			results = append(results, string(m.Result))
 		}
 	}
-	if len(results) != 4 {
-		t.Fatalf("G1 recorded %d prompt results, want 4", len(results))
+	if len(results) != 2 {
+		t.Fatalf("the fixture has %d prompt results, want 2", len(results))
 	}
 	rec := &metaRecorder{}
 	s, a := newWireSessionFor(t, "{}", &Provider{spec: Spec{MetaHandlers: map[string]MetaHandler{retryKey: rec.handle}}})
@@ -172,6 +170,6 @@ func TestG1PromptResultsCallNoMetaHandler(t *testing.T) {
 		promptOnce(t, s, a, r)
 	}
 	if calls := rec.got(); len(calls) != 0 {
-		t.Fatalf("the handler was called %d time(s); every G1 _meta is empty", len(calls))
+		t.Fatalf("the handler was called %d time(s); every fixture _meta is empty", len(calls))
 	}
 }

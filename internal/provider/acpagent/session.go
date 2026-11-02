@@ -31,7 +31,7 @@ import (
 )
 
 // defaultStreamCoalesce caps mid-stream assistant/thought updates at ~12 per
-// second (MADR 0024 / 0057). Matches httpagent/codex defaults.
+// second (MADR 0024 / 0057). Matches the other adapters' defaults.
 const defaultStreamCoalesce = 80 * time.Millisecond
 
 // maxPendingChunkBytes force-flushes a coalesced run that grows large before
@@ -164,7 +164,7 @@ type session struct {
 	limitRetryAt time.Time
 
 	// subagents is this turn's sub-agent set, published as event.TypeSubagents
-	// (MADR 0051 D8). Populated from grok's _x.ai/session_notification; empty
+	// (MADR 0051 D8). Populated by a Spec through Host.NoteSubagent; empty
 	// for agents that report nothing. subagentsPublished latches that a
 	// non-empty set went out, so the clear at turn end is only sent to sessions
 	// that actually had one. Both guarded by s.mu.
@@ -175,7 +175,7 @@ type session struct {
 	// process-wide (MADR 0049 D1).
 	autoApprove bool
 
-	// thinkingLevel is the effort grok applied (session/new|load harvest, or
+	// thinkingLevel is the effort the agent applied (session/new|load harvest, or
 	// the intended `_meta.reasoningEffort` if harvest is empty). Mid-session
 	// SetThinkingLevel is MADR 0106 Phase C. Guarded by s.mu.
 	thinkingLevel string
@@ -213,8 +213,8 @@ type session struct {
 	gaugeUsed, gaugeSize int
 
 	pending map[string]*permWaiter // permissionID -> waiter
-	// questions holds outstanding multi-question forms (grok's
-	// _x.ai/ask_user_question). Kept separate from pending because the answer is
+	// questions holds outstanding multi-question forms (Host.AwaitAnswers and
+	// elicitation). Kept separate from pending because the answer is
 	// a label list per question rather than one option id; released on the same
 	// Cancel/Close paths.
 	questions map[string]*questionWaiter // questionID -> waiter
@@ -538,7 +538,7 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 		if len(resp.Meta) > 0 {
 			s.handleMeta(turnCtx, MetaFromPromptResult, resp.Meta)
 		}
-		// The turn's token split, when the answer carries one and grok's own
+		// The turn's token split, when the answer carries one and the Spec's own
 		// channel has not reported it (D25), before the turn ends.
 		s.emitTurnUsage(resp)
 		s.emit(event.Event{
@@ -842,9 +842,9 @@ func (s *session) watchStall(turnDone <-chan struct{}) {
 // notification fires (MADR 0053 F1).
 //
 // When the mode list is ours (Spec.StaticModes — the agent advertised none) the
-// id is checked here: such an agent has no declared vocabulary, and grok in
-// particular accepts any id and echoes it back, so an unchecked typo would look
-// like a successful switch.
+// id is checked here: such an agent has no declared vocabulary, and one that
+// accepts any id and echoes it back would make an unchecked typo look like a
+// successful switch.
 func (s *session) SetMode(ctx context.Context, modeID string) error {
 	s.mu.Lock()
 	agentID := s.agentID
@@ -921,8 +921,8 @@ func (s *session) armAutoMode(ctx context.Context, agentID string) error {
 	}
 	// Always announce. The agent only sends current_mode_update when its mode
 	// actually changes; arming from the already-normal state is a no-op for
-	// the agent and was silent for the client (MADR 0053 F1). Codex and
-	// httpagent self-emit on every SetMode for the same reason.
+	// the agent and was silent for the client (MADR 0053 F1). The other
+	// adapters self-emit on every SetMode for the same reason.
 	s.emitArmedMode()
 	s.log.Warn("acp auto-approve armed",
 		slog.String("session_id", s.localID),
@@ -935,7 +935,7 @@ func (s *session) armAutoMode(ctx context.Context, agentID string) error {
 
 // emitArmedMode publishes the synthetic auto id as the current mode. The modes
 // list is omitted — clients keep the create-time list (protocol-v1 change form;
-// same as codex/httpagent).
+// same as the other adapters).
 func (s *session) emitArmedMode() {
 	s.emit(event.Event{
 		Type:          event.TypeMode,
@@ -991,16 +991,16 @@ func canonicalStaticModeID(modes []event.SessionMode, modeID string) (string, bo
 	return "", false
 }
 
-// ThinkingLevel returns the effort grok applied, or "" when none was set.
+// ThinkingLevel returns the effort the agent applied, or "" when none was set.
 func (s *session) ThinkingLevel() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.thinkingLevel
 }
 
-// ThinkingMutability reports live: grok 1.0.5 applies reasoning effort
-// mid-session via session/set_model `_meta.reasoningEffort`, confirmed by
-// session/resume (MADR 0106), and SetThinkingLevel never returns
+// ThinkingMutability reports live: an agent applies reasoning effort
+// mid-session through its thinking option or its Spec's fallback (MADR 0106,
+// 0184 D6), and SetThinkingLevel never returns
 // ErrThinkingLevelFixed. The phone client hardcoded the opposite for the whole
 // of 0106's life and told users to start a new session; this method is the
 // answer it should have been asking for (MADR 0123 F5).
@@ -1014,8 +1014,7 @@ var _ provider.ThinkingSession = (*session)(nil)
 
 // SetModel switches the live model mid-session. The standard path is the
 // agent's `model` config option (MADR 0184 D6); an agent that offers none
-// gets its Spec's SetModelFallback, which for grok is its session/set_model
-// (MADR 0039 D1).
+// gets its Spec's SetModelFallback (MADR 0039 D1).
 func (s *session) SetModel(ctx context.Context, model string) error {
 	s.mu.Lock()
 	closed := s.closed
@@ -1477,10 +1476,10 @@ func (s *session) emitLocked(ev event.Event) {
 // field-assembled test sessions reach emit safely. Caller holds emitMu.
 func (s *session) chunkBuffer() *chunkbuf.Buffer {
 	if s.chunks == nil {
-		// grok's tool updates carry the full ACP content each time
+		// An ACP tool update carries the full content each time
 		// (summarizeToolContent below), so the replacing lane is correct here —
-		// and grok is the provider whose event volume most needs it: one `hi`
-		// turn emits 247 frames (MADR 0138 F3).
+		// and an agent's event volume needs it: one measured `hi` turn emitted
+		// 247 frames (MADR 0138 F3).
 		s.chunks = chunkbuf.New(s.cfg.StreamCoalesceWindow(), maxPendingChunkBytes, chunkbuf.WithToolLane())
 	}
 	return s.chunks
@@ -1772,15 +1771,11 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 	now := time.Now().UTC()
 	s.lastActivity.Store(now.UnixNano())
 	// Sub-agent frames arrive on this same connection carrying the child's
-	// session id — grok 0.2.114 streams its subagents that way, and measured on
+	// session id — an agent can stream its subagents that way, and measured on
 	// one two-file task the child produced 53% of the turn's assistant chunks,
 	// all of it landing in the parent's transcript. Its content is not this
 	// conversation: the sub-agent reports to the main agent, and the parent's
 	// reply carries the conclusion (MADR 0051 D6).
-	//
-	// The codex transport already does this lookup — it routes by threadId
-	// and drops misses. This is the stdio
-	// transport catching up.
 	//
 	// Compared against the live agent id rather than dropping unknown ids
 	// outright, so a frame arriving before session/new returns (agentID still
@@ -1890,9 +1885,9 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 			})
 		}
 		// Skip an advertisement identical to the last one (MADR 0137 F2).
-		// grok re-sends the full list on every turn boundary — 22 times in one
-		// `hi` — and each repeat crosses the websocket, lands in session
-		// history and re-renders on the phone without carrying any news.
+		// An agent can re-send the full list on every turn boundary — 22 times
+		// in one measured `hi` — and each repeat crosses the websocket, lands in
+		// session history and re-renders on the phone without carrying any news.
 		if s.cmdDedupe.ShouldEmit(cmds) {
 			s.emit(event.Event{
 				Type:      event.TypeAvailableCommands,
@@ -2101,16 +2096,16 @@ func (s *session) emitCapabilities() {
 // mode) as a session_mode event. No-op when the agent reported no modes.
 // autoModeID is the synthetic, daemon-enforced auto-approve mode. It is never
 // forwarded to the agent: for the providers that opt in, the agent's own auto
-// (if any) lives in a different namespace — grok's is a `--permission-mode`
-// launch flag, not an ACP mode id (MADR 0049 D1).
+// (if any) lives in a different namespace, such as a launch flag rather than
+// an ACP mode id (MADR 0049 D1).
 const autoModeID = "auto"
 
 func syntheticAutoMode() event.SessionMode {
 	return event.SessionMode{
 		ID:   autoModeID,
 		Name: "Auto",
-		// Human name matches Build/Plan casing on grok; id stays "auto"
-		// (MADR 0053 F5).
+		// Human name matches the Build/Plan casing of static modes; id stays
+		// "auto" (MADR 0053 F5).
 		Description: "Auto-approve — no prompts",
 		// What makes the phone gate arming behind a confirmation
 		// (MADR 0044 D1). Do not drop it.
@@ -2153,8 +2148,8 @@ func (s *session) reportedModeID(agentModeID string) string {
 }
 
 // normalModeID is the mode auto runs the agent in: `default` when advertised,
-// else `build`, else the first that is neither plan nor auto. Mirrors
-// opencode's normalAgentID so the two providers resolve "normal" the same way.
+// else `build`, else the first that is neither plan nor auto, so every agent
+// resolves "normal" the same way.
 func (s *session) normalModeID() string {
 	for _, want := range []string{"default", "build"} {
 		for _, m := range s.staticModes {
@@ -2197,10 +2192,9 @@ func (s *session) emitModes(st *acp.SessionModeState) {
 }
 
 // emitModesOrStatic forwards the agent's mode state, falling back to the Spec's
-// static list when the agent advertised none. Grok is the case in point: it
-// honors session/set_mode (ids "plan"/"default", confirmed by
-// current_mode_update) but returns no modes from session/new|load, so without a
-// fallback no client could ever offer the switch.
+// static list when the agent advertised none. An agent can honor
+// session/set_mode, confirmed by current_mode_update, while returning no modes
+// from session/new|load; without a fallback no client could offer the switch.
 func (s *session) emitModesOrStatic(st *acp.SessionModeState) {
 	if st != nil && len(st.AvailableModes) > 0 {
 		s.emitModes(st)
@@ -2290,8 +2284,7 @@ const approvalGroupID = "auto-approvals"
 // maxApprovalItems bounds the per-turn audit list, matching the other providers.
 const maxApprovalItems = 512
 
-// maxApprovalDetail caps one audit line, matching maxPermissionSummary on the
-// OpenCode side.
+// maxApprovalDetail caps one audit line, as the HTTP adapters cap theirs.
 const maxApprovalDetail = 120
 
 // noteAutoApproval records one auto-approved ACP permission and re-publishes
@@ -2379,7 +2372,7 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 	// cfg.AlwaysApprove stays first so operator config behaves exactly as
 	// before; the per-session arm is the synthetic auto mode (MADR 0049 D5).
 	if s.cfg.AlwaysApprove || auto {
-		// ACP auto-approval used to leave no record at all: grok
+		// ACP auto-approval used to leave no record at all: the agent was
 		// answered silently and the user had no way to scroll back and see what
 		// ran on their behalf. One collapsing card per turn, same contract as
 		// the other providers (MADR 0051 Phase 3).
@@ -2438,8 +2431,8 @@ func (s *session) RequestPermission(ctx context.Context, params acp.RequestPermi
 // translate the returned decision into their own protocol's reply. A cancelled
 // result means no decision was applied.
 //
-// Shared by ACP's session/request_permission and grok's plan-approval extension
-// (see extensions.go): both are "ask the phone to pick an option", and routing
+// Shared by ACP's session/request_permission and Host.AwaitPermission, which a
+// Spec's extension request uses: both are "ask the phone to pick an option", and routing
 // both through here means one client answer path (RespondPermission), one
 // timeout policy, and one Cancel/Close release path.
 func (s *session) awaitDecision(ctx context.Context, permID string, req event.Event) permResult {
@@ -2967,16 +2960,16 @@ var standardConnOf = func(c *acp.ClientSideConnection) *acp.Connection {
 }
 
 // rawRequest sends a JSON-RPC request over the ACP connection and decodes the
-// result into out. Used for _x.ai/* extensions and, through RawRequest, by
-// grok's Spec fallbacks for session/set_model, which schema 1.25 does not
-// define, and its session/resume read-back.
+// result into out. Used by Host.CallExtension and, through Host.RawRequest, by
+// a Spec's model and thinking fallbacks, whose methods the SDK's typed API may
+// not carry.
 //
 // Two transports, chosen by the method name:
 //
 //   - Extension methods (`_`-prefixed) go through the SDK's CallExtension.
 //   - Standard methods go through the connection itself (standardConnOf). The
-//     SDK checks neither against what initialize agreed, so 0184 D6 moves them
-//     behind grok's spec as fallbacks (its PLAN's A3).
+//     SDK checks neither against what initialize agreed, so 0184 D6 keeps them
+//     to a Spec's named fallbacks (its PLAN's A3).
 func (s *session) rawRequest(ctx context.Context, method string, params any, out any) error {
 	if s.conn == nil {
 		return errors.New("no active connection")

@@ -44,14 +44,13 @@ type Config struct {
 	// applied is Spec-specific, e.g. a CLI flag).
 	Model string
 	// ReasoningEffort is passed to agents supporting a reasoning effort setting
-	// (e.g. grok --reasoning-effort <EFFORT>). Passed as an engine-level setting.
+	// (a launch flag, for a Spec that has one). Passed as an engine-level setting.
 	ReasoningEffort string
-	// PermissionMode sets Grok's permission mode (default, acceptEdits, auto, dontAsk, bypassPermissions, plan).
+	// PermissionMode is the agent's permission mode, for a Spec whose agent
+	// takes one at launch (MADR 0050).
 	PermissionMode string
-	// Sandbox selects Grok's OS-level sandbox profile (--sandbox <PROFILE>):
-	// off, workspace, devbox, read-only, strict, or a custom profile name
-	// resolved from ~/.grok/sandbox.toml or .grok/sandbox.toml. Empty omits the
-	// flag, leaving grok's own default. Grok-specific today (MADR 0050 D4).
+	// Sandbox is the agent's OS-level sandbox profile, for a Spec whose agent
+	// takes one at launch. Empty leaves the agent's own default (MADR 0050 D4).
 	Sandbox string
 	// AllowedTools whitelists built-in tools.
 	AllowedTools []string
@@ -85,9 +84,9 @@ type Config struct {
 	// with a warning rather than failing session creation.
 	McpServers []McpServer
 	// AuthMethodID, when set, is an optional pin of the ACP authenticate
-	// method. For grok it is used only when advertised and headless-safe
-	// (cached_token or xai.api_key). Empty lets D2 auto-select
-	// (MADR 0085). Never pin grok.com — that hangs a headless host.
+	// method. It is used only when advertised and headless-safe
+	// (Spec.SafeAuthMethodIDs). Empty lets D2 auto-select (MADR 0085). A
+	// method that opens a browser is never safe: it hangs a headless host.
 	AuthMethodID string
 	// FSRoots optionally confines the agent's fs/read_text_file and
 	// fs/write_text_file callbacks. Empty (the default) leaves them

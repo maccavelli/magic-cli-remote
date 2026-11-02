@@ -14,14 +14,14 @@ func (s *session) beginTurnUsage() {
 
 // emitTurnUsage publishes the token split an agent's prompt answer carries, the
 // unstable `PromptResponse.usage`, unless the Spec reported this turn on its
-// own channel first (Host.ReportUsage), as grok does before the answer (frames
-// 82 and 85 of grok 1.0.13's wire capture), so a turn is never counted twice
+// own channel first (Host.ReportUsage), as an agent can before the answer, so
+// a turn is never counted twice
 // (MADR 0207 amendment H, D25). The accounting of MADR 0189 and 0199 is
 // unchanged: no cost travels here.
 //
 // The phone replaces its usage with each report's, so this report carries the
 // context gauge the last usage_update set. Before any, Used is the turn's total
-// and Size 0, as emitXAIUsage reports it.
+// and Size 0, as a Spec's own report may.
 func (s *session) emitTurnUsage(resp acp.PromptResponse) {
 	//lint:ignore SA1019 the unstable ACP schema's turn usage (MADR 0207 D25); 0207 amendment H
 	u := resp.Usage

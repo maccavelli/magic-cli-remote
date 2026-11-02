@@ -1624,3 +1624,76 @@ test and comments (P6c), and declared capabilities (P6d).
   * `go test -list` with the regex lists the same two tests. `-list` does not apply `-skip`, so
     the second part rests on `-skip` matching as `-run` does, which the check mirrors.
 - **Not run:** the split targets live. The suite passed in full at P6b, and a run spends quota.
+
+*The owner committed the split as `d0b06f90`.*
+
+### P6c, 2026-11-02: `acpagent` names no provider
+
+**What changed.**
+
+* **The source test** is `acpagent/neutral_test.go`, `TestNoProviderIsNamedInAcpagent`.
+  * It walks `acpagent`'s non-test `.go` files, its subpackages included and `testdata` left
+    out.
+  * It fails on any line that names `grok`, `opencode`, `kilo`, `codex`, `gobble`, `x.ai` or
+    `xai`, in any case, in code or in a comment, reporting the file, the line and its text.
+  * It fails if it scans fewer than ten files.
+* **The comments**, in 9 files (`acpagent.go`, `config.go`, `extensions.go`, `session.go`,
+  `sessioncaps.go`, `terminal.go`, `thinking.go`, `turnusage.go`, `version.go`).
+  * Each was rewritten to say what the code does for any agent, keeping its MADR citation.
+  * The `callAgentExtension` comment, orphaned since P6a removed that function, is gone;
+    `Host.CallExtension`'s comment covers it.
+  * The grok facts these comments carried now sit beside grok's code in
+    `internal/provider/grok/grok.go`: the values `--permission-mode` and `--sandbox` take, why
+    the grok.com auth method is never pinned, and why grok sets no `CredentialEnv`.
+* **0214 P2's tests are neutral:**
+  * `vendorext_test.go`, `metaext_test.go` and the conformance rows use `vendor/…` names;
+  * they read `acpagent/testdata/vendor/` (new), a hand-written fixture of three child-session
+    notifications and two prompt results, shaped like G1's frames, with a `meta.json` saying so;
+  * their counts follow that fixture: 3 notifications where G1 has 7, and 2 prompt results where
+    it has 4;
+  * `TestG1PromptResultsCallNoMetaHandler` is now `TestEmptyPromptResultMetaCallsNoHandler`.
+* **opencode's frames are tested in its package.**
+  * `internal/provider/opencode/acp_frames_test.go` (new) holds three tests:
+    `TestG1ChildUpdatesReachTheHandler` (G1's seven), `TestG1PromptResultsCallNoMetaHandler`
+    (G1's four) and `TestRetryMarkerReachesItsHandler` (the transcribed retry frames, with their
+    source citations).
+  * They run through `acptest` on a Spec registering opencode's names. P4's Spec builds on them.
+
+**Tests, each seen failing.**
+
+* The source test on the tree before P6c: 81 hits in the 9 files, 62 of them "grok".
+* On scratch copies (`p6/plant_p6c.py` in the session scratchpad):
+
+| Plant | Fails |
+| --- | --- |
+| a provider named in a comment of `acptest/acptest.go` | `TestNoProviderIsNamedInAcpagent`: "acptest/acptest.go:26 names \"grok\"" |
+| vendor notifications not delivered | `TestVendorNotificationReachesItsSpecHandler` ("called 0 time(s), want 3") and opencode's `TestG1ChildUpdatesReachTheHandler` ("called 0 time(s), want 7") |
+| `_meta` keys not dispatched | `TestRetryMetaReachesItsHandler` (both cases), `TestPromptResultMetaReachesItsHandler`, and opencode's `TestRetryMarkerReachesItsHandler` ("called 0 time(s), want 3") |
+
+  A first form of the third plant removed the call outright and failed to compile; it was
+  replaced by one that keeps the call and never makes it.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 46 packages ok, no race |
+| `make pre-add-check FILES=…` (the 15 changed and new Go files) | "15 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+**Not done, and for the owner.**
+
+* The MADR's amendment says `acpagent`'s tests "use neutral vendor names and fixtures of their
+  own"; P6c's step 2 names only 0214 P2's tests.
+* Thirty other `acpagent` test files still name a provider: 51 comment lines and 41 code lines,
+  most of the code lines model ids such as `grok-4.6` used as test data.
+* Two of them read another provider's directory:
+  * `rawpath_test.go` scans grok's code on purpose, to keep standard methods to grok's two
+    fallbacks;
+  * `sessiontitle_test.go` reads grok's 1.0.13 wire fixture.
+
+**Files for this commit:** `internal/provider/acpagent/` (`acpagent.go`, `config.go`,
+`extensions.go`, `session.go`, `sessioncaps.go`, `terminal.go`, `thinking.go`, `turnusage.go`,
+`version.go`; `neutral_test.go` and `testdata/vendor/` new; `vendorext_test.go`,
+`metaext_test.go`, `conformance_test.go`), `internal/provider/grok/grok.go`,
+`internal/provider/opencode/acp_frames_test.go` (new), and this plan.

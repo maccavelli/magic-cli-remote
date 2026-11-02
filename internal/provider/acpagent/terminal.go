@@ -69,7 +69,7 @@ func (h *terminalHost) Create(ctx context.Context, params acp.CreateTerminalRequ
 	_ = ctx
 	id := uuid.NewString()
 
-	// Grok often packs a full shell line into Command with empty Args, e.g.
+	// An agent can pack a full shell line into Command with empty Args, e.g.
 	//   Command: `/bin/bash -lc 'ls -la'`
 	// exec.Command would treat that entire string as argv[0] and fail with
 	// "no such file or directory". Route whole-line commands through bash -lc.

@@ -14,15 +14,15 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
-// childUpdateMethod is opencode's vendor notification for a child session's
-// output (MADR 0214, A7 and D14 as corrected). Its name has no leading `_`.
-const childUpdateMethod = "opencode/session/child_update"
+// childUpdateMethod is a vendor's notification for a child session's output
+// (MADR 0214 D14, as corrected). Its name has no leading `_`.
+const childUpdateMethod = "vendor/session/child_update"
 
-// g1Frames returns the lines of 0214-PLAN P3's G1 recording (opencode 2.2.3
-// over ACP) whose method is method, in order.
-func g1Frames(t *testing.T, method string) []string {
+// fixtureFrames returns the lines of acpagent's own vendor fixture
+// (testdata/vendor) whose method is method, in order.
+func fixtureFrames(t *testing.T, method string) []string {
 	t.Helper()
-	f, err := os.Open(filepath.Join("..", "opencode", "testdata", "wire", "2.2.3", "frames.jsonl"))
+	f, err := os.Open(filepath.Join("testdata", "vendor", "frames.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,13 +83,13 @@ func barrier(t *testing.T, s *session, a *wireAgent) {
 }
 
 // TestVendorNotificationReachesItsSpecHandler is D14 as corrected again
-// (0214-PLAN P2 Deviation 2): the seven child_update notifications G1
-// recorded reach the handler a Spec registers for that name, which has no
-// leading `_`, each with its params as sent.
+// (0214-PLAN P2 Deviation 2): the fixture's three child-session notifications
+// reach the handler a Spec registers for that name, which has no leading `_`,
+// each with its params as sent.
 func TestVendorNotificationReachesItsSpecHandler(t *testing.T) {
-	frames := g1Frames(t, childUpdateMethod)
-	if len(frames) != 7 {
-		t.Fatalf("G1 recorded %d child_update frames, want 7", len(frames))
+	frames := fixtureFrames(t, childUpdateMethod)
+	if len(frames) != 3 {
+		t.Fatalf("the fixture has %d child-session notifications, want 3", len(frames))
 	}
 	rec := &paramsRecorder{}
 	p := &Provider{spec: Spec{ExtensionNotifications: map[string]ExtensionNotificationHandler{
@@ -143,7 +143,7 @@ func TestUnregisteredVendorNotificationIsDroppedAsBefore(t *testing.T) {
 		childUpdateMethod: rec.handle,
 	}}}
 	s, a := newWireSessionFor(t, "{}", p)
-	a.sendRaw(`{"jsonrpc":"2.0","method":"opencode/session/other","params":{}}`)
+	a.sendRaw(`{"jsonrpc":"2.0","method":"vendor/session/other","params":{}}`)
 	barrier(t, s, a)
 	if n := len(rec.calls()); n != 0 {
 		t.Fatalf("the handler was called %d time(s) for another method", n)

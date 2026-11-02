@@ -75,8 +75,8 @@ func (s *session) HandleExtensionMethod(ctx context.Context, method string, para
 }
 
 // hasVendorNotifications reports whether the Spec registered a notification
-// method whose name lacks the leading `_`, such as opencode's
-// `opencode/session/child_update`.
+// method whose name lacks the leading `_`, such as a vendor's child-session
+// update.
 func (s *session) hasVendorNotifications() bool {
 	for method := range s.extNotificationHandlers {
 		if !isExtensionMethod(method) {
@@ -192,7 +192,7 @@ func (s *session) awaitQuestion(ctx context.Context, qID string, req event.Event
 }
 
 // RespondQuestion implements [provider.QuestionSession]: the client's answer to
-// a form raised by _x.ai/ask_user_question.
+// a form a Spec raised with Host.AwaitAnswers, or an elicitation form.
 func (s *session) RespondQuestion(_ context.Context, questionID string, answers provider.QuestionAnswers, cancelled bool) error {
 	// Same single-winner latch as RespondPermission: whoever flips resolved
 	// first owns the outcome, so an answer landing as the timeout fires cannot
@@ -232,8 +232,8 @@ func (s *session) RespondQuestion(_ context.Context, questionID string, answers 
 }
 
 // DeclineQuestion implements [provider.QuestionDeclineSession]: the user's
-// explicit "no". A form whose protocol has no decline, such as grok's
-// ask_user_question, gets a cancel instead (MADR 0191 D4).
+// explicit "no". A form whose protocol has no decline, such as one a Spec
+// raised with Host.AwaitAnswers, gets a cancel instead (MADR 0191 D4).
 func (s *session) DeclineQuestion(_ context.Context, questionID string) error {
 	s.mu.Lock()
 	w, ok := s.questions[questionID]
