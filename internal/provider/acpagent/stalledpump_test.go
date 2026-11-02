@@ -37,11 +37,10 @@ const sdkNotificationQueueDepth = 1024
 // tool_call and not a chunk: chunks are coalesced and delivered with the
 // non-blocking send, so they cannot exercise the blocking control path. Not
 // tool_call_update either — that is an in-place update, and since MADR 0138
-// Phase 5 grok's tool lane holds those rather than delivering them. A tool_call
+// Phase 5 the tool lane holds those rather than delivering them. A tool_call
 // is a boundary the lane never holds, so it takes the control path every time.
 //
-// The shape is taken from the SDK's own ToolCall type (types_gen.go) and
-// matches the frames in internal/provider/grok/testdata/wire/1.0.13.
+// The shape is taken from the SDK's own ToolCall type (types_gen.go).
 func toolCallFrame(sessionID string, i int) []byte {
 	b, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",

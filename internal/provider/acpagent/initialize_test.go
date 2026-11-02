@@ -14,8 +14,8 @@ import (
 // fail-first run found missing: before it, discarding an agent's _meta at the
 // call site left the whole package green (PLAN 0167, deviation of 2026-09-22).
 // What a Spec's InitializeMeta reads from `_meta` reaches the session and the
-// provider, with the capabilities and the advertised auth methods; the grok
-// package pins what grok's hook reads from grok's real response.
+// provider, with the capabilities and the advertised auth methods; each agent's
+// package pins what its hook reads from its real response.
 func TestApplyInitializeResponseRecordsWhatTheSpecRead(t *testing.T) {
 	var resp acp.InitializeResponse
 	if err := json.Unmarshal([]byte(`{"protocolVersion":1,"agentCapabilities":{"loadSession":true},`+

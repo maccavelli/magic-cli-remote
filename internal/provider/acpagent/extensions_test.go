@@ -18,7 +18,7 @@ import (
 // handlers only touch the event stream and the waiter maps.
 func newExtSession(timeout time.Duration) *session {
 	return &session{
-		providerID: "grok",
+		providerID: "vendor",
 		localID:    "l1",
 		agentID:    "a1",
 		events:     make(chan event.Event, 32),
@@ -47,12 +47,12 @@ func waitEvent(t *testing.T, s *session, want event.Type) event.Event {
 	}
 }
 
-// Anything outside the two methods we implement gets the SDK's own answer, so a
-// grok that adds an extension we have not built stays diagnosable instead of
-// looking like a silent hang.
+// Anything no Spec registered gets the SDK's own answer, so an agent that adds
+// an extension we have not built stays diagnosable instead of looking like a
+// silent hang.
 func TestUnknownExtensionMethodIsMethodNotFound(t *testing.T) {
 	s := newExtSession(0)
-	_, err := s.HandleExtensionMethod(context.Background(), "_x.ai/not_implemented", json.RawMessage(`{}`))
+	_, err := s.HandleExtensionMethod(context.Background(), "_vendor/not_implemented", json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("want an error for an unknown extension method")
 	}
@@ -67,8 +67,8 @@ func TestUnknownExtensionMethodIsMethodNotFound(t *testing.T) {
 
 // question.respond clears the answers once RespondQuestion returns, but the
 // waiting handler reads them later on the agent's goroutine. The result must
-// not share the caller's slices, or grok can receive blank answers (MADR 0191,
-// PLAN L6).
+// not share the caller's slices, or the agent can receive blank answers (MADR
+// 0191, PLAN L6).
 func TestRespondQuestionOwnsTheAnswers(t *testing.T) {
 	s := newExtSession(0)
 	w := &questionWaiter{ch: make(chan questionResult, 1)}

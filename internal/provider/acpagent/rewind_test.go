@@ -23,7 +23,7 @@ type capturedRequest struct {
 	Params json.RawMessage
 }
 
-// scriptedAgent stands in for grok at the other end of the ACP connection: it
+// scriptedAgent stands in for an agent at the other end of the ACP connection: it
 // records every request and answers from a canned table.
 //
 // Recording the request is the point. The failure Phase 9 guards against is a
@@ -34,7 +34,7 @@ type scriptedAgent struct {
 	mu       sync.Mutex
 	requests []capturedRequest
 	// replies maps a method name to the raw JSON result to answer with. A
-	// method that is absent is answered -32601, as an older grok would.
+	// method that is absent is answered -32601, as an agent without it would.
 	replies map[string]string
 }
 

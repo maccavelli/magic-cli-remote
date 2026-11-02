@@ -529,7 +529,7 @@ func (f *fakeConn) Err() error { return f.err }
 
 func newWatchSession() *session {
 	return &session{
-		providerID: "grok",
+		providerID: "vendor",
 		localID:    "l1",
 		events:     make(chan event.Event, 8),
 		done:       make(chan struct{}),
@@ -712,7 +712,7 @@ func TestPathWithinRootsResolvesSymlinkEscape(t *testing.T) {
 
 func TestSetModelClosedSessionReturnsError(t *testing.T) {
 	s := &session{closed: true}
-	err := s.SetModel(context.Background(), "grok-4.5")
+	err := s.SetModel(context.Background(), "model-b")
 	if err == nil || !strings.Contains(err.Error(), "session closed") {
 		t.Fatalf("expected session closed error, got: %v", err)
 	}

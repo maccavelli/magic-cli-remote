@@ -151,7 +151,7 @@ func TestUnregisteredVendorNotificationIsDroppedAsBefore(t *testing.T) {
 }
 
 // TestUnderscoreNotificationIsDeliveredOnce: a `_`-prefixed name keeps its
-// route through HandleExtensionMethod, as grok's do, and is not also taken
+// route through HandleExtensionMethod and is not also taken
 // by the vendor route.
 func TestUnderscoreNotificationIsDeliveredOnce(t *testing.T) {
 	rec := &paramsRecorder{}

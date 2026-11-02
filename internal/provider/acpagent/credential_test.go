@@ -11,11 +11,11 @@ import (
 func TestSetCredentialFillsModelFromHook(t *testing.T) {
 	var gotModel string
 	p := New(Spec{
-		ID:          provider.IDGrok,
+		ID:          provider.ID("vendor"),
 		DefaultBin:  "true",
 		DefaultArgs: func(Config) []string { return nil },
 		CredentialModel: func(_ context.Context, _ func(context.Context) (picker.Catalog, error), _ string) (string, error) {
-			return "grok-4.6", nil
+			return "model-a", nil
 		},
 		SetCredential: func(_ context.Context, _, _, _ string, inputs map[string]string) error {
 			gotModel = inputs["model"]
@@ -23,11 +23,11 @@ func TestSetCredentialFillsModelFromHook(t *testing.T) {
 		},
 	}, Config{})
 	in := map[string]string{"other": "x"}
-	if err := p.SetCredential(context.Background(), "xai", "xai:api", "sk-x", in); err != nil {
+	if err := p.SetCredential(context.Background(), "vendor", "vendor:api", "sk-x", in); err != nil {
 		t.Fatal(err)
 	}
-	if gotModel != "grok-4.6" {
-		t.Fatalf("model = %q, want grok-4.6", gotModel)
+	if gotModel != "model-a" {
+		t.Fatalf("model = %q, want model-a", gotModel)
 	}
 	if _, ok := in["model"]; ok {
 		t.Fatal("must not mutate caller inputs")
@@ -37,7 +37,7 @@ func TestSetCredentialFillsModelFromHook(t *testing.T) {
 func TestClearCredentialPassesResolvedModel(t *testing.T) {
 	var gotModel string
 	p := New(Spec{
-		ID:          provider.IDGrok,
+		ID:          provider.ID("vendor"),
 		DefaultBin:  "true",
 		DefaultArgs: func(Config) []string { return nil },
 		CredentialModel: func(_ context.Context, _ func(context.Context) (picker.Catalog, error), cfg string) (string, error) {
@@ -51,7 +51,7 @@ func TestClearCredentialPassesResolvedModel(t *testing.T) {
 			return nil
 		},
 	}, Config{Model: "pinned"})
-	if err := p.ClearCredential(context.Background(), "xai"); err != nil {
+	if err := p.ClearCredential(context.Background(), "vendor"); err != nil {
 		t.Fatal(err)
 	}
 	if gotModel != "pinned" {

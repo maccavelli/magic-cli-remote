@@ -302,8 +302,8 @@ func TestElicitationDeclineCancelAndTimeout(t *testing.T) {
 			t.Fatal("a timed-out form must say so")
 		}
 	})
-	// A Spec's form shown with Host.AwaitAnswers has no decline to return, as
-	// grok's ask_user_question does not; the grok package pins grok's.
+	// A Spec's form shown with Host.AwaitAnswers has no decline to return; an
+	// agent's own package pins its form.
 	t.Run("an AwaitAnswers form cannot be declined", func(t *testing.T) {
 		s, _ := newFormSession(0)
 		out := make(chan bool, 1)

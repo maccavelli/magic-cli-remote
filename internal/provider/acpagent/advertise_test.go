@@ -41,7 +41,7 @@ func TestInitializeSendsClientInfo(t *testing.T) {
 
 // TestCapabilityHonesty is MADR 0184 D4's invariant: initialize advertises a
 // capability exactly when this package has its behavior. It covers the default
-// set every Spec without its own uses (grok's package checks grok's Spec), and
+// set every Spec without its own uses (each agent's package checks its Spec), and
 // shows the check can fail.
 func TestCapabilityHonesty(t *testing.T) {
 	if problems := CheckClientCapabilities(defaultClientCapabilities()); len(problems) != 0 {

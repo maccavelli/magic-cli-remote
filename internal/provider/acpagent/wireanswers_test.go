@@ -72,7 +72,7 @@ func TestWireUnadvertisedElicitationIsRefused(t *testing.T) {
 }
 
 // TestWireUnadvertisedMethodIsMethodNotFound: a Spec that advertises no
-// terminal, as gobble's will (MADR 0184, amendment, owner answer Q3), gets
+// terminal (MADR 0184, amendment, owner answer Q3) gets
 // terminal/create refused by the SDK with -32601 before Magic's terminal host
 // runs.
 func TestWireUnadvertisedMethodIsMethodNotFound(t *testing.T) {

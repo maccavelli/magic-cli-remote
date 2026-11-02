@@ -9,12 +9,11 @@ import (
 // TestEngineVersionPrefersAgentInfoAndFallsBackToVendorMeta pins the shape of
 // the two-source read (MADR 0137, ninth amendment).
 //
-// The plan originally named `agentInfo.version` as the single source for both
-// grok and every other ACP agent. grok sends none — zero occurrences of "agentInfo" across all
-// 247 frames of its full-turn fixture — and reports `_meta.agentVersion`
+// The plan originally named `agentInfo.version` as the single source for every
+// ACP agent. An agent can send none and report its version in `_meta`
 // instead, which the protocol permits because the SDK types agentInfo as
-// optional. A reader that knows only the standard field is silent on grok,
-// which is the provider whose performance prompted this record.
+// optional. A reader that knows only the standard field is silent on such an
+// agent; its Spec's InitializeMeta reads the `_meta`.
 func TestEngineVersionPrefersAgentInfoAndFallsBackToVendorMeta(t *testing.T) {
 	cases := []struct {
 		name string
@@ -29,13 +28,13 @@ func TestEngineVersionPrefersAgentInfoAndFallsBackToVendorMeta(t *testing.T) {
 			want: "1.48.0",
 		},
 		{
-			name: "grok: vendor _meta.agentVersion, no agentInfo at all",
+			name: "vendor _meta version, no agentInfo at all",
 			resp: &acp.InitializeResponse{},
 			meta: "1.0.13",
 			want: "1.0.13",
 		},
 		{
-			// The standard field wins when both are present: a future grok that
+			// The standard field wins when both are present: an agent that
 			// starts sending agentInfo must not be read from the legacy slot.
 			name: "agentInfo wins over _meta",
 			resp: &acp.InitializeResponse{AgentInfo: &acp.Implementation{Version: "2.0.0"}},

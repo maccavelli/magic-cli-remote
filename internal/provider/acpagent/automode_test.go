@@ -12,9 +12,8 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
-// Grok is the reason this exists: its own auto-approve is a flag on the
-// process (`--permission-mode auto`), so the only way to offer it per session
-// is for the daemon to advertise the mode itself and answer the permission
+// An agent whose own auto-approve is a flag on its process is the reason this
+// exists: the only way to offer it per session is for the daemon to advertise the mode itself and answer the permission
 // requests (MADR 0049). The load-bearing properties are that the synthetic id
 // never reaches the agent, and that arming it actually stops the prompts —
 // advertising auto while still asking would be worse than not offering it.
@@ -171,7 +170,7 @@ func TestAutoModeNeverShadowsANativeOne(t *testing.T) {
 	}
 }
 
-// The synthetic id is ours, not the agent's: grok has no `auto` ACP mode and
+// The synthetic id is ours, not the agent's: an agent with no `auto` ACP mode
 // would reject it. Arming must put the agent into its normal mode instead.
 func TestArmingAutoSendsNormalModeNotAuto(t *testing.T) {
 	s := autoModeSession(t)
@@ -501,8 +500,8 @@ func TestArmedAutoIsReportedAsTheCurrentMode(t *testing.T) {
 // Arming auto switches the agent to its normal mode, so the agent confirms
 // *that* id in a current_mode_update. Publishing it raw overwrote the `auto`
 // the user had just selected — a chip naming a mode the daemon was not
-// enforcing. Caught live against grok 0.2.114, not by the fakes above, because
-// nothing here drove the notification path.
+// enforcing. Caught live against an agent, not by the fakes above, because
+// nothing here drove the notification path (MADR 0053).
 func TestCurrentModeUpdateDoesNotOverwriteArmedAuto(t *testing.T) {
 	s := autoModeSession(t)
 	s.mu.Lock()

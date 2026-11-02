@@ -23,7 +23,7 @@ func TestSetThinkingLevelRequiresIdentity(t *testing.T) {
 
 	s.closed = true
 	s.agentID = "sid"
-	s.currentModelID = "grok-4.6"
+	s.currentModelID = "model-a"
 	err = s.SetThinkingLevel(context.Background(), "low")
 	if err == nil || err.Error() != "session closed" {
 		t.Fatalf("closed session err = %v, want session closed", err)
@@ -42,7 +42,7 @@ func TestSpawnArgsIgnoresPerSessionModelAndThinking(t *testing.T) {
 	if !equalStr(got, baked) {
 		t.Errorf("no override: got %v, want %v", got, baked)
 	}
-	got = p.spawnArgs(provider.StartOptions{ThinkingLevel: "low", Model: "grok-4.5"})
+	got = p.spawnArgs(provider.StartOptions{ThinkingLevel: "low", Model: "model-b"})
 	if !equalStr(got, baked) {
 		t.Errorf("per-session model/thinking must not rebuild argv: got %v, want %v", got, baked)
 	}

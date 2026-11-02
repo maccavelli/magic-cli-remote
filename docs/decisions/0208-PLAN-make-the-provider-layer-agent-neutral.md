@@ -1697,3 +1697,76 @@ test and comments (P6c), and declared capabilities (P6d).
 `version.go`; `neutral_test.go` and `testdata/vendor/` new; `vendorext_test.go`,
 `metaext_test.go`, `conformance_test.go`), `internal/provider/grok/grok.go`,
 `internal/provider/opencode/acp_frames_test.go` (new), and this plan.
+
+*The owner committed P6c as `90f62f17`.*
+
+### P6c Deviation 1, 2026-11-02 — the rest of `acpagent`'s tests. The owner decided: "add the 30 files to the plan"
+
+- **Found** at P6c (above): thirty `acpagent` test files still name a provider, against the
+  MADR amendment's "its tests use neutral vendor names and fixtures of their own".
+- **Resolution, as a second P6c commit:**
+  * The thirty files are made neutral. Comments say what the test pins for any agent; test data
+    (model ids, provider ids, method names) uses neutral values. What each test asserts about
+    `acpagent` is unchanged.
+  * A test that reads another provider's directory moves to that provider's package with what
+    it reads:
+    * `rawpath_test.go`'s scan of grok's fallbacks goes to grok, and `acpagent`'s copy scans
+      `acpagent` only;
+    * `sessiontitle_test.go`'s use of grok's wire fixture goes to grok, unless the test pins
+      only `acpagent` behaviour, in which case it gets a neutral fixture.
+  * `TestNoProviderIsNamedInAcpagent` covers `acpagent`'s test files too, all but itself, so
+    the rule holds from here on. It is seen failing on the tree before this commit.
+- **Files added to P6c's scope:** the thirty `acpagent` test files, and grok test files for what
+  moves.
+
+### P6c, second commit, 2026-11-02: `acpagent`'s tests name no provider
+
+**What changed.**
+
+* **`TestNoProviderIsNamedInAcpagent`** now scans `acpagent`'s test files as well, all but
+  `neutral_test.go`, which holds the names. On the tree before this commit it failed with 92
+  hits in 30 files.
+* **The thirty files:**
+  * comments rewritten to say what each test pins for any agent, keeping their MADR citations;
+  * test data made neutral: model ids `model-a`, `model-a-fast` and `model-b`; provider ids
+    `vendor`; methods `_vendor/…`; and the auth method `vendor.browser`.
+  * Three tests renamed: `TestTurnUsageIsNotCountedBesideXAIUsage` →
+    `TestTurnUsageIsNotCountedBesideTheSpecsOwn`, `TestReplayedXAIUsageDoesNotSilenceTheTurn` →
+    `TestReplayedSpecUsageDoesNotSilenceTheTurn`, and `TestEmitClassifiedTurnErrorGrok401` →
+    `TestEmitClassifiedTurnErrorAuth401`.
+* **The tests that read grok's data split in two.** acpagent keeps the behaviour, on neutral data;
+  grok keeps its recorded data, on real sessions through `acptest`.
+  * **Standard methods.** `TestStandardMethodsAreTypedOutsideGrokFallbacks` now lives in
+    `grok/rawpath_test.go` and scans grok's code, allowing its two fallbacks. `acpagent`'s copy,
+    `TestStandardMethodsAreTypedInAcpagent`, scans `acpagent` and allows none.
+  * **Session titles.** `TestSessionInfoUpdateTitleIsAGeneratedSessionTitle` reads two titles
+    added to `acpagent/testdata/vendor/` (now 7 frames). grok's copy, in
+    `grok/behaviour_test.go`, replays grok 1.0.13's two titles.
+  * **The 401.** `TestEmitClassifiedTurnErrorAuth401` uses a neutral payload. grok's
+    `TestEmitClassifiedTurnErrorGrok401`, in `grok/behaviour_test.go`, answers a real turn with
+    grok 1.0.0's captured payload.
+* **`acptest`** gains `RespondErrorData`, so a test can answer with an error carrying `data`.
+
+**Tests, each seen failing** (`p6/plant_p6c2.py` in the session scratchpad, on scratch copies):
+
+| Plant | Fails |
+| --- | --- |
+| a provider named in an `acpagent` test comment | `TestNoProviderIsNamedInAcpagent`: "purge_test.go:72 names \"grok\"" |
+| an untyped standard call added to `acpagent` | `TestStandardMethodsAreTypedInAcpagent`: "acpagent.plantedRaw sends the standard method \"session/set_model\" untyped" |
+| grok's fork sent untyped as `session/fork` | grok's `TestStandardMethodsAreTypedOutsideGrokFallbacks` and `TestNoExtensionMethodIsWrittenWithoutItsUnderscore` |
+| a title not marked generated | both copies of `TestSessionInfoUpdateTitleIsAGeneratedSessionTitle` |
+| the classified kind dropped from the error event | `TestEmitClassifiedTurnErrorAuth401` and `TestEmitClassifiedTurnErrorGrok401`: "error_kind=\"\"" |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 46 packages ok, no race |
+| `make pre-add-check FILES=…` (the 34 changed and new Go files) | "34 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+P6c is complete with this commit. P6d, the declared capabilities, is next.
+
+**Files for this commit:** the thirty `acpagent` test files, `acpagent/neutral_test.go`,
+`acpagent/acptest/acptest.go`, `acpagent/testdata/vendor/` (`frames.jsonl`, `meta.json`),
+`grok/behaviour_test.go` and `grok/rawpath_test.go` (new), and this plan.

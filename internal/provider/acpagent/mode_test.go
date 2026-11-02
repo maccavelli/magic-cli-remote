@@ -23,7 +23,7 @@ func modeSession(t *testing.T) *session {
 	}
 }
 
-// An agent that advertises no modes (grok returns modes:null from session/new)
+// An agent that advertises no modes (modes:null from session/new)
 // must still get a mode list, or no client can offer the plan switch.
 func TestEmitModesFallsBackToStaticWhenAgentHasNone(t *testing.T) {
 	tests := []struct {
@@ -93,8 +93,8 @@ func TestEmitModesSilentWithoutStaticModes(t *testing.T) {
 	}
 }
 
-// Grok accepts any mode id and echoes it back, so an unchecked typo would look
-// like a successful switch. Ids are validated whenever the list is ours.
+// An agent that accepts any mode id and echoes it back would make an unchecked
+// typo look like a successful switch. Ids are validated whenever the list is ours.
 func TestSetModeRejectsUnknownSyntheticMode(t *testing.T) {
 	s := modeSession(t)
 	s.syntheticModes = true

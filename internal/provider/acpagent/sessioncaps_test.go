@@ -31,7 +31,7 @@ func TestSupportsReadsTheAdvertisedCapabilities(t *testing.T) {
 		t.Fatal("an empty capability block must advertise nothing")
 	}
 
-	// grok 1.0.13: list, resume, close — no delete. Read from the SDK's
+	// list, resume, close — no delete. Read from the SDK's
 	// negotiated record, which its gates also check (MADR 0184 D4).
 	s, _ := newWireSession(t, `{"sessionCapabilities":{"list":{},"resume":{},"close":{}}}`)
 	if !s.supportsList() {
@@ -43,7 +43,7 @@ func TestSupportsReadsTheAdvertisedCapabilities(t *testing.T) {
 }
 
 func TestCurrentModelPrefersTheSessionThenTheEngine(t *testing.T) {
-	// Every one of the seven grok turn-latency records in MADR 0138 carried no
+	// Every one of the seven turn-latency records in MADR 0138 carried no
 	// model, because the manager reads what the *client asked for* and the
 	// normal path asks for nothing.
 	s := &session{}
@@ -51,22 +51,22 @@ func TestCurrentModelPrefersTheSessionThenTheEngine(t *testing.T) {
 		t.Fatalf("CurrentModel = %q, want empty when the agent said nothing — never a guess", got)
 	}
 
-	s.engineModelID = "grok-4.6"
-	if got := s.CurrentModel(); got != "grok-4.6" {
+	s.engineModelID = "model-a"
+	if got := s.CurrentModel(); got != "model-a" {
 		t.Fatalf("CurrentModel = %q, want the model reported at initialize", got)
 	}
 
 	// A session that harvested its own model wins: it is the more specific
 	// answer, and a mid-session switch has to be visible.
-	s.currentModelID = "grok-4.6-fast"
-	if got := s.CurrentModel(); got != "grok-4.6-fast" {
+	s.currentModelID = "model-a-fast"
+	if got := s.CurrentModel(); got != "model-a-fast" {
 		t.Fatalf("CurrentModel = %q, want the session's own model", got)
 	}
 }
 
 func TestSessionSatisfiesTheInterfacesPhase8Adds(t *testing.T) {
-	// MADR 0138 F7: grok answered "this agent can't" to /compact, /rename,
-	// /sessions and /delete — mcremote's limitation, not grok's. This pins the
+	// MADR 0138 F7: an agent answered "this agent can't" to /compact, /rename,
+	// /sessions and /delete — mcremote's limitation, not the agent's. This pins the
 	// interfaces rather than the count, so a later refactor that drops one
 	// fails here by name.
 	var s any = &session{}
@@ -78,7 +78,7 @@ func TestSessionSatisfiesTheInterfacesPhase8Adds(t *testing.T) {
 		"ModelReporter":      assertImpl[provider.ModelReporter](s),
 	} {
 		if !ok {
-			t.Errorf("the grok session no longer implements provider.%s", name)
+			t.Errorf("the ACP session no longer implements provider.%s", name)
 		}
 	}
 }
@@ -107,10 +107,10 @@ func TestExtensionCallsFailClosedOnAClosedSession(t *testing.T) {
 // acp.IsMethodNotFound replaced Magic's own reader (MADR 0207 amendment H, H-6); this pins
 // the two meanings Magic relies on.
 func TestIsMethodNotFoundReadsTheJSONRPCCode(t *testing.T) {
-	// grok publishes no list of its seventy ext methods, so "unsupported" can
+	// An agent publishes no list of its extension methods, so "unsupported" can
 	// only be answered by calling and reading -32601. Mistaking any other
 	// failure for it would silently hide a real error as a missing feature.
-	if !acp.IsMethodNotFound(acp.NewMethodNotFound("_x.ai/nope")) {
+	if !acp.IsMethodNotFound(acp.NewMethodNotFound("_vendor/nope")) {
 		t.Fatal("-32601 must read as method-not-found")
 	}
 	if acp.IsMethodNotFound(errors.New("connection reset")) {

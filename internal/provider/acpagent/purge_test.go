@@ -69,7 +69,7 @@ func TestPurgeDeletesWhenTheAgentAdvertisesDelete(t *testing.T) {
 }
 
 // TestPurgeClosesWhenDeleteIsNotAdvertised: without delete, Purge is an
-// ordinary close, which is what grok gets today.
+// ordinary close.
 func TestPurgeClosesWhenDeleteIsNotAdvertised(t *testing.T) {
 	s, a := newWireSession(t, `{"sessionCapabilities":{"close":{}}}`)
 	done := purgeInBackground(s)

@@ -14,9 +14,9 @@ import (
 // agent, never a supplement to having one (MADR 0043 D7).
 //
 // The floor shares one ID with the live catalog and adds a sentinel no agent
-// lists, so padding shows whatever the agent's list is. The live grok test's
-// option count could not see it once grok's floor fell inside grok's own list
-// (0194-MADR-check-the-grok-catalog-against-what-grok-advertises.md, D1).
+// lists, so padding shows whatever the agent's list is. A live test's option
+// count could not see it once an agent's floor fell inside its own list (MADR
+// 0194 D1).
 func TestLiveCatalogIsNotPaddedWithTheFloor(t *testing.T) {
 	p := &Provider{
 		log: slog.Default(),

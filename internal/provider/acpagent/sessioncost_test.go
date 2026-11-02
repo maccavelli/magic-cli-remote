@@ -12,8 +12,7 @@ import (
 // usageFrame builds a usage_update payload from the SDK's own types.
 //
 // It is the wire fixture for MADR 0189 D4, and it is not a capture: no agent
-// Magic runs sends a cost. grok sends no standard usage_update, and gobble's
-// sends `used` alone. Building it from the schema types keeps it to the shape
+// Magic runs sends a cost, and one sends `used` alone. Building it from the schema types keeps it to the shape
 // the SDK would accept from a real agent.
 func usageFrame(t *testing.T, cost *acp.Cost) string {
 	t.Helper()

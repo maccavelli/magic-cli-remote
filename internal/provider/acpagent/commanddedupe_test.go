@@ -9,11 +9,11 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
-// TestAvailableCommandsDedupes proves grok's emit site routes through the
-// shared deduper (MADR 0137 F2).
+// TestAvailableCommandsDedupes proves the emit site routes through the shared
+// deduper (MADR 0137 F2).
 //
-// grok is the provider the finding came from: 22 `available_commands_update`
-// frames inside one `hi` turn, each a full list crossing the websocket,
+// The finding: 22 `available_commands_update` frames inside one measured `hi`
+// turn, each a full list crossing the websocket,
 // landing in session history and re-rendering on the phone. This drives the
 // real notification handler, not the helper, because a provider that still
 // called emit directly would pass every deduper unit test and keep spamming.

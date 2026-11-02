@@ -3,3 +3,5 @@
 {"jsonrpc":"2.0","method":"vendor/session/child_update","params":{"rootSessionId":"agent-1","childSessionId":"child-1","parentSessionId":"agent-1","depth":1,"title":"Read the first line","type":"status","status":"completed"}}
 {"jsonrpc":"2.0","id":4,"result":{"stopReason":"end_turn","usage":{"inputTokens":120,"outputTokens":4,"totalTokens":124},"_meta":{}}}
 {"jsonrpc":"2.0","id":5,"result":{"stopReason":"end_turn","usage":{"inputTokens":148,"outputTokens":4,"totalTokens":152},"_meta":{}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"agent-1","update":{"sessionUpdate":"session_info_update","title":"First fixture title"}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"agent-1","update":{"sessionUpdate":"session_info_update","title":"Second fixture title"}}}

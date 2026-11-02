@@ -10,7 +10,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 )
 
-// agentWithClose advertises session/close, as grok 1.0.13 does.
+// agentWithClose advertises session/close.
 const agentWithClose = `{"sessionCapabilities":{"close":{}}}`
 
 // TestCloseIsBoundedWhenTheAgentStopsReading is PLAN 0184 A2 step 8. Against

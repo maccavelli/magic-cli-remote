@@ -15,7 +15,7 @@ import (
 // emitClassifiedTurnError is reached from the stderr copier goroutine and from
 // the ACP SDK's notification consumer. Blocking the latter tears the connection
 // down in 7.16 ms (MADR 0138 F5, measured in Phase 9's G2), and a Spec's
-// ConfirmLimit, such as grok's billing probe, is a network round trip bounded
+// ConfirmLimit, such as a billing probe, is a network round trip bounded
 // at six seconds — four orders of magnitude the wrong side of that.
 func TestTheNonBlockingFunnelNeverProbesBilling(t *testing.T) {
 	s, _ := newUpdateSession()

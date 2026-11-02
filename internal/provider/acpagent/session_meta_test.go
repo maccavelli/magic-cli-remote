@@ -16,8 +16,8 @@ func TestNewSessionRequestIncludesSessionMeta(t *testing.T) {
 	if req.Meta != nil {
 		t.Fatalf("zero-len meta: got %#v, want nil", req.Meta)
 	}
-	req = sessionOpenNew("/tmp", mcp, map[string]any{"modelId": "grok-4.5", "reasoningEffort": "low"})
-	if req.Meta["modelId"] != "grok-4.5" || req.Meta["reasoningEffort"] != "low" {
+	req = sessionOpenNew("/tmp", mcp, map[string]any{"modelId": "model-b", "reasoningEffort": "low"})
+	if req.Meta["modelId"] != "model-b" || req.Meta["reasoningEffort"] != "low" {
 		t.Fatalf("meta = %#v", req.Meta)
 	}
 	if _, ok := req.Meta["yoloMode"]; ok {

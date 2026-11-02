@@ -65,7 +65,7 @@ func TestRejectUnauthenticated(t *testing.T) {
 	if err := rejectUnauthenticated(&session{}); err != nil {
 		t.Fatalf("authenticated: %v", err)
 	}
-	s := &session{authRequired: true, advertisedAuth: []string{"grok.com"}}
+	s := &session{authRequired: true, advertisedAuth: []string{"vendor.browser"}}
 	err := rejectUnauthenticated(s)
 	if !errors.Is(err, ErrACPAuthRequired) {
 		t.Fatalf("err = %v, want ErrACPAuthRequired", err)

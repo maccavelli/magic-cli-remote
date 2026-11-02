@@ -263,6 +263,13 @@ func (a *Agent) RespondError(m Message, code int, message string) {
 		"error": map[string]any{"code": code, "message": message}}))
 }
 
+// RespondErrorData answers a held request with an error carrying data, as an
+// agent reports a failure's cause.
+func (a *Agent) RespondErrorData(m Message, code int, message string, data any) {
+	a.sendRaw(a.marshal(map[string]any{"jsonrpc": "2.0", "id": m.ID,
+		"error": map[string]any{"code": code, "message": message, "data": data}}))
+}
+
 // SetReply sets the raw JSON result a method is answered with from now on.
 func (a *Agent) SetReply(method, result string) {
 	a.mu.Lock()

@@ -10,7 +10,7 @@ import (
 )
 
 // rawToolOutputs are tool results whose meaning is in their layout: columns,
-// indentation and colour. grok's committed captures hold no tool frames, so
+// indentation and colour. The committed captures hold no such tool output, so
 // these are written by hand (PLAN 0208 P1 step 1).
 var rawToolOutputs = map[string]string{
 	"directory listing": "total 16\n" +

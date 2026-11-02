@@ -201,7 +201,7 @@ func TestDeathTailIsBounded(t *testing.T) {
 	}
 }
 
-// TestGoPanicMessageSurvivesTheTail is D24, for gobble (D30): a Go panic's
+// TestGoPanicMessageSurvivesTheTail is D24, for an agent written in Go (D30): a Go panic's
 // message is its first line, and survives its stack.
 func TestGoPanicMessageSurvivesTheTail(t *testing.T) {
 	p, _ := testAgentProvider(t)

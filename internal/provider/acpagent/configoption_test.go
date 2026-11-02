@@ -157,22 +157,22 @@ func TestModelAndThinkingFallBackOnlyWithoutStandardOptions(t *testing.T) {
 			levels = append(levels, modelID+"/"+level)
 			return level, nil
 		},
-		HarvestSessionMeta: func(map[string]any) (string, string) { return "grok-4.6", "high" },
+		HarvestSessionMeta: func(map[string]any) (string, string) { return "model-a", "high" },
 	}}
 
 	s.mu.Lock()
 	s.provider.applySessionState(s, map[string]any{}, nil)
 	s.mu.Unlock()
-	if s.CurrentModel() != "grok-4.6" || s.ThinkingLevel() != "high" {
-		t.Fatalf("harvest: model %q effort %q, want grok-4.6/high", s.CurrentModel(), s.ThinkingLevel())
+	if s.CurrentModel() != "model-a" || s.ThinkingLevel() != "high" {
+		t.Fatalf("harvest: model %q effort %q, want model-a/high", s.CurrentModel(), s.ThinkingLevel())
 	}
-	if err := s.SetModel(ctx, "grok-4.5"); err != nil {
+	if err := s.SetModel(ctx, "model-b"); err != nil {
 		t.Fatalf("SetModel: %v", err)
 	}
 	if err := s.SetThinkingLevel(ctx, "low"); err != nil {
 		t.Fatalf("SetThinkingLevel: %v", err)
 	}
-	if len(models) != 1 || models[0] != "grok-4.5" || len(levels) != 1 || levels[0] != "grok-4.5/low" {
+	if len(models) != 1 || models[0] != "model-b" || len(levels) != 1 || levels[0] != "model-b/low" {
 		t.Fatalf("fallback calls: models %v levels %v", models, levels)
 	}
 	if m, ok := a.quiet(200 * time.Millisecond); ok {

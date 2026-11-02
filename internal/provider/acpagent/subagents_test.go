@@ -25,9 +25,9 @@ func drain(s *session) []event.Event {
 // Sub-agent content must not reach the transcript (MADR 0051 D6).
 //
 // acpagent runs one process and one connection per session, and SessionUpdate
-// never checked params.SessionId — so grok's sub-agent frames, which carry the
-// child's id, were emitted straight into the parent's chat. Measured on grok
-// 0.2.114: 63 child assistant chunks against the parent's 56, plus 46 child
+// never checked params.SessionId — so an agent's sub-agent frames, which carry
+// the child's id, were emitted straight into the parent's chat. Measured: 63
+// child assistant chunks against the parent's 56, plus 46 child
 // thought chunks and the sub-agent's own prompt echoed as a user message.
 //
 // Driven twice with the same frame — once as the live session, once as a child
@@ -94,18 +94,18 @@ func TestClearIsANoOpWithoutSubagents(t *testing.T) {
 	}
 }
 
-// grokWireRPC401 is the exact `data` payload captured live from grok 1.0.0's
-// session/prompt JSON-RPC error (2026-08-09 probe, MADR 0073 follow-up),
-// rendered the way acp-go-sdk's RequestError.Error() presents it to
-// emitClassifiedTurnError.
-const grokWireRPC401 = `{"code":-32603,"message":"Internal error","data":"Unauthorized (401) from https://cli-chat-proxy.grok.com/v1/responses: Invalid or expired credentials (auth_kind=none, x_xai_token_auth=xai-grok-cli, upstream=Unauthenticated, reason=no auth context)\n\n  Model:     grok-4.5\n  Auth:      ApiKey\n  Version:   1.0.0\n  Available: grok-4.5"}`
+// wireRPC401 is a session/prompt JSON-RPC error whose cause is in `data`, in the
+// shape an agent's 401 takes (MADR 0073 follow-up), rendered the way
+// acp-go-sdk's RequestError.Error() presents it to emitClassifiedTurnError. Each
+// agent's package pins its own captured payload.
+const wireRPC401 = `{"code":-32603,"message":"Internal error","data":"Unauthorized (401) from https://api.vendor.invalid/v1/responses: Invalid or expired credentials (reason=no auth context)\n\n  Model:     model-b\n  Auth:      ApiKey"}`
 
-// A grok 401 must surface as a classified auth error with the remedy — not
-// the literal "Internal error" the JSON-RPC wrapper carries (the original
-// symptom: the real cause lives in `data`, which extraction used to drop).
-func TestEmitClassifiedTurnErrorGrok401(t *testing.T) {
+// A 401 must surface as a classified auth error with the remedy — not the
+// literal "Internal error" the JSON-RPC wrapper carries (the original symptom:
+// the real cause lives in `data`, which extraction used to drop).
+func TestEmitClassifiedTurnErrorAuth401(t *testing.T) {
 	s := modeSession(t)
-	s.emitClassifiedTurnError(grokWireRPC401)
+	s.emitClassifiedTurnError(wireRPC401)
 
 	evs := drain(s)
 	var errEv *event.Event

@@ -39,7 +39,7 @@ func usageEvents(s *session) []*event.Usage {
 // TestTurnUsageReachesThePhoneOnce is D25: an answer that carries usage gives
 // one usage event with the turn's split: input, output, reasoning and both cache
 // counts. With no context report yet, Used is the turn's total and Size stays
-// 0, as grok's xAI usage reports it.
+// 0, as a Spec's own report may.
 func TestTurnUsageReachesThePhoneOnce(t *testing.T) {
 	s, _ := newUpdateSession()
 	s.beginTurnUsage()
@@ -57,18 +57,17 @@ func TestTurnUsageReachesThePhoneOnce(t *testing.T) {
 	}
 }
 
-// TestTurnUsageIsNotCountedBesideXAIUsage is D25: a Spec that reports a turn's
-// usage on its own channel before the answer, as grok does (frames 82 and 85 of
-// grok 1.0.13's capture), reports it through Host.ReportUsage, so an answer that
-// also carries usage adds no second event.
-func TestTurnUsageIsNotCountedBesideXAIUsage(t *testing.T) {
+// TestTurnUsageIsNotCountedBesideTheSpecsOwn is D25: a Spec that reports a
+// turn's usage on its own channel before the answer reports it through
+// Host.ReportUsage, so an answer that also carries usage adds no second event.
+func TestTurnUsageIsNotCountedBesideTheSpecsOwn(t *testing.T) {
 	s, _ := newUpdateSession()
 	s.beginTurnUsage()
 	s.ReportUsage(&event.Usage{Used: 1000, Input: 900, Output: 100}, false)
 	s.emitTurnUsage(decodeAnswer(t, answerWithUsage))
 	got := usageEvents(s)
 	if len(got) != 1 || got[0].Input != 900 {
-		t.Fatalf("usage events = %+v, want only grok's own, input 900", got)
+		t.Fatalf("usage events = %+v, want only the Spec's own, input 900", got)
 	}
 
 	// The next turn starts clean: its answer's usage is reported.
@@ -79,9 +78,9 @@ func TestTurnUsageIsNotCountedBesideXAIUsage(t *testing.T) {
 	}
 }
 
-// TestReplayedXAIUsageDoesNotSilenceTheTurn: a replayed xAI record, as a
-// session/load sends, is not this turn's report.
-func TestReplayedXAIUsageDoesNotSilenceTheTurn(t *testing.T) {
+// TestReplayedSpecUsageDoesNotSilenceTheTurn: a replayed record from the Spec's
+// own channel, as a session/load sends, is not this turn's report.
+func TestReplayedSpecUsageDoesNotSilenceTheTurn(t *testing.T) {
 	s, _ := newUpdateSession()
 	s.beginTurnUsage()
 	s.ReportUsage(&event.Usage{Used: 1000, Input: 900, Output: 100}, true)
@@ -91,7 +90,7 @@ func TestReplayedXAIUsageDoesNotSilenceTheTurn(t *testing.T) {
 	}
 }
 
-// TestTurnWithoutUsageReportsNone: an answer with no usage, and no xAI usage,
+// TestTurnWithoutUsageReportsNone: an answer with no usage, and no usage from the Spec,
 // adds no usage event, as before D25.
 func TestTurnWithoutUsageReportsNone(t *testing.T) {
 	s, _ := newUpdateSession()

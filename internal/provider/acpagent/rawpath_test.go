@@ -11,34 +11,25 @@ import (
 	"testing"
 )
 
-// standardRawCallAllowed names the only functions that may send a standard
-// ACP method untyped: grok's fallbacks, which run only when grok advertises no
-// standard config option for the setting (MADR 0184 D6). Everything else goes
-// through the SDK's typed calls, which its gates check.
-var standardRawCallAllowed = map[string]bool{
-	"grok.setModelFallback":    true,
-	"grok.setThinkingFallback": true,
-}
-
 // rawCallees are the calls that put an untyped method on the wire, or pass
-// one on to such a call: Host.CallExtension, and grok's extensionResult.
+// one on to such a call: Host.CallExtension.
 var rawCallees = map[string]bool{"rawRequest": true, "RawRequest": true, "SendRequest": true,
-	"CallExtension": true, "extensionResult": true}
+	"CallExtension": true}
 
 // rawWrappers are the functions whose method is a parameter they pass on, by
 // package; their callers are checked instead.
 var rawWrappers = map[string]bool{"acpagent.rawRequest": true, "acpagent.RawRequest": true,
-	"acpagent.CallExtension": true, "grok.extensionResult": true}
+	"acpagent.CallExtension": true}
 
-// TestStandardMethodsAreTypedOutsideGrokFallbacks is PLAN 0184 A3 step 1: it
-// fails when a standard (not "_"-prefixed) ACP method reaches an untyped call
-// anywhere but a named grok fallback.
-func TestStandardMethodsAreTypedOutsideGrokFallbacks(t *testing.T) {
+// TestStandardMethodsAreTypedInAcpagent is PLAN 0184 A3 step 1: it fails when
+// a standard (not "_"-prefixed) ACP method reaches an untyped call anywhere in
+// acpagent. Only a Spec's named fallbacks may send one, in its agent's package,
+// whose own copy of this scan pins them (MADR 0184 D6; 0208 PLAN, P6c
+// Deviation 1).
+func TestStandardMethodsAreTypedInAcpagent(t *testing.T) {
 	sites := 0
-	for pkg, dir := range map[string]string{"acpagent": ".", "grok": "../grok"} {
-		for _, problem := range standardRawCalls(t, pkg, dir, &sites) {
-			t.Error(problem)
-		}
+	for _, problem := range standardRawCalls(t, "acpagent", ".", &sites) {
+		t.Error(problem)
 	}
 	if sites == 0 {
 		t.Fatal("no untyped call was found at all; the scan is not seeing the code")
@@ -46,7 +37,7 @@ func TestStandardMethodsAreTypedOutsideGrokFallbacks(t *testing.T) {
 }
 
 // standardRawCalls parses dir's non-test files and returns one problem per
-// untyped call with a literal standard method outside the allowed functions.
+// untyped call with a literal standard method.
 // sites counts every untyped call it inspected.
 func standardRawCalls(t *testing.T, pkg, dir string, sites *int) []string {
 	t.Helper()
@@ -84,15 +75,15 @@ func standardRawCalls(t *testing.T, pkg, dir string, sites *int) []string {
 				switch {
 				case !literal:
 					// The one computed name allowed is "_"+method: an extension by
-					// construction (callAgentExtension).
+					// construction.
 					if !isUnderscorePrefixed(call) {
 						problems = append(problems, fset.Position(call.Pos()).String()+": "+where+
 							" sends a computed method name that is not provably an extension")
 					}
-				case !strings.HasPrefix(method, "_") && !standardRawCallAllowed[where]:
+				case !strings.HasPrefix(method, "_"):
 					problems = append(problems, fset.Position(call.Pos()).String()+": "+where+
 						" sends the standard method "+strconv.Quote(method)+" untyped; use the SDK's typed call, "+
-						"or a named fallback in grok's Spec")
+						"or a named fallback in the agent's Spec")
 				}
 				return true
 			})
@@ -130,11 +121,10 @@ func methodArg(call *ast.CallExpr) (string, bool) {
 }
 
 // methodIndex is the position of the call's method argument:
-// SendRequest(conn, ctx, method, …) and extensionResult(ctx, h, method, …) take
-// it third, the others (ctx, method, …) second.
+// SendRequest(conn, ctx, method, …) takes it third, the others (ctx, method, …)
+// second.
 func methodIndex(call *ast.CallExpr) int {
-	switch calleeName(call.Fun) {
-	case "SendRequest", "extensionResult":
+	if calleeName(call.Fun) == "SendRequest" {
 		return 2
 	}
 	return 1

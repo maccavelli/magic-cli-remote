@@ -1,6 +1,6 @@
 {
   "provider": "none",
   "kind": "synthetic",
-  "frames": 5,
-  "note": "acpagent's own fixture for its vendor-extension tests (0208-PLAN P6c): three child-session notifications under a neutral method name and two prompt results with an empty _meta, shaped like the opencode 2.2.3 frames 0214-PLAN P3's G1 recorded. Written by hand; no agent produced it. The recorded frames are opencode's, and their tests are in internal/provider/opencode."
+  "frames": 7,
+  "note": "acpagent's own fixture for its vendor-extension tests (0208-PLAN P6c): three child-session notifications under a neutral method name, two prompt results with an empty _meta, and two session_info_update titles, shaped like frames agents were recorded sending (opencode 2.2.3 in 0214-PLAN P3's G1; grok 1.0.13 for the titles). Written by hand; no agent produced it. Each agent's recorded frames are tested in its own package."
 }
