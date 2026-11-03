@@ -205,6 +205,12 @@ const (
 	CapServiceTier Capability = "service_tier"
 	// CapPersonality is [PersonalitySession], on a model that has one.
 	CapPersonality Capability = "personality"
+	// CapWorkspace is [WorkspaceSession].
+	CapWorkspace Capability = "workspace"
+	// CapShell is [ShellSession], where the operator permits it.
+	CapShell Capability = "shell"
+	// CapSkillRefresh is [SkillRefreshSession].
+	CapSkillRefresh Capability = "skill_refresh"
 )
 
 // Capabilities is the set of operations a session declares.
@@ -260,6 +266,12 @@ func Implements(s Session, c Capability) bool {
 		return is[ServiceTierSession](s)
 	case CapPersonality:
 		return is[PersonalitySession](s)
+	case CapWorkspace:
+		return is[WorkspaceSession](s)
+	case CapShell:
+		return is[ShellSession](s)
+	case CapSkillRefresh:
+		return is[SkillRefreshSession](s)
 	}
 	return false
 }

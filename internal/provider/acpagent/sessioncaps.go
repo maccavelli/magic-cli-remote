@@ -207,5 +207,10 @@ func (s *session) Capabilities() provider.Capabilities {
 		provider.CapStatus:           s.ops.RuntimeStatus != nil,
 		provider.CapSetModel:         modelOption || spec.SetModelFallback != nil,
 		provider.CapSetThinkingLevel: thinkingOption || spec.SetThinkingFallback != nil,
+		provider.CapWorkspace:        s.ops.workspaceOffered(),
+		provider.CapShell:            s.ops.Shell != nil,
+		provider.CapRevert:           s.ops.revertOffered(),
+		provider.CapDiff:             s.ops.Diff != nil,
+		provider.CapSkillRefresh:     s.ops.RefreshSkills != nil,
 	}
 }

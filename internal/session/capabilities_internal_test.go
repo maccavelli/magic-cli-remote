@@ -89,6 +89,16 @@ func TestUndeclaredOperationsAreUnavailable(t *testing.T) {
 	if _, err := m.Rename(ctx, meta.ID, "renamed", "dev-a"); err == nil {
 		t.Error("a phone rename succeeded on a session that declared no rename")
 	}
+	// The same for workspace, shell and skill refresh (0214 PLAN P6a).
+	if _, err := m.workspaceSession(meta.ID, "dev-a"); err == nil {
+		t.Error("the workspace opened on a session that declared none")
+	}
+	if err := m.Shell(ctx, meta.ID, "ls", "dev-a"); err == nil {
+		t.Error("a shell command ran on a session that declared no shell")
+	}
+	if err := m.RefreshSkills(ctx, meta.ID, "dev-a"); err == nil {
+		t.Error("a skill refresh ran on a session that declared none")
+	}
 	for _, method := range a.Methods() {
 		if !slices.Contains([]string{"initialize", "session/new"}, method) {
 			t.Errorf("the agent was sent %q; an undeclared operation reached the wire", method)

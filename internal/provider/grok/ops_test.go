@@ -187,19 +187,35 @@ func TestLastRewindPointTakesTheHighestIndex(t *testing.T) {
 	}
 }
 
-// TestGrokImplementsUndoButNotRevert pins the interface choice.
+// TestGrokImplementsUndoButNotRevert pins the choice of operations.
 //
 // Revert takes a provider-native message id and grok emits none — its rewind is
-// indexed by prompt position — so UndoSession is the honest surface. And there
-// is no Unrevert anywhere in grok, so `/redo` must stay unavailable rather than
-// being wired to something that merely resembles one.
+// indexed by prompt position — so undo is the honest surface. And there is no
+// Unrevert anywhere in grok, so `/redo` must stay unavailable rather than being
+// wired to something that merely resembles one.
+//
+// Since 0208 D1 that is what the session declares; its type implements
+// RevertSession for every Spec, and answers "not offered" without reaching the
+// agent (0214 PLAN P6a).
 func TestGrokImplementsUndoButNotRevert(t *testing.T) {
-	var s any = newSession(t, "agent-1")
-	if _, ok := s.(provider.UndoSession); !ok {
-		t.Error("the grok session does not implement provider.UndoSession")
+	s, a := scriptedSession(t, nil)
+	caps := s.Capabilities()
+	if !caps.Has(provider.CapUndo) {
+		t.Error("the grok session does not declare undo")
 	}
-	if _, ok := s.(provider.RevertSession); ok {
-		t.Error("the grok session implements RevertSession, but grok has no message ids and no un-rewind")
+	if caps.Has(provider.CapRevert) {
+		t.Error("the grok session declares revert, but grok has no message ids and no un-rewind")
+	}
+	if rs, ok := any(s).(provider.RevertSession); ok {
+		if err := rs.Revert(context.Background(), "m1", ""); !errors.Is(err, provider.ErrNotImplemented) {
+			t.Errorf("Revert = %v, want not offered", err)
+		}
+		if err := rs.Unrevert(context.Background()); !errors.Is(err, provider.ErrNotImplemented) {
+			t.Errorf("Unrevert = %v, want not offered", err)
+		}
+	}
+	if m := a.Methods(); len(m) != 0 {
+		t.Errorf("the agent was sent %v; an operation grok does not offer reached it", m)
 	}
 }
 

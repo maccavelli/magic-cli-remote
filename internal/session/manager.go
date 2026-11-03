@@ -3371,7 +3371,7 @@ func (m *Manager) workspaceSession(id, deviceID string) (provider.WorkspaceSessi
 		return nil, err
 	}
 	ws, ok := sess.(provider.WorkspaceSession)
-	if !ok {
+	if !ok || !sess.Capabilities().Has(provider.CapWorkspace) {
 		return nil, fmt.Errorf("session %q does not support workspace inspection", id)
 	}
 	return ws, nil
@@ -3387,7 +3387,7 @@ func (m *Manager) Shell(ctx context.Context, id, command, deviceID string) error
 		return err
 	}
 	sh, ok := sess.(provider.ShellSession)
-	if !ok {
+	if !ok || !sess.Capabilities().Has(provider.CapShell) {
 		return fmt.Errorf("session %q does not support direct shell", id)
 	}
 	return m.providerErr(id, sess, sh.Shell(ctx, command))
@@ -3448,7 +3448,7 @@ func (m *Manager) RefreshSkills(ctx context.Context, id, deviceID string) error 
 		return err
 	}
 	rs, ok := sess.(provider.SkillRefreshSession)
-	if !ok {
+	if !ok || !sess.Capabilities().Has(provider.CapSkillRefresh) {
 		return fmt.Errorf("session %q does not support skill refresh", id)
 	}
 	return m.providerErr(id, sess, rs.RefreshSkills(ctx))

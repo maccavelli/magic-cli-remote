@@ -230,10 +230,18 @@ type Provider struct {
 	warm    *session
 	warming bool
 	closed  bool
+	// warmGen counts restarts (RestartSessionsWhenIdle): a spare that began
+	// warming before one is discarded rather than kept.
+	warmGen int
 
 	// catalogs single-flights and TTLs the cold-start catalog harvest, so N
 	// picker opens against a cold cache mean one agent spawn.
 	catalogs *picker.Cache[string]
+
+	// live is every session this provider opened and has not closed, for
+	// RestartSessionsWhenIdle.
+	liveMu sync.Mutex
+	live   map[*session]struct{}
 }
 
 // New creates a provider with defaults for empty fields.
@@ -799,6 +807,7 @@ func (p *Provider) EnsureWarm() {
 		return
 	}
 	p.warming = true
+	gen := p.warmGen
 	p.warmMu.Unlock()
 
 	go func() {
@@ -828,7 +837,7 @@ func (p *Provider) EnsureWarm() {
 			return
 		}
 		p.warmMu.Lock()
-		if p.closed || p.warm != nil {
+		if p.closed || p.warm != nil || p.warmGen != gen {
 			p.warmMu.Unlock()
 			s.markClosedAndKill()
 			return
@@ -1075,6 +1084,7 @@ func (p *Provider) openSession(ctx context.Context, s *session, opts provider.St
 	s.mu.Lock()
 	s.attached = true
 	s.mu.Unlock()
+	p.track(s)
 
 	return s, nil
 }

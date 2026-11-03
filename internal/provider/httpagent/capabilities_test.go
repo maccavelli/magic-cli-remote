@@ -7,8 +7,12 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 )
 
-// allOpsDialectSession implements every optional dialect operation.
-type allOpsDialectSession struct{ fakeDialectSession }
+// allOpsDialectSession implements every optional dialect operation. Its shell
+// is permitted unless shellForbidden says the operator forbids it.
+type allOpsDialectSession struct {
+	fakeDialectSession
+	shellForbidden bool
+}
 
 func (*allOpsDialectSession) Compact(context.Context) error                { return nil }
 func (*allOpsDialectSession) Fork(context.Context, string) (string, error) { return "", nil }
@@ -22,6 +26,21 @@ func (*allOpsDialectSession) SetThinkingLevel(context.Context, string) error {
 func (*allOpsDialectSession) ThinkingLevel() string                    { return "" }
 func (*allOpsDialectSession) UndoLast(context.Context) (string, error) { return "", nil }
 func (*allOpsDialectSession) Rename(context.Context, string) error     { return nil }
+func (*allOpsDialectSession) Shell(context.Context, string) error      { return nil }
+func (d *allOpsDialectSession) ShellAllowed() bool                     { return !d.shellForbidden }
+func (*allOpsDialectSession) DisposeInstance(context.Context) error    { return nil }
+func (*allOpsDialectSession) ReloadSkillCatalogs(context.Context) error {
+	return nil
+}
+func (*allOpsDialectSession) ListWorkspace(context.Context, string) ([]provider.WorkspaceEntry, error) {
+	return nil, nil
+}
+func (*allOpsDialectSession) ReadWorkspace(context.Context, string) (provider.WorkspaceContent, error) {
+	return provider.WorkspaceContent{}, nil
+}
+func (*allOpsDialectSession) SearchWorkspace(context.Context, string, string) (provider.WorkspaceSearch, error) {
+	return provider.WorkspaceSearch{}, nil
+}
 
 // TestCapabilitiesFollowTheDialect pins MADR 0208 D1 for the HTTP adapter: a
 // session declares what its dialect's session implements, and /status and
@@ -38,6 +57,13 @@ func TestCapabilitiesFollowTheDialect(t *testing.T) {
 		{"every optional operation", &allOpsDialectSession{}, append([]provider.Capability{
 			provider.CapCompact, provider.CapFork, provider.CapRevert, provider.CapDiff,
 			provider.CapSetModel, provider.CapSetThinkingLevel, provider.CapUndo, provider.CapRename,
+			provider.CapWorkspace, provider.CapSkillRefresh, provider.CapShell,
+		}, always...)},
+		// The operator's shell policy is part of the declaration (0214 PLAN P6a).
+		{"shell forbidden by the operator", &allOpsDialectSession{shellForbidden: true}, append([]provider.Capability{
+			provider.CapCompact, provider.CapFork, provider.CapRevert, provider.CapDiff,
+			provider.CapSetModel, provider.CapSetThinkingLevel, provider.CapUndo, provider.CapRename,
+			provider.CapWorkspace, provider.CapSkillRefresh,
 		}, always...)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

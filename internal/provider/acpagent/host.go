@@ -43,6 +43,9 @@ type Host interface {
 	Config() Config
 	// Loading reports whether session/load is replaying the conversation.
 	Loading() bool
+	// Busy reports whether a turn is running, for an operation that must
+	// wait for an idle session (0214 PLAN P6a).
+	Busy() bool
 	// SpecState is the value the Spec's NewSessionState made for this
 	// session, or nil when the Spec has none.
 	SpecState() any
@@ -116,7 +119,31 @@ type Ops struct {
 	// own account data, on the turn goroutine. summary is appended to the
 	// limit card; confirmed reports whether the data agreed.
 	ConfirmLimit func(ctx context.Context, h Host, kind agenterr.Kind) (summary string, confirmed bool)
+
+	// The operations an agent may serve outside ACP, from a server of its own
+	// (0214 PLAN P6a). Each is declared only when set;
+	// workspace only with all three of its parts, revert only with unrevert.
+	ListWorkspace   func(ctx context.Context, h Host, path string) ([]provider.WorkspaceEntry, error)
+	ReadWorkspace   func(ctx context.Context, h Host, path string) (provider.WorkspaceContent, error)
+	SearchWorkspace func(ctx context.Context, h Host, kind, query string) (provider.WorkspaceSearch, error)
+	Shell           func(ctx context.Context, h Host, command string) error
+	Revert          func(ctx context.Context, h Host, messageID, partID string) error
+	Unrevert        func(ctx context.Context, h Host) error
+	Diff            func(ctx context.Context, h Host, messageID string) (provider.DiffResult, error)
+	RefreshSkills   func(ctx context.Context, h Host) error
+	// Diagnostics adds what the agent reports about itself to the session's
+	// diagnostics; MCP comes from the session's own server list unless the
+	// Spec's answer carries it.
+	Diagnostics func(ctx context.Context, h Host) (provider.Diagnostics, error)
 }
+
+// workspaceOffered reports whether ops carry all three workspace operations.
+func (o Ops) workspaceOffered() bool {
+	return o.ListWorkspace != nil && o.ReadWorkspace != nil && o.SearchWorkspace != nil
+}
+
+// revertOffered reports whether ops carry revert and its inverse.
+func (o Ops) revertOffered() bool { return o.Revert != nil && o.Unrevert != nil }
 
 // InitializeInfo is what a Spec reads from initialize's `_meta`. Empty fields
 // report nothing.
@@ -159,6 +186,13 @@ func (s *session) Loading() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.loading
+}
+
+// Busy implements [Host].
+func (s *session) Busy() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.prompting
 }
 
 // SpecState implements [Host].

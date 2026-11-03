@@ -18,7 +18,8 @@ func TestCapabilitiesAreWhatTheFakeImplements(t *testing.T) {
 	}
 	defer func() { _ = s.Close(context.Background()) }()
 	want := []provider.Capability{provider.CapCompact, provider.CapSetModel,
-		provider.CapSetThinkingLevel, provider.CapUndo, provider.CapRevert, provider.CapDiff}
+		provider.CapSetThinkingLevel, provider.CapUndo, provider.CapRevert, provider.CapDiff,
+		provider.CapWorkspace, provider.CapShell, provider.CapSkillRefresh}
 	got := map[provider.Capability]bool{}
 	for c, ok := range s.Capabilities() {
 		if !ok {

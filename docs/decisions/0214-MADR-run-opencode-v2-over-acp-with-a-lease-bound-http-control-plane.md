@@ -1002,3 +1002,17 @@ there as part of getting ready to adopt support for gobble."
   * **A per-Spec start bound.** `Spec.StartTimeout` sizes `initialize` and `session/new` from A6's
     measurements, as D1 (amended) asks; 30 s when unset, and 120 s for opencode. *Owner: "Spec
     field, opencode 120 s".*
+
+### Added at P6, 2026-11-02 (PLAN P6 Deviation 1)
+
+D7, D8, D10 and D11 reach an ACP session through acpagent, which had no hook for them. P6a adds
+agent-neutral pieces, and opencode's code for them stays in its package (P6b to P6e):
+* operations in `Spec.Ops` for workspace, shell, revert and unrevert, diff, skill refresh and
+  extra diagnostics, each declared as a capability (0208 D1);
+* `Host.Busy()`, for D11's "on an idle session only";
+* the ACP `messageId` of agent output and replayed prompts as the event's native message id, which
+  `transcript_remove` needs;
+* a restart of each live session's agent at its next idle point, reattached with `session/load`,
+  which is D8's "the ACP engine restarts" for an agent run as one process per session.
+
+*Owner: "Approve, start P6a".*

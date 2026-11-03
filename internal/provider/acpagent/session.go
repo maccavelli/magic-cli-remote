@@ -144,6 +144,9 @@ type session struct {
 	// watchers (process exit via proc.Wait, connection death via conn.Done)
 	// emit the disconnected status at most once between them.
 	disconnected bool
+	// restartNotice is set while a restart waits for the turn to end
+	// (restart.go).
+	restartNotice string
 	// syntheticModes is set when the advertised mode list came from
 	// staticModes because the agent declared none; SetMode then validates ids
 	// against that list.
@@ -455,6 +458,9 @@ func (s *session) beginTurn(ctx context.Context, parts []provider.Content, emitU
 			s.mu.Unlock()
 			// Drain next queued prompt after the turn fully ends.
 			s.tryDrainQueue()
+			// A restart waiting for this turn runs now, unless a queued
+			// prompt has just started the next one (restart.go).
+			s.restartIfPending()
 			// Re-arm the spare now the turn is over, not when it began
 			// (MADR 0137 F5). Arming on Start put a full ~3.8 s spawn —
 			// process launch, ACP initialize, model-catalog harvest — in
@@ -1126,13 +1132,25 @@ func (s *session) MCPStatus(ctx context.Context) ([]provider.MCPServerStatus, er
 	return res, nil
 }
 
-// Diagnostics implements provider.DiagnosticsSession.
+// Diagnostics implements provider.DiagnosticsSession: what the Spec's
+// Ops.Diagnostics reports, with MCP from the session's own server list unless
+// the Spec's answer carries it (0214 PLAN P6a).
 func (s *session) Diagnostics(ctx context.Context) (provider.Diagnostics, error) {
-	mcp, err := s.MCPStatus(ctx)
-	if err != nil {
-		return provider.Diagnostics{}, err
+	var d provider.Diagnostics
+	if s.ops.Diagnostics != nil {
+		var err error
+		if d, err = s.ops.Diagnostics(ctx, s); err != nil {
+			return provider.Diagnostics{}, err
+		}
 	}
-	return provider.Diagnostics{MCP: mcp}, nil
+	if len(d.MCP) == 0 {
+		mcp, err := s.MCPStatus(ctx)
+		if err != nil {
+			return provider.Diagnostics{}, err
+		}
+		d.MCP = mcp
+	}
+	return d, nil
 }
 
 // SetConfigOption changes an agent-defined session config option (ACP
@@ -1412,6 +1430,9 @@ func (s *session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
+	if s.provider != nil {
+		s.provider.untrack(s)
+	}
 	// Wake any control sender parked on the full events buffer before doing
 	// anything that could wait on them (CloseSession shares their goroutines).
 	close(s.done)
@@ -1595,10 +1616,7 @@ func (s *session) drainChunks() {
 // chunk with no id is a message of its own.
 func (s *session) replayUserChunk(c *acp.SessionUpdateUserMessageChunk, now time.Time) {
 	text := contentText(c.Content)
-	id := ""
-	if c.MessageId != nil {
-		id = string(*c.MessageId)
-	}
+	id := messageID(c.MessageId)
 	s.mu.Lock()
 	if s.replayedUser != nil && id != "" && id == s.replayedUserID {
 		s.replayedUser.Text += text
@@ -1606,10 +1624,20 @@ func (s *session) replayUserChunk(c *acp.SessionUpdateUserMessageChunk, now time
 		return
 	}
 	prev := s.replayedUser
-	s.replayedUser = &event.Event{Type: event.TypeUserMessage, SessionID: s.localID, Timestamp: now, Text: text}
+	s.replayedUser = &event.Event{Type: event.TypeUserMessage, SessionID: s.localID, Timestamp: now, Text: text,
+		NativeMessageID: id}
 	s.replayedUserID = id
 	s.mu.Unlock()
 	s.emitReplayedUser(prev)
+}
+
+// messageID is an ACP message id as the event's native message id, which
+// transcript_remove works by (0214 PLAN P6a); "" when the agent sent none.
+func messageID(id *acp.MessageId) string {
+	if id == nil {
+		return ""
+	}
+	return string(*id)
 }
 
 // flushReplayedUser emits the replayed prompt being assembled, if any. Load
@@ -1872,10 +1900,11 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 			return nil
 		}
 		s.emit(event.Event{
-			Type:      event.TypeAssistantChunk,
-			SessionID: s.localID,
-			Timestamp: now,
-			Text:      text,
+			Type:            event.TypeAssistantChunk,
+			SessionID:       s.localID,
+			Timestamp:       now,
+			Text:            text,
+			NativeMessageID: messageID(u.AgentMessageChunk.MessageId),
 		})
 	case u.AgentThoughtChunk != nil:
 		text := contentText(u.AgentThoughtChunk.Content)
@@ -1883,10 +1912,11 @@ func (s *session) SessionUpdate(ctx context.Context, params acp.SessionNotificat
 			return nil
 		}
 		s.emit(event.Event{
-			Type:      event.TypeThoughtChunk,
-			SessionID: s.localID,
-			Timestamp: now,
-			Text:      text,
+			Type:            event.TypeThoughtChunk,
+			SessionID:       s.localID,
+			Timestamp:       now,
+			Text:            text,
+			NativeMessageID: messageID(u.AgentThoughtChunk.MessageId),
 		})
 	case u.UserMessageChunk != nil:
 		// While the session loads, the agent is replaying the conversation,
@@ -2173,6 +2203,11 @@ func (s *session) emitCapabilities() {
 			Image:       pc.Image,
 			Audio:       pc.Audio,
 			LoadSession: s.agentCaps.LoadSession,
+			// What the phone gates these three on, as the Spec's Ops declare
+			// them (0214 PLAN P6a).
+			WorkspaceRead: s.ops.workspaceOffered(),
+			SkillRefresh:  s.ops.RefreshSkills != nil,
+			Shell:         s.ops.Shell != nil,
 		},
 	})
 }

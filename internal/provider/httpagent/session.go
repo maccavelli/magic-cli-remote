@@ -675,11 +675,15 @@ func (s *session) UndoLast(ctx context.Context) (string, error) {
 
 // Capabilities implements [provider.Session]: what the dialect's session
 // implements, and /status and /usage, which every dialect answers (MADR 0208
-// D1).
+// D1). Workspace, skill refresh and shell are what session_capabilities tells
+// the phone, operator policy included for shell.
 func (s *session) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		provider.CapStatus:           true,
 		provider.CapUsage:            true,
+		provider.CapWorkspace:        s.supportsWorkspace(),
+		provider.CapSkillRefresh:     s.supportsSkillRefresh(),
+		provider.CapShell:            s.supportsShell(),
 		provider.CapCompact:          is[dialectCompact](s.ds),
 		provider.CapFork:             is[dialectFork](s.ds),
 		provider.CapRevert:           is[dialectRevert](s.ds),

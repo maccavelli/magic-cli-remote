@@ -1018,3 +1018,159 @@ P5 is complete with this commit. P6, the features on the control plane, is next.
 **Files for this commit:** `internal/provider/opencode/control/control.go` and
 `control_test.go` (new); `internal/wirecap/wirecap.go` and `fixtures_test.go`;
 `internal/provider/opencode/testdata/wire/2.2.3/meta.json`; MADR 0151; and this plan.
+
+*The owner committed P5 as `254279ac`.*
+
+### P6 Deviation 1, 2026-11-02 — P6's files are the 1.x dialect's; P6 is split. The owner decided: "Approve, start P6a"
+
+C8: `opencode --version` printed `v2.2.3`, at `254279ac`.
+
+- **Found** before the first write. Every file P6 names is the 1.x dialect's, which P7 deletes:
+  * `auth.go`, `device_auth.go`, `upstream.go`, `workspace.go` and `diagnostics_surface.go` are
+    methods of `httpDialect` and `httpSession` on 1.x routes (`/auth/…`, `/file`, `/find`,
+    `/skill`, `/lsp`);
+  * `credstore.go` is the `auth.json` store kilo still uses. opencode v2 keeps credentials in its
+    database (0220 §5 E), so P6 does not touch it.
+- **What the ACP session lacks.** acpagent's session implements none of `WorkspaceSession`,
+  `ShellSession`, `RevertSession` or `DiffSession`. `Diagnostics` reports MCP only. No Spec hook
+  reaches any of them. P6's v2 features need agent-neutral operations in acpagent first, as
+  amendment C did for P4.
+- **Two further facts:**
+  * **No native message ids on an ACP session.** acpagent stamps no `NativeMessageID`, which
+    `transcript_remove` works by (`internal/session/manager.go:335-343`). ACP's prompt request
+    carries no client message id in acp-go-sdk2 v1.31.1, and opencode echoes no
+    `user_message_chunk` during a live turn (G1 recorded none). Its agent chunks do carry
+    `messageId`.
+  * **D8's restart has no mechanism.** acpagent runs one process per session. "Restart the ACP
+    engine at its next idle point" means each live session's process, reattached with
+    `session/load`, and nothing in acpagent does that today.
+- **Proposed:** P6 runs as five sub-phases. Each is one commit, and each needs the owner's word
+  to start.
+  * **P6a — acpagent, agent-neutral.**
+    * `Spec.Ops` gains workspace (list, read, search), shell, revert and unrevert, diff, skill
+      refresh, and a diagnostics extension beside MCP. The session implements each interface
+      through them, returning "not offered" when nil.
+    * Capabilities: workspace, shell and skill refresh join `provider.Capability`, declared from
+      the Ops. The manager's workspace and shell checks read the declaration, as P6d did for
+      rename, fork, revert and diff (0208 D1).
+    * `Host.Busy()`, so a Spec can refuse an operation while a turn runs.
+    * The ACP `messageId` of agent and thought chunks, and of replayed prompts, becomes the
+      event's `NativeMessageID`.
+    * `Provider.RestartSessionsWhenIdle()`: each live session, at its next idle point, closes its
+      agent process and reattaches it with `session/load`, keeping Magic's session.
+    * Files: `internal/provider/acpagent/` (`acpagent.go`, `host.go`, `session.go`, and new files
+      for the operations and the restart), `internal/provider/provider.go`,
+      `internal/session/manager.go`, and their tests.
+  * **P6b — auth on the control plane (D8).**
+    * The Spec's auth hooks, on `control.Plane`: status and the catalog from
+      `/api/integration`; key connects through `connect/key`; OAuth through `connect/oauth` and
+      its status; command connects through `connect/command`.
+    * A removal deletes the integration's credential by its id, read from `integration.get`
+      (never `credential.list`), and is confirmed by reading the integration again.
+    * An add or a removal calls `RestartSessionsWhenIdle`.
+    * Files: `internal/provider/opencode/acp.go` and a new `acp_auth.go`, and tests.
+  * **P6c — the catalog (D7).** `Spec.ListModels`: the ACP `model` option's values, grouped
+    connected or not configured from `GET /api/provider` while the control plane runs. Files:
+    `acp.go`, a new `acp_catalog.go`, and tests.
+  * **P6d — workspace, diagnostics, VCS and diff (D10).**
+    * Workspace on `fs.list`, `fs.read` and `fs.find`; full-text search dropped by name (#34).
+    * Diagnostics on `mcp`, `skill`, `plugin`, `vcs` and `vcs/status`; diff on `session.diff`.
+    * LSP and formatter dropped by name.
+    * Files: `acp.go`, a new `acp_surfaces.go`, and tests.
+  * **P6e — revert, unrevert and `!` shell (D11, lifted).**
+    * `revert/stage`, `DELETE …/revert`, `revert/commit` and `session.shell`, on an idle session
+      only. Magic shows the shell's output, and emits `transcript_remove` for the reverted
+      messages.
+    * A live prompt has no native id (above). How its row is removed on a revert is decided at
+      P6e's start, with the evidence then in hand.
+    * Files are named at P6e's start.
+  * The control plane is passed to the Spec's hooks through a small interface, so each
+    sub-phase's tests use a fake rather than a process.
+- **Not part of P6:** the 1.x dialect's files, deleted in P7; `credstore.go`, which kilo keeps.
+- **Added at P6a's start, before its first code write. The owner decided: "Add httpagent and
+  fake".** The new capabilities have to be declared by every session that has the operation, or
+  the manager's checks would take away what it offers today. httpagent already reports workspace,
+  skill refresh and shell (operator policy included) to the phone through `session_capabilities`
+  (`internal/provider/httpagent/session.go:393-407`); fake implements all three.
+  `internal/provider/httpagent/session.go` and `internal/provider/fake/fake.go`, and their tests,
+  join P6a's files.
+- **Added during P6a, 2026-11-03. The owner decided: "Restate on the declaration".**
+  * grok's `TestGrokImplementsUndoButNotRevert` (`internal/provider/grok/ops_test.go:196-204`)
+    asserted that grok's session type lacks `RevertSession`.
+  * acpagent's session type now implements it for every Spec, and a session without
+    `Ops.Revert` does not declare it (0208 D1).
+  * The test is restated on the declaration: grok declares undo and not revert, and `Revert`
+    answers "not offered" without reaching the agent. The property is unchanged.
+  * `internal/provider/grok/ops_test.go` joins P6a's files.
+
+### P6a — 2026-11-03: acpagent, agent-neutral
+
+**What changed.**
+
+* **`Spec.Ops` gains eight operations** (`host.go`): `ListWorkspace`, `ReadWorkspace`,
+  `SearchWorkspace`, `Shell`, `Revert`, `Unrevert`, `Diff`, `RefreshSkills`, plus `Diagnostics`.
+  * The session implements `WorkspaceSession`, `ShellSession`, `RevertSession`, `DiffSession` and
+    `SkillRefreshSession` through them (new `surfaces.go`). Without the hook, each answers "not
+    offered".
+  * Workspace counts as offered only with all three parts, and revert only with unrevert.
+  * `Diagnostics` is the Spec's answer, with MCP from the session's own list unless the answer
+    carries it.
+* **Declarations.**
+  * `provider.CapWorkspace`, `CapShell` and `CapSkillRefresh` are new.
+  * acpagent declares the five operations from its Ops, and tells the phone workspace, skill
+    refresh and shell through `session_capabilities`.
+  * httpagent declares the three new ones from what it already told the phone, the operator's
+    shell policy included; fake declares all three.
+  * The manager's workspace, shell and skill-refresh checks read the declaration.
+* **`Host.Busy()`:** whether a turn is running.
+* **Native message ids.** The ACP `messageId` of agent and thought chunks, and of a replayed prompt,
+  is the event's `NativeMessageID`. The manager's replay deduplication does not read it, so
+  nothing else changes.
+* **The idle restart** (new `restart.go`).
+  * The provider tracks its open sessions. `RestartSessionsWhenIdle(notice)` restarts each one:
+    an idle one at once, a busy one when its turn and any queued prompt end.
+  * A restart posts the notice, reports the session disconnected with no error, and ends its
+    agent. The manager then closes it as it does any ended agent, and resume reattaches it with
+    `session/load`.
+  * The warm spare is discarded, and so is a spare that was warming across the restart.
+* **grok:** `TestGrokImplementsUndoButNotRevert` is restated on the declaration (above).
+
+**Tests, each seen failing** (`p6/plant_p6a.py` in the session scratchpad, 21 deliberate breaks on
+scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| httpagent drops workspace; ignores the operator's shell policy | `TestCapabilitiesFollowTheDialect`, the all-operations and the shell-forbidden cases |
+| fake drops shell; `Implements` maps shell to `ForkSession` | `TestCapabilitiesAreWhatTheFakeImplements`: "want \"shell\" among them"; "declares \"shell\" without the interface that performs it" |
+| a partial workspace declared; revert declared without unrevert | `TestSurfacesFollowTheSpecsOps/part_of_workspace,_revert_without_unrevert` |
+| a missing shell hook answers success; the phone told shell is there with no hook | `TestSurfacesFollowTheSpecsOps/none_set`: "operation 3: <nil>, want not offered"; "shell true; want all false" |
+| the session's MCP replaces the Spec's; the Spec's diagnostics ignored | `TestDiagnosticsJoinTheSpecsAndMCP` |
+| `Busy` never true | `TestBusyIsTheTurn`: "not busy while the prompt is held" |
+| no native id on the answer; on a replayed prompt | `TestNativeMessageIDs` |
+| a busy session restarted under its turn; a waiting restart never run; a restart reported as an error; a closed session kept | `TestRestartSessionsWhenIdle`, each naming its case ("the provider tracks 3 live sessions, want the 2 not closed" for the last) |
+| the spare kept; a warming spare kept | `TestRestartDiscardsTheSpare` |
+| the manager's shell gate dropped, with a shell that reaches the agent | `TestUndeclaredOperationsAreUnavailable`: "the agent was sent \"_vendor/shell\"" |
+| revert declared for every Spec | grok's `TestGrokImplementsUndoButNotRevert`: "the grok session declares revert" |
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 47 packages ok, no race |
+| the Linux test host, `go test -race -count=1 ./...` (C7), HEAD plus the 16 changed and new files | exit 0, 47 packages ok |
+| the Windows test host, `make ci-windows` (C7), the same tree | exit 0, "ALL SELECTED CHECKS PASSED", 47 packages ok |
+| `make pre-add-check FILES=…` (the 16 Go files) | "16 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+**Not done:**
+* Nothing calls the new operations or the restart yet; P6b to P6e do, for opencode.
+* No live run: grok's Spec sets none of the new operations, so its behaviour is unchanged.
+
+P6a is complete with this commit. P6b, auth on the control plane, is next.
+
+**Files for this commit:** `internal/provider/acpagent/acpagent.go`, `host.go`, `session.go`,
+`sessioncaps.go`, `surfaces.go` and `restart.go` (new), and the tests `restart_test.go` and
+`surfaces_test.go` (new); `internal/provider/provider.go`; `internal/provider/httpagent/session.go`
+and `capabilities_test.go`; `internal/provider/fake/fake.go` and `capabilities_test.go`;
+`internal/provider/grok/ops_test.go`; `internal/session/manager.go` and
+`capabilities_internal_test.go`; the MADR; and this plan.

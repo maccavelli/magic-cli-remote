@@ -472,7 +472,8 @@ func (s *session) Diff(ctx context.Context, messageID string) (provider.DiffResu
 // implements (MADR 0208 D1).
 func (s *session) Capabilities() provider.Capabilities {
 	return provider.NewCapabilities(provider.CapCompact, provider.CapSetModel,
-		provider.CapSetThinkingLevel, provider.CapUndo, provider.CapRevert, provider.CapDiff)
+		provider.CapSetThinkingLevel, provider.CapUndo, provider.CapRevert, provider.CapDiff,
+		provider.CapWorkspace, provider.CapShell, provider.CapSkillRefresh)
 }
 
 func (s *session) errIfClosed() error {
