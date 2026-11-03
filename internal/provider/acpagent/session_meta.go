@@ -97,6 +97,7 @@ func (p *Provider) applySessionState(s *session, meta map[string]any, opts []acp
 // s.mu.
 func (s *session) recordConfigOptions(opts []acp.SessionConfigOption) (model, effort bool) {
 	s.configOptions = opts
+	s.noteModelOption(opts)
 	if _, v, ok := selectOption(opts, acp.SessionConfigOptionCategoryModel); ok {
 		model = true
 		if v != "" {

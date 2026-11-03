@@ -154,6 +154,19 @@ type Spec struct {
 	// ListModels, when non-nil, supplies a live (or merged) catalog. Called
 	// from [Provider.ListModels] with the provider config.
 	ListModels func(ctx context.Context, cfg Config) (picker.Catalog, error)
+	// ModelsFromOption, when non-nil, makes the latest session's `model`
+	// config option the provider's model catalog, replaced by each later
+	// report. acpagent passes the option's values as picker options (ID the
+	// value, Label the name, Group the agent's group id when it groups them),
+	// and the hook returns them as the picker lists them (0214 PLAN P6c
+	// Deviation 1).
+	ModelsFromOption func(opts []picker.Option) []picker.Option
+	// ModelProviders, when non-nil, builds the vendor step of the model
+	// picker (MADR 0079) from the models the provider lists, whose Group is
+	// their vendor. acpagent then lists one vendor's models by Group, and a
+	// session's own models as its current model's vendor. Nil keeps one
+	// implicit vendor, the Spec's ID.
+	ModelProviders func(ctx context.Context, models []picker.Option) (picker.Catalog, error)
 	// Commands declares how this agent satisfies the canonical slash-command
 	// vocabulary (MADR 0023). An undeclared command falls back to the spec
 	// default, which is safe but usually not the truth for a specific CLI —

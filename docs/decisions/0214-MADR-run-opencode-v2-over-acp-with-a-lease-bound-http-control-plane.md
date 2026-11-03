@@ -1043,3 +1043,21 @@ always adds one and makes it active, and removing the active one makes the next 
     first, it answered normally in 6 of 6.
   * Every auth operation therefore reads the list first. A live-tagged test pins this.
     *Owner: "List first, and pin it".*
+
+### Added at P6c, 2026-11-03 (PLAN P6c Deviation 1)
+
+* **D7 does not read `/api/provider`.**
+  * `GET /api/provider`, `/api/provider/{id}` and `/api/model` return a key set as a provider option
+    in `opencode.json`, in plain text. A key stored through `connect/key` is not returned. Probed
+    with made-up keys on an isolated home.
+  * The ACP `model` option lists exactly the usable providers' models, so a vendor is connected
+    when the option lists its models. `/api/integration`, which returns no key, names every vendor
+    and supplies the ones not configured.
+  * D2 is amended: the control plane refuses `/api/provider` and `/api/model`, as it refuses
+    `/api/credential`. *Owner: "Never read them".*
+* **The drill-down is agent-neutral.** acpagent offers 0079's vendor step and an open session's own
+  model list for every Spec. A Spec hook builds the vendor step, and a Spec without it keeps one
+  implicit vendor. *Owner: "Agent-neutral in acpagent".*
+* **The model ids are the latest session's.** A Spec can have acpagent keep the latest session's
+  `model` option as the provider catalog. The static list is shown only before any session has run.
+  *Owner: "Latest session's option".*

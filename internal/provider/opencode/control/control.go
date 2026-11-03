@@ -186,12 +186,25 @@ type Response struct {
 // reads stored credentials (D2).
 var ErrCredentialRead = errors.New("the control plane never reads /api/credential")
 
+// ErrProviderRoute refuses /api/provider and /api/model, and anything under
+// them: their answers carry a key set as a provider option in opencode.json,
+// in plain text (0214 MADR, added at P6c).
+var ErrProviderRoute = errors.New("the control plane never calls /api/provider or /api/model, which return configured keys")
+
+// underRoute reports whether path is route or under it.
+func underRoute(path, route string) bool {
+	return path == route || strings.HasPrefix(path, route+"/")
+}
+
 // Do sends req, starting the child if none runs. A JSON answer must say so in
 // its content type (0214 MADR D12). GET /api/agent is retried while it answers
 // 503 (A3).
 func (p *Plane) Do(ctx context.Context, req Request) (Response, error) {
 	if strings.EqualFold(req.Method, http.MethodGet) && strings.HasPrefix(req.Path, "/api/credential") {
 		return Response{}, ErrCredentialRead
+	}
+	if underRoute(req.Path, "/api/provider") || underRoute(req.Path, "/api/model") {
+		return Response{}, ErrProviderRoute
 	}
 	eng, err := p.acquire(ctx)
 	if err != nil {

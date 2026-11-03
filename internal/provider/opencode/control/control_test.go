@@ -338,6 +338,32 @@ func TestNeverReadsCredentials(t *testing.T) {
 	}
 }
 
+// TestNeverCallsProviderRoutes pins 0214 PLAN P6c Deviation 1: /api/provider
+// and /api/model, which return configured keys, are refused before they are
+// sent, by any method, and start nothing. A route that only shares the prefix
+// is not refused.
+func TestNeverCallsProviderRoutes(t *testing.T) {
+	f := newFake(t, Config{})
+	for _, req := range []Request{
+		{Method: http.MethodGet, Path: "/api/provider"},
+		{Method: http.MethodGet, Path: "/api/provider/mistral"},
+		{Method: http.MethodGet, Path: "/api/model"},
+		{Method: http.MethodGet, Path: "/api/model/default"},
+		{Method: http.MethodPatch, Path: "/api/provider/mistral"},
+	} {
+		if _, err := f.p.Do(context.Background(), req); !errors.Is(err, ErrProviderRoute) {
+			t.Errorf("%s %s: err %v, want ErrProviderRoute", req.Method, req.Path, err)
+		}
+	}
+	if n := len(f.launches()); n != 0 {
+		t.Errorf("refusing a provider route started %d engine(s)", n)
+	}
+	if !underRoute("/api/provider", "/api/provider") || underRoute("/api/providers", "/api/provider") ||
+		underRoute("/api/modelx", "/api/model") {
+		t.Error("underRoute matches a route that only shares the prefix")
+	}
+}
+
 // TestAgentsRetry503 pins A3: GET /api/agent is retried while it answers 503,
 // a bounded number of times.
 func TestAgentsRetry503(t *testing.T) {

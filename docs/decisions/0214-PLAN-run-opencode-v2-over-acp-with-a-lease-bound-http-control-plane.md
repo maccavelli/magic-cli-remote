@@ -1360,3 +1360,138 @@ P6b is complete with this commit. P6c, the catalog, is next.
 **Files for this commit:** `internal/provider/opencode/acp.go`, `acp_auth.go`, `acp_auth_test.go`
 and `live_acp_auth_test.go` (the last three new); `internal/provider/acpagent/acpagent.go` and
 `credential_test.go`; `internal/provider/grok/device_auth.go`; the MADR; and this plan.
+
+### P6c Deviation 1, 2026-11-03 — a configured key in `/api/provider`, no drill-down in acpagent, and model ids only from a session. The owner decided: "Never read them", "Agent-neutral in acpagent" and "Latest session's option"
+
+C8: `opencode --version` printed `v2.2.3`, at `5ca425da`.
+
+Found before the first code write. The evidence is the opencode source at `b44b7164ba` and probes on
+an isolated home with two made-up keys: one stored through `connect/key`, one written in
+`opencode.json` as a provider option. No prompt was sent and no provider was contacted.
+
+* **`/api/provider` and `/api/model` return a configured key.**
+  * The key in `opencode.json` came back in plain text from `GET /api/provider`,
+    `/api/provider/mistral` and `/api/model`, in the provider's or model's `settings`.
+  * The stored key came back from none of them.
+  * `GET /api/integration`, `/api/integration/{id}` and ACP `session/new` returned neither key.
+  * The control plane writes every response body to its wire capture (`control.go`, `send`).
+  * D7 and P6c took connected-or-not from `/api/provider`. They no longer need to:
+    * The ACP `model` option lists exactly the usable providers' models. In the probe it listed
+      379: openrouter 351, mistral 20 and opencode 8, the same three providers `/api/provider`
+      listed.
+    * mistral was usable through its `opencode.json` key alone, with no stored credential.
+    * `/api/integration` names every vendor.
+  * **Decided: "Never read them".**
+    * A vendor is connected when the model option lists its models.
+    * Its name, and the vendors not configured, come from `/api/integration`.
+    * The control plane refuses `/api/provider` and `/api/model`, and anything under them, as it
+      refuses `/api/credential`.
+    * `internal/provider/opencode/control/control.go` and `control_test.go` join P6c's files.
+* **acpagent has no drill-down.**
+  * It implements neither `provider.ModelProviderCatalog` (`ListModelProviders`, `ListModelsFor`)
+    nor `provider.ModelCatalogSession`.
+  * Without them the daemon gives the phone one implicit vendor and a flat list
+    (`internal/ws/server.go:2927-2960`).
+  * An open session's /model picker gets the provider-wide list, which for opencode is the 7 static
+    models.
+  * **Decided: "Agent-neutral in acpagent".**
+    * A Spec hook builds the vendor step from the model list.
+    * acpagent implements `ListModelsFor` and the session's own catalog by filtering models by
+      vendor, for every Spec.
+    * A Spec without the hook answers with one implicit vendor, as the daemon does today, so grok
+      is unchanged.
+    * `internal/provider/acpagent/acpagent.go`, `session_meta.go`, a new `modelcatalog.go` and
+      their tests join P6c's files.
+* **Model ids come only from a session.**
+  * opencode sends its `model` option at `session/new`, and names no model at `initialize`, so
+    nothing reaches acpagent's provider-wide catalog.
+  * The create-session picker always shows the 7 static models. To show them, acpagent spawns an
+    agent that answers nothing.
+  * **Decided: "Latest session's option".**
+    * With a Spec hook set, acpagent keeps the latest session's `model` option values as the
+      provider catalog, and each later report replaces them.
+    * The static list is shown only before any session has run. opencode's `Spec.ListModels`
+      answers empty, so no agent is spawned to learn nothing.
+    * A credential change restarts the sessions (P6b), and they report again.
+    * grok sets no such hook.
+* `Spec.ListModels` therefore no longer reads `GET /api/provider`, as P6c first said. Its files are
+  `internal/provider/opencode/acp.go`, a new `acp_catalog.go`, and their tests, with the files
+  above.
+
+### P6c — 2026-11-03: the catalog
+
+**What changed.**
+
+* **The control plane refuses** `/api/provider` and `/api/model`, and any path under them, by any
+  method, before anything starts. A path that only shares the prefix, such as `/api/providers`, is
+  not refused (`ErrProviderRoute`, `control.go`).
+* **acpagent, for every Spec** (new `modelcatalog.go`):
+  * **`Spec.ModelsFromOption`.** When a session records its config options (at `session/new`,
+    `session/load`, after `session/set_config_option`, or on `config_option_update`), its `model`
+    option's values become the provider's catalog, through the hook, and replace the last.
+    * The values arrive as picker options: the value, the name, and the agent's group when it
+      groups them.
+    * The catalog's default is the option's current value.
+  * **`Spec.ModelProviders`** builds the vendor step. The provider implements
+    `ListModelProviders` and `ListModelsFor` (one vendor's models, by group). The session
+    implements `ModelCatalog`: the vendor step, or its own option's models of its current model's
+    vendor.
+  * **A Spec with no `ModelProviders`** answers one implicit vendor, its own ID, connected, and
+    `ListModelsFor` of that ID is the provider's list: what the daemon answered before. Its
+    session reports no catalog of its own, so the daemon answers with the provider's. grok sets
+    neither hook.
+* **opencode** (new `acp_catalog.go`, wired in `acp.go`):
+  * A model's vendor is its value's prefix (`openrouter/…`), and its label drops the vendor that
+    its name repeats.
+  * The vendor step lists:
+    * the connected vendors, in the order the models list them, each with its model count;
+    * then every other integration, by name, as not configured.
+
+    Names come from `/api/integration`, and MCP sign-ins are left out. If the integration list
+    cannot be read, the connected vendors are listed by id.
+  * `Spec.ListModels` answers empty. Before any session has reported, the picker shows the static
+    list, and no agent is spawned.
+
+**Tests, each seen failing** (`p6c/plant_p6c.py` in the session scratchpad, 20 deliberate breaks on
+scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| provider routes not refused; a prefix refused as a route | `TestNeverCallsProviderRoutes`: "GET /api/provider: err <nil>, want ErrProviderRoute"; "underRoute matches a route that only shares the prefix" |
+| the option never kept; kept past the hook; kept without the hook | `TestModelOptionBecomesTheCatalog` ("without the hook: [a/two], want the static list unchanged" for the last) |
+| grouped values dropped | `TestModelOptionsKeepTheAgentsGroups` |
+| one vendor's models unfiltered; another vendor's default kept; the session's models unfiltered | `TestModelProvidersDrillDown` |
+| no hook: no vendor; a session catalog anyway; every vendor the one | `TestNoModelProvidersKeepsOneVendor` |
+| the vendor kept in the label | `TestACPModelsFromOptionGroupsByVendor`, `TestACPProviderCatalog` |
+| an MCP server listed; not configured left unsorted; connected shown not configured; the provider route read | `TestACPModelProvidersGroupsConnected` ("sent GET /api/provider" for the last) |
+| no engine, no vendors | `TestACPModelProvidersWithoutTheEngine` |
+| `newACP` keeps no option; builds no vendor step | `TestACPProviderCatalog` |
+
+Three breaks did not compile at first and were rewritten: "no hook, no vendor", and the two that
+left an import unused. None was a fault in a test.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 47 packages ok, no race |
+| the Linux test host, `go test -race -count=1 ./...` (C7), HEAD plus the 11 changed and new files | exit 0, 47 packages ok |
+| the Windows test host, `make ci-windows` (C7), the same tree | exit 0, "ALL SELECTED CHECKS PASSED", 47 packages ok |
+| `make pre-add-check FILES=…` (the 9 Go files) | "9 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+**Not done:**
+* Nothing registers the provider until P7, so no phone has seen this catalog.
+* The catalog is the latest session's. Sessions in projects whose `opencode.json` adds different
+  providers replace each other's lists.
+* A vendor that is not configured lists no models. The ACP option names none, and `/api/model`,
+  which would, is refused.
+* No live run. The option's shape is G1's recording and this deviation's probe, and the code reads
+  no new route.
+
+P6c is complete with this commit. P6d, workspace, diagnostics, VCS and diff, is next.
+
+**Files for this commit:** `internal/provider/opencode/control/control.go` and `control_test.go`;
+`internal/provider/acpagent/acpagent.go`, `session_meta.go`, and `modelcatalog.go` and
+`modelcatalog_test.go` (new); `internal/provider/opencode/acp.go`, and `acp_catalog.go` and
+`acp_catalog_test.go` (new); the MADR; and this plan.
