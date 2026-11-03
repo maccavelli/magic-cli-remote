@@ -58,3 +58,33 @@ func TestClearCredentialPassesResolvedModel(t *testing.T) {
 		t.Fatalf("model = %q, want pinned", gotModel)
 	}
 }
+
+// TestStartDeviceAuthPassesTheMethodAndInputs pins 0214 PLAN P6b Deviation 1:
+// the Spec sees the phone's method id and inputs, as a copy.
+func TestStartDeviceAuthPassesTheMethodAndInputs(t *testing.T) {
+	var gotBin, gotUpstream, gotMethod string
+	var gotInputs map[string]string
+	var gotConfirm bool
+	p := New(Spec{
+		ID:          provider.ID("vendor"),
+		DefaultBin:  "vendor-bin",
+		DefaultArgs: func(Config) []string { return nil },
+		StartDeviceAuth: func(_ context.Context, bin, upstreamID, methodID string, inputs map[string]string, confirm bool) (provider.DeviceFlow, func(context.Context) error, error) {
+			gotBin, gotUpstream, gotMethod, gotInputs, gotConfirm = bin, upstreamID, methodID, inputs, confirm
+			inputs["added"] = "by the spec"
+			return provider.DeviceFlow{UserCode: "CODE"}, nil, nil
+		},
+	}, Config{})
+	in := map[string]string{"deploymentType": "enterprise"}
+	if _, _, err := p.StartDeviceAuth(context.Background(), "up", "up:oauth:device", in, true); err != nil {
+		t.Fatal(err)
+	}
+	if gotBin != "vendor-bin" || gotUpstream != "up" || gotMethod != "up:oauth:device" || !gotConfirm ||
+		gotInputs["deploymentType"] != "enterprise" {
+		t.Errorf("the Spec got bin %q, upstream %q, method %q, inputs %v, confirm %v",
+			gotBin, gotUpstream, gotMethod, gotInputs, gotConfirm)
+	}
+	if _, ok := in["added"]; ok {
+		t.Error("the Spec's change reached the caller's inputs")
+	}
+}

@@ -1174,3 +1174,189 @@ P6a is complete with this commit. P6b, auth on the control plane, is next.
 and `capabilities_test.go`; `internal/provider/fake/fake.go` and `capabilities_test.go`;
 `internal/provider/grok/ops_test.go`; `internal/session/manager.go` and
 `capabilities_internal_test.go`; the MADR; and this plan.
+
+### P6b Deviation 1, 2026-11-03 — several credentials per integration, no command methods, and a narrow device hook. The owner decided: "Replace, clear all", "Drop by name", "Not in P6b" and "Widen the hook"
+
+C8: `opencode --version` printed `v2.2.3`, at `6b1d3b84`.
+
+Found before the first code write. The evidence is the opencode source at `b44b7164ba` and one
+read-only probe: `opencode serve --stdio` on an isolated home with no credential, reading
+`GET /api/integration` and `GET /api/provider`.
+
+* **An integration can hold several credentials. P6b assumed one.**
+  * `connect/key` always creates a new credential, labelled with the integration's name and a
+    number when that is taken, and makes it the active one. It never replaces an older one
+    (`packages/core/src/integration.ts`, `createCredential`; `packages/core/src/credential.ts`,
+    `create`).
+  * `integration.get` lists the active credential first (`resolveConnections`).
+  * Removing the active credential makes the newest remaining one active (`credential.ts`,
+    `remove`). A removal of the active credential alone could leave the provider running on an
+    older key.
+  * **Decided: "Replace, clear all".**
+    * An add stores the new key and confirms it is the active connection. Then it removes the
+      integration's older credentials of the same kind (key or OAuth), and confirms they are gone.
+    * A removal deletes every stored credential of the integration, then confirms none remains.
+    * A key supplied only through an environment variable cannot be removed. The removal says the
+      provider is still configured through it, naming the variable.
+    * This is what 1.x's `PUT` and `DELETE /auth/{id}` did. A key added in a terminal is replaced
+      by a phone re-key of the same kind.
+* **No integration offers a command method on 2.2.3.**
+  * The probe listed 237 integrations in 34.7 KB. Method types: key 235, environment variable 236,
+    OAuth 10, external 4, command 0. Every key form's fields are strings (15 fields).
+  * **Decided: "Drop by name".** Command connects are not built in P6b.
+  * A method of a type the phone cannot drive is listed as unavailable with the reason
+    `host_oauth`, so the phone never offers a button that cannot work. That covers a command
+    method if one appears, and the 4 external methods: AWS profile, Google Cloud credentials, the
+    Azure CLI, and the Claude Code login.
+* **`activate` has no phone operation.** MADR D8 lists it; P6b's steps do not.
+  * Switching the active upstream means choosing the model vendor, which is P6c's catalog.
+  * With "Replace, clear all", a provider never holds two phone-added credentials of the same kind.
+  * **Decided: "Not in P6b".** A provider with both a key and an OAuth sign-in uses whichever was
+    added last.
+* **acpagent's device-flow hook drops the method and the form answers.**
+  * `Provider.StartDeviceAuth` passes the Spec only the upstream and the confirmation
+    (`internal/provider/acpagent/acpagent.go:358-362`).
+  * opencode needs both. openai offers three OAuth methods, and GitHub Copilot's form asks for a
+    deployment type and an enterprise URL.
+  * grok is the only Spec that sets the hook (`internal/provider/grok/grok.go:66`).
+  * **Decided: "Widen the hook".** `Spec.StartDeviceAuth` also takes the method id and the inputs,
+    and acpagent passes them through. grok's `startDeviceAuth` accepts and ignores them, so its
+    behaviour is unchanged. `internal/provider/acpagent/acpagent.go` and
+    `internal/provider/grok/device_auth.go` join P6b's files, with a pass-through test.
+* **Unchanged by these decisions, and following existing decisions:**
+  * An OAuth attempt is classified when it starts, from its URL and instructions, as MADR 0074 D7
+    does.
+    * A browser redirect to the host's loopback is refused, as it is today.
+    * So is an attempt in `code` mode, which needs a pasted code the phone has no field for.
+    * Either refused attempt is cancelled on the control plane.
+  * The flow waits on the attempt's own status (`connect/oauth/{attempt}`), not on a poll of the
+    configured set, and cancels the attempt when the phone cancels.
+  * The status the phone reads on every provider list is small:
+    * the integrations with a connection;
+    * those whose sign-in needs more than a bare key (OAuth, external, or a key form).
+
+    The full list is the catalog.
+  * `opencodeAuthFingerprint`'s `auth.json` read is not used. The integration's connections
+    replace it (D8).
+* **Added before the first code write, 2026-11-03. The owner decided: "List first, and pin it".**
+  * **Found.** Until plugins have activated in a location, `integration.get` and the connect routes
+    answer `404 IntegrationNotFoundError` for an integration that exists.
+    * Only `integration.list` waits for activation
+      (`packages/server/src/handlers/integration.ts`: `yield* Plugin.awaitActivation` in list, and
+      in no other route).
+    * Probes on isolated homes, with a made-up key and no provider contacted:
+      * The first get or connect in a location not used before answered 404 in 8 of 17 tries.
+        The next call answered normally.
+      * Naming a new location directory each time, on two engines (one probed at once, one after
+        3 s): the first `integration.get` answered 404 in 10 of 10, and the second 200. The
+        engine's own location, used when a call names none, answered 404 once, to a connect sent
+        as the engine became ready.
+      * With a list call first in the same location, get and connect answered normally in 6 of 6,
+        with a location and without one.
+  * **Decided.** Every auth operation reads `GET /api/integration` in its location first. Status
+    and the catalog use that answer. An add or a removal reads it before `integration.get` or
+    a connect.
+    * A fake-engine test fails if get or connect comes first.
+    * A live-tagged pin records the 404 before activation and the answer after a list, so a
+      changed engine shows up. It uses an isolated home and a made-up key, and spends no provider
+      quota.
+    * `internal/provider/opencode/live_acp_auth_test.go` (new) joins P6b's files.
+  * The other probe answers the code relies on:
+    * a connect answers 204;
+    * a key form answer on a method with no form answers 400 `InvalidRequestError` with the message
+      "Key method does not accept a form answer";
+    * an unknown OAuth method answers 500 with no body;
+    * `DELETE /api/credential/{id}` answers 204 for an id that does not exist, as B6 recorded.
+
+### P6b — 2026-11-03: auth on the control plane
+
+**What changed.**
+
+* **`acp_auth.go` (new)** implements the Spec's auth hooks on the control plane, reached through a
+  small `controlPlane` interface.
+  * **Order.** Every operation lists the integrations first, the call that waits for plugin
+    activation.
+    * The list runs apart from its caller and is bounded at 3 minutes. A cold start that outlasts
+      a short caller, such as the provider list's 20 s, therefore finishes and serves the next
+      call.
+    * Calls name no location, so they use the control plane's own.
+  * **Status** lists the configured integrations and those whose sign-in is more than a bare key.
+    **The catalog** lists every integration. Both leave out an MCP server's sign-in.
+  * **Methods.**
+    * A key method is `<id>:key`. 1.x's `<id>:api` is still accepted on a write.
+    * An OAuth method is `<id>:oauth:<method>`, typed as a browser flow when its id or label says
+      so, otherwise as a device flow.
+    * External methods, and any other type, are listed as unavailable with `host_oauth`. So is a
+      form with a field that is not a string.
+    * A form's string fields become the phone's inputs, as a select when they have fixed options.
+      A hidden field is left to its default; a default otherwise shows as the placeholder.
+    * Whether a method holds a credential is known for the key, and for OAuth only when the
+      integration has one OAuth method: the connection does not say which method stored it.
+  * **An add** (`SetCredential`):
+    * reads the integration;
+    * sends the key once to `connect/key`, with the form answer when one is given, leaving out
+      empty values;
+    * confirms the new credential is the active connection, or answers
+      `ErrCredentialNotAccepted`;
+    * removes the older keys, and confirms they are gone.
+  * **A removal** (`ClearCredential`) deletes every stored credential and confirms none remains.
+    A key from the environment is named in the error.
+  * **OAuth** (`StartDeviceAuth`):
+    * `connect/oauth` with the method and the answer;
+    * a `code`-mode or loopback-browser attempt is refused and cancelled;
+    * the wait follows the attempt's status, and on completion adopts the credential as an add
+      does;
+    * a cancelled wait cancels the attempt.
+  * **Restart.** Any change the engine accepted restarts the provider's open sessions at their
+    next idle point, with the notice "A provider credential changed; the agent restarts to apply
+    it."
+* **`acp.go`.** `NewACP` builds a control plane from the configured binary, with the version floor
+  and the upgrade link, and wires the hooks. The restart closes over the provider it builds.
+* **acpagent** passes the method id and a copy of the inputs to `Spec.StartDeviceAuth`. grok's hook
+  ignores them.
+
+**Tests, each seen failing** (`p6b/plant_p6b.py` in the session scratchpad, 30 deliberate breaks on
+scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| no list before get | `TestACPAuthListsFirst`: "opencode GET /api/integration/vendor: 404 IntegrationNotFoundError" |
+| status lists every bare key; lists an MCP sign-in | `TestACPAuthStatusIsSmall`: "status lists [… plain]", "[… mcp-server …]" |
+| the catalog lists an MCP sign-in | `TestACPAuthCatalogListsEveryProvider` |
+| an add keeps the older key; removes every kind; sends an empty answer | `TestACPSetCredentialReplacesTheOlderKey` |
+| an add restarts nothing | `TestACPSetCredentialReplacesTheOlderKey` ("restarts [], want one") and `TestACPProviderWiresAuth` |
+| an add not checked active; its removal not confirmed; any method taken | `TestACPSetCredentialChecksTheEngine`, its three cases |
+| a removal deletes only the active one; says nothing of the env; is not confirmed; restarts with nothing removed | `TestACPClearCredentialRemovesEvery`, its three cases |
+| a code-mode attempt kept; a refused attempt not cancelled; a cancelled wait leaves the attempt; a completed sign-in not adopted; a failed one reported done; the first of two methods taken | `TestACPDeviceAuth`, each case |
+| a hidden field shown; a number field offered; an external method offered; which OAuth stored it claimed known; a browser method shown as a device | `TestACPAuthStatusIsSmall` |
+| `newACP` restarts nothing | `TestACPProviderWiresAuth`: "no notice event within 5s" |
+| acpagent drops the method; passes the caller's inputs | `TestStartDeviceAuthPassesTheMethodAndInputs` |
+| the live pin's cold location listed first | `TestLiveV2IntegrationsWaitForActivation`: "the first get in a new location answered 200" |
+
+Two breaks were rewritten before they took. "An add not checked active" first left part of the
+condition in force. "Any method taken" first did not compile. Neither was a fault in a test.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| `go test -race -count=1 ./...` | exit 0, 47 packages ok, no race |
+| the Linux test host, `go test -race -count=1 ./...` (C7), HEAD plus the 9 changed and new files | exit 0, 47 packages ok |
+| the Windows test host, `make ci-windows` (C7), the same tree | exit 0, "ALL SELECTED CHECKS PASSED", 47 packages ok |
+| `go test -tags live_opencode -run LiveV2IntegrationsWaitForActivation` (opencode 2.2.3, isolated home, made-up key) | exit 0 |
+| `make pre-add-check FILES=…` (the 7 Go files) | "7 file(s) clean (gofmt, golint, govulncheck)" |
+| `make lint`; `make staticcheck`; `make vet-tags`; `make check-records` | exit 0 each |
+
+**Not done:**
+* Nothing registers the provider until P7, so no phone has used these hooks.
+* `activate` and command connects are not built (Deviation 1).
+* The control plane is not closed at shutdown. It stops after 10 idle minutes, and its lease ends
+  with Magic. P7, which registers the provider, owns shutdown.
+* `SetActiveUpstream` is not offered. Choosing the model vendor is P6c's catalog.
+* No OAuth flow was run live: it would contact a vendor.
+
+P6b is complete with this commit. P6c, the catalog, is next.
+
+**Files for this commit:** `internal/provider/opencode/acp.go`, `acp_auth.go`, `acp_auth_test.go`
+and `live_acp_auth_test.go` (the last three new); `internal/provider/acpagent/acpagent.go` and
+`credential_test.go`; `internal/provider/grok/device_auth.go`; the MADR; and this plan.

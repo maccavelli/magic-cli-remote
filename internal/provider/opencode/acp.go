@@ -10,16 +10,19 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode/control"
 )
 
 // The OpenCode v2 provider is this Spec over acpagent: sessions run on
 // `opencode acp` (0214 MADR D1). It stands beside the 1.x HTTP dialect, which
 // stays registered until 0214 PLAN P7 retires it and registers this.
 //
+// The phone's auth runs on the control plane (acp_auth.go). Over ACP, opencode
+// advertises one method, opencode-login, which runs `opencode auth login` in a
+// terminal. No method is named safe, so acpagent never calls authenticate, and
+// the engine uses its own credential store.
+//
 // What the Spec does not need to say, because acpagent does it for every agent:
-//   - auth: opencode advertises one method, opencode-login, which runs
-//     `opencode auth login` in a terminal. No method is named safe, so acpagent
-//     never calls authenticate, and the engine uses its own credential store;
 //   - the model, effort and mode config options (model, thought_level and mode
 //     categories), set through session/set_config_option;
 //   - automatic permission choices, by option kind (0214 MADR D9);
@@ -92,10 +95,38 @@ var acpSpec = acpagent.Spec{
 // NewACP creates the OpenCode v2 provider over ACP. Nothing registers it until
 // 0214 PLAN P7.
 func NewACP(cfg acpagent.Config) *acpagent.Provider {
-	return acpagent.New(acpSpec, cfg)
+	return NewACPWithLogger(cfg, nil)
 }
 
 // NewACPWithLogger is like NewACP but sets a logger.
 func NewACPWithLogger(cfg acpagent.Config, log *slog.Logger) *acpagent.Provider {
-	return acpagent.NewWithLogger(acpSpec, cfg, log)
+	bin := cfg.Bin
+	if bin == "" {
+		bin = acpSpec.DefaultBin
+	}
+	plane := control.New(control.Config{Bin: bin, MinVersion: ACPMinVersion, UpgradeURL: ACPUpgradeURL, Log: log})
+	return newACP(cfg, log, plane)
+}
+
+// newACP is the provider on any control plane; tests pass a fake engine. The
+// auth hooks restart the provider's own sessions after a credential change
+// (D8).
+func newACP(cfg acpagent.Config, log *slog.Logger, plane controlPlane) *acpagent.Provider {
+	var p *acpagent.Provider
+	auth := &acpAuth{
+		plane:   plane,
+		log:     log,
+		restart: func(notice string) { p.RestartSessionsWhenIdle(notice) },
+	}
+	if auth.log == nil {
+		auth.log = slog.Default()
+	}
+	spec := acpSpec
+	spec.AuthStatus = auth.status
+	spec.AuthCatalogList = auth.catalog
+	spec.SetCredential = auth.setCredential
+	spec.ClearCredential = auth.clearCredential
+	spec.StartDeviceAuth = auth.startDeviceAuth
+	p = acpagent.NewWithLogger(spec, cfg, log)
+	return p
 }

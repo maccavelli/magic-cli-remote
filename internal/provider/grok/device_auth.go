@@ -49,9 +49,13 @@ const grokDeviceAuthSandbox = `(version 1)
 // grok always calls webbrowser::open. On Linux a stub open/xdg-open on the
 // child PATH is enough. On macOS the crate uses Launch Services, so the child
 // is wrapped in sandbox-exec (MADR 0107 D6). The daemon itself is not sandboxed.
+//
+// The method id and inputs are ignored: grok has one sign-in, which asks for
+// nothing.
 func startDeviceAuth(
 	ctx context.Context,
-	bin, upstreamID string,
+	bin, upstreamID, _ string,
+	_ map[string]string,
 	_ bool,
 ) (provider.DeviceFlow, func(context.Context) error, error) {
 	if upstreamID != "" && upstreamID != xaiUpstreamID {

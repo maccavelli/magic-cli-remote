@@ -1016,3 +1016,30 @@ agent-neutral pieces, and opencode's code for them stays in its package (P6b to 
   which is D8's "the ACP engine restarts" for an agent run as one process per session.
 
 *Owner: "Approve, start P6a".*
+
+### Added at P6b, 2026-11-03 (PLAN P6b Deviation 1)
+
+D8 assumed one credential per integration. In v2 an integration holds several. `connect/key`
+always adds one and makes it active, and removing the active one makes the next newest active
+(`packages/core/src/credential.ts` at `b44b7164ba`). D8 is amended:
+* **An add replaces.** The new credential is confirmed active, then the integration's older
+  credentials of the same kind (key or OAuth) are removed. *Owner: "Replace, clear all".*
+* **A removal clears.** Every stored credential of the integration is deleted, and the integration
+  is read again to confirm none remains. A key supplied only through an environment variable
+  stays, and the removal says so. *Owner: "Replace, clear all".*
+* **Command connects are dropped.** No integration offers one on 2.2.3: 237 integrations, and 0
+  command methods. A command method that appears later is listed as unavailable, and so are the 4
+  external methods. *Owner: "Drop by name".*
+* **`activate` is not used.** No phone operation maps to it. A provider with both a key and an
+  OAuth sign-in uses the one added last. *Owner: "Not in P6b".*
+* **acpagent's device-flow hook passes the method id and the inputs to the Spec**, for every Spec.
+  grok ignores them. *Owner: "Widen the hook".*
+* **Integrations exist only after plugin activation.**
+  * Until plugins have activated in a location, `integration.get` and the connect routes answer
+    `404` for an integration that exists. Only `integration.list` waits for activation
+    (`packages/server/src/handlers/integration.ts` at `b44b7164ba`).
+  * Probed on isolated homes: the first get or connect in a new location answered 404 in 8 of 17
+    tries, and the first get in a newly named location directory in 10 of 10. With a list call
+    first, it answered normally in 6 of 6.
+  * Every auth operation therefore reads the list first. A live-tagged test pins this.
+    *Owner: "List first, and pin it".*
