@@ -1850,3 +1850,51 @@ newest. Step 2 also moves `go.yaml.in/yaml/v3` to v3.0.6; the gates are unchange
 releases"). `make check-libs` on it: exit 0, `acp-go-sdk2` "pinned v1.31.1, checking v1.31.1",
 `go-selfupdate-lib` "pinned v1.23.1, checking v1.23.1", "0 failing checks; scratch removed"
 (`leftovers/0217-p3c-checklibs-head.log`).
+
+### P3d — `acp-go-sdk2` v1.31.2 and `go-selfupdate-lib` v1.24.0
+
+#### Deviation 18 (2026-11-03): two libraries tagged after P3c
+
+**Found** by the owner: "assess go-selfupdate-lib, go-tui-lib, acp-go-sdk2 and update the pins
+accordingly." At `beb31c3b`, `go.mod` requires `acp-go-sdk2 v1.31.1`, `go-selfupdate-lib v1.23.1`
+and `go-tui-lib/v2 v2.9.0`. The newest tags and what they change are the MADR's F3e:
+* `acp-go-sdk2 v1.31.2`: runtime fixes, no API change;
+* `go-selfupdate-lib v1.24.0`: formatting methods that redact `Env`, additive;
+* `go-tui-lib/v2`: current.
+
+`go list -m -u` shows no other direct module behind.
+
+**Proposed: pin the two current tags.** D4 takes every direct module to its newest. The step is
+P3d, P3c's steps for these two modules, plus the move of `ci.yml`'s two `go-selfupdate-lib`
+workflow pins that `TestWorkflowPinsMatchGoMod` ties to `go.mod`. *Approval to execute is the
+owner's word on this deviation; nothing in the tree moves before it.*
+
+1. P0: the tree holds only this record, the 0217 MADR and the unrelated 0228 and 0229 drafts, none
+   staged. `v1.31.2^{}` (`69eff662…`) and `v1.24.0^{}` (`74ab5dd3…`) are re-peeled with
+   `git ls-remote`, each still the newest tag. `go.mod`, `go.sum` and `ci.yml` are copied aside.
+2. `go get github.com/maccavelli/acp-go-sdk2@v1.31.2 github.com/maccavelli/go-selfupdate-lib@v1.24.0`,
+   then `go mod tidy`. `go.mod` changes only those two lines, `go 1.27.3` stays, `go.sum` changes
+   only their lines, and `go list -m -u` shows no direct module behind.
+3. In `.github/workflows/ci.yml`, both `uses:` pins (`:756`, `:777`) move from `c24f5919…` to
+   `74ab5dd376a4c864debb32b2d8abfc7856059ba3`, with the comment `# go-selfupdate-lib v1.24.0`.
+   The edit is a Python replace that asserts exactly two matches. `TestWorkflowPinsMatchGoMod`
+   passes after it and fails, on a scratch copy, with `go.mod` moved and `ci.yml` not. The test
+   checks each pin is a full commit and that its comment names `go.mod`'s release. That the
+   commit is that release's tag is the hand check of step 1 (`git ls-remote`), as the test's own
+   comment says.
+4. The gates of P3c step 3:
+   * `make pre-add-check`;
+   * `go vet` on three GOOS and `make vet-tags`;
+   * `make staticcheck` (56 ignored findings);
+   * `make vulncheck`;
+   * `make race`, with `internal/updateclient`, `internal/cli/service` and `internal/provider/acpagent`
+     among its packages;
+   * check-libs on the step's content.
+
+   Then `make check-libs` runs on the owner's commit. The live supervisors are not run: v1.24.0
+   changes formatting only (F3e), and its reusable workflows are v1.23.1's.
+5. P3c step 4's host runs (C2): `go test -race ./...` on the Linux test host and `make ci-windows`
+   on the Windows test host.
+6. Stage `go.mod`, `go.sum`, `.github/workflows/ci.yml`, this PLAN and the 0217 MADR.
+
+**Scope.** No file is added. No live agent run. `ci.yml` changes only its two pin lines.

@@ -47,8 +47,8 @@ the host standard and the host installs are in scope only where an advisory is a
 | :--- | :--- | :--- |
 | `github.com/caddyserver/certmagic` | v0.25.4 | v0.25.6 |
 | `golang.org/x/mod` | v0.41.0 | v0.42.0 |
-| `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | ~~v1.23.0~~ **v1.23.1** (F3, F3a) |
-| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ ~~v1.28.0 (F3c)~~ **v1.31.1** (F3d; v1.30.0 came by 0224) |
+| `github.com/maccavelli/go-selfupdate-lib` | v1.22.3 | ~~v1.23.0~~ ~~v1.23.1 (F3, F3a)~~ **v1.24.0** (F3e) |
+| `github.com/maccavelli/acp-go-sdk2` | v1.26.0 | ~~v1.26.0, current~~ ~~v1.27.0 (F3b)~~ ~~v1.28.0 (F3c)~~ ~~v1.31.1 (F3d; v1.30.0 came by 0224)~~ **v1.31.2** (F3e) |
 | `github.com/maccavelli/go-tui-lib/v2` | (not yet required; v2.7.0 since 0219) | **v2.9.0** (F3d) |
 
 * `go list -m -u all` lists 33 indirect modules with a newer version. They include the AWS SDK used
@@ -173,6 +173,67 @@ scratchpad; each library's release notes and `git diff` at its tags).*
 * **`go.yaml.in/yaml/v3`**, found behind at PLAN P3c step 2 (Deviation 17): v3.0.5 → v3.0.6, one
   commit that quotes a literal `<<` string on encode. Dated 2026-10-13, so P3 should have taken it;
   why it did not is not known.
+
+**F3e. On 2026-11-03, two of Magic's three libraries have newer tags. Neither changes an API, and
+neither changes anything Magic asserts.** *Observed 2026-11-03 (`git ls-remote` of each repository;
+each library's release notes, `CHANGELOG.md` and `git diff` at its tags; `go list -m -u` on
+`beb31c3b`).*
+
+| Module | Pinned | Newest tag | Peeled commit, date |
+| :--- | :--- | :--- | :--- |
+| `acp-go-sdk2` | v1.31.1 (F3d) | **v1.31.2** | `69eff662…`, 2026-11-03 |
+| `go-selfupdate-lib` | v1.23.1 | **v1.24.0** | `74ab5dd3…`, 2026-11-02 |
+| `go-tui-lib/v2` | v2.9.0 (F3d) | v2.9.0, current | (no change) |
+
+* `go list -m -u` lists exactly these two as the direct modules behind. Neither repository has a
+  newer major version on the Go proxy.
+* **`acp-go-sdk2` v1.31.2** fixes ten connection-runtime defects, its 0049 R1 to R10
+  (`docs/reports/0049-REPORT-release-notes-v1-31-2.md` at the tag in that repository).
+  * Its `make api` against v1.31.1: "0 incompatible, 0 compatible".
+  * `go.mod`, `go.sum`, the schema (1.25.0), `.github/`, `acptest/`, `agentproc/`, `clienthost/`
+    and `remote/` are unchanged.
+  * Magic's client connections (`clientConnOptions`, `internal/provider/acpagent/acpagent.go:1223-1236`)
+    set `WithNotificationOverflowPolicy(OverflowBlock)`, `WithInboundValidation`, `WithLogger`,
+    `WithMaxMessageSize(10 << 20)` and, for a Spec with vendor notifications,
+    `WithReceivingMiddleware` (0214 D14).
+  * **Three fixes reach those connections.**
+    * **R1.** The reader no longer writes its own error answers itself. It queues them for a
+      writer goroutine, and a peer that leaves more than 1,024 unread closes the connection.
+      Magic's reader answers only an invalid or oversized line, and its agents read their input,
+      so the change removes a deadlock Magic could only meet against an agent that stops reading.
+    * **R7.** A line ending `\r\n` exactly at `WithMaxMessageSize` is no longer refused.
+    * **R9.** A request whose context ended before it was written no longer sends
+      `$/cancel_request`. Magic cancels prompts by context, so it no longer sends that stray
+      cancel in that race.
+  * **The other seven do not reach Magic.**
+    * R2 binds an **agent-side** receiving middleware. Magic's middleware is client-side, and its
+      two agent-side connections are test agents with none (`stderrtail_test.go:81`,
+      `agentproc_test.go:62`).
+    * R3 concerns a notification handler that sends on **another** connection. R4 concerns
+      `ServeAgent`, which Magic does not call.
+    * Magic sets neither of R5 and R6's options, and registers no sending middleware (R8).
+    * R10 is documentation.
+* **`go-selfupdate-lib` v1.24.0** adds `String`, `GoString`, `Format` and `LogValue` on
+  `service.Command`, `service.HandOff`, `service.ExecOptions` and `ghattest.Options`. `fmt` and
+  `log/slog` now print each `Env` value as `<redacted>`, `Command.Stdin` as its length, and the
+  function fields as `<set>` or `<nil>`. `encoding/json` is unchanged (`CHANGELOG.md` at the tag,
+  and its 0040 E1).
+  * `go.mod`, `go.sum` and `.github/` are unchanged from v1.23.1, so the two reusable workflows
+    `ci.yml` calls are v1.23.1's.
+  * Magic builds `Command`, `HandOff` and `ExecOptions` (`internal/cli/service/supervisortool.go:152`,
+    `internal/updateclient/client.go:394`, `managed.go:88`). No production code formats one, and no
+    test compares a formatted one; tests compare the values. So the change reaches only output
+    Magic does not produce today, and makes it safer if it ever does.
+  * `ci.yml`'s two `uses:` pins (`:756`, `:777`) name v1.23.1's commit `c24f5919…`, and
+    `TestWorkflowPinsMatchGoMod` (`internal/updateclient/spec_test.go:138`) ties them to `go.mod`.
+    They move to `74ab5dd3…` with it.
+  * The new methods need no adoption. They apply wherever a value is formatted (0207 D53's rule
+    has nothing to adopt here).
+* **`go-tui-lib`** is at its newest tag. Its checkout has 14 untagged commits past v2.9.0: the
+  0009 streaming engine (`stream`, `frame`, `inputfilter`, `streamtea`). Nothing untagged is
+  pinned.
+* **gobble** pins `acp-go-sdk2 v1.31.1`. As in F3d, 0184 D12's shared pin is needed only before
+  `live-gobble`.
 
 **F4. CI actions: four of eight are behind.** Each is pinned by commit, with a version comment.
 
