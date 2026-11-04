@@ -45,11 +45,11 @@ func adapters(codexBin string, withGrok bool) map[string]providerauth.Adapter {
 // only while its section is enabled; auth-recovery builds every one.
 func TestCredentialAdaptersFollowTheSections(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.Providers.Codex.Enabled = false
+	cfg.Providers.Sections = config.ProviderSections{"codex": &codex.Section{}}
 	if _, ok := CredentialAdapters(cfg, true)["grok"]; !ok {
 		t.Error("grok's defaults enable it, but it has no credential adapter")
 	}
-	cfg.Providers.Sections = config.ProviderSections{"grok": &grok.Section{}}
+	cfg.Providers.Sections = config.ProviderSections{"grok": &grok.Section{}, "codex": &codex.Section{}}
 	if got := CredentialAdapters(cfg, true); len(got) != 0 {
 		t.Errorf("adapters = %v with grok and codex disabled, want none", got)
 	}

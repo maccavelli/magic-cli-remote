@@ -241,9 +241,6 @@ func (cfg *Config) finalizePaths(basePaths appdirs.Paths, opts LoadOptions) erro
 			return fmt.Errorf("providers.%s.default_cwd: %w", id, err)
 		}
 	}
-	if cfg.Providers.Codex.DefaultCWD, err = rel(cfg.Providers.Codex.DefaultCWD); err != nil {
-		return fmt.Errorf("providers.codex.default_cwd: %w", err)
-	}
 	if cfg.Providers.Kilo.DefaultCWD, err = rel(cfg.Providers.Kilo.DefaultCWD); err != nil {
 		return fmt.Errorf("providers.kilo.default_cwd: %w", err)
 	}
@@ -312,25 +309,6 @@ func setDefaults(v *viper.Viper) {
 	// MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES is silently ignored
 	// (AutomaticEnv only resolves known keys).
 	v.SetDefault("tls.letsencrypt.route53.max_retries", d.TLS.LetsEncrypt.Route53.MaxRetries)
-	v.SetDefault("providers.codex.enabled", d.Providers.Codex.Enabled)
-	v.SetDefault("providers.codex.bin", d.Providers.Codex.Bin)
-	v.SetDefault("providers.codex.always_approve", d.Providers.Codex.AlwaysApprove)
-	v.SetDefault("providers.codex.default_cwd", d.Providers.Codex.DefaultCWD)
-	v.SetDefault("providers.codex.model", d.Providers.Codex.Model)
-	v.SetDefault("providers.codex.permission_timeout_seconds", d.Providers.Codex.PermissionTimeoutSeconds)
-	v.SetDefault("providers.codex.prewarm", d.Providers.Codex.Prewarm)
-	v.SetDefault("providers.codex.turn_stall_notice_seconds", d.Providers.Codex.TurnStallNoticeSeconds)
-	v.SetDefault("providers.codex.stream_coalesce_ms", d.Providers.Codex.StreamCoalesceMs)
-	v.SetDefault("providers.codex.approval_policy", d.Providers.Codex.ApprovalPolicy)
-	v.SetDefault("providers.codex.sandbox_mode", d.Providers.Codex.SandboxMode)
-	v.SetDefault("providers.codex.allow_full_access", d.Providers.Codex.AllowFullAccess)
-	v.SetDefault("providers.codex.transport", d.Providers.Codex.Transport)
-	v.SetDefault("providers.codex.listen_address", d.Providers.Codex.ListenAddress)
-	v.SetDefault("providers.codex.ws_auth_mode", d.Providers.Codex.WSAuthMode)
-	v.SetDefault("providers.codex.reconnect_attempts", d.Providers.Codex.ReconnectAttempts)
-	v.SetDefault("providers.codex.standalone_processes_enabled", d.Providers.Codex.StandaloneProcessesEnabled)
-	v.SetDefault("providers.codex.standalone_process_env_allowlist", d.Providers.Codex.StandaloneProcessEnvAllowlist)
-	v.SetDefault("providers.codex.sandbox_broken_policy", d.Providers.Codex.SandboxBrokenPolicy)
 	v.SetDefault("providers.kilo.enabled", d.Providers.Kilo.Enabled)
 	v.SetDefault("providers.kilo.bin", d.Providers.Kilo.Bin)
 	v.SetDefault("providers.kilo.always_approve", d.Providers.Kilo.AlwaysApprove)

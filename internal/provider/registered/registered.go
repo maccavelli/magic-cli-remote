@@ -6,6 +6,7 @@ package registered
 import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
@@ -17,6 +18,7 @@ func Descriptors() []provider.Descriptor {
 		fake.Descriptor(),
 		grok.Descriptor(),
 		opencode.Descriptor(),
+		codex.Descriptor(),
 	}
 }
 

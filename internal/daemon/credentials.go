@@ -6,7 +6,6 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 )
@@ -24,24 +23,16 @@ type credentialGuard struct {
 }
 
 // CredentialAdapters returns the credential adapter of each provider that has
-// one, by provider id: a descriptor's own (0208 MADR D6), and codex's.
+// one, by provider id: its descriptor's (0208 MADR D6).
 // enabledOnly limits it to the providers cfg enables, as serve does. mcremote
 // auth-recovery passes false, so a provider disabled since its credential was
 // stored can still be recovered.
-//
-// codex's adapter is built with the configured binary. It is REQUIRED, not
-// optional: the reality probe that distinguishes "no credential anywhere" from
-// "a credential this coordinator cannot see" asks the CLI, and an adapter
-// built without a binary answers RealityUnknown for both (MADR 0134).
 func CredentialAdapters(cfg config.Config, enabledOnly bool) map[string]providerauth.Adapter {
 	out := map[string]providerauth.Adapter{}
 	for _, d := range registered.Descriptors() {
 		if sec := d.SectionIn(cfg); d.Credentials != nil && (sec.IsEnabled() || !enabledOnly) {
 			out[string(d.ID)] = d.Credentials(sec)
 		}
-	}
-	if cfg.Providers.Codex.Enabled || !enabledOnly {
-		out["codex"] = codex.NewCredentialAdapter("codex", cfg.Providers.Codex.Bin)
 	}
 	return out
 }

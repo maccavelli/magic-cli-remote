@@ -880,7 +880,7 @@ the full defaults table and env map.
 | `providers.fake` | `enabled` |
 | `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `reasoning_effort`, `permission_mode`, `no_subagents`, `disable_web_search`, `sandbox`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `fs_roots`, `auth_method_id`, `mcp_servers` |
 | `providers.opencode` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `fs_roots`, `auth_method_id`, `mcp_servers`, `allow_remote_shell` |
-| `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access` |
+| `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access`, `sandbox_broken_policy`, `transport`, `listen_address`, `ws_auth_mode`, `reconnect_attempts`, `environments`, `standalone_processes_enabled`, `standalone_process_env_allowlist` |
 | `providers.kilo` | `enabled` (default `true`), `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` (default `false`), `pure` |
 | `headscale` | `control_url` |
 | `relay` | `url`, `host_id`, `secret`, `insecure_skip_verify` |
@@ -1121,6 +1121,10 @@ enabled and the binary is missing.
 | `listen_address` | *(empty)* | Optional `ws` loopback host and port. Wildcard and non-loopback binds are rejected |
 | `ws_auth_mode` | *(empty)* | `capability_token` or `signed_bearer`; `ws` defaults internally to a generated capability token |
 | `reconnect_attempts` | `3` | Replacement attempts after unexpected engine death; maximum 3 |
+| `sandbox_broken_policy` | `warn` | When the Linux workspace-write sandbox probe fails: `warn`, `require_full_access`, or `refuse` ([MADR 0048](docs/decisions/0048-MADR-codex-sandbox-namespace.md)) |
+| `environments` | `[]` | Remote execution servers this host runs turns on (config-file only); phones see ids, never URLs |
+| `standalone_processes_enabled` | `false` | Permit unsandboxed standalone processes, each confirmed on the phone |
+| `standalone_process_env_allowlist` | `[]` | Environment variable names a phone may set on a standalone spawn; secret-looking names fail the load |
 
 The Codex listener is an internal control-plane resource. Unix sockets live in
 a daemon-owned `0700` runtime directory and are `0600`; TCP listeners bind only

@@ -214,8 +214,7 @@ func versionIn(out string) (string, bool) {
 // A described provider's comes from its section, when it is an agent's.
 func engineBins(cfg config.Config) map[provider.ID]string {
 	bins := map[provider.ID]string{
-		provider.IDCodex: cfg.Providers.Codex.Bin,
-		provider.IDKilo:  cfg.Providers.Kilo.Bin,
+		provider.IDKilo: cfg.Providers.Kilo.Bin,
 	}
 	for _, d := range registered.Descriptors() {
 		if agent, ok := d.SectionIn(cfg).(config.AgentSection); ok {

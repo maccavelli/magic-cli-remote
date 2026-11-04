@@ -581,7 +581,6 @@ func TestDefaultsAllPrewarmFalse(t *testing.T) {
 		id      string
 		prewarm bool
 	}{
-		{"codex", d.Providers.Codex.Prewarm},
 		{"kilo", d.Providers.Kilo.Prewarm},
 	} {
 		if row.prewarm {
@@ -859,32 +858,5 @@ func TestLoadTLSDisableFlagWithConfiguredMode(t *testing.T) {
 	// And the switch, once applied the way serve does, still disables TLS.
 	if off := cfg.TLS.WithEnabled(false); off.ResolvedMode() != config.TLSModeOff {
 		t.Fatalf("after --tls=false override mode=%s want off", off.ResolvedMode())
-	}
-}
-
-func TestCodexTransportDefaultsAndValidation(t *testing.T) {
-	d := config.Defaults()
-	if d.Providers.Codex.Transport != "stdio" || d.Providers.Codex.ReconnectAttempts != 3 {
-		t.Fatalf("Codex transport defaults = %q/%d", d.Providers.Codex.Transport, d.Providers.Codex.ReconnectAttempts)
-	}
-	for name, mutate := range map[string]func(*config.Config){
-		"wildcard": func(c *config.Config) {
-			c.Providers.Codex.Transport = "ws"
-			c.Providers.Codex.ListenAddress = "0.0.0.0:1234"
-		},
-		"inline-auth-on-stdio": func(c *config.Config) {
-			c.Providers.Codex.WSAuthMode = "capability_token"
-		},
-		"too-many-reconnects": func(c *config.Config) {
-			c.Providers.Codex.ReconnectAttempts = 4
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			candidate := config.Defaults()
-			mutate(&candidate)
-			if err := candidate.Validate(); err == nil {
-				t.Fatal("invalid Codex transport configuration accepted")
-			}
-		})
 	}
 }

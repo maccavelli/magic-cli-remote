@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/url"
 	"path/filepath"
-	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -451,8 +448,7 @@ type ProvidersConfig struct {
 	// decoded by Load from LoadOptions.Providers (0208 MADR D6).
 	Sections ProviderSections `mapstructure:"-"`
 
-	Codex CodexProviderConfig `mapstructure:"codex"`
-	Kilo  KiloProviderConfig  `mapstructure:"kilo"`
+	Kilo KiloProviderConfig `mapstructure:"kilo"`
 }
 
 // MCPServerConfig configures one MCP server advertised to an ACP agent at
@@ -538,75 +534,6 @@ type ACPProviderConfig struct {
 	MCPServers []MCPServerConfig `mapstructure:"mcp_servers" env:"-"`
 }
 
-// CodexProviderConfig configures the Codex app-server JSON-RPC provider
-// (MADR 0028).
-type CodexProviderConfig struct {
-	Enabled       bool   `mapstructure:"enabled"`
-	Bin           string `mapstructure:"bin"`
-	AlwaysApprove bool   `mapstructure:"always_approve"`
-	DefaultCWD    string `mapstructure:"default_cwd"`
-	Model         string `mapstructure:"model"`
-	// PermissionTimeoutSeconds bounds how long a remote permission request waits
-	// for a decision before the agent stops waiting (treated as cancelled).
-	// 0 disables the timeout. Default 900 — long enough to unlock the phone
-	// and answer, balancing MADR 0028's default and the Codex app-server's
-	// long-running tool expectation.
-	PermissionTimeoutSeconds int `mapstructure:"permission_timeout_seconds"`
-	// Prewarm boots the shared app-server engine at daemon start so the first
-	// session create skips the ~500ms cold start.
-	Prewarm bool `mapstructure:"prewarm"`
-	// TurnStallNoticeSeconds emits a notice when a running turn produces no
-	// output for this long (0 disables). Default 120 — same as the other
-	// providers; codex tools often run multi-minute (tests, builds) and a
-	// zero value left the phone with no stall UI during WS blips.
-	TurnStallNoticeSeconds int `mapstructure:"turn_stall_notice_seconds"`
-	// StreamCoalesceMs is how long assistant/thought text is held so it can be
-	// emitted as one event instead of one per model token (MADR 0024). 0
-	// disables coalescing. Default 80.
-	StreamCoalesceMs int `mapstructure:"stream_coalesce_ms"`
-	// ApprovalPolicy is an optional override for the Codex approval policy.
-	// Empty means inherit Codex's own config.toml and trusted-project behavior.
-	// Valid values: "untrusted", "on-request", "never".
-	ApprovalPolicy string `mapstructure:"approval_policy"`
-	// SandboxMode is an optional override for the Codex sandbox mode.
-	// Empty means inherit Codex's own config.toml.
-	// Valid values: "read-only", "workspace-write", "danger-full-access".
-	SandboxMode string `mapstructure:"sandbox_mode"`
-	// AllowFullAccess advertises the "full-access" session mode, which runs
-	// with no approval prompts *and* no sandbox. Off by default: auto-approve
-	// is one risk, auto-approve with nothing containing it is another, so the
-	// unsandboxed variant is opt-in rather than one tap away (MADR 0044 D5).
-	AllowFullAccess bool `mapstructure:"allow_full_access"`
-	// SandboxBrokenPolicy controls create behaviour when the Linux sandbox
-	// cannot create a user namespace (MADR 0048). Valid: empty/"warn" (default),
-	// "require_full_access", "refuse".
-	SandboxBrokenPolicy string `mapstructure:"sandbox_broken_policy"`
-	// Transport is stdio (default), unix_ws, ws, or managed_daemon_proxy.
-	Transport string `mapstructure:"transport"`
-	// ListenAddress is optional and only applies to ws. It must be loopback.
-	ListenAddress string `mapstructure:"listen_address"`
-	// WSAuthMode is capability_token or signed_bearer. Secret material is
-	// always generated into the daemon runtime directory, never configured.
-	WSAuthMode string `mapstructure:"ws_auth_mode"`
-	// ReconnectAttempts is capped at three. Default 3.
-	ReconnectAttempts int `mapstructure:"reconnect_attempts"`
-	// Environments is the administrator-owned remote execution catalog. Phones
-	// see only ids, roots, and observational status/info projections.
-	Environments []CodexExecutionEnvironmentConfig `mapstructure:"environments"`
-	// StandaloneProcessesEnabled gates the unsandboxed process/* surface.
-	StandaloneProcessesEnabled bool `mapstructure:"standalone_processes_enabled"`
-	// StandaloneProcessEnvAllowlist contains host-approved non-secret names.
-	StandaloneProcessEnvAllowlist []string `mapstructure:"standalone_process_env_allowlist"`
-}
-
-// CodexExecutionEnvironmentConfig is one host-admin registered exec server.
-type CodexExecutionEnvironmentConfig struct {
-	ID                    string   `mapstructure:"id"`
-	ExecServerURL         string   `mapstructure:"exec_server_url"`
-	ConnectTimeoutMS      int      `mapstructure:"connect_timeout_ms"`
-	RuntimeWorkspaceRoots []string `mapstructure:"runtime_workspace_roots"`
-}
-
 // KiloProviderConfig configures the Kilo CLI provider (shared `kilo serve`
 // engine over httpagent, MADR 0075). Kilo is a fork of OpenCode's 1.x serve
 // architecture, so its keys follow that dialect's: no `transport` (retired in
@@ -648,33 +575,6 @@ type KiloProviderConfig struct {
 	Pure bool `mapstructure:"pure"`
 }
 
-// validApprovalPolicy returns true for recognized Codex approval policy values.
-func validApprovalPolicy(s string) bool {
-	switch s {
-	case "", "untrusted", "on-request", "never":
-		return true
-	}
-	return false
-}
-
-// validSandboxMode returns true for recognized Codex sandbox mode values.
-func validSandboxMode(s string) bool {
-	switch s {
-	case "", "read-only", "workspace-write", "danger-full-access":
-		return true
-	}
-	return false
-}
-
-func configLoopbackHost(host string) bool {
-	host = strings.Trim(host, "[]")
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
 // HeadscaleConfig is documentation/metadata only (no API calls).
 type HeadscaleConfig struct {
 	ControlURL string `mapstructure:"control_url"`
@@ -700,24 +600,6 @@ func Defaults() Config {
 			RequireClientKey:   true,
 		},
 		Providers: ProvidersConfig{
-			Codex: CodexProviderConfig{
-				Enabled:                  true,
-				Bin:                      "codex",
-				AlwaysApprove:            false,
-				PermissionTimeoutSeconds: 900,
-				Prewarm:                  false,
-				// Match grok/opencode: long tool runs (e.g. full
-				// `flutter test`) must surface a stall notice on the phone
-				// rather than looking like a frozen agent. 0 still disables.
-				TurnStallNoticeSeconds:     120,
-				StreamCoalesceMs:           80,
-				ApprovalPolicy:             "",
-				SandboxMode:                "",
-				AllowFullAccess:            false,
-				Transport:                  "stdio",
-				ReconnectAttempts:          3,
-				StandaloneProcessesEnabled: false,
-			},
 			Kilo: KiloProviderConfig{
 				// Default-on since MADR 0075 acceptance flip (2026-08-10).
 				Enabled:                  true,
@@ -964,65 +846,6 @@ func (c Config) Validate() error {
 	if c.Limits.MaxLiveSessions < 0 {
 		return fmt.Errorf("limits.max_live_sessions must be >= 0, got %d", c.Limits.MaxLiveSessions)
 	}
-	if c.Providers.Codex.PermissionTimeoutSeconds < 0 {
-		return fmt.Errorf("providers.codex.permission_timeout_seconds must be >= 0, got %d",
-			c.Providers.Codex.PermissionTimeoutSeconds)
-	}
-	if c.Providers.Codex.TurnStallNoticeSeconds < 0 {
-		return fmt.Errorf("providers.codex.turn_stall_notice_seconds must be >= 0, got %d",
-			c.Providers.Codex.TurnStallNoticeSeconds)
-	}
-	if v := c.Providers.Codex.StreamCoalesceMs; v < 0 || v > MaxStreamCoalesceMs {
-		return fmt.Errorf("providers.codex.stream_coalesce_ms must be 0..%d, got %d",
-			MaxStreamCoalesceMs, v)
-	}
-	if !validApprovalPolicy(c.Providers.Codex.ApprovalPolicy) {
-		return fmt.Errorf("providers.codex.approval_policy must be empty, untrusted, on-request, or never, got %q",
-			c.Providers.Codex.ApprovalPolicy)
-	}
-	if !validSandboxMode(c.Providers.Codex.SandboxMode) {
-		return fmt.Errorf("providers.codex.sandbox_mode must be empty, read-only, workspace-write, or danger-full-access, got %q",
-			c.Providers.Codex.SandboxMode)
-	}
-	switch strings.TrimSpace(c.Providers.Codex.SandboxBrokenPolicy) {
-	case "", "warn", "require_full_access", "refuse":
-	default:
-		return fmt.Errorf("providers.codex.sandbox_broken_policy must be empty, warn, require_full_access, or refuse, got %q",
-			c.Providers.Codex.SandboxBrokenPolicy)
-	}
-	switch strings.TrimSpace(c.Providers.Codex.Transport) {
-	case "stdio":
-		if c.Providers.Codex.ListenAddress != "" || c.Providers.Codex.WSAuthMode != "" {
-			return fmt.Errorf("providers.codex stdio transport rejects listen_address and ws_auth_mode")
-		}
-	case "unix_ws", "managed_daemon_proxy":
-		if runtime.GOOS == "windows" {
-			return fmt.Errorf("providers.codex transport %q is Unix-only", c.Providers.Codex.Transport)
-		}
-		if c.Providers.Codex.ListenAddress != "" || c.Providers.Codex.WSAuthMode != "" {
-			return fmt.Errorf("providers.codex transport %q owns its endpoint and rejects WS fields", c.Providers.Codex.Transport)
-		}
-	case "ws":
-		if address := c.Providers.Codex.ListenAddress; address != "" {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil || !configLoopbackHost(host) {
-				return fmt.Errorf("providers.codex.listen_address must be loopback host:port")
-			}
-		}
-		switch c.Providers.Codex.WSAuthMode {
-		case "", "capability_token", "signed_bearer":
-		default:
-			return fmt.Errorf("providers.codex.ws_auth_mode must be empty, capability_token, or signed_bearer")
-		}
-	default:
-		return fmt.Errorf("providers.codex.transport must be stdio, unix_ws, ws, or managed_daemon_proxy")
-	}
-	if attempts := c.Providers.Codex.ReconnectAttempts; attempts < 0 || attempts > 3 {
-		return fmt.Errorf("providers.codex.reconnect_attempts must be 0..3, got %d", attempts)
-	}
-	if err := validateCodexExecutionConfig(c.Providers.Codex); err != nil {
-		return err
-	}
 	if c.Providers.Kilo.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.kilo.permission_timeout_seconds must be >= 0, got %d",
 			c.Providers.Kilo.PermissionTimeoutSeconds)
@@ -1042,80 +865,6 @@ func (c Config) Validate() error {
 		return err
 	}
 	return nil
-}
-
-var codexEnvironmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-func validateCodexExecutionConfig(c CodexProviderConfig) error {
-	seenIDs := make(map[string]struct{}, len(c.Environments))
-	for index, environment := range c.Environments {
-		id := strings.TrimSpace(environment.ID)
-		if id == "" {
-			return fmt.Errorf("providers.codex.environments[%d] environment id must not be empty", index)
-		}
-		if _, exists := seenIDs[id]; exists {
-			return fmt.Errorf("providers.codex.environments has duplicate environment id %q", id)
-		}
-		seenIDs[id] = struct{}{}
-		parsed, err := url.Parse(environment.ExecServerURL)
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "ws" && parsed.Scheme != "wss") || parsed.User != nil {
-			return fmt.Errorf("providers.codex.environments[%d].exec_server_url must be an unauthenticated ws:// or wss:// URL", index)
-		}
-		if parsed.Scheme == "ws" && !configLoopbackHost(parsed.Hostname()) {
-			return fmt.Errorf("providers.codex.environments[%d].exec_server_url ws:// is restricted to loopback", index)
-		}
-		if environment.ConnectTimeoutMS <= 0 || environment.ConnectTimeoutMS > 60_000 {
-			return fmt.Errorf("providers.codex.environments[%d].connect_timeout_ms must be 1..60000", index)
-		}
-		logicalRoots := make(map[string]struct{}, len(environment.RuntimeWorkspaceRoots))
-		canonicalRoots := make(map[string]struct{}, len(environment.RuntimeWorkspaceRoots))
-		for _, root := range environment.RuntimeWorkspaceRoots {
-			if !filepath.IsAbs(root) {
-				return fmt.Errorf("providers.codex.environments[%d].runtime_workspace_roots must be absolute", index)
-			}
-			logical := filepath.Clean(root)
-			if _, exists := logicalRoots[logical]; exists {
-				return fmt.Errorf("providers.codex.environments[%d] has duplicate runtime_workspace_roots", index)
-			}
-			logicalRoots[logical] = struct{}{}
-			canonical := logical
-			if resolved, resolveErr := filepath.EvalSymlinks(logical); resolveErr == nil {
-				canonical = filepath.Clean(resolved)
-			}
-			if _, exists := canonicalRoots[canonical]; exists {
-				return fmt.Errorf("providers.codex.environments[%d] has duplicate canonical runtime_workspace_roots", index)
-			}
-			canonicalRoots[canonical] = struct{}{}
-		}
-	}
-	seenNames := make(map[string]struct{}, len(c.StandaloneProcessEnvAllowlist))
-	for _, rawName := range c.StandaloneProcessEnvAllowlist {
-		name := strings.TrimSpace(rawName)
-		if name == "" {
-			return fmt.Errorf("providers.codex.standalone_process_env_allowlist contains an empty name")
-		}
-		if !codexEnvironmentName.MatchString(name) {
-			return fmt.Errorf("providers.codex.standalone_process_env_allowlist has invalid environment name %q", name)
-		}
-		if codexSecretEnvironmentName(name) {
-			return fmt.Errorf("providers.codex.standalone_process_env_allowlist rejects secret-like name %q", name)
-		}
-		if _, exists := seenNames[name]; exists {
-			return fmt.Errorf("providers.codex.standalone_process_env_allowlist has duplicate name %q", name)
-		}
-		seenNames[name] = struct{}{}
-	}
-	return nil
-}
-
-func codexSecretEnvironmentName(name string) bool {
-	upper := strings.ToUpper(name)
-	for _, marker := range []string{"TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "PRIVATE_KEY", "CREDENTIAL"} {
-		if strings.Contains(upper, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func (p PairConfig) validate() error {

@@ -43,7 +43,9 @@ type Build struct {
 	Section config.ProviderSection
 	// Version is mcremote's own version.
 	Version string
-	Log     *slog.Logger
+	// RuntimeDir is the daemon's runtime directory.
+	RuntimeDir string
+	Log        *slog.Logger
 	// Credentials is the provider's credential coordinator, nil when it has
 	// none or the daemon is only inspecting (mcremote doctor).
 	Credentials *providerauth.Coordinator

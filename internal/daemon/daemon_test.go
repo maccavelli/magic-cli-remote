@@ -67,6 +67,18 @@ func TestADescribedProviderRegistersWhenItsSectionIsEnabled(t *testing.T) {
 	}
 }
 
+// TestBuildBaseCarriesTheRuntimeDirAndVersion: codex generates its engine's
+// secret material into the daemon's runtime directory, so every described
+// provider is built with it (0208 PLAN P8, codex commit).
+func TestBuildBaseCarriesTheRuntimeDirAndVersion(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Paths.RuntimeDir = "/run/mcremote-under-test"
+	b := buildBase(cfg, "9.9.9", nil)
+	if b.RuntimeDir != "/run/mcremote-under-test" || b.Version != "9.9.9" {
+		t.Fatalf("build base = %+v", b)
+	}
+}
+
 // TestOpencodeRegistersTheV2Spec: the daemon's opencode provider is the ACP
 // one, not the retired 1.x dialect (0214 PLAN P7, step 1). Its defaults
 // enable it.

@@ -169,48 +169,89 @@ providers:
     # execution on THIS host. The phone confirms every command, but that is a
     # second line of defence, not the first.
     allow_remote_shell: false
+  # Codex (OpenAI Codex CLI), driven through one shared `codex app-server`
+  # engine (JSON-RPC); all sessions multiplex over it (MADR 0028). Pick it per
+  # session from the phone's provider menu.
   codex:
+    # Register Codex. Harmless when the binary is absent: it lists as not ready.
     enabled: true
+    # The codex executable, by name on PATH or by path. The credential guard
+    # also asks it where the sign-in lives (MADR 0134).
     bin: "codex"
+    # true answers every permission request with its allow option instead of
+    # asking the phone, for every session. A session mode from the phone is the
+    # narrower lever.
     always_approve: false
+    # A session's working directory when the phone names none. Empty = the
+    # daemon user's home directory; a relative path is resolved against this
+    # file's directory.
     default_cwd: ""
+    # The model a session starts on, e.g. gpt-5.6-terra. Empty = Codex's own
+    # default from ~/.codex/config.toml.
     model: ""
+    # How long a permission request waits for the phone, in seconds, before
+    # Codex is told it was cancelled. 0 = wait forever. Longer than the other
+    # providers' 120, because Codex's sandboxed tools may run for minutes
+    # (MADR 0028).
     permission_timeout_seconds: 900
+    # true boots the shared engine at daemon start, so the first session skips
+    # the ~500 ms cold start (MADR 0089 D5). The phone can turn it on and off too.
     prewarm: false
+    # A notice on the phone when a running turn produces no output for this
+    # many seconds. 0 = off; it left phones looking frozen during multi-minute
+    # Codex tool runs after a WS blip (MADR 0072 D1).
     turn_stall_notice_seconds: 120
+    # Hold streamed text this many milliseconds so it ships as one event, not
+    # one per token (MADR 0024). 0 = one event per token; max 1000.
     stream_coalesce_ms: 80
+    # untrusted | on-request | never. With sandbox_mode, the pair a session
+    # starts in, when it matches one of the modes. Both empty = mcremote's
+    # default mode (on-request + workspace-write); never alone is repaired to
+    # the auto pair (never + workspace-write) (MADR 0047).
     approval_policy: ""
+    # read-only | workspace-write | danger-full-access. See approval_policy:
+    # set both to pin a custom pair.
     sandbox_mode: ""
     # Advertise the "full access" session mode: no approval prompts AND no
-    # sandbox (MADR 0044). Off, "auto" still bypasses approvals but codex
-    # confines edits to the workspace (Seatbelt on macOS, bwrap on Linux —
-    # where bwrap fails under AppArmor, 0048, full access is the only
-    # writable mode). Omitting this key from provisioned configs was the
-    # macOS/Linux menu asymmetry of MADR 0069 F1 — keep it explicit here.
+    # sandbox. Without it, "auto" still skips approvals, but Codex confines
+    # edits to the workspace (Seatbelt on macOS, bwrap on Linux). Only for a
+    # machine you are content to let an unattended agent modify anywhere
+    # (MADR 0044 D5).
     allow_full_access: false
     # When the Linux userns/bwrap workspace-write probe fails (MADR 0048):
-    # warn (default) | require_full_access | refuse. Keep this key explicit
-    # so provisioned hosts see the lever (0071 F2 / 0069 F1).
+    # warn = a notice only; require_full_access = start in full access (needs
+    # allow_full_access: true) or fail the create; refuse = fail the create.
     sandbox_broken_policy: warn
-    # Managed transport remains stdio unless an operator deliberately opts in.
-    # unix_ws and managed_daemon_proxy are Unix-only. ws is always loopback;
-    # mcremote generates native Codex bearer material in its private runtime
-    # directory and never exposes the endpoint or bearer to phones.
+    # The engine's transport: stdio (default) | unix_ws | ws |
+    # managed_daemon_proxy. unix_ws and managed_daemon_proxy are Unix-only; ws
+    # is loopback-only. The phone never sees the endpoint or its credential.
     transport: stdio
+    # ws only: an optional loopback host:port. Wildcard and non-loopback binds
+    # are rejected.
     listen_address: ""
-    ws_auth_mode: ""  # capability_token | signed_bearer (ws only)
+    # ws only: capability_token | signed_bearer. Empty = a generated capability
+    # token. Bearer material is generated into the daemon's runtime directory,
+    # never configured here.
+    ws_auth_mode: ""
+    # Replacement attempts after the engine dies unexpectedly. 0 disables
+    # replacement; maximum 3.
     reconnect_attempts: 3
-    # Remote execution servers this host is willing to run turns on (MADR 0109
-    # D36). The phone can select an id and read status/info; it can never add
-    # one or see exec_server_url. ws:// is accepted only for a loopback target;
-    # every other host must use wss://.
+    # Remote execution servers this host will run turns on (MADR 0109 D36).
+    # Host-owned: phones select a configured id and read status/info, and
+    # never see exec_server_url. ws:// is loopback-only; wss:// otherwise.
+    # Config-file only. Example:
+    #   environments:
+    #     - id: "builder"
+    #       exec_server_url: "wss://builder.example.ts.net:8443"
+    #       connect_timeout_ms: 5000        # 1..60000
+    #       runtime_workspace_roots: ["/srv/work"]   # absolute, deduplicated
     environments: []
-    # Unsandboxed standalone processes (MADR 0109 D37). Default-off. Every
-    # spawn still needs a fresh per-command confirmation from the phone.
+    # Unsandboxed standalone processes (MADR 0109 D37). Off by default, and
+    # each spawn still takes a fresh per-command confirmation on the phone.
     standalone_processes_enabled: false
     # Environment variable NAMES a phone may set on a standalone spawn. Empty
-    # allows none. Secret-looking names are rejected at config load; upstream
-    # logs argv at debug, so secrets never belong on this path at all.
+    # allows none. Secret-looking names are rejected at load: upstream Codex
+    # logs argv at debug level, so secrets do not belong on this path.
     standalone_process_env_allowlist: []
   # Kilo CLI (kilo.ai) — shared `kilo serve` engine, OpenCode-fork dialect
   # (MADR 0075). Known-good CLI: kilo 7.4.22 (MADR 0088).

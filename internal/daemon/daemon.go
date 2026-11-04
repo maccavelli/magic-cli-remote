@@ -49,42 +49,6 @@ type Options struct {
 	Shutdown func()
 }
 
-// codexConfig maps daemon configuration onto the codex provider's config.
-func codexConfig(cfg config.Config) codex.Config {
-	streamCoalesce := time.Duration(cfg.Providers.Codex.StreamCoalesceMs) * time.Millisecond
-	executionEnvironments := make([]provider.ExecutionEnvironment, 0, len(cfg.Providers.Codex.Environments))
-	for _, environment := range cfg.Providers.Codex.Environments {
-		executionEnvironments = append(executionEnvironments, provider.ExecutionEnvironment{
-			ID: environment.ID, ExecServerURL: environment.ExecServerURL,
-			ConnectTimeout:        time.Duration(environment.ConnectTimeoutMS) * time.Millisecond,
-			RuntimeWorkspaceRoots: append([]string(nil), environment.RuntimeWorkspaceRoots...),
-		})
-	}
-	return codex.Config{
-		Bin:                           cfg.Providers.Codex.Bin,
-		AlwaysApprove:                 cfg.Providers.Codex.AlwaysApprove,
-		DefaultCWD:                    cfg.Providers.Codex.DefaultCWD,
-		Model:                         cfg.Providers.Codex.Model,
-		PermissionTimeout:             time.Duration(cfg.Providers.Codex.PermissionTimeoutSeconds) * time.Second,
-		Prewarm:                       cfg.Providers.Codex.Prewarm,
-		TurnStallNotice:               time.Duration(cfg.Providers.Codex.TurnStallNoticeSeconds) * time.Second,
-		StreamCoalesce:                &streamCoalesce,
-		ApprovalPolicy:                cfg.Providers.Codex.ApprovalPolicy,
-		SandboxMode:                   cfg.Providers.Codex.SandboxMode,
-		AllowFullAccess:               cfg.Providers.Codex.AllowFullAccess,
-		SandboxBrokenPolicy:           cfg.Providers.Codex.SandboxBrokenPolicy,
-		Transport:                     codex.TransportMode(cfg.Providers.Codex.Transport),
-		ListenAddress:                 cfg.Providers.Codex.ListenAddress,
-		WSAuthMode:                    codex.WSAuthMode(cfg.Providers.Codex.WSAuthMode),
-		ReconnectAttempts:             cfg.Providers.Codex.ReconnectAttempts,
-		ReconnectAttemptsConfigured:   true,
-		RuntimeDir:                    cfg.Paths.RuntimeDir,
-		Environments:                  executionEnvironments,
-		StandaloneProcessesEnabled:    cfg.Providers.Codex.StandaloneProcessesEnabled,
-		StandaloneProcessEnvAllowlist: append([]string(nil), cfg.Providers.Codex.StandaloneProcessEnvAllowlist...),
-	}
-}
-
 // kiloConfig maps daemon configuration onto the kilo provider's config.
 func kiloConfig(cfg config.Config) kilo.Config {
 	sessionTree := cfg.Providers.Kilo.SessionTree
@@ -114,14 +78,18 @@ func kiloConfig(cfg config.Config) kilo.Config {
 // must not call Start. Ready reports what daemon.Run's providers would.
 func InspectProviders(cfg config.Config, version string, log *slog.Logger) *provider.Registry {
 	reg := provider.NewRegistry()
-	registerDescribed(reg, cfg, provider.Build{Version: version, Log: log}, nil, false)
-	if cfg.Providers.Codex.Enabled {
-		reg.Register(codex.NewWithLogger(codexConfig(cfg), log))
-	}
+	registerDescribed(reg, cfg, buildBase(cfg, version, log), nil, false)
 	if cfg.Providers.Kilo.Enabled {
 		reg.Register(kilo.NewHTTPWithLogger(kiloConfig(cfg), log))
 	}
 	return reg
+}
+
+// buildBase is what every described provider is built with: mcremote's
+// version, the daemon's runtime directory and its logger. Run and
+// InspectProviders share it, so they cannot drift.
+func buildBase(cfg config.Config, version string, log *slog.Logger) provider.Build {
+	return provider.Build{Version: version, RuntimeDir: cfg.Paths.RuntimeDir, Log: log}
 }
 
 // registerDescribed builds and registers each enabled provider of the
@@ -300,32 +268,13 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 
-	described := registerDescribed(reg, cfg, provider.Build{Version: opts.Version, Log: log},
+	described := registerDescribed(reg, cfg, buildBase(cfg, opts.Version, log),
 		func(id provider.ID) (*providerauth.Coordinator, func() int) {
 			if c := guard.coordinator(string(id)); c != nil {
 				return c, busyFor(id)
 			}
 			return nil, nil
 		}, true)
-	if cfg.Providers.Codex.Enabled {
-		codexConf := codexConfig(cfg)
-		// The coordinated constructor differs only by carrying a credential
-		// coordinator; every other behaviour is identical, which keeps the
-		// activation a wiring change rather than a second code path.
-		cp := codex.NewWithLogger(codexConf, log)
-		if cc := guard.coordinator("codex"); cc != nil {
-			cp = codex.NewCoordinated(codexConf, log, cc, busyFor(provider.IDCodex))
-		}
-		reg.Register(cp)
-		if !cp.Ready() {
-			log.Warn("codex provider enabled but binary not found in PATH",
-				slog.String("bin", cfg.Providers.Codex.Bin),
-			)
-		}
-		if prewarmWants(cfg, provider.IDCodex) {
-			cp.EnsureServer()
-		}
-	}
 	if cfg.Providers.Kilo.Enabled {
 		// One shared long-lived `kilo serve` engine (HTTP + SSE) drives every
 		// Kilo session, same architecture as OpenCode — kilo is an OpenCode
@@ -358,7 +307,7 @@ func Run(ctx context.Context, opts Options) error {
 	// Keep this OR-chain in sync with ProvidersConfig — a provider missing here
 	// silently skips the warning instead of just being ready=false (MADR 0076 M3).
 	// A described provider is counted by registerDescribed.
-	if anyEnabled := described > 0 || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
+	if anyEnabled := described > 0 || cfg.Providers.Kilo.Enabled; anyEnabled {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {
@@ -715,9 +664,6 @@ func prewarmPlan(cfg config.Config) []provider.ID {
 		if agent, ok := d.SectionIn(cfg).(config.AgentSection); ok && agent.Agent().Enabled && agent.Agent().Prewarm {
 			out = append(out, d.ID)
 		}
-	}
-	if cfg.Providers.Codex.Enabled && cfg.Providers.Codex.Prewarm {
-		out = append(out, provider.IDCodex)
 	}
 	if cfg.Providers.Kilo.Enabled && cfg.Providers.Kilo.Prewarm {
 		out = append(out, provider.IDKilo)

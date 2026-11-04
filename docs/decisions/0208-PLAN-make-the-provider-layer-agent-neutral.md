@@ -2717,3 +2717,94 @@ section. The `doctor` run and `TestSectionReachesTheProvider` do.
 * this plan, and 0214's PLAN note.
 
 Next: codex's commit, with its section and its auth adapter.
+
+### P8, `codex` commit, 2026-11-04: codex's section and its auth adapter
+
+**What changed.**
+* **`internal/provider/codex/section.go`** (new) was generated from the code it replaces, moved
+  verbatim by `p8/gen_c4_section.py`. Only the receivers and the package qualifiers were rewritten.
+  * The struct is `Section`, embedding `config.AgentCommon`. Each environment entry is
+    `EnvironmentSection`, and `environments` is config-file only.
+  * Its defaults and its validation came from `config.go`: transport, approval and sandbox values,
+    the loopback check, the execution catalog and the standalone allowlist.
+  * The mapping to the provider's config is the daemon's `codexConfig`, now taking the runtime
+    directory.
+  * The descriptor builds the credential adapter with the configured binary (MADR 0134). With a
+    coordinator, it builds the coordinated provider.
+* **Two comments were wrong and are corrected.** `approval_policy` and `sandbox_mode` said "Empty
+  means inherit Codex's own config.toml". `seedPolicy` (`codex/mode.go`, MADR 0047 D2) seeds the
+  default mode, on-request plus workspace-write, when both are empty. It repairs `never` alone to
+  the auto pair. The guide already said so; the struct, the example config and the seed did not.
+* **`internal/provider/descriptor.go`** gains `Build.RuntimeDir`. The daemon's `buildBase` gives
+  every described provider the version, the runtime directory and the logger, for `Run` and
+  `InspectProviders` alike.
+* **`internal/config`.** `CodexProviderConfig`, `CodexExecutionEnvironmentConfig`, codex's defaults,
+  viper defaults, `default_cwd` resolution, prewarm cases, validation and helpers are gone. So are
+  the three imports only they used. `codex_execution_p7_test.go` moved to the codex package as
+  `section_execution_test.go`, with only its types and receivers rewritten.
+* **`internal/daemon`.** `daemon.go` has no codex branch and no `codexConfig`; its one remaining
+  named provider is kilo. `credentials.go` takes every adapter from the descriptors.
+  * Still in `daemon.go`: the codex terminal-output hookup, `reg.Get(provider.IDCodex)` cast to
+    `*codex.Provider`. It is not a config read, so it waits for P9's capabilities.
+* **`internal/cli/doctor.go`** reads no codex config.
+* **The config files.**
+  * All four shipped configs carry one `providers.codex` block, every key commented.
+  * The guide gained the seven codex keys it lacked: `transport`, `listen_address`,
+    `ws_auth_mode`, `reconnect_attempts`, `environments`, `standalone_processes_enabled` and
+    `standalone_process_env_allowlist`.
+  * `README.md`'s key table lists every codex key, and its codex table gained the four it lacked.
+
+**Tests, each seen failing** (`p8/plant_c4.py`, on scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| `environments` settable from a variable | `TestSectionEnvironmentsAreConfigFileOnly` |
+| no `ValidateAgent` call | `TestSectionValidate/providers.codex.turn_stall_notice_seconds` |
+| no approval-policy check | `TestSectionValidate/providers.codex.approval_policy` |
+| no loopback check on `listen_address` | `TestSectionTransportValidation/wildcard` |
+| the execution catalog unchecked | `TestCodexExecutionEnvironmentAndStandaloneConfigValidation/empty_environment_id` |
+| the runtime directory not mapped | `TestSectionReachesTheProvider` |
+| the adapter built without the binary | `TestDescriptorBuildsTheAdapterAndTheCoordinatedProvider`: "adapter = &{id:codex bin:}" |
+| the coordinator ignored | the same: "given a coordinator, the provider is not the coordinated one" |
+| `buildBase` without the runtime directory | `TestBuildBaseCarriesTheRuntimeDirAndVersion` |
+| codex missing from the list | `TestCredentialAdaptersFollowTheSections`: "no adapter for a disabled codex" |
+| `reconnect_delay_ms` planted in the seed | `TestTheShippedConfigFilesLoadThroughTheSections`: "providers.codex has no key reconnect_delay_ms" |
+
+The loopback plant first deleted the call along with the check, which left `host` unused and broke
+the build. It was planted again with the call kept, and failed on the assertion.
+
+**My mistake.** The generator's rewrites missed a `Defaults()` and a bare `cfg.Providers.Codex` in
+the moved test. The edit script writes nothing until every check passes, so nothing was written; two
+rewrites were added.
+
+**The live configs.** This host's, the Linux test host's and the Windows test host's each loaded
+with this commit's code, with nothing to migrate: every codex key they hold is a key of the section.
+
+**Gates and live.**
+
+| Check | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (18 Go files) | "18 file(s) clean (gofmt, golint, govulncheck)" |
+| `go test -race ./...` | 48 packages ok |
+| `make lint staticcheck vet-tags` | exit 0 |
+| `make ci-windows` on the Windows test host, the moved test deleted from its tree | all selected checks passed (A2 to A6, 48 packages) |
+| this commit's `mcremote doctor` on this host's live config | exit 0: codex, grok, kilo and opencode ready |
+| `make live-codex` | passed: 571 passes, 0 failures, 2 opt-in skips (`TestGenerateContractManifest`, `TestLiveRawOutputSamples`), 62 s |
+
+**Not done here:** `internal/provider/codex/config.go` has its own `validateExecutionConfig`, which
+the section's `validateExecution` duplicates, as `internal/config` did before the move. Removing the
+duplicate is outside P8.
+
+**Files for this commit:**
+* `internal/config/config.go`, `load.go`, `prewarm_write.go`, `config_test.go`, `env_limits_test.go`
+  and `viper_defaults_test.go`, and `codex_execution_p7_test.go` (moved);
+* `internal/provider/descriptor.go` and `registered/registered.go`, and
+  `internal/provider/codex/section.go`, `section_test.go` and `section_execution_test.go` (new);
+* `internal/daemon/daemon.go`, `credentials.go`, `daemon_test.go`, `credentials_test.go`,
+  `notify_unix_test.go` and `shutdown_unix_test.go`;
+* `internal/cli/doctor.go`;
+* the four shipped configs, `docs/guides/config.md` and `README.md`;
+* this plan.
+
+Next: kilo's commit. The goose warning goes, an unknown provider id fails, and `daemon.go` reads no
+named provider field.
