@@ -1,30 +1,88 @@
 ---
 status: in-progress
-date: 2026-10-18
+date: 2026-11-03
 associated-madr: "0179-MADR-gobble-native-acp-provider.md"
 ---
-<!-- markdownlint-disable MD013 MD024 MD060 -->
+<!-- markdownlint-disable MD004 MD013 MD024 MD060 -->
 
-# Implement driving the native ACP agent as a first-class provider
+# Implement registering gobble as a native ACP provider
 
 Associated MADR: [0179-MADR-gobble-native-acp-provider.md](0179-MADR-gobble-native-acp-provider.md)
 
-The MADR is `proposed`. It was written for the agent under its earlier name, `pigo`; the agent is now
-`gobble` (repository `gobble-cli`). This PLAN has one phase, R1, which is documentation only. R1
-records an integration assessment, so the owner can decide whether to amend or replace the MADR. The
-source phases the MADR's "Cross-references" lists are **not** planned here. They are added by a later
-amendment of this PLAN, or a successor pair, after that decision.
+The MADR was rewritten on 2026-11-03 as gobble's contract, and is `proposed`. R1, the 2026-10-11 assessment, is done; its
+record is kept below. P0 to P4 are new with the rewrite. Each is proposed, and none starts until the owner approves it
+("do P0", "do P1", …) and its gate holds.
 
 ## Goal
 
-`docs/reports/0179-REPORT-gobble-native-acp-integration-assessment.md` evaluates the integration of
-`gobble acp`, an ACP stdio agent on `acp-go-sdk2`, with this repository as its native
-remote-control platform. A maintainer can decide the companion work without repeating the
-cross-repository read.
+mcremote registers gobble as the provider `"gobble"`, as the MADR's D1 to D12 set it out:
+
+* a thin Spec in `internal/provider/gobble`;
+* the operations `Rename` and `Fork`, bound to `_gobble/set_session_name` and `_gobble/clone`;
+* handlers for `_gobble/retry` and `_gobble/compaction`;
+* no client files, no terminals and no ACP authentication;
+* gobble's commands passed through as typed.
+
+Fixtures captured from a gobble release tag pin the contract. The plan is complete when the MADR's Confirmation 1 to 6
+is met.
 
 ## Scope
 
-Only these files may change in R1:
+**Base.** master at `3489184b`, acp-go-sdk2 `v1.31.2`. gobble-cli is read, never written.
+
+**In scope:**
+
+* `internal/provider/gobble/` (new): the Spec, the operations, the handlers, their tests and
+  `testdata/wire/<version>/`;
+* the D10 registration places:
+  * `internal/provider/provider.go`;
+  * `internal/config/config.go`, `load.go` and `prewarm_write.go`;
+  * `internal/daemon/daemon.go`;
+  * `internal/cli/doctor.go`;
+  * the provider lists in `internal/command/conformance_test.go` and `resolve_order_test.go`, and in
+    `internal/provider/auth_conformance_test.go` and `provider_test.go`;
+  * the vendor icon output of `tools/vendor-icons/sync.sh`;
+  * the `Makefile`;
+  * `docs/guides/config.md`;
+* the records: this pair, a dated note on `0186-MADR-integrate-current-library-releases-and-prepare-gobble.md`'s Q4,
+  and `docs/README.md`.
+
+**Out of scope:**
+
+* everything in `internal/provider/acpagent/`, `internal/command/command.go`, `internal/session/` and the phone's
+  screens. The MADR changes none of them for gobble;
+* 0208's P7 to P10. P7 is a gate (P3), not a phase of this plan;
+* the MADR's "Not decided here".
+
+## Conventions every phase follows
+
+* **The start state.** Each phase starts on a clean master, or names the files that are not clean and are not its own.
+  Another session's uncommitted work is never staged, reverted or reformatted.
+* **Line numbers** in this plan and the MADR are `3489184b`'s. They are re-read at each phase's start; a fact that
+  differs is a deviation.
+* **Scratch work** (planted breaks, captures before they are copied in, long logs) lives outside the tree.
+* **Go gates:** `make pre-add-check FILES=…` on every staged Go file, then `make test`, `go test -race ./...`,
+  `make lint` and `make staticcheck`. `make ci-windows` runs on the Windows host for P2 and P3, which touch
+  configuration paths and process launch.
+* **Dart gates:** `make preflight`'s mobile trio, for P3's icon.
+* **Seen failing.** Every new test or gate is seen failing first on a planted break in a scratch copy, and the record
+  quotes the failure.
+* **Commits and pushes.** The agent stages; the owner commits with `git commit --no-edit`. Nothing is pushed by this
+  plan, and the disclosure guard runs before any push the owner asks for.
+* **Identifiers.** No hostname, account name or real-machine path in any committed file, the wire fixtures included.
+  A captured frame that carries a path has it replaced by a placeholder, and the scan names what it looked for, never
+  the value.
+* **Live runs** spend a provider's quota, so they run only on the owner's word.
+* **Deviations** stop the phase. The record gets a dated entry, and the MADR an amendment where a decision or a fact
+  changes.
+
+## Implementation Steps
+
+### R1 — the integration assessment (done 2026-10-11)
+
+R1's scope, steps and verification as approved, kept verbatim. Its record is below.
+
+**R1's scope.** Only these files may change in R1:
 
 - `docs/reports/0179-REPORT-gobble-native-acp-integration-assessment.md` (new);
 - `docs/README.md`, regenerated by `python3 scripts/check_records.py --write-index`, keeping every
@@ -33,9 +91,7 @@ Only these files may change in R1:
 
 The MADR is not edited in R1. `gobble-cli` is read, never written.
 
-## Implementation Steps
-
-### R1 — Write and verify the integration report
+**R1's steps.**
 
 1. Record the baselines: this repository, `gobble-cli`, and `acp-go-sdk2`, each by commit, with the
    SDK version each side pins.
@@ -55,7 +111,7 @@ The MADR is not edited in R1. `gobble-cli` is read, never written.
 7. Regenerate the index. Read the complete report, this PLAN, and the generated index before
    concluding.
 
-## Verification
+**R1's verification.**
 
 Run, recording the exit status before reading output:
 
@@ -74,11 +130,157 @@ Then verify:
 
 R1 adds no executable assertion, so the fail-first rule creates no test requirement.
 
+### P0 — the records
+
+Files: this pair; `docs/decisions/0186-MADR-integrate-current-library-releases-and-prepare-gobble.md`; `docs/README.md`.
+
+1. **0186's Q4** gains a dated italic note: for gobble, Q4 is replaced by `0179-MADR-gobble-native-acp-provider.md` D3,
+   by the owner's instruction of 2026-11-03 to omit ACP authentication. Q4's text above the note is unchanged.
+2. **The index.** `python3 scripts/check_records.py --write-index`, run only on a tree where `docs/README.md` has no
+   other session's uncommitted change. Otherwise the phase stops and the owner says how to proceed. The diff must touch
+   only the 0179 rows.
+3. `make check-records` and `make markdownlint-docs` pass, with their exit status recorded before their output is
+   read.
+4. **The identifier scan** over the changed records finds nothing.
+5. Staged; the owner commits.
+
+### P1 — the gobble package (MADR D1 to D9, D11)
+
+**Gate:** a gobble release tag after `v0.1.1` (the MADR's D12 gate 2), installed on the capture host, with both
+repositories on the same acp-go-sdk2 tag (gate 3). P1 registers nothing.
+
+Files: `internal/provider/gobble/gobble.go`, `ops.go`, `notify.go`, their `_test.go` files, and
+`internal/provider/gobble/testdata/wire/<version>/`.
+
+1. **The facts, re-read:**
+   * the `Spec`, `Ops`, `Host` and `ExtensionNotifications` signatures;
+   * the default `ClientCapabilities`;
+   * the auth branch of the handshake (`acpagent.go:684-719`);
+   * `ModelsFromOption`'s input;
+   * `ForkOptions` and `ForkResult`;
+   * whether the adapter can load a session while an earlier process for it still runs (the MADR's D5). If it can,
+     the phase stops: gobble's lock refuses that load.
+2. **The capture.** `internal/wirecap` against the installed tag, `gobble acp` with a credential, recording the D11
+   list:
+   * `initialize`, `session/new`, a prompt with a tool call, `/model` and `/thinking`;
+   * rename and clone, idle and mid-turn;
+   * a provider retry and a compaction;
+   * a close then a load;
+   * a prompt with no credential (a second `gobble` config directory with no `auth.json`, and the provider variables
+     unset).
+
+   The frames are scanned for identifiers and placeholders put in, before they are copied into `testdata/wire/<version>/`.
+   The capture spends quota, so it runs on the owner's word.
+3. **The Spec** (D1 to D7), `gobble.go`:
+   * `ID`, `DefaultBin` and `DefaultArgs`;
+   * `KnownGoodVersion`, the tag without its `v`;
+   * `ClientCapabilities`, the default less `fs`, `terminal` and `auth.terminal`;
+   * `DefaultModeID: "default"`;
+   * `SynthesizeAutoMode: false`;
+   * `ModelsFromOption`, mapping gobble's groups (its `recent` group and each provider's) to picker groups;
+   * `CommandCaveat`;
+   * `Commands`: an empty table;
+   * `NewSessionState`, for the compaction id.
+
+   `CredentialEnv` is not set: the stderr tail's name rule already covers gobble's provider variables (the MADR's D3).
+
+   No auth, fallback, `_meta` or model-list field is set. `DangerousModeIDs` waits for P3, since the field does not
+   exist until 0208 P7.
+4. **The operations** (D8), `ops.go`:
+   * `Rename` calls `Host.CallExtension(ctx, "_gobble/set_session_name", {sessionId, name}, nil)`;
+   * `Fork` calls `Host.CallExtension(ctx, "_gobble/clone", {sessionId}, &{sessionId})` and returns
+     `ForkResult{AgentSessionID, ForkedFromID}`, ignoring `LastTurnID`.
+
+   The JSON field names are gobble's, as the fixtures show them.
+5. **The handlers** (D9), `notify.go`:
+   * `_gobble/retry`: `Host.Notice` at `start`, and at an `end` with an `error`;
+   * `_gobble/compaction`: `Host.UpdateCompaction`, with a per-start id from the Spec's session state.
+6. **The tests** (D11 items 1 to 7), on `acpagent/acptest` and `Provider.StartOn`, replaying the captured frames. Each
+   is seen failing on its own planted break in a scratch copy:
+   * item 1: `fs` put back in `ClientCapabilities`;
+   * item 2: `SafeAuthMethodIDs` set to gobble's first advertised method;
+   * item 3: an `Ops.Compact` added;
+   * item 4: the `name` field renamed `title`, and the clone result read as `id`;
+   * item 5: the retry handler unregistered;
+   * item 6: the no-credential frame's `data` replaced with a bare message;
+   * item 7: a stray `_gobble/get_state` call added to `Rename`.
+7. **The source test.** `TestNoProviderIsNamedInAcpagent` passes unchanged, and `rg -n gobble internal/provider/acpagent`
+   (non-test) is empty.
+8. Go gates. **Commit.**
+
+### P2 — configuration (MADR D3, D10)
+
+**Gate:** P1 committed.
+
+Files: `internal/config/config.go`, `load.go`, `prewarm_write.go` and their tests; `docs/guides/config.md`.
+
+1. **`GobbleProviderConfig`,** embedding `ACPProviderConfig`, in `ProvidersConfig`. It gets its defaults, viper defaults
+   under `MCREMOTE_PROVIDERS_GOBBLE_*`, the relative-path fix-up, and `validateACPProvider`. `KnownProviderIDs` gains
+   `"gobble"`.
+2. **D3's refusal.** Validation refuses a non-empty `providers.gobble.auth_method_id`, with a message that says gobble's
+   credentials are stored with `gobble auth login` on the host. The test is seen failing with the check removed.
+3. **A load test** reads the documented example and every documented `MCREMOTE_PROVIDERS_GOBBLE_*` variable. It is seen
+   failing on a planted wrong key.
+4. **`docs/guides/config.md`** gains the gobble section:
+   * its keys;
+   * that gobble's credentials are gobble's own (`gobble auth login`, or the provider's variable in the service
+     environment);
+   * that `bypass` needs gobble's own `permissions.allowBypass`.
+5. Go gates, and `make ci-windows`. **Commit.**
+
+### P3 — registration (MADR D7, D10, D12)
+
+**Gate:** P2 committed, and 0208's P7 on master, with `DangerousModeIDs`.
+
+Files: `internal/provider/provider.go`; `internal/provider/gobble/gobble.go` (`DangerousModeIDs` only) and its test;
+`internal/daemon/daemon.go`; `internal/cli/doctor.go`; the four test lists; the vendor icon output; the `Makefile`.
+
+1. **`provider.IDGobble`** and the daemon's `Run`, `InspectProviders` and `prewarmPlan`, through `acpAgentConfig`.
+2. **`DangerousModeIDs: []string{"bypass"}`.** A test shows a gobble `bypass` confirmed like `auto`, and is seen failing
+   with the field empty.
+3. **Doctor's `engineBins`,** and the four provider lists in the tests. The capability-honesty test from P1 joins the
+   conformance list.
+4. **The vendor icon,** through `tools/vendor-icons/sync.sh`. No Dart branch on a provider id is added: `rg -n "'gobble'"
+   apps/mobile/lib` finds only the generated manifest.
+5. **`make live-gobble`,** with its `.PHONY` entry and the build-tag vet. It is not run in this phase.
+6. **Assert by search:** outside `internal/provider/gobble` and this phase's files, no Go file names `IDGobble` or
+   `"gobble"`.
+7. Go gates, Dart gates, and `make ci-windows`. **Commit.**
+
+### P4 — acceptance and close-out (MADR Confirmation)
+
+**Gate:** P3 committed; the owner's word for the live run.
+
+Files: this plan, the MADR, `docs/README.md`.
+
+1. **`make live-gobble`** against the installed tag (D11's live list), with the recorded connection's methods listed in
+   the record.
+2. **The other providers' suites:** grok, opencode, kilo and codex unit, conformance and wire suites pass unchanged.
+   Their live suites run only on the owner's word.
+3. **The MADR's Confirmation 1 to 6,** each with its evidence.
+4. **A comment for issue #33,** written into the record, for the owner to post.
+5. **Status.** This plan becomes `complete`; the MADR becomes `accepted` if it was not already. The index is
+   regenerated under P0 step 2's rule.
+
+## Verification
+
+| MADR Confirmation | Phase | Check |
+| :--- | :--- | :--- |
+| 1 `IDGobble`, `gobble acp` started | P3 | step 1; P4's live run |
+| 2 D11's seven tests, seen failing | P1 | step 6 |
+| 3 no gobble name outside its package and the registration places | P1, P3 | P1 step 7; P3 step 6 |
+| 4 `bypass` confirmed on the phone | P3 | step 2 |
+| 5 `live-gobble` | P4 | step 1 |
+| 6 the other providers unchanged | P1–P4 | the Go gates; P4 step 2 |
+
 ## Rollout and Rollback
 
-Documentation only. Before commit, rollback deletes the report and this PLAN, and regenerates the
-index. Source work needs the MADR accepted (amended or superseded), source phases planned, and
-explicit approval.
+* **One commit per phase.** Reverting P3 unregisters gobble; P1 and P2 then build a package and a configuration section
+  nothing uses. Reverting P2 needs P3 reverted first, and reverting P1 needs P2 and P3 reverted first.
+* **User-visible:** after P3, gobble is a provider the phone can choose, shown when `gobble` is on the service's PATH.
+  Nothing changes for the other providers.
+* **Configuration:** a new `providers.gobble` section, all optional. An existing configuration file needs no change.
+* **The wire:** gobble only. No frame to another provider changes.
 
 ## Execution record
 
@@ -155,3 +357,15 @@ Still `in-progress`. What the rename entry left to do is still to do:
   this note, and on 4 lines of `docs/reports/0179-REPORT-gobble-native-acp-integration-assessment.md`.
 * **The source phases are not planned,** and there is no gobble provider under
   `internal/provider/`. The MADR stays `proposed`.
+
+## Rewrite, 2026-11-03
+
+* **The MADR was rewritten in place** as gobble's contract on schema 1.25, from code read at this repository's
+  `3489184b`, gobble-cli's `9b5535a` and acp-go-sdk2 `v1.31.2`. This was 0186's Q2 and the owner's instruction of
+  2026-11-03: "determine what functionality is provided by the shared libraries and sdk, and ensure only what needs to
+  be built is included", "omit fs/terminal and auth via acp authenticate". The status note above is answered: the
+  earlier name is left only in the MADR's dated History.
+* **This plan's forward parts were replaced** by P0 to P4. R1's scope, steps, verification and record are kept
+  verbatim.
+* **Not done with the rewrite:** P0's 0186 note and index regeneration. When the rewrite was written, `docs/README.md`
+  carried another session's uncommitted change, so the index was not regenerated (P0 step 2).
