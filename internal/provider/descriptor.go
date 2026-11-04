@@ -20,11 +20,21 @@ type Descriptor struct {
 	DevOnly bool
 	// Section returns a fresh providers.<id> section holding its defaults.
 	Section func() config.ProviderSection
+	// Floor, when set, is the oldest engine release the provider drives.
+	// doctor asks the binary its version and reports one below it.
+	Floor *VersionFloor
 	// Credentials, when set, returns the provider's credential adapter, so
 	// the daemon coordinates its credential transactions (MADR 0074 D21).
 	Credentials func(config.ProviderSection) providerauth.Adapter
 	// New builds the provider from its section. Building starts nothing.
 	New func(Build) Provider
+}
+
+// VersionFloor is the oldest release of an engine its provider drives, and
+// where the refusal sends the operator.
+type VersionFloor struct {
+	Min        string
+	UpgradeURL string
 }
 
 // Build is what a descriptor's New is given.

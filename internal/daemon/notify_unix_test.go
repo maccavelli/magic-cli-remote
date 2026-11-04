@@ -17,6 +17,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 )
 
 // TestRunNotifiesSystemd: under Type=notify, systemctl start returns at
@@ -53,10 +54,10 @@ func TestRunNotifiesSystemd(t *testing.T) {
 	cfg.TLS.Mode = config.TLSModeOff
 	cfg.TLS = cfg.TLS.Normalized()
 	cfg.Auth.RequireClientKey = false
-	cfg.Providers.Opencode.Enabled = false
 	cfg.Providers.Codex.Enabled = false
 	cfg.Providers.Kilo.Enabled = false
-	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}, "grok": &grok.Section{}}
+	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}, "grok": &grok.Section{},
+		"opencode": &opencode.Section{}}
 	if err := cfg.RecomputePaths(); err != nil {
 		t.Fatal(err)
 	}
@@ -151,10 +152,10 @@ func TestRunTakesItsNotifySocket(t *testing.T) {
 	cfg.TLS.Mode = config.TLSModeOff
 	cfg.TLS = cfg.TLS.Normalized()
 	cfg.Auth.RequireClientKey = false
-	cfg.Providers.Opencode.Enabled = false
 	cfg.Providers.Codex.Enabled = false
 	cfg.Providers.Kilo.Enabled = false
-	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}, "grok": &grok.Section{}}
+	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}, "grok": &grok.Section{},
+		"opencode": &opencode.Section{}}
 	if err := cfg.RecomputePaths(); err != nil {
 		t.Fatal(err)
 	}

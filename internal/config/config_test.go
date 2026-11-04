@@ -77,27 +77,6 @@ func TestRequireClientKeyEnvOverride(t *testing.T) {
 	}
 }
 
-// Provider env overrides must work for every provider key, including the
-// timeout keys that previously had no viper default (AutomaticEnv only
-// resolves known keys, so a missing default silently ignored the env var).
-func TestProviderEnvOverrides(t *testing.T) {
-	isolateConfig(t)
-	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ENABLED", "true")
-	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_MODEL", "anthropic/claude-sonnet-4-5")
-	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_PERMISSION_TIMEOUT_SECONDS", "120")
-	cfg, err := config.Load(config.LoadOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	oc := cfg.Providers.Opencode
-	if !oc.Enabled || oc.Model != "anthropic/claude-sonnet-4-5" || oc.PermissionTimeoutSeconds != 120 {
-		t.Fatalf("opencode env overrides not applied: %+v", oc)
-	}
-	if oc.Bin != "opencode" {
-		t.Fatalf("untouched opencode defaults should survive: %+v", oc)
-	}
-}
-
 // route53.max_retries must bind from the environment. Without a viper default
 // the key is absent from the key set and AutomaticEnv silently ignores the env
 // var.
@@ -596,21 +575,12 @@ func TestRelayValidateAdvertiseWithoutSecret(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsNegativeStallSeconds(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.Providers.Opencode.TurnStallNoticeSeconds = -5
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected error for negative opencode stall")
-	}
-}
-
 func TestDefaultsAllPrewarmFalse(t *testing.T) {
 	d := config.Defaults()
 	for _, row := range []struct {
 		id      string
 		prewarm bool
 	}{
-		{"opencode", d.Providers.Opencode.Prewarm},
 		{"codex", d.Providers.Codex.Prewarm},
 		{"kilo", d.Providers.Kilo.Prewarm},
 	} {
@@ -892,54 +862,6 @@ func TestLoadTLSDisableFlagWithConfiguredMode(t *testing.T) {
 	}
 }
 
-// providers.opencode.transport was retired in MADR 0019. Because viper ignores
-// unknown keys, a config that still pins it would otherwise be silently
-// upgraded to the shared-engine transport — so loading must fail loudly, and
-// the error must name the offending value.
-func TestLoadRejectsRetiredOpencodeTransport(t *testing.T) {
-	for _, value := range []string{"acp", "http"} {
-		t.Run(value, func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "config.yaml")
-			content := "providers:\n  opencode:\n    transport: \"" + value + "\"\n"
-			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			_, err := config.Load(config.LoadOptions{ConfigFile: path})
-			if err == nil {
-				t.Fatal("expected an error for a config pinning the retired transport key")
-			}
-			if !strings.Contains(err.Error(), "transport is no longer supported") {
-				t.Fatalf("error should explain the retirement, got: %v", err)
-			}
-			if !strings.Contains(err.Error(), value) {
-				t.Fatalf("error should name the offending value %q, got: %v", value, err)
-			}
-		})
-	}
-}
-
-// A config with no transport key at all is the post-0019 shape and must load.
-func TestLoadWithoutTransportKeySucceeds(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	content := "providers:\n  opencode:\n    enabled: true\n    model: \"opencode/x\"\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if !cfg.Providers.Opencode.Enabled || cfg.Providers.Opencode.Model != "opencode/x" {
-		t.Fatalf("opencode config not applied: %+v", cfg.Providers.Opencode)
-	}
-	// Prewarm omitted in YAML must follow Defaults() (MADR 0089 D5).
-	if cfg.Providers.Opencode.Prewarm {
-		t.Fatal("prewarm should default to false")
-	}
-}
-
 func TestCodexTransportDefaultsAndValidation(t *testing.T) {
 	d := config.Defaults()
 	if d.Providers.Codex.Transport != "stdio" || d.Providers.Codex.ReconnectAttempts != 3 {
@@ -964,99 +886,5 @@ func TestCodexTransportDefaultsAndValidation(t *testing.T) {
 				t.Fatal("invalid Codex transport configuration accepted")
 			}
 		})
-	}
-}
-
-// The retired env override must be caught too, not just the file key.
-func TestLoadRejectsRetiredOpencodeTransportFromEnv(t *testing.T) {
-	isolateConfig(t)
-	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT", "acp")
-	if _, err := config.Load(config.LoadOptions{}); err == nil {
-		t.Fatal("expected an error for MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT")
-	} else if !strings.Contains(err.Error(), "transport is no longer supported") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-// Remote mutation policy (MADR 0112 A9, PLAN P8).
-//
-// The shell runs a command on this host, so its default must be off. Share's
-// flag went with the 1.x dialect (0214 PLAN P7): v2 has no share API.
-
-func TestRemoteMutationPolicyDefaultsOff(t *testing.T) {
-	d := config.Defaults()
-	if d.Providers.Opencode.AllowRemoteShell {
-		t.Fatal("providers.opencode.allow_remote_shell should default to false")
-	}
-}
-
-// A fresh Load with no config file and no environment must also be off: a
-// default that only holds in Defaults() but not through the loader would be a
-// default in name only.
-func TestRemoteMutationPolicyOffAfterLoad(t *testing.T) {
-	isolateConfig(t)
-	cfg, err := config.Load(config.LoadOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Providers.Opencode.AllowRemoteShell {
-		t.Fatal("a fresh load enabled the remote shell")
-	}
-}
-
-// The flag must bind from the environment.
-func TestRemoteMutationPolicyEnvIndependence(t *testing.T) {
-	isolateConfig(t)
-	for _, tc := range []struct {
-		name      string
-		shell     string
-		wantShell bool
-	}{
-		{"unset", "", false},
-		{"on", "true", true},
-		{"explicit false", "false", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.shell != "" {
-				t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL", tc.shell)
-			}
-			cfg, err := config.Load(config.LoadOptions{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := cfg.Providers.Opencode.AllowRemoteShell; got != tc.wantShell {
-				t.Fatalf("shell = %v, want %v", got, tc.wantShell)
-			}
-		})
-	}
-}
-
-// A YAML file must be able to set it, and the environment must win over it —
-// the same precedence every other key follows. A leftover allow_remote_share
-// is ignored: it went with the 1.x dialect (0214 PLAN P7).
-func TestRemoteMutationPolicyYAMLAndEnvPrecedence(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	yaml := "providers:\n  opencode:\n    allow_remote_share: true\n    allow_remote_shell: true\n"
-	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := config.Load(config.LoadOptions{ConfigFile: path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.Providers.Opencode.AllowRemoteShell {
-		t.Fatalf("YAML did not enable the shell: %+v", cfg.Providers.Opencode)
-	}
-
-	// The environment overrides the file, including turning the flag back off.
-	t.Setenv("MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL", "false")
-	cfg, err = config.Load(config.LoadOptions{ConfigFile: path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Providers.Opencode.AllowRemoteShell {
-		t.Fatal("the environment did not override the file")
 	}
 }

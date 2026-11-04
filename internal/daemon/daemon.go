@@ -25,10 +25,8 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/acpagent"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/kilo"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/providerauth"
 	"github.com/maccavelli/magic-cli-remote/internal/receipt"
@@ -49,20 +47,6 @@ type Options struct {
 	// request runs the same graceful shutdown as a signal (MADR 0054 A2).
 	// Nil refuses the operation.
 	Shutdown func()
-}
-
-// opencodeConfig maps daemon configuration onto the OpenCode provider's
-// config: the shared ACP keys, plus the operator's shell policy (0214 MADR).
-// daemon.Run and InspectProviders share it, so they cannot drift.
-//
-// Extracted so the mapping itself is testable: a policy flag that is settable,
-// documented and tested at the config layer but never copied here would be a
-// default in name only (MADR 0112 A9).
-func opencodeConfig(cfg config.Config) acpagent.Config {
-	acpCfg := acpagent.ConfigFrom(cfg.Providers.Opencode.ACPProviderConfig)
-	// Off unless an operator turned it on for this host (MADR 0112 A9).
-	acpCfg.AllowRemoteShell = cfg.Providers.Opencode.AllowRemoteShell
-	return acpCfg
 }
 
 // codexConfig maps daemon configuration onto the codex provider's config.
@@ -131,9 +115,6 @@ func kiloConfig(cfg config.Config) kilo.Config {
 func InspectProviders(cfg config.Config, version string, log *slog.Logger) *provider.Registry {
 	reg := provider.NewRegistry()
 	registerDescribed(reg, cfg, provider.Build{Version: version, Log: log}, nil, false)
-	if cfg.Providers.Opencode.Enabled {
-		reg.Register(opencode.NewACPWithLogger(opencodeConfig(cfg), log))
-	}
 	if cfg.Providers.Codex.Enabled {
 		reg.Register(codex.NewWithLogger(codexConfig(cfg), log))
 	}
@@ -326,23 +307,6 @@ func Run(ctx context.Context, opts Options) error {
 			}
 			return nil, nil
 		}, true)
-	if cfg.Providers.Opencode.Enabled {
-		// Each OpenCode session is its own `opencode acp`; one lease-bound
-		// control plane serves what ACP does not carry (0214 MADR).
-		op := opencode.NewACPWithLogger(opencodeConfig(cfg), log)
-		reg.Register(op)
-		if !op.Ready() {
-			log.Warn("opencode provider enabled but binary not found in PATH",
-				slog.String("bin", cfg.Providers.Opencode.Bin),
-			)
-		}
-		if prewarmWants(cfg, provider.IDOpencode) {
-			// Arm a spare `opencode acp` now so the first session create is
-			// instant. Disabled, the first create pays the cold start and the
-			// host holds no idle agent.
-			op.EnsureWarm()
-		}
-	}
 	if cfg.Providers.Codex.Enabled {
 		codexConf := codexConfig(cfg)
 		// The coordinated constructor differs only by carrying a credential
@@ -394,7 +358,7 @@ func Run(ctx context.Context, opts Options) error {
 	// Keep this OR-chain in sync with ProvidersConfig — a provider missing here
 	// silently skips the warning instead of just being ready=false (MADR 0076 M3).
 	// A described provider is counted by registerDescribed.
-	if anyEnabled := described > 0 || cfg.Providers.Opencode.Enabled || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
+	if anyEnabled := described > 0 || cfg.Providers.Codex.Enabled || cfg.Providers.Kilo.Enabled; anyEnabled {
 		ready := 0
 		for _, p := range reg.All() {
 			if p.Ready() {
@@ -751,9 +715,6 @@ func prewarmPlan(cfg config.Config) []provider.ID {
 		if agent, ok := d.SectionIn(cfg).(config.AgentSection); ok && agent.Agent().Enabled && agent.Agent().Prewarm {
 			out = append(out, d.ID)
 		}
-	}
-	if cfg.Providers.Opencode.Enabled && cfg.Providers.Opencode.Prewarm {
-		out = append(out, provider.IDOpencode)
 	}
 	if cfg.Providers.Codex.Enabled && cfg.Providers.Codex.Prewarm {
 		out = append(out, provider.IDCodex)

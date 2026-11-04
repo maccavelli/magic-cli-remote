@@ -144,8 +144,9 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.opencode.fs_roots` | `[]` — confine the agent's `fs/read_text_file` & `fs/write_text_file` callbacks to these roots (plus the session cwd). Empty = unrestricted. Defense-in-depth/audit only, not a sandbox (config-file only) |
 | `providers.opencode.auth_method_id` | *(empty)* — leave it empty: the phone's sign-in runs on the control plane, and OpenCode's one ACP method, `opencode-login`, opens a terminal login |
 | `providers.opencode.mcp_servers` | `[]` — MCP servers advertised to each session (config-file only; not env/flags). The control plane loads none of OpenCode's own |
-| `providers.opencode.pure`, `.session_tree`, `.stream_coalesce_ms` | Retired with OpenCode 1.x ([0214 PLAN](../decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7), as are their `MCREMOTE_PROVIDERS_OPENCODE_*` variables. Ignored: the daemon logs a warning and adds a `retired_opencode_1x_keys` diagnostic naming each. OpenCode coalesces text at a fixed 80 ms. Delete the setting. |
-| `providers.opencode.allow_remote_share` | Gone with OpenCode 1.x: v2 has no share API (MADR 0214 D4, D11). Ignored |
+| `providers.opencode.pure`, `.session_tree`, `.stream_coalesce_ms` | Retired with OpenCode 1.x ([0214 PLAN](../decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7), as are their `MCREMOTE_PROVIDERS_OPENCODE_*` variables. A config or variable that still sets one fails to load and names it ([0208 PLAN](../decisions/0208-PLAN-make-the-provider-layer-agent-neutral.md) P8). OpenCode coalesces text at a fixed 80 ms. Delete the setting. |
+| `providers.opencode.allow_remote_share` | Gone with OpenCode 1.x: v2 has no share API (MADR 0214 D4, D11). A config that still sets it fails to load. Delete the setting |
+| `providers.opencode.transport` | Retired in MADR 0019, as is its environment variable. A config or variable that still sets it fails to load and names it. Delete the setting |
 | `providers.codex.enabled` | `true` — pick Codex per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.codex.bin` | `codex` |
 | `providers.codex.always_approve` | `false` |
@@ -845,8 +846,8 @@ phone. [MADR 0214](../decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-
 | Error codes | `shell_disabled`, `invalid_command`, `turn_busy`, `session_shell_failed` |
 
 OpenCode 1.x also had `allow_remote_share`, for share links. v2 has no share
-API, so the setting went with the 1.x dialect and is ignored (MADR 0214 D4,
-D11).
+API, so the setting went with the 1.x dialect (MADR 0214 D4, D11), and a
+config that still sets it fails to load.
 
 A shell timeout **cannot roll back what the command already did**, and cannot
 guarantee its descendants stopped. Residual host effects are disclosed, not

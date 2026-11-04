@@ -13,12 +13,8 @@ import (
 // its reason. Without a default a key is absent from viper's key set, and
 // AutomaticEnv ignores its MCREMOTE_* variable (MADR 0201 Deviation 5).
 var unboundKeys = map[string]string{
-	"tls.letsencrypt.domains":        "string list: config file or --tls-domain only",
-	"providers.codex.environments":   "list of tables: config file only",
-	"providers.opencode.transport":   "retired (MADR 0019): validate rejects it, and a default would make every config look as if it set it",
-	"providers.opencode.args":        "string list: an entry may contain a comma, which an env value would split",
-	"providers.opencode.fs_roots":    "string list: config file only",
-	"providers.opencode.mcp_servers": "list of tables: config file only",
+	"tls.letsencrypt.domains":      "string list: config file or --tls-domain only",
+	"providers.codex.environments": "list of tables: config file only",
 }
 
 // configLeafKeys returns the dotted mapstructure key of every leaf of Config:

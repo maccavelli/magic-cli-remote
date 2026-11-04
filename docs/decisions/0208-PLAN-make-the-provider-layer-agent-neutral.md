@@ -2621,3 +2621,99 @@ it, so that change and its comment were dropped before any gate.
 all selected checks passed (A2 to A6, 48 packages).
 
 **Files added to P8:** `internal/cli/auth_recovery.go` and `internal/provider/grok/methods_test.go`.
+
+### P8, `opencode` commit, 2026-11-04: opencode's section, its version floor, and the retired keys refused
+
+**What changed.**
+* **`internal/provider/opencode/section.go`** (new): `providers.opencode`, which is the shared ACP keys
+  plus `allow_remote_shell`, with its defaults, its validation, the mapping to the provider's config
+  (the daemon's `opencodeConfig`, moved), and opencode's descriptor.
+* **`internal/provider/descriptor.go`.** `Descriptor.Floor`, a `VersionFloor` of the oldest engine
+  the provider drives and where its refusal sends the operator. `doctor`'s `engineFloors` reads it
+  from the descriptors. OpenCode's is `MinVersion` and `UpgradeURL`.
+* **`internal/config`.** `OpencodeProviderConfig`, its defaults, viper defaults, `default_cwd`
+  resolution, prewarm cases and validation are gone, with `RetiredTransport`, the
+  `providers.opencode.transport` bind and its error. `retired_opencode.go` and its test are
+  deleted. A retired key is now refused by the strict section and named:
+  * `pure`, `session_tree` and `stream_coalesce_ms` were warnings;
+  * `allow_remote_share` was ignored without one;
+  * `transport` had a guard of its own.
+* **`internal/daemon/daemon.go`** has no opencode branch, and `opencodeConfig` is gone.
+  `internal/cli/doctor.go` has no opencode line.
+* **Tests.**
+  * `config_test.go` lost nine opencode tests, removed by function name: `TestProviderEnvOverrides`,
+    `TestValidateRejectsNegativeStallSeconds`, the three transport tests, and the four
+    `TestRemoteMutationPolicy*` tests. `opencode/section_test.go` (new) carries each, and the
+    daemon's `TestOpencodeRemotePolicyReachesTheProvider` became `TestSectionReachesTheProvider`.
+  * `viper_defaults_test.go` lost its opencode entries. `template_parity_test.go`'s
+    `omittedConfigKeys` is empty, because no struct carries a retired key now.
+  * The daemon tests set opencode through its section.
+* **The config files.**
+  * All four shipped configs carry one `providers.opencode` block, every key commented. The mesh
+    config keeps its pinned `opencode/deepseek-v4.1-flash-free` model.
+  * The guide's retired rows and its share note say such a setting fails to load. The guide also
+    gained a row for `transport`.
+  * `README.md`'s two "ignored" sentences were corrected.
+* **[0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md](0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md)**
+  P7 Deviation 2 carries a superseded-by note, as P8 Deviation 1 named.
+
+**Tests, each seen failing** (`p8/plant_c3.py`, on scratch copies):
+
+| Break | Fails |
+| --- | --- |
+| `pure` back in opencode's section | `TestSectionRefusesTheRetiredKeys/pure` |
+| `transport` back in the section | `TestSectionRefusesTheRetiredKeys/transport` |
+| no `ValidateAgent` call | `TestSectionValidate/providers.opencode.turn_stall_notice_seconds` |
+| no `ValidateACPProvider` call | `TestSectionValidate/providers.opencode.mcp_servers[0].url` |
+| `allow_remote_shell` not copied to the provider | `TestSectionReachesTheProvider`: "shell=true reached the provider as false" |
+| `allow_remote_shell` defaulting on | `TestSectionDefaults`: "allow_remote_shell should default false" |
+| the version floor dropped | `TestDescriptorCarriesTheVersionFloor`: "floor = <nil>" |
+| doctor ignoring descriptor floors | `TestDoctorChecksTheOpenCodeVersion/current` |
+| opencode missing from the list | `TestOpencodeRegistersTheV2Spec`: `unknown provider "opencode"` |
+| `session_tree: false` planted in the seed | `TestTheShippedConfigFilesLoadThroughTheSections`: "providers.opencode has no key session_tree" |
+
+The documented-variable test also caught my own guide edit. The new `transport` row first named
+`MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT`, which "names no providers.opencode key". The row now says
+"its environment variable": a variable the guide names in full is one that loads.
+
+**My mistakes.**
+* An assertion's expected count was wrong. The edit script stops before writing a file whose
+  assertion fails, so nothing was written.
+* On the next run, `config.go`, `load.go` and `prewarm_write.go` were written, and the two retired
+  files deleted, before a later match failed. The four removed policy tests leave their section
+  comment at the end of the file, and the match wanted a blank line after it. The rest ran from a
+  continuation script (`p8/edit_c3_tests_rest.py`). `config_test.go`'s diff removes exactly the nine
+  named tests.
+
+**The live configs.** All three still held retired opencode keys. This host's and the Windows test
+host's held `pure`, `session_tree`, `stream_coalesce_ms` and `allow_remote_share`; the Linux test
+host's held the first three. Owner: "Back up and migrate all three". Each was copied to
+`config.yaml.bak-0208-p8-opencode` beside it, and those lines were deleted
+(`p8/migrate_section_keys.py`; no value printed). Each then loaded with this commit's code: here with
+a scratch build of `mcremote paths`, on the two hosts with `go run ./cmd/mcremote paths`.
+
+**Gates and live.**
+
+| Check | Result |
+| --- | --- |
+| `make pre-add-check FILES=…` (15 Go files) | "15 file(s) clean (gofmt, golint, govulncheck)" |
+| `go test -race ./...` | 48 packages ok |
+| `make lint staticcheck vet-tags` | exit 0 |
+| `make ci-windows` on the Windows test host, the two retired files deleted from its tree | all selected checks passed (A2 to A6, 48 packages) |
+| this commit's `mcremote doctor` on this host's live config | exit 0: opencode ready at its version (v2.2.3), read through the descriptor's floor; grok, codex and kilo ready |
+| `make live-opencode` | passed: 124 passes, 0 failures, 0 skips (75 s) |
+
+`make live-opencode` builds the provider from its own test configs, so it does not exercise the
+section. The `doctor` run and `TestSectionReachesTheProvider` do.
+
+**Files for this commit:**
+* `internal/config/config.go`, `load.go`, `prewarm_write.go`, `config_test.go` and
+  `viper_defaults_test.go`, and `retired_opencode.go` and `retired_opencode_test.go` (deleted);
+* `internal/provider/descriptor.go` and `registered/registered.go`, and
+  `internal/provider/opencode/section.go` and `section_test.go` (new);
+* `internal/daemon/daemon.go`, `daemon_test.go`, `notify_unix_test.go` and `shutdown_unix_test.go`;
+* `internal/cli/doctor.go` and `service/template_parity_test.go`;
+* the four shipped configs, `docs/guides/config.md` and `README.md`;
+* this plan, and 0214's PLAN note.
+
+Next: codex's commit, with its section and its auth adapter.

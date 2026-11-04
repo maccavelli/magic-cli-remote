@@ -2069,6 +2069,12 @@ test), `internal/config/load.go` and its tests, `internal/daemon/daemon.go` and 
 
 ### P7 Deviation 2, 2026-11-03 — every installed configuration carries the retired keys. The owner decided: "Warn and ignore any value"
 
+*Superseded 2026-11-04 by
+[0208-MADR-make-the-provider-layer-agent-neutral.md](0208-MADR-make-the-provider-layer-agent-neutral.md)'s
+amendment of that date (owner: "Fail the load by name"). Each provider's section is strict, so these
+keys, `allow_remote_share` and `transport` now fail the load and are named.
+`internal/config/retired_opencode.go` and its test were deleted in 0208 PLAN P8's opencode commit.*
+
 Found after step 2's validation was written:
 
 * **setup-service seeds them.** It writes the embedded `internal/cli/service/defaults_mcremote.yaml`

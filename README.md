@@ -851,7 +851,7 @@ that is a second line of defence. The first is leaving it false.
 The environment equivalent is `MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL`.
 
 OpenCode v2 has no share API, so `allow_remote_share` went with the 1.x
-dialect, and a leftover setting is ignored (MADR 0214 D4, D11).
+dialect (MADR 0214 D4, D11), and a config that still sets it fails to load.
 
 ### Example configs
 
@@ -893,8 +893,9 @@ the full defaults table and env map.
 of one per model token, capping mid-stream updates at ~12/s. The first chunk of
 a reply and the tail before any control event are never delayed. `0` disables
 coalescing; max `1000`. OpenCode coalesces at a fixed 80 ms: its
-`stream_coalesce_ms` went with the 1.x dialect and is ignored with a warning
-([0214 PLAN](docs/decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7).
+`stream_coalesce_ms` went with the 1.x dialect
+([0214 PLAN](docs/decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7),
+and a config that still sets it fails to load.
 
 ### `listen.host: tailscale`
 

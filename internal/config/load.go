@@ -76,12 +76,6 @@ func Load(opts LoadOptions) (Config, error) {
 	// MCREMOTE_PAIR_HOST is the retained legacy name (was CLI-pair-only) and
 	// maps to the same key as the canonical MCREMOTE_PAIR_ADVERTISE_HOST.
 	_ = v.BindEnv("pair.advertise_host", "MCREMOTE_PAIR_ADVERTISE_HOST", "MCREMOTE_PAIR_HOST")
-	// Retired in MADR 0019, but still BOUND so Config.validate can reject it.
-	// AutomaticEnv only resolves keys viper knows about, and this one no longer
-	// has a SetDefault — without an explicit bind, an operator with
-	// MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT=acp still set would be silently
-	// switched to the shared engine instead of being told the key is gone.
-	_ = v.BindEnv("providers.opencode.transport", "MCREMOTE_PROVIDERS_OPENCODE_TRANSPORT")
 
 	var configFile string
 	switch {
@@ -139,7 +133,6 @@ func Load(opts LoadOptions) (Config, error) {
 	cfg.Diagnostics = diags
 	cfg.ConfigFile = usedConfigFile
 	noteRetiredGoose(v, os.Environ(), &cfg)
-	noteRetiredOpencode(v, os.Environ(), &cfg)
 
 	// The config may hold relay.secret, which is the same registration
 	// credential mcrelay stores as hosts[].secret and guards at read time.
@@ -248,9 +241,6 @@ func (cfg *Config) finalizePaths(basePaths appdirs.Paths, opts LoadOptions) erro
 			return fmt.Errorf("providers.%s.default_cwd: %w", id, err)
 		}
 	}
-	if cfg.Providers.Opencode.DefaultCWD, err = rel(cfg.Providers.Opencode.DefaultCWD); err != nil {
-		return fmt.Errorf("providers.opencode.default_cwd: %w", err)
-	}
 	if cfg.Providers.Codex.DefaultCWD, err = rel(cfg.Providers.Codex.DefaultCWD); err != nil {
 		return fmt.Errorf("providers.codex.default_cwd: %w", err)
 	}
@@ -322,26 +312,6 @@ func setDefaults(v *viper.Viper) {
 	// MCREMOTE_TLS_LETSENCRYPT_ROUTE53_MAX_RETRIES is silently ignored
 	// (AutomaticEnv only resolves known keys).
 	v.SetDefault("tls.letsencrypt.route53.max_retries", d.TLS.LetsEncrypt.Route53.MaxRetries)
-	v.SetDefault("providers.opencode.enabled", d.Providers.Opencode.Enabled)
-	// No default for providers.opencode.transport: it was retired in MADR 0019
-	// and Config.validate rejects it if a config still sets one. Seeding a
-	// default here would make every config look like it set the key.
-	v.SetDefault("providers.opencode.bin", d.Providers.Opencode.Bin)
-	v.SetDefault("providers.opencode.always_approve", d.Providers.Opencode.AlwaysApprove)
-	v.SetDefault("providers.opencode.default_cwd", d.Providers.Opencode.DefaultCWD)
-	v.SetDefault("providers.opencode.model", d.Providers.Opencode.Model)
-	v.SetDefault("providers.opencode.permission_timeout_seconds", d.Providers.Opencode.PermissionTimeoutSeconds)
-	v.SetDefault("providers.opencode.prewarm", d.Providers.Opencode.Prewarm)
-	v.SetDefault("providers.opencode.turn_stall_notice_seconds", d.Providers.Opencode.TurnStallNoticeSeconds)
-	// Known so AutomaticEnv resolves MCREMOTE_PROVIDERS_OPENCODE_AUTH_METHOD_ID.
-	// args, fs_roots and mcp_servers are lists: config-file only, no default.
-	v.SetDefault("providers.opencode.auth_method_id", d.Providers.Opencode.AuthMethodID)
-	// No default for pure, session_tree or stream_coalesce_ms: they were
-	// retired with the 1.x dialect (0214 PLAN P7) and Config.validate rejects
-	// them, so a default would make every config look like it set them.
-	// The remote shell policy defaults false. AutomaticEnv resolves
-	// MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL from this key (MADR 0112 A9).
-	v.SetDefault("providers.opencode.allow_remote_shell", d.Providers.Opencode.AllowRemoteShell)
 	v.SetDefault("providers.codex.enabled", d.Providers.Codex.Enabled)
 	v.SetDefault("providers.codex.bin", d.Providers.Codex.Bin)
 	v.SetDefault("providers.codex.always_approve", d.Providers.Codex.AlwaysApprove)

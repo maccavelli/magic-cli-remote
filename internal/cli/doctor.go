@@ -24,7 +24,6 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
-	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/registered"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
@@ -172,13 +171,17 @@ const engineVersionTimeout = 10 * time.Second
 // where the refusal sends the operator.
 type engineFloor struct{ min, upgradeURL string }
 
-// engineFloors is the engines doctor asks for a version. OpenCode's provider
-// checks its floor at initialize, which doctor does not start, so doctor asks
-// the binary instead (0214 PLAN P8 Deviation 1).
+// engineFloors is the engines doctor asks for a version: each descriptor's
+// floor (0208 MADR D6). A provider checks its floor at initialize, which doctor
+// does not start, so doctor asks the binary instead (0214 PLAN P8 Deviation 1).
 func engineFloors() map[provider.ID]engineFloor {
-	return map[provider.ID]engineFloor{
-		provider.IDOpencode: {min: opencode.MinVersion, upgradeURL: opencode.UpgradeURL},
+	floors := map[provider.ID]engineFloor{}
+	for _, d := range registered.Descriptors() {
+		if d.Floor != nil {
+			floors[d.ID] = engineFloor{min: d.Floor.Min, upgradeURL: d.Floor.UpgradeURL}
+		}
 	}
+	return floors
 }
 
 // engineVersion runs `<bin> --version` and returns what it printed. It starts
@@ -211,9 +214,8 @@ func versionIn(out string) (string, bool) {
 // A described provider's comes from its section, when it is an agent's.
 func engineBins(cfg config.Config) map[provider.ID]string {
 	bins := map[provider.ID]string{
-		provider.IDOpencode: cfg.Providers.Opencode.Bin,
-		provider.IDCodex:    cfg.Providers.Codex.Bin,
-		provider.IDKilo:     cfg.Providers.Kilo.Bin,
+		provider.IDCodex: cfg.Providers.Codex.Bin,
+		provider.IDKilo:  cfg.Providers.Kilo.Bin,
 	}
 	for _, d := range registered.Descriptors() {
 		if agent, ok := d.SectionIn(cfg).(config.AgentSection); ok {

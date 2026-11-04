@@ -13,6 +13,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/config"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/fake"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/grok"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 )
 
 // isolatedRoots points every XDG root at a scratch directory, so a whole Run
@@ -50,10 +51,10 @@ func TestRunShutsDownOnTheAdminRequest(t *testing.T) {
 	// A client key needs TLS, which this test does not serve.
 	cfg.Auth.RequireClientKey = false
 	// No agent CLI is started: only the fake provider.
-	cfg.Providers.Opencode.Enabled = false
 	cfg.Providers.Codex.Enabled = false
 	cfg.Providers.Kilo.Enabled = false
-	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}, "grok": &grok.Section{}}
+	cfg.Providers.Sections = config.ProviderSections{"fake": &fake.Section{Enabled: true}, "grok": &grok.Section{},
+		"opencode": &opencode.Section{}}
 	if err := cfg.RecomputePaths(); err != nil {
 		t.Fatal(err)
 	}

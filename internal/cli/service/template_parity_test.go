@@ -82,10 +82,9 @@ func parseProviders(t *testing.T, b []byte) map[string]map[string]any {
 
 // Keys that exist on the Go struct but are not operator-facing YAML
 // (retired, or squash leftovers that the daemon ignores). Templates
-// must omit these; requiring them would re-document dead levers.
-var omittedConfigKeys = map[string]struct{}{
-	"providers.opencode.transport": {},
-}
+// must omit these; requiring them would re-document dead levers. None is
+// left: a retired key is no longer on any struct (0208 MADR D6).
+var omittedConfigKeys = map[string]struct{}{}
 
 func exampleConfigBytes(t *testing.T) []byte {
 	t.Helper()

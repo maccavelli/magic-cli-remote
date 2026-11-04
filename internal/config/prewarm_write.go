@@ -42,8 +42,6 @@ func (c *Config) SetProviderPrewarm(id string, prewarm bool) error {
 		return nil
 	}
 	switch id {
-	case "opencode":
-		c.Providers.Opencode.Prewarm = prewarm
 	case "codex":
 		c.Providers.Codex.Prewarm = prewarm
 	case "kilo":
@@ -60,8 +58,6 @@ func (c Config) ProviderPrewarm(id string) (prewarm bool, ok bool) {
 		return sec.Agent().Prewarm, true
 	}
 	switch id {
-	case "opencode":
-		return c.Providers.Opencode.Prewarm, true
 	case "codex":
 		return c.Providers.Codex.Prewarm, true
 	case "kilo":

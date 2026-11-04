@@ -451,9 +451,8 @@ type ProvidersConfig struct {
 	// decoded by Load from LoadOptions.Providers (0208 MADR D6).
 	Sections ProviderSections `mapstructure:"-"`
 
-	Opencode OpencodeProviderConfig `mapstructure:"opencode"`
-	Codex    CodexProviderConfig    `mapstructure:"codex"`
-	Kilo     KiloProviderConfig     `mapstructure:"kilo"`
+	Codex CodexProviderConfig `mapstructure:"codex"`
+	Kilo  KiloProviderConfig  `mapstructure:"kilo"`
 }
 
 // MCPServerConfig configures one MCP server advertised to an ACP agent at
@@ -539,27 +538,6 @@ type ACPProviderConfig struct {
 	MCPServers []MCPServerConfig `mapstructure:"mcp_servers" env:"-"`
 }
 
-// OpencodeProviderConfig configures the OpenCode provider: `opencode acp`
-// sessions over acpagent and a lease-bound control plane (0214 MADR). Its keys
-// are the shared ACP ones, plus the operator's shell policy. The 1.x
-// dialect's own keys are ignored with a warning (noteRetiredOpencode).
-type OpencodeProviderConfig struct {
-	ACPProviderConfig `mapstructure:",squash"`
-
-	// AllowRemoteShell permits a phone to run a command in the session's
-	// working directory (MADR 0112 A9). Default false.
-	//
-	// OpenCode's shell runs outside the model's tool-permission evaluation, so
-	// this is remote command execution on the daemon host and is treated as
-	// such: disabled by default, and per-command confirmation on top even once
-	// enabled.
-	AllowRemoteShell bool `mapstructure:"allow_remote_shell"`
-
-	// RetiredTransport captures a `transport` key left over from before MADR
-	// 0019 so validate can name it in the error.
-	RetiredTransport string `mapstructure:"transport"`
-}
-
 // CodexProviderConfig configures the Codex app-server JSON-RPC provider
 // (MADR 0028).
 type CodexProviderConfig struct {
@@ -630,9 +608,8 @@ type CodexExecutionEnvironmentConfig struct {
 }
 
 // KiloProviderConfig configures the Kilo CLI provider (shared `kilo serve`
-// engine over httpagent, MADR 0075). It deliberately mirrors
-// OpencodeProviderConfig — Kilo is an OpenCode fork with the same serve
-// architecture — minus keys that never applied: no `transport` (retired in
+// engine over httpagent, MADR 0075). Kilo is a fork of OpenCode's 1.x serve
+// architecture, so its keys follow that dialect's: no `transport` (retired in
 // MADR 0019 before kilo existed), no `args`, and no auth keys (the engine
 // spawns un-gated on loopback, MADR 0075 D5 as amended / plan PD1).
 type KiloProviderConfig struct {
@@ -723,20 +700,6 @@ func Defaults() Config {
 			RequireClientKey:   true,
 		},
 		Providers: ProvidersConfig{
-			// OpenCode is enabled by default and selectable from the phone's
-			// new-session provider menu. Registration is harmless when the
-			// binary is absent — the provider just lists as not ready (with a
-			// startup warning); grok stays the default selection.
-			Opencode: OpencodeProviderConfig{ACPProviderConfig: ACPProviderConfig{AgentCommon: AgentCommon{
-				Enabled:                  true,
-				Bin:                      "opencode",
-				AlwaysApprove:            false,
-				PermissionTimeoutSeconds: 120,
-				// Off (MADR 0089 D5): the first session pays the cold start
-				// instead of holding an idle engine.
-				Prewarm:                false,
-				TurnStallNoticeSeconds: 120,
-			}}},
 			Codex: CodexProviderConfig{
 				Enabled:                  true,
 				Bin:                      "codex",
@@ -1000,25 +963,6 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.MaxLiveSessions < 0 {
 		return fmt.Errorf("limits.max_live_sessions must be >= 0, got %d", c.Limits.MaxLiveSessions)
-	}
-	if err := ValidateACPProvider("opencode", c.Providers.Opencode.ACPProviderConfig); err != nil {
-		return err
-	}
-	// providers.opencode.transport was retired in MADR 0019. Fail loudly —
-	// viper ignores unknown keys, so staying silent would quietly change
-	// behaviour for a config that still pins a transport.
-	if c.Providers.Opencode.RetiredTransport != "" {
-		return fmt.Errorf("providers.opencode.transport is no longer supported (found %q); "+
-			"OpenCode runs each session on `opencode acp` with one shared control plane (0214 MADR) — remove the key",
-			c.Providers.Opencode.RetiredTransport)
-	}
-	if c.Providers.Opencode.PermissionTimeoutSeconds < 0 {
-		return fmt.Errorf("providers.opencode.permission_timeout_seconds must be >= 0, got %d",
-			c.Providers.Opencode.PermissionTimeoutSeconds)
-	}
-	if c.Providers.Opencode.TurnStallNoticeSeconds < 0 {
-		return fmt.Errorf("providers.opencode.turn_stall_notice_seconds must be >= 0, got %d",
-			c.Providers.Opencode.TurnStallNoticeSeconds)
 	}
 	if c.Providers.Codex.PermissionTimeoutSeconds < 0 {
 		return fmt.Errorf("providers.codex.permission_timeout_seconds must be >= 0, got %d",
