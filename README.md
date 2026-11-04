@@ -235,7 +235,7 @@ not select it for you.
 
 ---
 
-**Current product surface:** Grok Build ACP, OpenCode,
+**Current product surface:** Grok Build ACP, OpenCode v2 (ACP),
 Codex, Kilo, and Fake providers; remote tool permissions; session modes / model
 catalogs / thinking levels; stream coalescing; protocol v2 reconnect/resume;
 native path layout per platform — XDG on Linux/macOS, Known Folders on
@@ -268,7 +268,7 @@ Module: `github.com/maccavelli/magic-cli-remote`
               │        register / join / splice
               ▼
      agent engines (shared processes where applicable)
-       grok agent stdio · opencode serve · codex app-server · kilo serve
+       grok agent stdio · opencode acp (+ serve --stdio) · codex app-server · kilo serve
 ```
 
 Design spine: [docs/decisions/0001-MADR-architecture-mcremote.md](docs/decisions/0001-MADR-architecture-mcremote.md),
@@ -643,7 +643,7 @@ mcremote completion bash|zsh|fish|powershell
 | `pair list` / `pair revoke` | Manage devices |
 | `pair prune` | Remove stale (`--stale`) or keyless (`--keyless`) devices |
 | `setup-service` / `--setup-service` | Install background service + start (Linux systemd --user, runit, s6 or OpenRC / macOS launchd agent / Windows task; `--remove` to remove it, `--uninstall` to remove every service of both products) |
-| `engines` | List agent engine processes (`opencode`/`kilo` `serve`, `codex app-server`) and whether their owning daemon is alive (`--reap` to stop orphans) |
+| `engines` | List agent engine processes (ACP agents, OpenCode's control plane, `kilo serve`, `codex app-server`), each with its provider, and whether their owning daemon is alive (`--reap` to stop orphans) |
 | `paths` | Print the resolved XDG layout — config, data, state, cache, runtime, admin socket, engine registry, log dir (`--json` for machine-readable). Read-only: creates nothing |
 | `receipts list` / `verify` / `show` | Inspect and verify signed permission-decision receipts (opt-in, see [Signed receipts](#signed-receipts)) |
 | `version` / `--version` | Print version |
@@ -825,34 +825,33 @@ Precedence: **CLI flags > environment > config file > defaults**.
 |----------|---------|-----------|-------|
 | `fake` | `enabled: false` | stdio | Dev/smoke only |
 | `grok` | `enabled: true` | stdio (`grok agent --no-leader stdio`) | ACP; remote permissions via WebSocket; optional prewarm |
-| `opencode` | `enabled: true` | HTTP + SSE | One shared `opencode serve` engine; multi-agent session tree (MADR 0020 KD11) |
+| `opencode` | `enabled: true` | ACP over stdio (`opencode acp`), plus a lease-bound `opencode serve --stdio` control plane | One agent process per session; OpenCode 2.1.0 or later; subagents in the subagent panel ([MADR 0214](docs/decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md)) |
 | `codex` | `enabled: true` | app-server JSON-RPC over stdio (`codex app-server --listen stdio://`) | One shared app-server engine; approval policy and sandbox mode are configurable |
-| `kilo` | `enabled: true` | HTTP + SSE | One shared `kilo serve` engine, same architecture as OpenCode but a distinct dialect (MADR 0075) |
+| `kilo` | `enabled: true` | HTTP + SSE | One shared `kilo serve` engine, an OpenCode fork with its own HTTP dialect (MADR 0075) |
 
-### Remote mutation policy (off by default)
+### Remote shell policy (off by default)
 
-Two OpenCode capabilities are **disabled unless you turn them on for this host**
-([MADR 0112](docs/decisions/0112-MADR-opencode-1.18.21-surface-parity.md) A8/A9). They are
-independent — permitting collaboration does not imply permitting execution:
+One OpenCode capability is **disabled unless you turn it on for this host**
+([MADR 0112](docs/decisions/0112-MADR-opencode-1.18.21-surface-parity.md) A9, kept for v2 by
+[MADR 0214](docs/decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) D11):
 
 ```yaml
 providers:
   opencode:
-    allow_remote_share: false   # publish/revoke an OpenCode share link
     allow_remote_shell: false   # run a command in the session directory
 ```
 
 | Flag | What it permits | Why it is off by default |
 |------|-----------------|--------------------------|
-| `allow_remote_share` | A paired phone publishes or revokes a share link | Sharing uploads the transcript to OpenCode's service and makes it readable by **anyone holding the link** |
 | `allow_remote_shell` | A paired phone runs a command in the session's working directory | This is **remote command execution on this host**: OpenCode's shell endpoint bypasses normal model tool-permission checks |
 
-The phone additionally asks for confirmation before each share and each shell
-command, but that is a second line of defence. The first is leaving these false.
+The phone additionally asks for confirmation before each shell command, but
+that is a second line of defence. The first is leaving it false.
 
-Environment equivalents are
-`MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHARE` and
-`MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL`.
+The environment equivalent is `MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL`.
+
+OpenCode v2 has no share API, so `allow_remote_share` went with the 1.x
+dialect, and a leftover setting is ignored (MADR 0214 D4, D11).
 
 ### Example configs
 
@@ -880,7 +879,7 @@ the full defaults table and env map.
 | `pair` | `advertise_host` |
 | `providers.fake` | `enabled` |
 | `providers.grok` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `reasoning_effort`, `permission_mode`, `allowed_tools`, `disallowed_tools`, `allow_rules`, `deny_rules`, `no_subagents`, `disable_web_search`, `sandbox`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `fs_roots`, `auth_method_id`, `mcp_servers` |
-| `providers.opencode` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree`, `pure` |
+| `providers.opencode` | `enabled`, `bin`, `args`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `fs_roots`, `auth_method_id`, `mcp_servers`, `allow_remote_shell` |
 | `providers.codex` | `enabled`, `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds` (default `900`), `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `approval_policy`, `sandbox_mode`, `allow_full_access` |
 | `providers.kilo` | `enabled` (default `true`), `bin`, `always_approve`, `default_cwd`, `model`, `permission_timeout_seconds`, `prewarm`, `turn_stall_notice_seconds`, `stream_coalesce_ms`, `session_tree` (default `false`), `pure` |
 | `headscale` | `control_url` |
@@ -889,11 +888,13 @@ the full defaults table and env map.
 
 ### Stream coalescing
 
-`grok`, `opencode`, `codex`, and `kilo` support `stream_coalesce_ms`
+`grok`, `codex`, and `kilo` support `stream_coalesce_ms`
 (default `80`) — hold assistant/thought text this long so it ships as one event instead
 of one per model token, capping mid-stream updates at ~12/s. The first chunk of
 a reply and the tail before any control event are never delayed. `0` disables
-coalescing; max `1000`.
+coalescing; max `1000`. OpenCode coalesces at a fixed 80 ms: its
+`stream_coalesce_ms` went with the 1.x dialect and is ignored with a warning
+([0214 PLAN](docs/decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7).
 
 ### `listen.host: tailscale`
 
@@ -1039,8 +1040,14 @@ modes, or `sandbox` for real policy.
 
 ## Provider: OpenCode
 
-OpenCode (opencode.ai) is driven through one shared long-lived `opencode serve`
-engine — every session multiplexes over it. Pick it per session from the phone's
+OpenCode (opencode.ai) 2.1.0 or later is driven over ACP: each session runs its
+own `opencode acp` process in the session's directory ([MADR 0214](docs/decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) D1).
+What ACP lacks runs on one control plane, an `opencode serve --stdio --port 0`
+that the daemon starts on first use and stops when idle. It is bound to the
+daemon by its stdin and a per-launch password (D2), and serves phone sign-in,
+the grouped model catalog, the workspace, diagnostics, diff, undo and redo, and
+the `!` shell. An older engine is refused by name, with
+`https://opencode.ai/v2/install`. Pick OpenCode per session from the phone's
 provider menu.
 
 ```json
@@ -1048,31 +1055,39 @@ provider menu.
   "payload": { "provider":"opencode", "name":"task", "cwd":"/path/to/repo" } }
 ```
 
-### Session tree (MADR 0020 KD11)
+Subagents appear in the phone's subagent panel with no setting (D5).
 
-When `providers.opencode.session_tree` is `true` (default), OpenCode supports
-multi-agent session trees: child aliases, tree-idle EndTurn, and child fan-in.
-When `false`, only the parent session is active (pre-0020 kill switch). Requires
-OpenCode ≥ 1.18.0 when enabled.
+### What OpenCode v2 does not offer
+
+These have no v2 route, and each is named where the phone would offer it rather
+than faked (MADR 0214 D10, D11):
+
+| Feature | Why |
+|---------|-----|
+| Share links | v2 has no share API |
+| Todo panel | experimental in v2, with no read API |
+| LSP and formatter status | no v2 route |
+| Workspace text search | no v2 route ([#34](https://github.com/maccavelli/magic-cli-remote/issues/34)) |
+| Skill refresh and plugins | not yet: each has a record of its own, proposed |
 
 ### Model pinning
 
-The OpenCode default model can be unreliable. Pin a model explicitly:
+OpenCode's default model depends on its own configuration. Pin one explicitly:
 
 ```yaml
 providers:
   opencode:
-    model: "opencode/deepseek-v4-flash-free"   # free, ~1s short prompts
-    # or: "anthropic/claude-haiku-4-5"          # faster chat with paid keys
-    pure: false   # true → opencode serve --pure (no third-party plugins)
+    model: "opencode/deepseek-v4.1-flash-free"   # free; the 0214 gates ran on it
+    # or: "anthropic/claude-haiku-4-5"           # with a paid key
 ```
 
 | Setting | Default | Notes |
 |---------|---------|-------|
-| `prewarm` | `false` | Boot shared engine at daemon start; off saves ~250MB idle, ~3–5s first session (MADR 0089 D5) |
-| `session_tree` | `true` | Multi-agent demux |
-| `pure` | `false` | `--pure` on `opencode serve` |
-| `stream_coalesce_ms` | `80` | Mid-stream text coalescing |
+| `prewarm` | `false` | Keep one spare `opencode acp` ready. A cold start took 6.7 s to about 45 s in the 0214 gates (MADR 0214 A6) |
+| `allow_remote_shell` | `false` | See [Remote shell policy](#remote-shell-policy-off-by-default) |
+
+The 1.x keys `pure`, `session_tree` and `stream_coalesce_ms` are ignored with a
+warning naming each one; delete them ([0214 PLAN](docs/decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7).
 
 ---
 
@@ -1187,16 +1202,17 @@ Design: [docs/decisions/0075-MADR-kilo-cli-provider.md](docs/decisions/0075-MADR
   *providers* such as anthropic/openai, distinct from agent CLI providers).
   Options may advertise `thinking_levels`.
 - **Thinking / reasoning** (`thinking_level` on create, `/thinking`): next-turn
-  on Codex; spawn-scoped on Grok; absent for OpenCode when unsupported
+  on Codex; spawn-scoped on Grok; OpenCode's effort option where the model has one
   ([MADR 0052](docs/decisions/0052-MADR-thinking-levels-and-settings.md)).
 
 ---
 
 ## `mcremote engines` — engine lifecycle
 
-`opencode serve`, `kilo serve`, and `codex app-server` engines
-are shared processes spawned by the daemon. Use `mcremote engines` to inspect
-them:
+The daemon spawns an ACP agent per session (`opencode acp`, grok's agent),
+OpenCode's `serve --stdio` control plane, and the shared `kilo serve` and
+`codex app-server` engines. Use `mcremote engines` to inspect them; its
+PROVIDER column names each, and OpenCode's control plane is `opencode-control`:
 
 ```bash
 # List engine processes and whether their owning daemon is alive
@@ -1207,7 +1223,7 @@ mcremote engines --reap
 ```
 
 Only processes carrying mcremote's ownership marker are ever listed or stopped —
-an `opencode serve` you started by hand is never touched. The daemon also reaps
+an `opencode` you started by hand is never touched. The daemon also reaps
 orphaned engines at startup, skipping any engine owned by another live mcremote.
 
 Ownership is tracked through the on-disk **engine registry**

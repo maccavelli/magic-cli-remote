@@ -24,6 +24,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/opencode"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 	"github.com/spf13/cobra"
@@ -37,8 +38,9 @@ func newDoctorCmd() *cobra.Command {
 			"agent sessions in ways the daemon cannot fix itself: user " +
 			"service install/load/active (MADR 0072 P2), macOS privacy " +
 			"protection (TCC / Full Disk Access; MADR 0069 D5), and whether " +
-			"each enabled agent engine's binary is present and ready (a " +
-			"lookup only; nothing is started; MADR 0201 D32). It ends with " +
+			"each enabled agent engine's binary is present and ready (no " +
+			"engine is started; MADR 0201 D32), with OpenCode's version, " +
+			"which it asks the binary for (0214 PLAN P8). It ends with " +
 			"the last update an agent handed off to the service manager: its " +
 			"ID, start and finish times, exit code and error (MADR 0210 D5).",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -56,7 +58,7 @@ func newDoctorCmd() *cobra.Command {
 				return nil
 			}
 			log := slog.New(slog.DiscardHandler)
-			renderEngineDoctor(w, daemon.InspectProviders(cfg, runningVersion(), log), engineBins(cfg))
+			renderEngineDoctor(w, daemon.InspectProviders(cfg, runningVersion(), log), engineBins(cfg), engineFloors())
 			fmt.Fprintln(w)
 			marks, err := session.LoadSilentMarks(cfg.DataDir)
 			renderSilentDoctor(w, marks, err)
@@ -113,15 +115,9 @@ func probeCredentialStores() []credentialStore {
 		})
 	}
 
-	if p, err := credstore.OpenCodeAuthPath(); err == nil {
-		ids := make([]string, 0, 4)
-		if entries, err := credstore.ReadJSONAuth(p); err == nil {
-			for _, e := range entries {
-				ids = append(ids, e.ID)
-			}
-		}
-		add("opencode", p, ids, "")
-	}
+	// OpenCode is not here: v2 keeps credentials in its database, and its
+	// auth.json is read only on import, so the file says nothing about what
+	// the engine uses (0214 MADR, "Credentials across processes"; PLAN P8).
 	if p, err := credstore.KiloAuthPath(); err == nil {
 		ids := make([]string, 0, 4)
 		if entries, err := credstore.ReadJSONAuth(p); err == nil {
@@ -168,6 +164,48 @@ func renderCredentialDoctor(w io.Writer, stores []credentialStore) {
 	}
 }
 
+// engineVersionTimeout bounds `<bin> --version` (0214 PLAN P8 Deviation 1).
+const engineVersionTimeout = 10 * time.Second
+
+// engineFloor is the oldest release of an engine its provider drives, and
+// where the refusal sends the operator.
+type engineFloor struct{ min, upgradeURL string }
+
+// engineFloors is the engines doctor asks for a version. OpenCode's provider
+// checks its floor at initialize, which doctor does not start, so doctor asks
+// the binary instead (0214 PLAN P8 Deviation 1).
+func engineFloors() map[provider.ID]engineFloor {
+	return map[provider.ID]engineFloor{
+		provider.IDOpencode: {min: opencode.MinVersion, upgradeURL: opencode.UpgradeURL},
+	}
+}
+
+// engineVersion runs `<bin> --version` and returns what it printed. It starts
+// no server and sends no prompt. It is a variable so tests need no engine.
+var engineVersion = func(r launch.Resolved) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), engineVersionTimeout)
+	defer cancel()
+	cmd, err := launch.Command(ctx, r, "--version")
+	if err != nil {
+		return "", err
+	}
+	// A shim's child can hold the pipe past the kill; stop waiting for it.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	return string(out), err
+}
+
+// versionIn is the first version in what `--version` printed, which may carry
+// a leading "v" or other words.
+func versionIn(out string) (string, bool) {
+	for _, f := range strings.Fields(out) {
+		if _, _, _, ok := provider.ParseSemver(f); ok {
+			return f, true
+		}
+	}
+	return "", false
+}
+
 // engineBins is each engine's configured binary, as its provider resolves it.
 func engineBins(cfg config.Config) map[provider.ID]string {
 	return map[provider.ID]string{
@@ -180,9 +218,12 @@ func engineBins(cfg config.Config) map[provider.ID]string {
 
 // renderEngineDoctor reports each enabled engine (MADR 0201 D32): the binary
 // it resolves, or that it is missing, and whether the provider reports itself
-// ready. A lookup only: no engine is started and no tokens are spent.
-func renderEngineDoctor(w io.Writer, reg *provider.Registry, bins map[provider.ID]string) {
-	fmt.Fprintln(w, "agent engines (lookup only; nothing is started)")
+// ready. No engine is started and no tokens are spent. An engine with a floor
+// is also asked its version, and one below the floor is reported too old (0214
+// PLAN P8 Deviation 1).
+func renderEngineDoctor(w io.Writer, reg *provider.Registry, bins map[provider.ID]string,
+	floors map[provider.ID]engineFloor) {
+	fmt.Fprintln(w, "agent engines (no engine is started)")
 	ps := reg.All()
 	if len(ps) == 0 {
 		fmt.Fprintln(w, "  none enabled")
@@ -201,11 +242,33 @@ func renderEngineDoctor(w io.Writer, reg *provider.Registry, bins map[provider.I
 		case err != nil:
 			fmt.Fprintf(w, "  %-9s missing: %s\n", label, bin)
 		case p.Ready():
-			fmt.Fprintf(w, "  %-9s ready    %s\n", label, resolved.Path)
+			renderReadyEngine(w, label, resolved, floors[p.ID()])
 		default:
 			fmt.Fprintf(w, "  %-9s not ready: %s was found, but the provider refuses it; check its configuration\n",
 				label, resolved.Path)
 		}
+	}
+}
+
+// renderReadyEngine is a ready engine's line: its path, and for an engine
+// with a floor the version its binary names, or why that is not known.
+func renderReadyEngine(w io.Writer, label string, resolved launch.Resolved, floor engineFloor) {
+	if floor.min == "" {
+		fmt.Fprintf(w, "  %-9s ready    %s\n", label, resolved.Path)
+		return
+	}
+	out, err := engineVersion(resolved)
+	version, named := versionIn(out)
+	switch {
+	case err != nil:
+		fmt.Fprintf(w, "  %-9s ready    %s; its version could not be read: %v\n", label, resolved.Path, err)
+	case !named:
+		fmt.Fprintf(w, "  %-9s ready    %s; `--version` named no version\n", label, resolved.Path)
+	case provider.CompareVersions(version, floor.min) < 0:
+		fmt.Fprintf(w, "  %-9s too old: %s is %s; this provider needs %s or later (%s)\n",
+			label, resolved.Path, version, floor.min, floor.upgradeURL)
+	default:
+		fmt.Fprintf(w, "  %-9s ready    %s (%s)\n", label, resolved.Path, version)
 	}
 }
 

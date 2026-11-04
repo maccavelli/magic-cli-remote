@@ -471,7 +471,7 @@ provider step.
 
 Providers that implement no catalog return an empty list with
 `allow_custom: true` so free-text still works. Listing may boot a shared engine
-(OpenCode HTTP), or spawn a short-lived agent process (grok)
+(kilo's HTTP engine, or OpenCode's control plane), or spawn a short-lived agent process (grok)
 to read a catalog that exists nowhere else, and is handled off
 the WS read loop. Results are cached per provider for 5 minutes and invalidated
 on engine restart.
@@ -514,9 +514,9 @@ or broadcast. `id`, `cwd`, `title`, and `updated_at` are provider-controlled
 metadata and clients must not treat their presence as a successful load.
 
 Since MADR 0112 A1 each entry may additionally carry `model_id` (the full
-`provider/model`), `thinking_level` (the reasoning-effort rung — OpenCode calls
-this a model "variant", but every 1.18.21 variant is a reasoning configuration,
-so the daemon keeps one vocabulary), `agent`, and `aggregate`. All four are
+`provider/model`), `thinking_level` (the reasoning-effort rung — OpenCode 1.x
+called this a model "variant", but every 1.18.21 variant was a reasoning
+configuration, so the daemon keeps one vocabulary), `agent`, and `aggregate`. All four are
 optional and additive; an older client ignores them.
 
 `aggregate` is **whole-session** accounting as the agent reports it, not the
@@ -954,7 +954,7 @@ In addition to `bad_payload` / `session_forbidden` / `session_not_live` /
 
 | code | When |
 |---|---|
-| `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On both the OpenCode/httpagent and ACP (`acpagent`/grok) paths, a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel/close clear the queue. Never auto-dequeues while a permission is pending. |
+| `turn_busy` | Queue full or session cannot accept another prompt (`provider.ErrTurnBusy`). On both the httpagent (kilo) and ACP (`acpagent`: grok, opencode) paths, a second prompt while busy is **queued** (FIFO, max 4) and returns `ok` with a notice; `turn_busy` only on overflow. Cancel/close clear the queue. Never auto-dequeues while a permission is pending. |
 
 ### Error code reference
 
@@ -1358,7 +1358,7 @@ All fields except `type`, `session_id` and `timestamp` are omitted when empty.
 
   Each provider is responsible for translating its native vocabulary to
   these four values at the event-emit boundary. The reference mapping is
-  opencode's `mapToolStatus` (`internal/provider/opencode/http.go:1092-1105`);
+  kilo's `mapToolStatus` (`internal/provider/kilo/session.go`);
   codex's `codexToolStatus` (`internal/provider/codex/items.go`) handles
   the codex v2 enum (`inProgress` → `running`, `declined` → `failed`).
 
@@ -1459,10 +1459,11 @@ The command must be non-empty, valid UTF-8, NUL-free and at most 8,192 bytes.
 Beyond that the daemon **does not parse or constrain shell semantics** — and
 does not pretend to.
 
-`ok` means the command finished. Its output is **not** in the reply: OpenCode
-emits a synthetic user message and a `bash` tool part over the session stream,
-so there is exactly one transcript representation, capped by the ordinary
-8,000-character tool-output limit. The blocking HTTP response is discarded.
+`ok` means the command finished. Its output is **not** in the reply. OpenCode
+v2's engine sends no update for the command (0214 gate G5), so the daemon reads
+the shell's message back through the control plane and shows it as one `bash`
+tool call. There is exactly one transcript representation, capped by the
+ordinary 8,000-character tool-output limit.
 
 **Nothing is ever retried** — not on timeout, not on disconnect. A timed-out
 command may still be running, and re-submitting would start a second one.
@@ -1486,9 +1487,11 @@ contained.
 
 ### Session sharing
 
-OpenCode can publish a session as a public link. mcremote exposes that
-**only when the operator has enabled it** — `providers.opencode.allow_remote_share`,
-off by default (MADR 0112 A8).
+OpenCode 1.x could publish a session as a public link, and mcremote exposed
+that **only when the operator enabled it** (MADR 0112 A8). OpenCode v2 has no
+share API, so no provider offers sharing today, and
+`providers.opencode.allow_remote_share` went with the 1.x dialect (0214 MADR
+D4, D11). The contract below stands for a provider that implements it.
 
 Reading and mutating are **separate capabilities**:
 
@@ -1543,6 +1546,10 @@ Everything in it is **metadata only**, bounded and sorted:
 | `formatters` (≤32) | name, enabled, extension **count** | the extension list |
 | `mcp` (≤32) | name, normalized state | `error`, URLs, headers, OAuth detail |
 
+On OpenCode v2, `skills` comes from the control plane, `mcp` from the
+session's own MCP servers, and `lsp` and `formatters` are absent: v2 has no
+route for them (0214 MADR D10).
+
 MCP states come from a closed vocabulary — `connected`, `disabled`, `failed`,
 `needs_auth`, `needs_registration` — and anything absent, empty or
 unrecognized becomes `unknown`. That mapping is total on purpose: two upstream
@@ -1551,10 +1558,10 @@ pass-through default would be how such a value escaped.
 
 A `diagnostics_changed` event tells a client its cached report is stale. It
 carries **no payload**, for the same reason: the engine's global events name
-servers and include errors. It is emitted at most once per 500 ms per session,
-and only for the two canonical events that invalidate the report
-(`mcp.tools.changed`, `lsp.updated`). The 1.18.21 Event union has no formatter,
-config or skill update event, so those sections refresh on open or explicitly.
+servers and include errors. It is emitted at most once per 500 ms per session.
+Only kilo's HTTP engine emits it, and only for the two canonical events that
+invalidate the report (`mcp.tools.changed`, `lsp.updated`). Every other section,
+and every section on OpenCode v2, refreshes on open or explicitly.
 
 #### Authoring a skill
 
@@ -1565,7 +1572,9 @@ through the normal `session.prompt` path. OpenCode's usual write, edit and
 permission rules apply unchanged — there is no bypass, no raw Markdown editor,
 and no global-home path.
 
-`session.refresh_skills` then recycles the project's **idle** engine instance so
+OpenCode v2 does not yet offer `session.refresh_skills`; that has a record of
+its own, proposed. Where a provider offers it, `session.refresh_skills` recycles
+the project's **idle** engine instance so
 the new skill is discovered, and reloads `/skill` and `/command`. It is never
 automatic and requires confirmation, because recycling is disruptive. Stored
 sessions, messages and tool history survive it.
@@ -1602,9 +1611,13 @@ and empty means the session root. Upstream absolute paths are stripped from
 every response.
 
 `workspace.search` results carry `cap`, the limit that actually applied. It
-differs by kind: file search is asked for 100, while text search is capped
-**upstream at 10** by the 1.18.21 handler with no parameter to raise it. A
-client must show the real cap rather than implying the 100-row budget applied.
+differs by kind: file search is asked for 100, while text search, where the
+engine has it, may be capped **upstream** (OpenCode 1.18.21 capped it at 10,
+with no parameter to raise it). A client must show the real cap rather than
+implying the 100-row budget applied. OpenCode v2 has no text-search route, so a
+`text` search on it answers that it is not available, naming
+[#34](https://github.com/maccavelli/magic-cli-remote/issues/34), and sends
+nothing upstream.
 
 Errors are specific so a client can explain the refusal:
 
@@ -1631,20 +1644,20 @@ engine's own workspace is not concurrently hostile. This is confinement against
 paths that are already wrong, not race-proof confinement.
 
 `workspace.read` is a **bounded viewer, not a byte-exact file API**: OpenCode
-1.18.21 returns `.trim()`ed content, so trailing whitespace does not survive.
-Do not use it as a transport for content intended to be written back.
+1.18.21 returned `.trim()`ed content, so trailing whitespace did not survive
+there. Do not use it as a transport for content intended to be written back.
 
-`/vcs/status`, `/file/status` and `/find/symbol` are deliberately **not** part
-of this surface. The latter two return hard-coded empty arrays on 1.18.21, and
-the aggregate `/vcs/status` call remains a grandfathered Diagnostics
-compatibility dependency with no phone operation or UI built on it.
+VCS status and symbol search are deliberately **not** part of this surface. The
+aggregate VCS change count is a Diagnostics field only, with no phone operation
+or UI built on it; OpenCode v2 reads it from `/api/vcs/status`.
 
 ### Artifacts
 
 An `artifact` event carries a file the agent produced — an assistant `FilePart`,
-or an attachment on a **completed** tool. On OpenCode 1.18.21 `attachments`
-exists only on `ToolStateCompleted`; a failed tool state has no attachment
-field, so a failure never produces an artifact.
+or an attachment on a **completed** tool. No provider emits it today: OpenCode
+1.x was the only one, and the v2 provider emits none. On OpenCode 1.18.21
+`attachments` existed only on `ToolStateCompleted`; a failed tool state had no
+attachment field, so a failure never produced an artifact.
 
 ```json
 {"v": 1, "type": "event", "payload": {

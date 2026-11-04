@@ -242,10 +242,15 @@ and their tests), `internal/provider/opencode/testdata/surface-1.18.21/`, `wire/
 
 Files: `internal/cli/doctor.go`, `internal/cli/engines.go`, `README.md`, `docs/guides/config.md`,
 mobile docs' OpenCode rows, and tests.
+*Added 2026-11-04 (P8 Deviation 1):* `internal/provider/acpagent/acpagent.go`,
+`docs/guides/protocol-v1.md`, `docs/guides/chat-performance.md` and `docs/architecture.md`. The
+mobile docs carry no OpenCode capability row.
 
-1. `doctor` reads `/api/info` and `agentInfo.version`, stops reading `auth.json`, and reports the
-   service-port collision (A4).
-2. `mcremote engines` names ACP children and the control plane apart.
+1. `doctor` reads ~~`/api/info` and `agentInfo.version`~~ the binary's `--version` (P8 Deviation
+   1), stops reading `auth.json`~~, and reports the service-port collision (A4)~~ (G3 showed Magic
+   cannot collide; P8 Deviation 1).
+2. `mcremote engines` names ACP children and the control plane apart. *Amended (P8 Deviation 1):*
+   acpagent records the agents it starts, so `engines` can list them.
 3. Every doc row describing OpenCode's capabilities states the v2 set and D11's drops.
 
 ### P9 — Acceptance
@@ -2197,5 +2202,179 @@ P7 is complete with this commit. P8, doctor, engines and docs, is next.
   `internal/provider/auth_conformance_test.go`, `internal/session/commands_internal_test.go`;
 * `internal/cli/service/defaults_mcremote.yaml`, `configs/config.example.yaml`,
   `configs/config.prod.example.yaml` and `configs/config.mesh-grok.yaml`;
+* the MADR;
+* this plan.
+
+### P8 Deviation 1, 2026-11-04 — doctor cannot read the version without starting the engine, Magic cannot collide on the service port, engines cannot see an ACP child, and three more docs describe 1.x. The owner decided: "opencode --version", "Drop it, cite G3", "Register ACP children" and "Add all three to P8"
+
+Found at P8's start, against steps 1 to 3 (C8: `opencode --version` printed `v2.2.3`):
+
+* **The version (step 1).**
+  * `/api/info` needs a running `opencode serve --stdio`, whose password exists only in the
+    daemon's child (C5).
+  * `agentInfo.version` needs an `opencode acp` to answer `initialize`, which took 6.7 s and
+    43.7 s cold (A6).
+  * Doctor is a lookup that starts no engine
+    ([0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md](0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md)
+    D32; `internal/cli/doctor.go:181-183`).
+  * Without a version check, doctor reports a 1.x binary as ready. A session still refuses it by
+    name (D3).
+* **The service port (step 1).**
+  * G3's table recorded no service-registration files from `serve --stdio` or `acp`, on any host
+    (P3 record).
+  * 0220 met the collision only through `auth list`, `models` and `debug agents`
+    ([0220-REPORT-opencode-v2-parity-assessment.md](../reports/0220-REPORT-opencode-v2-parity-assessment.md)
+    §2.2). Magic runs none of them (`internal/provider/opencode`).
+  * Doctor would have nothing to detect.
+* **`auth.json` (step 1).** Doctor is the last reader of opencode's `auth.json`
+  (`doctor.go:116-124`), and v2 keeps credentials in its database (MADR, "Credentials across
+  processes"). Step 1 already removes the read.
+* **engines (step 2).**
+  * acpagent writes no engine registry record for the agents it starts (`spawnAgent`,
+    `internal/provider/acpagent/acpagent.go`), so `mcremote engines` cannot list an `opencode acp`
+    child.
+  * The control plane records itself as `opencode-control` (`control/control.go:648-654`), but
+    `engines` prints no provider.
+* **The docs (step 3).**
+  * Besides `README.md` and `docs/guides/config.md`, three living documents describe the 1.x
+    dialect:
+    * `docs/guides/protocol-v1.md`, in about ten 1.18.21 passages;
+    * `docs/guides/chat-performance.md`, in the `stream_coalesce_ms` row;
+    * `docs/architecture.md`, in two `opencode serve` lines.
+  * The mobile docs carry no OpenCode capability row (`apps/mobile/README.md`,
+    `apps/mobile/docs/architecture.md`), so they need no change.
+  * Records keep their history.
+
+**Decided.**
+
+* **"opencode --version".**
+  * Doctor runs `<bin> --version` through `launch.Command`, bounded at 10 s, and compares the answer
+    with `MinVersion`.
+  * Below it, the engine is reported too old, with `UpgradeURL`. An answer that names no version is
+    reported as unknown.
+  * This replaces step 1's `/api/info` and `agentInfo.version`. It amends 0201 D32's "no engine
+    started" for OpenCode: the query starts no server and sends no prompt.
+* **"Drop it, cite G3".** Doctor gets no service-port check.
+* **"Register ACP children".**
+  * acpagent records every agent it starts in the engine registry, under its Spec id. It removes the
+    record when the agent exits, or when a failed start kills it.
+  * A failed write ends the start, as httpagent's does.
+  * `mcremote engines` prints each record's provider. An ACP agent whose daemon died is then reaped
+    like any recorded engine.
+  * This holds for every Spec, grok's agents too, and acpagent names no vendor.
+* **"Add all three to P8".** They are restated for v2 with `README.md` and `docs/guides/config.md`.
+* **Files added to P8:** `internal/provider/acpagent/acpagent.go` and its test,
+  `docs/guides/protocol-v1.md`, `docs/guides/chat-performance.md` and `docs/architecture.md`.
+  acpagent's change is a process change, so C7's host runs apply to it.
+
+### P8 — 2026-11-04: doctor, engines and docs
+
+**What changed.**
+
+* **acpagent records its agents** (`internal/provider/acpagent/acpagent.go`, `spawnAgent`).
+  * Once agentproc has started the agent, it writes an engine registry record: the Spec's id as the
+    provider, and the agent's PID as PID and process group.
+  * The exit watcher removes it after `Wait`. A start that fails before the watcher exists removes
+    it in `killTree`.
+  * A record that cannot be written kills the agent and fails the start, naming the Spec.
+  * With no registry configured, as in unit tests, nothing is written.
+* **`mcremote engines`** (`internal/cli/engines.go`).
+  * The table gains a PROVIDER column, from each record. An ACP agent shows as `opencode` or
+    `grok`, the control plane as `opencode-control`, and kilo's and codex's engines as before.
+  * A record with no provider, and a Linux process found by its environment alone, shows as
+    `(unrecorded)`.
+  * The row building and the table are `recordRows` and `renderEngineRows`, so they can be tested.
+    The help text names what each provider value means.
+* **doctor** (`internal/cli/doctor.go`).
+  * opencode's `auth.json` is no longer read or reported.
+  * For an engine with a floor (OpenCode alone, `MinVersion` and `UpgradeURL`), doctor runs
+    `<bin> --version` through `launch.Command`, bounded at 10 s, with a 1 s `WaitDelay`.
+  * It reads the first SemVer word. Below the floor, the line says "too old" with the floor and the
+    install link. An unreadable or versionless answer is reported as such.
+  * The section's title is "agent engines (no engine is started)".
+  * Run here, doctor printed `opencode: ready <path> (v2.2.3)`, and no opencode credentials row.
+* **The docs** (step 3, as amended). Each restates OpenCode for v2 and D11's drops, and names the
+  retired keys as ignored.
+  * `README.md`:
+    * the product surface and the architecture sketch;
+    * the `engines` row and the provider matrix (kilo is no longer described as OpenCode's
+      architecture);
+    * the remote shell policy, without `allow_remote_share`;
+    * the YAML surface's opencode keys, and stream coalescing (fixed at 80 ms for OpenCode);
+    * the OpenCode section: the process model, what v2 does not offer, the model pin and
+      `prewarm`'s cold start;
+    * thinking (OpenCode's effort option), and the `engines` section.
+  * `docs/guides/config.md`:
+    * the opencode defaults rows: `args`, `fs_roots`, `auth_method_id` and `mcp_servers` added; the
+      retired keys and `allow_remote_share` named as ignored;
+    * the env map: the 1.x variables gone, `AUTH_METHOD_ID` added;
+    * the remote shell control, without share;
+    * what remains engine-owned (no LSP or formatter, and no skill refresh yet).
+  * `docs/guides/protocol-v1.md`:
+    * the catalog's engines; the 1.18.21 variant note, in the past tense; the queue paragraph's
+      paths;
+    * the reference tool-status mapping, now kilo's, since `opencode/http.go` is gone;
+    * the shell's output, read back through the control plane (G5);
+    * sharing, offered by no provider today;
+    * diagnostics on v2, and `diagnostics_changed`, which only kilo emits;
+    * skill refresh, not yet on v2;
+    * text search, unavailable on v2 (#34); the viewer and VCS notes;
+    * artifacts, which no provider emits today.
+  * `docs/guides/chat-performance.md`: the coalescing row.
+  * `docs/architecture.md`: the engine line and the providers paragraph.
+
+**Tests, each seen failing** (`p8/plant_p8.py` in the session scratchpad). 10 deliberate breaks
+on scratch copies, each failing on an assertion:
+
+| Break | Fails |
+| --- | --- |
+| the record kept after the agent exits | `TestSpawnedAgentIsRecordedUntilItExits`: "the record outlived the agent" |
+| the record not under the Spec's id | `TestSpawnedAgentIsRecordedUntilItExits`: recorded as provider `acp`, want `testagent` |
+| the record kept after a failed start | `TestFailedStartDropsTheRecord`: "a failed start left its record" |
+| the agent not killed when its record cannot be written | `TestUnwritableRegistryEndsTheStart`: "the agent was left running" |
+| engines printing no provider | `TestEnginesNamesEachProvider`: `acp-agent` listed as provider `-` |
+| no fallback for a record without one | `TestEnginesNamesEachProvider`: `old-record` listed with an empty provider |
+| doctor not asking OpenCode's version | `TestDoctorChecksTheOpenCodeVersion`: opencode's line lacks `(v2.2.3)` |
+| the floor compared the wrong way | `TestDoctorChecksTheOpenCodeVersion`: opencode's line lacks `ready` |
+| the first word taken as the version | `TestVersionInReadsWhatTheBinaryPrints`: `opencode 2.1.0` read as `opencode` |
+| doctor reading opencode's `auth.json` again | `TestDoctorReadsNoOpenCodeAuthFile`: "doctor reported OpenCode's leftover auth.json" |
+
+`TestDoctorReportsEachEnginesBinaryAndReadiness` passes no floors, and is otherwise unchanged.
+
+**Gates.**
+
+| Gate | Result |
+| --- | --- |
+| C8, `opencode --version` | `v2.2.3` |
+| `make pre-add-check FILES=…` (7 Go files) | "7 file(s) clean (gofmt, golint, govulncheck)" |
+| `make markdownlint-docs check-records` | exit 0; "0 issues in 0 files" over 57 files |
+| `make preflight` (records, docs lint, gofmt, tidy, vet on every tag, staticcheck, race, release build, `dart format`, `flutter analyze`, `flutter test`) | exit 0; 47 packages ok; 0 of 230 files changed by `dart format`; no analyzer issues; 1510 phone tests passed |
+| the Linux test host, `go test -race -count=1 ./...` (C7), HEAD plus P8's files | exit 0, 47 packages ok, `go1.27.3` |
+| the Windows test host, `make ci-windows` (C7), the same tree | exit 0, "ALL SELECTED CHECKS PASSED", 47 packages ok |
+| the disclosure guard's redact preview; an identifier scan of P8's added lines | "would edit 0 file(s)"; 0 hits |
+
+No live run: P8 needed none.
+
+**Not done:**
+* **No live engine.** No phone has seen the new `engines` rows. `make live-opencode` is P9's.
+* **grok's agents are now recorded too.** That is the agent-neutral half of the owner's choice. The
+  unit tests cover it, and no grok live run was made.
+* **0201 is not edited.**
+  [0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md](0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md)
+  keeps D32 as written. The exception for OpenCode's version is recorded in the MADR's P8 section.
+* **Unchanged:**
+  * the records, which keep their history;
+  * the mobile docs, which carry no OpenCode capability row;
+  * `docs/README.md`, since P8 adds no record.
+* **The CLI tests that load the host's live configuration still do.** That gap predates P7.
+
+P8 is complete with this commit. P9, acceptance, is next.
+
+**Files for this commit:**
+* `internal/provider/acpagent/acpagent.go` and `registry_test.go` (new);
+* `internal/cli/doctor.go`, `doctor_test.go`, `doctor_engines_test.go`, `engines.go` and
+  `engines_test.go`;
+* `README.md`, `docs/guides/config.md`, `docs/guides/protocol-v1.md`,
+  `docs/guides/chat-performance.md` and `docs/architecture.md`;
 * the MADR;
 * this plan.

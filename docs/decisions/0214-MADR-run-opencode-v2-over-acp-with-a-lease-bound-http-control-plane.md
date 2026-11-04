@@ -1133,3 +1133,19 @@ always adds one and makes it active, and removing the active one makes the next 
     three keys. `transport` keeps its refusal.
   * A configuration that set another value gets v2's behaviour, and the warning is its only notice.
   * *Owner: "Warn and ignore any value".*
+
+### Added at P8, 2026-11-04 (PLAN P8 Deviation 1)
+
+* **Doctor asks the binary for its version.**
+  * `/api/info` and `agentInfo.version` are answered only by a running engine. Doctor starts none
+    ([0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md](0201-MADR-fix-the-open-findings-of-the-0073-debug-pass.md)
+    D32).
+  * So doctor runs `opencode --version`, bounded, and compares it with D3's floor. That starts no
+    server and sends no prompt, and it is the one exception to D32's "no engine started".
+  * *Owner: "opencode --version".*
+* **A4 needs no doctor check.** G3 found that `serve --stdio` and `acp` start no managed service on
+  any host. The collision needs one of opencode's other subcommands, which Magic never runs.
+  *Owner: "Drop it, cite G3".*
+* **acpagent records the agents it starts** in the engine registry, under the Spec's id, so
+  `mcremote engines` names an ACP agent and the control plane apart, and reaps an orphaned one. This
+  is agent-neutral. *Owner: "Register ACP children".*

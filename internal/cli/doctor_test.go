@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/maccavelli/magic-cli-remote/internal/cli/service"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/codex"
+	"github.com/maccavelli/magic-cli-remote/internal/provider/credstore"
 	"github.com/maccavelli/magic-cli-remote/internal/session"
 	"github.com/maccavelli/magic-cli-remote/internal/tcc"
 )
@@ -192,6 +195,31 @@ func TestProbeCredentialStoresOnColdHost(t *testing.T) {
 	for _, s := range stores {
 		if s.Present {
 			t.Errorf("%s reported present on a cold host", s.Agent)
+		}
+	}
+}
+
+// TestDoctorReadsNoOpenCodeAuthFile: OpenCode v2 keeps credentials in its
+// database and reads auth.json only on import, so doctor no longer reports the
+// file, even where one is left over (0214 PLAN P8).
+func TestDoctorReadsNoOpenCodeAuthFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	stubCodexReality(t, codex.RealityUnknown)
+	path, err := credstore.OpenCodeAuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"opencode":{"type":"api"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range probeCredentialStores() {
+		if s.Agent == "opencode" {
+			t.Fatalf("doctor reported OpenCode's leftover auth.json: %+v", s)
 		}
 	}
 }

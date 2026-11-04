@@ -30,6 +30,7 @@ import (
 	"github.com/maccavelli/magic-cli-remote/internal/command"
 	"github.com/maccavelli/magic-cli-remote/internal/event"
 	"github.com/maccavelli/magic-cli-remote/internal/picker"
+	"github.com/maccavelli/magic-cli-remote/internal/procutil"
 	"github.com/maccavelli/magic-cli-remote/internal/provider"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/launch"
 	"github.com/maccavelli/magic-cli-remote/internal/provider/stderrtail"
@@ -576,10 +577,12 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 	s.proc = proc
 	conn := proc.Conn()
 	s.conn = conn
-	// killTree ends the agent and reaps it, before the exit watcher exists, and
-	// closes the capture the watcher would have closed.
+	// killTree ends the agent and reaps it, before the exit watcher exists. It
+	// closes the capture and drops the registry record, as the watcher would.
+	var lease procutil.EngineLease
 	killTree := func() {
 		_ = proc.Kill()
+		_ = procutil.RemoveEngine(lease)
 		dropped, _ := proc.DroppedTapBytes()
 		closeCapture(s.log, s.wire, dropped)
 	}
@@ -591,6 +594,21 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 		t := stderrTail()
 		provider.LogStderrTail(p.log, p.cfg.Bin, t)
 		return stderrtail.Wrap(err, t)
+	}
+	// The engine registry record, so `mcremote engines` lists the agent under
+	// the Spec's id and an agent whose daemon died is reaped (0214 PLAN P8
+	// Deviation 1). A failed write ends the start, as httpagent's does. With no
+	// registry configured (unit tests) nothing is written.
+	lease, err = procutil.RegisterEngine("", procutil.EngineRecord{
+		ID:       uuid.NewString(),
+		Provider: string(p.spec.ID),
+		PID:      cmd.Process.Pid,
+		PGID:     cmd.Process.Pid,
+		Owner:    procutil.OwnerToken(),
+	})
+	if err != nil {
+		killTree()
+		return nil, fmt.Errorf("register %s: %w", p.spec.ID, err)
 	}
 
 	if err := p.handshake(ctx, s, conn, func(err error) error {
@@ -618,6 +636,7 @@ func (p *Provider) spawnAgent(ctx context.Context, args []string, procDir string
 			}
 		}()
 		err := proc.Wait()
+		_ = procutil.RemoveEngine(lease)
 		dropped, _ := proc.DroppedTapBytes()
 		closeCapture(s.log, s.wire, dropped)
 		msg := fmt.Sprintf("%s process exited", p.spec.ID)

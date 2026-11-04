@@ -135,18 +135,20 @@ Values match `config.Defaults()` in `internal/config/config.go`. Keep
 | `providers.grok.mcp_servers` | `[]` — MCP servers advertised to the agent (config-file only; not env/flags) |
 | `providers.goose.*` | Retired (MADR 0160), as is every `MCREMOTE_PROVIDERS_GOOSE_*` variable. Ignored: the daemon logs a warning and `mcremote paths` reports `retired_provider_goose`. Delete the setting. |
 | `providers.opencode.enabled` | `true` — pick OpenCode per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
-| `providers.opencode.bin` | `opencode` |
+| `providers.opencode.bin` | `opencode` — OpenCode 2.1.0 or later; an older engine is refused by name ([MADR 0214](../decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) D3) |
+| `providers.opencode.args` | `[]` — empty runs the built-in argv, `acp` (config-file only) |
 | `providers.opencode.always_approve` | `false` |
 | `providers.opencode.default_cwd` | *(empty — sessions start in the daemon user's home directory)* |
-| `providers.opencode.model` | *(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4-flash-free` or `anthropic/claude-haiku-4-5`)* |
-| `providers.opencode.pure` | `false` — run `opencode serve` with `--pure` (without loading external third-party plugins) |
-| `providers.opencode.allow_remote_share` | `false` — permit a paired phone to publish or revoke an OpenCode share link. **Sharing uploads the transcript to OpenCode's service and makes it readable by anyone holding the link.** Independent of `allow_remote_shell` |
+| `providers.opencode.model` | *(empty — OpenCode's own default; pin e.g. `opencode/deepseek-v4.1-flash-free` or `anthropic/claude-haiku-4-5`)* |
 | `providers.opencode.allow_remote_shell` | `false` — permit a paired phone to run a command in the session's working directory (`session.shell`). **This is remote command execution on the daemon host: OpenCode's shell endpoint bypasses normal model tool-permission checks.** The phone confirms each command, but that is a second line of defence, not the first |
 | `providers.opencode.permission_timeout_seconds` | `120` (`0` = wait forever). Also bounds how long a phone permission notification stays actionable: at expiry the daemon answers cancelled and the phone replaces the Allow/Deny alert with a "timed out" notice (MADR 0101) |
-| `providers.opencode.prewarm` | `false` — boot the shared `opencode serve` engine at daemon start. Off so the first session pays the ~3–5s Bun cold start instead of holding ~250MB idle (MADR 0089 D5). Turn on from the phone or set `true` here |
+| `providers.opencode.prewarm` | `false` — keep one spare `opencode acp` ready. Off so the first session pays the cold start (6.7 s to about 45 s in the 0214 gates, MADR 0214 A6) instead of holding a process idle (MADR 0089 D5). Turn on from the phone or set `true` here |
 | `providers.opencode.turn_stall_notice_seconds` | `120` — notice when a running turn goes silent (`0` = off) |
-| `providers.opencode.stream_coalesce_ms` | `80` — hold assistant/thought text this long so it ships as one event instead of one per model token (MADR 0024), capping mid-stream updates at ~12/s. The first chunk of a reply and the tail before any control event are never delayed, so time-to-first-token and end-of-turn latency are unchanged. `0` = one event per token (pre-0024 behaviour); max `1000` |
-| `providers.opencode.session_tree` | `true` — multi-agent session-tree demux (child aliases, tree-idle EndTurn, child fan-in; MADR 0020 KD11). `false` = exact pre-0020 kill switch (parent-only). When `true`, OpenCode must report version **≥ 1.18.0** on `/global/health` (KD10) or session create fails |
+| `providers.opencode.fs_roots` | `[]` — confine the agent's `fs/read_text_file` & `fs/write_text_file` callbacks to these roots (plus the session cwd). Empty = unrestricted. Defense-in-depth/audit only, not a sandbox (config-file only) |
+| `providers.opencode.auth_method_id` | *(empty)* — leave it empty: the phone's sign-in runs on the control plane, and OpenCode's one ACP method, `opencode-login`, opens a terminal login |
+| `providers.opencode.mcp_servers` | `[]` — MCP servers advertised to each session (config-file only; not env/flags). The control plane loads none of OpenCode's own |
+| `providers.opencode.pure`, `.session_tree`, `.stream_coalesce_ms` | Retired with OpenCode 1.x ([0214 PLAN](../decisions/0214-PLAN-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) P7), as are their `MCREMOTE_PROVIDERS_OPENCODE_*` variables. Ignored: the daemon logs a warning and adds a `retired_opencode_1x_keys` diagnostic naming each. OpenCode coalesces text at a fixed 80 ms. Delete the setting. |
+| `providers.opencode.allow_remote_share` | Gone with OpenCode 1.x: v2 has no share API (MADR 0214 D4, D11). Ignored |
 | `providers.codex.enabled` | `true` — pick Codex per session from the phone's new-session provider menu; harmless when the binary is absent (listed as not ready) |
 | `providers.codex.bin` | `codex` |
 | `providers.codex.always_approve` | `false` |
@@ -434,12 +436,9 @@ All use the `MCREMOTE_` prefix. Nested YAML keys use underscores.
 | `MCREMOTE_PROVIDERS_OPENCODE_ALWAYS_APPROVE` | `providers.opencode.always_approve` | Auto-approve OpenCode tool requests |
 | `MCREMOTE_PROVIDERS_OPENCODE_MODEL` | `providers.opencode.model` | OpenCode model override |
 | `MCREMOTE_PROVIDERS_OPENCODE_PERMISSION_TIMEOUT_SECONDS` | `providers.opencode.permission_timeout_seconds` | OpenCode permission timeout seconds |
-| `MCREMOTE_PROVIDERS_OPENCODE_PREWARM` | `providers.opencode.prewarm` | Pre-warm OpenCode serve engine |
+| `MCREMOTE_PROVIDERS_OPENCODE_PREWARM` | `providers.opencode.prewarm` | Keep a spare `opencode acp` ready |
 | `MCREMOTE_PROVIDERS_OPENCODE_TURN_STALL_NOTICE_SECONDS` | `providers.opencode.turn_stall_notice_seconds` | OpenCode turn stall notice threshold |
-| `MCREMOTE_PROVIDERS_OPENCODE_SESSION_TREE` | `providers.opencode.session_tree` | OpenCode multi-agent session tree demux |
-| `MCREMOTE_PROVIDERS_OPENCODE_STREAM_COALESCE_MS` | `providers.opencode.stream_coalesce_ms` | OpenCode stream coalescing window (ms) |
-| `MCREMOTE_PROVIDERS_OPENCODE_PURE` | `providers.opencode.pure` | OpenCode `--pure` flag |
-| `MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHARE` | `providers.opencode.allow_remote_share` | Permit remote share/unshare (default off) |
+| `MCREMOTE_PROVIDERS_OPENCODE_AUTH_METHOD_ID` | `providers.opencode.auth_method_id` | OpenCode ACP auth method id |
 | `MCREMOTE_PROVIDERS_OPENCODE_ALLOW_REMOTE_SHELL` | `providers.opencode.allow_remote_shell` | Permit remote command execution (default off) |
 | `MCREMOTE_PROVIDERS_CODEX_ENABLED` | `providers.codex.enabled` | Enable Codex provider |
 | `MCREMOTE_PROVIDERS_CODEX_BIN` | `providers.codex.bin` | Codex executable path |
@@ -832,23 +831,23 @@ digest then intentionally differs from the release digest).
 - Prod-oriented: [configs/config.prod.example.yaml](../../configs/config.prod.example.yaml)
 - Mesh + Grok: [configs/config.mesh-grok.yaml](../../configs/config.mesh-grok.yaml)
 
-## OpenCode remote mutation controls (MADR 0112 A8/A9)
+## OpenCode remote shell control (MADR 0112 A9)
 
-Both are **off by default** and independent. Enabling one never enables the
-other, and neither can be turned on from the phone.
+`allow_remote_shell` is **off by default**, and cannot be turned on from the
+phone. [MADR 0214](../decisions/0214-MADR-run-opencode-v2-over-acp-with-a-lease-bound-http-control-plane.md) D11 keeps it for v2, through the control plane.
 
-| | `allow_remote_share` | `allow_remote_shell` |
-|---|---|---|
-| Permits | Publishing/revoking an OpenCode share link | Running one command in the session's working directory |
-| Risk | The transcript is uploaded to OpenCode's service and readable by **anyone with the link** — there is no password | **Remote command execution on this host.** OpenCode's shell endpoint bypasses the model's tool-permission checks |
-| Phone confirmation | Names what becomes public; cancelling publishes nothing | Shows the exact command **non-editable**; needs a second deliberate tap |
-| Limits | URL must be https, ≤2,048 bytes, no userinfo, no fragment | Command ≤8,192 bytes, UTF-8, NUL-free; 30-minute deadline |
-| Retries | **Never** — a retried share can publish twice | **Never** — a timed-out command may still be running |
-| Error codes | `share_disabled`, `session_share_failed` | `shell_disabled`, `invalid_command`, `turn_busy`, `session_shell_failed` |
+| | `allow_remote_shell` |
+|---|---|
+| Permits | Running one command in the session's working directory, on an idle session |
+| Risk | **Remote command execution on this host.** OpenCode's shell endpoint bypasses the model's tool-permission checks |
+| Phone confirmation | Shows the exact command **non-editable**; needs a second deliberate tap |
+| Limits | Command ≤8,192 bytes, UTF-8, NUL-free; 30-minute deadline |
+| Retries | **Never** — a timed-out command may still be running |
+| Error codes | `shell_disabled`, `invalid_command`, `turn_busy`, `session_shell_failed` |
 
-Reading share **state** stays available even when `allow_remote_share` is false:
-a session shared from elsewhere is public regardless, and hiding that would be
-the more dangerous silence. Only the share/unshare controls disappear.
+OpenCode 1.x also had `allow_remote_share`, for share links. v2 has no share
+API, so the setting went with the 1.x dialect and is ignored (MADR 0214 D4,
+D11).
 
 A shell timeout **cannot roll back what the command already did**, and cannot
 guarantee its descendants stopped. Residual host effects are disclosed, not
@@ -857,9 +856,10 @@ history, or background-job control, and none is planned on this surface.
 
 ### What remains engine-owned
 
-mcremote **reads** skill, LSP, formatter and MCP state and never writes it.
-There is no daemon skill-write API, no raw Markdown editor, and no MCP
+mcremote **reads** skill and MCP state and never writes it. OpenCode v2 has
+no route for LSP or formatter state, so neither is read (MADR 0214 D10). There
+is no daemon skill-write API, no raw Markdown editor, and no MCP
 add/connect/disconnect/OAuth path under any configuration. Skill authoring is
 agent-mediated: the phone composes an ordinary prompt, and OpenCode's own write
-and permission rules decide what happens. `session.refresh_skills` then recycles
-only an **idle** project instance, and refuses with `instance_busy` otherwise.
+and permission rules decide what happens. OpenCode v2 does not yet offer
+`session.refresh_skills`; that has a record of its own, proposed.
